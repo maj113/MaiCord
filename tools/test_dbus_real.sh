@@ -106,7 +106,7 @@ status=0
 if [ -n "$binary" ]; then
     "$binary" || { rc=$?; [ "$rc" = 77 ] || status=1; }
 else
-    "$repository/tools/build_linux.sh" --keep --test maicord_dbus_real || status=1
+    "$repository/tools/build_linux.sh" --keep-intermediates --test --test-names maicord_dbus_real || status=1
 fi
 
 echo "--- portal and keyring logs ($out)"

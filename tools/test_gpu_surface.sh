@@ -23,6 +23,8 @@
 set -uo pipefail
 
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=tools/sway_test.sh
+source "$repository/tools/sway_test.sh"
 compositor=headless
 binary=""
 scale=1
@@ -78,30 +80,8 @@ default_floating_border none
 focus_follows_mouse no
 for_window [app_id="maicord"] floating enable, resize set 640 400, move absolute position 100 100
 EOF
-    if [ "$compositor" = headless ]; then
-        export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
-    else
-        export WLR_BACKENDS=wayland
-    fi
-    export WLR_RENDERER=pixman
-    unset DISPLAY
-    # -d: sway names its Wayland display in the log (other compositors may be starting in the same runtime directory, and a
-    # stale socket of an earlier run may have the next name, so the directory cannot tell); its IPC socket is named after
-    # its pid.
-    sway -d -c "$config" > "$out/sway.log" 2>&1 &
-    sway_pid=$!
-    display=""
-    for _ in $(seq 1 100); do
-        display="$(sed -n "s/.*Running compositor on wayland display '\\(.*\\)'.*/\\1/p" "$out/sway.log" | tail -n 1)"
-        [ -n "$display" ] && [ -S "$runtime/sway-ipc.$(id -u).$sway_pid.sock" ] && break
-        display=""
-        sleep 0.1
-    done
-    [ -n "$display" ] || { echo "sway did not start; see $out/sway.log" >&2; exit 1; }
-    sleep 0.5
-    export WAYLAND_DISPLAY="$display"
-    export SWAYSOCK="$runtime/sway-ipc.$(id -u).$sway_pid.sock"
-    echo "sway ($compositor) on $display, scale $scale"
+    sway_test_start "$config" "$out/sway.log" "$compositor" || exit 1
+    echo "sway ($compositor) on $WAYLAND_DISPLAY, scale $scale"
 else
     echo "the running compositor: $WAYLAND_DISPLAY"
 fi
@@ -183,7 +163,7 @@ export MAICORD_SURFACE_HOLD_MS="$hold"
 if [ -n "$binary" ]; then
     "$binary" || { rc=$?; [ "$rc" = 77 ] || status=1; }
 else
-    MAICORD_WAYLAND_INTEGRATION=1 "$repository/tools/build_linux.sh" --keep --test maicord_gpu_surface_wayland || status=1
+    MAICORD_WAYLAND_INTEGRATION=1 "$repository/tools/build_linux.sh" --keep-intermediates --test --test-names maicord_gpu_surface_wayland || status=1
 fi
 
 if [ -n "$driver_pid" ]; then

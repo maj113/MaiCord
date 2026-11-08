@@ -75,7 +75,7 @@ if [ -n "$binary" ]; then
     [ "$rc" = 77 ] && exit 0
     [ "$rc" = 0 ] || status=1
 else
-    MAICORD_SPEECHD_INTEGRATION=1 "$repository/tools/build_linux.sh" --keep --test maicord_speechd_live || status=1
+    MAICORD_SPEECHD_INTEGRATION=1 "$repository/tools/build_linux.sh" --keep-intermediates --test --test-names maicord_speechd_live || status=1
 fi
 [ "$status" = 0 ] || exit "$status"
 sleep 0.5

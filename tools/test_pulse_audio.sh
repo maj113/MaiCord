@@ -80,7 +80,7 @@ if [ -n "$binary" ]; then
     "$binary"
     status=$?
 else
-    "$repository/tools/build_linux.sh" --keep --test maicord_pulse_loopback maicord_video_playback_audio
+    "$repository/tools/build_linux.sh" --keep-intermediates --test --test-names maicord_pulse_loopback,maicord_video_playback_audio
     status=$?
 fi
 [ "$status" = 77 ] && { echo "Skipped."; status=0; }

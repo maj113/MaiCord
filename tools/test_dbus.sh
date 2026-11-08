@@ -65,7 +65,7 @@ run_ctest() {
     local kind="$1" address="$2"
     shift 2
     DBUS_SESSION_BUS_ADDRESS="$address" MAICORD_DBUS_TEST_ADDRESS="$address" MAICORD_DBUS_TEST_BUS="$kind" \
-        "$repository/tools/build_linux.sh" --keep --test "$@" || status=1
+        "$repository/tools/build_linux.sh" --keep-intermediates --test --test-names "$(IFS=,; echo "$*")" || status=1
 }
 run_program() {
     local kind="$1" address="$2" program="$3"

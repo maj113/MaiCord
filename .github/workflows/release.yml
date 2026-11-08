@@ -87,6 +87,8 @@ jobs:
           MAICORD_UPDATE_COMMIT: ${{ github.sha }}
           MAICORD_PLUGIN_CATALOG_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_PUBLIC_KEY }}
           MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
+          # A packed stream missing from tools/deflate_cache.txt fails the build instead of shipping a zlib fallback.
+          MAICORD_REQUIRE_DEFLATE_CACHE: "1"
         run: ./tools/build.ps1 -Test -TestDeadlineSeconds 300 -TestTimeoutScale 5 -ExcludeTestLabels gpu,display
 
       - name: Package and sign update
@@ -204,6 +206,7 @@ jobs:
       MAICORD_PLUGIN_CATALOG_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_PUBLIC_KEY }}
       MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
       MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
+      MAICORD_REQUIRE_DEFLATE_CACHE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -214,17 +217,20 @@ jobs:
         id: version
         run: python3 -B tools/release/maicord_release.py version "$TAG" --check-cmake .
 
-      - name: Install the toolchain
-        run: bash tools/install_linux_toolchain.sh
+      # The pinned LLVM toolchain (from the cache ci.yml's Linux job fills on master), cmake, ninja, what hosted links need,
+      # and the runtime libraries, fonts, dictionaries and headers the suite uses, so a release tests what CI tests.
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          linux-packages: tests
 
       # The same build and suite as ci.yml.
       - name: Build, audit and test
         env:
           MAICORD_UPDATE_VERSION: ${{ steps.version.outputs.semver }}
-        run: bash tools/build_linux.sh --test --keep --timeout-scale 3
+        run: bash tools/build_linux.sh --test --keep-intermediates --test-timeout-scale 3
 
       # The client that ships: a build without the tests (no test-only environment switches), in a directory of its own;
-      # build_linux.sh audits it (tools/audit_elf.py --no-test-hooks), and build_tarball.py audits it again.
+      # the build audits it (tools/audit_image.py, without test hooks), and build_tarball.py audits it again.
       - name: Build the shipping client
         env:
           MAICORD_UPDATE_VERSION: ${{ steps.version.outputs.semver }}

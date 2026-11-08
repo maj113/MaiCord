@@ -26,6 +26,9 @@
 
 set -uo pipefail
 
+# shellcheck source=tools/sway_test.sh
+source "$(dirname "${BASH_SOURCE[0]}")/sway_test.sh"
+
 compositor=headless
 binary="${MAICORD_CLIENT:-$HOME/mc-build/MaiCord}"
 scale=1
@@ -53,7 +56,7 @@ while [ "$#" -gt 0 ]; do
 done
 case "$compositor" in headless|nested|current) ;; *) echo "Unknown compositor: $compositor" >&2; exit 2 ;; esac
 case "$terminate" in ""|TERM|INT|HUP) ;; *) echo "Unknown signal: $terminate (TERM, INT or HUP)" >&2; exit 2 ;; esac
-[ -x "$binary" ] || { echo "No client at $binary (tools/build_linux.sh --keep builds it)" >&2; exit 1; }
+[ -x "$binary" ] || { echo "No client at $binary (tools/build_linux.sh --keep-intermediates builds it)" >&2; exit 1; }
 
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export LANG="${LANG:-C.UTF-8}"
@@ -91,29 +94,8 @@ xwayland disable
 default_floating_border none
 focus_follows_mouse no
 EOF
-    if [ "$compositor" = headless ]; then
-        export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
-    else
-        export WLR_BACKENDS=wayland
-    fi
-    export WLR_RENDERER=pixman
-    unset DISPLAY
-    # -d: sway names its Wayland display in the log (a stale socket of an earlier run may have the next name, so the
-    # directory cannot tell); its IPC socket is named after its pid.
-    sway -d -c "$out/sway.conf" > "$out/sway.log" 2>&1 &
-    sway_pid=$!
-    display=""
-    for _ in $(seq 1 100); do
-        display="$(sed -n "s/.*Running compositor on wayland display '\\(.*\\)'.*/\\1/p" "$out/sway.log" | tail -n 1)"
-        [ -n "$display" ] && [ -S "$runtime/sway-ipc.$(id -u).$sway_pid.sock" ] && break
-        display=""
-        sleep 0.1
-    done
-    [ -n "$display" ] || { echo "sway did not start; see $out/sway.log" >&2; exit 1; }
-    sleep 0.5
-    export WAYLAND_DISPLAY="$display"
-    export SWAYSOCK="$runtime/sway-ipc.$(id -u).$sway_pid.sock"
-    echo "sway ($compositor) on $display, scale $scale"
+    sway_test_start "$out/sway.conf" "$out/sway.log" "$compositor" || exit 1
+    echo "sway ($compositor) on $WAYLAND_DISPLAY, scale $scale"
 else
     echo "the running compositor: $WAYLAND_DISPLAY"
 fi

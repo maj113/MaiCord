@@ -51,7 +51,7 @@ done
 [ -n "$launcher" ] || skip "at-spi-bus-launcher is not installed (at-spi2-core)"
 python3 -c 'import gi; gi.require_version("Atspi", "2.0"); from gi.repository import Atspi' 2>/dev/null ||
     skip "python3 gi with gir1.2-atspi-2.0 is not installed"
-[ -x "$binary" ] || { echo "No client at $binary (tools/build_linux.sh --keep builds it)" >&2; exit 1; }
+[ -x "$binary" ] || { echo "No client at $binary (tools/build_linux.sh --keep-intermediates builds it)" >&2; exit 1; }
 if [ "$orca" = 1 ]; then
     command -v orca >/dev/null || skip "orca is not installed"
 fi
@@ -103,20 +103,10 @@ xwayland disable
 default_floating_border none
 focus_follows_mouse no
 EOF
-export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
-sway -d -c "$out/sway.conf" > "$out/sway.log" 2>&1 &
-sway_pid=$!
+# shellcheck source=tools/sway_test.sh
+source "$repository/tools/sway_test.sh"
+sway_test_start "$out/sway.conf" "$out/sway.log" || exit 1
 pids+=("$sway_pid")
-display=""
-for _ in $(seq 1 100); do
-    display="$(sed -n "s/.*Running compositor on wayland display '\\(.*\\)'.*/\\1/p" "$out/sway.log" | tail -n 1)"
-    [ -n "$display" ] && [ -S "$runtime/sway-ipc.$(id -u).$sway_pid.sock" ] && break
-    display=""
-    sleep 0.1
-done
-[ -n "$display" ] || { echo "sway did not start; see $out/sway.log" >&2; exit 1; }
-sleep 0.5
-export WAYLAND_DISPLAY="$display" SWAYSOCK="$runtime/sway-ipc.$(id -u).$sway_pid.sock"
 
 profile="$out/profile"
 mkdir -p "$profile"

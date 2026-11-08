@@ -1,27 +1,35 @@
 name: Set up MaiCord toolchain
 description: >
-  Ensures Python 3, a Visual Studio installation of at least the requested
-  major version (Windows SDK, MASM, rc, mt, dumpbin, CMake and Ninja) and the
-  pinned LLVM toolchain release (clang-cl, lld-link, llvm-lib), whose bin
-  directory goes on PATH and into MAICORD_LLVM_BIN for tools/build.ps1.
-  tools/build.ps1 enters the developer shell itself.
+  Ensures the pinned LLVM toolchain release (tools/llvm_toolchain.json), whose bin directory goes on PATH and into
+  MAICORD_LLVM_BIN for the build scripts. On Windows also Python 3 and a Visual Studio installation of at least the
+  requested major version with the components of .vsconfig (the MSVC x64 tools, whose ml64 builds the MASM source, and
+  the Windows SDK; tools/enter_build_environment.ps1 sets the build up from them, with no developer shell). CMake and
+  Ninja come from PATH. On Linux also what tools/install_linux_toolchain.sh installs (cmake, ninja and what hosted links
+  need), with the test or integration packages when asked.
 
 inputs:
   minimum-vs-major:
-    description: Minimum Visual Studio major version (18 = Visual Studio 2026, 17 = 2022).
+    description: Windows. Minimum Visual Studio major version (18 = Visual Studio 2026, 17 = 2022).
     default: "18"
   buildtools-url:
-    description: Visual Studio Build Tools bootstrapper used when the image lacks the required version.
+    description: Windows. Visual Studio Build Tools bootstrapper used when the image lacks the required version.
     default: https://aka.ms/vs/18/stable/vs_buildtools.exe
+  linux-packages:
+    description: >
+      Linux. The package set of tools/install_linux_toolchain.sh beyond the build's own: empty, "tests" (--tests) or
+      "integration" (--integration).
+    default: ""
 
 runs:
   using: composite
   steps:
     - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      if: runner.os == 'Windows'
       with:
         python-version: "3.12"
 
     - name: Ensure Visual Studio C++ toolset
+      if: runner.os == 'Windows'
       shell: powershell
       env:
         MINIMUM_VS_MAJOR: ${{ inputs.minimum-vs-major }}
@@ -47,11 +55,8 @@ runs:
           if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
             throw "The Build Tools bootstrapper signature is not a valid Microsoft signature ($($signature.Status))."
           }
-          $arguments = @('--quiet', '--wait', '--norestart', '--nocache',
-            '--add', 'Microsoft.VisualStudio.Workload.VCTools',
-            '--add', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
-            '--add', 'Microsoft.VisualStudio.Component.VC.CMake.Project',
-            '--includeRecommended')
+          # Exactly the components the repository's .vsconfig lists, as a developer installs them.
+          $arguments = @('--quiet', '--wait', '--norestart', '--nocache', '--config', "`"$(Join-Path $env:GITHUB_WORKSPACE '.vsconfig')`"")
           $process = Start-Process -FilePath $bootstrapper -ArgumentList $arguments -Wait -PassThru
           if ($process.ExitCode -notin @(0, 3010)) { throw "Build Tools installation failed ($($process.ExitCode))." }
           Remove-Item -LiteralPath $bootstrapper -Force
@@ -66,28 +71,25 @@ runs:
         # link and other Visual Studio tools start vctip.exe (telemetry) on every launch unless it is missing.
         Get-ChildItem -LiteralPath (Join-Path $msvc.FullName 'bin') -Recurse -Filter vctip.exe |
           Rename-Item -NewName 'vctip.exe.disabled'
-        # Read all of the output: stopping the pipe early can leave a failing exit code.
+        # CMake and Ninja come from PATH (hosted images carry both), not from Visual Studio. Read all of the output:
+        # stopping the pipe early can leave a failing exit code.
         (cmake --version)[0]
+        "ninja $(ninja --version)"
+        if ($LASTEXITCODE) { throw 'Ninja is not on PATH.' }
 
     # The one supported compiler: the release of the LLVM fork at github.com/maj113/llvm-pe pinned in
-    # tools/llvm_toolchain.json, fetched and SHA-256 checked by the same script local builds use. The
-    # extracted toolchain is cached under the pinned tag and SHA-256: a new pin misses and fetches its
-    # own; on a hit the script finds the tools in place and reuses the restored directory.
-    - name: Read the LLVM toolchain pin
-      id: llvm-pin
-      shell: powershell
-      run: |
-        $pin = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'tools\llvm_toolchain.json') -Raw | ConvertFrom-Json
-        [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "key=llvm-pe-$($pin.tag)-$($pin.sha256)`n")
-
+    # tools/llvm_toolchain.json (its Windows asset, or its "linux" one), fetched and SHA-256 checked by the same scripts
+    # local builds use (tools/resolve_llvm_toolchain.ps1 and .sh). The extracted toolchain is cached per system under
+    # the pin file's hash: a new pin misses and fetches its own; on a hit the scripts find the tools in place.
     - name: Restore the LLVM toolchain
       id: llvm-cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ runner.temp }}/llvm-pe
-        key: ${{ steps.llvm-pin.outputs.key }}
+        path: ${{ runner.os == 'Windows' && format('{0}/llvm-pe', runner.temp) || '~/.cache/maicord-toolchain' }}
+        key: llvm-pe-${{ runner.os }}-${{ hashFiles('tools/llvm_toolchain.json') }}
 
     - name: Fetch the pinned LLVM toolchain
+      if: runner.os == 'Windows'
       shell: powershell
       run: |
         $ErrorActionPreference = 'Stop'
@@ -97,9 +99,18 @@ runs:
         [IO.File]::AppendAllText($env:GITHUB_PATH, "$bin`n")
         [IO.File]::AppendAllText($env:GITHUB_ENV, "MAICORD_LLVM_BIN=$bin`nMAICORD_LLVM_VERSION=$version`n")
 
+    # The toolchain into ~/.cache/maicord-toolchain/<tag> (tools/resolve_llvm_toolchain.sh), cmake, ninja, what hosted
+    # links need and the asked-for packages; the script puts the toolchain's bin on PATH and into MAICORD_LLVM_BIN.
+    - name: Install the toolchain and the packages
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.linux-packages }}
+      run: bash "$GITHUB_WORKSPACE/tools/install_linux_toolchain.sh" ${PACKAGES:+"--$PACKAGES"}
+
     - name: Cache the LLVM toolchain
       if: steps.llvm-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ runner.temp }}/llvm-pe
-        key: ${{ steps.llvm-pin.outputs.key }}
+        path: ${{ runner.os == 'Windows' && format('{0}/llvm-pe', runner.temp) || '~/.cache/maicord-toolchain' }}
+        key: llvm-pe-${{ runner.os }}-${{ hashFiles('tools/llvm_toolchain.json') }}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the opt-in integration scripts of the Linux port, in order, against the build that
-# tools/build_linux.sh --test --keep left, and reports each one.
+# tools/build_linux.sh --test --keep-intermediates left, and reports each one.
 #
 #   tools/test_linux_integration.sh                     every case, build in ~/mc-build, logs in ~/mc-integration
 #   tools/test_linux_integration.sh wayland atspi       only these cases

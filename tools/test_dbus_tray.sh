@@ -18,6 +18,8 @@ set -uo pipefail
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=tools/dbus_test_bus.sh
 source "$repository/tools/dbus_test_bus.sh"
+# shellcheck source=tools/sway_test.sh
+source "$repository/tools/sway_test.sh"
 binary=""
 out="${MAICORD_DBUS_TRAY_OUT:-$HOME/mc-dbus-tray}"
 
@@ -70,22 +72,7 @@ bar {
     }
 }
 EOF
-known="$(ls "$runtime" | grep '^wayland-[0-9]*$' | sort | tr '\n' ' ')"
-export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
-unset DISPLAY
-sway -c "$out/sway.conf" > "$out/sway.log" 2>&1 &
-sway_pid=$!
-display=""
-for _ in $(seq 1 100); do
-    for socket in $(ls "$runtime" | grep '^wayland-[0-9]*$'); do
-        case " $known " in *" $socket "*) ;; *) display="$socket" ;; esac
-    done
-    [ -n "$display" ] && [ -n "$(ls "$runtime" | grep '^sway-ipc\..*\.sock$' | head -n 1)" ] && break
-    sleep 0.1
-done
-[ -n "$display" ] || { echo "sway did not start; see $out/sway.log" >&2; exit 1; }
-export WAYLAND_DISPLAY="$display"
-export SWAYSOCK="$runtime/$(ls -t "$runtime" | grep '^sway-ipc\..*\.sock$' | head -n 1)"
+sway_test_start "$out/sway.conf" "$out/sway.log" || exit 1
 sleep 1  # swaybar and its watcher
 
 wait_for() {  # file seconds
