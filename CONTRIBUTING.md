@@ -496,6 +496,9 @@ see the effects guide for Linux), and with Developer Mode on, MaiCord reloads th
   first MaiCord frame; the tests report crashes from a vectored handler), and
   crash-dump stacks through MaiCord code are heuristic. Only the perf probe,
   which walks stacks in-process, configures with `MAICORD_UNWIND_TABLES`.
+  Without them the build also turns on shrink wrapping, which Windows targets
+  otherwise skip for their unwind codes: early exits leave before the
+  prologue. The perf probe's image keeps the entry-block prologues.
 - **Structs default to zero without initializers.** A struct with any default
   member initializer, even `= {}`, makes each `T x{}` store its fields one by
   one; without them it is a single fill. Leave zero-valued members bare and

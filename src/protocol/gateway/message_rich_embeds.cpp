@@ -122,10 +122,9 @@ bool visit_embed_media(void* opaque, JsonString name, JsonValue value) noexcept 
     return accept_member(&context->seen, 1ull << index, json_value_as_string(value, text), &context->error);
 }
 
-GatewayEventDecodeResult decode_embed_media(JsonValue object, const JsonIndexedDocument& scratch,
-                                            u32 maximum_depth, Slice<char> text_output, u32* text_used,
-                                            GatewayMessageEmbedMedia* destination,
-                                            u32* truncations) noexcept {
+GatewayEventDecodeResult decode_embed_media(const JsonValue& object, const JsonIndexedDocument& scratch,
+                                            u32 maximum_depth, const RichText& text,
+                                            GatewayMessageEmbedMedia* destination) noexcept {
     EmbedMediaContext context{};
     GatewayEventDecodeResult result =
         read_object(object, scratch, maximum_depth, visit_embed_media, &context, &context.error);
@@ -139,17 +138,14 @@ GatewayEventDecodeResult decode_embed_media(JsonValue object, const JsonIndexedD
     destination->has_width = context.width != 0;
     destination->has_height = context.height != 0;
     if (((context.seen & (1ull << 0)) != 0 &&
-         !bounded_string(context.url, kRichUrlMaximumBytes, text_output, text_used, &destination->url,
-                         truncations)) ||
+         !bounded_string(context.url, kRichUrlMaximumBytes, text, &destination->url)) ||
         ((context.seen & (1ull << 1)) != 0 &&
-         !bounded_string(context.proxy_url, kRichUrlMaximumBytes, text_output, text_used,
-                         &destination->proxy_url, truncations)) ||
+         !bounded_string(context.proxy_url, kRichUrlMaximumBytes, text, &destination->proxy_url)) ||
         ((context.seen & (1ull << 2)) != 0 &&
-         !bounded_string(context.content_type, kRichContentTypeMaximumBytes, text_output, text_used,
-                         &destination->content_type, truncations)) ||
+         !bounded_string(context.content_type, kRichContentTypeMaximumBytes, text, &destination->content_type)) ||
         ((context.seen & (1ull << 3)) != 0 &&
-         !bounded_string(context.description, kRichAttachmentDescriptionMaximumBytes, text_output,
-                         text_used, &destination->description, truncations))) {
+         !bounded_string(context.description, kRichAttachmentDescriptionMaximumBytes, text,
+                         &destination->description))) {
         return decode_failure(GatewayEventDecodeError::invalid_data, object.source_offset);
     }
     if ((destination->url.bytes != 0 && !rich_url_valid(destination->url, true)) ||
@@ -297,34 +293,35 @@ bool visit_embed_component_item(void* opaque, u32, JsonValue value) noexcept {
 }
 // Text displays joined by line breaks (a blank line across a separator) as
 // one bounded description in the decoded text bank.
-bool embed_component_description(const EmbedComponentWalk& walk, Slice<char> text_output, u32* text_used,
-                                 Utf8View* description, u32* truncations) noexcept {
+bool embed_component_description(const EmbedComponentWalk& walk, const RichText& text,
+                                 Utf8View* description) noexcept {
     reset_value(description);
-    const u32 begin = *text_used;
+    const Slice<char> output = text.output;
+    u32* const used = text.used;
+    const u32 begin = *used;
     for (u32 i = 0; i < walk.text_count; ++i) {
         if (i) {
             const u32 breaks = walk.paragraph_before[i] ? 2u : 1u;
-            if (!text_output.data || *text_used + breaks > text_output.count ||
-                *text_used - begin + breaks > kRichEmbedDescriptionMaximumBytes) {
-                *truncations |= gateway_message_rich_truncated_text;
+            if (!output.data || *used + breaks > output.count ||
+                *used - begin + breaks > kRichEmbedDescriptionMaximumBytes) {
+                *text.truncations |= gateway_message_rich_truncated_text;
                 break;
             }
             for (u32 b = 0; b < breaks; ++b)
-                text_output.data[(*text_used)++] = '\n';
+                output.data[(*used)++] = '\n';
         }
         Utf8View piece{};
-        if (!bounded_string(walk.texts[i], kRichEmbedDescriptionMaximumBytes - (*text_used - begin), text_output,
-                            text_used, &piece, truncations))
+        if (!bounded_string(walk.texts[i], kRichEmbedDescriptionMaximumBytes - (*used - begin), text, &piece))
             return false;
     }
-    if (*text_used > begin && text_output.data)
-        *description = {text_output.data + begin, *text_used - begin};
+    if (*used > begin && output.data)
+        *description = {output.data + begin, *used - begin};
     return true;
 }
 #pragma clang attribute pop
 
 GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocument& scratch,
-                                       u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                       u32 maximum_depth, const RichText& text,
                                        GatewayMessageRichScratch output_scratch,
                                        GatewayMessageEvent* output) noexcept {
     DecodeScratch<JsonValue, kGatewayMessageEmbedMaximum> values;
@@ -354,14 +351,12 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
         destination.type =
             (context.seen & (1ull << 3)) != 0 ? embed_type(context.type) : GatewayMessageEmbedType::unknown;
         if (((context.seen & (1ull << 0)) != 0 &&
-             !bounded_string(context.title, kRichEmbedTitleMaximumBytes, text_output, text_used,
-                             &destination.title, &output->rich_truncations)) ||
+             !bounded_string(context.title, kRichEmbedTitleMaximumBytes, text, &destination.title)) ||
             ((context.seen & (1ull << 1)) != 0 &&
-             !bounded_string(context.description, kRichEmbedDescriptionMaximumBytes, text_output, text_used,
-                             &destination.description, &output->rich_truncations)) ||
+             !bounded_string(context.description, kRichEmbedDescriptionMaximumBytes, text,
+                             &destination.description)) ||
             ((context.seen & (1ull << 2)) != 0 &&
-             !bounded_string(context.url, kRichUrlMaximumBytes, text_output, text_used, &destination.url,
-                             &output->rich_truncations))) {
+             !bounded_string(context.url, kRichUrlMaximumBytes, text, &destination.url))) {
             return decode_failure(GatewayEventDecodeError::invalid_data, values[index].source_offset);
         }
         if (destination.url.bytes != 0 && !rich_url_valid(destination.url, true)) {
@@ -375,12 +370,9 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
                 return result;
             }
             if ((author.seen & 1ull) == 0 ||
-                !bounded_string(author.name, kRichEmbedTitleMaximumBytes, text_output, text_used,
-                                &destination.author_name, &output->rich_truncations) ||
-                !embed_part_url(author, 1ull << 2, author.url, text_output, text_used, &destination.author_url,
-                                &output->rich_truncations) ||
-                !embed_part_url(author, 1ull << 3, author.proxy_icon_url, text_output, text_used,
-                                &destination.author_icon, &output->rich_truncations)) {
+                !bounded_string(author.name, kRichEmbedTitleMaximumBytes, text, &destination.author_name) ||
+                !embed_part_url(author, 1ull << 2, author.url, text, &destination.author_url) ||
+                !embed_part_url(author, 1ull << 3, author.proxy_icon_url, text, &destination.author_icon)) {
                 return decode_failure(GatewayEventDecodeError::invalid_data, context.author.source_offset);
             }
         }
@@ -392,10 +384,8 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
                 return result;
             }
             if ((footer.seen & (1ull << 1)) == 0 ||
-                !bounded_string(footer.text, kRichEmbedFooterMaximumBytes, text_output, text_used,
-                                &destination.footer_text, &output->rich_truncations) ||
-                !embed_part_url(footer, 1ull << 3, footer.proxy_icon_url, text_output, text_used,
-                                &destination.footer_icon, &output->rich_truncations)) {
+                !bounded_string(footer.text, kRichEmbedFooterMaximumBytes, text, &destination.footer_text) ||
+                !embed_part_url(footer, 1ull << 3, footer.proxy_icon_url, text, &destination.footer_icon)) {
                 return decode_failure(GatewayEventDecodeError::invalid_data, context.footer.source_offset);
             }
         }
@@ -407,10 +397,8 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
                 return result;
             }
             if (((provider.seen & 1ull) != 0 &&
-                 !bounded_string(provider.name, kRichEmbedTitleMaximumBytes, text_output, text_used,
-                                 &destination.provider_name, &output->rich_truncations)) ||
-                !embed_part_url(provider, 1ull << 2, provider.url, text_output, text_used,
-                                &destination.provider_url, &output->rich_truncations)) {
+                 !bounded_string(provider.name, kRichEmbedTitleMaximumBytes, text, &destination.provider_name)) ||
+                !embed_part_url(provider, 1ull << 2, provider.url, text, &destination.provider_url)) {
                 return decode_failure(GatewayEventDecodeError::invalid_data,
                                       context.provider.source_offset);
             }
@@ -445,10 +433,8 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
                 reset_value<GatewayMessageEmbedField>(&field_output);
                 field_output.embed_index = static_cast<u16>(index);
                 field_output.inline_field = parsed.inline_field;
-                if (!bounded_string(parsed.name, kRichEmbedTitleMaximumBytes, text_output, text_used,
-                                    &field_output.name, &output->rich_truncations) ||
-                    !bounded_string(parsed.value, kRichComponentTextMaximumBytes, text_output, text_used,
-                                    &field_output.value, &output->rich_truncations)) {
+                if (!bounded_string(parsed.name, kRichEmbedTitleMaximumBytes, text, &field_output.name) ||
+                    !bounded_string(parsed.value, kRichComponentTextMaximumBytes, text, &field_output.value)) {
                     return decode_failure(GatewayEventDecodeError::invalid_data,
                                           field_values[field].source_offset);
                 }
@@ -457,22 +443,19 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
             }
         }
         if ((context.seen & (1ull << 8)) != 0) {
-            result = decode_embed_media(context.image, scratch, maximum_depth, text_output, text_used,
-                                        &destination.image, &output->rich_truncations);
+            result = decode_embed_media(context.image, scratch, maximum_depth, text, &destination.image);
             if (!result.ok()) {
                 return result;
             }
         }
         if ((context.seen & (1ull << 9)) != 0) {
-            result = decode_embed_media(context.thumbnail, scratch, maximum_depth, text_output, text_used,
-                                        &destination.thumbnail, &output->rich_truncations);
+            result = decode_embed_media(context.thumbnail, scratch, maximum_depth, text, &destination.thumbnail);
             if (!result.ok()) {
                 return result;
             }
         }
         if ((context.seen & (1ull << 10)) != 0) {
-            result = decode_embed_media(context.video, scratch, maximum_depth, text_output, text_used,
-                                        &destination.video, &output->rich_truncations);
+            result = decode_embed_media(context.video, scratch, maximum_depth, text, &destination.video);
             if (!result.ok()) {
                 return result;
             }
@@ -483,9 +466,7 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
             walk.depth = maximum_depth;
             json_visit_indexed_array(scratch, context.components, maximum_depth, visit_embed_component_item,
                                      &walk);
-            if (!destination.description.bytes &&
-                !embed_component_description(walk, text_output, text_used, &destination.description,
-                                             &output->rich_truncations))
+            if (!destination.description.bytes && !embed_component_description(walk, text, &destination.description))
                 return decode_failure(GatewayEventDecodeError::invalid_data, values[index].source_offset);
             if (!destination.has_color && walk.accent_seen) {
                 destination.color = walk.accent;
@@ -493,14 +474,10 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
             }
             // Malformed optional media degrades to absent, never rejects the message.
             if (walk.thumbnail.source.data && !destination.thumbnail.url.bytes &&
-                !decode_embed_media(walk.thumbnail, scratch, maximum_depth, text_output, text_used,
-                                    &destination.thumbnail, &output->rich_truncations)
-                     .ok())
+                !decode_embed_media(walk.thumbnail, scratch, maximum_depth, text, &destination.thumbnail).ok())
                 reset_value<GatewayMessageEmbedMedia>(&destination.thumbnail);
             if (walk.image.source.data && !destination.image.url.bytes &&
-                !decode_embed_media(walk.image, scratch, maximum_depth, text_output, text_used,
-                                    &destination.image, &output->rich_truncations)
-                     .ok())
+                !decode_embed_media(walk.image, scratch, maximum_depth, text, &destination.image).ok())
                 reset_value<GatewayMessageEmbedMedia>(&destination.image);
         }
     }
@@ -538,7 +515,7 @@ bool visit_sticker(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 
 GatewayEventDecodeResult decode_stickers(JsonValue array, const JsonIndexedDocument& scratch,
-                                         u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                         u32 maximum_depth, const RichText& text,
                                          GatewayMessageRichScratch output_scratch,
                                          GatewayMessageEvent* output) noexcept {
     DecodeScratch<JsonValue, kGatewayMessageStickerMaximum> values;
@@ -564,8 +541,7 @@ GatewayEventDecodeResult decode_stickers(JsonValue array, const JsonIndexedDocum
         reset_value<GatewayMessageSticker>(&destination);
         destination.id = parsed.id;
         destination.format_type = static_cast<u8>(parsed.format_type);
-        if (!bounded_string(parsed.name, kGatewayMessageUserNameMaximumBytes, text_output, text_used,
-                            &destination.name, &output->rich_truncations)) {
+        if (!bounded_string(parsed.name, kGatewayMessageUserNameMaximumBytes, text, &destination.name)) {
             return decode_failure(GatewayEventDecodeError::invalid_data, values[index].source_offset);
         }
     }
@@ -821,7 +797,7 @@ bool queue_component_children(JsonValue array, const JsonIndexedDocument& scratc
 }
 
 GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDocument& scratch,
-                                           u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                           u32 maximum_depth, const RichText& text,
                                            GatewayMessageRichScratch output_scratch,
                                            GatewayMessageEvent* output) noexcept {
     DecodeScratch<ComponentWork, kGatewayMessageComponentMaximum> work;
@@ -908,15 +884,11 @@ GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDoc
             label = parsed.name;
             label_seen = (parsed.seen & component_seen_name) != 0;
         }
-        if ((label_seen && !bounded_string(label, kRichAttachmentNameMaximumBytes, text_output, text_used,
-                                           &destination.label, &output->rich_truncations)) ||
-            (content_seen && !bounded_string(content, kRichComponentTextMaximumBytes, text_output, text_used,
-                                             &destination.content, &output->rich_truncations)) ||
-            (custom_seen && !bounded_string(custom_id, kRichComponentIdMaximumBytes, text_output, text_used,
-                                            &destination.custom_id, &output->rich_truncations)) ||
+        if ((label_seen && !bounded_string(label, kRichAttachmentNameMaximumBytes, text, &destination.label)) ||
+            (content_seen && !bounded_string(content, kRichComponentTextMaximumBytes, text, &destination.content)) ||
+            (custom_seen && !bounded_string(custom_id, kRichComponentIdMaximumBytes, text, &destination.custom_id)) ||
             ((parsed.seen & component_seen_url) != 0 &&
-             !bounded_string(parsed.url, kRichUrlMaximumBytes, text_output, text_used, &destination.url,
-                             &output->rich_truncations))) {
+             !bounded_string(parsed.url, kRichUrlMaximumBytes, text, &destination.url))) {
             return decode_failure(GatewayEventDecodeError::invalid_data, work[cursor].value.source_offset);
         }
         if (destination.url.bytes != 0 && !rich_url_valid(destination.url, true)) {
@@ -931,9 +903,8 @@ GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDoc
             destination.emoji_id = emoji.id;
             if (emoji.animated)
                 destination.flags |= gateway_message_component_emoji_animated;
-            if ((emoji.seen & 2u) && !bounded_string(emoji.name, kRichAttachmentNameMaximumBytes, text_output,
-                                                     text_used, &destination.emoji_name,
-                                                     &output->rich_truncations))
+            if ((emoji.seen & 2u) &&
+                !bounded_string(emoji.name, kRichAttachmentNameMaximumBytes, text, &destination.emoji_name))
                 return decode_failure(GatewayEventDecodeError::invalid_data, parsed.emoji.source_offset);
         }
         const JsonValue indirect_url = (parsed.seen & component_seen_media) != 0 ? parsed.media : parsed.file;
@@ -945,8 +916,7 @@ GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDoc
             }
             const bool proxy = (url.seen & 2ull) != 0;
             if ((url.seen & 3ull) != 0 &&
-                !bounded_string(proxy ? url.proxy_url : url.url, kRichUrlMaximumBytes, text_output, text_used,
-                                &destination.url, &output->rich_truncations)) {
+                !bounded_string(proxy ? url.proxy_url : url.url, kRichUrlMaximumBytes, text, &destination.url)) {
                 return decode_failure(GatewayEventDecodeError::invalid_data, indirect_url.source_offset);
             }
             // attachment:// names resolve against the message's files.

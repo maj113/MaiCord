@@ -397,13 +397,10 @@ constexpr u8 kCoefficientCategory6[] = {
     254, 254, 243, 230, 196, 177, 153, 140, 133, 130, 129,
 };
 
+// {DC, AC} dequantization factors by block type (RFC 6386 section 13.3): 0 luma after its Y2 block, 1 Y2, 2 chroma,
+// 3 luma with its own DC.
 struct Vp8QuantMatrix {
-    u16 y1_dc;
-    u16 y1_ac;
-    u16 y2_dc;
-    u16 y2_ac;
-    u16 uv_dc;
-    u16 uv_ac;
+    u16 factors[4][2];
 };
 
 struct Vp8DecodedCoefficientBlock {
@@ -533,20 +530,18 @@ Vp8QuantMatrix make_quant_matrix(const Vp8ControlHeader& header, u32 segment_id)
         }
     }
     quantizer = clamp_quantizer(quantizer, 127);
-    Vp8QuantMatrix result{};
-    result.y1_dc = kVp8DcQuantizer[clamp_quantizer(quantizer + header.quantization.y1_dc_delta, 127)];
-    result.y1_ac = kVp8AcQuantizer[quantizer];
-    result.y2_dc = static_cast<u16>(
-        kVp8DcQuantizer[clamp_quantizer(quantizer + header.quantization.y2_dc_delta, 127)] * 2u);
-    result.y2_ac = static_cast<u16>(
-        kVp8AcQuantizer[clamp_quantizer(quantizer + header.quantization.y2_ac_delta, 127)] * 101'581u >>
-        16);
-    if (result.y2_ac < 8) {
-        result.y2_ac = 8;
-    }
-    result.uv_dc = kVp8DcQuantizer[clamp_quantizer(quantizer + header.quantization.uv_dc_delta, 117)];
-    result.uv_ac = kVp8AcQuantizer[clamp_quantizer(quantizer + header.quantization.uv_ac_delta, 127)];
-    return result;
+    const u16 y1_dc = kVp8DcQuantizer[clamp_quantizer(quantizer + header.quantization.y1_dc_delta, 127)];
+    const u16 y1_ac = kVp8AcQuantizer[quantizer];
+    const u16 y2_ac = static_cast<u16>(
+        kVp8AcQuantizer[clamp_quantizer(quantizer + header.quantization.y2_ac_delta, 127)] * 101'581u >> 16);
+    return Vp8QuantMatrix{{
+        {y1_dc, y1_ac},
+        {static_cast<u16>(kVp8DcQuantizer[clamp_quantizer(quantizer + header.quantization.y2_dc_delta, 127)] * 2u),
+         y2_ac < 8 ? u16{8} : y2_ac},
+        {kVp8DcQuantizer[clamp_quantizer(quantizer + header.quantization.uv_dc_delta, 117)],
+         kVp8AcQuantizer[clamp_quantizer(quantizer + header.quantization.uv_ac_delta, 127)]},
+        {y1_dc, y1_ac},
+    }};
 }
 
 __forceinline const u8* coefficient_probability(const Vp8ProbabilityWorkspace& probabilities, u32 type, u32 coefficient,
@@ -593,14 +588,22 @@ __forceinline Vp8DecodedCoefficientBlock finish(WindowReader* state, const Windo
     return result;
 }
 
-Vp8DecodedCoefficientBlock decode_coefficient_block(WindowReader* state,
-                                                    const Vp8ProbabilityWorkspace& probabilities, u32 type,
-                                                    u32 context, u16 dc_quantizer, u16 ac_quantizer,
-                                                    u32 start, i16* output) noexcept {
+// What every block of one macroblock shares: four register arguments per block call instead of eight.
+struct BlockDecoder {
+    WindowReader* reader;
+    const Vp8ProbabilityWorkspace* probabilities;
+    Vp8QuantMatrix quantizer;
+};
+
+Vp8DecodedCoefficientBlock decode_coefficient_block(const BlockDecoder& decoder, u32 type, u32 context,
+                                                    i16* output) noexcept {
+    WindowReader* const state = decoder.reader;
+    const Vp8ProbabilityWorkspace& probabilities = *decoder.probabilities;
+    const u16* const factors = decoder.quantizer.factors[type];
     // Local reader state stays in registers; written back once per block.
     WindowReader local = *state;
     WindowReader* const reader = &local;
-    u32 coefficient = start;
+    u32 coefficient = type == 0 ? 1u : 0u; // luma after a Y2 block starts at its first AC coefficient
     u32 coefficient_context = context;
     bool has_nonzero = false;
     while (coefficient < 16 && reader->ok()) {
@@ -623,8 +626,7 @@ Vp8DecodedCoefficientBlock decode_coefficient_block(WindowReader* state,
         coefficient_context = magnitude == 1 ? 1u : 2u;
         const i32 signed_value =
             window_read(reader, 128) != 0 ? -static_cast<i32>(magnitude) : static_cast<i32>(magnitude);
-        const i32 dequantized =
-            signed_value * static_cast<i32>(coefficient == 0 ? dc_quantizer : ac_quantizer);
+        const i32 dequantized = signed_value * static_cast<i32>(factors[coefficient == 0 ? 0 : 1]);
         if (dequantized < -32'768 || dequantized > 32'767) {
             return finish(state, local, Vp8DecodedCoefficientBlock{coefficient + 1u, has_nonzero, true});
         }
@@ -699,14 +701,12 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
         return Vp8CoefficientParseResult{Vp8CoefficientError::none};
     }
 
-    const Vp8QuantMatrix quantizer = make_quant_matrix(header, mode.segment_id);
+    const BlockDecoder decoder{&reader, &probabilities, make_quant_matrix(header, mode.segment_id)};
     u8 has_coefficients = 0;
     Vp8DecodedCoefficientBlock result{};
     // One block; its non-zero flag becomes both neighbour contexts.
-    const auto decode = [&](u32 type, u32 context, u16 dc_quantizer, u16 ac_quantizer, u32 start, i16* values,
-                            u8& top_flag, u8& left_flag) noexcept {
-        result = decode_coefficient_block(&reader, probabilities, type, context, dc_quantizer, ac_quantizer, start,
-                                          values);
+    const auto decode = [&](u32 type, u32 context, i16* values, u8& top_flag, u8& left_flag) noexcept {
+        result = decode_coefficient_block(decoder, type, context, values);
         if (!reader.ok()) {
             return Vp8CoefficientError::boolean_stream;
         }
@@ -717,11 +717,10 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
         has_coefficients |= top_flag;
         return Vp8CoefficientError::none;
     };
-    u32 y_start = 0;
     u32 y_type = 3;
     if (mode.luma != Vp8IntraMode::subblocks) {
         i16 y2[16]{};
-        if (const auto error = decode(1, top.y2 + left.y2, quantizer.y2_dc, quantizer.y2_ac, 0, y2, top.y2, left.y2);
+        if (const auto error = decode(1, top.y2 + left.y2, y2, top.y2, left.y2);
             error != Vp8CoefficientError::none) {
             return {error};
         }
@@ -738,15 +737,13 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
                 output.values[block][0] = static_cast<i16>(dc);
             }
         }
-        y_start = 1;
         y_type = 0;
     }
 
     for (u32 block_y = 0; block_y < 4; ++block_y) {
         for (u32 block_x = 0; block_x < 4; ++block_x) {
-            if (const auto error = decode(y_type, left.y[block_y] + top.y[block_x], quantizer.y1_dc, quantizer.y1_ac,
-                                          y_start, output.values[block_y * 4u + block_x], top.y[block_x],
-                                          left.y[block_y]);
+            if (const auto error = decode(y_type, left.y[block_y] + top.y[block_x],
+                                          output.values[block_y * 4u + block_x], top.y[block_x], left.y[block_y]);
                 error != Vp8CoefficientError::none) {
                 return {error};
             }
@@ -759,8 +756,8 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
         const u32 first_block = 16u + channel * 4u;
         for (u32 block_y = 0; block_y < 2; ++block_y) {
             for (u32 block_x = 0; block_x < 2; ++block_x) {
-                if (const auto error = decode(2, left_chroma[block_y] + top_chroma[block_x], quantizer.uv_dc,
-                                              quantizer.uv_ac, 0, output.values[first_block + block_y * 2u + block_x],
+                if (const auto error = decode(2, left_chroma[block_y] + top_chroma[block_x],
+                                              output.values[first_block + block_y * 2u + block_x],
                                               top_chroma[block_x], left_chroma[block_y]);
                     error != Vp8CoefficientError::none) {
                     return {error};

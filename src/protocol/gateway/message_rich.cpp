@@ -12,9 +12,9 @@ bool value_u32(const JsonValue& value, u32* output) noexcept {
     return true;
 }
 
-bool bounded_string(const JsonString& source, u32 maximum_bytes, const Slice<char>& output_view, u32* used,
-                    Utf8View* value, u32* truncations) noexcept {
-    const Slice<char> output = output_view; // *value/*used are written before output is last read
+bool bounded_string(const JsonString& source, u32 maximum_bytes, const RichText& text, Utf8View* value) noexcept {
+    const Slice<char> output = text.output; // *value/*used are written before output is last read
+    u32* const used = text.used;
     if (*used > output.count) {
         return false;
     }
@@ -25,7 +25,7 @@ bool bounded_string(const JsonString& source, u32 maximum_bytes, const Slice<cha
                             output.data ? minimum(maximum_bytes, remaining) : 0});
     if (decoded.error == JsonStringDecodeError::output_too_small) {
         if (decoded.bytes > maximum_bytes || decoded.bytes > remaining) {
-            *truncations |= gateway_message_rich_truncated_text;
+            *text.truncations |= gateway_message_rich_truncated_text;
             return true;
         }
         return false;
@@ -225,14 +225,15 @@ GatewayEventDecodeResult decode_snapshot(JsonValue value, const JsonIndexedDocum
     const GatewayMessageRichScratch media{
         {}, scratch.attachments, scratch.embeds, scratch.embed_fields, scratch.stickers, scratch.components,
         {}};
+    const RichText body_text{text, used, &body.rich_truncations};
     if (child.seen & gateway_message_field_attachments)
-        result = decode_attachments(child.attachments, document, maximum_depth, text, used, media, &body);
+        result = decode_attachments(child.attachments, document, maximum_depth, body_text, media, &body);
     if (result.ok() && (child.seen & gateway_message_field_embeds))
-        result = decode_embeds(child.embeds, document, maximum_depth, text, used, media, &body);
+        result = decode_embeds(child.embeds, document, maximum_depth, body_text, media, &body);
     if (result.ok() && (child.seen & gateway_message_field_sticker_items))
-        result = decode_stickers(child.stickers, document, maximum_depth, text, used, media, &body);
+        result = decode_stickers(child.stickers, document, maximum_depth, body_text, media, &body);
     if (result.ok() && (child.seen & gateway_message_field_components))
-        result = decode_components(child.components, document, maximum_depth, text, used, media, &body);
+        result = decode_components(child.components, document, maximum_depth, body_text, media, &body);
     if (!result.ok())
         return result;
     // A forwarded snapshot never carries its source's thread.
@@ -293,37 +294,26 @@ GatewayEventDecodeResult gateway_decode_message_rich_fields(const JsonIndexedDoc
     RootContext root{};
     GatewayEventDecodeResult result =
         read_object(data, document, maximum_depth, visit_root, &root, &root.error);
+    const RichText text{text_output, text_used, &output->rich_truncations};
     if (result.ok())
-        result = decode_reference(root, document, maximum_depth, text_output, text_used, output);
-    if (result.ok() && (root.seen & gateway_message_field_interaction) != 0) {
-        result =
-            decode_interaction(root.interaction, document, maximum_depth, text_output, text_used, output);
-    }
+        result = decode_reference(root, document, maximum_depth, text, output);
+    if (result.ok() && (root.seen & gateway_message_field_interaction) != 0)
+        result = decode_interaction(root.interaction, document, maximum_depth, text, output);
     if (result.ok() && (root.seen & gateway_message_field_thread) != 0)
-        result = decode_thread(root.thread, document, maximum_depth, text_output, text_used, output);
+        result = decode_thread(root.thread, document, maximum_depth, text, output);
     if (!result.ok()) {
         return result;
     }
-    if ((root.seen & gateway_message_field_reactions) != 0) {
-        result = decode_reactions(root.reactions, document, maximum_depth, text_output, text_used, scratch,
-                                  output);
-    }
-    if (result.ok() && (root.seen & gateway_message_field_attachments) != 0) {
-        result = decode_attachments(root.attachments, document, maximum_depth, text_output, text_used,
-                                    scratch, output);
-    }
-    if (result.ok() && (root.seen & gateway_message_field_embeds) != 0) {
-        result =
-            decode_embeds(root.embeds, document, maximum_depth, text_output, text_used, scratch, output);
-    }
-    if (result.ok() && (root.seen & gateway_message_field_sticker_items) != 0) {
-        result = decode_stickers(root.stickers, document, maximum_depth, text_output, text_used, scratch,
-                                 output);
-    }
-    if (result.ok() && (root.seen & gateway_message_field_components) != 0) {
-        result = decode_components(root.components, document, maximum_depth, text_output, text_used,
-                                   scratch, output);
-    }
+    if ((root.seen & gateway_message_field_reactions) != 0)
+        result = decode_reactions(root.reactions, document, maximum_depth, text, scratch, output);
+    if (result.ok() && (root.seen & gateway_message_field_attachments) != 0)
+        result = decode_attachments(root.attachments, document, maximum_depth, text, scratch, output);
+    if (result.ok() && (root.seen & gateway_message_field_embeds) != 0)
+        result = decode_embeds(root.embeds, document, maximum_depth, text, scratch, output);
+    if (result.ok() && (root.seen & gateway_message_field_sticker_items) != 0)
+        result = decode_stickers(root.stickers, document, maximum_depth, text, scratch, output);
+    if (result.ok() && (root.seen & gateway_message_field_components) != 0)
+        result = decode_components(root.components, document, maximum_depth, text, scratch, output);
     if (result.ok() && (root.seen & gateway_message_field_poll))
         result = gateway_decode_message_poll(root.poll, document, maximum_depth, text_output, text_used,
                                              scratch.poll, &output->poll);

@@ -102,9 +102,16 @@ struct EmbedPartContext {
     GatewayEventDecodeError error;
 };
 
+// One message's decoded text bank: the output buffer, how much of it is used and the message's truncation flags.
+// Every rich-field decoder appends through a reference to it.
+struct RichText {
+    Slice<char> output;
+    u32* used;
+    u32* truncations;
+};
+
 bool value_u32(const JsonValue& value, u32* output) noexcept;
-bool bounded_string(const JsonString& source, u32 maximum_bytes, const Slice<char>& output_view, u32* used,
-                    Utf8View* value, u32* truncations) noexcept;
+bool bounded_string(const JsonString& source, u32 maximum_bytes, const RichText& text, Utf8View* value) noexcept;
 bool rich_url_valid(Utf8View value, bool attachment_allowed) noexcept;
 bool visit_author(void* opaque, JsonString name, JsonValue value) noexcept;
 GatewayEventDecodeResult gather_array(const JsonValue& value, const JsonIndexedDocument& scratch,
@@ -112,34 +119,33 @@ GatewayEventDecodeResult gather_array(const JsonValue& value, const JsonIndexedD
                                       u32* truncations, u32* count) noexcept;
 bool visit_embed_field(void* opaque, JsonString name, JsonValue value) noexcept;
 bool visit_embed_part(void* opaque, JsonString name, JsonValue value) noexcept;
-bool embed_part_url(const EmbedPartContext& part, u64 bit, JsonString source, Slice<char> text_output,
-                    u32* text_used, Utf8View* destination, u32* truncations) noexcept;
+bool embed_part_url(const EmbedPartContext& part, u64 bit, const JsonString& source, const RichText& text,
+                    Utf8View* destination) noexcept;
 GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonIndexedDocument& scratch,
-                                          u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                          u32 maximum_depth, const RichText& text,
                                           GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult decode_interaction(const JsonValue& value, const JsonIndexedDocument& scratch, u32 depth,
-                                            Slice<char> text, u32* used,
-                                            GatewayMessageEvent* output) noexcept;
+                                            const RichText& text, GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult decode_thread(const JsonValue& value, const JsonIndexedDocument& scratch, u32 depth,
-                                       Slice<char> text, u32* used, GatewayMessageEvent* output) noexcept;
+                                       const RichText& text, GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult decode_reactions(JsonValue array, const JsonIndexedDocument& scratch,
-                                          u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                          u32 maximum_depth, const RichText& text,
                                           GatewayMessageRichScratch output_scratch,
                                           GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult decode_attachments(JsonValue array, const JsonIndexedDocument& scratch,
-                                            u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                            u32 maximum_depth, const RichText& text,
                                             GatewayMessageRichScratch output_scratch,
                                             GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocument& scratch,
-                                       u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                       u32 maximum_depth, const RichText& text,
                                        GatewayMessageRichScratch output_scratch,
                                        GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult decode_stickers(JsonValue array, const JsonIndexedDocument& scratch,
-                                         u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                         u32 maximum_depth, const RichText& text,
                                          GatewayMessageRichScratch output_scratch,
                                          GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDocument& scratch,
-                                           u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                           u32 maximum_depth, const RichText& text,
                                            GatewayMessageRichScratch output_scratch,
                                            GatewayMessageEvent* output) noexcept;
 

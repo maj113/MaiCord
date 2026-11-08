@@ -158,7 +158,14 @@ if(NOT MAICORD_UNWIND_TABLES)
     set(MAICORD_UNWIND_OPTIONS /clang:-fno-asynchronous-unwind-tables /clang:-fno-unwind-tables)
     # The machine outliner (see MAICORD_SIZE_OPTION) emits no unwind data for
     # the functions it creates, so stack walkers get none.
-    target_link_options(maicord_link_contract INTERFACE /mllvm:-enable-machine-outliner)
+    # Shrink wrapping (prologue and epilogue placed around the code that needs
+    # them, so early exits skip the pushes and the frame) is off for every
+    # Windows target because its unwind codes describe one prologue in the entry
+    # block. Without unwind tables nothing reads them, so turn it on: the link
+    # option for the LTO code generation, the compile one for the objects
+    # outside it.
+    target_link_options(maicord_link_contract INTERFACE /mllvm:-enable-machine-outliner /mllvm:-enable-shrink-wrap=true)
+    list(APPEND MAICORD_UNWIND_OPTIONS /clang:-mllvm=-enable-shrink-wrap=true)
 endif()
 target_compile_options(maicord_compile_contract INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:${MAICORD_UNWIND_OPTIONS}>")
 

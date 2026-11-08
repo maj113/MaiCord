@@ -357,7 +357,7 @@ u32 format_media_time(u64 milliseconds, char* output) noexcept {
 #pragma clang attribute pop
 
 GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonIndexedDocument& scratch,
-                                          u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                          u32 maximum_depth, const RichText& text,
                                           GatewayMessageEvent* output) noexcept {
     if ((root.seen & gateway_message_field_message_reference) != 0) {
         ReferenceContext reference{};
@@ -410,13 +410,12 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
     const JsonString selected =
         (author.seen & (1ull << 2)) != 0 && !author.global_name_null ? author.global_name : author.username;
     if (selected.encoded.data &&
-        !bounded_string(selected, kGatewayMessageUserNameMaximumBytes, text_output, text_used,
-                        &output->reference.author_name, &output->rich_truncations)) {
+        !bounded_string(selected, kGatewayMessageUserNameMaximumBytes, text, &output->reference.author_name)) {
         return decode_failure(GatewayEventDecodeError::invalid_user_name, referenced.author.source_offset);
     }
     if ((author.seen & (1ull << 3)) != 0 && !author.avatar_null &&
-        !bounded_string(author.avatar, kGatewayMessageAvatarHashMaximumBytes, text_output, text_used,
-                        &output->reference.author_avatar_hash, &output->rich_truncations)) {
+        !bounded_string(author.avatar, kGatewayMessageAvatarHashMaximumBytes, text,
+                        &output->reference.author_avatar_hash)) {
         return decode_failure(GatewayEventDecodeError::invalid_data, referenced.author.source_offset);
     }
     constexpr u64 voice_message_flag = 1ull << 13, components_v2_flag = 1ull << 15;
@@ -446,8 +445,7 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
     // A lone image/gifv link is hidden behind its simple embed; the
     // preview then falls back to "Click to see attachment".
     if (!simple_embed &&
-        !bounded_string(referenced.content, kRichReferenceContentMaximumBytes, text_output, text_used,
-                        &output->reference.content, &output->rich_truncations)) {
+        !bounded_string(referenced.content, kRichReferenceContentMaximumBytes, text, &output->reference.content)) {
         return decode_failure(GatewayEventDecodeError::invalid_message_content,
                               root.referenced_message.source_offset);
     }
@@ -458,8 +456,8 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
             json_visit_indexed_object(scratch, preview.question, maximum_depth, visit_referenced_question,
                                       &preview);
             if (preview.text.encoded.data &&
-                bounded_string(preview.text, kGatewayMessagePollQuestionMaximumBytes, text_output, text_used,
-                               &output->reference.content, &output->rich_truncations) &&
+                bounded_string(preview.text, kGatewayMessagePollQuestionMaximumBytes, text,
+                               &output->reference.content) &&
                 output->reference.content.bytes)
                 content_flags |= gateway_reference_poll_question;
         }
@@ -470,8 +468,8 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
         if (preview.fields.source.data)
             json_visit_indexed_array(scratch, preview.fields, maximum_depth, visit_referenced_field_item, &preview);
         if (preview.poll_question.encoded.data &&
-            bounded_string(preview.poll_question, kGatewayMessagePollQuestionMaximumBytes, text_output, text_used,
-                           &output->reference.content, &output->rich_truncations) &&
+            bounded_string(preview.poll_question, kGatewayMessagePollQuestionMaximumBytes, text,
+                           &output->reference.content) &&
             output->reference.content.bytes)
             content_flags |= gateway_reference_poll_question;
     }
@@ -484,7 +482,7 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
             quote_flags |= gateway_quote_forwarded;
     }
     // A clip mention replaces the quoted text by the clip's title and the moment: "<title>\x1f@<time>".
-    if (root.media_mention.source.data && root.media_mention.kind == JsonValueKind::object && text_output.data) {
+    if (root.media_mention.source.data && root.media_mention.kind == JsonValueKind::object && text.output.data) {
         MediaMentionProbe mention{};
         json_visit_indexed_object(scratch, root.media_mention, maximum_depth, visit_media_mention, &mention);
         QuotedAttachmentProbe attachment{&scratch, maximum_depth, mention.attachment_id, {}, 0, 0, false};
@@ -501,10 +499,10 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
         composed[bytes++] = '\x1f';
         composed[bytes++] = '@';
         bytes += format_media_time(mention.timestamp_ms, composed + bytes);
-        if (bytes <= text_output.count - *text_used) {
-            copy_bytes(text_output.data + *text_used, composed, bytes);
-            output->reference.content = {text_output.data + *text_used, bytes};
-            *text_used += bytes;
+        if (bytes <= text.output.count - *text.used) {
+            copy_bytes(text.output.data + *text.used, composed, bytes);
+            output->reference.content = {text.output.data + *text.used, bytes};
+            *text.used += bytes;
             quote_flags |= gateway_quote_media_mention | (attachment.found && (attachment.flags & 1) ? gateway_quote_media_clip : 0);
         }
     }

@@ -119,8 +119,7 @@ bool visit_interaction(void* opaque, JsonString name, JsonValue value) noexcept 
 }
 
 GatewayEventDecodeResult decode_interaction(const JsonValue& value, const JsonIndexedDocument& scratch, u32 depth,
-                                            Slice<char> text, u32* used,
-                                            GatewayMessageEvent* output) noexcept {
+                                            const RichText& text, GatewayMessageEvent* output) noexcept {
     if (value.kind == JsonValueKind::null_value)
         return decode_failure(GatewayEventDecodeError::none);
     InteractionContext context{};
@@ -142,12 +141,11 @@ GatewayEventDecodeResult decode_interaction(const JsonValue& value, const JsonIn
     const auto selected =
         user.global_name.encoded.data && !user.global_name_null ? user.global_name : user.username;
     const auto command = context.localized_name.encoded.data ? context.localized_name : context.name;
-    if ((selected.encoded.data && !bounded_string(selected, kGatewayMessageUserNameMaximumBytes, text, used,
-                                                  &interaction.user_name, &output->rich_truncations)) ||
+    if ((selected.encoded.data &&
+         !bounded_string(selected, kGatewayMessageUserNameMaximumBytes, text, &interaction.user_name)) ||
         (user.avatar.encoded.data && !user.avatar_null &&
-         !bounded_string(user.avatar, kGatewayMessageAvatarHashMaximumBytes, text, used,
-                         &interaction.user_avatar_hash, &output->rich_truncations)) ||
-        !bounded_string(command, 256, text, used, &interaction.command_name, &output->rich_truncations)) {
+         !bounded_string(user.avatar, kGatewayMessageAvatarHashMaximumBytes, text, &interaction.user_avatar_hash)) ||
+        !bounded_string(command, 256, text, &interaction.command_name)) {
         return decode_failure(GatewayEventDecodeError::invalid_data);
     }
     return decode_failure(GatewayEventDecodeError::none);
@@ -211,7 +209,7 @@ bool visit_thread(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 
 GatewayEventDecodeResult decode_thread(const JsonValue& value, const JsonIndexedDocument& scratch, u32 depth,
-                                       Slice<char> text, u32* used, GatewayMessageEvent* output) noexcept {
+                                       const RichText& text, GatewayMessageEvent* output) noexcept {
     reset_value(&output->thread);
     if (value.kind == JsonValueKind::null_value)
         return decode_failure(GatewayEventDecodeError::none);
@@ -233,8 +231,7 @@ GatewayEventDecodeResult decode_thread(const JsonValue& value, const JsonIndexed
     thread.archived = context.archived;
     thread.locked = context.locked;
     thread.present = true;
-    if (!bounded_string(context.name, kGatewayMessageUserNameMaximumBytes, text, used, &thread.name,
-                        &output->rich_truncations))
+    if (!bounded_string(context.name, kGatewayMessageUserNameMaximumBytes, text, &thread.name))
         return decode_failure(GatewayEventDecodeError::invalid_data);
     return decode_failure(GatewayEventDecodeError::none);
 }
@@ -373,7 +370,7 @@ bool visit_reaction(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 
 GatewayEventDecodeResult decode_reactions(JsonValue array, const JsonIndexedDocument& scratch,
-                                          u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                          u32 maximum_depth, const RichText& text,
                                           GatewayMessageRichScratch output_scratch,
                                           GatewayMessageEvent* output) noexcept {
     DecodeScratch<JsonValue, kGatewayMessageReactionMaximum> values;
@@ -430,8 +427,7 @@ GatewayEventDecodeResult decode_reactions(JsonValue array, const JsonIndexedDocu
         destination.animated = emoji.animated;
         if (!emoji.name_null &&
             (emoji.name.encoded.bytes == 0 ||
-             !bounded_string(emoji.name, kGatewayMessageUserNameMaximumBytes, text_output, text_used,
-                             &destination.name, &output->rich_truncations))) {
+             !bounded_string(emoji.name, kGatewayMessageUserNameMaximumBytes, text, &destination.name))) {
             return decode_failure(GatewayEventDecodeError::invalid_data, reaction.emoji.source_offset);
         }
     }
@@ -518,7 +514,7 @@ bool visit_attachment(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 
 GatewayEventDecodeResult decode_attachments(JsonValue array, const JsonIndexedDocument& scratch,
-                                            u32 maximum_depth, Slice<char> text_output, u32* text_used,
+                                            u32 maximum_depth, const RichText& text,
                                             GatewayMessageRichScratch output_scratch,
                                             GatewayMessageEvent* output) noexcept {
     DecodeScratch<JsonValue, kGatewayMessageAttachmentMaximum> values;
@@ -544,27 +540,22 @@ GatewayEventDecodeResult decode_attachments(JsonValue array, const JsonIndexedDo
         }
         GatewayMessageAttachment& destination = output_scratch.attachments[index];
         destination = context.value;
-        if (!bounded_string(context.filename, kRichAttachmentNameMaximumBytes, text_output, text_used,
-                            &destination.filename, &output->rich_truncations) ||
+        if (!bounded_string(context.filename, kRichAttachmentNameMaximumBytes, text, &destination.filename) ||
             ((context.seen & (1ull << 2)) != 0 &&
-             !bounded_string(context.title, kRichAttachmentNameMaximumBytes, text_output, text_used,
-                             &destination.title, &output->rich_truncations)) ||
+             !bounded_string(context.title, kRichAttachmentNameMaximumBytes, text, &destination.title)) ||
             ((context.seen & (1ull << 3)) != 0 &&
-             !bounded_string(context.description, kRichAttachmentDescriptionMaximumBytes, text_output,
-                             text_used, &destination.description, &output->rich_truncations)) ||
+             !bounded_string(context.description, kRichAttachmentDescriptionMaximumBytes, text,
+                             &destination.description)) ||
             ((context.seen & (1ull << 4)) != 0 &&
-             !bounded_string(context.content_type, kRichContentTypeMaximumBytes, text_output, text_used,
-                             &destination.content_type, &output->rich_truncations)) ||
-            !bounded_string(context.url, kRichUrlMaximumBytes, text_output, text_used, &destination.url,
-                            &output->rich_truncations)) {
+             !bounded_string(context.content_type, kRichContentTypeMaximumBytes, text, &destination.content_type)) ||
+            !bounded_string(context.url, kRichUrlMaximumBytes, text, &destination.url)) {
             return decode_failure(GatewayEventDecodeError::invalid_data, values[index].source_offset);
         }
         if (context.waveform.encoded.bytes) {
             char encoded[kGatewayMessageWaveformMaximumBytes];
             const auto decoded = json_string_decode_utf8(context.waveform, {encoded, sizeof(encoded)});
             if (!decoded.ok() || !gateway_message_waveform_valid({encoded, decoded.bytes}) ||
-                !bounded_string(context.waveform, kGatewayMessageWaveformMaximumBytes, text_output,
-                                text_used, &destination.waveform, &output->rich_truncations))
+                !bounded_string(context.waveform, kGatewayMessageWaveformMaximumBytes, text, &destination.waveform))
                 return decode_failure(GatewayEventDecodeError::invalid_data, values[index].source_offset);
         }
         if (destination.url.bytes != 0 && !rich_url_valid(destination.url, false)) {
@@ -606,18 +597,18 @@ bool visit_embed_part(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 
 // Optional embed URLs degrade to absent instead of rejecting the message.
-bool embed_part_url(const EmbedPartContext& part, u64 bit, JsonString source, Slice<char> text_output,
-                    u32* text_used, Utf8View* destination, u32* truncations) noexcept {
+bool embed_part_url(const EmbedPartContext& part, u64 bit, const JsonString& source, const RichText& text,
+                    Utf8View* destination) noexcept {
     if ((part.seen & bit) == 0) {
         return true;
     }
-    const u32 rollback = *text_used;
-    if (!bounded_string(source, kRichUrlMaximumBytes, text_output, text_used, destination, truncations)) {
+    const u32 rollback = *text.used;
+    if (!bounded_string(source, kRichUrlMaximumBytes, text, destination)) {
         return false;
     }
     if (destination->bytes != 0 && !rich_url_valid(*destination, false)) {
         reset_value<Utf8View>(destination);
-        *text_used = rollback;
+        *text.used = rollback;
     }
     return true;
 }
