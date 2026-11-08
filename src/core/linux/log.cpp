@@ -1,7 +1,7 @@
-// log.hpp on Linux: the same buffered file log as src/core/log.cpp, on open/write/rename and a futex lock. Lines end
-// in "\n". Time stamps are local time in the user's zone (os/local_time.hpp: $TZ or the /etc/localtime TZif database;
-// UTC when none is readable), as on Windows. The file is <state directory>/logs/maicord.log (D19:
-// $XDG_STATE_HOME/maicord, see state_path in data_path.hpp).
+// log.hpp on Linux: the same buffered file log as src/core/log.cpp, on open/write/rename and an SRW lock (the futex
+// twin of os/linux/srwlock.hpp). Lines end in "\n". Time stamps are local time in the user's zone (os/local_time.hpp:
+// $TZ or the /etc/localtime TZif database; UTC when none is readable), as on Windows. The file is <state
+// directory>/logs/maicord.log (D19: $XDG_STATE_HOME/maicord, see state_path in data_path.hpp).
 //
 // Lines are formatted in place after the buffered bytes, under the lock: one lock and one copy per line, whatever its
 // fields (core/log_event.hpp builds a multi-field event on the caller's stack first). Warning and error lines, a full
@@ -15,9 +15,12 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/os/local_time.hpp"
+#include "maicord/os/linux/srwlock.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/libc.hpp"
 #include "maicord/sys/linux/path.hpp"
+
+#include "../log_shared.inc"
 
 namespace maicord {
 namespace {
@@ -32,30 +35,9 @@ constexpr i64 kFlushDelayMilliseconds = 10;
 constexpr u32 kStampCharacters = 19; // "YYYY-MM-DD HH:MM:SS"
 constexpr u32 kPrefixCharacters = kStampCharacters + 10; // stamp, ".mmm [L] ["
 
-// A futex lock: 0 free, 1 held, 2 held with waiters.
-struct Lock {
-    volatile u32 state;
-
-    void acquire() noexcept {
-        u32 expected = 0;
-        if (__atomic_compare_exchange_n(&state, &expected, 1u, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
-            return;
-        }
-        while (__atomic_exchange_n(&state, 2u, __ATOMIC_ACQUIRE) != 0) {
-            sys_futex_wait(&state, 2, nullptr);
-        }
-    }
-
-    void release() noexcept {
-        if (__atomic_exchange_n(&state, 0u, __ATOMIC_RELEASE) == 2) {
-            sys_futex_wake(&state, 1);
-        }
-    }
-};
-
 struct LogState {
     int file_plus_one; // the descriptor plus one; 0 without a file, so that the whole state is zero (.bss, not .data)
-    Lock lock;
+    SRWLOCK lock;
     u64 file_bytes;
     // The flush thread sleeps while `flush_wanted` is 0 and flushes once the delay after it became 1.
     unsigned long flush_thread;
@@ -80,39 +62,6 @@ void set_log_file(int descriptor) noexcept {
     g_log.file_plus_one = descriptor + 1;
 }
 
-// Appends to a line, dropping what does not fit.
-struct LineWriter {
-    char* at;
-    char* end;
-
-    void put(const char* text) noexcept {
-        for (; *text != 0 && at != end; ++text)
-            *at++ = *text;
-    }
-};
-
-// The low `digits` decimal digits of value, zero-padded.
-void put_fixed_decimal(char* output, u32 value, u32 digits) noexcept {
-    while (digits != 0) {
-        output[--digits] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    }
-}
-
-char level_letter(LogLevel level) noexcept {
-    switch (level) {
-    case LogLevel::trace:
-        return 'T';
-    case LogLevel::info:
-        return 'I';
-    case LogLevel::warning:
-        return 'W';
-    case LogLevel::error:
-        return 'E';
-    }
-    return '?';
-}
-
 // Caller holds the lock. The date/time prefix changes once per second.
 void copy_stamp_locked(char* line, u64 second) noexcept {
     if (g_log.stamp_second != second) {
@@ -120,18 +69,8 @@ void copy_stamp_locked(char* line, u64 second) noexcept {
         const u64 local = shifted > 0 ? static_cast<u64>(shifted) : 0; // the clock is past 1970; a negative reading clamps
         const CivilDate date = civil_date_from_days(static_cast<i64>(local / 86400));
         const u32 seconds_of_day = static_cast<u32>(local % 86400);
-        char* stamp = g_log.stamp;
-        put_fixed_decimal(stamp, static_cast<u32>(date.year), 4);
-        stamp[4] = '-';
-        put_fixed_decimal(stamp + 5, date.month, 2);
-        stamp[7] = '-';
-        put_fixed_decimal(stamp + 8, date.day, 2);
-        stamp[10] = ' ';
-        put_fixed_decimal(stamp + 11, seconds_of_day / 3600, 2);
-        stamp[13] = ':';
-        put_fixed_decimal(stamp + 14, seconds_of_day / 60 % 60, 2);
-        stamp[16] = ':';
-        put_fixed_decimal(stamp + 17, seconds_of_day % 60, 2);
+        put_stamp(g_log.stamp, static_cast<u32>(date.year), date.month, date.day, seconds_of_day / 3600,
+                  seconds_of_day / 60 % 60, seconds_of_day % 60);
         g_log.stamp_second = second;
     }
     copy_bytes(line, g_log.stamp, kStampCharacters);
@@ -153,9 +92,9 @@ void flush_locked() noexcept {
 void* flush_thread_main(void*) {
     for (;;) {
         while (!__atomic_load_n(&g_log.flush_wanted, __ATOMIC_ACQUIRE)) {
-            g_log.lock.acquire();
+            AcquireSRWLockExclusive(&g_log.lock);
             const bool stop = g_log.stopping;
-            g_log.lock.release();
+            ReleaseSRWLockExclusive(&g_log.lock);
             if (stop) {
                 return nullptr;
             }
@@ -163,10 +102,10 @@ void* flush_thread_main(void*) {
         }
         const TimeSpec delay{0, kFlushDelayMilliseconds * 1'000'000};
         sys_nanosleep(&delay);
-        g_log.lock.acquire();
+        AcquireSRWLockExclusive(&g_log.lock);
         flush_locked();
         __atomic_store_n(&g_log.flush_wanted, 0u, __ATOMIC_RELEASE);
-        g_log.lock.release();
+        ReleaseSRWLockExclusive(&g_log.lock);
     }
 }
 
@@ -179,12 +118,10 @@ bool start_flush_thread_locked() noexcept {
     return g_log.flush_thread_started;
 }
 
-// Takes the lock and starts a line after the buffered bytes, room for a whole
-// line made first: "YYYY-MM-DD HH:MM:SS.mmm [L] [component] ".
 LineWriter begin_line(LogLevel level, const char* component) noexcept {
     TimeSpec now{};
     clock_gettime(kClockRealtime, &now);
-    g_log.lock.acquire();
+    AcquireSRWLockExclusive(&g_log.lock);
     if (kBufferBytes - g_log.buffered < kLineBytes) {
         flush_locked();
     }
@@ -200,7 +137,6 @@ LineWriter begin_line(LogLevel level, const char* component) noexcept {
     return writer;
 }
 
-// Ends the line begun by begin_line and releases the lock.
 void commit_line(LineWriter writer, LogLevel level) noexcept {
     writer.put("\n");
     const char* line = g_log.buffer + g_log.buffered;
@@ -225,7 +161,7 @@ void commit_line(LineWriter writer, LogLevel level) noexcept {
             }
         }
     }
-    g_log.lock.release();
+    ReleaseSRWLockExclusive(&g_log.lock);
 }
 
 // Opens `path` (UTF-16) for appending; the descriptor, or -1.
@@ -294,13 +230,13 @@ bool log_open() noexcept {
 }
 
 void log_flush() noexcept {
-    g_log.lock.acquire();
+    AcquireSRWLockExclusive(&g_log.lock);
     flush_locked();
-    g_log.lock.release();
+    ReleaseSRWLockExclusive(&g_log.lock);
 }
 
 void log_close() noexcept {
-    g_log.lock.acquire();
+    AcquireSRWLockExclusive(&g_log.lock);
     flush_locked();
     if (log_file() >= 0) {
         sys_close(log_file());
@@ -309,7 +245,7 @@ void log_close() noexcept {
     g_log.file_bytes = 0;
     const bool thread_started = g_log.flush_thread_started;
     g_log.stopping = true;
-    g_log.lock.release();
+    ReleaseSRWLockExclusive(&g_log.lock);
     if (thread_started) {
         // Without a file a late wake has nothing to write; joining keeps the thread from outliving the state.
         __atomic_store_n(&g_log.flush_wanted, 1u, __ATOMIC_RELEASE);
@@ -320,28 +256,10 @@ void log_close() noexcept {
     g_log.flush_wanted = 0;
 }
 
-void log_write(LogLevel level, const char* component, const char* message) noexcept {
-    LineWriter line = begin_line(level, component);
-    if (message) {
-        line.put(message);
-    }
-    commit_line(line, level);
-}
-
-void log_u64(LogLevel level, const char* component, const char* key, u64 value) noexcept {
-    char text[22];
-    text[0] = '=';
-    text[1 + decimal_write(text + 1, value)] = 0;
-    LineWriter line = begin_line(level, component);
-    line.put(key ? key : "value");
-    line.put(text);
-    commit_line(line, level);
-}
-
 LogCounters log_counters() noexcept {
-    g_log.lock.acquire();
+    AcquireSRWLockExclusive(&g_log.lock);
     const LogCounters counters = g_log.counters;
-    g_log.lock.release();
+    ReleaseSRWLockExclusive(&g_log.lock);
     return counters;
 }
 

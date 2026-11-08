@@ -42,12 +42,6 @@ inline unsigned long long __popcnt64(unsigned long long value) noexcept {
 inline unsigned long long _byteswap_uint64(unsigned long long value) noexcept {
     return __builtin_bswap64(value);
 }
-inline unsigned int _byteswap_ulong(unsigned int value) noexcept {
-    return __builtin_bswap32(value);
-}
-inline unsigned short _byteswap_ushort(unsigned short value) noexcept {
-    return __builtin_bswap16(value);
-}
 
 // _ReadWriteBarrier and the _Interlocked* family are clang builtins under -fms-extensions, with the Windows
 // signatures (the 32-bit `long` of Windows is an int here): declared, not defined.
@@ -55,8 +49,4 @@ extern "C" {
 void _ReadWriteBarrier(void);
 LONG _InterlockedCompareExchange(LONG volatile* destination, LONG exchange, LONG comparand);
 LONG _InterlockedExchange(LONG volatile* target, LONG value);
-LONG _InterlockedExchangeAdd(LONG volatile* addend, LONG value);
-LONG _InterlockedIncrement(LONG volatile* addend);
-LONG _InterlockedDecrement(LONG volatile* addend);
-LONG _InterlockedOr(LONG volatile* destination, LONG mask);
 }

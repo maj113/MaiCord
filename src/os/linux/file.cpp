@@ -5,33 +5,16 @@
 // FileOpen::share is advisory (flock): see the header. Opening for create_always without a lock truncates with
 // O_TRUNC; with one, the file is truncated only after the lock is held, so a refused open never destroys data.
 #include "maicord/os/file.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/os/linux/error.hpp"
 #include "maicord/platform/desktop/file_identity.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/path.hpp"
+#include "file_common.hpp"
 
 namespace maicord {
-namespace {
-
-constexpr u32 kPathCapacity = 4096;
-constexpr u32 kModeOwner = 0600;
-// FILETIME of the Unix epoch: 100 ns units from 1601-01-01 to 1970-01-01.
-constexpr i64 kUnixEpochSeconds = 11'644'473'600;
-constexpr u32 kChunkLimit = 1u << 30;
-constexpr int kNotSupported = 95; // ENOTSUP / EOPNOTSUPP
-
-FileHandle make_handle(int fd) noexcept {
-    return reinterpret_cast<FileHandle>(static_cast<u64>(fd) + 1);
-}
-
-bool valid(FileHandle file) noexcept {
-    return file != nullptr && file != INVALID_HANDLE_VALUE;
-}
-
-int descriptor(FileHandle file) noexcept {
-    return static_cast<int>(reinterpret_cast<u64>(file) - 1);
-}
+namespace linux_file {
 
 bool fail(long result) noexcept {
     set_thread_last_error(win32_error_from_result(result));
@@ -43,16 +26,11 @@ bool fail_with(u32 error) noexcept {
     return false;
 }
 
-// UTF-8 of `path`, or false with the error Windows gives for that path.
 bool utf8_path(const wchar_t* path, char (&text)[kPathCapacity]) noexcept {
     if (path != nullptr && path_to_utf8(path, text, kPathCapacity) != 0) {
         return true;
     }
     return fail_with(path != nullptr && path[0] != 0 ? ERROR_BAD_PATHNAME : ERROR_PATH_NOT_FOUND);
-}
-
-bool invalid_handle() noexcept {
-    return fail_with(ERROR_INVALID_HANDLE);
 }
 
 u64 filetime_value(const StatxTimestamp& time) noexcept {
@@ -70,6 +48,32 @@ FileKind kind_of(u16 mode) noexcept {
     default:
         return FileKind::other;
     }
+}
+
+} // namespace linux_file
+
+using namespace linux_file;
+
+namespace {
+
+constexpr u32 kModeOwner = 0600;
+constexpr u32 kChunkLimit = 1u << 30;
+constexpr int kNotSupported = 95; // ENOTSUP / EOPNOTSUPP
+
+FileHandle make_handle(int fd) noexcept {
+    return reinterpret_cast<FileHandle>(static_cast<u64>(fd) + 1);
+}
+
+bool valid(FileHandle file) noexcept {
+    return file != nullptr && file != INVALID_HANDLE_VALUE;
+}
+
+int descriptor(FileHandle file) noexcept {
+    return static_cast<int>(reinterpret_cast<u64>(file) - 1);
+}
+
+bool invalid_handle() noexcept {
+    return fail_with(ERROR_INVALID_HANDLE);
 }
 
 FileStat stat_from(const Statx& statx) noexcept {
@@ -125,21 +129,42 @@ long sync_parent(const char* path) noexcept {
     return result == -kErrorInvalid || result == -kNotSupported ? 0 : result;
 }
 
-// The durable half of a move: the new bytes reach the storage before the name does.
-bool sync_before_move(const char* from) noexcept {
-    const long result = sync_path(from, kOpenReadOnly);
-    return !syscall_failed(result) || fail(result);
+// file_replace (`replace`) and file_rename_noreplace. `durable`: the new bytes reach the storage before the name
+// does, and the name before the call returns.
+bool move_file(const wchar_t* from, const wchar_t* to, bool durable, bool replace) noexcept {
+    char source[kPathCapacity];
+    char target[kPathCapacity];
+    if (!utf8_path(from, source) || !utf8_path(to, target)) {
+        return false;
+    }
+    long moved = durable ? sync_path(source, kOpenReadOnly) : 0;
+    if (!syscall_failed(moved) && replace) {
+        moved = sys_rename(source, target);
+    } else if (!syscall_failed(moved)) {
+        moved = sys_renameat2(source, target, kRenameNoReplace);
+        if (moved == -kErrorInvalid || moved == -kNotSupported) {
+            // A file system without RENAME_NOREPLACE: link() refuses an existing name too.
+            moved = sys_link(source, target);
+            if (!syscall_failed(moved)) {
+                moved = sys_unlink(source);
+            }
+        }
+    }
+    if (!syscall_failed(moved) && durable) {
+        moved = sync_parent(target);
+    }
+    return !syscall_failed(moved) || fail(moved);
 }
 
-bool sync_after_move(const char* to) noexcept {
-    const long result = sync_parent(to);
-    return !syscall_failed(result) || fail(result);
+// Whether a FileOpen's sharing takes a lock: every access but attributes that does not let others write.
+bool locks(const FileOpen& options) noexcept {
+    return options.access != FileAccess::attributes && (options.share & kFileShareWrite) == 0;
 }
 
 // Takes the lock a FileOpen's sharing asks for. False (with the sharing violation set) only when another
 // descriptor holds a conflicting lock; a file system without locks just gets none.
 bool take_share_lock(int fd, const FileOpen& options) noexcept {
-    if (options.access == FileAccess::attributes || (options.share & kFileShareWrite) != 0) {
+    if (!locks(options)) {
         return true;
     }
     const bool writes = options.access != FileAccess::read;
@@ -148,10 +173,6 @@ bool take_share_lock(int fd, const FileOpen& options) noexcept {
         return fail_with(ERROR_SHARING_VIOLATION);
     }
     return true;
-}
-
-bool locks(const FileOpen& options) noexcept {
-    return options.access != FileAccess::attributes && (options.share & kFileShareWrite) == 0;
 }
 
 } // namespace
@@ -243,7 +264,10 @@ bool file_close(FileHandle file) noexcept {
     return syscall_failed(result) ? fail(result) : true;
 }
 
-bool file_read(FileHandle file, void* buffer, u32 bytes, u32* read) noexcept {
+namespace {
+
+// file_read from the current position, or file_read_at from `offset` when `at` is set.
+bool read_all(FileHandle file, bool at, u64 offset, void* buffer, u32 bytes, u32* read) noexcept {
     *read = 0;
     if (!valid(file)) {
         return invalid_handle();
@@ -252,7 +276,8 @@ bool file_read(FileHandle file, void* buffer, u32 bytes, u32* read) noexcept {
     u32 total = 0;
     while (total < bytes) {
         const u32 chunk = minimum(bytes - total, kChunkLimit);
-        const long result = sys_read(descriptor(file), destination + total, chunk);
+        const long result = at ? sys_pread(descriptor(file), destination + total, chunk, offset + total)
+                               : sys_read(descriptor(file), destination + total, chunk);
         if (result == -kErrorInterrupted) {
             continue;
         }
@@ -269,30 +294,14 @@ bool file_read(FileHandle file, void* buffer, u32 bytes, u32* read) noexcept {
     return true;
 }
 
+} // namespace
+
+bool file_read(FileHandle file, void* buffer, u32 bytes, u32* read) noexcept {
+    return read_all(file, false, 0, buffer, bytes, read);
+}
+
 bool file_read_at(FileHandle file, u64 offset, void* buffer, u32 bytes, u32* read) noexcept {
-    *read = 0;
-    if (!valid(file)) {
-        return invalid_handle();
-    }
-    auto* destination = static_cast<u8*>(buffer);
-    u32 total = 0;
-    while (total < bytes) {
-        const u32 chunk = minimum(bytes - total, kChunkLimit);
-        const long result = sys_pread(descriptor(file), destination + total, chunk, offset + total);
-        if (result == -kErrorInterrupted) {
-            continue;
-        }
-        if (syscall_failed(result)) {
-            *read = total;
-            return fail(result);
-        }
-        if (result == 0) {
-            break;
-        }
-        total += static_cast<u32>(result);
-    }
-    *read = total;
-    return true;
+    return read_all(file, true, offset, buffer, bytes, read);
 }
 
 bool file_write(FileHandle file, const void* buffer, u32 bytes, u32* written) noexcept {
@@ -400,42 +409,11 @@ bool file_times(FileHandle file, u64* last_write, u64* change) noexcept {
 }
 
 bool file_replace(const wchar_t* from, const wchar_t* to, bool durable) noexcept {
-    char source[kPathCapacity];
-    char target[kPathCapacity];
-    if (!utf8_path(from, source) || !utf8_path(to, target)) {
-        return false;
-    }
-    if (durable && !sync_before_move(source)) {
-        return false;
-    }
-    const long moved = sys_rename(source, target);
-    if (syscall_failed(moved)) {
-        return fail(moved);
-    }
-    return !durable || sync_after_move(target);
+    return move_file(from, to, durable, true);
 }
 
 bool file_rename_noreplace(const wchar_t* from, const wchar_t* to, bool durable) noexcept {
-    char source[kPathCapacity];
-    char target[kPathCapacity];
-    if (!utf8_path(from, source) || !utf8_path(to, target)) {
-        return false;
-    }
-    if (durable && !sync_before_move(source)) {
-        return false;
-    }
-    long moved = sys_renameat2(source, target, kRenameNoReplace);
-    if (moved == -kErrorInvalid || moved == -kNotSupported) {
-        // A file system without RENAME_NOREPLACE: link() refuses an existing name too.
-        moved = sys_link(source, target);
-        if (!syscall_failed(moved)) {
-            moved = sys_unlink(source);
-        }
-    }
-    if (syscall_failed(moved)) {
-        return fail(moved);
-    }
-    return !durable || sync_after_move(target);
+    return move_file(from, to, durable, false);
 }
 
 bool file_remove(const wchar_t* path) noexcept {
@@ -543,35 +521,8 @@ namespace {
 
 // "/proc/self/fd/<fd>" as a path string.
 void proc_fd_path(int fd, char (&path)[32]) noexcept {
-    const char prefix[] = "/proc/self/fd/";
-    u32 length = 0;
-    for (; prefix[length]; ++length) {
-        path[length] = prefix[length];
-    }
-    char digits[12];
-    u32 count = 0;
-    u32 value = static_cast<u32>(fd);
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    while (count != 0) {
-        path[length++] = digits[--count];
-    }
-    path[length] = 0;
-}
-
-// Where the open file is now, as the kernel reports it.
-bool resolve_descriptor(FileHandle file, char (&text)[kPathCapacity], long* length) noexcept {
-    char link[32];
-    proc_fd_path(descriptor(file), link);
-    const long result = sys_readlink(link, text, kPathCapacity - 1);
-    if (syscall_failed(result)) {
-        return fail(result);
-    }
-    text[result] = 0;
-    *length = result;
-    return true;
+    copy_bytes(path, "/proc/self/fd/", 14);
+    path[14 + decimal_write(path + 14, static_cast<u32>(fd))] = 0;
 }
 
 } // namespace
@@ -580,12 +531,16 @@ bool file_mark_delete_on_close(FileHandle file) noexcept {
     if (!valid(file)) {
         return invalid_handle();
     }
+    // Unlinks the name the file has now, as the kernel reports it.
+    char link[32];
+    proc_fd_path(descriptor(file), link);
     char text[kPathCapacity];
-    long length = 0;
-    if (!resolve_descriptor(file, text, &length)) {
-        return false;
+    long result = sys_readlink(link, text, kPathCapacity - 1);
+    if (syscall_failed(result)) {
+        return fail(result);
     }
-    const long result = sys_unlink(text);
+    text[result] = 0;
+    result = sys_unlink(text);
     return !syscall_failed(result) || fail(result);
 }
 

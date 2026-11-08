@@ -81,11 +81,11 @@ struct LogEvent {
         append(" ");
         append(key);
         append("=\"");
-        char one[2] = {};
-        for (; value && *value; ++value) {
-            one[0] = *value == '"' ? '\'' : *value;
-            append(one);
-        }
+        u32 cursor = used;
+        for (; value && *value && cursor + 1 < sizeof(text); ++value)
+            text[cursor++] = *value == '"' ? '\'' : *value;
+        text[cursor] = 0;
+        used = cursor;
         append("\"");
         return *this;
     }

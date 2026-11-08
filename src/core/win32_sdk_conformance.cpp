@@ -4,7 +4,6 @@
 // tools/generate_sys_conformance.py generates.
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
-#include "maicord/core/win32_user.hpp"
 
 #include <Windows.h>
 #include <stddef.h>
@@ -18,9 +17,6 @@ namespace maicord {
     static_assert(sizeof(ours) == sizeof(theirs) && alignof(ours) == alignof(theirs))
 
 MAICORD_SAME_RECORD(SrwLock, SRWLOCK);
-MAICORD_SAME_RECORD(Win32Point, POINT);
-MAICORD_SAME_FIELD(Win32Point, POINT, x);
-MAICORD_SAME_FIELD(Win32Point, POINT, y);
 MAICORD_SAME_RECORD(Win32Rect, RECT);
 MAICORD_SAME_FIELD(Win32Rect, RECT, left);
 MAICORD_SAME_FIELD(Win32Rect, RECT, top);
@@ -55,10 +51,5 @@ MAICORD_SAME_FIELD(Win32MemoryInformation, MEMORY_BASIC_INFORMATION, RegionSize)
 MAICORD_SAME_FIELD(Win32MemoryInformation, MEMORY_BASIC_INFORMATION, State);
 MAICORD_SAME_FIELD(Win32MemoryInformation, MEMORY_BASIC_INFORMATION, Protect);
 MAICORD_SAME_FIELD(Win32MemoryInformation, MEMORY_BASIC_INFORMATION, Type);
-MAICORD_SAME_RECORD(Win32TrackMouseEvent, TRACKMOUSEEVENT);
-MAICORD_SAME_FIELD(Win32TrackMouseEvent, TRACKMOUSEEVENT, cbSize);
-MAICORD_SAME_FIELD(Win32TrackMouseEvent, TRACKMOUSEEVENT, dwFlags);
-MAICORD_SAME_FIELD(Win32TrackMouseEvent, TRACKMOUSEEVENT, hwndTrack);
-MAICORD_SAME_FIELD(Win32TrackMouseEvent, TRACKMOUSEEVENT, dwHoverTime);
 
 } // namespace maicord

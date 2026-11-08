@@ -91,27 +91,20 @@ void date_picture(const wchar_t* picture, const CalendarTime& t, Output* output)
             continue;
         }
         const u32 run = (c == L'd' || c == L'M' || c == L'y' || c == L'g') ? run_of(picture, at, c) : 1;
+        // One or two letters: the number (two: zero-padded); three: the abbreviated name; four: the full name.
         if (c == L'd') {
-            if (run == 1)
-                output->put_number(t.wDay, 1);
-            else if (run == 2)
-                output->put_number(t.wDay, 2);
-            else if (run == 3)
-                output->put_ascii(kDays[weekday(t)], 3);
+            if (run <= 2)
+                output->put_number(t.wDay, run);
             else
-                output->put_ascii(kDays[weekday(t)]);
+                output->put_ascii(kDays[weekday(t)], run == 3 ? 3 : ~0u);
         } else if (c == L'M') {
             if (run <= 2)
                 output->put_number(t.wMonth, run);
-            else if (run == 3)
-                output->put_ascii(kMonths[t.wMonth - 1], 3);
             else
-                output->put_ascii(kMonths[t.wMonth - 1]);
+                output->put_ascii(kMonths[t.wMonth - 1], run == 3 ? 3 : ~0u);
         } else if (c == L'y') {
-            if (run == 1)
-                output->put_number(t.wYear % 100, 1);
-            else if (run == 2)
-                output->put_number(t.wYear % 100, 2);
+            if (run <= 2)
+                output->put_number(t.wYear % 100, run);
             else
                 output->put_number(t.wYear, 4);
         } else if (c == L'g') {

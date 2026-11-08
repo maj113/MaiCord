@@ -1,35 +1,22 @@
 // maicord/os/file.hpp on Linux: directory enumeration (getdents64) and the directory watch (inotify, or a timed
 // scan on file systems that do not report changes made elsewhere).
 #include "maicord/os/file.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/os/linux/error.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/path.hpp"
+#include "file_common.hpp"
 
 namespace maicord {
+using namespace linux_file;
 namespace {
 
-constexpr u32 kPathCapacity = 4096;
-constexpr i64 kUnixEpochSeconds = 11'644'473'600;
 // How often a file system that inotify cannot watch is scanned.
 constexpr u64 kScanIntervalMilliseconds = 500;
 
 constexpr u32 kWatchClosed = 0;
 constexpr u32 kWatchInotify = 1;
 constexpr u32 kWatchScan = 2;
-
-bool fail(long result) noexcept {
-    set_thread_last_error(win32_error_from_result(result));
-    return false;
-}
-
-bool fail_with(u32 error) noexcept {
-    set_thread_last_error(error);
-    return false;
-}
-
-u64 filetime_value(const StatxTimestamp& time) noexcept {
-    return static_cast<u64>((time.seconds + kUnixEpochSeconds) * 10'000'000 + time.nanoseconds / 100);
-}
 
 bool dot_entry(const char* name) noexcept {
     return name[0] == '.' && (name[1] == 0 || (name[1] == '.' && name[2] == 0));
@@ -65,19 +52,15 @@ u64 scan_signature(int directory) noexcept {
     }
     DirIter iterator{};
     adopt_directory(&iterator, static_cast<int>(opened));
-    u64 signature = 1469598103934665603ull;
-    const auto mix = [&signature](u64 value) noexcept { signature = (signature ^ value) * 1099511628211ull; };
     // Entries come in directory order, which changes with every rename, so the entries are combined without order.
     u64 combined = 0;
     DirEntry entry;
     while (dir_next(&iterator, &entry)) {
-        signature = 1469598103934665603ull;
+        u64 signature = kHash64Seed;
         for (u32 index = 0; entry.name[index]; ++index) {
-            mix(static_cast<u16>(entry.name[index]));
+            signature = hash64_mix(signature, static_cast<u16>(entry.name[index]));
         }
-        mix(entry.bytes);
-        mix(entry.last_write);
-        combined += signature;
+        combined += hash64_mix(hash64_mix(signature, entry.bytes), entry.last_write);
     }
     dir_close(&iterator);
     return combined | 1;
@@ -87,8 +70,8 @@ u64 scan_signature(int directory) noexcept {
 
 bool dir_open(DirIter* iterator, const wchar_t* directory) noexcept {
     char text[kPathCapacity];
-    if (directory == nullptr || path_to_utf8(directory, text, kPathCapacity) == 0) {
-        return fail_with(directory != nullptr && directory[0] != 0 ? ERROR_BAD_PATHNAME : ERROR_PATH_NOT_FOUND);
+    if (!utf8_path(directory, text)) {
+        return false;
     }
     const long opened = sys_open(text, kOpenReadOnly | kOpenDirectory);
     if (syscall_failed(opened)) {
@@ -125,13 +108,11 @@ bool dir_next(DirIter* iterator, DirEntry* entry) noexcept {
             continue;
         }
         // A name that is not UTF-8, holds a backslash or is too long for an entry cannot be named by shared code.
-        bool nameable = true;
-        for (const char* scan = name; *scan; ++scan) {
-            if (*scan == '\\') {
-                nameable = false;
-            }
+        const char* scan = name;
+        while (*scan && *scan != '\\') {
+            ++scan;
         }
-        if (!nameable || path_from_utf8(name, entry->name, sizeof(entry->name) / sizeof(entry->name[0])) == 0) {
+        if (*scan || path_from_utf8(name, entry->name, sizeof(entry->name) / sizeof(entry->name[0])) == 0) {
             continue;
         }
         Statx statx{};
@@ -140,20 +121,7 @@ bool dir_next(DirIter* iterator, DirEntry* entry) noexcept {
             // Removed since it was listed.
             continue;
         }
-        switch (statx.mode & kModeTypeMask) {
-        case kModeRegular:
-            entry->kind = FileKind::regular;
-            break;
-        case kModeDirectory:
-            entry->kind = FileKind::directory;
-            break;
-        case kModeLink:
-            entry->kind = FileKind::link;
-            break;
-        default:
-            entry->kind = FileKind::other;
-            break;
-        }
+        entry->kind = kind_of(statx.mode);
         entry->bytes = statx.size;
         entry->last_write = filetime_value(statx.modify);
         return true;
@@ -170,8 +138,8 @@ void dir_close(DirIter* iterator) noexcept {
 bool dir_watch_open(DirWatch* watch, const wchar_t* directory) noexcept {
     *watch = {};
     char text[kPathCapacity];
-    if (directory == nullptr || path_to_utf8(directory, text, kPathCapacity) == 0) {
-        return fail_with(directory != nullptr && directory[0] != 0 ? ERROR_BAD_PATHNAME : ERROR_PATH_NOT_FOUND);
+    if (!utf8_path(directory, text)) {
+        return false;
     }
     const long opened = sys_open(text, kOpenReadOnly | kOpenDirectory);
     if (syscall_failed(opened)) {

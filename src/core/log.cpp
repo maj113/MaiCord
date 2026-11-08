@@ -7,6 +7,8 @@
 #include "maicord/core/win32_system_time.hpp"
 #include "maicord/core/win32_threadpool.hpp"
 
+#include "log_shared.inc"
+
 namespace maicord {
 namespace {
 
@@ -44,39 +46,6 @@ struct LogState {
 
 LogState g_log{};
 
-// Appends to a line, dropping what does not fit.
-struct LineWriter {
-    char* at;
-    char* end;
-
-    void put(const char* text) noexcept {
-        for (; *text != 0 && at != end; ++text)
-            *at++ = *text;
-    }
-};
-
-// The low `digits` decimal digits of value, zero-padded.
-void put_fixed_decimal(char* output, u32 value, u32 digits) noexcept {
-    while (digits != 0) {
-        output[--digits] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    }
-}
-
-char level_letter(LogLevel level) noexcept {
-    switch (level) {
-    case LogLevel::trace:
-        return 'T';
-    case LogLevel::info:
-        return 'I';
-    case LogLevel::warning:
-        return 'W';
-    case LogLevel::error:
-        return 'E';
-    }
-    return '?';
-}
-
 // Caller holds the lock. The local date/time prefix changes once per second.
 void copy_stamp_locked(char* line, u64 second) noexcept {
     if (g_log.stamp_second != second) {
@@ -88,18 +57,7 @@ void copy_stamp_locked(char* line, u64 second) noexcept {
         if (!SystemTimeToTzSpecificLocalTime(nullptr, &utc, &time)) {
             time = utc;
         }
-        char* stamp = g_log.stamp;
-        put_fixed_decimal(stamp, time.wYear, 4);
-        stamp[4] = '-';
-        put_fixed_decimal(stamp + 5, time.wMonth, 2);
-        stamp[7] = '-';
-        put_fixed_decimal(stamp + 8, time.wDay, 2);
-        stamp[10] = ' ';
-        put_fixed_decimal(stamp + 11, time.wHour, 2);
-        stamp[13] = ':';
-        put_fixed_decimal(stamp + 14, time.wMinute, 2);
-        stamp[16] = ':';
-        put_fixed_decimal(stamp + 17, time.wSecond, 2);
+        put_stamp(g_log.stamp, time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond);
         g_log.stamp_second = second;
     }
     copy_bytes(line, g_log.stamp, kStampCharacters);
@@ -125,8 +83,6 @@ void CALLBACK flush_timer_callback(PTP_CALLBACK_INSTANCE, void*, PTP_TIMER) noex
     ReleaseSRWLockExclusive(&g_log.lock);
 }
 
-// Takes the lock and starts a line after the buffered bytes, room for a whole
-// line made first: "YYYY-MM-DD HH:MM:SS.mmm [L] [component] ".
 LineWriter begin_line(LogLevel level, const char* component) noexcept {
     FILETIME now{};
     GetSystemTimeAsFileTime(&now);
@@ -147,7 +103,6 @@ LineWriter begin_line(LogLevel level, const char* component) noexcept {
     return writer;
 }
 
-// Ends the line begun by begin_line and releases the lock.
 void commit_line(LineWriter writer, LogLevel level) noexcept {
     writer.put("\r\n");
     const char* line = g_log.buffer + g_log.buffered;
@@ -257,24 +212,6 @@ void log_close() noexcept {
         WaitForThreadpoolTimerCallbacks(timer, TRUE);
         CloseThreadpoolTimer(timer);
     }
-}
-
-void log_write(LogLevel level, const char* component, const char* message) noexcept {
-    LineWriter line = begin_line(level, component);
-    if (message) {
-        line.put(message);
-    }
-    commit_line(line, level);
-}
-
-void log_u64(LogLevel level, const char* component, const char* key, u64 value) noexcept {
-    char text[22];
-    text[0] = '=';
-    text[1 + decimal_write(text + 1, value)] = 0;
-    LineWriter line = begin_line(level, component);
-    line.put(key ? key : "value");
-    line.put(text);
-    commit_line(line, level);
 }
 
 LogCounters log_counters() noexcept {

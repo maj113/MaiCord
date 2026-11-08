@@ -66,8 +66,6 @@ typedef unsigned int __v8su __attribute__((__vector_size__(32)));
     ((__m128i)__builtin_ia32_pblendw128((__v8hi)(__m128i)(a), (__v8hi)(__m128i)(b), (int)(m)))
 #define _mm_clmulepi64_si128(a, b, i)                                                                                  \
     ((__m128i)__builtin_ia32_pclmulqdq128((__v2di)(__m128i)(a), (__v2di)(__m128i)(b), (char)(i)))
-#define _mm_extract_epi16(a, i) ((int)(unsigned short)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(a), (int)(i)))
-#define _mm_insert_epi16(a, b, i) ((__m128i)__builtin_ia32_vec_set_v8hi((__v8hi)(__m128i)(a), (int)(b), (int)(i)))
 #define _mm_shuffle_epi32(a, i) ((__m128i)__builtin_ia32_pshufd((__v4si)(__m128i)(a), (int)(i)))
 #define _mm_shufflelo_epi16(a, i) ((__m128i)__builtin_ia32_pshuflw((__v8hi)(__m128i)(a), (int)(i)))
 #define _mm_shuffle_ps(a, b, m) ((__m128)__builtin_ia32_shufps((__v4sf)(__m128)(a), (__v4sf)(__m128)(b), (int)(m)))

@@ -55,30 +55,17 @@ bool stable_storage_reserve(StableStorage* storage,
     return true;
 }
 
-bool stable_storage_grow(StableStorage* storage,
-                         u32 required_capacity) noexcept {
-    if (!storage) {
+bool stable_storage_grow(StableStorage* storage, u32 required_capacity) noexcept {
+    if (!storage || required_capacity == 0 || required_capacity > storage->reserved_capacity) {
         return false;
     }
-    const u32 reserved_capacity = storage->reserved_capacity;
-    if (required_capacity == 0 || required_capacity > reserved_capacity) {
-        return false;
-    }
-    if (required_capacity <= storage->capacity) {
+    const u32 capacity = storage->capacity;
+    if (required_capacity <= capacity) {
         return true;
     }
-    u32 capacity = storage->capacity;
-    if (capacity == 0) {
-        capacity = minimum(reserved_capacity, required_capacity);
-    }
-    while (capacity < required_capacity) {
-        const u32 doubled = capacity > reserved_capacity / 2u
-                                ? reserved_capacity
-                                : capacity * 2u;
-        capacity = minimum(reserved_capacity,
-                           maximum(doubled, required_capacity));
-    }
-    return stable_storage_reserve(storage, capacity);
+    // Double, held to the reservation, or grow to the required capacity when that is more.
+    const u32 doubled = capacity > storage->reserved_capacity / 2u ? storage->reserved_capacity : capacity * 2u;
+    return stable_storage_reserve(storage, maximum(doubled, required_capacity));
 }
 
 bool stable_storage_shrink(StableStorage* storage, u32 capacity) noexcept {

@@ -206,18 +206,6 @@ bool parse_string(IndexedReader* reader, JsonString* output, JsonReadError expec
     return true;
 }
 
-bool bytes_equal(const char* data, u32 bytes, const char* expected, u32 expected_bytes) noexcept {
-    if (bytes != expected_bytes) {
-        return false;
-    }
-    for (u32 index = 0; index < bytes; ++index) {
-        if (data[index] != expected[index]) {
-            return false;
-        }
-    }
-    return true;
-}
-
 // The end of the number that starts at data[offset], or offset when the text there is not one.
 u32 number_end(const char* data, u32 offset, u32 bytes) noexcept {
     const u32 begin = offset;
@@ -932,8 +920,12 @@ bool json_value_to_bool(const JsonValue& value, bool* output) noexcept {
     if (!output || value.kind != JsonValueKind::boolean || !value.source.data) {
         return false;
     }
-    const bool is_true = bytes_equal(value.source.data, value.source.bytes, "true", 4);
-    if (!is_true && !bytes_equal(value.source.data, value.source.bytes, "false", 5)) {
+    // "true" or "false", a word compare each.
+    const char* data = value.source.data;
+    const u32 bytes = value.source.bytes;
+    const bool is_true = bytes == 4 && *reinterpret_cast<const u32 __unaligned*>(data) == word('t', 'r', 'u', 'e');
+    if (!is_true &&
+        !(bytes == 5 && *reinterpret_cast<const u32 __unaligned*>(data) == word('f', 'a', 'l', 's') && data[4] == 'e')) {
         return false;
     }
     *output = is_true;

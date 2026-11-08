@@ -57,6 +57,7 @@
 #define WSA_FLAG_NO_HANDLE_INHERIT 0x80
 
 // <ws2def.h>
+#define NS_ALL (0)
 #define NS_DNS (12)
 
 // <WS2tcpip.h>

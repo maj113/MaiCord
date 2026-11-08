@@ -5,6 +5,7 @@
 // expirations of a timerfd; a manual-reset or borrowed one is never read, so it stays readable until it is reset
 // or (for a borrowed descriptor) drained by its owner.
 #include "maicord/os/wait.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/os/linux/error.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "monotonic.hpp"
@@ -158,56 +159,12 @@ u32 wait_one(Waitable waitable, u32 timeout_ms) noexcept {
     return wait_any(&waitable, 1, timeout_ms);
 }
 
-u32 wait_any(const Waitable* waitables, u32 count, u32 timeout_ms) noexcept {
-    if (waitables == nullptr || count == 0 || count > kWaitMaximumCount) {
-        set_thread_last_error(ERROR_INVALID_PARAMETER);
-        return WAIT_FAILED;
-    }
-    apply_tolerance(0);
-    PollFd descriptors[kWaitMaximumCount];
-    for (u32 index = 0; index < count; ++index) {
-        if (!valid(waitables[index])) {
-            set_thread_last_error(ERROR_INVALID_HANDLE);
-            return WAIT_FAILED;
-        }
-        descriptors[index] = PollFd{descriptor(waitables[index]), kPollIn, 0};
-    }
-    // The first ready descriptor of a pass wins; one whose signal was consumed by someone else meanwhile does not
-    // count, and the wait goes on with what is left of the timeout.
-    const i64 deadline = timeout_ms == kInfinite ? 0 : monotonic_nanoseconds() + timeout_ms * kNanosecondsPerMillisecond;
-    u32 remaining = timeout_ms;
-    for (;;) {
-        const long ready = poll_ready(descriptors, count, remaining);
-        if (ready < 0) {
-            return WAIT_FAILED;
-        }
-        if (ready == 0) {
-            return WAIT_TIMEOUT;
-        }
-        for (u32 index = 0; index < count; ++index) {
-            const i16 events = descriptors[index].revents;
-            if (events == 0) {
-                continue;
-            }
-            if ((events & kPollInvalid) != 0) {
-                set_thread_last_error(ERROR_INVALID_HANDLE);
-                return WAIT_FAILED;
-            }
-            if (manual_reset(waitables[index]) || consume(waitables[index])) {
-                return WAIT_OBJECT_0 + index;
-            }
-        }
-        if (timeout_ms != kInfinite) {
-            const i64 left = deadline - monotonic_nanoseconds();
-            if (left <= 0) {
-                return WAIT_TIMEOUT;
-            }
-            remaining = static_cast<u32>((left + kNanosecondsPerMillisecond - 1) / kNanosecondsPerMillisecond);
-        }
-    }
-}
+namespace {
 
-WaitManyResult wait_many(const Waitable* waitables, u32 count, u32 timeout_ms, u32 tolerance_ms) noexcept {
+// wait_many, or with `first` wait_any: the lowest waitable that is signaled when the wait returns, and only that one
+// consumed. One whose signal was consumed by someone else meanwhile does not count, and the wait goes on with what is
+// left of the timeout.
+WaitManyResult wait_set(const Waitable* waitables, u32 count, u32 timeout_ms, u32 tolerance_ms, bool first) noexcept {
     WaitManyResult result{};
     if (waitables == nullptr || count == 0 || count > kWaitMaximumCount) {
         set_thread_last_error(ERROR_INVALID_PARAMETER);
@@ -249,6 +206,9 @@ WaitManyResult wait_many(const Waitable* waitables, u32 count, u32 timeout_ms, u
             }
             if (manual_reset(waitables[index]) || consume(waitables[index])) {
                 result.ready_mask |= u64{1} << index;
+                if (first) {
+                    return result;
+                }
             }
         }
         if (result.ready_mask != 0) {
@@ -263,6 +223,19 @@ WaitManyResult wait_many(const Waitable* waitables, u32 count, u32 timeout_ms, u
             remaining = static_cast<u32>((left + kNanosecondsPerMillisecond - 1) / kNanosecondsPerMillisecond);
         }
     }
+}
+
+} // namespace
+
+u32 wait_any(const Waitable* waitables, u32 count, u32 timeout_ms) noexcept {
+    const WaitManyResult result = wait_set(waitables, count, timeout_ms, 0, true);
+    return result.failed      ? WAIT_FAILED
+           : result.timed_out ? WAIT_TIMEOUT
+                              : WAIT_OBJECT_0 + lowest_set_bit(result.ready_mask);
+}
+
+WaitManyResult wait_many(const Waitable* waitables, u32 count, u32 timeout_ms, u32 tolerance_ms) noexcept {
+    return wait_set(waitables, count, timeout_ms, tolerance_ms, false);
 }
 
 Waitable loop_wake_waitable() noexcept {

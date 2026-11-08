@@ -106,16 +106,13 @@ bool read_named(const char* name, Loaded* loaded) noexcept {
     const u32 length = c_string_length(name);
     if (!tzif_name_valid(name, length))
         return false;
-    const char* tzdir = environment_get("TZDIR");
-    static constexpr const char* directories[] = {"/usr/share/zoneinfo", "/usr/share/lib/zoneinfo", "/usr/lib/zoneinfo",
-                                                  "/etc/zoneinfo", "/run/current-system/sw/share/zoneinfo"};
+    // $TZDIR first, then the usual zoneinfo directories.
+    const char* const directories[] = {environment_get("TZDIR"), "/usr/share/zoneinfo", "/usr/share/lib/zoneinfo",
+                                       "/usr/lib/zoneinfo", "/etc/zoneinfo", "/run/current-system/sw/share/zoneinfo"};
     char path[kPathBytes];
-    if (tzdir && *tzdir && join(path, tzdir, name) && read_file(path, loaded) && open_loaded(loaded)) {
-        set_name(loaded, name, length);
-        return true;
-    }
     for (const char* directory : directories) {
-        if (join(path, directory, name) && read_file(path, loaded) && open_loaded(loaded)) {
+        if (directory && *directory && join(path, directory, name) && read_file(path, loaded) &&
+            open_loaded(loaded)) {
             set_name(loaded, name, length);
             return true;
         }
@@ -188,13 +185,12 @@ bool load_from_system(Loaded* loaded) noexcept {
         set_name(loaded, name, length);
         return true;
     }
-    Loaded* scratch = loaded;
-    if (read_file("/etc/timezone", scratch)) {
+    if (read_file("/etc/timezone", loaded)) {
         // One line: the identifier.
         u32 length = 0;
-        while (length < scratch->size && scratch->bytes[length] != '\n' && scratch->bytes[length] != '\r' &&
+        while (length < loaded->size && loaded->bytes[length] != '\n' && loaded->bytes[length] != '\r' &&
                length < sizeof(name) - 1) {
-            name[length] = static_cast<char>(scratch->bytes[length]);
+            name[length] = static_cast<char>(loaded->bytes[length]);
             ++length;
         }
         name[length] = 0;
