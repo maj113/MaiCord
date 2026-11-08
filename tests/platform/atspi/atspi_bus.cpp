@@ -277,8 +277,8 @@ Waitable loop_waitable() noexcept {
 u32 loop_wait_ms(u64 now) noexcept {
     return atspi::server_wait_ms(now);
 }
-void loop_process(u64 now) noexcept {
-    atspi::server_process(now);
+void loop_process(u64 now, bool readable) noexcept {
+    atspi::server_process(now, readable);
 }
 
 bool skip_unless(const char* kind) noexcept {

@@ -19,18 +19,18 @@ namespace maicord::dbus {
 bool session_bus_open() noexcept;
 // The live connection or null; never connects.
 Connection* session_bus() noexcept;
-// Incremented on every new connection: a service compares it with the one it subscribed on.
-u32 session_bus_generation() noexcept;
 
 // Called with each new connection, right after it opens (and again after a reconnect), on the UI thread. At most 12.
 using SessionBusHook = void (*)(Connection* connection) noexcept;
 bool session_bus_add_hook(SessionBusHook hook) noexcept;
 
 // For the window loop: a waitable for the socket (null without a connection), the milliseconds until the bus needs
-// attention without traffic (kNoTimeout when none), and the dispatch of what arrived.
+// attention without traffic (kNoTimeout when none), and the dispatch of what arrived. `idle` lists the waitables the
+// caller's wait has just seen not ready: a connection whose waitable is among them is not read (what arrives later keeps
+// it readable for the next wait), while its queued output and call timeouts are still served.
 Waitable session_bus_waitable() noexcept;
 u32 session_bus_wait_ms(u64 now_ms) noexcept;
-void session_bus_process(u64 now_ms) noexcept;
+void session_bus_process(u64 now_ms, const Waitable* idle = nullptr, u32 idle_count = 0) noexcept;
 
 // A further connection the window loop serves along with the session bus (the accessibility bus): its waitable wakes the
 // loop, its next due time bounds the sleep (session_bus_wait_ms includes it), and it is processed with the session bus.
@@ -39,7 +39,7 @@ inline constexpr u32 kSessionBusExtraMaximum = 4;
 struct SessionBusExtra {
     Waitable (*waitable)() noexcept;  // null while there is no connection
     u32 (*wait_ms)(u64 now_ms) noexcept;  // kNoTimeout when nothing is due
-    void (*process)(u64 now_ms) noexcept;
+    void (*process)(u64 now_ms, bool readable) noexcept;  // readable: as connection_process's
 };
 bool session_bus_add_extra(const SessionBusExtra& extra) noexcept;
 // The extras' waitables (those that have one), at most `capacity`; the count.

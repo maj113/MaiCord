@@ -330,18 +330,28 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         return result;
     }
 
-    DWORD transferred = 0;
-    ULONG_PTR completion_key = 0;
-    OVERLAPPED* overlapped = nullptr;
-    const BOOL succeeded = GetQueuedCompletionStatus(loop->completion_port, &transferred, &completion_key,
-                                                     &overlapped, timeout_milliseconds);
-    if (!overlapped) {
-        const i32 native_error = static_cast<i32>(thread_last_error());
-        if (!succeeded && native_error == WAIT_TIMEOUT) {
-            result.state = NetworkPollState::timeout;
+    // One wait removes every completion already queued, up to a batch; the polls after it return them in the port's
+    // order without a system call, as GetQueuedCompletionStatus would have one per call.
+    if (loop->batch_next == loop->batch_count) {
+        ULONG removed = 0;
+        if (!GetQueuedCompletionStatusEx(loop->completion_port, native(loop->batch), kNetworkLoopBatch, &removed,
+                                         timeout_milliseconds, FALSE)) {
+            const i32 native_error = static_cast<i32>(thread_last_error());
+            if (native_error == WAIT_TIMEOUT) {
+                result.state = NetworkPollState::timeout;
+                return result;
+            }
+            result.completion.native_error = native_error;
             return result;
         }
-        result.completion.native_error = succeeded ? 0 : native_error;
+        loop->batch_next = 0;
+        loop->batch_count = removed;
+    }
+    const NetworkCompletionEntry& entry = loop->batch[loop->batch_next++];
+    const ULONG_PTR completion_key = entry.lpCompletionKey;
+    OVERLAPPED* overlapped = native(entry.lpOverlapped);
+    if (!overlapped) {
+        result.completion.native_error = 0;
         return result;
     }
 
@@ -386,10 +396,13 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         return result;
     }
 
-    result.completion.transferred = transferred;
-    result.completion.native_error = succeeded ? 0 : static_cast<i32>(thread_last_error());
+    // The request's status, which GetQueuedCompletionStatus turned into its result and last error.
+    const NTSTATUS status = static_cast<NTSTATUS>(overlapped->Internal);
+    const bool succeeded = status >= 0;
+    result.completion.transferred = entry.dwNumberOfBytesTransferred;
+    result.completion.native_error = succeeded ? 0 : static_cast<i32>(RtlNtStatusToDosError(status));
     result.completion.kind = operation->kind;
-    result.completion.succeeded = succeeded != FALSE;
+    result.completion.succeeded = succeeded;
     if (operation->kind == NetworkOperationKind::file_read || operation->kind == NetworkOperationKind::file_write) {
         auto* file = static_cast<NetworkFile*>(operation->owner);
         result.completion.file = file;
@@ -443,7 +456,7 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         connection->receive_pending = false;
         if (!succeeded) {
             connection->state = NetworkConnectionState::failed;
-        } else if (transferred == 0) {
+        } else if (entry.dwNumberOfBytesTransferred == 0) {
             connection->state = NetworkConnectionState::peer_closed;
         }
         break;

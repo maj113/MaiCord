@@ -138,9 +138,24 @@ struct NetworkOperation {
     NetworkOperationKind kind;
 };
 
+// An OVERLAPPED_ENTRY as GetQueuedCompletionStatusEx fills it; native.hpp checks the layout against the SDK.
+struct NetworkCompletionEntry {
+    usize lpCompletionKey;
+    NetworkOverlapped* lpOverlapped;
+    usize Internal;
+    DWORD dwNumberOfBytesTransferred;
+};
+
+// The most completions one wait of a loop removes from its port: a datagram's receive slots.
+inline constexpr u32 kNetworkLoopBatch = 8;
+
 struct NetworkLoop {
     HANDLE completion_port;
     bool winsock_started;
+    // Removed from the port by the last wait, not yet returned by a poll: batch[batch_next, batch_count).
+    u32 batch_next;
+    u32 batch_count;
+    NetworkCompletionEntry batch[kNetworkLoopBatch];
 };
 #else
 // An operation is a submission entry of the loop's ring that the kernel serves; it finishes in the loop's ready list
@@ -292,7 +307,6 @@ inline bool network_datagram_idle(const NetworkDatagram& datagram) noexcept {
 }
 // `peer` is an IPv4 or IPv6 address with a nonzero port.
 NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram, const NetworkAddress& peer) noexcept;
-NetworkResult network_datagram_receive(NetworkDatagram* datagram, Slice<u8> buffer) noexcept;
 // Posts a read on slot (0 is network_datagram_receive). Completions report it
 // in NetworkCompletion::datagram_slot.
 NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot, Slice<u8> buffer) noexcept;

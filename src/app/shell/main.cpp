@@ -388,8 +388,10 @@ int run_application() noexcept {
         push_handle(application_catalog_dev_notification(0));
         push_handle(application_catalog_dev_notification(1));
         push_handle(application_packages_notification());
+        const u32 quit_handle_index = wait_handle_count;
         push_handle(application_platform_quit_signal());
         const u32 video_handle_index = wait_handle_count;
+        const bool quit_handle = video_handle_index != quit_handle_index;
         if (!application_account_logout_blocked())
             push_handle(application_call_video_notification());
         const bool video_handle = wait_handle_count != video_handle_index;
@@ -461,7 +463,9 @@ int run_application() noexcept {
                                  waited.window_input, waited.ready_mask != 0);
 #endif
         // SIGTERM, SIGINT or SIGHUP (Linux): leave the way Quit does, so the normal exit below saves what a close saves.
-        if (application_platform_quit_requested() && g_app.window) {
+        // Read only when this wait saw the descriptor ready: a signal after it keeps it readable for the next wait.
+        if (quit_handle && wait_ready(waited, quit_handle_index) && application_platform_quit_requested() &&
+            g_app.window) {
             application_desktop_request_quit();
             window_request_close(g_app.window);
         }

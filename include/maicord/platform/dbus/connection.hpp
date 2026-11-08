@@ -44,8 +44,9 @@ Waitable connection_waitable(Connection* connection) noexcept;
 // wait while output is queued); kNoTimeout when nothing is due.
 u32 connection_wait_ms(const Connection* connection, u64 now_ms) noexcept;
 // Reads what has arrived, dispatches replies, signals and method calls to their handlers, expires timed-out calls and
-// flushes queued output.
-void connection_process(Connection* connection, u64 now_ms) noexcept;
+// flushes queued output. `readable` false (the caller's wait has just seen the socket not ready) skips the read: bytes
+// that arrive later keep the socket readable for the next wait.
+void connection_process(Connection* connection, u64 now_ms, bool readable = true) noexcept;
 
 // Method calls -------------------------------------------------------------------------------------------------------
 

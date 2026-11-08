@@ -44,6 +44,13 @@ bool try_open(u64 now) noexcept {
     return true;
 }
 
+bool listed(Waitable waitable, const Waitable* list, u32 count) noexcept {
+    for (u32 i = 0; i < count; ++i)
+        if (list[i] == waitable)
+            return true;
+    return false;
+}
+
 } // namespace
 
 bool session_bus_open() noexcept {
@@ -97,16 +104,16 @@ u32 session_bus_wait_ms(u64 now_ms) noexcept {
     return wait;
 }
 
-void session_bus_process(u64 now_ms) noexcept {
+void session_bus_process(u64 now_ms, const Waitable* idle, u32 idle_count) noexcept {
     if (g_session) {
-        connection_process(g_session, now_ms);
+        connection_process(g_session, now_ms, !listed(connection_waitable(g_session), idle, idle_count));
         if (!connection_alive(g_session))
             drop_connection(now_ms);
     } else if (g_wanted) {
         try_open(now_ms);
     }
     for (u32 i = 0; i < g_extra_count; ++i)
-        g_extras[i].process(now_ms);
+        g_extras[i].process(now_ms, !listed(g_extras[i].waitable(), idle, idle_count));
 }
 
 bool session_bus_wait_for(const volatile bool* done, u32 timeout_ms) noexcept {

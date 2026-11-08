@@ -845,12 +845,13 @@ u32 connection_wait_ms(const Connection* c, u64 now_ms) noexcept {
     return left >= kNoTimeout ? kNoTimeout - 1 : static_cast<u32>(left);
 }
 
-void connection_process(Connection* c, u64 now_ms) noexcept {
+void connection_process(Connection* c, u64 now_ms, bool readable) noexcept {
     if (!c->alive)
         return;
     if (c->output_used)
         flush_output(c);
-    read_input(c);
+    if (readable)
+        read_input(c);
     if (c->alive)
         expire_calls(c, now_ms);
 }

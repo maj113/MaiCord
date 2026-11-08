@@ -14,6 +14,7 @@
 
 #if defined(MAICORD_SDK_INCLUDES)
 #include <Windows.h>
+#include <winternl.h>
 #endif
 
 // <winnt.h>
@@ -22,14 +23,7 @@
 #define TEXT(quote) __TEXT(quote)
 #define STDMETHODCALLTYPE __stdcall
 #define MAXDWORD 0xffffffff
-#ifdef __has_builtin
-#if __has_builtin(__builtin_offsetof)
 #define FIELD_OFFSET(type, field) ((LONG)__builtin_offsetof(type, field))
-#endif
-#endif
-#ifndef FIELD_OFFSET
-#define FIELD_OFFSET(type, field) ((LONG)(LONG_PTR)&(((type *)0)->field))
-#endif
 #define LOCALE_NAME_MAX_LENGTH 85
 #define STATUS_WAIT_0 ((DWORD )0x00000000L)
 #define STATUS_ABANDONED_WAIT_0 ((DWORD )0x00000080L)
@@ -295,6 +289,14 @@ struct _OVERLAPPED {
 };
 typedef _OVERLAPPED OVERLAPPED;
 typedef _OVERLAPPED* LPOVERLAPPED;
+struct _OVERLAPPED_ENTRY {
+    ULONG_PTR lpCompletionKey;
+    LPOVERLAPPED lpOverlapped;
+    ULONG_PTR Internal;
+    DWORD dwNumberOfBytesTransferred;
+};
+typedef _OVERLAPPED_ENTRY OVERLAPPED_ENTRY;
+typedef _OVERLAPPED_ENTRY* LPOVERLAPPED_ENTRY;
 struct _WIN32_FIND_DATAW {
     DWORD dwFileAttributes;
     FILETIME ftCreationTime;
@@ -469,8 +471,9 @@ extern "C" __declspec(dllimport) BOOL WINAPI HeapWalk(HANDLE hHeap, LPPROCESS_HE
 // <ioapiset.h>
 extern "C" __declspec(dllimport) HANDLE WINAPI CreateIoCompletionPort(HANDLE FileHandle, HANDLE ExistingCompletionPort,
     ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads);
-extern "C" __declspec(dllimport) BOOL WINAPI GetQueuedCompletionStatus(HANDLE CompletionPort,
-    LPDWORD lpNumberOfBytesTransferred, PULONG_PTR lpCompletionKey, LPOVERLAPPED* lpOverlapped, DWORD dwMilliseconds);
+extern "C" __declspec(dllimport) BOOL WINAPI GetQueuedCompletionStatusEx(HANDLE CompletionPort,
+    LPOVERLAPPED_ENTRY lpCompletionPortEntries, ULONG ulCount, PULONG ulNumEntriesRemoved, DWORD dwMilliseconds,
+    BOOL fAlertable);
 extern "C" __declspec(dllimport) BOOL WINAPI PostQueuedCompletionStatus(HANDLE CompletionPort,
     DWORD dwNumberOfBytesTransferred, ULONG_PTR dwCompletionKey, LPOVERLAPPED lpOverlapped);
 extern "C" __declspec(dllimport) BOOL WINAPI CancelIoEx(HANDLE hFile, LPOVERLAPPED lpOverlapped);
@@ -615,6 +618,10 @@ extern "C" __declspec(dllimport) int WINAPI WideCharToMultiByte(UINT CodePage, D
 
 // <winnls.h>
 extern "C" __declspec(dllimport) int WINAPI GetUserDefaultLocaleName(LPWSTR lpLocaleName, int cchLocaleName);
+
+// <winternl.h>
+typedef LONG NTSTATUS;
+extern "C" ULONG NTAPI RtlNtStatusToDosError(NTSTATUS Status);
 
 // Inline definitions; the SDK's own with MAICORD_SDK_INCLUDES.
 #if !defined(MAICORD_SDK_INCLUDES)

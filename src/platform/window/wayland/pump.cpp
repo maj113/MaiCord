@@ -137,9 +137,42 @@ using namespace wayland;
 
 namespace {
 
-void window_wait_begin() noexcept {
+// What the last window_wait's poll saw, for the window_pump after it: the display was read by the wait itself, and the
+// session bus, instance socket and bus extras it saw not ready (`idle`) are not read again. Data that arrives after the
+// poll keeps its descriptor readable, so the next wait returns at once and the pump after it reads. A pump without a
+// wait before it (`polled` false) reads everything, as it must.
+struct Polled {
+    bool polled;
+    u32 idle_count;
+    Waitable idle[2 + dbus::kSessionBusExtraMaximum];
+};
+Polled g_polled;
+
+bool idle_after_poll(Waitable waitable) noexcept {
+    for (u32 i = 0; i < g_polled.idle_count; ++i)
+        if (g_polled.idle[i] == waitable)
+            return true;
+    return false;
+}
+
+// The pump's read of the display after a wait that read it (window_wait_end): only what is queued is dispatched. What
+// the listeners asked (a configure's ack, a pong) is not flushed here: it goes out with the swap's commit, or with the
+// next window_wait's flush before it sleeps, whichever comes first in this loop turn.
+void display_dispatch_queued() noexcept {
     if (!g.display || g.failed || g.read_prepared)
         return;
+    g_client.display_dispatch_pending(g.display);
+    connection_check();
+    if (g.failed && !g.quit) {
+        g.quit = true;
+        g.exit_code = 1;
+    }
+}
+
+// True when the flush could not send everything (the socket is full): the wait then looks again soon.
+bool window_wait_begin() noexcept {
+    if (!g.display || g.failed || g.read_prepared)
+        return false;
     // Events other readers (Mesa on its own queue never reaches this) left in the default queue are dispatched
     // first: prepare_read only succeeds when that queue is empty.
     while (g_client.display_prepare_read(g.display) != 0)
@@ -173,6 +206,7 @@ void window_wait_end(bool display_ready) noexcept {
 
 WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32 tolerance_ms) noexcept {
     WindowWaitResult result{};
+    g_polled.polled = false;
     constexpr u32 kExtra = 5 + dbus::kSessionBusExtraMaximum;  // the display, the loop wake, the key-repeat timer, the session bus, the instance socket, the bus extras
     if (count > kWaitMaximumCount - kExtra) {
         result.failed = true;
@@ -247,6 +281,18 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
     const WaitManyResult waited = wait_many(all, total, timeout_ms, tolerance_ms);
     const bool display_ready = (waited.ready_mask >> display_bit) & 1;
     window_wait_end(display_ready);
+    if (!waited.failed) {
+        g_polled.polled = true;
+        g_polled.idle_count = 0;
+        const auto note_idle = [&](u32 bit) noexcept {
+            if (bit != ~0u && !((waited.ready_mask >> bit) & 1))
+                g_polled.idle[g_polled.idle_count++] = all[bit];
+        };
+        note_idle(bus_bit);
+        note_idle(instance_bit);
+        for (u32 i = 0; i < extra_count; ++i)
+            note_idle(extra_first + i);
+    }
 
     result.ready_mask = waited.ready_mask & ((1ull << count) - 1);
     const bool woken = (waited.ready_mask >> wake_bit) & 1;
@@ -270,9 +316,16 @@ WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPum
     }
     const i64 started = clock_now();
     const i64 budget = static_cast<i64>(soft_budget_us) * 1000;
-    display_poll_nonblocking();
-    dbus::session_bus_process(clock_monotonic_milliseconds());
-    dbus::instance_process();
+    // After a wait, only what it saw ready is read; a pump without one reads everything (see Polled).
+    const bool polled = g_polled.polled;
+    g_polled.polled = false;
+    if (polled)
+        display_dispatch_queued();
+    else
+        display_poll_nonblocking();
+    dbus::session_bus_process(clock_monotonic_milliseconds(), g_polled.idle, polled ? g_polled.idle_count : 0);
+    if (!polled || !idle_after_poll(dbus::instance_waitable()))
+        dbus::instance_process();
     keyboard_poll_repeat(clock_monotonic_milliseconds());
     post_drain();
     if (__atomic_exchange_n(&g.wake_pending, 0u, __ATOMIC_ACQ_REL)) {

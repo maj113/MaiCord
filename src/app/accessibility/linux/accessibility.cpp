@@ -60,8 +60,8 @@ u32 loop_wait_ms(u64 now_ms) noexcept {
     return wait;
 }
 
-void loop_process(u64 now_ms) noexcept {
-    atspi::server_process(now_ms);
+void loop_process(u64 now_ms, bool readable) noexcept {
+    atspi::server_process(now_ms, readable);
     if (!g_access.initialized || g_access.shut_down)
         return;
     // The first call of a client starts the event stream from the state then: the window's activation and its focus are

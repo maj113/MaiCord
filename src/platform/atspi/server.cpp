@@ -244,11 +244,11 @@ u32 server_wait_ms(u64 now_ms) noexcept {
     return g_server.bus ? connection_wait_ms(g_server.bus, now_ms) : kNoTimeout;
 }
 
-void server_process(u64 now_ms) noexcept {
+void server_process(u64 now_ms, bool readable) noexcept {
     Server& s = g_server;
     if (!s.bus)
         return;
-    connection_process(s.bus, now_ms);
+    connection_process(s.bus, now_ms, readable);
     if (!connection_alive(s.bus)) {
         log_write(LogLevel::warning, "atspi", "the accessibility bus connection ended");
         disconnect_bus();

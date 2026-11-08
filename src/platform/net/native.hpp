@@ -15,9 +15,17 @@ static_assert(sizeof(NetworkBuffer) == sizeof(WSABUF) && offsetof(NetworkBuffer,
 static_assert(sizeof(NetworkAddressHints) == sizeof(ADDRINFOEXW) &&
               offsetof(NetworkAddressHints, ai_addrlen) == offsetof(ADDRINFOEXW, ai_addrlen) &&
               offsetof(NetworkAddressHints, ai_next) == offsetof(ADDRINFOEXW, ai_next));
+static_assert(sizeof(NetworkCompletionEntry) == sizeof(OVERLAPPED_ENTRY) &&
+              offsetof(NetworkCompletionEntry, lpOverlapped) == offsetof(OVERLAPPED_ENTRY, lpOverlapped) &&
+              offsetof(NetworkCompletionEntry, dwNumberOfBytesTransferred) ==
+                  offsetof(OVERLAPPED_ENTRY, dwNumberOfBytesTransferred));
 
 inline OVERLAPPED* native(NetworkOverlapped* value) noexcept {
     return reinterpret_cast<OVERLAPPED*>(value);
+}
+
+inline OVERLAPPED_ENTRY* native(NetworkCompletionEntry* value) noexcept {
+    return reinterpret_cast<OVERLAPPED_ENTRY*>(value);
 }
 
 inline WSABUF* native(NetworkBuffer* value) noexcept {

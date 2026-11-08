@@ -31,7 +31,8 @@ bool server_queried() noexcept;
 
 Waitable server_waitable() noexcept;
 u32 server_wait_ms(u64 now_ms) noexcept;
-void server_process(u64 now_ms) noexcept;
+// `readable` as dbus::connection_process's.
+void server_process(u64 now_ms, bool readable = true) noexcept;
 
 // The events the difference between two snapshots calls for (the plan of ui_access_plan_events over `tree`), as signals.
 void server_publish(const UiAccessTree& tree, const UiAccessEventPlan& plan) noexcept;
