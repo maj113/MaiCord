@@ -5,9 +5,9 @@
 // The libwayland-client interface MaiCord uses, declared without libwayland's headers (Linux). The library is
 // dlopen()ed ("libwayland-client.so.0"), so a system without Wayland fails with a message, not at load time. Its
 // types and calls keep libwayland's binary layout; the protocol tables and the typed request wrappers that marshal
-// through wl_proxy_marshal_array{,_constructor_versioned} are generated from third_party/wayland/*.xml by
-// tools/generate_wayland_protocols.py (wayland_protocols.hpp). Only functions of libwayland-client 1.18 (Ubuntu
-// 20.04) are used.
+// through wl_proxy_marshal_array_flags are generated from third_party/wayland/*.xml by
+// tools/generate_wayland_protocols.py (wayland_protocols.hpp). Only functions of libwayland-client 1.20 (Ubuntu
+// 22.04; Debian 12 has 1.21) are used.
 
 namespace maicord::wayland {
 
@@ -74,10 +74,12 @@ struct ClientApi {
     int (*proxy_add_listener)(Proxy* proxy, void (**implementation)(), void* data) noexcept;
     void (*proxy_destroy)(Proxy* proxy) noexcept;
     u32 (*proxy_get_version)(Proxy* proxy) noexcept;
-    void (*proxy_marshal_array)(Proxy* proxy, u32 opcode, Argument* arguments) noexcept;
-    Proxy* (*proxy_marshal_array_constructor_versioned)(Proxy* proxy, u32 opcode, Argument* arguments,
-                                                        const Interface* interface, u32 version) noexcept;
+    // One call for every request (libwayland-client 1.20): `interface` and `version` make the new object of a
+    // constructor (null and 0 otherwise), kMarshalFlagDestroy destroys the proxy after a destructor request.
+    Proxy* (*proxy_marshal_array_flags)(Proxy* proxy, u32 opcode, const Interface* interface, u32 version, u32 flags,
+                                        Argument* arguments) noexcept;
 };
+inline constexpr u32 kMarshalFlagDestroy = 1; // WL_MARSHAL_FLAG_DESTROY
 extern ClientApi g_client;
 
 // Opens libwayland-client.so.0 and resolves every ClientApi entry; false (with a log line) when the library or one

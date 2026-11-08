@@ -5,9 +5,9 @@
 // The libfido2 interface MaiCord uses for a security-key assertion, declared without libfido2's headers (Linux). The
 // library is dlopen()ed ("libfido2.so.1"), so a system without it reports security keys as unavailable instead of failing
 // to load. tools/check_fido2_abi.py compares this file with the installed libfido2-dev headers (constants marked with
-// the macro they copy, the function table). Only functions that exist in libfido2 1.3 (Ubuntu 20.04) are used: the
-// authenticator data is read through fido_assert_authdata_ptr (a CBOR byte string; the header is stripped here), not
-// through the raw accessors of 1.8.
+// the macro they copy, the function table). Only functions that exist in libfido2 1.10 (Ubuntu 22.04; Debian 12 has
+// 1.12) are used: the authenticator data is read through fido_assert_authdata_ptr (a CBOR byte string; the header is
+// stripped here), not through fido_assert_authdata_raw_ptr, which is libfido2 1.14 (Ubuntu 24.04, RHEL 10).
 
 namespace maicord::fido2 {
 

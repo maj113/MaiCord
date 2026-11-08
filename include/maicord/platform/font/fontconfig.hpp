@@ -4,7 +4,8 @@
 
 // The fontconfig interface the Linux font locator uses, declared without its headers (Linux). The library is
 // dlopen()ed ("libfontconfig.so.1") for the time one batch of lookups takes and closed again afterwards; the
-// declarations follow <fontconfig/fontconfig.h>.
+// declarations follow <fontconfig/fontconfig.h>, and every function is in fontconfig 2.13.1 (Ubuntu 22.04, the oldest of
+// the supported distributions).
 
 namespace maicord::fontconfig {
 

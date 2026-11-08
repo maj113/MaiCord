@@ -6,8 +6,8 @@
 // ("libpulse.so.0": PulseAudio, pipewire-pulse and WSLg all speak it), so a system without a sound server client
 // library reports audio as unavailable instead of failing to load. Types and calls keep libpulse's binary layout;
 // tools/check_pulse_abi.py compares this file with the installed libpulse-dev headers (constants marked with the
-// macro they copy, the function table, the struct offsets). Only functions that exist in libpulse 13 (Ubuntu 20.04)
-// are used.
+// macro they copy, the function table, the struct offsets). Only functions that exist in libpulse 15.99 (Ubuntu 22.04,
+// the oldest of the supported distributions; pipewire-pulse 0.3.48 serves it there) are used.
 
 namespace maicord::pulse {
 
@@ -127,7 +127,6 @@ inline constexpr u32 kEventRemove = 0x20u;      // PA_SUBSCRIPTION_EVENT_REMOVE
 // Callbacks run on libpulse's mainloop thread.
 using ContextNotifyCb = void (*)(Context*, void*) noexcept;
 using ContextSuccessCb = void (*)(Context*, i32 success, void*) noexcept;
-using ContextIndexCb = void (*)(Context*, u32 index, void*) noexcept;
 using SubscribeCb = void (*)(Context*, u32 event, u32 index, void*) noexcept;
 using SinkInfoCb = void (*)(Context*, const SinkInfo*, i32 end_of_list, void*) noexcept;
 using SourceInfoCb = void (*)(Context*, const SourceInfo*, i32 end_of_list, void*) noexcept;
@@ -162,9 +161,6 @@ using FreeCb = void (*)(void*) noexcept;
     F(Operation*, pa_context_get_source_info_list, (Context*, SourceInfoCb, void*))                                    \
     F(Operation*, pa_context_get_server_info, (Context*, ServerInfoCb, void*))                                         \
     F(Operation*, pa_context_set_sink_input_volume, (Context*, u32, const CVolume*, ContextSuccessCb, void*))          \
-    /* The integration test loads a null sink with these two. */                                                      \
-    F(Operation*, pa_context_load_module, (Context*, const char*, const char*, ContextIndexCb, void*))                 \
-    F(Operation*, pa_context_unload_module, (Context*, u32, ContextSuccessCb, void*))                                  \
     F(void, pa_operation_cancel, (Operation*))                                                                         \
     F(void, pa_operation_unref, (Operation*))                                                                          \
     F(Stream*, pa_stream_new_with_proplist, (Context*, const char*, const SampleSpec*, const ChannelMap*,             \
@@ -177,8 +173,6 @@ using FreeCb = void (*)(void*) noexcept;
     F(void, pa_stream_set_state_callback, (Stream*, StreamNotifyCb, void*))                                            \
     F(void, pa_stream_set_write_callback, (Stream*, StreamRequestCb, void*))                                           \
     F(void, pa_stream_set_read_callback, (Stream*, StreamRequestCb, void*))                                            \
-    F(void, pa_stream_set_underflow_callback, (Stream*, StreamNotifyCb, void*))                                        \
-    F(void, pa_stream_set_overflow_callback, (Stream*, StreamNotifyCb, void*))                                         \
     F(usize, pa_stream_writable_size, (const Stream*))                                                                 \
     F(i32, pa_stream_write, (Stream*, const void*, usize, FreeCb, i64, i32))                                           \
     F(i32, pa_stream_peek, (Stream*, const void**, usize*))                                                            \

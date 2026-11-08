@@ -5,10 +5,10 @@
 
 Writes wayland_protocols.hpp (typed enums, request wrappers and listener structs) and wayland_protocols.cpp (the
 wl_interface tables), in namespace maicord::wayland. No wayland-scanner and no libwayland headers are involved: the
-tables have libwayland's binary layout (maicord/platform/window/wayland/abi.hpp declares it) and the requests are sent
-through wl_proxy_marshal_array_constructor_versioned and wl_proxy_marshal_array, which libwayland-client has exported
-since 1.10, so the bindings work with every libwayland-client MaiCord supports (1.18 and later). The library itself is
-dlopen()ed (src/platform/window/wayland/client.cpp).
+tables have libwayland's binary layout (maicord/platform/window/wayland/abi.hpp declares it) and every request is sent
+through wl_proxy_marshal_array_flags (libwayland-client 1.20, the floor: Ubuntu 22.04), which also makes the object of a
+constructor and destroys the proxy of a destructor in the same call. The library itself is dlopen()ed
+(src/platform/window/wayland/client.cpp).
 
 The output is deterministic: the same inputs give byte-identical files, and a file is rewritten only when its content
 changes, so a build does not recompile what did not change.
@@ -215,16 +215,12 @@ def emit_request(out, interface, opcode, message):
         out.append("    Argument args[%d] = {};\n" % count)
     arguments = "args" if count else "nullptr"
     out.extend(line + "\n" for line in wire)
+    flags = "kMarshalFlagDestroy" if message.destructor else "0"
     if constructor:
-        out.append("    Proxy* created = g_client.proxy_marshal_array_constructor_versioned(proxy, %d, %s, %s, %s);\n"
-                   % (opcode, arguments, constructor[0], constructor[1]))
-        if message.destructor:
-            out.append("    g_client.proxy_destroy(proxy);\n")
-        out.append("    return reinterpret_cast<%s>(created);\n" % result)
+        out.append("    return reinterpret_cast<%s>(g_client.proxy_marshal_array_flags(proxy, %d, %s, %s, %s, %s));\n"
+                   % (result, opcode, constructor[0], constructor[1], flags, arguments))
     else:
-        out.append("    g_client.proxy_marshal_array(proxy, %d, %s);\n" % (opcode, arguments))
-        if message.destructor:
-            out.append("    g_client.proxy_destroy(proxy);\n")
+        out.append("    g_client.proxy_marshal_array_flags(proxy, %d, nullptr, 0, %s, %s);\n" % (opcode, flags, arguments))
     out.append("}\n")
 
 

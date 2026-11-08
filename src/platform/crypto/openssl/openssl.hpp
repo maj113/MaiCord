@@ -5,8 +5,9 @@
 // The system OpenSSL, loaded with dlopen (D6). A Linux image never links libssl or libcrypto: the first call that
 // needs them opens "libcrypto.so.<N>" (and "libssl.so.<N>" for TLS) with N = 4, then 3 (OpenSSL 4.x, then
 // 3.x), resolves every function of the tables below at once and keeps the libraries for the life of the process.
-// A missing library or symbol is an error value, never a partial table. Version 3.0 is the minimum: the EVP_MAC,
-// EVP_PKEY_fromdata and OSSL_PARAM interfaces are 3.0 additions, and the older 1.1 line is not supported.
+// A missing library or symbol is an error value, never a partial table. Version 3.0 is the minimum (3.0.2 on Ubuntu
+// 22.04, 3.0.x on Debian 12; Fedora 45 has 4.0): the EVP_MAC, EVP_PKEY_fromdata and OSSL_PARAM interfaces are 3.0
+// additions, and the older 1.1 line is not supported.
 //
 // Every function is declared with the argument types OpenSSL declares, except that its opaque structs (EVP_PKEY,
 // SSL, BIO, ...) are void* and the few `typedef`d integers are spelled out. The values of the macros that are really
@@ -48,7 +49,6 @@ inline constexpr Param param_octets(const char* key, const void* value, usize le
 inline constexpr u32 kFailureLibrary = 1;  // no libcrypto/libssl of a supported soname
 inline constexpr u32 kFailureSymbol = 2;   // a function of the tables is missing
 inline constexpr u32 kFailureTrust = 3;    // no certificate authorities (TLS context)
-inline constexpr u32 kFailureVersion = 4;  // older than OpenSSL 3.0
 inline constexpr u32 kFailureOutput = 5;   // the caller's output buffer is smaller than the result
 
 // Constants (openssl/evp.h, ssl.h, bio.h, x509_vfy.h, obj_mac.h, rsa.h).
@@ -81,7 +81,6 @@ inline constexpr int kSslErrorZeroReturn = 6; // SSL_ERROR_ZERO_RETURN
 
 // libcrypto: F(return type, name, (argument types)).
 #define MAICORD_OPENSSL_CRYPTO_FUNCTIONS(F)                                                                            \
-    F(u32, OPENSSL_version_major, (void))                                                                              \
     F(unsigned long, ERR_get_error, (void))                                                                            \
     F(void, ERR_clear_error, (void))                                                                                   \
     F(const void*, EVP_sha256, (void))                                                                                 \
@@ -174,7 +173,6 @@ inline constexpr int kSslErrorZeroReturn = 6; // SSL_ERROR_ZERO_RETURN
     F(int, SSL_set1_host, (void*, const char*))                                                                        \
     F(void*, SSL_get0_param, (void*))                                                                                  \
     F(int, SSL_set_alpn_protos, (void*, const u8*, u32))                                                               \
-    F(void, SSL_get0_alpn_selected, (const void*, const u8**, u32*))                                                   \
     F(long, SSL_get_verify_result, (const void*))
 
 struct Crypto {

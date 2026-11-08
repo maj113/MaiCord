@@ -36,7 +36,8 @@ and user-verification flows, `ACTION_TIMEOUT` pacing, platform authenticators) i
   `fido_dev_get_retry_count` reports) is asked through the hook, which posts a wake with `b = kWebAuthnWakePin` and waits for
   `webauthn_ceremony_submit_pin`; `FIDO_ERR_ACTION_TIMEOUT` repeats until the deadline; no credential on any key is `not_registered`;
   keys that cannot be opened (the udev rules for hidraw, from `libfido2` or `libu2f-udev`) are `cannot_open`.
-- The credential id, authenticator data (`fido_assert_authdata_ptr`, its CBOR byte-string header stripped: libfido2 1.3 or later),
+- The credential id, authenticator data (`fido_assert_authdata_ptr`, its CBOR byte-string header stripped: the raw accessor is
+  libfido2 1.14, newer than Ubuntu 22.04's 1.10 and Debian 12's 1.12),
   signature and user handle go into `webauthn_mfa_write_assertion` (attachment `cross-platform`), the same JSON as Windows.
 - Screens: `LoginSecurityKey` (Linux-only, with `LoginRuntime::security_key` and `security_key_pin`): the wait for the touch is the
   `submitting` screen ("Touch your security key."; Back and Esc work through `invalidate_auth()`, which cancels the ceremony with

@@ -5,8 +5,8 @@
 // The libspeechd interface MaiCord uses, declared without speech-dispatcher's headers (Linux). The library is dlopen()ed
 // ("libspeechd.so.2"), so a system without speech-dispatcher reports text-to-speech as unavailable instead of failing to
 // load. tools/check_speechd_abi.py compares this file with the installed libspeechd-dev headers (constants marked with
-// the macro they copy, the function table). Only functions that exist in libspeechd 0.8 (Debian 11 and Ubuntu 20.04
-// have 0.9 and 0.10) are used.
+// the macro they copy, the function table). Only functions that exist in libspeechd 0.11.1 (Ubuntu 22.04, the oldest of
+// the supported distributions; Alpine has speech-dispatcher from 3.20) are used.
 
 namespace maicord::speechd {
 

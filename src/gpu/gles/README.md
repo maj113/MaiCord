@@ -29,8 +29,15 @@ draw or dispatch happens.
 - Requirements: ES 3.1 with `glCopyImageSubData` (ES 3.2, `GL_OES_copy_image` or `GL_EXT_copy_image`) and
   `GL_EXT_blend_func_extended` (the background-effect composite blends with a second fragment output); device creation refuses a
   driver without either. Every Mesa driver (radeonsi, iris, freedreno, panfrost, llvmpipe, d3d12, zink) and NVIDIA has both.
-  `GL_EXT_disjoint_timer_query` is optional (no GPU timing); `EGL_EXT_buffer_age` and swap with damage are optional (a full blit
-  and a full-damage swap).
+  `GL_EXT_disjoint_timer_query` is optional (no GPU timing: v3d has none); `EGL_EXT_buffer_age` and swap with damage are
+  optional (a full blit and a full-damage swap: Mesa's software Wayland path has neither in 22.3, Debian 12), and swap with
+  damage is looked up under both names (Mesa 22.3's Wayland platform has the EXT one, NVIDIA's egl-wayland the KHR one).
+- EGL 1.5 on every display: the context is made current without a surface (`EGL_KHR_surfaceless_context`; a window
+  display has always needed it, because its window surface comes later). A windowless display's config asks for
+  `EGL_SURFACE_TYPE` 0: the default is `EGL_WINDOW_BIT`, which Mesa's surfaceless platform has no config for (that is why
+  the 1x1 pbuffer used to be what ran there; it is gone, checked on llvmpipe, d3d12 and headless sway). dma-buf
+  import uses `eglCreateImageKHR`, which `EGL_EXT_image_dma_buf_import` requires. Without `EGL_MESA_platform_surfaceless`
+  the windowless device takes the default display (`eglGetDisplay`): NVIDIA offers only `EGL_EXT_platform_device` there.
 - Compute group limits are capability data (`GpuCaps`): `colr_layers` has a 2-slice variant for devices under 512
   invocations. The GPU VP8 path needs one group of 512 invocations (`vp8_predict.glsl`), above the ES 3.1 floor of 128,
   and 29696 bytes of shared memory (`vp8_filter.glsl`), above the floor of 16384 that v3d has:

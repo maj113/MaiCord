@@ -52,8 +52,7 @@ bool client_load() noexcept {
     resolve(&api.proxy_add_listener, "wl_proxy_add_listener");
     resolve(&api.proxy_destroy, "wl_proxy_destroy");
     resolve(&api.proxy_get_version, "wl_proxy_get_version");
-    resolve(&api.proxy_marshal_array, "wl_proxy_marshal_array");
-    resolve(&api.proxy_marshal_array_constructor_versioned, "wl_proxy_marshal_array_constructor_versioned");
+    resolve(&api.proxy_marshal_array_flags, "wl_proxy_marshal_array_flags");
     if (resolve.missing) {
         log_missing_symbol("libwayland-client.so.0", resolve.missing);
         shared_library_close(&g_client_library);

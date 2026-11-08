@@ -4,7 +4,8 @@
 #include "maicord/platform/window/key.hpp"
 
 // The libxkbcommon interface the Wayland backend uses, declared without its headers (Linux). The library is
-// dlopen()ed ("libxkbcommon.so.0"); the declarations follow <xkbcommon/xkbcommon.h> and xkbcommon-compose.h.
+// dlopen()ed ("libxkbcommon.so.0"); the declarations follow <xkbcommon/xkbcommon.h> and xkbcommon-compose.h. Every
+// function is in libxkbcommon 1.4 (Ubuntu 22.04, the oldest of the supported distributions).
 
 namespace maicord::wayland {
 
@@ -53,7 +54,6 @@ struct XkbApi {
     int (*keymap_key_repeats)(XkbKeymap* keymap, u32 key) noexcept;
     int (*keymap_key_get_syms_by_level)(XkbKeymap* keymap, u32 key, u32 layout, u32 level,
                                         const u32** symbols) noexcept;
-    u32 (*keymap_num_layouts_for_key)(XkbKeymap* keymap, u32 key) noexcept;
     u32 (*keymap_mod_get_index)(XkbKeymap* keymap, const char* name) noexcept;
     XkbState* (*state_new)(XkbKeymap* keymap) noexcept;
     void (*state_unref)(XkbState* state) noexcept;
@@ -65,9 +65,7 @@ struct XkbApi {
     u32 (*state_key_get_one_sym)(XkbState* state, u32 key) noexcept;
     u32 (*state_key_get_utf32)(XkbState* state, u32 key) noexcept;
     u32 (*state_key_get_layout)(XkbState* state, u32 key) noexcept;
-    int (*state_mod_index_is_active)(XkbState* state, u32 index, int type) noexcept;
     int (*state_mod_name_is_active)(XkbState* state, const char* name, int type) noexcept;
-    u32 (*keysym_to_utf32)(u32 keysym) noexcept;
     XkbComposeTable* (*compose_table_new_from_locale)(XkbContext* context, const char* locale, int flags) noexcept;
     void (*compose_table_unref)(XkbComposeTable* table) noexcept;
     XkbComposeState* (*compose_state_new)(XkbComposeTable* table, int flags) noexcept;

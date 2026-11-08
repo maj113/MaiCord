@@ -9,10 +9,12 @@ and the in-house AAC-LC decoder. The DXVA files next to it are Windows-only. Bac
 
 A stream starts on the hardware tier (`vaapi/`) and falls to the software tier (`software/`: `libdav1d.so.7`/`.6` for
 AV1, `libopenh264.so.7`/`.6`/`.8` for H.264, 8-bit 4:2:0, CPU planes uploaded as textures) when the probe lists no
-hardware codec or the hardware gives up (the profile, AV1 film grain, three failed pictures in a row). No software HEVC;
-the live software tier refuses B slices (OpenH264 returns pictures in decode order). `video_capability.hpp` turns the
-probes into what Discord is offered. Movies play on both tiers in presentation order (libopenh264 is the reorderer); HEVC
-movies need a VA-API driver.
+hardware codec or the hardware gives up (the profile, AV1 film grain, three failed pictures in a row). Every soname is some
+supported distribution's: dav1d `.6` is Debian 12 and Alpine 3.18, `.7` Ubuntu 24.04 and the rest (Ubuntu 22.04's `.5`, dav1d
+0.9, has another layout and is not opened); OpenH264 `.6` is Ubuntu 22.04, `.7` Debian 12, Ubuntu 24.04 and Alpine, `.8` Fedora,
+openSUSE and Arch. No software HEVC; the live software tier refuses B slices (OpenH264 returns pictures in decode order).
+`video_capability.hpp` turns the probes into what Discord is offered. Movies play on both tiers in presentation order
+(libopenh264 is the reorderer); HEVC movies need a VA-API driver.
 
 ## VA-API (`vaapi/`)
 

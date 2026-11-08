@@ -26,11 +26,8 @@ inline constexpr Int kGreenSize = 0x3023;
 inline constexpr Int kBlueSize = 0x3022;
 inline constexpr Int kAlphaSize = 0x3021;
 inline constexpr Int kSurfaceType = 0x3033;
-inline constexpr Int kPbufferBit = 0x0001;
 inline constexpr Int kRenderableType = 0x3040;
 inline constexpr Int kOpenGlEs3Bit = 0x00000040;
-inline constexpr Int kWidth = 0x3057;
-inline constexpr Int kHeight = 0x3056;
 inline constexpr Enum kOpenGlEsApi = 0x30A0;
 inline constexpr Int kContextMajorVersion = 0x3098;
 inline constexpr Int kContextMinorVersion = 0x30FB;
@@ -43,8 +40,10 @@ inline constexpr Display kNoDisplay = nullptr;
 inline constexpr Context kNoContext = nullptr;
 inline constexpr Surface kNoSurface = nullptr;
 
-// The functions the backend loads from libEGL.so.1 by name. eglGetPlatformDisplay is EGL 1.5; the loader falls back
-// to eglGetPlatformDisplayEXT through eglGetProcAddress.
+// The functions the backend loads from libEGL.so.1 by name. eglGetPlatformDisplay is EGL 1.5, which every libEGL.so.1
+// of the floor's distributions exports: libglvnd's dispatcher (1.4, Ubuntu 22.04) and Mesa's own library (Alpine,
+// Mesa 23.0 on 3.18), with Mesa (22.3, Debian 12) and NVIDIA (the 470 branch reports EGL 1.5) behind it.
+// eglGetDisplay stays for the default display: NVIDIA has no EGL_MESA_platform_surfaceless.
 #define MAICORD_EGL_FUNCTIONS(X)                                                                                       \
     X(Int, eglGetError, ())                                                                                            \
     X(void*, eglGetProcAddress, (const char* name))                                                                    \
@@ -57,7 +56,6 @@ inline constexpr Surface kNoSurface = nullptr;
     X(Boolean, eglChooseConfig, (Display display, const Int* attributes, Config* configs, Int capacity, Int* count))   \
     X(Boolean, eglGetConfigAttrib, (Display display, Config config, Int attribute, Int * value))                       \
     X(Context, eglCreateContext, (Display display, Config config, Context share, const Int* attributes))               \
-    X(Surface, eglCreatePbufferSurface, (Display display, Config config, const Int* attributes))                       \
     X(Boolean, eglMakeCurrent, (Display display, Surface draw, Surface read, Context context))                         \
     X(Boolean, eglDestroyContext, (Display display, Context context))                                                  \
     X(Boolean, eglDestroySurface, (Display display, Surface surface))                                                  \

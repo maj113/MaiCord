@@ -218,7 +218,6 @@ struct GpuDevice {
     void* egl_library;
     egl::Display display;
     egl::Context context;
-    egl::Surface surface; // the 1x1 pbuffer when the context could not be made current without a surface
     egl::Config config;   // the config of the context; window surfaces use the same one
     bool present_opaque;  // the window config has alpha and the surfaces ask the compositor to ignore it
     void* native_display; // the window system connection (wl_display*) this display was made from, or null

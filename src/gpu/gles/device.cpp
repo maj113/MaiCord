@@ -67,15 +67,12 @@ bool open_display(GpuDevice& device) noexcept {
     return false;
 }
 
-// A context of the requested ES version; with `pbuffer` the config and a 1x1 surface for drivers that cannot make a
-// context current without a surface.
-bool make_current(GpuDevice& device, bool pbuffer) noexcept {
-    const egl::Int attributes_surfaceless[] = {egl::kRenderableType, egl::kOpenGlEs3Bit, egl::kNone};
-    const egl::Int attributes_pbuffer[] = {egl::kRenderableType, egl::kOpenGlEs3Bit, egl::kSurfaceType,
-                                           egl::kPbufferBit,     egl::kRedSize,        8,
-                                           egl::kGreenSize,      8,                    egl::kBlueSize,
-                                           8,                    egl::kAlphaSize,      8,
-                                           egl::kNone};
+// A context of the requested ES version, made current without a surface (EGL 1.5, EGL_KHR_surfaceless_context). A
+// windowless display asks for any surface type: eglChooseConfig defaults EGL_SURFACE_TYPE to EGL_WINDOW_BIT, and Mesa's
+// surfaceless platform has no window config.
+bool make_current(GpuDevice& device) noexcept {
+    const egl::Int attributes_surfaceless[] = {egl::kRenderableType, egl::kOpenGlEs3Bit, egl::kSurfaceType, 0,
+                                               egl::kNone};
     // A window takes no alpha: the compositor then reads the surface's buffers as opaque (XRGB8888), which the window's
     // opaque region repeats. Any config of 8-bit colour does for the choice; the one without alpha is picked below.
     const egl::Int attributes_window[] = {egl::kRenderableType, egl::kOpenGlEs3Bit, egl::kSurfaceType,
@@ -83,17 +80,14 @@ bool make_current(GpuDevice& device, bool pbuffer) noexcept {
                                           egl::kGreenSize,      8,                    egl::kBlueSize,
                                           8,                    egl::kNone};
     // On a window system display the config can draw to windows (the surfaces made later share the context's
-    // config); there is no pbuffer fallback there.
+    // config).
     const bool window = device.native_display != nullptr;
-    if (window && pbuffer)
-        return false;
     egl::Config config = nullptr;
     egl::Config candidates[32];
     egl::Int count = 0;
     if (!device.egl.eglBindAPI(egl::kOpenGlEsApi) ||
-        !device.egl.eglChooseConfig(device.display,
-                                    window ? attributes_window : (pbuffer ? attributes_pbuffer : attributes_surfaceless),
-                                    candidates, window ? 32 : 1, &count) ||
+        !device.egl.eglChooseConfig(device.display, window ? attributes_window : attributes_surfaceless, candidates,
+                                    window ? 32 : 1, &count) ||
         count < 1) {
         return false;
     }
@@ -119,24 +113,11 @@ bool make_current(GpuDevice& device, bool pbuffer) noexcept {
     device.context = device.egl.eglCreateContext(device.display, config, egl::kNoContext, context_attributes);
     if (!device.context)
         return false;
-    egl::Surface surface = egl::kNoSurface;
-    if (pbuffer) {
-        const egl::Int surface_attributes[] = {egl::kWidth, 1, egl::kHeight, 1, egl::kNone};
-        surface = device.egl.eglCreatePbufferSurface(device.display, config, surface_attributes);
-        if (!surface) {
-            device.egl.eglDestroyContext(device.display, device.context);
-            device.context = nullptr;
-            return false;
-        }
-    }
-    if (!device.egl.eglMakeCurrent(device.display, surface, surface, device.context)) {
-        if (surface)
-            device.egl.eglDestroySurface(device.display, surface);
+    if (!device.egl.eglMakeCurrent(device.display, egl::kNoSurface, egl::kNoSurface, device.context)) {
         device.egl.eglDestroyContext(device.display, device.context);
         device.context = nullptr;
         return false;
     }
-    device.surface = surface;
     device.config = config;
     return true;
 }
@@ -376,7 +357,7 @@ GpuStatus create_device_attempt() noexcept {
         unload_libraries(&d);
         return kGpuUnsupported;
     }
-    if (!make_current(d, false) && !make_current(d, true)) {
+    if (!make_current(d)) {
         log_write(LogLevel::error, "gpu", "no OpenGL ES 3.1 context could be created");
         d.egl.eglTerminate(d.display);
         unload_libraries(&d);
@@ -495,7 +476,7 @@ void claim_context() noexcept {
     thread_close(g_prestart.thread);
     g_prestart.thread = nullptr;
     if (d.created)
-        d.egl.eglMakeCurrent(d.display, d.surface, d.surface, d.context);
+        d.egl.eglMakeCurrent(d.display, egl::kNoSurface, egl::kNoSurface, d.context);
 }
 
 } // namespace gles
@@ -567,8 +548,6 @@ void gpu_device_destroy(GpuDevice** out_device, GpuContext** out_context) {
         // The GL objects of the context go with it.
         if (d.context)
             d.egl.eglDestroyContext(d.display, d.context);
-        if (d.surface)
-            d.egl.eglDestroySurface(d.display, d.surface);
         d.egl.eglTerminate(d.display);
     }
     gles::unload_libraries(&d);

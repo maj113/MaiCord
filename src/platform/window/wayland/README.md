@@ -16,7 +16,14 @@ drains it and calls the sink, so no `wl_*_listener` ever runs app code. `wayland
 | `data.cpp`, `uri.cpp`, `text_input.cpp` | clipboard, primary selection, drag and drop, IME (text-input-v3) |
 | `pump.cpp` | `window_wait` / `window_pump`: display fd, loop wake, key-repeat timer, session bus |
 
-Bindings are generated at build time by `tools/generate_wayland_protocols.py` from `third_party/wayland` (see its README). A new
+Bindings are generated at build time by `tools/generate_wayland_protocols.py` from `third_party/wayland` (see its README): every
+request is one `wl_proxy_marshal_array_flags` call (libwayland-client 1.20, Ubuntu 22.04's), which also makes a constructor's
+object and destroys a destructor's proxy. `wl_proxy_marshal_array` and `_constructor_versioned` forward to it through one
+to three calls, and a destructor then took the display lock a second time in `wl_proxy_destroy`. Measured with callgrind on
+`tools/test_wayland_window.sh` (libwayland 1.22, the same requests in both runs, Ir in libwayland per request): lifecycle
+2068 to 2036 (246 requests), input 2490 to 2470 (599); a destructor (`wl_surface_destroy`, `wl_data_offer_destroy`, an
+activation token) 89 fewer; the resize step (`surface_sync`: viewport, opaque region) 1838 to 1813; the cursor 1871 to 1859.
+The test program's own code grew by 308 Ir over the lifecycle run (1.3 per request), and the client by 64 bytes. A new
 global is bound in `on_global` (`window.cpp`), kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 
 ## Rules

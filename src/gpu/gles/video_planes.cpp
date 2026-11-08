@@ -52,10 +52,9 @@ u32 g_retired; // index + 1 of the newest retired plane whose GL texture awaits 
 volatile LONG g_api_state; // 0 not resolved, 1 resolving, 2 resolved
 
 struct ImageApi {
-    void* (*create_khr)(void* display, void* context, u32 target, void* buffer, const i32* attributes);
-    void* (*create_core)(void* display, void* context, u32 target, void* buffer, const i64* attributes);
-    u32 (*destroy_khr)(void* display, void* image);
-    u32 (*destroy_core)(void* display, void* image);
+    // EGL_KHR_image_base: EGL_EXT_image_dma_buf_import (caps.dmabuf_import) requires it.
+    void* (*create)(void* display, void* context, u32 target, void* buffer, const i32* attributes);
+    u32 (*destroy)(void* display, void* image);
     void (*target_texture)(u32 target, void* image);
     u32 (*query_display_attribute)(void* display, i32 attribute, i64* value);
     const char* (*query_device_string)(void* device, i32 name);
@@ -79,7 +78,7 @@ bool resolve_images(GpuDevice& device) noexcept {
     for (;;) {
         switch (InterlockedCompareExchange(&g_api_state, 0, 0)) {
         case 2:
-            return g_images.target_texture && (g_images.create_khr || g_images.create_core);
+            return g_images.target_texture && g_images.create;
         case 1:
             while (g_api_state == 1)
                 __builtin_ia32_pause();
@@ -89,10 +88,8 @@ bool resolve_images(GpuDevice& device) noexcept {
                 continue;
             const auto load = [&](const char* name) noexcept { return device.egl.eglGetProcAddress(name); };
             ImageApi api{};
-            api.create_khr = reinterpret_cast<decltype(api.create_khr)>(load("eglCreateImageKHR"));
-            api.destroy_khr = reinterpret_cast<decltype(api.destroy_khr)>(load("eglDestroyImageKHR"));
-            api.create_core = reinterpret_cast<decltype(api.create_core)>(load("eglCreateImage"));
-            api.destroy_core = reinterpret_cast<decltype(api.destroy_core)>(load("eglDestroyImage"));
+            api.create = reinterpret_cast<decltype(api.create)>(load("eglCreateImageKHR"));
+            api.destroy = reinterpret_cast<decltype(api.destroy)>(load("eglDestroyImageKHR"));
             api.target_texture = reinterpret_cast<decltype(api.target_texture)>(load("glEGLImageTargetTexture2DOES"));
             api.query_display_attribute =
                 reinterpret_cast<decltype(api.query_display_attribute)>(load("eglQueryDisplayAttribEXT"));
@@ -100,10 +97,8 @@ bool resolve_images(GpuDevice& device) noexcept {
             api.query_modifiers = reinterpret_cast<decltype(api.query_modifiers)>(load("eglQueryDmaBufModifiersEXT"));
             const char* extensions = device.egl.eglQueryString(device.display, egl::kExtensions);
             api.modifiers = string_has_word(extensions, "EGL_EXT_image_dma_buf_import_modifiers");
-            if (!api.destroy_khr && !api.destroy_core) {
-                api.create_khr = nullptr;
-                api.create_core = nullptr;
-            }
+            if (!api.destroy)
+                api.create = nullptr;
             g_images = api;
             InterlockedExchange(&g_api_state, 2);
         }
@@ -150,13 +145,8 @@ VideoPlane* allocate_plane(u8 kind, u32 width, u32 height, GpuFormat format) noe
 
 // Frees what a plane owns that needs no GL, then the slot.
 void free_plane(VideoPlane* plane) noexcept {
-    if (plane->image) {
-        GpuDevice& d = device();
-        if (g_images.destroy_khr)
-            g_images.destroy_khr(d.display, plane->image);
-        else if (g_images.destroy_core)
-            g_images.destroy_core(d.display, plane->image);
-    }
+    if (plane->image)
+        g_images.destroy(device().display, plane->image);
     if (plane->pixels)
         pages_release(plane->pixels, plane->pixel_bytes);
     lock();
@@ -349,15 +339,7 @@ GpuStatus gpu_video_plane_import(GpuDevice* device, const GpuDmabufPlane& source
         return kGpuUnsupported;
     i32 attributes[32]{};
     gpu_dmabuf_attributes(source, gles::g_images.modifiers, attributes);
-    void* image = nullptr;
-    if (gles::g_images.create_khr) {
-        image = gles::g_images.create_khr(device->display, nullptr, gles::kEglLinuxDmaBuf, nullptr, attributes);
-    } else {
-        i64 wide_attributes[32];
-        for (u32 i = 0; i < 32; ++i)
-            wide_attributes[i] = attributes[i];
-        image = gles::g_images.create_core(device->display, nullptr, gles::kEglLinuxDmaBuf, nullptr, wide_attributes);
-    }
+    void* image = gles::g_images.create(device->display, nullptr, gles::kEglLinuxDmaBuf, nullptr, attributes);
     if (!image) {
         log_u64(LogLevel::warning, "video", "dmabuf_import_failed_egl", static_cast<u64>(device->egl.eglGetError()));
         return kGpuFail;
@@ -365,10 +347,7 @@ GpuStatus gpu_video_plane_import(GpuDevice* device, const GpuDmabufPlane& source
     const GpuFormat format = wide ? (chroma ? GpuFormat::rg16 : GpuFormat::r16) : (chroma ? GpuFormat::rg8 : GpuFormat::r8);
     gles::VideoPlane* plane = gles::allocate_plane(gles::plane_dmabuf, source.width, source.height, format);
     if (!plane) {
-        if (gles::g_images.destroy_khr)
-            gles::g_images.destroy_khr(device->display, image);
-        else
-            gles::g_images.destroy_core(device->display, image);
+        gles::g_images.destroy(device->display, image);
         return kGpuOutOfMemory;
     }
     plane->image = image;
