@@ -71,6 +71,7 @@ extern Plugin g_plugins[kMaximumPlugins];
 extern u32 g_plugin_count;
 
 Plugin* find_plugin(const PluginBinding*) noexcept;
+Plugin* find_plugin(u64 owner_id) noexcept;
 // The plugin's record, created (and the UI queries installed) on first use. Null when full.
 Plugin* ensure_plugin(PluginBinding*) noexcept;
 // Recomputes wants, the slot-surface mask and installs or removes the host table and the UI queries.
@@ -98,6 +99,9 @@ mc_status plugin_surfaces_invalidate(PluginBinding*, u32 what, u64 id) noexcept;
 // decorations.cpp helpers the buttons use.
 bool text_valid(const mc_str& text, u32 maximum) noexcept;
 void fill_message(const PluginMessageInput&, mc_message*) noexcept;
+// reads.cpp: the ABI form of a user (all but `where`) and a channel, into a zeroed record.
+void fill_user(const PluginUserInput&, mc_user*) noexcept;
+void fill_channel(const PluginChannelInput&, mc_channel*) noexcept;
 // reads.cpp: mc_api.read_*, from g_plugin_reader.
 mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept;
 mc_status read_channel(u64 channel_id, mc_channel* out) noexcept;

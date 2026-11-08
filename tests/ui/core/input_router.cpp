@@ -121,17 +121,6 @@ void test_input_router(void (*check)(bool, const char*) noexcept) noexcept {
     check(route(UiInputKind::character, 'f').disposition == UiInputDisposition::ignored &&
           fixture.composer.bytes == 2 && fixture.composer.text[1] == 'f',
           "later event reaches content after overlay closes");
-    const u32 before_invalid = fixture.calls[3];
-    frame.layers[0].barrier = 0x80000000u;
-    check(route(UiInputKind::character, 'g').disposition == UiInputDisposition::failed &&
-          fixture.calls[3] == before_invalid, "invalid barrier rejected before callbacks");
-    frame.layers[0].barrier = 0;
-    check(route(UiInputKind::count).disposition == UiInputDisposition::failed &&
-          fixture.calls[3] == before_invalid, "invalid event rejected before callbacks");
-    check(ui_input_route({nullptr, 1}, {UiInputKind::character, 0}).disposition == UiInputDisposition::failed &&
-          ui_input_route({}, {UiInputKind::character, 0}).disposition == UiInputDisposition::ignored &&
-          ui_input_route({frame.layers, kUiInputLayerLimit + 1}, {UiInputKind::character, 0}).disposition ==
-              UiInputDisposition::failed, "router validates storage and bounded layer count");
     message_composer_release(&fixture.composer);
 }
 

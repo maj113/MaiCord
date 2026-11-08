@@ -103,6 +103,12 @@ float rail_tile_radius(const UiRect& tile, const Theme& theme) noexcept {
     return guild_rail_tile_radius(tile, theme.scale.radius_lg);
 }
 
+// The square `half` DIPs either side of the centre of `r`: where a glyph sits on its button.
+UiRect centered_square(const UiRect& r, float half) noexcept {
+    const float x = (r.left + r.right) * .5f, y = (r.top + r.bottom) * .5f;
+    return {x - half, y - half, x + half, y + half};
+}
+
 // A rail tile without artwork (Home, Add a Server, a server's initials): the
 // raised surface at rest, the accent while hovered or selected. Its surface
 // follows the theme like the other raised controls.
@@ -127,10 +133,8 @@ bool paint_add_server(PaintStream* stream, const GuildRailScene& scene, const Th
         return true;
     const UiRect tile = guild_rail_icon_rectangle(row);
     const bool hovered = ui_widget_handle_matches(scene.add_button, scene.widgets.hovered);
-    const float cx = (tile.left + tile.right) * .5f, cy = (tile.top + tile.bottom) * .5f;
-    const float half = kUiGuildRailGlyphExtent * .5f;
     return paint_rail_tile(stream, tile, hovered, theme) &&
-           ui_icon_paint(stream, UiIcon::plus, {cx - half, cy - half, cx + half, cy + half},
+           ui_icon_paint(stream, UiIcon::plus, centered_square(tile, kUiGuildRailGlyphExtent * .5f),
                          rail_tile_ink(hovered, theme));
 }
 
@@ -182,11 +186,9 @@ bool paint_plugin_tiles(PaintStream* stream, const GuildRailScene& scene, const 
             const bool hovered = ui_widget_handle_matches(tile.widget, scene.widgets.hovered);
             const bool disabled = (tile.node.state & kUiPluginSlotDisabled) != 0;
             const bool accent = !disabled && (hovered || (tile.node.state & kUiPluginSlotActive));
-            const float extent = kUiGuildRailGlyphExtent;
-            const float cx = (tile.tile.left + tile.tile.right) * .5f, cy = (tile.tile.top + tile.tile.bottom) * .5f;
             if (!paint_rail_tile(stream, tile.tile, accent, theme) ||
                 !ui_icon_paint(stream, ui_plugin_slot_icon(tile.node),
-                               {cx - extent * .5f, cy - extent * .5f, cx + extent * .5f, cy + extent * .5f},
+                               centered_square(tile.tile, kUiGuildRailGlyphExtent * .5f),
                                disabled ? ui_background_muted_text_color(theme)
                                : accent ? rail_tile_ink(true, theme)
                                         : ui_plugin_slot_ink(theme, tile.node.tone, theme.text_primary)) ||
@@ -204,10 +206,9 @@ bool paint_voice_participants(PaintStream* stream, const ShellNavigationRowWidge
         if (user.row.bottom <= viewport.top || user.row.top >= viewport.bottom)
             continue;
         // Speaking ring: a success-coloured disc 2 DIP larger than the avatar, drawn beneath it.
-        const UiRect& a = user.avatar;
-        if (user.speaking && !paint_stream_push_rounded(stream, a.left - 2, a.top - 2, a.right + 2, a.bottom + 2,
-                                           ui_icon_role_color(theme, UiIconRole::success),
-                                           ui_rect_width(a) * 0.5f + 2))
+        if (user.speaking && !paint_stream_push_rounded(stream, ui_rect_shrink(user.avatar, -2),
+                                                        ui_icon_role_color(theme, UiIconRole::success),
+                                                        ui_rect_width(user.avatar) * 0.5f + 2))
             return false;
         if (!paint_stream_push_rounded(stream, user.avatar, theme.avatar_placeholder, ui_rect_width(user.avatar) * 0.5f))
             return false;
@@ -252,16 +253,12 @@ bool paint_voice_extras(PaintStream* stream, const ShellNavigationRowWidget& row
         !paint_stream_push_rounded(stream, r, ui_background_hover_color(theme, theme.surface_high, .20f), theme.scale.radius_sm))
         return false;
     const UiRect& disc = invite.icon;
-    const float cx = (disc.left + disc.right) * 0.5f, cy = (disc.top + disc.bottom) * 0.5f;
     if (!paint_stream_push_rounded(stream, disc, theme.surface_high, ui_rect_width(disc) * 0.5f) ||
-        !ui_icon_paint(stream, UiIcon::user_plus, {cx - 7.0f, cy - 7.0f, cx + 7.0f, cy + 7.0f},
+        !ui_icon_paint(stream, UiIcon::user_plus, centered_square(disc, 7.0f),
                        extras.invite_hovered ? theme.text_primary : theme.text_secondary))
         return false;
-    if (!extras.invite_hovered)
-        return true;
-    const UiRect& c = invite.close;
-    const float x = (c.left + c.right) * 0.5f, y = (c.top + c.bottom) * 0.5f;
-    return ui_icon_paint(stream, UiIcon::close, {x - 8.0f, y - 8.0f, x + 8.0f, y + 8.0f},
+    return !extras.invite_hovered ||
+           ui_icon_paint(stream, UiIcon::close, centered_square(invite.close, 8.0f),
                          extras.invite_close_hovered ? theme.text_primary : ui_icon_role_color(theme, UiIconRole::muted));
 }
 
@@ -306,14 +303,11 @@ bool paint_folder_header(PaintStream* stream, const NavigationView* navigation,
                          const GuildRailRowWidget& row_widget, UiRect rectangle, bool hovered,
                          const Theme& theme) noexcept {
     const auto& row = row_widget.view;
-    if (row.folder_expanded) {
-        const float half = kUiNavigationIconExtent * .5f;
-        const float x = (rectangle.left + rectangle.right) * .5f, y = (rectangle.top + rectangle.bottom) * .5f;
+    if (row.folder_expanded)
         return (!hovered || paint_stream_push_rounded(stream, rectangle, theme.tokens.state.hover,
                                                       rail_tile_radius(rectangle, theme))) &&
-               ui_icon_paint(stream, UiIcon::folder, {x - half, y - half, x + half, y + half},
+               ui_icon_paint(stream, UiIcon::folder, centered_square(rectangle, kUiNavigationIconExtent * .5f),
                              folder_color(theme, row, 1));
-    }
     if (!paint_stream_push_rounded(stream, rectangle, folder_color(theme, row, .4f), rail_tile_radius(rectangle, theme)))
         return false;
     // Members without artwork get a neutral tile; icons are queued as media.
@@ -355,9 +349,8 @@ bool paint_guild_header(PaintStream* stream, const UiScene& scene, const Navigat
     const bool invite_hovered =
         ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::guild_invite));
     const UiRect b = invite->rectangle;
-    const float x = (b.left + b.right) * .5f, y = (b.top + b.bottom) * .5f, half = kUiShellGuildInviteGlyph * .5f;
     return (!invite_hovered || paint_stream_push_rounded(stream, b, hover, kUiShellGuildMenuRadius)) &&
-           ui_icon_paint(stream, UiIcon::user_plus, {x - half, y - half, x + half, y + half},
+           ui_icon_paint(stream, UiIcon::user_plus, centered_square(b, kUiShellGuildInviteGlyph * .5f),
                          invite_hovered ? ink : quiet);
 }
 
@@ -814,8 +807,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     }
     if (const auto* create = ui_scene_node(scene, UiSemantic::private_create)) {
         const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::private_create));
-        const UiRect r = create->rectangle;
-        if (!ui_icon_paint(stream, UiIcon::plus, {r.left + 4, r.top + 4, r.right - 4, r.bottom - 4},
+        if (!ui_icon_paint(stream, UiIcon::plus, ui_rect_shrink(create->rectangle, 4),
                            hovered ? theme.text_primary : theme.text_secondary))
             return false;
     }
@@ -850,7 +842,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                               : ui_background_hover_color(theme, theme.surface_high, .20f),
                                            theme.scale.radius_sm))
                 return false;
-            if (!ui_icon_paint(stream, ui_plugin_slot_icon(node), {r.left + 7, r.top + 7, r.right - 7, r.bottom - 7},
+            if (!ui_icon_paint(stream, ui_plugin_slot_icon(node), ui_rect_shrink(r, 7),
                                disabled ? ui_background_muted_text_color(theme)
                                         : ui_plugin_slot_ink(theme, node.tone, theme.text_secondary)) ||
                 (node.badge && !ui_plugin_slot_count_paint(stream, r, node.badge, theme)))
@@ -994,9 +986,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         const UiLayoutNode* cell = ui_widget_manager_layout_node(composer_scene->widgets, composer_scene->plugin_slots[i]);
         if (node.state & kUiPluginSlotDisabled) {
             // A disabled button keeps its place, dimmed, and ignores the pointer.
-            if (!cell || !ui_icon_paint(stream, ui_plugin_slot_icon(node),
-                                        {cell->rectangle.left + 7, cell->rectangle.top + 7, cell->rectangle.right - 7,
-                                         cell->rectangle.bottom - 7},
+            if (!cell || !ui_icon_paint(stream, ui_plugin_slot_icon(node), ui_rect_shrink(cell->rectangle, 7),
                                         ui_background_muted_text_color(theme)))
                 return false;
         } else if (!ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->plugin_slots[i],

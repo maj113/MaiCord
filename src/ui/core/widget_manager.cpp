@@ -19,17 +19,14 @@ UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const
     }
     if ((manager->count >= manager->storage.count || manager->count >= manager->layout.storage.count) &&
         !ui_widget_manager_reserve(manager, manager->count + 1u)) {
-        ++manager->rejected;
         return UiWidgetResult{UiWidgetError::capacity, ui_widget_invalid_handle()};
     }
     if (!id_prevalidated && ui_widget_manager_find(*manager, description.id).generation != 0) {
-        ++manager->rejected;
         return UiWidgetResult{UiWidgetError::duplicate_id, ui_widget_invalid_handle()};
     }
     const bool root = manager->count == 0;
     const UiWidget* parent_widget = root ? nullptr : ui_widget_manager_resolve(*manager, parent);
     if ((root && parent.slot != kInvalidUiWidgetSlot) || (!root && !parent_widget)) {
-        ++manager->rejected;
         return UiWidgetResult{UiWidgetError::invalid_parent, ui_widget_invalid_handle()};
     }
     UiLayoutNodeHandle layout_handle{};
@@ -46,7 +43,6 @@ UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const
             flags |= ui_layout_node_scroll_vertical;
     }
     if (!layout_result.ok() || layout_handle.slot != manager->count) {
-        ++manager->rejected;
         return UiWidgetResult{UiWidgetError::layout, ui_widget_invalid_handle()};
     }
     const u16 slot = static_cast<u16>(manager->count++);

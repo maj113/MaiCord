@@ -9,9 +9,11 @@
 #include "maicord/app/plugins/http.hpp"
 #include "maicord/app/plugins/pipeline.hpp"
 #include "maicord/app/update/log.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -267,8 +269,9 @@ void delete_unreferenced_plugins() noexcept {
         bool valid = true;
         for (u32 i = 0; i < 64 && valid; ++i) {
             const wchar_t c = found.name[i];
-            const i32 nibble = c >= L'0' && c <= L'9' ? c - L'0' : c >= L'a' && c <= L'f' ? c - L'a' + 10 : -1;
-            valid = nibble >= 0;
+            // The file names are lowercase hexadecimal digests.
+            valid = c < 128 && ascii_is_lower_hex_digit(static_cast<char>(c));
+            const i32 nibble = valid ? ascii_hex_value(static_cast<char>(c)) : 0;
             sha[i / 2] = static_cast<u8>(i % 2 ? sha[i / 2] << 4 | nibble : nibble);
         }
         if (valid) delete_plugin_file(sha);
@@ -547,9 +550,8 @@ bool review_plugin() noexcept {
         matches = listing_matches(image, g->index->versions[g->op.version]);
     } else {
         // A sideloaded build is recorded under its owner.
-        static constexpr char digits[] = "0123456789abcdef";
         char slug[20] = "dev-";
-        for (u32 i = 0; i < 16; ++i) slug[4 + i] = digits[(image.owner_id >> (60 - i * 4)) & 15];
+        for (u32 i = 0; i < 16; ++i) slug[4 + i] = ascii_hex_digit(static_cast<u32>(image.owner_id >> (60 - i * 4)));
         g->op.slug_bytes = 20;
         copy_bytes(g->op.slug, slug, 20);
         g->view.operation.slug_bytes = 20;
@@ -839,35 +841,38 @@ void dev_poll() noexcept {
 }
 } // namespace
 
+// The sentence of each error from busy on, in CatalogError order, but declined (none and declined have none).
+constexpr char kErrorTexts[] =
+    "Another change is still finishing. Try again in a moment.\0"
+    "The catalog isn't available in this build.\0"
+    "Can't reach the catalog. Check your connection and try again.\0"
+    "The catalog asked MaiCord to wait. It will try again later.\0"
+    "The catalog's signature didn't verify. Nothing was changed.\0"
+    "The catalog couldn't be read. Nothing was changed.\0"
+    "The catalog served an older list than MaiCord already has.\0"
+    "The catalog is out of date. Refresh it to install or update.\0"
+    "That item isn't in the catalog any more.\0"
+    "That item needs a newer MaiCord.\0"
+    "MaiCord turned this off because it was found harmful.\0"
+    "The download didn't finish. Try again.\0"
+    "The download didn't match the catalog. Nothing was installed.\0"
+    "The file isn't a valid theme or effect. Nothing was installed.\0"
+    "MaiCord couldn't save the file. Check the disk and try again.\0"
+    "The plugin couldn't be loaded. Nothing was installed.\0"
+    "The plugin isn't the build the catalog lists. Nothing was installed.\0"
+    "Another installed plugin uses the same identity.\0"
+    "Too many items are installed. Remove one first.\0"
+    "The plugin didn't start. It's turned off.\0"
+    "That item isn't installed.\0"
+    "Turn on Developer Mode to load your own plugins.\0"
+    "This plugin was updated while you reviewed it. Review it again.\0";
+static_assert(name_list_count(kErrorTexts) == static_cast<u32>(CatalogError::review_again) - 1);
+
 Utf8View application_catalog_error_text(CatalogError error) noexcept {
-    switch (error) {
-    case CatalogError::none: return {};
-    case CatalogError::busy: return utf8_literal("Another change is still finishing. Try again in a moment.");
-    case CatalogError::not_configured: return utf8_literal("The catalog isn't available in this build.");
-    case CatalogError::unreachable: return utf8_literal("Can't reach the catalog. Check your connection and try again.");
-    case CatalogError::rate_limited: return utf8_literal("The catalog asked MaiCord to wait. It will try again later.");
-    case CatalogError::signature: return utf8_literal("The catalog's signature didn't verify. Nothing was changed.");
-    case CatalogError::invalid_index: return utf8_literal("The catalog couldn't be read. Nothing was changed.");
-    case CatalogError::replay: return utf8_literal("The catalog served an older list than MaiCord already has.");
-    case CatalogError::expired: return utf8_literal("The catalog is out of date. Refresh it to install or update.");
-    case CatalogError::not_listed: return utf8_literal("That item isn't in the catalog any more.");
-    case CatalogError::incompatible: return utf8_literal("That item needs a newer MaiCord.");
-    case CatalogError::revoked: return utf8_literal("MaiCord turned this off because it was found harmful.");
-    case CatalogError::download: return utf8_literal("The download didn't finish. Try again.");
-    case CatalogError::digest: return utf8_literal("The download didn't match the catalog. Nothing was installed.");
-    case CatalogError::package: return utf8_literal("The file isn't a valid theme or effect. Nothing was installed.");
-    case CatalogError::storage: return utf8_literal("MaiCord couldn't save the file. Check the disk and try again.");
-    case CatalogError::plugin_load: return utf8_literal("The plugin couldn't be loaded. Nothing was installed.");
-    case CatalogError::plugin_mismatch: return utf8_literal("The plugin isn't the build the catalog lists. Nothing was installed.");
-    case CatalogError::owner_conflict: return utf8_literal("Another installed plugin uses the same identity.");
-    case CatalogError::declined: return {};
-    case CatalogError::capacity: return utf8_literal("Too many items are installed. Remove one first.");
-    case CatalogError::enable_failed: return utf8_literal("The plugin didn't start. It's turned off.");
-    case CatalogError::not_installed: return utf8_literal("That item isn't installed.");
-    case CatalogError::developer_mode: return utf8_literal("Turn on Developer Mode to load your own plugins.");
-    case CatalogError::review_again: return utf8_literal("This plugin was updated while you reviewed it. Review it again.");
-    }
-    return {};
+    const u32 e = static_cast<u32>(error);
+    constexpr u32 kDeclined = static_cast<u32>(CatalogError::declined);
+    if (!e || e == kDeclined) return {};
+    return name_list_at(kErrorTexts, e - 1 - (e > kDeclined ? 1u : 0u));
 }
 
 const CatalogView& application_catalog_view() noexcept {
@@ -1064,7 +1069,7 @@ bool application_catalog_set_enabled(CatalogKind kind, const Utf8View& slug, boo
         begin(CatalogAction::enable, kind, slug);
         return finish(CatalogError::revoked);
     }
-    if (on && (e->flags & kCatalogEntrySideloaded) && !(g->host.developer_mode && g->host.developer_mode())) {
+    if (on && (e->flags & kCatalogEntrySideloaded) && !developer()) {
         begin(CatalogAction::enable, kind, slug);
         return finish(CatalogError::developer_mode);
     }
@@ -1278,10 +1283,10 @@ void application_catalog_restore() noexcept {
     g->view.state = &g->state;
     g->view.checked_unix = g->view.fetched_unix = g->state.checked_unix;
     delete_unreferenced_plugins();
-    const bool developer = g->host.developer_mode && g->host.developer_mode();
+    const bool developer_on = developer();
     for (u32 i = 0; i < g->state.count; ++i) {
         CatalogStateEntry& e = g->state.entries[i];
-        if (e.kind != CatalogKind::plugin || !(e.flags & kCatalogEntryEnabled) || ((e.flags & kCatalogEntrySideloaded) && !developer))
+        if (e.kind != CatalogKind::plugin || !(e.flags & kCatalogEntryEnabled) || ((e.flags & kCatalogEntrySideloaded) && !developer_on))
             continue;
         if (!runtime()) break;
         // runtime() may have flagged this plugin from a crash marker.

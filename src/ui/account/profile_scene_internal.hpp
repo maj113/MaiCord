@@ -118,7 +118,7 @@ float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
 float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool clamp,
                 bool view_bio = true) noexcept;
 void header_geometry(ProfileScene* s, const UiRect& banner, float avatar_left, float avatar_top, float size) noexcept;
-void header_parts(ProfileScene* s, UiWidgetHandle owner, const UiRect& origin, ProfileAction avatar_action) noexcept;
+void header_parts(ProfileScene* s, ProfileAction avatar_action) noexcept;
 void resolve_theme(ProfileScene* s) noexcept;
 UiWidgetHandle text_field(ProfileScene* s, const ProfilePart* part) noexcept;
 bool can_message(const ProfileScene& s) noexcept;

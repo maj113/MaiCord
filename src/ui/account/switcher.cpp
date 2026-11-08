@@ -11,11 +11,6 @@ PopupItem action(const Utf8View& label, UiAccountSwitcherAction value, UiIcon ic
     return result;
 }
 
-// Whole code points only; the caller's view may be longer than the slot.
-u32 copy_prefix(char* output, u32 capacity, const Utf8View& value) noexcept {
-    return value.data ? utf8_copy_truncated(output, capacity, value) : 0;
-}
-
 bool label_valid(const Utf8View& value) noexcept {
     if (!value.bytes)
         return true;
@@ -51,14 +46,16 @@ bool ui_account_switcher_build(UiAccountSwitcherModel* model, u64 owner_id, UiAc
             copy_bytes(model->labels[i], prefix.data, prefix.bytes);
             label = prefix.bytes;
         }
-        label += copy_prefix(model->labels[i] + label, kUiAccountSwitcherLabelBytes - label, name);
+        // Whole code points only; the caller's view may be longer than the slot.
+        label += utf8_copy_truncated(model->labels[i] + label, kUiAccountSwitcherLabelBytes - label, name);
         Utf8View detail{};
         if (account.needs_login)
             detail = utf8_literal("Log in again");
         else if (manage && account.active)
             detail = utf8_literal("Active account");
         else if (account.username.bytes && !utf8_equal(account.username, name))
-            detail = {model->details[i], copy_prefix(model->details[i], kUiAccountSwitcherNameBytes, account.username)};
+            detail = {model->details[i],
+                      utf8_copy_truncated(model->details[i], kUiAccountSwitcherNameBytes, account.username)};
         auto& item = model->items[model->count++];
         u16 flags = popup_item_enabled | popup_item_avatar;
         if (!manage && account.active)

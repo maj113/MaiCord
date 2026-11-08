@@ -336,7 +336,7 @@ static bool application_quick_switcher_open() noexcept {
     recent_scope();
     auto* q = g_app.quick_switcher;
     if (!q) {
-        q = static_cast<ApplicationQuickSwitcher*>(commit_pages(sizeof(*q)));
+        q = commit_pages<ApplicationQuickSwitcher>();
         if (!q) return false;
         if (!message_composer_initialize(&q->edit, {q->query, sizeof(q->query)})) { pages_release(q); return false; }
         g_app.quick_switcher = q;

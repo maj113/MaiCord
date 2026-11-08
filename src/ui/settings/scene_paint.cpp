@@ -115,21 +115,15 @@ UiRect list_count_icon(const UiSettingsLayoutTokens& t, const UiSettingsControl&
 UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index,
                    const UiKitMeasure* measure) noexcept {
     float x = field.left;
-    if (c.kind == UiSettingsControlKind::tabs) {
+    if (c.kind == UiSettingsControlKind::tabs || c.kind == UiSettingsControlKind::buttons) {
+        const bool tabs = c.kind == UiSettingsControlKind::tabs;
         for (u32 i = 0; i < c.choices.count; ++i) {
-            const float w = ui_settings_text_width(c.choices[i], kUiSettingsLabelEm) * 1.04f;
+            const float w = tabs ? ui_settings_text_width(c.choices[i], kUiSettingsLabelEm) * 1.04f
+                                 : ui_settings_button_width(t, UiSettingsButtonSize::compact,
+                                                            button_label_width(measure, c.choices[i]));
             if (i == index)
                 return {x, field.top, minimum(field.right, x + w), field.bottom};
-            x += w + kTabGap;
-        }
-        return {};
-    }
-    if (c.kind == UiSettingsControlKind::buttons) {
-        for (u32 i = 0; i < c.choices.count; ++i) {
-            const float w = ui_settings_button_width(t, UiSettingsButtonSize::compact, button_label_width(measure, c.choices[i]));
-            if (i == index)
-                return {x, field.top, minimum(field.right, x + w), field.bottom};
-            x += w + kButtonGroupGap;
+            x += w + (tabs ? kTabGap : kButtonGroupGap);
         }
         return {};
     }

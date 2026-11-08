@@ -26,11 +26,12 @@ constexpr u32 align_up(u32 value, u32 alignment) noexcept {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
+// Every binding holds a validated descriptor from load to unload.
 const mc_setting_def* setting_defs(const PluginBinding& binding) noexcept {
-    return binding.image.descriptor ? binding.image.descriptor->settings : nullptr;
+    return binding.image.descriptor->settings;
 }
 u32 setting_total(const PluginBinding& binding) noexcept {
-    return binding.image.descriptor ? binding.image.descriptor->setting_count : 0;
+    return binding.image.descriptor->setting_count;
 }
 u32 text_capacity(const mc_setting_def& setting) noexcept {
     return setting.max_bytes ? setting.max_bytes : MC_SETTING_TEXT_MAX;
@@ -396,20 +397,16 @@ void destroy(PluginBinding* binding) noexcept {
 
 bool allocate_data(PluginBinding& binding) noexcept {
     const mc_descriptor& descriptor = *binding.image.descriptor;
-    binding.state_bytes = descriptor.state_bytes;
-    binding.settings_bytes = descriptor.settings_bytes;
-    const u32 settings_at = align_up(binding.state_bytes, kAlignment);
-    const u32 text_at = settings_at + align_up(binding.settings_bytes, kAlignment);
-    binding.text_end = reserve_text(binding, text_at);
+    const u32 settings_at = align_up(descriptor.state_bytes, kAlignment);
+    const u32 text_at = settings_at + align_up(descriptor.settings_bytes, kAlignment);
     // The text offsets are relative to data, which starts on a page: every state alignment holds.
-    const u32 staging_at = align_up(binding.text_end, kAlignment);
-    binding.data_bytes = align_up(staging_at + kPluginStagedBytes, kPageBytes);
-    binding.data = commit_pages<u8>(binding.data_bytes);
+    const u32 staging_at = align_up(reserve_text(binding, text_at), kAlignment);
+    binding.data = commit_pages<u8>(align_up(staging_at + kPluginStagedBytes, kPageBytes));
     if (!binding.data) return false;
     binding.staging = binding.data + staging_at;
     binding.ctx.api = &kApi;
-    binding.ctx.state = binding.state_bytes ? binding.data : nullptr;
-    binding.ctx.settings = binding.settings_bytes ? binding.data + settings_at : nullptr;
+    binding.ctx.state = descriptor.state_bytes ? binding.data : nullptr;
+    binding.ctx.settings = descriptor.settings_bytes ? binding.data + settings_at : nullptr;
     return true;
 }
 
@@ -453,7 +450,7 @@ PluginKeyValue* store_table(PluginBinding* binding) noexcept {
 } // namespace plugin_runtime_detail
 
 mc_status plugin_binding_set_setting(PluginBinding* binding, u32 index, const void* value, u32 bytes) noexcept {
-    if (!binding->image.descriptor || index >= setting_total(*binding) || (bytes && !value)) return MC_E_INVALID;
+    if (index >= setting_total(*binding) || (bytes && !value)) return MC_E_INVALID;
     const u8 none = 0;
     const u8* data = bytes ? static_cast<const u8*>(value) : &none;
     const mc_status status = write_setting(*binding, index, data, bytes, false);
@@ -745,7 +742,7 @@ bool plugin_runtime_disable(PluginRuntime* runtime, PluginBinding* binding) noex
 }
 
 bool plugin_runtime_keep_state(PluginRuntime* runtime, const PluginBinding* binding) noexcept {
-    if (!runtime || !binding || !binding->image.descriptor) return false;
+    if (!runtime || !binding) return false;
     release_carry(*runtime);
     const mc_descriptor& d = *binding->image.descriptor;
     u8* copy = nullptr;

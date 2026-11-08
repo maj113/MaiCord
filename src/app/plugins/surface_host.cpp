@@ -155,7 +155,7 @@ bool user_input(const AccountUiRuntime& ui, u64 user_id, u64 guild_id, u32 where
 }
 
 // A DM is named after its other member, an unnamed group DM after its members (written into storage).
-bool channel_input(const AccountUiRuntime& ui, const ChannelRecord& channel, PluginChannelInput* out,
+void channel_input(const AccountUiRuntime& ui, const ChannelRecord& channel, PluginChannelInput* out,
                    const Slice<char>& storage) noexcept {
     PluginChannelInput in{};
     in.channel_id = channel.id;
@@ -173,10 +173,9 @@ bool channel_input(const AccountUiRuntime& ui, const ChannelRecord& channel, Plu
         in.name = chat_state_store_channel_name(ui.chat_state, channel);
     }
     *out = in;
-    return true;
 }
 
-bool guild_input(const AccountUiRuntime& ui, const GuildRecord& guild, PluginGuildInput* out) noexcept {
+void guild_input(const AccountUiRuntime& ui, const GuildRecord& guild, PluginGuildInput* out) noexcept {
     PluginGuildInput in{};
     in.guild_id = guild.id;
     in.owner_id = guild.owner_id;
@@ -194,7 +193,6 @@ bool guild_input(const AccountUiRuntime& ui, const GuildRecord& guild, PluginGui
     }
     in.name = chat_state_store_guild_name(ui.chat_state, guild);
     *out = in;
-    return true;
 }
 
 // ---- the prepare pass -----------------------------------------------------------------------------
@@ -283,8 +281,9 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
         char name[256];
         for (u32 i = 0; complete && scene.active && i < scene.count; ++i) {
             const auto* channel = chat_state_store_find_channel(ui.chat_state, scene.rows[i].view.id);
+            if (!channel) continue;
             PluginChannelInput in;
-            if (!channel || !channel_input(ui, *channel, &in, {name, sizeof(name)})) continue;
+            channel_input(ui, *channel, &in, {name, sizeof(name)});
             const ChannelViewRow& view = scene.rows[i].view;
             if (view.unread) in.flags |= kPluginChannelUnread;
             if (view.muted) in.flags |= kPluginChannelMuted;
@@ -298,8 +297,9 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
             const GuildViewRow& view = scene.rows[i].view;
             if (view.folder_role == GuildFolderRole::header) continue;
             const auto* guild = chat_state_store_find_guild(ui.chat_state, view.id);
+            if (!guild) continue;
             PluginGuildInput in;
-            if (!guild || !guild_input(ui, *guild, &in)) continue;
+            guild_input(ui, *guild, &in);
             if (view.unread) in.flags |= kPluginGuildUnread;
             if (view.muted) in.flags |= kPluginGuildMuted;
             in.mention_count = view.mention_count;
@@ -316,9 +316,9 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
             in.where = kPluginHeaderChannel;
             complete = host.header(pass, in);
             if (complete && channel->guild_id) {
-                PluginGuildInput counts;
-                if (const auto* guild = chat_state_store_find_guild(ui.chat_state, channel->guild_id);
-                    guild && guild_input(ui, *guild, &counts)) {
+                if (const auto* guild = chat_state_store_find_guild(ui.chat_state, channel->guild_id)) {
+                    PluginGuildInput counts;
+                    guild_input(ui, *guild, &counts);
                     in.where = kPluginHeaderMemberList;
                     in.member_count = counts.member_count;
                     in.online_count = counts.online_count;
@@ -366,7 +366,8 @@ bool reader_channel(u64 channel_id, PluginChannelInput* out) noexcept {
 bool reader_guild(u64 guild_id, PluginGuildInput* out) noexcept {
     const auto* ui = g_app.account_ui;
     const auto* guild = ui ? chat_state_store_find_guild(ui->chat_state, guild_id) : nullptr;
-    if (!guild || !guild_input(*ui, *guild, out)) return false;
+    if (!guild) return false;
+    guild_input(*ui, *guild, out);
     // What a server overview shows; counted on request, never in a decorate pass.
     const ChatStateStore& state = ui->chat_state;
     out->verification_level = guild->settings.verification_level;
@@ -553,8 +554,6 @@ bool application_plugin_surfaces_text_click(const MessageTextHit& hit) noexcept 
     }
     UiPluginRenderDecoration decoration{};
     if (!g_ui_plugin_render_query || !g_ui_plugin_render_query(record->id, record->revision, &decoration)) return false;
-    UiPluginRenderNode node{};
-    bool found_node = false;
     if (hit.target >= kUiPluginRenderCardTarget && decoration.has_card) {
         if (hit.target == kUiPluginRenderCardLinkTarget) {
             if (decoration.card.link.bytes) application_open_content_url(decoration.card.link);
@@ -566,11 +565,8 @@ bool application_plugin_surfaces_text_click(const MessageTextHit& hit) noexcept 
                                                     {kUiPluginSlotMessageAccessory, record->channel_id, record->id, 0, 0},
                                                     decoration.card.buttons[index].action_id);
     }
-    if (hit.target && hit.target <= decoration.accessory_count) {
-        node = decoration.accessories[hit.target - 1];
-        found_node = true;
-    }
-    if (!found_node) return false;
+    if (!hit.target || hit.target > decoration.accessory_count) return false;
+    const UiPluginRenderNode& node = decoration.accessories[hit.target - 1];
     if (node.kind == kUiPluginRenderLink) return node.value.bytes ? application_open_content_url(node.value) : true;
     if (node.kind != kUiPluginRenderButton) return true;
     return application_plugin_surfaces_activate(node.owner_id,

@@ -208,10 +208,10 @@ void paint_palette(UiPaint& p, const Pass& k, const UiRect& r, const u32* sw) no
 void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r, u32 layer) noexcept {
     const auto& t = k.t;
     const auto& c = t.color;
-    const auto state = k.state(n);
     const bool foreground = (n.flags & ui_store_foreground) != 0;
     if (layer < 2 && foreground != (layer == 1))
         return;
+    const auto state = k.state(n);
     switch (n.kind) {
     case UiStoreKind::column:
     case UiStoreKind::row:

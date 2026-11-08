@@ -103,6 +103,18 @@ void card_open(Ctx& c, UiStoreFill fill, u32 action) noexcept {
     n.fill = static_cast<u8>(fill);
     n.action = action;
 }
+__declspec(noinline) UiStoreNode& text_column(Ctx& c) noexcept {
+    auto& n = c.b.open(UiStoreKind::column);
+    n.gap = 2;
+    n.flags = ui_store_flex;
+    return n;
+}
+__declspec(noinline) UiStoreNode& center_row(Ctx& c, u32 gap) noexcept {
+    auto& n = c.b.open(UiStoreKind::row);
+    n.gap = static_cast<float>(gap);
+    n.flags = ui_store_center;
+    return n;
+}
 UiStoreNode& hairline_row(Ctx& c, bool last, float pad_x, float pad_y) noexcept {
     auto& n = c.b.open(UiStoreKind::row);
     n.pad_x = pad_x;
@@ -140,9 +152,7 @@ void notice_card(Ctx& c, UiIcon icon, const Utf8View& title, const Utf8View& bod
     auto& glyph = c.b.leaf(UiStoreKind::icon);
     glyph.icon = static_cast<u8>(icon);
     glyph.ink = static_cast<u8>(ink);
-    auto& col = c.b.open(UiStoreKind::column);
-    col.gap = 2;
-    col.flags = ui_store_flex;
+    text_column(c);
     if (title.bytes)
         c.b.text(title, UiStoreType::body_bold, ink);
     c.b.text(body, UiStoreType::small, UiStoreInk::normal, ui_store_wrap);
@@ -284,15 +294,11 @@ void build_header(Ctx& c) noexcept {
         card_open(c, UiStoreFill::critical_tint);
         c.b.node().pad_x = 16;
         c.b.node().pad_y = 12;
-        auto& line = c.b.open(UiStoreKind::row);
-        line.gap = 12;
-        line.flags = ui_store_center;
+        center_row(c, 12);
         auto& glyph = c.b.leaf(UiStoreKind::icon);
         glyph.icon = static_cast<u8>(UiIcon::warning);
         glyph.ink = static_cast<u8>(UiStoreInk::critical);
-        auto& text = c.b.open(UiStoreKind::column);
-        text.gap = 2;
-        text.flags = ui_store_flex;
+        text_column(c);
         c.b.text(c.m.theme_error == 1 ? utf8_literal("Couldn't read theme file") : utf8_literal("Couldn't save theme"),
                  UiStoreType::body_bold, UiStoreInk::strong);
         subtle(c, c.m.theme_status, ui_store_wrap);
@@ -431,9 +437,7 @@ void build_card(Ctx& c, u32 index) noexcept {
     body.pad_x = body.pad_y = 16;
     body.gap = kind == CatalogKind::plugin ? 12 : 6;
     if (kind == CatalogKind::plugin) {
-        auto& top = c.b.open(UiStoreKind::row);
-        top.gap = 12;
-        top.flags = ui_store_center;
+        center_row(c, 12);
         c.b.tile(category_icon(item), 40, UiStoreTone::subtle);
         auto& names = c.b.open(UiStoreKind::column);
         names.flags = ui_store_flex;
@@ -537,9 +541,7 @@ Utf8View count_text(Ctx& c, u32 count) noexcept {
 
 void footnote(Ctx& c, const Utf8View& value) noexcept {
     c.b.spacer(0, 20);
-    auto& row = c.b.open(UiStoreKind::row);
-    row.gap = 8;
-    row.flags = ui_store_center;
+    center_row(c, 8);
     auto& glyph = c.b.leaf(UiStoreKind::icon);
     glyph.icon = static_cast<u8>(UiIcon::info);
     glyph.ink = static_cast<u8>(UiStoreInk::subtle);
@@ -551,9 +553,7 @@ void protocol_notice(Ctx& c) noexcept {
     card_open(c);
     c.b.node().pad_x = 16;
     c.b.node().pad_y = 12;
-    auto& row = c.b.open(UiStoreKind::row);
-    row.gap = 12;
-    row.flags = ui_store_center;
+    center_row(c, 12);
     c.b.text("Open maicord:// install links in MaiCord?", UiStoreType::body_bold, UiStoreInk::strong, ui_store_flex);
     c.b.button("Not now", UiStoreButton::secondary, store_action(StoreAct::protocol_off));
     c.b.button("Turn on", UiStoreButton::primary, store_action(StoreAct::protocol_on));
@@ -621,9 +621,7 @@ void build_browse(Ctx& c) noexcept {
     c.b.spacer(0, 12);
     build_chips(c, chips);
     c.b.spacer(0, 16);
-    auto& result = c.b.open(UiStoreKind::row);
-    result.gap = 4;
-    result.flags = ui_store_center;
+    center_row(c, 4);
     c.b.text(count_text(c, list.count), UiStoreType::small, UiStoreInk::subtle);
     if (c.st.chips || c.st.query_bytes) {
         c.b.text("\xC2\xB7", UiStoreType::small, UiStoreInk::subtle);
@@ -677,12 +675,8 @@ void installed_row(Ctx& c, const StoreItem& item, u32 index, bool last) noexcept
         thumb.data = item.has_swatches ? item.swatches : nullptr;
         c.b.close();
     }
-    auto& col = c.b.open(UiStoreKind::column);
-    col.gap = 2;
-    col.flags = ui_store_flex;
-    auto& names = c.b.open(UiStoreKind::row);
-    names.gap = 8;
-    names.flags = ui_store_center;
+    text_column(c);
+    center_row(c, 8);
     c.b.text(item.name, UiStoreType::body, UiStoreInk::strong);
     if (item.installed_version.bytes)
         c.b.text(join(c.b, utf8_literal("v"), item.installed_version), UiStoreType::small, UiStoreInk::subtle);
@@ -778,15 +772,11 @@ void build_installed(Ctx& c) noexcept {
         card_open(c);
         c.b.node().pad_x = 16;
         c.b.node().pad_y = 12;
-        auto& row = c.b.open(UiStoreKind::row);
-        row.gap = 12;
-        row.flags = ui_store_center;
+        center_row(c, 12);
         auto& glyph = c.b.leaf(UiStoreKind::icon);
         glyph.icon = static_cast<u8>(UiIcon::download);
         glyph.ink = static_cast<u8>(UiStoreInk::brand);
-        auto& col = c.b.open(UiStoreKind::column);
-        col.gap = 2;
-        col.flags = ui_store_flex;
+        text_column(c);
         c.b.text(list.counts[3] == 1 ? utf8_literal("1 update is ready") : join(c.b, c.b.number(list.counts[3]), utf8_literal(" updates are ready")),
                  UiStoreType::body_bold, UiStoreInk::strong);
         u32 first = ~0u, review = 0;
@@ -821,9 +811,7 @@ void build_installed(Ctx& c) noexcept {
     }
     if (kind == CatalogKind::plugin) {
         c.b.spacer(0, 16);
-        auto& row = c.b.open(UiStoreKind::row);
-        row.gap = 8;
-        row.flags = ui_store_center;
+        center_row(c, 8);
         auto& glyph = c.b.leaf(UiStoreKind::icon);
         glyph.icon = static_cast<u8>(UiIcon::folder);
         glyph.ink = static_cast<u8>(UiStoreInk::subtle);
@@ -841,13 +829,9 @@ void build_updates(Ctx& c) noexcept {
     card_open(c);
     c.b.node().pad_x = 20;
     c.b.node().pad_y = 20;
-    auto& head = c.b.open(UiStoreKind::row);
-    head.gap = 16;
-    head.flags = ui_store_center;
+    center_row(c, 16);
     c.b.tile(list.count ? UiIcon::download : UiIcon::circle_check, 48, list.count ? UiStoreTone::subtle : UiStoreTone::neutral);
-    auto& col = c.b.open(UiStoreKind::column);
-    col.gap = 2;
-    col.flags = ui_store_flex;
+    text_column(c);
     c.b.text(list.count ? (list.count == 1 ? utf8_literal("1 update available") : join(c.b, c.b.number(list.count), utf8_literal(" updates available")))
                         : utf8_literal("Your plugins are up to date"),
              UiStoreType::heading, UiStoreInk::strong);
@@ -862,12 +846,8 @@ void build_updates(Ctx& c) noexcept {
     card_open(c);
     c.b.node().pad_x = 16;
     c.b.node().pad_y = 14;
-    auto& auto_row = c.b.open(UiStoreKind::row);
-    auto_row.gap = 16;
-    auto_row.flags = ui_store_center;
-    auto& names = c.b.open(UiStoreKind::column);
-    names.gap = 2;
-    names.flags = ui_store_flex;
+    center_row(c, 16);
+    text_column(c);
     c.b.text("Update official plugins automatically", UiStoreType::body, UiStoreInk::strong);
     subtle(c, utf8_literal("Plugins that ask for no new permissions update on their own. Others wait for your review."), ui_store_wrap);
     c.b.close();
@@ -886,12 +866,8 @@ void build_updates(Ctx& c) noexcept {
         auto& row = hairline_row(c, i + 1 == list.count && !open);
         row.rh = 72;
         c.b.tile(category_icon(item), 40, UiStoreTone::subtle);
-        auto& body = c.b.open(UiStoreKind::column);
-        body.gap = 2;
-        body.flags = ui_store_flex;
-        auto& line = c.b.open(UiStoreKind::row);
-        line.gap = 8;
-        line.flags = ui_store_center;
+        text_column(c);
+        center_row(c, 8);
         c.b.text(item.name, UiStoreType::body, UiStoreInk::strong);
         if (item.needs_review)
             c.b.chip("Needs review", UiStoreTone::warning);
@@ -922,9 +898,7 @@ void build_developer(Ctx& c) noexcept {
     {
         auto& row = hairline_row(c, false);
         row.rh = 64;
-        auto& col = c.b.open(UiStoreKind::column);
-        col.gap = 2;
-        col.flags = ui_store_flex;
+        text_column(c);
         c.b.text("Dev folder", UiStoreType::body, UiStoreInk::strong);
         c.b.text(c.m.dev_folder, UiStoreType::mono, UiStoreInk::subtle);
         c.b.close();
@@ -934,9 +908,7 @@ void build_developer(Ctx& c) noexcept {
     {
         auto& row = hairline_row(c, false);
         row.rh = 56;
-        auto& col = c.b.open(UiStoreKind::column);
-        col.gap = 2;
-        col.flags = ui_store_flex;
+        text_column(c);
         c.b.text(kind == CatalogKind::plugin ? MAICORD_OS_TEXT("Load a plugin DLL...", "Load a plugin...") : utf8_literal("Load a .mcfx..."), UiStoreType::body, UiStoreInk::strong);
         subtle(c, kind == CatalogKind::plugin ? utf8_literal("Asks for your consent as an unreviewed plugin with full access to your PC.")
                                               : utf8_literal("Shows the not-reviewed card with a preview before it is installed."),
@@ -948,9 +920,7 @@ void build_developer(Ctx& c) noexcept {
     {
         auto& row = hairline_row(c, true);
         row.rh = 56;
-        auto& col = c.b.open(UiStoreKind::column);
-        col.gap = 2;
-        col.flags = ui_store_flex;
+        text_column(c);
         c.b.text("Reload", UiStoreType::body, UiStoreInk::strong);
         subtle(c, utf8_literal("Scan the dev folder again now."));
         c.b.close();
@@ -979,9 +949,7 @@ void build_developer(Ctx& c) noexcept {
     card_open(c);
     {
         hairline_row(c, !c.m.console_count);
-        auto& col = c.b.open(UiStoreKind::column);
-        col.gap = 2;
-        col.flags = ui_store_flex;
+        text_column(c);
         c.b.text("Console", UiStoreType::body, UiStoreInk::strong);
         subtle(c, c.m.console_total > c.m.console_count
                       ? join(c.b, utf8_literal("The newest "), c.b.number(c.m.console_count), utf8_literal(" of "), c.b.number(c.m.console_total))

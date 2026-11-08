@@ -116,8 +116,7 @@ bool parse_theme(const u8* bytes, u32 size, ClientThemeDocument* output) noexcep
 void theme_slug(const ClientThemeDocument& document, const u8* bytes, u32 size, char (&slug)[kPackageSlugMaximumBytes + 1]) noexcept {
     u32 n = 0;
     for (u32 i = 0; i < document.name_bytes && n < 24; ++i) {
-        char c = document.name[i];
-        c = c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c;
+        const char c = ascii_lower(document.name[i]);
         if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
             slug[n++] = c;
         else if (n && slug[n - 1] != '-')
@@ -624,7 +623,7 @@ struct ThemeFile {
     u8 bytes[kClientThemeImportMaximumBytes];
 };
 // The applied custom theme came from this file when their names agree.
-bool theme_is_applied(const char* slug) noexcept {
+bool theme_is_applied(const Utf8View& slug) noexcept {
     const ClientThemeDocument* active = application_custom_theme_document();
     if (!active)
         return false;
@@ -632,7 +631,7 @@ bool theme_is_applied(const char* slug) noexcept {
     u32 units = 0;
     ScratchPages<ThemeFile> file;
     if (!file.data || !data_root(root) ||
-        !package_file_path(root, PackageLinkKind::theme, {slug, c_string_length(slug)}, nullptr, {path, 512}, &units))
+        !package_file_path(root, PackageLinkKind::theme, slug, nullptr, {path, 512}, &units))
         return false;
     const auto read = file_persistence_read_file(path, {file.data->bytes, kClientThemeImportMaximumBytes});
     return read.ok() && parse_theme(file.data->bytes, read.bytes, &file.data->parsed) &&
@@ -644,23 +643,19 @@ bool theme_is_applied(const char* slug) noexcept {
 void application_packages_deactivate(PackageLinkKind kind, const Utf8View& slug) noexcept {
     if (!package_slug_valid(slug))
         return;
-    char text[kPackageSlugMaximumBytes + 1]{};
-    copy_bytes(text, slug.data, slug.bytes);
     if (kind == PackageLinkKind::effect)
         application_effects_deactivate(slug.data, slug.bytes);
-    else if (kind == PackageLinkKind::theme && theme_is_applied(text))
+    else if (kind == PackageLinkKind::theme && theme_is_applied(slug))
         application_custom_theme_use_builtin();
 }
 
 bool application_packages_remove(PackageLinkKind kind, Utf8View slug) noexcept {
     if (!package_slug_valid(slug) || kind == PackageLinkKind::plugin)
         return false;
-    char text[kPackageSlugMaximumBytes + 1]{};
-    copy_bytes(text, slug.data, slug.bytes);
     const auto state = application_catalog_item_state(static_cast<CatalogKind>(kind), slug);
     bool removed = false;
     if (kind == PackageLinkKind::effect) {
-        removed = application_effects_remove(text, slug.bytes);
+        removed = application_effects_remove(slug.data, slug.bytes);
     } else {
         // The applied theme falls back to the built-in one.
         application_packages_deactivate(kind, slug);

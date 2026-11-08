@@ -26,7 +26,6 @@ struct UiVariableList {
     u64* fenwick;
     u32 count;
     u32 capacity;
-    u32 rejected;
     u32 height_updates;
     u32 structural_updates;
     u64 total_units;

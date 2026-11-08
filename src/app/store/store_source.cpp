@@ -54,7 +54,7 @@ Utf8View hex_sha(Writer& w, const u8 (&sha)[32]) noexcept {
 PluginBinding* find_binding(u64 owner) noexcept {
     PluginRuntime* runtime = application_catalog_runtime();
     for (u32 i = 0; runtime && i < runtime->binding_count; ++i)
-        if (runtime->bindings[i] && runtime->bindings[i]->owner_id == owner)
+        if (runtime->bindings[i]->owner_id == owner)
             return runtime->bindings[i];
     return nullptr;
 }
@@ -78,7 +78,7 @@ void apply_state(Writer& w, const CatalogView& view, StoreItem* out, const Catal
         out->sha = hex_sha(w, st.installed->sha256);
         if (out->kind == CatalogKind::plugin) {
             if (const PluginBinding* binding = find_binding(st.installed->owner_id))
-                out->has_settings = binding->image.descriptor && binding->image.descriptor->setting_count != 0;
+                out->has_settings = binding->image.descriptor->setting_count != 0;
         }
     }
     out->enabled = st.enabled;
@@ -117,6 +117,23 @@ void apply_state(Writer& w, const CatalogView& view, StoreItem* out, const Catal
         }
     }
 }
+
+// The sentences of the permission bits into k; a bit of `added` marks its row as new.
+void add_permissions(StoreConsent& k, u64 permissions, u64 added) noexcept {
+    for (u32 bit = 0; bit < 11 && k.permission_count < 16; ++bit) {
+        if (!(permissions & (u64{1} << bit)))
+            continue;
+        StorePermission& p = k.permissions[k.permission_count];
+        if (!store_permission_text(bit, &p))
+            continue;
+        p.added = (added >> bit) & 1;
+        ++k.permission_count;
+    }
+}
+
+static_assert(static_cast<u8>(CatalogKnobType::float_value) == 0 && static_cast<u8>(CatalogKnobType::int_value) == 1 &&
+              static_cast<u8>(CatalogKnobType::toggle) == 2 && static_cast<u8>(CatalogKnobType::color) == 3 &&
+              static_cast<u8>(CatalogKnobType::choice) == 4);
 
 } // namespace
 
@@ -370,15 +387,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
             k.bytes = consent->bytes;
             k.reviewed = !consent->sideload;
             const u64 permissions = consent->request->permissions;
-            for (u32 bit = 0; bit < 11 && k.permission_count < 16; ++bit) {
-                if (!(permissions & (u64{1} << bit)))
-                    continue;
-                StorePermission& p = k.permissions[k.permission_count];
-                if (!store_permission_text(bit, &p))
-                    continue;
-                p.added = consent->update && !(consent->request->approved_permissions & (u64{1} << bit));
-                ++k.permission_count;
-            }
+            add_permissions(k, permissions, consent->update ? permissions & ~consent->request->approved_permissions : 0);
             for (u32 h = 0; h < consent->request->hosts.count && h < kStoreHostMaximum; ++h)
                 k.hosts[k.host_count++] = consent->request->hosts[h];
         }
@@ -402,13 +411,7 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& sl
         reset_value(&k);
         if (kind == CatalogKind::plugin && index && item.item != ~0u && index->items[item.item].version_count) {
             const CatalogVersion& v = index->versions[index->items[item.item].first_version];
-            for (u32 bit = 0; bit < 11 && k.permission_count < 16; ++bit) {
-                if (!(v.permissions & (u64{1} << bit)))
-                    continue;
-                StorePermission& p = k.permissions[k.permission_count];
-                if (store_permission_text(bit, &p))
-                    ++k.permission_count;
-            }
+            add_permissions(k, v.permissions, 0);
             for (u32 h = 0; h < v.host_count && h < kStoreHostMaximum; ++h)
                 k.hosts[k.host_count++] = catalog_text(*index, index->hosts[v.first_host + h]);
         }
@@ -474,7 +477,7 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& sl
             StoreKnob& out = m->knobs[m->knob_count++];
             reset_value(&out);
             out.label = catalog_text(*index, k.label);
-            out.type = static_cast<u8>(k.type == CatalogKnobType::float_value ? 0 : k.type == CatalogKnobType::int_value ? 1 : k.type == CatalogKnobType::toggle ? 2 : k.type == CatalogKnobType::color ? 3 : 4);
+            out.type = static_cast<u8>(k.type); // StoreKnob::type is the CatalogKnobType
             out.percent = k.percent;
             out.minimum = static_cast<float>(k.minimum) / 1000.f;
             out.maximum = static_cast<float>(k.maximum) / 1000.f;

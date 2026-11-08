@@ -167,7 +167,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
         const float before = settings->scene.content_offset;
         if (!ui_settings_scene_move_within(&settings->scene, code == key::up) && zone == UiSettingsFocusZone::none)
             ui_settings_scene_move_zone(&settings->scene, code == key::up);
-        settings_glide_reveal(before);
+        settings_glide_reveal(&settings->scene, application_settings_scroll_binding(false), before);
         refresh();
         return true;
     }
@@ -176,7 +176,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
         u32 steps = 0;
         while (steps < 64 && ui_settings_scene_move_within(&settings->scene, code == key::home))
             ++steps;
-        settings_glide_reveal(before);
+        settings_glide_reveal(&settings->scene, application_settings_scroll_binding(false), before);
         refresh();
         return true;
     }
@@ -194,8 +194,9 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
         return true;
     }
     if (code == key::page_up || code == key::page_down) {
-        settings_glide_to(false, settings->scene.content_offset +
-                                     (code == key::page_up ? -1.f : 1.f) * ui_rect_height(settings->scene.viewport) * .8f);
+        settings_glide_to(application_settings_scroll_binding(false),
+                          settings->scene.content_offset +
+                              (code == key::page_up ? -1.f : 1.f) * ui_rect_height(settings->scene.viewport) * .8f);
         refresh();
     }
     return true;
@@ -397,10 +398,9 @@ bool application_settings_window_event(const WindowEvent& event) noexcept {
                     if (!application_pointer_captured())
                         settings->scrollbar_dragging = false;
                 } else {
-                    settings_glide_to(sidebar, (sidebar ? settings->scene.sidebar_offset
-                                                        : settings->scene.content_offset) +
-                                                   (y < geometry.thumb.top ? -1.f : 1.f) *
-                                                       ui_rect_height(geometry.track));
+                    settings_glide_to(application_settings_scroll_binding(sidebar),
+                                      (sidebar ? settings->scene.sidebar_offset : settings->scene.content_offset) +
+                                          (y < geometry.thumb.top ? -1.f : 1.f) * ui_rect_height(geometry.track));
                     refresh();
                 }
                 return true;

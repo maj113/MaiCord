@@ -16,27 +16,24 @@ float style_em(u32 style) noexcept {
 }
 // Measuring through the host's text cache: the keys carry the style word (and the spans of a styled block).
 constexpr u64 kMeasureSource = 0x4B49544D45415355ull;
-float cache_width(void* context, const Utf8View& text, u32 style) noexcept {
+bool cache_measure(void* context, const Utf8View& text, u32 style, u16 kind, UiSize constraint, bool single_line,
+                   UiTextMeasureValue* value) noexcept {
     const TextStyleSpan span{0, text.bytes, style};
-    UiTextMeasureValue value{};
-    const UiTextMeasureRequest request{{kMeasureSource, hash64_mix(hash64_bytes(kHash64Seed, text.data, text.bytes), style), 0, 0, 0},
+    const UiTextMeasureRequest request{{kMeasureSource, hash64_mix(hash64_bytes(kHash64Seed, text.data, text.bytes), style), 0, kind, 0},
                                        text,
                                        style ? ConstSlice<TextStyleSpan>{&span, 1} : ConstSlice<TextStyleSpan>{},
-                                       {4096.f, 64.f},
-                                       true};
-    return ui_text_measure_cache_measure(static_cast<UiTextMeasureCache*>(context), request, &value).ok()
-               ? value.size.width
-               : ui_kit_text_width(nullptr, text, style);
+                                       constraint,
+                                       single_line};
+    return ui_text_measure_cache_measure(static_cast<UiTextMeasureCache*>(context), request, value).ok();
+}
+float cache_width(void* context, const Utf8View& text, u32 style) noexcept {
+    UiTextMeasureValue value{};
+    return cache_measure(context, text, style, 0, {4096.f, 64.f}, true, &value) ? value.size.width
+                                                                               : ui_kit_text_width(nullptr, text, style);
 }
 float cache_height(void* context, const Utf8View& text, u32 style, float width) noexcept {
-    const TextStyleSpan span{0, text.bytes, style};
     UiTextMeasureValue value{};
-    const UiTextMeasureRequest request{{kMeasureSource, hash64_mix(hash64_bytes(kHash64Seed, text.data, text.bytes), style), 0, 1, 0},
-                                       text,
-                                       style ? ConstSlice<TextStyleSpan>{&span, 1} : ConstSlice<TextStyleSpan>{},
-                                       {width, 65536.f},
-                                       false};
-    return ui_text_measure_cache_measure(static_cast<UiTextMeasureCache*>(context), request, &value).ok()
+    return cache_measure(context, text, style, 1, {width, 65536.f}, false, &value)
                ? value.size.height
                : ui_kit_text_height(nullptr, text, style, width);
 }

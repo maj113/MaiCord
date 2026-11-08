@@ -6,8 +6,6 @@
 #include "maicord/ui/text/emoji_catalog.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
-
 namespace maicord {
 namespace ui_media_picker_detail {
 namespace {
@@ -227,14 +225,12 @@ bool inline_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* s
 bool label_valid(const Utf8View& text) noexcept {
     return text.bytes <= 256 && (!text.bytes || text.data) && utf8_validate(text).valid;
 }
+// The descriptor bounds (resolve, item and section counts) were admitted by
+// ui_media_picker_scene_update before this runs.
 bool source_valid(const UiMediaPickerSource* source, const UiMediaPickerContent& content) noexcept {
     if (!source)
         return true;
-    if (!source->resolve || source->count > kUiMediaPickerMaximumItems ||
-        source->account_scope != content.account_scope ||
-        source->query_generation != content.query_generation ||
-        source->sections.count > kUiMediaPickerMaximumSections ||
-        (source->sections.count && !source->sections.data))
+    if (source->account_scope != content.account_scope || source->query_generation != content.query_generation)
         return false;
     u32 first = 0;
     for (u32 i = 0; i < source->sections.count; ++i) {
@@ -663,8 +659,6 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse) noexcept {
     scene.footer_index = ~u32{0};
     scene.footer_title_bytes = 0;
     ui_widget_manager_reset(&scene.widgets);
-    ZeroMemory(scene.projection->headers, sizeof(scene.projection->headers));
-    ZeroMemory(scene.projection->rail, sizeof(scene.projection->rail));
     scene.cell_count = scene.header_count = scene.rail_count = 0;
     scene.pinned_bottom = scene.body.top;
     if (++scene.generation == 0)

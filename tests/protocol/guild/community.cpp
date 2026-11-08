@@ -5,6 +5,7 @@
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/image/jpeg.hpp"
 #include "maicord/model/chat/chat_state.hpp"
@@ -680,10 +681,17 @@ void test_guild_profile() noexcept {
     valid = valid && ui_guild_card_show(&card, 99, content, {1200, 300, 1260, 320}, viewport, 1000, true, nullptr) &&
             card.panel.right <= 1200 && ui_guild_card_spinner_visible(card);
     ui_guild_card_close(&card);
-    char digits[16];
-    check(valid && !card.active && ui_guild_card_format_count(0, digits, 16) == 1 &&
-              ui_guild_card_format_count(1000000, digits, 16) == 9 && bytes_equal(digits, "1,000,000", 9),
-          "guild card: no action has no button; private, failed (retry) and loading phases; it flips left");
+    // The card's counts use the core grouping: "1,234 Online".
+    const auto grouped = [](u64 value, const char* expected) noexcept {
+        char digits[32];
+        const u32 bytes = decimal_write_grouped(digits, value);
+        return bytes == c_string_length(expected) && bytes_equal(digits, expected, bytes);
+    };
+    check(valid && !card.active && grouped(0, "0") && grouped(999, "999") && grouped(1000, "1,000") &&
+              grouped(75000, "75,000") && grouped(1234567, "1,234,567") &&
+              grouped(~0ull, "18,446,744,073,709,551,615"),
+          "guild card: no action has no button; private, failed (retry) and loading phases; it flips left; "
+          "counts group thousands");
 }
 
 void test_links() noexcept {

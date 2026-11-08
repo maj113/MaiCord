@@ -12,13 +12,6 @@
 // binding's first member, and refuses a context whose call has returned.
 namespace maicord::plugin_runtime_detail {
 namespace {
-
-static_assert(offsetof(PluginBinding, ctx) == 0);
-
-PluginBinding* active(mc_ctx* ctx) noexcept {
-    return ctx && ctx->call ? reinterpret_cast<PluginBinding*>(ctx) : nullptr;
-}
-
 // Short human text: UTF-8 with no control characters, 1..maximum bytes.
 bool notice_text(mc_str text, u32 maximum) noexcept {
     return text.data && text.bytes && text.bytes <= maximum && plugin_text_clean(text.data, text.bytes);

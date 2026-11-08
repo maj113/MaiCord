@@ -7,18 +7,19 @@ double background_color_root(double value, u32 degree) noexcept {
         return 0;
     if (value >= 1)
         return 1;
-    double low = 0, high = 1;
-    for (u32 iteration = 0; iteration < 32; ++iteration) {
-        const double middle = (low + high) * .5;
-        double power = middle;
-        for (u32 i = 1; i < degree; ++i)
-            power *= middle;
-        if (power < value)
-            low = middle;
-        else
-            high = middle;
+    if (degree == 2)
+        return __builtin_elementwise_sqrt(value);
+    // Newton's method from a seed that divides the distance of the value's bits from those of 1.0 by the degree (the
+    // bit pattern read as a logarithm, within 7%): four steps reach full double precision for degrees 3 and 5.
+    constexpr u64 one = 0x3ff0000000000000ull;
+    double root = __builtin_bit_cast(double, one - (one - __builtin_bit_cast(u64, value)) / degree);
+    for (u32 step = 0; step < 4; ++step) {
+        double power = root;
+        for (u32 i = 2; i < degree; ++i)
+            power *= root;
+        root += (value / power - root) / degree;
     }
-    return (low + high) * .5;
+    return root;
 }
 
 double background_color_linear(float channel) noexcept {
@@ -37,8 +38,9 @@ float background_color_srgb(double channel) noexcept {
         return 1;
     if (channel <= .0031308)
         return static_cast<float>(12.92 * channel);
-    const double squared = channel * channel;
-    return static_cast<float>(1.055 * background_color_root(squared * squared * channel, 12) - .055);
+    // x^(5/12), the square root of x^(1/2) x^(1/3).
+    return static_cast<float>(
+        1.055 * __builtin_elementwise_sqrt(__builtin_elementwise_sqrt(channel) * background_color_root(channel, 3)) - .055);
 }
 
 double background_color_luminance(const Color& color) noexcept {

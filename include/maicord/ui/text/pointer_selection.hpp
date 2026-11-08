@@ -49,11 +49,6 @@ struct UiTextPointerSelection {
     UiTextSelectionUnit unit;
 };
 
-// Range of `unit` at a pointer position. Single-line fields select all text
-// on a triple click; multi-line text selects the line/paragraph.
-bool ui_text_unit_range(const Utf8View& text, u32 position, UiTextSelectionUnit unit, bool single_line,
-                        u32* first, u32* last) noexcept;
-
 // A press. Returns false when the selection must not change: invalid input, or
 // an active IME composition (the composition string, its attributes and the
 // candidate window stay anchored; TSF owns the selection until it ends).

@@ -113,9 +113,6 @@ PaneResizeKind pane_resize_hit(float x, float y) noexcept {
     return PaneResizeKind::none;
 }
 
-} // namespace
-
-namespace {
 // Every client cursor is resolved here in the same front-to-back order as
 // input routing. Scenes report semantic shapes; application_set_cursor maps
 // them to native cursors.

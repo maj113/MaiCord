@@ -1,3 +1,4 @@
+#include "binding_internal.hpp"
 #include "pipeline_internal.hpp"
 #include "maicord/app/plugins/keep.hpp"
 #include "maicord/app/plugins/text.hpp"
@@ -16,10 +17,6 @@ constexpr u32 kTimerIntervalMax = 24u * 60u * 60u * 1000u;
 constexpr u32 kEmojiBytesMax = 64;
 constexpr u32 kActivityTextMax = 128;
 constexpr u32 kActivityUrlMax = 256;
-
-PluginBinding* active(mc_ctx* ctx) noexcept {
-    return ctx && ctx->call ? reinterpret_cast<PluginBinding*>(ctx) : nullptr;
-}
 
 // UTF-8 of 1..maximum bytes; line breaks are allowed.
 bool text_ok(const mc_str& text, u32 maximum) noexcept {

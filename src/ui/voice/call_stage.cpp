@@ -99,8 +99,6 @@ void copy(UiCallScene& s, const UiCallStage& stage) noexcept {
     s.stage_text_bytes[1] = 0;
     s.stage_text_bytes[2] =
         format(s.stage_text[2], 32, utf8_literal("Requests to speak \xC2\xB7 "), s.stage_request_count);
-    if (!stage.active)
-        s.stage_banner = s.stage_audience = s.stage_requests = s.stage_speakers = {};
 }
 
 UiRect layout(UiCallScene& s, UiRect area, float gap) noexcept {

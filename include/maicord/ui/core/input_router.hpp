@@ -19,7 +19,6 @@ constexpr UiInputMask ui_input_mask(UiInputKind kind) noexcept {
     return kind < UiInputKind::count ? 1u << static_cast<u32>(kind) : 0;
 }
 inline constexpr UiInputMask kUiInputAll = (1u << static_cast<u32>(UiInputKind::count)) - 1;
-inline constexpr u32 kUiInputLayerLimit = 16;
 
 enum class UiInputDisposition : u8 { ignored, handled, blocked, failed };
 using UiInputHandler = UiInputDisposition (*)(void*, const UiInputEvent&) noexcept;
@@ -39,7 +38,8 @@ struct UiInputRouteResult {
 
 // Front to back. An ignored event stops at its layer's barrier. The barrier
 // is captured before invoking that handler, so closing a layer cannot leak
-// the same event into the newly exposed UI. No pointers are retained.
+// the same event into the newly exposed UI. No pointers are retained. The
+// owner builds the layers: nonzero ids and barriers within kUiInputAll.
 UiInputRouteResult ui_input_route(ConstSlice<UiInputLayer> layers, const UiInputEvent& event) noexcept;
 // The owner records the key that closed an overlay. Consume its character,
 // repeats and release before routing to newly exposed content. A fresh down

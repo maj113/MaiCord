@@ -46,7 +46,7 @@ bool shell_hook(void*, HWND, UINT message, WPARAM wparam, LPARAM lparam, LRESULT
 
 // The caption controller as the frame glue asks it.
 u32 caption_height(void*) noexcept {
-    return application_caption_height();
+    return g_app.renderer.caption_height;
 }
 bool caption_hidden(void*) noexcept {
     return application_caption_hidden();

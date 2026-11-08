@@ -125,8 +125,7 @@ void close_work(StartupShellOwner& owner) noexcept {
 
 // Fresh pages each time: a shell is only ever read whole or written whole.
 bool allocate_shell(StartupShellOwner& owner) noexcept {
-    owner.shell = static_cast<StartupShell*>(
-        commit_pages(sizeof(StartupShell)));
+    owner.shell = commit_pages<StartupShell>();
     return owner.shell != nullptr;
 }
 

@@ -6,6 +6,7 @@
 #include "maicord/core/win32_system_time.hpp"
 #include "maicord/os/date_format.hpp"
 #include "maicord/os/local_time.hpp"
+#include "maicord/os/text.hpp"
 
 namespace maicord {
 namespace {
@@ -46,38 +47,10 @@ bool append_wide_utf8(Slice<char> output, u32* used, const wchar_t* value, u32 u
         *used += units;
         return true;
     }
-    // UTF-16 to UTF-8 as WideCharToMultiByte(WC_ERR_INVALID_CHARS) does it: a lone surrogate fails the whole text.
-    u32 bytes = 0;
-    for (u32 index = 0; index < units; ++index) {
-        u32 point = static_cast<u16>(value[index]);
-        if (point >= 0xD800 && point < 0xDC00 && index + 1 < units && static_cast<u16>(value[index + 1]) >= 0xDC00 &&
-            static_cast<u16>(value[index + 1]) < 0xE000)
-            point = 0x10000 + ((point - 0xD800) << 10) + (static_cast<u16>(value[++index]) - 0xDC00);
-        else if (point >= 0xD800 && point < 0xE000)
-            return false;
-        const u32 length = point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4;
-        if (length > output.count - *used - bytes)
-            return false;
-        char* at = output.data + *used + bytes;
-        if (length == 1) {
-            at[0] = static_cast<char>(point);
-        } else if (length == 2) {
-            at[0] = static_cast<char>(0xC0 | (point >> 6));
-            at[1] = static_cast<char>(0x80 | (point & 0x3F));
-        } else if (length == 3) {
-            at[0] = static_cast<char>(0xE0 | (point >> 12));
-            at[1] = static_cast<char>(0x80 | ((point >> 6) & 0x3F));
-            at[2] = static_cast<char>(0x80 | (point & 0x3F));
-        } else {
-            at[0] = static_cast<char>(0xF0 | (point >> 18));
-            at[1] = static_cast<char>(0x80 | ((point >> 12) & 0x3F));
-            at[2] = static_cast<char>(0x80 | ((point >> 6) & 0x3F));
-            at[3] = static_cast<char>(0x80 | (point & 0x3F));
-        }
-        bytes += length;
-    }
+    // A lone surrogate fails the whole text. Without room Windows would report the size it needs instead.
+    const u32 bytes = output.count > *used ? utf16_to_utf8(value, units, output.data + *used, output.count - *used, true) : 0;
     *used += bytes;
-    return true;
+    return bytes != 0;
 }
 
 bool unix_seconds_convertible(u64 seconds) noexcept {

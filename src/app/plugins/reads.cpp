@@ -27,13 +27,7 @@ static_assert(kPluginChannelNsfw == MC_CHANNEL_NSFW && kPluginChannelUnread == M
               kPluginGuildMuted == MC_GUILD_MUTED && kPluginHeaderChannel == MC_HEADER_CHANNEL &&
               kPluginHeaderMemberList == MC_HEADER_MEMBER_LIST);
 
-mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept {
-    const PluginReader* reader = g_plugin_reader;
-    if (!out || !user_id) return MC_E_INVALID;
-    if (!reader || !reader->user) return MC_E_UNSUPPORTED;
-    PluginUserInput in{};
-    if (!reader->user(user_id, guild_id, &in)) return MC_E_NOT_FOUND;
-    *out = {};
+void fill_user(const PluginUserInput& in, mc_user* out) noexcept {
     out->user_id = in.user_id;
     out->guild_id = in.guild_id;
     out->channel_id = in.channel_id;
@@ -43,6 +37,27 @@ mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept {
     out->platforms = in.platforms;
     out->name = plugin_str(in.name);
     out->username = plugin_str(in.username);
+}
+
+void fill_channel(const PluginChannelInput& in, mc_channel* out) noexcept {
+    out->channel_id = in.channel_id;
+    out->guild_id = in.guild_id;
+    out->parent_id = in.parent_id;
+    out->self_permissions = in.self_permissions;
+    out->type = in.type;
+    out->flags = in.flags;
+    out->mention_count = in.mention_count;
+    out->name = plugin_str(in.name);
+}
+
+mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept {
+    const PluginReader* reader = g_plugin_reader;
+    if (!out || !user_id) return MC_E_INVALID;
+    if (!reader || !reader->user) return MC_E_UNSUPPORTED;
+    PluginUserInput in{};
+    if (!reader->user(user_id, guild_id, &in)) return MC_E_NOT_FOUND;
+    *out = {};
+    fill_user(in, out);
     return MC_OK;
 }
 
@@ -53,14 +68,7 @@ mc_status read_channel(u64 channel_id, mc_channel* out) noexcept {
     PluginChannelInput in{};
     if (!reader->channel(channel_id, &in)) return MC_E_NOT_FOUND;
     *out = {};
-    out->channel_id = in.channel_id;
-    out->guild_id = in.guild_id;
-    out->parent_id = in.parent_id;
-    out->self_permissions = in.self_permissions;
-    out->type = in.type;
-    out->flags = in.flags;
-    out->mention_count = in.mention_count;
-    out->name = plugin_str(in.name);
+    fill_channel(in, out);
     return MC_OK;
 }
 

@@ -12,11 +12,15 @@
 namespace maicord {
 namespace {
 
-// Reads the marker every poll and flags a call that has been inside a plugin too long. The record
-// is read the way begin writes it: in-call flag last, so a set flag means a complete record.
+// Reads the marker once per hang limit, and again when the call it found would reach the limit: a call that begins
+// after one look cannot reach the limit before the next, so each one that does is flagged as it reaches it, and an
+// idle ledger wakes the thread once per limit. The record is read the way begin writes it: in-call flag last, so a
+// set flag means a complete record.
 u32 watchdog_main(void* argument) noexcept {
     auto* ledger = static_cast<PluginCallLedger*>(argument);
-    while (wait_one(ledger->watchdog_stop, ledger->hang_poll_ms) == WAIT_TIMEOUT) {
+    u32 wait_ms = ledger->hang_limit_ms;
+    while (wait_one(ledger->watchdog_stop, wait_ms) == WAIT_TIMEOUT) {
+        wait_ms = ledger->hang_limit_ms;
         volatile u8* view = ledger->view;
         if (view[20] != 1 || view[21] == 1) continue;
         u8 record[16];
@@ -28,7 +32,10 @@ u32 watchdog_main(void* argument) noexcept {
         const i64 started = static_cast<i64>(byte_load_le64(record + 8));
         const u64 elapsed_ms = now > started ? static_cast<u64>(now - started) * 1000ull /
                                                    static_cast<u64>(ledger->frequency) : 0;
-        if (elapsed_ms < ledger->hang_limit_ms) continue;
+        if (elapsed_ms < ledger->hang_limit_ms) {
+            wait_ms = ledger->hang_limit_ms - static_cast<u32>(elapsed_ms);
+            continue;
+        }
         view[21] = 1;
         if (view[20] != 1) view[21] = 0;
         else log_u64(LogLevel::warning, "plugins", "call_hung_owner", owner);
@@ -50,10 +57,9 @@ void stop_watchdog(PluginCallLedger* ledger) noexcept {
 
 } // namespace
 
-bool plugin_call_watchdog_start(PluginCallLedger* ledger, u32 limit_ms, u32 poll_ms) noexcept {
-    if (!ledger || !ledger->view || ledger->watchdog || !limit_ms || !poll_ms) return false;
+bool plugin_call_watchdog_start(PluginCallLedger* ledger, u32 limit_ms) noexcept {
+    if (!ledger || !ledger->view || ledger->watchdog || !limit_ms) return false;
     ledger->hang_limit_ms = limit_ms;
-    ledger->hang_poll_ms = poll_ms;
     ledger->close_watchdog = stop_watchdog;
     ledger->watchdog_stop = event_create(true, false);
     if (ledger->watchdog_stop)

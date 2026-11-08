@@ -73,8 +73,6 @@ UiGuildCardControl ui_guild_card_hit(const UiGuildCardScene&, float x, float y) 
 bool ui_guild_card_set_hover(UiGuildCardScene*, float x, float y) noexcept;
 bool ui_guild_card_set_pressed(UiGuildCardScene*, bool pressed) noexcept;
 bool ui_guild_card_spinner_visible(const UiGuildCardScene&) noexcept;
-// "1,234" with thousands separators; returns the bytes written.
-u32 ui_guild_card_format_count(u32 value, char* output, u32 capacity) noexcept;
 // Media the host draws: 0 the icon, 1 the tag badge, 2 the banner picture.
 // The banner covers its rectangle (cover = true, centred), masked to the
 // card's rounded top corners (mask, mask_radius).

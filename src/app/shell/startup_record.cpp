@@ -57,30 +57,34 @@ void narrow(const wchar_t* text, char* output, u32 capacity) noexcept {
 } // namespace
 
 void application_log_start_record() noexcept {
-    char version[48];
-    version[application_update_build_version_text({version, sizeof(version) - 1})] = 0;
-    LogEvent banner("==== MaiCord");
-    banner.append(" ");
-    banner.append(version);
-    banner.append(" start ====");
-    banner.write(LogLevel::info, kComponent);
+    // Each line is a kilobyte of stack: the banner and build lines end before the machine and system ones start, so
+    // the frame stays under a page.
+    {
+        char version[48];
+        version[application_update_build_version_text({version, sizeof(version) - 1})] = 0;
+        LogEvent banner("==== MaiCord");
+        banner.append(" ");
+        banner.append(version);
+        banner.append(" start ====");
+        banner.write(LogLevel::info, kComponent);
 
-    char commit[kApplicationUpdatesCommitChars + 1]{};
-    const Utf8View own_commit = application_update_build_commit();
-    copy_bytes(commit, own_commit.data, own_commit.bytes);
-    LogEvent build("build");
-    build.field("version", version).field("commit", commit[0] ? commit : "unknown");
-    bool development = false;
-    for (const char* at = version; *at; ++at)
-        development |= *at == '-';
-    build.field("flavour", development ? "development" : "release");
+        char commit[kApplicationUpdatesCommitChars + 1]{};
+        const Utf8View own_commit = application_update_build_commit();
+        copy_bytes(commit, own_commit.data, own_commit.bytes);
+        LogEvent build("build");
+        build.field("version", version).field("commit", commit[0] ? commit : "unknown");
+        bool development = false;
+        for (const char* at = version; *at; ++at)
+            development |= *at == '-';
+        build.field("flavour", development ? "development" : "release");
 #if defined(MAICORD_PERF_PROBE)
-    build.field("probe", "perf");
+        build.field("probe", "perf");
 #endif
 #if defined(MAICORD_TEST_HOOKS)
-    build.field("test_hooks", u64{1});
+        build.field("test_hooks", u64{1});
 #endif
-    build.write(LogLevel::info, kComponent);
+        build.write(LogLevel::info, kComponent);
+    }
 
     char brand[49];
     LogEvent machine("machine");

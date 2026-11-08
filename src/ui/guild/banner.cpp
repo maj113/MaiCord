@@ -44,9 +44,6 @@ bool finish(TextWriter& w, MediaAttachmentFormat format, bool animated, UiGuildI
     output->key.kind = MediaAssetKind::profile_image;
     return media_asset_key_valid(output->key);
 }
-float clamp01(float value) noexcept {
-    return value > 0 ? (value < 1 ? value : 1.f) : 0.f;
-}
 } // namespace
 
 u32 ui_media_proxy_size(u32 pixels) noexcept {
@@ -109,7 +106,7 @@ UiGuildBannerGeometry ui_guild_banner_geometry(const UiRect& sidebar, const UiRe
         return g;
     scroll = scroll > 0 ? scroll : 0.f;
     // Reveal value runs 1 -> 0 over the scroll range; the banner is visible while it is non-zero.
-    g.value = clamp01(1 - scroll / kUiGuildBannerScrollRange);
+    g.value = clamp_unit(1 - scroll / kUiGuildBannerScrollRange);
     g.visible = scroll < kUiGuildBannerScrollRange;
     const float top = header.top;
     g.image = {sidebar.left, top, sidebar.right, top + kUiGuildBannerHeight};
@@ -123,7 +120,7 @@ UiGuildBannerGeometry ui_guild_banner_geometry(const UiRect& sidebar, const UiRe
     g.hover = {sidebar.left, header.bottom, sidebar.right, header.bottom + strip};
     g.opacity = g.value;
     g.scrim = g.value;
-    g.glass = !g.visible ? 0.f : header_hovered ? 1.f : clamp01((1 - g.value) * 6);
+    g.glass = !g.visible ? 0.f : header_hovered ? 1.f : clamp_unit((1 - g.value) * 6);
     return g;
 }
 

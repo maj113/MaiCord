@@ -159,13 +159,8 @@ u64 ui_variable_list_prefix_units(const UiVariableList& list,
 
 bool ui_variable_list_set_height(UiVariableList* list, u32 index,
                                  u32 item_units) noexcept {
-    if (!list || !list->item_units || !list->fenwick || index >= list->count ||
-        !valid_item_units(item_units)) {
-        if (list) {
-            ++list->rejected;
-        }
+    if (!list || !list->item_units || !list->fenwick || index >= list->count || !valid_item_units(item_units))
         return false;
-    }
     const u32 previous = list->item_units[index];
     if (previous == item_units) {
         return true;
@@ -245,14 +240,9 @@ UiVariableRange ui_variable_list_range(const UiVariableList& list, u64 scroll_un
 
 bool ui_variable_list_insert(UiVariableList* list, u32 index, u32 item_count,
                              u32 default_item_units, UiScrollAnchor* anchor) noexcept {
-    if (!list || !list->item_units || !list->fenwick || index > list->count ||
-        item_count == 0 || item_count > list->capacity - list->count ||
-        !valid_item_units(default_item_units)) {
-        if (list) {
-            ++list->rejected;
-        }
+    if (!list || !list->item_units || !list->fenwick || index > list->count || item_count == 0 ||
+        item_count > list->capacity - list->count || !valid_item_units(default_item_units))
         return false;
-    }
     const u16 previous_generation = list->generation;
     for (u32 source = list->count; source > index; --source) {
         list->item_units[source - 1 + item_count] = list->item_units[source - 1];
@@ -270,13 +260,9 @@ bool ui_variable_list_insert(UiVariableList* list, u32 index, u32 item_count,
 
 bool ui_variable_list_remove(UiVariableList* list, u32 index, u32 item_count,
                              UiScrollAnchor* anchor) noexcept {
-    if (!list || !list->item_units || !list->fenwick || index >= list->count ||
-        item_count == 0 || item_count > list->count - index) {
-        if (list) {
-            ++list->rejected;
-        }
+    if (!list || !list->item_units || !list->fenwick || index >= list->count || item_count == 0 ||
+        item_count > list->count - index)
         return false;
-    }
     const u16 previous_generation = list->generation;
     const u32 end = index + item_count;
     for (u32 source = end; source < list->count; ++source) {

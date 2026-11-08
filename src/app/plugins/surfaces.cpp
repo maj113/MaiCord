@@ -57,7 +57,7 @@ bool application_plugins_surface_hit(float x, float y, ApplicationPluginSurfaceH
     if (!g_ui_plugin_slot_query || !g_app.account_ui || g_app.login.visible) return false;
     if (account_hit(x, y, out)) return true;
     const auto& rail = g_app.guild_rail_scene;
-    if (rail.active && ui_rect_contains(rail.viewport, x, y))
+    if (rail.active && ui_rect_contains(rail.viewport, x, y)) {
         for (u32 i = 0; i < rail.count; ++i) {
             UiPluginSlotCorner corner{};
             if (!guild_rail_plugin_corner(rail, i, &corner) || !ui_rect_contains(corner.rectangle, x, y)) continue;
@@ -71,8 +71,7 @@ bool application_plugins_surface_hit(float x, float y, ApplicationPluginSurfaceH
                     0};
             return true;
         }
-    // Server list tiles of plugins (above the first server and below "Add a server").
-    if (rail.active && ui_rect_contains(rail.viewport, x, y)) {
+        // Server list tiles of plugins (above the first server and below "Add a server").
         const GuildRailHit tile = guild_rail_scene_hit_test(rail, x, y);
         GuildRailPluginTile plugin{};
         if (tile.plugin_end && guild_rail_plugin_tile(rail, tile.plugin_end, tile.plugin_index, &plugin)) {

@@ -43,7 +43,7 @@ struct Bank {
 struct Owner {
     Bank* bank;
     u64 profile_id, self_user_id, request_id, lifetime, target_id;
-    u32 session_count, app_count, revision;
+    u32 session_count, app_count;
     u8 loaded, failed, wanted, inflight_load;
     Mutation queued, inflight;
     bool reveal_email, reveal_phone, status_error;
@@ -60,10 +60,6 @@ bool online() noexcept {
 bool mutation_pending() noexcept {
     return g_owner.queued != Mutation::none || g_owner.inflight != Mutation::none;
 }
-void changed() noexcept {
-    ++g_owner.revision;
-    application_settings_refresh_pages();
-}
 void release_bank() noexcept {
     owner_release(g_owner.bank);
 }
@@ -78,12 +74,10 @@ void scope() noexcept {
     application_cancel_request(&AccountModuleApi::account_settings, g_owner.request_id);
     release_bank();
     const u64 lifetime = g_owner.lifetime + 1;
-    const u32 revision = g_owner.revision + 1;
     // The open page stays wanted: a page opened before READY loads once it lands.
     const u8 wanted = g_owner.wanted;
     reset_value(&g_owner);
     g_owner.lifetime = lifetime;
-    g_owner.revision = revision;
     g_owner.wanted = wanted;
     g_owner.profile_id = profile;
     g_owner.self_user_id = self;
@@ -176,7 +170,7 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
     application_text_form_close(false, false);
     g_owner.queued = mutation;
     set_status(mutation_panel(mutation), {}, false);
-    changed();
+    application_settings_refresh_pages();
     return true;
 }
 void open_confirmation(Mutation mutation, u64 item, Utf8View title, Utf8View context, Utf8View accept) noexcept {
@@ -327,8 +321,7 @@ void application_account_settings_visible(SettingsPanel panel) noexcept {
     g_owner.wanted |= wanted;
     if (g_owner.status_panel != panel)
         reset_value(&g_owner.status);
-    // Called while the settings host projects; it re-projects by itself.
-    ++g_owner.revision;
+    // No refresh: this runs while the settings host projects, and it re-projects by itself.
 }
 
 bool application_account_settings_project(SettingBinding binding, UiSettingsControl* control,
@@ -477,7 +470,7 @@ bool application_account_settings_activate(SettingBinding binding) noexcept {
     case SettingBinding::devices_notice:
     case SettingBinding::apps_notice:
         g_owner.failed = 0;
-        changed();
+        application_settings_refresh_pages();
         return true;
     case SettingBinding::account_display_name:
     case SettingBinding::profile_display_name:
@@ -508,7 +501,7 @@ bool application_account_settings_activate(SettingBinding binding) noexcept {
             return open_browser(utf8_literal("https://discord.com/settings/account"));
         bool& revealed = email ? g_owner.reveal_email : g_owner.reveal_phone;
         revealed = !revealed;
-        changed();
+        application_settings_refresh_pages();
         return true;
     }
     case SettingBinding::account_username:
@@ -609,7 +602,7 @@ bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept {
             else
                 g_owner.failed |= load;
             g_owner.queued = Mutation::none;
-            changed();
+            application_settings_refresh_pages();
         }
         return false;
     }
@@ -617,7 +610,7 @@ bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept {
     g_owner.inflight = g_owner.queued;
     g_owner.inflight_load = load;
     g_owner.queued = Mutation::none;
-    changed();
+    application_settings_refresh_pages();
     return true;
 }
 
@@ -662,7 +655,7 @@ bool application_account_settings_response(const RestClientResponse& response, U
         b->text_bytes = 0;
         b->hash_bytes = 0;
         secure_clear_bytes(b->text, sizeof(b->text));
-        changed();
+        application_settings_refresh_pages();
         return true;
     }
     bool decoded = false;
@@ -698,7 +691,7 @@ bool application_account_settings_response(const RestClientResponse& response, U
         g_owner.failed |= load;
         log_u64(LogLevel::warning, "account_settings", "load_failed", response.status_code);
     }
-    changed();
+    application_settings_refresh_pages();
     return true;
 }
 
@@ -727,7 +720,6 @@ bool application_account_settings_connection_changed() noexcept {
     if (connection == g_connection)
         return false;
     g_connection = connection;
-    ++g_owner.revision;
     return true;
 }
 } // namespace maicord::app_detail

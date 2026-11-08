@@ -95,15 +95,15 @@ inline UiSurfaceStyle ui_surface_style(const Theme& theme, UiElevation elevation
     return style;
 }
 
-// Paint any plate with an elevation's material: gradient themes sample the
-// global gradient at the elevation's share; flat themes paint fill/border.
+// Paint any plate with an elevation's material (the caller's resolved style):
+// gradient themes sample the global gradient at its share; flat themes paint
+// fill/border.
 __declspec(noinline) inline bool ui_surface_paint_material(PaintStream* stream, UiRect rectangle,
-                                                           const Theme& theme, UiElevation elevation,
+                                                           const Theme& theme, const UiSurfaceStyle& style,
                                                            float radius, Color fill, Color border,
                                                            float border_width) noexcept {
     if (!stream)
         return false;
-    const auto style = ui_surface_style(theme, elevation);
     const u32 first = stream->count;
     if (!ui_background_paint_surface(stream, rectangle, theme, fill, border, radius, border_width, 1, style.mode,
                                      UiBackgroundTier::highest, style.border_tone))
@@ -174,7 +174,7 @@ inline bool ui_surface_paint_plate(PaintStream* stream, const UiRect& rectangle,
                                    float radius, const Color* plain_fill = nullptr,
                                    const Color* plain_border = nullptr) noexcept {
     const auto style = ui_surface_style(theme, elevation);
-    return ui_surface_paint_material(stream, rectangle, theme, elevation, radius,
+    return ui_surface_paint_material(stream, rectangle, theme, style, radius,
                                      plain_fill ? *plain_fill : style.fill,
                                      plain_border ? *plain_border : style.border, style.border_width);
 }

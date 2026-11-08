@@ -504,8 +504,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             if (!cell || !nodes[i].badge) continue;
             const UiRect badge = ui_plugin_slot_count_rectangle(cell->rectangle, nodes[i].badge);
             if (!ui_mention_badge_text_output(nodes[i].badge, composer_scene->widgets, composer_scene->plugin_slots[i],
-                                              badge, {badge.left - 1, badge.top - 1, badge.right + 1, badge.bottom + 1},
-                                              stream))
+                                              badge, ui_rect_shrink(badge, -1), stream))
                 return reject(stream);
         }
     }

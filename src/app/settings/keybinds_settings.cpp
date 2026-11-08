@@ -212,10 +212,9 @@ bool application_keybinds_settings_activate_row(u64 control_id, u32 choice) noex
     if (!application_keybinds_settings_row(control_id))
         return false;
     ensure_loaded();
-    const auto binding = settings_list_binding(control_id);
-    const u32 index = settings_list_index(control_id);
-    if (binding != SettingBinding::keybinds_custom)
+    if (settings_list_binding(control_id) != SettingBinding::keybinds_custom)
         return false; // Default shortcuts are read-only.
+    const u32 index = settings_list_index(control_id);
     if (index < kCustomKeybindMaximum) {
         if (!custom_keybinds_remove(&ui.keybinds, index))
             return false;
@@ -270,16 +269,11 @@ bool application_keybinds_settings_capture(UiInputKind kind, u32 code) noexcept 
                                          (application_alt_down() ? shortcut_alt : 0) |
                                          (application_shift_down() ? shortcut_shift : 0));
     ShortcutChord chord{};
-    switch (shortcut_recorder_input(&ui.recorder, down, code, modifiers, &chord)) {
-    case ShortcutRecordStep::recorded:
+    const auto step = shortcut_recorder_input(&ui.recorder, down, code, modifiers, &chord);
+    if (step == ShortcutRecordStep::recorded)
         commit(chord);
-        return true;
-    case ShortcutRecordStep::cancelled:
-    case ShortcutRecordStep::cleared:
+    else if (step == ShortcutRecordStep::cancelled || step == ShortcutRecordStep::cleared)
         ui.error = CustomKeybindError::none;
-        return true;
-    default:
-        return true;
-    }
+    return true;
 }
 } // namespace maicord::app_detail

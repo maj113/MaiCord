@@ -167,10 +167,7 @@ void credit(Ctx& c, const StoreItem& item) noexcept {
 } // namespace
 
 void access_eyebrow(Ctx& c, u8 risk, float pad_y) noexcept {
-    auto& eyebrow = c.b.open(UiStoreKind::row);
-    eyebrow.gap = 8;
-    eyebrow.pad_y = pad_y;
-    eyebrow.flags = ui_store_center;
+    center_row(c, 8).pad_y = pad_y;
     auto& dot = c.b.leaf(UiStoreKind::swatch);
     dot.variant = static_cast<u8>(risk >= 2 ? 3 : risk == 1 ? 4 : 5);
     dot.rw = dot.rh = 8;
@@ -270,9 +267,7 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         flow.gap = 16;
         static constexpr Utf8View kRoles[]{utf8_literal("Background"), utf8_literal("Surface"), utf8_literal("Text"), utf8_literal("Accent")};
         for (u32 i = 0; i < 4; ++i) {
-            auto& cell = c.b.open(UiStoreKind::row);
-            cell.gap = 8;
-            cell.flags = ui_store_center;
+            center_row(c, 8);
             auto& sw = c.b.leaf(UiStoreKind::swatch);
             sw.variant = 1;
             sw.value = item.swatches[i];
@@ -368,9 +363,7 @@ Utf8View number_text(UiStoreBuilder& b, float value, u32 decimals) noexcept {
 }
 
 void value_row(Ctx& c, const Utf8View& label, const Utf8View& value, bool overridden, u32 reset_action) noexcept {
-    auto& row = c.b.open(UiStoreKind::row);
-    row.gap = 8;
-    row.flags = ui_store_center;
+    center_row(c, 8);
     c.b.text(label, UiStoreType::body, UiStoreInk::strong);
     if (overridden) {
         auto& dot = c.b.leaf(UiStoreKind::swatch);
@@ -395,9 +388,7 @@ void knob_row(Ctx& c, u32 i, bool last) noexcept {
     col.flags = ui_store_flex;
     switch (k.type) {
     case 2: {
-        auto& row = c.b.open(UiStoreKind::row);
-        row.gap = 8;
-        row.flags = ui_store_center;
+        center_row(c, 8);
         c.b.text(k.label, UiStoreType::body, UiStoreInk::strong, ui_store_flex);
         auto& t = c.b.leaf(UiStoreKind::toggle);
         t.action = store_action(StoreAct::knob, i);
@@ -407,9 +398,7 @@ void knob_row(Ctx& c, u32 i, bool last) noexcept {
         break;
     }
     case 3: {
-        auto& row = c.b.open(UiStoreKind::row);
-        row.gap = 8;
-        row.flags = ui_store_center;
+        center_row(c, 8);
         c.b.text(k.label, UiStoreType::body, UiStoreInk::strong, ui_store_flex);
         auto& sw = c.b.leaf(UiStoreKind::swatch);
         sw.variant = 1;
@@ -570,9 +559,7 @@ void universal_row(Ctx& c, StoreUniversalRow row, bool last, bool overridable, b
         break;
     }
     default: {
-        auto& line = c.b.open(UiStoreKind::row);
-        line.gap = 8;
-        line.flags = ui_store_center;
+        center_row(c, 8);
         c.b.text("React to pointer", UiStoreType::body, UiStoreInk::strong, ui_store_flex);
         auto& t = c.b.leaf(UiStoreKind::toggle);
         t.action = store_action(StoreAct::universal, (static_cast<u32>(row) << 8));

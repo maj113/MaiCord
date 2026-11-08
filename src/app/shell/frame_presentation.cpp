@@ -99,63 +99,52 @@ UiSpinnerClock g_loading_spinner{};
 void synchronize_loading_spinners(u64 now_ms) noexcept {
     auto& renderer = g_app.renderer;
     // The renderer borrows these app-owned scenes read-only; the phase is a
-    // paint-only field the application frame clock owns.
-    auto* pins = d3d11_renderer_pinned_messages_visible(renderer) &&
-                         ui_pinned_messages_scene_spinner_visible(*renderer.pinned_messages_scene)
-                     ? const_cast<UiPinnedMessagesScene*>(renderer.pinned_messages_scene)
-                     : nullptr;
-    auto* inbox = d3d11_renderer_inbox_visible(renderer) && ui_inbox_scene_spinner_visible(*renderer.inbox_scene)
-                      ? const_cast<UiInboxScene*>(renderer.inbox_scene)
-                      : nullptr;
-    UiThreadBrowserScene* browser = d3d11_renderer_thread_browser_visible(renderer) &&
-                                            ui_thread_browser_scene_spinner_visible(*renderer.thread_browser_scene)
-                                        ? renderer.thread_browser_scene
-                                        : nullptr;
-    // Stream tiles (connecting, reconnecting) and the stream card's thumbnail.
-    auto* call = d3d11_renderer_call_visible(renderer) && ui_call_scene_spinner_visible(*renderer.call_scene)
-                     ? const_cast<UiCallScene*>(renderer.call_scene)
-                     : nullptr;
-    auto* card = d3d11_renderer_stream_card_visible(renderer) ? application_stream_card_spinner_scene() : nullptr;
-    auto* guild = d3d11_renderer_guild_card_visible(renderer) ? application_guild_card_spinner_scene() : nullptr;
-    // Settings pages' loading notices.
-    auto* settings = renderer_settings_page_visible(renderer) && renderer.settings_scene &&
-                             ui_settings_scene_spinner_visible(*renderer.settings_scene)
-                         ? const_cast<UiSettingsScene*>(renderer.settings_scene)
-                         : nullptr;
-    // The Plugins, Themes and Effects pages' busy buttons and the install dialog's check.
-    auto* store = renderer_settings_page_visible(renderer) ? application_store_spinner_scene() : nullptr;
-    // The media viewer while neither of its image tiers is resident.
-    auto* viewer = ui_image_viewer_spinner_visible(g_app.image_viewer.scene) ? &g_app.image_viewer.scene : nullptr;
-    // The composer's inline /gif results while their search loads.
-    auto* gallery = d3d11_renderer_media_picker_visible(renderer) &&
-                            ui_media_picker_scene_spinner_visible(*renderer.media_picker_scene)
-                        ? const_cast<UiMediaPickerScene*>(renderer.media_picker_scene)
-                        : nullptr;
-    const bool visible = g_app.renderer_ready && !renderer.live_resize &&
-                         (pins || inbox || browser || call || card || guild || settings || store || viewer || gallery);
-    ui_spinner_clock_tick(&g_loading_spinner, now_ms, visible, g_app.preferences.reduced_motion);
+    // paint-only field the application frame clock owns. Each entry is the
+    // phase of a panel whose spinner is on screen, null otherwise.
+    const auto phase = [](auto* scene) noexcept -> u8* { return scene ? &scene->spinner_phase : nullptr; };
+    u8* const phases[]{
+        phase(d3d11_renderer_pinned_messages_visible(renderer) &&
+                      ui_pinned_messages_scene_spinner_visible(*renderer.pinned_messages_scene)
+                  ? const_cast<UiPinnedMessagesScene*>(renderer.pinned_messages_scene)
+                  : nullptr),
+        phase(d3d11_renderer_inbox_visible(renderer) && ui_inbox_scene_spinner_visible(*renderer.inbox_scene)
+                  ? const_cast<UiInboxScene*>(renderer.inbox_scene)
+                  : nullptr),
+        phase(d3d11_renderer_thread_browser_visible(renderer) &&
+                      ui_thread_browser_scene_spinner_visible(*renderer.thread_browser_scene)
+                  ? renderer.thread_browser_scene
+                  : nullptr),
+        // Stream tiles (connecting, reconnecting) and the stream card's thumbnail.
+        phase(d3d11_renderer_call_visible(renderer) && ui_call_scene_spinner_visible(*renderer.call_scene)
+                  ? const_cast<UiCallScene*>(renderer.call_scene)
+                  : nullptr),
+        phase(d3d11_renderer_stream_card_visible(renderer) ? application_stream_card_spinner_scene() : nullptr),
+        phase(d3d11_renderer_guild_card_visible(renderer) ? application_guild_card_spinner_scene() : nullptr),
+        // Settings pages' loading notices.
+        phase(renderer_settings_page_visible(renderer) && renderer.settings_scene &&
+                      ui_settings_scene_spinner_visible(*renderer.settings_scene)
+                  ? const_cast<UiSettingsScene*>(renderer.settings_scene)
+                  : nullptr),
+        // The Plugins, Themes and Effects pages' busy buttons and the install dialog's check.
+        phase(renderer_settings_page_visible(renderer) ? application_store_spinner_scene() : nullptr),
+        // The media viewer while neither of its image tiers is resident.
+        phase(ui_image_viewer_spinner_visible(g_app.image_viewer.scene) ? &g_app.image_viewer.scene : nullptr),
+        // The composer's inline /gif results while their search loads.
+        phase(d3d11_renderer_media_picker_visible(renderer) &&
+                      ui_media_picker_scene_spinner_visible(*renderer.media_picker_scene)
+                  ? const_cast<UiMediaPickerScene*>(renderer.media_picker_scene)
+                  : nullptr),
+    };
+    bool shown = false;
+    for (const u8* at : phases)
+        shown = shown || at;
+    ui_spinner_clock_tick(&g_loading_spinner, now_ms, g_app.renderer_ready && !renderer.live_resize && shown,
+                          g_app.preferences.reduced_motion);
     // The phase is part of each panel's presentation stamp, so a new phase
     // repaints that panel without rebuilding its text or widgets.
-    if (pins)
-        pins->spinner_phase = g_loading_spinner.phase;
-    if (inbox)
-        inbox->spinner_phase = g_loading_spinner.phase;
-    if (browser)
-        browser->spinner_phase = g_loading_spinner.phase;
-    if (call)
-        call->spinner_phase = g_loading_spinner.phase;
-    if (card)
-        card->spinner_phase = g_loading_spinner.phase;
-    if (guild)
-        guild->spinner_phase = g_loading_spinner.phase;
-    if (settings)
-        settings->spinner_phase = g_loading_spinner.phase;
-    if (store)
-        store->spinner_phase = g_loading_spinner.phase;
-    if (viewer)
-        viewer->spinner_phase = g_loading_spinner.phase;
-    if (gallery)
-        gallery->spinner_phase = g_loading_spinner.phase;
+    for (u8* at : phases)
+        if (at)
+            *at = g_loading_spinner.phase;
 }
 
 UiTypingDotsClock g_typing_dots{};
@@ -225,14 +214,9 @@ void record_first_present() noexcept {
 } // namespace
 
 u64 application_loading_spinner_wake() noexcept {
-    const u64 spinner = g_loading_spinner.visible ? g_loading_spinner.wake_ms : 0;
-    const u64 dots = g_typing_dots.visible ? g_typing_dots.wake_ms : 0;
-    const u64 component = g_component_dots.visible ? g_component_dots.wake_ms : 0;
-    const u64 wakes[]{spinner, dots, component};
-    u64 wake = 0;
-    for (const u64 at : wakes)
-        wake = at && (!wake || at < wake) ? at : wake;
-    return wake;
+    return earliest_deadline(earliest_deadline(g_loading_spinner.visible ? g_loading_spinner.wake_ms : 0,
+                                               g_typing_dots.visible ? g_typing_dots.wake_ms : 0),
+                             g_component_dots.visible ? g_component_dots.wake_ms : 0);
 }
 bool application_loading_spinner_due(u64 now_ms) noexcept {
     return ui_spinner_clock_due(g_loading_spinner, now_ms) || ui_typing_dots_clock_due(g_typing_dots, now_ms) ||
@@ -282,26 +266,28 @@ bool application_present_frame() noexcept {
         return present_rejected("device_lost");
     MAICORD_PERF_MARK("frame_begin");
     application_caption_synchronize();
+    // The clock is sampled once per stage of the frame: before the scenes publish, before the panels do, before the
+    // shell's own surfaces do and once they all have.
+    u64 now_ms = clock_monotonic_milliseconds();
     // Consume a due spinner step first: a rejected draw below must not leave
     // the expired deadline armed (it is re-sampled once scenes are published).
-    if (ui_spinner_clock_due(g_loading_spinner, clock_monotonic_milliseconds()))
-        ui_spinner_clock_tick(&g_loading_spinner, clock_monotonic_milliseconds(), true,
-                              g_app.preferences.reduced_motion);
-    if (ui_typing_dots_clock_due(g_typing_dots, clock_monotonic_milliseconds()))
-        ui_typing_dots_clock_tick(&g_typing_dots, clock_monotonic_milliseconds(), true, typing_dots_animate());
-    if (ui_typing_dots_clock_due(g_component_dots, clock_monotonic_milliseconds()))
-        ui_typing_dots_clock_tick(&g_component_dots, clock_monotonic_milliseconds(), true, typing_dots_animate());
+    if (ui_spinner_clock_due(g_loading_spinner, now_ms))
+        ui_spinner_clock_tick(&g_loading_spinner, now_ms, true, g_app.preferences.reduced_motion);
+    if (ui_typing_dots_clock_due(g_typing_dots, now_ms))
+        ui_typing_dots_clock_tick(&g_typing_dots, now_ms, true, typing_dots_animate());
+    if (ui_typing_dots_clock_due(g_component_dots, now_ms))
+        ui_typing_dots_clock_tick(&g_component_dots, now_ms, true, typing_dots_animate());
     // A due entrance must consume its deadline even when later scene/text
     // preparation rejects this draw. Retained permits cannot repeatedly wake
     // against the same past-due opacity sample. Reconcile final scene keys again
     // below, after the surfaces have published their current projections.
-    application_surface_motion_synchronize(clock_monotonic_milliseconds());
+    application_surface_motion_synchronize(now_ms);
     // Consume the bounded background deadline before preparing other surfaces.
     // A rejected text/scene publication must not leave its expired visual wake
     // armed and turn retained DXGI permits into a tight retry loop.
     // The selected package effect (or the built-in fallback) decides whether the background clock runs.
     application_effects_synchronize();
-    if (!application_background_synchronize(clock_monotonic_milliseconds()))
+    if (!application_background_synchronize(now_ms))
         return present_rejected("background");
     // Reduced motion, live resize, a minimized or inactive window: hold media
     // animations; resume them once none applies (restore, resize end).
@@ -322,8 +308,9 @@ bool application_present_frame() noexcept {
     application_user_settings_synchronize();
     if (!application_account_menu_synchronize())
         return present_rejected("account_menu");
-    application_message_forward_tick(clock_monotonic_milliseconds());
-    application_quick_switcher_tick(clock_monotonic_milliseconds());
+    now_ms = clock_monotonic_milliseconds();
+    application_message_forward_tick(now_ms);
+    application_quick_switcher_tick(now_ms);
     if (!application_shortcuts_overlay_synchronize() || !application_downloads_synchronize() ||
         !application_message_forward_synchronize() ||
         !application_quick_switcher_synchronize() || !application_search_synchronize() ||
@@ -340,10 +327,10 @@ bool application_present_frame() noexcept {
         return present_rejected("call");
     if (g_app.renderer.live_resize && !application_video_synchronize())
         return present_rejected("video_geometry");
-    application_guild_card_synchronize(clock_monotonic_milliseconds());
-    application_expression_card_synchronize(clock_monotonic_milliseconds());
+    application_guild_card_synchronize(now_ms);
+    application_expression_card_synchronize(now_ms);
     // Banner animation timing (5 s autoplay) and hover; scroll is current here.
-    application_guild_banner_project(clock_monotonic_milliseconds());
+    application_guild_banner_project(now_ms);
     if (g_app.login_scene.focus_visible != g_app.keyboard_focus_visible) {
         g_app.login_scene.focus_visible = g_app.keyboard_focus_visible;
         if (g_app.login.visible)
@@ -364,11 +351,12 @@ bool application_present_frame() noexcept {
                             ? nullptr
                             : g_app.context_focus;
     renderer_bind_focus_owner(&g_app.renderer, focus);
-    application_navigation_drag_tick(clock_monotonic_milliseconds());
-    if (!application_guild_folders_synchronize(clock_monotonic_milliseconds()))
+    now_ms = clock_monotonic_milliseconds();
+    application_navigation_drag_tick(now_ms);
+    if (!application_guild_folders_synchronize(now_ms))
         return present_rejected("guild_folders");
     application_guild_invite_synchronize();
-    application_invite_cards_synchronize(clock_monotonic_milliseconds());
+    application_invite_cards_synchronize(now_ms);
     application_age_gate_synchronize();
     application_guild_lifecycle_frame();
     application_guild_community_frame();
@@ -378,22 +366,23 @@ bool application_present_frame() noexcept {
     // and before the interaction text suffix is refreshed below.
     if (!application_message_hover_observe_scroll())
         return present_rejected("message_hover");
-    application_unread_banner_synchronize(clock_monotonic_milliseconds());
+    application_unread_banner_synchronize(now_ms);
     // A modal, popup or panel that opened over the picture under a still pointer ends the magnifier.
     application_image_zoom_synchronize();
-    application_toast_synchronize(clock_monotonic_milliseconds());
+    application_toast_synchronize(now_ms);
     // Every surface has now published its final edit/focus/scroll projection.
     // Refresh a stale retained suffix before the draw guard can suppress it.
     if (!renderer_refresh_interaction_text(&g_app.renderer, application_theme()))
         return present_rejected("interaction_text");
+    now_ms = clock_monotonic_milliseconds();
     if (!application_thread_browser_read_blocked())
-        synchronize_visible_author_hydration(clock_monotonic_milliseconds());
-    application_surface_motion_synchronize(clock_monotonic_milliseconds());
+        synchronize_visible_author_hydration(now_ms);
+    application_surface_motion_synchronize(now_ms);
     // After every surface published its scene: sample the spinner phase for
     // this frame and arm (or disarm) the next spinner step.
-    synchronize_loading_spinners(clock_monotonic_milliseconds());
-    synchronize_typing_dots(clock_monotonic_milliseconds());
-    synchronize_component_dots(clock_monotonic_milliseconds());
+    synchronize_loading_spinners(now_ms);
+    synchronize_typing_dots(now_ms);
+    synchronize_component_dots(now_ms);
     MAICORD_PERF_MARK("frame_surfaces");
     const u64 before =
         static_cast<u64>(g_app.renderer.full_present_draws) + g_app.renderer.partial_present_draws;
@@ -526,7 +515,7 @@ void application_resize_client() noexcept {
         return;
     }
     const LONG width = g_window_state.client_width;
-    const LONG height = g_window_state.client_height - static_cast<LONG>(application_caption_height());
+    const LONG height = g_window_state.client_height - static_cast<LONG>(g_app.renderer.caption_height);
     if (width <= 0 || height <= 0) {
         return;
     }

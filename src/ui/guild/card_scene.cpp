@@ -2,8 +2,10 @@
 #include "maicord/ui/theme/background_color_math.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/text/style.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
@@ -45,33 +47,14 @@ u32 established(u64 guild_id, char* output) noexcept {
     if (!guild_id)
         return 0;
     const u64 unix_ms = (guild_id >> 22) + 1'420'070'400'000ull;
-    const u64 days = unix_ms / 86'400'000ull;
-    // Civil-from-days (Howard Hinnant), proleptic Gregorian.
-    const u64 z = days + 719'468;
-    const u64 era = z / 146'097;
-    const u64 doe = z - era * 146'097;
-    const u64 yoe = (doe - doe / 1'460 + doe / 36'524 - doe / 146'096) / 365;
-    const u64 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    const u64 mp = (5 * doy + 2) / 153;
-    const u32 month = static_cast<u32>(mp < 10 ? mp + 3 : mp - 9);
-    const u64 year = yoe + era * 400 + (month <= 2 ? 1 : 0);
+    const CivilDate date = civil_date_from_days(static_cast<i64>(unix_ms / 86'400'000ull));
+    const u32 month = date.month;
+    const u64 year = static_cast<u64>(date.year);
     static constexpr char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-    u32 bytes = 0;
     copy_bytes(output, "Est. ", 5);
-    bytes = 5;
-    copy_bytes(output + bytes, months + (month - 1) * 3, 3);
-    bytes += 3;
-    output[bytes++] = ' ';
-    char digits[8];
-    u32 n = 0;
-    u64 y = year;
-    do {
-        digits[n++] = static_cast<char>('0' + y % 10);
-        y /= 10;
-    } while (y && n < 8);
-    while (n)
-        output[bytes++] = digits[--n];
-    return bytes;
+    copy_bytes(output + 5, months + (month - 1) * 3, 3);
+    output[8] = ' ';
+    return 9 + decimal_write(output + 9, year);
 }
 // Settled card beside the anchor (the tag chip): right of it when it fits,
 // else left; top-aligned with it and kept inside the viewport.
@@ -198,22 +181,6 @@ Utf8View action_label(UiGuildCardAction action) noexcept {
 }
 } // namespace
 
-u32 ui_guild_card_format_count(u32 value, char* output, u32 capacity) noexcept {
-    char digits[16];
-    u32 n = 0;
-    do {
-        digits[n++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    u32 bytes = 0;
-    while (n && bytes < capacity) {
-        output[bytes++] = digits[--n];
-        if (n && n % 3 == 0 && bytes < capacity)
-            output[bytes++] = ',';
-    }
-    return bytes;
-}
-
 bool ui_guild_card_show(UiGuildCardScene* s, u64 identity, const UiGuildCardContent& content, UiRect anchor,
                         UiRect viewport, u64 now_ms, bool reduced_motion, UiTextMeasureCache* cache) noexcept {
     if (!s || !identity || !ui_rect_valid(viewport) || !ui_rect_has_area(viewport) ||
@@ -234,10 +201,10 @@ bool ui_guild_card_show(UiGuildCardScene* s, u64 identity, const UiGuildCardCont
     s->trait_count = minimum(content.trait_count, kUiGuildCardTraits);
     for (u32 i = 0; i < s->trait_count; ++i)
         s->trait_bytes[i] = utf8_copy_truncated(s->trait_text[i], kUiGuildCardTraitBytes, content.traits[i]);
-    u32 bytes = ui_guild_card_format_count(content.online_count, s->online_text, 20);
+    u32 bytes = decimal_write_grouped(s->online_text, content.online_count);
     copy_bytes(s->online_text + bytes, " Online", 7);
     s->online_bytes = bytes + 7;
-    bytes = ui_guild_card_format_count(content.member_count, s->members_text, 20);
+    bytes = decimal_write_grouped(s->members_text, content.member_count);
     copy_bytes(s->members_text + bytes, " Members", 8);
     s->members_bytes = bytes + 8;
     s->established_bytes = established(content.guild_id, s->established_text);

@@ -177,8 +177,7 @@ inline UiLayoutValidationResult ui_layout_engine_validate(const UiLayoutEngine& 
             const bool scrolling = has_flag(parent.spec.style, ui_layout_node_scroll_horizontal) ||
                                    has_flag(parent.spec.style, ui_layout_node_scroll_vertical);
             const UiLayoutOverflow overflow = calculate_overflow(parent.content_rectangle, node.rectangle);
-            if (has_overflow(overflow) && !scrolling &&
-                !has_flag(node.spec.style, ui_layout_node_allow_overflow)) {
+            if (has_overflow(overflow) && !scrolling) {
                 push_diagnostic(&result, output,
                                 UiLayoutDiagnostic{UiLayoutDiagnosticKind::child_overflow,
                                                    handle_for(node, index), handle_for(parent, node.parent),
@@ -278,8 +277,7 @@ inline UiLayoutValidationResult ui_layout_engine_validate_content_bounds(
             expected.left - kRenderedContentTolerance, expected.top - kRenderedContentTolerance,
             expected.right + kRenderedContentTolerance, expected.bottom + kRenderedContentTolerance};
         const UiLayoutOverflow overflow = calculate_overflow(tolerated_content, bounds.rectangle);
-        if (has_overflow(overflow) && (bounds.flags & ui_layout_content_bounds_allow_overflow) == 0 &&
-            !has_flag(owner->spec.style, ui_layout_node_allow_overflow)) {
+        if (has_overflow(overflow) && (bounds.flags & ui_layout_content_bounds_allow_overflow) == 0) {
             push_diagnostic(&result, output,
                             UiLayoutDiagnostic{bounds.kind == UiLayoutContentKind::text
                                                    ? UiLayoutDiagnosticKind::text_overflow

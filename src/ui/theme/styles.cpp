@@ -684,18 +684,17 @@ UiThemeStylesResult ui_theme_styles_apply(UiResolvedThemeStyles* output,
     }
     if (!changes)
         return {};
-    UiResolvedThemeStyles candidate = *output;
-    candidate.typography = typography;
-    candidate.metrics = value;
-    candidate.revision = advance(candidate.revision);
+    // Validated above: nothing below can fail, so the output is written in place.
+    output->typography = typography;
+    output->metrics = value;
+    output->revision = advance(output->revision);
     if (changes & ui_theme_style_typography)
-        candidate.typography_revision = advance(candidate.typography_revision);
+        output->typography_revision = advance(output->typography_revision);
     if (changes & ui_theme_style_geometry)
-        candidate.geometry_revision = advance(candidate.geometry_revision);
+        output->geometry_revision = advance(output->geometry_revision);
     if (changes & ui_theme_style_paint)
-        candidate.paint_revision = advance(candidate.paint_revision);
-    candidate.ready = true;
-    copy_value(output, candidate);
+        output->paint_revision = advance(output->paint_revision);
+    output->ready = true;
     return {UiThemeStylesError::none, changes};
 }
 #undef THEME_COLORS

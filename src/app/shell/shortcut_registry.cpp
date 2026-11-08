@@ -12,7 +12,6 @@
 
 namespace maicord {
 namespace {
-constexpr u8 kModifierOrder[]{shortcut_ctrl, shortcut_alt, shortcut_shift};
 using A = ShortcutAction;
 using G = ShortcutGroup;
 using S = ShortcutScope;
@@ -321,7 +320,8 @@ u32 shortcut_chord_label(ShortcutChord chord, Slice<char> output) noexcept {
     if (!chord.key || !output.data)
         return 0;
     u32 at = 0;
-    for (const u8 modifier : kModifierOrder)
+    // Ctrl, Alt, Shift: the bits in display order.
+    for (u8 modifier = shortcut_ctrl; modifier <= shortcut_shift; modifier <<= 1)
         if (chord.modifiers & modifier)
             at = put_char(output, put(output, at, shortcut_modifier_label(modifier)), '+');
     char key[24]{};

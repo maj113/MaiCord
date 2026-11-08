@@ -145,7 +145,6 @@ struct UiScene {
     UiWidgetHandle semantics[static_cast<u32>(UiSemantic::count)];
     // Widgets of the last successful layout; zero before the first.
     u32 count;
-    u32 rejected;
     u32 layout_rebuilds;
     u32 layout_passes;
     float width;

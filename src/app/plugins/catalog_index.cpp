@@ -231,16 +231,12 @@ bool url_valid(Utf8View t) noexcept {
     }
     return true;
 }
-i32 hex_digit(char c, bool upper) noexcept {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    return upper && c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
-}
+// Lowercase hexadecimal, as the index writes digests.
 bool hex_bytes(Utf8View t, u8* output, u32 bytes) noexcept {
     if (t.bytes != bytes * 2) return false;
     for (u32 i = 0; i < t.bytes; ++i) {
-        const i32 nibble = hex_digit(t.data[i], false);
-        if (nibble < 0) return false;
+        if (!ascii_is_lower_hex_digit(t.data[i])) return false;
+        const i32 nibble = ascii_hex_value(t.data[i]);
         output[i / 2] = static_cast<u8>(i % 2 ? (output[i / 2] << 4) | nibble : nibble);
     }
     return true;
@@ -249,7 +245,7 @@ bool color(Utf8View t, u32* rgb) noexcept {
     if (t.bytes != 7 || t.data[0] != '#') return false;
     u32 value = 0;
     for (u32 i = 1; i < 7; ++i) {
-        const i32 nibble = hex_digit(t.data[i], true);
+        const i32 nibble = ascii_hex_value(t.data[i]);
         if (nibble < 0) return false;
         value = value << 4 | static_cast<u32>(nibble);
     }
@@ -902,7 +898,6 @@ bool catalog_version_code(Utf8View text, u64* code) noexcept {
 }
 
 u32 catalog_file_name(CatalogKind kind, const u8 (&sha256)[32], Slice<char> output) noexcept {
-    static constexpr char alphabet[] = "0123456789abcdef";
 #if defined(_WIN32)
     static constexpr char extensions[] = "dll\0json\0mcfx\0";
 #else
@@ -913,8 +908,8 @@ u32 catalog_file_name(CatalogKind kind, const u8 (&sha256)[32], Slice<char> outp
     if (!output.data || output.count < bytes || !extension.bytes) return 0;
     copy_bytes(output.data, "files/", 6);
     for (u32 i = 0; i < 32; ++i) {
-        output.data[6 + i * 2] = alphabet[sha256[i] >> 4];
-        output.data[7 + i * 2] = alphabet[sha256[i] & 15];
+        output.data[6 + i * 2] = ascii_hex_digit(sha256[i] >> 4);
+        output.data[7 + i * 2] = ascii_hex_digit(sha256[i]);
     }
     output.data[70] = '.';
     copy_bytes(output.data + 71, extension.data, extension.bytes);

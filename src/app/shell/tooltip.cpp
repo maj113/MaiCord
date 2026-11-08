@@ -1,3 +1,4 @@
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "caption.hpp"
@@ -749,22 +750,14 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
 ApplicationTooltip* ensure() noexcept {
     if (g_app.tooltip)
         return g_app.tooltip;
-    auto* owner = static_cast<ApplicationTooltip*>(
-        commit_pages(sizeof(ApplicationTooltip)));
+    auto* owner = commit_pages<ApplicationTooltip>();
     if (!owner)
         return nullptr;
-    if (!ui_widget_manager_initialize(&owner->widgets, {&owner->root, 1}, {&owner->root_layout, 1})) {
-        pages_release(owner);
-        return nullptr;
-    }
-    auto style = ui_layout_style();
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.flags |= ui_layout_node_clip_children;
-    const auto root = ui_widget_manager_add(
-        &owner->widgets, ui_widget_invalid_handle(),
-        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Tooltip overlay"), style, {}, 1}});
-    if (!root.ok() || !ui_tooltip_bind_text_owner(&owner->scene, {&owner->widgets, root.handle})) {
+    UiWidgetReference root{};
+    if (!ui_widget_manager_initialize_fill_root(&owner->widgets, {&owner->root, 1}, {&owner->root_layout, 1},
+                                                utf8_literal("Tooltip overlay"),
+                                                ui_layout_node_visible | ui_layout_node_clip_children, &root) ||
+        !ui_tooltip_bind_text_owner(&owner->scene, root)) {
         pages_release(owner);
         return nullptr;
     }
@@ -882,9 +875,8 @@ void application_tooltip_release() noexcept {
         pages_release(owner);
 }
 u64 application_tooltip_next_wake() noexcept {
-    const u64 content = g_app.tooltip ? ui_tooltip_next_wake(g_app.tooltip->scene) : 0;
-    const u64 caption = application_caption_tooltip_wake();
-    return !content ? caption : !caption ? content : minimum(content, caption);
+    return earliest_deadline(g_app.tooltip ? ui_tooltip_next_wake(g_app.tooltip->scene) : 0,
+                             application_caption_tooltip_wake());
 }
 bool application_tooltip_synchronize(u64 now_ms) noexcept {
     return !g_app.tooltip || refresh(*g_app.tooltip, now_ms);

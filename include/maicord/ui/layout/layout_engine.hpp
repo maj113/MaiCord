@@ -39,7 +39,6 @@ enum UiLayoutNodeFlag : u16 {
     ui_layout_node_visible = 1u << 0,
     ui_layout_node_clip_children = 1u << 1,
     ui_layout_node_allow_overlap = 1u << 2,
-    ui_layout_node_allow_overflow = 1u << 3,
     ui_layout_node_allow_zero_size = 1u << 4,
     ui_layout_node_text_content = 1u << 5,
     ui_layout_node_scroll_horizontal = 1u << 6,
@@ -132,9 +131,6 @@ struct UiLayoutEngine {
     Slice<UiLayoutNode> storage;
     u32 count;
     u32 revision;
-    u32 rejected;
-    u32 measure_passes;
-    u32 unstable_measurements;
     u32 wrap_nodes;
     u16 generation;
     UiLayoutMeasureCallback measure_callback;

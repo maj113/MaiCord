@@ -92,17 +92,13 @@ void prepare_biography(ProfileScene* s, const Utf8View& source) noexcept {
     options.spoiler_revealed = biography_revealed;
     const auto result = message_markdown_parse(source, {s->bio_display.data, 1024}, {work.words, 1024},
                                                {work.spans, 128}, options, {s->bio_semantics, 64});
-    if (!result.ok()) {
+    // An unparsable bio shows its source text plainly.
+    const bool parsed = result.ok();
+    if (!parsed)
         copy_bytes(s->bio_display.data, source.data, source.bytes);
-        s->bio_display.bytes = static_cast<u16>(source.bytes);
-        s->bio_semantic_count = 0;
-        size_biography(s, nullptr, 0);
-        s->bio_signature = signature;
-        return;
-    }
-    s->bio_display.bytes = static_cast<u16>(result.text.bytes);
-    s->bio_semantic_count = result.semantic_count;
-    size_biography(s, work.spans, result.span_count);
+    s->bio_display.bytes = static_cast<u16>(parsed ? result.text.bytes : source.bytes);
+    s->bio_semantic_count = parsed ? result.semantic_count : 0;
+    size_biography(s, work.spans, parsed ? result.span_count : 0);
     s->bio_signature = signature;
 }
 // The stand-in for a part with nothing to show (callers may still decorate
@@ -1037,15 +1033,12 @@ void header_geometry(ProfileScene* s, const UiRect& banner, float avatar_left, f
     const float at = size - status - offset;
     s->status = {avatar_left + at, avatar_top + at, avatar_left + at + status, avatar_top + at + status};
 }
-// Banner, avatar and decoration parts (relative to owner at origin).
-void header_parts(ProfileScene* s, UiWidgetHandle owner, const UiRect& origin, ProfileAction avatar_action) noexcept {
-    const auto rel = [&](UiRect r) noexcept {
-        return UiRect{r.left - origin.left, r.top - origin.top, r.right - origin.left, r.bottom - origin.top};
-    };
-    blank(s, owner, rel(s->banner))->media = ProfileMediaKind::banner;
-    blank(s, owner, rel(s->avatar), avatar_action)->media = ProfileMediaKind::avatar;
+// Banner, avatar and decoration parts (relative to the card's panel).
+void header_parts(ProfileScene* s, ProfileAction avatar_action) noexcept {
+    blank(s, s->panel, s->banner)->media = ProfileMediaKind::banner;
+    blank(s, s->panel, s->avatar, avatar_action)->media = ProfileMediaKind::avatar;
     if (profile_display(*s->profile).decoration.bytes)
-        blank(s, owner, rel(s->decoration))->media = ProfileMediaKind::decoration;
+        blank(s, s->panel, s->decoration)->media = ProfileMediaKind::decoration;
 }
 void resolve_theme(ProfileScene* s) noexcept {
     const auto d = profile_display(*s->profile, s->presentation == ProfilePresentation::preview);

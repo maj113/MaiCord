@@ -12,28 +12,23 @@ constexpr u8 kMagic[8]{'M', 'A', 'I', 'C', 'A', 'T', 'S', 'T'};
 static_assert(sizeof(CatalogStateEntry) == kCatalogStateEntryBytes);
 
 AcceptanceRecordResult fail(RE error) noexcept { return {error, 0}; }
-bool zero(const void* data, u32 bytes) noexcept {
-    const auto* p = static_cast<const u8*>(data);
-    for (u32 i = 0; i < bytes; ++i) if (p[i]) return false;
-    return true;
-}
 bool entry_valid(const CatalogStateEntry& e) noexcept {
     u64 code = 0;
     const bool plugin = e.kind == CatalogKind::plugin;
     if (static_cast<u32>(e.kind) >= kCatalogKindCount || (e.flags & ~kCatalogEntryKnownFlags) ||
-        !catalog_slug_valid(catalog_entry_slug(e)) || !zero(e.slug + e.slug_bytes, sizeof(e.slug) - e.slug_bytes) ||
+        !catalog_slug_valid(catalog_entry_slug(e)) || !bytes_zero(e.slug + e.slug_bytes, sizeof(e.slug) - e.slug_bytes) ||
         e.version_bytes > kCatalogVersionTextMaximumBytes || e.previous_version_bytes > kCatalogVersionTextMaximumBytes ||
-        !zero(e.version + e.version_bytes, sizeof(e.version) - e.version_bytes) ||
-        !zero(e.previous_version + e.previous_version_bytes, sizeof(e.previous_version) - e.previous_version_bytes) ||
-        zero(e.sha256, 32) || plugin != (e.owner_id != 0) ||
+        !bytes_zero(e.version + e.version_bytes, sizeof(e.version) - e.version_bytes) ||
+        !bytes_zero(e.previous_version + e.previous_version_bytes, sizeof(e.previous_version) - e.previous_version_bytes) ||
+        bytes_zero(e.sha256, 32) || plugin != (e.owner_id != 0) ||
         (!plugin && (e.host_bits || e.previous_host_bits || (e.flags & (kCatalogEntrySideloaded | kCatalogEntryEnabled)))) ||
         (plugin && (e.flags & kCatalogEntryUnreviewed)))
         return false;
     // Unreviewed themes may carry no version; everything else is MAJOR.MINOR.PATCH.
     if ((e.version_bytes || !(e.flags & kCatalogEntryUnreviewed)) && !catalog_version_code(catalog_entry_version(e), &code))
         return false;
-    if (e.previous_version_bytes ? !catalog_version_code({e.previous_version, e.previous_version_bytes}, &code) || zero(e.previous_sha256, 32)
-                                 : !zero(e.previous_sha256, 32))
+    if (e.previous_version_bytes ? !catalog_version_code({e.previous_version, e.previous_version_bytes}, &code) || bytes_zero(e.previous_sha256, 32)
+                                 : !bytes_zero(e.previous_sha256, 32))
         return false;
     return true;
 }
@@ -99,7 +94,7 @@ bool catalog_state_valid(const CatalogState& state) noexcept {
                 return false;
         }
     }
-    return zero(state.entries + state.count, (kCatalogStateMaximumEntries - state.count) * kCatalogStateEntryBytes);
+    return bytes_zero(state.entries + state.count, (kCatalogStateMaximumEntries - state.count) * kCatalogStateEntryBytes);
 }
 
 AcceptanceRecordResult catalog_state_encode(const CatalogState& state, Slice<u8> record) noexcept {
@@ -191,7 +186,7 @@ void catalog_state_remove(CatalogState& state, CatalogStateEntry* entry) noexcep
 }
 
 void catalog_state_install(CatalogStateEntry* e, const Utf8View& version, const u8* sha256, u64 now, bool keep_previous) noexcept {
-    if (keep_previous && !zero(e->sha256, 32) && !bytes_equal(e->sha256, sha256, 32) && e->version_bytes) {
+    if (keep_previous && !bytes_zero(e->sha256, 32) && !bytes_equal(e->sha256, sha256, 32) && e->version_bytes) {
         copy_bytes(e->previous_sha256, e->sha256, 32);
         copy_text(e->previous_version, &e->previous_version_bytes, sizeof(e->previous_version), catalog_entry_version(*e));
         e->previous_host_bits = e->host_bits;

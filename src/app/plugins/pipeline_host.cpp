@@ -42,9 +42,6 @@
 namespace maicord::app_detail {
 namespace {
 
-const AccountUiRuntime* ui_state() noexcept {
-    return g_app.account_ui;
-}
 u64 self_id() noexcept {
     return g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0;
 }
@@ -91,7 +88,7 @@ PluginMessage to_plugin(const MessageRecord& record, Utf8View content) noexcept 
     message.content = content;
     message.type = record.type;
     message.revision = record.revision;
-    const AccountUiRuntime* ui = ui_state();
+    const AccountUiRuntime* ui = g_app.account_ui;
     if (!ui) return message;
     const auto* channel = chat_state_store_find_channel(ui->chat_state, record.channel_id);
     message.guild_id = channel ? channel->guild_id : 0;
@@ -556,7 +553,7 @@ mc_status sink_local_remove(u64, u64 channel, u64 message) noexcept {
 // ---- Composer ---------------------------------------------------------------------------------
 
 bool composer_ready() noexcept {
-    return plugin_account_ready() && g_app.message_composer.channel_id && !g_app.login.visible;
+    return plugin_account_ready() && g_app.message_composer.channel_id;
 }
 
 mc_status sink_composer_text(void* output, u32 capacity, u32* bytes) noexcept {
@@ -607,7 +604,7 @@ void sink_keep_changed() noexcept {
 // ---- Reads ------------------------------------------------------------------------------------
 
 mc_status sink_open_channel(mc_open_channel* out) noexcept {
-    const AccountUiRuntime* ui = plugin_account_ready() ? ui_state() : nullptr;
+    const AccountUiRuntime* ui = plugin_account_ready() ? g_app.account_ui : nullptr;
     if (!ui || !ui->active_channel_id) return MC_E_NOT_FOUND;
     out->channel_id = ui->active_channel_id;
     out->guild_id = plugin_guild_of_channel(*ui, out->channel_id);
@@ -621,7 +618,7 @@ mc_status sink_open_channel(mc_open_channel* out) noexcept {
 
 // The open channel's loaded window, newest first, from the row after `before`.
 mc_status sink_messages(u64 channel_id, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept {
-    const AccountUiRuntime* ui = plugin_account_ready() ? ui_state() : nullptr;
+    const AccountUiRuntime* ui = plugin_account_ready() ? g_app.account_ui : nullptr;
     if (!ui || channel_id != ui->active_channel_id) return MC_E_NOT_FOUND;
     const MessageStore& store = g_app.message_view.store;
     bool below = !before;
@@ -681,7 +678,7 @@ void application_plugins_pipeline_gateway(const GatewayClientEvent& event, Const
     const u64 interest = plugin_events_interest();
     if (!hooks && !interest) return;
     application_plugins_pipeline_install();
-    const AccountUiRuntime* ui = ui_state();
+    const AccountUiRuntime* ui = g_app.account_ui;
     switch (event.dispatch_kind) {
     case K::message_create:
     case K::message_update: message_changed(event, payload, ui); break;

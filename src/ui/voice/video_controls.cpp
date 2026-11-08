@@ -15,9 +15,6 @@ const UiVideoControlDescriptor* find_control(const UiVideoControlsProjection& pr
             return &descriptor;
     return nullptr;
 }
-u64 seek_position(u64 duration, u32 value) noexcept {
-    return (duration / 10000) * value + (duration % 10000) * value / 10000;
-}
 u32 seek_progress(u64 elapsed, u64 duration) noexcept {
     if (!duration)
         return 0;
@@ -54,7 +51,7 @@ bool make_control_action(const UiVideoControlsProjection& projection, UiVideoCon
     else if (id == UiVideoControl::expand)
         request.value = !projection.playback.expanded;
     else if (id == UiVideoControl::seek)
-        request.position_ms = seek_position(projection.playback.duration_ms, minimum(value, 10000u));
+        request.position_ms = ui_video_seek_position(projection.playback.duration_ms, minimum(value, 10000u));
     else if (id == UiVideoControl::previous_track)
         request.collection_track = projection.playback.collection_track - 1;
     else if (id == UiVideoControl::next_track)
@@ -119,7 +116,9 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
     const float width = ui_rect_width(bounds), height = ui_video_controls_height(style, width, collection);
     if (!height || ui_rect_height(bounds) < height)
         return false;
-    UiVideoControlsProjection projection{};
+    // Built in place: both hosts project into a local of their own.
+    auto& projection = *out;
+    reset_value(&projection);
     projection.playback = state;
     projection.bounds = bounds;
     projection.compact = width < style.normal_width;
@@ -161,6 +160,10 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
         } else
             break;
     }
+    // Narrow players temporarily replace time with volume instead of wrapping
+    // into another row. The seek and speaker targets remain available.
+    if (seek_right - seek_left < style.range_height || seek_left < time_left)
+        return false;
     const float collection_top = button_top - row_height;
     const UiRect rectangles[]{
         {left, button_top, left + style.target, button_top + style.target},
@@ -230,11 +233,6 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
     for (auto& descriptor : projection.controls)
         if (!descriptor.enabled && descriptor.kind != UiVideoControlKind::label)
             descriptor.foreground = theme.text_secondary;
-    // Narrow players temporarily replace time with volume instead of wrapping
-    // into another row. The seek and speaker targets remain available.
-    if (seek_right - seek_left < style.range_height || seek_left < time_left)
-        return false;
-    copy_value(out, projection);
     return true;
 }
 Utf8View ui_video_controls_label(const UiVideoControlsProjection& projection, UiVideoControl id) noexcept {

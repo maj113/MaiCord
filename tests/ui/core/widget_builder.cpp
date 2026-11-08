@@ -41,11 +41,9 @@ void test_widget_builder(void (*check)(bool, const char*) noexcept) noexcept {
 
     const u32 retained_count = manager.count;
     const auto duplicate = widgets.button(root.handle, {2, utf8_literal("Duplicate")}, control_style);
-    const u32 rejections = manager.rejected;
     const auto after_error = widgets.button(root.handle, {4, utf8_literal("After failure")}, control_style);
     check(duplicate.error == UiWidgetError::duplicate_id && after_error.error == duplicate.error &&
-              widgets.error() == duplicate.error && manager.count == retained_count &&
-              manager.rejected == rejections,
+              widgets.error() == duplicate.error && manager.count == retained_count,
           "widget builder preserves its first failure and stops subsequent tree mutation");
 
     UiWidgetBuilder before_reset(manager);

@@ -224,11 +224,12 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
                                                  type == EventType::focus_changed)};
     // Every scrollbar's hover and drag look follows the pointer once the message's owner handled it.
     struct ScrollbarPointer {
-        WindowEvent event;
+        const WindowEvent* event;
         ~ScrollbarPointer() {
-            track_scrollbar_pointer(event);
+            if (event)
+                track_scrollbar_pointer(*event);
         }
-    } scrollbar_pointer{logout_blocked ? WindowEvent{} : content};
+    } scrollbar_pointer{logout_blocked ? nullptr : &content};
     if (!logout_blocked) {
         // Observe native input before modal handlers consume it. The read-state
         // controller independently decides whether the message pane is eligible.

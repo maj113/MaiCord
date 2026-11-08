@@ -51,9 +51,7 @@ void consent_row(Ctx& c, const StorePermission& p, ConstSlice<Utf8View> hosts) n
     auto& col = c.b.open(UiStoreKind::column);
     col.gap = 6;
     col.flags = ui_store_flex;
-    auto& head = c.b.open(UiStoreKind::row);
-    head.gap = 8;
-    head.flags = ui_store_center;
+    center_row(c, 8);
     c.b.text(p.sentence, UiStoreType::body, p.critical ? UiStoreInk::critical : UiStoreInk::strong, ui_store_wrap | ui_store_flex);
     if (p.added)
         c.b.chip("New", UiStoreTone::brand);
@@ -180,9 +178,7 @@ void build_link(Ctx& c) noexcept {
     if (l.phase == 1) {
         dialog_body(c);
         title_row(c, utf8_literal("Checking the link"), l.host, UiIcon::link, false, false, false);
-        auto& row = c.b.open(UiStoreKind::row);
-        row.gap = 12;
-        row.flags = ui_store_center;
+        center_row(c, 12);
         c.b.leaf(UiStoreKind::spinner);
         c.b.text("Fetching and checking the file...", UiStoreType::small, UiStoreInk::subtle);
         c.b.close();
@@ -304,11 +300,9 @@ void build_dialog(Ctx& c) noexcept {
 }
 
 void build_trial_bar(Ctx& c) noexcept {
-    auto& row = c.b.open(UiStoreKind::row);
+    auto& row = center_row(c, 12);
     row.pad_x = 16;
     row.pad_y = 8;
-    row.gap = 12;
-    row.flags = ui_store_center;
     c.b.text(join(c.b, utf8_literal("Previewing "), c.m.trying_name), UiStoreType::body_bold, UiStoreInk::strong);
     c.b.button("Revert", UiStoreButton::secondary, store_action(StoreAct::revert_theme)).group = 23;
     c.b.button("Keep", UiStoreButton::primary, store_action(StoreAct::keep_theme)).group = 23;

@@ -34,7 +34,6 @@
 
 namespace maicord::app_detail {
 namespace {
-constexpr u8 kModifierOrder[]{shortcut_ctrl, shortcut_alt, shortcut_shift};
 constexpr u32 kModifiersUnread = ~0u;
 constexpr u32 kKeyBytes = 24, kQueryBytes = 64;
 struct Overlay {
@@ -94,7 +93,8 @@ u32 chord_keys(const ShortcutChord chord, bool key_only, u32 row, u32 slot, Utf8
     if (!chord.key)
         return 0;
     u32 count = 0;
-    for (const u8 modifier : kModifierOrder)
+    // Ctrl, Alt, Shift: the bits in display order.
+    for (u8 modifier = shortcut_ctrl; modifier <= shortcut_shift; modifier <<= 1)
         if ((chord.modifiers & modifier) && !key_only)
             keys[count++] = shortcut_modifier_label(modifier);
     char* text = overlay.keys[row][slot];

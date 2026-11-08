@@ -157,8 +157,6 @@ bool choice_action(u32 action, const ApplicationSettingsChoice* captured = nullp
 bool search_character(ApplicationSettings& settings, u32 code) noexcept;
 bool search_key(ApplicationSettings& settings, u32 key, bool control, bool shift) noexcept;
 bool search_point(ApplicationSettings& settings, float x, float y, bool extend) noexcept;
-void settings_glide_to(bool sidebar, float target) noexcept;
-void settings_glide_reveal(float before) noexcept;
 
 } // namespace settings_detail
 } // namespace maicord::app_detail

@@ -84,10 +84,8 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
     if (!record.data || record.count != kClientPreferencesRecordBytes ||
         !client_preferences_valid(preferences))
         return failure(ClientPreferencesError::invalid_input);
-    for (u32 i = 0; i < record.count; ++i)
-        record.data[i] = 0;
-    for (u32 i = 0; i < sizeof(kMagic); ++i)
-        record.data[i] = kMagic[i];
+    clear_bytes(record.data, record.count);
+    copy_bytes(record.data, kMagic, sizeof(kMagic));
     byte_store_le32(record.data + 8, kClientPreferencesVersion);
     byte_store_le32(record.data + 12, kClientPreferencesRecordBytes);
     record.data[16] = static_cast<u8>(preferences.theme);
@@ -130,9 +128,8 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
         return failure(ClientPreferencesError::invalid_input);
     if (record.count < kHeaderBytes || record.count > kClientPreferencesRecordBytes)
         return failure(ClientPreferencesError::size);
-    for (u32 i = 0; i < sizeof(kMagic); ++i)
-        if (record.data[i] != kMagic[i])
-            return failure(ClientPreferencesError::format);
+    if (!bytes_equal(record.data, kMagic, sizeof(kMagic)))
+        return failure(ClientPreferencesError::format);
     // Older records are not migrated; callers treat them like a missing file.
     if (byte_load_le32(record.data + 8) != kClientPreferencesVersion)
         return failure(ClientPreferencesError::version);

@@ -5,22 +5,28 @@
 #include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/text/presentation.hpp"
 namespace maicord {
-UiBadgeLayout ui_badge_layout(UiTextMeasureCache* cache, const Utf8View& label, const UiRect& line, bool icon,
-                              u32 flags) noexcept {
+namespace {
+// The label's measured width, or `advance` per byte without a cache. `source` keys the full and compact
+// badges apart in the cache.
+float label_width(UiTextMeasureCache* cache, const Utf8View& label, u32 flags, u64 source, float advance) noexcept {
     UiTextMeasureValue value{};
     const TextStyleSpan span{0, label.bytes, flags};
-    float width = label.bytes * 7.f;
-    if (cache &&
-        ui_text_measure_cache_measure(cache,
-                                      {{0x4241444745, hash64_bytes(kHash64Seed, label.data, label.bytes), 0,
-                                        static_cast<u16>(flags), 0},
-                                       label,
-                                       {&span, 1},
-                                       {256, 40},
-                                       true},
-                                      &value)
-            .ok())
-        width = value.size.width;
+    if (cache && ui_text_measure_cache_measure(cache,
+                                               {{source, hash64_bytes(kHash64Seed, label.data, label.bytes), 0,
+                                                 static_cast<u16>(flags), 0},
+                                                label,
+                                                {&span, 1},
+                                                {256, 40},
+                                                true},
+                                               &value)
+                     .ok())
+        return value.size.width;
+    return label.bytes * advance;
+}
+} // namespace
+UiBadgeLayout ui_badge_layout(UiTextMeasureCache* cache, const Utf8View& label, const UiRect& line, bool icon,
+                              u32 flags) noexcept {
+    float width = label_width(cache, label, flags, 0x4241444745, 7.f);
     width = static_cast<float>(static_cast<u32>(width + .999f)) + 2;
     const float cy = (line.top + line.bottom) * .5f;
     UiBadgeLayout result{};
@@ -33,20 +39,7 @@ UiBadgeLayout ui_badge_layout(UiTextMeasureCache* cache, const Utf8View& label, 
 }
 UiBadgeLayout ui_badge_compact_layout(UiTextMeasureCache* cache, const Utf8View& label, const UiRect& line,
                                       bool icon, u32 flags) noexcept {
-    UiTextMeasureValue value{};
-    const TextStyleSpan span{0, label.bytes, flags};
-    float width = label.bytes * 6.f;
-    if (cache &&
-        ui_text_measure_cache_measure(cache,
-                                      {{0x4241444743, hash64_bytes(kHash64Seed, label.data, label.bytes), 0,
-                                        static_cast<u16>(flags), 0},
-                                       label,
-                                       {&span, 1},
-                                       {256, 40},
-                                       true},
-                                      &value)
-            .ok())
-        width = value.size.width;
+    const float width = label_width(cache, label, flags, 0x4241444743, 6.f);
     const float mark = icon ? kUiBadgeCompactIcon + kUiBadgeCompactIconGap : 0.0f;
     const float content = minimum(kUiBadgeCompactMaximumContent, mark + static_cast<float>(static_cast<u32>(width + .999f)));
     const float cy = (line.top + line.bottom) * .5f;

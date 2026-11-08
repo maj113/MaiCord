@@ -4,9 +4,6 @@
 namespace maicord {
 namespace {
 constexpr float kRing = 2;
-float clamp(float value, float low, float high) noexcept {
-    return maximum(low, minimum(high, value));
-}
 } // namespace
 bool ui_zoom_lens_view(const UiZoomLens& lens, const UiRect& picture, float square_radius,
                        UiZoomLensView* view) noexcept {
@@ -28,10 +25,10 @@ bool ui_zoom_lens_wheel(UiZoomLens* lens, i32 delta, bool resize) noexcept {
         return false;
     const float notches = static_cast<float>(delta) / 120;
     const float before = resize ? lens->size : lens->zoom;
-    const float after = resize ? clamp(before + notches * kUiZoomLensSizeStep, kUiZoomLensMinimumSize,
-                                       kUiZoomLensMaximumSize)
-                               : clamp(before + notches * kUiZoomLensZoomStep, kUiZoomLensMinimumZoom,
-                                       kUiZoomLensMaximumZoom);
+    const float after = resize ? clamp_value(before + notches * kUiZoomLensSizeStep, kUiZoomLensMinimumSize,
+                                             kUiZoomLensMaximumSize)
+                               : clamp_value(before + notches * kUiZoomLensZoomStep, kUiZoomLensMinimumZoom,
+                                             kUiZoomLensMaximumZoom);
     if (after == before)
         return false;
     (resize ? lens->size : lens->zoom) = after;

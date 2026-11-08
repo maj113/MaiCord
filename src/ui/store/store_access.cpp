@@ -116,7 +116,7 @@ u32 ui_access_add_store(UiAccessTree* tree, u32 parent, const UiStoreScene& s, u
             context = n.text;
         if (hidden(n) || !n.action)
             continue;
-        UiAccessNodeDesc d{};
+        UiAccessNodeDesc d; // describe() writes all of it before it answers true
         if (!describe(s, static_cast<u16>(i), surface, context, &d))
             continue;
         if (const u32 node = ui_access_add(tree, parent, d); node != kUiAccessNone && added == kUiAccessNone)

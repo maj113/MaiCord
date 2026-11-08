@@ -13,10 +13,8 @@ Range active_range(const UiStoreScene& s) noexcept {
     return {0, s.dialog_root != kUiStoreNone ? s.dialog_root : s.count};
 }
 
-bool visible(const UiStoreScene& s, u16 index, UiRect* rect) noexcept {
-    const UiRect r = screen_rect(s, index);
-    *rect = r;
-    return ui_rect_has_area(ui_rect_intersection(r, clip_of(s, index)));
+bool visible(const UiStoreScene& s, u16 index) noexcept {
+    return ui_rect_has_area(ui_rect_intersection(screen_rect(s, index), clip_of(s, index)));
 }
 
 float centre_x(const UiRect& r) noexcept {
@@ -404,8 +402,7 @@ bool any_visible(const UiStoreScene& s, bool (*match)(const UiStoreNode&) noexce
     if (!s.active)
         return false;
     for (u32 i = 0; i < s.count; ++i) {
-        UiRect r;
-        if (match(s.nodes[i]) && visible(s, static_cast<u16>(i), &r))
+        if (match(s.nodes[i]) && visible(s, static_cast<u16>(i)))
             return true;
     }
     return false;

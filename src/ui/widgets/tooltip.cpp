@@ -209,34 +209,6 @@ void place(UiTooltipScene* scene) noexcept {
     scene->rectangle = {left, top, left + width, top + height};
     scene->placement = direction;
 }
-bool arrow(const UiTooltipScene& scene, const Theme& theme, PaintStream* paint) noexcept {
-    const auto r = scene.rectangle;
-    const bool vertical =
-        scene.placement == UiTooltipPlacement::above || scene.placement == UiTooltipPlacement::below;
-    const float middle =
-        vertical
-            ? maximum(r.left + 12, minimum((scene.anchor.left + scene.anchor.right) * .5f, r.right - 12))
-            : maximum(r.top + 12, minimum((scene.anchor.top + scene.anchor.bottom) * .5f, r.bottom - 12));
-    // At most twelve bounded strips form the small caret for every placement,
-    // drawn as ordinary quads so the viewport clip applies.
-    const u32 strips = static_cast<u32>(scene.style.arrow_size);
-    for (u32 i = 0; i < strips; ++i) {
-        const float distance = static_cast<float>(i), half = scene.style.arrow_size - distance;
-        UiRect row{};
-        if (scene.placement == UiTooltipPlacement::above)
-            row = {middle - half, r.bottom + distance, middle + half, r.bottom + distance + 1};
-        else if (scene.placement == UiTooltipPlacement::below)
-            row = {middle - half, r.top - distance - 1, middle + half, r.top - distance};
-        else if (scene.placement == UiTooltipPlacement::left)
-            row = {r.right + distance, middle - half, r.right + distance + 1, middle + half};
-        else
-            row = {r.left - distance - 1, middle - half, r.left - distance, middle + half};
-        if (!ui_surface_paint_material(paint, row, theme, UiElevation::tooltip, 0,
-                                       ui_surface_style(theme, UiElevation::tooltip).fill, {}, 0))
-            return false;
-    }
-    return true;
-}
 } // namespace
 
 bool ui_tooltip_key_equal(const UiTooltipKey& a, const UiTooltipKey& b) noexcept {
@@ -273,74 +245,55 @@ bool ui_tooltip_offer(UiTooltipScene* scene, const UiTooltipTarget& target, UiRe
         return ui_tooltip_clear(scene);
     const bool same = (scene->pending || scene->visible) && ui_tooltip_key_equal(scene->key, target.key) &&
                       scene->trigger == trigger;
-    if (same && !same_content(*scene, target)) {
-        // The same source with new content (reactors that finished loading):
-        // a shown tooltip is re-measured at the next tick, a pending one keeps
-        // its deadline.
-        set_content(scene, target);
-        scene->anchor = anchor;
-        scene->viewport = viewport;
-        scene->preferred = target.placement;
-        scene->style = style;
-        if (scene->visible)
-            scene->show_at_ms = maximum<u64>(1, now_ms);
-        scene->pending = true;
-        return true;
-    }
+    const u32 delay_ms = trigger == UiTooltipTrigger::pointer ? style.pointer_delay_ms : style.keyboard_delay_ms;
     if (same) {
+        const bool changed_content = !same_content(*scene, target);
         const bool changed_style = !bytes_equal(&scene->style, &style, sizeof(style));
-        if (ui_rect_equal(scene->anchor, anchor) && ui_rect_equal(scene->viewport, viewport) &&
-            scene->preferred == target.placement)
-            if (!changed_style)
-                return false;
+        if (!changed_content && !changed_style && ui_rect_equal(scene->anchor, anchor) &&
+            ui_rect_equal(scene->viewport, viewport) && scene->preferred == target.placement)
+            return false;
+        if (changed_content)
+            set_content(scene, target);
         scene->anchor = anchor;
         scene->viewport = viewport;
         scene->preferred = target.placement;
         scene->style = style;
-        if (changed_style) {
+        if (changed_content) {
+            // The same source with new content (reactors that finished loading):
+            // a shown tooltip is re-measured at the next tick, a pending one keeps
+            // its deadline.
+            if (scene->visible)
+                scene->show_at_ms = maximum<u64>(1, now_ms);
+            scene->pending = true;
+        } else if (changed_style) {
             if (scene->visible) {
                 scene->visible = false;
                 ++scene->revision;
                 scene->show_at_ms = maximum<u64>(1, now_ms);
             } else
-                scene->show_at_ms =
-                    deadline_after(now_ms, trigger == UiTooltipTrigger::pointer ? style.pointer_delay_ms
-                                                                                : style.keyboard_delay_ms);
+                scene->show_at_ms = deadline_after(now_ms, delay_ms);
             scene->pending = true;
-            return true;
-        }
-        if (scene->visible) {
+        } else if (scene->visible) {
             place(scene);
             ++scene->revision;
         }
         return true;
     }
-    // Copy first so a caller can re-offer the scene's current label with
-    // a new semantic identity. No borrowed descriptor survives this call.
-    UiTooltipScene copied{};
-    const UiTooltipStyle offered_style = style;
-    set_content(&copied, target);
-    ui_tooltip_clear(scene);
-    scene->key = target.key;
-    scene->anchor = anchor;
-    scene->viewport = viewport;
-    scene->text_bytes = copied.text_bytes;
-    copy_bytes(scene->text, copied.text, copied.text_bytes);
-    copy_bytes(scene->styles, copied.styles, sizeof(copied.styles));
-    scene->style_count = copied.style_count;
-    scene->emoji_media = copied.emoji_media;
-    copy_bytes(scene->emoji_glyph, copied.emoji_glyph, copied.emoji_glyph_bytes);
-    scene->emoji_glyph_bytes = copied.emoji_glyph_bytes;
-    scene->emoji_icon = copied.emoji_icon;
-    copy_bytes(scene->detail, copied.detail, copied.detail_bytes);
-    scene->detail_bytes = copied.detail_bytes;
-    scene->trigger = trigger;
-    scene->preferred = target.placement;
-    scene->style = offered_style;
-    scene->show_at_ms = maximum<u64>(1, deadline_after(now_ms, trigger == UiTooltipTrigger::pointer
-                                                                   ? offered_style.pointer_delay_ms
-                                                                   : offered_style.keyboard_delay_ms));
-    scene->pending = true;
+    // Build the new state beside the scene: the target and style may borrow the
+    // scene's own content. No borrowed descriptor survives this call.
+    UiTooltipScene next{};
+    next.revision = scene->revision + (scene->visible ? 1u : 0u);
+    next.text_owner = scene->text_owner;
+    set_content(&next, target);
+    next.key = target.key;
+    next.anchor = anchor;
+    next.viewport = viewport;
+    next.trigger = trigger;
+    next.preferred = target.placement;
+    next.style = style;
+    next.show_at_ms = maximum<u64>(1, deadline_after(now_ms, delay_ms));
+    next.pending = true;
+    *scene = next;
     return true;
 }
 bool ui_tooltip_bind_text_owner(UiTooltipScene* scene, UiWidgetReference owner) noexcept {
@@ -415,32 +368,40 @@ bool ui_tooltip_visible(const UiTooltipScene& scene) noexcept {
     if (!scene.visible || !source_current(scene.key) || !scene.text_owner.manager)
         return false;
     const auto* node = ui_widget_manager_layout_node(*scene.text_owner.manager, scene.text_owner.handle);
-    return node && node->visible && node->rectangle.left <= scene.rectangle.left &&
-           node->rectangle.top <= scene.rectangle.top && node->rectangle.right >= scene.rectangle.right &&
-           node->rectangle.bottom >= scene.rectangle.bottom &&
-           node->clip_rectangle.left <= scene.rectangle.left &&
-           node->clip_rectangle.top <= scene.rectangle.top &&
-           node->clip_rectangle.right >= scene.rectangle.right &&
-           node->clip_rectangle.bottom >= scene.rectangle.bottom;
+    const auto covers = [&](const UiRect& outer) noexcept {
+        return outer.left <= scene.rectangle.left && outer.top <= scene.rectangle.top &&
+               outer.right >= scene.rectangle.right && outer.bottom >= scene.rectangle.bottom;
+    };
+    return node && node->visible && covers(node->rectangle) && covers(node->clip_rectangle);
 }
-namespace {
-bool paint_box(const UiTooltipScene& scene, const Theme& theme, PaintStream* paint) noexcept {
-    const auto r = scene.rectangle;
-    return paint_stream_push_rounded(paint, r.left + 1, r.top + 2, r.right + 1, r.bottom + 2,
-                                     theme.tokens.overlay.shadow, scene.style.radius) &&
-           arrow(scene, theme, paint) && ui_surface_paint(paint, r, theme, UiElevation::tooltip, scene.style.radius);
-}
-} // namespace
-bool ui_tooltip_paint_box(PaintStream* paint, const Theme& theme, UiRect rectangle, UiRect anchor,
+bool ui_tooltip_paint_box(PaintStream* paint, const Theme& theme, UiRect r, UiRect anchor,
                           UiTooltipPlacement placement, const UiTooltipStyle& style) noexcept {
-    if (!paint || !ui_rect_has_area(rectangle))
+    if (!paint || !ui_rect_has_area(r) ||
+        !paint_stream_push_rounded(paint, r.left + 1, r.top + 2, r.right + 1, r.bottom + 2,
+                                   theme.tokens.overlay.shadow, style.radius))
         return false;
-    UiTooltipScene scene{};
-    scene.rectangle = rectangle;
-    scene.anchor = anchor;
-    scene.placement = placement;
-    scene.style = style;
-    return paint_box(scene, theme, paint);
+    const bool vertical = placement == UiTooltipPlacement::above || placement == UiTooltipPlacement::below;
+    const float middle = vertical ? maximum(r.left + 12, minimum((anchor.left + anchor.right) * .5f, r.right - 12))
+                                  : maximum(r.top + 12, minimum((anchor.top + anchor.bottom) * .5f, r.bottom - 12));
+    // At most twelve bounded strips form the small caret for every placement,
+    // drawn as ordinary quads so the viewport clip applies.
+    const UiSurfaceStyle surface = ui_surface_style(theme, UiElevation::tooltip);
+    const u32 strips = static_cast<u32>(style.arrow_size);
+    for (u32 i = 0; i < strips; ++i) {
+        const float distance = static_cast<float>(i), half = style.arrow_size - distance;
+        UiRect row{};
+        if (placement == UiTooltipPlacement::above)
+            row = {middle - half, r.bottom + distance, middle + half, r.bottom + distance + 1};
+        else if (placement == UiTooltipPlacement::below)
+            row = {middle - half, r.top - distance - 1, middle + half, r.top - distance};
+        else if (placement == UiTooltipPlacement::left)
+            row = {r.right + distance, middle - half, r.right + distance + 1, middle + half};
+        else
+            row = {r.left - distance - 1, middle - half, r.left - distance, middle + half};
+        if (!ui_surface_paint_material(paint, row, theme, surface, 0, surface.fill, {}, 0))
+            return false;
+    }
+    return ui_surface_paint(paint, r, theme, UiElevation::tooltip, style.radius);
 }
 bool ui_tooltip_paint(const UiTooltipScene& scene, const Theme& theme, PaintStream* paint) noexcept {
     if (!ui_tooltip_visible(scene))
@@ -448,7 +409,7 @@ bool ui_tooltip_paint(const UiTooltipScene& scene, const Theme& theme, PaintStre
     if (!paint || !paint_stream_push_clip(paint, scene.viewport))
         return false;
     // An icon is paint, drawn in the label colour; images and glyphs are not.
-    bool painted = paint_box(scene, theme, paint);
+    bool painted = ui_tooltip_paint_box(paint, theme, scene.rectangle, scene.anchor, scene.placement, scene.style);
     if (painted && scene.emoji_icon && !media_asset_key_valid(scene.emoji_media) && !scene.emoji_glyph_bytes)
         painted = ui_icon_paint(paint, static_cast<UiIcon>(scene.emoji_icon - 1), emoji_square(scene),
                                 theme.text_primary);

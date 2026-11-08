@@ -12,27 +12,13 @@ bool ui_input_consume_key_tail(u32* held_key, const UiInputEvent& event) noexcep
 
 UiInputRouteResult ui_input_route(ConstSlice<UiInputLayer> layers, const UiInputEvent& event) noexcept {
     const auto mask = ui_input_mask(event.kind);
-    if (!mask || layers.count > kUiInputLayerLimit || (!layers.data && layers.count))
-        return {UiInputDisposition::failed, 0};
-    // Reject malformed routing frames before any callback has side effects.
-    for (u32 i = 0; i < layers.count; ++i) {
-        if ((layers[i].barrier & ~kUiInputAll) || !layers[i].id)
-            return {UiInputDisposition::failed, layers[i].id};
-    }
     for (u32 i = 0; i < layers.count; ++i) {
         const UiInputLayer layer = layers[i];
         const auto result = layer.handler ? layer.handler(layer.context, event) : UiInputDisposition::ignored;
-        switch (result) {
-        case UiInputDisposition::ignored:
-            if (layer.barrier & mask) return {UiInputDisposition::blocked, layer.id};
-            break;
-        case UiInputDisposition::handled:
-        case UiInputDisposition::blocked:
-        case UiInputDisposition::failed:
+        if (result != UiInputDisposition::ignored)
             return {result, layer.id};
-        default:
-            return {UiInputDisposition::failed, layer.id};
-        }
+        if (layer.barrier & mask)
+            return {UiInputDisposition::blocked, layer.id};
     }
     return {UiInputDisposition::ignored, 0};
 }

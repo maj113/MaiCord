@@ -22,6 +22,12 @@ namespace maicord::app_detail {
 namespace {
 
 enum Pane : u32 { guilds, channels, thread_header, messages, members, composer, pane_count };
+// The pane after `pane` in Tab/F6 order (before it in reverse), wrapping; from no pane, the first (or last).
+u32 next_pane(u32 pane, bool reverse) noexcept {
+    if (pane >= pane_count)
+        return reverse ? pane_count - 1 : 0;
+    return reverse ? (pane ? pane - 1 : pane_count - 1) : (pane + 1) % pane_count;
+}
 struct ThreadHeaderKeyboardCapture {
     ApplicationThreadActionTicket ticket;
     UiThreadHeaderTarget target;
@@ -173,8 +179,7 @@ void move_tab_focus(u32 pane, bool reverse) noexcept {
     }
     u32 candidate = pane;
     for (u32 i = 0; i < pane_count; ++i) {
-        candidate = ui_list_next(pane_count, candidate, reverse, true,
-            [](void*, u32) noexcept { return true; }, nullptr);
+        candidate = next_pane(candidate, reverse);
         auto* owner = candidate == composer ? tab_composer(reverse, true)
             : focus_pane(candidate, candidate == thread_header && reverse ? UiListMove::last : UiListMove::restore, true);
         if (owner) { finish_or_log(owner); return; }
@@ -271,8 +276,7 @@ bool handle_content_focus_key(u32 key) noexcept {
         if (g_app.popup_scene.active && !dismiss_popup()) return true;
         u32 candidate = pane;
         for (u32 i = 0; i < pane_count; ++i) {
-            candidate = ui_list_next(pane_count, candidate, reverse, true,
-                [](void*, u32) noexcept { return true; }, nullptr);
+            candidate = next_pane(candidate, reverse);
             if (auto* owner = focus_pane(candidate, UiListMove::restore, true)) {
                 finish_or_log(owner);
                 break;

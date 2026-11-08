@@ -495,7 +495,7 @@ UiStoreNode& UiStoreBuilder::add(UiStoreKind kind) noexcept {
     n.ink = static_cast<u8>(UiStoreInk::normal);
     if (depth_) {
         auto& parent = scene_->nodes[stack_[depth_ - 1]];
-        // Append: the previous sibling is the last child; found by walking from the parent's last link.
+        // Append after the parent's last child so far (last_), or as its first.
         if (parent.first == kUiStoreNone)
             parent.first = index;
         else
@@ -522,8 +522,7 @@ void UiStoreBuilder::close() noexcept {
         ok_ = false;
         return;
     }
-    // After closing, the next sibling appends after this container: find the container's own position in
-    // its parent chain.
+    // The next sibling appends after this container.
     const u16 index = stack_[--depth_];
     last_ = index;
     current_ = &scene_->nodes[index];

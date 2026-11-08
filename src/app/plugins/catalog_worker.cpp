@@ -3,6 +3,7 @@
 #include "maicord/app/packages/install.hpp"
 #include "maicord/app/update/https.hpp"
 #include "maicord/app/update/log.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -51,10 +52,9 @@ u64 now_unix(const Worker& w) noexcept { return w.clock_unix ? w.clock_unix() : 
 ConstSlice<wchar_t> base(const Worker& w) noexcept { return {w.base, w.base_characters}; }
 
 void hex(const u8* bytes, u32 count, char* out) noexcept {
-    static constexpr char digits[] = "0123456789abcdef";
     for (u32 i = 0; i < count; ++i) {
-        out[i * 2] = digits[bytes[i] >> 4];
-        out[i * 2 + 1] = digits[bytes[i] & 15];
+        out[i * 2] = ascii_hex_digit(bytes[i] >> 4);
+        out[i * 2 + 1] = ascii_hex_digit(bytes[i]);
     }
 }
 void hex_wide(const u8* bytes, u32 count, wchar_t* out) noexcept {

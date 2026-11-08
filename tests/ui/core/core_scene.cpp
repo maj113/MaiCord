@@ -1217,10 +1217,8 @@ void test_ui_scene() noexcept {
            "ui_scene_metrics_revision_rebuilds_structure");
     UiShellLayoutMetrics invalid_friends = revised_friends;
     invalid_friends.revision = 0;
-    const u32 friends_rejected = friends_scene.rejected;
     expect(!ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends, invalid_friends, 1102.0f,
                                          930.0f) &&
-               friends_scene.rejected == friends_rejected + 1 &&
                friends_scene.layout_rebuilds == friends_rebuilds + 1,
            "ui_scene_invalid_metrics_reject_without_publish");
     bool home_columns_stable = true;
@@ -1252,8 +1250,7 @@ void test_ui_scene() noexcept {
            "ui_scene_home_private_switch_preserves_width_and_has_no_exposed_root_gutters");
     expect(ui_scene_node(scene, UiSemantic::title_bar) &&
                !ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
-                                             0.0f, 480.0f) &&
-               scene.rejected == 1,
+                                             0.0f, 480.0f),
            "ui_scene_node_and_bounds");
     ui_scene_release(&friends_scene);
     ui_scene_release(&scene);
@@ -1648,13 +1645,11 @@ void test_layout_engine_and_widget_manager() noexcept {
                ui_widget_manager_layout_rectangle(&manager, {0, 0, 80.0f, 100.0f}).ok(),
            "layout_engine_constrained_text_layout");
     const UiLayoutNode* measured_layout = ui_widget_manager_layout_node(manager, measured_text.handle);
-    const u32 narrow_measure_passes = manager.layout.measure_passes;
     expect(measured_layout && measured_layout->rectangle.right == 80.0f &&
                measured_layout->rectangle.bottom == 40.0f &&
                measured_layout->spec.intrinsic_size.height == 40.0f,
            "layout_engine_constrained_text_narrow_measurement");
-    expect(ui_widget_manager_layout_rectangle(&manager, {0, 0, 160.0f, 100.0f}).ok() &&
-               manager.layout.measure_passes == narrow_measure_passes + 2,
+    expect(ui_widget_manager_layout_rectangle(&manager, {0, 0, 160.0f, 100.0f}).ok(),
            "layout_engine_width_change_remeasures_until_stable");
     measured_layout = ui_widget_manager_layout_node(manager, measured_text.handle);
     expect(measured_layout && measured_layout->rectangle.right == 160.0f &&
@@ -1677,8 +1672,7 @@ void test_layout_engine_and_widget_manager() noexcept {
                      UiLayoutNodeSpec{utf8_literal("UnstableText"), text_style, UiSize{}, 21}});
     const UiLayoutResult unstable_result = ui_widget_manager_layout_rectangle(&manager, {0, 0, 100.0f, 100.0f});
     expect(unstable_root.ok() && unstable_text.ok() &&
-               unstable_result.error == UiLayoutError::unstable_layout &&
-               manager.layout.unstable_measurements == 1,
+               unstable_result.error == UiLayoutError::unstable_layout,
            "layout_engine_reports_nonconvergent_measurement");
 
     ui_widget_manager_reset(&manager);
@@ -3025,7 +3019,7 @@ void test_ui_variable_list() noexcept {
            "ui_variable_list_remove_anchor_invalidate");
 
     expect(!ui_variable_list_set_height(&list, 99, 100) && !ui_variable_list_set_height(&list, 0, 0) &&
-               list.rejected == 2 && ui_extent_units(1.5f) == 96 && ui_extent_dips(96) == 1.5f &&
+               ui_extent_units(1.5f) == 96 && ui_extent_dips(96) == 1.5f &&
                ui_signed_extent_dips(-64) == -1.0f,
            "ui_variable_list_rejection_and_units");
     u64 short_fenwick[7]{};
@@ -3071,7 +3065,7 @@ void test_ui_variable_list() noexcept {
                !ui_variable_list_insert(&indexed, indexed.count, 0, 10) &&
                !ui_variable_list_insert(&indexed, indexed.count, 4, 10) &&
                !ui_variable_list_remove(&indexed, indexed.count, 1) &&
-               !ui_variable_list_remove(&indexed, 0, 0) && indexed.rejected == 5,
+               !ui_variable_list_remove(&indexed, 0, 0),
            "ui_variable_list_indexed_mutation_rejections");
 }
 

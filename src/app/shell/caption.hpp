@@ -11,7 +11,7 @@ namespace maicord::app_detail {
 // window whose client area extends over the system caption). It knows the bar's hover, press and tooltip, its
 // layout and its commands, and answers the frame questions of the platform: where a pixel lies (a hit_test event, or
 // the Windows frame glue through application_caption_hit and the calls below). The renderer's content starts
-// application_caption_height() pixels below the client origin. Every offset is zero until
+// g_app.renderer.caption_height pixels below the client origin. Every offset is zero until
 // application_caption_enable, so other windows and test fixtures keep client coordinates.
 
 // Before the window exists: the creation-time frame messages already apply it.
@@ -19,8 +19,6 @@ void application_caption_enable() noexcept;
 // Every window event, first: pointer input over the bar's own items (update badge, Settings, the window buttons the
 // platform does not draw as frame), the scale and size changes the bar follows. True when the bar took the event.
 bool application_caption_event(const WindowEvent& event) noexcept;
-// Pixels between the client origin and the content.
-u32 application_caption_height() noexcept;
 // The bar's height at a DPI, zero without a shown bar.
 u32 application_caption_pixels(u32 dpi) noexcept;
 // Whether fullscreen hides the bar.

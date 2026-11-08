@@ -86,7 +86,6 @@ struct UiWidgetManager {
     u64 hover_started_ms;
     UiWidgetHandle captured;
     u32 count;
-    u32 rejected;
     u16 generation;
 };
 

@@ -24,18 +24,16 @@ bool ui_voice_participant_row(const ChannelViewRow& row, const UiRect& row_recta
     result.row = {row_rectangle.left, top, row_rectangle.right, top + kShellNavigationVoiceUserHeight};
     result.avatar = {left, top + 4.0f, left + 24.0f, top + 28.0f};
     float indicator = right;
-    if (state->flags & (voice_deaf | voice_self_deaf)) {
-        result.deafened = {indicator - 16.0f, top + 8.0f, indicator, top + 24.0f};
+    const auto icon = [&](UiRect* box) noexcept {
+        *box = {indicator - 16.0f, top + 8.0f, indicator, top + 24.0f};
         indicator -= 20.0f;
-    }
-    if (state->flags & (voice_mute | voice_self_mute)) {
-        result.muted = {indicator - 16.0f, top + 8.0f, indicator, top + 24.0f};
-        indicator -= 20.0f;
-    }
-    if (state->flags & voice_self_video) {
-        result.video = {indicator - 16.0f, top + 8.0f, indicator, top + 24.0f};
-        indicator -= 20.0f;
-    }
+    };
+    if (state->flags & (voice_deaf | voice_self_deaf))
+        icon(&result.deafened);
+    if (state->flags & (voice_mute | voice_self_mute))
+        icon(&result.muted);
+    if (state->flags & voice_self_video)
+        icon(&result.video);
     if (voice_state_live(*state)) {
         const float live_top = top + (kShellNavigationVoiceUserHeight - kUiVoiceLiveBadgeHeight) * .5f;
         result.live = {indicator - kUiVoiceLiveBadgeWidth, live_top, indicator, live_top + kUiVoiceLiveBadgeHeight};

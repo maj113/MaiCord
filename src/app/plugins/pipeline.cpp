@@ -61,9 +61,9 @@ PluginPipelineStats& plugin_stats() noexcept {
 
 // Whether the plugin declares the hook; true while it starts, before its hooks are published.
 bool plugin_subscribed(const PluginBinding* binding, PluginHook hook) noexcept {
-    const mc_descriptor* descriptor = binding->image.descriptor;
-    for (u32 i = 0; descriptor && i < descriptor->hook_count; ++i)
-        if (descriptor->hooks[i].kind == static_cast<u32>(hook)) return true;
+    const mc_descriptor& descriptor = *binding->image.descriptor;
+    for (u32 i = 0; i < descriptor.hook_count; ++i)
+        if (descriptor.hooks[i].kind == static_cast<u32>(hook)) return true;
     return false;
 }
 

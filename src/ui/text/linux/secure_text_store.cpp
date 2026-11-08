@@ -355,15 +355,8 @@ bool secure_text_store_ime_event(const WindowEvent& event) noexcept {
 }
 
 bool secure_text_store_bind(SecureTextStore* store, SecureEdit* edit, SecureTextInputScope scope) noexcept {
-    auto* value = implementation(store);
-    if (!value || !edit)
-        return false;
-    disable(value);
-    value->target = secure_edit_input_target(edit);
-    value->scope = scope;
-    value->bound = true;
-    refresh(value);
-    return true;
+    // A null edit makes a target without context, which bind_target refuses.
+    return secure_text_store_bind_target(store, secure_edit_input_target(edit), scope);
 }
 
 bool secure_text_store_bind_target(SecureTextStore* store, TextInputTarget target, SecureTextInputScope scope) noexcept {

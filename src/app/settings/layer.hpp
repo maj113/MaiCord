@@ -5,6 +5,7 @@
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/platform/window/event.hpp"
+#include "../shell/state.hpp"
 
 namespace maicord::app_detail {
 
@@ -99,5 +100,21 @@ bool settings_layer_edit_changed(SettingsLayer*, bool content) noexcept;
 // Automation Value.SetValue). False when no editor is focused and editable.
 bool settings_layer_replace_text(SettingsLayer*, Utf8View text) noexcept;
 void settings_layer_cancel_native_group(SettingsLayer*, const TextInputTarget&) noexcept;
+// Scrolls a settings scene's view to `target` on the wheel's curve (a jump when smooth scrolling is off or motion is
+// reduced): keyboard paging and track clicks. Inline: the settings modal and the layers link it without each other.
+__declspec(noinline) inline void settings_glide_to(const UiScrollBinding& binding, float target) noexcept {
+    ui_scroll_host_scroll_to(&g_app.scroll_host, binding, target, application_now_us(),
+                             96.0 / maximum(g_app.renderer.dpi, 1u));
+}
+// Focus moves reveal their target inside the scene at once; replays the page body's reveal from `before` on the same
+// curve. `body` is the scene's body binding.
+__declspec(noinline) inline void settings_glide_reveal(UiSettingsScene* scene, const UiScrollBinding& body,
+                                                       float before) noexcept {
+    const float after = scene->content_offset;
+    if (after == before)
+        return;
+    ui_settings_scene_scroll(scene, false, before - after);
+    settings_glide_to(body, after);
+}
 
 } // namespace maicord::app_detail

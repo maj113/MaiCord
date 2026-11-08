@@ -326,9 +326,10 @@ void place_tiles(UiCallScene& s, const UiRect& area) noexcept {
         s.focus_user = 0;
         UiRect rects[kUiCallMaximumTiles];
         UiCallGridLayout layout{};
-        const auto measured = ui_call_grid_measure(ui_rect_width(area), ui_rect_height(area), count, s.gap);
-        s.scroll = clamp_value(s.scroll, 0.f, maximum(0.f, measured.content_height - ui_rect_height(area)));
-        if (!ui_call_grid_place(area, count, s.gap, s.scroll, {rects, count}, &layout))
+        // The grid clamps the scroll itself; the scene keeps the clamped offset.
+        const bool placed = ui_call_grid_place(area, count, s.gap, s.scroll, {rects, count}, &layout);
+        s.scroll = clamp_value(s.scroll, 0.f, maximum(0.f, layout.content_height - ui_rect_height(area)));
+        if (!placed)
             return;
         s.content_height = layout.content_height;
         for (u32 i = 0; i < count; ++i)
@@ -686,9 +687,7 @@ bool ui_call_scene_scroll(UiCallScene* s, float x, float y, float delta) noexcep
         s->scroll = next;
     }
     // Re-place from the settled targets; a scroll never starts a morph.
-    const u64 key = s->layout_key;
     place_tiles(*s, tile_area(*s));
-    s->layout_key = key;
     for (u32 i = 0; i < s->tile_count; ++i)
         s->tiles[i].from = s->tiles[i].display = s->tiles[i].target;
     ++s->morph_generation;

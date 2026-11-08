@@ -1,6 +1,7 @@
 #include "maicord/ui/media/image_viewer.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/text/style.hpp"
@@ -287,10 +288,7 @@ bool ui_image_viewer_set_item(UiImageViewer* v, UiSize pixels, u32 item, u32 cou
 bool ui_image_viewer_set_caption(UiImageViewer* v, Utf8View caption) noexcept {
     if (!v || !v->active)
         return false;
-    // Cut at a code point boundary.
-    u32 bytes = minimum<u32>(caption.bytes, sizeof(v->caption));
-    while (bytes < caption.bytes && bytes && (static_cast<u8>(caption.data[bytes]) & 0xC0) == 0x80)
-        --bytes;
+    const u32 bytes = utf8_truncated_length(caption, sizeof(v->caption));
     if (bytes == v->caption_bytes && bytes_equal(v->caption, caption.data, bytes))
         return true;
     copy_bytes(v->caption, caption.data, bytes);
@@ -516,9 +514,10 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
     // The divider between the view group and the item actions.
     u32 last_view = ui_image_viewer_button_count;
     for (const u32 index : kToolbarOrder)
-        if (view_group(index) && ui_rect_has_area(ui_image_viewer_button(v, index)) &&
-            last_view == ui_image_viewer_button_count)
+        if (view_group(index) && ui_rect_has_area(ui_image_viewer_button(v, index))) {
             last_view = index;
+            break;
+        }
     if (p && last_view != ui_image_viewer_button_count) {
         const auto b = ui_image_viewer_button(v, last_view);
         const float x = b.right + (kToolbarGap + kToolbarGroupGap) * .5f - .5f, inset = kToolbarGap - 2;

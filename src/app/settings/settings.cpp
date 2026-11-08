@@ -161,7 +161,7 @@ bool application_preferences_persist_pane_widths() noexcept {
 static bool g_window_inactive = false;
 
 void application_animation_activity_synchronize() noexcept {
-    const auto now = clock_microseconds(g_app.clock, g_app.process_start, clock_now());
+    const auto now = application_now_us();
     // The official client holds avatar, server icon, emoji, GIF
     // and sticker animations while its window is inactive. The Settings
     // modal keeps the shell beneath it live, animations included.
@@ -557,27 +557,6 @@ UiScrollBinding application_settings_scroll_binding(bool sidebar) noexcept {
                 return ok;
             }};
 }
-
-namespace settings_detail {
-
-// Keyboard paging, track clicks and focus reveals glide on the wheel's curve
-// (and jump when smooth scrolling is off or motion is reduced).
-
-void settings_glide_to(bool sidebar, float target) noexcept {
-    ui_scroll_host_scroll_to(&g_app.scroll_host, application_settings_scroll_binding(sidebar), target,
-                             clock_microseconds(g_app.clock, g_app.process_start, clock_now()),
-                             96.0 / maximum(g_app.renderer.dpi, 1u));
-}
-void settings_glide_reveal(float before) noexcept {
-    auto& scene = g_app.settings->scene;
-    const float after = scene.content_offset;
-    if (after == before)
-        return;
-    ui_settings_scene_scroll(&scene, false, before - after);
-    settings_glide_to(false, after);
-}
-
-} // namespace settings_detail
 
 bool application_settings_synchronize() noexcept {
     // One write per completed splitter drag, outside the pointer path.

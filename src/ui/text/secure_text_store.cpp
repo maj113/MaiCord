@@ -1473,8 +1473,7 @@ bool secure_text_store_attached(const SecureTextStore& store) noexcept {
 }
 
 bool secure_text_store_bind(SecureTextStore* store, SecureEdit* edit, SecureTextInputScope scope) noexcept {
-    auto* value = implementation(store);
-    return value && value->bind(secure_edit_input_target(edit), scope);
+    return secure_text_store_bind_target(store, secure_edit_input_target(edit), scope);
 }
 bool secure_text_store_bind_target(SecureTextStore* store, TextInputTarget target, SecureTextInputScope scope) noexcept {
     auto* value = implementation(store);

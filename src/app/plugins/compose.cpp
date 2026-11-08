@@ -34,10 +34,13 @@ void set_composer_notice(Utf8View text) noexcept {
     g_notice.until = g_notice.bytes ? clock_monotonic_milliseconds() + kComposerNoticeMs : 0;
 }
 
+} // namespace
+
 // The ABI-6 hooks rewrite, cancel or question the text in the composer (the editor's text while a
 // message is being edited); the ordinary send or save then uses it. A send's flags travel as the
 // draft's own state: "@silent " in front of the text, and the reply's mention.
-bool compose_hooks(bool* handled) noexcept {
+bool application_plugins_compose(bool* handled) noexcept {
+    *handled = false;
     const bool editing = g_app.message_edit.editor_active;
     const PluginHook hook = editing ? PluginHook::pre_edit : PluginHook::pre_send;
     if (!plugin_hook_subscribed(hook) || !g_app.account_ui) return true;
@@ -95,12 +98,6 @@ bool compose_hooks(bool* handled) noexcept {
         application_plugins_send_confirm(result.question);
     }
     return true;
-}
-} // namespace
-
-bool application_plugins_compose(bool* handled) noexcept {
-    *handled = false;
-    return compose_hooks(handled);
 }
 
 Utf8View application_plugins_composer_notice() noexcept {

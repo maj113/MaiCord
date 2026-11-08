@@ -210,8 +210,7 @@ void update_header_controls(UiScene* scene, const UiShellLayoutMetrics& metrics,
     set_margin(call, search_width + existing_width + (add.generation ? 44.f : 0.f));
 }
 
-bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics, u8 variant,
-                 float width, float height) noexcept {
+bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics, u8 variant) noexcept {
     // An uninitialized manager ignores the reset and refuses the root below.
     ui_widget_manager_reset(&scene->widgets);
     for (u32 index = 0; index < static_cast<u32>(UiSemantic::count); ++index) {
@@ -441,14 +440,6 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
     for (auto semantic : thread_children)
         if (!add_node(scene, semantic, thread_root, thread_style))
             return false;
-
-    update_header_controls(scene, metrics, width, variant);
-    if (!ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok()) {
-        return false;
-    }
-    ++scene->layout_passes;
-    scene->count = scene->widgets.count;
-    ++scene->layout_rebuilds;
     return true;
 }
 
@@ -480,30 +471,23 @@ void ui_scene_release(UiScene* scene) noexcept {
 bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics,
                                   float width, float height) noexcept {
     if (!scene || !ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f ||
-        view >= UiShellView::count || !shell_metrics_valid(metrics)) {
-        if (scene) {
-            ++scene->rejected;
-        }
+        view >= UiShellView::count || !shell_metrics_valid(metrics))
         return false;
-    }
     const u8 variant = shell_variant(metrics, width);
     const bool same_structure = scene->count != 0 && scene->layout_variant == variant &&
                                 scene->view == view && scene->layout_metrics_revision == metrics.revision;
     if (same_structure && scene->width == width && scene->height == height) {
         return true;
     }
-    if (same_structure) {
-        update_header_controls(scene, metrics, width, variant);
-        if (!ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok()) {
-            ++scene->rejected;
-            return false;
-        }
-        ++scene->layout_passes;
-        scene->count = scene->widgets.count;
-    } else if (!build_shell(scene, view, metrics, variant, width, height)) {
-        ++scene->rejected;
+    if (!same_structure && !build_shell(scene, view, metrics, variant))
         return false;
-    }
+    update_header_controls(scene, metrics, width, variant);
+    if (!ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok())
+        return false;
+    ++scene->layout_passes;
+    scene->count = scene->widgets.count;
+    if (!same_structure)
+        ++scene->layout_rebuilds;
     scene->width = width;
     scene->height = height;
     scene->layout_variant = variant;

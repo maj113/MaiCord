@@ -42,6 +42,10 @@ inline Utf8View join(UiStoreBuilder& b, const Utf8View& x, const Utf8View& y, co
 UiStoreNode& subtle(Ctx&, const Utf8View& value, u16 flags = 0) noexcept;
 void card_open(Ctx&, UiStoreFill fill = UiStoreFill::subtle, u32 action = 0) noexcept;
 UiStoreNode& hairline_row(Ctx&, bool last, float pad_x = 16, float pad_y = 12) noexcept;
+// The two most common containers in one call: a column of text lines (gap 2, takes the row's free space) and a
+// row that centres its children vertically.
+UiStoreNode& text_column(Ctx&) noexcept;
+UiStoreNode& center_row(Ctx&, u32 gap) noexcept;
 
 // Screens.
 void build_header(Ctx&) noexcept;

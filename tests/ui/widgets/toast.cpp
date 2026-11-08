@@ -76,7 +76,7 @@ void test_queue() noexcept {
           "toast: the same text with another kind queues");
     check(ui_toast_push(&s, UiToastKind::message, utf8_literal("Fourth")) &&
               ui_toast_push(&s, UiToastKind::message, utf8_literal("Fifth")) &&
-              s.count == kUiToastQueueCapacity && s.dropped == 1 &&
+              s.count == kUiToastQueueCapacity &&
               utf8_equal({s.entries[0].text, s.entries[0].bytes}, utf8_literal("Link Copied!")) &&
               s.entries[1].kind == UiToastKind::failure &&
               utf8_equal({s.entries[3].text, s.entries[3].bytes}, utf8_literal("Fifth")),

@@ -12,6 +12,11 @@ inline constexpr u32 kSettingsTotalBytes = 64u * 1024u;
 // The level-1 host table every context points to (api.cpp).
 extern const mc_api kApi;
 
+// The binding of a context whose call has not returned (the context is the binding's first member), else null.
+static_assert(offsetof(PluginBinding, ctx) == 0);
+inline PluginBinding* active(mc_ctx* ctx) noexcept {
+    return ctx && ctx->call ? reinterpret_cast<PluginBinding*>(ctx) : nullptr;
+}
 // The binding's persisted store, opened and read from disk on first use; null when it cannot be (binding.cpp).
 PluginKeyValue* store_table(PluginBinding*) noexcept;
 // Keys are 1..maximum bytes of printable ASCII (0x21..0x7E).

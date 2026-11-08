@@ -134,7 +134,7 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
         return UiRect{x + r.left, top + r.top, x + r.right, top + r.bottom};
     };
     // Header media and controls (relative to the card).
-    header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::expand);
+    header_parts(s, ProfileAction::expand);
     header_to_screen(s, x, top);
     if (live && !self_card)
         header_buttons(s, W - pad - 12 - 32, pad + 8);
@@ -408,7 +408,7 @@ bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept {
     header_geometry(s, {card.left, card.top, card.right, card.top + kModalBanner}, card.left + cp,
                     card.top + kModalBanner - size * .5f, size);
     // The card's header: banner, avatar, decoration, then the status bubble.
-    header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::none);
+    header_parts(s, ProfileAction::none);
     const float bubble_left = card.left + cp + size + 20, bubble_top = card.top + kModalBanner - 8;
     u8 order[kUserActivityMaximum];
     const u32 cards = activity_cards(s, order);
@@ -507,7 +507,7 @@ bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
                                   slot.bottom - viewport.top})
                    ->widget;
     header_geometry(s, {0, 0, W, kPanelBanner}, 16 - kPanelBorder, kPanelAvatarTop, 80);
-    header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::expand);
+    header_parts(s, ProfileAction::expand);
     u8 order[kUserActivityMaximum];
     const u32 cards = activity_cards(s, order);
     const float bubble_left = x0 + 80 + 12;

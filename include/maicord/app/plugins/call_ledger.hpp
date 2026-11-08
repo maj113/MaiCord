@@ -71,7 +71,7 @@ struct PluginCallLedger {
     // the function close calls to stop it. Null until plugin_call_watchdog_start.
     Thread* watchdog;
     Waitable watchdog_stop;
-    u32 hang_limit_ms, hang_poll_ms;
+    u32 hang_limit_ms;
     void (*close_watchdog)(PluginCallLedger*) noexcept;
     PluginCallLedgerEntry entries[kPluginCallLedgerOwners];
 };
@@ -85,12 +85,12 @@ void plugin_call_ledger_close(PluginCallLedger*) noexcept;
 // A null ledger makes begin/end no-ops so hosts without accounting still work.
 PluginCallTicket plugin_call_begin(PluginCallLedger*, u64 owner_id, PluginCallKind, PluginCallClass) noexcept;
 PluginCallOutcome plugin_call_finish(PluginCallLedger*, const PluginCallTicket&) noexcept;
-// Starts the thread that reads the marker every poll_ms. A call inside a plugin
-// for limit_ms is logged with its owner and recorded in the marker, so the next
-// start knows the plugin hung even if the user killed the process. It cannot
-// interrupt the plugin. Needs an open marker file.
-bool plugin_call_watchdog_start(PluginCallLedger*, u32 limit_ms = kPluginCallHangMilliseconds,
-                                u32 poll_ms = 1000) noexcept;
+// Starts the thread that reads the marker once per limit_ms, and when a call it
+// found would reach limit_ms. A call inside a plugin for limit_ms is logged with
+// its owner and recorded in the marker, so the next start knows the plugin hung
+// even if the user killed the process. It cannot interrupt the plugin. Needs an
+// open marker file.
+bool plugin_call_watchdog_start(PluginCallLedger*, u32 limit_ms = kPluginCallHangMilliseconds) noexcept;
 bool plugin_call_ledger_disable_requested(const PluginCallLedger*, u64 owner_id) noexcept;
 // Fresh accounting for an owner that was enabled again.
 void plugin_call_ledger_forget(PluginCallLedger*, u64 owner_id) noexcept;

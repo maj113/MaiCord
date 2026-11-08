@@ -145,11 +145,6 @@ void test_widget_scroll(void (*check)(bool, const char*) noexcept) noexcept {
               geometry.maximum.y == 215,
           "unclipped descendant participates in owner range");
     nodes[inner.handle.slot].spec.style.flags |= ui_layout_node_clip_children;
-    const u16 next = nodes[spacer.handle.slot].next_sibling;
-    nodes[spacer.handle.slot].next_sibling = spacer.handle.slot;
-    check(!ui_widget_scroll_geometry(manager, outer.handle, &geometry),
-          "range rejects cyclic sibling chain");
-    nodes[spacer.handle.slot].next_sibling = next;
     ui_widget_manager_reset(&manager);
     check(!ui_widget_reveal(&manager, target.handle).ok(), "reveal rejects reset handle");
 

@@ -352,18 +352,13 @@ bool ui_media_picker_scene_clear_selection(UiMediaPickerScene* scene) noexcept {
 }
 namespace {
 // Chromium's smooth scroll curve: cubic-bezier(.4, 0, 0, 1), so x(t) = 1.2(1-t)^2 t + t^3 and
-// y(t) = 3t^2 - 2t^3; x is solved by bisection before sampling y.
+// y(t) = 3t^2 - 2t^3. dx/dt = 1.2(1-t)(1-3t) + 3t^2 >= .327, so five Newton steps from t = x solve x.
 float page_eased(float progress) noexcept {
-    float low = 0, high = 1;
-    for (u32 i = 0; i < 16; ++i) {
-        const float t = (low + high) * .5f;
-        const float x = 1.2f * (1 - t) * (1 - t) * t + t * t * t;
-        if (x < progress)
-            low = t;
-        else
-            high = t;
+    float t = progress;
+    for (u32 i = 0; i < 5; ++i) {
+        const float u = 1 - t;
+        t -= (1.2f * u * u * t + t * t * t - progress) / (1.2f * u * (u - 2 * t) + 3 * t * t);
     }
-    const float t = (low + high) * .5f;
     return t * t * (3 - 2 * t);
 }
 } // namespace

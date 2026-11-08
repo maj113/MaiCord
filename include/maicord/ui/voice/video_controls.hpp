@@ -39,6 +39,10 @@ inline constexpr float kUiVideoControlBarHeight = 32.0f;
 inline constexpr float kUiVideoControlIconExtent = 24.0f;
 inline constexpr u64 kUiVideoSeekStepMs = 5'000;
 inline constexpr u32 kUiVideoVolumeStep = 5;
+// The position a seek range value (0..10000) names, without overflowing long durations.
+constexpr u64 ui_video_seek_position(u64 duration_ms, u32 value) noexcept {
+    return (duration_ms / 10000) * value + (duration_ms % 10000) * value / 10000;
+}
 struct UiVideoControlsStyle {
     float padding{0}, gap{4};
     float target{kUiVideoControlBarHeight}, range_height{kUiVideoControlBarHeight}, status_height{20};

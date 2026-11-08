@@ -42,8 +42,8 @@ u32 guild_context_policy_build(const ChatStateStore& state, u64 guild_id, u32 co
         ++used;
     }
     if (developer_mode)
-        output[used++] = {utf8_literal("Copy server ID"), copy_id_action,
-                          static_cast<u16>(popup_item_enabled | (mark || settings ? popup_item_separator_before : 0u))};
+        popup_item_set(&output[used++], utf8_literal("Copy server ID"), copy_id_action,
+                       static_cast<u16>(popup_item_enabled | (mark || settings ? popup_item_separator_before : 0u)));
     return used;
 }
 bool guild_context_can_create_channel(const ChatStateStore& state, u64 guild_id, u64 category_id) noexcept {
@@ -92,8 +92,8 @@ u32 guild_context_invite_item(const ChatStateStore& state, u64 guild_id, u64 pre
                               const Slice<PopupItem>& output) noexcept {
     if (!action || !output.data || !output.count || !guild_context_invite_channel(state, guild_id, preferred_channel))
         return 0;
-    output[0] = {utf8_literal("Invite people"), action,
-                 static_cast<u16>(popup_item_enabled | popup_item_separator_before)};
+    popup_item_set(&output[0], utf8_literal("Invite people"), action,
+                   static_cast<u16>(popup_item_enabled | popup_item_separator_before));
     output[0].presentation = ui_menu_row_presentation(UiIcon::link);
     return 1;
 }
@@ -103,8 +103,8 @@ u32 guild_context_settings_item(const ChatStateStore& state, u64 guild_id, u32 a
     if (!action || !output.data || !output.count || !guild_context_target_valid(state, guild_id) ||
         !guild_settings_access(state, guild_id).sections)
         return 0;
-    output[0] = {utf8_literal("Server settings"), action,
-                 static_cast<u16>(popup_item_enabled | popup_item_separator_before)};
+    popup_item_set(&output[0], utf8_literal("Server settings"), action,
+                   static_cast<u16>(popup_item_enabled | popup_item_separator_before));
     output[0].presentation = ui_menu_row_presentation(UiIcon::settings);
     return 1;
 }
@@ -113,8 +113,8 @@ u32 guild_context_copy_id_item(const ChatStateStore& state, u64 guild_id, u32 ac
                                const Slice<PopupItem>& output) noexcept {
     if (!action || !output.data || !output.count || !guild_context_target_valid(state, guild_id))
         return 0;
-    output[0] = {utf8_literal("Copy server ID"), action,
-                 static_cast<u16>(popup_item_enabled | popup_item_separator_before)};
+    popup_item_set(&output[0], utf8_literal("Copy server ID"), action,
+                   static_cast<u16>(popup_item_enabled | popup_item_separator_before));
     return 1;
 }
 
@@ -128,8 +128,8 @@ u32 guild_context_leave_item(const ChatStateStore& state, u64 guild_id, u32 acti
     if (!action || !output.data || !output.count || !guild_context_target_valid(state, guild_id) ||
         guild_context_owner(state, guild_id))
         return 0;
-    output[0] = {utf8_literal("Leave server"), action,
-                 static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before)};
+    popup_item_set(&output[0], utf8_literal("Leave server"), action,
+                   static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before));
     output[0].presentation = ui_menu_row_presentation(UiIcon::log_out);
     return 1;
 }

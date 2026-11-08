@@ -123,8 +123,9 @@ void update_hover_time(UiVideoScene& scene) noexcept {
     scene.hover_time_bytes = 0;
     const auto* control = descriptor(scene, UiVideoControl::seek);
     const u64 duration = scene.projection.playback.duration_ms;
-    if ((scene.hover != UiVideoControl::seek && scene.capture != UiVideoControl::seek) || !eligible(scene, UiVideoControl::seek) ||
-        !control || !duration)
+    // eligible() implies the descriptor exists.
+    if ((scene.hover != UiVideoControl::seek && scene.capture != UiVideoControl::seek) ||
+        !eligible(scene, UiVideoControl::seek) || !duration)
         return;
     const auto track = range_track(control->bounds, scene.style);
     if (track.right <= track.left)
@@ -137,7 +138,7 @@ void update_hover_time(UiVideoScene& scene) noexcept {
 bool range_request(UiVideoScene& scene, UiVideoControl id, UiPoint point,
                    UiVideoAction* out) noexcept {
     const auto* control = descriptor(scene, id);
-    if (!eligible(scene, id) || !control || control->kind != UiVideoControlKind::range ||
+    if (!eligible(scene, id) || control->kind != UiVideoControlKind::range ||
         !paint_coordinate_valid(point.x) || !paint_coordinate_valid(point.y))
         return false;
     const auto visible = ui_rect_overlap(control->bounds, scene.clip);
@@ -160,8 +161,7 @@ bool range_request(UiVideoScene& scene, UiVideoControl id, UiPoint point,
     request.generation = scene.projection.playback.generation;
     request.revision = scene.projection.playback.revision;
     if (id == UiVideoControl::seek) {
-        const u64 duration = scene.projection.playback.duration_ms;
-        request.position_ms = (duration / 10000) * value + (duration % 10000) * value / 10000;
+        request.position_ms = ui_video_seek_position(scene.projection.playback.duration_ms, value);
     } else if (id == UiVideoControl::track) request.collection_track = static_cast<u16>(value + 1);
     else request.volume = value;
     const u64 requested = id == UiVideoControl::seek ? request.position_ms :
@@ -541,9 +541,9 @@ UiVideoSceneResult ui_video_scene_pointer(UiVideoScene* scene, UiVideoPointerEve
     }
     if (!scene->active)
         return result;
+    // Hover leaves the hit under the point in scene->hover.
     ui_video_scene_hover(scene, point);
-    const auto hit = ui_video_scene_hit(*scene, point);
-    scene->hover = hit;
+    const auto hit = scene->hover;
     if (event == UiVideoPointerEvent::down) {
         if (scene->capture != UiVideoControl::none)
             return result;

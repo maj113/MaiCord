@@ -47,9 +47,7 @@ bool action(const UiAudioControlsProjection& projection, UiAudioControl id, u32 
         request.value = !state.muted;
         break;
     case UiAudioControl::seek:
-        value = minimum(value, 10000u);
-        request.position_ms =
-            (state.duration_ms / 10000) * value + (state.duration_ms % 10000) * value / 10000;
+        request.position_ms = ui_video_seek_position(state.duration_ms, minimum(value, 10000u));
         break;
     case UiAudioControl::volume:
         request.volume = minimum(value, 100u);
@@ -119,10 +117,14 @@ bool ui_audio_controls_project(const UiAudioPlaybackState& state, const UiRect& 
         state.title.bytes > 512 ||
         (state.title.bytes && (!state.title.data || !utf8_validate(state.title).valid)))
         return false;
-    UiAudioControlsProjection projection{};
-    if (!ui_audio_card_geometry(bounds, style, &projection.geometry, state.voice,
+    UiAudioCardGeometry card{};
+    if (!ui_audio_card_geometry(bounds, style, &card, state.voice,
                                 volume_expanded && state.can_volume && !state.error))
         return false;
+    // Built in place once nothing can reject it, so a rejected projection leaves *out as it was.
+    auto& projection = *out;
+    reset_value(&projection);
+    projection.geometry = card;
     projection.playback = state;
     projection.volume_thumb_inset = style.volume_thumb_extent * .5f;
     projection.surface = theme.surface;
@@ -198,7 +200,6 @@ bool ui_audio_controls_project(const UiAudioPlaybackState& state, const UiRect& 
     for (auto& descriptor : projection.controls)
         if (!descriptor.enabled && descriptor.kind != UiAudioControlKind::label)
             descriptor.foreground = theme.text_secondary;
-    copy_value(out, projection);
     return true;
 }
 const UiAudioControlDescriptor* ui_audio_controls_find(const UiAudioControlsProjection& projection,
@@ -362,7 +363,7 @@ void expand_volume(UiAudioScene& scene) noexcept {
 }
 bool captured_action(const UiAudioScene& scene, UiPoint point, UiAudioAction* out) noexcept {
     const auto* descriptor = ui_audio_controls_find(scene.projection, scene.capture);
-    if (!eligible(scene, scene.capture) || !descriptor || descriptor->kind != UiAudioControlKind::range ||
+    if (!eligible(scene, scene.capture) || descriptor->kind != UiAudioControlKind::range ||
         !paint_coordinate_valid(point.x) || !paint_coordinate_valid(point.y))
         return false;
     const auto visible = ui_rect_overlap(descriptor->bounds, scene.clip);

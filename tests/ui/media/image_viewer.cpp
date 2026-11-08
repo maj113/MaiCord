@@ -566,8 +566,9 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
                                        CdnHttpError::none,
                                        true,
                                        false};
-        const auto decoded = cdn_media_pipeline_admit_static_png(
-            &media.pipeline, key, policy, {kPngGrowthFixture, sizeof(kPngGrowthFixture)});
+        CdnStaticPngResult decoded;
+        cdn_media_pipeline_admit_static_png(&decoded, &media.pipeline, key, policy,
+                                            {kPngGrowthFixture, sizeof(kPngGrowthFixture)});
         check(decoded.decoded() && decoded.image.width == 1536 && decoded.image.height == 1536 &&
                   media.expanded_scanlines &&
                   media.pipeline.scanline_capacity >= decoded.image.inflated_bytes &&
@@ -584,8 +585,9 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
                   media.pipeline.scanline_storage != expanded && media.pipeline.scanline_capacity < 5u * 1024u * 1024u &&
                   !account_media_trim_scanlines(&media),
               "large PNG decode scratch returns to the lane's own storage before the next command");
-        const auto again = cdn_media_pipeline_admit_static_png(
-            &media.pipeline, key, policy, {kPngGrowthFixture, sizeof(kPngGrowthFixture)});
+        CdnStaticPngResult again;
+        cdn_media_pipeline_admit_static_png(&again, &media.pipeline, key, policy,
+                                            {kPngGrowthFixture, sizeof(kPngGrowthFixture)});
         check(again.decoded() && media.expanded_scanlines, "a later large PNG grows the scratch again");
         check(account_media_stop(&media, 1000), "large PNG scratch owner releases cleanly");
     }

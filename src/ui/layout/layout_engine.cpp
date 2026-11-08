@@ -383,16 +383,14 @@ WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float a
     return row;
 }
 
-// Rectangles of a wrapping parent's visible children, row by row. place(slot,
-// rectangle) returns true to stop.
-template <typename Place>
-void place_wrap_children(const UiLayoutEngine& engine, const UiLayoutNode& parent, Place place) noexcept {
+void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
+    const UiRect inherited_clip = children_clip(parent);
     const UiRect available = parent.content_rectangle;
     const float available_width = ui_rect_width(available);
     float row_top = available.top;
     u16 row_first = parent.first_child;
     while (row_first != kInvalidUiLayoutSlot) {
-        const WrapRowMetrics row = measure_wrap_row(engine, row_first, available_width, parent.spec.style.gap);
+        const WrapRowMetrics row = measure_wrap_row(*engine, row_first, available_width, parent.spec.style.gap);
         if (row.count == 0) {
             break;
         }
@@ -400,8 +398,8 @@ void place_wrap_children(const UiLayoutEngine& engine, const UiLayoutNode& paren
         float cursor =
             available.left + (parent.spec.style.justification == UiLayoutJustification::end ? free_space : 0.0f);
         u32 arranged_index = 0;
-        for (u16 slot = row_first; slot != row.next; slot = engine.storage[slot].next_sibling) {
-            const UiLayoutNode& child = engine.storage[slot];
+        for (u16 slot = row_first; slot != row.next; slot = engine->storage[slot].next_sibling) {
+            UiLayoutNode& child = engine->storage[slot];
             if (!has_flag(child.spec.style, ui_layout_node_visible)) {
                 continue;
             }
@@ -412,11 +410,10 @@ void place_wrap_children(const UiLayoutEngine& engine, const UiLayoutNode& paren
             cursor += style.margin.left;
             const float top = aligned_position(row_top, row.height, height, style.margin.top, style.margin.bottom,
                                                style.vertical_alignment);
-            if (place(slot, UiRect{cursor - parent.scroll_offset.x, top - parent.scroll_offset.y,
-                                   cursor - parent.scroll_offset.x + width,
-                                   top - parent.scroll_offset.y + height})) {
-                return;
-            }
+            set_geometry(&child,
+                         UiRect{cursor - parent.scroll_offset.x, top - parent.scroll_offset.y,
+                                cursor - parent.scroll_offset.x + width, top - parent.scroll_offset.y + height},
+                         inherited_clip);
             cursor += width + style.margin.right;
             if (++arranged_index < row.count) {
                 cursor += parent.spec.style.gap;
@@ -428,14 +425,6 @@ void place_wrap_children(const UiLayoutEngine& engine, const UiLayoutNode& paren
             row_top += parent.spec.style.gap;
         }
     }
-}
-
-void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
-    const UiRect inherited_clip = children_clip(parent);
-    place_wrap_children(*engine, parent, [&](u16 slot, const UiRect& rectangle) noexcept {
-        set_geometry(&engine->storage[slot], rectangle, inherited_clip);
-        return false;
-    });
 }
 
 void arrange_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
@@ -576,22 +565,18 @@ UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle p
         return UiLayoutResult{UiLayoutError::invalid_argument, 0, 0};
     }
     if (engine->count >= engine->storage.count || engine->count >= kInvalidUiLayoutSlot) {
-        ++engine->rejected;
         return UiLayoutResult{UiLayoutError::capacity, engine->count, engine->revision};
     }
     if (!valid_style(specification)) {
-        ++engine->rejected;
         return UiLayoutResult{UiLayoutError::invalid_style, engine->count, engine->revision};
     }
     const bool root = engine->count == 0;
     const UiLayoutNode* parent_node = root ? nullptr : ui_layout_engine_resolve(*engine, parent);
     if ((root && parent.slot != kInvalidUiLayoutSlot) || (!root && !parent_node)) {
-        ++engine->rejected;
         return UiLayoutResult{UiLayoutError::invalid_parent, engine->count, engine->revision};
     }
     const u32 depth = root ? 0 : parent_node->depth + 1u;
     if (depth >= kMaximumUiLayoutDepth) {
-        ++engine->rejected;
         return UiLayoutResult{UiLayoutError::depth, engine->count, engine->revision};
     }
     const u16 slot = static_cast<u16>(engine->count++);
@@ -630,19 +615,16 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
         !ui_coordinate_valid(viewport_rectangle.right) || !ui_coordinate_valid(viewport_rectangle.bottom) ||
         !ui_extent_valid(ui_rect_width(viewport_rectangle)) ||
         !ui_extent_valid(ui_rect_height(viewport_rectangle)) || !ui_rect_has_area(viewport_rectangle)) {
-        ++engine->rejected;
         return UiLayoutResult{UiLayoutError::invalid_argument, engine->count, engine->revision};
     }
     UiLayoutNode& root = engine->storage[0];
     if (!has_flag(root.spec.style, ui_layout_node_visible)) {
-        ++engine->rejected;
         return UiLayoutResult{UiLayoutError::missing_root, engine->count, engine->revision};
     }
     const UiSize viewport{ui_rect_width(viewport_rectangle), ui_rect_height(viewport_rectangle)};
     for (u32 pass = 0; pass < kMaximumUiLayoutMeasurePasses; ++pass) {
         const UiLayoutError measured = measure_intrinsic_content(engine, viewport);
         if (measured != UiLayoutError::none) {
-            ++engine->rejected;
             return UiLayoutResult{measured, engine->count, engine->revision};
         }
         // Measure bottom-up; the arrange pass below places only visible
@@ -662,14 +644,11 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
                 arrange_children(engine, node);
             }
         }
-        ++engine->measure_passes;
         if (!update_measure_constraints(engine)) {
             ++engine->revision;
             return UiLayoutResult{UiLayoutError::none, engine->count, engine->revision};
         }
     }
-    ++engine->unstable_measurements;
-    ++engine->rejected;
     return UiLayoutResult{UiLayoutError::unstable_layout, engine->count, engine->revision};
 }
 

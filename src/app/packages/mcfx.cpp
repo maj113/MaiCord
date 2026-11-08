@@ -4,6 +4,7 @@
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
 
@@ -24,27 +25,25 @@ constexpr u32 kTextureUse[kEffectTextureCount]{effect_use_texture0, effect_use_t
 // Shader model 5.0 version tokens: program type in the high half (0 pixel, 1 vertex).
 constexpr u32 kPixel50 = 0x50, kVertex50 = 0x10050;
 
-u32 le32(const u8* p) noexcept { return p[0] | p[1] << 8 | p[2] << 16 | static_cast<u32>(p[3]) << 24; }
-u32 be32(const u8* p) noexcept { return p[3] | p[2] << 8 | p[1] << 16 | static_cast<u32>(p[0]) << 24; }
 bool tag(const u8* p, const char* ascii) noexcept { return bytes_equal(p, ascii, 4); }
 
 // ---- DXBC: a container with one shader chunk; its version token, or 0 when the container is not sound ------
 u32 bytecode_version(ConstSlice<u8> code) noexcept {
     const u8* p = code.data;
-    if (code.count < 32 || !tag(p, "DXBC") || le32(p + 24) != code.count)
+    if (code.count < 32 || !tag(p, "DXBC") || byte_load_le32(p + 24) != code.count)
         return 0;
-    const u32 chunks = le32(p + 28);
+    const u32 chunks = byte_load_le32(p + 28);
     if (!chunks || chunks > 64 || 32 + chunks * 4 > code.count)
         return 0;
     u32 version = 0;
     for (u32 i = 0; i < chunks; ++i) {
-        const u32 at = le32(p + 32 + i * 4);
-        if (at < 32 + chunks * 4 || at > code.count - 8 || (at & 3) || le32(p + at + 4) > code.count - at - 8)
+        const u32 at = byte_load_le32(p + 32 + i * 4);
+        if (at < 32 + chunks * 4 || at > code.count - 8 || (at & 3) || byte_load_le32(p + at + 4) > code.count - at - 8)
             return 0;
         if (tag(p + at, "SHEX") || tag(p + at, "SHDR")) {
-            if (version || le32(p + at + 4) < 4 || !le32(p + at + 8))
+            if (version || byte_load_le32(p + at + 4) < 4 || !byte_load_le32(p + at + 8))
                 return 0;
-            version = le32(p + at + 8);
+            version = byte_load_le32(p + at + 8);
         }
     }
     return version;
@@ -631,10 +630,10 @@ McfxResult manifest_parse(ConstSlice<u8> text, McfxWorkspace* w) noexcept {
 // ---- PNG --------------------------------------------------------------------------------------------------
 bool png_header(const ConstSlice<u8>& png, u32* width, u32* height, u32* depth, u32* colour) noexcept {
     static constexpr u8 signature[8]{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a};
-    if (png.count < 33 || !bytes_equal(png.data, signature, 8) || be32(png.data + 8) != 13 || !tag(png.data + 12, "IHDR"))
+    if (png.count < 33 || !bytes_equal(png.data, signature, 8) || byte_load_be32(png.data + 8) != 13 || !tag(png.data + 12, "IHDR"))
         return false;
-    *width = be32(png.data + 16);
-    *height = be32(png.data + 20);
+    *width = byte_load_be32(png.data + 16);
+    *height = byte_load_be32(png.data + 20);
     *depth = png.data[24];
     *colour = png.data[25];
     return *width && *height;
@@ -690,8 +689,8 @@ McfxResult mcfx_parse(ConstSlice<u8> file, McfxWorkspace* w) noexcept {
         return {McfxError::truncated, 0};
     const u8* f = file.data;
     const u32 count = f[6] | f[7] << 8;
-    if (!tag(f, "MCFX") || (f[4] | f[5] << 8) != 1 || !count || count > kSectionCount || le32(f + 8) != file.count ||
-        le32(f + 12) != 0)
+    if (!tag(f, "MCFX") || (f[4] | f[5] << 8) != 1 || !count || count > kSectionCount || byte_load_le32(f + 8) != file.count ||
+        byte_load_le32(f + 12) != 0)
         return {McfxError::header, 0};
     const u32 table_end = kHeaderBytes + count * kEntryBytes;
     if (file.count < table_end)
@@ -700,8 +699,8 @@ McfxResult mcfx_parse(ConstSlice<u8> file, McfxWorkspace* w) noexcept {
     u32 at = table_end, previous = 0;
     for (u32 i = 0; i < count; ++i) {
         const u8* e = f + kHeaderBytes + i * kEntryBytes;
-        const u32 type = le32(e), offset = le32(e + 4), bytes = le32(e + 8);
-        if (le32(e + 12) != 0 || type < 1 || type > kSectionCount || type <= previous)
+        const u32 type = byte_load_le32(e), offset = byte_load_le32(e + 4), bytes = byte_load_le32(e + 8);
+        if (byte_load_le32(e + 12) != 0 || type < 1 || type > kSectionCount || type <= previous)
             return {McfxError::section, kHeaderBytes + i * kEntryBytes};
         if (bytes > kSectionCap[type - 1] || !bytes)
             return {McfxError::oversize, kHeaderBytes + i * kEntryBytes};
@@ -723,7 +722,7 @@ McfxResult mcfx_parse(ConstSlice<u8> file, McfxWorkspace* w) noexcept {
     package.shaders[0] = part[1];
     u32 shaders = 1;
     for (u32 offset = 0; offset < more.count; offset += package.shaders[shaders++].count) {
-        const u32 bytes = more.count - offset >= 32 ? le32(more.data + offset + 24) : 0;
+        const u32 bytes = more.count - offset >= 32 ? byte_load_le32(more.data + offset + 24) : 0;
         if (shaders == kEffectGraphShaders || bytes < 32 || bytes > more.count - offset || bytes > kMcfxBytecodeMaximumBytes)
             return {McfxError::bytecode, offset};
         package.shaders[shaders] = {more.data + offset, bytes};

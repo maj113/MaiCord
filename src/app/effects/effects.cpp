@@ -7,7 +7,9 @@
 #include "../shell/toast.hpp"
 #include "../shell/window_state.hpp"
 #include "maicord/app/net/file_persistence.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -70,8 +72,6 @@ struct Trial {
     bool active;
     EffectTrialState state;
     u64 identity;
-    const u8* file;
-    u32 bytes;
     const McfxPackage* package;
 };
 
@@ -260,15 +260,10 @@ u64 theme_hash(const ClientThemeEffect* effect) noexcept {
     return effect ? hash64_bytes(kHash64Seed, effect, sizeof(*effect)) | 1 : 0;
 }
 
-bool text_is(const char* a, const char* b) noexcept {
-    const u32 n = c_string_length(a);
-    return n == c_string_length(b) && bytes_equal(a, b, n);
-}
-
 // The theme's effect when it is the one named `slug`.
 const ClientThemeEffect* theme_for(const char* slug) noexcept {
     const ClientThemeEffect* theme = theme_effect();
-    return theme && text_is(theme->slug, slug) ? theme : nullptr;
+    return theme && c_string_equal(theme->slug, slug) ? theme : nullptr;
 }
 
 // Defaults, then the theme's values, then what the user saved.
@@ -278,7 +273,7 @@ void init_values(Loaded& l, const ClientThemeEffect* theme) noexcept {
         for (u32 i = 0; i < theme->knob_count; ++i)
             for (u32 k = 0; k < l.package.knob_count; ++k) {
                 const auto& knob = l.package.knobs[k];
-                if (!text_is(knob.id, theme->knobs[i].id) || theme->knobs[i].color != (knob.type == McfxKnobType::color))
+                if (!c_string_equal(knob.id, theme->knobs[i].id) || theme->knobs[i].color != (knob.type == McfxKnobType::color))
                     continue;
                 McfxKnobValue value{theme->knobs[i].number, theme->knobs[i].rgb};
                 if (mcfx_knob_value_valid(knob, value))
@@ -317,9 +312,7 @@ void close_opened() noexcept {
 bool name_before(const Entry& a, const Entry& b) noexcept {
     const u32 an = c_string_length(a.info.name), bn = c_string_length(b.info.name), shared = an < bn ? an : bn;
     for (u32 i = 0; i < shared; ++i) {
-        char x = a.info.name[i], y = b.info.name[i];
-        x = x >= 'A' && x <= 'Z' ? static_cast<char>(x + 32) : x;
-        y = y >= 'A' && y <= 'Z' ? static_cast<char>(y + 32) : y;
+        const char x = ascii_lower(a.info.name[i]), y = ascii_lower(b.info.name[i]);
         if (x != y)
             return x < y;
     }
@@ -394,7 +387,7 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
         // One installed file per slug: the newer one wins (a catalog update removes the old one after writing).
         bool replaced = false;
         for (u32 i = 0; i < g.count && !developer; ++i)
-            if (!g.entries[i].info.developer && text_is(g.entries[i].info.slug, info.slug)) {
+            if (!g.entries[i].info.developer && c_string_equal(g.entries[i].info.slug, info.slug)) {
                 if (g.entries[i].modified <= entry.modified)
                     g.entries[i] = entry;
                 replaced = true;
@@ -416,7 +409,7 @@ Entry* find(u64 identity) noexcept {
 
 Entry* find_slug(const char* slug) noexcept {
     for (u32 i = 0; i < g.count; ++i)
-        if (text_is(g.entries[i].info.slug, slug))
+        if (c_string_equal(g.entries[i].info.slug, slug))
             return &g.entries[i];
     return nullptr;
 }
@@ -427,15 +420,10 @@ bool word_is(const char* text, u32 bytes, const char* word) noexcept {
 }
 // 1..6 decimal digits.
 bool digits(const char* text, u32 bytes, u32* value) noexcept {
-    if (!bytes || bytes > 6)
+    u64 v = 0;
+    if (bytes > 6 || !decimal_parse({text, bytes}, &v))
         return false;
-    u32 v = 0;
-    for (u32 i = 0; i < bytes; ++i) {
-        if (text[i] < '0' || text[i] > '9')
-            return false;
-        v = v * 10 + static_cast<u32>(text[i] - '0');
-    }
-    *value = v;
+    *value = static_cast<u32>(v);
     return true;
 }
 void simulation_line(Simulation& s, const char* line, u32 bytes) noexcept {
@@ -654,7 +642,7 @@ void open_marker() noexcept {
 // ---- Selection ------------------------------------------------------------------------------------------
 bool turned_off(const char* slug) noexcept {
     for (const auto& off : g.off)
-        if (off[0] && text_is(off, slug))
+        if (c_string_equal(off, slug))
             return true;
     return false;
 }
@@ -1018,7 +1006,7 @@ bool application_effects_select(u32 index) noexcept {
     // Choosing an effect again is the user turning it back on after a refusal.
     forget_refusal(g.entries[index].info.identity, g_app.renderer.adapter_key);
     for (auto& off : g.off)
-        if (text_is(off, g.entries[index].info.slug))
+        if (c_string_equal(off, g.entries[index].info.slug))
             off[0] = 0;
     g.file.selected = g.entries[index].info.identity;
     const bool saved = save_state();
@@ -1145,10 +1133,8 @@ bool application_effects_light_auto() noexcept {
 }
 
 bool application_effects_set_light_auto(bool on) noexcept {
-    load_state();
-    g.file.flags = on ? g.file.flags & ~kLightOff : g.file.flags | kLightOff;
     application_request_frame();
-    return save_state();
+    return application_effects_set_state_flag(kLightOff, !on);
 }
 
 u32 application_effects_count() noexcept {
@@ -1173,10 +1159,8 @@ const EffectInfo* application_effects_info(u32 index) noexcept {
 i32 application_effects_selected_index() noexcept {
     load_state();
     load_library();
-    for (u32 i = 0; g.file.selected && i < g.count; ++i)
-        if (g.entries[i].info.identity == g.file.selected)
-            return static_cast<i32>(i);
-    return -1;
+    const Entry* entry = find(g.file.selected);
+    return entry ? static_cast<i32>(entry - g.entries) : -1;
 }
 
 void application_effects_reload() noexcept {
@@ -1235,9 +1219,9 @@ bool application_effects_knobs_reset() noexcept {
 
 float application_effects_drawn_knob(const char* slug, const char* id) noexcept {
     const Loaded& l = g.resident;
-    if (g.selected && !g.trial.active && !g.preview.swapped && l.file && text_is(l.package.slug, slug))
+    if (g.selected && !g.trial.active && !g.preview.swapped && l.file && c_string_equal(l.package.slug, slug))
         for (u32 k = 0; k < l.package.knob_count; ++k)
-            if (text_is(l.package.knobs[k].id, id))
+            if (c_string_equal(l.package.knobs[k].id, id))
                 return l.values[k].number;
     return -1;
 }
@@ -1269,7 +1253,7 @@ void application_effects_deactivate(const char* slug, u32 slug_bytes) noexcept {
     load_state();
     load_library();
     const Entry* selected = find(g.file.selected);
-    if (selected && text_is(selected->info.slug, text)) {
+    if (selected && c_string_equal(selected->info.slug, text)) {
         g.file.selected = 0;
         save_state();
     }
@@ -1308,8 +1292,7 @@ bool application_effects_trial_begin(const ConstSlice<u8>& file, const McfxPacka
     if (g.trial.active)
         return false;
     load_state();
-    g.trial = {true, EffectTrialState::drawing, hash64_bytes(kHash64Seed, file.data, file.count) | 1, file.data, file.count,
-               &package};
+    g.trial = {true, EffectTrialState::drawing, hash64_bytes(kHash64Seed, file.data, file.count) | 1, &package};
     application_request_frame();
     return true;
 }

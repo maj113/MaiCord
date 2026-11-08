@@ -54,20 +54,23 @@ u32 member_context_moderation_build(const ModerationCapabilities& capabilities,
     return used;
 }
 
+namespace {
+// One enabled row per label, actions from first_action; `separator` gets the rule above it.
+u32 choices(ConstSlice<Utf8View> labels, u32 first_action, u32 separator, const Slice<PopupItem>& output) noexcept {
+    if (!output.data || output.count < labels.count)
+        return 0;
+    for (u32 i = 0; i < labels.count; ++i)
+        popup_item_set(&output[i], labels[i], first_action + i,
+                       static_cast<u16>(popup_item_enabled | (i == separator ? popup_item_separator_before : 0u)));
+    return labels.count;
+}
+} // namespace
+
 u32 member_context_timeout_choices(const MemberModerationMenuActions& actions, const Slice<PopupItem>& output) noexcept {
     static constexpr Utf8View labels[] = {utf8_literal("60 seconds"), utf8_literal("5 minutes"), utf8_literal("10 minutes"),
                                    utf8_literal("1 hour"),     utf8_literal("1 day"),     utf8_literal("1 week")};
     static_assert(sizeof(labels) / sizeof(labels[0]) == sizeof(kModerationTimeoutChoices) / sizeof(u32));
-    constexpr u32 count = sizeof(labels) / sizeof(labels[0]);
-    if (!output.data || output.count < count)
-        return 0;
-    for (u32 i = 0; i < count; ++i) {
-        reset_value(&output[i]);
-        output[i].label = labels[i];
-        output[i].action = actions.choice_first + i;
-        output[i].flags = popup_item_enabled;
-    }
-    return count;
+    return choices({labels, sizeof(labels) / sizeof(labels[0])}, actions.choice_first, ~0u, output);
 }
 
 u32 member_context_ban_choices(const MemberModerationMenuActions& actions, Slice<PopupItem> output) noexcept {
@@ -76,16 +79,7 @@ u32 member_context_ban_choices(const MemberModerationMenuActions& actions, Slice
                                    utf8_literal("Delete the last day"),   utf8_literal("Delete the last 3 days"),
                                    utf8_literal("Delete the last week")};
     static_assert(sizeof(labels) / sizeof(labels[0]) == sizeof(kModerationBanDeleteChoices) / sizeof(u32));
-    constexpr u32 count = sizeof(labels) / sizeof(labels[0]);
-    if (!output.data || output.count < count)
-        return 0;
-    for (u32 i = 0; i < count; ++i) {
-        reset_value(&output[i]);
-        output[i].label = labels[i];
-        output[i].action = actions.choice_first + i;
-        output[i].flags = static_cast<u16>(popup_item_enabled | (i == 1 ? popup_item_separator_before : 0u));
-    }
-    return count;
+    return choices({labels, sizeof(labels) / sizeof(labels[0])}, actions.choice_first, 1, output);
 }
 
 } // namespace maicord

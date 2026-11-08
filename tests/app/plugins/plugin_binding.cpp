@@ -483,7 +483,7 @@ void test_ledger_classes(const Root& root) noexcept {
     PluginCallLedger watched{};
     wchar_t copy[MAX_PATH];
     join(copy, root.base, L"marker-copy.bin");
-    check(plugin_call_ledger_open(&watched, root.marker, &leftover) && plugin_call_watchdog_start(&watched, 40, 10),
+    check(plugin_call_ledger_open(&watched, root.marker, &leftover) && plugin_call_watchdog_start(&watched, 40),
           "the watchdog starts on an open marker");
     ticket = plugin_call_begin(&watched, 0x77, PluginCallKind::pre_send, PluginCallClass::pre);
     Sleep(250);

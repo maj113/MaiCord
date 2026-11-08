@@ -497,34 +497,22 @@ bool bubble_paint(PaintStream* paint, const UiRect& r, const Palette& c, float r
            paint_stream_push_rounded(paint, big.left + 1, r.top + 1, big.right - 1, big.bottom - 1, c.bubble,
                                      big_radius - 1);
 }
-// The DM panel's card, inline beside the chat (no shadow): the surface in a
-// 1 DIP ring, or a Nitro theme's colours (P down to the banner's end, then a
-// blend to S) showing as its 2 DIP border around the overlay.
-bool panel_background(const ProfileScene& s, const Theme& theme, const Palette& c, PaintStream* paint) noexcept {
-    const float radius = theme.scale.radius_md;
-    const auto r = s.rectangle;
-    if (!s.themed)
-        return paint_stream_push_rounded_border(paint, r, c.surface,
-                                                theme.tokens.border.subtle, radius, 1);
-    const auto inner = profile_scene_card_mask(s, theme);
-    const float split = minimum(r.bottom, s.banner.bottom);
-    return paint_stream_push_rounded(paint, r, c.primary, radius) &&
-           (split >= r.bottom ||
-            paint_stream_push_gradient(paint, {r.left, split, r.right, r.bottom}, c.primary, c.secondary, radius)) &&
-           paint_stream_push_rounded(paint, inner.rectangle, c.overlay, inner.radius);
-}
+// The popout's card, or the DM panel's inline beside the chat (no shadow): the
+// surface in a 1 DIP ring (the popout's elevated surface), or a Nitro theme's
+// colours (P down to the banner's end, then a blend to S) showing as its 2 DIP
+// border around the 60% overlay.
 bool card_background(const ProfileScene& s, const Theme& theme, const Palette& c, PaintStream* paint) noexcept {
-    if (panel(s))
-        return panel_background(s, theme, c, paint);
+    const bool inline_card = panel(s);
     const float radius = theme.scale.radius_md;
     const auto r = s.rectangle;
     if (!s.themed)
-        return ui_surface_paint(paint, r, theme, UiElevation::popover, radius, &c.surface, &theme.tokens.border.subtle);
-    // A 2 DIP gradient border: P down to the banner's end, then a blend to S;
-    // the inner card is the 60% overlay over it.
+        return inline_card
+                   ? paint_stream_push_rounded_border(paint, r, c.surface, theme.tokens.border.subtle, radius, 1)
+                   : ui_surface_paint(paint, r, theme, UiElevation::popover, radius, &c.surface,
+                                      &theme.tokens.border.subtle);
     const auto inner = profile_scene_card_mask(s, theme);
-    const float split = minimum(r.bottom, r.top + 2 + kPopoutBanner);
-    return ui_surface_shadow_paint(paint, r, theme, UiElevation::popover, radius) &&
+    const float split = minimum(r.bottom, inline_card ? s.banner.bottom : r.top + 2 + kPopoutBanner);
+    return (inline_card || ui_surface_shadow_paint(paint, r, theme, UiElevation::popover, radius)) &&
            paint_stream_push_rounded(paint, r, c.primary, radius) &&
            (split >= r.bottom || paint_stream_push_gradient(paint, {r.left, split, r.right, r.bottom}, c.primary,
                                                             c.secondary, radius)) &&

@@ -252,10 +252,6 @@ void application_caption_enable() noexcept {
     g_caption.side_frame_stale = true;
 }
 
-u32 application_caption_height() noexcept {
-    return g_app.renderer.caption_height;
-}
-
 u32 application_caption_pixels(u32 dpi) noexcept {
     if (!g_caption.enabled || g_caption.hidden)
         return 0;

@@ -43,32 +43,26 @@ bool ui_widget_scroll_geometry(const UiWidgetManager& manager, UiWidgetHandle ow
     // Walk exposed descendants, clipping only at intermediate containers.
     // The owner's own clip and ancestor clips must not erase offscreen content
     // from its logical range. Fixed-size unclipped children may overflow.
-    struct Frame { u16 parent; u16 next; };
-    Frame stack[kMaximumUiLayoutDepth];
+    // The engine links each child after its parent and bounds the depth, so
+    // the walk ends and its stack holds every open level.
+    u16 stack[kMaximumUiLayoutDepth];
     u32 depth = 1;
-    stack[0] = {owner.slot, root->first_child};
+    stack[0] = root->first_child;
     float right = root->content_rectangle.right;
     float bottom = root->content_rectangle.bottom;
-    u32 visited = 0;
     while (depth) {
-        auto& frame = stack[depth - 1];
-        if (frame.next == kInvalidUiLayoutSlot) { --depth; continue; }
-        const u16 slot = frame.next;
-        if (++visited > manager.layout.count || slot >= manager.layout.count || slot <= frame.parent) return false;
-        const auto& node = manager.layout.storage[slot];
-        if (node.parent != frame.parent || node.generation != root->generation ||
-            (node.next_sibling != kInvalidUiLayoutSlot && node.next_sibling <= slot)) return false;
-        frame.next = node.next_sibling;
+        u16& next = stack[depth - 1];
+        if (next == kInvalidUiLayoutSlot) { --depth; continue; }
+        const auto& node = manager.layout.storage[next];
+        next = node.next_sibling;
         if (!node.visible || !(node.spec.style.flags & ui_layout_node_visible)) continue;
         if (!ui_rect_valid_or_empty(node.rectangle) || !ui_rect_valid_or_empty(node.content_rectangle)) return false;
         right = maximum(right, node.rectangle.right + node.spec.style.margin.right + root->scroll_offset.x);
         bottom = maximum(bottom, node.rectangle.bottom + node.spec.style.margin.bottom + root->scroll_offset.y);
         // A clipping child's complete border/margin extent is already included;
         // its descendants cannot enlarge this owner's range.
-        if (node.first_child != kInvalidUiLayoutSlot && !(node.spec.style.flags & ui_layout_node_clip_children)) {
-            if (depth == kMaximumUiLayoutDepth) return false;
-            stack[depth++] = {slot, node.first_child};
-        }
+        if (node.first_child != kInvalidUiLayoutSlot && !(node.spec.style.flags & ui_layout_node_clip_children))
+            stack[depth++] = node.first_child;
     }
     const UiPoint limit{axes & ui_layout_node_scroll_horizontal ? maximum(0.0f, right - root->content_rectangle.right) : 0,
         axes & ui_layout_node_scroll_vertical ? maximum(0.0f, bottom - root->content_rectangle.bottom) : 0};

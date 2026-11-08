@@ -4,17 +4,11 @@
 
 namespace maicord {
 
-namespace {
-UiRect ring_rect(const UiRect& shape, float gap, float width) noexcept {
-    const float out = gap + width;
-    return {shape.left - out, shape.top - out, shape.right + out, shape.bottom + out};
-}
-} // namespace
-
 bool ui_settings_ring_paint(PaintStream* paint, const UiRect& shape, float radius, float gap, float width,
                             const Color& color) noexcept {
-    const auto ring = ring_rect(shape, gap, width);
-    return paint_stream_push_rounded_border(paint, ring, {}, color, radius + gap + width, width);
+    const float out = gap + width;
+    return paint_stream_push_rounded_border(paint, {shape.left - out, shape.top - out, shape.right + out, shape.bottom + out},
+                                            {}, color, radius + gap + width, width);
 }
 
 bool ui_settings_focus_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& shape,
@@ -27,10 +21,9 @@ bool ui_input_shell_paint(PaintStream* paint, const UiSettingsTokens& tokens, co
                           bool error) noexcept {
     const auto& c = tokens.color;
     const float radius = tokens.metric.control_radius, alpha = state.enabled ? 1.f : tokens.disabled_alpha;
-    const Color border = error           ? c.critical_text
-                         : state.pressed ? c.border_normal
-                         : state.hovered ? c.border_normal
-                                         : c.input_border;
+    const Color border = error                            ? c.critical_text
+                         : state.pressed || state.hovered ? c.border_normal
+                                                          : c.input_border;
     bool ok = paint_stream_push_rounded_border(paint, field, ui_settings_color_alpha(c.input_background, alpha), ui_settings_color_alpha(border, alpha), radius, 1);
     if (ok && state.focused && state.enabled)
         ok = paint_stream_push_rounded_border(paint, field, {}, error ? c.critical_text : c.brand, radius, 2);

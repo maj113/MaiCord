@@ -68,9 +68,6 @@ UiTextRejectCheck command_check(const UiTextCommand& command) noexcept {
                ? UiTextRejectCheck::none
                : UiTextRejectCheck::fields;
 }
-bool command_valid(const UiTextCommand& command) noexcept {
-    return command_check(command) == UiTextRejectCheck::none;
-}
 // Counts a rejection and keeps what failed for diagnostics.
 __declspec(noinline) bool reject(UiTextEmitter* emitter, const UiTextCommand& command,
                                  UiTextRejectCheck check) noexcept {
@@ -154,7 +151,7 @@ bool ui_text_command_stream_push_owned(UiTextCommandStream* stream, const UiText
 
 bool ui_text_command_stream_push(UiTextCommandStream* stream, const UiTextCommand& command) noexcept {
     if (!stream || !stream->storage.data || stream->count > stream->storage.count ||
-        !command_valid(command)) {
+        command_check(command) != UiTextRejectCheck::none) {
         saturating_increment_if(stream, stream->rejected);
         return false;
     }

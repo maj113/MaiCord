@@ -96,14 +96,13 @@ float eased(float progress, UiMotionCurve curve) noexcept {
         return spring_table.values[index] + (spring_table.values[index + 1] - spring_table.values[index]) * t;
     }
     if (curve == UiMotionCurve::css_ease_out) {
-        // CSS ease-out: cubic-bezier(0, 0, .58, 1). Solve x before sampling y.
-        float low = 0, high = 1;
-        for (u32 i = 0; i < 16; ++i) {
-            const float t = (low + high) * .5f;
-            const float x = 1.74f * (1 - t) * t * t + t * t * t;
-            if (x < progress) low = t; else high = t;
-        }
-        const float t = (low + high) * .5f;
+        // CSS ease-out: cubic-bezier(0, 0, .58, 1), so x = t^2 (1.74 - .74 t) and y = t^2 (3 - 2 t). x grows as t^2
+        // from 0, so Newton from t = sqrt(x) solves it in three steps.
+        if (!(progress > 0))
+            return 0;
+        float t = __builtin_elementwise_sqrt(progress);
+        for (u32 i = 0; i < 3; ++i)
+            t -= (t * t * (1.74f - .74f * t) - progress) / (t * (3.48f - 2.22f * t));
         return t * t * (3 - 2 * t);
     }
     if (curve == UiMotionCurve::ease_out) {

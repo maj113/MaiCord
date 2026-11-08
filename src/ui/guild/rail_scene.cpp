@@ -161,6 +161,12 @@ void clear_materialization(GuildRailScene* scene) noexcept {
     scene->active = false;
 }
 
+// A failed rebuild keeps nothing half-built.
+GuildRailSceneResult rebuild_failed(GuildRailScene* scene, GuildRailSceneError error) noexcept {
+    clear_materialization(scene);
+    return scene_error(scene, error);
+}
+
 u64 focused_guild(const GuildRailScene& scene) noexcept {
     const GuildRailRowWidget* focused = guild_rail_scene_resolve(scene, scene.widgets.focused);
     return focused ? focused->view.id : scene.focused_guild_id;
@@ -253,31 +259,28 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
     const UiWidgetResult root = ui_widget_manager_add_keyed(
         &scene->widgets, ui_widget_invalid_handle(), kGuildRailRootWidgetId, UiWidgetKind::scroll_view,
         ui_widget_enabled, "GuildRail", ui_layout_scroll_root_style());
-    if (!root.ok()) {
-        clear_materialization(scene);
-        return scene_error(scene, GuildRailSceneError::widget);
-    }
+    if (!root.ok())
+        return rebuild_failed(scene, GuildRailSceneError::widget);
     scene->root = root.handle;
     for (auto& tile : scene->plugin_tiles)
         tile = ui_widget_invalid_handle();
+    // Plugin tiles: the top ones at slots [0, count), the bottom ones after kGuildRailPluginTiles.
+    const auto add_tiles = [&](u32 first, u32 count) noexcept {
+        for (u32 i = first; i < first + count; ++i) {
+            const UiWidgetResult tile = ui_widget_manager_add_keyed(
+                &scene->widgets, root.handle, kGuildRailPluginWidgetId + i, UiWidgetKind::button,
+                static_cast<u16>(ui_widget_enabled | ui_widget_hit_test), "PluginTile", row_style(1.0f));
+            if (!tile.ok())
+                return false;
+            scene->plugin_tiles[i] = tile.handle;
+        }
+        return true;
+    };
     const UiWidgetResult spacer = ui_widget_manager_add_keyed(
         &scene->widgets, root.handle, kGuildRailSpacerWidgetId, UiWidgetKind::container, ui_widget_enabled,
         "TopInset", ui_layout_spacer_style(range.spacer));
-    if (!spacer.ok()) {
-        clear_materialization(scene);
-        return scene_error(scene, GuildRailSceneError::widget);
-    }
-    // Plugin tiles above the servers.
-    for (u32 i = 0; i < range.tiles_top; ++i) {
-        const UiWidgetResult tile = ui_widget_manager_add_keyed(
-            &scene->widgets, root.handle, kGuildRailPluginWidgetId + i, UiWidgetKind::button,
-            static_cast<u16>(ui_widget_enabled | ui_widget_hit_test), "PluginTile", row_style(1.0f));
-        if (!tile.ok()) {
-            clear_materialization(scene);
-            return scene_error(scene, GuildRailSceneError::widget);
-        }
-        scene->plugin_tiles[i] = tile.handle;
-    }
+    if (!spacer.ok() || !add_tiles(0, range.tiles_top))
+        return rebuild_failed(scene, GuildRailSceneError::widget);
     bool added_all = true;
     each_visible(*scene, *view, range, [&](u32 local, u32 index) noexcept {
         if (!added_all)
@@ -298,38 +301,24 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
                 copy_value(&indicator, indicators[k]);
         scene->rows[local] = GuildRailRowWidget{source, added.handle, index, indicator, reveal};
     });
-    if (!added_all) {
-        clear_materialization(scene);
-        return scene_error(scene, GuildRailSceneError::widget);
-    }
+    if (!added_all)
+        return rebuild_failed(scene, GuildRailSceneError::widget);
     scene->add_button = ui_widget_invalid_handle();
     if (range.add) {
         const UiWidgetResult add = ui_widget_manager_add_keyed(
             &scene->widgets, root.handle, kGuildRailAddWidgetId, UiWidgetKind::button,
             static_cast<u16>(ui_widget_enabled | ui_widget_hit_test), "AddServer", row_style(1.0f));
-        if (!add.ok()) {
-            clear_materialization(scene);
-            return scene_error(scene, GuildRailSceneError::widget);
-        }
+        if (!add.ok())
+            return rebuild_failed(scene, GuildRailSceneError::widget);
         scene->add_button = add.handle;
     }
     // Plugin tiles after "Add a server".
-    for (u32 i = 0; i < range.tiles_bottom; ++i) {
-        const UiWidgetResult tile = ui_widget_manager_add_keyed(
-            &scene->widgets, root.handle, kGuildRailPluginWidgetId + kGuildRailPluginTiles + i, UiWidgetKind::button,
-            static_cast<u16>(ui_widget_enabled | ui_widget_hit_test), "PluginTile", row_style(1.0f));
-        if (!tile.ok()) {
-            clear_materialization(scene);
-            return scene_error(scene, GuildRailSceneError::widget);
-        }
-        scene->plugin_tiles[kGuildRailPluginTiles + i] = tile.handle;
-    }
+    if (!add_tiles(kGuildRailPluginTiles, range.tiles_bottom))
+        return rebuild_failed(scene, GuildRailSceneError::widget);
 
     if (!ui_widget_manager_set_scroll(&scene->widgets, root.handle, UiPoint{0.0f, scroll}) ||
-        !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
-        clear_materialization(scene);
-        return scene_error(scene, GuildRailSceneError::layout);
-    }
+        !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok())
+        return rebuild_failed(scene, GuildRailSceneError::layout);
 
     scene->viewport = viewport;
     scene->source_rows = view->guild_rows;

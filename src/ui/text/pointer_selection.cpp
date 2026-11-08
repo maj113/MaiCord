@@ -17,22 +17,16 @@ u8 ui_click_tracker_press(UiClickTracker* tracker, const void* owner, float x, f
     return tracker->count;
 }
 
-bool ui_text_unit_range(const Utf8View& text, u32 position, UiTextSelectionUnit unit, bool single_line,
-                        u32* first, u32* last) noexcept {
-    if (position > text.bytes)
-        return false;
-    if (unit == UiTextSelectionUnit::word)
-        return utf8_word_range_near(text, position, first, last);
-    if (unit == UiTextSelectionUnit::line) {
-        if (!single_line)
-            return utf8_line_range(text, position, first, last);
-        *first = 0;
-        *last = text.bytes;
-        return true;
-    }
-    *first = *last = position;
+namespace {
+// A triple click: the line/paragraph, or all text in a single-line field.
+bool line_range(const Utf8View& text, u32 position, bool single_line, u32* first, u32* last) noexcept {
+    if (!single_line)
+        return utf8_line_range(text, position, first, last);
+    *first = 0;
+    *last = text.bytes;
     return true;
 }
+} // namespace
 
 bool ui_text_pointer_press(const Utf8View& text, u32 position, u8 clicks, bool single_line, bool shift,
                            u32 current_anchor, bool composing, UiTextPointerSelection* state,
@@ -48,7 +42,8 @@ bool ui_text_pointer_press(const Utf8View& text, u32 position, u8 clicks, bool s
         return true;
     }
     u32 first = 0, last = 0;
-    if (!ui_text_unit_range(text, position, unit, single_line, &first, &last))
+    if (!(unit == UiTextSelectionUnit::word ? utf8_word_range_near(text, position, &first, &last)
+                                            : line_range(text, position, single_line, &first, &last)))
         return false;
     *state = {first, last, unit};
     *anchor = first;
@@ -74,7 +69,7 @@ bool ui_text_pointer_drag(const Utf8View& text, const UiTextPointerSelection& st
     u32 first = 0, last = 0;
     const bool ranged = state.unit == UiTextSelectionUnit::word
                             ? utf8_word_range(text, position, &first, &last)
-                            : ui_text_unit_range(text, position, state.unit, single_line, &first, &last);
+                            : line_range(text, position, single_line, &first, &last);
     if (!ranged)
         return false;
     if (position < state.origin_first) {

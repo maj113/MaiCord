@@ -50,23 +50,18 @@ CurveSample curve_sample(double progress, double initial_slope) noexcept {
     }
 
     // The wheel curve is cubic-bezier(0.42, 0, 0.58, 1). Retargets replace the
-    // first Y control point to preserve the prior velocity. X is strictly
-    // monotonic, so a few Newton steps are bounded and need no general
-    // timing-function allocation.
+    // first Y control point to preserve the prior velocity. dX/dt >= 0.87 and
+    // Newton from t = progress stays inside [0, 1], so three steps solve X to
+    // within 1e-12 and need no general timing-function allocation.
     double parameter = progress;
-    for (u32 iteration = 0; iteration < 5; ++iteration) {
-        const double derivative = cubic_bezier_derivative(parameter, kEaseInOutX1, kEaseInOutX2);
-        if (derivative <= 0.000001) {
-            break;
-        }
+    for (u32 iteration = 0; iteration < 3; ++iteration) {
         parameter -= (cubic_bezier_axis(parameter, kEaseInOutX1, kEaseInOutX2) - progress) /
-                     derivative;
-        parameter = minimum(maximum(parameter, 0.0), 1.0);
+                     cubic_bezier_derivative(parameter, kEaseInOutX1, kEaseInOutX2);
     }
     const double first_y = kEaseInOutX1 * initial_slope;
-    const double dx = cubic_bezier_derivative(parameter, kEaseInOutX1, kEaseInOutX2);
-    const double dy = cubic_bezier_derivative(parameter, first_y, 1.0);
-    return {cubic_bezier_axis(parameter, first_y, 1.0), dx > 0.000001 ? dy / dx : 0.0};
+    return {cubic_bezier_axis(parameter, first_y, 1.0),
+            cubic_bezier_derivative(parameter, first_y, 1.0) /
+                cubic_bezier_derivative(parameter, kEaseInOutX1, kEaseInOutX2)};
 }
 
 double curve_velocity(const UiSmoothScroll& scroll, u64 now_us) noexcept {

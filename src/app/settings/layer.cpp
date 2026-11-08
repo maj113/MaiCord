@@ -76,20 +76,6 @@ UiScrollBinding scroll_binding(SettingsLayer* layer, bool sidebar) noexcept {
                 return true;
             }};
 }
-void glide_to(SettingsLayer* layer, bool sidebar, float target) noexcept {
-    ui_scroll_host_scroll_to(&g_app.scroll_host, scroll_binding(layer, sidebar), target, application_now_us(),
-                             96.0 / maximum(g_app.renderer.dpi, 1u));
-}
-// Focus moves reveal their target inside the scene at once; replay the
-// reveal from the previous offset on the shared curve.
-void glide_reveal(SettingsLayer* layer, float before) noexcept {
-    auto* scene = layer->scene;
-    const float after = scene->content_offset;
-    if (after == before)
-        return;
-    ui_settings_scene_scroll(scene, false, before - after);
-    glide_to(layer, false, after);
-}
 bool focused_editor(SettingsLayer* layer, MessageComposer** model, BoundedEdit** binding, bool* multiline,
                     u64* control = nullptr) noexcept {
     const auto target = ui_settings_scene_focused(*layer->scene);
@@ -527,7 +513,7 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
         const float before = scene->content_offset;
         ui_settings_scene_move_focus(scene, shift);
         settings_layer_focus(layer, ui_settings_scene_focused(*scene));
-        glide_reveal(layer, before);
+        settings_glide_reveal(scene, scroll_binding(layer, false), before);
         return true;
     }
     if (key == key::enter && control && !repeated) {
@@ -545,7 +531,7 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
             if (!ui_settings_scene_move_within(scene, key == key::up))
                 ui_settings_scene_move_focus(scene, key == key::up);
             settings_layer_focus(layer, ui_settings_scene_focused(*scene));
-            glide_reveal(layer, before);
+            settings_glide_reveal(scene, scroll_binding(layer, false), before);
         } else if (key == key::left || key == key::right || key == key::home || key == key::end) {
             UiSettingsActivation activation{};
             const auto step = key == key::left    ? UiSettingsSliderKey::decrease
@@ -555,8 +541,9 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
             if (ui_settings_scene_slider_key(*scene, focused, step, &activation))
                 dispatch(layer, activation, false, false);
         } else if (key == key::page_up || key == key::page_down) {
-            glide_to(layer, false,
-                     scene->content_offset + (key == key::page_up ? -1.f : 1.f) * ui_rect_height(scene->viewport) * .8f);
+            settings_glide_to(scroll_binding(layer, false), scene->content_offset +
+                                                                (key == key::page_up ? -1.f : 1.f) *
+                                                                    ui_rect_height(scene->viewport) * .8f);
         }
         return true;
     }
@@ -737,9 +724,9 @@ bool settings_layer_window_event(SettingsLayer* layer, const WindowEvent& event)
                     layer->scrollbar_grab = y - bar.thumb.top;
                     application_capture_pointer();
                 } else {
-                    glide_to(layer, side != 0,
-                             (side ? scene->sidebar_offset : scene->content_offset) +
-                                 (y < bar.thumb.top ? -1.f : 1.f) * ui_rect_height(bar.track));
+                    settings_glide_to(scroll_binding(layer, side != 0),
+                                      (side ? scene->sidebar_offset : scene->content_offset) +
+                                          (y < bar.thumb.top ? -1.f : 1.f) * ui_rect_height(bar.track));
                 }
                 return true;
             }

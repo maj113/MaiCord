@@ -10,6 +10,7 @@
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/guild/member_list.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
+#include "maicord/ui/guild/banner.hpp"
 #include "maicord/ui/media/avatar_media.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -51,26 +52,11 @@ bool asset(const Utf8View& value) noexcept {
     }
     return true;
 }
-// "a_..." hashes are animated.
-bool animated_hash(const Utf8View& hash) noexcept {
-    return hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
-}
-// The smallest CDN `size` covering `dips` at `dpi`: the documented sizes (powers of two from 16 to 4096 and
-// the others between; Userdoccers, CDN parameters), so an image takes the pixels it is drawn at. `limit` caps
-// it at the largest documented size the image's decoder and atlas page take.
+// The smallest CDN `size` covering `dips` at `dpi` (ui_media_proxy_size), so an image takes the pixels it is
+// drawn at. `limit`, itself a proxy size, caps it at the largest the image's decoder and atlas page take.
 u32 cdn_display_size(float dips, u32 dpi, u32 limit = 4096) noexcept {
     const u32 pixels = static_cast<u32>(dips * static_cast<float>(dpi ? dpi : 96u) / 96.f + .999f);
-    static constexpr u16 sizes[] = {16,  20,  22,  24,  28,  32,  40,  44,   48,   56,   60,   64,   80,   96,  100, 128,
-                                    160, 240, 256, 300, 320, 480, 512, 600, 640, 1024, 1280, 1536, 2048, 3072, 4096};
-    u32 fitting = sizes[0];
-    for (const u16 size : sizes) {
-        if (size > limit)
-            break;
-        fitting = size;
-        if (size >= pixels)
-            break;
-    }
-    return fitting;
+    return ui_media_proxy_size(minimum(pixels, limit));
 }
 // Animated WebP frames decode up to 512 px (kWebpDimensionMaximum). An identity atlas entry keeps 1 px of padding
 // on each side, so a page takes 2046 columns and 1022 rows: a square image fits up to 640 and a 5:2 banner up to
@@ -223,7 +209,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         append(&url, utf8_literal("icons/"));
         id(&url, p.guild_id);
         append(&url, utf8_literal("/"));
-        animated = animated_hash(hash);
+        animated = ui_guild_banner_animated_hash(hash);
     } else if (main_avatar) {
         hash = p.avatar.view();
         if (!asset(hash))
@@ -232,7 +218,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         id(&url, p.user_id);
         append(&url, utf8_literal("/"));
         result.circular = true;
-        animated = animated_hash(hash);
+        animated = ui_guild_banner_animated_hash(hash);
     } else if (part.media == ProfileMediaKind::peer_avatar || part.media == ProfileMediaKind::peer_guild) {
         const bool user = part.media == ProfileMediaKind::peer_avatar;
         if (part.source >= (user ? p.mutual_friends_count : p.mutual_guild_count))
@@ -254,7 +240,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         result.circular = true;
         result.mask = result.rectangle;
         result.mask_radius = ui_rect_width(result.rectangle) * .5f;
-        animated = animated_hash(hash);
+        animated = ui_guild_banner_animated_hash(hash);
     } else if (part.media == ProfileMediaKind::avatar || part.media == ProfileMediaKind::banner) {
         const bool avatar = part.media == ProfileMediaKind::avatar;
         // Per-server avatar and banner fall back to the user's.
@@ -273,7 +259,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
             id(&url, p.user_id);
             append(&url, utf8_literal("/"));
         }
-        animated = animated_hash(hash);
+        animated = ui_guild_banner_animated_hash(hash);
         result.circular = avatar;
         if (!avatar)
             format = animated ? (scene.banner_compatibility ? MediaAttachmentFormat::gif
@@ -294,7 +280,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
             return false;
         append(&url, utf8_literal("avatar-decoration-presets/"));
         format = MediaAttachmentFormat::png;
-        animated = animated_hash(hash);
+        animated = ui_guild_banner_animated_hash(hash);
     } else if (part.media == ProfileMediaKind::badge && part.source < p.badge_count) {
         hash = p.badges[part.source].icon.view();
         if (!asset(hash))
@@ -315,7 +301,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
                                                                  : kCdnSquareSizeLimit;
     append(&url, utf8_literal("?size="));
     id(&url, cdn_display_size(ui_rect_width(result.rectangle), scene.media_dpi, limit));
-    if (animated && format == MediaAttachmentFormat::webp)
+    if (animated_webp)
         append(&url, utf8_literal("&animated=true"));
     if (part.media == ProfileMediaKind::decoration)
         append(&url, animated ? utf8_literal("&passthrough=true") : utf8_literal("&passthrough=false"));
@@ -405,7 +391,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
             return false;
         // Like the nameplate: a still at the drawn size at rest, the animation only under the pointer
         // (the CDN returns an animated preset at its native 288 px whatever `size` says).
-        animated = animated_hash(a->decoration.view()) && row_hovered;
+        animated = ui_guild_banner_animated_hash(a->decoration.view()) && row_hovered;
         if (layer == MemberMedia::decoration_still) {
             if (!animated)
                 return false;
@@ -435,7 +421,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         append(&url, utf8_literal("/avatars/"));
         append(&url, hash);
         append(&url, utf8_literal(".webp?size=64"));
-        animated = animated_hash(hash);
+        animated = ui_guild_banner_animated_hash(hash);
         result.circular = true;
     }
     if (animated && format == MediaAttachmentFormat::webp)

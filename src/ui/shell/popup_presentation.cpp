@@ -31,11 +31,8 @@ bool paint_popup_presence(PaintStream* paint, const UiRect& rectangle, UiPresenc
     if (highlighted && status == UiPresence::offline) {
         const float extent = minimum(ui_rect_width(rectangle), ui_rect_height(rectangle));
         return UiPaint{paint, theme}
-            .rounded_border({rectangle.left - 2, rectangle.top - 2, rectangle.right + 2, rectangle.bottom + 2},
-                            theme.text_secondary, background, extent * .5f + 2, 2)
-            .rounded({rectangle.left + extent * .25f, rectangle.top + extent * .25f, rectangle.right - extent * .25f,
-                      rectangle.bottom - extent * .25f},
-                     background, extent * .25f)
+            .rounded_border(ui_rect_shrink(rectangle, -2), theme.text_secondary, background, extent * .5f + 2, 2)
+            .rounded(ui_rect_shrink(rectangle, extent * .25f), background, extent * .25f)
             .ok();
     }
     return ui_presence_paint(paint, rectangle, status, background, theme);
@@ -315,8 +312,7 @@ bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout
         else if (pointed)
             p.rounded(r, theme.tokens.state.hover, theme.scale.radius_md);
         if (picker_keyboard_focus(scene, index))
-            p.rounded_border({r.left - 2, r.top - 2, r.right + 2, r.bottom + 2}, Color{}, theme.tokens.border.focus,
-                             theme.scale.radius_md + 2, 2);
+            p.rounded_border(ui_rect_shrink(r, -2), Color{}, theme.tokens.border.focus, theme.scale.radius_md + 2, 2);
         if (item.flags & popup_item_avatar)
             p.rounded(r, theme.interactive, picker_media_radius(scene, index, r));
         else if (item.presentation.icon_plus_one)

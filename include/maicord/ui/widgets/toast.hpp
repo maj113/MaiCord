@@ -55,7 +55,6 @@ struct UiToastScene {
     u32 serial;     // bumps whenever a toast becomes current
     u32 revision;   // geometry or content changed
     u32 measured_serial;
-    u32 dropped;
     u8 count;
     UiToastPhase phase;
 };

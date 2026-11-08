@@ -30,9 +30,6 @@ const mc_setting_def* settings_of(const PluginBinding& binding) noexcept {
 const u8* block_of(const PluginBinding& binding) noexcept {
     return static_cast<const u8*>(binding.ctx.settings);
 }
-bool edit_type(u32 type) noexcept {
-    return type != MC_SET_HEADER && type != MC_SET_TOGGLE && type != MC_SET_CHOICE && type != MC_SET_SLIDER;
-}
 
 bool visible(const PluginBinding& binding, const mc_setting_def& setting) noexcept {
     if (setting.flags & MC_SET_HIDDEN) return false;
@@ -344,7 +341,8 @@ PluginSettingsOutcome plugin_settings_commit(PluginBinding* binding, PluginSetti
     if (!shown || !control_id || control_id >= kPluginSettingsHostBase) return PluginSettingsOutcome::none;
     const u32 index = static_cast<u32>(control_id - 1);
     const mc_setting_def& setting = settings_of(*binding)[index];
-    if (!edit_type(setting.type) && setting.type != MC_SET_SLIDER) return PluginSettingsOutcome::none;
+    if (setting.type == MC_SET_HEADER || setting.type == MC_SET_TOGGLE || setting.type == MC_SET_CHOICE)
+        return PluginSettingsOutcome::none;
     u8 bytes[MC_SETTING_LIST_BYTES_MAX + MC_SETTING_ITEM_MAX + 8];
     u32 used = 0;
     const bool parsed = plugin_setting_parse(setting, text, {bytes, sizeof(bytes)}, &used);

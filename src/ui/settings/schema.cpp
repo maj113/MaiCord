@@ -8,9 +8,6 @@ struct Word {
     const char* data;
     u32 bytes;
 };
-u8 fold(u8 byte) noexcept {
-    return byte >= 'A' && byte <= 'Z' ? static_cast<u8>(byte + 32) : byte;
-}
 bool word_byte(u8 byte) noexcept {
     return byte >= 0x80 || ascii_is_alnum(byte);
 }
@@ -40,7 +37,7 @@ bool prefixes_word(Word query, Utf8View text) noexcept {
         if (i - start < query.bytes)
             continue;
         u32 j = 0;
-        while (j < query.bytes && fold(static_cast<u8>(text.data[start + j])) == fold(static_cast<u8>(query.data[j])))
+        while (j < query.bytes && ascii_lower(text.data[start + j]) == ascii_lower(query.data[j]))
             ++j;
         if (j == query.bytes)
             return true;

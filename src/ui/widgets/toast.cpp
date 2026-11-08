@@ -156,7 +156,6 @@ bool ui_toast_push(UiToastScene* s, UiToastKind kind, const Utf8View& text) noex
         for (u32 i = 2; i < s->count; ++i)
             s->entries[i - 1] = s->entries[i];
         --s->count;
-        ++s->dropped;
     }
     s->entries[s->count++] = entry;
     return true;

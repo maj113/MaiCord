@@ -22,9 +22,8 @@ namespace {
 constexpr u32 kBufferBytes = 4096;
 static_assert(kBufferBytes >= MC_DRAFT_TEXT_MAX);
 
-using Subscriber = PluginSubscriber;
 struct List {
-    Subscriber entries[kPluginMaximumBindings];
+    PluginSubscriber entries[kPluginMaximumBindings];
     u32 count;
 };
 
@@ -72,7 +71,7 @@ void plugin_dispatch_remove(PluginBinding* binding) noexcept {
         remove_from(g_lists[kind], binding);
         g_plugin_hook_subscribers[kind] = g_lists[kind].count;
     }
-    if (--g_subscribed_plugins == 0 && g_buffers) {
+    if (--g_subscribed_plugins == 0) {
         pages_release(g_buffers);
         g_buffers = nullptr;
     }

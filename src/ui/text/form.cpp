@@ -517,44 +517,40 @@ UiRect text_form_swatch_box(const TextFormScene& scene) noexcept {
                                                 : node->rectangle.top + metrics.form_field_padding;
     return {right - side, top, right, top + side};
 }
-TextFormElement text_form_hit_test(const TextFormScene& scene, float x, float y) noexcept {
-    if (!scene.active)
-        return TextFormElement::count;
-    const auto target = ui_widget_manager_hit_test(scene.widgets, x, y);
+namespace {
+TextFormElement element_of(const TextFormScene& scene, UiWidgetHandle handle) noexcept {
     for (u32 i = 0; i < kTextFormElements; ++i)
-        if (ui_widget_handle_matches(target, scene.elements[i]))
+        if (ui_widget_handle_matches(handle, scene.elements[i]))
             return static_cast<TextFormElement>(i);
     return TextFormElement::count;
 }
-TextFormElement text_form_focused(const TextFormScene& scene) noexcept {
-    if (!scene.active)
-        return TextFormElement::count;
-    for (u32 i = 0; i < kTextFormElements; ++i)
-        if (ui_widget_handle_matches(scene.widgets.focused, scene.elements[i]))
-            return static_cast<TextFormElement>(i);
-    return TextFormElement::count;
-}
-bool text_form_focus(TextFormScene* scene, TextFormElement element) noexcept {
-    if (!scene->active || !control(element) || !(scene->built & (1u << index(element))) ||
-        (element == TextFormElement::edit && editor_collapsed(scene->content)) ||
-        (scene->content.confirmation_only && element == TextFormElement::edit) ||
-        !ui_widget_manager_focus(&scene->widgets, scene->elements[index(element)]))
-        return false;
+// Scrolls the widget into view; a layout change bumps the scene revision.
+bool reveal(TextFormScene* scene, UiWidgetHandle handle) noexcept {
     const auto revision = scene->widgets.layout.revision;
-    const bool valid = ui_widget_reveal(&scene->widgets, scene->elements[index(element)]).ok();
+    const bool valid = ui_widget_reveal(&scene->widgets, handle).ok();
     if (scene->widgets.layout.revision != revision)
         ++scene->revision;
     return valid;
+}
+} // namespace
+TextFormElement text_form_hit_test(const TextFormScene& scene, float x, float y) noexcept {
+    return scene.active ? element_of(scene, ui_widget_manager_hit_test(scene.widgets, x, y)) : TextFormElement::count;
+}
+TextFormElement text_form_focused(const TextFormScene& scene) noexcept {
+    return scene.active ? element_of(scene, scene.widgets.focused) : TextFormElement::count;
+}
+// An edit field is only built when the form is not confirmation-only.
+bool text_form_focus(TextFormScene* scene, TextFormElement element) noexcept {
+    return scene->active && control(element) && (scene->built & (1u << index(element))) &&
+           !(element == TextFormElement::edit && editor_collapsed(scene->content)) &&
+           ui_widget_manager_focus(&scene->widgets, scene->elements[index(element)]) &&
+           reveal(scene, scene->elements[index(element)]);
 }
 bool text_form_move_focus(TextFormScene* scene, bool reverse) noexcept {
     if (!scene->active)
         return false;
     const auto target = ui_widget_manager_move_focus(&scene->widgets, reverse);
-    const auto revision = scene->widgets.layout.revision;
-    const bool valid = target.generation && ui_widget_reveal(&scene->widgets, target).ok();
-    if (scene->widgets.layout.revision != revision)
-        ++scene->revision;
-    return valid;
+    return target.generation && reveal(scene, target);
 }
 bool text_form_scroll(TextFormScene* scene, float delta) noexcept {
     if (!scene->active || !ui_coordinate_valid(delta))

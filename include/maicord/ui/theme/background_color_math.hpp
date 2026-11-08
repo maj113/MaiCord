@@ -12,7 +12,8 @@ inline float background_color_unit(float value) noexcept {
     return value >= 0 ? minimum(value, 1.f) : 0;
 }
 // Fixed, local arithmetic avoids a CRT math import or lookup-table owner. All
-// callers use the closed unit interval; bisection has a fixed iteration bound.
+// callers use the closed unit interval and degree 2, 3 or 5: a square root, or
+// Newton's method with a fixed step count.
 double background_color_root(double value, u32 degree) noexcept;
 double background_color_linear(float channel) noexcept;
 float background_color_srgb(double channel) noexcept;

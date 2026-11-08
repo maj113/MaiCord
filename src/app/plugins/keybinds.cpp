@@ -49,7 +49,9 @@ bool keybinds_blocked() noexcept {
 } // namespace
 
 bool application_plugins_keybind_input(UiInputKind kind, u32 code, bool repeated) noexcept {
-    if ((kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) || code > 0xff || repeated ||
+    // No enabled plugin binds keys: one load, before any of the blocking checks.
+    if (!plugin_hook_subscribed(PluginHook::keybind) ||
+        (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) || code > 0xff || repeated ||
         shortcut_key_is_modifier(code) || keybinds_blocked() || (g_app.window && !application_window_foreground()))
         return false;
     const auto pressed = shortcut_chord_from_keyboard(code);

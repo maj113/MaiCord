@@ -177,16 +177,20 @@ bool decode_utf16_one(const ConstSlice<u16>& input, u32 offset, u32* codepoint, 
     *width = 1;
     return true;
 }
+// Moves the selection without editing: ends a typing run and drops a pending surrogate.
+SecureEditResult set_selection(SecureEdit* edit, u32 anchor, u32 caret) noexcept {
+    secure_edit_break_history_run(edit);
+    const bool changed = edit->anchor != anchor || edit->caret != caret;
+    edit->anchor = anchor; edit->caret = caret; edit->pending_high_surrogate = 0;
+    return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
+}
 SecureEditResult select_range(SecureEdit* edit, u32 position,
                               bool (*range)(const Utf8View&, u32, u32*, u32*) noexcept) noexcept {
     if (!ready(edit)) return SecureEditResult::invalid_input;
     u32 first = 0, last = 0;
     if (!range({reinterpret_cast<const char*>(edit->storage.data), edit->storage.bytes}, position, &first, &last))
         return SecureEditResult::invalid_input;
-    secure_edit_break_history_run(edit);
-    const bool changed = edit->anchor != first || edit->caret != last;
-    edit->anchor = first; edit->caret = last; edit->pending_high_surrogate = 0;
-    return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
+    return set_selection(edit, first, last);
 }
 
 } // namespace
@@ -229,12 +233,7 @@ SecureEditResult secure_edit_assign(SecureEdit* edit, const Utf8View& text) noex
         return SecureEditResult::capacity;
     }
     secure_edit_reset_history(edit);
-    const bool same_size = text.bytes == edit->storage.bytes;
-    bool same = same_size;
-    for (u32 index = 0; same && index < text.bytes; ++index) {
-        same = edit->storage.data[index] == static_cast<u8>(text.data[index]);
-    }
-    if (same) {
+    if (text.bytes == edit->storage.bytes && bytes_equal(edit->storage.data, text.data, text.bytes)) {
         edit->anchor = text.bytes;
         edit->caret = text.bytes;
         edit->pending_high_surrogate = 0;
@@ -348,7 +347,6 @@ SecureEditResult secure_edit_move(SecureEdit* edit, SecureEditMove movement,
         return SecureEditResult::invalid_input;
     }
     u32 position = edit->caret;
-    secure_edit_break_history_run(edit);
     if (movement == SecureEditMove::line_home || movement == SecureEditMove::line_end) {
         position = line_boundary(*edit, position, movement == SecureEditMove::line_home);
     } else if (!extend_selection && edit->anchor != edit->caret &&
@@ -375,13 +373,7 @@ SecureEditResult secure_edit_move(SecureEdit* edit, SecureEditMove movement,
             break;
         }
     }
-    const bool changed = position != edit->caret || (!extend_selection && edit->anchor != position);
-    edit->caret = position;
-    if (!extend_selection) {
-        edit->anchor = position;
-    }
-    edit->pending_high_surrogate = 0;
-    return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
+    return set_selection(edit, extend_selection ? edit->anchor : position, position);
 }
 
 SecureEditResult secure_edit_set_codepoint(SecureEdit* edit, u32 codepoint,
@@ -393,26 +385,14 @@ SecureEditResult secure_edit_set_codepoint(SecureEdit* edit, u32 codepoint,
     if (position == ~0u) {
         return SecureEditResult::invalid_input;
     }
-    secure_edit_break_history_run(edit);
-    const bool changed = edit->caret != position || (!extend_selection && edit->anchor != position);
-    edit->caret = position;
-    if (!extend_selection) {
-        edit->anchor = position;
-    }
-    edit->pending_high_surrogate = 0;
-    return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
+    return set_selection(edit, extend_selection ? edit->anchor : position, position);
 }
 
 SecureEditResult secure_edit_select_all(SecureEdit* edit) noexcept {
     if (!ready(edit)) {
         return SecureEditResult::invalid_input;
     }
-    secure_edit_break_history_run(edit);
-    const bool changed = edit->anchor != 0 || edit->caret != edit->storage.bytes;
-    edit->anchor = 0;
-    edit->caret = edit->storage.bytes;
-    edit->pending_high_surrogate = 0;
-    return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
+    return set_selection(edit, 0, edit->storage.bytes);
 }
 
 SecureEditResult secure_edit_select_word(SecureEdit* edit, u32 position) noexcept {
@@ -486,12 +466,7 @@ SecureEditResult secure_edit_set_utf16_selection(SecureEdit* edit,
     if (anchor == ~0u || caret == ~0u) {
         return SecureEditResult::invalid_utf16;
     }
-    secure_edit_break_history_run(edit);
-    const bool changed = edit->anchor != anchor || edit->caret != caret;
-    edit->anchor = anchor;
-    edit->caret = caret;
-    edit->pending_high_surrogate = 0;
-    return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
+    return set_selection(edit, anchor, caret);
 }
 
 SecureEditResult secure_edit_copy_utf16(const SecureEdit& edit, u32 start, u32 end, const Slice<u16>& output,
@@ -546,20 +521,12 @@ SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end,
     secure_edit_history_begin(edit, begin_byte, removed_bytes, inserted_bytes, edit->anchor, edit->caret);
     const u32 tail_bytes = old_bytes - end_byte;
     copy_bytes(edit->storage.data + begin_byte + inserted_bytes, edit->storage.data + end_byte, tail_bytes);
-    input_offset = 0;
     u32 destination = begin_byte;
-    while (input_offset < input.count) {
-        u32 codepoint = 0;
-        u32 width = 0;
-        if (!decode_utf16_one(input, input_offset, &codepoint, &width)) {
-            return SecureEditResult::invalid_utf16;
-        }
-        char encoded[4]{};
-        const u8 bytes = utf8_encode(codepoint, encoded);
-        for (u32 index = 0; index < bytes; ++index) {
-            edit->storage.data[destination + index] = static_cast<u8>(encoded[index]);
-        }
-        destination += bytes;
+    for (input_offset = 0; input_offset < input.count;) {
+        // The first pass validated every scalar.
+        u32 codepoint = 0, width = 0;
+        decode_utf16_one(input, input_offset, &codepoint, &width);
+        destination += utf8_encode(codepoint, reinterpret_cast<char*>(edit->storage.data + destination));
         input_offset += width;
     }
     const u32 new_bytes = retained_bytes + inserted_bytes;
@@ -622,9 +589,7 @@ SecureEditResult secure_edit_render_window(const SecureEdit& edit, u32 maximum_c
             output.data[index * 3u + 2u] = static_cast<char>(0xA2u);
         }
     } else {
-        for (u32 index = begin_byte; index < end_byte; ++index) {
-            output.data[index - begin_byte] = static_cast<char>(edit.storage.data[index]);
-        }
+        copy_bytes(output.data, edit.storage.data + begin_byte, end_byte - begin_byte);
     }
     const auto relative = [first, last](u32 position) noexcept {
         const u32 clamped = minimum(maximum(position, first), last);
