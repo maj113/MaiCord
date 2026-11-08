@@ -24,13 +24,6 @@ No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 
 </div>
 
-<!--
-  Launch video: GitHub plays a video inline only when it is an upload. Drag introducing-maicord.mp4 (H.264, at most
-  10 MB on a free plan) into a new issue or PR comment box, wait for the https://github.com/user-attachments/assets/…
-  link, copy it, discard the comment, and replace the line below with that link alone on its own line.
--->
-> **Introducing MaiCord**: the launch video is coming soon.
-
 > [!WARNING]
 > MaiCord is an **unofficial** third-party client. It is not affiliated with, endorsed by or supported by Discord Inc.
 > Using third-party clients may violate [Discord's Terms of Service](https://discord.com/terms) and could put your
