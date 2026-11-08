@@ -33,7 +33,8 @@ bool process_command(const wchar_t* executable, ProcessCommand* command, u32* na
 
 // Replaces this process with the command (execve) and the environment of this process, after marking every
 // descriptor above standard error close-on-exec (a connection that stayed open would keep a service name or a lock
-// of the old image) and clearing the signal mask and the ignored child signal that process_launch_detached sets.
+// of the old image) and clearing the signal mask and the ignored child signal that the first detached start
+// (process_launch_detached, or xdg-open through process_spawn_detached) sets.
 // Returns only when the system refused: false, and its error in *native_error when given.
 bool process_replace(const ProcessCommand& command, u32* native_error) noexcept;
 

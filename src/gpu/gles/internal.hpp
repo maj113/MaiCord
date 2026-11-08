@@ -272,6 +272,7 @@ struct GlesSurface {
     GlesDamage history[kGlesDamageHistory]; // newest first
     u32 history_count;
     Waitable clock;      // the frame permit
+    bool clock_set;      // set since the permit was last taken: false means taking it would find nothing (UI thread)
     i32 swap_interval;   // applied, -1 unknown
     bool needs_full;     // the next present blits the whole frame
     bool resized;        // the window surface must be revalidated at its new size before the next blit

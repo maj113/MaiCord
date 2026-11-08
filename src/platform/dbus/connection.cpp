@@ -23,6 +23,7 @@ constexpr int kSockNonblock = 0x800;
 constexpr int kSockCloexec = 0x80000;
 constexpr int kSolSocket = 1;
 constexpr int kScmRights = 1;
+constexpr int kMsgPeek = 0x2;
 constexpr int kMsgDontwait = 0x40;
 constexpr int kMsgNosignal = 0x4000;
 constexpr int kMsgCmsgCloexec = 0x40000000;
@@ -171,12 +172,12 @@ bool send_all_blocking(int fd, const u8* bytes, u32 count, u64 deadline) noexcep
     return true;
 }
 
-// Reads one line ended by CRLF (without it) into `line`; false on timeout, error or an overlong line.
+// Reads one line ended by CRLF (without it) into `line`; false on timeout, error or an overlong line. A peek finds the
+// line end and a read takes the bytes through it, never past it: two system calls a line, not one a byte.
 bool read_line(int fd, char* line, u32 capacity, u64 deadline) noexcept {
     u32 length = 0;
     for (;;) {
-        char byte;
-        const long got = sys_read(fd, &byte, 1);
+        const long got = sys_recv(fd, line + length, capacity - length, kMsgPeek);
         if (got == -kErrorInterrupted)
             continue;
         if (got == -kErrorAgain) {
@@ -186,15 +187,25 @@ bool read_line(int fd, char* line, u32 capacity, u64 deadline) noexcept {
         }
         if (syscall_failed(got) || got == 0)
             return false;
-        if (byte == '\n') {
+        u32 take = 0;
+        bool ended = false;
+        while (take < static_cast<u32>(got) && !ended)
+            ended = line[length + take++] == '\n';
+        long taken = sys_read(fd, line + length, take);
+        while (taken == -kErrorInterrupted)
+            taken = sys_read(fd, line + length, take);
+        if (taken != static_cast<long>(take))
+            return false;
+        length += take;
+        if (ended) {
+            --length;
             if (length && line[length - 1] == '\r')
                 --length;
             line[length] = 0;
             return true;
         }
-        if (length + 1 >= capacity)
+        if (length >= capacity)
             return false;
-        line[length++] = byte;
     }
 }
 

@@ -27,6 +27,7 @@ typedef u16 U16 __attribute__((aligned(1), may_alias));
 typedef char V32 __attribute__((vector_size(32), aligned(1), may_alias));
 // The streaming stores want the natural alignment, which the copy and fill loops guarantee.
 typedef char V32Aligned __attribute__((vector_size(32)));
+typedef long long V2Q __attribute__((vector_size(16)));
 typedef long long V4Q __attribute__((vector_size(32)));
 
 // Up to 16 bytes: overlapping loads, then overlapping stores.
@@ -78,8 +79,9 @@ constexpr usize kStreamingBytes = 1u << 20;
 // More than 128 bytes, the destination not overlapping the source from above (below it, or past its end): the first 32
 // and the last 128 bytes are loaded before anything is stored and stored after the loop, which covers the unaligned head
 // and the remainder and keeps a destination just below the source correct (the loop never overwrites a byte it has
-// still to read: it loads each 128 bytes before storing them, and the destination trails the source).
-void copy_forward_wide(u8* destination, const u8* source, usize count) noexcept {
+// still to read: it loads each 128 bytes before storing them, and the destination trails the source). Inline in its one
+// caller, memmove, which would otherwise keep the destination across the call (no tail call).
+inline void copy_forward_wide(u8* destination, const u8* source, usize count) noexcept {
     const V32 head = load32(source);
     const V32 t0 = load32(source + count - 128), t1 = load32(source + count - 96), t2 = load32(source + count - 64),
               t3 = load32(source + count - 32);
@@ -114,11 +116,8 @@ void copy_forward_wide(u8* destination, const u8* source, usize count) noexcept 
     }
 }
 
-// More than 128 bytes of `value` bytes.
-void fill_wide(u8* destination, int value, usize count) noexcept {
-    const long long pattern = static_cast<long long>(0x0101010101010101ull * static_cast<u8>(value));
-    const V4Q wide = {pattern, pattern, pattern, pattern};
-    const V32 fill = reinterpret_cast<V32>(wide);
+// More than 128 bytes of `fill` bytes. Inline in its one caller, memset, as copy_forward_wide is in memmove.
+inline void fill_wide(u8* destination, V32 fill, usize count) noexcept {
     u8* const end = destination + count;
     u8* d = destination + (32 - (reinterpret_cast<usize>(destination) & 31));
     if (count >= kStreamingBytes) {
@@ -213,20 +212,24 @@ void* memset(void* destination_pointer, int value, size_t count) {
         } else if (count == 1) {
             *destination = static_cast<u8>(value);
         }
-    } else if (count <= 128) {
-        const V16 fill = {static_cast<char>(value), static_cast<char>(value), static_cast<char>(value),
-                          static_cast<char>(value), static_cast<char>(value), static_cast<char>(value),
-                          static_cast<char>(value), static_cast<char>(value), static_cast<char>(value),
-                          static_cast<char>(value), static_cast<char>(value), static_cast<char>(value),
-                          static_cast<char>(value), static_cast<char>(value), static_cast<char>(value),
-                          static_cast<char>(value)};
-        usize offset = 0;
-        for (; count - offset > 16; offset += 16) {
-            store(destination + offset, fill);
-        }
-        store(destination + count - 16, fill);
+    } else if (count <= 32) {
+        const V2Q fill = {static_cast<long long>(pattern), static_cast<long long>(pattern)};
+        store(destination, reinterpret_cast<V16>(fill));
+        store(destination + count - 16, reinterpret_cast<V16>(fill));
     } else {
-        fill_wide(destination, value, count);
+        const long long wide = static_cast<long long>(pattern);
+        const V32 fill = reinterpret_cast<V32>(V4Q{wide, wide, wide, wide});
+        if (count <= 128) {
+            // Overlapping 32-byte stores from both ends, in ascending order (as memmove's): no loop.
+            store32(destination, fill);
+            if (count > 64) {
+                store32(destination + 32, fill);
+                store32(destination + count - 64, fill);
+            }
+            store32(destination + count - 32, fill);
+        } else {
+            fill_wide(destination, fill, count);
+        }
     }
     return destination_pointer;
 }

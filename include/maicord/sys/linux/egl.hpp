@@ -49,6 +49,7 @@ inline constexpr Surface kNoSurface = nullptr;
     X(Int, eglGetError, ())                                                                                            \
     X(void*, eglGetProcAddress, (const char* name))                                                                    \
     X(Display, eglGetDisplay, (void* native_display))                                                                  \
+    X(Display, eglGetPlatformDisplay, (Enum platform, void* native_display, const void* attributes))                   \
     X(Boolean, eglInitialize, (Display display, Int * major, Int * minor))                                             \
     X(Boolean, eglTerminate, (Display display))                                                                        \
     X(const char*, eglQueryString, (Display display, Int name))                                                        \
@@ -69,8 +70,6 @@ struct Api {
 #define MAICORD_EGL_MEMBER(result, name, arguments) result(*name) arguments;
     MAICORD_EGL_FUNCTIONS(MAICORD_EGL_MEMBER)
 #undef MAICORD_EGL_MEMBER
-    // Optional (EGL 1.5, or EGL_EXT_platform_base): null when absent.
-    Display (*eglGetPlatformDisplay)(Enum platform, void* native_display, const void* attributes);
     // Optional (EGL_KHR_swap_buffers_with_damage or EGL_EXT_swap_buffers_with_damage): rectangles are x, y, width,
     // height with a bottom-left origin.
     Boolean (*eglSwapBuffersWithDamage)(Display display, Surface surface, const Int* rectangles, Int count);

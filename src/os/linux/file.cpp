@@ -483,31 +483,10 @@ bool file_copy_new(const wchar_t* from, const wchar_t* to) noexcept {
         sys_close(static_cast<int>(input));
         return fail(output);
     }
-    u8 buffer[32768];
-    for (;;) {
-        const long count = sys_read(static_cast<int>(input), buffer, sizeof(buffer));
-        if (count == -kErrorInterrupted) {
-            continue;
-        }
-        result = count;
-        if (count <= 0) {
-            break;
-        }
-        for (long done = 0; done < count;) {
-            const long wrote = sys_write(static_cast<int>(output), buffer + done, static_cast<usize>(count - done));
-            if (wrote == -kErrorInterrupted) {
-                continue;
-            }
-            if (syscall_failed(wrote) || wrote == 0) {
-                result = syscall_failed(wrote) ? wrote : -kErrorNoSpace;
-                break;
-            }
-            done += wrote;
-        }
-        if (syscall_failed(result)) {
-            break;
-        }
-    }
+    // The kernel copies (sendfile, no user buffer): one call per 2 GiB instead of a read and a write per 32 KiB.
+    do {
+        result = sys_sendfile(static_cast<int>(output), static_cast<int>(input), 0x7ffff000);
+    } while (result > 0 || result == -kErrorInterrupted);
     sys_close(static_cast<int>(input));
     sys_close(static_cast<int>(output));
     if (syscall_failed(result)) {

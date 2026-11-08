@@ -212,8 +212,9 @@ u32 game_detection_snapshot(Slice<char> storage, Slice<Utf8View> names, bool win
             path[length++] = entry.name[i];
         for (const wchar_t c : L"/comm")
             path[length++] = c;
+        // No access hint: an fadvise of a 16-byte procfs file is one more system call per process for nothing.
         const FileHandle file = file_open(path, {FileAccess::read, FileCreate::existing,
-                                                 kFileShareRead | kFileShareWrite, kFileSequential});
+                                                 kFileShareRead | kFileShareWrite, 0});
         if (file == INVALID_HANDLE_VALUE)
             continue;
         char text[64];

@@ -43,6 +43,17 @@ bool absolute_path(const char* text) noexcept {
     return true;
 }
 
+// 0 when `text` names a directory (a link followed, as mkdir and open do), -ENOTDIR when it names something else, else
+// statx's negated errno.
+long directory_check(const char* text) noexcept {
+    Statx stat{};
+    const long result = sys_statx(kAtCurrentDirectory, text, 0, kStatxType, &stat);
+    if (syscall_failed(result)) {
+        return result;
+    }
+    return (stat.mode & kModeTypeMask) == kModeDirectory ? 0 : -kErrorNotDirectory;
+}
+
 // The XDG base directory of `root` as UTF-16: its environment variable, else the $HOME-relative default. Zero when
 // neither names an absolute path.
 u32 xdg_root(Root root, wchar_t* output, u32 capacity) noexcept {
@@ -109,16 +120,19 @@ DataPathResult rooted_path(Root root, wchar_t* output, u32 capacity, const wchar
     if (length == 0)
         return failure(DataPathError::path, static_cast<u32>(kErrorInvalid));
     if (create_parents) {
-        // Every directory above the last component, the root's missing ancestors included (XDG: create them as
-        // needed); the path itself is the caller's file or directory.
-        for (u32 i = 1; i < length; ++i) {
-            if (output[i] != L'/')
-                continue;
-            output[i] = 0;
+        // The directory that holds the last component, with its missing ancestors (XDG: create them as needed); the
+        // path itself is the caller's file or directory. It exists in the common case: one statx says so.
+        u32 last = length - 1;
+        while (last > 0 && output[last] != L'/')
+            --last;
+        if (last > 0) {
+            output[last] = 0;
+            char text[kRootCapacity];
             u32 native_error = 0;
-            const bool created = directory_ensure(output, &native_error);
-            output[i] = L'/';
-            if (!created)
+            const bool present = (path_to_utf8(output, text, kRootCapacity) != 0 && directory_check(text) == 0) ||
+                                 directory_ensure(output, &native_error);
+            output[last] = L'/';
+            if (!present)
                 return failure(DataPathError::directory, native_error);
         }
     }
@@ -165,12 +179,9 @@ bool directory_ensure(const wchar_t* path, u32* native_error) noexcept {
     }
     if (result == -kErrorExists) {
         // It exists: fine when it is a directory.
-        result = sys_open(text, kOpenReadOnly | kOpenDirectory);
-        if (!syscall_failed(result)) {
-            sys_close(static_cast<int>(result));
-            return true;
-        }
-    } else if (!syscall_failed(result)) {
+        result = directory_check(text);
+    }
+    if (!syscall_failed(result)) {
         return true;
     }
     if (native_error)

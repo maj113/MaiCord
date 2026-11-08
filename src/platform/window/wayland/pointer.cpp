@@ -332,12 +332,19 @@ void apply_cursor_theme(u8 code) noexcept {
         pointer.theme = nullptr;
     }
     if (!pointer.theme) {
+        pointer.cursor_surface_valid = false;  // its image was the old theme's
         pointer.theme = api->theme_load(name[0] ? name : nullptr, static_cast<int>(size * scale), g.shm);
         pointer.theme_scale = scale;
         pointer.theme_size = size;
         copy_bytes(pointer.theme_name, name, sizeof(name));
         if (!pointer.theme)
             return;
+    }
+    // The cursor surface keeps the image it was given: a pointer that enters again only names it with the new serial.
+    if (pointer.cursor_surface_valid && pointer.cursor_surface_code == code) {
+        wl_pointer_set_cursor(pointer.pointer, pointer.enter_serial, pointer.cursor_surface, pointer.cursor_hotspot_x,
+                              pointer.cursor_hotspot_y);
+        return;
     }
     Cursor* shape = nullptr;
     const CursorNames names = cursor_names_of(code);
@@ -355,14 +362,17 @@ void apply_cursor_theme(u8 code) noexcept {
         return;
     if (!pointer.cursor_surface)
         pointer.cursor_surface = wl_compositor_create_surface(g.compositor);
-    if (g.compositor_version >= wl_surface_set_buffer_scale_since)
-        wl_surface_set_buffer_scale(pointer.cursor_surface, static_cast<i32>(scale));
+    wl_surface_set_buffer_scale(pointer.cursor_surface, static_cast<i32>(scale));
     wl_surface_attach(pointer.cursor_surface, buffer, 0, 0);
     wl_surface_damage_buffer(pointer.cursor_surface, 0, 0, static_cast<i32>(image->width),
                              static_cast<i32>(image->height));
     wl_surface_commit(pointer.cursor_surface);
-    wl_pointer_set_cursor(pointer.pointer, pointer.enter_serial, pointer.cursor_surface,
-                          static_cast<i32>(image->hotspot_x / scale), static_cast<i32>(image->hotspot_y / scale));
+    pointer.cursor_surface_valid = true;
+    pointer.cursor_surface_code = code;
+    pointer.cursor_hotspot_x = static_cast<i32>(image->hotspot_x / scale);
+    pointer.cursor_hotspot_y = static_cast<i32>(image->hotspot_y / scale);
+    wl_pointer_set_cursor(pointer.pointer, pointer.enter_serial, pointer.cursor_surface, pointer.cursor_hotspot_x,
+                          pointer.cursor_hotspot_y);
 }
 
 void release_pointer(wl_pointer* pointer) noexcept {
@@ -463,8 +473,11 @@ void cursor_apply() noexcept {
     pointer.applied_valid = true;
 }
 
+// A cursor-shape cursor is drawn by the compositor at the output's scale; only the wl_cursor fallback's image is ours.
 void pointer_scale_changed() noexcept {
     PointerState& pointer = g.pointer;
+    if (pointer.shape_device)
+        return;
     pointer.applied_valid = false;
     cursor_apply();
 }

@@ -111,6 +111,12 @@ inline long sys_pwrite(int fd, const void* buffer, usize bytes, u64 offset) noex
                     static_cast<long>(offset));
 }
 
+// sendfile(2) from the current position of `input` to that of `output`: the bytes moved (at most 0x7ffff000 a call), 0
+// at the end of `input`. Any file may be the output since Linux 2.6.33.
+inline long sys_sendfile(int output, int input, usize bytes) noexcept {
+    return syscall4(kSysSendfile, output, input, 0, static_cast<long>(bytes));
+}
+
 // The effective user id of the process.
 inline long sys_geteuid() noexcept {
     return syscall1(kSysGeteuid, 0);
@@ -254,10 +260,6 @@ inline long sys_madvise(void* address, usize bytes, int advice) noexcept {
 
 inline long sys_mlock(const void* address, usize bytes) noexcept {
     return syscall2(kSysMlock, reinterpret_cast<long>(address), static_cast<long>(bytes));
-}
-
-inline long sys_munlock(const void* address, usize bytes) noexcept {
-    return syscall2(kSysMunlock, reinterpret_cast<long>(address), static_cast<long>(bytes));
 }
 
 inline long sys_gettid() noexcept {

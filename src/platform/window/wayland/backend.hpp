@@ -28,7 +28,6 @@ struct EventRing {
     WindowEvent events[kRingCapacity];
     u32 head;  // next to read
     u32 tail;  // next to write
-    u32 dropped;
 };
 
 // Bits of PointerEvent::buttons: 1 << PointerButton.
@@ -66,6 +65,9 @@ struct PointerState {
     bool applied_valid;
     bool in_cursor_query;
     wl_surface* cursor_surface;  // the wl_cursor fallback
+    bool cursor_surface_valid;   // it holds the theme's image of cursor_surface_code, with this hotspot
+    u8 cursor_surface_code;
+    i32 cursor_hotspot_x, cursor_hotspot_y;
     CursorTheme* theme;
     u32 theme_scale;
     u32 theme_size;       // the nominal size the theme was loaded for
@@ -81,6 +83,7 @@ struct KeyboardState {
     XkbComposeState* compose_state;
     bool compose_tried;
     u32 level_three_modifier;  // the xkb index of the AltGr modifier, kXkbModifierInvalid when the keymap has none
+    u32 modifier_masks[6];     // the keymap's xkb mask of each modifier of keyboard.cpp's kModifierNames, 0 when absent
     u8 altgr_count;            // AltGr (ISO_Level3_Shift) keys down
     u8 down_altgr[768];
     bool focused;
@@ -91,6 +94,7 @@ struct KeyboardState {
     i32 repeat_delay;  // milliseconds
     KeyRepeat repeat;
     Waitable repeat_timer;
+    u64 repeat_armed_at;  // the monotonic millisecond the timer is armed for, 0 when unknown (pump.cpp)
     // Keys currently down: per evdev code the portable key it was pressed as (0 = up).
     u8 down_key[768];
     u8 down_specific[768];
@@ -158,7 +162,6 @@ struct TextState {
     bool wanted;   // the app has text input enabled (applied on enter if not entered yet)
     bool had_preedit;  // the last done left a preedit on screen: the next one must clear it
     bool enabled;  // enable was sent for this focus
-    u32 commits;   // commit requests sent: done(serial) is for the latest when equal
     // The surrounding text last sent, to turn UTF-8 byte counts of delete_surrounding_text into UTF-16 units.
     char surrounding[4004];
     u32 surrounding_bytes;
@@ -213,7 +216,6 @@ struct WindowState {
 
     bool configured;
     bool visible;
-    u32 requested_width, requested_height;  // logical size from WindowCreateInfo
     u32 logical_width, logical_height;
     u32 floating_width, floating_height;    // the last size outside maximized, fullscreen and tiled states
     u32 pending_width, pending_height;
@@ -227,6 +229,10 @@ struct WindowState {
     // The opaque region last sent (from the origin, in surface units): the compositor keeps it until another one comes.
     i32 opaque_width, opaque_height;
     bool opaque_sent;
+    // The viewport destination (surface units) and the integer buffer scale last sent, 0 until sent: the surface keeps
+    // both until another value comes.
+    i32 viewport_width, viewport_height;
+    u32 buffer_scale;
 };
 
 struct Backend {
@@ -244,9 +250,7 @@ struct Backend {
     wp_fractional_scale_manager_v1* fractional_manager;
     wp_cursor_shape_manager_v1* cursor_shape_manager;
     zxdg_decoration_manager_v1* decoration_manager;
-    u32 compositor_version;
     u32 seat_version;
-    u32 wm_base_version;
 
     WindowCaps caps;
     EventRing ring;
@@ -295,8 +299,8 @@ bool ring_push(const WindowEvent& event) noexcept;
 // Sends one event to the sink now, for the synchronous kinds (cursor_query, capture_lost) and for the pump.
 void sink_call(const WindowEvent& event, WindowEventResult* result) noexcept;
 // Asks the sink for the window's smallest client size (the synchronous size_limits query: the Win32 side answers
-// WM_GETMINMAXINFO) and tells the compositor (xdg_toplevel.set_min_size); the pump calls it after the events that can
-// change the answer (a resize, a scale change, a state change).
+// WM_GETMINMAXINFO) and tells the compositor (xdg_toplevel.set_min_size); the pump calls it after a state_changed, the
+// event that follows every resize and scale change and whose handling settles the layout the answer depends on.
 void apply_size_limits() noexcept;
 // The window's smallest client size in pixels at its scale, as xdg_toplevel.set_min_size in logical units (sent only
 // when it changed; zero is no limit).
@@ -307,7 +311,7 @@ void window_pixel_size(u32* width, u32* height) noexcept;
 float pixel_scale() noexcept;
 // After a configure, a resize or a scale change: the surface geometry (viewport destination, opaque region) follows.
 void surface_sync() noexcept;
-// The viewport destination or integer buffer scale of the surface (applied by the next commit).
+// The viewport destination or integer buffer scale of the surface, each sent when it changed (applied by the next commit).
 void apply_surface_geometry() noexcept;
 // A new scale from an integer source (wl_output, preferred_buffer_scale) or fractional-scale: scale_120.
 void window_scale_changed(u32 scale_120) noexcept;

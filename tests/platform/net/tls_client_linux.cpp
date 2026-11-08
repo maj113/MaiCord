@@ -16,6 +16,7 @@
 // network beyond the loopback. The bytes cross the loopback in small, varying reads, so records arrive in pieces.
 #include "maicord/platform/net/tls_client.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/shared_library.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "../../../src/platform/crypto/openssl/openssl.hpp"
@@ -387,12 +388,23 @@ void connect_case(u16 port, const wchar_t* name, const char* protocol) noexcept 
     check(connection.tls.handshake_complete && connection.tls.stream_sizes.cbMaximumMessage == 16384 &&
               connection.tls.stream_sizes.cbHeader + 16384 + connection.tls.stream_sizes.cbTrailer <= kRecordCapacity,
           "the finished handshake publishes the record sizes");
-    // ALPN: the server answered http/1.1.
+    // ALPN: the server answered http/1.1. The client never asks (it speaks HTTP/1.1 alone), so the query is not in its
+    // table: it comes from the libssl the client loaded, the soname whose SSL_new is the table's.
+    using AlpnSelected = void (*)(const void*, const u8**, u32*);
     const openssl::Ssl* library = openssl::ssl();
+    AlpnSelected alpn_selected = nullptr;
+    const char* const sonames[] = {"libssl.so.4", "libssl.so.3"};
+    for (const char* soname : sonames) {
+        SharedLibrary ssl{};
+        if (library && !alpn_selected && shared_library_open(&ssl, soname) &&
+            shared_library_symbol(ssl, "SSL_new") == reinterpret_cast<void*>(library->SSL_new))
+            alpn_selected = reinterpret_cast<AlpnSelected>(shared_library_symbol(ssl, "SSL_get0_alpn_selected"));
+        shared_library_close(&ssl);
+    }
     const u8* selected = nullptr;
     u32 selected_bytes = 0;
-    if (library)
-        library->SSL_get0_alpn_selected(connection.tls.native.ssl, &selected, &selected_bytes);
+    if (alpn_selected)
+        alpn_selected(connection.tls.native.ssl, &selected, &selected_bytes);
     check(selected_bytes == 8 && selected && bytes_equal(selected, "http/1.1", 8), "ALPN http/1.1 is negotiated");
 
     // Argument checks of a live client.

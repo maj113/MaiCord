@@ -34,4 +34,10 @@ inline u32 process_id() noexcept {
 // The auxiliary vector entry of this type, or 0 when the kernel gave none.
 u64 auxiliary_value(u64 type) noexcept;
 
+// Starts `file` with `argv` and the process's environment as a child nobody waits for: libc's posix_spawn (found with
+// dlsym, so the image imports nothing for it), or posix_spawnp, which looks `file` up on PATH, with `search`. SIGCHLD
+// is ignored from the first call on, so the kernel reaps the children; process_replace restores the default. 0, or the
+// errno of the failure.
+int process_spawn_detached(const char* file, char* const argv[], bool search) noexcept;
+
 } // namespace maicord

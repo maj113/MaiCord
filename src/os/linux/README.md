@@ -21,6 +21,13 @@ has no `RENAME_NOREPLACE`, and `sync_parent` accepts a file system that cannot s
   words, which is why `futex_waitv` has no use here. Every futex user (`srwlock.cpp`, which the page table and the log
   lock with, the thread table, the OpenSSL/TLS locks) waits on one word.
 - The network loop's ring and its file operations are in `src/platform/net/linux`, not here.
+- Fewer system calls where the kernel does the work: `file_copy_new` copies with `sendfile` (any output file since
+  2.6.33; one call per 2 GiB instead of a read and a write per 32 KiB), and `data_path`/`state_path` with
+  `create_parents` ask one `statx` whether the file's directory exists before they create anything (it was a `mkdir`,
+  an `open` and a `close` for every ancestor from `/home` down).
+- Detached children (`process_launch_detached`, `xdg-open`) start through one helper, `process_spawn_detached`
+  (`maicord/sys/linux/process.hpp`): libc's `posix_spawn`/`posix_spawnp` found with `dlsym(RTLD_DEFAULT)` (not
+  imported, and no `dlopen` of `libc.so.6`), which glibc and musl run as a `CLONE_VM | CLONE_VFORK` child.
 
 ## Evaluated and not adopted
 
@@ -32,6 +39,16 @@ has no `RENAME_NOREPLACE`, and `sync_parent` accepts a file system that cannot s
   for one.
 - `timerfd` versus ring timeouts: timer waitables sit in `ppoll` sets with other descriptors (Wayland, D-Bus), which a ring
   timeout cannot join; the network loop's own waits use the ring's timeout.
+- `copy_file_range` for `file_copy_new`: since 5.19 it answers `EXDEV` between file systems, so it needs `sendfile`
+  beside it anyway; `sendfile` alone covers both (the only caller is the updater's last-resort restore).
+- `O_TMPFILE` + `linkat` for the master key file (`src/platform/crypto/linux/secure_buffer.cpp`): it saves one `unlink`
+  of a file written once per profile, and needs the named temporary file as well where the file system has no
+  `O_TMPFILE`.
+- An own `clone3(CLONE_VFORK)` spawn: `posix_spawn` is that already, and an own one needs a `PATH` search (`xdg-open`)
+  and a child stack in assembly.
+- A vDSO lookup for `clock_gettime` instead of the libc import: more code than the import saves, and a system call
+  fallback where the vDSO is off.
+- `MADV_POPULATE_READ`/`WRITE` (5.14): nothing touches pages to fault them in (the ring maps with `MAP_POPULATE`).
 - Landlock self-sandboxing: not sensible for the client. A Landlock domain is inherited by every child, so a browser
   started through `xdg-open` would run restricted; plugins are in-process shared objects, so a domain cannot separate them
   from the client; and the allowlist the client needs (XDG directories, any file the user picks, GPU and Wayland and D-Bus

@@ -33,27 +33,35 @@ const char* compose_locale() noexcept {
     return "C";
 }
 
+// The portable modifiers and the xkb modifiers they are read from, in the order of KeyboardState::modifier_masks.
+struct ModifierName {
+    const char* name;
+    u8 bit;
+};
+constexpr ModifierName kModifierNames[] = {{"Control", mod_ctrl}, {"Mod1", mod_alt}, {"Shift", mod_shift},
+                                           {"Mod4", mod_super},   {"Lock", mod_caps}, {"Mod2", mod_num}};
+constexpr u32 kModifierNameCount = sizeof(kModifierNames) / sizeof(kModifierNames[0]);
+static_assert(kModifierNameCount == sizeof(KeyboardState::modifier_masks) / sizeof(u32));
+
+// The keymap's modifier indices are looked up once, when it arrives, not by name on every wl_keyboard.modifiers.
+void resolve_modifier_masks(const XkbApi& api, XkbKeymap* keymap) noexcept {
+    for (u32 i = 0; i < kModifierNameCount; ++i) {
+        const u32 index = api.keymap_mod_get_index(keymap, kModifierNames[i].name);
+        g.keyboard.modifier_masks[i] = index < 32 ? 1u << index : 0;  // kXkbModifierInvalid has no bit
+    }
+}
+
+// What xkb_state_mod_name_is_active(name, effective) tells per modifier, from one serialization of the state.
 u8 compute_modifiers() noexcept {
     KeyboardState& keyboard = g.keyboard;
     const XkbApi* api = xkb_api();
     if (!api || !keyboard.state)
         return keyboard.altgr_count ? mod_altgr : 0;
-    const auto active = [&](const char* name) {
-        return api->state_mod_name_is_active(keyboard.state, name, kXkbStateModsEffective) > 0;
-    };
+    const u32 effective = api->state_serialize_mods(keyboard.state, kXkbStateModsEffective);
     u8 mods = 0;
-    if (active("Control"))
-        mods |= mod_ctrl;
-    if (active("Mod1"))
-        mods |= mod_alt;
-    if (active("Shift"))
-        mods |= mod_shift;
-    if (active("Mod4"))
-        mods |= mod_super;
-    if (active("Lock"))
-        mods |= mod_caps;
-    if (active("Mod2"))
-        mods |= mod_num;
+    for (u32 i = 0; i < kModifierNameCount; ++i)
+        if (effective & keyboard.modifier_masks[i])
+            mods |= kModifierNames[i].bit;
     if (keyboard.altgr_count)
         mods |= mod_altgr;
     return mods;
@@ -62,23 +70,6 @@ u8 compute_modifiers() noexcept {
 // The portable key of an evdev key under the active layout and the keysym it produces now.
 Key map_key(u32 evdev, u32* active_symbol) noexcept {
     return xkb_key_for(*xkb_api(), g.keyboard.keymap, g.keyboard.state, evdev, active_symbol);
-}
-
-// Decodes the first code point of UTF-8 text.
-u32 first_code_point(const char* text) noexcept {
-    const u8* bytes = reinterpret_cast<const u8*>(text);
-    if (bytes[0] < 0x80)
-        return bytes[0];
-    u32 length = bytes[0] >= 0xF0 ? 4 : bytes[0] >= 0xE0 ? 3 : bytes[0] >= 0xC0 ? 2 : 0;
-    if (length == 0)
-        return 0;
-    u32 value = bytes[0] & (0xFFu >> (length + 1));
-    for (u32 i = 1; i < length; ++i) {
-        if ((bytes[i] & 0xC0) != 0x80)
-            return 0;
-        value = (value << 6) | (bytes[i] & 0x3Fu);
-    }
-    return value;
 }
 
 u8 event_flags(Key key, u8 mods) noexcept {
@@ -223,6 +214,7 @@ void on_keymap(void*, wl_keyboard*, u32 format, i32 fd, u32 size) noexcept {
             keyboard.level_three_modifier = api->keymap_mod_get_index(keymap, "LevelThree");
             if (keyboard.level_three_modifier == kXkbModifierInvalid)
                 keyboard.level_three_modifier = api->keymap_mod_get_index(keymap, "Mod5");
+            resolve_modifier_masks(*api, keymap);
             keyboard.modifiers = 0;
             if (!keyboard.compose_tried) {
                 keyboard.compose_tried = true;

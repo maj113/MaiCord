@@ -108,6 +108,12 @@ void release_window(GpuDevice* device, GlesSurface* s) noexcept {
         g_wayland_egl_api.destroy(s->window);
 }
 
+// Grants the next frame: the permit's eventfd, and the flag that tells gpu_frame_try_acquire there is one to take.
+void set_clock(GlesSurface* s) noexcept {
+    event_set(s->clock);
+    s->clock_set = true;
+}
+
 } // namespace
 
 GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuSurface* out) {
@@ -154,6 +160,7 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
         return status;
     }
     s.clock = event_create(false, true);
+    s.clock_set = true;
     s.swap_interval = -1;
     s.created = true;
     out->impl = &s;
@@ -214,7 +221,7 @@ GpuStatus gpu_surface_present(GpuSurface* surface, u32 sync_interval, const GpuR
         // Offscreen: the frame is the product; there is nothing to blit or swap, and the next frame may start at once.
         flush_barriers();
         s.needs_full = false;
-        event_set(s.clock);
+        set_clock(&s);
         gles::poll_fences();
         return check_error("present");
     }
@@ -336,19 +343,26 @@ Waitable gpu_frame_clock_waitable(const GpuSurface* surface) {
     return surface->impl ? surface->impl->clock : nullptr;
 }
 
+// Taking the permit reads the eventfd only when something set it since it was last taken: the main loop asks on every
+// turn that wants a frame, and between frame callbacks the answer is known without a ppoll. A wait on the waitable
+// itself may have taken the signal; the flag then stays up and the next take finds the descriptor empty.
 bool gpu_frame_try_acquire(GpuSurface* surface) {
-    return wait_one(surface->impl->clock, 0) == WAIT_OBJECT_0;
+    GlesSurface& s = *surface->impl;
+    if (!s.clock_set)
+        return false;
+    s.clock_set = false;
+    return wait_one(s.clock, 0) == WAIT_OBJECT_0;
 }
 
 // A Wayland surface has no queue of swap slots to exhaust: the swap never blocks, so a present that comes without a
 // frame callback (a resize paints at once) simply goes ahead. The wait takes a callback that has arrived and returns.
 bool gpu_frame_wait(GpuSurface* surface, u32) {
-    (void)wait_one(surface->impl->clock, 0);
+    (void)gpu_frame_try_acquire(surface);
     return true;
 }
 
 void gpu_surface_frame_callback(GpuSurface* surface) {
-    event_set(surface->impl->clock);
+    set_clock(surface->impl);
 }
 
 void gpu_surface_set_frame_request(GpuFrameRequest request, void* context) noexcept {

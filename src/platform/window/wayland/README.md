@@ -23,7 +23,8 @@ global is bound in `on_global` (`window.cpp`), kept in `Backend` (`backend.hpp`)
 
 - The window has no buffers of its own. The GPU backend (`src/gpu/gles`) creates its `wl_egl_window` on `window_surface_native`
   and commits with `eglSwapBuffers`; the window keeps the viewport destination, the opaque region and the buffer scale in step
-  (`surface_sync`, pending state applied by the swap's commit). Never attach or commit a buffer from here.
+  (`surface_sync`, pending state applied by the swap's commit), each sent only when its value changes: the surface keeps it.
+  Never attach or commit a buffer from here.
 - Frame clock: swap interval 0, and one `wl_surface.frame` per present (`window_frame_callback_request` queues it, the swap
   commits it); `frame_done` feeds `gpu_surface_frame_callback`. Do not create objects on the surface that the EGL driver owns:
   NVIDIA's egl-wayland makes the surface's `wp_linux_drm_syncobj_surface_v1` (a second one is the protocol error
@@ -32,6 +33,11 @@ global is bound in `on_global` (`window.cpp`), kept in `Backend` (`backend.hpp`)
 - Features are optional: every protocol except wl_compositor 4, wl_shm and xdg_wm_base is bound when present and silently absent
   otherwise; the call then returns false or does nothing. Never fail the window for a missing integration protocol.
 - Values the compositor sends are applied at the xdg `configure` ack, never in the middle of a sequence.
+- `window_pump` after a `window_wait` reads only what that wait saw ready: the wait read the display itself, and the session
+  bus, instance socket and bus extras it saw idle are not read again (`connection_process(..., readable)`). Descriptors are
+  level-triggered, so whatever arrives later makes the next wait return at once; a pump without a wait before it reads all.
+  After a wait the pump does not flush either: what the listeners asked goes out with the swap's commit or the next wait's
+  flush. Calls whose contract is "at once" (text input, selections, activation, the bell, the icon) flush themselves.
 - New env knobs are test hooks (`test_hook`), not user options.
 
 ## Protocols

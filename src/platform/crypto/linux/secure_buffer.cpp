@@ -417,8 +417,7 @@ void secure_buffer_release(SecureBuffer* buffer) noexcept {
     }
     if (buffer->data) {
         secure_clear_bytes(buffer->data, buffer->capacity);
-        // munlock of pages that were never locked is harmless, so the outcome of the lock is not tracked.
-        sys_munlock(buffer->data, buffer->capacity);
+        // The unmap also drops the lock (mlock(2): a lock lasts until munlock or munmap of the range).
         pages_release(buffer->data, buffer->capacity);
     }
     reset_value<SecureBuffer>(buffer);

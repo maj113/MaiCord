@@ -85,7 +85,8 @@ bool resolve_ssl(const SharedLibrary& library, const char* library_name, Ssl* ta
     return !resolve.failed;
 }
 
-// Opens libcrypto.so.<suffix> into `library` and fills `table`; *failure says why not.
+// Opens libcrypto.so.<suffix> into `library` and fills `table`; *failure says why not. The soname is the version: .3 is
+// OpenSSL 3.x and .4 OpenSSL 4.x (1.1 is libcrypto.so.1.1, never opened).
 bool open_crypto(const char* suffix, SharedLibrary* library, Crypto* table, u32* failure) noexcept {
     char name[32];
     if (!soname(name, "libcrypto", suffix) || !shared_library_open(library, name))
@@ -93,11 +94,6 @@ bool open_crypto(const char* suffix, SharedLibrary* library, Crypto* table, u32*
     if (!resolve_crypto(*library, name, table)) {
         shared_library_close(library);
         *failure = kFailureSymbol;
-        return false;
-    }
-    if (table->OPENSSL_version_major() < 3) {
-        shared_library_close(library);
-        *failure = kFailureVersion;
         return false;
     }
     return true;

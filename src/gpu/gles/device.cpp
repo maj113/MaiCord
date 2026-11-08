@@ -47,14 +47,14 @@ bool open_display(GpuDevice& device) noexcept {
     egl::Int major = 0, minor = 0;
     const char* client_extensions = device.egl.eglQueryString(egl::kNoDisplay, egl::kExtensions);
     // A window system connection first when the caller has one: surfaces can only be made on that display.
-    if (device.native_display && device.egl.eglGetPlatformDisplay) {
+    if (device.native_display) {
         device.display = device.egl.eglGetPlatformDisplay(egl::kPlatformWaylandKhr, device.native_display, nullptr);
         if (device.display && device.egl.eglInitialize(device.display, &major, &minor))
             return true;
         device.display = nullptr;
         device.native_display = nullptr;
     }
-    if (device.egl.eglGetPlatformDisplay && string_has_word(client_extensions, "EGL_MESA_platform_surfaceless")) {
+    if (string_has_word(client_extensions, "EGL_MESA_platform_surfaceless")) {
         device.display = device.egl.eglGetPlatformDisplay(egl::kPlatformSurfacelessMesa, nullptr, nullptr);
         if (device.display && device.egl.eglInitialize(device.display, &major, &minor))
             return true;

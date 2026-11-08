@@ -550,14 +550,25 @@ static void apply_opaque_region() noexcept {
 }
 
 // What the surface needs besides a buffer: the destination size of the viewport (fractional scale) or the integer buffer
-// scale. Both are applied by the next commit, whoever makes it.
+// scale. Both are applied by the next commit, whoever makes it, and kept until another value comes: a configure that
+// leaves the size alone (sway repeats each one after the commit) or a scale change (the same logical size) sends nothing.
 void apply_surface_geometry() noexcept {
     WindowState& window = g.window;
-    if (window.viewport)
-        wp_viewport_set_destination(window.viewport, static_cast<i32>(window.logical_width),
-                                    static_cast<i32>(window.logical_height));
-    else if (g.compositor_version >= wl_surface_set_buffer_scale_since)
-        wl_surface_set_buffer_scale(window.surface, static_cast<i32>(maximum<u32>(window.dpi / kDefaultDpi, 1)));
+    if (window.viewport) {
+        const i32 width = static_cast<i32>(window.logical_width);
+        const i32 height = static_cast<i32>(window.logical_height);
+        if (width != window.viewport_width || height != window.viewport_height) {
+            window.viewport_width = width;
+            window.viewport_height = height;
+            wp_viewport_set_destination(window.viewport, width, height);
+        }
+    } else {  // wl_compositor 4 is bound at least, and wl_surface.set_buffer_scale is version 3
+        const u32 scale = maximum<u32>(window.dpi / kDefaultDpi, 1);
+        if (scale != window.buffer_scale) {
+            window.buffer_scale = scale;
+            wl_surface_set_buffer_scale(window.surface, static_cast<i32>(scale));
+        }
+    }
     apply_opaque_region();
 }
 

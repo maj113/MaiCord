@@ -75,9 +75,9 @@ void dispatch(const WindowEvent& event) noexcept {
     pointer_before_dispatch(event);
     WindowEventResult result{};
     sink_call(event, &result);
-    // What the app answers to size_limits follows its layout: ask again once the events that move it are handled.
-    if (event.type == EventType::resize || event.type == EventType::scale_changed ||
-        event.type == EventType::state_changed)
+    // What the app answers to size_limits follows its layout: ask again once the events that move it are handled. A
+    // resize and a scale change are always followed by the state_changed that carries their geometry, so that one asks.
+    if (event.type == EventType::state_changed)
         apply_size_limits();
     pointer_after_dispatch(event);
     if (event.type == EventType::close_requested && !result.handled) {
@@ -178,8 +178,11 @@ bool window_wait_begin() noexcept {
     while (g_client.display_prepare_read(g.display) != 0)
         g_client.display_dispatch_pending(g.display);
     g.read_prepared = true;
-    if (g_client.display_flush(g.display) < 0 && g_client.display_get_error(g.display) != 0)
+    if (g_client.display_flush(g.display) >= 0)
+        return false;
+    if (g_client.display_get_error(g.display) != 0)
         connection_check();
+    return true;
 }
 
 void window_wait_end(bool display_ready) noexcept {
@@ -226,7 +229,7 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
         return result;
     }
 
-    window_wait_begin();
+    const bool flush_pending = window_wait_begin();
     const u64 now = clock_monotonic_milliseconds();
     const u32 repeat_ms = keyboard_repeat_wait_ms(now);
     if (work_pending() || repeat_ms == 0) {
@@ -246,7 +249,13 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
     all[total++] = loop_wake_waitable();
     u32 repeat_bit = ~0u;
     if (repeat_ms != kRepeatNever) {
-        if (timer_arm(keyboard_repeat_waitable(), repeat_ms, 0)) {
+        // The timer keeps an expiry nothing consumed: it is armed again only for another deadline (a key pressed or
+        // repeated since), not on every turn that waits while a key is held.
+        KeyboardState& keyboard = g.keyboard;
+        const u64 due = now + repeat_ms;
+        if (keyboard.repeat_armed_at != due)
+            keyboard.repeat_armed_at = timer_arm(keyboard_repeat_waitable(), repeat_ms, 0) ? due : 0;
+        if (keyboard.repeat_armed_at == due) {
             repeat_bit = total;
             all[total++] = keyboard_repeat_waitable();
         } else if (repeat_ms < timeout_ms) {
@@ -254,7 +263,7 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
         }
     }
     // A flush that could not send everything leaves requests buffered: look again soon instead of sleeping on.
-    if (g_client.display_flush(g.display) < 0 && timeout_ms > 4)
+    if (flush_pending && timeout_ms > 4)
         timeout_ms = 4;
     // The session bus: its traffic wakes the loop (window_input), and a call timeout or a reconnect bounds the sleep.
     u32 bus_bit = ~0u;
@@ -297,6 +306,8 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
     result.ready_mask = waited.ready_mask & ((1ull << count) - 1);
     const bool woken = (waited.ready_mask >> wake_bit) & 1;
     const bool repeat_fired = repeat_bit != ~0u && ((waited.ready_mask >> repeat_bit) & 1);
+    if (repeat_fired || waited.failed)
+        g.keyboard.repeat_armed_at = 0;  // the wait consumed the expiry (or its state is unknown): arm again next time
     const u64 extra_mask = extra_count ? ((1ull << extra_count) - 1) << extra_first : 0;
     const bool bus_ready = (bus_bit != ~0u && ((waited.ready_mask >> bus_bit) & 1)) ||
                            (instance_bit != ~0u && ((waited.ready_mask >> instance_bit) & 1)) ||

@@ -1,12 +1,10 @@
 #include "maicord/core/heap.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/shared_library.hpp"
 #include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/open_uri.hpp"
 #include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/dbus/session.hpp"
-#include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 
 namespace maicord::dbus {
@@ -14,60 +12,18 @@ namespace {
 
 constexpr u32 kMaxUriBytes = 4096;
 constexpr u32 kPortalTimeoutMs = 30000;
-constexpr long kCallRtSigaction = 13;
-constexpr int kSignalChild = 17;
-
-using SpawnFunction = int (*)(int* pid, const char* file, const void* actions, const void* attributes,
-                              char* const argv[], char* const environment[]);
-
-struct KernelSigaction {
-    u64 handler;
-    u64 flags;
-    u64 restorer;
-    u64 mask;
-};
-
-SharedLibrary g_libc;
-SpawnFunction g_spawn;
-bool g_spawn_resolved;
-bool g_children_ignored;
-
-bool resolve_spawn() noexcept {
-    if (g_spawn_resolved)
-        return g_spawn != nullptr;
-    g_spawn_resolved = true;
-    // libc is loaded already: opening it again only gives its handle.
-    if (shared_library_open(&g_libc, "libc.so.6"))
-        g_spawn = reinterpret_cast<SpawnFunction>(shared_library_symbol(g_libc, "posix_spawnp"));
-    return g_spawn != nullptr;
-}
 
 // xdg-open, with the URI as its only argument.
 bool spawn_xdg_open(const char* uri) noexcept {
-    if (!resolve_spawn()) {
-        log_write(LogLevel::warning, "open_uri", "posix_spawnp is not available");
-        return false;
-    }
-    if (!g_children_ignored) {
-        g_children_ignored = true;
-        KernelSigaction action{};
-        action.handler = 1;  // SIG_IGN: children are reaped by the kernel
-        syscall4(kCallRtSigaction, kSignalChild, reinterpret_cast<long>(&action), 0, 8);
-    }
     char program[] = "xdg-open";
     char* argv[3] = {program, const_cast<char*>(uri), nullptr};
-    int pid = 0;
-    const int result = g_spawn(&pid, "xdg-open", nullptr, nullptr, argv, process_startup().environment);
+    const int result = process_spawn_detached(program, argv, true);
     if (result != 0) {
         log_u64(LogLevel::warning, "open_uri", "xdg-open could not start, error", static_cast<u64>(result));
         return false;
     }
     return true;
 }
-
-struct Pending {
-    char uri[kMaxUriBytes];
-};
 
 void on_portal_reply(void* context, Status status, const Message* reply) noexcept {
     char* uri = static_cast<char*>(context);

@@ -16,6 +16,7 @@
 #include "../../../src/platform/audio/pulse/pulse.hpp"
 #include "../../../src/platform/audio/pulse/timing.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/core/shared_library.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/platform/audio/media_audio.hpp"
@@ -205,8 +206,24 @@ void module_unloaded(pulse::Context*, i32, void* userdata) noexcept {
     InterlockedExchange(&static_cast<ModuleReply*>(userdata)->done, 1);
 }
 
+// The module calls only this test makes, so the backend's table (pulse/abi.hpp) does not carry them: looked up in the
+// libpulse the backend has open (opening it again only adds a reference, which is dropped at once).
+using ModuleIndexCb = void (*)(pulse::Context*, u32 index, void*) noexcept;
+using LoadModule = pulse::Operation* (*)(pulse::Context*, const char*, const char*, ModuleIndexCb, void*) noexcept;
+using UnloadModule = pulse::Operation* (*)(pulse::Context*, u32, pulse::ContextSuccessCb, void*) noexcept;
+
+template <typename Function> Function pulse_function(const char* name) noexcept {
+    SharedLibrary library{};
+    void* address = shared_library_open(&library, "libpulse.so.0") ? shared_library_symbol(library, name) : nullptr;
+    shared_library_close(&library);
+    return reinterpret_cast<Function>(address);
+}
+
 // Loads module-null-sink for `name`; pulse::kInvalid when the server refuses.
 u32 load_null_sink(pulse::Session& session, const char* name) noexcept {
+    const auto load_module = pulse_function<LoadModule>("pa_context_load_module");
+    if (!load_module)
+        return pulse::kInvalid;
     char arguments[160];
     u32 length = 0;
     const char* const parts[] = {"sink_name=", name, " rate=48000 channels=2 sink_properties=device.description=MaiCord-test"};
@@ -217,8 +234,7 @@ u32 load_null_sink(pulse::Session& session, const char* name) noexcept {
     ModuleReply reply{0, pulse::kInvalid};
     {
         pulse::Lock lock(session);
-        pulse::Operation* operation =
-            pulse::api()->pa_context_load_module(session.context, "module-null-sink", arguments, module_loaded, &reply);
+        pulse::Operation* operation = load_module(session.context, "module-null-sink", arguments, module_loaded, &reply);
         if (!operation)
             return pulse::kInvalid;
         pulse::api()->pa_operation_unref(operation);
@@ -228,13 +244,13 @@ u32 load_null_sink(pulse::Session& session, const char* name) noexcept {
 }
 
 void unload_module(pulse::Session& session, u32 index) noexcept {
-    if (index == pulse::kInvalid)
+    const auto unload = pulse_function<UnloadModule>("pa_context_unload_module");
+    if (index == pulse::kInvalid || !unload)
         return;
     ModuleReply reply{0, 0};
     {
         pulse::Lock lock(session);
-        pulse::Operation* operation =
-            pulse::api()->pa_context_unload_module(session.context, index, module_unloaded, &reply);
+        pulse::Operation* operation = unload(session.context, index, module_unloaded, &reply);
         if (!operation)
             return;
         pulse::api()->pa_operation_unref(operation);
