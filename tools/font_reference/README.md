@@ -521,6 +521,10 @@ fonts (HVAR, rounding, compressed hmtx tails, empty MVAR). The corpus embeds tho
 fixtures only; the installed Bahnschrift file is read for separate differential
 checks. Font-file mode emits weights 400 and 600, four decoration fields and all
 advances using native readers; decoration field rounding is done in the QA harness.
+The committed advances are HarfBuzz's, not Windows': HVAR is indexed by glyph ID
+even in the compressed hmtx tail, and negative results clamp to zero. Windows
+indexes the tail by the last long metric and wraps negatives, so a Windows
+re-export differs there; the gvar phantom-advance fixture clamps negatives too.
 
 ```powershell
 python tools/font_reference/metric_variations_oracle.py <output> --exe <bin>/MaiCordFeaturePlanReference.exe --header tests/generated/metric_variations_fixture.inc
@@ -612,43 +616,3 @@ native bold in the renderer. Most take an output `<root>` directory first and
   `orientation_first_party.py ... --output <path>` builds the native fixture.
 - `bold_outline_fixture.py ... --headers <two paths>`: nested, overlapping and
   reflected-component bold fixtures.
-
-## Script analysis observers
-
-`script_analysis_reference.cpp` and `script_sequence_reference.cpp` are not built by
-`cmake/reference_tools.cmake` or any other CMake file. Each defines its own entry
-point (`maicord_script_analysis_reference_entry`,
-`maicord_script_sequence_reference_entry`); the sequence source includes
-`script_analysis_reference.cpp`.
-Both use an isolated DirectWrite factory. Layouts are little-endian. A
-packed script ID is the DirectWrite script index with `0x8000` set for
-`DWRITE_SCRIPT_SHAPES_NO_VISUAL`; `0xffff` marks an unobserved slot. Binary outputs
-end with a `u32` count and that many 20-byte `DWRITE_SCRIPT_PROPERTIES`. Scalars
-are valid Unicode scalar values (no surrogates, at most `0x10ffff`).
-
-- `script_analysis_reference` (no input): header `MSA1` (`0x3141534d`), `1`, 8
-  contexts, `0x110000` scalars, 6 bytes per row; the context scalars (`0, 0x61,
-  0x628, 0x5d0, 0x4e2d, 0x915, 0xe01, 0x3042`); then, for each scalar and context,
-  three packed IDs (before, scalar, after). Stderr says `PASS exhaustive script
-  analysis` or `FAIL script analysis`. Exit 0 or 1.
-- `script_sequence_reference`: stdin `MSQ1` (`0x3151534d`), case count (up to
-  1,000,000), per case a scalar count (1 to 4096) and the scalars. Stdout echoes
-  the header, then per case the count and one packed ID per scalar (en-US, left to
-  right, no font selection). Exit 0 or 1.
-
-`script_fixtures.py` turns these observations and a Unicode dump into a compact
-compatibility table and standalone native replay fixtures:
-
-```powershell
-python tools/font_reference/script_fixtures.py --scalars <scalars.bin> --unicode-dump <unicode-dump.bin> --unicode-header include/maicord/text/unicode/generated/unicode_data.hpp --sequences <sequences.bin> --sequence-results <sequence-results.bin> --output <directory>
-```
-
-`--scalars` and `--sequence-results` are the outputs of `script_analysis_reference`
-and `script_sequence_reference` (run on `--sequences`). `--unicode-dump` must start
-with `MCUCD17\0` or `MCUCDS1\0`; other layouts are rejected, including the
-`MCUCDS2` dump documented in `tools/unicode/README.md`. Output:
-`script_compat_data.inc`, `classes.bin` (`NCS1`), `contexts.bin` (`NSC1`),
-`resolved.bin` (`NSR1`) and `script-fixtures.json` (hashes).
-`MaiCordScriptTests.exe <classes.bin|contexts.bin|resolved.bin>` replays one
-generated file against the native script classes and resolution (no argument: the
-built-in checks) and asserts that `dwrite.dll` is not loaded.

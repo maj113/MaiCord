@@ -18,8 +18,10 @@ namespace {
 bool g_browser_invisibles=false;
 bool filler(u32 cp) noexcept {return cp==0x115f||cp==0x1160;}
 // A UTF-8 lead byte that can start a scalar text_hide_default_ignorables hides
-// (or replaces); text without one is returned unchanged without decoding.
-constexpr bool candidate_lead(u8 b) noexcept {return b==0xc2||b==0xd8||b==0xe1||b==0xe2||b==0xe3||b==0xef||b==0xf0||b==0xf3;}
+// (or replaces); text without one is returned unchanged without decoding. Of
+// the four-byte F0 scalars only U+1BCA0-1BCA3 (F0 9B) and U+1D173-1D17A (F0 9D)
+// can hide, so emoji and other supplementary text does not qualify.
+constexpr bool candidate_lead(u8 b) noexcept {return b==0xc2||b==0xd8||b==0xe1||b==0xe2||b==0xe3||b==0xef||b==0xf3;}
 // A conjoining jamo other than the fillers; fillers next to one (possibly via
 // other fillers) belong to the syllable the shaper composes.
 bool conjoining_jamo(u32 cp) noexcept {return (cp-0x1100u<0x100||cp-0xa960u<0x20||cp-0xd7b0u<0x50)&&!filler(cp);}
@@ -54,21 +56,23 @@ bool text_browser_invisibles() noexcept {return g_browser_invisibles;}
 u32 text_hide_default_ignorables(Utf8View input,Slice<char> output) noexcept {
     if(!input.data||!input.bytes)return 0;
     bool candidate=false;
-    for(u32 i=0;i<input.bytes&&!candidate;++i)candidate=candidate_lead(static_cast<u8>(input.data[i]));
+    for(u32 i=0;i<input.bytes&&!candidate;++i){const u8 b=static_cast<u8>(input.data[i]);
+        candidate=b==0xf0?i+1<input.bytes&&(static_cast<u8>(input.data[i+1])==0x9b||static_cast<u8>(input.data[i+1])==0x9d):candidate_lead(b);}
     if(!candidate)return 0;
     u32 previous=0,solid=0,changed=0;bool tagged=false;
     for(u32 at=0;at<input.bytes;){const auto cp=utf8_decode_one(input.data+at,input.bytes-at);if(!cp.valid||!cp.width)return changed?~0u:0;
         // Fillers look past adjacent fillers to the jamo they join.
         const bool joins=filler(cp.codepoint);u32 next=0;
-        for(u32 ahead=at+cp.width;ahead<input.bytes;){const auto n=utf8_decode_one(input.data+ahead,input.bytes-ahead);if(!n.valid||!n.width)break;
-            next=n.codepoint;if(!joins||!filler(next))break;ahead+=n.width;}
+        if(joins)for(u32 ahead=at+cp.width;ahead<input.bytes;){const auto n=utf8_decode_one(input.data+ahead,input.bytes-ahead);if(!n.valid||!n.width)break;
+            next=n.codepoint;if(!filler(next))break;ahead+=n.width;}
         // Tag characters only continue an emoji tag sequence begun by U+1F3F4
         // (subdivision flags); any other tag, and the deprecated language tag
-        // U+E0001, has no glyph sequence and would draw as .notdef.
+        // U+E0001, has no glyph sequence and would draw as .notdef. A one-byte
+        // scalar is never replaced.
         const bool tag=cp.codepoint==0xe0001||cp.codepoint-0xe0020u<96;
-        const bool hide=tag?cp.codepoint==0xe0001||!tagged:hidden(joins?solid:previous,cp.codepoint,next);
+        const bool hide=cp.width>=2&&(tag?cp.codepoint==0xe0001||!tagged:hidden(joins?solid:previous,cp.codepoint,next));
         tagged=cp.codepoint==0x1f3f4||(tagged&&cp.codepoint-0xe0020u<95);
-        if(cp.width>=2&&hide){
+        if(hide){
             if(!changed){if(output.count<input.bytes||!output.data)return ~0u;for(u32 i=0;i<at;++i)output[i]=input.data[i];}
             // U+034F COMBINING GRAPHEME JOINER (one, or two for a supplementary
             // scalar) or U+200C (zero width, no break before it like a selector):

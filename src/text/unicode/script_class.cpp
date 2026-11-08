@@ -1,18 +1,10 @@
 #include "maicord/text/unicode/script.hpp"
 #include "maicord/text/layout/visibility.hpp"
-namespace maicord {namespace {
-struct ScriptOverride {u32 first,last_script;};
-#include "generated/script_compat_data.inc"
-}
+namespace maicord {
+// The Unicode Script property (UAX #24), with Common and Inherited resolved from context.
 NativeScriptClass native_script_class(u32 cp) noexcept {
     if(!unicode_is_scalar(cp))return {UnicodeScript::zzzz,native_script_invalid};
     if(native_text_nonvisual(cp))return {UnicodeScript::zyyy,native_script_nonvisual};
-    if(cp>=script_overrides[0].first){
-        u32 lo=0,hi=sizeof(script_overrides)/sizeof(script_overrides[0]);
-        while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(script_overrides[mid].first<=cp)lo=mid+1;else hi=mid;}
-        if(lo){const u32 value=script_overrides[lo-1].last_script;
-            if(cp<=(value&0x1fffffu))return {static_cast<UnicodeScript>(value>>21),0};}
-    }
     const auto* properties=unicode_properties(cp);const auto script=properties->script();
     const u8 selector=properties->has(UnicodeFlag::variation_selector)?native_script_selector:0;
     if(script==UnicodeScript::zyyy||script==UnicodeScript::zinh)return {UnicodeScript::zzzz,static_cast<u8>(native_script_contextual|selector)};

@@ -59,12 +59,17 @@ bool native_devanagari_corpus(AppSystem system) noexcept {
         utf8_literal("క్‍ష క్‌ష"),utf8_literal("తెలుగు\r\nభాష"),utf8_literal("A తెలుగు 😀 B"),
         utf8_literal("ి ై ్ ౕ"),utf8_literal("(తెలుగు) [భాష]"),utf8_literal("తెలుగు\tభాష  "),
         utf8_literal("తెలుగు ଓଡ଼ିଆ ਪੰਜਾਬੀ ગુજરાતી हिन्दी বাংলা தமிழ்"),utf8_literal("\u202eతెలుగు కి కై\u202c"),utf8_literal("אב తెలుగు భాష גד"),
-        utf8_literal("\u202eక్‍ష క్‌ష\u202c"),utf8_literal("క్రై క్ర్రై క్‍కి"),utf8_literal("కొ కౌ కృ కౄ కాు కైు కైంఁఁ‌")};
+        // Windows replaces a sign after the first vowel sign with a space when a
+        // non-joiner ends the cluster; that case is checked against HarfBuzz in
+        // tests/text/scripts/telugu_shape_units.inc instead.
+        utf8_literal("\u202eక్‍ష క్‌ష\u202c"),utf8_literal("క్రై క్ర్రై క్‍కి"),utf8_literal("కొ కౌ కృ కౄ కాు కైు కైంఁఁ")};
     const Utf8View odia[]{utf8_literal("ଓଡ଼ିଆ ଭାଷା"),utf8_literal("କି କୀ କୁ କୂ କୈ"),utf8_literal("କ୍ଷେତ୍ର ଶ୍ରଦ୍ଧା"),
         utf8_literal("କ୍‍ଷ କ୍‌ଷ"),utf8_literal("ଓଡ଼ିଆ\r\nଭାଷା"),utf8_literal("A ଓଡ଼ିଆ 😀 B"),
         utf8_literal("ି ୌ ୍ ୕"),utf8_literal("(ଓଡ଼ିଆ) [ଭାଷା]"),utf8_literal("ଓଡ଼ିଆ\tଭାଷା  "),
         utf8_literal("ଓଡ଼ିଆ ਪੰਜਾਬੀ ગુજરાતી हिन्दी বাংলা தமிழ்"),utf8_literal("\u202eଓଡ଼ିଆ କି କୌ\u202c"),utf8_literal("אב ଓଡ଼ିଆ ଭାଷା גד"),
-        utf8_literal("\u202eକ୍‍ଷ କ୍‌ଷ\u202c"),utf8_literal("ର୍କି କ୍ଯୁଁ କ୍କୁଁ"),utf8_literal("ରୁୀଁ କେ୕ୗଃ କ୕୍୕ୗ")};
+        // Windows duplicates candrabindu over a later vowel sign (ରୁୀଁ); that case is
+        // checked against HarfBuzz in tests/text/scripts/odia_shape_units.inc instead.
+        utf8_literal("\u202eକ୍‍ଷ କ୍‌ଷ\u202c"),utf8_literal("ର୍କି କ୍ଯୁଁ କ୍କୁଁ"),utf8_literal("କେ୕ୗଃ କ୕୍୕ୗ")};
     const Utf8View gurmukhi[]{utf8_literal("ਪੰਜਾਬੀ ਭਾਸ਼ਾ"),utf8_literal("ਕਿ ਕੀ ਕੁ ਕੂ ਕੈ"),utf8_literal("ਪ੍ਰਾਰਥਨਾ ਸ਼ਰਧਾ"),
         utf8_literal("ਕ੍‍ਸ਼ ਕ੍‌ਸ਼"),utf8_literal("ਪੰਜਾਬੀ\r\nਭਾਸ਼ਾ"),utf8_literal("A ਪੰਜਾਬੀ 😀 B"),
         utf8_literal("ਿ ੍ ੑ ੵ"),utf8_literal("(ਪੰਜਾਬੀ) [ਭਾਸ਼ਾ]"),utf8_literal("ਪੰਜਾਬੀ\tਭਾਸ਼ਾ  "),

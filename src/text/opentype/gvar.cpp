@@ -173,7 +173,9 @@ SfntStatus sfnt_gvar_design_advance(const SfntTrueType& font,const SfntGvarInsta
     // font and instance come from the same geometry: matching glyph counts, a validated loca and prepared scalars.
     if(glyph>=instance.font.glyph_count)return SfntStatus::glyph_out_of_range;
     u16 chain[64];Advance advance{};const auto status=glyph_advance(font,instance,glyph,{chain,64},0,&advance,work);if(status!=SfntStatus::ok)return status;
-    if(!(advance.x>=-9.e15&&advance.x<=9.e15))return SfntStatus::malformed;*output=static_cast<u16>(static_cast<i64>(round_value(advance.x)));return SfntStatus::ok;
+    const double value=round_value(advance.x);if(!(value>=-9.e15&&value<=9.e15))return SfntStatus::malformed;
+    // A uint16 advance clamps rather than wrapping (as sfnt_hvar_design_advance; HarfBuzz).
+    *output=static_cast<u16>(value<0?0:value>65535?65535:value);return SfntStatus::ok;
 }
 // Ends are the decoder's absolute contour ends (ascending, the last one closing the points) or empty
 // for composites; scratch and output are caller storage, so only data-dependent limits are checked.
