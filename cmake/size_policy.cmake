@@ -259,13 +259,11 @@ if(MAICORD_LINUX)
             src/os/linux/ordinal.cpp src/os/linux/pages.cpp src/os/linux/process.cpp src/platform/time/tzif.cpp
             src/gpu/gles/device.cpp src/gpu/gles/loader.cpp src/gpu/gles/shader_pack.cpp src/gpu/gles/surface.cpp
             src/gpu/gles/sync.cpp
-            src/platform/audio/speechd/speech.cpp
             src/platform/crypto/linux/random.cpp src/platform/crypto/linux/secure_buffer.cpp
             src/platform/crypto/openssl/openssl.cpp src/platform/crypto/openssl/kdf_sha256.cpp
             src/platform/crypto/openssl/p256.cpp src/platform/crypto/openssl/remote_auth_crypto.cpp
             src/platform/net/linux/tls_client.cpp
-            src/platform/decode/linux/aac_decoder.cpp src/platform/decode/linux/gpu_stream_decoder.cpp
-            src/platform/decode/linux/mp4_decoder.cpp src/platform/decode/linux/software_stream.cpp
+            src/platform/decode/linux/aac_decoder.cpp
             src/text/fonts/linux/handle_stat.cpp
             # The Windows build holds these in maicord_ui (and so compacts them); Linux's maicord_theme and
             # maicord_text_system hold them next to sources that stay -O2.

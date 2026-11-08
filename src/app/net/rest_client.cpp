@@ -441,7 +441,7 @@ RestClientTakeResult rest_client_take_response(RestClient* client,
     copy_bytes(body_output.data, runtime->response_body, runtime->completed.body_bytes);
     *response = runtime->completed;
     const u32 body_bytes = runtime->completed.body_bytes;
-    release_completed_response(client, runtime, body_bytes);
+    release_completed_response(client, runtime);
     return RestClientTakeResult{body_bytes, RestClientTakeError::none};
 }
 
@@ -474,7 +474,7 @@ RestClientSubmitResult rest_client_prepare_logout(RestClient* client,
         // The ready mailbox is only read by this UI-thread drain.
         // Discarding uses the same secure erasure as a normal response take,
         // without copying unrelated plaintext into a logout output bank.
-        release_completed_response(client, runtime, runtime->completed.body_bytes);
+        release_completed_response(client, runtime);
         runtime->logout_preempt_id = 0;
         return {RestClientSubmitError::none};
     }
@@ -513,7 +513,7 @@ RestClientTakeResult rest_client_take_logout_response(
         return {0, RestClientTakeError::empty};
     *response = runtime->completed;
     const u32 bytes = runtime->completed.body_bytes;
-    release_completed_response(client, runtime, bytes);
+    release_completed_response(client, runtime);
     return {bytes, RestClientTakeError::none};
 }
 
@@ -532,7 +532,7 @@ RestClientTakeResult rest_client_consume_user_auth_response(
         return RestClientTakeResult{body_bytes, RestClientTakeError::consumer_rejected};
     }
     *response = runtime->completed;
-    release_completed_response(client, runtime, body_bytes);
+    release_completed_response(client, runtime);
     return RestClientTakeResult{body_bytes, RestClientTakeError::none};
 }
 

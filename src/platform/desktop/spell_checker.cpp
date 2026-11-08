@@ -44,10 +44,11 @@ bool spell_checker_choose_language(const wchar_t* locale, bool (*supported)(void
                                    void* context, Slice<wchar_t> output) noexcept {
     if (!supported || !output.data || output.count < 2)
         return false;
-    wchar_t candidate[kSpellCheckerLanguageChars]{};
+    wchar_t candidate[kSpellCheckerLanguageChars];
     const u32 length = locale ? wide_length(locale, kSpellCheckerLanguageChars - 1) : 0;
     if (length) {
         copy_bytes(candidate, locale, length * sizeof(wchar_t));
+        candidate[length] = 0;
         if (supported(context, candidate))
             return copy_tag(output, candidate, length);
         u32 base = 0;
@@ -80,7 +81,7 @@ bool spell_checker_open(SpellChecker* spell) noexcept {
         !factory)
         return false;
     spell->factory = static_cast<ISpellCheckerFactory*>(factory);
-    wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
+    wchar_t locale[LOCALE_NAME_MAX_LENGTH];  // NUL-terminated by the call, or emptied when it fails
     if (!GetUserDefaultLocaleName(locale, LOCALE_NAME_MAX_LENGTH))
         locale[0] = 0;
     ISpellChecker* checker = nullptr;

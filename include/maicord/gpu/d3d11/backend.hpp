@@ -98,7 +98,6 @@ struct GpuPagedTexture {
     GpuUav* uav;
     GpuBuffer* pool;
     GpuQuery* unmapped;
-    u32 width;
     u32 page_rows;
     u32 band_rows;
     u32 tiles_across;

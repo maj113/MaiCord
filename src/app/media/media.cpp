@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild/invite_card_cache.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
-#include "pump.hpp"
+#include "requests_internal.hpp"
 #include "../chat/channel_authority.hpp"
 #include "../account/profile.hpp"
 #include "../guild/banner.hpp"
@@ -551,14 +551,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             AvatarMedia media;
             if (!search_avatar_media_resolve(search, slot, &media))
                 continue;
-            bool force = false;
-            if ((media.key.flags & media_asset_flag_animated) &&
-                animation_resident(media.key, &force))
-                continue;
-            if (!visibility_only && uploads >= kMessageMediaUploadBudget)
-                return true;
-            if (!proceed(request_visible_avatar_media(media.key, media.hash, &stop, force)))
-                return outcome;
+            const ScanStep step = request_scene_avatar(*this, media.key, media.hash, &stop);
+            if (step != ScanStep::next)
+                return step == ScanStep::stopped;
         }
     }
 

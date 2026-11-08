@@ -296,6 +296,9 @@ NetworkResult network_datagram_receive(NetworkDatagram* datagram, Slice<u8> buff
 // Posts a read on slot (0 is network_datagram_receive). Completions report it
 // in NetworkCompletion::datagram_slot.
 NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot, Slice<u8> buffer) noexcept;
+inline NetworkResult network_datagram_receive(NetworkDatagram* datagram, Slice<u8> buffer) noexcept {
+    return network_datagram_receive_slot(datagram, 0, buffer);
+}
 // Best-effort SO_RCVBUF so kernel buffering absorbs video packet bursts.
 bool network_datagram_set_receive_buffer(NetworkDatagram* datagram, u32 bytes) noexcept;
 NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> buffer) noexcept;

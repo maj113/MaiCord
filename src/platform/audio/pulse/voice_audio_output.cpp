@@ -29,11 +29,8 @@ struct Engine {
     pulse::Track track;
 };
 
-void close_track(Engine& e) noexcept {
-    pulse::track_close(&e.track);
-}
 void close_engine(Engine& e) noexcept {
-    close_track(e);
+    pulse::track_close(&e.track);
     pulse::session_close(&e.session);
 }
 
@@ -76,7 +73,7 @@ bool open_stream(Runtime& r, Engine& e) noexcept {
     if (!pulse::track_open_playback(&e.session, &e.track, config, &error) ||
         !pulse::track_wait_ready(&e.track, r.stop, kServerTimeoutMs, &error) || !fill(r, e) ||
         !pulse::track_cork(&e.track, false)) {
-        close_track(e);
+        pulse::track_close(&e.track);
         return false;
     }
     return true;

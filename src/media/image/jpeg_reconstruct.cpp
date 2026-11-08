@@ -1,5 +1,7 @@
 #include "jpeg_internal.hpp"
 
+#include "maicord/core/byte_order.hpp"
+
 namespace maicord {
 using namespace jpeg_detail;
 
@@ -33,22 +35,93 @@ u8 clamp_sample(float value) noexcept {
     return value <= 0.f ? 0 : value >= 255.f ? 255 : static_cast<u8>(value);
 }
 
-// Box averages of an IDCT block, each summed in y-then-x order. A constant
-// sample count unrolls the sums into independent chains.
-template <u32 Samples> void store_box_totals(const float* columns, u8* plane, u32 pitch) noexcept {
+// The box average of the 8x8 IDCT over step x step pixels is separable too:
+// sample (sy, sx) = sum over v, u of M[sy][v] M[sx][u] C[v][u], where M[s][u]
+// is the mean of kIdctBasis[x][u] over the s-th box of x (zero for u = 4, and
+// for u = 2 and 6 at two samples, which the vertical pass skips).
+template <u32 Samples> struct BoxBasis {
+    float values[Samples][8];
+};
+template <u32 Samples> constexpr BoxBasis<Samples> box_basis() noexcept {
+    BoxBasis<Samples> result{};
     constexpr u32 step = 8 / Samples;
-    constexpr float scale = 1.f / static_cast<float>(step * step);
-    for (u32 sy = 0; sy < Samples; ++sy)
-        for (u32 sx = 0; sx < Samples; ++sx) {
-            float total = 0;
-            for (u32 y = sy * step; y < (sy + 1) * step; ++y)
-                for (u32 x = sx * step; x < (sx + 1) * step; ++x)
-                    total += columns[y * 8 + x];
-            plane[sy * pitch + sx] = clamp_sample(total * scale + 128.f);
+    for (u32 s = 0; s < Samples; ++s)
+        for (u32 u = 0; u < 8; ++u) {
+            double total = 0;
+            for (u32 x = s * step; x < (s + 1) * step; ++x)
+                total += kIdctBasis[x][u];
+            result.values[s][u] = static_cast<float>(total / step);
         }
+    return result;
+}
+template <u32 Samples> alignas(32) inline constexpr BoxBasis<Samples> kBoxBasis = box_basis<Samples>();
+
+// {sum a, sum b, sum c, sum d} over eight lanes each.
+inline __m128 lane_sums(__m256 a, __m256 b, __m256 c, __m256 d) noexcept {
+    // {a0+a2, b0+b2, a1+a3, b1+b3 | a4+a6, b4+b6, a5+a7, b5+b7}, and likewise for c and d.
+    const __m256 ab = _mm256_add_ps(_mm256_unpacklo_ps(a, b), _mm256_unpackhi_ps(a, b));
+    const __m256 cd = _mm256_add_ps(_mm256_unpacklo_ps(c, d), _mm256_unpackhi_ps(c, d));
+    // {a0..3, b0..3, c0..3, d0..3 | a4..7, b4..7, c4..7, d4..7}
+    const __m256 sums = _mm256_add_ps(_mm256_shuffle_ps(ab, cd, 0x44), _mm256_shuffle_ps(ab, cd, 0xEE));
+    const __m256 totals = _mm256_add_ps(sums, _mm256_permute2f128_ps(sums, sums, 0x01));
+    return __builtin_shufflevector(totals, totals, 0, 1, 2, 3);
 }
 
-// Exact 8x8 IDCT, box-averaged to samples x samples (DC alone at one sample).
+// clamp_sample(value + 128) of a then b, as eight bytes in the low half.
+inline __m128i sample_bytes(__m128 a, __m128 b) noexcept {
+    const __m128 bias = _mm_set1_ps(128.f), half = _mm_set1_ps(.5f), zero = _mm_setzero_ps(),
+                 top = _mm_set1_ps(255.f);
+    const auto lanes = [&](__m128 value) noexcept {
+        return _mm_cvttps_epi32(
+            _mm_min_ps(_mm_max_ps(_mm_add_ps(_mm_add_ps(value, bias), half), zero), top));
+    };
+    const __m128i words = _mm_packs_epi32(lanes(a), lanes(b));
+    return _mm_packus_epi16(words, words);
+}
+
+// Dequantized coefficients (rows of eight) to Samples x Samples box averages:
+// a vertical pass per sample row (lanes u), then dot products with M[sx]. Box
+// Samples - 1 - s mirrors box s (M[Samples - 1 - s][v] = (-1)^v M[s][v]), so the
+// vertical pass sums even and odd v apart and takes both rows from the two sums.
+template <u32 Samples> void reconstruct_boxes(const float* coefficients, u8* plane, u32 pitch) noexcept {
+    const auto& m = kBoxBasis<Samples>.values;
+    __m256 q[Samples];
+    for (u32 s = 0; s < Samples / 2; ++s) {
+        __m256 even = _mm256_mul_ps(_mm256_set1_ps(m[s][0]), _mm256_load_ps(coefficients));
+        __m256 odd = _mm256_mul_ps(_mm256_set1_ps(m[s][1]), _mm256_load_ps(coefficients + 8));
+        for (u32 v = 2; v < 8; ++v) {
+            if (m[s][v] == 0.f)
+                continue;
+            const __m256 term = _mm256_mul_ps(_mm256_set1_ps(m[s][v]), _mm256_load_ps(coefficients + v * 8));
+            if (v & 1)
+                odd = _mm256_add_ps(odd, term);
+            else
+                even = _mm256_add_ps(even, term);
+        }
+        q[s] = _mm256_add_ps(even, odd);
+        q[Samples - 1 - s] = _mm256_sub_ps(even, odd);
+    }
+    const auto basis = [&](u32 s) noexcept { return _mm256_load_ps(m[s]); };
+    if constexpr (Samples == 2) {
+        const __m128 samples = lane_sums(_mm256_mul_ps(q[0], basis(0)), _mm256_mul_ps(q[0], basis(1)),
+                                         _mm256_mul_ps(q[1], basis(0)), _mm256_mul_ps(q[1], basis(1)));
+        const u32 bytes = static_cast<u32>(_mm_cvtsi128_si32(sample_bytes(samples, samples)));
+        byte_store_le16(plane, static_cast<u16>(bytes));
+        byte_store_le16(plane + pitch, static_cast<u16>(bytes >> 16));
+    } else {
+        const auto row = [&](u32 sy) noexcept {
+            return lane_sums(_mm256_mul_ps(q[sy], basis(0)), _mm256_mul_ps(q[sy], basis(1)),
+                             _mm256_mul_ps(q[sy], basis(2)), _mm256_mul_ps(q[sy], basis(3)));
+        };
+        for (u32 sy = 0; sy < Samples; sy += 2) {
+            const u64 bytes = static_cast<u64>(_mm_cvtsi128_si64(sample_bytes(row(sy), row(sy + 1))));
+            byte_store_le32(plane + sy * pitch, static_cast<u32>(bytes));
+            byte_store_le32(plane + (sy + 1) * pitch, static_cast<u32>(bytes >> 32));
+        }
+    }
+}
+
+// The exact 8x8 IDCT, or its box averages to samples x samples (DC alone at one sample).
 void reconstruct_block(const JpegCoefficientBlock& block, const JpegQuantizationTable& table, u32 samples,
                        u8* plane, u32 pitch) noexcept {
     if (samples == 1) {
@@ -78,12 +151,15 @@ void reconstruct_block(const JpegCoefficientBlock& block, const JpegQuantization
                 plane[y * pitch + x] = sample;
         return;
     }
-    float coefficients[64];
+    alignas(32) float coefficients[64];
     for (u32 i = 0; i < 64; ++i)
         coefficients[i] = static_cast<float>(block.values[i]) * table.values[i];
+    if (samples == 2)
+        return reconstruct_boxes<2>(coefficients, plane, pitch);
+    if (samples == 4)
+        return reconstruct_boxes<4>(coefficients, plane, pitch);
     // Both passes run eight independent outputs per instruction; each output
-    // keeps the scalar order (sum from 0, terms in index order), and the box
-    // totals below keep the scalar y-then-x order.
+    // keeps the scalar order (sum from 0, terms in index order).
     alignas(32) float rows[64];
     for (u32 v = 0; v < 8; ++v) {
         __m256 sum = _mm256_setzero_ps();
@@ -99,11 +175,9 @@ void reconstruct_block(const JpegCoefficientBlock& block, const JpegQuantization
             sum = _mm256_add_ps(sum, _mm256_mul_ps(_mm256_set1_ps(kIdctBasis[y][v]), _mm256_load_ps(rows + v * 8)));
         _mm256_store_ps(columns + y * 8, sum);
     }
-    switch (samples) {
-    case 2: store_box_totals<2>(columns, plane, pitch); break;
-    case 4: store_box_totals<4>(columns, plane, pitch); break;
-    default: store_box_totals<8>(columns, plane, pitch); break;
-    }
+    for (u32 y = 0; y < 8; ++y)
+        _mm_storel_epi64(reinterpret_cast<__m128i*>(plane + y * pitch),
+                         sample_bytes(_mm_loadu_ps(columns + y * 8), _mm_loadu_ps(columns + y * 8 + 4)));
 }
 
 void reconstruct_component_block(const JpegImage& image, const JpegThumbnailLayout& layout, u8* planes,
@@ -183,24 +257,35 @@ bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, c
     case JpegColorTransform::cmyk: convert = convert_group<JpegColorTransform::cmyk>; break;
     case JpegColorTransform::ycck: convert = convert_group<JpegColorTransform::ycck>; break;
     }
+    const u32 width = layout.width;
     for (u32 y = 0; y < layout.height; ++y) {
         // Each component's sample for pixel x is the plane sample at
-        // (x * h / max_h, y * v / max_v); the column index is stepped, not divided.
+        // (x * h / max_h, y * v / max_v). Locals and a stepped output pointer
+        // keep the u8 stores from reloading them.
         for (u32 c = 0; c < image.component_count; ++c) {
             const JpegComponent& component = image.components[c];
+            const u32 h = component.horizontal_sampling;
             const u32 py = y * component.vertical_sampling / max_v;
             const u8* source = planes + layout.plane_offsets[c] + static_cast<usize>(py) * layout.plane_pitches[c];
+            u8* out = row + c;
+            if (h == max_h || 2 * h == max_h) {
+                const u32 shift = h == max_h ? 0 : 1;
+                for (u32 x = 0; x < width; ++x, out += 4)
+                    *out = source[x >> shift];
+                continue;
+            }
+            // Other ratios step the column index instead of dividing it.
             u32 accumulated = 0;
-            for (u32 x = 0; x < layout.width; ++x) {
-                row[x * 4u + c] = *source;
-                accumulated += component.horizontal_sampling;
+            for (u32 x = 0; x < width; ++x, out += 4) {
+                *out = *source;
+                accumulated += h;
                 if (accumulated >= max_h) {
                     accumulated -= max_h;
                     ++source;
                 }
             }
         }
-        convert_row(convert, row, layout.width);
+        convert_row(convert, row, width);
         if (!sink(context, y, row)) return false;
     }
     return true;

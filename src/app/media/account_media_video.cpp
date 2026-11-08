@@ -118,13 +118,9 @@ bool consume_range(void* context, const CdnClientResponse& response, ConstSlice<
     account_media_accept_progressive(static_cast<AccountMedia*>(context), response, body);
     return true;
 }
-// Lane thread, between session services: stores arrived ranges, keeps one
-// range in flight ahead of the cursors, and publishes buffered ranges.
-void progressive_service(AccountMediaWorkerLane* lane, AccountMediaVideoRuntime& v) noexcept {
-    auto& media = lane->media;
-    auto* fetch = media.progressive;
-    if (!fetch || !media.client_started)
-        return;
+// Applies a signed URL the UI offered for an expired source. Out of line, so its two target
+// buffers keep the per-service frame of progressive_service under the 4 KiB probe.
+__declspec(noinline) void take_offered_url(ProgressiveVideoFetch* fetch, AccountMediaVideoRuntime& v) noexcept {
     char offered[kCdnMaximumTargetBytes];
     u32 offered_bytes = 0;
     AcquireSRWLockExclusive(&v.lock);
@@ -134,14 +130,22 @@ void progressive_service(AccountMediaWorkerLane* lane, AccountMediaVideoRuntime&
     }
     fetch->offered_bytes = 0;
     ReleaseSRWLockExclusive(&v.lock);
-    if (offered_bytes) {
-        u8 target[kCdnMaximumTargetBytes];
-        const auto parsed = parse_signed_attachment_url({offered, offered_bytes}, v.selection.key.id,
-                                                        Slice<u8>{target, sizeof(target)});
-        if (parsed.ok())
-            progressive_video_fetch_refresh(fetch, {target, parsed.target_bytes}, parsed.host,
-                                            parsed.expires_at_seconds);
-    }
+    if (!offered_bytes)
+        return;
+    u8 target[kCdnMaximumTargetBytes];
+    const auto parsed =
+        parse_signed_attachment_url({offered, offered_bytes}, v.selection.key.id, Slice<u8>{target, sizeof(target)});
+    if (parsed.ok())
+        progressive_video_fetch_refresh(fetch, {target, parsed.target_bytes}, parsed.host, parsed.expires_at_seconds);
+}
+// Lane thread, between session services: stores arrived ranges, keeps one
+// range in flight ahead of the cursors, and publishes buffered ranges.
+void progressive_service(AccountMediaWorkerLane* lane, AccountMediaVideoRuntime& v) noexcept {
+    auto& media = lane->media;
+    auto* fetch = media.progressive;
+    if (!fetch || !media.client_started)
+        return;
+    take_offered_url(fetch, v);
     if (cdn_client_status(&media.client).phase == CdnClientPhase::response_ready) {
         cdn_client_consume_response(&media.client, consume_range, &media);
         account_media_cache_progressive(&media, v.selection.key);

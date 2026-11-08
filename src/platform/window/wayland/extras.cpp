@@ -186,13 +186,8 @@ namespace maicord {
 using namespace wayland;
 
 void window_request_attention(Window window, Attention attention) noexcept {
-    if (attention == Attention::flash)
-        window_wayland_request_activation(window);
-}
-
-void window_wayland_request_activation(Window window) noexcept {
     ExtrasState& extras = g.extras;
-    if (!is_window(window) || !g.activation_manager || extras.token)
+    if (attention != Attention::flash || !is_window(window) || !g.activation_manager || extras.token)
         return;
     extras.token = xdg_activation_v1_get_activation_token(g.activation_manager);
     xdg_activation_token_v1_add_listener(extras.token, &kTokenListener, nullptr);

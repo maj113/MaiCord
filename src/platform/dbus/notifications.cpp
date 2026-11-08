@@ -1,13 +1,14 @@
-#include "maicord/sys/linux/process.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/heap.hpp"
+#include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/platform/dbus/notifications.hpp"
 #include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/dbus/session.hpp"
 #include "maicord/sys/linux/path.hpp"
-#include "maicord/core/slice.hpp"
+#include "maicord/sys/linux/process.hpp"
 
 namespace maicord::dbus {
 namespace {
@@ -195,11 +196,10 @@ void on_notify_reply(void* context, Status status, const Message* reply) noexcep
     if (!entry->used)
         return;  // dropped while waiting (a new session cleared the table)
     u32 id = 0;
-    if (status == Status::ok && reply) {
+    if (status == Status::ok) {
         Reader r;
         message_reader(*reply, &r);
-        if (!reader_u32(&r, &id))
-            id = 0;
+        reader_u32(&r, &id);  // stays 0 when the reply holds no id
     }
     if (id == 0) {
         const u64 cookie = entry->cookie;
@@ -210,11 +210,8 @@ void on_notify_reply(void* context, Status status, const Message* reply) noexcep
         return;
     }
     // A replaced notification keeps one entry.
-    if (Entry* previous = find_by_id(id)) {
-        if (previous != entry) {
-            *previous = Entry{};
-        }
-    }
+    if (Entry* previous = find_by_id(id); previous && previous != entry)
+        *previous = Entry{};
     entry->id = id;
     emit(NotificationEventKind::shown, entry->cookie, id, nullptr, nullptr, 0);
 }
@@ -232,15 +229,6 @@ void on_portal_reply(void* context, Status status, const Message* reply) noexcep
         return;
     }
     emit(NotificationEventKind::shown, entry->cookie, entry->id, nullptr, nullptr, 0);
-}
-
-void hint_string(Builder* b, const char* key, const char* value) noexcept {
-    builder_open_entry(b);
-    builder_string(b, key);
-    builder_open_variant(b, "s");
-    builder_string(b, value);
-    builder_close_variant(b);
-    builder_close_entry(b);
 }
 
 // Whether the daemon reads markup in the body (the capability body-markup of the specification), asked once per session.
@@ -326,23 +314,14 @@ bool show_direct(Connection* c, const NotificationRequest& request, Entry* entry
     builder_close_array(&body);
     builder_open_array(&body, "{sv}");
     if (request.desktop_entry)
-        hint_string(&body, "desktop-entry", request.desktop_entry);
+        builder_dict_string(&body, "desktop-entry", request.desktop_entry);
     if (request.category)
-        hint_string(&body, "category", request.category);
-    builder_open_entry(&body);
-    builder_string(&body, "urgency");
-    builder_open_variant(&body, "y");
+        builder_dict_string(&body, "category", request.category);
+    builder_open_dict_entry(&body, "urgency", "y");
     builder_byte(&body, request.urgency == NotificationUrgency::low ? 0 : request.urgency == NotificationUrgency::critical ? 2 : 1);
-    builder_close_variant(&body);
-    builder_close_entry(&body);
-    if (request.silent) {
-        builder_open_entry(&body);
-        builder_string(&body, "suppress-sound");
-        builder_open_variant(&body, "b");
-        builder_bool(&body, true);
-        builder_close_variant(&body);
-        builder_close_entry(&body);
-    }
+    builder_close_dict_entry(&body);
+    if (request.silent)
+        builder_dict_bool(&body, "suppress-sound", true);
     builder_close_array(&body);
     builder_i32(&body, request.timeout_ms);
     const CallTarget target{kDaemonName, kDaemonPath, kDaemonName, "Notify"};
@@ -382,31 +361,22 @@ u8* read_icon_file(const char* path, u32* count) noexcept {
 bool show_portal(Connection* c, const NotificationRequest& request, Entry* entry) noexcept {
     // The portal names a notification with a string: the decimal local id.
     entry->id = ++g_local_id;
-    char identifier[16];
-    u32 digits = 0;
-    char reversed[12];
-    for (u32 n = entry->id; n || digits == 0; n /= 10)
-        reversed[digits++] = static_cast<char>('0' + n % 10);
-    u32 length = 0;
-    while (digits)
-        identifier[length++] = reversed[--digits];
-    identifier[length] = 0;
+    char identifier[12];
+    identifier[decimal_write(identifier, entry->id)] = 0;
 
     Builder body;
     builder_init(&body);
     builder_string(&body, identifier);
     builder_open_array(&body, "{sv}");
-    hint_string(&body, "title", request.summary);
+    builder_dict_string(&body, "title", request.summary);
     if (request.body)
-        hint_string(&body, "body", request.body);
+        builder_dict_string(&body, "body", request.body);
     // The icon is a themed name, or the bytes of an image file (a path means nothing to the portal's host).
     u32 image_bytes = 0;
     u8* image = request.icon && request.icon[0] == '/' ? read_icon_file(request.icon, &image_bytes) : nullptr;
     if (request.icon && (request.icon[0] != '/' || image)) {
         // ("themed", ["name"]) or ("bytes", the image's bytes).
-        builder_open_entry(&body);
-        builder_string(&body, "icon");
-        builder_open_variant(&body, "(sv)");
+        builder_open_dict_entry(&body, "icon", "(sv)");
         builder_open_struct(&body, "(sv)");
         if (image) {
             builder_string(&body, "bytes");
@@ -422,29 +392,25 @@ bool show_portal(Connection* c, const NotificationRequest& request, Entry* entry
             builder_close_variant(&body);
         }
         builder_close_struct(&body);
-        builder_close_variant(&body);
-        builder_close_entry(&body);
+        builder_close_dict_entry(&body);
     }
-    hint_string(&body, "priority",
-                request.urgency == NotificationUrgency::critical ? "urgent"
-                : request.urgency == NotificationUrgency::low    ? "low"
-                                                                 : "normal");
+    builder_dict_string(&body, "priority",
+                        request.urgency == NotificationUrgency::critical ? "urgent"
+                        : request.urgency == NotificationUrgency::low    ? "low"
+                                                                         : "normal");
     if (request.default_action)
-        hint_string(&body, "default-action", "default");
+        builder_dict_string(&body, "default-action", "default");
     if (request.action_count) {
-        builder_open_entry(&body);
-        builder_string(&body, "buttons");
-        builder_open_variant(&body, "aa{sv}");
+        builder_open_dict_entry(&body, "buttons", "aa{sv}");
         builder_open_array(&body, "a{sv}");
         for (u32 i = 0; i < request.action_count; ++i) {
             builder_open_array(&body, "{sv}");
-            hint_string(&body, "label", request.actions[i].label);
-            hint_string(&body, "action", request.actions[i].key);
+            builder_dict_string(&body, "label", request.actions[i].label);
+            builder_dict_string(&body, "action", request.actions[i].key);
             builder_close_array(&body);
         }
         builder_close_array(&body);
-        builder_close_variant(&body);
-        builder_close_entry(&body);
+        builder_close_dict_entry(&body);
     }
     builder_close_array(&body);
     const CallTarget target{kPortalName, kPortalPath, kPortalInterface, "AddNotification"};
@@ -501,15 +467,8 @@ bool notification_close(u32 id) noexcept {
     builder_init(&body);
     bool sent = false;
     if (g_backend == NotificationBackend::portal) {
-        char identifier[16];
-        u32 digits = 0;
-        char reversed[12];
-        for (u32 n = id; n || digits == 0; n /= 10)
-            reversed[digits++] = static_cast<char>('0' + n % 10);
-        u32 length = 0;
-        while (digits)
-            identifier[length++] = reversed[--digits];
-        identifier[length] = 0;
+        char identifier[12];
+        identifier[decimal_write(identifier, id)] = 0;
         builder_string(&body, identifier);
         const CallTarget target{kPortalName, kPortalPath, kPortalInterface, "RemoveNotification"};
         sent = connection_call(c, target, &body, 0, nullptr, nullptr);

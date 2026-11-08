@@ -18,7 +18,6 @@ struct Backend {
     // The application's caption controller; the frame glue runs only with one.
     Win32CaptionOps caption;
     bool has_caption;
-    HWND window;
     // A TME_LEAVE request is outstanding; WM_MOUSELEAVE spends it.
     bool leave_armed;
     // The cursor of the WM_SETCURSOR being dispatched.
@@ -98,6 +97,18 @@ bool deliver(const WindowEvent& event, WindowEventResult* result) noexcept {
     return true;
 }
 
+void deliver_provisional_resize(HWND window, const RECT& client) noexcept {
+    if (client.right <= client.left || client.bottom <= client.top)
+        return;
+    WindowEvent provisional{};
+    provisional.type = EventType::resize;
+    provisional.flags = ev_provisional;
+    provisional.resize.width_px = static_cast<u32>(client.right - client.left);
+    provisional.resize.height_px = static_cast<u32>(client.bottom - client.top);
+    provisional.window = window;
+    deliver(provisional, nullptr);
+}
+
 LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     WindowEvent event;
     const bool modeled = win32_translate(window, message, wparam, lparam, &event);
@@ -133,21 +144,8 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         // WM_WINDOWPOSCHANGED lets DWM display the old width at the new origin for one frame when dragging the
         // left edge.
         result = DefWindowProcW(window, message, wparam, lparam);
-        if (wparam && lparam) {
-            const auto& client = reinterpret_cast<const NCCALCSIZE_PARAMS*>(lparam)->rgrc[0];
-            if (client.right > client.left && client.bottom > client.top) {
-                WindowEvent provisional{};
-                provisional.type = EventType::resize;
-                provisional.flags = ev_provisional;
-                provisional.time_ms = event.time_ms;
-                provisional.resize.width_px = static_cast<u32>(client.right - client.left);
-                provisional.resize.height_px = static_cast<u32>(client.bottom - client.top);
-                provisional.window = window;
-                WindowEventResult ignored{};
-                if (g.sink)
-                    g.sink(g.context, provisional, &ignored);
-            }
-        }
+        if (wparam && lparam)
+            deliver_provisional_resize(window, reinterpret_cast<const NCCALCSIZE_PARAMS*>(lparam)->rgrc[0]);
         return result;
     }
     case WM_PAINT:
@@ -253,7 +251,6 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
         *failure = "create_window_failed";
         return false;
     }
-    g.window = window;
     win32_detail::set_main_window(window);
     if (options.dark_frame)
         enable_dark_frame(window);

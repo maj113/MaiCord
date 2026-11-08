@@ -47,36 +47,36 @@ void put_offset(char* at, u32 value) noexcept {
     }
 }
 
-} // namespace
+struct ClipboardPayload {
+    UINT format;
+    HGLOBAL data;  // GMEM_MOVEABLE; ownership passes to clipboard_commit
+};
 
-ClipboardSink clipboard_sink_install(ClipboardSink sink) noexcept {
-    const ClipboardSink previous = g_sink;
-    g_sink = sink.open && sink.publish && sink.close ? sink : ClipboardSink{};
-    return previous;
-}
-
+// Publishes every payload (each with a format and a handle) or none. Frees each handle the sink did not take.
 bool clipboard_commit(const Slice<ClipboardPayload>& payloads) noexcept {
     const ClipboardSink sink =
         g_sink.open ? g_sink : ClipboardSink{nullptr, system_open, system_publish, system_close};
-    bool ok = payloads.data && payloads.count;
-    for (u32 index = 0; ok && index < payloads.count; ++index)
-        ok = payloads[index].format && payloads[index].data;
-    if (ok && sink.open(sink.context)) {
+    bool ok = sink.open(sink.context);
+    if (ok) {
         for (u32 index = 0; ok && index < payloads.count; ++index) {
             ok = sink.publish(sink.context, payloads[index].format, payloads[index].data);
             if (ok)
                 payloads[index].data = nullptr;
         }
         sink.close(sink.context);
-    } else {
-        ok = false;
     }
-    for (u32 index = 0; payloads.data && index < payloads.count; ++index)
-        if (payloads[index].data) {
+    for (u32 index = 0; index < payloads.count; ++index)
+        if (payloads[index].data)
             GlobalFree(payloads[index].data);
-            payloads[index].data = nullptr;
-        }
     return ok;
+}
+
+} // namespace
+
+ClipboardSink clipboard_sink_install(ClipboardSink sink) noexcept {
+    const ClipboardSink previous = g_sink;
+    g_sink = sink.open && sink.publish && sink.close ? sink : ClipboardSink{};
+    return previous;
 }
 
 ClipboardTextResult clipboard_read_utf8(const Slice<char>& output) noexcept {

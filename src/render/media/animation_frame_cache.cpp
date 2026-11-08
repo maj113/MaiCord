@@ -6,8 +6,6 @@
 namespace maicord {
 namespace {
 
-inline constexpr u32 kEmptyBucket = 0;
-
 bool key_valid(const AnimationFrameCacheKey& key) noexcept {
     return media_asset_key_valid(key.asset) && key.source_generation != 0;
 }
@@ -22,21 +20,16 @@ bool key_equal(const AnimationFrameCacheKey& left,
            left.source_generation == right.source_generation;
 }
 
-u32 key_bucket(const AnimationFrameCacheKey& key, u32 capacity) noexcept {
-    u64 hash;
+u64 key_hash(const AnimationFrameCacheKey& key) noexcept {
     if (key.content_identity != 0)
-        hash = media_asset_hash_mix(key.content_identity ^ media_asset_hash_mix(key.frame_index));
-    else {
-        const u64 asset_tail = static_cast<u64>(key.asset.variant) |
-                               (static_cast<u64>(key.asset.flags) << 32) |
-                               (static_cast<u64>(key.asset.kind) << 48);
-        const u64 frame_tail = static_cast<u64>(key.frame_index) |
-                               (static_cast<u64>(key.source_generation) << 32);
-        hash = media_asset_hash_mix(key.asset.id ^ media_asset_hash_mix(asset_tail) ^
-                                    media_asset_hash_mix(frame_tail));
-    }
-    return (capacity & (capacity - 1)) == 0 ? static_cast<u32>(hash) & (capacity - 1)
-                                          : static_cast<u32>(hash % capacity);
+        return media_asset_hash_mix(key.content_identity ^ media_asset_hash_mix(key.frame_index));
+    const u64 asset_tail = static_cast<u64>(key.asset.variant) |
+                           (static_cast<u64>(key.asset.flags) << 32) |
+                           (static_cast<u64>(key.asset.kind) << 48);
+    const u64 frame_tail = static_cast<u64>(key.frame_index) |
+                           (static_cast<u64>(key.source_generation) << 32);
+    return media_asset_hash_mix(key.asset.id ^ media_asset_hash_mix(asset_tail) ^
+                                media_asset_hash_mix(frame_tail));
 }
 
 AnimationFrameCacheResult failure(AnimationFrameCacheError error) noexcept {
@@ -60,42 +53,20 @@ AnimationFrameCacheError translate_error(GlyphAtlasError error) noexcept {
     }
 }
 
+// Erased buckets are back-shifted (erase_bucket): the index holds no tombstones.
 u32 find_bucket(const AnimationFrameCache* cache,
                 const AnimationFrameCacheKey& key) noexcept {
-    if (cache->bucket_capacity == 0) {
-        return 0xFFFFFFFFu;
-    }
-    u32 bucket = key_bucket(key, cache->bucket_capacity);
-    for (u32 probe = 0; probe < cache->bucket_capacity; ++probe) {
-        const u32 value = cache->buckets[bucket];
-        if (value == kEmptyBucket) {
-            break;
-        }
-        const u32 slot = value - 1;
-        if (slot < cache->entry_capacity && cache->entries[slot].occupied &&
-            key_equal(cache->entries[slot].key, key)) {
-            return bucket;
-        }
-        if (++bucket == cache->bucket_capacity)
-            bucket = 0;
-    }
-    return 0xFFFFFFFFu;
+    return slot_index_find(cache->buckets, cache->bucket_capacity, key_hash(key), [&](u32 slot) noexcept {
+        return slot < cache->entry_capacity && cache->entries[slot].occupied &&
+               key_equal(cache->entries[slot].key, key);
+    });
 }
 
 bool insert_bucket(AnimationFrameCache* cache,
                    const AnimationFrameCacheKey& key, u32 slot, u32* home_bucket) noexcept {
-    const u32 first = key_bucket(key, cache->bucket_capacity);
-    u32 bucket = first;
-    for (u32 probe = 0; probe < cache->bucket_capacity; ++probe) {
-        if (cache->buckets[bucket] == kEmptyBucket) {
-            cache->buckets[bucket] = slot + 1;
-            *home_bucket = first;
-            return true;
-        }
-        if (++bucket == cache->bucket_capacity)
-            bucket = 0;
-    }
-    return false;
+    const u64 hash = key_hash(key);
+    *home_bucket = slot_index_wrap(hash, cache->bucket_capacity);
+    return slot_index_insert(cache->buckets, cache->bucket_capacity, hash, slot);
 }
 
 void erase_bucket(AnimationFrameCache* cache, u32 bucket) noexcept {
@@ -105,7 +76,7 @@ void erase_bucket(AnimationFrameCache* cache, u32 bucket) noexcept {
         if (++current == cache->bucket_capacity)
             current = 0;
         const u32 value = cache->buckets[current];
-        if (value == kEmptyBucket)
+        if (value == kSlotIndexEmpty)
             break;
         const u32 slot = value - 1;
         if (slot >= cache->entry_capacity || !cache->entries[slot].occupied)
@@ -119,7 +90,7 @@ void erase_bucket(AnimationFrameCache* cache, u32 bucket) noexcept {
             hole = current;
         }
     }
-    cache->buckets[hole] = kEmptyBucket;
+    cache->buckets[hole] = kSlotIndexEmpty;
 }
 
 void erase_entry(AnimationFrameCache* cache, u32 slot,
@@ -195,7 +166,7 @@ bool animation_frame_cache_initialize(
         reset_value<AnimationFrameCacheEntry>(&entries[index]);
     }
     for (u32 index = 0; index < buckets.count; ++index) {
-        buckets[index] = kEmptyBucket;
+        buckets[index] = kSlotIndexEmpty;
     }
     return true;
 }
@@ -208,7 +179,6 @@ bool animation_frame_cache_grow_storage(
         buckets.data != cache->buckets ||
         allocations.data != cache->allocations.entries ||
         entries.count <= cache->entry_capacity || entries.count > 65'535u ||
-        entries.count > (~0u / 2u) ||
         buckets.count < entries.count * 2u ||
         allocations.count != entries.count) {
         return false;
@@ -233,7 +203,7 @@ bool animation_frame_cache_grow_storage(
         reset_value<GlyphAtlasEntry>(&allocations[index]);
     }
     for (u32 index = 0; index < buckets.count; ++index) {
-        buckets[index] = kEmptyBucket;
+        buckets[index] = kSlotIndexEmpty;
     }
 
     cache->entry_capacity = entries.count;
@@ -260,7 +230,7 @@ void animation_frame_cache_reset(AnimationFrameCache* cache) noexcept {
         reset_value<AnimationFrameCacheEntry>(&cache->entries[index]);
     }
     for (u32 index = 0; index < cache->bucket_capacity; ++index) {
-        cache->buckets[index] = kEmptyBucket;
+        cache->buckets[index] = kSlotIndexEmpty;
     }
     cache->entry_count = 0;
     cache->free_cursor = 0;

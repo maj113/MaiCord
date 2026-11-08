@@ -38,7 +38,9 @@ SecureBufferResult secure_buffer_assign(SecureBuffer* buffer, ConstSlice<u8> val
 bool secure_buffer_transfer(SecureBuffer* destination, SecureBuffer* source) noexcept;
 void secure_buffer_clear(SecureBuffer* buffer) noexcept;
 void secure_buffer_release(SecureBuffer* buffer) noexcept;
-ConstSlice<u8> secure_buffer_view(const SecureBuffer& buffer) noexcept;
+inline ConstSlice<u8> secure_buffer_view(const SecureBuffer& buffer) noexcept {
+    return ConstSlice<u8>{buffer.data, buffer.bytes};
+}
 
 // User-bound protection (DPAPI on Windows; on Linux an authenticated blob under a per-user key file, see
 // src/platform/crypto/linux/secure_buffer.cpp). The protected bytes are copied into caller storage, then the

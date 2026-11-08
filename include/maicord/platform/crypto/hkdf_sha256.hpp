@@ -36,14 +36,19 @@ KdfResult sha256(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> parts
 // descriptor. Invalid inputs/capacity leave output unchanged; provider failures
 // erase the attempted output prefix and report zero bytes. Empty HMAC keys are
 // valid. HMAC/extract write 32 bytes and preserve excess destination capacity.
-KdfResult hmac_sha256(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlice<ConstSlice<u8>> parts,
-                      Slice<u8> output) noexcept;
 // Prepend a protocol prefix without copying a caller's segment descriptors or
 // payload. Same validation/erasure contract; prefix cannot alias output/storage.
 KdfResult hmac_sha256_prefixed(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlice<u8> prefix,
                                ConstSlice<ConstSlice<u8>> parts, Slice<u8> output) noexcept;
-KdfResult hkdf_sha256_extract(KdfSha256Workspace& workspace, ConstSlice<u8> salt,
-                              ConstSlice<u8> input_key_material, Slice<u8> output) noexcept;
+inline KdfResult hmac_sha256(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlice<ConstSlice<u8>> parts,
+                             Slice<u8> output) noexcept {
+    return hmac_sha256_prefixed(workspace, key, {}, parts, output);
+}
+// HMAC with an empty salt is equivalent to HashLen zero bytes (RFC 5869).
+inline KdfResult hkdf_sha256_extract(KdfSha256Workspace& workspace, ConstSlice<u8> salt,
+                                     ConstSlice<u8> input_key_material, Slice<u8> output) noexcept {
+    return hmac_sha256_prefixed(workspace, salt, {}, {&input_key_material, 1}, output);
+}
 // Output.count is the requested length, from 0 through 255*32 bytes. Require a
 // nonempty PRK. MLS's initial DAVE ratchet seed is 16 bytes, so this implements
 // the Expand operation for that key length too; the caller decides where key material comes from.

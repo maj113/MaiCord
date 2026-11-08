@@ -60,10 +60,6 @@ __forceinline constexpr D3D11_USAGE usage(GpuUsage value) noexcept {
     return static_cast<D3D11_USAGE>(value);
 }
 
-__forceinline constexpr UINT bind_flags(u8 bind) noexcept {
-    return bind;
-}
-
 __forceinline constexpr D3D11_BLEND blend_factor(GpuBlendFactor factor) noexcept {
     return static_cast<D3D11_BLEND>(factor);
 }
@@ -102,7 +98,7 @@ __forceinline GpuStatus gpu_buffer_create(GpuDevice* device, const GpuBufferDesc
     D3D11_BUFFER_DESC description{};
     description.ByteWidth = desc.bytes;
     description.Usage = gpu_d3d11::usage(desc.usage);
-    description.BindFlags = gpu_d3d11::bind_flags(desc.bind);
+    description.BindFlags = desc.bind;
     description.CPUAccessFlags = desc.usage == GpuUsage::dynamic        ? D3D11_CPU_ACCESS_WRITE
                                  : desc.usage == GpuUsage::staging_read ? D3D11_CPU_ACCESS_READ
                                                                         : 0;
@@ -121,7 +117,7 @@ __forceinline GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDe
     description.Format = gpu_d3d11::dxgi_format(desc.format);
     description.SampleDesc.Count = 1;
     description.Usage = gpu_d3d11::usage(desc.usage);
-    description.BindFlags = gpu_d3d11::bind_flags(desc.bind);
+    description.BindFlags = desc.bind;
     description.CPUAccessFlags = desc.usage == GpuUsage::staging_read ? D3D11_CPU_ACCESS_READ : 0;
     const D3D11_SUBRESOURCE_DATA data{initial ? initial->data : nullptr, initial ? initial->pitch : 0, 0};
     return device->CreateTexture2D(&description, initial ? &data : nullptr, texture);

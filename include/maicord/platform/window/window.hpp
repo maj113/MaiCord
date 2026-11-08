@@ -8,8 +8,7 @@ namespace maicord {
 
 enum class UiCursor : u8;
 
-// The window service: free functions over an opaque handle. One top-level window per backend; window_id in
-// WindowEvent is reserved for a second.
+// The window service: free functions over an opaque handle. One top-level window per backend.
 struct WindowObject;
 using Window = WindowObject*;
 
@@ -53,9 +52,6 @@ void window_request_close(Window window) noexcept;
 // Asynchronous where the compositor decides: the outcome arrives as state_changed.
 bool window_set_fullscreen(Window window, bool fullscreen) noexcept;
 void window_show_system_menu(Window window, float x, float y) noexcept;
-// No-ops where the non-client frame does this (Windows).
-void window_begin_move(Window window) noexcept;
-void window_begin_resize(Window window, FrameHit edge) noexcept;
 void window_set_min_size(Window window, u32 width_px, u32 height_px) noexcept;
 void window_request_attention(Window window, Attention attention) noexcept;
 void window_set_drop_target(Window window, bool accept_files) noexcept;

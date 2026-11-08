@@ -27,26 +27,23 @@ struct NullWindowProbe {
     u32 posts;            // window_post calls
     u32 close_requests;   // window_request_close calls
     u32 invalidations;    // window_invalidate calls
-    u32 attention_requests;
-    u32 minimizes, maximize_toggles;
     u32 min_width, min_height;  // the last window_set_min_size
     u32 min_size_calls;         // window_set_min_size calls
     // window_wayland_global_shortcut*: the portal binding of the push-to-talk key.
     u8 shortcut_key;            // the key of the last bind; zero after a clear
     u32 shortcut_binds, shortcut_clears;
-    u32 fatal_messages;   // window_fatal_message calls
     u32 title_bytes;
     char title[128];      // the last window_set_title, truncated
     // window_wayland_text_input_*: the input method the text store talks to.
     bool text_input_available;  // set with null_window_set_text_input_available; what the call reports
     bool text_input_enabled;
-    u32 text_input_enables, text_input_disables;
+    u32 text_input_enables;
     u32 text_surrounding_bytes;
     char text_surrounding[256];  // the surrounding text of the last request, truncated
     u32 text_cursor_byte, text_anchor_byte;
     u8 text_purpose;             // the TextInputPurpose
     bool text_sensitive;
-    i32 text_x, text_y, text_width, text_height;
+    i32 text_x, text_y, text_height;
 };
 const NullWindowProbe& null_window_probe() noexcept;
 

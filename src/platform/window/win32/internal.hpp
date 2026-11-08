@@ -19,6 +19,9 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
 
 // Delivers an event to the sink of the window created by win32_window_create.
 bool deliver(const WindowEvent& event, WindowEventResult* result) noexcept;
+// Delivers the resize of the WM_NCCALCSIZE being handled, marked ev_provisional, for a non-empty client rectangle:
+// the composition surface is prepared before Windows commits the new origin (left-edge drags).
+void deliver_provisional_resize(HWND window, const RECT& client) noexcept;
 // Records the main window for win32_main_window.
 void set_main_window(HWND window) noexcept;
 

@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #if defined(_WIN32)
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/registry.hpp"
@@ -499,12 +500,9 @@ bool desktop_instance_name(const wchar_t* kind, ConstSlice<wchar_t> profile, wch
         const wchar_t c = ascii_lower(profile[i] == L'/' ? L'\\' : profile[i]);
         hash = hash64_mix(hash64_mix(hash, static_cast<u64>(c & 0xff)), static_cast<u64>(c >> 8));
     }
-    wchar_t hex[17]{};
-    for (u32 i = 0; i < 16; ++i)
-        hex[i] = L"0123456789abcdef"[(hash >> (60 - i * 4)) & 15];
     WideBuilder b{out, capacity, 0, true};
-    b.add(L"Local\\MaiCord.").add(kind).add(L".").add(hex, 16);
-    return b.ok;
+    b.add(L"Local\\MaiCord.").add(kind).add(L".");
+    return b.ok && wide_append_hex(out, capacity, &b.count, hash);
 }
 
 DesktopForwardResult desktop_instance_forward(const wchar_t* name, const DesktopLaunch& launch,

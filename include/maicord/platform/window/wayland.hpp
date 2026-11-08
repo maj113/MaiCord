@@ -34,9 +34,8 @@ bool window_wayland_global(u32 index, const char** name, u32* version) noexcept;
 // size of WaylandSurfaceInfo::logical_*), for tests and diagnostics; false before the first one.
 bool window_wayland_opaque_region(Window window, u32* width, u32* height) noexcept;
 
-// Activation (xdg-activation-v1). window_request_attention(Attention::flash) does this; the call asks the compositor
-// to focus the window, or mark it urgent when focus stealing is refused. Needs a recent input event for the token.
-void window_wayland_request_activation(Window window) noexcept;
+// Activation (xdg-activation-v1). window_request_attention(Attention::flash) asks the compositor to focus the window,
+// or mark it urgent when focus stealing is refused; it needs a recent input event for the token.
 // Focuses the window with a token someone else made: the XDG_ACTIVATION_TOKEN of a second launch or the activation-token
 // of a notification click (platform/dbus/instance.hpp, notifications.hpp). False without a window, xdg-activation or a token.
 bool window_wayland_activate(const char* token) noexcept;

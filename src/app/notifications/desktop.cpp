@@ -442,8 +442,6 @@ void application_desktop_tick(u64 now_ms) noexcept {
         const DWORD waited = WaitForSingleObject(g_desktop.mutex, 0);
         g_desktop.owns_mutex = waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED;
     }
-#else
-    dbus::instance_process();
 #endif
     tick_tray(now_ms);
     tick_link(now_ms);

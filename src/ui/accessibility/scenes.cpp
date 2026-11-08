@@ -1,7 +1,6 @@
 #include "maicord/ui/accessibility/scenes.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
@@ -581,9 +580,9 @@ void describe_threads(void* context, const UiWidgetManager&, UiWidgetHandle hand
             if (post.author_name.bytes)
                 g_name.part(utf8_literal("by ")).add(post.author_name);
             if (post.metadata_known) {
-                char digits[12];
-                const u32 bytes = decimal_write(digits, post.reply_count);
-                g_name.part({digits, bytes}).add(post.reply_count == 1 ? utf8_literal(" message") : utf8_literal(" messages"));
+                if (g_name.bytes)
+                    g_name.add(", ");
+                add_count(&g_name, post.reply_count, utf8_literal("message"), utf8_literal("messages"));
             }
             if (post.activity.bytes)
                 g_name.part(post.activity);

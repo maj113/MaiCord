@@ -13,10 +13,6 @@ D3D11DeviceOwnerResult d3d11_device_owner_initialize(D3D11DeviceOwner* owner, co
         return D3D11DeviceOwnerResult{created, D3D11DeviceOwnerError::hardware_device};
     }
     owner->context1 = gpu_context_1(owner->context);
-    if (!owner->context1) {
-        gpu_device_destroy(&owner->device, &owner->context);
-        return D3D11DeviceOwnerResult{kGpuUnsupported, D3D11DeviceOwnerError::context_11_1};
-    }
     const bool prestarted = gpu_device_prestarted(owner->device);
     const u64 adapter_key = gpu_adapter_key(owner->device);
     const GpuStatus presentable = gpu_surface_create(owner->device, surface, &owner->surface);

@@ -1,8 +1,8 @@
 # Video decode on Linux
 
 `linux/` is the live stream decoder behind the unchanged `gpu_stream_decoder.hpp` (queue, decode thread, hold rules,
-`stream.hpp`), the movie decoders (`mp4_decoder.cpp`, `h264_file_decoder.cpp`, `hevc_file_decoder.cpp`) and the in-house
-AAC-LC decoder. The DXVA files next to it are Windows-only. Backends never call GL: they publish planes
+`stream.hpp`), the movie decoders (`h264_file_decoder.cpp`, `hevc_file_decoder.cpp`, under the shared `mp4_decoder.cpp`)
+and the in-house AAC-LC decoder. The DXVA files next to it are Windows-only. Backends never call GL: they publish planes
 (`include/maicord/gpu/video_planes.hpp`, `src/gpu/gles/video_planes.cpp`) that the renderer realizes as GL textures.
 
 ## Tiers

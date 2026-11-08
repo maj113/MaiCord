@@ -16,7 +16,9 @@ CursorApi g_cursor_api;
 bool g_cursor_tried;
 bool g_cursor_loaded;
 
-void log_missing(const char* library, const char* name) noexcept {
+} // namespace
+
+void log_missing_symbol(const char* library, const char* name) noexcept {
     char message[128];
     u32 length = 0;
     const char* const parts[] = {library, ": no symbol ", name};
@@ -26,8 +28,6 @@ void log_missing(const char* library, const char* name) noexcept {
     message[length] = 0;
     log_write(LogLevel::warning, "wayland", message);
 }
-
-} // namespace
 
 bool client_load() noexcept {
     if (g_client_loaded)
@@ -55,7 +55,7 @@ bool client_load() noexcept {
     resolve(&api.proxy_marshal_array, "wl_proxy_marshal_array");
     resolve(&api.proxy_marshal_array_constructor_versioned, "wl_proxy_marshal_array_constructor_versioned");
     if (resolve.missing) {
-        log_missing("libwayland-client.so.0", resolve.missing);
+        log_missing_symbol("libwayland-client.so.0", resolve.missing);
         shared_library_close(&g_client_library);
         return false;
     }
@@ -77,7 +77,7 @@ const CursorApi* cursor_api() noexcept {
     resolve(&api.theme_get_cursor, "wl_cursor_theme_get_cursor");
     resolve(&api.image_get_buffer, "wl_cursor_image_get_buffer");
     if (resolve.missing) {
-        log_missing("libwayland-cursor.so.0", resolve.missing);
+        log_missing_symbol("libwayland-cursor.so.0", resolve.missing);
         shared_library_close(&g_cursor_library);
         return nullptr;
     }

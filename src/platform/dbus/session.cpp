@@ -11,7 +11,6 @@ constexpr u32 kRetryMs = 10000;
 Connection* g_session;
 bool g_wanted;
 bool g_failure_logged;
-u32 g_generation;
 u64 g_retry_at;  // monotonic ms before which no new connection is tried
 SessionBusHook g_hooks[kMaxHooks];
 u32 g_hook_count;
@@ -40,7 +39,6 @@ bool try_open(u64 now) noexcept {
         return false;
     }
     g_failure_logged = false;
-    ++g_generation;
     for (u32 i = 0; i < g_hook_count; ++i)
         g_hooks[i](g_session);
     return true;
@@ -54,11 +52,7 @@ bool session_bus_open() noexcept {
 }
 
 Connection* session_bus() noexcept {
-    return g_session && connection_alive(g_session) ? g_session : nullptr;
-}
-
-u32 session_bus_generation() noexcept {
-    return g_generation;
+    return connection_alive(g_session) ? g_session : nullptr;
 }
 
 bool session_bus_add_hook(SessionBusHook hook) noexcept {

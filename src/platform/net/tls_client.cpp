@@ -354,15 +354,6 @@ TlsResult tls_client_encrypt_spans(
     return result(TlsError::none, status);
 }
 
-TlsResult tls_client_encrypt(TlsClient* client,
-                             ConstSlice<u8> plaintext,
-                             Slice<u8> output,
-                             u32* produced) noexcept {
-    const ConstSlice<u8> spans[]{plaintext};
-    return tls_client_encrypt_spans(
-        client, ConstSlice<ConstSlice<u8>>{spans, 1}, output, produced);
-}
-
 TlsDecryptResult tls_client_decrypt(TlsClient* client, Slice<u8> encrypted) noexcept {
     if (!client || !client->handshake_complete || !encrypted.data || encrypted.count == 0) {
         return TlsDecryptResult{

@@ -42,10 +42,6 @@ u32 portal_interface_version(const char* interface, u32 timeout_ms) noexcept {
     return version;
 }
 
-u32 inhibit_portal_version(u32 timeout_ms) noexcept {
-    return portal_interface_version("org.freedesktop.portal.Inhibit", timeout_ms);
-}
-
 namespace {
 char g_parent_window[96];
 } // namespace

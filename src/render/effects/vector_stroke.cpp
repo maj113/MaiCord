@@ -146,30 +146,30 @@ struct Stroker {
     void left_path(const Poly& poly) noexcept {
         const Vertex* vx = poly.v;
         const u32 n = poly.n, segments = poly.closed ? n : n - 1;
-        const auto direction = [&](u32 i, double& length) noexcept {
-            const V d = vx[(i + 1) % n].p - vx[i].p;
-            length = root(dot(d, d));
-            return d * (1 / length);
+        // Each segment's unit direction and length, and what the joins that leave this side on the inside cut from its
+        // offset: where the two ends cut more than the segment has, the offset runs backwards there and its joins go
+        // through the vertex instead.
+        struct Segment {
+            V d;
+            double length, cut;
         };
-        // What the joins that leave this side on the inside cut from each segment's offset: where the two ends cut
-        // more than the segment has, the offset runs backwards there and its joins go through the vertex instead.
-        double* cuts = arena_allocate_zero<double>(s.arena, segments);
-        if (!cuts) {
+        Segment* segment = arena_allocate<Segment>(s.arena, segments);
+        if (!segment) {
             s.failed = true;
             return;
         }
-        {
-            double length0 = 0, length1 = 0;
-            V d0 = direction(poly.closed ? n - 1 : 0, length0), d1{};
-            for (u32 v = poly.closed ? 0 : 1; v < (poly.closed ? n : n - 1); ++v) {
-                d1 = direction(v, length1);
-                const double turn = cross(d0, d1), half = 1 + dot(d0, d1);
-                if (turn > straight && half > 1e-9) {
-                    const double cut = h * turn / half;
-                    cuts[(v + n - 1) % n] += cut;
-                    cuts[v] += cut;
-                }
-                d0 = d1;
+        for (u32 i = 0; i < segments; ++i) {
+            const V d = vx[i + 1 == n ? 0 : i + 1].p - vx[i].p;
+            const double length = root(dot(d, d));
+            segment[i] = {d * (1 / length), length, 0};
+        }
+        for (u32 v = poly.closed ? 0 : 1, previous = poly.closed ? n - 1 : 0; v < segments; previous = v++) {
+            const V d0 = segment[previous].d, d1 = segment[v].d;
+            const double turn = cross(d0, d1), half = 1 + dot(d0, d1);
+            if (turn > straight && half > 1e-9) {
+                const double cut = h * turn / half;
+                segment[(v + n - 1) % n].cut += cut;
+                segment[v].cut += cut;
             }
         }
         const auto offset = [&](V p, V d) noexcept { return p + left_of(d) * h; };
@@ -178,16 +178,19 @@ struct Stroker {
         double length0 = 0, length1 = 0;
         V d0{}, d1{};
         if (!poly.closed) {
-            d0 = direction(0, length0);
+            d0 = segment[0].d;
+            length0 = segment[0].length;
             const V t = unit_or(vx[0].out, d0);
             put(offset(vx[0].p, t));
             if (apart(t, d0))
                 put(offset(vx[0].p, d0));
         } else {
-            d0 = direction(n - 1, length0);
+            d0 = segment[n - 1].d;
+            length0 = segment[n - 1].length;
         }
-        for (u32 v = poly.closed ? 0 : 1; v < (poly.closed ? n : n - 1); ++v) {
-            d1 = direction(v, length1);
+        for (u32 v = poly.closed ? 0 : 1; v < segments; ++v) {
+            d1 = segment[v].d;
+            length1 = segment[v].length;
             const V p = vx[v].p;
             // At a corner the join is between the tangents the curves arrive and leave by; the flattened chords may
             // turn quite differently there (a hook smaller than the tolerance), and Direct2D offsets the curves.
@@ -197,8 +200,8 @@ struct Stroker {
             if (turn > straight) {
                 // The left side is the inner one.
                 const double half = 1 + dot(d0, d1);
-                if (cross(d0, d1) > straight && half > 1e-9 && cuts[(v + n - 1) % n] <= length0 &&
-                    cuts[v] <= length1) {
+                if (cross(d0, d1) > straight && half > 1e-9 && segment[(v + n - 1) % n].cut <= length0 &&
+                    segment[v].cut <= length1) {
                     put(p + (left_of(d0) + left_of(d1)) * (h / half));
                 } else {
                     put(offset(p, d0));

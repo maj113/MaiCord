@@ -73,7 +73,6 @@ struct SoftwareStreamState {
     SoftwareDecoder* decoder;
     u32 decoded, dropped, damaged, gaps;
     u32 next_surface;
-    u8 matrix;
     bool waiting, unsupported;
 };
 
@@ -136,8 +135,17 @@ bool stream_surfaces_create_cpu(GpuStream* stream, u32 count, u32 coded_width, u
 // least as large as the picture (both planes, chroma interleaved).
 struct SoftwarePicture;
 u64 stream_copy_picture(const StreamSurface& slot, const SoftwarePicture& picture) noexcept;
-// Makes the decoder in stream->session and the surfaces forget everything: the tier called release.
-void stream_clear_geometry(GpuStream* stream) noexcept;
+// The movie decoders' (h264_file_decoder.cpp, hevc_file_decoder.cpp) picture slots: frees the planes of the first
+// *count slots, then forgets them all.
+void stream_slots_release(StreamSurface (&slots)[kStreamSurfaceLimit], u32* count) noexcept;
+// The movie picture the output queue shows next, as *frame's planes: a hardware picture (session) is exported into
+// its slot now (drivers differ in when a surface's dma-buf is complete, and a fresh export is always right).
+struct H264OutputQueue;
+struct Mp4DecodedFrame;
+struct VideoDisplayExtent;
+Mp4DecodedFrame stream_movie_frame(H264OutputQueue* output, GpuDevice* device, vaapi::Session* session,
+                                   StreamSurface* slots, GpuVideoFrame* frame,
+                                   const VideoDisplayExtent& display) noexcept;
 
 // ---- Backends ----------------------------------------------------------------------------------------------------
 

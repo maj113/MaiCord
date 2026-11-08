@@ -143,7 +143,6 @@ VideoPlane* allocate_plane(u8 kind, u32 width, u32 height, GpuFormat format) noe
                                                           : gl::kR8;
     plane->texture.format = format;
     plane->texture.bind = gpu_bind_srv;
-    plane->texture.usage = GpuUsage::default_;
     plane->view.kind = GpuViewKind::texture;
     plane->view.texture = &plane->texture;
     return plane;
@@ -455,13 +454,7 @@ bool gpu_dmabuf_render_node(GpuDevice* device, char* path, u32 capacity) {
         node = images.query_device_string(egl_device, gles::kEglDrmDeviceFile);
     if (!node || !*node)
         return false;
-    u32 length = 0;
-    while (node[length] && length + 1 < capacity) {
-        path[length] = node[length];
-        ++length;
-    }
-    path[length] = 0;
-    return node[length] == 0;
+    return node[c_string_copy(path, capacity, node)] == 0;
 }
 
 } // namespace maicord

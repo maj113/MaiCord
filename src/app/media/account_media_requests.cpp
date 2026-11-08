@@ -49,18 +49,11 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
     AccountMediaRequestResult settled;
     if (request_in_flight(media, key, &settled) || failure_cooling(media, key, monotonic_now_ms, &settled))
         return settled;
-    if (webp_asset(key) && !ensure_webp_workspace(media)) {
+    if ((webp_asset(key) &&
+         (!ensure_webp_workspace(media) || (animated_asset(key) && !ensure_animated_webp_workspace(media)))) ||
+        (apng_asset(key) && !ensure_apng_workspace(media)) ||
+        (key.kind == MediaAssetKind::sticker && key.variant == 4 && !ensure_gif_workspace(media)))
         return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-    }
-    if (webp_asset(key) && animated_asset(key) && !ensure_animated_webp_workspace(media)) {
-        return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-    }
-    if (apng_asset(key) && !ensure_apng_workspace(media)) {
-        return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-    }
-    if (key.kind == MediaAssetKind::sticker && key.variant == 4 && !ensure_gif_workspace(media)) {
-        return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-    }
     if (key.kind == MediaAssetKind::regional_flag)
         return publish_bundled_flag(media, key)
                    ? result(AccountMediaRequestState::ready)
@@ -573,8 +566,6 @@ AccountMediaRequestResult request_url_media(AccountMedia* media,
         CdnClientRequest{request_target, probe.etag, 0, kCdnClientDefaultTimeoutMs, target_host,
                          request.image_type});
     if (queued.state == AccountMediaRequestState::queued) {
-        media->active_source_message_id = request.source_message_id;
-        media->active_source_message_revision = request.source_message_revision;
         media->active_proxy_width = request.proxy_width;
         media->active_proxy_height = request.proxy_height;
         media->active_image_type = request.image_type;

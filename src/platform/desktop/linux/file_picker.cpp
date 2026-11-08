@@ -136,8 +136,10 @@ void publish(NativeFilePicker* picker, NativeFilePickerResult outcome) noexcept 
     event_set(picker->notification);
 }
 
-// The portal's answer, as paths checked on this thread (a few stat calls).
-void collect_dialog(NativeFilePicker* picker) noexcept {
+// The portal's answer (the chooser's `settled` callback, with the picker), as paths checked on this thread (a few stat
+// calls).
+void dialog_settled(void* context) noexcept {
+    auto* picker = static_cast<NativeFilePicker*>(context);
     auto* runtime = static_cast<Runtime*>(picker->runtime);
     NativeFilePickerResult outcome{};
     switch (dbus::file_chooser_state(runtime->chooser)) {
@@ -197,10 +199,6 @@ void collect_dialog(NativeFilePicker* picker) noexcept {
     publish(picker, outcome);
 }
 
-void dialog_settled(void* context) noexcept {
-    collect_dialog(static_cast<NativeFilePicker*>(context));
-}
-
 // A worker over paths in runtime->pending (the files of a drop or the clipboard).
 void check_pending(NativeFilePicker* picker, NativeFilePickerResult* outcome, bool sized) noexcept {
     auto* runtime = static_cast<Runtime*>(picker->runtime);
@@ -236,31 +234,31 @@ void check_pending(NativeFilePicker* picker, NativeFilePickerResult* outcome, bo
     outcome->count = count;
 }
 
+// The paths of `files` into runtime->pending (arena copies): none, or path / memory for the first that fails.
+NativeFilePickerError take_paths(Runtime* runtime, const DroppedFiles* files, u32 count) noexcept {
+    for (u32 i = 0; i < count; ++i) {
+        const u32 units = dropped_files_path_length(files, i);
+        if (!units || units > kNativeFilePickerMaximumPathUnits)
+            return NativeFilePickerError::path;
+        auto* path = arena_allocate<wchar_t>(&runtime->paths, units + 1);
+        if (!path)
+            return NativeFilePickerError::memory;
+        if (dropped_files_path(files, i, {path, units + 1}) != units)
+            return NativeFilePickerError::path;
+        path[units] = 0;
+        runtime->pending[runtime->pending_count++] = {path, units};
+    }
+    return NativeFilePickerError::none;
+}
+
 u32 drop_worker(void* context) noexcept {
     auto* picker = static_cast<NativeFilePicker*>(context);
     auto* runtime = static_cast<Runtime*>(picker->runtime);
     NativeFilePickerResult outcome{};
     const u32 count = cancelled(runtime) ? 0 : dropped_files_count(runtime->drop);
-    if (count > runtime->maximum_files) {
-        runtime->pending_too_many = true;
-    } else {
-        for (u32 i = 0; i < count && outcome.error == NativeFilePickerError::none; ++i) {
-            const u32 units = dropped_files_path_length(runtime->drop, i);
-            if (!units || units > kNativeFilePickerMaximumPathUnits) {
-                outcome.error = NativeFilePickerError::path;
-                break;
-            }
-            auto* path = arena_allocate<wchar_t>(&runtime->paths, units + 1);
-            if (!path) {
-                outcome.error = NativeFilePickerError::memory;
-            } else if (dropped_files_path(runtime->drop, i, {path, units + 1}) != units) {
-                outcome.error = NativeFilePickerError::path;
-            } else {
-                path[units] = 0;
-                runtime->pending[runtime->pending_count++] = {path, units};
-            }
-        }
-    }
+    runtime->pending_too_many = count > runtime->maximum_files;
+    if (!runtime->pending_too_many)
+        outcome.error = take_paths(runtime, runtime->drop, count);
     dropped_files_release(runtime->drop);
     runtime->drop = nullptr;
     if (outcome.error == NativeFilePickerError::none)
@@ -501,18 +499,7 @@ NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker
         const DroppedFiles* files = clipboard_capture_files(input);
         const u32 count = dropped_files_count(files);
         runtime->pending_too_many = count > runtime->maximum_files;
-        for (u32 i = 0; copied && !runtime->pending_too_many && i < count; ++i) {
-            const u32 units = dropped_files_path_length(files, i);
-            auto* path = units && units <= kNativeFilePickerMaximumPathUnits
-                             ? arena_allocate<wchar_t>(&runtime->paths, units + 1)
-                             : nullptr;
-            if (!path || dropped_files_path(files, i, {path, units + 1}) != units) {
-                copied = false;
-            } else {
-                path[units] = 0;
-                runtime->pending[runtime->pending_count++] = {path, units};
-            }
-        }
+        copied = runtime->pending_too_many || take_paths(runtime, files, count) == NativeFilePickerError::none;
     }
     if (!copied) {
         destroy(picker);

@@ -54,8 +54,6 @@ struct Engine {
 // What the worker owns besides the runtime: one connection and the two streams.
 struct Transport {
     pulse::Session session{};
-    // Read-the-clock timer, armed while a stream plays; created by the worker and not counted as an attached handle.
-    Waitable poll{};
     Engine engines[2]{};
     i16 scratch[kNotificationAudioMixChunkFrames * kChannels]{};
 };
@@ -98,9 +96,6 @@ void close_streams(Transport& t) noexcept {
 void close_transport(Transport& t) noexcept {
     close_streams(t);
     pulse::session_close(&t.session);
-    if (t.poll)
-        waitable_close(t.poll);
-    t.poll = nullptr;
 }
 
 bool current(Runtime& r, u64 epoch) noexcept {
@@ -279,7 +274,6 @@ u32 render_audio(Runtime& r, Transport& t, Engine& e, u32 rate) noexcept {
 u32 worker_main(void* pointer) noexcept {
     auto& r = *static_cast<Runtime*>(pointer);
     Transport t{};
-    t.poll = timer_create_waitable(false, true);
     thread_boost_realtime();
     for (;;) {
         AcquireSRWLockShared(&r.lock);
@@ -337,11 +331,9 @@ u32 worker_main(void* pointer) noexcept {
         r.status.stream_open = open;
         ReleaseSRWLockExclusive(&r.lock);
         publish(r);
-        // The clock is read between write requests too, while audio plays.
-        if (started && t.poll)
-            timer_arm(t.poll, kClockPollMs, 0);
-        const Waitable events[]{r.stop, r.command, r.render, t.poll};
-        const u32 waited = wait_any(events, started && t.poll ? 4u : open ? 3u : 2u, INFINITE);
+        // The clock is read between write requests too, while audio plays: the wait times out after kClockPollMs.
+        const Waitable events[]{r.stop, r.command, r.render};
+        const u32 waited = wait_any(events, open ? 3u : 2u, started ? kClockPollMs : INFINITE);
         if (waited == WAIT_OBJECT_0)
             break;
         if (waited == WAIT_FAILED) {

@@ -583,8 +583,7 @@ namespace account_media_worker_detail {
 AccountMediaRequestResult initialize_lane_media(AccountMediaWorker* worker,
                                                 AccountMediaWorkerLane& lane) noexcept {
     const AccountMediaRequestResult initialized =
-        lane.index == 0 ? account_media_initialize(&lane.media)
-                        : account_media_initialize_shared(&lane.media, &worker->lanes[0].media.cache);
+        account_media_initialize(&lane.media, lane.index == 0 ? nullptr : &worker->lanes[0].media.cache);
     if (!initialized.ok())
         return initialized;
     lane.initialized = true;

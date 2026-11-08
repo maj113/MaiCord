@@ -42,35 +42,7 @@ bool load_wayland_egl() noexcept {
     return true;
 }
 
-// The bounding box of the rectangles, clamped to the frame.
-GlesDamage damage_of(const GpuRect* dirty, u32 count, u32 width, u32 height) noexcept {
-    GlesDamage damage{};
-    if (!dirty || count == 0) {
-        damage.full = true;
-        return damage;
-    }
-    bool any = false;
-    for (u32 index = 0; index < count; ++index) {
-        GpuRect rectangle = dirty[index];
-        rectangle.left = rectangle.left < 0 ? 0 : rectangle.left;
-        rectangle.top = rectangle.top < 0 ? 0 : rectangle.top;
-        rectangle.right = rectangle.right > static_cast<i32>(width) ? static_cast<i32>(width) : rectangle.right;
-        rectangle.bottom = rectangle.bottom > static_cast<i32>(height) ? static_cast<i32>(height) : rectangle.bottom;
-        if (rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top)
-            continue;
-        if (!any) {
-            damage.box = rectangle;
-            any = true;
-        } else {
-            damage.box.left = rectangle.left < damage.box.left ? rectangle.left : damage.box.left;
-            damage.box.top = rectangle.top < damage.box.top ? rectangle.top : damage.box.top;
-            damage.box.right = rectangle.right > damage.box.right ? rectangle.right : damage.box.right;
-            damage.box.bottom = rectangle.bottom > damage.box.bottom ? rectangle.bottom : damage.box.bottom;
-        }
-    }
-    return damage; // nothing changed: an empty box, an empty blit and a swap that damages nothing
-}
-
+// Widens `into` to cover `other`; an empty `into` becomes `other`.
 void merge(GpuRect* into, const GpuRect& other) noexcept {
     if (into->right <= into->left) {
         *into = other;
@@ -80,6 +52,25 @@ void merge(GpuRect* into, const GpuRect& other) noexcept {
     into->top = other.top < into->top ? other.top : into->top;
     into->right = other.right > into->right ? other.right : into->right;
     into->bottom = other.bottom > into->bottom ? other.bottom : into->bottom;
+}
+
+// The bounding box of the rectangles, clamped to the frame.
+GlesDamage damage_of(const GpuRect* dirty, u32 count, u32 width, u32 height) noexcept {
+    GlesDamage damage{};
+    if (!dirty || count == 0) {
+        damage.full = true;
+        return damage;
+    }
+    for (u32 index = 0; index < count; ++index) {
+        GpuRect rectangle = dirty[index];
+        rectangle.left = rectangle.left < 0 ? 0 : rectangle.left;
+        rectangle.top = rectangle.top < 0 ? 0 : rectangle.top;
+        rectangle.right = rectangle.right > static_cast<i32>(width) ? static_cast<i32>(width) : rectangle.right;
+        rectangle.bottom = rectangle.bottom > static_cast<i32>(height) ? static_cast<i32>(height) : rectangle.bottom;
+        if (rectangle.right > rectangle.left && rectangle.bottom > rectangle.top)
+            merge(&damage.box, rectangle);
+    }
+    return damage; // nothing changed: an empty box, an empty blit and a swap that damages nothing
 }
 
 GpuStatus make_frame(GlesSurface* surface, u32 width, u32 height) noexcept {

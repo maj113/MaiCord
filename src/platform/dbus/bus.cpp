@@ -1,3 +1,4 @@
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/bus.hpp"
@@ -49,17 +50,13 @@ void on_owner_changed(void* context, const Message& signal) noexcept {
     watch->handler(watch->context, watch->name, new_owner[0] != 0);
 }
 
-void on_owner_reply(void* context, Status status, const Message* reply) noexcept {
+void on_owner_reply(void* context, Status status, const Message*) noexcept {
     Watch* watch = watch_of(reinterpret_cast<usize>(context));
     if (!watch)
         return;
-    bool owned = false;
-    if (status == Status::ok && reply) {
-        owned = true;
-    } else if (status != Status::error_reply) {
+    if (status != Status::ok && status != Status::error_reply)
         return;  // a timeout or a lost connection says nothing about the name
-    }
-    watch->handler(watch->context, watch->name, owned);
+    watch->handler(watch->context, watch->name, status == Status::ok);
 }
 
 // Properties ------------------------------------------------------------------------------------------------------------
@@ -75,24 +72,14 @@ bool owns_property(const ExportedObject& object, const char* interface, const ch
 
 u32 g_request_counter;
 
-void append_decimal(char* out, u32* length, u32 value) noexcept {
-    char digits[12];
-    u32 count = 0;
-    for (u32 n = value; n || count == 0; n /= 10)
-        digits[count++] = static_cast<char>('0' + n % 10);
-    while (count)
-        out[(*length)++] = digits[--count];
-}
-
 void on_response(void* context, const Message& signal) noexcept {
     PortalRequest* request = static_cast<PortalRequest*>(context);
     if (!request->active)
         return;
     Reader r;
     message_reader(signal, &r);
-    u32 code = 2;
-    if (!reader_u32(&r, &code))
-        code = 2;
+    u32 code = 2;  // left as is when the response has no code
+    reader_u32(&r, &code);
     const PortalResponseHandler handler = request->handler;
     void* handler_context = request->context;
     portal_request_end(request);
@@ -262,11 +249,10 @@ bool portal_request_begin(PortalRequest* request, Connection* c, PortalResponseH
     request->handler = handler;
     request->context = context;
     // The token: maicord_<n>. The path: .../request/<sender, ':' dropped and '.' as '_'>/<token>.
-    u32 length = 0;
     const char prefix[] = "maicord_";
     copy_bytes(request->token, prefix, sizeof(prefix) - 1);
-    length = sizeof(prefix) - 1;
-    append_decimal(request->token, &length, ++g_request_counter);
+    u32 length = sizeof(prefix) - 1;
+    length += decimal_write(request->token + length, ++g_request_counter);
     request->token[length] = 0;
     const char base[] = "/org/freedesktop/portal/desktop/request/";
     copy_bytes(request->path, base, sizeof(base) - 1);
@@ -302,12 +288,7 @@ void portal_request_adopt(PortalRequest* request, const char* path) noexcept {
 }
 
 void portal_request_append_token(Builder* options, const PortalRequest& request) noexcept {
-    builder_open_entry(options);
-    builder_string(options, "handle_token");
-    builder_open_variant(options, "s");
-    builder_string(options, request.token);
-    builder_close_variant(options);
-    builder_close_entry(options);
+    builder_dict_string(options, "handle_token", request.token);
 }
 
 void portal_request_close(PortalRequest* request) noexcept {

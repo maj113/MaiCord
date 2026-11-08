@@ -164,11 +164,6 @@ __declspec(noinline) bool message_media_resident(ApplicationMediaPump& pump, con
     return resident;
 }
 
-} // namespace requests_detail
-namespace {
-
-enum class ScanStep : u8 { next, stopped, failed };
-
 // One avatar of a scene's visible list: skips a resident animation, stops at the upload budget and
 // otherwise requests it.
 __declspec(noinline) ScanStep request_scene_avatar(ApplicationMediaPump& pump, const MediaAssetKey& key,
@@ -185,7 +180,7 @@ __declspec(noinline) ScanStep request_scene_avatar(ApplicationMediaPump& pump, c
     return *stop ? ScanStep::stopped : ScanStep::next;
 }
 
-} // namespace
+} // namespace requests_detail
 
 bool ApplicationMediaPump::content_media_visible() const noexcept {
     return !(application.renderer.forum_form && application.renderer.forum_form->scene &&

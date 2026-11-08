@@ -218,8 +218,7 @@ RestRouteKey user_auth_route(UserAuthOperation operation) noexcept;
 void erase_command(RestClientRuntime* runtime, bool erase_body = true) noexcept;
 void release_decompression(RestClientRuntime* runtime) noexcept;
 void release_extended_body(RestClientRuntime* runtime) noexcept;
-void release_completed_response(RestClient* client, RestClientRuntime* runtime,
-                                u32 body_bytes) noexcept;
+void release_completed_response(RestClient* client, RestClientRuntime* runtime) noexcept;
 void close_transport(RestClientRuntime* runtime) noexcept;
 void retire_idle_transport(RestClientRuntime* runtime, u64 now_ms) noexcept;
 bool transaction_in_progress(const RestTransaction& transaction) noexcept;

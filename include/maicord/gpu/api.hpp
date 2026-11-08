@@ -160,7 +160,8 @@ void gpu_device_prestart_finish();
 // True when the device came from the prestart worker.
 bool gpu_device_prestarted(const GpuDevice* device);
 // The context's extended interface (ClearView, offset constant buffers; also fence signalling where `GpuContext4` is
-// distinct): the same object, not counted; null when the device lacks it. Other backends return the context itself.
+// distinct): the same object, not counted, never null (Direct3D 11.1 is part of the Windows 10 floor). Other backends
+// return the context itself.
 GpuContext1* gpu_context_1(GpuContext* context);
 // The device a context belongs to, not counted.
 MAICORD_GPU_INLINE GpuDevice* gpu_context_device(GpuContext* context);

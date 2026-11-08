@@ -163,13 +163,8 @@ bool read_value(Reader* r, Value* value) noexcept {
     return !r->failed;
 }
 
-bool set_flag(bool* field, bool value) noexcept {
-    const bool changed = *field != value;
-    *field = value;
-    return changed;
-}
-
-bool set_number(u32* field, u32 value) noexcept {
+// Stores `value`; whether it differs from what was there.
+template <typename T> bool set_value(T* field, T value) noexcept {
     const bool changed = *field != value;
     *field = value;
     return changed;
@@ -214,24 +209,24 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
             s->accent[1] = g2;
             s->accent[2] = b;
         } else if (c_string_equal(key, "contrast") && integer_in(0, 1)) {
-            if (set_flag(&s->more_contrast, v.integer == 1))
+            if (set_value(&s->more_contrast, v.integer == 1))
                 areas |= desktop_contrast;
         } else if (c_string_equal(key, "reduced-motion") && integer_in(0, 1)) {
-            if (set_flag(&s->reduced_motion, v.integer == 1))
+            if (set_value(&s->reduced_motion, v.integer == 1))
                 areas |= desktop_motion;
         }
     } else if (c_string_equal(ns, "org.gnome.desktop.interface")) {
         if (c_string_equal(key, "enable-animations") && v.type == 'b') {
-            if (set_flag(&s->animations, v.boolean))
+            if (set_value(&s->animations, v.boolean))
                 areas |= desktop_motion;
         } else if (c_string_equal(key, "cursor-blink") && v.type == 'b') {
-            if (set_flag(&s->cursor_blink, v.boolean))
+            if (set_value(&s->cursor_blink, v.boolean))
                 areas |= desktop_caret;
         } else if (c_string_equal(key, "cursor-blink-time") && integer_in(100, 20000)) {
-            if (set_number(&s->cursor_blink_ms, static_cast<u32>(v.integer)))
+            if (set_value(&s->cursor_blink_ms, static_cast<u32>(v.integer)))
                 areas |= desktop_caret;
         } else if (c_string_equal(key, "cursor-size") && integer_in(1, 512)) {
-            if (set_number(&s->cursor_size, static_cast<u32>(v.integer)))
+            if (set_value(&s->cursor_size, static_cast<u32>(v.integer)))
                 areas |= desktop_cursor;
         } else if (c_string_equal(key, "cursor-theme") && v.type == 's') {
             if (set_text(s->cursor_theme, sizeof(s->cursor_theme), v.text, v.text_length))
@@ -276,7 +271,7 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
         }
     } else if (c_string_equal(ns, "org.gnome.desktop.peripherals.mouse")) {
         if (c_string_equal(key, "double-click") && integer_in(50, 5000)) {
-            if (set_number(&s->double_click_ms, static_cast<u32>(v.integer)))
+            if (set_value(&s->double_click_ms, static_cast<u32>(v.integer)))
                 areas |= desktop_pointer;
         }
     } else if (c_string_equal(ns, "org.kde.kdeglobals.KDE")) {
@@ -288,7 +283,7 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
             } else if (integer_in(0, 100000)) {
                 interval = v.integer;
             }
-            if (interval >= 50 && interval <= 5000 && set_number(&s->double_click_ms, static_cast<u32>(interval)))
+            if (interval >= 50 && interval <= 5000 && set_value(&s->double_click_ms, static_cast<u32>(interval)))
                 areas |= desktop_pointer;
         }
     }
@@ -328,10 +323,10 @@ void on_setting_changed(void*, const Message& signal) noexcept {
 // ReadAll's reply: a{sa{sv}}
 void on_read_all(void*, Status status, const Message* reply) noexcept {
     g.read_finished = true;
-    if (status != Status::ok || !reply) {
+    if (status != Status::ok) {
         log_write(LogLevel::info, "dbus",
-                  status == Status::error_reply && reply && reply->error_name ? reply->error_name
-                                                                              : "the settings portal did not answer");
+                  status == Status::error_reply && reply->error_name ? reply->error_name
+                                                                     : "the settings portal did not answer");
         return;
     }
     Reader r;

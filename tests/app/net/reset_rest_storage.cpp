@@ -203,7 +203,7 @@ void storage_erasure(RestClient* client, RestClientRuntime* runtime) noexcept {
         runtime->completed.request_id == 102 && runtime->completed.body_bytes == 0 &&
         storage_zero(runtime->request_body, runtime->request_body_capacity),
         "cancellation publication erases full unsent request");
-    release_completed_response(client, runtime, 0);
+    release_completed_response(client, runtime);
 
     storage_fill(runtime->secret_storage.data, runtime->secret_storage.capacity, 0xC3);
     secure_buffer_clear(&runtime->secret_storage);

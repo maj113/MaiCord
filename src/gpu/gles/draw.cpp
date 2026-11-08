@@ -15,7 +15,9 @@ constexpr u32 kUnknown = 0xFFFFFFFFu;
 constexpr u32 kVertexStage = 0, kPixelStage = 1, kComputeStage = 2;
 
 constexpr u32 stage_index(GpuStage stage) noexcept {
-    return stage == GpuStage::vertex ? kVertexStage : stage == GpuStage::pixel ? kPixelStage : kComputeStage;
+    static_assert(static_cast<u32>(GpuStage::vertex) == kVertexStage && static_cast<u32>(GpuStage::pixel) == kPixelStage &&
+                  static_cast<u32>(GpuStage::compute) == kComputeStage);
+    return static_cast<u32>(stage);
 }
 
 void bind_unit(GpuContext& context, u32 unit, u32 texture, u32 sampler) noexcept {
@@ -239,10 +241,8 @@ void gpu_set_scissor(GpuContext* context, const GpuRect& rectangle) {
     context->scissor = rectangle;
 }
 
-void gpu_set_raster(GpuContext* context, GpuRaster* raster) {
-    // Solid fill, no culling and the scissor test are the only rasterizer state; the device sets them once.
-    context->raster = raster;
-}
+// Solid fill, no culling and the scissor test are the only rasterizer state; the device sets them once.
+void gpu_set_raster(GpuContext*, GpuRaster*) {}
 
 void gpu_set_blend(GpuContext* context, GpuBlend* blend, const float factor[4]) {
     context->blend = blend;

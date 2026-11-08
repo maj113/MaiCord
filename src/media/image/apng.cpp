@@ -121,10 +121,8 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
     if (encoded.count < sizeof(kPngSignature)) {
         return fail(result, ApngError::truncated);
     }
-    for (u32 index = 0; index < sizeof(kPngSignature); ++index) {
-        if (encoded[index] != kPngSignature[index]) {
-            return fail(result, ApngError::signature);
-        }
+    if (!bytes_equal(encoded.data, kPngSignature, sizeof(kPngSignature))) {
+        return fail(result, ApngError::signature);
     }
 
     bool header_seen = false;

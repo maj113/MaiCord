@@ -453,7 +453,7 @@ void surface_requests() noexcept {
     check(s && g_surface_requests == 1 && g_surface_request[0].attribute_count == 2 &&
               g_surface_request[0].fourcc == kFourccNv12 &&
               g_surface_request[0].hint == (kSurfaceUsageHintDecoder | kSurfaceUsageHintExport) &&
-              g_surface_request[0].format == kRtFormatYuv420 && g_config_format == kRtFormatYuv420 && !s->ten_bit,
+              g_surface_request[0].format == kRtFormatYuv420 && g_config_format == kRtFormatYuv420,
           "surfaces: NV12 with the decoder and export hints");
     session_destroy(s);
     // A driver that refuses the hint gets the plain request, and the session works.
@@ -467,7 +467,7 @@ void surface_requests() noexcept {
     // 10-bit: P010 surfaces in the 10-bit render target format, in a config of that format.
     reset_log();
     s = session_create(&driver, kProfileAv1Profile0, 64, 64, 2, true);
-    check(s && s->ten_bit && g_surface_requests == 1 && g_surface_request[0].fourcc == kFourccP010 &&
+    check(s && g_surface_requests == 1 && g_surface_request[0].fourcc == kFourccP010 &&
               g_surface_request[0].format == kRtFormatYuv420_10 && g_config_format == kRtFormatYuv420_10,
           "surfaces: a 10-bit session asks for P010");
     session_destroy(s);

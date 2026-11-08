@@ -93,7 +93,9 @@ bool socket_watch_open(SocketWatch* watch) noexcept;
 // selection makes it on Windows. Linux may also report events that were not in `mask`; callers act on the ones they
 // asked for.
 bool socket_watch_attach(SocketWatch* watch, Socket* socket, u32 mask) noexcept;
-Waitable socket_watch_waitable(const SocketWatch& watch) noexcept;
+inline Waitable socket_watch_waitable(const SocketWatch& watch) noexcept {
+    return watch.waitable;
+}
 // The events that happened since the last call; false when the system cannot say (treat the socket as lost). It
 // consumes them: the waitable is signaled again only by new events.
 bool socket_watch_poll(SocketWatch* watch, const Socket& socket, u32* events) noexcept;

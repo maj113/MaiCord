@@ -212,7 +212,6 @@ void send_request(const TextInputRequest& request) noexcept {
                                            maximum<i32>(request.width * 96 / static_cast<i32>(dpi), 1),
                                            maximum<i32>(request.height * 96 / static_cast<i32>(dpi), 1));
     zwp_text_input_v3_commit(input);
-    ++state.commits;
     g_client.display_flush(g.display);
 }
 
@@ -256,7 +255,6 @@ void text_input_disable() noexcept {
     if (state.input && state.enabled) {
         zwp_text_input_v3_disable(state.input);
         zwp_text_input_v3_commit(state.input);
-        ++state.commits;
         state.enabled = false;
         g_client.display_flush(g.display);
     }

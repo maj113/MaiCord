@@ -1,4 +1,5 @@
 #include "maicord/platform/time/tzif.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/time.hpp"
 
 namespace maicord {
@@ -13,16 +14,9 @@ constexpr i64 kMaximumDays = 2932896;
 // more); a value past a day and a half is a corrupt file.
 constexpr i32 kOffsetLimit = 36 * 3600;
 
-constexpr u32 be32(const u8* p) noexcept {
-    return static_cast<u32>(p[0]) << 24 | static_cast<u32>(p[1]) << 16 | static_cast<u32>(p[2]) << 8 | p[3];
-}
-
-constexpr i64 be64(const u8* p) noexcept {
-    return static_cast<i64>(static_cast<u64>(be32(p)) << 32 | be32(p + 4));
-}
-
-constexpr i64 floor_div(i64 value, i64 divisor) noexcept {
-    return value / divisor - ((value % divisor != 0 && (value < 0) != (divisor < 0)) ? 1 : 0);
+// Whole days since the epoch of an instant, rounded toward the past.
+constexpr i64 floor_days(i64 seconds) noexcept {
+    return seconds / kDay - (seconds % kDay < 0 ? 1 : 0);
 }
 
 struct Header {
@@ -39,12 +33,12 @@ TzifStatus read_header(ConstSlice<u8> data, u32 at, Header* header, u8* version)
     if (p[4] != 0 && (p[4] < '2' || p[4] > '4'))
         return TzifStatus::bad_version;
     *version = p[4];
-    header->utc_indicators = be32(p + 20);
-    header->standard_indicators = be32(p + 24);
-    header->leaps = be32(p + 28);
-    header->times = be32(p + 32);
-    header->types = be32(p + 36);
-    header->chars = be32(p + 40);
+    header->utc_indicators = byte_load_be32(p + 20);
+    header->standard_indicators = byte_load_be32(p + 24);
+    header->leaps = byte_load_be32(p + 28);
+    header->times = byte_load_be32(p + 32);
+    header->types = byte_load_be32(p + 36);
+    header->chars = byte_load_be32(p + 40);
     return TzifStatus::ok;
 }
 
@@ -197,13 +191,11 @@ void copy_name(const char (&name)[8], TzifOffset* output) noexcept {
     output->abbreviation[length] = 0;
 }
 
+// The caller (tzif_offset_at) has checked that the instant is within the years the reader answers for.
 bool rule_offset(const TzifRule& rule, i64 unix_seconds, TzifOffset* output) noexcept {
-    const i64 days = floor_div(unix_seconds, kDay);
-    if (days < kMinimumDays || days > kMaximumDays)
-        return false;
     bool daylight = false;
     if (rule.has_daylight) {
-        const i64 year = civil_date_from_days(floor_div(unix_seconds + rule.standard_offset, kDay)).year;
+        const i64 year = civil_date_from_days(floor_days(unix_seconds + rule.standard_offset)).year;
         const i64 start = rule_days(rule.start, year) * kDay + rule.start.seconds - rule.standard_offset;
         const i64 end = rule_days(rule.end, year) * kDay + rule.end.seconds - rule.daylight_offset;
         daylight = start < end ? (unix_seconds >= start && unix_seconds < end)
@@ -216,14 +208,15 @@ bool rule_offset(const TzifRule& rule, i64 unix_seconds, TzifOffset* output) noe
 }
 
 i64 time_at(const TzifZone& zone, u32 index) noexcept {
-    return zone.time_bytes == 8 ? be64(zone.times + index * 8) : static_cast<i32>(be32(zone.times + index * 4));
+    return zone.time_bytes == 8 ? static_cast<i64>(byte_load_be64(zone.times + index * 8))
+                                : static_cast<i32>(byte_load_be32(zone.times + index * 4));
 }
 
 bool type_offset(const TzifZone& zone, u32 type, TzifOffset* output) noexcept {
     if (type >= zone.type_count)
         return false;
     const u8* record = zone.types + type * 6;
-    output->utc_offset = static_cast<i32>(be32(record));
+    output->utc_offset = static_cast<i32>(byte_load_be32(record));
     output->daylight = record[4] != 0;
     u32 at = record[5], length = 0;
     while (at < zone.char_count && zone.chars[at] != 0 && length < 7)
@@ -281,7 +274,7 @@ TzifStatus tzif_open(ConstSlice<u8> data, TzifZone* zone) noexcept {
     }
     for (u32 i = 0; i < header.types; ++i) {
         const u8* record = zone->types + i * 6;
-        const i32 offset = static_cast<i32>(be32(record));
+        const i32 offset = static_cast<i32>(byte_load_be32(record));
         if (offset > kOffsetLimit || offset < -kOffsetLimit || record[4] > 1 || record[5] >= header.chars)
             return TzifStatus::bad_data;
     }
@@ -353,7 +346,7 @@ void tzif_zone_from_rule(const TzifRule& rule, TzifZone* zone) noexcept {
 bool tzif_offset_at(const TzifZone& zone, i64 unix_seconds, TzifOffset* output) noexcept {
     if (!output)
         return false;
-    const i64 days = floor_div(unix_seconds, kDay);
+    const i64 days = floor_days(unix_seconds);
     if (days < kMinimumDays || days > kMaximumDays)
         return false;
     if (zone.time_count == 0) {

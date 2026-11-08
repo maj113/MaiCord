@@ -71,8 +71,6 @@ struct Track {
     // Channels of the stream's sample spec (a volume request needs it).
     u8 channels;
     volatile LONG state;
-    // Server-reported buffer underruns, for diagnostics.
-    volatile LONG underflows;
     // 1 once a drain requested with track_drain has played out.
     volatile LONG drained;
     // The pending drain, cancelled by track_close.

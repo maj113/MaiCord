@@ -22,10 +22,8 @@ WindowEvent make_event(EventType type, u32 time_ms) noexcept {
 
 bool ring_push(const WindowEvent& event) noexcept {
     EventRing& ring = g.ring;
-    if (ring.tail - ring.head >= kRingCapacity) {
-        ++ring.dropped;
+    if (ring.tail - ring.head >= kRingCapacity)
         return false;
-    }
     ring.events[ring.tail % kRingCapacity] = event;
     ++ring.tail;
     return true;

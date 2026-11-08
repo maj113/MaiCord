@@ -199,8 +199,6 @@ GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDesc& desc, cons
     result->internal = info.internal;
     result->format = desc.format;
     result->bind = desc.bind;
-    result->usage = desc.usage;
-    result->wide = wide;
     result->refs = 1;
     *texture = result;
     return kGpuOk;
@@ -571,12 +569,8 @@ void gpu_release(GpuBlend*& handle) noexcept {
 void gpu_release(GpuRaster*& handle) noexcept {
     GpuRaster* raster = handle;
     handle = nullptr;
-    if (!raster)
-        return;
-    GpuContext& c = gles::context();
-    if (c.raster == raster)
-        c.raster = nullptr;
-    gles::device().rasters.release(raster);
+    if (raster)
+        gles::device().rasters.release(raster);
 }
 
 void gpu_release(GpuInputLayout*& handle) noexcept {
@@ -785,7 +779,6 @@ void gpu_clear_state(GpuContext* context) {
     context->vertex_buffer = nullptr;
     context->target = nullptr;
     context->blend = nullptr;
-    context->raster = nullptr;
     gl.glBindFramebuffer(gl::kFramebuffer, 0);
     gl.glUseProgram(0);
     gl.glBindVertexArray(0);

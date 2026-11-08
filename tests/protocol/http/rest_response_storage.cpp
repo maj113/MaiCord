@@ -136,7 +136,7 @@ struct RestStorageProbe {
         }
         return bytes;
     }
-    void consume() noexcept { release_completed_response(&client, runtime, runtime->completed.body_bytes); }
+    void consume() noexcept { release_completed_response(&client, runtime); }
 };
 NetworkWorkerStep publish_stop_rate_receipt(void* context, NetworkLoop*,
                                             const NetworkWorkerEvent& event) noexcept {

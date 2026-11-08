@@ -125,13 +125,10 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_ui_instances(D3D11DrawPipeli
 // The viewport starts origin_y pixels down the target (below a window caption).
 bool d3d11_draw_pipeline_update_transform(const D3D11DrawPipelineOwner& owner, GpuContext* context,
                                           u32 width, u32 height, u32 dpi, u32 origin_y = 0) noexcept;
-// Update only the existing shared frame buffer, without uploading instances or
-// changing the viewport. Invalid opacity becomes identity; the caller restores
-// identity before drawing other groups. update_transform also restores it.
-bool d3d11_draw_pipeline_update_opacity(const D3D11DrawPipelineOwner& owner, GpuContext* context,
-                                        u32 width, u32 height, u32 dpi, float opacity) noexcept;
-// Opacity plus a uniform scale about a DIP origin, folded into the existing
-// frame transform. Scale 1 is identical to update_opacity.
+// Opacity plus a uniform scale about a DIP origin, written into the existing
+// shared frame buffer without uploading instances or changing the viewport.
+// Invalid opacity becomes identity; the caller restores the identity layer
+// (opacity and scale 1) before drawing other groups. update_transform also restores it.
 bool d3d11_draw_pipeline_update_layer(const D3D11DrawPipelineOwner& owner, GpuContext* context,
                                       u32 width, u32 height, u32 dpi, float opacity, float scale, float origin_x,
                                       float origin_y) noexcept;

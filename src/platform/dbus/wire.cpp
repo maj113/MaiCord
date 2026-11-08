@@ -199,10 +199,6 @@ bool push_frame(Reader* r, const Reader::Frame& frame) noexcept {
 
 } // namespace
 
-u32 signature_type_length(const char* signature) noexcept {
-    return signature ? type_length(signature, 0) : 0;
-}
-
 bool signature_valid(const char* signature) noexcept {
     if (!signature || c_string_length(signature) > kMaxSignature)
         return false;
@@ -425,6 +421,29 @@ void builder_byte_array(Builder* builder, const u8* bytes, u32 count) noexcept {
     builder_close_array(builder);
 }
 
+void builder_open_dict_entry(Builder* builder, const char* key, const char* value_signature) noexcept {
+    builder_open_entry(builder);
+    builder_string(builder, key);
+    builder_open_variant(builder, value_signature);
+}
+
+void builder_close_dict_entry(Builder* builder) noexcept {
+    builder_close_variant(builder);
+    builder_close_entry(builder);
+}
+
+void builder_dict_string(Builder* builder, const char* key, const char* value) noexcept {
+    builder_open_dict_entry(builder, key, "s");
+    builder_string(builder, value);
+    builder_close_dict_entry(builder);
+}
+
+void builder_dict_bool(Builder* builder, const char* key, bool value) noexcept {
+    builder_open_dict_entry(builder, key, "b");
+    builder_bool(builder, value);
+    builder_close_dict_entry(builder);
+}
+
 // Reader -------------------------------------------------------------------------------------------------------------
 
 void reader_init(Reader* reader, const u8* body, u32 size, const char* signature, const int* fds, u32 fd_count) noexcept {
@@ -526,9 +545,7 @@ bool reader_unix_fd(Reader* reader, int* fd) noexcept {
     u32 index = 0;
     if (!take(reader, 'h', &index, 4))
         return false;
-    if (index >= reader->fd_count)
-        return reader_fail(reader);
-    if (reader->fds[index] < 0)
+    if (index >= reader->fd_count || reader->fds[index] < 0)
         return reader_fail(reader);
     *fd = reader->fds[index];
     return true;
@@ -626,46 +643,33 @@ bool reader_leave(Reader* reader) noexcept {
 }
 
 bool reader_skip(Reader* reader) noexcept {
-    switch (reader_type(*reader)) {
-    case 'y': {
-        u8 value;
-        return reader_byte(reader, &value);
-    }
+    const char type = reader_type(*reader);
+    switch (type) {
     case 'b': {
         bool value;
         return reader_bool(reader, &value);
     }
-    case 'n': {
-        i16 value;
-        return reader_i16(reader, &value);
+    // The fixed-size types, by width: the same take() calls the typed readers make, without their output.
+    case 'y': {
+        u8 value;
+        return take(reader, type, &value, 1);
     }
+    case 'n':
     case 'q': {
         u16 value;
-        return reader_u16(reader, &value);
+        return take(reader, type, &value, 2);
     }
-    case 'i': {
-        i32 value;
-        return reader_i32(reader, &value);
-    }
-    case 'u': {
-        u32 value;
-        return reader_u32(reader, &value);
-    }
+    case 'i':
+    case 'u':
     case 'h': {
         u32 value;
-        return take(reader, 'h', &value, 4);
+        return take(reader, type, &value, 4);
     }
-    case 'x': {
-        i64 value;
-        return reader_i64(reader, &value);
-    }
-    case 't': {
-        u64 value;
-        return reader_u64(reader, &value);
-    }
+    case 'x':
+    case 't':
     case 'd': {
-        double value;
-        return reader_double(reader, &value);
+        u64 value;
+        return take(reader, type, &value, 8);
     }
     case 's':
     case 'o':

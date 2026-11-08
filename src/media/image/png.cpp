@@ -187,10 +187,8 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
     if (encoded.count < sizeof(kPngSignature)) {
         return parse_failure(result, PngError::truncated);
     }
-    for (u32 index = 0; index < sizeof(kPngSignature); ++index) {
-        if (encoded[index] != kPngSignature[index]) {
-            return parse_failure(result, PngError::signature);
-        }
+    if (!bytes_equal(encoded.data, kPngSignature, sizeof(kPngSignature))) {
+        return parse_failure(result, PngError::signature);
     }
 
     ParseStage stage = ParseStage::header;

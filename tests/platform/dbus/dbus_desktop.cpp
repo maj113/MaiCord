@@ -593,7 +593,7 @@ void test_launcher_entry() noexcept {
     line = find_line("LauncherEntry");
     check(line && contains(line, "s:count-visible=v(b:1),s:count=v(x:12345678901),s:urgent=v(b:1)"), "64-bit counts and the urgent flag");
     clear_log();
-    check(launcher_entry_clear("io.github.maj113.MaiCord.desktop"), "cleared");
+    check(launcher_entry_update("io.github.maj113.MaiCord.desktop", LauncherEntryState{}), "cleared");
     settle(150);
     take_log();
     line = find_line("LauncherEntry");
@@ -646,32 +646,6 @@ bool child_done() noexcept {
     return false;
 }
 
-void test_launch_parse() noexcept {
-    LaunchRequest r;
-    const char* a[] = {"maicord", "--startup"};
-    check(launch_parse(2, a, &r) && r.startup && !r.url_present, "--startup");
-    const char* b[] = {"maicord", "--url", "--", "discord://-/invite/abc"};
-    check(launch_parse(4, b, &r) && !r.startup && r.url_present && text_equal(r.url, "discord://-/invite/abc") && r.url_bytes == 22,
-          "--url -- <link>, the official client's shape");
-    const char* c[] = {"maicord", "DISCORD://-/channels/1/2"};
-    check(launch_parse(2, c, &r) && r.url_present && text_equal(r.url, "DISCORD://-/channels/1/2"), "a bare discord link, any case");
-    const char* d[] = {"maicord", "maicord://install/x", "--startup", "--unknown"};
-    check(launch_parse(4, d, &r) && r.startup && r.url_present && text_equal(r.url, "maicord://install/x"), "a maicord link, the rest ignored");
-    const char* e[] = {"maicord", "--url", "https://example.org/", "plain"};
-    check(launch_parse(4, e, &r) && r.url_present && text_equal(r.url, "https://example.org/"),
-          "--url takes its argument verbatim (the link parser judges it)");
-    const char* f[] = {"maicord"};
-    check(launch_parse(1, f, &r) && !r.startup && !r.url_present && r.url_bytes == 0, "no arguments");
-    static char huge[kLaunchUrlCapacity + 8];
-    for (u32 i = 0; i < sizeof(huge) - 1; ++i)
-        huge[i] = 'a';
-    huge[sizeof(huge) - 1] = 0;
-    const char* g[] = {"maicord", "--url", "--", huge};
-    check(!launch_parse(4, g, &r), "a link over the capacity is refused");
-    const char* h[] = {"maicord", "--url"};
-    check(launch_parse(2, h, &r) && !r.url_present, "--url with nothing after it");
-}
-
 void test_instance_names() noexcept {
     char name[160];
     char path[200];
@@ -714,7 +688,6 @@ void unique_key(char (&key)[32], const char* prefix) noexcept {
 
 // The primary on the bus: requests from the mock (as a launcher would make them) and from a second process.
 void test_instance_bus() noexcept {
-    test_launch_parse();
     test_instance_names();
     char key[32];
     unique_key(key, "bus");
@@ -881,8 +854,9 @@ void test_instance_socket() noexcept {
 
 int run_secondary(const char* key, const char* url) noexcept {
     LaunchRequest request{};
-    const char* arguments[] = {"maicord", "--url", "--", url};
-    launch_parse(url[0] ? 4 : 1, arguments, &request);
+    request.url_bytes = text_length(url);
+    request.url_present = request.url_bytes != 0;
+    copy_bytes(request.url, url, request.url_bytes + 1);
     const InstanceConfig config{kApplicationId, key};
     switch (instance_acquire(config, request, 8000)) {
     case InstanceResult::forwarded:
@@ -918,7 +892,6 @@ MAICORD_TEST_ENTRY(maicord_dbus_desktop_entry) {
             test_write_line("SKIP dbus_desktop --socket (MAICORD_INSTANCE_BACKEND=socket)");
             test_process_exit(77);
         }
-        test_launch_parse();
         test_instance_socket();
         test_exit(g_failures, "dbus_desktop_socket");
     }

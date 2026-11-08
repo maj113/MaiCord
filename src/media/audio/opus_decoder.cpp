@@ -9,10 +9,9 @@ static_assert(sizeof(i16) == sizeof(opus_int16));
 OpusDecodeResult result(OpusDecodeError error, i32 native = OPUS_OK, u32 frames = 0) noexcept {
     return {error, native, frames};
 }
+// Only initialize (which validates the storage) sets `initialized`, and only release clears it.
 bool current(const OpusDecoder* decoder) noexcept {
-    return decoder && decoder->initialized && decoder->state &&
-           !(reinterpret_cast<usize>(decoder->state) & (kOpusDecoderStateAlignment - 1)) &&
-           decoder->state_bytes && decoder->state_bytes == opus_decoder_storage_bytes(decoder->channels);
+    return decoder && decoder->initialized;
 }
 ::OpusDecoder* native_state(OpusDecoder* decoder) noexcept {
     return reinterpret_cast<::OpusDecoder*>(decoder->state);

@@ -130,22 +130,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* a
     if (!allocation.ok()) {
         return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
-    const PngAtlasConstants constants{
-        image.row_stride,
-        image.width,
-        image.height,
-        image.bit_depth,
-        image.color_type,
-        local.x,
-        local.y,
-        image.palette_count,
-        image.transparent_gray,
-        image.transparent_red,
-        image.transparent_green,
-        image.transparent_blue,
-        {},
-    };
-    dispatch_png_shader(gpu, context, constants, gpu->texture_uav, image.width, image.height);
+    dispatch_png(gpu, context, image, local.x, local.y, ApngBlend::source);
 
     ++gpu->png_uploads;
     saturating_accumulate(gpu->png_uploaded_bytes, image.inflated_bytes);

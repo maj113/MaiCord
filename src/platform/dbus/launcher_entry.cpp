@@ -1,3 +1,4 @@
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/launcher_entry.hpp"
@@ -22,14 +23,8 @@ void entry_path(const char* desktop_id, char (&path)[64]) noexcept {
         hash = (hash ^ static_cast<u8>(desktop_id[i])) * 16777619u;
     const char base[] = "/com/canonical/unity/launcherentry/";
     copy_bytes(path, base, sizeof(base) - 1);
-    u32 length = sizeof(base) - 1;
-    char digits[12];
-    u32 count = 0;
-    for (u32 n = hash; n || count == 0; n /= 10)
-        digits[count++] = static_cast<char>('0' + n % 10);
-    while (count)
-        path[length++] = digits[--count];
-    path[length] = 0;
+    const u32 length = sizeof(base) - 1;
+    path[length + decimal_write(path + length, hash)] = 0;
 }
 
 bool send(Connection* c) noexcept {
@@ -43,24 +38,11 @@ bool send(Connection* c) noexcept {
     builder_init(&body);
     builder_string(&body, uri);
     builder_open_array(&body, "{sv}");
-    builder_open_entry(&body);
-    builder_string(&body, "count");
-    builder_open_variant(&body, "x");
+    builder_open_dict_entry(&body, "count", "x");
     builder_i64(&body, g.state.count);
-    builder_close_variant(&body);
-    builder_close_entry(&body);
-    builder_open_entry(&body);
-    builder_string(&body, "count-visible");
-    builder_open_variant(&body, "b");
-    builder_bool(&body, g.state.count_visible);
-    builder_close_variant(&body);
-    builder_close_entry(&body);
-    builder_open_entry(&body);
-    builder_string(&body, "urgent");
-    builder_open_variant(&body, "b");
-    builder_bool(&body, g.state.urgent);
-    builder_close_variant(&body);
-    builder_close_entry(&body);
+    builder_close_dict_entry(&body);
+    builder_dict_bool(&body, "count-visible", g.state.count_visible);
+    builder_dict_bool(&body, "urgent", g.state.urgent);
     builder_close_array(&body);
     const bool sent = builder_ok(body) && connection_emit(c, path, "com.canonical.Unity.LauncherEntry", "Update", &body);
     builder_release(&body);
@@ -88,10 +70,6 @@ bool launcher_entry_update(const char* desktop_id, const LauncherEntryState& sta
         return false;
     Connection* c = session_bus();
     return c && send(c);
-}
-
-bool launcher_entry_clear(const char* desktop_id) noexcept {
-    return launcher_entry_update(desktop_id, LauncherEntryState{0, false, false});
 }
 
 } // namespace maicord::dbus

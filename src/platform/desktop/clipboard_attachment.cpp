@@ -245,8 +245,8 @@ DWORD convert_stream(IStream* stream, ClipboardPasteKind kind, u64 limit, Clipbo
         if (!read || result == S_FALSE) break;
     }
     if (!error) {
-        if (!used || used > 0xffffffffull) error = ERROR_INVALID_DATA;
-        else if (!png || !limit) error = ERROR_INVALID_PARAMETER;
+        // `cap` keeps `used` under 4 GiB; the caller always passes an output and a nonzero limit.
+        if (!used) error = ERROR_INVALID_DATA;
         else if (kind != ClipboardPasteKind::png)
             error = clipboard_paste_png(kind, {buffer, static_cast<u32>(used)}, limit, png);
         else {
@@ -255,10 +255,9 @@ DWORD convert_stream(IStream* stream, ClipboardPasteKind kind, u64 limit, Clipbo
             if (!bytes) error = ERROR_INVALID_DATA;
             else if (bytes > limit) { error = ERROR_FILE_TOO_LARGE; png->bytes = bytes; }
             else {
-                SYSTEM_INFO system{}; GetSystemInfo(&system);
-                const u64 page = system.dwPageSize;
-                const u64 keep = (bytes + page - 1) / page * page;
-                const u64 committed = (capacity + page - 1) / page * page;
+                const u64 page = pages_page_size();  // a power of two
+                const u64 keep = (bytes + page - 1) & ~(page - 1);
+                const u64 committed = (capacity + page - 1) & ~(page - 1);
                 // The stream buffer already owns the PNG. Drop unused tail
                 // pages before transfer so retained commitment matches a copy.
                 if (keep < committed && !pages_decommit(buffer + keep, committed - keep)) {

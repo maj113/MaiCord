@@ -383,7 +383,6 @@ bool ui_access_tree_reset(UiAccessTree* tree, Utf8View window_name, UiRect bound
     tree->owner_count = 0;
     tree->focus = kUiAccessNone;
     tree->finished = false;
-    ++tree->revision;
     UiAccessNodeDesc root{};
     root.key = ui_access_key(0, 0);
     root.rectangle = bounds;
@@ -395,11 +394,8 @@ bool ui_access_tree_reset(UiAccessTree* tree, Utf8View window_name, UiRect bound
 u32 ui_access_add(UiAccessTree* tree, u32 parent, const UiAccessNodeDesc& description) noexcept {
     if (!tree || tree->count >= tree->nodes.count || (tree->count != 0 && parent >= tree->count) ||
         (tree->count == 0 && parent != kUiAccessNone)) {
-        if (tree) {
-            ++tree->rejected;
-            if (tree->count >= tree->nodes.count)
-                tree->exhausted |= ui_access_exhausted_nodes;
-        }
+        if (tree && tree->count >= tree->nodes.count)
+            tree->exhausted |= ui_access_exhausted_nodes;
         return kUiAccessNone;
     }
     const u32 index = tree->count++;
@@ -477,7 +473,6 @@ u32 ui_access_add_widgets(UiAccessTree* tree, u32 parent, const UiWidgetManager&
     if (!tree || parent >= tree->count || tree->finished || !manager.storage.data || manager.count == 0)
         return kUiAccessNone;
     if (tree->owner_count >= kUiAccessOwnerMaximum || tree->slot_used + manager.count > tree->slot_map.count) {
-        ++tree->rejected;
         if (tree->slot_used + manager.count > tree->slot_map.count)
             tree->exhausted |= ui_access_exhausted_slots;
         return kUiAccessNone;
@@ -1208,7 +1203,6 @@ bool ui_access_announce_admit(UiAccessAnnouncer* announcer, Utf8View text, UiAcc
     announcer->hashes[announcer->next] = hash;
     announcer->times[announcer->next] = stamp;
     announcer->next = (announcer->next + 1) % kUiAccessAnnounceHistory;
-    ++announcer->admitted;
     return true;
 }
 

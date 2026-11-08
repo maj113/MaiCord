@@ -124,13 +124,12 @@ bool create_pass_objects(D3D11EffectOwner* owner, GpuDevice* device) noexcept {
     if (owner->target_vertex && owner->composite_vertex && owner->composite_pixel && owner->frame_buffer &&
         owner->composite_buffer && owner->rasterizer && owner->blends[7] && owner->samplers[2])
         return true;
-    bool layout_failed = false;
     GpuStatus result = owner->target_vertex ? S_OK
                                           : gpu_vertex_shader_create(device, ShaderId::fx_target_vertex, {},
-                                                                     &owner->target_vertex, nullptr, &layout_failed);
+                                                                     &owner->target_vertex, nullptr, nullptr);
     if (SUCCEEDED(result) && !owner->composite_vertex)
         result = gpu_vertex_shader_create(device, ShaderId::fx_composite_vertex, {}, &owner->composite_vertex,
-                                          nullptr, &layout_failed);
+                                          nullptr, nullptr);
     if (SUCCEEDED(result) && !owner->composite_pixel)
         result = gpu_pixel_shader_create(device, ShaderId::fx_composite_pixel, &owner->composite_pixel);
     bool ok = SUCCEEDED(result) && (owner->frame_buffer || create_buffer(device, sizeof(EffectFrameConstants), &owner->frame_buffer)) &&

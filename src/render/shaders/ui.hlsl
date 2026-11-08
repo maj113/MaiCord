@@ -69,10 +69,9 @@ VertexOutput ui_vertex(VertexInput input, uint vertex_id : SV_VertexID) {
     return output;
 }
 
-float background_hash(float2 cell) {
-    float3 p = frac(float3(cell.xyx) * 0.1031f);
-    p += dot(p, p.yzx + 33.33f);
-    return frac((p.x + p.y) * p.z);
+// Interleaved gradient noise (Jimenez 2014) of a pixel centre, in [0, 1).
+float background_hash(float2 pixel) {
+    return frac(52.9829189f * frac(dot(pixel, float2(0.06711056f, 0.00583715f))));
 }
 
 // One gradient lookup: position in [0, 1] along the axis, already clamped.
@@ -93,7 +92,7 @@ float3 backdrop_gradient(float2 dip_position) {
 float3 background_dither(float3 color, float2 pixel_position) {
     // Fixed screen-space noise, no phase term or extra texture. At most half
     // an output byte before composition, never animated sparkling.
-    return saturate(color + (background_hash(floor(pixel_position)) - 0.5f) / 255.0f);
+    return saturate(color + (background_hash(pixel_position) - 0.5f) / 255.0f);
 }
 
 float rounded_distance(float2 local, float2 half_size, float radius) {
@@ -120,8 +119,9 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
         const float signed_distance = rounded_distance(local, half_size, input.parameters.x);
         // The antialiasing width is one pixel in DIPs. The distance field has unit
         // gradient except at a sharp corner's kink, where its own derivative
-        // would double and leave the corner pixel partly transparent.
-        const float inverse_antialias_width = 1.0f / max(fwidth(local.x), 0.0001f);
+        // would double and leave the corner pixel partly transparent. Quads are
+        // axis-aligned, so local.x changes along screen x only.
+        const float inverse_antialias_width = 1.0f / max(abs(ddx(local.x)), 0.0001f);
         const float outer_coverage = saturate(0.5f - signed_distance * inverse_antialias_width);
         return surface_pixel(input.fill, input.border, signed_distance, input.parameters.y,
                              inverse_antialias_width, outer_coverage);
@@ -138,7 +138,7 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
     // strip shapes itself with.
     const float radius = min(input.parameters.x, min(half_size.x, half_size.y));
     const float signed_distance = rounded_distance(local, half_size, radius);
-    const float antialias_width = max(fwidth(local.x), 0.0001f);
+    const float antialias_width = max(abs(ddx(local.x)), 0.0001f);
     if (input.parameters.y == -7.0f || input.parameters.y == -8.0f) {
         // Panels (-7) always tint toward the backdrop; plain surfaces (-8) only
         // while a backdrop gradient is active. Stars, Comets and plugin effects
@@ -186,7 +186,7 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
         const float distance =
             rounded_distance(float2(local.x + half_size.x - shape_half.x, local.y), shape_half,
                              min(input.parameters.x, min(shape_half.x, shape_half.y)));
-        const float coverage = saturate(0.5f - distance / max(fwidth(local.x), 0.0001f));
+        const float coverage = saturate(0.5f - distance / max(abs(ddx(local.x)), 0.0001f));
         return float4(input.fill.rgb * input.fill.a, input.fill.a) * coverage;
     }
     if (input.parameters.y == -4.0f) {

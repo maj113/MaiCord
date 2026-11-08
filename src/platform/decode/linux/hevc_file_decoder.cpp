@@ -46,13 +46,6 @@ H264Error mapped(HevcError error) noexcept {
     return static_cast<H264Error>(static_cast<u8>(error));
 }
 
-void slots_release(State* s) noexcept {
-    for (u32 i = 0; i < s->slots; ++i)
-        stream_slot_release(&s->slot[i]);
-    clear_bytes(s->slot, sizeof(s->slot));
-    s->slots = 0;
-}
-
 bool decode_picture(State* s, const Mp4AccessUnit& unit, const HevcPicture& picture, const HevcReferencePlan& plan,
                     u8 surface) noexcept {
     return vaapi::submit_hevc_sample(s->session, s->config, picture, unit.bytes, s->references, plan, surface);
@@ -74,7 +67,7 @@ bool probe_hardware(State* s, const HevcPicture& picture) noexcept {
 void release_state(State* s) noexcept {
     vaapi::session_destroy(s->session);
     s->session = nullptr;
-    slots_release(s);
+    stream_slots_release(s->slot, &s->slots);
 }
 
 bool reset_cursor(H264GpuDecoder& handle) noexcept {
@@ -89,31 +82,8 @@ bool reset_cursor(H264GpuDecoder& handle) noexcept {
     return true;
 }
 
-// Fills the frame of the picture the output queue shows next, exporting it into its slot now.
 Mp4DecodedFrame output_frame(State& s) noexcept {
-    Mp4DecodedFrame decoded{};
-    H264Output picture{};
-    if (!h264_output_pop(&s.output, &picture)) {
-        decoded.error = Mp4DecodeError::sample;
-        return decoded;
-    }
-    StreamSurface& slot = s.slot[picture.surface];
-    if (!stream_slot_export(s.device, s.session, picture.surface, &slot)) {
-        decoded.error = Mp4DecodeError::sample;
-        return decoded;
-    }
-    s.frame.texture = slot.luma_texture;
-    s.frame.subresource = picture.surface;
-    s.frame.luma = slot.luma_view;
-    s.frame.chroma = slot.chroma_view;
-    decoded.gpu = &s.frame;
-    decoded.width = s.frame.width;
-    decoded.height = s.frame.height;
-    decoded.display_width = s.display.width;
-    decoded.display_height = s.display.height;
-    decoded.duration_us = decoded.source_duration_us = picture.duration_us;
-    decoded.presentation_time_us = picture.presentation_time_us;
-    return decoded;
+    return stream_movie_frame(&s.output, s.device, s.session, s.slot, &s.frame, s.display);
 }
 
 } // namespace

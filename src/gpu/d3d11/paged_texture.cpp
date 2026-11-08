@@ -70,7 +70,6 @@ GpuStatus gpu_paged_texture_create(GpuDevice* device, const GpuPagedTextureDesc&
     if (!paged) {
         return E_OUTOFMEMORY;
     }
-    paged->width = desc.width;
     paged->page_rows = desc.page_rows;
     paged->pages = desc.pages;
     paged->band_rows = band_rows;
@@ -143,11 +142,10 @@ GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* paged, 
         paged->committed[page] = static_cast<u16>(rows);
         return S_OK;
     }
+    // Tiled Resources Tier 1, the device floor, comes with Direct3D 11.2's context.
     ID3D11DeviceContext2* tiles = nullptr;
-    HRESULT result = context->QueryInterface(__uuidof(ID3D11DeviceContext2), reinterpret_cast<void**>(&tiles));
-    if (FAILED(result)) {
-        return result;
-    }
+    context->QueryInterface(__uuidof(ID3D11DeviceContext2), reinterpret_cast<void**>(&tiles));
+    HRESULT result = S_OK;
     const u32 first_band = page * (paged->page_rows / paged->band_rows);
     for (u32 band = have; SUCCEEDED(result) && band < want; ++band) {
         const u32 slot = lowest_free_slot(*paged);

@@ -405,11 +405,6 @@ TlsStreamEvent finish_close(TlsStream* stream) noexcept {
 
 } // namespace
 
-bool tls_stream_initialize(TlsStream* stream, const wchar_t* server_name,
-                           TlsStreamBuffers buffers) noexcept {
-    return tls_stream_initialize_endpoint(stream, server_name, 443, buffers);
-}
-
 bool tls_stream_initialize_endpoint(TlsStream* stream, const wchar_t* server_name, u16 port,
                                     TlsStreamBuffers buffers) noexcept {
     if (!stream || (stream->state != TlsStreamState::empty && stream->state != TlsStreamState::closed) ||
@@ -513,30 +508,29 @@ TlsStreamEvent tls_stream_start_write(TlsStream* stream, ConstSlice<ConstSlice<u
     return start_next_record(stream);
 }
 
-TlsStreamEvent tls_stream_start_read(TlsStream* stream, TlsStreamReadHandler read_handler,
-                                     void* callback_context) noexcept {
+// A ready stream is never duplex (every path to ready clears it), so the flag is set for both kinds of reader.
+static TlsStreamEvent start_reader(TlsStream* stream, TlsStreamReadHandler read_handler, void* callback_context,
+                                   bool duplex) noexcept {
     if (!stream || stream->state != TlsStreamState::ready || !read_handler ||
         stream->connection.send_pending || stream->connection.receive_pending) {
         return invalid_event();
     }
     stream->read_handler = read_handler;
     stream->read_context = callback_context;
-    stream->state = TlsStreamState::reading;
+    stream->duplex = duplex;
     stream->read_completed = false;
+    stream->state = duplex ? TlsStreamState::duplex : TlsStreamState::reading;
     return drive_read(stream);
+}
+
+TlsStreamEvent tls_stream_start_read(TlsStream* stream, TlsStreamReadHandler read_handler,
+                                     void* callback_context) noexcept {
+    return start_reader(stream, read_handler, callback_context, false);
 }
 
 TlsStreamEvent tls_stream_start_duplex(TlsStream* stream, TlsStreamReadHandler read_handler,
                                        void* callback_context) noexcept {
-    if (!stream || stream->state != TlsStreamState::ready || !read_handler ||
-        stream->connection.send_pending || stream->connection.receive_pending)
-        return invalid_event();
-    stream->read_handler = read_handler;
-    stream->read_context = callback_context;
-    stream->duplex = true;
-    stream->read_completed = false;
-    stream->state = TlsStreamState::duplex;
-    return drive_read(stream);
+    return start_reader(stream, read_handler, callback_context, true);
 }
 
 TlsStreamEvent tls_stream_resume_read(TlsStream* stream) noexcept {

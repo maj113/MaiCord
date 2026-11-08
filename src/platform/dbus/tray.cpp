@@ -1,3 +1,4 @@
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -124,6 +125,17 @@ void variant_text(Builder* b, const char* signature, const char* text) noexcept 
     builder_close_variant(b);
 }
 
+// The ARGB32 byte order the SNI property wants (network order: alpha, red, green, blue) from 0xAARRGGBB pixels.
+void pixmap_bytes(const u32* pixels, u32 count, u8* bytes) noexcept {
+    for (u32 i = 0; i < count; ++i) {
+        const u32 p = pixels[i];
+        bytes[i * 4] = static_cast<u8>(p >> 24);
+        bytes[i * 4 + 1] = static_cast<u8>(p >> 16);
+        bytes[i * 4 + 2] = static_cast<u8>(p >> 8);
+        bytes[i * 4 + 3] = static_cast<u8>(p);
+    }
+}
+
 // a(iiay) of the state's icons (empty when there are none), as the value of the open variant.
 void write_pixmaps(Builder* b) noexcept {
     builder_open_variant(b, "a(iiay)");
@@ -135,7 +147,7 @@ void write_pixmaps(Builder* b) noexcept {
             b->failed = true;
             break;
         }
-        tray_pixmap_bytes(g.pixels[i], count, bytes);
+        pixmap_bytes(g.pixels[i], count, bytes);
         builder_open_struct(b, "(iiay)");
         builder_i32(b, static_cast<i32>(g.icon_width[i]));
         builder_i32(b, static_cast<i32>(g.icon_height[i]));
@@ -282,46 +294,25 @@ const Item* item_by_id(i32 id) noexcept {
     return id >= 1 && static_cast<u32>(id) <= g.item_count ? &g.items[id - 1] : nullptr;
 }
 
-void property_entry(Builder* b, const char* name, const char* signature) noexcept {
-    builder_open_entry(b);
-    builder_string(b, name);
-    builder_open_variant(b, signature);
-}
-
-void end_entry(Builder* b) noexcept {
-    builder_close_variant(b);
-    builder_close_entry(b);
-}
-
 // a{sv} of one item (id 0 is the root menu).
 void write_item_properties(Builder* b, i32 id) noexcept {
     builder_open_array(b, "{sv}");
     if (id == 0) {
-        property_entry(b, "children-display", "s");
+        builder_open_dict_entry(b, "children-display", "s");
         builder_string(b, "submenu");
-        end_entry(b);
+        builder_close_dict_entry(b);
     } else if (const Item* item = item_by_id(id)) {
         if (item->separator) {
-            property_entry(b, "type", "s");
-            builder_string(b, "separator");
-            end_entry(b);
+            builder_dict_string(b, "type", "separator");
         } else {
-            property_entry(b, "label", "s");
-            builder_string(b, item->label);
-            end_entry(b);
-            property_entry(b, "enabled", "b");
-            builder_bool(b, true);
-            end_entry(b);
-            property_entry(b, "visible", "b");
-            builder_bool(b, true);
-            end_entry(b);
+            builder_dict_string(b, "label", item->label);
+            builder_dict_bool(b, "enabled", true);
+            builder_dict_bool(b, "visible", true);
             if (item->checkable) {
-                property_entry(b, "toggle-type", "s");
-                builder_string(b, "checkmark");
-                end_entry(b);
-                property_entry(b, "toggle-state", "i");
+                builder_dict_string(b, "toggle-type", "checkmark");
+                builder_open_dict_entry(b, "toggle-state", "i");
                 builder_i32(b, item->checked ? 1 : 0);
-                end_entry(b);
+                builder_close_dict_entry(b);
             }
         }
     }
@@ -526,7 +517,6 @@ void on_session(Connection* c) noexcept {
     g.watch = connection_watch_name(c, kWatcherName, on_watcher, nullptr);
 }
 
-// ARGB32 in network order: alpha, red, green, blue.
 bool same_icons(const TrayState& state) noexcept {
     if (state.icon_count != g.icon_count)
         return false;
@@ -558,16 +548,6 @@ bool same_menu(const TrayState& state) noexcept {
 
 } // namespace
 
-void tray_pixmap_bytes(const u32* pixels, u32 count, u8* bytes) noexcept {
-    for (u32 i = 0; i < count; ++i) {
-        const u32 p = pixels[i];
-        bytes[i * 4] = static_cast<u8>(p >> 24);
-        bytes[i * 4 + 1] = static_cast<u8>(p >> 16);
-        bytes[i * 4 + 2] = static_cast<u8>(p >> 8);
-        bytes[i * 4 + 3] = static_cast<u8>(p);
-    }
-}
-
 bool tray_start(const char* id, TrayHandler handler, void* context) noexcept {
     if (g.started)
         return true;
@@ -579,12 +559,7 @@ bool tray_start(const char* id, TrayHandler handler, void* context) noexcept {
     const char prefix[] = "org.kde.StatusNotifierItem-";
     copy_bytes(g.service, prefix, sizeof(prefix) - 1);
     u32 length = sizeof(prefix) - 1;
-    char digits[12];
-    u32 count = 0;
-    for (u32 n = process_id(); n || count == 0; n /= 10)
-        digits[count++] = static_cast<char>('0' + n % 10);
-    while (count)
-        g.service[length++] = digits[--count];
+    length += decimal_write(g.service + length, process_id());
     g.service[length++] = '-';
     g.service[length++] = '1';
     g.service[length] = 0;

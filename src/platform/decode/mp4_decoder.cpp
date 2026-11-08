@@ -3,23 +3,33 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/platform/decode/hevc_gpu_decoder.hpp"
 #include "maicord/media/containers/hevc_mp4_demux.hpp"
+#if defined(_WIN32)
 #include "maicord/sys/d3d11.hpp"
-// Decoder plumbing, once per frame: compiled for size.
+#else
+#include "maicord/core/win32_error.hpp"
+#endif
+// Decoder plumbing, once per frame: compiled for size. Both systems: on Linux the decoders below are
+// linux/h264_file_decoder.cpp (VA-API, or libopenh264 when the machine has no H.264 decoder for the stream) and
+// linux/hevc_file_decoder.cpp (VA-API), which take no device context and never report device backpressure.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 bool mp4_decoder_initialize_fragmented(Mp4Decoder* decoder, Mp4FragmentSource* source,
-                                       ID3D11Device* device) noexcept {
+                                       GpuDevice* device) noexcept {
     if (!decoder || decoder->ready || decoder->native.state || !source || !device) return false;
+#if defined(_WIN32)
     ID3D11DeviceContext* context{};
     device->GetImmediateContext(&context);
     const bool ready = context && h264_gpu_decoder_initialize_fragmented(&decoder->native, source, device, context);
     com_release(context);
+#else
+    const bool ready = h264_gpu_decoder_initialize_fragmented(&decoder->native, source, device, nullptr);
+#endif
     if (ready) { decoder->ready = decoder->fragmented = true; decoder->hevc = false; decoder->gpu = nullptr; }
     return ready;
 }
 bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded, u16 requested_width,
-                            u16 requested_height, ID3D11Device* video_device,
+                            u16 requested_height, GpuDevice* video_device,
                             Mp4SourceAvailability availability) noexcept {
     if (!decoder)
         return false;
@@ -37,6 +47,7 @@ bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded, u16 req
         ((requested_width == 0) != (requested_height == 0)) || requested_width > kMp4DecodeMaximumDimension ||
         requested_height > kMp4DecodeMaximumDimension)
         return false;
+#if defined(_WIN32)
     ID3D11DeviceContext* context = nullptr;
     video_device->GetImmediateContext(&context);
     decoder->ready =
@@ -45,6 +56,11 @@ bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded, u16 req
              ? hevc_gpu_decoder_initialize(&decoder->native, encoded, video_device, context, availability)
              : h264_gpu_decoder_initialize(&decoder->native, encoded, video_device, context, availability));
     com_release(context);
+#else
+    decoder->ready = decoder->hevc
+                         ? hevc_gpu_decoder_initialize(&decoder->native, encoded, video_device, nullptr, availability)
+                         : h264_gpu_decoder_initialize(&decoder->native, encoded, video_device, nullptr, availability);
+#endif
     return decoder->ready;
 }
 

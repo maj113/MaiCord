@@ -93,9 +93,6 @@ struct ApplicationMediaPump {
     __declspec(noinline) bool restore_cached_animation_frame(const AnimationFrameAdvance& advance,
                                                              AnimationVisualState* visual,
                                                              bool* repaint) noexcept;
-    static constexpr u32 pending_animation_capacity() noexcept {
-        return kAnimationPendingAdvanceCapacity;
-    }
     __declspec(noinline) u32 find_pending_animation(const AnimationFrameAdvance& advance) noexcept;
     __declspec(noinline) AnimationFrameAdvance remove_pending_animation(u32 index) noexcept;
     __declspec(noinline) bool consume_pending_animation_frame(const AccountMediaFrame& frame, bool* repaint,

@@ -194,8 +194,6 @@ struct UiAccessTree {
     u32 slot_used;
     u32 key_mask;
     u32 focus;
-    u32 rejected;
-    u32 revision;
     bool finished;
     u8 exhausted;
 };
@@ -419,7 +417,7 @@ struct UiAccessAnnouncer {
     u64 times[kUiAccessAnnounceHistory];
     u64 polite_times[kUiAccessAnnouncePoliteBurst];
     u32 next, polite_next;
-    u32 admitted, dropped;
+    u32 dropped;
 };
 // Rate limiting decision; records admitted announcements.
 bool ui_access_announce_admit(UiAccessAnnouncer* announcer, Utf8View text, UiAccessPoliteness politeness,

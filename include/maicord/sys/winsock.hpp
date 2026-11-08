@@ -25,7 +25,6 @@
 #define IOC_WS2 0x08000000
 #define _WSAIORW(x,y) (IOC_INOUT|(x)|(y))
 #define SIO_GET_EXTENSION_FUNCTION_POINTER _WSAIORW(IOC_WS2,6)
-#define INADDR_ANY (ULONG)0x00000000
 #define INADDR_LOOPBACK 0x7f000001
 #define IOCPARM_MASK 0x7f
 #define IOC_OUT 0x40000000
@@ -123,18 +122,6 @@ struct _WSABUF {
 };
 typedef _WSABUF WSABUF;
 typedef _WSABUF* LPWSABUF;
-struct addrinfoW {
-    int ai_flags;
-    int ai_family;
-    int ai_socktype;
-    int ai_protocol;
-    size_t ai_addrlen;
-    PWSTR ai_canonname;
-    struct sockaddr* ai_addr;
-    struct addrinfoW* ai_next;
-};
-typedef addrinfoW ADDRINFOW;
-typedef addrinfoW* PADDRINFOW;
 struct addrinfoexW {
     int ai_flags;
     int ai_family;
@@ -245,13 +232,10 @@ extern "C" __declspec(dllimport) SOCKET WINAPI WSASocketW(int af, int type, int 
 extern "C" extern const IN6_ADDR in6addr_loopback;
 
 // <WS2tcpip.h>
-extern "C" __declspec(dllimport) INT WINAPI GetAddrInfoW(PCWSTR pNodeName, PCWSTR pServiceName,
-    const ADDRINFOW* pHints, PADDRINFOW* ppResult);
 extern "C" __declspec(dllimport) INT WINAPI GetAddrInfoExW(PCWSTR pName, PCWSTR pServiceName, DWORD dwNameSpace,
     LPGUID lpNspId, const ADDRINFOEXW* hints, PADDRINFOEXW* ppResult, struct timeval* timeout,
     LPOVERLAPPED lpOverlapped, LPLOOKUPSERVICE_COMPLETION_ROUTINE lpCompletionRoutine, LPHANDLE lpHandle);
 extern "C" __declspec(dllimport) INT WINAPI GetAddrInfoExCancel(LPHANDLE lpHandle);
-extern "C" __declspec(dllimport) void WINAPI FreeAddrInfoW(PADDRINFOW pAddrInfo);
 extern "C" __declspec(dllimport) void WINAPI FreeAddrInfoExW(PADDRINFOEXW pAddrInfoEx);
 extern "C" __declspec(dllimport) INT WINAPI inet_pton(INT Family, PCSTR pszAddrString, PVOID pAddrBuf);
 extern "C" INT WINAPI InetPtonW(INT Family, PCWSTR pszAddrString, PVOID pAddrBuf);

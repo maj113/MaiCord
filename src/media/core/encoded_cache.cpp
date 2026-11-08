@@ -5,32 +5,23 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/media/core/slot_index.hpp"
 
 namespace maicord {
 namespace {
 
-constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
-constexpr u32 kIndexTombstone = 0xFFFFFFFFu;
+constexpr u32 kInvalidIndex = kSlotIndexNone;
 volatile LONG64 next_content_identity = 0;
 
 void rebuild_index_locked(EncodedMediaCache* cache) noexcept {
     for (u32 bucket = 0; bucket < cache->index_bucket_capacity; ++bucket) {
-        cache->index_buckets[bucket] = 0;
+        cache->index_buckets[bucket] = kSlotIndexEmpty;
     }
     cache->index_tombstones = 0;
-    const u32 mask = cache->index_bucket_capacity - 1;
     for (u32 index = 0; index < cache->entry_capacity; ++index) {
-        if (!cache->entries[index].occupied) {
-            continue;
-        }
-        u32 bucket = static_cast<u32>(media_asset_hash(cache->entries[index].key)) & mask;
-        for (u32 probe = 0; probe < cache->index_bucket_capacity; ++probe) {
-            if (cache->index_buckets[bucket] == 0) {
-                cache->index_buckets[bucket] = index + 1;
-                break;
-            }
-            bucket = (bucket + 1) & mask;
-        }
+        if (cache->entries[index].occupied)
+            slot_index_insert(cache->index_buckets, cache->index_bucket_capacity,
+                              media_asset_hash(cache->entries[index].key), index);
     }
 }
 
@@ -40,9 +31,9 @@ void insert_index_locked(EncodedMediaCache* cache, u32 index) noexcept {
     u32 tombstone = kInvalidIndex;
     for (u32 probe = 0; probe < cache->index_bucket_capacity; ++probe) {
         const u32 value = cache->index_buckets[bucket];
-        if (value == kIndexTombstone && tombstone == kInvalidIndex) {
+        if (value == kSlotIndexTombstone && tombstone == kInvalidIndex) {
             tombstone = bucket;
-        } else if (value == 0) {
+        } else if (value == kSlotIndexEmpty) {
             const u32 destination = tombstone != kInvalidIndex ? tombstone : bucket;
             cache->index_buckets[destination] = index + 1;
             if (tombstone != kInvalidIndex) {
@@ -55,21 +46,13 @@ void insert_index_locked(EncodedMediaCache* cache, u32 index) noexcept {
     rebuild_index_locked(cache);
 }
 
-void remove_index_locked(EncodedMediaCache* cache, const MediaAssetKey& key_view, u32 index) noexcept {
-    const MediaAssetKey key = key_view; // the index is rewritten below
-    const u32 mask = cache->index_bucket_capacity - 1;
-    u32 bucket = static_cast<u32>(media_asset_hash(key)) & mask;
-    for (u32 probe = 0; probe < cache->index_bucket_capacity; ++probe) {
-        const u32 value = cache->index_buckets[bucket];
-        if (value == 0) {
-            return;
-        }
-        if (value == index + 1) {
-            cache->index_buckets[bucket] = kIndexTombstone;
-            ++cache->index_tombstones;
-            return;
-        }
-        bucket = (bucket + 1) & mask;
+// The index holds exactly the occupied entries: release_entry_locked removes an entry before freeing it.
+void remove_index_locked(EncodedMediaCache* cache, const MediaAssetKey& key, u32 index) noexcept {
+    const u32 bucket = slot_index_find(cache->index_buckets, cache->index_bucket_capacity, media_asset_hash(key),
+                                       [&](u32 slot) noexcept { return slot == index; });
+    if (bucket != kSlotIndexNone) {
+        cache->index_buckets[bucket] = kSlotIndexTombstone;
+        ++cache->index_tombstones;
     }
 }
 
@@ -80,25 +63,9 @@ void maintain_index_locked(EncodedMediaCache* cache) noexcept {
 }
 
 u32 find_entry_locked(const EncodedMediaCache& cache, const MediaAssetKey& key) noexcept {
-    const u32 mask = cache.index_bucket_capacity - 1;
-    u32 bucket = static_cast<u32>(media_asset_hash(key)) & mask;
-    for (u32 probe = 0; probe < cache.index_bucket_capacity; ++probe) {
-        const u32 encoded_index = cache.index_buckets[bucket];
-        if (encoded_index == 0) {
-            return kInvalidIndex;
-        }
-        if (encoded_index == kIndexTombstone) {
-            bucket = (bucket + 1) & mask;
-            continue;
-        }
-        const u32 index = encoded_index - 1;
-        if (index < cache.entry_capacity && cache.entries[index].occupied &&
-            media_asset_key_equal(cache.entries[index].key, key)) {
-            return index;
-        }
-        bucket = (bucket + 1) & mask;
-    }
-    return kInvalidIndex;
+    const u32 bucket = slot_index_find(cache.index_buckets, cache.index_bucket_capacity, media_asset_hash(key),
+                                       [&](u32 slot) noexcept { return media_asset_key_equal(cache.entries[slot].key, key); });
+    return bucket == kSlotIndexNone ? kInvalidIndex : cache.index_buckets[bucket] - 1;
 }
 
 u32 find_empty_entry_locked(const EncodedMediaCache& cache) noexcept {

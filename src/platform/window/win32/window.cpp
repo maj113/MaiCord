@@ -8,6 +8,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/desktop/window_frame.hpp"
 #include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
@@ -153,10 +154,6 @@ void window_show_system_menu(Window window, float, float) noexcept {
     PostMessageW(win32_hwnd(window), WM_SYSCOMMAND, SC_KEYMENU, key::space);
 }
 
-void window_begin_move(Window) noexcept {}
-
-void window_begin_resize(Window, FrameHit) noexcept {}
-
 void window_set_min_size(Window, u32, u32) noexcept {}
 
 void window_request_attention(Window window, Attention attention) noexcept {
@@ -273,7 +270,7 @@ u32 window_state(Window window) noexcept {
 
 // SM_CXFRAME + SM_CXPADDEDBORDER.
 u32 window_resize_border(Window, u32 dpi) noexcept {
-    return static_cast<u32>(GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi));
+    return static_cast<u32>(window_frame_border(dpi));
 }
 
 // The DWM border of a restored window lies outside the client at the sides but over the client's top row; none while

@@ -155,6 +155,14 @@ GlyphAtlasAllocation allocate_glyph(D3D11GlyphTextOwner* owner, GpuContext* cont
     return allocation;
 }
 
+// Where a glyph the atlas holds sits: its origin and the allocation's extent.
+__forceinline GlyphRasterBounds cached_bounds(const D3D11GlyphTextOwner& owner,
+                                              const GlyphAtlasAllocation& allocation) noexcept {
+    const auto origin = owner.atlas_origins[allocation.handle.slot];
+    return {origin.x, origin.y, origin.x + allocation.width, origin.y + allocation.height, allocation.width,
+            allocation.height};
+}
+
 bool initialize_storage(D3D11GlyphTextOwner* owner) noexcept {
     if (!arena_initialize(&owner->storage,
                           sizeof(GlyphTextStorage) +
@@ -167,7 +175,6 @@ bool initialize_storage(D3D11GlyphTextOwner* owner) noexcept {
     if (!storage) {
         return false;
     }
-    owner->utf16 = storage->utf16;
     owner->glyphs = storage->glyphs;
     owner->runs = storage->runs;
     owner->clusters = storage->clusters;
@@ -507,13 +514,7 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, GpuContext* context,
         }
         GlyphRasterBounds bounds{};
         if (allocation.ok()) {
-            const auto origin = owner->atlas_origins[allocation.handle.slot];
-            bounds = {origin.x,
-                      origin.y,
-                      origin.x + allocation.width,
-                      origin.y + allocation.height,
-                      allocation.width,
-                      allocation.height};
+            bounds = cached_bounds(*owner, allocation);
         } else {
             if (!color.program.bounds.has_bounds) {
                 advance += glyph.advance;
@@ -761,13 +762,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                 auto allocation = glyph_atlas_find_indexed(&owner->allocator, index, key);
                 GlyphRasterBounds bounds{};
                 if (allocation.ok()) {
-                    const auto origin = owner->atlas_origins[allocation.handle.slot];
-                    bounds = {origin.x,
-                              origin.y,
-                              origin.x + allocation.width,
-                              origin.y + allocation.height,
-                              allocation.width,
-                              allocation.height};
+                    bounds = cached_bounds(*owner, allocation);
                 } else {
                     // Origin and dimensions are needed on a hit; the outline is only
                     // needed to populate a missing atlas tile. Origins share the same

@@ -617,8 +617,7 @@ void release_extended_body(RestClientRuntime* runtime) noexcept {
         release_decompression(runtime);
 }
 
-void release_completed_response(RestClient* client, RestClientRuntime* runtime,
-                                u32 body_bytes) noexcept {
+void release_completed_response(RestClient* client, RestClientRuntime* runtime) noexcept {
     if (g_trace) {
         TraceRecord line("consumed");
         trace_identity(line, runtime, runtime->completed.request_id);
@@ -626,8 +625,8 @@ void release_completed_response(RestClient* client, RestClientRuntime* runtime,
         g_trace(line.text);
     }
     secure_clear_bytes(runtime->response_input, kRestMaximumHeaderBytes);
-    if (body_bytes != 0) {
-        secure_clear_bytes(runtime->response_body, body_bytes);
+    if (runtime->completed.body_bytes != 0) {
+        secure_clear_bytes(runtime->response_body, runtime->completed.body_bytes);
     }
     reset_value<RestResponse>(&runtime->response);
     reset_value<RestClientResponse>(&runtime->completed);

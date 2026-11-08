@@ -153,7 +153,7 @@ u32 user_settings_rest_storage_fixture() noexcept {
             r->decompression_capacity >= capacity &&
             (cycle ? r->decompression != r->handshake_output : r->decompression == r->handshake_output),
             "retained inflater grows from handshake scratch to bounded settings capacity");
-        if (probe.client.request_state == request_state_ready) release_completed_response(&probe.client, r, r->completed.body_bytes);
+        if (probe.client.request_state == request_state_ready) release_completed_response(&probe.client, r);
         check(!r->extended_body && r->decompression_capacity <= 256 * 1024,
             "large transaction inflater allocation released at consumption");
     }

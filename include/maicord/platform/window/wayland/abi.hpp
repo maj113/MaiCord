@@ -83,6 +83,9 @@ extern ClientApi g_client;
 // Opens libwayland-client.so.0 and resolves every ClientApi entry; false (with a log line) when the library or one
 // of its functions is missing. Idempotent. UI thread only.
 bool client_load() noexcept;
+// The warning a library of the backend (libwayland-*, libxkbcommon) logs when it lacks a function: "<library>: no
+// symbol <name>".
+void log_missing_symbol(const char* library, const char* name) noexcept;
 
 // libwayland-cursor.so.0: XCursor themes loaded into wl_shm buffers, for compositors without cursor-shape.
 struct CursorImage {

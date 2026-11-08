@@ -55,7 +55,6 @@ void clear_failure(AccountMedia* media, const MediaAssetKey& key) noexcept;
 AccountMediaRequestResult remember_failure(AccountMedia* media, const MediaAssetKey& key_view, u64 now_ms,
                                            const AccountMediaRequestResult& failure_view) noexcept;
 void mark_frame_ready(AccountMedia* media, const MediaAssetKey& key_view) noexcept;
-void capture_catalog_source(AccountMedia* media, const MediaAssetKey& key_view) noexcept;
 void stage_frame(AccountMedia* media, const MediaAssetKey& key_view, u32 bytes, u64 request_id,
                  u64 source_message_id, u32 source_message_revision) noexcept;
 void publish_png_frame(AccountMedia* media, const MediaAssetKey& key, const CdnStaticPngResult& decoded,
@@ -76,7 +75,7 @@ void publish_mp4_frame(AccountMedia* media, const MediaAssetKey& key_view, const
                        u64 request_id, u64 source_message_id, u32 source_message_revision,
                        u32 frame_index) noexcept;
 bool audio_image_type(CdnImageType type) noexcept;
-bool publish_audio_frame(AccountMedia* media, const MediaAssetKey& key, u64 request_id) noexcept;
+void publish_audio_frame(AccountMedia* media, const MediaAssetKey& key, u64 request_id) noexcept;
 bool publish_audio_source(AccountMedia* media, const MediaAssetKey& key, CdnEncodedAudioResult* decoded,
                           u64 request_id) noexcept;
 bool ensure_webp_workspace(AccountMedia* media) noexcept;

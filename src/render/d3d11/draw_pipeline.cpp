@@ -283,17 +283,12 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_glyph_instances(D3D11DrawPip
 
 bool d3d11_draw_pipeline_update_transform(const D3D11DrawPipelineOwner& owner, GpuContext* context,
                                           u32 width, u32 height, u32 dpi, u32 origin_y) noexcept {
-    if (!d3d11_draw_pipeline_update_opacity(owner, context, width, height, dpi, 1.0f)) {
+    if (!d3d11_draw_pipeline_update_layer(owner, context, width, height, dpi, 1, 1, 0, 0)) {
         return false;
     }
     gpu_set_viewport(context, 0.0f, static_cast<float>(origin_y), static_cast<float>(width),
                      static_cast<float>(height));
     return true;
-}
-
-bool d3d11_draw_pipeline_update_opacity(const D3D11DrawPipelineOwner& owner, GpuContext* context,
-                                        u32 width, u32 height, u32 dpi, float opacity) noexcept {
-    return d3d11_draw_pipeline_update_layer(owner, context, width, height, dpi, opacity, 1, 0, 0);
 }
 
 namespace {

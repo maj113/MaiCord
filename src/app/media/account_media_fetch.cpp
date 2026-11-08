@@ -370,7 +370,7 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
                                       conditional_etag);
         if (!decoded.decoded()) {
             auto failure = admit_failure(policy);
-            copy_value(&failure.apng_error, decoded.decode.error);
+            failure.apng_error = decoded.decode.error;
             return fail(failure);
         }
         publish_apng_frame(media, media->active_key, decoded, response.request_id);

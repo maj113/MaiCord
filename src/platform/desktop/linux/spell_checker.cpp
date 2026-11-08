@@ -12,6 +12,7 @@
 // "Add" is Enchant's personal word list, or for Hunspell one word per line in <data directory>/spellcheck/<tag>.txt,
 // read when the dictionary opens; "Ignore" lasts for the checker.
 #include "maicord/platform/desktop/spell_checker.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/memory.hpp"
@@ -68,17 +69,7 @@ struct Backend {
 };
 
 bool equal_ignore_case(const char* a, const char* b) noexcept {
-    for (;; ++a, ++b) {
-        char x = *a, y = *b;
-        if (x >= 'A' && x <= 'Z')
-            x = static_cast<char>(x + 32);
-        if (y >= 'A' && y <= 'Z')
-            y = static_cast<char>(y + 32);
-        if (x != y)
-            return false;
-        if (!x)
-            return true;
-    }
+    return ascii_equal_ignore_case({a, c_string_length(a)}, {b, c_string_length(b)});
 }
 
 int compare_bytes(const char* a, const char* b, u32 count) noexcept {
@@ -180,13 +171,7 @@ void list_directories(Directories* list) noexcept {
     if (data_home && data_home[0] == '/') {
         list->add(data_home, "/hunspell");
     } else if (home && home[0] == '/') {
-        char local[kPathBytes];
-        const u32 length = c_string_length(home);
-        if (length + 23 < kPathBytes) {
-            copy_bytes(local, home, length);
-            copy_bytes(local + length, "/.local/share/hunspell", 23);
-            list->add(local);
-        }
+        list->add(home, "/.local/share/hunspell");
     }
     const char* data_dirs = environment_get("XDG_DATA_DIRS");
     if (!data_dirs || !*data_dirs)

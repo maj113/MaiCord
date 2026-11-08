@@ -5,6 +5,7 @@
 // does the same for a one-member zip: every check before any output, the sealed handle, a failure that leaves nothing.
 #include "maicord/app/update/package.hpp"
 #include "../package_admission.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/media/compression/deflate.hpp"
@@ -66,10 +67,6 @@ struct Inflater {
     DeflateWorkspace* workspace = deflate_workspace_allocate();
     ~Inflater() noexcept { deflate_workspace_free(workspace); }
 };
-
-u16 le16(const u8* p) noexcept { return static_cast<u16>(p[0] | (p[1] << 8)); }
-u32 le32(const u8* p) noexcept { return le16(p) | (static_cast<u32>(le16(p + 2)) << 16); }
-u64 le64(const u8* p) noexcept { return le32(p) | (static_cast<u64>(le32(p + 4)) << 32); }
 
 // ---------------------------------------------------------------------------------------------------- the artifact
 
@@ -270,26 +267,27 @@ bool elf_image(const u8* data, u64 bytes) noexcept {
     constexpr u32 kHeader = 64, kSegment = 56, kLoad = 1, kExecutable = 1;
     constexpr u64 kAddressLimit = u64{1} << 47;
     if (bytes < kHeader || data[0] != 0x7f || data[1] != 'E' || data[2] != 'L' || data[3] != 'F' || data[4] != 2 || data[5] != 1 ||
-        data[6] != 1 || (data[7] != 0 && data[7] != 3) || le16(data + 16) != 3 || le16(data + 18) != 62 || le32(data + 20) != 1 ||
-        le16(data + 52) != kHeader || le16(data + 54) != kSegment)
+        data[6] != 1 || (data[7] != 0 && data[7] != 3) || byte_load_le16(data + 16) != 3 || byte_load_le16(data + 18) != 62 ||
+        byte_load_le32(data + 20) != 1 || byte_load_le16(data + 52) != kHeader || byte_load_le16(data + 54) != kSegment)
         return false;
-    const u32 count = le16(data + 56);
-    const u64 table = le64(data + 32), entry = le64(data + 24);
+    const u32 count = byte_load_le16(data + 56);
+    const u64 table = byte_load_le64(data + 32), entry = byte_load_le64(data + 24);
     if (!count || count > kUpdatePackageMaximumSegments || table < kHeader || table > bytes || count * kSegment > bytes - table) return false;
     bool entry_executable = false, loads = false;
     for (u32 i = 0; i < count; ++i) {
         const u8* segment = data + table + static_cast<u64>(i) * kSegment;
-        if (le32(segment) != kLoad) continue;
+        if (byte_load_le32(segment) != kLoad) continue;
         loads = true;
-        const u64 flags = le32(segment + 4), offset = le64(segment + 8), address = le64(segment + 16), in_file = le64(segment + 32),
-                  in_memory = le64(segment + 40), align = le64(segment + 48);
+        const u64 flags = byte_load_le32(segment + 4), offset = byte_load_le64(segment + 8),
+                  address = byte_load_le64(segment + 16), in_file = byte_load_le64(segment + 32),
+                  in_memory = byte_load_le64(segment + 40), align = byte_load_le64(segment + 48);
         if (in_file > in_memory || offset > bytes || in_file > bytes - offset || address >= kAddressLimit ||
             in_memory >= kAddressLimit || (align > 1 && ((align & (align - 1)) || offset % align != address % align)))
             return false;
         for (u32 j = 0; j < i; ++j) {
             const u8* other = data + table + static_cast<u64>(j) * kSegment;
-            if (le32(other) != kLoad) continue;
-            const u64 other_address = le64(other + 16), other_memory = le64(other + 40);
+            if (byte_load_le32(other) != kLoad) continue;
+            const u64 other_address = byte_load_le64(other + 16), other_memory = byte_load_le64(other + 40);
             if (in_memory && other_memory && address < other_address + other_memory && other_address < address + in_memory) return false;
         }
         if ((flags & kExecutable) && entry >= address && entry - address < in_file) entry_executable = true;
@@ -300,7 +298,7 @@ bool elf_image(const u8* data, u64 bytes) noexcept {
 // An AppImage starts with the runtime, an ELF file whose identification bytes 8 to 10 are "AI" and the type 2 (the AppImage
 // specification); the SquashFS behind it is the runtime's to mount, and the signed digest already vouches for every byte.
 bool appimage_header(const u8* data, u64 bytes) noexcept {
-    return bytes > 64 && le32(data) == 0x464c457f && (le32(data + 8) & 0xffffff) == 0x024941;
+    return bytes > 64 && byte_load_le32(data) == 0x464c457f && (byte_load_le32(data + 8) & 0xffffff) == 0x024941;
 }
 // ---------------------------------------------------------------------------------------------------- the stage
 
@@ -392,7 +390,7 @@ UpdatePackageResult update_package_extract(UpdateArtifact* source, const UpdateP
     } else {
         // A gzip stream ends with the CRC-32 and the length of what it holds; the package is one member, so the tar's
         // size is announced before anything is unpacked.
-        const u64 tar_bytes = le32(packed.data + source->bytes - 4);
+        const u64 tar_bytes = byte_load_le32(packed.data + source->bytes - 4);
         Inflater inflater;
         if (tar_bytes < 2 * kTarBlock || tar_bytes > kUpdatePackageMaximumTarBytes || !inflater.workspace || !tar.allocate(tar_bytes)) {
             failure.fail(UpdatePackageError::archive);

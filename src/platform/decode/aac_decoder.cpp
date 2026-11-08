@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/media/audio/aac_configuration.hpp"
-#include "maicord/core/byte_range.hpp"
+#include "../audio/audio_support.hpp"
 #include "maicord/sys/media_foundation.hpp"
 // Media Foundation transform plumbing, once per audio packet: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -34,13 +34,7 @@ AacDecodeResult fail(AacDecoder& owner, Error error, HRESULT native = S_OK) noex
     owner.native_status = native;
     return {error, native};
 }
-bool range(const void* p, u32 n) noexcept {
-    return byte_range_valid({static_cast<const u8*>(p), n});
-}
-bool disjoint(const void* a, u32 an, const void* b, u32 bn) noexcept {
-    return range(a, an) && range(b, bn) &&
-           !byte_ranges_overlap({static_cast<const u8*>(a), an}, {static_cast<const u8*>(b), bn});
-}
+using audio_detail::disjoint;
 bool thread(const AacDecoder& owner) noexcept {
     return !owner.runtime || owner.thread_id == GetCurrentThreadId();
 }
@@ -190,23 +184,6 @@ HRESULT open(AacDecoder& owner) noexcept {
     return h;
 }
 } // namespace
-bool aac_decoder_alignment_mask(u32 alignment, u32* mask) noexcept {
-    if (!mask || alignment > 4096 || (alignment > 1 && (alignment & (alignment - 1))))
-        return false;
-    *mask = alignment > 1 ? alignment - 1 : 0;
-    return true;
-}
-bool aac_decoder_output_capacity(u32 minimum, u32* capacity) noexcept {
-    if (!capacity || minimum > kAacDecoderMaximumNativeOutputBytes)
-        return false;
-    *capacity = maximum(minimum, kAacDecoderMaximumOutputBytes);
-    return true;
-}
-bool aac_decoder_configuration_valid(ConstSlice<u8> asc, u32 rate, u32 channels) noexcept {
-    AacConfiguration configuration{};
-    return aac_configuration_decode(asc, &configuration) && configuration.sample_rate == rate &&
-           configuration.channels == channels;
-}
 AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u32 rate, u32 channels) noexcept {
     if (!owner || !aac_decoder_configuration_valid(asc, rate, channels) ||
         !disjoint(owner, sizeof(*owner), asc.data, asc.count))

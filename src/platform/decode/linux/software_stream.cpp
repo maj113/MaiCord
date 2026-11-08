@@ -14,12 +14,8 @@ namespace {
 // The newest picture and one a reader holds are never overwritten; one more is being decoded.
 constexpr u32 kSoftwareSurfaces = 2 + 1;
 
-SoftwareStreamState& state_of(GpuStream* stream) noexcept {
-    return stream->software;
-}
-
 void release_decoder(GpuStream* stream) noexcept {
-    auto& state = state_of(stream);
+    auto& state = stream->software;
     software_decoder_destroy(state.decoder);
     state.decoder = nullptr;
     stream_surfaces_release(stream);
@@ -30,7 +26,7 @@ void request_keyframe(GpuStream* stream) noexcept {
 }
 
 void lose(GpuStream* stream) noexcept {
-    auto& state = state_of(stream);
+    auto& state = stream->software;
     state.waiting = true;
     software_decoder_reset(state.decoder);
 }
@@ -59,13 +55,9 @@ u64 stream_copy_picture(const StreamSurface& slot, const SoftwarePicture& pictur
 
 namespace {
 
-void copy_picture(GpuStream* stream, u32 slot_index, const SoftwarePicture& picture) noexcept {
-    stream->stats.uploaded_bytes += stream_copy_picture(stream->surfaces.slot[slot_index], picture);
-}
-
 // The next slot that is neither presented nor held.
 bool free_slot(GpuStream* stream, u32* slot) noexcept {
-    auto& state = state_of(stream);
+    auto& state = stream->software;
     const u32 held = stream_held(*stream);
     for (u32 i = 0; i < stream->surfaces.count; ++i) {
         const u32 candidate = (state.next_surface + i) % stream->surfaces.count;
@@ -79,7 +71,7 @@ bool free_slot(GpuStream* stream, u32* slot) noexcept {
 }
 
 void present_pictures(GpuStream* stream, u32 rtp_timestamp, bool keyframe) noexcept {
-    auto& state = state_of(stream);
+    auto& state = stream->software;
     SoftwarePicture picture{};
     while (software_decoder_pop(state.decoder, &picture)) {
         const u32 coded_width = (picture.width + 1) & ~1u, coded_height = (picture.height + 1) & ~1u;
@@ -96,7 +88,7 @@ void present_pictures(GpuStream* stream, u32 rtp_timestamp, bool keyframe) noexc
             saturating_increment(state.dropped);
             continue;
         }
-        copy_picture(stream, slot, picture);
+        stream->stats.uploaded_bytes += stream_copy_picture(stream->surfaces.slot[slot], picture);
         stream_set_format(stream, 0, 0, picture.width, picture.height, picture.matrix, picture.full_range,
                           picture.sar_width, picture.sar_height);
         ++state.decoded;
@@ -106,7 +98,7 @@ void present_pictures(GpuStream* stream, u32 rtp_timestamp, bool keyframe) noexc
 }
 
 void software_reset(GpuStream* stream) noexcept {
-    auto& state = state_of(stream);
+    auto& state = stream->software;
     if (state.decoder)
         software_decoder_reset(state.decoder);
     state.waiting = true;
@@ -118,7 +110,7 @@ void software_drain(GpuStream*) noexcept {
 
 void software_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact,
                      bool resynchronize) noexcept {
-    auto& state = state_of(stream);
+    auto& state = stream->software;
     if (state.decoder && resynchronize)
         lose(stream);
     else if (resynchronize)

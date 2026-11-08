@@ -294,11 +294,7 @@ u32 text_byte_offset(Utf8View text, u32 characters) noexcept {
 }
 
 u32 text_character_offset(Utf8View text, u32 bytes) noexcept {
-    u32 count = 0;
-    const u32 end = bytes < text.bytes ? bytes : text.bytes;
-    for (u32 i = 0; i < end; ++i)
-        count += continuation(text.data[i]) ? 0u : 1u;
-    return count;
+    return text_character_count({text.data, bytes < text.bytes ? bytes : text.bytes});
 }
 
 u32 text_scalar_at(Utf8View text, u32 byte_offset) noexcept {

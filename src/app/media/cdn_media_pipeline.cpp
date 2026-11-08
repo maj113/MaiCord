@@ -659,6 +659,19 @@ void retain_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
     pipeline->apng_metadata_valid = true;
 }
 
+// A response's default image outside the animation must inflate. Out of line, so its PngImage keeps every
+// frame decode's stack under the 4 KiB probe.
+__declspec(noinline) PngDecodeResult decode_apng_default(const CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
+                                                         const ApngImage& animation) noexcept {
+    PngImage default_image{};
+    DeflateWorkspace* workspace = deflate_workspace_allocate();
+    const PngDecodeResult decoded =
+        apng_decode_parsed_default(encoded, animation, workspace, &default_image,
+                                   Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity});
+    deflate_workspace_free(workspace);
+    return decoded;
+}
+
 void decode_apng_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 frame_index,
                        u16 cache_generation, CdnApngState success_state, bool validate_default,
                        u64 content_identity, CdnApngResult* out) noexcept {
@@ -679,12 +692,7 @@ void decode_apng_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 f
         return;
     }
     if (validate_default && !animation.default_in_animation) {
-        PngImage default_image{};
-        DeflateWorkspace* workspace = deflate_workspace_allocate();
-        const PngDecodeResult decoded_default =
-            apng_decode_parsed_default(encoded, animation, workspace, &default_image,
-                                       Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity});
-        deflate_workspace_free(workspace);
+        const PngDecodeResult decoded_default = decode_apng_default(pipeline, encoded, animation);
         if (!decoded_default.ok()) {
             pipeline->apng_metadata_valid = false;
             out->decode.png = decoded_default;
@@ -1313,6 +1321,19 @@ CdnImageType audio_http_type(const MediaAssetKey& key) noexcept {
            : format == MediaAttachmentFormat::m4a ? CdnImageType::m4a
                                                   : CdnImageType::ogg_opus;
 }
+// Out of line, so its packet scratch is probed only for Ogg Opus, not for every audio format.
+__declspec(noinline) EncodedAudioError parse_ogg_opus(EncodedAudioMetadata* metadata, ConstSlice<u8> bytes,
+                                                      OggOpusCancelled cancelled, void* context) noexcept {
+    OggOpusDemuxer source{};
+    u8 scratch[kOggOpusMaximumPacketBytes];
+    const auto error =
+        audio_error(ogg_opus_demux_initialize(&source, bytes, {scratch, sizeof(scratch)}, cancelled, context));
+    if (error == EncodedAudioError::none) {
+        metadata->opus = source;
+        metadata->format = MediaAttachmentFormat::ogg_opus;
+    }
+    return error;
+}
 EncodedAudioError parse_audio(EncodedAudioMetadata* metadata, MediaAttachmentFormat format,
                               ConstSlice<u8> bytes, OggOpusCancelled cancelled, void* context) noexcept {
     if (!bytes.data || !bytes.count)
@@ -1322,17 +1343,8 @@ EncodedAudioError parse_audio(EncodedAudioMetadata* metadata, MediaAttachmentFor
     if (bytes.count > kCdnMaximumEncodedBodyBytes)
         return EncodedAudioError::capacity;
     switch (format) {
-    case MediaAttachmentFormat::ogg_opus: {
-        OggOpusDemuxer source{};
-        u8 scratch[kOggOpusMaximumPacketBytes];
-        const auto error = audio_error(
-            ogg_opus_demux_initialize(&source, bytes, {scratch, sizeof(scratch)}, cancelled, context));
-        if (error == EncodedAudioError::none) {
-            metadata->opus = source;
-            metadata->format = MediaAttachmentFormat::ogg_opus;
-        }
-        return error;
-    }
+    case MediaAttachmentFormat::ogg_opus:
+        return parse_ogg_opus(metadata, bytes, cancelled, context);
     case MediaAttachmentFormat::mp3: {
         Mp3Stream source{};
         const auto error = audio_error(mp3_stream_initialize(&source, bytes, cancelled, context));
@@ -1404,14 +1416,6 @@ void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipelin
         return;
     }
     out->state = CdnEncodedAudioState::ready_cache_hit;
-}
-
-CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                      u64 now_seconds, OggOpusCancelled cancelled,
-                                                      void* context) noexcept {
-    CdnEncodedAudioResult result;
-    cdn_media_pipeline_lookup_audio(&result, pipeline, key, now_seconds, cancelled, context);
-    return result;
 }
 
 void cdn_media_pipeline_admit_audio(CdnEncodedAudioResult* out, CdnMediaPipeline* pipeline,
@@ -1504,16 +1508,6 @@ void cdn_media_pipeline_admit_audio(CdnEncodedAudioResult* out, CdnMediaPipeline
         encoded_media_cache_release(pipeline->cache, &out->lease);
     }
     out->state = CdnEncodedAudioState::decode_rejected;
-}
-
-CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                     const CdnResponseResult& response, ConstSlice<u8> body,
-                                                     ConstSlice<u8> conditional_etag,
-                                                     OggOpusCancelled cancelled, void* context) noexcept {
-    CdnEncodedAudioResult result;
-    cdn_media_pipeline_admit_audio(&result, pipeline, key, response, body, conditional_etag, cancelled,
-                                   context);
-    return result;
 }
 
 } // namespace maicord

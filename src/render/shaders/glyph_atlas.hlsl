@@ -21,17 +21,14 @@ RWTexture2D<unorm float> coverage_atlas : register(u0);
 // sample of a thread group's tile. Other rasters run the plain loop of the
 // default variant, whose per-command cost is lower.
 #if defined(GLYPH_TILE_CULLING)
+// A crossing right of the sample without a division: the side test's sign
+// against the edge direction replaces the crossing abscissa (as colr_paint does).
+// Across the sample row the end and start comparisons differ, and their
+// difference is the edge's direction; elsewhere it is zero.
 void accumulate_crossing(float2 sample_position, float2 line_start, float2 line_end, inout int winding) {
-    const bool crosses = (line_start.y > sample_position.y) !=
-                         (line_end.y > sample_position.y);
-    if (crosses) {
-        const float crossing_x = line_start.x +
-            (sample_position.y - line_start.y) * (line_end.x - line_start.x) /
-            (line_end.y - line_start.y);
-        if (crossing_x > sample_position.x) {
-            winding += line_end.y > line_start.y ? 1 : -1;
-        }
-    }
+    const float2 delta = line_end - line_start, offset = sample_position - line_start;
+    const float side = delta.x * offset.y - offset.x * delta.y;
+    winding += side * delta.y > 0.0f ? int(line_end.y > sample_position.y) - int(line_start.y > sample_position.y) : 0;
 }
 
 void accumulate_distance(float2 sample_position, float2 line_start, float2 line_end,
@@ -57,16 +54,13 @@ void accumulate_line(float2 sample_position, float2 line_start, float2 line_end,
     const float2 distance_vector = sample_position - (line_start + delta * projection);
     minimum_distance_squared = min(minimum_distance_squared, dot(distance_vector, distance_vector));
 
-    const bool crosses = (line_start.y > sample_position.y) !=
-                         (line_end.y > sample_position.y);
-    if (crosses) {
-        const float crossing_x = line_start.x +
-            (sample_position.y - line_start.y) * (line_end.x - line_start.x) /
-            (line_end.y - line_start.y);
-        if (crossing_x > sample_position.x) {
-            winding += line_end.y > line_start.y ? 1 : -1;
-        }
-    }
+    // A crossing right of the sample without a division: the side test's sign
+    // against the edge direction replaces the crossing abscissa (as colr_paint
+    // does). Across the sample row the end and start comparisons differ, and
+    // their difference is the edge's direction; elsewhere it is zero.
+    const float2 offset = sample_position - line_start;
+    const float side = delta.x * offset.y - offset.x * delta.y;
+    winding += side * delta.y > 0.0f ? int(line_end.y > sample_position.y) - int(line_start.y > sample_position.y) : 0;
 }
 #endif
 

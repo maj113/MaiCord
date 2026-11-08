@@ -1,3 +1,4 @@
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
@@ -7,7 +8,6 @@
 #include "maicord/platform/dbus/session.hpp"
 #include "maicord/core/test_hook.hpp"
 #include "maicord/sys/linux/calls.hpp"
-#include "maicord/sys/linux/process.hpp"
 
 namespace maicord::dbus {
 namespace {
@@ -56,13 +56,6 @@ const char kApplicationIntrospection[] =
     "<method name=\"ActivateAction\"><arg type=\"s\" name=\"action_name\" direction=\"in\"/><arg type=\"av\" name=\"parameter\" direction=\"in\"/>"
     "<arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>"
     "</interface>";
-
-bool equal_nocase_prefix(const char* text, const char* lower_prefix) noexcept {
-    for (u32 i = 0; lower_prefix[i]; ++i)
-        if (!text[i] || (text[i] | 0x20) != lower_prefix[i])
-            return false;
-    return true;
-}
 
 u64 hash_of(const char* a, const char* b) noexcept {
     u64 hash = 0xCBF29CE484222325ull;
@@ -180,8 +173,7 @@ u32 request_name(Connection* c, const char* name) noexcept {
     if (status == Status::ok) {
         Reader r;
         message_reader(reply, &r);
-        if (!reader_u32(&r, &result))
-            result = 0;
+        reader_u32(&r, &result);  // stays 0 when the reply holds no code
     }
     if (status == Status::ok || status == Status::error_reply)
         message_release(&reply);
@@ -198,14 +190,8 @@ InstanceResult forward_over_bus(Connection* c, const LaunchRequest& request, u32
         builder_close_array(&body);
     }
     builder_open_array(&body, "{sv}");
-    if (request.activation_token[0]) {
-        builder_open_entry(&body);
-        builder_string(&body, "activation-token");
-        builder_open_variant(&body, "s");
-        builder_string(&body, request.activation_token);
-        builder_close_variant(&body);
-        builder_close_entry(&body);
-    }
+    if (request.activation_token[0])
+        builder_dict_string(&body, "activation-token", request.activation_token);
     builder_close_array(&body);
     const CallTarget target{g.name, g.path, kApplicationInterface, open ? "Open" : "Activate"};
     Message reply;
@@ -225,12 +211,7 @@ SocketAddress socket_address(const char* application_id, const char* profile_key
     u32 length = 3;  // family, then the abstract name's leading NUL
     copy_bytes(address.data + length, prefix, sizeof(prefix) - 1);
     length += sizeof(prefix) - 1;
-    char digits[12];
-    u32 count = 0;
-    for (u32 n = static_cast<u32>(syscall1(kCallGeteuid, 0)); n || count == 0; n /= 10)
-        digits[count++] = static_cast<char>('0' + n % 10);
-    while (count)
-        address.data[length++] = static_cast<u8>(digits[--count]);
+    length += decimal_write(reinterpret_cast<char*>(address.data + length), static_cast<u32>(syscall1(kCallGeteuid, 0)));
     address.data[length++] = '.';
     char hex[16];
     hex16(hash_of(application_id, profile_key), hex);
@@ -395,39 +376,6 @@ InstanceResult forward_to_socket_owner(const SocketAddress& address, const Launc
 }
 
 } // namespace
-
-bool launch_parse(int argc, const char* const* argv, LaunchRequest* request) noexcept {
-    *request = LaunchRequest{};
-    for (int i = 1; i < argc; ++i) {
-        const char* arg = argv[i];
-        const char* link = nullptr;
-        if (c_string_equal(arg, "--startup")) {
-            request->startup = true;
-            continue;
-        }
-        if (c_string_equal(arg, "--url")) {
-            if (i + 1 < argc && c_string_equal(argv[i + 1], "--"))
-                ++i;
-            if (i + 1 < argc)
-                link = argv[++i];
-        } else if (equal_nocase_prefix(arg, "discord:") || equal_nocase_prefix(arg, "maicord:")) {
-            link = arg;
-        }
-        if (!link)
-            continue;
-        const u32 length = c_string_length(link);
-        if (length >= kLaunchUrlCapacity)
-            return false;
-        copy_bytes(request->url, link, length + 1);
-        request->url_bytes = length;
-        request->url_present = true;
-    }
-    const char* token = environment_get("XDG_ACTIVATION_TOKEN");
-    if (!token || !*token)
-        token = environment_get("DESKTOP_STARTUP_ID");
-    c_string_copy(request->activation_token, sizeof(request->activation_token), token);
-    return true;
-}
 
 void instance_socket_address(const char* application_id, const char* profile_key, SocketAddress* address) noexcept {
     *address = socket_address(application_id, profile_key ? profile_key : "");

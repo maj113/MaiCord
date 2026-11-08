@@ -65,7 +65,6 @@ GpuStatus load_libraries(GpuDevice* device) noexcept {
         return kGpuUnsupported;
     }
     device->egl_library = g_egl_library.handle;
-    device->gles_library = g_gles_library.handle;
 
     const bool egl_complete = resolve(g_egl_library, &device->egl, kEglNames, kEglSlots,
                                       sizeof(kEglSlots) / sizeof(kEglSlots[0]), "libEGL.so.1 lacks ");
@@ -76,13 +75,6 @@ GpuStatus load_libraries(GpuDevice* device) noexcept {
         unload_libraries(device);
         return kGpuUnsupported;
     }
-    // EGL 1.5 exports eglGetPlatformDisplay; older libraries only offer the extension through eglGetProcAddress.
-    device->egl.eglGetPlatformDisplay = reinterpret_cast<egl::Display (*)(egl::Enum, void*, const void*)>(
-        shared_library_symbol(g_egl_library, "eglGetPlatformDisplay"));
-    if (!device->egl.eglGetPlatformDisplay) {
-        device->egl.eglGetPlatformDisplay = reinterpret_cast<egl::Display (*)(egl::Enum, void*, const void*)>(
-            device->egl.eglGetProcAddress("eglGetPlatformDisplayEXT"));
-    }
     return kGpuOk;
 }
 
@@ -90,7 +82,6 @@ void unload_libraries(GpuDevice* device) noexcept {
     shared_library_close(&g_gles_library);
     shared_library_close(&g_egl_library);
     device->egl_library = nullptr;
-    device->gles_library = nullptr;
 }
 
 bool string_has_word(const char* list, const char* word) noexcept {

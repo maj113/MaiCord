@@ -43,32 +43,13 @@ void CALLBACK resolve_complete(DWORD native_error, DWORD, OVERLAPPED* overlapped
     post_resolve_complete(static_cast<NetworkResolver*>(operation->owner), native_error);
 }
 
-bool bind_wildcard(SOCKET socket_value, i32 family) noexcept {
-    if (family == AF_INET) {
-        sockaddr_in address{};
-        address.sin_family = AF_INET;
-        address.sin_addr.s_addr = INADDR_ANY;
-        return bind(socket_value, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0;
-    }
-    if (family == AF_INET6) {
-        sockaddr_in6 address{};
-        address.sin6_family = AF_INET6;
-        reset_value<IN6_ADDR>(&address.sin6_addr);
-        return bind(socket_value, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0;
-    }
-    WSASetLastError(WSAEAFNOSUPPORT);
-    return false;
-}
-
 // Moves the answers of a finished lookup out of the system's list into the resolver, and frees the list. Entries
 // that are not IPv4 or IPv6 socket addresses are skipped, as the connect loops always did.
 void publish_addresses(NetworkResolver* resolver) noexcept {
     resolver->address_count = 0;
     for (ADDRINFOEXW* entry = resolver->results;
          entry && resolver->address_count < kNetworkResolverMaximumAddresses; entry = entry->ai_next) {
-        if (entry->ai_addr && entry->ai_addrlen != 0 && entry->ai_addrlen <= sizeof(sockaddr_storage) &&
-            (entry->ai_family == AF_INET || entry->ai_family == AF_INET6) &&
-            network_address_from_socket(entry->ai_addr, entry->ai_addrlen,
+        if (network_address_from_socket(entry->ai_addr, entry->ai_addrlen,
                                         &resolver->addresses[resolver->address_count])) {
             ++resolver->address_count;
         }
@@ -166,7 +147,10 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
         network_connection_close(connection);
         return failure(NetworkError::connect_extension, native_error);
     }
-    if (!bind_wildcard(socket_value, family)) {
+    // ConnectEx needs a bound socket: the wildcard address of the family.
+    sockaddr_storage local{};
+    local.ss_family = target.ss_family;
+    if (bind(socket_value, reinterpret_cast<const sockaddr*>(&local), address_bytes) != 0) {
         const i32 native_error = WSAGetLastError();
         network_connection_close(connection);
         return failure(NetworkError::bind_local, native_error);

@@ -45,9 +45,6 @@ NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram
     datagram->open = true;
     return {};
 }
-NetworkResult network_datagram_receive(NetworkDatagram* datagram, Slice<u8> buffer) noexcept {
-    return network_datagram_receive_slot(datagram, 0, buffer);
-}
 NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot, Slice<u8> buffer) noexcept {
     if (!datagram || !datagram->open || slot >= kNetworkDatagramReceiveSlots || !buffer.data || !buffer.count)
         return fail(NetworkError::invalid_argument);

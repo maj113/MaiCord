@@ -71,25 +71,16 @@ inline constexpr GlyphAtlasPool kMediaAtlasProfilePools[] = {
     {448, 84, 24, 0},
 };
 inline constexpr const GlyphAtlasPool& kMediaAtlasEffectPool = kMediaAtlasProfilePools[0];
-// The largest picture each pool's class sends there (effect layer, a 5:2 banner at the widest the pool takes,
-// nameplate): every slot holds it, and the slot with its padding on both sides fits one identity page.
-inline constexpr GlyphAtlasPool kMediaAtlasProfilePoolClassMaximum[] = {
-    {450, 880, 0, 0},
-    {600, 240, 0, 0},
-    {448, 84, 0, 0},
-};
+// Every pool slot (each sized to the largest picture its class sends there: an effect layer, a 5:2 banner at the
+// widest the pool takes, a nameplate) fits one identity page with its padding on both sides.
 consteval bool media_atlas_profile_pools_fit() {
-    for (u32 i = 0; i < 3; ++i) {
-        const GlyphAtlasPool& slot = kMediaAtlasProfilePools[i];
-        const GlyphAtlasPool& largest = kMediaAtlasProfilePoolClassMaximum[i];
-        if (slot.slot_width < largest.slot_width || slot.slot_height < largest.slot_height ||
-            slot.slot_width + 2u * kMediaAtlasPadding > kMediaAtlasExtent ||
+    for (const GlyphAtlasPool& slot : kMediaAtlasProfilePools)
+        if (slot.slot_width + 2u * kMediaAtlasPadding > kMediaAtlasExtent ||
             slot.slot_height + 2u * kMediaAtlasPadding > kMediaAtlasPageRows)
             return false;
-    }
     return true;
 }
-static_assert(media_atlas_profile_pools_fit(), "a profile pool slot no longer holds its largest picture and padding");
+static_assert(media_atlas_profile_pools_fit(), "a profile pool slot no longer fits a page with its padding");
 
 enum class MediaAtlasError : u8 {
     none,

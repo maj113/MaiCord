@@ -1,4 +1,4 @@
-// twin: src/render/shaders/ui.hlsl b21393632491dca9
+// twin: src/render/shaders/ui.hlsl 080c18c46079f203
 // Rectangles, borders, gradients, lines and icons of the UI pass: ui_vertex (STAGE_VS) and ui_pixel (STAGE_PS).
 
 // xy: offset from the rectangle centre, zw: position in DIPs; parameters: x radius, y kind, zw per kind.
@@ -58,10 +58,9 @@ layout(std140, binding = 9) uniform UiBackground {
 layout(binding = 0) uniform highp sampler2D icon_atlas; //! t0
 layout(location = 0) out vec4 out_color;
 
-float background_hash(vec2 cell) {
-    vec3 p = fract(cell.xyx * 0.1031);
-    p += dot(p, p.yzx + 33.33);
-    return fract((p.x + p.y) * p.z);
+// Interleaved gradient noise (Jimenez 2014) of a pixel centre, in [0, 1).
+float background_hash(vec2 pixel) {
+    return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 }
 
 // One gradient lookup: position in [0, 1] along the axis, already clamped.
@@ -79,7 +78,7 @@ vec3 backdrop_gradient(vec2 dip_position) {
 
 // Fixed screen-space noise of at most half an output byte.
 vec3 background_dither(vec3 color, vec2 pixel) {
-    return clamp(color + (background_hash(floor(pixel)) - 0.5) * (1.0 / 255.0), 0.0, 1.0);
+    return clamp(color + (background_hash(pixel) - 0.5) * (1.0 / 255.0), 0.0, 1.0);
 }
 
 float rounded_distance(vec2 local, vec2 half_size, float radius) {
@@ -101,8 +100,9 @@ vec4 shade() {
     // A non-negative kind is an ordinary rounded rectangle's border width.
     if (kind >= 0.0) {
         float dist = rounded_distance(local, half_size, v_params.x);
-        // One pixel in DIPs; the distance field's own derivative doubles at a sharp corner.
-        float inverse_aa = 1.0 / max(fwidth(local.x), 0.0001);
+        // One pixel in DIPs; the distance field's own derivative doubles at a sharp corner. Quads are axis-aligned,
+        // so local.x changes along screen x only.
+        float inverse_aa = 1.0 / max(abs(dFdx(local.x)), 0.0001);
         return surface_pixel(v_fill, v_border, dist, kind, inverse_aa, clamp(0.5 - dist * inverse_aa, 0.0, 1.0));
     }
     if (kind == -3.0)
@@ -110,7 +110,7 @@ vec4 shade() {
     // The rounded rectangle every remaining kind but the icon, line and edge strip shapes itself with.
     float radius = min(v_params.x, min(half_size.x, half_size.y));
     float dist = rounded_distance(local, half_size, radius);
-    float aa = max(fwidth(local.x), 0.0001);
+    float aa = max(abs(dFdx(local.x)), 0.0001);
     if (kind == -7.0 || kind == -8.0) {
         // Panels (-7) always tint toward the backdrop; plain surfaces (-8) only while a backdrop gradient is active.
         bool panel = kind == -7.0;
@@ -148,7 +148,7 @@ vec4 shade() {
         vec2 shape_half = vec2(v_params.z * 0.5, half_size.y);
         float d = rounded_distance(vec2(local.x + half_size.x - shape_half.x, local.y), shape_half,
                                    min(v_params.x, min(shape_half.x, shape_half.y)));
-        float coverage = clamp(0.5 - d / max(fwidth(local.x), 0.0001), 0.0, 1.0);
+        float coverage = clamp(0.5 - d / max(abs(dFdx(local.x)), 0.0001), 0.0, 1.0);
         return vec4(v_fill.rgb * v_fill.a, v_fill.a) * coverage;
     }
     if (kind == -4.0) {

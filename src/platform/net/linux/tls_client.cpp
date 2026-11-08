@@ -20,6 +20,7 @@
 #include "maicord/platform/net/tls_client.hpp"
 #include "../../crypto/openssl/openssl.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
 
@@ -41,24 +42,7 @@ constexpr i32 kStatusSsl = 0x01000000;
 constexpr i32 kStatusVerify = 0x02000000;
 constexpr i32 kStatusLibrary = 0x03000000;
 
-// A futex lock: 0 free, 1 held, 2 held with waiters.
-struct Lock {
-    volatile u32 state;
-
-    void acquire() noexcept {
-        u32 expected = 0;
-        if (__atomic_compare_exchange_n(&state, &expected, 1u, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
-            return;
-        while (__atomic_exchange_n(&state, 2u, __ATOMIC_ACQUIRE) != 0)
-            sys_futex_wait(&state, 2, nullptr);
-    }
-    void release() noexcept {
-        if (__atomic_exchange_n(&state, 0u, __ATOMIC_RELEASE) == 2)
-            sys_futex_wake(&state, 1);
-    }
-};
-
-Lock g_context_lock;
+SRWLOCK g_context_lock = SRWLOCK_INIT;
 void* g_context;
 
 TlsResult result(TlsError error, i32 status) noexcept {
@@ -199,7 +183,7 @@ const openssl::Ssl* shared_context(void** context, TlsResult* failure) noexcept 
                           kStatusLibrary | static_cast<i32>(reason));
         return nullptr;
     }
-    g_context_lock.acquire();
+    AcquireSRWLockExclusive(&g_context_lock);
     if (!g_context) {
         void* created = library->SSL_CTX_new(library->TLS_client_method());
         bool good = created != nullptr;
@@ -219,15 +203,13 @@ const openssl::Ssl* shared_context(void** context, TlsResult* failure) noexcept 
             if (!good)
                 library->SSL_CTX_free(created);
         } else {
-            *failure = result(TlsError::credential_acquire,
-                              static_cast<i32>(0x80000000u | static_cast<u32>(library->crypto.ERR_get_error() & 0x7fffffffu)));
-            library->crypto.ERR_clear_error();
+            *failure = result(TlsError::credential_acquire, openssl::error_status(library->crypto));
         }
         if (good)
             g_context = created;
     }
     void* context_value = g_context;
-    g_context_lock.release();
+    ReleaseSRWLockExclusive(&g_context_lock);
     if (!context_value)
         return nullptr;
     *context = context_value;
@@ -315,8 +297,7 @@ TlsError create_connection(const openssl::Ssl& library, void* context, TlsClient
     void* write_bio = nullptr;
     void* ssl = library.SSL_new(context);
     if (!ssl || !new_bios(library.crypto, &read_bio, &write_bio)) {
-        *status = static_cast<i32>(0x80000000u | static_cast<u32>(library.crypto.ERR_get_error() & 0x7fffffffu));
-        library.crypto.ERR_clear_error();
+        *status = openssl::error_status(library.crypto);
         if (ssl)
             library.SSL_free(ssl);
         return TlsError::handshake;
@@ -337,8 +318,7 @@ TlsError create_connection(const openssl::Ssl& library, void* context, TlsClient
     if (good)
         good = library.SSL_set_alpn_protos(ssl, kHttp11, sizeof(kHttp11)) == 0;
     if (!good) {
-        *status = static_cast<i32>(0x80000000u | static_cast<u32>(library.crypto.ERR_get_error() & 0x7fffffffu));
-        library.crypto.ERR_clear_error();
+        *status = openssl::error_status(library.crypto);
         library.SSL_free(ssl);
         return TlsError::handshake;
     }
@@ -527,11 +507,6 @@ TlsResult tls_client_encrypt_spans(TlsClient* client, ConstSlice<ConstSlice<u8>>
     client->native.control_bytes = 0;
     *produced = control + cipher_bytes;
     return result(TlsError::none, kTlsStatusOk);
-}
-
-TlsResult tls_client_encrypt(TlsClient* client, ConstSlice<u8> plaintext, Slice<u8> output, u32* produced) noexcept {
-    const ConstSlice<u8> spans[]{plaintext};
-    return tls_client_encrypt_spans(client, ConstSlice<ConstSlice<u8>>{spans, 1}, output, produced);
 }
 
 TlsDecryptResult tls_client_decrypt(TlsClient* client, Slice<u8> encrypted) noexcept {

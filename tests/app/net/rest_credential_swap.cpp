@@ -39,7 +39,7 @@ ConstSlice<u8> head(RestClientProbe& p) noexcept {
 }
 
 void finish(RestClientProbe& p) noexcept {
-    release_completed_response(&p.client, p.runtime, p.runtime->completed.body_bytes);
+    release_completed_response(&p.client, p.runtime);
 }
 
 u32 run() noexcept {

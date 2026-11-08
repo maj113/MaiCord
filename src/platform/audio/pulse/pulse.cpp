@@ -99,10 +99,6 @@ void track_requested(Stream*, usize, void* userdata) noexcept {
     event_set(static_cast<Track*>(userdata)->session->event);
 }
 
-void track_underflowed(Stream*, void* userdata) noexcept {
-    InterlockedIncrement(&static_cast<Track*>(userdata)->underflows);
-}
-
 void track_drained(Stream*, i32, void* userdata) noexcept {
     auto* track = static_cast<Track*>(userdata);
     InterlockedExchange(&track->drained, 1);
@@ -271,13 +267,10 @@ bool track_open(Session* session, Track* track, const TrackConfig& config, bool 
         return false;
     }
     g_api.pa_stream_set_state_callback(track->stream, track_state_changed, track);
-    if (playback) {
+    if (playback)
         g_api.pa_stream_set_write_callback(track->stream, track_requested, track);
-        g_api.pa_stream_set_underflow_callback(track->stream, track_underflowed, track);
-    } else {
+    else
         g_api.pa_stream_set_read_callback(track->stream, track_requested, track);
-        g_api.pa_stream_set_overflow_callback(track->stream, track_underflowed, track);
-    }
     CVolume volume{};
     const CVolume* initial = nullptr;
     if (playback && config.volume >= 0) {
@@ -344,8 +337,6 @@ void track_close(Track* track) noexcept {
         g_api.pa_stream_set_state_callback(track->stream, nullptr, nullptr);
         g_api.pa_stream_set_write_callback(track->stream, nullptr, nullptr);
         g_api.pa_stream_set_read_callback(track->stream, nullptr, nullptr);
-        g_api.pa_stream_set_underflow_callback(track->stream, nullptr, nullptr);
-        g_api.pa_stream_set_overflow_callback(track->stream, nullptr, nullptr);
         if (track_alive(*track))
             g_api.pa_stream_disconnect(track->stream);
         g_api.pa_stream_unref(track->stream);

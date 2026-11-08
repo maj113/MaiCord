@@ -102,6 +102,7 @@ void bind_message(DownloadSource* source, const MessageRecord& message) noexcept
     source->message = message.id;
     source->revision = message.revision;
 }
+// Each capture fills *out only when it returns true; callers read it only then.
 bool capture_payload(const MessageRecord& message, MessageHandle handle, const MessageRichStore& store,
                      u64 attachment_id, bool snapshot, DownloadSource* out) noexcept {
     if (!account_ready() || !attachment_id ||
@@ -121,24 +122,25 @@ bool capture_payload(const MessageRecord& message, MessageHandle handle, const M
         if (!url.data || !url.bytes || url.bytes >= sizeof(out->url) ||
             !received_attachment_url_current(url, origin, attachment_id))
             return false;
-        DownloadSource source{};
+        char filename[sizeof(out->filename)];
         const auto name = attachment_download_safe_filename(message_rich_store_string(store, a.filename),
-                                                            {source.filename, sizeof(source.filename)});
+                                                            {filename, sizeof(filename)});
         if (!name.ok() || !name.bytes)
             return false;
-        bind_message(&source, message);
-        source.attachment = attachment_id;
-        source.origin_channel = origin;
-        source.origin_message = snapshot ? outer->reference.message_id : message.id;
-        source.handle = handle;
-        source.bytes = a.size;
-        source.snapshot = snapshot;
-        source.risky = name.risky;
-        source.filename_bytes = static_cast<u16>(name.bytes);
-        source.url_bytes = static_cast<u16>(url.bytes);
-        copy_bytes(source.url, url.data, url.bytes);
-        source.fingerprint = hash64_counted_bytes(kHash64Seed, url.data, url.bytes);
-        *out = source;
+        reset_value(out);
+        copy_bytes(out->filename, filename, name.bytes);
+        bind_message(out, message);
+        out->attachment = attachment_id;
+        out->origin_channel = origin;
+        out->origin_message = snapshot ? outer->reference.message_id : message.id;
+        out->handle = handle;
+        out->bytes = a.size;
+        out->snapshot = snapshot;
+        out->risky = name.risky;
+        out->filename_bytes = static_cast<u16>(name.bytes);
+        out->url_bytes = static_cast<u16>(url.bytes);
+        copy_bytes(out->url, url.data, url.bytes);
+        out->fingerprint = hash64_counted_bytes(kHash64Seed, url.data, url.bytes);
         return true;
     }
     return false;
@@ -232,23 +234,22 @@ bool capture_embed_payload(const MessageRecord& record, MessageHandle handle, co
         url = original;
     if (!media_downloadable(url) || url.bytes >= sizeof(out->url))
         return false;
-    DownloadSource source{};
+    reset_value(out);
     const bool gifv = rich->embeds[embed_index].type == GatewayMessageEmbedType::gifv;
     if (!embed_filename(original.bytes ? original : url,
-                        gifv ? MediaAttachmentFormat::mp4 : selected.format, &source))
+                        gifv ? MediaAttachmentFormat::mp4 : selected.format, out))
         return false;
-    bind_message(&source, record);
-    source.origin_channel = record.channel_id;
-    source.origin_message = record.id;
-    source.handle = handle;
-    source.bytes = kHttpsFileDownloadSizeFromResponse;
-    source.snapshot = snapshot;
-    source.embed = true;
-    source.embed_index = static_cast<u8>(embed_index);
-    source.url_bytes = static_cast<u16>(url.bytes);
-    copy_bytes(source.url, url.data, url.bytes);
-    source.fingerprint = hash64_counted_bytes(kHash64Seed, url.data, url.bytes);
-    *out = source;
+    bind_message(out, record);
+    out->origin_channel = record.channel_id;
+    out->origin_message = record.id;
+    out->handle = handle;
+    out->bytes = kHttpsFileDownloadSizeFromResponse;
+    out->snapshot = snapshot;
+    out->embed = true;
+    out->embed_index = static_cast<u8>(embed_index);
+    out->url_bytes = static_cast<u16>(url.bytes);
+    copy_bytes(out->url, url.data, url.bytes);
+    out->fingerprint = hash64_counted_bytes(kHash64Seed, url.data, url.bytes);
     return true;
 }
 bool capture_embed(u64 message_id, u32 embed_index, bool snapshot, DownloadSource* out) noexcept {
@@ -268,7 +269,7 @@ bool source_current(const DownloadSource& s) noexcept {
         s.profile != g_app.account.status.profile_id ||
         s.self != g_app.account_ui->chat_state.self_user_id)
         return false;
-    DownloadSource live{};
+    DownloadSource live;
     const bool valid = s.embed           ? capture_embed(s.message, s.embed_index, s.snapshot, &live)
                        : s.search_result ? capture_search(s.search_source, s.attachment, s.snapshot, &live)
                                          : capture(s.message, s.attachment, s.snapshot, &live);
@@ -643,29 +644,29 @@ bool begin_source(const DownloadSource& source) noexcept {
 } // namespace downloads_detail
 
 bool application_downloads_available(u64 message, u64 attachment, bool snapshot) noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     return capture(message, attachment, snapshot, &source);
 }
 bool application_downloads_begin(u64 message, u64 attachment, bool snapshot) noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     return !capture(message, attachment, snapshot, &source) || begin_source(source);
 }
 bool application_downloads_search_available(const ApplicationSearchSourceTicket& ticket, u64 attachment,
                                             bool snapshot) noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     return capture_search(ticket, attachment, snapshot, &source);
 }
 bool application_downloads_begin_search(const ApplicationSearchSourceTicket& ticket, u64 attachment,
                                         bool snapshot) noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     return !capture_search(ticket, attachment, snapshot, &source) || begin_source(source);
 }
 bool application_downloads_embed_available(u64 message, u32 embed, bool snapshot) noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     return capture_embed(message, embed, snapshot, &source);
 }
 bool application_downloads_begin_embed(u64 message, u32 embed, bool snapshot) noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     return !capture_embed(message, embed, snapshot, &source) || begin_source(source);
 }
 bool application_downloads_active() noexcept {
@@ -1088,14 +1089,13 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
                 if (!written.ok())
                     return false;
                 // Message sticker images are served from the media proxy.
-                DownloadSource source{};
-                ProtocolWriter writer{{reinterpret_cast<u8*>(source.url), sizeof(source.url)}, 0};
+                reset_value(out);
+                ProtocolWriter writer{{reinterpret_cast<u8*>(out->url), sizeof(out->url)}, 0};
                 if (!protocol_writer_append_literal(&writer, "https://media.discordapp.net") ||
                     !protocol_writer_append_bytes(&writer, target, written.bytes))
                     return false;
-                source.url_bytes = static_cast<u16>(writer.used);
-                bind_message(&source, *message);
-                *out = source;
+                out->url_bytes = static_cast<u16>(writer.used);
+                bind_message(out, *message);
                 return true;
             }
         }
@@ -1150,11 +1150,10 @@ bool embed_image_at(float x, float y, DownloadSource* out, u32* embed_index = nu
                     url = selected.source;
                 if (!url.bytes || url.bytes > sizeof(out->url))
                     return false;
-                DownloadSource source{};
-                copy_bytes(source.url, url.data, url.bytes);
-                source.url_bytes = static_cast<u16>(url.bytes);
-                bind_message(&source, *message);
-                *out = source;
+                reset_value(out);
+                copy_bytes(out->url, url.data, url.bytes);
+                out->url_bytes = static_cast<u16>(url.bytes);
+                bind_message(out, *message);
                 if (embed_index)
                     *embed_index = i;
                 if (snapshot)
@@ -1231,7 +1230,7 @@ namespace downloads_detail {
 
 // A right-clicked embed: Save when its media can be fetched, else only links.
 bool embed_context(float x, float y, UiRect anchor) noexcept {
-    DownloadSource shown{}, media{};
+    DownloadSource shown, media;
     u32 index = 0;
     bool snapshot = false;
     if (!embed_image_at(x, y, &shown, &index, &snapshot))

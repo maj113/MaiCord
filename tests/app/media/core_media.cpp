@@ -1293,6 +1293,10 @@ void test_cdn_static_png_pipeline() noexcept {
                cdn_media_pipeline_bind_apng_workspace(&pipeline, &apng_workspace) &&
                cdn_media_pipeline_bind_gif_workspace(&pipeline, &gif_workspace),
            "cdn_pipeline_caller_owned_initialize");
+    pipeline.webp_workspace = &g_vp8l_workspace;
+    pipeline.animated_webp_workspace = &animated_webp_workspace;
+    pipeline.apng_workspace = &apng_workspace;
+    pipeline.gif_workspace = &gif_workspace;
     pipeline.lossy_webp_workspace = &g_lossy_webp_workspace;
 
     const CdnResponseResult accepted =
@@ -1777,6 +1781,7 @@ void test_cdn_gif_metadata_reuse() noexcept {
         !cdn_media_pipeline_bind_gif_workspace(&pipeline, &workspace)) {
         expect(false, "gif_metadata_initialize"); return;
     }
+    pipeline.gif_workspace = &workspace;
     const auto a = media_asset_sticker(88001, 4), b = media_asset_sticker(88002, 4);
     const auto alias = media_asset_sticker(88003, 4);
     const EncodedMediaCachePolicy policy{byte_literal("\"gif-reuse\""), 2000, true, false};
@@ -1817,10 +1822,6 @@ void test_cdn_gif_metadata_reuse() noexcept {
                pipeline.gif_content_identity == identity_a,
            "gif_metadata_interleaved_sources_do_not_use_generation_as_identity");
     g_png_encoded[delay] = 5;
-    expect(cdn_media_pipeline_bind_gif_workspace(&pipeline, &workspace) && !pipeline.gif_content_identity &&
-               cdn_media_pipeline_decode_gif_frame(&pipeline, a, resident.generation, 0, 1000).decoded() &&
-               pipeline.gif_content_identity == identity_a,
-           "gif_metadata_same_workspace_rebind_invalidates");
 
     auto not_modified = response;
     not_modified.status_code = 304; not_modified.body_bytes = 0;

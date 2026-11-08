@@ -314,6 +314,9 @@ void window_scale_changed(u32 scale_120) noexcept;
 // Dispatches until `done()` is true, the connection fails or `timeout_ms` passes.
 bool dispatch_until(bool (*done)() noexcept, u32 timeout_ms) noexcept;
 void connection_check() noexcept;
+// The compositor's interactive move and resize, for the frame the app draws (frame.cpp).
+void begin_move() noexcept;
+void begin_resize(FrameHit edge) noexcept;
 
 // pump.cpp -----------------------------------------------------------------------------------------------------------
 

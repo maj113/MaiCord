@@ -13,7 +13,7 @@ u32 host_iana_timezone(Slice<char> output) noexcept {
         return 0;
     using GetTimezone = i32(__cdecl*)(u16*, i32, i32*);
     const auto query = reinterpret_cast<GetTimezone>(GetProcAddress(module, "ucal_getDefaultTimeZone"));
-    u16 wide[kIanaTimezoneMaximumBytes + 1]{};
+    u16 wide[kIanaTimezoneMaximumBytes + 1];  // only the `length` units the call wrote are read
     i32 status = 0;
     const i32 length = query ? query(wide, kIanaTimezoneMaximumBytes + 1, &status) : 0;
     FreeLibrary(module);
@@ -23,11 +23,12 @@ u32 host_iana_timezone(Slice<char> output) noexcept {
     for (i32 n = 0; n < length; ++n) {
         const u16 c = wide[n];
         if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '/' ||
-              c == '_' || c == '-' || c == '+'))
+              c == '_' || c == '-' || c == '+')) {
+            output[0] = 0;
             return 0;
+        }
+        output[n] = static_cast<char>(c);
     }
-    for (i32 n = 0; n < length; ++n)
-        output[n] = static_cast<char>(wide[n]);
     output[length] = 0;
     if (utf8_equal({output.data, static_cast<u32>(length)}, utf8_literal("Etc/Unknown"))) {
         output[0] = 0;

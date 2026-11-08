@@ -29,11 +29,6 @@ struct LaunchRequest {
     char activation_token[kLaunchTokenCapacity];  // an xdg-activation token for focus, "" when none
 };
 
-// The launch arguments after argv0: "--startup", "--url -- <link>" (the official client's shape) and a bare discord: or
-// maicord: link (what a .desktop Exec with %u passes). Unknown arguments are ignored. False for a link over
-// kLaunchUrlCapacity. XDG_ACTIVATION_TOKEN (or DESKTOP_STARTUP_ID) fills the activation token.
-bool launch_parse(int argc, const char* const* argv, LaunchRequest* request) noexcept;
-
 struct InstanceConfig {
     const char* application_id;  // "io.github.maj113.MaiCord": a valid D-Bus name
     const char* profile_key;     // null or "" for the default profile; any other string names another profile

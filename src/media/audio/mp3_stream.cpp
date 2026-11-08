@@ -12,9 +12,6 @@ static_assert(static_cast<int>(Mp3Error::malformed) == 2 && static_cast<int>(Mp3
 bool cancelled(Mp3Cancelled callback, void* context) noexcept {
     return callback && callback(context);
 }
-bool tag(const u8* p, const char* text, u32 bytes) noexcept {
-    return bytes_equal(p, text, bytes);
-}
 // Header and side information, bounded as the decoder consumes them. The
 // protection CRC is skipped, not verified. Callers pass offsets within bytes.
 // On success out is wholly written (mp3_frame_parse copies a cleared frame);
@@ -36,7 +33,7 @@ bool current(const Mp3Stream& s) noexcept {
 }
 Mp3Error tags(ConstSlice<u8> bytes, u32* begin, u32* end) noexcept {
     u32 first = 0, last = bytes.count;
-    if (last >= 3 && tag(bytes.data, "ID3", 3)) {
+    if (last >= 3 && bytes_equal(bytes.data, "ID3", 3)) {
         if (last < 10)
             return Mp3Error::truncated;
         const u8* h = bytes.data;
@@ -53,15 +50,15 @@ Mp3Error tags(ConstSlice<u8> bytes, u32* begin, u32* end) noexcept {
         if (size > last)
             return Mp3Error::truncated;
         first = static_cast<u32>(size);
-        if (footer && (!tag(h + first - 10, "3DI", 3) || !bytes_equal(h + 3, h + first - 7, 7)))
+        if (footer && (!bytes_equal(h + first - 10, "3DI", 3) || !bytes_equal(h + 3, h + first - 7, 7)))
             return Mp3Error::malformed;
     }
-    if (last - first >= 128 && tag(bytes.data + last - 128, "TAG", 3)) {
+    if (last - first >= 128 && bytes_equal(bytes.data + last - 128, "TAG", 3)) {
         last -= 128;
-        if (last - first >= 227 && tag(bytes.data + last - 227, "TAG+", 4))
+        if (last - first >= 227 && bytes_equal(bytes.data + last - 227, "TAG+", 4))
             last -= 227;
     }
-    if (last - first >= 32 && tag(bytes.data + last - 32, "APETAGEX", 8)) {
+    if (last - first >= 32 && bytes_equal(bytes.data + last - 32, "APETAGEX", 8)) {
         const u8* footer = bytes.data + last - 32;
         const u32 version = byte_load_le32(footer + 8), size = byte_load_le32(footer + 12),
                   flags = byte_load_le32(footer + 20);
@@ -73,7 +70,7 @@ Mp3Error tags(ConstSlice<u8> bytes, u32* begin, u32* end) noexcept {
                 return Mp3Error::malformed;
         last -= size;
         if (flags & 0x80000000u) {
-            if (last - first < 32 || !tag(bytes.data + last - 32, "APETAGEX", 8))
+            if (last - first < 32 || !bytes_equal(bytes.data + last - 32, "APETAGEX", 8))
                 return Mp3Error::malformed;
             const u8* header = bytes.data + last - 32;
             if (byte_load_le32(header + 8) != version || byte_load_le32(header + 12) != size ||
@@ -97,7 +94,7 @@ Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Mp3Frame& f, Vbr* out) noexc
     const u8* h = bytes.data + begin;
     Vbr info{};
     u32 offset = f.bytes - f.main_bytes;
-    if (f.bytes - offset >= 4 && (tag(h + offset, "Xing", 4) || tag(h + offset, "Info", 4))) {
+    if (f.bytes - offset >= 4 && (bytes_equal(h + offset, "Xing", 4) || bytes_equal(h + offset, "Info", 4))) {
         info.header = true;
         if (f.bytes - offset < 8)
             return Mp3Error::truncated;
@@ -121,7 +118,8 @@ Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Mp3Frame& f, Vbr* out) noexc
         if ((flags & 2) && !info.bytes)
             return Mp3Error::malformed;
         if (f.bytes - offset >= 4 &&
-            (tag(h + offset, "LAME", 4) || tag(h + offset, "Lavc", 4) || tag(h + offset, "Lavf", 4))) {
+            (bytes_equal(h + offset, "LAME", 4) || bytes_equal(h + offset, "Lavc", 4) ||
+             bytes_equal(h + offset, "Lavf", 4))) {
             if (f.bytes - offset < 36)
                 return Mp3Error::truncated;
             const u8* trim = h + offset + 21;
@@ -135,7 +133,7 @@ Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Mp3Frame& f, Vbr* out) noexc
             info.padding = padding - 529;
             info.gapless = true;
         }
-    } else if (f.bytes >= 54 && tag(h + 36, "VBRI", 4)) {
+    } else if (f.bytes >= 54 && bytes_equal(h + 36, "VBRI", 4)) {
         if (h[40] || h[41] != 1)
             return Mp3Error::unsupported;
         info.header = true;
@@ -147,10 +145,9 @@ Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Mp3Frame& f, Vbr* out) noexc
     *out = info;
     return Mp3Error::none;
 }
+// Only initialize (which validates the storage, rate and channels) sets `initialized`; release clears it.
 bool decoder_current(const Mp3Decoder* d) noexcept {
-    return d && d->initialized && d->state && d->state_bytes == sizeof(Mp3DecoderState) &&
-           !(reinterpret_cast<usize>(d->state) & (kMp3DecoderStateAlignment - 1)) &&
-           (d->channels == 1 || d->channels == 2) && d->sample_rate;
+    return d && d->initialized;
 }
 } // namespace
 

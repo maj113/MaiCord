@@ -117,10 +117,11 @@ struct TlsStream {
 // server_name and every buffer remain caller-owned and stable until the
 // stream reaches closed. Buffers may not overlap. endpoint takes a hostname or
 // unbracketed IP literal, not a URL or host:port authority.
-bool tls_stream_initialize(TlsStream* stream, const wchar_t* server_name,
-                           TlsStreamBuffers buffers) noexcept;
 bool tls_stream_initialize_endpoint(TlsStream* stream, const wchar_t* server_name, u16 port,
                                     TlsStreamBuffers buffers) noexcept;
+inline bool tls_stream_initialize(TlsStream* stream, const wchar_t* server_name, TlsStreamBuffers buffers) noexcept {
+    return tls_stream_initialize_endpoint(stream, server_name, 443, buffers);
+}
 TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) noexcept;
 TlsStreamEvent tls_stream_start_write(TlsStream* stream, ConstSlice<ConstSlice<u8>> spans,
                                       TlsStreamCommitHandler commit_handler = nullptr,

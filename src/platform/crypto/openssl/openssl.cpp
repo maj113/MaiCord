@@ -1,33 +1,17 @@
 #include "openssl.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/shared_library.hpp"
-#include "maicord/sys/linux/calls.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace openssl {
 namespace {
 
-// A futex lock: 0 free, 1 held, 2 held with waiters. Held only while the libraries load.
-struct Lock {
-    volatile u32 state;
-
-    void acquire() noexcept {
-        u32 expected = 0;
-        if (__atomic_compare_exchange_n(&state, &expected, 1u, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
-            return;
-        while (__atomic_exchange_n(&state, 2u, __ATOMIC_ACQUIRE) != 0)
-            sys_futex_wait(&state, 2, nullptr);
-    }
-    void release() noexcept {
-        if (__atomic_exchange_n(&state, 0u, __ATOMIC_RELEASE) == 2)
-            sys_futex_wake(&state, 1);
-    }
-};
-
 // Sonames, newest first: OpenSSL 4.x, then 3.x.
 constexpr const char* const kSuffixes[] = {"4", "3"};
 
-Lock g_lock;
+// Held only while the libraries load.
+SRWLOCK g_lock = SRWLOCK_INIT;
 SharedLibrary g_crypto_library;
 SharedLibrary g_ssl_library;
 SharedLibrary g_ssl_crypto_library;
@@ -37,8 +21,8 @@ volatile u32 g_crypto_ready;
 volatile u32 g_ssl_ready;
 
 struct LoadGuard {
-    LoadGuard() noexcept { g_lock.acquire(); }
-    ~LoadGuard() noexcept { g_lock.release(); }
+    LoadGuard() noexcept { AcquireSRWLockExclusive(&g_lock); }
+    ~LoadGuard() noexcept { ReleaseSRWLockExclusive(&g_lock); }
 };
 
 // "libcrypto.so.4" and the like.

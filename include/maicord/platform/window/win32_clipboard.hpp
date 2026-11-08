@@ -19,12 +19,6 @@ struct ClipboardSink {
 };
 // A sink without callbacks restores the system clipboard. Returns the prior sink.
 ClipboardSink clipboard_sink_install(ClipboardSink sink) noexcept;
-struct ClipboardPayload {
-    UINT format;
-    HGLOBAL data;  // GMEM_MOVEABLE; ownership passes to clipboard_commit
-};
-// Publishes every payload or none. Frees each handle the sink did not take.
-bool clipboard_commit(const Slice<ClipboardPayload>& payloads) noexcept;
 
 // Registered "HTML Format" (CF_HTML) holding one <img> fragment for the image's source URL, so rich editors paste a
 // linked image. Returns the payload bytes (no terminator), or zero when the URL or capacity is invalid.

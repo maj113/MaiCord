@@ -93,12 +93,6 @@ bool open_node(Driver* d, const char* path) noexcept {
     }
     d->display = display;
     d->descriptor = static_cast<i32>(fd);
-    u32 n = 0;
-    while (path[n] && n + 1 < sizeof(d->node)) {
-        d->node[n] = path[n];
-        ++n;
-    }
-    d->node[n] = 0;
     return true;
 }
 
@@ -463,10 +457,6 @@ Session* session_create(const Driver* d, i32 profile, u32 width, u32 height, u32
     if (!session)
         return nullptr;
     session->driver = d;
-    session->profile = profile;
-    session->width = width;
-    session->height = height;
-    session->ten_bit = ten_bit;
     ConfigAttrib attribute{kConfigAttribRtFormat, ten_bit ? kRtFormatYuv420_10 : kRtFormatYuv420};
     session->config = session->context = kInvalidId;
     bool ok = d->api.vaCreateConfig(d->display, profile, kEntrypointVld, &attribute, 1, &session->config) ==

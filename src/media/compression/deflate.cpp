@@ -368,8 +368,6 @@ bool decode_slow(BitReader* reader, const u32* table, u32 table_bits, u32 maximu
     return true;
 }
 
-u32 adler32_update(u32 adler, ConstSlice<u8> bytes) noexcept;
-
 // Delivers pending output, then keeps only the dictionary at the window start.
 bool slide_window(InflateState* state) noexcept {
     const u32 produced = state->output_bytes;
@@ -724,6 +722,48 @@ bool decode_block(InflateState* state, u32 type) noexcept {
     }
 }
 
+bool decode_final_blocks(InflateState* state) noexcept {
+    bool final_block = false;
+    while (!final_block) {
+        u32 final = 0, type = 0;
+        if (!read_bits(&state->reader, 1, &final) || !read_bits(&state->reader, 2, &type)) {
+            state->error = ZlibInflateError::truncated;
+            return false;
+        }
+        final_block = final != 0;
+        ++state->blocks;
+        if (!decode_block(state, type))
+            return false;
+    }
+    align_reader(&state->reader);
+    return true;
+}
+
+bool read_zlib_header(BitReader* reader, u32* window_size, ZlibInflateError* error) noexcept {
+    u8 header[2]{};
+    if (!read_aligned_bytes(reader, header, 2)) {
+        *error = ZlibInflateError::truncated;
+        return false;
+    }
+    const u8 cmf = header[0], flags = header[1];
+    if ((cmf & 0x0Fu) != 8 || (cmf >> 4) > 7) {
+        *error = ZlibInflateError::unsupported_method;
+        return false;
+    }
+    if ((static_cast<u32>(cmf) * 256u + flags) % 31u != 0) {
+        *error = ZlibInflateError::invalid_header;
+        return false;
+    }
+    if ((flags & 0x20u) != 0) {
+        *error = ZlibInflateError::unsupported_dictionary;
+        return false;
+    }
+    *window_size = 1u << ((cmf >> 4) + 8u);
+    return true;
+}
+
+} // namespace
+
 // SSSE3 Adler-32 over 32-byte blocks, reduced every NMAX (5552) bytes.
 u32 adler32_update(u32 adler, ConstSlice<u8> bytes) noexcept {
     u32 first = adler & 0xFFFFu;
@@ -766,48 +806,6 @@ u32 adler32_update(u32 adler, ConstSlice<u8> bytes) noexcept {
     }
     return ((second % 65'521) << 16) | (first % 65'521);
 }
-
-bool decode_final_blocks(InflateState* state) noexcept {
-    bool final_block = false;
-    while (!final_block) {
-        u32 final = 0, type = 0;
-        if (!read_bits(&state->reader, 1, &final) || !read_bits(&state->reader, 2, &type)) {
-            state->error = ZlibInflateError::truncated;
-            return false;
-        }
-        final_block = final != 0;
-        ++state->blocks;
-        if (!decode_block(state, type))
-            return false;
-    }
-    align_reader(&state->reader);
-    return true;
-}
-
-bool read_zlib_header(BitReader* reader, u32* window_size, ZlibInflateError* error) noexcept {
-    u8 header[2]{};
-    if (!read_aligned_bytes(reader, header, 2)) {
-        *error = ZlibInflateError::truncated;
-        return false;
-    }
-    const u8 cmf = header[0], flags = header[1];
-    if ((cmf & 0x0Fu) != 8 || (cmf >> 4) > 7) {
-        *error = ZlibInflateError::unsupported_method;
-        return false;
-    }
-    if ((static_cast<u32>(cmf) * 256u + flags) % 31u != 0) {
-        *error = ZlibInflateError::invalid_header;
-        return false;
-    }
-    if ((flags & 0x20u) != 0) {
-        *error = ZlibInflateError::unsupported_dictionary;
-        return false;
-    }
-    *window_size = 1u << ((cmf >> 4) + 8u);
-    return true;
-}
-
-} // namespace
 
 DeflateWorkspace* deflate_workspace_allocate() noexcept {
     return static_cast<DeflateWorkspace*>(heap_allocate(sizeof(DeflateWorkspace)));

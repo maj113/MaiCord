@@ -329,12 +329,12 @@ inline constexpr u32 kAccountMediaProgressiveCacheMaximumBytes = 2u * 1024u * 10
 // A VIDEO GIF favourite's picker tile source (Klipy's MP4s are well under 1 MiB).
 inline constexpr u32 kAccountMediaCatalogVideoMaximumBytes = 16u * 1024u * 1024u;
 
-AccountMediaRequestResult account_media_initialize(AccountMedia* media) noexcept;
+// A null shared_cache gives the media its own encoded cache.
+AccountMediaRequestResult account_media_initialize(AccountMedia* media,
+                                                   EncodedMediaCache* shared_cache = nullptr) noexcept;
 // Strong image signatures distinguish a proxy poster from malformed MP4
 // without exposing bytes or weakening the decoder's format validation.
 AccountMediaVideoFailure account_media_video_body_failure(const ConstSlice<u8>& body) noexcept;
-AccountMediaRequestResult account_media_initialize_shared(AccountMedia* media,
-                                                          EncodedMediaCache* shared_cache) noexcept;
 AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media, const MediaAssetKey& key,
                                                              u64 monotonic_now_ms, u64 unix_now_seconds,
                                                              const Utf8View& guild_icon_hash = {},

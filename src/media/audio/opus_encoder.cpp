@@ -10,10 +10,9 @@ static_assert(kOpusScratchBytes == OPUS_SCRATCH_BYTES && alignof(OpusScratch) >=
 OpusEncodeResult result(OpusEncodeError error, i32 native = OPUS_OK, u32 bytes = 0) noexcept {
     return {error, native, bytes};
 }
+// Only initialize (which validates the storage) sets `initialized`, and only release clears it.
 bool current(const OpusEncoder* encoder) noexcept {
-    return encoder && encoder->initialized && encoder->state &&
-           !(reinterpret_cast<usize>(encoder->state) & (kOpusEncoderStateAlignment - 1)) &&
-           encoder->state_bytes && encoder->state_bytes == opus_encoder_storage_bytes(encoder->channels);
+    return encoder && encoder->initialized;
 }
 ::OpusEncoder* native_state(OpusEncoder* encoder) noexcept {
     return reinterpret_cast<::OpusEncoder*>(encoder->state);

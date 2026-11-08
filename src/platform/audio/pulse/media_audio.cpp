@@ -40,9 +40,6 @@ struct Runtime {
 };
 struct Engine {
     pulse::Session session{};
-    // Read-the-clock timer, armed while the stream plays; created by the worker and not counted as an attached
-    // handle.
-    Waitable poll{};
     pulse::Track track{};
     // Frames of the source timeline already played when the stream started.
     u64 anchor_frames{};
@@ -288,7 +285,6 @@ u32 worker(void* pointer) noexcept {
     thread_boost_realtime();
     Engine& e = *engine;
     e.applied_volume = -1;
-    e.poll = timer_create_waitable(false, true);
     for (;;) {
         AcquireSRWLockShared(&r.lock);
         const bool stopping = r.stopping, playing = r.desired_play, failed = r.failed;
@@ -357,12 +353,9 @@ u32 worker(void* pointer) noexcept {
         ReleaseSRWLockExclusive(&r.lock);
         if (repeat)
             continue;
-        // The clock is read between write requests too, while audio plays.
-        if (e.started && e.poll)
-            timer_arm(e.poll, kClockPollMs, 0);
-        const Waitable events[]{r.stop, r.command, r.render, e.poll};
-        const u32 count = e.started && e.poll ? 4u : e.track.stream ? 3u : 2u;
-        const u32 waited = wait_any(events, count, INFINITE);
+        // The clock is read between write requests too, while audio plays: the wait times out after kClockPollMs.
+        const Waitable events[]{r.stop, r.command, r.render};
+        const u32 waited = wait_any(events, e.track.stream ? 3u : 2u, e.started ? kClockPollMs : INFINITE);
         if (waited == WAIT_OBJECT_0)
             break;
         if (waited == WAIT_FAILED) {
@@ -372,8 +365,6 @@ u32 worker(void* pointer) noexcept {
     }
     close_track(e);
     pulse::session_close(&e.session);
-    if (e.poll)
-        waitable_close(e.poll);
     pages_release(engine, sizeof(Engine));
     AcquireSRWLockExclusive(&r.lock);
     r.status.worker_exited = true;

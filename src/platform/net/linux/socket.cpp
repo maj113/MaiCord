@@ -233,10 +233,6 @@ bool socket_watch_attach(SocketWatch* watch, Socket* socket, u32 mask) noexcept 
     return true;
 }
 
-Waitable socket_watch_waitable(const SocketWatch& watch) noexcept {
-    return watch.waitable;
-}
-
 bool socket_watch_poll(SocketWatch* watch, const Socket&, u32* events) noexcept {
     *events = 0;
     EpollEvent reported[4];

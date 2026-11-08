@@ -12,7 +12,7 @@ DIR gets the layout of an install prefix's share directory:
 The .desktop file is named after the application id, which is also the Wayland app_id the window sets, the well-known
 D-Bus name of the single-instance channel (include/maicord/platform/dbus/instance.hpp) and the Unity launcher entry's
 desktop id, so launchers, docks and the compositor all find the one entry. MimeType registers MaiCord for the discord://
-and maicord:// links; the launcher passes the link as a bare argument (Exec %U), which launch_parse accepts. Standard
+and maicord:// links; the launcher passes the link as a bare argument (Exec %U), which desktop_launch_parse accepts. Standard
 library only.
 """
 import argparse

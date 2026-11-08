@@ -35,10 +35,6 @@ SecretStatus classify(const Message& reply) noexcept {
     return SecretStatus::failed;
 }
 
-void wipe_and_release(Message* message) noexcept {
-    message_release(message);  // wipes its block
-}
-
 // A call whose reply is the method return: false with *status set otherwise. On true the caller releases `reply`.
 bool call(Client* client, const CallTarget& target, const Builder* body, Message* reply, SecretStatus* status) noexcept {
     const Status result = connection_call_sync(client->connection, target, body, kCallTimeoutMs, reply);
@@ -46,7 +42,7 @@ bool call(Client* client, const CallTarget& target, const Builder* body, Message
         return true;
     if (result == Status::error_reply) {
         *status = classify(*reply);
-        wipe_and_release(reply);
+        message_release(reply);
     } else {
         *status = result == Status::failed ? SecretStatus::failed : SecretStatus::unavailable;
     }
@@ -87,7 +83,7 @@ bool open_client(Client* client, SecretStatus* status) noexcept {
     const char* path = nullptr;
     u32 length = 0;
     const bool parsed = reader_skip(&r) && reader_string(&r, &path, &length) && copy_path(path, length, client->session);
-    wipe_and_release(&reply);
+    message_release(&reply);
     if (!parsed) {
         *status = SecretStatus::failed;
         connection_close(client->connection);
@@ -115,6 +111,19 @@ void append_attributes(Builder* body, const SecretAttribute* attributes, u32 cou
         builder_close_entry(body);
     }
     builder_close_array(body);
+}
+
+// An `ao` into `paths`: the first kMaxItems are kept, the rest read and dropped.
+bool read_paths(Reader* r, char (*paths)[kPathCapacity], u32* count) noexcept {
+    bool parsed = reader_enter_array(r);
+    while (parsed && reader_more(*r)) {
+        const char* path = nullptr;
+        u32 length = 0;
+        parsed = reader_string(r, &path, &length);
+        if (parsed && *count < kMaxItems)
+            parsed = copy_path(path, length, paths[(*count)++]);
+    }
+    return parsed && reader_leave(r);
 }
 
 struct Found {
@@ -158,7 +167,7 @@ bool unlock_paths(Client* client, const char (*paths)[kPathCapacity], u32 count,
     u32 prompt_length = 0;
     parsed = parsed && reader_leave(&r) && reader_string(&r, &prompt, &prompt_length);
     const bool no_prompt = parsed && prompt_length == 1 && prompt[0] == '/';
-    wipe_and_release(&reply);
+    message_release(&reply);
     if (unlocked_count)
         *unlocked_count = done < kMaxItems ? done : kMaxItems;
     return no_prompt && done == count;
@@ -179,24 +188,9 @@ SecretStatus search(Client* client, const SecretAttribute* attributes, u32 count
         return status;
     Reader r;
     message_reader(reply, &r);
-    bool parsed = reader_enter_array(&r);
-    while (parsed && reader_more(r)) {
-        const char* path = nullptr;
-        u32 length = 0;
-        parsed = reader_string(&r, &path, &length);
-        if (parsed && found->unlocked_count < kMaxItems)
-            parsed = copy_path(path, length, found->unlocked[found->unlocked_count++]);
-    }
-    parsed = parsed && reader_leave(&r) && reader_enter_array(&r);
-    while (parsed && reader_more(r)) {
-        const char* path = nullptr;
-        u32 length = 0;
-        parsed = reader_string(&r, &path, &length);
-        if (parsed && found->locked_count < kMaxItems)
-            parsed = copy_path(path, length, found->locked[found->locked_count++]);
-    }
-    parsed = parsed && reader_leave(&r);
-    wipe_and_release(&reply);
+    const bool parsed = read_paths(&r, found->unlocked, &found->unlocked_count) &&
+                        read_paths(&r, found->locked, &found->locked_count);
+    message_release(&reply);
     if (parsed && found->unlocked_count == 0 && found->locked_count != 0 &&
         unlock_paths(client, found->locked, found->locked_count, found->unlocked, &found->unlocked_count))
         found->locked_count = 0;
@@ -259,9 +253,8 @@ SecretStatus secret_lookup(const SecretAttribute* attributes, u32 count, u8* sec
                     *length = value_bytes;
                     status = SecretStatus::ok;
                 }
-                wipe_and_release(&reply);
+                message_release(&reply);
             }
-            secure_clear_bytes(body.data, body.capacity);
             builder_release(&body);
         }
     }
@@ -291,7 +284,7 @@ SecretStatus secret_store(const char* label, const SecretAttribute* attributes, 
             u32 path_length = 0;
             if (reader_string(&r, &path, &path_length) && !(path_length == 1 && path[0] == '/'))
                 copy_path(path, path_length, collection);
-            wipe_and_release(&reply);
+            message_release(&reply);
         } else if (status == SecretStatus::unavailable) {
             builder_release(&body);
             close_client(&client);
@@ -303,18 +296,10 @@ SecretStatus secret_store(const char* label, const SecretAttribute* attributes, 
     Builder body;
     builder_init(&body);
     builder_open_array(&body, "{sv}");
-    builder_open_entry(&body);
-    builder_string(&body, "org.freedesktop.Secret.Item.Label");
-    builder_open_variant(&body, "s");
-    builder_string(&body, label);
-    builder_close_variant(&body);
-    builder_close_entry(&body);
-    builder_open_entry(&body);
-    builder_string(&body, "org.freedesktop.Secret.Item.Attributes");
-    builder_open_variant(&body, "a{ss}");
+    builder_dict_string(&body, "org.freedesktop.Secret.Item.Label", label);
+    builder_open_dict_entry(&body, "org.freedesktop.Secret.Item.Attributes", "a{ss}");
     append_attributes(&body, attributes, count);
-    builder_close_variant(&body);
-    builder_close_entry(&body);
+    builder_close_dict_entry(&body);
     builder_close_array(&body);
     builder_open_struct(&body, "(oayays)");
     builder_object_path(&body, client.session);
@@ -339,7 +324,7 @@ SecretStatus secret_store(const char* label, const SecretAttribute* attributes, 
             const bool parsed = reader_string(&r, &item, &item_length) && reader_string(&r, &prompt, &prompt_length);
             const bool no_item = parsed && item_length == 1 && item[0] == '/';
             status = !parsed ? SecretStatus::failed : no_item ? SecretStatus::locked : SecretStatus::ok;
-            wipe_and_release(&reply);
+            message_release(&reply);
         }
         if (status != SecretStatus::locked || attempt == 1)
             break;
@@ -347,7 +332,6 @@ SecretStatus secret_store(const char* label, const SecretAttribute* attributes, 
         if (!unlock_paths(&client, locked_path, 1, nullptr, nullptr))
             break;
     }
-    secure_clear_bytes(body.data, body.capacity);
     builder_release(&body);
     close_client(&client);
     return status;
@@ -368,7 +352,7 @@ SecretStatus secret_erase(const SecretAttribute* attributes, u32 count) noexcept
                 Message reply;
                 const CallTarget target{kService, found.unlocked[i], kItemInterface, "Delete"};
                 if (call(&client, target, nullptr, &reply, &status))
-                    wipe_and_release(&reply);
+                    message_release(&reply);
             }
         }
     }

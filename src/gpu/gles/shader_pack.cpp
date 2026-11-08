@@ -150,7 +150,7 @@ GpuStatus compile_text(GpuDevice* device, gl::Enum type, const char* text, u32 l
     gl.glGetShaderiv(*name, gl::kCompileStatus, &compiled);
     if (compiled)
         return kGpuOk;
-    log_info(gl, false, *name, "a shader did not compile");
+    log_info(gl, false, *name, type == gl::kComputeShader ? "a compute shader did not compile" : "a shader did not compile");
     log_u64(LogLevel::error, "gpu", "shader_id", identity);
     gl.glDeleteShader(*name);
     *name = 0;
@@ -300,19 +300,10 @@ GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* sha
         gl::Api& gl = device->gl;
         u32 program = 0;
         const GpuStatus status = with_source(index, 2, &entry, [&](const char* text, u32 length) noexcept {
-            const u32 object = gl.glCreateShader(gl::kComputeShader);
-            const gl::Int bytes = static_cast<gl::Int>(length);
-            gl.glShaderSource(object, 1, &text, &bytes);
-            gl.glCompileShader(object);
-            device->trim_pending = true;
-            gl::Int compiled = 0;
-            gl.glGetShaderiv(object, gl::kCompileStatus, &compiled);
-            if (!compiled) {
-                log_info(gl, false, object, "a compute shader did not compile");
-                log_u64(LogLevel::error, "gpu", "shader_id", static_cast<u32>(id));
-                gl.glDeleteShader(object);
-                return kGpuFail;
-            }
+            u32 object = 0;
+            const GpuStatus compiled = compile_text(device, gl::kComputeShader, text, length, static_cast<u32>(id), &object);
+            if (!gpu_ok(compiled))
+                return compiled;
             program = gl.glCreateProgram();
             gl.glAttachShader(program, object);
             gl.glLinkProgram(program);
@@ -378,7 +369,6 @@ GpuStatus gpu_vertex_shader_create(GpuDevice* device, ShaderId id, ConstSlice<Gp
             gl.glVertexBindingDivisor(0, 1);
             gl.glBindVertexArray(0);
             gles::context().applied_vertex_array = kUnknown;
-            created->count = elements.count;
             status = gles::check_error("input layout creation");
             if (!gpu_ok(status)) {
                 gl.glDeleteVertexArrays(1, &created->vertex_array);

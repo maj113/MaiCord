@@ -155,10 +155,6 @@ bool socket_watch_attach(SocketWatch* watch, Socket* socket_value, u32 mask) noe
     return WSAEventSelect(raw(*socket_value), watch->waitable, static_cast<long>(mask)) != SOCKET_ERROR;
 }
 
-Waitable socket_watch_waitable(const SocketWatch& watch) noexcept {
-    return watch.waitable;
-}
-
 bool socket_watch_poll(SocketWatch* watch, const Socket& socket_value, u32* events) noexcept {
     WSANETWORKEVENTS reported{};
     if (WSAEnumNetworkEvents(raw(socket_value), watch->waitable, &reported) == SOCKET_ERROR) {
@@ -225,24 +221,24 @@ i32 socket_send_to(const Socket& socket_value, const void* data, u32 bytes, cons
 
 bool network_resolve_blocking(const wchar_t* host, const wchar_t* service, NetworkAddress* addresses, u32* count,
                               i32* native_error) noexcept {
-    ADDRINFOW hints{};
+    ADDRINFOEXW hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
-    ADDRINFOW* list = nullptr;
-    const int resolved = GetAddrInfoW(host, service, &hints, &list);
+    ADDRINFOEXW* list = nullptr;
+    // Synchronous: no overlapped, so the call returns with the answers, as GetAddrInfoW does.
+    const int resolved = GetAddrInfoExW(host, service, NS_ALL, nullptr, &hints, &list, nullptr, nullptr, nullptr, nullptr);
     *count = 0;
     if (resolved || !list) {
         *native_error = resolved;
         return false;
     }
-    for (const ADDRINFOW* entry = list; entry && *count < kNetworkResolverMaximumAddresses; entry = entry->ai_next) {
-        if (entry->ai_addr && entry->ai_addrlen != 0 && entry->ai_addrlen <= sizeof(sockaddr_storage) &&
-            network_address_from_socket(entry->ai_addr, entry->ai_addrlen, &addresses[*count])) {
+    for (const ADDRINFOEXW* entry = list; entry && *count < kNetworkResolverMaximumAddresses; entry = entry->ai_next) {
+        if (network_address_from_socket(entry->ai_addr, entry->ai_addrlen, &addresses[*count])) {
             ++*count;
         }
     }
-    FreeAddrInfoW(list);
+    FreeAddrInfoExW(list);
     if (*count == 0) {
         *native_error = WSAEHOSTUNREACH;
         return false;

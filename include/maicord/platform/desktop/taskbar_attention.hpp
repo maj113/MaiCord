@@ -16,8 +16,7 @@ inline constexpr u8 kTaskbarBadgeDot = 11;
 inline constexpr u32 kTaskbarBadgeMaximumExtent = 64;
 
 u8 taskbar_attention_badge(u32 mentions, bool unread, bool enabled) noexcept;
-// Newton square root shared by the taskbar badge and tray mark renderers (14 iterations, so distances
-// below one pixel settle too).
+// Square root shared by the taskbar badge and tray mark renderers; 0 for a value that is not positive.
 float taskbar_attention_root(float value) noexcept;
 
 struct TaskbarAttentionInput {

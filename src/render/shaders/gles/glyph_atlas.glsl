@@ -1,4 +1,4 @@
-// twin: src/render/shaders/glyph_atlas.hlsl a9633909fbf78d91
+// twin: src/render/shaders/glyph_atlas.hlsl d9216fd3aa225aca
 // glyph_coverage (STAGE_CS): rasterizes glyph and icon outlines into the coverage atlas. GLYPH_TILE_CULLING builds the
 // variant for unstroked rasters that are large or have a long command chain, which skips every command that cannot
 // reach any sample of a thread group's tile. Other rasters run the plain loop of the default variant, whose
@@ -23,14 +23,13 @@ layout(rgba8, binding = 0) uniform writeonly highp image2D coverage_atlas; //! u
 #endif
 
 #if defined(GLYPH_TILE_CULLING)
+// A crossing right of the sample without a division: the side test's sign against the edge direction replaces the
+// crossing abscissa (as colr_paint does). Across the sample row the end and start comparisons differ, and their
+// difference is the edge's direction; elsewhere it is zero.
 void accumulate_crossing(vec2 sample_position, vec2 line_start, vec2 line_end, inout int winding) {
-    bool crosses = (line_start.y > sample_position.y) != (line_end.y > sample_position.y);
-    if (crosses) {
-        float crossing_x = line_start.x + (sample_position.y - line_start.y) * (line_end.x - line_start.x) /
-                                              (line_end.y - line_start.y);
-        if (crossing_x > sample_position.x)
-            winding += line_end.y > line_start.y ? 1 : -1;
-    }
+    vec2 delta = line_end - line_start, offset = sample_position - line_start;
+    float side = delta.x * offset.y - offset.x * delta.y;
+    winding += side * delta.y > 0.0 ? int(line_end.y > sample_position.y) - int(line_start.y > sample_position.y) : 0;
 }
 
 void accumulate_distance(vec2 sample_position, vec2 line_start, vec2 line_end, inout float minimum_distance_squared) {
@@ -51,13 +50,12 @@ void accumulate_line(vec2 sample_position, vec2 line_start, vec2 line_end, inout
     vec2 distance_vector = sample_position - (line_start + delta * projection);
     minimum_distance_squared = min(minimum_distance_squared, dot(distance_vector, distance_vector));
 
-    bool crosses = (line_start.y > sample_position.y) != (line_end.y > sample_position.y);
-    if (crosses) {
-        float crossing_x = line_start.x + (sample_position.y - line_start.y) * (line_end.x - line_start.x) /
-                                              (line_end.y - line_start.y);
-        if (crossing_x > sample_position.x)
-            winding += line_end.y > line_start.y ? 1 : -1;
-    }
+    // A crossing right of the sample without a division: the side test's sign against the edge direction replaces the
+    // crossing abscissa (as colr_paint does). Across the sample row the end and start comparisons differ, and their
+    // difference is the edge's direction; elsewhere it is zero.
+    vec2 offset = sample_position - line_start;
+    float side = delta.x * offset.y - offset.x * delta.y;
+    winding += side * delta.y > 0.0 ? int(line_end.y > sample_position.y) - int(line_start.y > sample_position.y) : 0;
 }
 #endif
 

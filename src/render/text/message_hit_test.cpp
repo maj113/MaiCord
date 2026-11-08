@@ -280,6 +280,15 @@ MessageEmojiHit command_emoji(MessageHitTestCacheOwner* owner, const MessageText
     return {};
 }
 
+// A text command with text under the point (inside its rectangle and its clip).
+bool command_under(const MessageTextCommand& command, float x, float y) noexcept {
+    return command.message_id != 0 && command.text.bytes != 0 && command.text.data &&
+           ui_rect_has_area(command.rectangle) && ui_rect_has_area(command.clip) &&
+           x >= command.rectangle.left && x < command.rectangle.right && y >= command.rectangle.top &&
+           y < command.rectangle.bottom && x >= command.clip.left && x < command.clip.right &&
+           y >= command.clip.top && y < command.clip.bottom && command.text.bytes <= static_cast<u32>(INT_MAX);
+}
+
 } // namespace
 
 MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
@@ -296,15 +305,8 @@ MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
     for (u32 cursor = presentation.command_count; cursor != 0; --cursor) {
         const u32 command_index = cursor - 1;
         const MessageTextCommand& command = presentation.commands[command_index];
-        if (command.message_id == 0 || command.text.bytes == 0 || !command.text.data ||
-            command.measurement_kind == MessageTextMeasurementKind::reaction ||
-            !ui_rect_has_area(command.rectangle) || !ui_rect_has_area(command.clip) ||
-            x < command.rectangle.left || x >= command.rectangle.right || y < command.rectangle.top ||
-            y >= command.rectangle.bottom || x < command.clip.left || x >= command.clip.right ||
-            y < command.clip.top || y >= command.clip.bottom ||
-            command.text.bytes > static_cast<u32>(INT_MAX)) {
+        if (command.measurement_kind == MessageTextMeasurementKind::reaction || !command_under(command, x, y))
             continue;
-        }
         if (!acquire_layout(owner, command, text_system, command_index)) {
             continue;
         }
@@ -331,11 +333,7 @@ MessageEmojiHit message_emoji_hit_test(MessageHitTestCacheOwner* owner, const Me
     for (u32 cursor = presentation.command_count; cursor != 0; --cursor) {
         const u32 command_index = cursor - 1;
         const MessageTextCommand& command = presentation.commands[command_index];
-        if (command.message_id == 0 || command.text.bytes == 0 || !command.text.data || !emoji_text(command) ||
-            !ui_rect_has_area(command.rectangle) || !ui_rect_has_area(command.clip) ||
-            x < command.rectangle.left || x >= command.rectangle.right || y < command.rectangle.top ||
-            y >= command.rectangle.bottom || x < command.clip.left || x >= command.clip.right ||
-            y < command.clip.top || y >= command.clip.bottom || command.text.bytes > static_cast<u32>(INT_MAX))
+        if (!emoji_text(command) || !command_under(command, x, y))
             continue;
         // Body text commands do not overlap: the one under the point decides.
         return command_emoji(owner, command, text_system, command_index, x, y);

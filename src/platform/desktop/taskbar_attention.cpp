@@ -64,9 +64,6 @@ HICON create_icon(u8 badge, u32 extent) noexcept {
         return nullptr;
     return win32_create_icon({*pixels.data, extent * extent}, extent);
 }
-void flash(Window window, bool start) noexcept {
-    window_request_attention(window, start ? Attention::flash : Attention::stop);
-}
 // The shell's taskbar object is activated when the first badge is shown; a
 // session that never shows one never pays for it. One attempt per session.
 bool acquire_list(TaskbarAttention* attention) noexcept {
@@ -98,12 +95,7 @@ u8 taskbar_attention_badge(u32 mentions, bool unread, bool enabled) noexcept {
 }
 
 float taskbar_attention_root(float value) noexcept {
-    if (value <= 0)
-        return 0;
-    float x = value > 1 ? value : 1;
-    for (u32 i = 0; i < 14; ++i)
-        x = .5f * (x + value / x);
-    return x;
+    return value > 0 ? __builtin_elementwise_sqrt(value) : 0;
 }
 
 TaskbarAttentionPlan taskbar_attention_plan(TaskbarAttentionState* state, const TaskbarAttentionInput& input) noexcept {
@@ -175,9 +167,9 @@ void taskbar_attention_apply(TaskbarAttention* attention, Window owner, const Ta
     if (!attention || !window)
         return;
     if (plan.stop_flash)
-        flash(owner, false);
+        window_request_attention(owner, Attention::stop);
     if (plan.start_flash)
-        flash(owner, true);
+        window_request_attention(owner, Attention::flash);
     if (!plan.set_badge)
         return;
     if (!attention->button_ready) {
@@ -223,7 +215,7 @@ void taskbar_attention_release(TaskbarAttention* attention, Window owner) noexce
         attention->list->Release();
     }
     if (window && attention->state.flashing)
-        flash(owner, false);
+        window_request_attention(owner, Attention::stop);
     if (attention->icon)
         DestroyIcon(static_cast<HICON>(attention->icon));
     if (attention->com_initialized)
@@ -265,7 +257,7 @@ void taskbar_attention_release(TaskbarAttention* attention, Window window) noexc
         return;
     if (window && attention->state.flashing)
         window_request_attention(window, Attention::stop);
-    dbus::launcher_entry_clear(kDesktopId);
+    dbus::launcher_entry_update(kDesktopId, dbus::LauncherEntryState{});
     reset_value(attention);
 }
 #endif

@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/slice.hpp"
+#include "maicord/media/audio/aac_configuration.hpp"
 
 namespace maicord {
 inline constexpr u32 kAacDecoderMaximumPacketBytes = 16384;
@@ -58,12 +59,26 @@ struct AacDecoder {
 // SBR/PS, output mono/stereo and 1024/2048 PCM frames. No PCE/core dependency or
 // 960-frame mode. Rate/channels are post-SBR/PS output, not native input values.
 // No COM/MF/allocation/device/thread.
-bool aac_decoder_configuration_valid(ConstSlice<u8> asc, u32 rate, u32 channels) noexcept;
+inline bool aac_decoder_configuration_valid(ConstSlice<u8> asc, u32 rate, u32 channels) noexcept {
+    AacConfiguration configuration{};
+    return aac_configuration_decode(asc, &configuration) && configuration.sample_rate == rate &&
+           configuration.channels == channels;
+}
 // MFT stream requirements are byte alignments; MF aligned-buffer creation uses
 // a power-of-two-minus-one mask. Zero/one means no stronger alignment required.
 // Reject non-power-of-two or >4096 byte requirements without changing output.
-bool aac_decoder_alignment_mask(u32 byte_alignment, u32* mask) noexcept;
-bool aac_decoder_output_capacity(u32 minimum_bytes, u32* capacity) noexcept;
+inline bool aac_decoder_alignment_mask(u32 alignment, u32* mask) noexcept {
+    if (!mask || alignment > 4096 || (alignment > 1 && (alignment & (alignment - 1))))
+        return false;
+    *mask = alignment > 1 ? alignment - 1 : 0;
+    return true;
+}
+inline bool aac_decoder_output_capacity(u32 minimum, u32* capacity) noexcept {
+    if (!capacity || minimum > kAacDecoderMaximumNativeOutputBytes)
+        return false;
+    *capacity = minimum > kAacDecoderMaximumOutputBytes ? minimum : kAacDecoderMaximumOutputBytes;
+    return true;
+}
 AacDecodeResult aac_decoder_initialize(AacDecoder*, ConstSlice<u8> asc, u32 rate, u32 channels) noexcept;
 // Decode-worker only and serial. Caller owns an initialized MTA on that thread
 // through release; this wrapper does not change the caller's COM apartment.

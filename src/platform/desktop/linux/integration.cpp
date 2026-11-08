@@ -62,19 +62,18 @@ u32 wide_units(const wchar_t* text) noexcept {
 // The directory of a base-directory variable ($XDG_CONFIG_HOME, else $HOME/.config) joined with `relative`.
 bool base_path(const wchar_t* variable, const wchar_t* fallback, const wchar_t* relative, wchar_t* out,
                u32 capacity) noexcept {
-    u32 length = 0;
     wchar_t root[kPathCapacity];
     u32 units = environment_variable(variable, root, kPathCapacity);
-    if (!units || units >= kPathCapacity || root[0] != L'/') {
+    const bool home = !units || units >= kPathCapacity || root[0] != L'/';
+    if (home) {
         units = environment_variable(L"HOME", root, kPathCapacity);
         if (!units || units >= kPathCapacity || root[0] != L'/')
             return false;
-        out[0] = 0;
-        return wide_append(out, capacity, &length, root) && wide_append(out, capacity, &length, fallback) &&
-               wide_append(out, capacity, &length, relative);
     }
+    u32 length = 0;
     out[0] = 0;
-    return wide_append(out, capacity, &length, root) && wide_append(out, capacity, &length, relative);
+    return wide_append(out, capacity, &length, root) && (!home || wide_append(out, capacity, &length, fallback)) &&
+           wide_append(out, capacity, &length, relative);
 }
 
 bool startup_path(wchar_t* out, u32 capacity) noexcept {

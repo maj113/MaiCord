@@ -118,10 +118,8 @@ HRESULT open_stream(Runtime& r, Engine& e) noexcept {
         h = e.client->GetService(__uuidof(IAudioCaptureClient), reinterpret_cast<void**>(&e.capture));
     if (SUCCEEDED(h))
         h = e.client->Start();
-    if (FAILED(h)) {
+    if (FAILED(h))
         close_stream(e);
-        return h;
-    }
     return h;
 }
 HRESULT watch(Runtime& r, Engine& e) noexcept {
@@ -205,8 +203,6 @@ bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device
     r->notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     // High resolution keeps 20 ms pacing wakes within about a millisecond.
     r->timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-    if (!r->timer)
-        r->timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
     r->state = static_cast<LONG>(VoiceCaptureState::opening);
     if (r->stop && r->wake && r->notify)
         r->thread =

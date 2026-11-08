@@ -12,7 +12,6 @@ void tls_client_release(TlsClient*) noexcept {}
 TlsHandshakeStep tls_client_handshake(TlsClient*, ConstSlice<u8>, Slice<u8>) noexcept {
     return {0, 0, SEC_E_INVALID_TOKEN, TlsError::handshake, TlsHandshakeState::failed};
 }
-TlsResult tls_client_encrypt(TlsClient*, ConstSlice<u8>, Slice<u8>, u32*) noexcept { return {SEC_E_INVALID_TOKEN, TlsError::encrypt}; }
 TlsResult tls_client_encrypt_spans(TlsClient*, ConstSlice<ConstSlice<u8>>, Slice<u8>, u32*) noexcept { return {SEC_E_INVALID_TOKEN, TlsError::encrypt}; }
 TlsDecryptResult tls_client_decrypt(TlsClient*, Slice<u8> bytes) noexcept {
     if (bytes.count < 2) return {{}, 0, SEC_E_INCOMPLETE_MESSAGE, TlsError::none, TlsDecryptState::need_receive};

@@ -29,5 +29,9 @@ __declspec(noinline) bool message_media_resident(ApplicationMediaPump& pump, con
                                                  const MediaAssetKey& key, bool animated_hint,
                                                  bool static_resident) noexcept;
 
+enum class ScanStep : u8 { next, stopped, failed };
+__declspec(noinline) ScanStep request_scene_avatar(ApplicationMediaPump& pump, const MediaAssetKey& key,
+                                                   const Utf8View& hash, bool* stop) noexcept;
+
 } // namespace requests_detail
 } // namespace maicord::app_detail

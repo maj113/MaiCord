@@ -63,7 +63,4 @@ bool tray_available() noexcept;
 void tray_update(const TrayState& state) noexcept;
 void tray_stop() noexcept;
 
-// The ARGB32 byte order the SNI property wants (network order: alpha, red, green, blue) from 0xAARRGGBB pixels.
-void tray_pixmap_bytes(const u32* pixels, u32 count, u8* bytes) noexcept;
-
 } // namespace maicord::dbus

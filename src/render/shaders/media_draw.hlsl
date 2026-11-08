@@ -63,25 +63,33 @@ float4 sample_level(uint source,float2 coordinate){
 // ghosted copies or structured streaks. Tap radii are the quantiles of a 2D
 // Gaussian truncated at two deviations, so the taps carry equal weight; the
 // direction turns by the golden angle per tap.
-float4 blurred_sample(uint source,float2 center,float2 dx,float2 dy,float deviation,float4 bounds,float2 pixel){
+float4 blur_taps(Texture2D<float4> atlas,float2 center,float2 dx,float2 dy,float deviation,float4 bounds,float2 direction){
     const uint taps=32;
     static const float radii[taps]={
         0.16494f, 0.28766f, 0.37401f, 0.44575f, 0.50921f, 0.56726f, 0.62152f, 0.67301f,
         0.72242f, 0.77026f, 0.81692f, 0.86271f, 0.90788f, 0.95266f, 0.99725f, 1.04182f,
         1.08656f, 1.13163f, 1.17721f, 1.22349f, 1.27065f, 1.31891f, 1.36851f, 1.41974f,
         1.47291f, 1.52844f, 1.58679f, 1.64861f, 1.71469f, 1.78612f, 1.86442f, 1.95184f};
-    float2 direction;
-    sincos(6.2831853f*frac(52.9829189f*frac(dot(floor(pixel),float2(0.06711056f,0.00583715f)))),direction.y,direction.x);
     const float2 turn=float2(-0.737368818f,0.675490360f);
     float4 sum=0;
     [loop] for(uint i=0;i<taps;++i){
         const float2 offset=deviation*radii[i]*direction;
         const float2 coordinate=clamp(center+offset.x*dx+offset.y*dy,bounds.xy,bounds.zw);
         // Atlas texels are premultiplied, so transparency never darkens the mean.
-        sum+=sample_level(source,coordinate);
+        sum+=atlas.SampleLevel(media_sampler,coordinate,0);
         direction=float2(direction.x*turn.x-direction.y*turn.y,direction.x*turn.y+direction.y*turn.x);
     }
     return sum*(1.0f/taps);
+}
+// The atlas is uniform per quad: select it once, outside the taps.
+float4 blurred_sample(uint source,float2 center,float2 dx,float2 dy,float deviation,float4 bounds,float2 pixel){
+    float2 direction;
+    sincos(6.2831853f*frac(52.9829189f*frac(dot(floor(pixel),float2(0.06711056f,0.00583715f)))),direction.y,direction.x);
+    float4 result;
+    [branch] if(source==1) result=blur_taps(animation_frame_atlas,center,dx,dy,deviation,bounds,direction);
+    else [branch] if(source==2) result=blur_taps(preview_media_atlas,center,dx,dy,deviation,bounds,direction);
+    else result=blur_taps(media_atlas,center,dx,dy,deviation,bounds,direction);
+    return result;
 }
 
 float4 media_pixel(MediaVertexOutput input) : SV_Target0 {

@@ -125,29 +125,15 @@ AccountMediaRequestResult remember_failure(AccountMedia* media, const MediaAsset
     AccountMediaRequestResult failure = failure_view;
     AccountMediaFailure* slot = find_failure(media, key);
     if (!slot) {
+        // The bucket's first empty way (retry_at_ms 0), else the transient entry eligible soonest; a bucket of
+        // permanent parse/target failures (retry_at_ms ~0) gives up its first way.
         constexpr u32 bucket_count = kAccountMediaFailureCapacity / kAccountMediaFailureWays;
         const u32 begin =
             (static_cast<u32>(media_asset_hash(key)) & (bucket_count - 1u)) * kAccountMediaFailureWays;
-        for (u32 index = begin; index < begin + kAccountMediaFailureWays; ++index) {
-            if (media->failed[index].retry_at_ms == 0) {
+        slot = &media->failed[begin];
+        for (u32 index = begin + 1; index < begin + kAccountMediaFailureWays; ++index)
+            if (media->failed[index].retry_at_ms < slot->retry_at_ms)
                 slot = &media->failed[index];
-                break;
-            }
-        }
-        if (!slot) {
-            slot = &media->failed[begin];
-            for (u32 index = begin + 1; index < begin + kAccountMediaFailureWays; ++index) {
-                // Prefer replacing a transient entry that becomes eligible
-                // sooner.  Permanent parse/target failures remain cached
-                // unless their small hash set is itself saturated.
-                if (media->failed[index].retry_at_ms < slot->retry_at_ms) {
-                    slot = &media->failed[index];
-                }
-            }
-            if (slot->retry_at_ms == ~0ull) {
-                slot = &media->failed[begin];
-            }
-        }
     }
     const bool permanent = failure.state == AccountMediaRequestState::invalid ||
                            failure.state == AccountMediaRequestState::unsupported ||
@@ -169,29 +155,20 @@ void mark_frame_ready(AccountMedia* media, const MediaAssetKey& key_view) noexce
     clear_failure(media, key);
 }
 
-void capture_catalog_source(AccountMedia* media, const MediaAssetKey& key_view) noexcept {
-    const MediaAssetKey key = key_view; // the media state is rewritten below
-    media->frame_catalog_scope =
-        key.kind == MediaAssetKind::catalog_preview || key.kind == MediaAssetKind::local_draft_preview
-            ? media->active_catalog_scope
-            : 0;
-    media->frame_catalog_generation =
-        key.kind == MediaAssetKind::catalog_preview || key.kind == MediaAssetKind::local_draft_preview
-            ? media->active_catalog_generation
-            : 0;
-}
-
 // The identity every published frame carries. The caller sets the frame kind
 // and animation fields, then marks the frame ready.
 void stage_frame(AccountMedia* media, const MediaAssetKey& key_view, u32 bytes, u64 request_id,
                  u64 source_message_id, u32 source_message_revision) noexcept {
     const MediaAssetKey key = key_view; // the media state is rewritten below
+    const bool catalog =
+        key.kind == MediaAssetKind::catalog_preview || key.kind == MediaAssetKind::local_draft_preview;
     media->frame_key = key;
     media->frame_bytes = bytes;
     media->frame_request_id = request_id;
     media->frame_source_message_id = source_message_id;
     media->frame_source_message_revision = source_message_revision;
-    capture_catalog_source(media, key);
+    media->frame_catalog_scope = catalog ? media->active_catalog_scope : 0;
+    media->frame_catalog_generation = catalog ? media->active_catalog_generation : 0;
 }
 
 namespace {
@@ -457,15 +434,10 @@ bool audio_image_type(CdnImageType type) noexcept {
            type == CdnImageType::wav || type == CdnImageType::m4a;
 }
 
-bool publish_audio_frame(AccountMedia* media, const MediaAssetKey& key, u64 request_id) noexcept {
+// An audio key is an attachment or embed, so it carries no catalog source.
+void publish_audio_frame(AccountMedia* media, const MediaAssetKey& key, u64 request_id) noexcept {
     const auto& source = media->audio_source;
-    media->frame_key = key;
-    media->frame_bytes = 0;
-    media->frame_request_id = request_id;
-    media->frame_source_message_id = source.source_message_id;
-    media->frame_source_message_revision = source.source_message_revision;
-    media->frame_catalog_scope = 0;
-    media->frame_catalog_generation = 0;
+    stage_frame(media, key, 0, request_id, source.source_message_id, source.source_message_revision);
     media->frame_duration_us = source.duration_us;
     media->frame_index = 0;
     media->frame_count = 0;
@@ -475,7 +447,6 @@ bool publish_audio_frame(AccountMedia* media, const MediaAssetKey& key, u64 requ
     media->frame_canvas_height = 0;
     media->frame_kind = AccountMediaFrameKind::audio_source;
     mark_frame_ready(media, key);
-    return true;
 }
 
 bool publish_audio_source(AccountMedia* media, const MediaAssetKey& key, CdnEncodedAudioResult* decoded,
@@ -489,24 +460,19 @@ bool publish_audio_source(AccountMedia* media, const MediaAssetKey& key, CdnEnco
     if (decoded->state == CdnEncodedAudioState::ready_transient) {
         if (decoded->lease.acquired)
             encoded_media_cache_retire(media->pipeline.cache, key, decoded->lease.generation);
-        source.transient_allocation =
-            commit_pages(source.bytes.count);
-        if (!source.transient_allocation) {
-            if (decoded->lease.acquired)
-                encoded_media_cache_release(media->pipeline.cache, &decoded->lease);
-            return false;
+        source.transient_allocation = commit_pages(source.bytes.count);
+        bool copied = false;
+        if (source.transient_allocation) {
+            copy_bytes(source.transient_allocation, source.bytes.data, source.bytes.count);
+            source.bytes = {static_cast<const u8*>(source.transient_allocation), source.bytes.count};
+            copied = encoded_audio_rebind(&source.metadata, source.bytes);
+            if (!copied)
+                pages_release(source.transient_allocation);
         }
-        copy_bytes(source.transient_allocation, source.bytes.data, source.bytes.count);
-        source.bytes = {static_cast<const u8*>(source.transient_allocation), source.bytes.count};
-        if (!encoded_audio_rebind(&source.metadata, source.bytes)) {
-            pages_release(source.transient_allocation);
-            if (decoded->lease.acquired)
-                encoded_media_cache_release(media->pipeline.cache, &decoded->lease);
-            return false;
-        }
-        if (decoded->lease.acquired) {
+        if (decoded->lease.acquired)
             encoded_media_cache_release(media->pipeline.cache, &decoded->lease);
-        }
+        if (!copied)
+            return false;
         source.content_identity = encoded_media_new_content_identity();
         if (++media->audio_generation == 0)
             ++media->audio_generation;
@@ -522,34 +488,26 @@ bool publish_audio_source(AccountMedia* media, const MediaAssetKey& key, CdnEnco
     source.duration_us = encoded_audio_duration_us(source.metadata);
     account_media_release_audio_source(media);
     copy_value(&media->audio_source, source);
-    return publish_audio_frame(media, key, request_id);
+    publish_audio_frame(media, key, request_id);
+    return true;
 }
 
 } // namespace account_media_detail
 namespace {
 
-// Reserves a codec workspace on first use and binds it to the pipeline.
-template <typename Workspace, typename Bind> bool ensure_workspace(Workspace*& slot, Bind bind) noexcept {
-    if (slot)
-        return true;
-    void* allocation = commit_pages(sizeof(Workspace));
-    if (!allocation)
-        return false;
-    slot = static_cast<Workspace*>(allocation);
-    if (bind(slot))
-        return true;
-    pages_release(allocation);
-    slot = nullptr;
-    return false;
+// Reserves a zeroed codec workspace (or the owner `bytes` that begins with it) on first use and binds it.
+template <typename Workspace>
+bool ensure_workspace(Workspace*& slot, Workspace*& bound, usize bytes = sizeof(Workspace)) noexcept {
+    if (!slot)
+        bound = slot = static_cast<Workspace*>(commit_pages(bytes));
+    return slot != nullptr;
 }
 
 } // namespace
 namespace account_media_detail {
 
 bool ensure_webp_workspace(AccountMedia* media) noexcept {
-    return ensure_workspace(media->webp_workspace, [media](Vp8lWorkspace* workspace) noexcept {
-        return cdn_media_pipeline_bind_webp_workspace(&media->pipeline, workspace);
-    });
+    return ensure_workspace(media->webp_workspace, media->pipeline.webp_workspace);
 }
 
 } // namespace account_media_detail
@@ -627,34 +585,19 @@ bool grow_animated_webp_frames(AnimatedWebpWorkspace* workspace, u32 required) n
 namespace account_media_detail {
 
 bool ensure_animated_webp_workspace(AccountMedia* media) noexcept {
-    if (media->animated_webp_workspace) {
-        return true;
-    }
-    void* allocation = commit_pages(sizeof(AccountAnimatedWebpWorkspace));
-    if (!allocation) {
+    if (!ensure_workspace(media->animated_webp_workspace, media->pipeline.animated_webp_workspace,
+                          sizeof(AccountAnimatedWebpWorkspace)))
         return false;
-    }
-    media->animated_webp_workspace = static_cast<AnimatedWebpWorkspace*>(allocation);
     media->animated_webp_workspace->grow_frames = grow_animated_webp_frames;
-    if (!cdn_media_pipeline_bind_animated_webp_workspace(&media->pipeline,
-                                                         media->animated_webp_workspace)) {
-        pages_release(allocation);
-        media->animated_webp_workspace = nullptr;
-        return false;
-    }
     return true;
 }
 
 bool ensure_apng_workspace(AccountMedia* media) noexcept {
-    return ensure_workspace(media->apng_workspace, [media](ApngWorkspace* workspace) noexcept {
-        return cdn_media_pipeline_bind_apng_workspace(&media->pipeline, workspace);
-    });
+    return ensure_workspace(media->apng_workspace, media->pipeline.apng_workspace);
 }
 
 bool ensure_gif_workspace(AccountMedia* media) noexcept {
-    return ensure_workspace(media->gif_workspace, [media](GifWorkspace* workspace) noexcept {
-        return cdn_media_pipeline_bind_gif_workspace(&media->pipeline, workspace);
-    });
+    return ensure_workspace(media->gif_workspace, media->pipeline.gif_workspace);
 }
 
 bool ensure_jpeg_workspace(AccountMedia* media) noexcept {
@@ -821,7 +764,9 @@ u8* base_scanlines(AccountMedia* media) noexcept {
     return static_cast<u8*>(media->allocation);
 }
 
-AccountMediaRequestResult initialize_media(AccountMedia* media, EncodedMediaCache* shared_cache) noexcept {
+} // namespace
+
+AccountMediaRequestResult account_media_initialize(AccountMedia* media, EncodedMediaCache* shared_cache) noexcept {
     if (!media || (shared_cache && (!shared_cache->entries || !shared_cache->storage))) {
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
@@ -865,7 +810,6 @@ AccountMediaRequestResult initialize_media(AccountMedia* media, EncodedMediaCach
     return result(AccountMediaRequestState::ready);
 }
 
-} // namespace
 namespace account_media_detail {
 
 bool probe_static_jpeg(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
@@ -1113,15 +1057,6 @@ AccountMediaVideoFailure account_media_video_body_failure(const ConstSlice<u8>& 
     return AccountMediaVideoFailure::none;
 }
 
-AccountMediaRequestResult account_media_initialize(AccountMedia* media) noexcept {
-    return initialize_media(media, nullptr);
-}
-
-AccountMediaRequestResult account_media_initialize_shared(AccountMedia* media,
-                                                          EncodedMediaCache* shared_cache) noexcept {
-    return initialize_media(media, shared_cache);
-}
-
 AccountMediaRequestResult account_media_request_attachment(AccountMedia* media,
                                                            const AccountMediaAttachmentRequest& request,
                                                            u64 monotonic_now_ms,
@@ -1218,15 +1153,10 @@ AccountMediaRequestResult account_media_advance_animation(AccountMedia* media, c
                       : matches ? AccountMediaError::decode
                                 : AccountMediaError::cache);
     }
-    if (animated_webp && (!ensure_webp_workspace(media) || !ensure_animated_webp_workspace(media))) {
+    if ((animated_webp && (!ensure_webp_workspace(media) || !ensure_animated_webp_workspace(media))) ||
+        ((apng_asset(key) || catalog_png_key(key)) && !ensure_apng_workspace(media)) ||
+        (gif_asset(key) && !ensure_gif_workspace(media)))
         return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-    }
-    if ((apng_asset(key) || catalog_png_key(key)) && !ensure_apng_workspace(media)) {
-        return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-    }
-    if (gif_asset(key) && !ensure_gif_workspace(media)) {
-        return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-    }
     if (video) {
         const Mp4DecodedFrame decoded = mp4_decoder_read(media->mp4_decoder);
         // Progressive attachments fetch only during selected playback.

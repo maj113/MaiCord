@@ -1,5 +1,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/shared_library.hpp"
+#include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/platform/window/wayland/keymap.hpp"
 #include "maicord/platform/window/wayland/xkb.hpp"
 
@@ -32,7 +33,6 @@ const XkbApi* xkb_api() noexcept {
     resolve(&api.keymap_get_as_string, "xkb_keymap_get_as_string");
     resolve(&api.keymap_key_repeats, "xkb_keymap_key_repeats");
     resolve(&api.keymap_key_get_syms_by_level, "xkb_keymap_key_get_syms_by_level");
-    resolve(&api.keymap_num_layouts_for_key, "xkb_keymap_num_layouts_for_key");
     resolve(&api.keymap_mod_get_index, "xkb_keymap_mod_get_index");
     resolve(&api.state_new, "xkb_state_new");
     resolve(&api.state_unref, "xkb_state_unref");
@@ -43,9 +43,7 @@ const XkbApi* xkb_api() noexcept {
     resolve(&api.state_key_get_one_sym, "xkb_state_key_get_one_sym");
     resolve(&api.state_key_get_utf32, "xkb_state_key_get_utf32");
     resolve(&api.state_key_get_layout, "xkb_state_key_get_layout");
-    resolve(&api.state_mod_index_is_active, "xkb_state_mod_index_is_active");
     resolve(&api.state_mod_name_is_active, "xkb_state_mod_name_is_active");
-    resolve(&api.keysym_to_utf32, "xkb_keysym_to_utf32");
     resolve(&api.compose_table_new_from_locale, "xkb_compose_table_new_from_locale");
     resolve(&api.compose_table_unref, "xkb_compose_table_unref");
     resolve(&api.compose_state_new, "xkb_compose_state_new");
@@ -55,14 +53,7 @@ const XkbApi* xkb_api() noexcept {
     resolve(&api.compose_state_get_utf8, "xkb_compose_state_get_utf8");
     resolve(&api.compose_state_reset, "xkb_compose_state_reset");
     if (resolve.missing) {
-        char message[96];
-        u32 length = 0;
-        const char* const parts[] = {"libxkbcommon.so.0: no symbol ", resolve.missing};
-        for (const char* part : parts)
-            for (; *part && length + 1 < sizeof(message); ++part)
-                message[length++] = *part;
-        message[length] = 0;
-        log_write(LogLevel::warning, "wayland", message);
+        log_missing_symbol("libxkbcommon.so.0", resolve.missing);
         shared_library_close(&g_library);
         return nullptr;
     }

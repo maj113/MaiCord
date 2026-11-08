@@ -45,7 +45,6 @@ void read_uris(FileChooser* chooser, Reader* r) noexcept {
             break;
         if (c_string_equal(key, "uris") && c_string_equal(signature, "as")) {
             found = true;
-            u32 uris = 0;
             if (reader_enter_array(r)) {
                 while (reader_more(*r)) {
                     const char* uri = nullptr;
@@ -65,10 +64,8 @@ void read_uris(FileChooser* chooser, Reader* r) noexcept {
                         return;
                     }
                     ++chooser->count;
-                    ++uris;
                 }
             }
-            (void)uris;
         }
         if (!reader_leave(r) || !reader_leave(r))
             break;
@@ -125,24 +122,6 @@ void on_reply(void* context, Status status, const Message* reply) noexcept {
         portal_request_adopt(&chooser->request, handle);
 }
 
-void append_string_option(Builder* b, const char* key, const char* value) noexcept {
-    builder_open_entry(b);
-    builder_string(b, key);
-    builder_open_variant(b, "s");
-    builder_string(b, value);
-    builder_close_variant(b);
-    builder_close_entry(b);
-}
-
-void append_bool_option(Builder* b, const char* key, bool value) noexcept {
-    builder_open_entry(b);
-    builder_string(b, key);
-    builder_open_variant(b, "b");
-    builder_bool(b, value);
-    builder_close_variant(b);
-    builder_close_entry(b);
-}
-
 // a(sa(us)): each filter's name and its glob patterns (kind 0).
 void write_filters(Builder* b, const FileFilter* filters, u32 count) noexcept {
     builder_open_array(b, "(sa(us))");
@@ -184,32 +163,26 @@ FileChooser* start(const FileChooserOptions& options, bool save) noexcept {
     builder_string(&body, options.title ? options.title : (save ? "Save File" : "Open File"));
     builder_open_array(&body, "{sv}");
     portal_request_append_token(&body, chooser->request);
-    append_bool_option(&body, "modal", true);
+    builder_dict_bool(&body, "modal", true);
     if (!save) {
-        append_bool_option(&body, "multiple", options.multiple);
-        append_bool_option(&body, "directory", options.directory);
+        builder_dict_bool(&body, "multiple", options.multiple);
+        builder_dict_bool(&body, "directory", options.directory);
     }
     if (options.accept_label)
-        append_string_option(&body, "accept_label", options.accept_label);
+        builder_dict_string(&body, "accept_label", options.accept_label);
     if (save && options.current_name)
-        append_string_option(&body, "current_name", options.current_name);
+        builder_dict_string(&body, "current_name", options.current_name);
     if (options.filter_count && options.filters) {
-        builder_open_entry(&body);
-        builder_string(&body, "filters");
-        builder_open_variant(&body, "a(sa(us))");
+        builder_open_dict_entry(&body, "filters", "a(sa(us))");
         write_filters(&body, options.filters, options.filter_count);
-        builder_close_variant(&body);
-        builder_close_entry(&body);
+        builder_close_dict_entry(&body);
     }
     if (options.current_folder) {
         // current_folder is a byte string with its NUL.
-        builder_open_entry(&body);
-        builder_string(&body, "current_folder");
-        builder_open_variant(&body, "ay");
+        builder_open_dict_entry(&body, "current_folder", "ay");
         builder_byte_array(&body, reinterpret_cast<const u8*>(options.current_folder),
                            c_string_length(options.current_folder) + 1);
-        builder_close_variant(&body);
-        builder_close_entry(&body);
+        builder_close_dict_entry(&body);
     }
     builder_close_array(&body);
     const CallTarget target{kPortalName, kPortalPath, kInterface, save ? "SaveFile" : "OpenFile"};

@@ -422,22 +422,6 @@ void setup_tables(Deflate* d) noexcept {
     canonical(d->fixed.distance_lengths, 32, d->fixed.distance_codes);
 }
 
-u32 adler32(const u8* data, u32 count) noexcept {
-    u32 a = 1, b = 0;
-    while (count) {
-        const u32 chunk = minimum(count, 5552u);
-        for (u32 i = 0; i < chunk; ++i) {
-            a += data[i];
-            b += a;
-        }
-        a %= 65'521;
-        b %= 65'521;
-        data += chunk;
-        count -= chunk;
-    }
-    return b << 16 | a;
-}
-
 u8 paeth(u32 a, u32 b, u32 c) noexcept {
     const i32 p = static_cast<i32>(a + b) - static_cast<i32>(c);
     const i32 pa = p > static_cast<i32>(a) ? p - static_cast<i32>(a) : static_cast<i32>(a) - p;
@@ -548,7 +532,7 @@ u32 zlib_compress(ConstSlice<u8> input, Slice<u8> workspace, Slice<u8> output) n
         emit_block(&d, start, position, count, literal_frequency, distance_frequency, extra, position == d.n);
     } while (position < d.n);
     d.bits.align();
-    const u32 adler = adler32(d.in, d.n);
+    const u32 adler = adler32_update(1u, {d.in, d.n});
     for (u32 shift = 32; shift;) {
         shift -= 8;
         d.bits.put(adler >> shift & 0xFFu, 8);

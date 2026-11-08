@@ -218,6 +218,8 @@ struct CdnAnimatedWebpResult {
     }
 };
 
+// The owner sets each codec workspace pointer once that workspace exists; the APNG, GIF and
+// animated WebP workspaces start zeroed (no retained parse).
 struct CdnMediaPipeline {
     EncodedMediaCache* cache;
     Vp8lWorkspace* webp_workspace;
@@ -272,14 +274,6 @@ struct CdnEncodedAudioResult {
                state == CdnEncodedAudioState::ready_transient;
     }
 };
-CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline*, const MediaAssetKey&, u64 now_seconds,
-                                                      OggOpusCancelled cancelled = nullptr,
-                                                      void* context = nullptr) noexcept;
-CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline*, const MediaAssetKey&,
-                                                     const CdnResponseResult&, ConstSlice<u8> body,
-                                                     ConstSlice<u8> conditional_etag = {},
-                                                     OggOpusCancelled cancelled = nullptr,
-                                                     void* context = nullptr) noexcept;
 
 bool cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
                                    Slice<u8> scanline_storage) noexcept;
@@ -302,8 +296,12 @@ CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipelin
                                                        ConstSlice<u8> decoded_body,
                                                        ConstSlice<u8> conditional_etag = {}) noexcept;
 
-// The same operations filling a caller-owned result in place: MSVC copies a
-// returned result into the caller at every call.
+// Each operation fills a caller-owned result in place: MSVC copies a returned
+// result into the caller at every call. A stale lookup carries the cached ETag
+// for a conditional request but does not spend decode CPU; fresh hits are fully
+// parsed, inflated and filtered. Admission consumes only metadata produced by
+// validate_static_image_response: a 200 body is decoded before it is published
+// into the encoded cache, and a 304 must correlate to an existing ETag-bearing entry.
 void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipeline*, const MediaAssetKey&,
                                      u64 now_seconds, OggOpusCancelled cancelled = nullptr,
                                      void* context = nullptr) noexcept;

@@ -689,7 +689,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_due_animations(bool* repain
         if (restore_cached_animation_frame(advance, visual, repaint)) {
             continue;
         }
-        if (application.animations.pending_advance_count >= pending_animation_capacity()) {
+        if (application.animations.pending_advance_count >= kAnimationPendingAdvanceCapacity) {
             if (!animation_timeline_defer_advance(&application.animations.timeline, advance, now_us, 1'000)
                      .ok()) {
                 return false;

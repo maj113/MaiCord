@@ -80,6 +80,12 @@ void builder_open_variant(Builder* builder, const char* value_signature) noexcep
 void builder_close_variant(Builder* builder) noexcept;
 // Raw bytes as `ay`.
 void builder_byte_array(Builder* builder, const u8* bytes, u32 count) noexcept;
+// One entry of an `a{sv}` dictionary: the key and an open variant of `value_signature`; append the value, then close.
+void builder_open_dict_entry(Builder* builder, const char* key, const char* value_signature) noexcept;
+void builder_close_dict_entry(Builder* builder) noexcept;
+// A whole `{sv}` entry holding a string or a boolean.
+void builder_dict_string(Builder* builder, const char* key, const char* value) noexcept;
+void builder_dict_bool(Builder* builder, const char* key, bool value) noexcept;
 
 // Reader -------------------------------------------------------------------------------------------------------------
 
@@ -181,8 +187,6 @@ void message_release(Message* message) noexcept;  // frees the block and closes 
 bool message_clone(Message* clone, const Message& source) noexcept;
 void message_reader(const Message& message, Reader* reader) noexcept;
 
-// The number of bytes a signature's first complete type takes in the signature; 0 for an invalid one.
-u32 signature_type_length(const char* signature) noexcept;
 // Whether `signature` is a valid signature of complete types (at most kMaxSignature bytes, depth limits respected).
 bool signature_valid(const char* signature) noexcept;
 

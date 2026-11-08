@@ -175,8 +175,8 @@ using namespace renderer_text_detail;
 
 bool d3d11_renderer_rebuild_login_text(D3D11Renderer* renderer, const RendererLoginView& view,
                                        const Theme& theme) noexcept {
-    UiTextCommand commands[kMaximumLoginTextCommands]{};
-    UiTextCommandStream stream{};
+    UiTextCommand commands[kMaximumLoginTextCommands];
+    UiTextCommandStream stream;
     return ui_text_command_stream_initialize(&stream,
                                              Slice<UiTextCommand>{commands, kMaximumLoginTextCommands}) &&
            login_text_presentation_build(*renderer->login_scene, view, theme, &stream) &&
@@ -189,8 +189,8 @@ bool d3d11_renderer_capture_login_form_text(D3D11Renderer* renderer, const Login
     auto* owned = renderer ? renderer->login_form_text : nullptr;
     if (!owned || !renderer->login_scene)
         return false;
-    UiTextCommand commands[kMaximumLoginTextCommands]{};
-    UiTextCommandStream source{};
+    UiTextCommand commands[kMaximumLoginTextCommands];
+    UiTextCommandStream source;
     if (!ui_text_command_stream_initialize(&source, {commands, kMaximumLoginTextCommands}) ||
         !login_text_presentation_build(*renderer->login_scene, view, theme, &source))
         return false;
@@ -351,7 +351,7 @@ bool prepare_typography_face(RendererTypographyOwner& owner, UiTextFace face, u3
     const u32 index = static_cast<u32>(face);
     auto& system = owner.system;
     const auto& asset = text_fonts[index];
-    wchar_t path[1024]{};
+    wchar_t path[1024];
     const bool private_font = asset.file != nullptr;
     if (private_font && (!profile_font_path(index, path) || !file_path_exists(path)))
         return false;
@@ -677,7 +677,6 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     *prefix_reused = false;
     storage->last_error = RendererTextBuildError::layout;
     storage->last_shape_error = TextShapeError::none;
-    storage->native_error = S_OK;
     if (!login_form && !settings_active &&
         (!renderer->ui_scene || renderer->ui_scene->count == 0 || !renderer->shell_navigation_scene)) {
         return false;

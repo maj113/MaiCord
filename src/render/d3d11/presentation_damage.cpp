@@ -146,7 +146,6 @@ void presentation_damage_commit(PresentationDamageTracker* tracker) noexcept {
             static_cast<u16>(kPresentationDamageMediaWordCapacity);
         tracker->last_dirty_word = 0;
     }
-    reset_value<PresentationDamageRect>(&tracker->pending);
     tracker->pending_valid = false;
     tracker->pending_full = false;
 }

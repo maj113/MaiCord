@@ -1,4 +1,4 @@
-// twin: src/render/shaders/media_draw.hlsl 678bc8d06128f3e4
+// twin: src/render/shaders/media_draw.hlsl 3857ffa5b802bf3e
 // Media quads: media_vertex (STAGE_VS) and media_pixel (STAGE_PS). The atlases are paged surfaces: here each draw
 // binds the one page its quads sample, and their v is in that page's rows (the renderer splits draws per page).
 
@@ -79,19 +79,26 @@ const float radii[32] = float[32](
     1.08656, 1.13163, 1.17721, 1.22349, 1.27065, 1.31891, 1.36851, 1.41974,
     1.47291, 1.52844, 1.58679, 1.64861, 1.71469, 1.78612, 1.86442, 1.95184);
 
-vec4 blurred_sample(uint source, vec2 center, vec2 dx, vec2 dy, float deviation, vec4 bounds, vec2 pixel) {
-    float angle = 6.2831853 * fract(52.9829189 * fract(dot(floor(pixel), vec2(0.06711056, 0.00583715))));
-    vec2 direction = vec2(cos(angle), sin(angle));
+// The atlas is uniform per quad: the selection runs once, outside the taps.
+vec4 blur_taps(highp sampler2D atlas, vec2 center, vec2 dx, vec2 dy, float deviation, vec4 bounds, vec2 direction) {
     const vec2 turn = vec2(-0.737368818, 0.675490360);
     vec4 sum = vec4(0.0);
     for (uint i = 0u; i < 32u; ++i) {
         vec2 offset = deviation * radii[i] * direction;
         vec2 c = clamp(center + offset.x * dx + offset.y * dy, bounds.xy, bounds.zw);
         // Atlas texels are premultiplied, so transparency never darkens the mean.
-        sum += sample_level(source, c);
+        sum += textureLod(atlas, c, 0.0);
         direction = vec2(direction.x * turn.x - direction.y * turn.y, direction.x * turn.y + direction.y * turn.x);
     }
     return sum * (1.0 / 32.0);
+}
+
+vec4 blurred_sample(uint source, vec2 center, vec2 dx, vec2 dy, float deviation, vec4 bounds, vec2 pixel) {
+    float angle = 6.2831853 * fract(52.9829189 * fract(dot(floor(pixel), vec2(0.06711056, 0.00583715))));
+    vec2 direction = vec2(cos(angle), sin(angle));
+    if (source == 1u) return blur_taps(animation_frame_atlas, center, dx, dy, deviation, bounds, direction);
+    if (source == 2u) return blur_taps(preview_media_atlas, center, dx, dy, deviation, bounds, direction);
+    return blur_taps(media_atlas, center, dx, dy, deviation, bounds, direction);
 }
 
 void main() {

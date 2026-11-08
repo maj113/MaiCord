@@ -50,7 +50,7 @@ void set_bit(u64 (&bits)[4], Key key, bool on) noexcept {
 }
 
 // The sink's synchronous report of a capture change, from inside the call that caused it.
-void report_capture_lost(Window window, NativeWindow now_owner) noexcept {
+void report_capture_lost(NativeWindow now_owner) noexcept {
     if (!g.sink)
         return;
     WindowEvent event{};
@@ -58,7 +58,6 @@ void report_capture_lost(Window window, NativeWindow now_owner) noexcept {
     event.focus.other = now_owner;
     WindowEventResult result{};
     g.sink(g.context, event, &result);
-    (void)window;
 }
 
 } // namespace
@@ -156,16 +155,13 @@ bool window_wayland_text_input_enable(NativeWindow window, const TextInputReques
     probe.text_sensitive = request.sensitive;
     probe.text_x = request.x;
     probe.text_y = request.y;
-    probe.text_width = request.width;
     probe.text_height = request.height;
     return true;
 }
 
 void window_wayland_text_input_disable(NativeWindow window) noexcept {
-    if (!window_wayland_text_input_available(window))
-        return;
-    g.probe.text_input_enabled = false;
-    ++g.probe.text_input_disables;
+    if (window_wayland_text_input_available(window))
+        g.probe.text_input_enabled = false;
 }
 
 bool window_wayland_global_shortcut(Key key, u8, const char*) noexcept {
@@ -209,13 +205,9 @@ void window_set_title(Window, Utf8View title) noexcept {
 
 void window_set_icon(Window, const IconImage*, u32) noexcept {}
 
-void window_minimize(Window) noexcept {
-    ++g.probe.minimizes;
-}
+void window_minimize(Window) noexcept {}
 
-void window_toggle_maximize(Window) noexcept {
-    ++g.probe.maximize_toggles;
-}
+void window_toggle_maximize(Window) noexcept {}
 
 void window_request_close(Window) noexcept {
     ++g.probe.close_requests;
@@ -230,19 +222,13 @@ bool window_set_fullscreen(Window, bool fullscreen) noexcept {
 
 void window_show_system_menu(Window, float, float) noexcept {}
 
-void window_begin_move(Window) noexcept {}
-
-void window_begin_resize(Window, FrameHit) noexcept {}
-
 void window_set_min_size(Window, u32 width_px, u32 height_px) noexcept {
     g.probe.min_width = width_px;
     g.probe.min_height = height_px;
     ++g.probe.min_size_calls;
 }
 
-void window_request_attention(Window, Attention) noexcept {
-    ++g.probe.attention_requests;
-}
+void window_request_attention(Window, Attention) noexcept {}
 
 void window_set_drop_target(Window, bool accept_files) noexcept {
     g.probe.drop_target = accept_files;
@@ -276,16 +262,16 @@ bool window_pointer_position(Window, float* x_px, float* y_px) noexcept {
 void window_capture_pointer(Window window) noexcept {
     ++g.probe.captures;
     if (g.probe.captured)
-        report_capture_lost(window, window);
+        report_capture_lost(window);
     g.probe.captured = true;
 }
 
-void window_release_capture(Window window) noexcept {
+void window_release_capture(Window) noexcept {
     if (!g.probe.captured)
         return;
     g.probe.captured = false;
     ++g.probe.releases;
-    report_capture_lost(window, nullptr);
+    report_capture_lost(nullptr);
 }
 
 bool window_pointer_captured(Window) noexcept {
@@ -395,10 +381,8 @@ ConstSlice<u8> window_app_icon_png(u32, u32, u32*) noexcept {
     return {};
 }
 
-// Fatal messages have nowhere to go without a desktop; the probe counts them.
-void window_fatal_message(Utf8View, Utf8View) noexcept {
-    ++g.probe.fatal_messages;
-}
+// Fatal messages have nowhere to go without a desktop.
+void window_fatal_message(Utf8View, Utf8View) noexcept {}
 
 // What a desktop with the common defaults reports: Windows' double-click and caret values, three lines a notch.
 PlatformSettings platform_settings_read() noexcept {

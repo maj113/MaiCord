@@ -18,21 +18,12 @@ MediaResolutionTier media_resolution_tier_for_display(
     const float scale = static_cast<float>(maximum(dpi, 1u)) / 96.0f;
     const u32 demand = minimum<u32>(decoder_extent_cap, maximum(ceil_positive(width_dip * scale),
                                ceil_positive(height_dip * scale)));
-    if (demand == 0) {
+    if (demand == 0)
         return MediaResolutionTier::original;
-    }
-    if (demand <= 64) {
-        return MediaResolutionTier::px64;
-    }
-    if (demand <= 128) {
-        return MediaResolutionTier::px128;
-    }
-    if (demand <= 256) {
-        return MediaResolutionTier::px256;
-    }
-    if (demand <= 512) return MediaResolutionTier::px512;
-    if (demand <= 1024) return MediaResolutionTier::px1024;
-    return MediaResolutionTier::px2048;
+    u32 tier = 1; // px64 = 32 << 1
+    while (tier < static_cast<u32>(MediaResolutionTier::px2048) && demand > (32u << tier))
+        ++tier;
+    return static_cast<MediaResolutionTier>(tier);
 }
 
 MediaPresentationRequest media_presentation_request(

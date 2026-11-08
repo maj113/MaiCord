@@ -1,5 +1,6 @@
 #include "maicord/platform/atspi/accessible.hpp"
 
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord::atspi {
@@ -349,18 +350,6 @@ Outcome properties_call(Request& r, const char* member) noexcept {
 
 // Accessible -------------------------------------------------------------------------------------------------------
 
-Utf8View format_number(u32 value, char (&digits)[12]) noexcept {
-    u32 length = 0;
-    char reversed[12];
-    do {
-        reversed[length++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    for (u32 i = 0; i < length; ++i)
-        digits[i] = reversed[length - 1 - i];
-    return {digits, length};
-}
-
 void put_attribute(Builder* b, const char* name, Utf8View value) noexcept {
     builder_open_entry(b);
     builder_string(b, name);
@@ -425,9 +414,9 @@ Outcome accessible_call(Request& r, const char* member) noexcept {
                 put_attribute(b, "id", id);
             char digits[12];
             if (node->placement.position)
-                put_attribute(b, "posinset", format_number(node->placement.position, digits));
+                put_attribute(b, "posinset", {digits, decimal_write(digits, node->placement.position)});
             if (node->placement.set_size)
-                put_attribute(b, "setsize", format_number(node->placement.set_size, digits));
+                put_attribute(b, "setsize", {digits, decimal_write(digits, node->placement.set_size)});
             if (node->state & ui_access_live)
                 put_attribute(b, "live", utf8_literal("polite"));
         }

@@ -29,6 +29,83 @@ struct Av1GpuStreamState {
     bool have_sequence, sequence_changed, frame_open, waiting, unsupported;
 };
 
+// The codec-state halves of the AV1 backends that the Windows (av1_gpu_stream.cpp) and Linux (vaapi/va_stream.cpp)
+// stream decoders share. Once per frame: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+inline constexpr u8 kAv1NoSurface = 255;
+
+inline void av1_stream_lose(Av1GpuStreamState* state) noexcept {
+    state->waiting = true;
+    state->frame_open = false;
+}
+
+// No reference slot holds a picture.
+inline void av1_stream_clear_references(Av1GpuStreamState* state) noexcept {
+    for (auto& reference : state->references)
+        reference.valid = false;
+    for (auto& surface : state->slot_surface)
+        surface = kAv1NoSurface;
+}
+
+// The slots the header refreshes now hold surface.
+inline void av1_stream_refresh_slots(Av1GpuStreamState* state, u8 surface) noexcept {
+    av1_update_references(state->references, state->header);
+    for (u32 i = 0; i < kAv1RefFrames; ++i)
+        if (state->header.refresh_frame_flags >> i & 1)
+            state->slot_surface[i] = surface;
+}
+
+// The sequence and pool size survive an idle release; references and the open frame do not.
+inline void av1_stream_reset(Av1GpuStreamState* state) noexcept {
+    av1_stream_clear_references(state);
+    state->tile_count = 0;
+    if (!state->surfaces_wanted)
+        state->surfaces_wanted = kAv1StreamInitialReferences + kAv1StreamWorkingSurfaces;
+    state->frame_open = false;
+    state->waiting = true;
+}
+
+inline bool av1_stream_same_geometry(const Av1SequenceHeader& a, const Av1SequenceHeader& b) noexcept {
+    return a.max_width == b.max_width && a.max_height == b.max_height && a.profile == b.profile &&
+           a.bit_depth == b.bit_depth && a.mono_chrome == b.mono_chrome && a.subsampling_x == b.subsampling_x &&
+           a.subsampling_y == b.subsampling_y && a.use_128x128_superblock == b.use_128x128_superblock;
+}
+
+// The first of `count` surfaces that is neither in `used` nor a reference slot's; kAv1NoSurface when none is.
+inline u8 av1_stream_free_surface(const Av1GpuStreamState& state, u32 used, u32 count) noexcept {
+    for (const u8 surface : state.slot_surface)
+        if (surface != kAv1NoSurface)
+            used |= 1u << surface;
+    for (u8 i = 0; i < count; ++i)
+        if (!(used >> i & 1))
+            return i;
+    return kAv1NoSurface;
+}
+
+inline bool av1_stream_in_operating_point(const Av1SequenceHeader& sequence, const Av1Obu& obu) noexcept {
+    const u32 idc = sequence.operating_point_idc;
+    return !obu.extension || !idc || ((idc >> obu.temporal_id & 1) && (idc >> (obu.spatial_id + 8) & 1));
+}
+
+// Tiles of one tile group, offsets made relative to the temporal unit.
+inline bool av1_stream_gather_tiles(Av1GpuStreamState* state, ConstSlice<u8> unit, ConstSlice<u8> group,
+                                    bool* complete) noexcept {
+    u32 start = 0, end = 0;
+    const Av1Status status = av1_parse_tile_group(
+        state->header, group, {state->tiles + state->tile_count, kAv1StreamTiles - state->tile_count}, &start, &end);
+    if (status == Av1Status::unsupported)
+        state->unsupported = true;
+    if (status != Av1Status::ok || start != state->tile_count)
+        return false;
+    const u32 base = static_cast<u32>(group.data - unit.data);
+    for (u32 i = start; i <= end; ++i)
+        state->tiles[i].offset += base;
+    state->tile_count = end + 1;
+    *complete = state->tile_count == u32{state->header.tile_columns} * state->header.tile_rows;
+    return true;
+}
+#pragma clang attribute pop
+
 void av1_gpu_stream_reset(GpuStream* stream) noexcept;
 // One temporal unit (OBUs, the last one possibly without obu_size).
 void av1_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact,

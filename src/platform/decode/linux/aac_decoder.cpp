@@ -5,10 +5,9 @@
 // for the Windows decoder. HE-AAC (SBR, PS) is refused at initialization: its core stream is not the PCM the
 // container's configuration promises.
 #include "maicord/platform/decode/aac_decoder.hpp"
-#include "maicord/core/byte_range.hpp"
+#include "../../audio/audio_support.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/media/audio/aac_configuration.hpp"
 #include "maicord/media/audio/aac_lc.hpp"
 
 namespace maicord {
@@ -29,11 +28,7 @@ constexpr usize align_up(usize value) noexcept {
     return (value + kAacLcStateAlignment - 1) & ~(kAacLcStateAlignment - 1);
 }
 
-bool disjoint(const void* a, usize an, const void* b, usize bn) noexcept {
-    const ConstSlice<u8> x{static_cast<const u8*>(a), static_cast<u32>(an)},
-        y{static_cast<const u8*>(b), static_cast<u32>(bn)};
-    return byte_range_valid(x) && byte_range_valid(y) && !byte_ranges_overlap(x, y);
-}
+using audio_detail::disjoint;
 
 // The decoder state and the State block in one allocation: the core first (it needs 64-byte alignment, a page gives
 // it), then the block.
@@ -60,26 +55,6 @@ State* state_of(const AacDecoder& owner) noexcept {
                          : nullptr;
 }
 } // namespace
-
-bool aac_decoder_alignment_mask(u32 alignment, u32* mask) noexcept {
-    if (!mask || alignment > 4096 || (alignment > 1 && (alignment & (alignment - 1))))
-        return false;
-    *mask = alignment > 1 ? alignment - 1 : 0;
-    return true;
-}
-
-bool aac_decoder_output_capacity(u32 minimum, u32* capacity) noexcept {
-    if (!capacity || minimum > kAacDecoderMaximumNativeOutputBytes)
-        return false;
-    *capacity = maximum(minimum, kAacDecoderMaximumOutputBytes);
-    return true;
-}
-
-bool aac_decoder_configuration_valid(ConstSlice<u8> asc, u32 rate, u32 channels) noexcept {
-    AacConfiguration configuration{};
-    return aac_configuration_decode(asc, &configuration) && configuration.sample_rate == rate &&
-           configuration.channels == channels;
-}
 
 AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u32 rate, u32 channels) noexcept {
     if (!owner || !aac_decoder_configuration_valid(asc, rate, channels) ||

@@ -324,9 +324,8 @@ void test_settings() noexcept {
 
     // A reconnect reads everything again.
     take_log();
-    const u32 generation = session_bus_generation();
     session_bus_close();
-    check(session_bus_open() && session_bus_generation() == generation + 1, "the session bus reopens with a new generation");
+    check(session_bus_open(), "the session bus reopens");
     settle(300);
     take_log();
     check(find_line("ReadAll") != nullptr, "the open hook asks the portal for the settings again");
@@ -883,7 +882,7 @@ void test_secrets() noexcept {
 void test_probes() noexcept {
     check(!portal_sandboxed(), "the test runs outside a sandbox");
     check(portal_interface_version("org.freedesktop.portal.Settings", 2000) == 2, "the Settings portal's version");
-    check(inhibit_portal_version(2000) == 3, "the Inhibit probe finds the portal");
+    check(portal_interface_version("org.freedesktop.portal.Inhibit", 2000) == 3, "the Inhibit probe finds the portal");
     check(portal_interface_version("org.freedesktop.portal.NoSuchThing", 2000) == 0, "an unknown interface is version 0");
 }
 
@@ -921,8 +920,7 @@ void test_bare() noexcept {
               secret_store("x", attributes, 1, secret, 32) == SecretStatus::unavailable &&
               secret_erase(attributes, 1) == SecretStatus::unavailable,
           "no Secret Service: unavailable");
-    check(portal_interface_version("org.freedesktop.portal.Inhibit", 1000) == 0 && inhibit_portal_version(1000) == 0,
-          "no portal: version 0");
+    check(portal_interface_version("org.freedesktop.portal.Inhibit", 1000) == 0, "no portal: version 0");
 
     check(open_uri("https://fallback.example/bare", nullptr), "open_uri falls back to xdg-open at once");
     check(pump(spawn_log_has_bare, 4000), "xdg-open ran with the URI");

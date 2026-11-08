@@ -295,21 +295,39 @@ bool renderer_login_edit_hit_test(const D3D11Renderer& renderer, const UiRect& t
     return utf8_codepoint_for_utf16_position(visible_text, position, codepoint);
 }
 
+namespace {
+// The composer whose measured layout still describes its display text, and that text; null otherwise.
+const MessageComposerScene* composer_edit_scene(const D3D11Renderer& renderer, Utf8View* text) noexcept {
+    const MessageComposerScene* scene = renderer.message_composer_scene;
+    if (!scene || !scene->active || !scene->model || d3d11_renderer_active(renderer.friends_scene) ||
+        d3d11_renderer_active(renderer.settings_scene) || !renderer.composer_layout.active ||
+        !message_composer_scene_layout_node(*scene, MessageComposerControl::edit))
+        return nullptr;
+    *text = message_composer_scene_display_text(*scene);
+    return text->bytes == renderer.composer_layout.text_bytes &&
+                   scene->display_signature == renderer.composer_layout.text_signature
+               ? scene
+               : nullptr;
+}
+// The model byte offset of UTF-16 `position` in the composer's display text.
+bool composer_model_offset(const MessageComposerScene& scene, Utf8View text, u32 position,
+                           u32* model_byte_offset) noexcept {
+    u32 display_byte_offset = 0;
+    if (!utf8_byte_offset_for_utf16_position(text, position, &display_byte_offset) ||
+        display_byte_offset > scene.display_bytes)
+        return false;
+    *model_byte_offset = message_composer_scene_model_offset_from_display(scene, display_byte_offset);
+    return true;
+}
+} // namespace
+
 bool renderer_message_composer_edit_hit_test(const D3D11Renderer& renderer, i32 client_x_pixels,
                                              i32 client_y_pixels, u32* model_byte_offset) noexcept {
-    const MessageComposerScene* scene = renderer.message_composer_scene;
-    if (!model_byte_offset || !scene || !scene->active || !scene->model ||
-        d3d11_renderer_active(renderer.friends_scene) ||
-        d3d11_renderer_active(renderer.settings_scene) || !renderer.composer_layout.active ||
-        renderer.dpi == 0) {
+    Utf8View text{};
+    const MessageComposerScene* scene =
+        model_byte_offset && renderer.dpi ? composer_edit_scene(renderer, &text) : nullptr;
+    if (!scene)
         return false;
-    }
-    const UiLayoutNode* edit = message_composer_scene_layout_node(*scene, MessageComposerControl::edit);
-    const Utf8View text = message_composer_scene_display_text(*scene);
-    if (!edit || text.bytes != renderer.composer_layout.text_bytes ||
-        scene->display_signature != renderer.composer_layout.text_signature) {
-        return false;
-    }
     if (text.bytes == 0) {
         *model_byte_offset = scene->display_first;
         return true;
@@ -317,43 +335,23 @@ bool renderer_message_composer_edit_hit_test(const D3D11Renderer& renderer, i32 
     const float x = static_cast<float>(client_x_pixels) * 96.0f / static_cast<float>(renderer.dpi);
     const float y = static_cast<float>(client_y_pixels) * 96.0f / static_cast<float>(renderer.dpi);
     u32 position = 0;
-    u32 display_byte_offset = 0;
-    if (!text_edit_layout_hit_test(renderer.composer_layout, x, y, &position) ||
-        !utf8_byte_offset_for_utf16_position(text, position, &display_byte_offset) ||
-        display_byte_offset > scene->display_bytes) {
-        return false;
-    }
-    *model_byte_offset = message_composer_scene_model_offset_from_display(*scene, display_byte_offset);
-    return true;
+    return text_edit_layout_hit_test(renderer.composer_layout, x, y, &position) &&
+           composer_model_offset(*scene, text, position, model_byte_offset);
 }
 
 bool renderer_message_composer_edit_move_vertical(const D3D11Renderer& renderer, bool down,
                                                   u32* model_byte_offset) noexcept {
-    const MessageComposerScene* scene = renderer.message_composer_scene;
-    if (!model_byte_offset || !scene || !scene->active || !scene->model ||
-        d3d11_renderer_active(renderer.friends_scene) ||
-        d3d11_renderer_active(renderer.settings_scene) || !renderer.composer_layout.active) {
+    Utf8View text{};
+    const MessageComposerScene* scene = model_byte_offset ? composer_edit_scene(renderer, &text) : nullptr;
+    if (!scene)
         return false;
-    }
-    const UiLayoutNode* edit = message_composer_scene_layout_node(*scene, MessageComposerControl::edit);
-    const Utf8View text = message_composer_scene_display_text(*scene);
-    if (!edit || text.bytes != renderer.composer_layout.text_bytes ||
-        scene->display_signature != renderer.composer_layout.text_signature) {
-        return false;
-    }
     if (text.bytes == 0) {
         *model_byte_offset = scene->display_first;
         return true;
     }
     u32 position = 0;
-    u32 display_byte_offset = 0;
-    if (!text_edit_layout_move_vertical(renderer.composer_layout, down, &position) ||
-        !utf8_byte_offset_for_utf16_position(text, position, &display_byte_offset) ||
-        display_byte_offset > scene->display_bytes) {
-        return false;
-    }
-    *model_byte_offset = message_composer_scene_model_offset_from_display(*scene, display_byte_offset);
-    return true;
+    return text_edit_layout_move_vertical(renderer.composer_layout, down, &position) &&
+           composer_model_offset(*scene, text, position, model_byte_offset);
 }
 
 void renderer_set_login_caret_visible(D3D11Renderer* renderer, bool visible) noexcept {

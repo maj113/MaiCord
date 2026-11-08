@@ -181,11 +181,11 @@ bool application_downloads_pump() noexcept {
     return application_downloads_synchronize();
 }
 bool application_downloads_save_target(float x, float y) noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     return attachment_at(x, y, true, &source);
 }
 bool application_downloads_save_press(float x, float y) noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     UiRect bounds{};
     UiWidgetHandle widget{};
     if (!attachment_at(x, y, true, &source, {}, &bounds, &widget))
@@ -205,19 +205,19 @@ bool application_downloads_save_press(float x, float y) noexcept {
     return true;
 }
 bool application_downloads_save_focused() noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     return g_app.message_scene.widgets.focused.generation &&
            attachment_at(0, 0, false, &source, g_app.message_scene.widgets.focused) && begin_source(source);
 }
 bool application_downloads_context_at(float x, float y) noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     const UiRect anchor{x, y, x + 1, y + 1};
     return attachment_at(x, y, false, &source) ? open_context(source, anchor)
            : sticker_at(x, y, {}, &source)     ? open_sticker_context(source, anchor)
                                                : embed_context(x, y, anchor);
 }
 bool application_downloads_context_focused() noexcept {
-    DownloadSource source{};
+    DownloadSource source;
     const auto focused = g_app.message_scene.widgets.focused;
     return attachment_at(0, 0, false, &source, focused) ? open_context(source, g_app.message_scene.viewport)
            : sticker_at(0, 0, focused, &source) ? open_sticker_context(source, g_app.message_scene.viewport)
@@ -334,10 +334,10 @@ bool application_downloads_filter(const WindowEvent& event) noexcept {
 namespace {
 
 // The pointer events that end or cancel an inline attachment press. Out of line: its
-// DownloadSource temporaries would otherwise give every window message a multi-KB frame.
+// DownloadSource temporary would otherwise give every window message a multi-KB frame.
 __declspec(noinline) bool inline_press_event(ApplicationDownloads& q, const WindowEvent& event) noexcept {
     if (input_release(event)) {
-        const auto pressed = q.context;
+        const auto& pressed = q.context; // only a save press rewrites it
         const auto widget = q.pressed_widget;
         const auto bounds = q.pressed_bounds;
         const bool owned = ui_widget_handle_matches(g_app.message_scene.widgets.captured, widget);
@@ -345,7 +345,7 @@ __declspec(noinline) bool inline_press_event(ApplicationDownloads& q, const Wind
         if (owned)
             ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
         application_release_capture();
-        DownloadSource live{};
+        DownloadSource live;
         UiRect current_bounds{};
         UiWidgetHandle current_widget{};
         if (owned && source_current(pressed) &&

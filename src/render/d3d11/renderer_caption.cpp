@@ -811,11 +811,7 @@ void d3d11_renderer_caption_release(D3D11Renderer* renderer) noexcept {
     auto* caption = renderer->caption;
     if (!caption)
         return;
-    gpu_release(caption->paint_buffer);
-    gpu_release(caption->glyph_buffer);
-    gpu_release(caption->icon_view);
-    gpu_release(caption->icon_quad);
-    gpu_release(caption->image_quad);
+    d3d11_renderer_caption_release_device(renderer);
     shaped_text_reset(&caption->title_line.shape);
     shaped_text_reset(&caption->tooltip_line.shape);
     paint_stream_release(&caption->paint);

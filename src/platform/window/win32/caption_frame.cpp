@@ -165,17 +165,8 @@ bool caption_frame_message(const Win32CaptionOps& ops, HWND window, UINT message
         calculate_client(ops, window, rectangle);
         // Prepare the composition surface before Windows commits the new origin, as for the system frame
         // (left-edge drags): the sink gets the client the frame leaves.
-        if (wparam && rectangle->right > rectangle->left && rectangle->bottom > rectangle->top) {
-            WindowEvent provisional{};
-            provisional.type = EventType::resize;
-            provisional.flags = ev_provisional;
-            provisional.time_ms = static_cast<u32>(GetMessageTime());
-            provisional.resize.width_px = static_cast<u32>(rectangle->right - rectangle->left);
-            provisional.resize.height_px = static_cast<u32>(rectangle->bottom - rectangle->top);
-            provisional.window = window;
-            WindowEventResult ignored{};
-            deliver(provisional, &ignored);
-        }
+        if (wparam)
+            deliver_provisional_resize(window, *rectangle);
         *result = 0;
         return true;
     }

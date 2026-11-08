@@ -40,10 +40,7 @@ constexpr gl::Enum kContextLost = 0x0507;
 constexpr gl::Enum kOutOfMemory = 0x0505;
 
 u32 append(char* destination, u32 capacity, u32 used, const char* text) noexcept {
-    for (; text && *text && used + 1 < capacity; ++text)
-        destination[used++] = *text;
-    destination[used] = 0;
-    return used;
+    return used + c_string_copy(destination + used, capacity - used, text);
 }
 
 bool open_display(GpuDevice& device) noexcept {
@@ -146,14 +143,20 @@ bool make_current(GpuDevice& device, bool pbuffer) noexcept {
 
 void describe(GpuDevice& device) noexcept {
     const gl::Api& api = device.gl;
-    u32 used = 0;
     constexpr u32 capacity = sizeof(device.description);
-    device.description[0] = 0;
-    used = append(device.description, capacity, used, reinterpret_cast<const char*>(api.glGetString(gl::kVendor)));
+    u32 used = append(device.description, capacity, 0, reinterpret_cast<const char*>(api.glGetString(gl::kVendor)));
     used = append(device.description, capacity, used, " | ");
     used = append(device.description, capacity, used, reinterpret_cast<const char*>(api.glGetString(gl::kRenderer)));
     used = append(device.description, capacity, used, " | ");
     append(device.description, capacity, used, reinterpret_cast<const char*>(api.glGetString(gl::kVersion)));
+}
+
+// The first of `names` the driver resolves, or null.
+void* first_proc(const GpuDevice& device, ConstSlice<const char*> names) noexcept {
+    for (u32 index = 0; index < names.count; ++index)
+        if (void* function = device.egl.eglGetProcAddress(names[index]))
+            return function;
+    return nullptr;
 }
 
 void probe_caps(GpuDevice& device, bool es32) noexcept {
@@ -181,7 +184,6 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
     api.glGetIntegerv(gl::kMaxComputeShaderStorageBlocks, &value);
     caps.max_compute_storage_buffers = static_cast<u32>(value);
     caps.compute = true; // the context is ES 3.1 or newer
-    caps.storage_rgba8 = true;
     caps.float_render_targets = es32 || has_extension(api, "GL_EXT_color_buffer_float");
     caps.half_render_targets =
         caps.float_render_targets || has_extension(api, "GL_EXT_color_buffer_half_float");
@@ -211,28 +213,18 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
     caps.buffer_age = string_has_word(display_extensions, "EGL_EXT_buffer_age");
     device.egl.eglSwapBuffersWithDamage = nullptr;
     if (caps.surface_damage) {
-        const char* damage_names[] = {"eglSwapBuffersWithDamageKHR", "eglSwapBuffersWithDamageEXT"};
-        for (const char* name : damage_names) {
-            void* function = device.egl.eglGetProcAddress(name);
-            if (function) {
-                device.egl.eglSwapBuffersWithDamage = reinterpret_cast<decltype(device.egl.eglSwapBuffersWithDamage)>(function);
-                break;
-            }
-        }
+        const char* const damage_names[] = {"eglSwapBuffersWithDamageKHR", "eglSwapBuffersWithDamageEXT"};
+        device.egl.eglSwapBuffersWithDamage =
+            reinterpret_cast<decltype(device.egl.eglSwapBuffersWithDamage)>(first_proc(device, {damage_names, 2}));
         caps.surface_damage = device.egl.eglSwapBuffersWithDamage != nullptr;
     }
     // Copies between textures (atlas growth, the animation backups, frame caches) need glCopyImageSubData: ES 3.2 has
     // it, 3.1 drivers have it as an extension; device creation refuses a driver with neither.
     device.gl.glCopyImageSubData = nullptr;
     if (es32 || has_extension(api, "GL_OES_copy_image") || has_extension(api, "GL_EXT_copy_image")) {
-        const char* copy_names[] = {"glCopyImageSubData", "glCopyImageSubDataOES", "glCopyImageSubDataEXT"};
-        for (const char* name : copy_names) {
-            void* function = device.egl.eglGetProcAddress(name);
-            if (function) {
-                device.gl.glCopyImageSubData = reinterpret_cast<decltype(device.gl.glCopyImageSubData)>(function);
-                break;
-            }
-        }
+        const char* const copy_names[] = {"glCopyImageSubData", "glCopyImageSubDataOES", "glCopyImageSubDataEXT"};
+        device.gl.glCopyImageSubData =
+            reinterpret_cast<decltype(device.gl.glCopyImageSubData)>(first_proc(device, {copy_names, 3}));
     }
 }
 

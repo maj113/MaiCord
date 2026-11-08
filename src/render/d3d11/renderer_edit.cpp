@@ -224,7 +224,7 @@ bool d3d11_renderer_measure_login_edit(D3D11Renderer* renderer, const LoginView&
         }
         // One composition span can cross several bidi runs. Use the existing
         // renderer capacity rather than rejecting a third visual rectangle.
-        TextEditMetric metrics[kRendererLoginCompositionCapacity]{};
+        TextEditMetric metrics[kRendererLoginCompositionCapacity];
         const u32 remaining=kRendererLoginCompositionCapacity-renderer->login_composition_metric_count;
         UINT32 actual = 0;
         const bool result = text_edit_layout_raw_range_geometry(renderer->login_edit,

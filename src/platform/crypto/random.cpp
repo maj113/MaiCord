@@ -14,9 +14,4 @@ SecureRandomResult secure_random_fill(Slice<u8> output) noexcept {
                        : SecureRandomResult{status, SecureRandomError::system_failure};
 }
 
-SecureRandomResult secure_random_u32(u32* output) noexcept {
-    return output ? secure_random_fill(Slice<u8>{reinterpret_cast<u8*>(output), sizeof(*output)})
-                  : SecureRandomResult{0, SecureRandomError::invalid_input};
-}
-
 } // namespace maicord

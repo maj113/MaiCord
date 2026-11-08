@@ -92,9 +92,8 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
     image->transparent_gray = image->transparent_red = image->transparent_green = image->transparent_blue = ~0u;
     if (encoded.count < sizeof(kPngSignature) + 12)
         return parse_failure(result, PngError::truncated);
-    for (u32 i = 0; i < sizeof(kPngSignature); ++i)
-        if (encoded[i] != kPngSignature[i])
-            return parse_failure(result, PngError::signature);
+    if (!bytes_equal(encoded.data, kPngSignature, sizeof(kPngSignature)))
+        return parse_failure(result, PngError::signature);
     bool header = false, palette = false, transparency = false, idat = false, after_idat = false, end = false;
     u32 compressed = 0;
     u32 cursor = sizeof(kPngSignature);

@@ -1,4 +1,5 @@
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -206,15 +207,8 @@ bool starts_with(const char* text, const char* prefix) noexcept {
 // The authentication exchange of the specification, with EXTERNAL (the uid as hex of its decimal digits).
 bool authenticate(int fd, bool* fds_ok) noexcept {
     const u64 deadline = clock_monotonic_milliseconds() + kHandshakeTimeoutMs;
-    char decimal[16];
-    u32 digits = 0;
-    u32 uid = static_cast<u32>(syscall1(kCallGeteuid, 0));
-    char reversed[12];
-    u32 count = 0;
-    for (; uid || count == 0; uid /= 10)
-        reversed[count++] = static_cast<char>('0' + uid % 10);
-    while (count)
-        decimal[digits++] = reversed[--count];
+    char decimal[10];
+    const u32 digits = decimal_write(decimal, static_cast<u32>(syscall1(kCallGeteuid, 0)));
     char request[64];
     u32 length = 0;
     request[length++] = 0;  // the credentials byte
@@ -288,26 +282,32 @@ bool queue_output(Connection* c, const u8* bytes, u32 count) noexcept {
     return true;
 }
 
-// Sends as much of the queue as the socket takes.
-void flush_output(Connection* c) noexcept {
-    u32 sent_total = 0;
-    while (c->alive && sent_total != c->output_used) {
-        const long sent = send_some(c->fd, c->output + sent_total, c->output_used - sent_total, nullptr, 0);
+// Sends from `bytes` until the socket is full; the bytes sent. A failed socket ends the connection.
+u32 send_until_full(Connection* c, const u8* bytes, u32 count) noexcept {
+    u32 done = 0;
+    while (done != count) {
+        const long sent = send_some(c->fd, bytes + done, count - done, nullptr, 0);
         if (sent == -kErrorInterrupted)
             continue;
         if (sent == -kErrorAgain)
             break;
         if (syscall_failed(sent) || sent == 0) {
             disconnect(c);
-            return;
+            break;
         }
-        sent_total += static_cast<u32>(sent);
+        done += static_cast<u32>(sent);
     }
-    if (sent_total) {
-        c->output_used -= sent_total;
-        if (c->output_used)
-            copy_bytes(c->output, c->output + sent_total, c->output_used);
-    }
+    return done;
+}
+
+// Sends as much of the queue as the socket takes (on a live connection).
+void flush_output(Connection* c) noexcept {
+    const u32 sent = send_until_full(c, c->output, c->output_used);
+    if (!c->alive)
+        return;
+    c->output_used -= sent;
+    if (sent && c->output_used)
+        copy_bytes(c->output, c->output + sent, c->output_used);
 }
 
 // Sends one serialised message, with its descriptors when it has any.
@@ -338,9 +338,7 @@ bool transmit(Connection* c, const u8* block, u32 bytes, const Builder& body) no
         }
         if (sent == 0)
             return false;  // nothing went out (not even the descriptors); the caller may retry
-        if (static_cast<u32>(sent) != bytes && !queue_output(c, block + sent, bytes - static_cast<u32>(sent)))
-            return false;
-        return true;
+        return static_cast<u32>(sent) == bytes || queue_output(c, block + sent, bytes - static_cast<u32>(sent));
     }
     if (c->output_used) {
         if (!queue_output(c, block, bytes))
@@ -348,22 +346,10 @@ bool transmit(Connection* c, const u8* block, u32 bytes, const Builder& body) no
         flush_output(c);
         return c->alive;
     }
-    u32 done = 0;
-    while (done != bytes) {
-        const long sent = send_some(c->fd, block + done, bytes - done, nullptr, 0);
-        if (sent == -kErrorInterrupted)
-            continue;
-        if (sent == -kErrorAgain)
-            break;
-        if (syscall_failed(sent) || sent == 0) {
-            disconnect(c);
-            return false;
-        }
-        done += static_cast<u32>(sent);
-    }
-    if (done != bytes && !queue_output(c, block + done, bytes - done))
+    const u32 done = send_until_full(c, block, bytes);
+    if (!c->alive)
         return false;
-    return true;
+    return done == bytes || queue_output(c, block + done, bytes - done);
 }
 
 u32 take_serial(Connection* c) noexcept {
@@ -692,7 +678,7 @@ u32 address_parse(const char* address, SocketAddress* out, u32 capacity) noexcep
                 const u32 key_length = static_cast<u32>(equals - pair);
                 const char* value = equals < stop ? equals + 1 : stop;
                 const u32 value_length = static_cast<u32>(stop - value);
-                const bool is_path = key_length == 4 && pair[0] == 'p' && pair[1] == 'a' && pair[2] == 't' && pair[3] == 'h';
+                const bool is_path = key_length == 4 && starts_with(pair, "path");
                 const bool is_abstract = key_length == 8 && starts_with(pair, "abstract");
                 if (is_path || is_abstract) {
                     length = unescape(value, value_length, path, sizeof(path));
@@ -784,22 +770,16 @@ Connection* connection_open_session() noexcept {
     const char prefix[] = "unix:path=";
     u32 length = sizeof(prefix) - 1;
     copy_bytes(fallback, prefix, length);
-    if (runtime && *runtime && c_string_length(runtime) < 120) {
-        const u32 runtime_length = c_string_length(runtime);
+    const u32 runtime_length = runtime ? c_string_length(runtime) : 0;
+    if (runtime_length && runtime_length < 120) {
         copy_bytes(fallback + length, runtime, runtime_length);
         length += runtime_length;
     } else {
         // /run/user/<uid>
-        char digits[12];
-        u32 count = 0;
-        u32 uid = static_cast<u32>(syscall1(kCallGeteuid, 0));
-        for (; uid || count == 0; uid /= 10)
-            digits[count++] = static_cast<char>('0' + uid % 10);
         const char run[] = "/run/user/";
         copy_bytes(fallback + length, run, sizeof(run) - 1);
         length += sizeof(run) - 1;
-        while (count)
-            fallback[length++] = digits[--count];
+        length += decimal_write(fallback + length, static_cast<u32>(syscall1(kCallGeteuid, 0)));
     }
     const char tail[] = "/bus";
     copy_bytes(fallback + length, tail, sizeof(tail));

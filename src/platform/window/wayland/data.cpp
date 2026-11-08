@@ -402,6 +402,25 @@ Payload* new_payload() noexcept {
     return static_cast<Payload*>(heap_allocate(sizeof(Payload), true));
 }
 
+// The text formats a text selection offers, best first.
+constexpr u32 kTextMimes[] = {mime_text_utf8, mime_text_plain, mime_utf8_string};
+
+// A payload holding a copy of `text`; null for invalid UTF-8 or without memory.
+Payload* text_payload(const Utf8View& text) noexcept {
+    if (!utf8_validate(text).valid)
+        return nullptr;
+    Payload* payload = new_payload();
+    if (!payload)
+        return nullptr;
+    payload->text = copy_block(reinterpret_cast<const u8*>(text.data), text.bytes);
+    payload->text_bytes = text.bytes;
+    if (!payload->text) {
+        free_payload(payload);
+        return nullptr;
+    }
+    return payload;
+}
+
 // Reads the clipboard or primary text into `output`.
 ClipboardTextResult read_text(const OfferSlot* slot, const Payload* own, const Slice<char>& output) noexcept {
     ClipboardTextResult result{};
@@ -521,19 +540,8 @@ bool clipboard_has_text() noexcept {
 }
 
 bool clipboard_write_utf8(const Utf8View& text) noexcept {
-    if (!utf8_validate(text).valid)
-        return false;
-    Payload* payload = new_payload();
-    if (!payload)
-        return false;
-    payload->text = copy_block(reinterpret_cast<const u8*>(text.data), text.bytes);
-    payload->text_bytes = text.bytes;
-    if (!payload->text) {
-        free_payload(payload);
-        return false;
-    }
-    const u32 mimes[] = {mime_text_utf8, mime_text_plain, mime_utf8_string};
-    return own_clipboard(payload, mimes, 3);
+    Payload* payload = text_payload(text);
+    return payload && own_clipboard(payload, kTextMimes, 3);
 }
 
 bool clipboard_write_image(const u8* rgba, u32 width, u32 height, u32 stride, const Utf8View& source_url) noexcept {
@@ -666,17 +674,11 @@ ClipboardTextResult primary_selection_read_utf8(const Slice<char>& output) noexc
 
 bool primary_selection_write_utf8(const Utf8View& text) noexcept {
     DataState& data = g.data;
-    if (!data.primary_device || !g.primary_manager || g.input_serial == 0 || !utf8_validate(text).valid)
+    if (!data.primary_device || !g.primary_manager || g.input_serial == 0)
         return false;
-    Payload* payload = new_payload();
+    Payload* payload = text_payload(text);
     if (!payload)
         return false;
-    payload->text = copy_block(reinterpret_cast<const u8*>(text.data), text.bytes);
-    payload->text_bytes = text.bytes;
-    if (!payload->text) {
-        free_payload(payload);
-        return false;
-    }
     if (data.primary_source) {
         zwp_primary_selection_source_v1_destroy(data.primary_source);
         free_payload(data.primary_payload);
@@ -684,8 +686,7 @@ bool primary_selection_write_utf8(const Utf8View& text) noexcept {
     data.primary_source = zwp_primary_selection_device_manager_v1_create_source(g.primary_manager);
     data.primary_payload = payload;
     zwp_primary_selection_source_v1_add_listener(data.primary_source, &kPrimarySourceListener, payload);
-    const u32 text_bits[] = {mime_text_utf8, mime_text_plain, mime_utf8_string};
-    for (const u32 bit : text_bits)
+    for (const u32 bit : kTextMimes)
         zwp_primary_selection_source_v1_offer(data.primary_source, mime_name(bit));
     zwp_primary_selection_device_v1_set_selection(data.primary_device, data.primary_source, g.input_serial);
     g_client.display_flush(g.display);

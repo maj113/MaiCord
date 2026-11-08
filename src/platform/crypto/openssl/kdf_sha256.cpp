@@ -159,20 +159,9 @@ KdfResult sha256(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> parts
     return calculate(workspace, {}, parts, output, false, false);
 }
 
-KdfResult hmac_sha256(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlice<ConstSlice<u8>> parts,
-                      Slice<u8> output) noexcept {
-    return calculate(workspace, key, parts, output, false);
-}
-
 KdfResult hmac_sha256_prefixed(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlice<u8> prefix,
                                ConstSlice<ConstSlice<u8>> parts, Slice<u8> output) noexcept {
     return calculate(workspace, key, parts, output, false, true, prefix);
-}
-
-KdfResult hkdf_sha256_extract(KdfSha256Workspace& workspace, ConstSlice<u8> salt, ConstSlice<u8> input_key_material,
-                              Slice<u8> output) noexcept {
-    // HMAC with an empty salt is equivalent to HashLen zero bytes (RFC 5869).
-    return hmac_sha256(workspace, salt, {&input_key_material, 1}, output);
 }
 
 KdfResult hkdf_sha256_expand(KdfSha256Workspace& workspace, ConstSlice<u8> prk, ConstSlice<ConstSlice<u8>> info,

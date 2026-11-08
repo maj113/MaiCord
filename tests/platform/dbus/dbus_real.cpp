@@ -72,7 +72,7 @@ void test_probes() noexcept {
     report("portal: Settings version ", portal_interface_version("org.freedesktop.portal.Settings", 5000));
     report("portal: OpenURI version ", portal_interface_version("org.freedesktop.portal.OpenURI", 5000));
     report("portal: Notification version ", portal_interface_version("org.freedesktop.portal.Notification", 5000));
-    report("portal: Inhibit version ", inhibit_portal_version(5000));
+    report("portal: Inhibit version ", portal_interface_version("org.freedesktop.portal.Inhibit", 5000));
     check(portal_interface_version("org.freedesktop.portal.Settings", 5000) >= 1, "the Settings portal has a version");
     check(portal_interface_version("org.freedesktop.portal.NoSuchThing", 5000) == 0, "an unknown interface is version 0");
 }

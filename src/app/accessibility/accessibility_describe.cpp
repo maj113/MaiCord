@@ -706,19 +706,14 @@ void describe_settings(void*, const UiWidgetManager&, UiWidgetHandle handle, con
             info->actions = ui_access_action_invoke;
             break;
         case UiSettingsControlKind::notice:
-            // A loading notice is announced as live status.
-            info->role = control->checked ? UiAccessRole::status : UiAccessRole::text;
-            if (control->checked)
-                info->state |= ui_access_live;
-            info->actions = ui_access_action_invoke;
-            break;
         case UiSettingsControlKind::status:
-            // A running check is announced as live status; its button is the row's one action.
+            // A loading notice or a running check is announced as live status; a check's button is the row's one
+            // action.
             info->role = control->checked ? UiAccessRole::status : UiAccessRole::text;
             if (control->checked)
                 info->state |= ui_access_live;
             info->actions = ui_access_action_invoke;
-            if (control->action_label.bytes)
+            if (control->kind == UiSettingsControlKind::status && control->action_label.bytes)
                 info->value = control->action_label;
             break;
         case UiSettingsControlKind::disclosure:

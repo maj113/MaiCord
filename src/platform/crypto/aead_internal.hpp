@@ -19,7 +19,7 @@ AeadResult aead_cng_crypt(void* handle, ConstSlice<u8> nonce, ConstSlice<u8> aad
                           Slice<u8> output, u8* tag, bool encrypt) noexcept;
 #else
 // One ChaCha20-Poly1305 operation (12-byte nonce, 16-byte tag) under a 32-byte key, through the system OpenSSL
-// (src/platform/crypto/openssl/chacha.cpp); same failure erasure as aead_cng_crypt.
+// (src/platform/crypto/openssl/aead_openssl.cpp); same failure erasure as aead_cng_crypt.
 AeadResult aead_openssl_chacha_crypt(const u8* key, ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input,
                                      Slice<u8> output, u8* tag, bool encrypt) noexcept;
 // Whether the system OpenSSL loads (decides XChaChaBackend::automatic).

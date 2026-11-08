@@ -241,9 +241,8 @@ MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atla
         static_cast<LONG>(local->x + local->width) + padding,
         static_cast<LONG>(local->y + local->height) + padding,
     };
-    const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     unbind_media_pixel_resources(context);
-    gpu_clear_uav_rect(context, gpu->texture_uav, transparent, rectangle);
+    gpu_clear_uav_rect(context, gpu->texture_uav, kTransparentColor, rectangle);
     ++gpu->cleared_regions;
     return allocation;
 }
@@ -299,7 +298,5 @@ bool animated_webp_frame_valid(const AnimatedWebpFrame& frame, u16 canvas_width,
     return animated_webp_control_valid(frame, canvas_width, canvas_height) && rgba8.data &&
            required <= rgba8.count;
 }
-
-
 } // namespace maicord::media_atlas_gpu_detail
 #pragma clang attribute pop

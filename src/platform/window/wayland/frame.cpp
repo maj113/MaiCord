@@ -56,10 +56,10 @@ bool frame_filter(const WindowEvent& event) noexcept {
             if (event.flags & ev_double_click)
                 window_toggle_maximize(window);
             else
-                window_begin_move(window);
+                begin_move();
         } else if (is_edge(hit)) {
             taken = true;
-            window_begin_resize(window, hit);
+            begin_resize(hit);
         } else if (hit == FrameHit::system_menu) {
             taken = true;
             window_show_system_menu(window, event.pointer.x, event.pointer.y);

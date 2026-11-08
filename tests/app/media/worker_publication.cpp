@@ -5,6 +5,23 @@
 
 namespace maicord {
 namespace {
+// Value-returning forms of the pipeline's in-place audio operations.
+CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
+                                                      u64 now_seconds, OggOpusCancelled cancelled = nullptr,
+                                                      void* context = nullptr) noexcept {
+    CdnEncodedAudioResult result;
+    cdn_media_pipeline_lookup_audio(&result, pipeline, key, now_seconds, cancelled, context);
+    return result;
+}
+CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
+                                                     const CdnResponseResult& response, ConstSlice<u8> body,
+                                                     ConstSlice<u8> conditional_etag = {},
+                                                     OggOpusCancelled cancelled = nullptr,
+                                                     void* context = nullptr) noexcept {
+    CdnEncodedAudioResult result;
+    cdn_media_pipeline_admit_audio(&result, pipeline, key, response, body, conditional_etag, cancelled, context);
+    return result;
+}
 // Original minimal Ogg/Opus container: 312 pre-skip and 100 end trim leave
 // 548 audible frames. Its one-byte TOC packet is a valid empty CELT frame.
 u32 audio_fixture(u8* bytes) noexcept {

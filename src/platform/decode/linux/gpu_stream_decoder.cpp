@@ -86,9 +86,8 @@ bool release_idle(GpuStream* stream) noexcept {
     return true;
 }
 
-void run_decode(GpuStream* stream) noexcept {
-    stream->backend->decode(stream, {stream->work.data, stream->work.bytes}, stream->work.rtp_timestamp,
-                            stream->work.intact, stream->work.resynchronize);
+void run_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact, bool resynchronize) noexcept {
+    stream->backend->decode(stream, bytes, rtp_timestamp, intact, resynchronize);
     publish_stats(stream);
     if (stream->backend->hardware && stream->stats.unsupported && software_codec_available(stream->options.codec)) {
         fall_back_to_software(stream);
@@ -132,7 +131,8 @@ u32 decode_main(void* parameter) noexcept {
             if (stream->count)
                 stream->head = (stream->head + 1u) % kGpuStreamQueueFrames;
             ReleaseSRWLockExclusive(&stream->lock);
-            run_decode(stream);
+            run_decode(stream, {stream->work.data, stream->work.bytes}, stream->work.rtp_timestamp,
+                       stream->work.intact, stream->work.resynchronize);
         }
     }
 }
@@ -140,12 +140,6 @@ u32 decode_main(void* parameter) noexcept {
 } // namespace
 
 // ---- Backend services -------------------------------------------------------------------------------------------
-
-void stream_clear_geometry(GpuStream* stream) noexcept {
-    reset_value(&stream->frame);
-    stream->presented = 255;
-    stream->coded_width = stream->coded_height = 0;
-}
 
 void stream_slot_release(StreamSurface* slot) noexcept {
     gpu_release(slot->chroma_view);
@@ -158,7 +152,9 @@ void stream_surfaces_release(GpuStream* stream) noexcept {
     for (u32 i = 0; i < stream->surfaces.count; ++i)
         stream_slot_release(&stream->surfaces.slot[i]);
     reset_value(&stream->surfaces);
-    stream_clear_geometry(stream);
+    reset_value(&stream->frame);
+    stream->presented = 255;
+    stream->coded_width = stream->coded_height = 0;
 }
 
 bool stream_slot_export(GpuDevice* device, vaapi::Session* session, u32 surface, StreamSurface* slot) noexcept {
@@ -326,13 +322,7 @@ bool gpu_stream_decoder_push(GpuStreamDecoder* stream, ConstSlice<u8> annexb, u3
         saturating_increment(stream->published.received);
         const bool resynchronize = stream->resynchronize_pending;
         stream->resynchronize_pending = false;
-        stream->backend->decode(stream, annexb, rtp_timestamp, intact, resynchronize);
-        publish_stats(stream);
-        if (stream->backend->hardware && stream->stats.unsupported &&
-            software_codec_available(stream->options.codec)) {
-            fall_back_to_software(stream);
-            publish_stats(stream);
-        }
+        run_decode(stream, annexb, rtp_timestamp, intact, resynchronize);
         return true;
     }
     AcquireSRWLockExclusive(&stream->lock);

@@ -862,7 +862,6 @@ bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
     renderer->settings_page_media_end_batch = renderer->media_batch_count;
     if (!queue_settings_profile_overlays(renderer, theme, false))
         return layout_step_failed(__LINE__);
-    renderer->form_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     const auto* popup = d3d11_renderer_settings_popup(*renderer);
     renderer->settings_choice_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     if (popup && !popup_presentation_build(*popup, theme, &renderer->paint_stream))

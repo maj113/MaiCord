@@ -277,8 +277,9 @@ struct Document {
         else e.more=false;
         return true;
     }
+    // hidden_item: an item with "hd" set (item_kinds); never a "ty" code.
     enum class Shape : u8 { other, group, path, ellipse, rectangle, fill, stroke, gradient_fill, gradient_stroke,
-                            transform, trim, repeater, merge };
+                            transform, trim, repeater, merge, hidden_item };
     // The item's "ty" code, decoded once instead of compared name by name.
     __declspec(noinline) Shape shape_kind(const JsonValue& value) noexcept {
         static constexpr u16 codes[]{'g' << 8 | 'r', 's' << 8 | 'h', 'e' << 8 | 'l', 'r' << 8 | 'c',
@@ -299,6 +300,11 @@ struct Document {
     }
     bool hidden(const JsonValue& value) noexcept {
         return flag_field(value, "hd");
+    }
+    // What a shape list's items are, each read once: the passes over a list look at them twice.
+    void item_kinds(const JsonValue* items, u32 count, Shape* kinds) noexcept {
+        for (u32 i = 0; i < count; ++i)
+            kinds[i] = hidden(items[i]) ? Shape::hidden_item : shape_kind(items[i]);
     }
     struct Sample { JsonValue start,end,key; float progress=0; };
     Sample sampled(JsonValue property) noexcept {
@@ -353,9 +359,11 @@ struct Document {
         if(!in.source.bytes||!out.source.bytes)return value.progress;
         const float x1=clamped(component_field(out,"x",dimension),0,1),
                     x2=clamped(component_field(in,"x",dimension,1),0,1);
+        // x(t) = ((a t + b) t + c) t, bisected.
+        const float c=3*x1,b=3*x2-6*x1,a=1+3*(x1-x2);
         float low=0,high=1,t=value.progress;
         for(u32 i=0;i<16;++i){t=(low+high)*.5f;
-            if(bezier(t,x1,x2)<value.progress)low=t;else high=t;}
+            if(((a*t+b)*t+c)*t<value.progress)low=t;else high=t;}
         return bezier(t,component_field(out,"y",dimension),component_field(in,"y",dimension,1));
     }
     float interpolated(const Sample& value,u32 dimension,float fallback=0) noexcept {
@@ -530,17 +538,51 @@ struct Document {
         ++leaf_count;
         return true;
     }
-    bool append_style(Geometry* geometry, const Matrix& m, const JsonValue& style, float opacity) noexcept {
-        const Shape kind = shape_kind(style);
+    // A fill or stroke item of a shape list and what every shape under it draws with, read once for the list: its
+    // solid colour at the list's opacity and, for a stroke, the stroke.
+    struct Style {
+        JsonValue item;
+        Shape kind;
+        bool read;
+        ColrColor color;
+        geometry::StrokeStyle stroke;
+    };
+    Style style_of(const JsonValue& item, Shape kind) noexcept {
+        Style style{};
+        style.item = item;
+        style.kind = item.source.bytes ? kind : Shape::other;
+        return style;
+    }
+    void read_style(Style& style, float opacity) noexcept {
+        if (style.read)
+            return;
+        style.read = true;
+        if (style.kind != Shape::gradient_fill && style.kind != Shape::gradient_stroke)
+            style.color = color(style.item, opacity);
+        if (style.kind == Shape::stroke || style.kind == Shape::gradient_stroke) {
+            const u32 cap = static_cast<u32>(field(style.item, "lc", 1)), join = static_cast<u32>(field(style.item, "lj", 1));
+            style.stroke = {animated_field(style.item, "w"), maximum(1.f, field(style.item, "ml", 4)),
+                            cap == 2   ? geometry::cap_round
+                            : cap == 3 ? geometry::cap_square
+                                       : geometry::cap_flat,
+                            join == 2   ? geometry::join_round
+                            : join == 3 ? geometry::join_bevel
+                                        : geometry::join_miter};
+        }
+    }
+    bool append_style(Geometry* geometry, const Matrix& m, Style& style, float opacity) noexcept {
+        read_style(style, opacity);
+        const Shape kind = style.kind;
         if (kind != Shape::gradient_fill && kind != Shape::gradient_stroke)
-            return append(geometry, m, color(style, opacity));
+            return append(geometry, m, style.color);
+        const JsonValue& item = style.item;
         const u32 previous = leaf_count;
-        if (!append(geometry, m, {1, 1, 1, opacity * animated_field(style, "o", 100) * .01f}, true))
+        if (!append(geometry, m, {1, 1, 1, opacity * animated_field(item, "o", 100) * .01f}, true))
             return false;
         if (previous == leaf_count)
             return true;
         auto& leaf = get_leaf(previous);
-        const auto gradient = get(style, "g");
+        const auto gradient = get(item, "g");
         const u32 colors = static_cast<u32>(field(gradient, "p"));
         const auto animated=sampled(get(gradient,"k"));
         GradientComponents components;
@@ -570,19 +612,16 @@ struct Document {
             }
         }
         const auto transform_point = [m](Point p) noexcept { return place(m, p); };
-        const auto a0 = point_field(style, "s"), b0 = point_field(style, "e");
+        const auto a0 = point_field(item, "s"), b0 = point_field(item, "e");
         const auto start = transform_point(a0), end = transform_point(b0);
-        if (field(style, "t", 1) == 1) {
+        if (field(item, "t", 1) == 1) {
             const auto perpendicular = transform_point({a0.x - (b0.y - a0.y), a0.y + (b0.x - a0.x)});
             data.paint.kind = ColrPaintKind::linear_gradient;
             data.paint.paint.linearGradient = {0,     colors, start.x,         start.y,
                                                   end.x, end.y,  perpendicular.x, perpendicular.y};
         } else {
             const float dx = end.x - start.x, dy = end.y - start.y;
-            float radius = maximum(absf(dx), absf(dy));
-            if (radius > 0)
-                for (u32 i = 0; i < 8; ++i)
-                    radius = (radius + (dx * dx + dy * dy) / radius) * .5f;
+            const float radius = __builtin_elementwise_sqrt(dx * dx + dy * dy);
             data.paint.kind = ColrPaintKind::radial_gradient;
             data.paint.paint.radialGradient = {0, colors, start.x, start.y, 0, start.x, start.y, radius};
         }
@@ -655,16 +694,9 @@ struct Document {
                                                     p.y + s.y * .5f, r, r);
     }
     // Appends the outline of `geometry` widened by the stroke item's width and caps.
-    bool stroked(Geometry* geometry, const Matrix& world, const JsonValue& stroke, float opacity) noexcept {
-        const u32 cap = static_cast<u32>(field(stroke, "lc", 1)), join = static_cast<u32>(field(stroke, "lj", 1));
-        const geometry::StrokeStyle style{animated_field(stroke, "w"), maximum(1.f, field(stroke, "ml", 4)),
-                                          cap == 2   ? geometry::cap_round
-                                          : cap == 3 ? geometry::cap_square
-                                                     : geometry::cap_flat,
-                                          join == 2   ? geometry::join_round
-                                          : join == 3 ? geometry::join_bevel
-                                                      : geometry::join_miter};
-        return append_style(geometry_stroke(geometry, style, .1f), world, stroke, opacity);
+    bool stroked(Geometry* geometry, const Matrix& world, Style& stroke, float opacity) noexcept {
+        read_style(stroke, opacity);
+        return append_style(geometry_stroke(geometry, stroke.stroke, .1f), world, stroke, opacity);
     }
     bool groups(const JsonValue& items, Matrix world, float opacity, u32 depth, bool repeated = false,
                 const Matrix& repetition = identity, const JsonValue& inherited_fill = {},
@@ -675,34 +707,38 @@ struct Document {
         u32 count = 0;
         if (!array(items, {shapes, 512}, &count))
             return false;
+        Shape kinds[512];
+        item_kinds(shapes, count, kinds);
         const Matrix inherited_world = world;
         const float inherited_opacity = opacity;
         JsonValue fill = inherited_fill, stroke = inherited_stroke, repeater{};
         u32 fill_index = count + 1, stroke_index = count + 2;
         bool merged = false;
-        for (u32 i = 0; i < count; ++i)
-            if (!hidden(shapes[i])) {
-                const Shape kind = shape_kind(shapes[i]);
-                if (kind == Shape::transform) {
-                    world = compose(transform(shapes[i]), world);
-                    opacity *= animated_field(shapes[i], "o", 100) * .01f;
-                } else if (kind == Shape::fill || kind == Shape::gradient_fill) {
-                    fill = shapes[i];
-                    fill_index = i;
-                } else if (kind == Shape::stroke || kind == Shape::gradient_stroke) {
-                    stroke = shapes[i];
-                    stroke_index = i;
-                } else if (kind == Shape::merge)
-                    merged = true;
-                else if (kind == Shape::repeater)
-                    repeater = shapes[i];
-            }
+        for (u32 i = 0; i < count; ++i) {
+            const Shape kind = kinds[i];
+            if (kind == Shape::transform) {
+                world = compose(transform(shapes[i]), world);
+                opacity *= animated_field(shapes[i], "o", 100) * .01f;
+            } else if (kind == Shape::fill || kind == Shape::gradient_fill) {
+                fill = shapes[i];
+                fill_index = i;
+            } else if (kind == Shape::stroke || kind == Shape::gradient_stroke) {
+                stroke = shapes[i];
+                stroke_index = i;
+            } else if (kind == Shape::merge)
+                merged = true;
+            else if (kind == Shape::repeater)
+                repeater = shapes[i];
+        }
         world = compose(repetition, world);
+        // The styles every shape of the list draws with (an inherited one's kind is read here).
+        Style fill_style = style_of(fill, fill_index < count ? kinds[fill_index] : shape_kind(fill));
+        Style stroke_style = style_of(stroke, stroke_index < count ? kinds[stroke_index] : shape_kind(stroke));
         for (u32 i = count; i--;) {
             const auto shape = shapes[i];
-            if (hidden(shape))
+            if (kinds[i] == Shape::hidden_item)
                 continue;
-            const Shape kind = merged ? Shape::other : shape_kind(shape);
+            const Shape kind = merged ? Shape::other : kinds[i];
             Geometry* geometry = nullptr;
             if (merged) {
                 if (i != count - 1)
@@ -724,11 +760,14 @@ struct Document {
                 return false;
             const bool has_fill = fill.source.bytes != 0,
                        fill_first = has_fill && (!stroke.source.bytes || fill_index > stroke_index);
-            bool okay = !fill_first || append_style(geometry, world, fill, opacity);
-            if (okay && stroke.source.bytes && animated_field(stroke, "w") > 0)
-                okay = stroked(geometry, world, stroke, opacity);
+            bool okay = !fill_first || append_style(geometry, world, fill_style, opacity);
+            if (okay && stroke.source.bytes) {
+                read_style(stroke_style, opacity);
+                if (stroke_style.stroke.width > 0)
+                    okay = stroked(geometry, world, stroke_style, opacity);
+            }
             if (okay && has_fill && !fill_first)
-                okay = append_style(geometry, world, fill, opacity);
+                okay = append_style(geometry, world, fill_style, opacity);
             if (!okay)
                 return false;
         }
@@ -762,12 +801,12 @@ struct Document {
         u32 n = 0;
         if (!array(items, {shapes, 512}, &n))
             return nullptr;
+        Shape kinds[512];
+        item_kinds(shapes, n, kinds);
         Matrix matrix = identity;
         geometry::CombineMode mode = geometry::combine_union;
         for (u32 i = 0; i < n; ++i) {
-            if (hidden(shapes[i]))
-                continue;
-            const Shape kind = shape_kind(shapes[i]);
+            const Shape kind = kinds[i];
             if (kind == Shape::transform)
                 matrix = transform(shapes[i]);
             if (kind == Shape::merge) {
@@ -784,10 +823,8 @@ struct Document {
         bool any_shapes=false;
         for (u32 i = 0; i < n; ++i) {
             const auto shape = shapes[i];
-            if (hidden(shape))
-                continue;
+            const Shape kind = kinds[i];
             Geometry* part = nullptr;
-            const Shape kind = shape_kind(shape);
             if (kind == Shape::path) {
                 part = path(shape);
             } else if (kind == Shape::group) {
@@ -815,7 +852,21 @@ struct Document {
         if(has_shapes)*has_shapes=any_shapes;
         return collected;
     }
-    Matrix parent_transform(const JsonValue& layer, const ConstSlice<JsonValue>& layers, u32 depth) noexcept {
+    // A layer list and its layers' "ind" numbers, read on first need: parents and track mattes name layers by them.
+    struct Siblings {
+        ConstSlice<JsonValue> values;
+        float* indices;
+        bool indexed;
+    };
+    float layer_index(Siblings& layers, u32 i) noexcept {
+        if (!layers.indexed) {
+            for (u32 k = 0; k < layers.values.count; ++k)
+                layers.indices[k] = field(layers.values[k], "ind", -2);
+            layers.indexed = true;
+        }
+        return layers.indices[i];
+    }
+    Matrix parent_transform(const JsonValue& layer, Siblings& layers, u32 depth) noexcept {
         Matrix own = transform(get(layer, "ks"));
         const auto parent = get(layer, "parent");
         if (!parent.source.bytes)
@@ -825,14 +876,14 @@ struct Document {
             return own;
         }
         const float index = number(parent, -1);
-        for (u32 i = 0; i < layers.count; ++i)
-            if (field(layers[i], "ind", -2) == index)
-                return compose(own, parent_transform(layers[i], layers, depth + 1));
+        for (u32 i = 0; i < layers.values.count; ++i)
+            if (layer_index(layers, i) == index)
+                return compose(own, parent_transform(layers.values[i], layers, depth + 1));
         invalid_parent = true;
         return own;
     }
     // One layer's leaves. A matte source draws even when hidden.
-    bool layer(const JsonValue& value, const ConstSlice<JsonValue>& siblings, const Matrix& world, float opacity, u32 depth,
+    bool layer(const JsonValue& value, Siblings& siblings, const Matrix& world, float opacity, u32 depth,
                bool matte = false) noexcept {
         if ((!matte && hidden(value)) || frame < field(value, "ip", -100000) ||
             frame >= field(value, "op", 100000))
@@ -888,7 +939,7 @@ struct Document {
         return okay;
     }
     // The world-space union of a matte source's painted geometry.
-    Geometry* matte_region(const JsonValue& source, const ConstSlice<JsonValue>& siblings, const Matrix& world,
+    Geometry* matte_region(const JsonValue& source, Siblings& siblings, const Matrix& world,
                            float opacity, u32 depth) noexcept {
         const u32 mark = leaf_count;
         const u16 gradients = gradient_count;
@@ -1000,7 +1051,8 @@ struct Document {
         u32 count = 0;
         if (!array(array_value, {values, 512}, &count))
             return false;
-        const ConstSlice<JsonValue> siblings{values, count};
+        float indices[512];
+        Siblings siblings{{values, count}, indices, false};
         for (u32 i = count; i--;) {
             const auto current = values[i];
             // A track matte source only shapes the layer bound to it.
@@ -1018,7 +1070,7 @@ struct Document {
             if (bound.source.bytes) {
                 const float index = number(bound, -1);
                 for (u32 j = 0; j < count; ++j)
-                    if (field(values[j], "ind", -2) == index)
+                    if (layer_index(siblings, j) == index)
                         source = values[j];
             } else if (i)
                 source = values[i - 1];

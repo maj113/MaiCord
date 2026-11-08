@@ -1,3 +1,4 @@
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
@@ -67,9 +68,12 @@ void on_bound(void*, u32 code, Reader*) noexcept {
     g.state = GlobalShortcutsState::ready;
 }
 
-void on_bind_reply(void*, Status status, const Message* reply) noexcept {
+// The reply of a method that answers through a Request: the handle to listen on, or the failure (`context` names the
+// call for the log).
+void on_request_reply(void* context, Status status, const Message* reply) noexcept {
     if (status != Status::ok) {
-        fail(status == Status::error_reply && reply && reply->error_name ? reply->error_name : "BindShortcuts failed");
+        // No portal, or one without this interface (an older one): the quiet outcome.
+        fail(status == Status::error_reply && reply->error_name ? reply->error_name : static_cast<const char*>(context));
         return;
     }
     Reader r;
@@ -92,20 +96,9 @@ void bind_shortcuts(Connection* c) noexcept {
         builder_open_struct(&body, "(sa{sv})");
         builder_string(&body, g.specs[i].id);
         builder_open_array(&body, "{sv}");
-        builder_open_entry(&body);
-        builder_string(&body, "description");
-        builder_open_variant(&body, "s");
-        builder_string(&body, g.specs[i].description);
-        builder_close_variant(&body);
-        builder_close_entry(&body);
-        if (g.specs[i].trigger[0]) {
-            builder_open_entry(&body);
-            builder_string(&body, "preferred_trigger");
-            builder_open_variant(&body, "s");
-            builder_string(&body, g.specs[i].trigger);
-            builder_close_variant(&body);
-            builder_close_entry(&body);
-        }
+        builder_dict_string(&body, "description", g.specs[i].description);
+        if (g.specs[i].trigger[0])
+            builder_dict_string(&body, "preferred_trigger", g.specs[i].trigger);
         builder_close_array(&body);
         builder_close_struct(&body);
     }
@@ -115,7 +108,7 @@ void bind_shortcuts(Connection* c) noexcept {
     portal_request_append_token(&body, g.request);
     builder_close_array(&body);
     const CallTarget target{kPortalName, kPortalPath, kInterface, "BindShortcuts"};
-    if (!connection_call(c, target, &body, kCallTimeoutMs, on_bind_reply, nullptr))
+    if (!connection_call(c, target, &body, kCallTimeoutMs, on_request_reply, const_cast<char*>("BindShortcuts failed")))
         fail("BindShortcuts could not be sent");
     builder_release(&body);
 }
@@ -155,19 +148,6 @@ void on_session_created(void*, u32 code, Reader* results) noexcept {
     bind_shortcuts(c);
 }
 
-void on_create_reply(void*, Status status, const Message* reply) noexcept {
-    if (status != Status::ok) {
-        // No portal, or one without this interface (an older one): the quiet outcome.
-        fail(status == Status::error_reply && reply && reply->error_name ? reply->error_name : "CreateSession failed");
-        return;
-    }
-    Reader r;
-    message_reader(*reply, &r);
-    const char* handle = nullptr;
-    if (reader_string(&r, &handle, nullptr))
-        portal_request_adopt(&g.request, handle);
-}
-
 void create_session(Connection* c) noexcept {
     g.state = GlobalShortcutsState::starting;
     g.session[0] = 0;
@@ -180,24 +160,12 @@ void create_session(Connection* c) noexcept {
     builder_init(&body);
     builder_open_array(&body, "{sv}");
     portal_request_append_token(&body, g.request);
-    builder_open_entry(&body);
-    builder_string(&body, "session_handle_token");
-    builder_open_variant(&body, "s");
     char token[32] = "maicord_session_";
-    u32 length = 16;
-    char digits[12];
-    u32 count = 0;
-    for (u32 n = ++g.session_counter; n || count == 0; n /= 10)
-        digits[count++] = static_cast<char>('0' + n % 10);
-    while (count)
-        token[length++] = digits[--count];
-    token[length] = 0;
-    builder_string(&body, token);
-    builder_close_variant(&body);
-    builder_close_entry(&body);
+    token[16 + decimal_write(token + 16, ++g.session_counter)] = 0;
+    builder_dict_string(&body, "session_handle_token", token);
     builder_close_array(&body);
     const CallTarget target{kPortalName, kPortalPath, kInterface, "CreateSession"};
-    if (!connection_call(c, target, &body, kCallTimeoutMs, on_create_reply, nullptr))
+    if (!connection_call(c, target, &body, kCallTimeoutMs, on_request_reply, const_cast<char*>("CreateSession failed")))
         fail("CreateSession could not be sent");
     builder_release(&body);
 }
@@ -220,13 +188,8 @@ const char* keysym_of(Key key, char (&scratch)[8]) noexcept {
         return scratch;
     }
     if (key >= key::f1 && key <= key::f24) {
-        const u32 n = key - key::f1 + 1;
-        u32 length = 0;
-        scratch[length++] = 'F';
-        if (n >= 10)
-            scratch[length++] = static_cast<char>('0' + n / 10);
-        scratch[length++] = static_cast<char>('0' + n % 10);
-        scratch[length] = 0;
+        scratch[0] = 'F';
+        scratch[1 + decimal_write(scratch + 1, static_cast<u32>(key - key::f1 + 1))] = 0;
         return scratch;
     }
     if (key >= key::numpad0 && key <= key::numpad9) {

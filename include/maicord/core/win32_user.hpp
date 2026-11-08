@@ -474,19 +474,3 @@ extern "C" __declspec(dllimport) HMONITOR WINAPI MonitorFromWindow(HWND hwnd, DW
 extern "C" __declspec(dllimport) HMONITOR WINAPI MonitorFromRect(LPCRECT lprc, DWORD dwFlags);
 extern "C" __declspec(dllimport) BOOL WINAPI GetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFO lpmi);
 extern "C" __declspec(dllimport) UINT WINAPI GetDpiForWindow(HWND hwnd);
-
-namespace maicord {
-
-// TRACKMOUSEEVENT.
-struct Win32TrackMouseEvent {
-    DWORD cbSize;
-    DWORD dwFlags;
-    HWND hwndTrack;
-    DWORD dwHoverTime;
-
-    TRACKMOUSEEVENT* native() noexcept {
-        return reinterpret_cast<TRACKMOUSEEVENT*>(this);
-    }
-};
-
-} // namespace maicord

@@ -1012,8 +1012,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     // The frame constants fold the palette direction into the backdrop gradient
     // axis; a stream starts and ends on the identity layer, so rewrite that.
     if (background_updates != renderer->pipeline.background_updates &&
-        !d3d11_draw_pipeline_update_opacity(renderer->pipeline, renderer->graphics.context, renderer->width,
-                                            renderer->height, renderer->dpi, 1))
+        !d3d11_draw_pipeline_update_layer(renderer->pipeline, renderer->graphics.context, renderer->width,
+                                          renderer->height, renderer->dpi, 1, 1, 0, 0))
         return false;
     if (!renderer->content_text && !renderer->login_visible && renderer->glyph_text.ready &&
         !renderer->glyph_text.title_quad_count &&
@@ -1396,8 +1396,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     // layer's factor left on the effects would leave its band translucent.
     const auto finish = [&, renderer](bool drawn) noexcept {
         if ((current_opacity != 1 || renderer->draw_layer_scale != 1) &&
-            !d3d11_draw_pipeline_update_opacity(renderer->pipeline, renderer->graphics.context, renderer->width,
-                                                renderer->height, renderer->dpi, 1))
+            !d3d11_draw_pipeline_update_layer(renderer->pipeline, renderer->graphics.context, renderer->width,
+                                              renderer->height, renderer->dpi, 1, 1, 0, 0))
             drawn = false;
         renderer->draw_layer_scale = 1;
         renderer->background_fx.layer_opacity = renderer->effect.layer_opacity = 1;
@@ -1555,10 +1555,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                !paint(menu_paint, card_paint) || !media(menu_media, card_media, false) ||
                !paint(card_paint, editor_paint_first) || !media(card_media, ordinary_media_end, false) ||
                !inline_media(RendererInlineMediaLayer::popup) ||
-               // Settings glyphs precede their popup. Earlier text ranges are empty
-               // in this mode, so this first visible pass must admit the GPU upload.
-               // draw_gpu_text skips it when the complete stream is already retained.
-               !text(menu_text, editor_text_first, settings_active) ||
+               !text(menu_text, editor_text_first, false) ||
                !paint(editor_paint_first, editor_paint_end) ||
                !inline_media(RendererInlineMediaLayer::theme_editor) ||
                !text(editor_text_first, editor_text_end, false) || !paint(editor_paint_end, form_paint) ||

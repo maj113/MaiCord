@@ -2,6 +2,7 @@
 // characters with compose, client-side repeat on a timerfd, held-key tracking and focus.
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/platform/window/wayland/keymap.hpp"
 #include "maicord/sys/linux/calls.hpp"
@@ -162,7 +163,10 @@ u32 press_text(u32 evdev, u32 active_symbol, bool* plain) noexcept {
                 *plain = false;
                 const int length = api->compose_state_get_utf8(keyboard.compose_state, text, sizeof(text));
                 api->compose_state_reset(keyboard.compose_state);
-                return length > 0 ? first_code_point(text) : 0;
+                if (length <= 0)
+                    return 0;
+                // The table's text is UTF-8; its first scalar is the character (0 for a malformed one).
+                return utf8_decode_one(text, minimum<u32>(static_cast<u32>(length), sizeof(text) - 1)).codepoint;
             }
             if (status == kXkbComposeStatusCancelled) {
                 *plain = false;

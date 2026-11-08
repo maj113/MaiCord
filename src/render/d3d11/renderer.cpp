@@ -248,7 +248,6 @@ bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface,
     if (!graphics.ok()) {
         // The backend logged the step that failed when it was the surface.
         const char* event = graphics.error == D3D11DeviceOwnerError::hardware_device ? "hardware_d3d11_device_unavailable"
-                            : graphics.error == D3D11DeviceOwnerError::context_11_1  ? "d3d11_1_context_unavailable"
                             : graphics.error == D3D11DeviceOwnerError::surface       ? "d3d11_surface_failed"
                                                                                      : "d3d11_device_owner_initialization_failed";
         LogEvent(event).error("hr", static_cast<u32>(graphics.native_error)).write(LogLevel::error, "render");

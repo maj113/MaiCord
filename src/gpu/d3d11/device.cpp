@@ -147,7 +147,7 @@ const GpuCaps& gpu_caps(const GpuDevice* device) {
     const bool options_known =
         SUCCEEDED(const_cast<GpuDevice*>(device)->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options,
                                                                       sizeof(options)));
-    caps = GpuCaps{16384, 65536, 1024, 32768, 8, true, true, true, true, true, true,
+    caps = GpuCaps{16384, 65536, 1024, 32768, 8, true, true, true, true, true,
                    options_known && options.MapNoOverwriteOnDynamicBufferSRV, false, true, false};
     return caps;
 }
@@ -224,10 +224,11 @@ bool gpu_device_prestarted(const GpuDevice* device) {
     return device && device == g_prestart.adopted;
 }
 
+// Direct3D 11.1 ships with every Windows 10 device: the interface is always there.
 GpuContext1* gpu_context_1(GpuContext* context) {
     ID3D11DeviceContext1* extended = nullptr;
-    if (SUCCEEDED(context->QueryInterface(__uuidof(ID3D11DeviceContext1), reinterpret_cast<void**>(&extended))))
-        extended->Release();
+    context->QueryInterface(__uuidof(ID3D11DeviceContext1), reinterpret_cast<void**>(&extended));
+    extended->Release();
     return extended;
 }
 

@@ -15,23 +15,13 @@ constexpr u8 kPngSignature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
 bool extent_valid(u32 width, u32 height) noexcept {
     return width && height && width <= kClipboardImageMaximumExtent && height <= kClipboardImageMaximumExtent;
 }
-u32 crc32_update(u32 crc, const u8* data, u64 count) noexcept {
-    // Keep the published CRC seed across ULONG-sized chunks and preserve the
-    // seed for an empty range. PNG uses the same IEEE CRC as png_common.cpp.
-    while (count) {
-        const u32 bytes = static_cast<u32>(minimum<u64>(count, 0xffffffffull));
-        crc = crc32_extend(crc, data, bytes);
-        data += bytes;
-        count -= bytes;
-    }
-    return crc;
-}
-// A chunk at out: length, type, data (already in place when data is out + 8) and CRC; returns its end.
+// A chunk at out: length, type, data (already in place when data is out + 8) and CRC; returns its end. A chunk holds
+// at most a 64-megapixel image's IDAT (about 256 MiB), so the CRC's 32-bit count covers it.
 u8* chunk(u8* out, const char* type, const u8* data, u32 bytes) noexcept {
     byte_store_be32(out, bytes);
     copy_bytes(out + 4, type, 4);
     if (bytes && data != out + 8) copy_bytes(out + 8, data, bytes);
-    byte_store_be32(out + 8 + bytes, crc32_update(0, out + 4, 4 + u64{bytes}));
+    byte_store_be32(out + 8 + bytes, crc32_extend(0, out + 4, 4 + bytes));
     return out + 12 + bytes;
 }
 // Signature and IHDR (8-bit, no interlace); returns where the IDAT chunk starts.
@@ -146,11 +136,6 @@ u64 clipboard_image_build_dib(const u8* rgba, u32 width, u32 height, u32 stride,
 
 namespace {
 // ---- Paste conversion -------------------------------------------------------
-u8* reserve(u64 bytes) noexcept {
-    return bytes && bytes <= (u64{1} << 40)
-               ? commit_pages<u8>(static_cast<SIZE_T>(bytes))
-               : nullptr;
-}
 void unreserve(void* memory) noexcept { if (memory) pages_release(memory); }
 struct Channel { u32 mask, shift, bits; };
 Channel channel(u32 mask) noexcept {
@@ -334,7 +319,7 @@ void filter_row(const u8* row, const u8* above, u32 bytes, u32 bpp, u8* out) noe
 DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcept {
     Dib dib = source;
     const u32 w = dib.width, h = dib.height;
-    u8* rows = reserve(u64{w} * 8);
+    u8* rows = commit_pages<u8>(u64{w} * 8);
     if (!rows) return ERROR_NOT_ENOUGH_MEMORY;
     // Alpha only counts when present and not uniformly zero (an unused byte).
     bool translucent = false;
@@ -356,8 +341,8 @@ DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcep
     const u64 stored = zlib_bytes(raw) - 6;
     const u64 png_capacity = 8 + 25 + 12 + 6 + stored + 12;
     const u64 tables = (sizeof(u32) << kHashBits) + sizeof(u32) * kWindow;
-    u8* filtered = reserve(tables + raw);
-    u8* png = filtered ? reserve(png_capacity) : nullptr;
+    u8* filtered = commit_pages<u8>(tables + raw);
+    u8* png = filtered ? commit_pages<u8>(png_capacity) : nullptr;
     if (!png) { unreserve(filtered); unreserve(rows); return ERROR_NOT_ENOUGH_MEMORY; }
     auto* head = reinterpret_cast<u32*>(filtered);
     u8* data = filtered + tables;
@@ -433,7 +418,7 @@ DWORD clipboard_paste_png(ClipboardPasteKind kind, ConstSlice<u8> payload, u64 l
         const u64 bytes = clipboard_image_png_length(payload);
         if (!bytes) return ERROR_INVALID_DATA;
         if (bytes > limit) { output->bytes = bytes; return ERROR_FILE_TOO_LARGE; }
-        u8* copy = reserve(bytes);
+        u8* copy = commit_pages<u8>(bytes);
         if (!copy) return ERROR_NOT_ENOUGH_MEMORY;
         copy_bytes(copy, payload.data, static_cast<u32>(bytes));
         *output = {copy, bytes};

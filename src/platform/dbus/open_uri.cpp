@@ -70,14 +70,14 @@ struct Pending {
 };
 
 void on_portal_reply(void* context, Status status, const Message* reply) noexcept {
-    Pending* pending = static_cast<Pending*>(context);
+    char* uri = static_cast<char*>(context);
     if (status != Status::ok) {
         log_write(LogLevel::info, "open_uri",
                   status == Status::error_reply && reply && reply->error_name ? reply->error_name
                                                                               : "the OpenURI portal did not answer");
-        spawn_xdg_open(pending->uri);
+        spawn_xdg_open(uri);
     }
-    heap_free(pending);
+    heap_free(uri);
 }
 
 } // namespace
@@ -108,23 +108,18 @@ bool open_uri(const char* uri, const char* activation_token) noexcept {
     Connection* c = session_bus_open() ? session_bus() : nullptr;
     if (!c)
         return spawn_xdg_open(uri);
-    Pending* pending = static_cast<Pending*>(heap_allocate(sizeof(Pending)));
+    const u32 length = c_string_length(uri) + 1;
+    char* pending = static_cast<char*>(heap_allocate(length));
     if (!pending)
         return false;
-    copy_bytes(pending->uri, uri, c_string_length(uri) + 1);
+    copy_bytes(pending, uri, length);
     Builder body;
     builder_init(&body);
     builder_string(&body, portal_parent_window());
     builder_string(&body, uri);
     builder_open_array(&body, "{sv}");
-    if (activation_token && *activation_token) {
-        builder_open_entry(&body);
-        builder_string(&body, "activation_token");
-        builder_open_variant(&body, "s");
-        builder_string(&body, activation_token);
-        builder_close_variant(&body);
-        builder_close_entry(&body);
-    }
+    if (activation_token && *activation_token)
+        builder_dict_string(&body, "activation_token", activation_token);
     builder_close_array(&body);
     const CallTarget target{"org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
                             "org.freedesktop.portal.OpenURI", "OpenURI"};

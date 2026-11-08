@@ -32,7 +32,8 @@ static_assert(kShaderPatchCount <= sizeof(kShaderPatchOffsets) / sizeof(kShaderP
 constexpr u32 raw_size(const PackedShader& entry) noexcept { return entry.raw_bytes & ~kShaderPatchFlag; }
 static_assert([]() constexpr {
     for (const auto& entry : kShaders) {
-        if (entry.offset > sizeof(kShaderPacked) || entry.packed_bytes > sizeof(kShaderPacked) - entry.offset)
+        if (entry.offset > sizeof(kShaderPacked) || entry.packed_bytes > sizeof(kShaderPacked) - entry.offset ||
+            !raw_size(entry) || raw_size(entry) > kShaderMaximumBytes)
             return false;
         if (entry.raw_bytes & kShaderPatchFlag)
             for (u32 i = 0; i < kShaderPatchCount; ++i)
@@ -43,21 +44,14 @@ static_assert([]() constexpr {
     return true;
 }());
 
-const PackedShader* packed_shader(ShaderId id) noexcept {
-    if (id >= ShaderId::count) return nullptr;
-    const PackedShader& entry = kShaders[static_cast<u32>(id)];
-    return raw_size(entry) && raw_size(entry) <= kShaderMaximumBytes ? &entry : nullptr;
-}
-
-bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, Slice<u8> output) noexcept {
+bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, u8* output) noexcept {
     const u32 raw = raw_size(entry);
-    if (raw > output.count) return false;
     const DeflateInputSpan input{kShaderPacked + entry.offset, entry.packed_bytes};
-    if (!zlib_inflate({&input, 1}, {output.data, raw}, raw, workspace).ok())
+    if (!zlib_inflate({&input, 1}, {output, raw}, raw, workspace).ok())
         return false;
     if (entry.raw_bytes & kShaderPatchFlag)
         for (u32 i = 0; i < kShaderPatchCount; ++i)
-            output.data[kShaderPatchOffsets[i]] = kShaderPatchValues[i];
+            output[kShaderPatchOffsets[i]] = kShaderPatchValues[i];
     return true;
 }
 
@@ -67,14 +61,13 @@ bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, Slice<u8> o
 // page a thread touches stays committed for its lifetime.
 template <typename Create>
 HRESULT create_from_bytes(ShaderId id, Create create) noexcept {
-    const PackedShader* entry = packed_shader(id);
-    if (!entry) return E_FAIL;
-    auto* workspace =
-        static_cast<DeflateWorkspace*>(HeapAlloc(process_heap(), 0, sizeof(DeflateWorkspace) + raw_size(*entry)));
+    if (id >= ShaderId::count) return E_FAIL;
+    const PackedShader& entry = kShaders[static_cast<u32>(id)];
+    const u32 raw = raw_size(entry);
+    auto* workspace = static_cast<DeflateWorkspace*>(HeapAlloc(process_heap(), 0, sizeof(DeflateWorkspace) + raw));
     if (!workspace) return E_OUTOFMEMORY;
     u8* bytes = reinterpret_cast<u8*>(workspace + 1);
-    const HRESULT result =
-        inflate(*entry, workspace, {bytes, raw_size(*entry)}) ? create(bytes, raw_size(*entry)) : E_FAIL;
+    const HRESULT result = inflate(entry, workspace, bytes) ? create(bytes, raw) : E_FAIL;
     HeapFree(process_heap(), 0, workspace);
     return result;
 }

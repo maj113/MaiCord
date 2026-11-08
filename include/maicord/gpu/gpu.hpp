@@ -20,7 +20,6 @@ struct GpuCaps {
     u32 max_shared_bytes;        // per group
     u32 max_compute_storage_buffers;
     bool compute;
-    bool storage_rgba8;          // RGBA8 unordered-access textures
     bool float_render_targets;   // RGBA16F and RGBA32F render targets
     bool half_render_targets;    // RGBA16F render targets
     bool float_linear;           // linear filtering of RGBA32F

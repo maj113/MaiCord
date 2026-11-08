@@ -172,10 +172,6 @@ void secure_buffer_release(SecureBuffer* buffer) noexcept {
     reset_value<SecureBuffer>(buffer);
 }
 
-ConstSlice<u8> secure_buffer_view(const SecureBuffer& buffer) noexcept {
-    return ConstSlice<u8>{buffer.data, buffer.bytes};
-}
-
 SecureBufferResult secure_buffer_protect_user_bound(const SecureBuffer& plaintext, ConstSlice<u8> entropy,
                                                     Slice<u8> protected_output) noexcept {
     if (!plaintext.data || !plaintext.locked || plaintext.bytes == 0 ||

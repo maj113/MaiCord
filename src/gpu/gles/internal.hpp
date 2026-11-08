@@ -52,8 +52,6 @@ struct GpuTexture {
     gl::Enum internal; // the GL storage format
     GpuFormat format;  // the logical format callers see
     u8 bind;
-    GpuUsage usage;
-    bool wide; // r8 stored as RGBA8 because it is a storage image
 };
 
 struct GpuSrv {
@@ -106,7 +104,6 @@ struct GpuComputeShader : GlesShader {};
 
 struct GpuInputLayout {
     u32 vertex_array;
-    u32 count;
 };
 
 template <typename T, u32 Capacity>
@@ -115,8 +112,8 @@ struct GlesSlab {
     u16 free_list[Capacity];
     u32 free_count;
 
+    // The device is cleared before its slabs are set up, and allocate() clears each item it hands out.
     void reset() noexcept {
-        clear_bytes(items, static_cast<u32>(sizeof(items)));
         for (u32 index = 0; index < Capacity; ++index)
             free_list[index] = static_cast<u16>(Capacity - 1 - index);
         free_count = Capacity;
@@ -192,7 +189,6 @@ struct GpuContext {
     GpuRtv* target;
     GpuBlend* blend;
     float blend_factor[4];
-    GpuRaster* raster;
     float viewport[4];
     GpuRect scissor;
 
@@ -220,7 +216,6 @@ struct GpuDevice {
     egl::Api egl;
     gl::Api gl;
     void* egl_library;
-    void* gles_library;
     egl::Display display;
     egl::Context context;
     egl::Surface surface; // the 1x1 pbuffer when the context could not be made current without a surface

@@ -19,11 +19,12 @@ maicord_library(maicord_video_vaapi
     LIBS maicord_gpu_gles maicord_media_codec maicord_core INCLUDES src)
 
 # The live stream decoder (the Linux gpu_stream_decoder.hpp) over both tiers, and the movie decoder of attachments
-# (mp4_decoder.hpp: mp4_decoder.cpp over h264_file_decoder.cpp and hevc_file_decoder.cpp, the Linux h264_gpu_decoder.hpp
-# and hevc_gpu_decoder.hpp). h264_gpu_configuration.cpp is the Windows decoder's container-neutral first-picture check.
+# (mp4_decoder.hpp: the Windows build's mp4_decoder.cpp over h264_file_decoder.cpp and hevc_file_decoder.cpp, the Linux
+# h264_gpu_decoder.hpp and hevc_gpu_decoder.hpp). h264_gpu_configuration.cpp is the Windows decoder's container-neutral
+# first-picture check and fragment seek.
 maicord_library(maicord_video_decode
     src/platform/decode/linux/gpu_stream_decoder.cpp src/platform/decode/linux/software_stream.cpp
-    src/platform/decode/linux/mp4_decoder.cpp src/platform/decode/linux/h264_file_decoder.cpp
+    src/platform/decode/mp4_decoder.cpp src/platform/decode/linux/h264_file_decoder.cpp
     src/platform/decode/linux/hevc_file_decoder.cpp
     src/platform/decode/h264_gpu_configuration.cpp
     LIBS maicord_video_vaapi maicord_video_software maicord_gpu_gles maicord_media_codec maicord_core INCLUDES src)

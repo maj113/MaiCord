@@ -53,12 +53,7 @@ AccountMediaRequestResult publish_local_thumbnail(AccountMedia* media, const Med
     reset_value<WebpImage>(&media->frame_webp_image);
     media->frame_webp_image.width = width;
     media->frame_webp_image.height = height;
-    media->frame_key = key;
-    media->frame_bytes = bytes;
-    media->frame_request_id = 0;
-    media->frame_source_message_id = key.id;
-    media->frame_source_message_revision = key.variant;
-    capture_catalog_source(media, key);
+    stage_frame(media, key, bytes, 0, key.id, key.variant);
     media->frame_kind = AccountMediaFrameKind::straight_rgba8;
     mark_frame_ready(media, key);
     media->frame_cache_generation = 0;

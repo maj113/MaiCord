@@ -60,19 +60,16 @@ void on_global(void*, wl_registry* registry, u32 name, const char* interface, u3
         entry.version = version;
     }
     if (c_string_equal(interface, "wl_compositor")) {
-        if (version >= 4 && !g.compositor) {
-            g.compositor_version = minimum(version, kCompositorVersion);
+        if (version >= 4 && !g.compositor)
             g.compositor = static_cast<wl_compositor*>(
-                wl_registry_bind(registry, name, &wl_compositor_interface, g.compositor_version));
-        }
+                wl_registry_bind(registry, name, &wl_compositor_interface, minimum(version, kCompositorVersion)));
     } else if (c_string_equal(interface, "wl_shm")) {
         if (!g.shm)
             g.shm = static_cast<wl_shm*>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
     } else if (c_string_equal(interface, "xdg_wm_base")) {
         if (!g.wm_base) {
-            g.wm_base_version = minimum(version, kWmBaseVersion);
             g.wm_base = static_cast<xdg_wm_base*>(
-                wl_registry_bind(registry, name, &xdg_wm_base_interface, g.wm_base_version));
+                wl_registry_bind(registry, name, &xdg_wm_base_interface, minimum(version, kWmBaseVersion)));
             xdg_wm_base_add_listener(g.wm_base, &kWmBaseListener, nullptr);
         }
     } else if (c_string_equal(interface, "wl_seat")) {
@@ -583,6 +580,18 @@ void surface_sync() noexcept {
         apply_surface_geometry();
 }
 
+void begin_move() noexcept {
+    const u32 serial = latest_input_serial();
+    if (g.seat && serial != 0)
+        xdg_toplevel_move(g.window.toplevel, g.seat, serial);
+}
+
+void begin_resize(FrameHit edge) noexcept {
+    const u32 serial = latest_input_serial();
+    if (g.seat && serial != 0)
+        xdg_toplevel_resize(g.window.toplevel, g.seat, serial, resize_edge(edge));
+}
+
 // The window service ---------------------------------------------------------------------------------------------------
 
 } // namespace maicord::wayland
@@ -667,8 +676,6 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     window.sink = sink;
     window.sink_context = context;
     window.visible = info.visible;
-    window.requested_width = info.client_width_dips;
-    window.requested_height = info.client_height_dips;
     window.floating_width = info.client_width_dips;
     window.floating_height = info.client_height_dips;
     window.scale_120 = 120;
@@ -838,18 +845,6 @@ void window_show_system_menu(Window window, float x, float y) noexcept {
     const float scale = pixel_scale();
     xdg_toplevel_show_window_menu(g.window.toplevel, g.seat, serial, static_cast<i32>(x / scale),
                                   static_cast<i32>(y / scale));
-}
-
-void window_begin_move(Window window) noexcept {
-    const u32 serial = latest_input_serial();
-    if (is_window(window) && g.seat && serial != 0)
-        xdg_toplevel_move(g.window.toplevel, g.seat, serial);
-}
-
-void window_begin_resize(Window window, FrameHit edge) noexcept {
-    const u32 serial = latest_input_serial();
-    if (is_window(window) && g.seat && serial != 0)
-        xdg_toplevel_resize(g.window.toplevel, g.seat, serial, resize_edge(edge));
 }
 
 void window_set_min_size(Window window, u32 width_px, u32 height_px) noexcept {

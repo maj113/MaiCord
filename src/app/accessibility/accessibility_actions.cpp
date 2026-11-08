@@ -296,13 +296,20 @@ bool account_surface(u8 surface) noexcept {
            surface == surface_members;
 }
 
-// Reveals the node, republishes the frame and returns the node at its new place.
-bool reveal_and_resolve(UiAccessNode* node) noexcept {
-    if (!reveal_item(*node))
+// Scrolls the node's item into view and republishes the frame.
+bool reveal_node(const UiAccessNode& node) noexcept {
+    if (!reveal_item(node))
         return false;
-    if (account_surface(node->surface) && !refresh_account_frame(true))
+    if (account_surface(node.surface) && !refresh_account_frame(true))
         log_write(LogLevel::warning, "accessibility", "reveal_refresh_failed");
     application_request_frame();
+    return true;
+}
+
+// Reveals the node, republishes the frame and returns the node at its new place.
+bool reveal_and_resolve(UiAccessNode* node) noexcept {
+    if (!reveal_node(*node))
+        return false;
     g_access.dirty = true;
     const UiAccessTree* tree = access_tree(nullptr);
     const u32 index = tree ? ui_access_find(*tree, node->key) : kUiAccessNone;
@@ -569,11 +576,7 @@ void run_action(const PendingAction& pending) noexcept {
         wheel_node(node, static_cast<UiAccessScroll>(static_cast<u32>(pending.number)));
         return;
     case UiAccessAction::scroll_into_view:
-        if (!reveal_item(node))
-            return;
-        if (account_surface(node.surface) && !refresh_account_frame(true))
-            log_write(LogLevel::warning, "accessibility", "reveal_refresh_failed");
-        application_request_frame();
+        reveal_node(node);
         return;
     case UiAccessAction::set_value:
         if (locked)

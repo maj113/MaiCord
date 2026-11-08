@@ -16,7 +16,6 @@ struct Driver {
     Api api;
     Display display;
     i32 descriptor; // the render node
-    char node[64];
     // gpu_stream_codec_bit set the driver decodes: a VLD entry point of a profile, 8-bit 4:2:0 surfaces, the normal
     // slice mode, and a surface that exports as dma-bufs the renderer's EGL imports (probed with a real surface).
     u32 codecs;
@@ -99,9 +98,6 @@ struct Session {
     SurfaceId surface[kSurfaceLimit];
     KeptExport kept[kSurfaceLimit];
     u32 count;
-    u32 width, height; // allocated extent of every surface
-    i32 profile;
-    bool ten_bit; // P010 surfaces
     // Buffers of the picture being decoded, destroyed at picture_end.
     BufferId created[8 + 2 * 512];
     u32 created_count;

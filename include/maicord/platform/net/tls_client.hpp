@@ -100,11 +100,13 @@ void tls_client_release(TlsClient* client) noexcept;
 
 TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming,
                                       Slice<u8> outgoing) noexcept;
-TlsResult tls_client_encrypt(TlsClient* client, ConstSlice<u8> plaintext, Slice<u8> output,
-                             u32* produced) noexcept;
 TlsResult tls_client_encrypt_spans(
     TlsClient* client, ConstSlice<ConstSlice<u8>> plaintext,
     Slice<u8> output, u32* produced) noexcept;
+inline TlsResult tls_client_encrypt(TlsClient* client, ConstSlice<u8> plaintext, Slice<u8> output,
+                                    u32* produced) noexcept {
+    return tls_client_encrypt_spans(client, {&plaintext, 1}, output, produced);
+}
 TlsDecryptResult tls_client_decrypt(TlsClient* client, Slice<u8> encrypted) noexcept;
 
 } // namespace maicord

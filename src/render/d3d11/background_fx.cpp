@@ -11,11 +11,10 @@ namespace {
 bool create_resources(D3D11BackgroundFxOwner* owner, GpuDevice* device) noexcept {
     if (owner->vertex_shader && owner->builtin_shader && owner->constant_buffer && owner->blend_state)
         return true;
-    bool layout_failed = false;
     HRESULT result = owner->vertex_shader
                          ? S_OK
                          : gpu_vertex_shader_create(device, ShaderId::fx_vertex, {}, &owner->vertex_shader, nullptr,
-                                                    &layout_failed);
+                                                    nullptr);
     if (SUCCEEDED(result) && !owner->builtin_shader)
         result = gpu_pixel_shader_create(device, ShaderId::fx_builtin, &owner->builtin_shader);
     if (SUCCEEDED(result) && !owner->constant_buffer) {

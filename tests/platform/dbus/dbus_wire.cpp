@@ -132,9 +132,6 @@ void test_builder_errors() noexcept {
     check(!signature_valid("(") && !signature_valid("()") && !signature_valid("a") && !signature_valid("{sv}x}") &&
               !signature_valid("a{vs}") && !signature_valid("(i") && !signature_valid("z"),
           "invalid signatures");
-    check(signature_type_length("a{sv}u") == 5 && signature_type_length("(ii)") == 4 && signature_type_length("u") == 1 &&
-              signature_type_length("") == 0,
-          "the length of the first complete type");
 }
 
 // Everything at once: written, then read back and compared.

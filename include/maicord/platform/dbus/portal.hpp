@@ -15,10 +15,6 @@ bool portal_sandboxed() noexcept;
 // the bus is missing. A synchronous call on the session bus, at most `timeout_ms` long.
 u32 portal_interface_version(const char* interface, u32 timeout_ms) noexcept;
 
-// A probe only (nothing is inhibited): whether the Inhibit portal is there, which the idle-inhibit feature may use
-// where the compositor lacks the Wayland protocol. Returns its version, 0 when absent.
-u32 inhibit_portal_version(u32 timeout_ms) noexcept;
-
 // The window the portals' dialogs belong to, as the portals name it ("wayland:<handle>"; the window backend sets it once
 // the compositor has given the handle and clears it with the window). The FileChooser, OpenURI and GlobalShortcuts
 // requests send it as parent_window, the first unless its options name another one. "" when there is none.
