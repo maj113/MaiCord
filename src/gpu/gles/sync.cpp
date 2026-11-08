@@ -157,6 +157,8 @@ void gpu_release(GpuFence*& handle) noexcept {
     GpuDevice& d = gles::device();
     for (u32 index = 0; index < fence->signal_count; ++index)
         d.gl.glDeleteSync(fence->syncs[index]);
+    // The slab keeps released items as they are: without this, poll_fences would keep polling the deleted syncs.
+    fence->in_use = false;
     d.fences.release(fence);
 }
 
