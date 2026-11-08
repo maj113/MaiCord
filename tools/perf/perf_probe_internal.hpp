@@ -220,6 +220,9 @@ struct ProcessSample {
     u64 main_cycles;
     u64 process_cycles;
     u64 user_100ns, kernel_100ns;
+    // In a phase's end sample, the context switches of the process's threads during the phase: the sum of each live
+    // thread's growth since the begin sample (which records them and leaves this 0). A thread that exits during the
+    // phase drops out of the sum instead of subtracting its whole count from it.
     u64 context_switches;
     u64 main_context_switches;
     u64 private_working_set;
@@ -233,7 +236,7 @@ struct ProcessSample {
 
 extern DWORD g_main_thread_id;
 
-bool sample_process(ProcessSample* out) noexcept;
+bool sample_process(ProcessSample* out, bool phase_begin) noexcept;
 
 // Per-thread owner (Win32 start address), CPU cycles and context switches,
 // with the context switches of the final idle phase for idle attribution, and

@@ -465,6 +465,14 @@ static_assert(sizeof(SpiProcess) == 256);
 
 static_assert(sizeof(SpiThread) == 80);
 
+// Each thread's context switches at the current phase's begin sample.
+struct ThreadSwitches {
+    u64 id;
+    u32 switches;
+};
+ThreadSwitches g_phase_threads[kThreadCapacity];
+u32 g_phase_thread_count = 0;
+
 } // namespace
 
 namespace perf_probe_detail {
@@ -475,7 +483,7 @@ u8* g_spi_buffer = nullptr;
 
 DWORD g_main_thread_id = 0;
 
-bool sample_process(ProcessSample* out) noexcept {
+bool sample_process(ProcessSample* out, bool phase_begin) noexcept {
     *out = {};
     LARGE_INTEGER qpc{};
     QueryPerformanceCounter(&qpc);
@@ -502,10 +510,27 @@ bool sample_process(ProcessSample* out) noexcept {
                     out->user_100ns = static_cast<u64>(process->user_time.QuadPart);
                     out->kernel_100ns = static_cast<u64>(process->kernel_time.QuadPart);
                     const auto* threads = reinterpret_cast<const SpiThread*>(process + 1);
+                    if (phase_begin)
+                        g_phase_thread_count = 0;
                     for (u32 t = 0; t < process->threads; ++t) {
-                        out->context_switches += threads[t].context_switches;
-                        if (reinterpret_cast<u64>(threads[t].thread_id) == g_main_thread_id)
-                            out->main_context_switches = threads[t].context_switches;
+                        const u64 id = reinterpret_cast<u64>(threads[t].thread_id);
+                        const u32 switches = threads[t].context_switches;
+                        if (id == g_main_thread_id)
+                            out->main_context_switches = switches;
+                        if (phase_begin) {
+                            if (g_phase_thread_count < kThreadCapacity)
+                                g_phase_threads[g_phase_thread_count++] = {id, switches};
+                            continue;
+                        }
+                        // A thread that began after the phase, or reuses the id of one that ended, counts from 0.
+                        u32 baseline = 0;
+                        for (u32 i = 0; i < g_phase_thread_count; ++i) {
+                            if (g_phase_threads[i].id == id) {
+                                baseline = g_phase_threads[i].switches <= switches ? g_phase_threads[i].switches : 0;
+                                break;
+                            }
+                        }
+                        out->context_switches += switches - baseline;
                     }
                     break;
                 }

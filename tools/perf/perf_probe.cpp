@@ -182,7 +182,7 @@ GpuWork sample_gpu_work() noexcept {
 
 void begin_phase(Phase phase) noexcept {
     PhaseStats& stats = g_phases[static_cast<u32>(phase)];
-    sample_process(&stats.begin);
+    sample_process(&stats.begin, true);
     stats.alloc_begin = g_alloc;
     stats.frame_cycles_offset = g_frame_cycle_count;
     stats.measured = true;
@@ -197,7 +197,7 @@ void begin_phase(Phase phase) noexcept {
 }
 void end_phase() noexcept {
     PhaseStats& stats = g_phases[static_cast<u32>(g_probe.phase)];
-    sample_process(&stats.end);
+    sample_process(&stats.end, false);
     stats.alloc_end = g_alloc;
     stats.text_end = sample_text_work();
     stats.gpu_end = sample_gpu_work();

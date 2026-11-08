@@ -283,7 +283,7 @@ void report_phase(Phase phase) noexcept {
     o.kv("anim_suspended", stats.anim_suspended);
     o.kv("anim_advances", stats.anim_advances);
     o.kv("anim_visible_peak", stats.anim_visible_peak);
-    o.kv("ctxsw", stats.end.context_switches - stats.begin.context_switches);
+    o.kv("ctxsw", stats.end.context_switches);
     o.kv("ctxsw_main", stats.end.main_context_switches - stats.begin.main_context_switches);
     o.kv("draws", stats.draw_calls);
     {
