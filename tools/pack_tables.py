@@ -119,9 +119,7 @@ def games(directory, data):
     table = tables_of(pathlib.Path(data).read_text(encoding="utf-8"), "constexpr DetectableGame kBuiltin")["kBuiltin"][1]
     out = bytearray()
     for item in table:
-        name, executables, application = item[1]
-        if number_of(application) != 0:
-            fail("a built-in game has an application id")
+        name, executables = item[1]
         put_text(out, text_of(name))
         put_text(out, text_of(executables))
     emit(directory, "game", "Game", [("Count", len(table))], out)

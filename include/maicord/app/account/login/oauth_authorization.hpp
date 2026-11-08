@@ -40,4 +40,15 @@ OAuthAuthorizationResult oauth_authorization_refresh(OAuthAuthorization*, Utf8Vi
 // also fence completion by attempt identity before installing credentials.
 void oauth_authorization_cancel(OAuthAuthorization*) noexcept;
 void oauth_authorization_release(OAuthAuthorization*) noexcept;
+namespace oauth_detail {
+// An untouched buffer: what every OAuth output must be on entry.
+inline bool secure_buffer_empty(const SecureBuffer* buffer) noexcept {
+    return buffer && !buffer->data && !buffer->capacity && !buffer->bytes && !buffer->locked;
+}
+// A locked buffer released at scope exit.
+struct ScopedSecureBuffer {
+    SecureBuffer value{};
+    ~ScopedSecureBuffer() noexcept { secure_buffer_release(&value); }
+};
+} // namespace oauth_detail
 } // namespace maicord

@@ -221,10 +221,6 @@ enum : u32 {
     menu_role_first = kMenuBase + 0x100,
     menu_last = kMenuBase + 0x1FF
 };
-u8 relation_of(u64 user) noexcept {
-    u8 relation = 0;
-    return application_friends_user_relation(user, &relation) ? relation : 0;
-}
 UiRect part_rectangle(const ApplicationProfile& p, UiWidgetHandle target) noexcept {
     const auto* node = ui_widget_manager_layout_node(p.scene.widgets, target);
     return node ? node->rectangle : p.scene.rectangle;
@@ -260,7 +256,7 @@ bool open_edit_menu(ApplicationProfile& p, UiRect anchor) noexcept {
 }
 // Friend Actions for the friend / pending header button.
 bool open_friend_menu(ApplicationProfile& p, UiRect anchor) noexcept {
-    const u8 relation = relation_of(p.data.user_id);
+    const u8 relation = application_friends_relation(p.data.user_id);
     u32 count = 0;
     if (relation == 1)
         p.menu_items[count++] = menu_row(utf8_literal("Remove Friend"), menu_remove_friend, {},
@@ -392,12 +388,12 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
     case ProfileAction::add_friend:
         if (!application_friends_user_action(p->data.user_id, ApplicationFriendsUserAction::add))
             log_u64(LogLevel::warning, "profile", "add_friend_refused", p->data.user_id);
-        s.relation = relation_of(p->data.user_id);
+        s.relation = application_friends_relation(p->data.user_id);
         break;
     case ProfileAction::accept_friend:
         if (!application_friends_user_action(p->data.user_id, ApplicationFriendsUserAction::accept))
             log_u64(LogLevel::warning, "profile", "accept_friend_refused", p->data.user_id);
-        s.relation = relation_of(p->data.user_id);
+        s.relation = application_friends_relation(p->data.user_id);
         break;
     case ProfileAction::relationship:
         return open_friend_menu(*p, part_rectangle(*p, target));
@@ -533,7 +529,7 @@ bool application_profile_menu_activate(u32 action) noexcept {
                                                             : ApplicationFriendsUserAction::accept;
         if (!application_friends_user_action(user, intent))
             log_u64(LogLevel::warning, "profile", "relationship_action_refused", static_cast<u64>(intent));
-        p->scene.relation = relation_of(user);
+        p->scene.relation = application_friends_relation(user);
         return profile_scene_layout(&p->scene, application_viewport_dips(), true) && repaint(true);
     }
     if (action >= menu_role_first && action - menu_role_first < p->menu_role_count)
@@ -574,7 +570,7 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
                          : kind == ProfileAnchor::member ? ProfilePlacement::left
                                                          : ProfilePlacement::right;
     p->scene.presentation = ProfilePresentation::popout;
-    p->scene.relation = relation_of(user);
+    p->scene.relation = application_friends_relation(user);
     p->scene.scroll_to_note = false;
     p->scene.opened_ms = clock_monotonic_milliseconds();
     const auto& state = g_app.account_ui->chat_state;
@@ -730,7 +726,7 @@ void application_profile_layout(UiRect viewport) noexcept {
     const bool plugins = ui_plugin_slot_surface_active(kUiPluginSlotProfileSection) &&
                          plugin_revision != g_plugin_surface_revision;
     plugin_revision = g_plugin_surface_revision;
-    const u8 relation = relation_of(p->data.user_id);
+    const u8 relation = application_friends_relation(p->data.user_id);
     const bool moved = !ui_rect_equal(s.anchor, anchor) || relation != s.relation || plugins ||
                        s.media_dpi != static_cast<u16>(g_app.renderer.dpi);
     s.media_dpi = static_cast<u16>(g_app.renderer.dpi);

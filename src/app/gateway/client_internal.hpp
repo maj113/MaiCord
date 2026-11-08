@@ -245,7 +245,6 @@ struct GatewayClientRuntime {
     bool resolver_released;
     bool stopping;
     bool failed;
-    bool authenticated;
     bool reconnecting;
     bool has_pending_pong;
     // Started on the default endpoint: fresh sessions go to the launch's last resume host.
@@ -388,8 +387,6 @@ bool publish_relationship_stream(void* opaque, const GatewayClientEvent& event,
 Slice<char> dispatch_scratch(GatewayClientRuntime* runtime) noexcept;
 Slice<u32> object_scratch(GatewayClientRuntime* runtime) noexcept;
 void publish_resume(GatewayClientRuntime* runtime, const GatewayResumeState& state) noexcept;
-void publish_resume_sequence(GatewayClientRuntime* runtime, u64 sequence) noexcept;
-GatewayClientResult result(const GatewayClient* client) noexcept;
 void publish_failure(GatewayClient* client, GatewayClientError error, u32 native_error) noexcept;
 void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
 void reset_voice(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
@@ -470,7 +467,6 @@ OutboundDrive send_ready_output(GatewayClientRuntime* runtime, GatewayLifecycleA
 enum class PlaintextDrive : u8 {
     receive,
     sending,
-    hello,
     reconnecting,
     failed,
 };
@@ -479,33 +475,23 @@ PlaintextDrive fail_plaintext(GatewayClientRuntime* runtime, GatewayClientFailur
 PlaintextDrive fail_session_event(GatewayClientRuntime* runtime,
                                   const GatewaySessionEvent& event) noexcept;
 
-enum class ReadyRecordKind : u8 {
-    guild,
-    private_channel,
-    user
-};
-struct ReadyStatePublishContext {
+struct PrivateChannelPublish {
     GatewayClient* client;
     GatewayClientRuntime* runtime;
-    Slice<u32> object_scratch;
-    Slice<char> payload_scratch;
     u64 sequence;
     u64 now_ms;
     GatewayClientDispatchRouteResult route;
     bool publish_failed;
-    ReadyRecordKind kind;
-    u32 user_bytes;
-    u32 user_count;
 };
 
-ReadyStatePublishContext publish_ready_state(GatewayClient* client, GatewayClientRuntime* runtime,
-                                             JsonValue records, ReadyRecordKind kind, u64 sequence,
-                                             u64 now_ms) noexcept;
+// READY_SUPPLEMENTAL's lazy private channels, each routed as CHANNEL_CREATE and published; the first one that
+// cannot be routed or published stops the rest.
+PrivateChannelPublish publish_private_channels(GatewayClient* client, GatewayClientRuntime* runtime,
+                                               JsonValue channels, u64 sequence, u64 now_ms) noexcept;
 PlaintextDrive drive_queued_actions(GatewayClient* client, GatewayClientRuntime* runtime,
                                     u64 now_ms) noexcept;
 PlaintextDrive resume_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept;
 void checkpoint_resume_sequence(GatewayClientRuntime* runtime) noexcept;
-void set_decode_failure(GatewayClientDispatchRouteResult* routed, const GatewayEventDecodeResult& decoded) noexcept;
 
 // A route failure's categorical codes, for the terminal failure report or the diagnostic event.
 template <class Target>

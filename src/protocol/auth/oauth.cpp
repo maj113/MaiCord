@@ -161,8 +161,7 @@ OAuthCallback oauth_callback(OAuthProvider provider, Utf8View input, u16 port, U
         while (equals < last && query.data[equals] != '=') ++equals;
         if (++count > 16 || equals == p || equals == last) return reject(E::malformed);
         const Utf8View key{query.data + p, equals - p};
-        const u32 bit = utf8_equal(key, utf8_literal("state")) ? 1 : utf8_equal(key, utf8_literal("code")) ? 2 :
-            utf8_equal(key, utf8_literal("error")) ? 4 : utf8_equal(key, utf8_literal("iss")) ? 8 : 0;
+        const u32 bit = protocol_detail::member_bit<"state", "code", "error", "iss">(JsonString{key, 0, false});
         if (bit) {
             u32 bytes = 0;
             if (seen & bit || !decode({query.data + equals + 1, last - equals - 1}, {temporary, sizeof(temporary)}, &bytes))
@@ -193,13 +192,14 @@ OAuthError oauth_tokens(OAuthProvider provider, Utf8View json, u16 status, Slice
     Fields f{};
     if (!json_visit_indexed_object(doc, {json, 0, JsonValueKind::object}, 8, token_field, &f).ok()) return E::malformed;
     if (status != 200) {
-        if (equal(f.values[5], utf8_literal("invalid_request")))
-            return E::invalid_request;
-        if (equal(f.values[5], utf8_literal("invalid_grant"))) return E::invalid_grant;
-        if (equal(f.values[5], utf8_literal("invalid_scope"))) return E::scope;
-        if (equal(f.values[5], utf8_literal("invalid_client")) || equal(f.values[5], utf8_literal("unauthorized_client"))) return E::invalid_client;
-        if (equal(f.values[5], utf8_literal("access_denied"))) return E::denied;
-        return E::unavailable;
+        // Each listed code's result; anything else is unavailable.
+        static constexpr E kErrors[] = {E::invalid_request, E::invalid_grant, E::scope, E::invalid_client,
+                                        E::invalid_client, E::denied, E::unavailable};
+        JsonString error{};
+        return kErrors[json_value_as_string(f.values[5], &error)
+                           ? protocol_detail::member_index<"invalid_request", "invalid_grant", "invalid_scope",
+                                 "invalid_client", "unauthorized_client", "access_denied">(error)
+                           : 6];
     }
     u64 expires = 0;
     if (f.seen & 32 || (f.seen & 13) != 13 || !equal(f.values[3], utf8_literal("Bearer")) ||

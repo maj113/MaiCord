@@ -1,5 +1,6 @@
 #include "../account/user_actions.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "../shell/content_point.hpp"
 #include "voice.hpp"
@@ -43,14 +44,6 @@ struct VoiceUi {
 };
 VoiceUi voice{};
 
-// Voice visuals are not part of the renderer's presentation stamp.
-const GatewayClientVoiceSnapshot* session() noexcept {
-    return g_app.account_ui ? &g_app.account_ui->voice_session : nullptr;
-}
-// DM and group calls have no guild; their voice server is keyed by the channel.
-bool in_call(const GatewayClientVoiceSnapshot& s) noexcept {
-    return s.channel_id && s.phase != VoiceSetupPhase::idle;
-}
 const UiRect* footer() noexcept {
     static UiRect rectangle;
     const auto* node =
@@ -89,7 +82,7 @@ bool request(u64 guild_id, u64 channel_id) noexcept {
     return true;
 }
 void apply_self_state() noexcept {
-    if (const auto* s = session(); s && in_call(*s))
+    if (const auto* s = application_voice_call())
         request(s->guild_id, s->channel_id);
 }
 void push() noexcept {
@@ -98,7 +91,7 @@ void push() noexcept {
         return;
     VoiceAudioSettings settings = voice.preferences.audio;
     settings.monitor = voice.monitor;
-    const u64 user = session() ? session()->user_id : 0;
+    const u64 user = g_app.account_ui ? g_app.account_ui->voice_session.user_id : 0;
     if (!voice.dirty && h.instance == voice.pushed_instance && user == voice.pushed_user)
         return;
     if (!h.api.voice_audio_configure(h.instance, &settings))
@@ -134,8 +127,8 @@ bool same_view(const UiVoicePanelView& a, const UiVoicePanelView& b) noexcept {
 }
 void refresh_view() noexcept {
     UiVoicePanelView next = voice.view;
-    const auto* s = session();
-    const bool joined = s && in_call(*s);
+    const auto* s = application_voice_call();
+    const bool joined = s != nullptr;
     next.guild_id = joined ? s->guild_id : 0;
     next.channel_id = joined ? s->channel_id : 0;
     next.state = !joined ? UiVoicePanelState::hidden
@@ -198,18 +191,17 @@ void set_user(u64 user_id, u32 gain, bool muted) noexcept {
     if (h.instance && h.api.voice_user_audio)
         h.api.voice_user_audio(h.instance, user_id, gain, muted);
 }
-void format_label(u32 gain) noexcept {
-    TextBank label{voice.menu_label, sizeof(voice.menu_label), 0};
-    label.add("User volume · ");
-    label.number(gain);
-    label.add("%");
-    voice.menu_label_bytes = label.used;
-}
 bool menu_open() noexcept {
     return voice.menu_user && g_app.popup_scene.active && g_app.popup_scene.owner_id == voice.menu_user &&
            g_app.popup_owner_kind == PopupOwnerKind::member && g_app.popup_scene.feedback.slider_count;
 }
 } // namespace
+
+const GatewayClientVoiceSnapshot* application_voice_call() noexcept {
+    const auto* s = g_app.account_ui ? &g_app.account_ui->voice_session : nullptr;
+    // DM and group calls have no guild; their voice server is keyed by the channel.
+    return s && s->channel_id && s->phase != VoiceSetupPhase::idle ? s : nullptr;
+}
 
 void application_voice_pump() noexcept {
     ensure_loaded();
@@ -217,18 +209,18 @@ void application_voice_pump() noexcept {
         g_app.account_ui->navigation_view.voice_panel = &voice.view;
     push();
     auto& h = g_app.account;
-    const auto* s = session();
+    const bool call = application_voice_call() != nullptr;
     const u64 now = clock_monotonic_milliseconds();
-    if (h.instance && h.api.voice_audio_status && ((s && in_call(*s)) || voice.monitor) &&
+    if (h.instance && h.api.voice_audio_status && (call || voice.monitor) &&
         now >= voice.status_at_ms) {
         VoiceAudioStatus status{};
         if (h.api.voice_audio_status(h.instance, &status))
             voice.status = status;
         voice.status_at_ms = now + (voice.monitor ? 30 : 1000);
-    } else if (!(s && in_call(*s)) && !voice.monitor)
+    } else if (!call && !voice.monitor)
         reset_value(&voice.status);
     refresh_view();
-    voice_push_to_talk_binding_update(s && in_call(*s), voice.preferences.audio.mode, voice.preferences.audio.push_to_talk_key);
+    voice_push_to_talk_binding_update(call, voice.preferences.audio.mode, voice.preferences.audio.push_to_talk_key);
     application_voice_channels_pump();
     application_voice_settings_tick();
     if (voice.save_pending && !window_key_down(nullptr, key::lbutton)) {
@@ -245,11 +237,10 @@ void application_voice_pump() noexcept {
 }
 
 u64 application_voice_next_wake() noexcept {
-    const auto* s = session();
     // Background voice keybinds sample their chords on the same cadence as push to talk.
     const u64 keys = application_shortcuts_next_wake();
-    const auto earliest = [keys](u64 wake) noexcept { return !keys ? wake : !wake ? keys : minimum(wake, keys); };
-    if (!voice.monitor && !(s && in_call(*s)))
+    const auto earliest = [keys](u64 wake) noexcept { return earliest_deadline(wake, keys); };
+    if (!voice.monitor && !application_voice_call())
         return earliest(voice.users_dirty || voice.save_pending ? clock_monotonic_milliseconds() + 250 : 0);
     return earliest(voice.status_at_ms ? voice.status_at_ms : 1);
 }
@@ -267,9 +258,9 @@ bool application_voice_join(u64 guild_id, u64 channel_id) noexcept {
         return false;
     // As in the official client, a voice channel opens its call view; a click on a
     // participant whose camera is on focuses their tile.
-    const auto* s = session();
+    const auto* s = application_voice_call();
     const u64 focus = guild_id ? camera_user_at_message_point() : 0;
-    if (!(s && in_call(*s) && s->channel_id == channel_id))
+    if (!(s && s->channel_id == channel_id))
         request(guild_id, channel_id);
     application_call_open(channel_id, focus);
     return true;
@@ -278,8 +269,8 @@ bool application_voice_join(u64 guild_id, u64 channel_id) noexcept {
 bool application_voice_leave() noexcept {
     // Disconnecting returns to the text channel at once, as in the official client.
     application_call_close();
-    const auto* s = session();
-    if (!s || !in_call(*s))
+    const auto* s = application_voice_call();
+    if (!s)
         return true;
     request(s->guild_id, 0);
     return true;
@@ -329,7 +320,7 @@ bool application_voice_shell_click(float x, float y) noexcept {
     case UiVoiceControl::disconnect:
         return application_voice_leave();
     case UiVoiceControl::channel:
-        if (const auto* s = session(); s && in_call(*s))
+        if (const auto* s = application_voice_call())
             application_call_open(s->channel_id, 0); // The voice card opens the call view.
         return true;
     default:
@@ -425,7 +416,8 @@ bool application_voice_context_at(float x, float y, UiRect anchor) noexcept {
     // Local mute and the volume slider lead the shared user menu.
     PopupItem mute{utf8_literal("Mute"), kMenuMute,
                    static_cast<u16>(popup_item_enabled | (audio.muted ? popup_item_checked : 0)), 0};
-    format_label(audio.gain_percent);
+    voice.menu_label_bytes =
+        volume_menu_text(voice.menu_label, utf8_literal("User volume"), audio.gain_percent);
     UiPopupFeedback feedback{{voice.menu_label, voice.menu_label_bytes},
                              {64, 12},
                              false,
@@ -475,6 +467,15 @@ VolumeMenuPointer volume_menu_pointer(bool* dragging, float x, float y, bool pre
                                                                                          : VolumeMenuPointer::handled;
 }
 
+u32 volume_menu_text(char (&label)[48], Utf8View subject, u32 percent) noexcept {
+    TextBank text{label, sizeof(label), 0};
+    text.add(subject);
+    text.add(" · ");
+    text.number(percent);
+    text.add("%");
+    return text.used;
+}
+
 void volume_menu_label(const char* text, u32 bytes) noexcept {
     popup_scene_set_feedback(&g_app.popup_scene, {text, bytes});
     refresh_popup_text();
@@ -491,7 +492,7 @@ bool application_voice_menu_pointer(float x, float y, bool press) noexcept {
     if (result == VolumeMenuPointer::moved) {
         const auto audio = voice_preferences_user(voice.preferences, voice.menu_user);
         set_user(voice.menu_user, gain, audio.muted);
-        format_label(gain);
+        voice.menu_label_bytes = volume_menu_text(voice.menu_label, utf8_literal("User volume"), gain);
         volume_menu_label(voice.menu_label, voice.menu_label_bytes);
     }
     return result != VolumeMenuPointer::ignored;

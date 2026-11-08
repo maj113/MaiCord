@@ -73,12 +73,14 @@ bool save_inventory() noexcept {
     return saved;
 }
 
-bool slot_profile_present(u32 slot) noexcept {
-    AccountPaths paths;
-    if (!account_paths_resolve_slot(slot, &paths).ok())
-        return false;
+bool profile_present(const AccountPaths& paths) noexcept {
     FileStat profile{};
     return file_path_stat(paths.profile, &profile) && profile.kind != FileKind::directory;
+}
+
+bool slot_profile_present(u32 slot) noexcept {
+    AccountPaths paths;
+    return account_paths_resolve_slot(slot, &paths).ok() && profile_present(paths);
 }
 
 // Logout contract on a slot without a worker: marker, delete, confirm. The
@@ -333,7 +335,7 @@ bool begin_switch(u32 slot) noexcept {
     if (!account_paths_resolve_slot(slot, &target).ok())
         return false;
     const auto probe = account_credential_forget_probe(target);
-    if (!probe.ok() || probe.pending || !slot_profile_present(slot)) {
+    if (!probe.ok() || probe.pending || !profile_present(target)) {
         // An interrupted logout or a missing token: finish forgetting it and
         // ask for that account's sign-in instead.
         if (auto* entry = entry_for(slot)) {

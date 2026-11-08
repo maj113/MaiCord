@@ -6,10 +6,8 @@ namespace {
 bool push_tagged(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> frame, u32 rtp_timestamp,
                  bool keyframe, bool intact) noexcept {
     auto& session = *static_cast<GatewayStreamSession*>(context);
-    if (ssrc & kGatewayStreamVideoSsrcTag) {
-        ++session.frames_untagged;
-        return false;
-    }
+    if (ssrc & kGatewayStreamVideoSsrcTag)
+        return false; // A stream SSRC already carrying the tag is dropped.
     return session.target.push_frame &&
            session.target.push_frame(session.target.context, ssrc | kGatewayStreamVideoSsrcTag, codec, frame,
                                      rtp_timestamp, keyframe, intact);
@@ -58,22 +56,9 @@ VideoFrameSink gateway_stream_session_frames(GatewayStreamSession* session) noex
     return {session, push_tagged, end_tagged, decodable_target};
 }
 
-bool gateway_stream_session_owns(const GatewayStreamSession& session, const NetworkCompletion& completion) noexcept {
-    return voice_connection_owns(session.connection, completion);
-}
-
-void gateway_stream_session_completion(GatewayStreamSession* session, NetworkLoop* loop,
-                                       const NetworkCompletion& completion, u64 now_ms) noexcept {
-    voice_connection_completion(&session->connection, session->control.setup, loop, completion, now_ms);
-}
-
 bool gateway_stream_session_busy(const GatewayStreamSession& session) noexcept {
     return gateway_stream_active(session.control) || !voice_connection_drained(session.connection) ||
            session.connection.command.data || session.receive.media_revision;
-}
-
-bool gateway_stream_session_drained(const GatewayStreamSession& session) noexcept {
-    return voice_connection_drained(session.connection);
 }
 
 u64 gateway_stream_session_deadline(const GatewayStreamSession& session) noexcept {

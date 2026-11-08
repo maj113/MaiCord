@@ -340,7 +340,7 @@ GatewayEventDecodeResult append_overwrite_array(JsonValue array, Slice<u32> arra
     else {
         const JsonScanResult scan = json_scan_structurals_avx1(array.source, array_scratch);
         if (!scan.ok())
-            return decode_error(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+            return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
         read = json_visit_value_array(array, {array_scratch.data, scan.count}, maximum_depth,
                                      visit_overwrite, &context);
     }
@@ -357,7 +357,7 @@ GatewayEventDecodeResult append_overwrite_array(JsonValue array, Slice<u32> arra
         return read_failure(context.error, read);
     }
     *count = context.count;
-    return decode_error(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 } // namespace state_dispatch_detail
@@ -424,23 +424,9 @@ bool member_identity(JsonValue value, Slice<u32> scratch, u32 maximum_depth,
 } // namespace state_dispatch_detail
 namespace {
 
-bool visit_member(void* opaque, u32, JsonValue value) noexcept {
-    auto* context = static_cast<SelfMemberContext*>(opaque);
-    // Only the current member's roles and state are read here. Any other entry
-    // (voice members, a member without roles) is skipped rather than costing
-    // the guild, so a server joined while running always appears.
-    MemberIdentity identity{};
-    const bool identified =
-        member_identity(value, context->object_scratch, context->maximum_depth, &identity);
-    const bool self =
-        identity.user_id == context->self_user_id || identity.nested_id == context->self_user_id;
-    if (!self)
-        return true;
-    if (!identified ||
-        (identity.user_id_seen && identity.user_seen && identity.user_id != identity.nested_id)) {
-        context->error = GatewayEventDecodeError::invalid_data;
-        return false;
-    }
+// Out of line: its StateObjectContext and role index (~5 KB) would otherwise cost every member of the array a
+// stack probe, while only the current user's entry reaches it.
+__declspec(noinline) bool visit_self_member(SelfMemberContext* context, JsonValue value) noexcept {
     StateObjectContext member;
     const GatewayEventDecodeResult decoded =
         decode_state_object(value, context->object_scratch, context->maximum_depth, &member);
@@ -473,6 +459,26 @@ bool visit_member(void* opaque, u32, JsonValue value) noexcept {
     return true;
 }
 
+bool visit_member(void* opaque, u32, JsonValue value) noexcept {
+    auto* context = static_cast<SelfMemberContext*>(opaque);
+    // Only the current member's roles and state are read here. Any other entry
+    // (voice members, a member without roles) is skipped rather than costing
+    // the guild, so a server joined while running always appears.
+    MemberIdentity identity{};
+    const bool identified =
+        member_identity(value, context->object_scratch, context->maximum_depth, &identity);
+    const bool self =
+        identity.user_id == context->self_user_id || identity.nested_id == context->self_user_id;
+    if (!self)
+        return true;
+    if (!identified ||
+        (identity.user_id_seen && identity.user_seen && identity.user_id != identity.nested_id)) {
+        context->error = GatewayEventDecodeError::invalid_data;
+        return false;
+    }
+    return visit_self_member(context, value);
+}
+
 } // namespace
 namespace state_dispatch_detail {
 
@@ -500,7 +506,7 @@ GatewayEventDecodeResult append_self_member_roles(JsonValue members, Slice<u32> 
         guild->guild_settings_known = static_cast<u16>(guild->guild_settings_known | context.member_known);
         guild->self_member = context.member_state;
     }
-    return decode_error(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 bool hydrate_self_member(StateObjectContext* object, u64 self_user_id) noexcept {
@@ -530,7 +536,7 @@ GatewayEventDecodeResult append_channel_record(PayloadWriter* writer, StateObjec
     const bool has_name = (mutation.fields & gateway_client_state_field_name) != 0;
     if (!gateway_payload_append(writer, &mutation, sizeof(mutation)) ||
         (has_name && !append_name(writer, object->name, &mutation.name_bytes))) {
-        return decode_error(GatewayEventDecodeError::invalid_data);
+        return decode_failure(GatewayEventDecodeError::invalid_data);
     }
     if (object->permission_overwrites_seen) {
         u32 object_scratch[512];
@@ -544,7 +550,7 @@ GatewayEventDecodeResult append_channel_record(PayloadWriter* writer, StateObjec
     copy_bytes(writer->output.data + header_offset, &mutation, sizeof(mutation));
     object->mutation.name_bytes = mutation.name_bytes;
     object->mutation.overwrite_count = mutation.overwrite_count;
-    return decode_error(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 struct ChannelArrayContext {
@@ -622,7 +628,7 @@ GatewayEventDecodeResult append_channel_array(JsonValue array, Slice<u32> array_
                                               u32* skipped) noexcept {
     const JsonScanResult scan = json_scan_structurals_avx1(array.source, array_scratch);
     if (!scan.ok()) {
-        return decode_error(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
     }
     ChannelArrayContext context{
         writer, object_scratch, guild_id, maximum_depth, 0, 0, GatewayEventDecodeError::none};
@@ -641,7 +647,7 @@ GatewayEventDecodeResult append_channel_array(JsonValue array, Slice<u32> array_
     *overwrite_count += context.overwrite_count;
     if (skipped)
         *skipped += context.skipped;
-    return decode_error(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 bool visit_ready_guild(void* opaque, u32, JsonValue value) noexcept {

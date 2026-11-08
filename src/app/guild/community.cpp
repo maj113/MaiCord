@@ -243,12 +243,9 @@ void open_menu(Menu menu, const UiRect& anchor) noexcept {
     if (!count)
         return;
     count = minimum(count, kTimeChoices);
-    for (u32 i = 0; i < count; ++i) {
-        reset_value(&p.popup_items[i]);
-        p.popup_items[i].label = labels[i];
-        p.popup_items[i].action = kMenuChoiceBase + i;
-        p.popup_items[i].flags = static_cast<u16>(popup_item_enabled | (i == selected ? popup_item_checked : 0));
-    }
+    for (u32 i = 0; i < count; ++i)
+        popup_item_set(&p.popup_items[i], labels[i], kMenuChoiceBase + i,
+                       static_cast<u16>(popup_item_enabled | (i == selected ? popup_item_checked : 0)));
     p.menu = menu;
     settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 220);
 }
@@ -482,7 +479,7 @@ void application_guild_community_gateway(const GatewayClientEvent& event, ConstS
             events_changed();
         return;
     }
-    ScheduledEvent decoded{};
+    ScheduledEvent decoded; // written in full by a successful decode, read only after one
     if (!scheduled_event_decode(json, {scratch, 16384}, &decoded) || !ensure_events())
         return;
     const bool changed = kind == GatewayClientDispatchKind::guild_scheduled_event_delete
@@ -667,20 +664,10 @@ u32 application_guild_community_menu_items(u64 guild_id, u32 onboarding_action, 
     if (!g || g->unavailable || !output.data || !g_app.account.api.guild_community)
         return 0;
     u32 used = 0;
-    if (onboarding_action && used < output.count && (g->upload_features & guild_record_onboarding)) {
-        reset_value(&output[used]);
-        output[used].label = utf8_literal("Channels & Roles");
-        output[used].action = onboarding_action;
-        output[used].flags = popup_item_enabled;
-        ++used;
-    }
-    if (create_event_action && used < output.count && can_manage_events(guild_id)) {
-        reset_value(&output[used]);
-        output[used].label = utf8_literal("Create event");
-        output[used].action = create_event_action;
-        output[used].flags = popup_item_enabled;
-        ++used;
-    }
+    if (onboarding_action && used < output.count && (g->upload_features & guild_record_onboarding))
+        popup_item_set(&output[used++], utf8_literal("Channels & Roles"), onboarding_action, popup_item_enabled);
+    if (create_event_action && used < output.count && can_manage_events(guild_id))
+        popup_item_set(&output[used++], utf8_literal("Create event"), create_event_action, popup_item_enabled);
     return used;
 }
 
@@ -1036,7 +1023,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         break;
     }
     case GuildCommunityOperation::event_get: {
-        ScheduledEvent e{};
+        ScheduledEvent e; // read only after a successful decode wrote it
         const bool decoded = scheduled_event_decode(body, {b.scratch, 16384}, &e) && ensure_events();
         // Finished events are not kept; they stay missing for cards.
         forget_wanted(!decoded || !scheduled_event_listed(e));
@@ -1062,7 +1049,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         }
         break;
     case GuildCommunityOperation::event_create: {
-        ScheduledEvent e{};
+        ScheduledEvent e; // read only after a successful decode wrote it
         if (scheduled_event_decode(body, {b.scratch, 16384}, &e) && ensure_events()) {
             scheduled_event_store_upsert(events, e);
             if (same_modal && owner->mode == Mode::create) {

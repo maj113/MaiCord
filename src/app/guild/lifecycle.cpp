@@ -525,12 +525,9 @@ void open_menu(Menu menu, const UiRect& anchor) noexcept {
     const bool expiry = menu == Menu::expiry;
     const u32 count = expiry ? kGuildInviteExpiryCount : kGuildInviteUsesCount;
     const u32 selected = expiry ? p.expiry : p.uses;
-    for (u32 i = 0; i < count; ++i) {
-        reset_value(&p.popup_items[i]);
-        p.popup_items[i].label = expiry ? kExpiryLabels[i] : kUsesLabels[i];
-        p.popup_items[i].action = kMenuChoiceBase + i;
-        p.popup_items[i].flags = static_cast<u16>(popup_item_enabled | (i == selected ? popup_item_checked : 0));
-    }
+    for (u32 i = 0; i < count; ++i)
+        popup_item_set(&p.popup_items[i], expiry ? kExpiryLabels[i] : kUsesLabels[i], kMenuChoiceBase + i,
+                       static_cast<u16>(popup_item_enabled | (i == selected ? popup_item_checked : 0)));
     p.menu = menu;
     settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 200);
 }
@@ -1238,9 +1235,8 @@ bool application_guild_lifecycle_response(const RestClientResponse& response, Ut
     if (!p.scene.active)
         return true;
     if (p.op == Op::invite) {
-        GuildAdminInvite invite{};
-        if (ok && guild_admin_decode_invite(body, {p.structurals, 8192}, &invite).ok()) {
-            p.invite = invite;
+        // The decoder writes its output only on success.
+        if (ok && guild_admin_decode_invite(body, {p.structurals, 8192}, &p.invite).ok()) {
             p.invite_valid = true;
             p.link_expiry = p.expiry;
             p.link_uses = p.uses;

@@ -196,7 +196,7 @@ void begin_shutdown(GatewayClient* client, GatewayClientRuntime* runtime) noexce
 
 bool shutdown_drained(GatewayClientRuntime* runtime) noexcept {
     if (runtime->resolver.pending || runtime->outstanding_socket_operations != 0 ||
-        !voice_connection_drained(runtime->voice_connection) || !gateway_stream_session_drained(runtime->stream)) {
+        !voice_connection_drained(runtime->voice_connection) || !voice_connection_drained(runtime->stream.connection)) {
         return false;
     }
     release_resolver(runtime);
@@ -238,7 +238,7 @@ NetworkWorkerStep fail_and_drain(GatewayClient* client, GatewayClientRuntime* ru
 
 NetworkWorkerStep reconnect_or_fail(GatewayClient* client, GatewayClientRuntime* runtime,
                                     GatewayClientError error, u32 native_error, u64 now_ms) noexcept {
-    if (runtime->authenticated && schedule_backoff_reconnect(client, runtime, now_ms)) {
+    if (schedule_backoff_reconnect(client, runtime, now_ms)) {
         return NetworkWorkerStep{next_worker_wait(client, runtime, now_ms), false};
     }
     return fail_and_drain(client, runtime, error, native_error);

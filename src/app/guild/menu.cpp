@@ -99,7 +99,7 @@ bool enabled_in_popup(u32 action) noexcept {
     return false;
 }
 bool open_settings_pages(u64 guild_id) noexcept {
-    PopupItem rows[kGuildSettingsPageCount]{};
+    PopupItem rows[kGuildSettingsPageCount]; // the page items reset each row they write
     const u32 count =
         application_guild_settings_page_items(guild_id, action_settings_page, {rows, kGuildSettingsPageCount});
     if (!count)
@@ -118,7 +118,7 @@ bool open_settings_pages(u64 guild_id) noexcept {
     return refresh_popup_text();
 }
 bool copy_guild_id(u64 guild_id) noexcept {
-    char text[20]{};
+    char text[20];
     const u32 bytes = message_context_format_snowflake(guild_id, {text, sizeof(text)});
     return application_copy_text({text, bytes}, kToastIdCopied, kToastIdCopyFailed);
 }
@@ -295,20 +295,11 @@ u32 application_guild_menu_context_items(u64 guild_id, GuildMenuContextGroup gro
                 ui_menu_row_presentation(UiIcon::chevron_right, false, UiMenuIconPlacement::trailing);
             ++used;
         }
-        if (used < output.count) {
-            reset_value(&output[used]);
-            output[used].label = utf8_literal("Privacy settings");
-            output[used].action = action_privacy;
-            output[used].flags = popup_item_enabled;
-            ++used;
-        }
-        if (used < output.count && profile_allowed(guild_id)) {
-            reset_value(&output[used]);
-            output[used].label = utf8_literal("Edit per-server profile");
-            output[used].action = action_profile;
-            output[used].flags = popup_item_enabled;
-            ++used;
-        }
+        if (used < output.count)
+            popup_item_set(&output[used++], utf8_literal("Privacy settings"), action_privacy, popup_item_enabled);
+        if (used < output.count && profile_allowed(guild_id))
+            popup_item_set(&output[used++], utf8_literal("Edit per-server profile"), action_profile,
+                           popup_item_enabled);
         break;
     }
     for (u32 i = 0; i < used; ++i)

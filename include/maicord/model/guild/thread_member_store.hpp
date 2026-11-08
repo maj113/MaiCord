@@ -9,8 +9,7 @@ using ThreadMemberReserve = bool(*)(void* context, u32 required_count) noexcept;
 struct ThreadMemberStore {
     Slice<u64> banks[2];
     u64 guild_id, thread_id;
-    u32 count, revision, generation, rejected;
-    u32 staging_count;
+    u32 count, revision, generation, staging_count;
     ThreadMemberReserve reserve;
     void* reserve_context;
     u32 backed_count;

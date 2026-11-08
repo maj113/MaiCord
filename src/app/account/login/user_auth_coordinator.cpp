@@ -131,9 +131,8 @@ void preserve_reset_prefix(UserAuthCoordinatorRuntime* runtime) noexcept {
 }
 
 void clear_mfa(UserAuthCoordinatorRuntime* runtime) noexcept {
-    clear_secret(runtime, kTicketOffset, kTicketCapacity);
-    clear_secret(runtime, kLoginInstanceOffset, kLoginInstanceCapacity);
-    clear_secret(runtime, kWebauthnOffset, kWebauthnCapacity);
+    // Ticket, login instance and WebAuthn challenge are adjacent.
+    clear_secret(runtime, kTicketOffset, kCaptchaServiceOffset - kTicketOffset);
     runtime->ticket_bytes = 0;
     runtime->mfa_capabilities = 0;
     runtime->login_instance_bytes = 0;
@@ -142,12 +141,8 @@ void clear_mfa(UserAuthCoordinatorRuntime* runtime) noexcept {
 
 void clear_captcha(UserAuthCoordinatorRuntime* runtime) noexcept {
     ++runtime->captcha_revision;
-    clear_secret(runtime, kCaptchaServiceOffset, kCaptchaServiceCapacity);
-    clear_secret(runtime, kCaptchaSitekeyOffset, kCaptchaSitekeyCapacity);
-    clear_secret(runtime, kCaptchaRqdataOffset, kCaptchaRqdataCapacity);
-    clear_secret(runtime, kCaptchaRqtokenOffset, kCaptchaRqtokenCapacity);
-    clear_secret(runtime, kCaptchaSessionOffset, kCaptchaSessionCapacity);
-    clear_secret(runtime, kCaptchaFlowOffset, kCaptchaFlowCapacity);
+    // The six CAPTCHA strings are adjacent, from the service to the user flow.
+    clear_secret(runtime, kCaptchaServiceOffset, kSuspendedOffset - kCaptchaServiceOffset);
     runtime->captcha_service_bytes = 0;
     runtime->captcha_sitekey_bytes = 0;
     runtime->captcha_rqdata_bytes = 0;
@@ -203,36 +198,16 @@ SecureBuffer partition(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 capa
 namespace user_auth_coordinator_detail {
 
 UserAuthCoordinatorPhase coordinator_phase(UserAuthPhase phase) noexcept {
-    switch (phase) {
-    case UserAuthPhase::reset_pending:
-        return UserAuthCoordinatorPhase::reset_pending;
-    case UserAuthPhase::idle:
-        return UserAuthCoordinatorPhase::idle;
-    case UserAuthPhase::password_pending:
-        return UserAuthCoordinatorPhase::password_pending;
-    case UserAuthPhase::verification_pending:
-        return UserAuthCoordinatorPhase::verification_pending;
-    case UserAuthPhase::browser_exchange_pending:
-        return UserAuthCoordinatorPhase::browser_exchange_pending;
-    case UserAuthPhase::recovery_pending: return UserAuthCoordinatorPhase::recovery_pending;
-    case UserAuthPhase::recovery_sent: return UserAuthCoordinatorPhase::recovery_sent;
-    case UserAuthPhase::recovery_phone_required: return UserAuthCoordinatorPhase::recovery_phone_required;
-    case UserAuthPhase::phone_pending: return UserAuthCoordinatorPhase::phone_verify_pending;
-    case UserAuthPhase::phone_token_ready: return UserAuthCoordinatorPhase::phone_token_ready;
-    case UserAuthPhase::phone_token_taken: return UserAuthCoordinatorPhase::phone_token_taken;
-    case UserAuthPhase::mfa_required:
-        return UserAuthCoordinatorPhase::mfa_required;
-    case UserAuthPhase::mfa_pending:
-        return UserAuthCoordinatorPhase::mfa_pending;
-    case UserAuthPhase::captcha_required:
-        return UserAuthCoordinatorPhase::captcha_required;
-    case UserAuthPhase::authenticated:
-        return UserAuthCoordinatorPhase::authenticated;
-    case UserAuthPhase::rejected:
-        return UserAuthCoordinatorPhase::rejected;
-    default:
-        return UserAuthCoordinatorPhase::failed;
-    }
+    using P = UserAuthCoordinatorPhase;
+    // Indexed by UserAuthPhase.
+    static constexpr P kPhases[] = {P::idle, P::password_pending, P::captcha_required, P::mfa_required,
+                                    P::mfa_pending, P::authenticated, P::rejected, P::verification_pending,
+                                    P::recovery_pending, P::recovery_sent, P::recovery_phone_required,
+                                    P::reset_pending, P::phone_verify_pending, P::phone_token_ready,
+                                    P::phone_token_taken, P::browser_exchange_pending};
+    static_assert(sizeof(kPhases) == static_cast<u32>(UserAuthPhase::browser_exchange_pending) + 1);
+    const u32 index = static_cast<u32>(phase);
+    return index < sizeof(kPhases) ? kPhases[index] : P::failed;
 }
 
 } // namespace user_auth_coordinator_detail
@@ -377,18 +352,12 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_reset(UserAuthCoordinator
     if (!user_auth_state_begin_reset(&next).ok()) return fail(coordinator, UserAuthCoordinatorError::state);
     u32 bytes = 0, prefix = runtime->continuation_token_bytes;
     if (retry) {
-        const auto measured = user_auth_measure_reset_password_tail(secure_utf8(*password));
-        if (!measured.ok() || measured.bytes > runtime->request_capacity - prefix)
-            return fail(coordinator, UserAuthCoordinatorError::request_write);
         const auto written = user_auth_write_reset_password_tail(secure_utf8(*password),
             {runtime->secrets.data + prefix, runtime->request_capacity - prefix});
         if (!written.ok()) return fail(coordinator, UserAuthCoordinatorError::request_write);
         bytes = prefix + written.bytes;
     } else {
         const UserAuthResetPasswordRequest request{secure_utf8(*token), secure_utf8(*password)};
-        const auto measured = user_auth_measure_reset_password_request(request);
-        if (!measured.ok() || measured.bytes > runtime->request_capacity)
-            return fail(coordinator, UserAuthCoordinatorError::request_write);
         const auto written = user_auth_write_reset_password_request(request,
             {secret(runtime, 0), runtime->request_capacity});
         if (!written.ok()) return fail(coordinator, UserAuthCoordinatorError::request_write);
@@ -430,12 +399,7 @@ static UserAuthCoordinatorResult submit_reset_mfa(UserAuthCoordinator* coordinat
         code = &normalized;
     }
     const Utf8View ticket{reinterpret_cast<const char*>(secret(runtime, kTicketOffset)), runtime->ticket_bytes};
-    const auto measured = user_auth_measure_reset_mfa_suffix(secure_utf8(*code), ticket, input.type);
     const u32 offset = runtime->continuation_base_bytes - 1;
-    if (!measured.ok() || measured.bytes > runtime->request_capacity - offset) {
-        if (normalized.data) secure_buffer_clear(&normalized);
-        return fail(coordinator, UserAuthCoordinatorError::request_write);
-    }
     const auto written = user_auth_write_reset_mfa_suffix(secure_utf8(*code), ticket, input.type,
         {runtime->secrets.data + offset, runtime->request_capacity - offset});
     if (normalized.data) secure_buffer_clear(&normalized);
@@ -692,11 +656,11 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_mfa(UserAuthCoordinator* 
         secure_clear_bytes(secret(runtime, kScratchOffset), runtime->request_capacity);
         return fail(coordinator, UserAuthCoordinatorError::request_write);
     }
-    const UserAuthOperation operation = input.type == UserAuthMfaType::totp  ? UserAuthOperation::mfa_totp
-                                        : input.type == UserAuthMfaType::sms ? UserAuthOperation::mfa_sms
-                                        : input.type == UserAuthMfaType::backup
-                                            ? UserAuthOperation::mfa_backup
-                                            : UserAuthOperation::mfa_webauthn;
+    // A nonzero data_maximum admitted only the four MFA types; their operations follow in the same order.
+    static_assert(static_cast<u32>(UserAuthOperation::mfa_webauthn) - static_cast<u32>(UserAuthOperation::mfa_totp) ==
+                  static_cast<u32>(UserAuthMfaType::webauthn));
+    const auto operation = static_cast<UserAuthOperation>(static_cast<u32>(UserAuthOperation::mfa_totp) +
+                                                          static_cast<u32>(input.type));
     const u64 request_id = claim_request_id(coordinator);
     const RestClientSubmitResult submitted = submit_prepared(
         coordinator, runtime, next, operation, written.bytes, input.captcha_key, request_id);

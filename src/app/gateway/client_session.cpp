@@ -244,11 +244,6 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             InterlockedExchange64(&client->hello_elapsed_us,
                                   static_cast<LONG64>(clock_microseconds(
                                       runtime->clock, runtime->start_counter, clock_now())));
-            if (!runtime->authenticated) {
-                publish_phase(client, GatewayClientPhase::hello);
-                return PlaintextDrive::hello;
-            }
-
             const GatewayLifecycleAction session_action = event.lifecycle_step.action;
             if (runtime->session.lifecycle.next_heartbeat_ms <= now_ms) {
                 const GatewayLifecycleStep heartbeat =
@@ -409,7 +404,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                     checkpoint_resume_sequence(runtime);
                     continue;
                 }
-                set_decode_failure(&routed, batch.decoded);
+                routed = route_decode_error(batch.decoded);
             } else if (supplemental) {
                 runtime->mailbox_deadline_ms = clock_monotonic_milliseconds() + kPhaseTimeoutMs;
                 const Slice<u32> objects = object_scratch(runtime);
@@ -417,11 +412,10 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 const auto decoded = gateway_decode_supplemental_private_channels(
                     event.envelope.data, index, 64, &channels);
                 if (!decoded.ok()) {
-                    set_decode_failure(&routed, decoded);
+                    routed = route_decode_error(decoded);
                 } else if (channels.kind == JsonValueKind::array) {
                     const auto published =
-                        publish_ready_state(client, runtime, channels, ReadyRecordKind::private_channel,
-                                            event.envelope.sequence, now_ms);
+                        publish_private_channels(client, runtime, channels, event.envelope.sequence, now_ms);
                     routed = published.route;
                     if (published.publish_failed)
                         return resume_reconnect(client, runtime, now_ms);
@@ -667,8 +661,9 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
         return {next_worker_wait(client, runtime, event.now_ms),
                 runtime->stopping && shutdown_drained(runtime)};
     }
-    if (gateway_stream_session_owns(runtime->stream, completion)) {
-        gateway_stream_session_completion(&runtime->stream, loop, completion, event.now_ms);
+    if (voice_connection_owns(runtime->stream.connection, completion)) {
+        voice_connection_completion(&runtime->stream.connection, runtime->stream.control.setup, loop, completion,
+                                    event.now_ms);
         return {next_worker_wait(client, runtime, event.now_ms),
                 runtime->stopping && shutdown_drained(runtime)};
     }
@@ -837,9 +832,6 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
         if (driven == PlaintextDrive::receive && !ensure_receive(runtime)) {
             return fail_and_drain(client, runtime, GatewayClientError::receive, network_last_error());
         }
-        return NetworkWorkerStep{
-            driven == PlaintextDrive::hello ? INFINITE : next_worker_wait(client, runtime, event.now_ms),
-            false};
     }
     return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
 }
@@ -896,11 +888,10 @@ NetworkWorkerStep gateway_worker_dispatch(void* opaque, NetworkLoop* loop,
                 return fail_and_drain(client, runtime, GatewayClientError::session, 0);
             return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
         }
-        if (!runtime->stopping && runtime->deadline_ms != 0 && event.now_ms >= runtime->deadline_ms &&
-            load_phase(client) != GatewayClientPhase::hello) {
+        if (!runtime->stopping && runtime->deadline_ms != 0 && event.now_ms >= runtime->deadline_ms) {
             return reconnect_or_fail(client, runtime, GatewayClientError::timeout, WAIT_TIMEOUT, event.now_ms);
         }
-        if (runtime->authenticated && runtime->session.lifecycle.heartbeat_interval_ms != 0 &&
+        if (runtime->session.lifecycle.heartbeat_interval_ms != 0 &&
             event.now_ms >= runtime->session.lifecycle.next_heartbeat_ms) {
             const GatewayLifecycleStep heartbeat =
                 gateway_lifecycle_tick(&runtime->session.lifecycle, event.now_ms);
@@ -982,7 +973,7 @@ GatewayClientResult fail_start(GatewayClient* client, GatewayClientError error, 
     client->runtime = nullptr;
     InterlockedExchange(&client->error, static_cast<LONG>(error));
     InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
-    return result(client);
+    return gateway_client_status(client);
 }
 
 // Closes the events a failed start created so far; the ones not created yet are null.
@@ -1023,7 +1014,7 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
     if (!client->runtime) {
         InterlockedExchange(&client->error, static_cast<LONG>(GatewayClientError::memory));
         InterlockedExchange(&client->native_error, static_cast<LONG>(thread_last_error()));
-        return result(client);
+        return gateway_client_status(client);
     }
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
     runtime->allocation_bytes = allocation_bytes;
@@ -1101,7 +1092,6 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         reset_value<GatewayClient>(client);
         return invalid_input_result();
     }
-    runtime->authenticated = true;
     const NetworkWorkerResult started =
         network_worker_start(&client->worker, gateway_worker_handler, client);
     if (!started.ok()) {
@@ -1110,7 +1100,7 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         close_start_events(client, runtime);
         return fail_start(client, GatewayClientError::worker, started.native_error);
     }
-    return result(client);
+    return gateway_client_status(client);
 }
 
 } // namespace client_detail

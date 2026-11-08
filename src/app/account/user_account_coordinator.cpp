@@ -56,16 +56,14 @@ void set_failure(UserAccountCoordinator* coordinator, UserAccountCoordinatorErro
 
 } // namespace
 
-UserAccountCoordinatorResult user_account_coordinator_start(
-    UserAccountCoordinator* coordinator, AccountProfile* profile,
-    const GatewayUserClientConfiguration* configuration, const GatewayUserSessionSnapshot* session,
-    Utf8View timezone, Utf8View accept_language) noexcept {
+UserAccountCoordinatorResult user_account_coordinator_start(UserAccountCoordinator* coordinator,
+                                                            AccountProfile* profile,
+                                                            const GatewayUserClientConfiguration* configuration,
+                                                            Utf8View timezone, Utf8View accept_language) noexcept {
     if (!coordinator || !profile || !configuration ||
         coordinator->state.phase != UserAccountCoordinatorPhase::empty ||
         profile->metadata.profile_id == 0 || !profile->credential.data || !profile->credential.locked ||
-        profile->credential.bytes == 0 || !gateway_user_client_configuration_validate(*configuration) ||
-        (session && (session->profile_id != profile->metadata.profile_id ||
-                     (session->has_resume && !gateway_resume_validate(session->resume))))) {
+        profile->credential.bytes == 0 || !gateway_user_client_configuration_validate(*configuration)) {
         return invalid_result();
     }
 
@@ -111,7 +109,7 @@ UserAccountCoordinatorResult user_account_coordinator_start(
 
     coordinator->metadata = profile->metadata;
     const GatewayClientResult gateway_started =
-        gateway_client_start_user(&coordinator->gateway, profile, configuration, nullptr, session);
+        gateway_client_start_user(&coordinator->gateway, profile, configuration, nullptr, nullptr);
     if (!gateway_started.ok()) {
         cleanup_failed_start(coordinator, &rest_credential);
         UserAccountCoordinatorResult result{};

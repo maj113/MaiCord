@@ -482,17 +482,10 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
     const GatewayEventDecodeResult decoded =
         decode_state_object(envelope.data, structural_scratch, maximum_depth, &object,
                             channel_create || channel_update || channel_delete);
-    if (!decoded.ok()) {
-        auto result = decode_route(decoded.error);
-        // READY can grow its nested index and retry this record. Keep the
-        // established error contract of the other state/receipt routes.
-        if (ready_guild) {
-            result.scan_error = decoded.scan_error;
-            result.read_error = decoded.read_error;
-            result.error_offset = decoded.error_offset;
-        }
-        return result;
-    }
+    // READY can grow its nested index and retry this record: it keeps the scan/read codes. The other state
+    // and receipt routes keep their established error contract.
+    if (!decoded.ok())
+        return ready_guild ? route_decode_error(decoded) : decode_route(decoded.error);
     if ((channel_create || channel_update) && !hydrate_self_member(&object, self_user_id))
         return decode_route(GatewayEventDecodeError::invalid_data);
     if ((guild_create || guild_update) && object.properties_seen) {

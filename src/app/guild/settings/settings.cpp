@@ -250,11 +250,8 @@ u32 claim_control(UiSettingsControlPresentation presentation) noexcept {
 } // namespace
 
 void popup_row(u32 index, const Utf8View& label, u32 action, u32 flags) noexcept {
-    auto& item = owner->popup_items[index];
-    reset_value(&item);
-    item.label = label;
-    item.action = kMenuChoiceBase + action;
-    item.flags = static_cast<u16>(popup_item_enabled | flags);
+    popup_item_set(&owner->popup_items[index], label, kMenuChoiceBase + action,
+                   static_cast<u16>(popup_item_enabled | flags));
 }
 u32 push_row(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
              bool checked, const Utf8View& action, UiSettingsControlPresentation presentation) noexcept {
@@ -1208,13 +1205,9 @@ u32 application_guild_settings_page_items(u64 guild_id, u32 action_base, Slice<P
     const u32 sections = guild_settings_access(g_app.account_ui->chat_state, guild_id).sections;
     u32 used = 0;
     for (const auto& definition : kPages)
-        if ((sections & definition.section) && used < output.count) {
-            reset_value(&output[used]);
-            output[used].label = definition.label;
-            output[used].action = action_base + static_cast<u32>(definition.page);
-            output[used].flags = popup_item_enabled;
-            ++used;
-        }
+        if ((sections & definition.section) && used < output.count)
+            popup_item_set(&output[used++], definition.label, action_base + static_cast<u32>(definition.page),
+                           popup_item_enabled);
     return used;
 }
 

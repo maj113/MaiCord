@@ -199,7 +199,7 @@ u32 linux_client_preferred_languages(const LinuxClientEnvironment& environment, 
 
 u32 linux_client_window_manager(const LinuxClientEnvironment& environment, Slice<char> output) noexcept {
     const auto part = [](Utf8View value) noexcept {
-        return value.data ? (usable(value, kPartBytes) ? value : utf8_literal("unknown")) : utf8_literal("unknown");
+        return usable(value, kPartBytes) ? value : utf8_literal("unknown");
     };
     const Utf8View desktop = part(environment.xdg_current_desktop);
     const Utf8View session = part(environment.gdm_session);
@@ -214,8 +214,9 @@ u32 linux_client_window_manager(const LinuxClientEnvironment& environment, Slice
 }
 
 u32 linux_client_distro(const LinuxClientEnvironment& environment, Slice<char> output) noexcept {
-    Utf8View description = environment.lsb_release.data ? ascii_trim(lsb_description(environment.lsb_release)) : Utf8View{};
-    if (!description.bytes && environment.os_release.data)
+    // Missing files read as empty text, which names nothing.
+    Utf8View description = ascii_trim(lsb_description(environment.lsb_release));
+    if (!description.bytes)
         description = ascii_trim(pretty_name(environment.os_release));
     if (!description.bytes || !usable(description, kGatewayUserMaximumHostBytes))
         return 0;

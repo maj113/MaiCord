@@ -798,7 +798,8 @@ void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 gui
     }
     const bool resolved =
         guild->member_roles_known && store->self_user_id != 0 && guild->owner_id != 0 && everyone_found;
-    SelfPermissionScope scope{};
+    // Read only when resolved, after self_permission_scope fills it.
+    SelfPermissionScope scope;
     if (resolved) {
         self_permission_scope(*store, *guild, &scope);
         base = permission_compute_from_base(scope.raw_base, scope.guild, scope.member, {}, scope.options);

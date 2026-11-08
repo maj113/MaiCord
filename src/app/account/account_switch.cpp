@@ -38,7 +38,6 @@ bool account_switch_begin(AccountSwitch* machine, const AccountSwitchIo& io, Acc
         machine->outcome = AccountSwitchOutcome::failed;
         return false;
     }
-    ++machine->serial;
     machine->kind = kind;
     machine->source_slot = source_slot;
     machine->target_slot = target_slot;

@@ -65,10 +65,11 @@ struct UserAccountCoordinator {
     UserAccountCoordinatorResult state;
 };
 
-UserAccountCoordinatorResult user_account_coordinator_start(
-    UserAccountCoordinator* coordinator, AccountProfile* profile,
-    const GatewayUserClientConfiguration* configuration, const GatewayUserSessionSnapshot* session,
-    Utf8View timezone = {}, Utf8View accept_language = {}) noexcept;
+// Starts the REST lanes and a fresh IDENTIFY Gateway session for `profile`.
+UserAccountCoordinatorResult user_account_coordinator_start(UserAccountCoordinator* coordinator,
+                                                            AccountProfile* profile,
+                                                            const GatewayUserClientConfiguration* configuration,
+                                                            Utf8View timezone, Utf8View accept_language) noexcept;
 // Rejected credentials (Gateway close 4004 or REST 401) and terminal Gateway
 // configuration close codes 4010-4014 fail the coordinator. Configuration
 // failures preserve credentials; recoverable failures schedule a restart.

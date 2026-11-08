@@ -13,7 +13,8 @@ RestClientSubmitResult account_channel_overview_submit(RestClient* rest,
         (operation == ChannelOverviewOperation::fetch && patch) ||
         (operation == ChannelOverviewOperation::update && !patch))
         return {RestClientSubmitError::invalid_input};
-    u8 target[64]{}, body[kChannelOverviewMaximumBodyBytes]{};
+    // Only the written prefixes are sent.
+    u8 target[64], body[kChannelOverviewMaximumBodyBytes];
     const auto path = channel_overview_write_target(channel_id, {target, sizeof(target)});
     if (!path.ok())
         return {RestClientSubmitError::invalid_input};
@@ -31,7 +32,7 @@ RestClientSubmitResult account_channel_overview_submit(RestClient* rest,
          RestMajorParameter::channel},
         request_id,
         patch != nullptr);
-    secure_clear_bytes(body, sizeof(body));
+    secure_clear_bytes(body, written.bytes);
     return submitted;
 }
 } // namespace maicord

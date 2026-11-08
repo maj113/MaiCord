@@ -1,4 +1,4 @@
-// Exercise READY's shipping private batching path without opening a connection.
+// Exercise READY's shipping projection and private batching paths without opening a connection.
 #include "../../../src/app/gateway/client.cpp"
 #include "../../../src/app/gateway/client_storage.cpp"
 #include "../../../src/app/gateway/client_transport.cpp"
@@ -7,6 +7,7 @@
 #include "../../support/spsc_mailbox_state.hpp"
 #include "maicord/model/user/profile.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
+#include "../../../src/app/gateway/user_payload.hpp"
 #include "maicord/protocol/user/settings_proto.hpp"
 #include "../../fixtures/gateway_growth.hpp"
 #include "../../fixtures/gateway_growth_etf.hpp"
@@ -37,15 +38,20 @@ Utf8View rich_user() noexcept {
     protocol_writer_append_literal(&w, "\"},\"avatar\":\"00000000000000000000000000000000\",\"primary_guild\":{\"identity_guild_id\":\"789\",\"identity_enabled\":true,\"tag\":\"TEST\",\"badge\":\"00000000000000000000000000000000\"}}");
     return {rich, w.used};
 }
-JsonValue array(Utf8View user, u32 count) noexcept {
+// A READY whose own user and `count` users are all `user`: the projection publishes the own user, then the users
+// in batches of 64.
+JsonValue ready_with_users(Utf8View user, u32 count) noexcept {
     ProtocolWriter w{{json, sizeof(json)}, 0};
-    protocol_writer_append_byte(&w, '[');
+    protocol_writer_append_literal(&w, "{\"v\":9,\"guilds\":[],\"session_id\":\"users\",\"resume_gateway_url\":"
+                                       "\"wss://gateway.discord.gg\",\"user\":");
+    protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(user.data), user.bytes);
+    protocol_writer_append_literal(&w, ",\"users\":[");
     for (u32 i = 0; i < count; ++i) {
         if (i) protocol_writer_append_byte(&w, ',');
         if (!protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(user.data), user.bytes)) return {};
     }
-    protocol_writer_append_byte(&w, ']');
-    return {{reinterpret_cast<const char*>(json), w.used}, 0, JsonValueKind::array};
+    if (!protocol_writer_append_literal(&w, "]}")) return {};
+    return {{reinterpret_cast<const char*>(json), w.used}, 0, JsonValueKind::object};
 }
 bool drain(u32 expected, bool rich_record) noexcept {
     u32 count = 0;
@@ -89,18 +95,31 @@ bool drain(u32 expected, bool rich_record) noexcept {
     }
     return count == expected && !spsc_mailbox_payload_used(runtime.events);
 }
-bool batch(JsonValue records, u32 count, bool rich_record = false) noexcept {
-    // Standalone batching has no outer envelope scan; prepare its fixture's
-    // pinned array prefix just as the production session does before routing.
-    auto scan = json_scan_structurals_avx1(records.source, main_index_view(&runtime));
+bool batch(JsonValue data, u32 count, bool rich_record = false) noexcept {
+    if (!data.source.bytes) return false;
+    auto scan = json_scan_structurals_avx1(data.source, main_index_view(&runtime));
     while (scan.error == JsonScanError::output_overflow && runtime.structural_scratch.capacity < kStructuralCount) {
         Slice<u32> backed{};
         if (!grow_main_index(&runtime, runtime.structural_scratch.capacity * 2, &backed)) return false;
-        scan = json_scan_structurals_avx1(records.source, backed);
+        scan = json_scan_structurals_avx1(data.source, backed);
     }
     if (!scan.ok()) return false;
-    const auto routed = publish_ready_state(&client, &runtime, records, ReadyRecordKind::user, 9, 10);
-    return routed.route.ok() && !routed.publish_failed && drain(count, rich_record);
+    const JsonIndexedDocument document{data.source, {main_index_view(&runtime).data, scan.count}};
+    GatewayReady ready{};
+    if (!gateway_decode_ready(data, main_index_view(&runtime), 64, &ready, &document).ok()) return false;
+    // Only the user batches reach the mailbox drain() reads.
+    const auto routed = gateway_ready_project(
+        ready,
+        {main_index_view(&runtime), ready_record_index_view(&runtime), dispatch_scratch(&runtime),
+         {reinterpret_cast<char*>(runtime.gateway_payload), sizeof(runtime.gateway_payload)}, grow_ready_record_index,
+         &runtime},
+        9, 10,
+        [](void*, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+            return event.dispatch_kind != GatewayClientDispatchKind::user_snapshot ||
+                   publish_event_payload(&client, &runtime, event, payload);
+        },
+        nullptr, nullptr);
+    return routed.ok() && drain(count + 1, rich_record);
 }
 bool initialize() noexcept {
     if (!stable_storage_initialize(&runtime.structural_scratch, kStructuralCount,
@@ -166,7 +185,6 @@ bool projection_packet(bool malformed) noexcept {
     runtime.session.opened = true;
     runtime.session.lifecycle.phase = GatewayLifecyclePhase::awaiting_session;
     runtime.user = &growth_user;
-    runtime.authenticated = true;
     runtime.stopping = false;
     runtime.self_user_id = runtime.resume_user_id = 77;
     runtime.resume = {};
@@ -1075,9 +1093,11 @@ void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcep
     decoded_storage(check);
     allocation_cleanup(check);
     const u32 counts[]{0, 1, 63, 64, 65, 129};
-    for (u32 count : counts) check(batch(array(basic, count), count), "ready users preserve batch boundaries and record framing");
-    check(batch(array(escaped, 65), 65), "ready users preserve escaped identity across batches");
-    check(batch(array(rich_user(), 64), 64, true), "ready rich users retain maximum names and serialized appearance");
+    for (u32 count : counts)
+        check(batch(ready_with_users(basic, count), count), "ready users preserve batch boundaries and record framing");
+    check(batch(ready_with_users(escaped, 65), 65), "ready users preserve escaped identity across batches");
+    check(batch(ready_with_users(rich_user(), 64), 64, true),
+          "ready rich users retain maximum names and serialized appearance");
     constexpr auto invalid = utf8_literal("{\"id\":\"123\",\"username\":\"first\",\"username\":\"duplicate\"}");
     char bytes[2048];
     GatewayPayloadWriter writer{{bytes, sizeof(bytes)}, 7};

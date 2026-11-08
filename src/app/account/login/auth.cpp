@@ -163,11 +163,17 @@ bool reset_failed() noexcept {
 } // namespace auth_detail
 namespace {
 
+void reset_backup_acknowledgement() noexcept {
+    g_app.login.backup_acknowledged = false;
+    g_app.login.backup_acknowledgement_seconds = 0;
+    g_app.login.backup_acknowledgement_at_ms = 0;
+}
+
 void reset_mfa_progress() noexcept {
     auto& login = g_app.login;
     login.sms_requested = login.sms_sending = login.sms_failed = false;
     login.webauthn_attempted = false;
-    application_login_reset_backup_acknowledgement();
+    reset_backup_acknowledgement();
 }
 
 bool login_control_mfa_type(LoginControl control, UserAuthMfaType* type) noexcept {
@@ -303,12 +309,6 @@ bool application_login_tick_auth_cooldown(u64 now_ms) noexcept {
     return !g_app.login.visible || application_refresh_login_view();
 }
 
-void application_login_reset_backup_acknowledgement() noexcept {
-    g_app.login.backup_acknowledged = false;
-    g_app.login.backup_acknowledgement_seconds = 0;
-    g_app.login.backup_acknowledgement_at_ms = 0;
-}
-
 void application_login_schedule_remote_restart(LoginRemoteStatus status) noexcept {
     if (application_account_logout_locked())
         return;
@@ -361,7 +361,7 @@ bool application_login_select_mfa(UserAuthMfaType type, bool allow_resend) noexc
         invalidate_auth();
         secure_edit_clear(&login.mfa);
         login.webauthn_attempted = false;
-        application_login_reset_backup_acknowledgement();
+        reset_backup_acknowledgement();
     }
     login.mfa_type = type;
     if (type == UserAuthMfaType::webauthn) {
@@ -695,7 +695,7 @@ bool submit_password() noexcept {
             g_app.login.backup_acknowledgement_seconds = static_cast<u8>(seconds);
             return application_refresh_login_view();
         }
-        application_login_reset_backup_acknowledgement();
+        reset_backup_acknowledgement();
         g_app.login.backup_acknowledged = true;
         return present(LoginStatus::mfa_required, LoginControl::password);
     }

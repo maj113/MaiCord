@@ -293,7 +293,6 @@ bool application_channel_overview_response(const RestClientResponse& response, U
         if (p.op == Op::fetch) {
             // UI-thread scratch (a draft is over 4 KiB): a stack copy would cost the response a stack probe.
             static ChannelSettingsDraft fetched;
-            reset_value(&fetched);
             if (channel_settings_decode(body, &fetched) && fetched.channel_id == p.identity.channel_id) {
                 if (p.loaded && !channel_settings_equal(p.base, p.draft) && !channel_settings_equal(fetched, p.base))
                     p.conflict = true;
@@ -327,8 +326,8 @@ bool application_channel_overview_response(const RestClientResponse& response, U
     if (!application_channel_overview_synchronize())
         return false;
     ChannelOverviewCompletion completion{ChannelOverviewCompletionKind::ambiguous, 0};
+    // Read only after a successful decode, which writes all of it.
     static ChannelOverviewSnapshot remote;
-    reset_value(&remote);
     bool decoded = false;
     if (response.transport_ok()) {
         if (response.status_code == 403 || response.status_code == 404)

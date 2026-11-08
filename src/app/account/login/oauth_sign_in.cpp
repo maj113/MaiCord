@@ -29,7 +29,7 @@ struct Runtime {
     OAuthProvider provider;
 };
 Runtime* get(const OAuthSignIn* owner) noexcept { return owner ? static_cast<Runtime*>(owner->runtime) : nullptr; }
-bool empty(const SecureBuffer* b) noexcept { return b && !b->data && !b->capacity && !b->bytes && !b->locked; }
+using oauth_detail::secure_buffer_empty;
 OAuthSignInStatus snapshot(Runtime& r) noexcept {
     AcquireSRWLockShared(&r.lock); const auto status = r.status; ReleaseSRWLockShared(&r.lock); return status;
 }
@@ -204,7 +204,7 @@ HANDLE oauth_sign_in_notification(const OAuthSignIn* owner) noexcept {
     return snapshot(*r).phase == Phase::cancelled ? r->finished : r->notification;
 }
 bool oauth_sign_in_url(const OAuthSignIn* owner, u64 generation, SecureBuffer* output) noexcept {
-    auto* r = get(owner); if (!r || !empty(output)) return false;
+    auto* r = get(owner); if (!r || !secure_buffer_empty(output)) return false;
     SecureBuffer url{};
     if (!secure_buffer_initialize(&url, 1024).ok()) return false;
     AcquireSRWLockShared(&r->lock);
@@ -220,7 +220,7 @@ bool oauth_sign_in_url(const OAuthSignIn* owner, u64 generation, SecureBuffer* o
 bool oauth_sign_in_take(OAuthSignIn* owner, u64 generation, SecureBuffer* output) noexcept {
     auto* r = get(owner); if (!r) return false;
     AcquireSRWLockExclusive(&r->lock);
-    const bool taken = empty(output) && r->status.generation == generation && r->status.phase == Phase::ready &&
+    const bool taken = secure_buffer_empty(output) && r->status.generation == generation && r->status.phase == Phase::ready &&
                        secure_buffer_transfer(output, &r->tokens);
     if (taken) r->status.phase = Phase::complete;
     ReleaseSRWLockExclusive(&r->lock); return taken;

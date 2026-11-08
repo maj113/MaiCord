@@ -380,7 +380,9 @@ bool visit_ban_item(void* opaque, u32, JsonValue value) noexcept {
         return fail(&p.error, GuildAdminError::capacity);
     if (value.kind != JsonValueKind::object)
         return fail(&p.error);
-    GuildAdminBan ban{};
+    // Decoded straight into the next slot; it counts only once accepted.
+    GuildAdminBan& ban = p.output[p.count];
+    reset_value(&ban);
     BanParse parse{};
     parse.document = p.document;
     parse.value = &ban;
@@ -392,7 +394,7 @@ bool visit_ban_item(void* opaque, u32, JsonValue value) noexcept {
     for (u32 i = 0; i < p.count; ++i)
         if (p.output[i].user.id == ban.user.id)
             return fail(&p.error, GuildAdminError::duplicate);
-    copy_value(&p.output[p.count++], ban);
+    ++p.count;
     return true;
 }
 

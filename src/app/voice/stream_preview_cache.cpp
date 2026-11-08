@@ -1,5 +1,6 @@
 #include "maicord/app/voice/stream_preview_cache.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/media/core/asset.hpp"
 // Preview scheduling is bookkeeping, not a byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -56,14 +57,10 @@ const StreamPreviewEntry* stream_preview_next_due(const StreamPreviewCache& cach
 
 u64 stream_preview_next_wake(const StreamPreviewCache& cache, u64 now_ms) noexcept {
     u64 wake = 0;
-    for (const auto& entry : cache.entries) {
-        if (!wanted(entry, now_ms) || entry.request_id)
-            continue;
+    for (const auto& entry : cache.entries)
         // The host re-wants what is still shown when this wake fires.
-        const u64 due = entry.next_ms > now_ms ? entry.next_ms : now_ms;
-        if (!wake || due < wake)
-            wake = due;
-    }
+        if (wanted(entry, now_ms) && !entry.request_id)
+            wake = earliest_deadline(wake, maximum(entry.next_ms, now_ms));
     return wake;
 }
 

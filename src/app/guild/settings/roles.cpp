@@ -68,8 +68,8 @@ Utf8View lock_text(GuildRoleLock lock) noexcept {
 }
 u32 member_count(u64 role_id) noexcept {
     for (u32 j = 0; j < owner->counts; ++j)
-        if (owner->count_role[j] == role_id)
-            return owner->count_value[j];
+        if (owner->role_counts[j].role_id == role_id)
+            return owner->role_counts[j].members;
     return ~0u;
 }
 

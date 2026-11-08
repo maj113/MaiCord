@@ -32,7 +32,6 @@ struct GatewayStreamSession {
     VoiceConnection connection;
     VoiceReceive receive;
     VideoFrameSink target; // The call decoders; tagged stream frames go here.
-    u64 frames_untagged;   // Stream SSRCs that already carry the tag bit (dropped).
     u32 volume_percent;    // Stream bus volume, 0..200 once volume_set.
     bool volume_set;       // False: kGatewayStreamVolumeDefault.
 };
@@ -43,12 +42,8 @@ struct GatewayStreamSession {
 // device and call volume; the stream bus volume multiplies on top.
 void gateway_stream_session_drive(GatewayStreamSession* session, const GatewayVoiceControl& voice, NetworkLoop* loop,
                                   const VoiceAudioSettings& output, u64 now_ms) noexcept;
-bool gateway_stream_session_owns(const GatewayStreamSession& session, const NetworkCompletion& completion) noexcept;
-void gateway_stream_session_completion(GatewayStreamSession* session, NetworkLoop* loop,
-                                       const NetworkCompletion& completion, u64 now_ms) noexcept;
 // True while anything (connection, receive, queued commands) needs drives.
 bool gateway_stream_session_busy(const GatewayStreamSession& session) noexcept;
-bool gateway_stream_session_drained(const GatewayStreamSession& session) noexcept;
 u64 gateway_stream_session_deadline(const GatewayStreamSession& session) noexcept;
 // Installs the call decoders as the stream video target (worker).
 void gateway_stream_session_set_target(GatewayStreamSession* session, VideoFrameSink target) noexcept;

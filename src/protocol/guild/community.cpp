@@ -1,5 +1,6 @@
 #include "maicord/protocol/guild/community.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/color_hex.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/http/rest_route.hpp"
@@ -819,17 +820,16 @@ bool guild_onboarding_decode(Utf8View body, Slice<u32> scratch, GuildOnboarding*
         return false;
     auto& o = *output;
     reset_value(&o);
-    OnboardingPass local{};
-    OnboardingPass* pass = &local;
-    pass->document = s.document;
-    pass->onboarding = &o;
-    pass->bank = {o.text, kGuildOnboardingTextBytes, &o.text_used, &o.truncated};
-    if (!json_visit_root_object(body, s.document.structurals, kDepth, onboarding_member, pass).ok())
+    OnboardingPass pass{};
+    pass.document = s.document;
+    pass.onboarding = &o;
+    pass.bank = {o.text, kGuildOnboardingTextBytes, &o.text_used, &o.truncated};
+    if (!json_visit_root_object(body, s.document.structurals, kDepth, onboarding_member, &pass).ok())
         return false;
-    if (pass->prompts_seen && !json_visit_indexed_array(s.document, pass->prompts, kDepth, onboarding_prompt, pass).ok())
+    if (pass.prompts_seen && !json_visit_indexed_array(s.document, pass.prompts, kDepth, onboarding_prompt, &pass).ok())
         return false;
-    if (pass->responses_seen && pass->responses.kind == JsonValueKind::array &&
-        !json_visit_indexed_array(s.document, pass->responses, kDepth, onboarding_response, pass).ok())
+    if (pass.responses_seen && pass.responses.kind == JsonValueKind::array &&
+        !json_visit_indexed_array(s.document, pass.responses, kDepth, onboarding_response, &pass).ok())
         return false;
     return true;
 }
@@ -1067,16 +1067,8 @@ u32 profile_color(JsonValue value) noexcept {
         return number <= 0xFFFFFF ? static_cast<u32>(number) : ~0u;
     char text[16];
     const u32 bytes = decode_text(value, text, sizeof(text));
-    if (bytes != 7 || text[0] != '#')
-        return ~0u;
     u32 color = 0;
-    for (u32 i = 1; i < 7; ++i) {
-        const i32 digit = ascii_hex_value(text[i]);
-        if (digit < 0)
-            return ~0u;
-        color = color << 4 | static_cast<u32>(digit);
-    }
-    return color;
+    return bytes == 7 && text[0] == '#' && color_hex_parse_rgb24({text, 7}, &color) ? color : ~0u;
 }
 bool visit_profile_feature(void* context, u32, JsonValue feature) noexcept {
     static constexpr u32 bits[]{guild_profile_discoverable, guild_profile_tags};

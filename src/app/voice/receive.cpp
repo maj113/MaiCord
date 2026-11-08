@@ -1,7 +1,7 @@
 #include "maicord/app/voice/receive.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-
+#include "maicord/core/deadline.hpp"
 
 namespace maicord {
 namespace {
@@ -126,9 +126,7 @@ u32 voice_receive_speaking(VoiceReceive* receive, Slice<u64> users, u64 now_ms) 
 }
 
 u64 voice_receive_deadline(const VoiceReceive& receive) noexcept {
-    const u64 video = voice_video_sink_deadline(receive.video);
-    return !video || (receive.speaking_deadline_ms && receive.speaking_deadline_ms < video) ? receive.speaking_deadline_ms
-                                                                                         : video;
+    return earliest_deadline(receive.speaking_deadline_ms, voice_video_sink_deadline(receive.video));
 }
 
 bool voice_receive_set_user(VoiceReceive* receive, u64 user_id, u32 gain_percent, bool muted) noexcept {

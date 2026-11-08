@@ -26,10 +26,7 @@ ModerationCapabilities moderation_capabilities(const ChatStateStore& state,
     // Our own permissions without the two-factor strip, so held-but-gated
     // actions stay visible and explain themselves.
     u64 self_roles[kGuildRoleMaximum];
-    u32 self_count = 0;
-    for (u32 i = 0; i < state.role_count && self_count < kGuildRoleMaximum; ++i)
-        if (state.roles[i].guild_id == guild_id && state.roles[i].id != guild_id && state.roles[i].self_assigned)
-            self_roles[self_count++] = state.roles[i].id;
+    const u32 self_count = chat_state_store_self_role_ids(state, guild_id, {self_roles, kGuildRoleMaximum});
     const PermissionGuild scope = chat_state_store_permission_guild(state, guild_id);
     const PermissionMember me{self, {self_roles, self_count}, 0,
                               guild_self_quarantined(guild->settings)};

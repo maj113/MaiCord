@@ -110,11 +110,25 @@ PermissionSet chat_state_store_member_permissions(const ChatStateStore& store, u
             channel = chat_state_store_find_channel(store, channel->parent_id);
         if (!channel || channel->guild_id != guild_id)
             return 0;
-        if (store.overwrites && channel->overwrite_count &&
-            channel->overwrite_offset + channel->overwrite_count <= store.overwrite_count)
-            overwrites = {store.overwrites + channel->overwrite_offset, channel->overwrite_count};
+        overwrites = chat_state_store_channel_overwrites(store, *channel);
     }
     return permission_compute(guild, member, overwrites, options);
+}
+
+ConstSlice<PermissionOverwriteRecord> chat_state_store_channel_overwrites(const ChatStateStore& store,
+                                                                          const ChannelRecord& channel) noexcept {
+    if (!store.overwrites || !channel.overwrite_count ||
+        channel.overwrite_offset + channel.overwrite_count > store.overwrite_count)
+        return {};
+    return {store.overwrites + channel.overwrite_offset, channel.overwrite_count};
+}
+
+u32 chat_state_store_self_role_ids(const ChatStateStore& store, u64 guild_id, Slice<u64> output) noexcept {
+    u32 count = 0;
+    for (u32 i = 0; i < store.role_count && count < output.count; ++i)
+        if (store.roles[i].guild_id == guild_id && store.roles[i].id != guild_id && store.roles[i].self_assigned)
+            output[count++] = store.roles[i].id;
+    return count;
 }
 
 bool chat_state_store_self_mfa_blocked(const ChatStateStore& store, u64 guild_id) noexcept {

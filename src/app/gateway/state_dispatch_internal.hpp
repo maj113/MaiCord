@@ -8,14 +8,17 @@
 #include "payload_writer.hpp"
 #include "user_payload.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
+#include "../../protocol/gateway/decode.hpp"
 
 namespace maicord {
 namespace state_dispatch_detail {}
 using namespace state_dispatch_detail;
 namespace state_dispatch_detail {
 
+using protocol_detail::decode_failure;
 using protocol_detail::member_bit;
 using protocol_detail::member_index;
+using protocol_detail::read_failure;
 using protocol_detail::skim_member_index;
 
 inline constexpr u32 kGatewayGuildRoleMaximum = 256;
@@ -94,12 +97,7 @@ using PayloadWriter = GatewayPayloadWriter;
 GatewayClientDispatchRouteResult route_detail(GatewayClientDispatchRouteError error,
                                               GatewayEventDecodeError event_error, u32 detail) noexcept;
 GatewayClientDispatchRouteResult append_failure(GatewayEventDecodeError error, u32 detail = 0) noexcept;
-GatewayEventDecodeResult decode_error(GatewayEventDecodeError error, u32 offset = 0,
-                                      JsonScanError scan_error = JsonScanError::none,
-                                      JsonReadError read_error = JsonReadError::none) noexcept;
 GatewayClientDispatchRouteResult decode_route(GatewayEventDecodeError error) noexcept;
-GatewayEventDecodeResult read_failure(GatewayEventDecodeError error, const JsonReadResult& read,
-                                      GatewayEventDecodeError fallback = GatewayEventDecodeError::invalid_json) noexcept;
 GatewayEventDecodeResult visit_array(JsonValue array, Slice<u32> scratch, u32 maximum_depth,
                                      JsonArrayVisitor visit, void* context,
                                      const GatewayEventDecodeError& error,

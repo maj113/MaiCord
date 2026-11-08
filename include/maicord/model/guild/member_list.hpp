@@ -43,7 +43,6 @@ struct MemberListView {
     u32 source_user_revision;
     u32 source_permission_mutations;
     u32 rebuilds;
-    u32 rejected;
     u32 resident_count;
     bool authoritative;
     bool awaiting_sync;

@@ -30,21 +30,8 @@ GatewayClientDispatchRouteResult append_failure(GatewayEventDecodeError error, u
                         error, detail);
 }
 
-GatewayEventDecodeResult decode_error(GatewayEventDecodeError error, u32 offset,
-                                      JsonScanError scan_error,
-                                      JsonReadError read_error) noexcept {
-    return GatewayEventDecodeResult{offset, error, scan_error, read_error};
-}
-
 GatewayClientDispatchRouteResult decode_route(GatewayEventDecodeError error) noexcept {
     return route_error(GatewayClientDispatchRouteError::decode, error);
-}
-
-// A failed read reports the error its visitor recorded, else `fallback`.
-GatewayEventDecodeResult read_failure(GatewayEventDecodeError error, const JsonReadResult& read,
-                                      GatewayEventDecodeError fallback) noexcept {
-    return decode_error(error != GatewayEventDecodeError::none ? error : fallback, read.error_offset,
-                        JsonScanError::none, read.error);
 }
 
 // Scans `array` into `scratch` and visits its elements; `error` is the visitor's recorded error.
@@ -54,10 +41,10 @@ GatewayEventDecodeResult visit_array(JsonValue array, Slice<u32> scratch, u32 ma
                                      GatewayEventDecodeError fallback) noexcept {
     const JsonScanResult scan = json_scan_structurals_avx1(array.source, scratch);
     if (!scan.ok())
-        return decode_error(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
     const JsonReadResult read =
         json_visit_value_array(array, ConstSlice<u32>{scratch.data, scan.count}, maximum_depth, visit, context);
-    return read.ok() ? decode_error(GatewayEventDecodeError::none) : read_failure(error, read, fallback);
+    return read.ok() ? decode_failure(GatewayEventDecodeError::none) : read_failure(error, read, fallback);
 }
 
 } // namespace state_dispatch_detail
@@ -662,7 +649,7 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
                                              const JsonIndexedDocument* document) noexcept {
     if (!output || value.kind != JsonValueKind::object || !value.source.data || value.source.bytes == 0 ||
         !scratch.data || scratch.count == 0 || maximum_depth == 0) {
-        return decode_error(GatewayEventDecodeError::invalid_input, value.source_offset);
+        return decode_failure(GatewayEventDecodeError::invalid_input, value.source_offset);
     }
     // Decoded in place: callers read the object only after success.
     StateObjectContext& context = *output;
@@ -676,7 +663,7 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
     } else {
         const JsonScanResult scan = json_scan_structurals_avx1(value.source, scratch);
         if (!scan.ok())
-            return decode_error(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+            return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
         read = json_visit_value_object(value, {scratch.data, scan.count}, maximum_depth,
                                       visit_state_member, &context);
     }
@@ -694,7 +681,7 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
     }
     if (context.name_null &&
         (!private_name_allowed || (context.mutation.type != 1 && context.mutation.type != 3)))
-        return decode_error(GatewayEventDecodeError::invalid_data, value.source_offset);
+        return decode_failure(GatewayEventDecodeError::invalid_data, value.source_offset);
     // Some guild payloads also retain a legacy nsfw boolean. The documented
     // classification has precedence; distinct fields are not duplicates.
     if (context.guild_nsfw_level_seen) {
@@ -704,7 +691,7 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
     if (context.thread_metadata_seen) {
         const auto metadata_scan = json_scan_structurals_avx1(context.thread_metadata.source, scratch);
         if (!metadata_scan.ok())
-            return decode_error(GatewayEventDecodeError::scan_failed);
+            return decode_failure(GatewayEventDecodeError::scan_failed);
         struct ThreadMetadataContext {
             bool archived;
             bool seen;
@@ -732,22 +719,22 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
             },
             &metadata);
         if (!metadata_read.ok())
-            return decode_error(metadata.error != GatewayEventDecodeError::none
-                                    ? metadata.error
-                                    : GatewayEventDecodeError::invalid_json,
-                                metadata_read.error_offset);
+            return decode_failure(metadata.error != GatewayEventDecodeError::none
+                                      ? metadata.error
+                                      : GatewayEventDecodeError::invalid_json,
+                                  metadata_read.error_offset);
         if (metadata.seen) {
             // The state apply path also verifies the resident channel type.
             if ((context.mutation.fields & gateway_client_state_field_type) != 0 &&
                 !channel_is_thread(context.mutation.type))
-                return decode_error(GatewayEventDecodeError::invalid_data, value.source_offset);
+                return decode_failure(GatewayEventDecodeError::invalid_data, value.source_offset);
             context.mutation.thread_archived = metadata.archived;
             context.mutation.thread_archived_known = true;
         }
         if (metadata.locked_seen) {
             if ((context.mutation.fields & gateway_client_state_field_type) &&
                 !channel_is_thread(context.mutation.type))
-                return decode_error(GatewayEventDecodeError::invalid_data, value.source_offset);
+                return decode_failure(GatewayEventDecodeError::invalid_data, value.source_offset);
             context.mutation.thread_locked = metadata.locked;
             context.mutation.thread_locked_known = true;
         }
@@ -755,8 +742,8 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
     if (context.emojis_seen && context.emojis.kind == JsonValueKind::object) {
         const JsonScanResult emoji_set_scan = json_scan_structurals_avx1(context.emojis.source, scratch);
         if (!emoji_set_scan.ok()) {
-            return decode_error(GatewayEventDecodeError::scan_failed, emoji_set_scan.error_offset,
-                                emoji_set_scan.error);
+            return decode_failure(GatewayEventDecodeError::scan_failed, emoji_set_scan.error_offset,
+                                  emoji_set_scan.error);
         }
         EmojiSetContext emoji_set{};
         const JsonReadResult emoji_set_read = json_visit_value_object(
@@ -777,8 +764,8 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
     if (context.colors_seen) {
         const JsonScanResult colors_scan = json_scan_structurals_avx1(context.colors.source, scratch);
         if (!colors_scan.ok()) {
-            return decode_error(GatewayEventDecodeError::scan_failed, colors_scan.error_offset,
-                                colors_scan.error);
+            return decode_failure(GatewayEventDecodeError::scan_failed, colors_scan.error_offset,
+                                  colors_scan.error);
         }
         RoleColorsContext colors{};
         const JsonReadResult colors_read =
@@ -798,7 +785,7 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
     if (context.tags_seen) {
         const auto tags_scan = json_scan_structurals_avx1(context.tags.source, scratch);
         if (!tags_scan.ok())
-            return decode_error(GatewayEventDecodeError::scan_failed, tags_scan.error_offset, tags_scan.error);
+            return decode_failure(GatewayEventDecodeError::scan_failed, tags_scan.error_offset, tags_scan.error);
         if (!json_visit_value_object(
                  context.tags, {scratch.data, tags_scan.count}, maximum_depth,
                  +[](void* opaque, JsonString name, JsonValue) noexcept {
@@ -808,12 +795,12 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
                  },
                  &context.role_linked)
                  .ok())
-            return decode_error(GatewayEventDecodeError::invalid_json);
+            return decode_failure(GatewayEventDecodeError::invalid_json);
     }
     if (context.features_seen) {
         const auto features_scan = json_scan_structurals_avx1(context.features.source, scratch);
         if (!features_scan.ok())
-            return decode_error(GatewayEventDecodeError::scan_failed);
+            return decode_failure(GatewayEventDecodeError::scan_failed);
         if (!json_visit_value_array(
                  context.features, {scratch.data, features_scan.count}, maximum_depth,
                  +[](void* opaque, u32, JsonValue value) noexcept {
@@ -835,10 +822,10 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
                  },
                  &context.mutation.upload_features)
                  .ok())
-            return decode_error(GatewayEventDecodeError::invalid_data);
+            return decode_failure(GatewayEventDecodeError::invalid_data);
         context.mutation.upload_features_known = true;
     }
-    return decode_error(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 bool merge_guild_properties(StateObjectContext* object, const StateObjectContext& properties) noexcept {

@@ -263,11 +263,10 @@ void profile_saved(bool ok, const Utf8View& body) noexcept {
     auto& p = *owner;
     if (!ok)
         return;
-    GuildAdminProfile saved{};
-    if (guild_admin_decode_profile(body, {p.scratch, kScratchUnits}, &saved).ok()) {
+    // The decoder writes its output only on success.
+    if (guild_admin_decode_profile(body, {p.scratch, kScratchUnits}, &cache.profile).ok()) {
         cache.guild_id = p.guild_id;
         cache.fetched_at = clock_monotonic_milliseconds();
-        cache.profile = saved;
         cache.ok = true;
         load();
         return;

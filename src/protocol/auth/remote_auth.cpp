@@ -101,26 +101,14 @@ bool visit_packet(void* opaque, JsonString name, JsonValue value) noexcept {
     return read_string(context, name, value, 1u << index, output);
 }
 
-bool string_equals(const JsonString& string, const Utf8View& expected) noexcept {
-    return !string.has_escapes && json_string_equals_ascii(string, expected);
-}
-
-bool validate_standard_base64(JsonString string, u32 expected_bytes, Base64Error* error) noexcept {
+// The failure of a string that is not padded standard Base64 of one RSA block, else none.
+RemoteAuthDecodeResult check_rsa_block(const JsonString& string) noexcept {
     const Base64Result result = base64_decode(string.encoded, Slice<u8>{nullptr, 0});
-    if (result.error == Base64Error::output_too_small && result.bytes == expected_bytes) {
-        return true;
+    if (result.error == Base64Error::output_too_small && result.bytes == kRemoteAuthRsaBytes) {
+        return failure(RemoteAuthError::none);
     }
-    *error = result.error;
-    return false;
-}
-
-bool validate_base64url(JsonString string, u32 expected_bytes) noexcept {
-    const Base64UrlResult result = base64url_decode(string.encoded, Slice<u8>{nullptr, 0});
-    return result.error == Base64UrlError::output_too_small && result.bytes == expected_bytes;
-}
-
-void copy_string(JsonString source, const Slice<char>& destination) noexcept {
-    copy_bytes(destination.data, source.encoded.data, source.encoded.bytes);
+    return failure(RemoteAuthError::invalid_field, string.source_offset, JsonScanError::none, JsonReadError::none,
+                   result.error);
 }
 
 RemoteAuthDecodeResult parse(const Utf8View& body, const Slice<u32>& structural_scratch, u32 maximum_depth,
@@ -192,69 +180,66 @@ RemoteAuthDecodeResult remote_auth_decode_server_packet(Utf8View body, Slice<u32
     if ((context.fields & field_op) == 0) {
         return failure(RemoteAuthError::missing_field);
     }
-
+    // read_string admits no escaped string, so the op compares byte for byte.
+    const u32 op = protocol_detail::member_index<"hello", "nonce_proof", "pending_remote_init", "pending_ticket",
+                                                 "pending_login", "cancel", "heartbeat_ack">(context.op);
+    static_assert(static_cast<u32>(RemoteAuthPacketKind::heartbeat_ack) == 7);
     RemoteAuthPacket decoded{};
     JsonString packet_text{};
-    if (string_equals(context.op, utf8_literal("hello"))) {
+    switch (op) {
+    case 0:
         if ((context.fields & (field_timeout | field_heartbeat_interval)) !=
                 (field_timeout | field_heartbeat_interval) ||
             context.timeout_ms == 0 || context.timeout_ms > 600000ull ||
             context.heartbeat_interval_ms == 0 || context.heartbeat_interval_ms > 120000ull) {
             return failure(RemoteAuthError::invalid_field, context.op.source_offset);
         }
-        decoded.kind = RemoteAuthPacketKind::hello;
         decoded.timeout_ms = static_cast<u32>(context.timeout_ms);
         decoded.heartbeat_interval_ms = static_cast<u32>(context.heartbeat_interval_ms);
-    } else if (string_equals(context.op, utf8_literal("nonce_proof"))) {
-        if ((context.fields & field_encrypted_nonce) == 0) {
+        break;
+    case 1:
+    case 3: {
+        const bool nonce = op == 1;
+        if ((context.fields & (nonce ? field_encrypted_nonce : field_encrypted_user_payload)) == 0) {
             return failure(RemoteAuthError::missing_field);
         }
-        Base64Error base64_error = Base64Error::none;
-        if (!validate_standard_base64(context.encrypted_nonce, kRemoteAuthRsaBytes, &base64_error)) {
-            return failure(RemoteAuthError::invalid_field, context.encrypted_nonce.source_offset,
-                           JsonScanError::none, JsonReadError::none, base64_error);
+        packet_text = nonce ? context.encrypted_nonce : context.encrypted_user_payload;
+        const RemoteAuthDecodeResult checked = check_rsa_block(packet_text);
+        if (!checked.ok()) {
+            return checked;
         }
-        decoded.kind = RemoteAuthPacketKind::nonce_proof;
-        packet_text = context.encrypted_nonce;
-    } else if (string_equals(context.op, utf8_literal("pending_remote_init"))) {
+        break;
+    }
+    case 2: {
         if ((context.fields & field_fingerprint) == 0) {
             return failure(RemoteAuthError::missing_field);
         }
-        if (!validate_base64url(context.fingerprint, kRemoteAuthFingerprintBytes)) {
+        const Base64UrlResult checked = base64url_decode(context.fingerprint.encoded, Slice<u8>{nullptr, 0});
+        if (checked.error != Base64UrlError::output_too_small || checked.bytes != kRemoteAuthFingerprintBytes) {
             return failure(RemoteAuthError::invalid_field, context.fingerprint.source_offset);
         }
-        decoded.kind = RemoteAuthPacketKind::pending_remote_init;
         packet_text = context.fingerprint;
-    } else if (string_equals(context.op, utf8_literal("pending_ticket"))) {
-        if ((context.fields & field_encrypted_user_payload) == 0) {
-            return failure(RemoteAuthError::missing_field);
-        }
-        Base64Error base64_error = Base64Error::none;
-        if (!validate_standard_base64(context.encrypted_user_payload, kRemoteAuthRsaBytes, &base64_error)) {
-            return failure(RemoteAuthError::invalid_field, context.encrypted_user_payload.source_offset,
-                           JsonScanError::none, JsonReadError::none, base64_error);
-        }
-        decoded.kind = RemoteAuthPacketKind::pending_ticket;
-        packet_text = context.encrypted_user_payload;
-    } else if (string_equals(context.op, utf8_literal("pending_login"))) {
+        break;
+    }
+    case 4:
         if ((context.fields & field_ticket) == 0 || context.ticket.encoded.bytes == 0 ||
             context.ticket.encoded.bytes > kRemoteAuthMaximumTicketBytes) {
             return failure(RemoteAuthError::invalid_field, context.ticket.source_offset);
         }
-        decoded.kind = RemoteAuthPacketKind::pending_login;
         packet_text = context.ticket;
-    } else if (string_equals(context.op, utf8_literal("cancel"))) {
-        decoded.kind = RemoteAuthPacketKind::cancel;
-    } else if (string_equals(context.op, utf8_literal("heartbeat_ack"))) {
-        decoded.kind = RemoteAuthPacketKind::heartbeat_ack;
-    } else {
+        break;
+    case 5:
+    case 6:
+        break;
+    default:
         return failure(RemoteAuthError::unsupported_operation, context.op.source_offset);
     }
+    decoded.kind = static_cast<RemoteAuthPacketKind>(op + 1);
 
     if (packet_text.encoded.bytes > text.count || (packet_text.encoded.bytes != 0 && !text.data)) {
         return failure(RemoteAuthError::output_too_small, packet_text.source_offset);
     }
-    copy_string(packet_text, text);
+    copy_bytes(text.data, packet_text.encoded.data, packet_text.encoded.bytes);
     decoded.text_bytes = packet_text.encoded.bytes;
     *packet = decoded;
     return failure(RemoteAuthError::none);
@@ -401,15 +386,14 @@ RemoteAuthDecodeResult remote_auth_decode_ticket_response(Utf8View body, Slice<u
     if ((context.fields & field_encrypted_token) == 0) {
         return failure(RemoteAuthError::missing_field);
     }
-    Base64Error base64_error = Base64Error::none;
-    if (!validate_standard_base64(context.encrypted_token, kRemoteAuthRsaBytes, &base64_error)) {
-        return failure(RemoteAuthError::invalid_field, context.encrypted_token.source_offset,
-                       JsonScanError::none, JsonReadError::none, base64_error);
+    const RemoteAuthDecodeResult checked = check_rsa_block(context.encrypted_token);
+    if (!checked.ok()) {
+        return checked;
     }
     if (context.encrypted_token.encoded.bytes > encrypted_token.count || !encrypted_token.data) {
         return failure(RemoteAuthError::output_too_small, context.encrypted_token.source_offset);
     }
-    copy_string(context.encrypted_token, encrypted_token);
+    copy_bytes(encrypted_token.data, context.encrypted_token.encoded.data, context.encrypted_token.encoded.bytes);
     *encrypted_token_bytes = context.encrypted_token.encoded.bytes;
     return failure(RemoteAuthError::none);
 }

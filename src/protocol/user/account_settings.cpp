@@ -321,11 +321,8 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
         const Utf8View key = name ? utf8_literal("global_name")
                              : r.field == AccountProfileField::pronouns ? utf8_literal("pronouns")
                                                                         : utf8_literal("bio");
-        u32 encoded = 0;
         // An empty display name resets to the username; profile text clears to "".
         const bool null_value = name && !r.payload.count;
-        if (!measure_json_string(text(r.payload), &encoded))
-            return result;
         ProtocolWriter w{body, 0};
         if (!protocol_write(&w, "{\"", key, "\":", or_null(!null_value, json_text(text(r.payload))), '}'))
             return fail_capacity();

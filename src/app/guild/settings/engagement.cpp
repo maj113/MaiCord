@@ -2,6 +2,7 @@
 #include "../../shell/toast.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
 namespace maicord::app_detail::server_settings {
@@ -33,15 +34,6 @@ constexpr Utf8View kNotificationChoices[]{utf8_literal("All Messages"), utf8_lit
 constexpr Utf8View kAfkLabels[]{utf8_literal("1 minute"), utf8_literal("5 minutes"), utf8_literal("15 minutes"),
                                 utf8_literal("30 minutes"), utf8_literal("1 hour")};
 static_assert(sizeof(kAfkLabels) / sizeof(kAfkLabels[0]) == sizeof(kGuildAfkTimeouts) / sizeof(u32));
-
-u32 bit_index(u32 bit) noexcept {
-    u32 index = 0;
-    while (bit > 1) {
-        bit >>= 1;
-        ++index;
-    }
-    return index;
-}
 
 // Subscription rows need a monetizable server; voice session messages are
 // offered only where the bit is already set. Either way a set bit shows.
@@ -133,7 +125,7 @@ void project(Bank& bank) noexcept {
     const bool messages = edit && d.system_channel_id;
     for (const auto& message : kMessages)
         if (message_shown(message.bit))
-            push_row(control_message + bit_index(message.bit), message.label, {}, UiSettingsControlKind::toggle,
+            push_row(control_message + lowest_set_bit(message.bit), message.label, {}, UiSettingsControlKind::toggle,
                      messages, guild_engagement_message_enabled(d, message.bit));
     p.system_choice[0] = channel_label(bank, d.system_channel_id, utf8_literal("No System Messages"));
     push_choices(control_system_channel, utf8_literal("System Messages Channel"),

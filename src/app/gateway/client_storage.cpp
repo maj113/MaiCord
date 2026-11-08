@@ -547,13 +547,9 @@ void publish_resume(GatewayClientRuntime* runtime, const GatewayResumeState& sta
     ReleaseSRWLockExclusive(&runtime->resume_lock);
 }
 
-// The worker is the only writer: a release store keeps the snapshot reader (UI thread) lock-free. The
-// session and URL stay under resume_lock; `resume.sequence` is its READY value, this is the live one.
-void publish_resume_sequence(GatewayClientRuntime* runtime, u64 sequence) noexcept {
-    runtime->resume_sequence = static_cast<LONG64>(sequence);
-}
+} // namespace client_detail
 
-GatewayClientResult result(const GatewayClient* client) noexcept {
+GatewayClientResult gateway_client_status(const GatewayClient* client) noexcept {
     if (!client)
         return invalid_input_result();
     GatewayClientResult value{};
@@ -564,6 +560,8 @@ GatewayClientResult result(const GatewayClient* client) noexcept {
     value.close_code = static_cast<u16>(ReadAcquire(&client->close_code));
     return value;
 }
+
+namespace client_detail {
 
 void publish_failure(GatewayClient* client, GatewayClientError error, u32 native_error) noexcept {
     if (InterlockedCompareExchange(&client->error, static_cast<LONG>(error),
@@ -729,9 +727,8 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
                      u64 now_ms) noexcept {
     if (runtime->closing)
         return wait_milliseconds_until(now_ms, runtime->closing_deadline_ms);
-    if (runtime->stopping || (!runtime->authenticated && load_phase(client) == GatewayClientPhase::hello)) {
+    if (runtime->stopping)
         return INFINITE;
-    }
     if (runtime->reconnecting) {
         const u64 main_deadline = runtime->resolver.pending || runtime->outstanding_socket_operations
                                       ? 0

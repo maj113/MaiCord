@@ -11,9 +11,7 @@ u32 lower_bound(Slice<u64> ids, u32 count, u64 id) noexcept {
 }
 bool reserve(ThreadMemberStore* store, u32 count) noexcept {
     if (!store->reserve || count <= store->backed_count) return true;
-    if (!store->reserve(store->reserve_context, count)) {
-        saturating_increment(store->rejected); return false;
-    }
+    if (!store->reserve(store->reserve_context, count)) return false;
     store->backed_count = count; return true;
 }
 void compact_stage(ThreadMemberStore* store) noexcept {
@@ -66,7 +64,7 @@ bool thread_member_store_snapshot_begin(ThreadMemberStore* store, u64 guild_id, 
 }
 bool thread_member_store_snapshot_append(ThreadMemberStore* store, u64 id) noexcept {
     if (!store || !store->staging) return false;
-    if (!id) { store->staging = false; saturating_increment(store->rejected); return false; }
+    if (!id) { store->staging = false; return false; }
     const auto bank = store->banks[store->active_bank ^ 1];
     if (store->staging_count == bank.count) {
         // Free duplicate staging slots before diagnosing a distinct-ID overflow.
@@ -95,7 +93,7 @@ bool thread_member_store_add(ThreadMemberStore* store, u64 id) noexcept {
     if (store->count == bank.count || !reserve(store, store->count + 1)) {
         saturating_increment_if(!store->incomplete, store->revision); store->incomplete = true; return false;
     }
-    for (u32 i = store->count; i > position; --i) bank[i] = bank[i - 1];
+    sorted_insert_gap(bank.data, store->count, position);
     bank[position] = id; ++store->count; saturating_increment(store->revision); return true;
 }
 bool thread_member_store_remove(ThreadMemberStore* store, u64 id) noexcept {

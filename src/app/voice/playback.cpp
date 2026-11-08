@@ -210,9 +210,11 @@ void voice_playback_render(VoicePlayback* playback, Slice<i16> output, u64 now_u
     if (!output.data)
         return;
     const u32 frames = minimum(output.count / kVoiceChannels, kVoiceRenderMaximumFrames);
-    clear_bytes(output.data, output.count * static_cast<u32>(sizeof(i16)));
-    if (!playback)
+    if (!playback) {
+        clear_bytes(output.data, output.count * static_cast<u32>(sizeof(i16)));
         return;
+    }
+    u32 mixed = 0; // Leading samples voice_mixer_finish wrote; the rest is silence.
     AcquireSRWLockExclusive(playback->lock.native());
     if (playback->streams && !playback->deafened) {
         const u32 samples = frames * kVoiceChannels;
@@ -242,9 +244,11 @@ void voice_playback_render(VoicePlayback* playback, Slice<i16> output, u64 now_u
             soundboard_mixer_render(playback->effects, {playback->mix, samples}, frames,
                                     static_cast<u32>(100 + playback->master_delta), true, now_us);
         voice_mixer_finish({playback->mix, samples}, {output.data, samples});
+        mixed = samples;
     } else if (playback->deafened && playback->effects)
         soundboard_mixer_stop(playback->effects, 0); // Sounds started while deafened never queue up.
     ReleaseSRWLockExclusive(playback->lock.native());
+    clear_bytes(output.data + mixed, (output.count - mixed) * static_cast<u32>(sizeof(i16)));
 }
 
 void voice_playback_set_deafened(VoicePlayback* playback, bool deafened) noexcept {

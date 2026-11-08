@@ -24,18 +24,13 @@ bool printable_ascii(u8 value) noexcept {
 } // namespace
 
 u8 login_mfa_capability(UserAuthMfaType type) noexcept {
-    switch (type) {
-    case UserAuthMfaType::totp:
-        return user_auth_mfa_capability_totp;
-    case UserAuthMfaType::sms:
-        return user_auth_mfa_capability_sms;
-    case UserAuthMfaType::backup:
-        return user_auth_mfa_capability_backup;
-    case UserAuthMfaType::webauthn:
-        return user_auth_mfa_capability_webauthn;
-    default:
-        return user_auth_mfa_capability_none;
-    }
+    // Each type's capability is the bit at its position.
+    static_assert(user_auth_mfa_capability_webauthn == 1u << static_cast<u32>(UserAuthMfaType::webauthn) &&
+                  user_auth_mfa_capability_backup == 1u << static_cast<u32>(UserAuthMfaType::backup) &&
+                  user_auth_mfa_capability_sms == 1u << static_cast<u32>(UserAuthMfaType::sms));
+    const u32 index = static_cast<u32>(type);
+    return index <= static_cast<u32>(UserAuthMfaType::webauthn) ? static_cast<u8>(1u << index)
+                                                                 : static_cast<u8>(user_auth_mfa_capability_none);
 }
 
 bool login_mfa_first_supported(u8 capabilities, UserAuthMfaType* type) noexcept {

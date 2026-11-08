@@ -9,6 +9,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/model/guild/role_policy.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 
 namespace maicord {
 namespace {
@@ -121,13 +122,14 @@ void overflow_release(GuildMemberStore* store, GuildMemberRecord& record) noexce
 // Slides live spans down in offset order and returns the freed pages.
 void overflow_compact(GuildMemberStore* store) noexcept {
     auto& o = store->role_overflow;
-    u32 slots[kGuildMemberRoleOverflowMembers];
+    // Overflow needs a store of at most kGuildMemberRoleOverflowMembers slots.
+    u16 slots[kGuildMemberRoleOverflowMembers];
     u32 count = 0;
     for (u32 slot = 0; slot < store->slot_extent; ++slot)
         if (store->records[slot].occupied && store->records[slot].role_overflow)
-            slots[count++] = slot;
+            slots[count++] = static_cast<u16>(slot);
     const GuildMemberRecord* records = store->records;
-    heap_sort_shared(slots, count, [records](u32 left, u32 right) noexcept {
+    heap_sort_shared(slots, count, [records](u16 left, u16 right) noexcept {
         return records[left].role_overflow < records[right].role_overflow;
     });
     u64* data = overflow_data(*store);
@@ -171,9 +173,7 @@ void erase_slot(GuildMemberStore* store, u32 slot) noexcept {
     const u16 generation = next_generation(store->records[slot].generation);
     reset_value<GuildMemberRecord>(&store->records[slot]);
     store->records[slot].generation = generation;
-    for (u32 index = order_index + 1; index < store->count; ++index) {
-        store->order[index - 1] = store->order[index];
-    }
+    sorted_erase_gap(store->order, store->count, order_index);
     --store->count;
     store->order[store->count] = ~0u;
 }
@@ -396,10 +396,7 @@ void note_record_change(GuildMemberStore* store, GuildMemberRecord& record) noex
     note_store_change(store);
 }
 
-GuildMemberStoreResult fail(GuildMemberStore* store,
-                                   GuildMemberStoreError error) noexcept {
-    if (store)
-        saturating_increment(store->rejected);
+GuildMemberStoreResult fail(GuildMemberStoreError error) noexcept {
     return GuildMemberStoreResult{nullptr, error, false, false, false};
 }
 
@@ -539,13 +536,13 @@ GuildMemberStoreResult guild_member_store_upsert(
     if (!store || !store->records || !store->order || guild_id == 0 || user_id == 0 ||
         (!nickname.data && nickname.bytes != 0) || (!role_ids.data && role_ids.count != 0) ||
         !status_valid(status)) {
-        return fail(store, GuildMemberStoreError::invalid_input);
+        return fail(GuildMemberStoreError::invalid_input);
     }
     if (nickname.bytes > kGuildMemberNicknameMaximumBytes) {
-        return fail(store, GuildMemberStoreError::nickname_too_large);
+        return fail(GuildMemberStoreError::nickname_too_large);
     }
     if (!utf8_validate(nickname).valid) {
-        return fail(store, GuildMemberStoreError::invalid_utf8);
+        return fail(GuildMemberStoreError::invalid_utf8);
     }
     bool found = false;
     u32 order_index = find_order(*store, guild_id, user_id, &found);
@@ -555,7 +552,7 @@ GuildMemberStoreResult guild_member_store_upsert(
     if (!found && slot == store->capacity) {
         slot = least_recent_slot(*store);
         if (slot == store->capacity) {
-            return fail(store, GuildMemberStoreError::capacity);
+            return fail(GuildMemberStoreError::capacity);
         }
         erase_slot(store, slot);
         evicted = true;
@@ -576,14 +573,12 @@ GuildMemberStoreResult guild_member_store_upsert(
         status == GuildMemberStatus::unknown && found ? record.status : status;
     u32 resolved_list_index = list_index == ~0u && found ? record.list_index : list_index;
     u64 resolved_list_id = list_id == 0 && found ? record.list_id : list_id;
-    if (found && pinned(*store, record)) {
-        auto candidate = record;
-        candidate.list_id = resolved_list_id;
-        candidate.list_index = resolved_list_index;
-        if (!pinned(*store, candidate)) {
-            resolved_list_id = record.list_id;
-            resolved_list_index = record.list_index;
-        }
+    // A pinned row keeps its place unless the new one is pinned too.
+    if (found && pinned(*store, record) && !record.visible_pinned &&
+        (resolved_list_index == ~0u ||
+         !row_interest(*store, record.guild_id, resolved_list_id, resolved_list_index))) {
+        resolved_list_id = record.list_id;
+        resolved_list_index = record.list_index;
     }
     const bool changed =
         !found || nickname_changed ||
@@ -612,9 +607,7 @@ GuildMemberStoreResult guild_member_store_upsert(
         }
     }
     if (!found) {
-        for (u32 index = store->count; index > order_index; --index) {
-            store->order[index] = store->order[index - 1];
-        }
+        sorted_insert_gap(store->order, store->count, order_index);
         store->order[order_index] = slot;
         ++store->count;
         const u16 generation = next_generation(record.generation);
@@ -644,7 +637,6 @@ GuildMemberStoreResult guild_member_store_upsert(
     }
     if (changed)
         note_record_change(store, record);
-    saturating_increment_if(evicted, store->evictions);
     return GuildMemberStoreResult{&record, GuildMemberStoreError::none, !found, changed,
                                          evicted};
 }
@@ -708,7 +700,6 @@ GuildMemberInPlaceResult guild_member_store_update_in_place(
     record.status = resolved_status;
     saturating_increment(record.revision);
     saturating_increment(store->presence_revision);
-    saturating_increment(store->mutations);
     return result;
 }
 
@@ -737,7 +728,6 @@ bool guild_member_store_set_status(GuildMemberStore* store, u64 guild_id, u64 us
     record.status = status;
     saturating_increment(record.revision);
     saturating_increment(store->presence_revision);
-    saturating_increment(store->mutations);
     return true;
 }
 

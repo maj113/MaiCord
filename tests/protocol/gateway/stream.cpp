@@ -328,8 +328,7 @@ void test_session(Check check) noexcept {
               capture.calls == 2 && !capture.intact,
           "stream frames keep their not-intact mark on the way to the decoders");
     check(!frames.push_frame(frames.context, 0x8000'0001u, VoiceVideoCodec::h264, {frame, 4}, 0, true, true) &&
-              capture.calls == 2 &&
-              session.frames_untagged == 1,
+              capture.calls == 2,
           "stream SSRCs that collide with the tag are dropped");
     gateway_stream_session_want_video(&session, 77, false);
     check(session.receive.video.unwanted_count == 1 && session.receive.video.unwanted[0] == 77,

@@ -76,8 +76,9 @@ RestClientSubmitResult account_guild_assets_submit(RestClient* rest, const Guild
     const auto encoded = guild_asset_write_reason(*request, {reason, sizeof(reason)});
     if (!encoded.ok())
         return {RestClientSubmitError::invalid_input};
-    GuildImageBuffer buffer{};
-    GuildPreparedImage image{};
+    // prepare() resets both.
+    GuildImageBuffer buffer;
+    GuildPreparedImage image;
     RestClientSubmitResult result{RestClientSubmitError::invalid_input};
     if (prepare(*request, &buffer, &image)) {
         if (guild_asset_has_body(request->operation))

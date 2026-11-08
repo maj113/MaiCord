@@ -1,7 +1,6 @@
 #pragma once
 
-#include "maicord/model/chat/chat_state.hpp"
-#include "maicord/model/guild/permission_bits.hpp"
+#include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/protocol/guild/admin.hpp"
 
 namespace maicord {
@@ -72,8 +71,5 @@ bool permission_overwrite_draft_equal(const PermissionOverwriteDraft&,
                                       ConstSlice<PermissionOverwriteRecord>) noexcept;
 // Wire form for a channel PATCH; returns the number written or ~0u when output is short.
 u32 permission_overwrite_draft_write(const PermissionOverwriteDraft&, Slice<PermissionOverwriteWrite>) noexcept;
-// Channel's overrides as stored, or an empty slice.
-ConstSlice<PermissionOverwriteRecord> chat_state_store_channel_overwrites(const ChatStateStore&,
-                                                                                  const ChannelRecord&) noexcept;
 
 } // namespace maicord

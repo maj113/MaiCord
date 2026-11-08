@@ -33,15 +33,6 @@ static_assert(sizeof(GatewayClientMessageStickerMutation) == 24);
 static_assert(sizeof(GatewayClientMessageComponentMutation) == 72);
 static_assert(sizeof(GatewayClientMessageCallMutation) == 16);
 
-GatewayClientDispatchRouteResult route_decode_error(const GatewayEventDecodeResult& decoded) noexcept {
-    GatewayClientDispatchRouteResult result =
-        route_error(GatewayClientDispatchRouteError::decode, decoded.error);
-    result.scan_error = decoded.scan_error;
-    result.read_error = decoded.read_error;
-    result.error_offset = decoded.error_offset;
-    return result;
-}
-
 struct ChannelPinsUpdateContext {
     u64 channel_id;
     u32 fields;
@@ -80,25 +71,16 @@ GatewayClientDispatchRouteResult route_channel_pins_update(JsonValue data, Slice
     if (data.kind != JsonValueKind::object)
         return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
-    if (!scan.ok()) {
-        auto result =
-            route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
-        result.scan_error = scan.error;
-        result.error_offset = scan.error_offset;
-        return result;
-    }
+    if (!scan.ok())
+        return route_decode_error({scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error});
     ChannelPinsUpdateContext context{};
     const auto read = json_visit_value_object(data, {scratch.data, scan.count}, maximum_depth,
                                              channel_pins_update_field, &context);
-    if (!read.ok()) {
-        auto result = route_error(GatewayClientDispatchRouteError::decode,
-                                  context.error == GatewayEventDecodeError::none
-                                      ? GatewayEventDecodeError::invalid_json
-                                      : context.error);
-        result.read_error = read.error;
-        result.error_offset = read.error_offset;
-        return result;
-    }
+    if (!read.ok())
+        return route_decode_error(
+            {read.error_offset,
+             context.error == GatewayEventDecodeError::none ? GatewayEventDecodeError::invalid_json : context.error,
+             JsonScanError::none, read.error});
     if ((context.fields & 1u) == 0)
         return route_error(GatewayClientDispatchRouteError::decode,
                            GatewayEventDecodeError::missing_required_field);

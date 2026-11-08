@@ -1,6 +1,7 @@
 #include "maicord/app/voice/video_sink.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 // Per-frame hand-off and call bookkeeping, not a byte loop: compiled for size.
@@ -206,11 +207,9 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
         }
     }
     // Busy feedback retries shortly; otherwise wake for the RTP core's timers.
-    u64 due = video_rtp_deadline(sink->rtp);
-    if (const u64 transport =
-            media_current && sink->rtp.local_ssrc ? rtcp_transport_feedback_deadline(connection->transport_feedback) : 0;
-        transport && (!due || transport < due))
-        due = transport;
+    const u64 due = earliest_deadline(
+        video_rtp_deadline(sink->rtp),
+        media_current && sink->rtp.local_ssrc ? rtcp_transport_feedback_deadline(connection->transport_feedback) : 0);
     if (sink->feedback_bytes)
         sink->deadline_ms = now_ms + 2;
     else if (due)

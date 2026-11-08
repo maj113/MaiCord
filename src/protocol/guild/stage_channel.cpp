@@ -31,34 +31,33 @@ bool append_timestamp(ProtocolWriter* w, u64 unix_ms) noexcept {
 } // namespace
 
 bool stage_topic_valid(Utf8View topic) noexcept {
-    if (!topic.data || !topic.bytes || topic.bytes > kStageTopicMaximumBytes || !utf8_validate(topic).valid)
+    if (!topic.data || !topic.bytes || topic.bytes > kStageTopicMaximumBytes)
         return false;
-    u32 codepoints = 0;
+    const auto validation = utf8_validate(topic);
+    if (!validation.valid || validation.codepoints > kStageTopicMaximumCodepoints)
+        return false;
     bool visible = false;
     for (u32 i = 0; i < topic.bytes; ++i) {
-        const u8 c = static_cast<u8>(topic.data[i]);
-        if ((c & 0xc0) != 0x80)
-            ++codepoints;
+        const char c = topic.data[i];
         if (c == '\n' || c == '\r')
             return false;
         visible = visible || (c != ' ' && c != '\t');
     }
-    return visible && codepoints <= kStageTopicMaximumCodepoints;
+    return visible;
 }
 
 bool stage_voice_status_valid(Utf8View status) noexcept {
     if (!status.bytes)
         return true;
-    if (!status.data || status.bytes > kStageVoiceStatusMaximumBytes || !utf8_validate(status).valid)
+    if (!status.data || status.bytes > kStageVoiceStatusMaximumBytes)
         return false;
-    u32 codepoints = 0;
-    for (u32 i = 0; i < status.bytes; ++i) {
-        const u8 c = static_cast<u8>(status.data[i]);
-        if (c == '\n' || c == '\r')
+    const auto validation = utf8_validate(status);
+    if (!validation.valid || validation.codepoints > kStageVoiceStatusMaximumCodepoints)
+        return false;
+    for (u32 i = 0; i < status.bytes; ++i)
+        if (status.data[i] == '\n' || status.data[i] == '\r')
             return false;
-        codepoints += (c & 0xc0) != 0x80;
-    }
-    return codepoints <= kStageVoiceStatusMaximumCodepoints;
+    return true;
 }
 
 bool stage_request_valid(const StageRequest& r) noexcept {
@@ -77,21 +76,6 @@ bool stage_request_valid(const StageRequest& r) noexcept {
     return true;
 }
 
-namespace {
-RestMethod stage_method(StageOperation operation) noexcept {
-    switch (operation) {
-    case StageOperation::start:
-        return RestMethod::post;
-    case StageOperation::end:
-        return RestMethod::delete_method;
-    case StageOperation::voice_status:
-        return RestMethod::put;
-    default:
-        return RestMethod::patch;
-    }
-}
-} // namespace
-
 bool stage_has_body(StageOperation operation) noexcept {
     return operation != StageOperation::end && operation < StageOperation::count;
 }
@@ -106,7 +90,9 @@ RestRouteKey stage_route(const StageRequest& r) noexcept {
         return {kStageRouteBase + 3, 0, RestMethod::post, RestMajorParameter::none};
     if (r.operation == StageOperation::voice_status)
         return {kStageRouteBase + 5, r.channel_id, RestMethod::put, RestMajorParameter::channel};
-    return {kStageRouteBase + 4, 0, stage_method(r.operation), RestMajorParameter::none};
+    // The instance routes left: PATCH topic or DELETE.
+    return {kStageRouteBase + 4, 0, r.operation == StageOperation::end ? RestMethod::delete_method : RestMethod::patch,
+            RestMajorParameter::none};
 }
 
 StageWriteResult stage_write_target(const StageRequest& r, Slice<u8> output) noexcept {

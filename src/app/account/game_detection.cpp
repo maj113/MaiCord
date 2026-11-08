@@ -28,7 +28,6 @@ void publish_builtin(const u8* data) noexcept {
     for (auto& game : g_builtin) {
         game.name = in.text();
         game.executables = in.text();
-        game.application_id = 0;
     }
 }
 bool ready() noexcept {
@@ -143,12 +142,12 @@ GameDetectionMatch game_detection_match(const RegisteredGames& custom, ConstSlic
     for (u32 i = 0; i < custom.count && i < kRegisteredGameMaximum; ++i) {
         const auto& game = custom.items[i];
         if (running(processes, {game.executable, game.executable_bytes}))
-            return {{game.name, game.name_bytes}, 0, i, true, true};
+            return {{game.name, game.name_bytes}, i, true, true};
     }
     for (u32 i = 0; i < builtin.count; ++i)
         for (u32 p = 0; p < processes.count; ++p)
             if (listed(builtin[i].executables, processes[p]))
-                return {builtin[i].name, builtin[i].application_id, i, false, true};
+                return {builtin[i].name, i, false, true};
     return {};
 }
 #if defined(_WIN32)

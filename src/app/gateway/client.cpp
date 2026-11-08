@@ -59,7 +59,7 @@ GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* clien
         network_worker_request_stop(&client->worker);
     }
     const NetworkWorkerResult joined = network_worker_join(&client->worker, timeout_milliseconds);
-    GatewayClientResult value = result(client);
+    GatewayClientResult value = gateway_client_status(client);
     if (!joined.ok()) {
         value.error = GatewayClientError::worker;
         value.native_error = joined.native_error;
@@ -94,10 +94,6 @@ GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* clien
 AccountRequirement gateway_client_required_action(const GatewayClient* client) noexcept {
     return client ? static_cast<AccountRequirement>(ReadAcquire(&client->required_action))
                   : AccountRequirement::none;
-}
-
-GatewayClientResult gateway_client_status(const GatewayClient* client) noexcept {
-    return result(client);
 }
 
 GatewayClientPopResult gateway_client_pop_event_payload(GatewayClient* client, GatewayClientEvent* event,

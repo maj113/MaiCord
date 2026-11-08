@@ -3,6 +3,9 @@
 #include "maicord/model/voice/state_store.hpp"
 #include "maicord/ui/voice/panel.hpp"
 
+namespace maicord {
+struct GatewayClientVoiceSnapshot;
+}
 namespace maicord::app_detail {
 // Client side of voice calls: persisted voice preferences, pushing audio
 // settings to the account module, the voice card above the account panel,
@@ -17,6 +20,9 @@ float application_voice_panel_reserve() noexcept;
 
 bool application_voice_join(u64 guild_id, u64 channel_id) noexcept;
 bool application_voice_leave() noexcept;
+// The account's voice session while it is in (or joining) a call, guild or
+// DM; null otherwise.
+const GatewayClientVoiceSnapshot* application_voice_call() noexcept;
 bool application_voice_toggle_mute() noexcept;
 bool application_voice_toggle_deafen() noexcept;
 // Current voice card state (self/server mute and deafen, speaking); the tray mirrors it.
@@ -42,9 +48,11 @@ bool application_voice_menu_activate(u32 action) noexcept;
 bool application_voice_menu_pointer(float x, float y, bool press) noexcept;
 // Volume slider drag shared with the stream menu: a press on the slider starts
 // a drag, motion follows and release ends it; `moved` reports a new step in
-// *value. volume_menu_label shows the caller's rebuilt label.
+// *value. volume_menu_text builds the caller's "<subject> · <percent>%" label
+// (returning its length) and volume_menu_label shows it on the open menu.
 enum class VolumeMenuPointer : u8 { ignored, handled, moved };
 VolumeMenuPointer volume_menu_pointer(bool* dragging, float x, float y, bool press, u16 steps, u32* value) noexcept;
+u32 volume_menu_text(char (&label)[48], Utf8View subject, u32 percent) noexcept;
 void volume_menu_label(const char* text, u32 bytes) noexcept;
 
 // Voice & video settings.

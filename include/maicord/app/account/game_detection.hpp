@@ -9,7 +9,6 @@ namespace maicord {
 struct DetectableGame {
     Utf8View name;
     Utf8View executables; // Lowercase basenames separated by '|'.
-    u64 application_id;   // Zero when unknown.
 };
 ConstSlice<DetectableGame> game_detection_builtin() noexcept;
 
@@ -35,7 +34,6 @@ bool registered_games_remove(RegisteredGames*, u32 index) noexcept;
 
 struct GameDetectionMatch {
     Utf8View name;
-    u64 application_id;
     u32 index;  // Into the custom list or the built-in table.
     bool custom;
     bool found;

@@ -9,6 +9,7 @@
 #include "maicord/protocol/http/rest.hpp"
 #include "../encoding/json_helpers.hpp"
 #include "../encoding/json_write.hpp"
+#include "../encoding/json_field_lists.hpp"
 
 
 namespace maicord {
@@ -277,8 +278,7 @@ bool contains(ConstSlice<u8> haystack, ConstSlice<u8> needle) noexcept {
 
 constexpr u32 kDepth = 32;
 
-constexpr const char* kStickerFields[] = {"id", "name", "tags", "description", "format_type", "available"};
-constexpr u32 kStickerFieldCount = sizeof(kStickerFields) / sizeof(kStickerFields[0]);
+constexpr u32 kStickerFieldCount = 6;
 
 struct StickerParse {
     GuildStickerRecord value;
@@ -288,10 +288,7 @@ struct StickerParse {
 
 bool visit_sticker(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<StickerParse*>(opaque);
-    u32 field = kStickerFieldCount;
-    for (u32 i = 0; i < kStickerFieldCount && field == kStickerFieldCount; ++i)
-        if (name_is(name, kStickerFields[i]))
-            field = i;
+    const u32 field = member_index<"id", "name", "tags", "description", "format_type", "available">(name);
     if (field == kStickerFieldCount)
         return true;
     if (p.seen & (1u << field)) {

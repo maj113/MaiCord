@@ -5,7 +5,8 @@ RestClientSubmitResult account_guild_invite_submit(RestClient* rest, const Guild
                                                    u64 request_id, Utf8View session_id) noexcept {
     if (!rest || !request || !request_id)
         return {RestClientSubmitError::invalid_input};
-    u8 target[kGuildInviteMaximumTargetBytes]{}, body[kGuildInviteMaximumBodyBytes]{}, context[512]{};
+    // Only the written prefixes are sent.
+    u8 target[kGuildInviteMaximumTargetBytes], body[kGuildInviteMaximumBodyBytes], context[512];
     const auto written =
         guild_invite_write_request(*request, {target, sizeof(target)}, {body, sizeof(body)}, session_id);
     const u32 context_bytes = request->operation == GuildInviteOperation::accept

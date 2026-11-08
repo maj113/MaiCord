@@ -37,7 +37,6 @@ struct AccountSwitch {
     u8 stop_attempts;
     u32 source_slot;
     u32 target_slot;
-    u32 serial;
 };
 
 bool account_switch_io_valid(const AccountSwitchIo& io) noexcept;

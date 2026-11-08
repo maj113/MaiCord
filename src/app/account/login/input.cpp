@@ -112,7 +112,7 @@ bool application_login_paste() noexcept {
         const bool prepared = application_login_prepare_identifier();
         return prepared && (changed ? application_refresh_login_view() : true);
     }
-    char converted[kUserAuthMaximumPasswordBytes]{};
+    char converted[kUserAuthMaximumPasswordBytes]; // only the pasted bytes are read; wiped below
     const ClipboardTextResult pasted = clipboard_read_utf8(Slice<char>{converted, minimum(edit->storage.capacity, static_cast<u32>(sizeof(converted)))});
     bool changed = false;
     if (pasted.ok() && pasted.bytes != 0) {

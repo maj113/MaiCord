@@ -58,26 +58,30 @@ bool scheduled_event_store_upsert(ScheduledEventStore* store, const ScheduledEve
         erase(store, static_cast<u32>(existing - store->entries));
         return true;
     }
-    ScheduledEvent next = event;
     if (existing) {
-        if (!next.user_count_known && existing->user_count_known) {
-            next.user_count = existing->user_count;
-            next.user_count_known = true;
+        // A replacement without a user count or an interest keeps the stored one.
+        const bool keep_count = !event.user_count_known && existing->user_count_known;
+        const bool keep_interest = !event.interested_known && existing->interested_known;
+        const u32 user_count = existing->user_count;
+        const bool interested = existing->interested;
+        copy_bytes(existing, &event, sizeof(event));
+        if (keep_count) {
+            existing->user_count = user_count;
+            existing->user_count_known = true;
         }
-        if (!next.interested_known && existing->interested_known) {
-            next.interested = existing->interested;
-            next.interested_known = true;
+        if (keep_interest) {
+            existing->interested = interested;
+            existing->interested_known = true;
         }
-        copy_bytes(existing, &next, sizeof(next));
     } else {
         if (store->count >= kScheduledEventStoreCapacity) {
             const u32 index = victim(*store);
             // A new event that starts after every stored one is not kept.
-            if (scheduled_event_listed(store->entries[index]) && store->entries[index].start_ms <= next.start_ms)
+            if (scheduled_event_listed(store->entries[index]) && store->entries[index].start_ms <= event.start_ms)
                 return false;
             erase(store, index);
         }
-        copy_bytes(&store->entries[store->count++], &next, sizeof(next));
+        copy_bytes(&store->entries[store->count++], &event, sizeof(event));
     }
     ++store->revision;
     return true;

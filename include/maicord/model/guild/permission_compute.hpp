@@ -58,6 +58,11 @@ PermissionGuild chat_state_store_permission_guild(const ChatStateStore& store, u
 PermissionSet chat_state_store_member_permissions(const ChatStateStore& store, u64 guild_id,
                                                      u64 channel_id, const PermissionMember& member,
                                                      const PermissionOptions& options) noexcept;
+// Channel's overrides as stored, or an empty slice.
+ConstSlice<PermissionOverwriteRecord> chat_state_store_channel_overwrites(const ChatStateStore&,
+                                                                          const ChannelRecord&) noexcept;
+// The roles the account holds in a guild, @everyone excluded; returns the count.
+u32 chat_state_store_self_role_ids(const ChatStateStore& store, u64 guild_id, Slice<u64> output) noexcept;
 // The current account lacks two-factor authentication and the guild requires it.
 bool chat_state_store_self_mfa_blocked(const ChatStateStore& store, u64 guild_id) noexcept;
 // View server as role: the account's permissions in one guild resolve from

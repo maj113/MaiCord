@@ -12,9 +12,7 @@
 namespace maicord {
 namespace {
 
-MemberListViewResult fail(MemberListView* projection,
-                                       MemberListViewError error) noexcept {
-    if (projection) saturating_increment(projection->rejected);
+MemberListViewResult fail(const MemberListView* projection, MemberListViewError error) noexcept {
     return MemberListViewResult{error, projection ? projection->count : 0,
                                              projection ? projection->member_count : 0, false};
 }

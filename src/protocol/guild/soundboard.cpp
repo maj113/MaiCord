@@ -6,6 +6,7 @@
 #include "../encoding/json_helpers.hpp"
 #include "../encoding/json_field_lists.hpp"
 
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/http/rest.hpp"
 #include "maicord/core/utf.hpp"
@@ -494,8 +495,7 @@ SoundboardDecodeResult soundboard_decode_sound_list(Utf8View body, u64 guild_id,
     const auto& document = s.document;
     SoundList list{&document, output, guild_id, 0, SoundboardDecodeError::none};
     u32 first = 0;
-    while (first < body.bytes && (body.data[first] == ' ' || body.data[first] == '\t' || body.data[first] == '\r' ||
-                                  body.data[first] == '\n'))
+    while (first < body.bytes && ascii_is_space(body.data[first]))
         ++first;
     if (first < body.bytes && body.data[first] == '[') {
         const auto read = json_visit_root_array(body, document.structurals, kDepth, visit_sound_item, &list);

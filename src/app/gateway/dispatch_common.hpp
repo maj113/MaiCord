@@ -74,6 +74,15 @@ inline GatewayClientDispatchRouteResult route_error(
     return GatewayClientDispatchRouteResult{event_error, error};
 }
 
+// A decode failure as a route failure, with its scan/read codes and offset.
+inline GatewayClientDispatchRouteResult route_decode_error(const GatewayEventDecodeResult& decoded) noexcept {
+    GatewayClientDispatchRouteResult result = route_error(GatewayClientDispatchRouteError::decode, decoded.error);
+    result.scan_error = decoded.scan_error;
+    result.read_error = decoded.read_error;
+    result.error_offset = decoded.error_offset;
+    return result;
+}
+
 // A rejected object member: a repeated key is a duplicate, any other failure invalid data.
 constexpr GatewayEventDecodeError gateway_field_error(bool repeated) noexcept {
     return repeated ? GatewayEventDecodeError::duplicate_field : GatewayEventDecodeError::invalid_data;

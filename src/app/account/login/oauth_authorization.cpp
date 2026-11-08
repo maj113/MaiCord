@@ -7,13 +7,8 @@
 namespace maicord {
 namespace {
 using E = OAuthError;
-struct Locked {
-    SecureBuffer value{};
-    ~Locked() noexcept { secure_buffer_release(&value); }
-};
-bool empty(const SecureBuffer* b) noexcept {
-    return b && !b->data && !b->capacity && !b->bytes && !b->locked;
-}
+using Locked = oauth_detail::ScopedSecureBuffer;
+using oauth_detail::secure_buffer_empty;
 bool cancelled(OAuthAuthorization& owner) noexcept {
     return ReadAcquire(&owner.native_state) == 3;
 }
@@ -36,7 +31,7 @@ UpdateTransportError native_exchange(void* context, const UpdateHttpRequest& req
 OAuthAuthorizationResult exchange(OAuthAuthorization* owner, Utf8View client, u16 port,
     Utf8View credential, Utf8View verifier, bool refresh, SecureBuffer* output,
     OAuthAuthorizationTransport transport, OAuthProvider provider) noexcept {
-    if (!owner || !empty(output) || !oauth_client_valid(provider, client)) return {E::invalid_input};
+    if (!owner || !secure_buffer_empty(output) || !oauth_client_valid(provider, client)) return {E::invalid_input};
     if (cancelled(*owner)) return {E::cancelled, UpdateTransportError::cancelled};
     Locked work;
     if (!secure_buffer_initialize(&work.value, sizeof(Scratch)).ok()) return {E::capacity};
@@ -94,7 +89,7 @@ OAuthAuthorizationResult exchange(OAuthAuthorization* owner, Utf8View client, u1
 }
 }
 bool oauth_authorization_proof(SecureBuffer* output) noexcept {
-    if (!empty(output)) return false;
+    if (!secure_buffer_empty(output)) return false;
     struct Secrets { OAuthProof proof; u8 random[64], digest[32]; };
     Locked staging, result;
     if (!secure_buffer_initialize(&staging.value, sizeof(Secrets)).ok() ||

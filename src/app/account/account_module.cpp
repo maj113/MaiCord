@@ -263,13 +263,12 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     runtime->client_metadata.cookies = &runtime->cookies;
     runtime->client_metadata.accept_language = {configuration.accept_language, configuration.accept_language_bytes};
     configuration.configuration.metadata = &runtime->client_metadata;
+    // The persisted Gateway resume token is tied to its matching guild/channel/message model. That model is not
+    // persisted, so a cross-process RESUMED dispatch cannot reconstruct the UI: the session file is validated, but
+    // the coordinator identifies as a fresh session.
     const UserAccountCoordinatorResult started = user_account_coordinator_start(
         &runtime->coordinator, &profile, &configuration.configuration,
-        // The persisted Gateway resume token is tied to its matching
-        // guild/channel/message model. That model is not persisted, so a
-        // cross-process RESUMED dispatch cannot reconstruct the UI. Keep
-        // validating the session file, but identify as a fresh session.
-        nullptr, {configuration.timezone, configuration.timezone_bytes},
+        {configuration.timezone, configuration.timezone_bytes},
         {configuration.accept_language, configuration.accept_language_bytes});
     if (!started.ok()) {
         discard_runtime(runtime, &profile, true);

@@ -332,15 +332,8 @@ UserClientConfigurationResult user_client_configuration_initialize(
     DWORD revision_bytes = sizeof(revision);
     u32 revision_digits = 0;
     if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"UBR",
-                     RRF_RT_REG_DWORD, nullptr, &revision, &revision_bytes) == ERROR_SUCCESS) {
-        char reversed[10];
-        do {
-            reversed[revision_digits++] = static_cast<char>('0' + revision % 10);
-            revision /= 10;
-        } while (revision);
-        for (u32 i = 0; i < revision_digits; ++i)
-            storage->os_build_revision[i] = reversed[revision_digits - 1 - i];
-    }
+                     RRF_RT_REG_DWORD, nullptr, &revision, &revision_bytes) == ERROR_SUCCESS)
+        revision_digits = decimal_write(storage->os_build_revision, revision);
     configuration.properties.os_build_revision = Utf8View{storage->os_build_revision, revision_digits};
 #else
     LinuxClientEnvironmentBuffer environment_buffer;
@@ -355,7 +348,8 @@ UserClientConfigurationResult user_client_configuration_initialize(
 #endif
     configuration.status = GatewayUserStatus::online;
     storage->configuration = configuration;
-    u8 validation[kGatewayUserMaximumCommandBytes]{};
+    // The writer only writes the scratch, which is wiped either way.
+    u8 validation[kGatewayUserMaximumCommandBytes];
     const auto valid = gateway_write_user_identify({utf8_literal("metadata"), configuration.properties,
                                                     configuration.since_ms, configuration.status,
                                                     configuration.has_since, configuration.afk},

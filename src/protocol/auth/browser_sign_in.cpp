@@ -111,8 +111,9 @@ BrowserSignInParseResult browser_sign_in_parse_request(ConstSlice<u8> input, u16
     const char* text = head.text;
     const u32 head_bytes = head.head_bytes;
     const Utf8View method = head.method, target = head.target;
-    const bool post = utf8_equal(method, utf8_literal("POST")), options = utf8_equal(method, utf8_literal("OPTIONS")), get = utf8_equal(method, utf8_literal("GET"));
-    if (!post && !options && !get) return reject(BrowserSignInError::route);
+    const u32 verb = member_index<"POST", "OPTIONS", "GET">(JsonString{method, 0, false});
+    if (verb > 2) return reject(BrowserSignInError::route);
+    const bool post = verb == 0, options = verb == 1, get = verb == 2;
     for (u32 i = 0; i < target.bytes; ++i) if (static_cast<u8>(target.data[i]) <= 0x20 || static_cast<u8>(target.data[i]) >= 0x7f) return reject(BrowserSignInError::route);
     static constexpr char kFields[] = "host\0origin\0content-type\0access-control-request-method\0access-control-request-headers\0"
         "access-control-request-private-network\0transfer-encoding\0expect\0authorization\0cookie\0";
@@ -156,7 +157,7 @@ BrowserSignInParseResult browser_sign_in_parse_request(ConstSlice<u8> input, u16
             u32 equals = begin; while (equals < end && target.data[equals] != '=') ++equals;
             if (equals == begin || equals == end) return reject(BrowserSignInError::route);
             const Utf8View name{target.data + begin, equals - begin}, value{target.data + equals + 1, end - equals - 1};
-            const u32 bit = utf8_equal(name, utf8_literal("v")) ? 1u : utf8_equal(name, utf8_literal("payload")) ? 2u : utf8_equal(name, utf8_literal("callback")) ? 4u : 0u;
+            const u32 bit = member_bit<"v", "payload", "callback">(JsonString{name, 0, false});
             if (!bit || (query_seen & bit)) return reject(BrowserSignInError::route);
             query_seen |= bit;
             if (bit == 1) version = value; else if (bit == 2) encoded_payload = value; else callback = value;

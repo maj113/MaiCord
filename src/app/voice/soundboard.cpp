@@ -11,6 +11,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
@@ -129,12 +130,6 @@ u64 now_ms() noexcept {
 void repaint() noexcept {
     ++board.revision;
     application_repaint();
-}
-const GatewayClientVoiceSnapshot* session() noexcept {
-    return g_app.account_ui ? &g_app.account_ui->voice_session : nullptr;
-}
-bool in_call(const GatewayClientVoiceSnapshot& s) noexcept {
-    return s.channel_id && s.phase != VoiceSetupPhase::idle;
 }
 const ChannelRecord* voice_channel(u64 channel_id) noexcept {
     if (!g_app.account_ui || !channel_id)
@@ -332,8 +327,8 @@ bool picker_open() noexcept {
 }
 SoundboardSendContext send_context(const SoundboardSound& sound) noexcept {
     SoundboardSendContext c{};
-    const auto* s = session();
-    const auto* channel = s && in_call(*s) ? voice_channel(s->channel_id) : nullptr;
+    const auto* s = application_voice_call();
+    const auto* channel = s ? voice_channel(s->channel_id) : nullptr;
     c.in_call = channel != nullptr;
     if (channel) {
         c.permissions = channel->permissions_resolved ? channel->effective_permissions : 0;
@@ -488,7 +483,7 @@ bool send(const SoundboardSound& sound) noexcept {
     }
     SoundboardRequest request{};
     request.operation = SoundboardOperation::send;
-    request.channel_id = session()->channel_id;
+    request.channel_id = application_voice_call()->channel_id;
     request.guild_id = sound.guild_id;
     request.sound_id = sound.sound_id;
     request.emoji_id = sound.emoji_id;
@@ -501,7 +496,7 @@ bool send(const SoundboardSound& sound) noexcept {
     // Played locally at once, like the official client; the Gateway echo of
     // our own sound is not played again.
     audio(SoundboardAudioOperation::preview, sound.sound_id, 0, sound.volume);
-    add_effect(g_app.account_ui->chat_state.self_user_id, session()->channel_id, {sound.emoji_name, sound.emoji_name_bytes},
+    add_effect(g_app.account_ui->chat_state.self_user_id, request.channel_id, {sound.emoji_name, sound.emoji_name_bytes},
                sound.emoji_id != 0, {sound.name, sound.name_bytes});
     application_request_frame();
     return true;
@@ -512,8 +507,8 @@ void effect_gateway(Utf8View json) noexcept {
     GatewayVoiceChannelEffect effect{};
     if (!soundboard_decode_effect(json, scratch(), &effect).ok())
         return;
-    const auto* s = session();
-    if (!s || !in_call(*s) || effect.channel_id != s->channel_id)
+    const auto* s = application_voice_call();
+    if (!s || effect.channel_id != s->channel_id)
         return;
     const u64 self = g_app.account_ui->chat_state.self_user_id;
     const auto* sound = effect.sound_id ? find_sound(effect.sound_id) : nullptr;
@@ -596,8 +591,8 @@ void application_soundboard_gateway(const GatewayClientEvent& event, ConstSlice<
 }
 
 bool application_soundboard_available(u64 channel_id) noexcept {
-    const auto* s = session();
-    return s && in_call(*s) && s->channel_id == channel_id && voice_channel(channel_id) &&
+    const auto* s = application_voice_call();
+    return s && s->channel_id == channel_id && voice_channel(channel_id) &&
            g_app.account.api.soundboard && g_app.account.api.soundboard_audio;
 }
 
@@ -674,8 +669,8 @@ bool application_soundboard_menu_key(u32 key) noexcept {
 }
 
 Utf8View application_soundboard_effect(u64 user_id) noexcept {
-    const auto* s = session();
-    if (!s || !in_call(*s) || !user_id)
+    const auto* s = application_voice_call();
+    if (!s || !user_id)
         return {};
     const u64 now = now_ms();
     for (const auto& effect : board.effects)
@@ -924,7 +919,7 @@ bool application_soundboard_response(const RestClientResponse& response, Utf8Vie
 u64 application_soundboard_next_wake(bool lane_idle) noexcept {
     const u64 now = now_ms();
     u64 wake = 0;
-    const auto earliest = [&](u64 at) noexcept { wake = !wake || at < wake ? at : wake; };
+    const auto earliest = [&](u64 at) noexcept { wake = earliest_deadline(wake, at); };
     bool expired = false;
     for (auto& effect : board.effects) {
         if (!effect.user_id)

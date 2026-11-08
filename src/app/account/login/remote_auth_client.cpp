@@ -607,14 +607,6 @@ bool submit_ticket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, U
     return exchanged.ok();
 }
 
-u64 handshake_wake(const RemoteAuthHandshake& handshake, u64 fallback) noexcept {
-    u64 value = handshake.expires_at_ms;
-    if (value == 0 || (handshake.next_heartbeat_at_ms != 0 && handshake.next_heartbeat_at_ms < value)) {
-        value = handshake.next_heartbeat_at_ms;
-    }
-    return value != 0 ? value : fallback;
-}
-
 bool handle_message(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, bool* ticket_ready,
                     u32* native_error, RemoteAuthClientError* client_error,
                     RemoteAuthHandshakeResult* failure) noexcept {
@@ -907,7 +899,8 @@ u32 remote_auth_thread(void* parameter) noexcept {
             break;
         }
         const u64 now_ms = clock_monotonic_milliseconds();
-        const u64 wake = handshake_wake(runtime->handshake, runtime->phase_deadline_ms);
+        const u64 handshake_wake = remote_auth_handshake_next_wake(runtime->handshake);
+        const u64 wake = handshake_wake != 0 ? handshake_wake : runtime->phase_deadline_ms;
         InterlockedExchange64(&client->next_wake_at_ms, static_cast<LONG64>(wake));
         const PlaintextResult received =
             receive_plaintext(client, runtime, wait_milliseconds_until(now_ms, wake, INFINITE));

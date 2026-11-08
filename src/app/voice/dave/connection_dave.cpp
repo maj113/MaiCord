@@ -426,6 +426,6 @@ DaveSealResult voice_connection_dave_encrypt(VoiceConnection* connection, ConstS
     return dave_session_encrypt(&connection->dave_session, opus, output);
 }
 bool voice_connection_dave_ready(const VoiceConnection& connection) noexcept {
-    return connection.dave_session.initialized && dave_session_can_encrypt(connection.dave_session);
+    return dave_session_can_encrypt(connection.dave_session);
 }
 } // namespace maicord

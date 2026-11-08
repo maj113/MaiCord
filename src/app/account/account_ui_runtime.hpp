@@ -293,7 +293,7 @@ inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel
 // The paged media atlases: allocations of 24 bytes became 32 (recency), the identity atlas has 128 shelves
 // (was 64), the allocator holds its pages (was 80 bytes) and MediaAtlas lost its growth state (the - 608 term).
 static_assert(kAccountUiFixedBytes ==
-              4'261'068 + 16 + 8 - 8 - 24 - 56 + 16 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+              4'261'068 + 16 + 8 - 8 - 24 - 56 + 16 - 8 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   (kMediaAtlasEntryCapacity + kPreviewMediaAtlasEntryCapacity) * (sizeof(GlyphAtlasEntry) - 24) +
                   (kMediaAtlasRowCapacity - 64) * sizeof(GlyphAtlasRow) + 2 * (sizeof(GlyphAtlasAllocator) - 80) - 608 +
                   sizeof(MemberMediaCache) +

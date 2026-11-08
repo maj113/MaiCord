@@ -283,8 +283,7 @@ u32 guild_folders_encode_settings_patch(const GuildFolderSettings& settings, Sli
     output[0] = static_cast<u8>((kGuildFoldersSettingsField << 3) | 2);
     ProtoWriter length{{output.data + 1, 3}, 0, true};
     length.varint(bytes);
-    for (u32 i = 0; i < bytes; ++i)
-        output[header + i] = output[4 + i];
+    copy_bytes(output.data + header, output.data + 4, bytes);
     return header + bytes;
 }
 

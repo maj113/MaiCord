@@ -13,7 +13,6 @@ struct AccountPaths;
 
 namespace maicord::app_detail {
 
-void application_login_reset_backup_acknowledgement() noexcept;
 // Forgets the QR/phone-approval session, wiping its code and user preview.
 void application_login_reset_remote_session() noexcept;
 // Forgets SMS, WebAuthn, backup-code, CAPTCHA and password-reveal progress.

@@ -9,10 +9,8 @@ namespace {
 const wchar_t* filename(OAuthProvider provider) noexcept {
     return provider == OAuthProvider::spotify ? L"spotify-account.bin" : nullptr;
 }
-struct Locked {
-    SecureBuffer value{};
-    ~Locked() noexcept { secure_buffer_release(&value); }
-};
+using Locked = oauth_detail::ScopedSecureBuffer;
+using oauth_detail::secure_buffer_empty;
 struct Record {
     u8 encrypted[4096], entropy[kOAuthClientBytes + 32];
     ~Record() noexcept { secure_clear_bytes(this, sizeof(*this)); }
@@ -23,9 +21,6 @@ ConstSlice<u8> bind(Record& record, const Utf8View& client, OAuthProvider provid
     copy_bytes(record.entropy, purpose.data, purpose.bytes);
     copy_bytes(record.entropy + purpose.bytes, client.data, client.bytes);
     return {record.entropy, purpose.bytes + client.bytes};
-}
-bool empty(const SecureBuffer* b) noexcept {
-    return b && !b->data && !b->capacity && !b->bytes && !b->locked;
 }
 }
 bool oauth_account_save(Utf8View client, Utf8View refresh, OAuthProvider provider) noexcept {
@@ -41,7 +36,7 @@ bool oauth_account_save(Utf8View client, Utf8View refresh, OAuthProvider provide
         file_persistence_write_atomic(path, location.length, {record.encrypted, encrypted.bytes}).ok();
 }
 bool oauth_account_load(const Utf8View& client, SecureBuffer* output, OAuthProvider provider) noexcept {
-    if (!empty(output) || !oauth_client_valid(provider, client)) return false;
+    if (!secure_buffer_empty(output) || !oauth_client_valid(provider, client)) return false;
     wchar_t path[1024];
     if (!data_path(path, 1024, filename(provider)).ok()) return false;
     Record record;
@@ -62,7 +57,7 @@ bool oauth_account_forget(OAuthProvider provider) noexcept {
 }
 OAuthAuthorizationResult oauth_account_refresh(OAuthAuthorization* owner, SecureBuffer* output,
     OAuthAuthorizationTransport transport, Utf8View client, OAuthProvider provider) noexcept {
-    if (!owner || !empty(output) || !oauth_client_valid(provider, client)) return {OAuthError::invalid_input};
+    if (!owner || !secure_buffer_empty(output) || !oauth_client_valid(provider, client)) return {OAuthError::invalid_input};
     if (ReadAcquire(&owner->native_state) == 3) return {OAuthError::cancelled};
     Locked grant;
     if (!oauth_account_load(client, &grant.value, provider)) return {OAuthError::invalid_grant};

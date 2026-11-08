@@ -171,10 +171,6 @@ UiPresence presence_of(u64 user) noexcept {
     const auto* rows = application_private_channel_rows();
     return rows ? ui_user_presence(*rows, user) : UiPresence::unknown;
 }
-u8 relation_of(u64 user) noexcept {
-    u8 relation = 0;
-    return application_friends_user_relation(user, &relation) ? relation : 0;
-}
 UiRect slot_rectangle() noexcept {
     const auto* node = ui_scene_node(g_app.shell_scene, UiSemantic::member_sidebar);
     return node ? node->rectangle : UiRect{};
@@ -229,7 +225,7 @@ bool show(u64 user, UiRect slot) noexcept {
         s.http_status = entry->status;
         s.presence = presence_of(user);
         s.presence_mobile = ui_presence_mobile(s.presence, user_store_client_status(g_app.account_ui->user_store, user));
-        s.relation = relation_of(user);
+        s.relation = application_friends_relation(user);
         s.effect = nullptr;
         s.note_visible = false;
         s.reduced_motion = application_reduced_motion();
@@ -244,7 +240,7 @@ bool show(u64 user, UiRect slot) noexcept {
         // Friend changes show in the header buttons and the presence dot; a
         // landed command index in the Commands section.
         const bool commands = resolve_commands(*entry, g_app.account_ui->chat_state.selected_channel_id);
-        const u8 relation = relation_of(user);
+        const u8 relation = application_friends_relation(user);
         const UiPresence presence = presence_of(user);
         const bool mobile = ui_presence_mobile(presence, user_store_client_status(g_app.account_ui->user_store, user));
         const bool moved = commands || !ui_rect_equal(s.anchor, slot) || relation != s.relation ||

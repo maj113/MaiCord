@@ -37,6 +37,12 @@ bool application_friends_popup_action(u32 action) noexcept;
 // The relationship for the user context menu: 0 none, 1 friend, 2 incoming,
 // 3 outgoing, 4 blocked. False until the relationship store is ready.
 bool application_friends_user_relation(u64 user_id, u8* relation) noexcept;
+// The same relationship, 0 while the store is not ready.
+inline u8 application_friends_relation(u64 user_id) noexcept {
+    u8 relation = 0;
+    application_friends_user_relation(user_id, &relation);
+    return relation;
+}
 // Relationship changes from the user context menu; removing and blocking ask first.
 enum class ApplicationFriendsUserAction : u8 { add, accept, cancel, remove, block, unblock };
 bool application_friends_user_action(u64 user_id, ApplicationFriendsUserAction action) noexcept;

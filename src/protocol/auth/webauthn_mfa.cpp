@@ -83,6 +83,14 @@ bool decode_string(const JsonString& string, const Slice<char>& output, u32* byt
     return true;
 }
 
+// The position of a string of at most 24 decoded bytes in the list (the list's count when it is not listed), or ~0u
+// when it is longer or does not decode.
+template <protocol_detail::MemberName... Names> u32 short_string_index(const JsonString& string) noexcept {
+    char decoded[24];
+    const JsonStringDecodeResult result = json_string_decode_utf8(string, Slice<char>{decoded, sizeof(decoded)});
+    return result.ok() ? protocol_detail::member_index<Names...>(JsonString{{decoded, result.bytes}, 0, false}) : ~0u;
+}
+
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<RootContext*>(opaque);
     const u32 index = protocol_detail::member_index<"publicKey", "mediation">(name);
@@ -199,25 +207,17 @@ bool visit_credential(void* opaque, JsonString name, JsonValue value) noexcept {
 bool visit_transport(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<TransportContext*>(opaque);
     JsonString string{};
-    char decoded[24]{};
-    u32 bytes = 0;
-    if (!json_value_as_string(value, &string) ||
-        !decode_string(string, Slice<char>{decoded, sizeof(decoded)}, &bytes)) {
+    const u32 index = json_value_as_string(value, &string)
+                          ? short_string_index<"usb", "nfc", "ble", "internal", "hybrid", "cable">(string)
+                          : ~0u;
+    if (index == ~0u) {
         context->error = WebAuthnMfaError::invalid_field;
         return false;
     }
-    if (utf8_equal({decoded, bytes}, utf8_literal("usb"))) {
-        context->flags |= webauthn_transport_usb;
-    } else if (utf8_equal({decoded, bytes}, utf8_literal("nfc"))) {
-        context->flags |= webauthn_transport_nfc;
-    } else if (utf8_equal({decoded, bytes}, utf8_literal("ble"))) {
-        context->flags |= webauthn_transport_ble;
-    } else if (utf8_equal({decoded, bytes}, utf8_literal("internal"))) {
-        context->flags |= webauthn_transport_internal;
-    } else if (utf8_equal({decoded, bytes}, utf8_literal("hybrid")) ||
-               utf8_equal({decoded, bytes}, utf8_literal("cable"))) {
-        context->flags |= webauthn_transport_hybrid;
-    }
+    static constexpr u8 kFlags[] = {webauthn_transport_usb, webauthn_transport_nfc, webauthn_transport_ble,
+                                    webauthn_transport_internal, webauthn_transport_hybrid,
+                                    webauthn_transport_hybrid, webauthn_transport_none};
+    context->flags |= kFlags[index];
     return true;
 }
 
@@ -351,35 +351,23 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
     parsed.challenge_bytes = challenge.bytes;
 
     if ((public_key.fields & (1u << 4)) != 0) {
-        char verification[24]{};
-        u32 verification_bytes = 0;
-        if (!decode_string(public_key.user_verification,
-                           Slice<char>{verification, static_cast<u32>(sizeof(verification))},
-                           &verification_bytes)) {
+        const u32 verification =
+            short_string_index<"preferred", "required", "discouraged">(public_key.user_verification);
+        if (verification == ~0u) {
             return failure(WebAuthnMfaError::invalid_field);
         }
-        if (utf8_equal({verification, verification_bytes}, utf8_literal("required"))) {
-            parsed.user_verification = WebAuthnUserVerification::required;
-        } else if (utf8_equal({verification, verification_bytes}, utf8_literal("preferred"))) {
-            parsed.user_verification = WebAuthnUserVerification::preferred;
-        } else if (utf8_equal({verification, verification_bytes}, utf8_literal("discouraged"))) {
-            parsed.user_verification = WebAuthnUserVerification::discouraged;
-        } else {
+        if (verification > 2) {
             return failure(WebAuthnMfaError::invalid_field, public_key.user_verification.source_offset);
         }
+        parsed.user_verification = static_cast<WebAuthnUserVerification>(verification);
     }
 
     if (root.mediation_seen) {
-        char mediation[24]{};
-        u32 mediation_bytes = 0;
-        if (!decode_string(root.mediation, Slice<char>{mediation, static_cast<u32>(sizeof(mediation))},
-                           &mediation_bytes)) {
+        const u32 mediation = short_string_index<"conditional", "optional", "required", "silent">(root.mediation);
+        if (mediation == ~0u) {
             return failure(WebAuthnMfaError::invalid_field);
         }
-        if (!utf8_equal({mediation, mediation_bytes}, utf8_literal("conditional")) &&
-            !utf8_equal({mediation, mediation_bytes}, utf8_literal("optional")) &&
-            !utf8_equal({mediation, mediation_bytes}, utf8_literal("required")) &&
-            !utf8_equal({mediation, mediation_bytes}, utf8_literal("silent"))) {
+        if (mediation > 3) {
             return failure(WebAuthnMfaError::invalid_field, root.mediation.source_offset);
         }
     }
@@ -409,11 +397,7 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
             return failure(WebAuthnMfaError::missing_required_field,
                            credential_values.values[index].source_offset);
         }
-        char type[24]{};
-        u32 type_bytes = 0;
-        if (!decode_string(credential.type, Slice<char>{type, static_cast<u32>(sizeof(type))},
-                           &type_bytes) ||
-            !utf8_equal({type, type_bytes}, utf8_literal("public-key"))) {
+        if (short_string_index<"public-key">(credential.type) != 0) {
             return failure(WebAuthnMfaError::invalid_field, credential.type.source_offset);
         }
         char encoded_id[2048];

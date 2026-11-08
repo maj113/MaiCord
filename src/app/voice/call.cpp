@@ -1,5 +1,6 @@
 #include "call.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/window_state.hpp"
@@ -60,12 +61,6 @@ struct CallView {
 // scope before it can tick, so its stored style is never read before that.
 CallView view{.scene = {.morph = {.style = {0, UiMotionCurve::linear}}}};
 
-const GatewayClientVoiceSnapshot* session() noexcept {
-    return g_app.account_ui ? &g_app.account_ui->voice_session : nullptr;
-}
-bool in_call(const GatewayClientVoiceSnapshot& s) noexcept {
-    return s.channel_id && s.phase != VoiceSetupPhase::idle;
-}
 bool modal_open() noexcept {
     return g_app.login.visible || g_app.popup_scene.active || g_app.text_form || g_app.reaction_viewer.active ||
            g_app.image_viewer.scene.active ||
@@ -225,8 +220,8 @@ u32 project_streams(u64 channel_id) noexcept {
 u32 project_participants(u64 channel_id) noexcept {
     auto& ui = *g_app.account_ui;
     const u64 self = ui.chat_state.self_user_id;
-    const auto* s = session();
-    const bool joined = s && in_call(*s) && s->channel_id == channel_id;
+    const auto* s = application_voice_call();
+    const bool joined = s && s->channel_id == channel_id;
     const u32 streams = project_streams(channel_id);
     u32 count = streams;
     bool self_seen = false;
@@ -324,8 +319,8 @@ void set_chat(bool open) noexcept {
 // One pass of wants (and pictures when poll is set) against the current tiles.
 CallVideoPumpResult synchronize_video(bool poll) noexcept {
     auto& host = g_app.account;
-    const auto* s = session();
-    if (!host.instance || !host.api.voice_video_snapshot || !s || !in_call(*s)) {
+    const auto* s = application_voice_call();
+    if (!host.instance || !host.api.voice_video_snapshot || !s) {
         view.snapshot_valid = false;
         call_video_presenter_reset(&view.video);
         return {};
@@ -528,9 +523,9 @@ bool editing_key(u32 key) noexcept {
 bool application_call_open(u64 channel_id, u64 focus_user) noexcept {
     if (!g_app.account_ui || g_app.login.visible)
         return false;
-    const auto* s = session();
     if (!channel_id)
-        channel_id = s && in_call(*s) ? s->channel_id : 0;
+        if (const auto* s = application_voice_call())
+            channel_id = s->channel_id;
     if (!channel_id)
         return false;
     // The view replaces the side panels that share the content column.
@@ -594,8 +589,8 @@ bool application_call_synchronize() noexcept {
         return true;
     }
     const u64 now = clock_monotonic_milliseconds();
-    const auto* s = session();
-    const bool call = s && in_call(*s);
+    const auto* s = application_voice_call();
+    const bool call = s != nullptr;
     // Leaving, a server disconnect or a connection that failed for good ends
     // the view; a join still in flight keeps it for the grace period.
     const bool failed =
@@ -710,18 +705,12 @@ void application_call_voice_pump() noexcept {
 }
 
 u64 application_call_next_wake() noexcept {
-    u64 wake = view.next_poll_ms;
     // A join that never shows up closes the view when its grace runs out.
-    if (const u64 grace = view.open ? call_view_lifecycle_deadline(view.lifecycle, view.opened_ms) : 0;
-        grace && (!wake || grace < wake))
-        wake = grace;
-    if (const u64 stream_wake = application_stream_next_wake(); stream_wake && (!wake || stream_wake < wake))
-        wake = stream_wake;
-    if (scene_visible()) {
-        const u64 morph = ui_call_scene_next_wake(view.scene, g_app.preferences.reduced_motion);
-        if (morph && (!wake || morph < wake))
-            wake = morph;
-    }
+    u64 wake = earliest_deadline(view.next_poll_ms,
+                                 view.open ? call_view_lifecycle_deadline(view.lifecycle, view.opened_ms) : 0);
+    wake = earliest_deadline(wake, application_stream_next_wake());
+    if (scene_visible())
+        wake = earliest_deadline(wake, ui_call_scene_next_wake(view.scene, g_app.preferences.reduced_motion));
     return wake;
 }
 

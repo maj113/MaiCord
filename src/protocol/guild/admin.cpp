@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/protocol/guild/invite.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "../encoding/json_helpers.hpp"
@@ -848,18 +849,9 @@ GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& r, Slice<u8> 
 namespace {
 // YYYY-MM-DDTHH:MM:SS into output[0..19); the caller checked the bounds.
 void write_civil_time(u64 unix_seconds, const Slice<char>& output) noexcept {
-    const u64 days = unix_seconds / 86'400;
+    const auto date = civil_date_from_days(static_cast<i64>(unix_seconds / 86'400));
     const u32 seconds = static_cast<u32>(unix_seconds % 86'400);
-    // Civil date from days since 1970-01-01 (proleptic Gregorian).
-    const u64 z = days + 719'468;
-    const u64 era = z / 146'097;
-    const u32 doe = static_cast<u32>(z - era * 146'097);
-    const u32 yoe = (doe - doe / 1'460 + doe / 36'524 - doe / 146'096) / 365;
-    const u32 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    const u32 mp = (5 * doy + 2) / 153;
-    const u32 day = doy - (153 * mp + 2) / 5 + 1;
-    const u32 month = mp < 10 ? mp + 3 : mp - 9;
-    const u32 year = static_cast<u32>(yoe + era * 400) + (month <= 2 ? 1u : 0u);
+    const u32 year = static_cast<u32>(date.year), month = date.month, day = date.day;
     const auto two = [&](u32 at, u32 value) noexcept {
         output[at] = static_cast<char>('0' + value / 10 % 10);
         output[at + 1] = static_cast<char>('0' + value % 10);

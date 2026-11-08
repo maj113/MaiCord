@@ -9,6 +9,16 @@
 
 
 namespace maicord {
+u64 remote_auth_handshake_next_wake(const RemoteAuthHandshake& handshake) noexcept {
+    if (handshake.expires_at_ms == 0) {
+        return handshake.next_heartbeat_at_ms;
+    }
+    if (handshake.next_heartbeat_at_ms == 0) {
+        return handshake.expires_at_ms;
+    }
+    return minimum(handshake.expires_at_ms, handshake.next_heartbeat_at_ms);
+}
+
 namespace {
 
 RemoteAuthHandshakeResult result(RemoteAuthHandshakeError error, u32 bytes = 0,
@@ -17,16 +27,6 @@ RemoteAuthHandshakeResult result(RemoteAuthHandshakeError error, u32 bytes = 0,
                                  Base64Error base64_error = Base64Error::none,
                                  RemoteAuthHandshakeStage stage = RemoteAuthHandshakeStage::none) noexcept {
     return RemoteAuthHandshakeResult{bytes, error, protocol_error, crypto_error, base64_error, stage};
-}
-
-u64 next_wake(const RemoteAuthHandshake& handshake) noexcept {
-    if (handshake.expires_at_ms == 0) {
-        return handshake.next_heartbeat_at_ms;
-    }
-    if (handshake.next_heartbeat_at_ms == 0) {
-        return handshake.expires_at_ms;
-    }
-    return minimum(handshake.expires_at_ms, handshake.next_heartbeat_at_ms);
 }
 
 // Ends the handshake; the arguments are those of result().
@@ -138,7 +138,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
             return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
         handshake->heartbeat_unacknowledged = false;
-        event->next_wake_at_ms = next_wake(*handshake);
+        event->next_wake_at_ms = remote_auth_handshake_next_wake(*handshake);
         return result(RemoteAuthHandshakeError::none);
     }
 
@@ -178,7 +178,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         handshake->phase = RemoteAuthHandshakePhase::awaiting_nonce;
         event->kind = RemoteAuthHandshakeEventKind::send_command;
         event->command_bytes = written.bytes;
-        event->next_wake_at_ms = next_wake(*handshake);
+        event->next_wake_at_ms = remote_auth_handshake_next_wake(*handshake);
         return result(RemoteAuthHandshakeError::none, written.bytes);
     }
 
@@ -224,7 +224,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         handshake->phase = RemoteAuthHandshakePhase::awaiting_fingerprint;
         event->kind = RemoteAuthHandshakeEventKind::send_command;
         event->command_bytes = written.bytes;
-        event->next_wake_at_ms = next_wake(*handshake);
+        event->next_wake_at_ms = remote_auth_handshake_next_wake(*handshake);
         return result(RemoteAuthHandshakeError::none, written.bytes);
     }
 
@@ -246,7 +246,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         handshake->phase = RemoteAuthHandshakePhase::awaiting_mobile;
         event->kind = RemoteAuthHandshakeEventKind::qr_ready;
         event->data_bytes = kRemoteAuthFingerprintEncodedBytes;
-        event->next_wake_at_ms = next_wake(*handshake);
+        event->next_wake_at_ms = remote_auth_handshake_next_wake(*handshake);
         return result(RemoteAuthHandshakeError::none, kRemoteAuthFingerprintEncodedBytes);
     }
 
@@ -280,7 +280,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         secure_clear_bytes(plaintext, sizeof(plaintext));
         event->kind = RemoteAuthHandshakeEventKind::user_pending;
         event->data_bytes = decrypted.bytes;
-        event->next_wake_at_ms = next_wake(*handshake);
+        event->next_wake_at_ms = remote_auth_handshake_next_wake(*handshake);
         return result(RemoteAuthHandshakeError::none, decrypted.bytes);
     }
 
@@ -294,7 +294,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         handshake->phase = RemoteAuthHandshakePhase::ticket_ready;
         event->kind = RemoteAuthHandshakeEventKind::ticket_ready;
         event->data_bytes = packet.text_bytes;
-        event->next_wake_at_ms = next_wake(*handshake);
+        event->next_wake_at_ms = remote_auth_handshake_next_wake(*handshake);
         return result(RemoteAuthHandshakeError::none, packet.text_bytes);
     }
 
@@ -314,7 +314,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_tick(RemoteAuthHandshake* handsh
         return fail(handshake, RemoteAuthHandshakeError::session_timeout);
     }
     if (handshake->next_heartbeat_at_ms == 0 || now_ms < handshake->next_heartbeat_at_ms) {
-        event->next_wake_at_ms = next_wake(*handshake);
+        event->next_wake_at_ms = remote_auth_handshake_next_wake(*handshake);
         return result(RemoteAuthHandshakeError::none);
     }
     if (handshake->heartbeat_unacknowledged) {
@@ -328,7 +328,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_tick(RemoteAuthHandshake* handsh
     handshake->next_heartbeat_at_ms = deadline_after(now_ms, handshake->heartbeat_interval_ms);
     event->kind = RemoteAuthHandshakeEventKind::send_command;
     event->command_bytes = written.bytes;
-    event->next_wake_at_ms = next_wake(*handshake);
+    event->next_wake_at_ms = remote_auth_handshake_next_wake(*handshake);
     return result(RemoteAuthHandshakeError::none, written.bytes);
 }
 

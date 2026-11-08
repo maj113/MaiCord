@@ -26,13 +26,11 @@ struct ActivityState {
     u64 idle_check_at, scan_at;
     // The detected game; started_ms survives rescans of the same game.
     char game_name[kGatewayLocalGameNameBytes];
-    u64 game_application_id, game_started_ms;
+    u64 game_started_ms;
     u8 game_name_bytes;
     bool game;
     GatewayLocalPresence published;
     bool published_valid;
-    RegisteredGames games;
-    bool games_loaded;
     // "Add a game" choices: running windowed programs.
     char choice_text[kChoiceMaximum * kRegisteredGameExecutableBytes];
     char choice_names[kChoiceMaximum][kRegisteredGameNameBytes];
@@ -45,6 +43,9 @@ struct ActivityState {
     u8 attempts;
     bool desired_share, queued, failed;
 } g;
+// The registered games outlive account scopes; loaded once.
+RegisteredGames g_games;
+bool g_games_loaded;
 // Plugin rich presence outlives account scopes; the plugin clears its own.
 struct PluginActivity {
     u64 owner_id, sequence, application_id, start_ms, end_ms;
@@ -65,13 +66,8 @@ const PluginActivity* plugin_activity() noexcept {
     return newest;
 }
 
-// Drops the account state but keeps the loaded registered games.
 void reset() noexcept {
-    const RegisteredGames games = g.games;
-    const bool loaded = g.games_loaded;
     reset_value(&g);
-    g.games = games;
-    g.games_loaded = loaded;
 }
 void scope() noexcept {
     if (g.account_scope == g_app.plugin_account_scope_serial)
@@ -85,11 +81,11 @@ bool module() noexcept {
     return g_app.account.instance && g_app.account.api.local_presence;
 }
 void load_games() noexcept {
-    if (g.games_loaded)
+    if (g_games_loaded)
         return;
-    g.games_loaded = true;
-    if (!registered_games_load(&g.games)) {
-        reset_value(&g.games);
+    g_games_loaded = true;
+    if (!registered_games_load(&g_games)) {
+        reset_value(&g_games);
         log_write(LogLevel::warning, "activity", "registered_games_load_failed");
     }
 }
@@ -124,7 +120,7 @@ void detect(u64 now_ms) noexcept {
     char storage[16 * 1024];
     Utf8View names[512];
     const u32 count = game_detection_snapshot({storage, sizeof(storage)}, {names, 512}, false);
-    const auto match = game_detection_match(g.games, game_detection_builtin(), {names, count});
+    const auto match = game_detection_match(g_games, game_detection_builtin(), {names, count});
     if (!match.found) {
         g.game = false;
         return;
@@ -134,7 +130,6 @@ void detect(u64 now_ms) noexcept {
         g.game_started_ms = clock_unix_milliseconds();
     copy_bytes(g.game_name, match.name.data, bytes);
     g.game_name_bytes = static_cast<u8>(bytes);
-    g.game_application_id = match.application_id;
     g.game = true;
 }
 void refresh_choices(u64 now_ms) noexcept {
@@ -149,8 +144,8 @@ void refresh_choices(u64 now_ms) noexcept {
     g.choice_count = 0;
     for (u32 i = 0; i < count && g.choice_count < kChoiceMaximum; ++i) {
         bool known = false;
-        for (u32 k = 0; k < g.games.count && !known; ++k)
-            known = utf8_equal(names[i], {g.games.items[k].executable, g.games.items[k].executable_bytes});
+        for (u32 k = 0; k < g_games.count && !known; ++k)
+            known = utf8_equal(names[i], {g_games.items[k].executable, g_games.items[k].executable_bytes});
         if (known || names[i].bytes > sizeof(g.choice_text) - text)
             continue;
         copy_bytes(g.choice_text + text, names[i].data, names[i].bytes);
@@ -190,7 +185,6 @@ void application_activity_tick(u64 now_ms) noexcept {
         local.game_state_bytes = plugin->state_bytes;
     } else if (g.game) {
         local.game = true;
-        local.game_application_id = g.game_application_id;
         local.game_started_ms = g.game_started_ms;
         copy_bytes(local.game_name, g.game_name, g.game_name_bytes);
         local.game_name_bytes = g.game_name_bytes;
@@ -332,7 +326,7 @@ bool application_activity_settings_project(SettingBinding binding, UiSettingsCon
             return true;
         }
         control->choices = {g.choices, g.choice_count};
-        control->enabled = g.games.count < kRegisteredGameMaximum;
+        control->enabled = g_games.count < kRegisteredGameMaximum;
         return true;
     default:
         return false;
@@ -360,8 +354,8 @@ bool application_activity_settings_activate(SettingBinding binding, bool checked
         if (choice >= g.choice_count)
             return true;
         load_games();
-        *result = registered_games_add(&g.games, g.choices[choice], g.choice_executables[choice]) &&
-                  registered_games_save(g.games);
+        *result = registered_games_add(&g_games, g.choices[choice], g.choice_executables[choice]) &&
+                  registered_games_save(g_games);
         g.choices_at = 0;
         g.scan_at = 0; // Detect the added game on the next tick.
         application_request_frame();
@@ -381,8 +375,8 @@ u32 application_activity_settings_list(Slice<UiSettingsControl> controls,
     // The detected game leads the list, as the official "Now playing" card does.
     if (playing.bytes && count < controls.count && count < presentation.count) {
         bool custom = false;
-        for (u32 i = 0; i < g.games.count && !custom; ++i)
-            custom = utf8_equal(playing, {g.games.items[i].name, g.games.items[i].name_bytes});
+        for (u32 i = 0; i < g_games.count && !custom; ++i)
+            custom = utf8_equal(playing, {g_games.items[i].name, g_games.items[i].name_bytes});
         if (!custom) {
             controls[count] = {settings_list_control_id(SettingBinding::registered_games, kAddGameRow - 1), playing,
                                shared() ? utf8_literal("Playing now. Shown on your profile.")
@@ -391,8 +385,8 @@ u32 application_activity_settings_list(Slice<UiSettingsControl> controls,
             presentation[count++] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
         }
     }
-    for (u32 i = 0; i < g.games.count && count < controls.count && count < presentation.count; ++i) {
-        const auto& game = g.games.items[i];
+    for (u32 i = 0; i < g_games.count && count < controls.count && count < presentation.count; ++i) {
+        const auto& game = g_games.items[i];
         const Utf8View name{game.name, game.name_bytes};
         controls[count] = {settings_list_control_id(SettingBinding::registered_games, i), name,
                            utf8_equal(name, playing) ? utf8_literal("Playing now")
@@ -419,9 +413,9 @@ bool application_activity_settings_activate_row(u64 control_id) noexcept {
         return false;
     const u32 index = settings_list_index(control_id);
     load_games();
-    if (index >= g.games.count)
+    if (index >= g_games.count)
         return false;
-    const bool removed = registered_games_remove(&g.games, index) && registered_games_save(g.games);
+    const bool removed = registered_games_remove(&g_games, index) && registered_games_save(g_games);
     g.scan_at = 0;
     g.choices_at = 0;
     application_request_frame();

@@ -607,8 +607,7 @@ void detection() noexcept {
     bool packed_same = builtin.count == sizeof(game_reference::kBuiltin) / sizeof(game_reference::kBuiltin[0]);
     for (u32 i = 0; packed_same && i < builtin.count; ++i)
         packed_same = same(builtin[i].name, game_reference::kBuiltin[i].name) &&
-                      same(builtin[i].executables, game_reference::kBuiltin[i].executables) &&
-                      builtin[i].application_id == game_reference::kBuiltin[i].application_id;
+                      same(builtin[i].executables, game_reference::kBuiltin[i].executables);
     check(packed_same, "detection: the packed built-in table matches its data file");
     auto match = game_detection_match(games, game_detection_builtin(), {running, 3});
     check(match.found && !match.custom && same(match.name, utf8_literal("League of Legends")),

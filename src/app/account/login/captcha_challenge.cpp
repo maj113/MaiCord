@@ -69,34 +69,23 @@ bool external_output(const CaptchaChallenge* challenge, const SecureBuffer* outp
 
 bool secret_range(CaptchaChallengeSecretKind kind, const CaptchaChallengeSnapshot& snapshot, u32* offset,
                   u32* bytes) noexcept {
-    switch (kind) {
-    case CaptchaChallengeSecretKind::service:
-        *offset = kServiceOffset;
-        *bytes = snapshot.service_bytes;
-        return true;
-    case CaptchaChallengeSecretKind::sitekey:
-        *offset = kSitekeyOffset;
-        *bytes = snapshot.sitekey_bytes;
-        return true;
-    case CaptchaChallengeSecretKind::rqdata:
-        *offset = kRqdataOffset;
-        *bytes = snapshot.rqdata_bytes;
-        return true;
-    case CaptchaChallengeSecretKind::rqtoken:
-        *offset = kRqtokenOffset;
-        *bytes = snapshot.rqtoken_bytes;
-        return true;
-    case CaptchaChallengeSecretKind::session_id:
-        *offset = kSessionOffset;
-        *bytes = snapshot.session_id_bytes;
-        return true;
-    case CaptchaChallengeSecretKind::user_flow:
-        *offset = kUserFlowOffset;
-        *bytes = snapshot.user_flow_bytes;
-        return true;
-    default:
+    // Indexed by CaptchaChallengeSecretKind.
+    static constexpr struct {
+        u32 offset;
+        u32 CaptchaChallengeSnapshot::*bytes;
+    } kRanges[] = {{kServiceOffset, &CaptchaChallengeSnapshot::service_bytes},
+                   {kSitekeyOffset, &CaptchaChallengeSnapshot::sitekey_bytes},
+                   {kRqdataOffset, &CaptchaChallengeSnapshot::rqdata_bytes},
+                   {kRqtokenOffset, &CaptchaChallengeSnapshot::rqtoken_bytes},
+                   {kSessionOffset, &CaptchaChallengeSnapshot::session_id_bytes},
+                   {kUserFlowOffset, &CaptchaChallengeSnapshot::user_flow_bytes}};
+    static_assert(static_cast<u32>(CaptchaChallengeSecretKind::user_flow) + 1 == sizeof(kRanges) / sizeof(kRanges[0]));
+    const u32 index = static_cast<u32>(kind);
+    if (index >= sizeof(kRanges) / sizeof(kRanges[0]))
         return false;
-    }
+    *offset = kRanges[index].offset;
+    *bytes = snapshot.*kRanges[index].bytes;
+    return true;
 }
 
 } // namespace

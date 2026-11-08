@@ -1,5 +1,4 @@
 #include "client_internal.hpp"
-#include "user_payload.hpp"
 #include "maicord/core/hash.hpp"
 
 namespace maicord {
@@ -465,66 +464,29 @@ PlaintextDrive fail_session_event(GatewayClientRuntime* runtime,
 } // namespace client_detail
 namespace {
 
-bool flush_ready_users(ReadyStatePublishContext* context) noexcept {
-    if (!context->user_count)
-        return true;
-    GatewayClientEvent event = gateway_dispatch_event(GatewayClientDispatchKind::user_snapshot,
-                                                      context->sequence, context->now_ms);
-    event.state.record_count = context->user_count;
-    event.dispatch_payload_bytes = context->user_bytes;
-    if (!publish_event_payload(
-            context->client, context->runtime, event,
-            {reinterpret_cast<const u8*>(context->payload_scratch.data), context->user_bytes})) {
-        context->publish_failed = true;
-        return false;
-    }
-    context->user_count = context->user_bytes = 0;
-    return true;
-}
-
-bool publish_ready_state_record(void* opaque, u32, JsonValue value) noexcept {
-    auto* context = static_cast<ReadyStatePublishContext*>(opaque);
-    if (context->kind == ReadyRecordKind::user) {
-        // Every maximum-size record, including serialized appearance, fits in
-        // the existing batch buffer. Append directly; do not stage a second
-        // copy in a smaller stack buffer.
-        static_assert(64 * (sizeof(GatewayClientUserMutation) + 256 + 34 + 1024) <=
-                      kHandshakeBytes - kMessageBytes);
-        if (context->user_count == 64 && !flush_ready_users(context))
-            return false;
-        GatewayPayloadWriter batch{context->payload_scratch, context->user_bytes};
-        context->route = gateway_append_user(value, context->object_scratch, 64, &batch);
-        if (!context->route.ok())
-            return false;
-        context->user_bytes = batch.used;
-        ++context->user_count;
-        return true;
-    }
+// One READY_SUPPLEMENTAL lazy private channel: a group or DM routed as CHANNEL_CREATE and published.
+bool publish_private_channel(void* opaque, u32, JsonValue value) noexcept {
+    auto* context = static_cast<PrivateChannelPublish*>(opaque);
     GatewayEnvelope envelope{};
     envelope.data = value;
-    envelope.event_name =
-        JsonString{context->kind == ReadyRecordKind::private_channel ? utf8_literal("CHANNEL_CREATE")
-                                                                     : utf8_literal("READY_GUILD"),
-                   0, false};
+    envelope.event_name = JsonString{utf8_literal("CHANNEL_CREATE"), 0, false};
     envelope.sequence = context->sequence;
     envelope.has_sequence = true;
     envelope.has_event_name = true;
-
     GatewayClientEvent record{};
     ConstSlice<u8> payload{};
-    context->route = gateway_client_route_dispatch(envelope, context->object_scratch, 64,
-                                                   context->payload_scratch, Slice<u64>{nullptr, 0},
+    // The outer array still owns runtime->structural_scratch while its visitor runs. The plaintext staging
+    // buffer is idle during inbound dispatch, so it is the per-record structural scratch instead of 128 KiB on
+    // the network-worker stack.
+    context->route = gateway_client_route_dispatch(envelope, object_scratch(context->runtime), 64,
+                                                   dispatch_scratch(context->runtime), Slice<u64>{nullptr, 0},
                                                    context->runtime->self_user_id, &record, &payload);
-    const bool expected = context->kind == ReadyRecordKind::private_channel
-                              ? record.dispatch_kind == GatewayClientDispatchKind::channel_create &&
-                                    record.state.guild_id == 0 &&
-                                    (record.state.type == 1 || record.state.type == 3)
-                              : record.dispatch_kind == GatewayClientDispatchKind::guild_create;
-    if (!context->route.ok() || !expected) {
-        if (context->route.ok()) {
-            context->route.error = GatewayClientDispatchRouteError::decode;
-            context->route.event_error = GatewayEventDecodeError::invalid_data;
-        }
+    if (!context->route.ok())
+        return false;
+    if (record.dispatch_kind != GatewayClientDispatchKind::channel_create || record.state.guild_id != 0 ||
+        (record.state.type != 1 && record.state.type != 3)) {
+        context->route.error = GatewayClientDispatchRouteError::decode;
+        context->route.event_error = GatewayEventDecodeError::invalid_data;
         return false;
     }
     record.timestamp_ms = context->now_ms;
@@ -538,49 +500,20 @@ bool publish_ready_state_record(void* opaque, u32, JsonValue value) noexcept {
 } // namespace
 namespace client_detail {
 
-ReadyStatePublishContext publish_ready_state(GatewayClient* client, GatewayClientRuntime* runtime,
-                                             JsonValue records, ReadyRecordKind kind, u64 sequence,
-                                             u64 now_ms) noexcept {
-    ReadyStatePublishContext context{};
-    context.client = client;
-    context.runtime = runtime;
-    context.sequence = sequence;
-    context.now_ms = now_ms;
-    context.kind = kind;
-    context.payload_scratch =
-        Slice<char>{reinterpret_cast<char*>(runtime->handshake_output + kMessageBytes),
-                    kHandshakeBytes - kMessageBytes};
-
-    const JsonScanResult scan = json_scan_structurals_avx1(records.source, main_index_view(runtime));
+PrivateChannelPublish publish_private_channels(GatewayClient* client, GatewayClientRuntime* runtime,
+                                               JsonValue channels, u64 sequence, u64 now_ms) noexcept {
+    PrivateChannelPublish context{client, runtime, sequence, now_ms, {}, false};
+    const JsonScanResult scan = json_scan_structurals_avx1(channels.source, main_index_view(runtime));
     if (!scan.ok()) {
-        context.route.error = GatewayClientDispatchRouteError::decode;
-        context.route.event_error = GatewayEventDecodeError::scan_failed;
-        context.route.scan_error = scan.error;
-        context.route.error_offset = scan.error_offset;
-        return context;
-    }
-
-    // The outer READY array still owns runtime->structural_scratch while its
-    // visitor runs. The plaintext staging buffer is idle during inbound
-    // dispatch, so reuse it as distinct per-record structural scratch instead
-    // of reserving 128 KiB on the network-worker stack.
-    context.object_scratch = object_scratch(runtime);
-    if (kind == ReadyRecordKind::user && records.kind == JsonValueKind::object) {
-        if (publish_ready_state_record(&context, 0, records))
-            flush_ready_users(&context);
+        context.route = route_decode_error({scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error});
         return context;
     }
     const JsonReadResult read =
-        json_visit_value_array(records, ConstSlice<u32>{main_index_view(runtime).data, scan.count},
-                              64, publish_ready_state_record, &context);
-    if (!read.ok() && context.route.ok() && !context.publish_failed) {
-        context.route.error = GatewayClientDispatchRouteError::decode;
-        context.route.event_error = GatewayEventDecodeError::invalid_json;
-        context.route.read_error = read.error;
-        context.route.error_offset = read.error_offset;
-    }
-    if (context.kind == ReadyRecordKind::user && context.route.ok() && !context.publish_failed)
-        flush_ready_users(&context);
+        json_visit_value_array(channels, ConstSlice<u32>{main_index_view(runtime).data, scan.count}, 64,
+                               publish_private_channel, &context);
+    if (!read.ok() && context.route.ok() && !context.publish_failed)
+        context.route = route_decode_error(
+            {read.error_offset, GatewayEventDecodeError::invalid_json, JsonScanError::none, read.error});
     return context;
 }
 
@@ -600,19 +533,12 @@ PlaintextDrive resume_reconnect(GatewayClient* client, GatewayClientRuntime* run
                : PlaintextDrive::failed;
 }
 
-// After a handled dispatch, so a RESUME continues behind it.
+// After a handled dispatch, so a RESUME continues behind it. The worker is the only writer: a release store keeps
+// the snapshot reader (UI thread) lock-free. The session and URL stay under resume_lock; `resume.sequence` is its
+// READY value, this is the live one.
 void checkpoint_resume_sequence(GatewayClientRuntime* runtime) noexcept {
     if (runtime->resume.valid && runtime->session.lifecycle.has_sequence)
-        publish_resume_sequence(runtime, runtime->session.lifecycle.last_sequence);
-}
-
-// A decode failure as a route failure.
-void set_decode_failure(GatewayClientDispatchRouteResult* routed, const GatewayEventDecodeResult& decoded) noexcept {
-    routed->error = GatewayClientDispatchRouteError::decode;
-    routed->event_error = decoded.error;
-    routed->scan_error = decoded.scan_error;
-    routed->read_error = decoded.read_error;
-    routed->error_offset = decoded.error_offset;
+        runtime->resume_sequence = static_cast<LONG64>(runtime->session.lifecycle.last_sequence);
 }
 
 } // namespace client_detail

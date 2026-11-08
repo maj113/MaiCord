@@ -22,7 +22,6 @@ enum class GatewayClientPhase : u8 {
     tls_handshake,
     websocket_opening,
     awaiting_hello,
-    hello,
     identifying,
     resuming,
     ready,

@@ -168,12 +168,4 @@ u32 permission_overwrite_draft_write(const PermissionOverwriteDraft& draft,
     return draft.count;
 }
 
-ConstSlice<PermissionOverwriteRecord> chat_state_store_channel_overwrites(
-    const ChatStateStore& store, const ChannelRecord& channel) noexcept {
-    if (!store.overwrites || !channel.overwrite_count ||
-        channel.overwrite_offset + channel.overwrite_count > store.overwrite_count)
-        return {};
-    return {store.overwrites + channel.overwrite_offset, channel.overwrite_count};
-}
-
 } // namespace maicord

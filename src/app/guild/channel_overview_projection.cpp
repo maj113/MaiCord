@@ -3,6 +3,7 @@
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/settings_model.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "../shell/state.hpp"
 #include "maicord/core/deadline.hpp"
@@ -70,11 +71,7 @@ PermissionSet self_permissions(u64 channel_id) noexcept {
     if (!channel || !channel->guild_id)
         return 0;
     u64 roles[kGuildRoleMaximum];
-    u32 count = 0;
-    for (u32 i = 0; i < state().role_count && count < kGuildRoleMaximum; ++i)
-        if (state().roles[i].guild_id == channel->guild_id && state().roles[i].id != channel->guild_id &&
-            state().roles[i].self_assigned)
-            roles[count++] = state().roles[i].id;
+    const u32 count = chat_state_store_self_role_ids(state(), channel->guild_id, {roles, kGuildRoleMaximum});
     return chat_state_store_member_permissions(state(), channel->guild_id, channel_id,
                                                   {state().self_user_id, {roles, count}, 0},
                                                   {0, state().self_mfa == SelfMfaState::disabled});
@@ -420,9 +417,7 @@ void project_permissions(Bank& bank) noexcept {
         u32 color = 0;
         bool member = false;
         const auto name = target_name(bank, entry, &color, &member);
-        u32 overrides = 0;
-        for (u64 bits = entry.allow | entry.deny; bits; bits &= bits - 1)
-            ++overrides;
+        const u32 overrides = population_count(entry.allow | entry.deny);
         const u32 start = bank.used;
         bank.add(member ? utf8_literal("Member") : utf8_literal("Role"));
         if (overrides) {
@@ -666,13 +661,9 @@ void confirm_delete() noexcept {
     application_text_form_open(request);
 }
 void open_slowmode(const UiRect& anchor, u32 current) noexcept {
-    for (u32 i = 0; i < 14; ++i) {
-        auto& item = owner->popup_items[i];
-        reset_value(&item);
-        item.label = slowmode_labels[i];
-        item.action = 700 + i;
-        item.flags = static_cast<u16>(popup_item_enabled | (slowmode_values[i] == current ? popup_item_checked : 0));
-    }
+    for (u32 i = 0; i < 14; ++i)
+        popup_item_set(&owner->popup_items[i], slowmode_labels[i], 700 + i,
+                       static_cast<u16>(popup_item_enabled | (slowmode_values[i] == current ? popup_item_checked : 0)));
     owner->menu = Menu::slowmode;
     settings_layer_open_choice(&owner->layer, owner->identity.channel_id, {owner->popup_items, 14}, anchor, 240);
 }
@@ -685,11 +676,9 @@ void open_target_menu(UiRect anchor) noexcept {
     for (u32 i = 0; i < role_count && count < kPopupCapacity; ++i) {
         if (roles[i]->id == p.identity.guild_id || permission_overwrite_draft_find(p.overwrite_draft, roles[i]->id) != ~0u)
             continue;
-        reset_value(&p.popup_items[count]);
-        p.popup_items[count].label = bank.add(chat_state_store_role_name(state(), *roles[i]));
+        popup_item_set(&p.popup_items[count], bank.add(chat_state_store_role_name(state(), *roles[i])), 2'000 + count,
+                       popup_item_enabled);
         p.popup_items[count].detail = utf8_literal("Role");
-        p.popup_items[count].action = 2'000 + count;
-        p.popup_items[count].flags = popup_item_enabled;
         p.menu_ids[count] = roles[i]->id;
         p.menu_types[count++] = 0;
     }
@@ -707,12 +696,9 @@ void open_target_menu(UiRect anchor) noexcept {
                 name = user_store_name(users, *user);
         if (!name.bytes)
             continue;
-        reset_value(&p.popup_items[count]);
-        p.popup_items[count].label = bank.add(name);
+        popup_item_set(&p.popup_items[count], bank.add(name), 2'000 + count,
+                       static_cast<u16>(popup_item_enabled | (!separated && count ? popup_item_separator_before : 0)));
         p.popup_items[count].detail = utf8_literal("Member");
-        p.popup_items[count].action = 2'000 + count;
-        p.popup_items[count].flags =
-            static_cast<u16>(popup_item_enabled | (!separated && count ? popup_item_separator_before : 0));
         separated = true;
         p.menu_ids[count] = m.user_id;
         p.menu_types[count++] = 1;

@@ -707,8 +707,7 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
     decode_field(context.captcha_user_flow, storage.captcha_user_flow);
     decode_field(context.suspended_token, storage.suspended_user_token);
 
-    parsed.user_id = context.user_id;
-    parsed.error_code = context.error_code;
+    // classify_response already set the ids, codes and flags.
     parsed.token_bytes = context.token.bytes;
     parsed.ticket_bytes = context.ticket.bytes;
     parsed.login_instance_id_bytes = context.login_instance.bytes;
@@ -721,11 +720,6 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
     parsed.captcha_session_id_bytes = context.captcha_session.bytes;
     parsed.captcha_user_flow_bytes = context.captcha_user_flow.bytes;
     parsed.suspended_user_token_bytes = context.suspended_token.bytes;
-    parsed.mfa_capabilities = context.capabilities;
-    parsed.has_user_id = (context.fields & response_field_user_id) != 0;
-    parsed.has_error_code = (context.fields & response_field_error_code) != 0;
-    parsed.captcha_invisible = context.captcha_invisible;
-    parsed.suspended = context.suspended_token.present;
     *output = parsed;
     return decode_failure(UserAuthDecodeError::none);
 }

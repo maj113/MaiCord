@@ -3,6 +3,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/media/video/rtp_av1.hpp"
 #include "maicord/media/video/rtp_h264.hpp"
 #include "maicord/media/video/rtp_h265.hpp"
@@ -445,19 +446,15 @@ VideoRtpPush insert(VideoRtpReceiver& receiver, VideoRtpStream& stream, u16 sequ
 // Feedback items only count once RTCP can be sent (a local SSRC is known).
 u64 stream_deadline(const VideoRtpConfig& config, const VideoRtpStream& stream, bool feedback) noexcept {
     u64 deadline = 0;
-    const auto earliest = [&](u64 value) noexcept {
-        if (value && (!deadline || value < deadline))
-            deadline = value;
-    };
-    if (stream.missing) {
-        if (feedback)
-            earliest(stream.next_nack_us);
-        earliest(stream.oldest_missing_us + config.give_up_us);
-    }
+    if (stream.missing)
+        deadline = earliest_deadline(feedback ? stream.next_nack_us : 0,
+                                     stream.oldest_missing_us + config.give_up_us);
     if (feedback && stream.keyframe_needed)
-        earliest(stream.keyframe_request_us ? stream.keyframe_request_us + config.keyframe_retry_us : 1);
+        deadline = earliest_deadline(
+            deadline, stream.keyframe_request_us ? stream.keyframe_request_us + config.keyframe_retry_us : 1);
     if (starting(stream))
-        earliest(stream.slots[stream.base & (stream.capacity - 1)].time_us + config.start_grace_us);
+        deadline = earliest_deadline(
+            deadline, stream.slots[stream.base & (stream.capacity - 1)].time_us + config.start_grace_us);
     return deadline;
 }
 } // namespace
@@ -609,13 +606,9 @@ void video_rtp_tick(VideoRtpReceiver* receiver, u64 now_us) noexcept {
 u64 video_rtp_deadline(const VideoRtpReceiver& receiver) noexcept {
     const bool feedback = receiver.local_ssrc != 0;
     u64 deadline = feedback ? receiver.next_report_us : 0;
-    for (const auto& stream : receiver.streams) {
-        if (!stream.slots || !stream.started)
-            continue;
-        const u64 value = stream_deadline(receiver.config, stream, feedback);
-        if (value && (!deadline || value < deadline))
-            deadline = value;
-    }
+    for (const auto& stream : receiver.streams)
+        if (stream.slots && stream.started)
+            deadline = earliest_deadline(deadline, stream_deadline(receiver.config, stream, feedback));
     return deadline;
 }
 

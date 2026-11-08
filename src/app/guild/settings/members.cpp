@@ -5,6 +5,7 @@
 #include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/guild/member_context_policy.hpp"
+#include "maicord/model/guild/permission_compute.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -374,12 +375,8 @@ void project_members(Bank& bank) noexcept {
             bank.add(" · Quarantined");
         const auto description = bank.since(start);
         // The highest role, then "+N" for the others.
-        const RoleRecord* top = nullptr;
-        for (u32 j = 0; j < minimum<u32>(m.role_count, kGuildModerationMemberRoles); ++j)
-            if (const auto* r = role(m.role_ids[j]); r && r->id != p.guild_id) {
-                if (!top || r->position > top->position || (r->position == top->position && r->id < top->id))
-                    top = r;
-            }
+        const RoleRecord* top = chat_state_store_highest_role(
+            state(), p.guild_id, {m.role_ids, minimum<u32>(m.role_count, kGuildModerationMemberRoles)});
         const u32 row = p.row_count;
         u32 chip_count = 0;
         if (top) {

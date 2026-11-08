@@ -318,13 +318,13 @@ bool visit_member_object(void* opaque, JsonString name, JsonValue value) noexcep
 
 struct ResultParse {
     const JsonIndexedDocument* document;
-    GuildSearchMember member;
+    GuildSearchMember* member;
     bool member_seen;
 };
 
 bool visit_result(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<ResultParse*>(opaque);
-    auto& m = p.member;
+    auto& m = *p.member;
     switch (member_index<"member", "source_invite_code", "join_source_type", "inviter_id", "join_source_application_id",
                          "join_source_channel_id">(name)) {
     case 0: {
@@ -372,20 +372,23 @@ bool visit_result_item(void* opaque, u32, JsonValue value) noexcept {
         p.error = GuildModerationError::field;
         return false;
     }
-    ResultParse result{p.document, {}, false};
+    // Decoded straight into the next slot; it counts only once accepted.
+    GuildSearchMember& member = p.page->members[p.count];
+    reset_value(&member);
+    ResultParse result{p.document, &member, false};
     if (!json_visit_indexed_object(*p.document, value, kDepth, visit_result, &result).ok() || !result.member_seen) {
         p.error = GuildModerationError::field;
         return false;
     }
     // A code with no type is an invite, as the official client reads it.
-    if (!result.member.join_source_type && result.member.invite_code_bytes)
-        result.member.join_source_type = 5;
+    if (!member.join_source_type && member.invite_code_bytes)
+        member.join_source_type = 5;
     for (u32 i = 0; i < p.count; ++i)
-        if (p.page->members[i].user_id == result.member.user_id) {
+        if (p.page->members[i].user_id == member.user_id) {
             p.error = GuildModerationError::duplicate;
             return false;
         }
-    copy_value(&p.page->members[p.count++], result.member);
+    ++p.count;
     return true;
 }
 

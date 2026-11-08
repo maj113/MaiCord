@@ -14,7 +14,7 @@
 #include "maicord/app/gateway/stream_session.hpp"
 #include "maicord/app/voice/stream_preview_cache.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/core/text_bank.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/ui/voice/stream_card_scene.hpp"
@@ -61,12 +61,9 @@ StreamUi stream{.card = {{.entrance = {.style = {0, UiMotionCurve::linear}}}}};
 u64 now_ms() noexcept {
     return clock_monotonic_milliseconds();
 }
-const GatewayClientVoiceSnapshot* session() noexcept {
-    return g_app.account_ui ? &g_app.account_ui->voice_session : nullptr;
-}
 bool in_channel(u64 channel_id) noexcept {
-    const auto* s = session();
-    return s && channel_id && s->channel_id == channel_id && s->phase != VoiceSetupPhase::idle;
+    const auto* s = application_voice_call();
+    return s && s->channel_id == channel_id;
 }
 bool valid(const GatewayStreamKey& key) noexcept {
     return key.type != GatewayStreamType::none && gateway_stream_key_valid(key);
@@ -176,13 +173,6 @@ void card_pump(u64 now) noexcept {
     if (stream.card.active && ui_stream_card_tick(&stream.card, now, g_app.preferences.reduced_motion))
         application_repaint();
 }
-void format_label(u32 percent) noexcept {
-    TextBank label{stream.menu_label, sizeof(stream.menu_label), 0};
-    label.add("Stream volume \xC2\xB7 ");
-    label.number(percent);
-    label.add("%");
-    stream.menu_label_bytes = label.used;
-}
 bool menu_open() noexcept {
     return stream.menu_tile && g_app.popup_scene.active && g_app.popup_scene.owner_id == stream.menu_tile &&
            g_app.popup_owner_kind == PopupOwnerKind::stream && g_app.popup_scene.feedback.slider_count;
@@ -279,7 +269,7 @@ bool application_stream_menu_open(u64 tile_id, const UiRect& anchor, bool fullsc
         {utf8_literal("Stop watching"), kMenuStop,
          static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before), 0},
     };
-    format_label(volume);
+    stream.menu_label_bytes = volume_menu_text(stream.menu_label, utf8_literal("Stream volume"), volume);
     const UiPopupFeedback feedback{{stream.menu_label, stream.menu_label_bytes},
                                    {64, 12},
                                    false,
@@ -320,7 +310,7 @@ bool application_stream_menu_pointer(float x, float y, bool press) noexcept {
     const auto result = volume_menu_pointer(&stream.menu_dragging, x, y, press, kVolumeSteps, &percent);
     if (result == VolumeMenuPointer::moved) {
         application_stream_set_volume(percent);
-        format_label(percent);
+        stream.menu_label_bytes = volume_menu_text(stream.menu_label, utf8_literal("Stream volume"), percent);
         volume_menu_label(stream.menu_label, stream.menu_label_bytes);
     }
     return result != VolumeMenuPointer::ignored;
@@ -382,10 +372,7 @@ void application_stream_pump() noexcept {
 
 u64 application_stream_next_wake() noexcept {
     u64 wake = 0;
-    const auto earliest = [&](u64 at) noexcept {
-        if (at && (!wake || at < wake))
-            wake = at;
-    };
+    const auto earliest = [&](u64 at) noexcept { wake = earliest_deadline(wake, at); };
     if (valid(stream.hover_key) && !(stream.hover_key == stream.card_key))
         earliest(stream.hover_since_ms + kHoverOpenMs);
     if (stream.card.active && stream.leave_ms)

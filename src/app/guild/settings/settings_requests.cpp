@@ -415,12 +415,7 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     case Op::role_counts: {
         const auto decoded = guild_admin_decode_role_counts(body, {p.scratch, kScratchUnits},
                                                             {p.role_counts, kGuildRoleMaximum});
-        p.counts = 0;
-        if (decoded.ok())
-            for (u32 i = 0; i < decoded.count; ++i) {
-                p.count_role[p.counts] = p.role_counts[i].role_id;
-                p.count_value[p.counts++] = p.role_counts[i].members;
-            }
+        p.counts = decoded.ok() ? decoded.count : 0;
         break;
     }
     case Op::role_create: {

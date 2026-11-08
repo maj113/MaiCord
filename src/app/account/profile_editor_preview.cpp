@@ -12,6 +12,7 @@
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/app/media/local_draft_preview.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/text_bank.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -88,36 +89,6 @@ u64 current_sku(bool decoration) noexcept {
                       : (d.effect_set ? d.effect_sku : b.effect_sku);
 }
 
-struct Bank {
-    char* data;
-    u32 capacity, used;
-    Utf8View add(const Utf8View& text) noexcept {
-        const u32 take = minimum(text.bytes, capacity - used);
-        copy_bytes(data + used, text.data, take);
-        used += take;
-        return {data + used - take, take};
-    }
-    Utf8View number(i64 value) noexcept {
-        const u32 start = used;
-        if (value < 0 && used < capacity) {
-            data[used++] = '-';
-            value = -value;
-        }
-        char digits[20];
-        u32 count = 0;
-        u64 v = static_cast<u64>(value);
-        do {
-            digits[count++] = static_cast<char>('0' + v % 10);
-            v /= 10;
-        } while (v);
-        while (count && used < capacity)
-            data[used++] = digits[--count];
-        return {data + start, used - start};
-    }
-    Utf8View since(u32 start) const noexcept {
-        return {data + start, used - start};
-    }
-};
 template <u32 N> void assign(ProfileString<N>* to, const Utf8View& from) noexcept {
     to->bytes = static_cast<u16>(utf8_copy_truncated(to->data, from));
 }
@@ -388,7 +359,7 @@ void compose_preview() noexcept {
     p.effect_wanted = effect;
 }
 // The aside heading for the current tab.
-Utf8View preview_heading(Bank& bank) noexcept {
+Utf8View preview_heading(TextBank& bank) noexcept {
     if (owner->tab == ProfileEditorTab::main)
         return utf8_literal("Preview");
     const auto* guild = chat_state_store_find_guild(state(), owner->guild_id);
@@ -624,7 +595,7 @@ bool palette_resolve(void*, u64 control, u32 choice, BackgroundTheme* out) noexc
 } // namespace profile_editor_detail
 namespace {
 
-void project_controls(Bank& bank) noexcept {
+void project_controls(TextBank& bank) noexcept {
     auto& p = *owner;
     p.control_count = 0;
     const auto g = gate();
@@ -738,7 +709,11 @@ void project_controls(Bank& bank) noexcept {
     const bool bio_allowed = (g.enabled & profile_editor_bio) != 0;
     const auto bio = editor_text(editor_bio);
     const i32 remaining = profile_editor_bio_remaining(bio);
-    const Utf8View counter = bank.number(remaining);
+    const u32 counter_start = bank.used;
+    if (remaining < 0)
+        bank.add("-");
+    bank.number(static_cast<u64>(remaining < 0 ? -i64{remaining} : remaining));
+    const Utf8View counter = bank.since(counter_start);
     const Utf8View bio_reason = profile_editor_gate_reason(p.tab, g, profile_editor_bio);
     push({control_bio, utf8_literal("Bio"),
           bio_reason.bytes ? bio_reason : utf8_literal("You can use markdown and links if you\xE2\x80\x99" "d like."),
@@ -760,7 +735,7 @@ bool project() noexcept {
         return true;
     auto& p = *owner;
     p.bank_index ^= 1;
-    Bank bank{p.banks[p.bank_index], sizeof(p.banks[0]), 0};
+    TextBank bank{p.banks[p.bank_index], sizeof(p.banks[0]), 0};
     project_controls(bank);
     const u16 changed = changes();
     const bool valid = p.loaded && profile_editor_changes_allowed(p.tab, p.base, current_draft(), gate());

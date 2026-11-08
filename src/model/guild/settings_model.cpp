@@ -36,14 +36,6 @@ void copy_name(Utf8View source, char* destination, u16* bytes) noexcept {
 bool same_bytes(const char* a, u32 a_bytes, const char* b, u32 b_bytes) noexcept {
     return a_bytes == b_bytes && bytes_equal(a, b, a_bytes);
 }
-// IDs of the roles the account holds in a guild, @everyone excluded.
-u32 self_role_ids(const ChatStateStore& store, u64 guild_id, u64 (&roles)[kGuildRoleMaximum]) noexcept {
-    u32 count = 0;
-    for (u32 i = 0; i < store.role_count && count < kGuildRoleMaximum; ++i)
-        if (store.roles[i].guild_id == guild_id && store.roles[i].id != guild_id && store.roles[i].self_assigned)
-            roles[count++] = store.roles[i].id;
-    return count;
-}
 } // namespace
 
 const u32 kGuildRoleColors[kGuildRoleColorCount]{
@@ -63,7 +55,7 @@ GuildSettingsAccess guild_settings_access(const ChatStateStore& store, u64 guild
     if (!access.resolved)
         return access;
     u64 roles[kGuildRoleMaximum];
-    const u32 count = self_role_ids(store, guild_id, roles);
+    const u32 count = chat_state_store_self_role_ids(store, guild_id, {roles, kGuildRoleMaximum});
     const PermissionMember self{store.self_user_id, {roles, count}, 0,
                                 guild_self_quarantined(guild->settings)};
     access.permissions = permission_compute(chat_state_store_permission_guild(store, guild_id), self, {},
@@ -248,7 +240,7 @@ static PermissionSet guild_settings_self_permissions_with(const ChatStateStore& 
     if (!guild || !access.resolved)
         return 0;
     u64 roles[kGuildRoleMaximum];
-    const u32 count = self_role_ids(store, access.guild_id, roles);
+    const u32 count = chat_state_store_self_role_ids(store, access.guild_id, {roles, kGuildRoleMaximum});
     const auto permission_guild = chat_state_store_permission_guild(store, access.guild_id);
     const PermissionMember self{store.self_user_id, {roles, count}, 0, guild_self_quarantined(guild->settings)};
     return permission_compute_from_base(permission_compute_base_with(permission_guild, self, role_id, role_permissions),

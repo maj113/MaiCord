@@ -95,6 +95,8 @@ struct RemoteAuthHandshake {
 
 RemoteAuthHandshakeResult remote_auth_handshake_initialize(RemoteAuthHandshake* handshake) noexcept;
 void remote_auth_handshake_release(RemoteAuthHandshake* handshake) noexcept;
+// The earlier of the session expiry and the next heartbeat, either when the other is unset; zero when neither is set.
+u64 remote_auth_handshake_next_wake(const RemoteAuthHandshake& handshake) noexcept;
 
 // Consumes one validated server message. Command receives init, nonce proof,
 // or heartbeat JSON. Data receives the verified fingerprint, decrypted user
