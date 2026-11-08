@@ -381,18 +381,18 @@ bool h264_gpu_decoder_busy(const H264GpuDecoder& decoder) noexcept {
 
 HRESULT gpu_decoder_fence_wait(GpuDecoderFence* f, ID3D11VideoContext* context, ID3D11Multithread* guard,
                                u32 timeout_ms) noexcept {
+    // The video context is the device's immediate context; its fence interfaces are the Windows 10 1703 runtime's,
+    // and device creation refused a driver without fences, so only the fence itself can fail.
     HRESULT status = S_OK;
-    if (!f->context) status = context->QueryInterface(__uuidof(ID3D11DeviceContext4),
-        reinterpret_cast<void**>(&f->context));
-    if (SUCCEEDED(status) && !f->fence) {
+    if (!f->context) context->QueryInterface(__uuidof(ID3D11DeviceContext4), reinterpret_cast<void**>(&f->context));
+    if (!f->fence) {
         ID3D11Device* device = nullptr;
         ID3D11Device5* device5 = nullptr;
         context->GetDevice(&device);
-        status = device ? device->QueryInterface(__uuidof(ID3D11Device5),
-            reinterpret_cast<void**>(&device5)) : E_NOINTERFACE;
-        if (SUCCEEDED(status)) status = device5->CreateFence(0, D3D11_FENCE_FLAG_NONE,
-            __uuidof(ID3D11Fence), reinterpret_cast<void**>(&f->fence));
-        com_release(device5); com_release(device);
+        device->QueryInterface(__uuidof(ID3D11Device5), reinterpret_cast<void**>(&device5));
+        status = device5->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence),
+                                      reinterpret_cast<void**>(&f->fence));
+        device5->Release(); device->Release();
     }
     if (SUCCEEDED(status) && !f->wake) {
         f->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);

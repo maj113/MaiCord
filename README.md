@@ -249,12 +249,14 @@ details.
 ### Requirements
 
 <details>
-<summary><b>Windows</b>: Windows 10 or 11, 64-bit, and a Direct3D 11 GPU with Tiled Resources Tier 1</summary>
+<summary><b>Windows</b>: Windows 10 version 1809 or later, or Windows 11, 64-bit, and a Direct3D 11 GPU with Tiled Resources Tier 1 and a WDDM 2.0 driver</summary>
 
-- Windows 10 or 11, 64-bit
-- A CPU with AVX and AES-NI
-- A GPU with Direct3D 11 (feature level 11_0) and Tiled Resources Tier 1 (Direct3D 11.2); MaiCord refuses to start on a
-  GPU or driver without it and says so
+- Windows 10 version 1809 or later, or Windows 11, 64-bit
+- A CPU with AVX, AES-NI and PCLMULQDQ (every AVX processor has the last)
+- A GPU with Direct3D 11 (feature level 11_0) and Tiled Resources Tier 1 (Direct3D 11.2)
+- A graphics driver of WDDM 2.0 or newer, with Direct3D 11 fences: the GPU maker's current Windows 10 driver for every
+  GPU above is one (NVIDIA Fermi and later, AMD GCN and later, Intel Broadwell and later)
+- MaiCord refuses to start on a GPU or driver below these and says so
 
 </details>
 

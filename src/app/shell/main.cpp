@@ -286,7 +286,8 @@ int run_application() noexcept {
         renderer_prestart_cancel();
         window_fatal_message(utf8_literal("Direct3D 11 unavailable"),
                              MAICORD_OS_TEXT("MaiCord requires a Direct3D 11 GPU with Tiled Resources Tier 1 or "
-                                             "higher and the D3D11.1 runtime.",
+                                             "higher and a WDDM 2.0 or newer graphics driver. Updating the graphics "
+                                             "driver may fix this.",
                                              "MaiCord requires a hardware Direct3D 11 device and the D3D11.1 runtime."));
         application_release_login_ui();
         window_destroy(g_app.window);

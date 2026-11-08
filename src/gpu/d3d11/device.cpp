@@ -51,6 +51,21 @@ HardwareDevice create_hardware_device() noexcept {
             hardware.result = DXGI_ERROR_UNSUPPORTED;
         }
     }
+    // The driver floor is WDDM 2.0, whose monitored fences back ID3D11Fence: video decode and the release of local
+    // video posters wait on them. A driver that cannot make one (WDDM 1.x) is refused the same way; the shell asks
+    // for a graphics driver update. ID3D11Device5 is the Windows 10 1703 runtime's.
+    if (SUCCEEDED(hardware.result)) {
+        ID3D11Device5* device5 = nullptr;
+        ID3D11Fence* fence = nullptr;
+        hardware.device->QueryInterface(__uuidof(ID3D11Device5), reinterpret_cast<void**>(&device5));
+        if (FAILED(device5->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence),
+                                        reinterpret_cast<void**>(&fence)))) {
+            log_write(LogLevel::error, "gpu", "d3d11_driver_lacks_fences");
+            hardware.result = DXGI_ERROR_UNSUPPORTED;
+        }
+        com_release(fence);
+        device5->Release();
+    }
     if (FAILED(hardware.result)) {
         com_release(hardware.context);
         com_release(hardware.device);

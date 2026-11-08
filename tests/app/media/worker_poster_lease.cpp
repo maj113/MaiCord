@@ -15,7 +15,7 @@ void fail(u32 line) noexcept {
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
 }
 #define CHECK(value) do { if (!(value)) { fail(__LINE__); return false; } } while (false)
-enum class Failure : u8 { none, context, device, create, signal, registration };
+enum class Failure : u8 { none, create, signal, registration };
 struct Fake;
 struct Object { void** table; Fake* owner; volatile LONG references; u32 kind; };
 struct Fake {
@@ -38,9 +38,6 @@ ULONG STDMETHODCALLTYPE release(Object* object) noexcept {
 }
 HRESULT STDMETHODCALLTYPE query(Object* object, REFIID iid, void** out) noexcept {
     if (!out) return E_POINTER; *out = nullptr;
-    auto& fake = *object->owner;
-    if ((object->kind == 0 && fake.failure == Failure::device) ||
-        (object->kind == 1 && fake.failure == Failure::context)) return E_NOINTERFACE;
     if (iid == __uuidof(IUnknown) || (object->kind == 0 && iid == __uuidof(ID3D11Device5)) ||
         (object->kind == 1 && iid == __uuidof(ID3D11DeviceContext4)) ||
         (object->kind == 2 && iid == __uuidof(ID3D11Fence))) {
@@ -216,7 +213,7 @@ bool ordinary_cases(Harness& h) noexcept {
     return true;
 }
 bool failure_cases(Harness& h) noexcept {
-    const Failure failures[]{Failure::context, Failure::device, Failure::create, Failure::signal, Failure::registration};
+    const Failure failures[]{Failure::create, Failure::signal, Failure::registration};
     u64 serial = 10;
     for (const auto failure : failures) {
         AccountMediaLocalPreviewRequest token{}; const u8* sparse{};

@@ -1190,6 +1190,11 @@ maicord_test(MaiCordGpuMediaProbe ENTRY maicord_gpu_media_windows_entry
 maicord_test(MaiCordGpuPagedTextureProbe ENTRY maicord_gpu_paged_texture_entry
     SOURCES tests/gpu/paged_texture_windows.cpp
     BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu TEST maicord_gpu_paged_texture)
+# The device floor (src/gpu/d3d11/device.cpp): a driver whose ID3D11Device5::CreateFence fails (below WDDM 2.0) is
+# refused as unsupported, one that makes fences is accepted.
+maicord_test(MaiCordGpuDeviceFloorProbe ENTRY maicord_gpu_device_floor_entry
+    SOURCES tests/gpu/device_floor_windows.cpp
+    BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_gpu_device_floor)
 # Every sample effect and Silk Waves (tests/gpu/effects/*.mcfx, interface 4) through the real pass executor on Direct3D 11:
 # the same source runs on Linux against what this captures (tools/update_gpu_goldens.py --scene effects).
 maicord_test(MaiCordGpuEffectsProbe ENTRY maicord_gpu_effects_entry

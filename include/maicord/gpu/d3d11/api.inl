@@ -473,23 +473,19 @@ __forceinline GpuPoll gpu_timer_poll(GpuContext* context, GpuTimer* timer, bool 
     return GpuPoll::ready;
 }
 
-// The immediate context's signalling interface and a fence of the same device, made in the order they have always
-// been (the signaller is left set when the fence then fails, for the caller to release).
+// The immediate context's signalling interface and a fence of the same device. Both interfaces are the Windows 10
+// 1703 runtime's, and device creation refused a driver without fences, so only the fence itself can fail (device
+// removal, memory); the signaller is then left set, for the caller to release.
 __forceinline GpuStatus gpu_fence_create(GpuDevice* device, GpuContext4** signaller, GpuFence** fence) {
     ID3D11DeviceContext* context = nullptr;
     ID3D11Device5* device5 = nullptr;
     device->GetImmediateContext(&context);
-    HRESULT result = context ? context->QueryInterface(__uuidof(ID3D11DeviceContext4),
-                                                       reinterpret_cast<void**>(signaller))
-                             : E_NOINTERFACE;
-    if (SUCCEEDED(result))
-        result = device->QueryInterface(__uuidof(ID3D11Device5), reinterpret_cast<void**>(&device5));
-    if (SUCCEEDED(result))
-        result = device5->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence), reinterpret_cast<void**>(fence));
-    if (device5)
-        device5->Release();
-    if (context)
-        context->Release();
+    context->QueryInterface(__uuidof(ID3D11DeviceContext4), reinterpret_cast<void**>(signaller));
+    context->Release();
+    device->QueryInterface(__uuidof(ID3D11Device5), reinterpret_cast<void**>(&device5));
+    const HRESULT result =
+        device5->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence), reinterpret_cast<void**>(fence));
+    device5->Release();
     return result;
 }
 
