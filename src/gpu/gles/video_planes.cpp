@@ -257,12 +257,11 @@ bool video_plane_realize(const void* object) noexcept {
         ok = check_error("video plane") == kGpuOk;
     }
     if (ok && upload) {
+        // Rows are tight: the device's unpack alignment is 1.
         const u32 generation = static_cast<u32>(plane->generation);
-        gl.glPixelStorei(gl::kUnpackAlignment, 1);
         gl.glTexSubImage2D(gl::kTexture2d, 0, 0, 0, static_cast<gl::Sizei>(plane->texture.width),
                            static_cast<gl::Sizei>(plane->texture.height), plane->channels == 2 ? gl::kRg : gl::kRed,
                            gl::kUnsignedByte, plane->pixels);
-        gl.glPixelStorei(gl::kUnpackAlignment, 4);
         plane->uploaded = generation;
         ok = check_error("video plane upload") == kGpuOk;
     }
