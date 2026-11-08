@@ -1,10 +1,10 @@
 {
   "repository": "maj113/llvm-pe",
-  "tag": "toolchain-2026.11.08",
+  "tag": "toolchain-2026.11.09",
   "asset": "llvm-pe-x86_64-windows.zip",
-  "sha256": "a125bb10568c68430dfb699fe2a74390d1cb7454d0af2da721ed5dac7f4f6b36",
+  "sha256": "811420b3212ae9241195e2f9c51cbfa23b5c340c127b10f92389f84f3cbc5ceb",
   "linux": {
     "asset": "llvm-pe-x86_64-linux.tar.xz",
-    "sha256": "e1f1d42492e9c5657fbfbec42b1aec819a414232e2ff2653a349a76c7c1dc257"
+    "sha256": "9ee9677d0df2d7113234809d02b22424cfdc3c0d76194c767dd119172d7e4ab5"
   }
 }
