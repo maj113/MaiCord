@@ -1,7 +1,7 @@
 # MaiCord built from source: the recipe of nixpkgs' pkgs/by-name/ma/maicord/package.nix, which differs from this file only in
 # where the source and version come from (src and version are arguments here, fetchFromGitHub of the tag there) and in the
 # maintainers. Keep the two in step (packaging/README.md, "Nix (nix/) and nixpkgs"). The decisions are explained beside the
-# lines they concern: LLVM 23 as the project's contract wants it, the run-time libraries on the program's run path, and
+# lines they concern: a stock LLVM 23 for the project's contract, the run-time libraries on the program's run path, and
 # the tarball's layout without the self-updater's marker. The shaders need no tools beyond python.
 {
   lib,
@@ -34,8 +34,9 @@
 }:
 
 let
-  # The client is written for exactly this LLVM major: its freestanding contract (-nostdinc, its own headers, its own
-  # _start, no libc beyond a generated stub) is checked by upstream with clang and lld 23 only.
+  # The freestanding contract (-nostdinc, its own headers, its own _start, no libc beyond a generated stub) builds with a
+  # stock clang and lld 23; upstream builds with LLVM 24 of maj113/llvm-pe, whose extra code generation options the contract
+  # adds only when the compiler takes them, so this build is the same program without them, somewhat bigger.
   llvm = llvmPackages_23;
 in
 stdenv.mkDerivation (finalAttrs: {

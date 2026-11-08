@@ -186,10 +186,10 @@ jobs:
             }
           }
 
-  # The Linux port: one freestanding glibc image per test, built with the pinned apt.llvm.org clang 23 by the same
-  # tools/build_linux.sh a developer runs, audited (tools/audit_elf.py runs inside it on every image) and tested with Mesa's
-  # llvmpipe for the GPU cases; the shaders are GLSL the build packs with python, so no shader compiler is fetched or
-  # built. The integration scripts (headless sway, D-Bus, PulseAudio, speech-dispatcher)
+  # The Linux port: one freestanding glibc image per test, built with the pinned LLVM toolchain release (the Linux asset of
+  # tools/llvm_toolchain.json) by the same tools/build_linux.sh a developer runs, audited (tools/audit_elf.py runs inside it
+  # on every image) and tested with Mesa's llvmpipe for the GPU cases; the shaders are GLSL the build packs with python, so
+  # no shader compiler is fetched or built. The integration scripts (headless sway, D-Bus, PulseAudio, speech-dispatcher)
   # are reported but do not fail the job until the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING is 'true'. The
   # portable subset of the built tests goes to the distros job as a one-day artifact of this run. Neither job gates the preview
   # channel: the Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' this job also packages a master build's
@@ -213,10 +213,38 @@ jobs:
         run: |
           python3 -B tools/release/maicord_release.py identity --repository . || echo '::warning::No build identity; building as the project version without the updater.'
 
-      # clang, lld and llvm 23 from apt.llvm.org (the archive key is checked against its pinned fingerprint), cmake, ninja,
-      # and the runtime libraries, fonts, dictionaries and tools the tests and the integration scripts use.
+      # The pinned LLVM toolchain release's Linux asset, cached under its tag and SHA-256 as the Windows jobs cache theirs
+      # (.github/actions/setup-toolchain): a new pin misses and fetches its own; on a hit tools/resolve_llvm_toolchain.sh
+      # finds it in place.
+      - name: Read the LLVM toolchain pin
+        id: llvm-pin
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'EOF'
+          import json
+          pin = json.load(open("tools/llvm_toolchain.json", encoding="utf-8"))
+          print(f"tag={pin['tag']}")
+          print(f"key=llvm-pe-linux-{pin['tag']}-{pin['linux']['sha256']}")
+          EOF
+
+      - name: Restore the LLVM toolchain
+        id: llvm-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/maicord-toolchain/${{ steps.llvm-pin.outputs.tag }}
+          key: ${{ steps.llvm-pin.outputs.key }}
+
+      # The toolchain (fetched and SHA-256 checked unless restored; its bin goes on PATH and into MAICORD_LLVM_BIN), cmake,
+      # ninja, what hosted links need, and the runtime libraries, fonts, dictionaries and tools the tests and the
+      # integration scripts use.
       - name: Install the toolchain and the test packages
         run: bash tools/install_linux_toolchain.sh --integration
+
+      - name: Cache the LLVM toolchain
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/maicord-toolchain/${{ steps.llvm-pin.outputs.tag }}
+          key: ${{ steps.llvm-pin.outputs.key }}
 
       # Configures into ~/mc-build in place (the checkout is on a native file system), builds, runs tools/audit_elf.py on
       # every image and the suite with ctest. Test limits are three times their local ones for the hosted runner. A build
@@ -233,7 +261,7 @@ jobs:
       # The declarations the Linux build resolves with dlsym, and the libc, errno and addrinfo pins, against the installed
       # headers (libc6-dev, libssl-dev, libpulse-dev, libspeechd-dev, libfido2-dev, libva-dev, libdav1d-dev, libopenh264-dev).
       - name: ABI checks
-        run: for abi in libc openssl pulse speechd fido2 video; do python3 -B "tools/check_${abi}_abi.py" --compiler /usr/lib/llvm-23/bin/clang; done
+        run: for abi in libc openssl pulse speechd fido2 video; do python3 -B "tools/check_${abi}_abi.py" --compiler "$MAICORD_LLVM_BIN/clang"; done
 
       # The packages around a stand-in program (packaging/README.md): the reproducible tarball, the AppImage, the one-line
       # installer, valid desktop entry and AppStream metadata, and, with nfpm, the .deb and .rpm.

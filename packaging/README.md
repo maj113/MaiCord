@@ -195,19 +195,20 @@ name the unversioned `openssl` (apk has no alternatives), Nix its own. Tested: t
   --include-sigs` writes from the same package and signature.
 * **PPA (`debian/`).** `build_source.sh --tarball … --series noble --maintainer 'Name <address>'` makes the source package (orig
   tarball = the release tarball, `debian/` installs its contents; no compiler is needed, which is why it works on a builder without
-  LLVM 23). Tested: `dpkg-source -x`, `dpkg-buildpackage -b` and install in `ubuntu:24.04`.
+  the project's LLVM). Tested: `dpkg-source -x`, `dpkg-buildpackage -b` and install in `ubuntu:24.04`.
 * **COPR and OBS (`rpm/`).** `maicord.spec` installs the tarball for Fedora and openSUSE (one spec); `rpm/.copr/Makefile` is the COPR
   "make srpm" step and `_service` the OBS download. Tested: `rpmbuild -bb`, install and removal on Fedora and Tumbleweed.
 * **AUR (`aur/`), deferred.** Account registration is closed, so nothing is published there; the directory stays for when it opens
   (owner checklist). `maicord-bin` takes the tarball (Arch's rule: prebuilt means `-bin`, [AUR submission
   guidelines](https://wiki.archlinux.org/title/AUR_submission_guidelines)); tested with `makepkg`, `namcap`, `pacman -U` and `-R` in
   `archlinux`. `maicord` builds from source with Arch's own clang, lld and llvm (23.1.x:
-  [llvm](https://archlinux.org/packages/extra/x86_64/llvm/), [clang](https://archlinux.org/packages/extra/x86_64/clang)); it breaks the
-  day Arch moves to another LLVM major until the project follows, `-bin` does not. Per release:
+  [llvm](https://archlinux.org/packages/extra/x86_64/llvm/), [clang](https://archlinux.org/packages/extra/x86_64/clang)), so without
+  the code generation options of the project's own LLVM (below); a new LLVM major can break it until the project follows, `-bin`
+  never. Per release:
   `pkgver`, `updpkgsums`, `makepkg --printsrcinfo > .SRCINFO`, push.
 * **Alpine, Void, Gentoo.** `alpine/APKBUILD` and `void/maicord-bin/template` take the musl tarball; the ebuild takes the glibc one
   (`net-im/maicord-bin` in the GURU overlay). They are set up for a personal repository: all three distributions build official packages
-  from source, and none has LLVM 23.
+  from source, and none has the project's LLVM.
 * **Flatpak (`flatpak/`).** For a self-hosted repository or a `.flatpak` bundle, not Flathub (below).
 * **Nix (`nix/`) and nixpkgs.** `nix/package.nix` is the recipe that nixpkgs' `pkgs/by-name/ma/maicord/package.nix` is made from (the
   two differ only in where `src` and `version` come from (arguments here, `fetchFromGitHub` there) and in `maintainers`) and
@@ -217,8 +218,9 @@ name the unversioned `openssl` (apk has no alternatives), Nix its own. Tested: t
 
 ### Building from source in a distribution
 
-`tools/build_linux.sh` is the project's own entry (it refuses any LLVM major but 23); a
-distribution that builds offline from its own packages calls CMake directly, which is all the Nix recipe does:
+`tools/build_linux.sh` is the project's own entry (it builds with the LLVM release pinned in `tools/llvm_toolchain.json`, or the one
+`MAICORD_LLVM_BIN` names); a distribution that builds offline from its own packages calls CMake directly, which is all the Nix recipe
+does:
 
 ```
 cmake -S SRC -B BUILD -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -226,8 +228,10 @@ cmake -S SRC -B BUILD -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build BUILD
 ```
 
-* **Compiler.** clang and ld.lld 23, as the contract is written for (`-nostdinc`, MaiCord's own headers, its own `_start`): the
-  plain compilers, not a distribution wrapper that adds libc paths, hardening flags and a program interpreter at link time.
+* **Compiler.** A stock clang and ld.lld (23 is tested), as the contract is written for (`-nostdinc`, MaiCord's own headers, its own
+  `_start`): the plain compilers, not a distribution wrapper that adds libc paths, hardening flags and a program interpreter at link
+  time. The project's releases are built with LLVM 24 of [maj113/llvm-pe](https://github.com/maj113/llvm-pe), whose extra code
+  generation options the contract adds only when the compiler takes them, so a stock build is the same program, somewhat bigger.
   `-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY` is for a clang that cannot link a hosted program on its own.
 * **BUILD is outside SRC** (`generate_unicode_emoji_catalog.py` refuses to write into the source tree).
 * **Shader tools.** None: the client's shaders are hand-written GLSL (`src/render/shaders/gles`) that the build packs with python, so
@@ -254,7 +258,7 @@ hunspell or enchant, `libfido2`, speech-dispatcher, VA-API drivers and the porta
 
 | Channel | Builds from source? | Who acts | Effort | Here |
 | --- | --- | --- | --- | --- |
-| GitHub release assets, `install.sh`, AppImage | no (the release job builds with LLVM 23) | automation (`release.yml`) | done | yes |
+| GitHub release assets, `install.sh`, AppImage | no (the release job builds with the project's LLVM 24) | automation (`release.yml`) | done | yes |
 | apt, dnf and pacman repositories on Pages | no (`.deb`/`.rpm`/`.pkg.tar.zst` of the release) | automation; owner makes the GPG key once | done | `repo/` |
 | AUR `maicord-bin`, `maicord` | `-bin` no; `maicord` yes (Arch has LLVM 23.1) | owner: AUR account and SSH key, push per release (a bot such as `KSXGitHub/github-actions-deploy-aur` can, with the key as a secret); deferred, registration is closed and the pacman repository serves Arch meanwhile | small | `aur/` |
 | Arch `extra` | yes | a Package Maintainer must adopt it, normally once the AUR package is popular ([moving packages from the AUR](https://wiki.archlinux.org/title/Package_Maintainer_guidelines)) | not in our hands | - |

@@ -1,5 +1,5 @@
 # MaiCord from the release tarball (packaging/build_tarball.py), for Fedora COPR and the openSUSE Build Service (one spec for
-# both, and for other rpm distributions the Build Service targets). The program is built upstream with LLVM 23 under the
+# both, and for other rpm distributions the Build Service targets). The program is built upstream with LLVM 24 under the
 # project's freestanding contract, which a distribution builder does not offer, so this package installs the release's program
 # as it is and compiles nothing. The tarball's .maicord-portable marker is left out: the package manager owns the files, so
 # the program does not update itself.
@@ -66,7 +66,7 @@ MaiCord draws its own interface on the GPU; there is no Electron, browser engine
 or web view. It is not affiliated with, endorsed by or supported by Discord Inc.
 
 This package installs the upstream release program, which is built from the
-source at https://github.com/maj113/MaiCord with LLVM 23.
+source at https://github.com/maj113/MaiCord with LLVM 24.
 
 %prep
 %setup -q -n maicord-%{version}-linux-x86_64

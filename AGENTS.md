@@ -10,9 +10,10 @@ Windows:
 - Build only with `tools/build.ps1`, from Windows PowerShell 5.1:
   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1` builds the Release client; add `-Test` for the whole
   suite and `-TestNames a,b` for single tests.
-- The only toolchain is clang-cl with lld-link and llvm-lib from the maj113/llvm-pe fork: `-LlvmBin`, `MAICORD_LLVM_BIN`, else the
+- The toolchain is clang-cl with lld-link and llvm-lib from the maj113/llvm-pe fork: `-LlvmBin`, `MAICORD_LLVM_BIN`, else the
   release pinned in `tools/llvm_toolchain.json` (fetched once into `%LOCALAPPDATA%\MaiCord-toolchain`); Visual Studio supplies the SDK,
-  MASM, rc and mt.
+  MASM, rc and mt. The contract adds the fork's code generation options (`maicord_llvm_options` and `/OPT:LLDBRANCHRELAX` in
+  `cmake/build_contract.cmake`) only when the toolchain takes them, so another LLVM gets none of them instead of failing.
 - The only build directory is the sibling `..\MaiCord-build\Release`. Don't create other build trees, staging copies, QA directories or
   archives, and don't move unwanted output elsewhere: delete it.
 - If `MaiCord.exe` is running from the build directory, add `-SkipClient` to a `-Test` run; the script won't overwrite a running client.
@@ -29,11 +30,13 @@ Windows:
 
 Linux:
 
-- Build only with `tools/build_linux.sh` (WSL; `tools\build_linux.ps1` from Windows): stock clang and ld.lld 23, `-nostdinc` with the
-  kernel and glibc interface in `include/maicord/sys/linux`, ELF images audited by `tools/audit_elf.py`. Build directory `~/mc-build` on
-  ext4 (never under `/mnt`), emptied after each run unless `--keep`. `--test` builds and runs the Linux suite; `MAICORD_LINUX_SOURCE` and
-  `MAICORD_LINUX_BUILD` select other directories (use your own when others share the machine). `tools/install_linux_toolchain.sh`
-  installs the toolchain and the test packages.
+- Build only with `tools/build_linux.sh` (WSL; `tools\build_linux.ps1` from Windows): clang and ld.lld 24 from the Linux asset of the
+  same pinned release (fetched once into `~/.cache/maicord-toolchain`; `MAICORD_LLVM_BIN` and `MAICORD_LLVM_MAJOR` select a stock
+  LLVM instead, which builds without the fork's options), `-nostdinc` with the kernel and glibc interface in
+  `include/maicord/sys/linux`, ELF images audited by `tools/audit_elf.py`. Build directory `~/mc-build` on ext4 (never under `/mnt`),
+  emptied after each run unless `--keep`. `--test` builds and runs the Linux suite; `MAICORD_LINUX_SOURCE` and `MAICORD_LINUX_BUILD`
+  select other directories (use your own when others share the machine). `tools/install_linux_toolchain.sh` installs the toolchain
+  and the test packages.
 - Code the Windows build compiles must not change for the Linux port; `python tools/compare_pe.py OLD.exe NEW.exe` compares two
   Windows builds section by section.
 - A build with tests (`--test`) is not a shipping build: it defines `MAICORD_TEST_HOOKS` (test-only environment switches through

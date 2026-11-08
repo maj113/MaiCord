@@ -14,15 +14,21 @@
 #
 # Layout and decisions (docs/ is git-ignored, so the reference lives here):
 #
-#   Host      Ubuntu 22.04+, Debian 12+ or the like (WSL "Ubuntu-Preview" for local work, ubuntu-24.04 in CI) with clang
-#             and lld 23 from apt.llvm.org (tools/install_linux_toolchain.sh installs them; /usr/lib/llvm-23/bin is
-#             put first on PATH when it exists, and any other clang major is refused), cmake >= 3.28, ninja, python3 and,
-#             to sync, rsync. The Windows toolchain and tools/build.ps1 are unchanged; this is the only Linux entry point.
+#   Host      Ubuntu 24.04+, Debian 13+ or the like (WSL "Ubuntu-Preview" for local work, ubuntu-24.04 in CI) with
+#             cmake >= 3.28, ninja, python3 and, to sync, rsync (tools/install_linux_toolchain.sh installs them). The
+#             compiler is the Linux release of the maj113/llvm-pe fork pinned in tools/llvm_toolchain.json, as on Windows:
+#             clang, clang++, ld.lld, llvm-ar and llvm-ranlib of LLVM 24 (they need glibc 2.38), fetched once into
+#             ~/.cache/maicord-toolchain/<tag> by tools/resolve_llvm_toolchain.sh and put first on PATH. MAICORD_LLVM_BIN
+#             names another LLVM's bin directory instead and MAICORD_LLVM_MAJOR its major (default 24; any other clang
+#             major is refused): a stock LLVM builds the same sources without the fork's code generation options, which
+#             the contract takes only from a compiler that knows them; this is also how an older host (Ubuntu 22.04,
+#             Debian 12) builds (MAICORD_LLVM_BIN=/usr/lib/llvm-23/bin MAICORD_LLVM_MAJOR=23 tools/build_linux.sh). The
+#             Windows toolchain and tools/build.ps1 are unchanged; this is the only Linux entry point.
 #   Source    On a native Linux file system (ext4, xfs, btrfs, tmpfs, overlay: a Linux checkout, GitHub Actions) the
 #             checkout is built where it is. Where it sits on a Windows or network mount (WSL's /mnt/d is 9p, whose metadata
 #             operations make ninja and git 50-700x slower) it is rsynced to ext4 first (default ~/mc,
 #             MAICORD_LINUX_SOURCE; setting that variable, or --sync, always copies; $CI and --in-place never do).
-#   Build     ~/mc-build (MAICORD_LINUX_BUILD), one Release configuration: stock clang and ld.lld, full LTO,
+#   Build     ~/mc-build (MAICORD_LINUX_BUILD), one Release configuration: clang and ld.lld, full LTO, IPRA,
 #             -fno-exceptions -fno-rtti, no unwind tables, -nostdinc with MaiCord's own headers
 #             (include/maicord/sys/linux for the kernel and glibc interface), -mavx where Windows uses /arch:AVX.
 #             cmake/build_contract_linux.cmake is the contract; cmake/linux_libraries.cmake and
@@ -57,7 +63,7 @@ build_directory="${MAICORD_LINUX_BUILD:-$HOME/mc-build}"
 jobs="$(nproc)"
 sync_mode=auto
 timeout_scale="${MAICORD_TEST_TIMEOUT_SCALE:-1}"
-llvm_major="${MAICORD_LLVM_MAJOR:-23}"
+llvm_major="${MAICORD_LLVM_MAJOR:-24}"
 run_tests=0
 keep=0
 check_only=0
@@ -117,25 +123,21 @@ else
     source_directory="$repository"
 fi
 
-# The LLVM major this port is built with; a runner's own older clang (ubuntu-24.04 ships 18) must not win.
-if [ -d "/usr/lib/llvm-$llvm_major/bin" ]; then
-    export PATH="/usr/lib/llvm-$llvm_major/bin:$PATH"
-fi
-tools=(clang clang++ ld.lld llvm-ar cmake ninja python3)
+# The toolchain: MAICORD_LLVM_BIN, else the pinned release (fetched on first use), first on PATH so a runner's own clang
+# (ubuntu-24.04 ships 18) never wins.
+llvm_bin="$(bash "$repository/tools/resolve_llvm_toolchain.sh")"
+export PATH="$llvm_bin:$PATH"
+tools=(cmake ninja python3)
 [ "$sync_mode" = sync ] && tools+=(rsync)
 for tool in "${tools[@]}"; do
     command -v "$tool" >/dev/null || { echo "Missing tool: $tool (see the host notes in this script's header)." >&2; exit 1; }
 done
-clang_version="$(clang -dumpfullversion 2>/dev/null || clang -dumpversion)"
+clang_version="$("$llvm_bin/clang" -dumpfullversion 2>/dev/null || "$llvm_bin/clang" -dumpversion)"
 if [ "${clang_version%%.*}" != "$llvm_major" ]; then
-    echo "clang $llvm_major is required; $(command -v clang) is $clang_version (tools/install_linux_toolchain.sh installs it)." >&2
+    echo "clang $llvm_major is required; $llvm_bin/clang is $clang_version (MAICORD_LLVM_MAJOR names another major)." >&2
     exit 1
 fi
-echo "Toolchain: clang $clang_version, $(ld.lld --version | head -n 1), cmake $(cmake --version | head -n 1 | cut -d' ' -f3)"
-# apt.llvm.org installs llvm-ranlib in the LLVM directory without an unversioned alias on PATH.
-llvm_ar="$(command -v llvm-ar)"
-llvm_ranlib="$(command -v llvm-ranlib || echo "$(dirname "$(readlink -f "$llvm_ar")")/llvm-ranlib")"
-[ -x "$llvm_ranlib" ] || { echo "Missing tool: llvm-ranlib." >&2; exit 1; }
+echo "Toolchain: clang $clang_version ($llvm_bin), $("$llvm_bin/ld.lld" --version | head -n 1), cmake $(cmake --version | head -n 1 | cut -d' ' -f3)"
 
 # Concurrent invocations queue for the single build directory.
 exec 9>"$HOME/.maicord-linux-build.lock"
@@ -174,8 +176,8 @@ fi
 python3 -B "$source_directory/tools/check_shader_twins.py"
 
 cmake -S "$source_directory" -B "$build_directory" -G Ninja \
-    -DCMAKE_C_COMPILER="$(command -v clang)" -DCMAKE_CXX_COMPILER="$(command -v clang++)" \
-    -DCMAKE_AR="$llvm_ar" -DCMAKE_RANLIB="$llvm_ranlib" \
+    -DCMAKE_C_COMPILER="$llvm_bin/clang" -DCMAKE_CXX_COMPILER="$llvm_bin/clang++" \
+    -DCMAKE_AR="$llvm_bin/llvm-ar" -DCMAKE_RANLIB="$llvm_bin/llvm-ranlib" \
     -DCMAKE_BUILD_TYPE=Release \
     -DMAICORD_BUILD_TESTS="$([ "$run_tests" = 1 ] && echo ON || echo OFF)" \
     -DMAICORD_TEST_TIMEOUT_SCALE="$timeout_scale" \

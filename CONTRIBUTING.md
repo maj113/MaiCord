@@ -23,9 +23,11 @@ review and the client small and fast.
   (Windows SDK, MASM, CMake and Ninja), **Python 3.10+** on `PATH` and **Windows PowerShell 5.1** (included with
   Windows). `tools\build.ps1` finds Visual Studio and the toolchain, builds `MaiCord.exe` into the sibling directory
   `..\MaiCord-build\Release` and audits it. Close MaiCord before rebuilding.
-- **Linux**: Ubuntu 22.04+, Debian 12+ or a similar system (WSL2 works), with clang, lld and llvm 23, CMake 3.28 or
-  newer, Ninja, Python 3, git and rsync. `tools/install_linux_toolchain.sh` installs them from apt.llvm.org on Debian and
-  Ubuntu; `tools/build_linux.sh` refuses any other clang major. The shaders are hand-written GLSL that the build packs
+- **Linux**: Ubuntu 24.04+, Debian 13+ or a similar system with glibc 2.38 or newer (WSL2 works), with CMake 3.28 or newer, Ninja,
+  Python 3, git and rsync. The compiler is the Linux asset of the same [maj113/llvm-pe](https://github.com/maj113/llvm-pe/releases)
+  release as on Windows (clang, ld.lld and llvm-ar of LLVM 24), which the build fetches on first use; `tools/install_linux_toolchain.sh`
+  fetches it and installs the rest on Debian and Ubuntu. Ubuntu 22.04 and Debian 12 build with a stock LLVM instead (see "Toolchain"
+  below). The shaders are hand-written GLSL that the build packs
   with Python, so the build fetches no shader compiler (only a plugin effect's GLSL section needs DXC and SPIRV-Cross,
   which `maicord-plugin effect build --glsl` fetches and builds into `~/.cache/maicord-toolchain` on first use). The
   script builds in `~/mc-build` on a Linux file system (a checkout on a Windows or network mount is copied there first),
@@ -79,13 +81,18 @@ tools/build_linux.sh --test   # client + the Linux test suite
   the made-up world), launches the client with a private `LOCALAPPDATA` and returns once the server has logged the client's first
   request (`-Stop` ends both; run it with its output redirected to a file, not a pipe, as the processes it starts keep the
   pipe open). Sign in with any e-mail and password.
-- MaiCord builds only with the LLVM fork at
+- MaiCord builds with the LLVM fork at
   [maj113/llvm-pe](https://github.com/maj113/llvm-pe): clang-cl, lld-link and
   llvm-lib from `-LlvmBin`, else `MAICORD_LLVM_BIN`, else the release pinned
   in `tools/llvm_toolchain.json`, which `tools/resolve_llvm_toolchain.ps1`
   downloads once, checks against the pinned SHA-256 and keeps in
   `%LOCALAPPDATA%\MaiCord-toolchain\<tag>`. Another toolchain directory
-  reconfigures the build directory from scratch. Visual Studio still supplies
+  reconfigures the build directory from scratch. The fork's code generation
+  options (the internal call contract, IPRA on register masks, 1-byte function
+  alignment and lld-link's `/OPT:LLDBRANCHRELAX`, together about 240 KB off the
+  client) are added only where the configure step finds the toolchain takes
+  them (`cmake/build_contract.cmake`), so a toolchain without them, a stock
+  LLVM, gets none of them instead of failing. Visual Studio still supplies
   the Windows SDK, MASM (`ml64`), `rc`, `mt` and `dumpbin`.
 
 ### Linux
@@ -99,10 +106,21 @@ unconditionally, with no version probes and no fallbacks for older kernels, and 
 libraries (VA-API drivers, libfido2, speech-dispatcher, libpulse, ...) degrade to "unavailable".
 
 **Build.** `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build_linux.ps1 -Test` (or `tools/build_linux.sh --test`
-inside WSL) rsyncs the tree to ext4, builds with clang and ld.lld 23 into `~/mc-build`, runs `tools/audit_elf.py` on the images and
-the Linux tests, and empties the build directory afterwards but for the client and its runtime assets (`--keep` keeps it all). The
-script's header documents the layout, the variables (`MAICORD_LINUX_SOURCE`, `MAICORD_LINUX_BUILD`) and every option;
-`tools/install_linux_toolchain.sh` installs the toolchain and test packages on Debian and Ubuntu.
+inside WSL) rsyncs the tree to ext4, builds with clang and ld.lld 24 of the pinned release into `~/mc-build`, runs `tools/audit_elf.py`
+on the images and the Linux tests, and empties the build directory afterwards but for the client and its runtime assets (`--keep` keeps
+it all). The script's header documents the layout, the variables (`MAICORD_LINUX_SOURCE`, `MAICORD_LINUX_BUILD`, `MAICORD_LLVM_BIN`,
+`MAICORD_LLVM_MAJOR`) and every option; `tools/install_linux_toolchain.sh` fetches the toolchain and installs the build and test
+packages on Debian and Ubuntu.
+
+**Toolchain.** `tools/resolve_llvm_toolchain.sh`, the twin of `tools/resolve_llvm_toolchain.ps1`, fetches the Linux asset of the
+release pinned in `tools/llvm_toolchain.json` once, checks it against its SHA-256 and keeps it in `~/.cache/maicord-toolchain/<tag>`
+(`MAICORD_TOOLCHAIN_CACHE`, else `$XDG_CACHE_HOME/maicord-toolchain`); `tools/build_linux.sh` puts its `bin` first on `PATH` and
+refuses any clang major but 24. Its binaries need glibc 2.38. `MAICORD_LLVM_BIN` names another LLVM's `bin` directory instead and
+`MAICORD_LLVM_MAJOR` its major: `MAICORD_LLVM_BIN=/usr/lib/llvm-23/bin MAICORD_LLVM_MAJOR=23 tools/build_linux.sh` builds with
+apt.llvm.org's stock clang 23 (on any host, older ones included), as the distribution packages that build from source do with their
+own LLVM. The contract checks each fork option and leaves out those the compiler lacks (`maicord_llvm_options` in
+`cmake/build_contract.cmake`), so such a build is only bigger. Linux takes IPRA from any LLVM (stock LLVM's is sound on SysV), with
+the fork kept to register masks, and the fork's 1-byte function alignment: about 120 KB off the client, 100 KB of it from IPRA alone.
 
 **A build with tests is not a shipping build.** `--test` (`-DMAICORD_BUILD_TESTS=ON`) defines `MAICORD_TEST_HOOKS`, which turns on the
 environment switches that only tests use (`include/maicord/core/test_hook.hpp`: `MAICORD_GLES_*` driver limits, the `MAICORD_*_LIBRARY` sonames,
@@ -249,8 +267,9 @@ not serve) with `--audio` giving the client a private PulseAudio server; `tools/
 session and stay manual. A client run that opens Settings and closes (`python3 tools/client_flow.py wait:4 click:1139,16 wait:1.5 close`)
 must exit 0.
 
-**CI.** Linux CI is the `linux` and `distros` jobs of `.github/workflows/ci.yml` on `ubuntu-24.04`: install the toolchain with
-`tools/install_linux_toolchain.sh --integration`, build and test with `tools/build_linux.sh --test --keep --timeout-scale 3`, check the
+**CI.** Linux CI is the `linux` and `distros` jobs of `.github/workflows/ci.yml` on `ubuntu-24.04`: restore the pinned toolchain from
+the cache, install it and the packages with `tools/install_linux_toolchain.sh --integration`, build and test with
+`tools/build_linux.sh --test --keep --timeout-scale 3`, check the
 `dlopen` tables and the libc pins against the installed headers (`tools/check_{libc,openssl,pulse,speechd,fido2,video}_abi.py`), run
 `packaging/check.sh`, run `tools/test_linux_integration.sh` (reported, not failing, until the repository variable
 `MAICORD_LINUX_INTEGRATION_BLOCKING` is `true`) and pack the portable cases for the `distros` job, which runs them in Ubuntu 22.04,
@@ -279,6 +298,10 @@ Local builds and CI (`.github/actions/setup-toolchain/action.yml`, used by
 the fork through `tools/resolve_llvm_toolchain.ps1`; CI puts its `bin` on
 `PATH` and in `MAICORD_LLVM_BIN`, and caches the extracted toolchain with
 `actions/cache` under the pinned tag and SHA-256, so a new pin fetches anew.
+The Linux builds take the Linux asset of the same release through
+`tools/resolve_llvm_toolchain.sh`, and the `linux` job of `ci.yml` caches it
+the same way (`~/.cache/maicord-toolchain/<tag>`, keyed by the tag and the
+Linux SHA-256).
 
 Each toolchain release of `maj113/llvm-pe` must provide:
 
@@ -289,10 +312,15 @@ Each toolchain release of `maj113/llvm-pe` must provide:
   x86 and Windows resource headers in `lib\clang\<major>\include`, which
   clang-cl finds relative to `bin`. The executables link the static MSVC
   runtime, so no redistributable is needed;
-- the asset `llvm-pe-x86_64-windows.zip.sha256`, the archive's hex SHA-256.
+- the asset `llvm-pe-x86_64-linux.tar.xz`, whose root is the toolchain
+  directory as well: `bin/clang`, `bin/clang++`, `bin/ld.lld`, `bin/llvm-ar`
+  and `bin/llvm-ranlib` and clang's core resource headers in
+  `lib/clang/<major>/include` (the ABI checks compile the system's headers
+  with them);
+- each asset's `.sha256`, the archive's hex SHA-256.
 
-To move to a new release, set `tag` and `sha256` in `tools/llvm_toolchain.json`
-to the tag and the `.sha256` value.
+To move to a new release, set `tag` in `tools/llvm_toolchain.json` to the tag,
+and `sha256` and `linux.sha256` to the two `.sha256` values.
 
 ### Build files
 

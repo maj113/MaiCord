@@ -1,6 +1,6 @@
 #!/bin/sh
 # Makes the Debian source package of a MaiCord release for a Launchpad PPA (or `dpkg-buildpackage` anywhere), from the release
-# tarball: the upstream program is built with LLVM 23, which an Ubuntu builder does not have, so the source package carries
+# tarball: the upstream program is built with LLVM 24, which an Ubuntu builder does not have, so the source package carries
 # the tarball (as maicord_X.Y.Z.orig.tar.gz) and the debian/ directory installs its contents. Nothing is compiled.
 #
 #   packaging/debian/build_source.sh --tarball maicord-X.Y.Z-linux-x86_64.tar.gz --series noble --maintainer 'Name <you@example.org>'

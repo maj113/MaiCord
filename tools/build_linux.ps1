@@ -13,8 +13,8 @@ param(
     [switch]$Check,
     # Keep the symbol table in the Linux client (nm, bloaty, profilers); it ships stripped.
     [switch]$Symbols,
-    # The WSL distribution with clang and lld 23 (default: $env:MAICORD_WSL_DISTRO, else Ubuntu-Preview) and its user
-    # (default: $env:MAICORD_WSL_USER, else the distribution's default user).
+    # The WSL distribution set up by tools/install_linux_toolchain.sh (default: $env:MAICORD_WSL_DISTRO, else
+    # Ubuntu-Preview) and its user (default: $env:MAICORD_WSL_USER, else the distribution's default user).
     [string]$Distro = $(if ($env:MAICORD_WSL_DISTRO) { $env:MAICORD_WSL_DISTRO } else { 'Ubuntu-Preview' }),
     [string]$User = $env:MAICORD_WSL_USER
 )

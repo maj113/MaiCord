@@ -1,7 +1,8 @@
 # The Linux flavour of the compiler and linker contract (cmake/build_contract.cmake is the Windows one; this file is
 # included from it): the same freestanding C++23 (no libc, exceptions or RTTI), Release-only code generation and
-# one output directory, built by stock clang and ld.lld. The names the rest of the build uses (maicord_link_contract,
-# maicord_compile_contract, maicord_runtime, maicord_library, maicord_program) are the same.
+# one output directory, built by clang and ld.lld: the pinned maj113/llvm-pe release (tools/build_linux.sh), or a stock
+# LLVM, which only lacks the options maicord_llvm_options checks for. The names the rest of the build uses
+# (maicord_link_contract, maicord_compile_contract, maicord_runtime, maicord_library, maicord_program) are the same.
 #
 # An image is a dynamic position-independent executable with its own _start (src/core/linux/start.cpp). It links
 # libc.so.6 as a generated stub library that pins the oldest symbol versions glibc 2.34's libc.so.6 exports
@@ -114,6 +115,13 @@ target_compile_options(maicord_compile_contract INTERFACE
     # and deliberate non-short-circuit bool |.
     "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>"
     "$<$<COMPILE_LANGUAGE:CXX>:-Wno-missing-field-initializers;-Wno-invalid-offsetof;-Wno-ignored-attributes;-Wno-overloaded-virtual;-Wno-duplicate-decl-specifier;-Wno-misleading-indentation;-Wno-logical-op-parentheses;-Wno-missing-braces;-Wno-bitwise-instead-of-logical>")
+# clang 24 reports #embed in C++ under -Wc++26-extensions (clang 23 under -Wc23-extensions, which the targets that
+# #embed turn off themselves); the Windows sources that #embed silence it around the directive.
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-Wno-c++26-extensions MAICORD_CXX_NO_CXX26_EXTENSIONS_WARNING)
+if(MAICORD_CXX_NO_CXX26_EXTENSIONS_WARNING)
+    target_compile_options(maicord_compile_contract INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:-Wno-c++26-extensions>")
+endif()
 # No unwind tables: MaiCord code never throws, catches or walks a stack. The in-process stack walkers configure
 # with MAICORD_UNWIND_TABLES.
 option(MAICORD_UNWIND_TABLES "Emit unwind tables for in-process stack walkers" OFF)
@@ -123,6 +131,15 @@ if(NOT MAICORD_UNWIND_TABLES)
     # The machine outliner (see MAICORD_SIZE_OPTION) emits no unwind data for the functions it creates, so stack
     # walkers get none.
     target_link_options(maicord_link_contract INTERFACE LINKER:--mllvm=-enable-machine-outliner)
+    # IPRA: a caller keeps values in the scratch registers its callees leave alone. Stock LLVM's is sound on SysV, which
+    # has no callee-saved vector registers (the Windows contract explains why Win64 takes only the fork's), and takes
+    # 100 KB off the client; the fork's -x86-ipra-nocsr=false, which keeps it to the register masks, 17 KB more.
+    maicord_llvm_options(MAICORD_LLVM_IPRA_MASKS -enable-ipra -x86-ipra-nocsr=false)
+    if(NOT MAICORD_LLVM_IPRA_MASKS)
+        maicord_llvm_options(MAICORD_LLVM_IPRA -enable-ipra)
+    endif()
+    # The fork's: functions compiled for speed are not aligned to 16 bytes either (6 KB).
+    maicord_llvm_options(MAICORD_LLVM_FUNCTION_ALIGNMENT -x86-function-alignment=1)
 endif()
 
 # The compiler support every image links: the memory functions and the process entry.

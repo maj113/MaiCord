@@ -14,14 +14,14 @@
 # tools/audit_linux_reachability.py reads both and groups the dropped code by source file. A unit dropped whole, or a
 # feature whose entry points are all dropped, is a path that Windows keeps and Linux does not: read the #if or the stub.
 #
-# Needs what tools/build_linux.sh needs (clang and lld 23, cmake, ninja, rsync) and c++filt for the function names.
+# Needs what tools/build_linux.sh needs (its LLVM toolchain, the pinned one or MAICORD_LLVM_BIN, cmake, ninja, rsync)
+# and c++filt for the function names.
 
 set -euo pipefail
 
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source_directory="${MAICORD_AUDIT_SOURCE:-$HOME/mc-audit-src}"
 build_directory="${MAICORD_AUDIT_BUILD:-$HOME/mc-audit-build}"
-llvm_major="${MAICORD_LLVM_MAJOR:-23}"
 report_arguments=()
 
 while [ "$#" -gt 0 ]; do
@@ -33,11 +33,8 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-if [ -d "/usr/lib/llvm-$llvm_major/bin" ]; then
-    export PATH="/usr/lib/llvm-$llvm_major/bin:$PATH"
-fi
-llvm_ar="$(command -v llvm-ar)"
-llvm_ranlib="$(command -v llvm-ranlib || echo "$(dirname "$(readlink -f "$llvm_ar")")/llvm-ranlib")"
+llvm_bin="$(bash "$repository/tools/resolve_llvm_toolchain.sh")"
+export PATH="$llvm_bin:$PATH"
 
 exec 9>"$HOME/.maicord-linux-build.lock"
 flock 9
@@ -52,8 +49,8 @@ grep -q '^set(MAICORD_WHOLE_PROGRAM_OPTION "")$' "$source_directory/cmake/build_
     echo "The contract no longer has the LTO switch this script turns off." >&2; exit 1; }
 
 cmake -S "$source_directory" -B "$build_directory" -G Ninja \
-    -DCMAKE_C_COMPILER="$(command -v clang)" -DCMAKE_CXX_COMPILER="$(command -v clang++)" \
-    -DCMAKE_AR="$llvm_ar" -DCMAKE_RANLIB="$llvm_ranlib" -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER="$llvm_bin/clang" -DCMAKE_CXX_COMPILER="$llvm_bin/clang++" \
+    -DCMAKE_AR="$llvm_bin/llvm-ar" -DCMAKE_RANLIB="$llvm_bin/llvm-ranlib" -DCMAKE_BUILD_TYPE=Release \
     -DMAICORD_BUILD_TESTS=OFF -DMAICORD_KEEP_SYMBOLS=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null
 cmake --build "$build_directory" --target MaiCord --parallel "$(nproc)"
 

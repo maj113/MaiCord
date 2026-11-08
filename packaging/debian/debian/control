@@ -37,6 +37,6 @@ Description: Lightweight, native Discord client (unofficial)
  Discord Inc.
  .
  This package installs the upstream release program, which is built from the
- source at https://github.com/maj113/MaiCord with LLVM 23 (the Ubuntu archive
+ source at https://github.com/maj113/MaiCord with LLVM 24 (the Ubuntu archive
  has no such compiler), so the source package carries the release tarball and
  does not compile anything.

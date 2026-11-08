@@ -288,8 +288,9 @@ cd MaiCord
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1
 ```
 
-**Linux** needs Ubuntu 22.04+, Debian 12+ or similar (WSL2 works) with clang, lld and llvm 23, CMake 3.28+, Ninja,
-Python 3, git and rsync; `tools/install_linux_toolchain.sh` installs them on Debian and Ubuntu.
+**Linux** needs Ubuntu 24.04+, Debian 13+ or similar (glibc 2.38; WSL2 works) with CMake 3.28+, Ninja, Python 3, git and
+rsync; the build fetches its pinned LLVM toolchain on first use, and `tools/install_linux_toolchain.sh` installs everything
+on Debian and Ubuntu. Older systems build with a stock LLVM ([CONTRIBUTING.md](CONTRIBUTING.md#linux)).
 
 ```sh
 git clone https://github.com/maj113/MaiCord.git

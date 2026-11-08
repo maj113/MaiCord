@@ -20,6 +20,34 @@ function(maicord_library name)
     set_target_properties(${name} PROPERTIES CXX_EXTENSIONS OFF)
 endfunction()
 
+# maicord_llvm_options(<variable> <option>...)
+# Adds LLVM code generation options (-mllvm) to the link contract, for the LTO code generation, and to the compile
+# contract, for the objects outside it (the tests' non-LTO twins), when the toolchain's compiler and linker both take all
+# of them; <variable> caches the answer. The options of the maj113/llvm-pe fork come in this way, so a stock LLVM, which
+# rejects them, builds without them.
+include(CheckCXXSourceCompiles)
+function(maicord_llvm_options variable)
+    if(MSVC)
+        list(TRANSFORM ARGN PREPEND /clang:-mllvm= OUTPUT_VARIABLE compile)
+        list(TRANSFORM ARGN PREPEND /mllvm: OUTPUT_VARIABLE link)
+        set(CMAKE_REQUIRED_LINK_OPTIONS ${link})
+    else()
+        list(TRANSFORM ARGN PREPEND -mllvm= OUTPUT_VARIABLE compile)
+        list(TRANSFORM ARGN PREPEND LINKER:--mllvm= OUTPUT_VARIABLE link)
+        # A try-compile that only archives (CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY, for a clang that cannot link
+        # a hosted program: packaging/README.md) checks the compiler alone; ld.lld is the same LLVM.
+        if(NOT CMAKE_TRY_COMPILE_TARGET_TYPE STREQUAL "STATIC_LIBRARY")
+            set(CMAKE_REQUIRED_LINK_OPTIONS -fuse-ld=lld ${link})
+        endif()
+    endif()
+    list(JOIN compile " " CMAKE_REQUIRED_FLAGS)
+    check_cxx_source_compiles("int main() { return 0; }" ${variable})
+    if(${variable})
+        target_compile_options(maicord_compile_contract INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:${compile}>")
+        target_link_options(maicord_link_contract INTERFACE ${link})
+    endif()
+endfunction()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     include(cmake/build_contract_linux.cmake)
     return()
@@ -166,6 +194,35 @@ if(NOT MAICORD_UNWIND_TABLES)
     # outside it.
     target_link_options(maicord_link_contract INTERFACE /mllvm:-enable-machine-outliner /mllvm:-enable-shrink-wrap=true)
     list(APPEND MAICORD_UNWIND_OPTIONS /clang:-mllvm=-enable-shrink-wrap=true)
+    # The code generation of the maj113/llvm-pe fork, each part only when the
+    # toolchain takes it (maicord_llvm_options; a stock LLVM builds without
+    # them). Together they take about 240 KB (3.7%) of .text off the client,
+    # with speed within noise or better.
+    # The internal call contract: a function that only its module calls, and
+    # only directly, takes six integer and six vector arguments in registers
+    # and no home area. It leaves functions with unwind tables alone.
+    maicord_llvm_options(MAICORD_LLVM_INTERNAL_CC -x86-internal-cc)
+    # IPRA on register masks: a caller keeps values in the scratch registers
+    # its callees leave alone. Only the fork's: stock IPRA counts XMM6-15 as
+    # clobbered by every vzeroupper (+520 KB) and YMM6-15 as preserved by a
+    # callee that saves only their low halves (unsound), and its mode without
+    # callee-saved registers grows the client. -x86-ipra-nocsr=false, which
+    # only the fork knows, keeps it to the masks.
+    maicord_llvm_options(MAICORD_LLVM_IPRA_MASKS -enable-ipra -x86-ipra-nocsr=false)
+    # Functions compiled for speed are not aligned to 16 bytes either.
+    maicord_llvm_options(MAICORD_LLVM_FUNCTION_ALIGNMENT -x86-function-alignment=1)
+    # lld-link's branch relaxation: a tail jump to the next function goes away
+    # and a near one becomes a short jump. lld-link refuses it with /debug,
+    # which CMake's own try-compile links use, so it is a link contract option
+    # only and its check links as Release.
+    include(CheckLinkerFlag)
+    block()
+        set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
+        check_linker_flag(CXX /OPT:LLDBRANCHRELAX MAICORD_LLD_BRANCH_RELAX)
+    endblock()
+    if(MAICORD_LLD_BRANCH_RELAX)
+        target_link_options(maicord_link_contract INTERFACE /OPT:LLDBRANCHRELAX)
+    endif()
 endif()
 target_compile_options(maicord_compile_contract INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:${MAICORD_UNWIND_OPTIONS}>")
 

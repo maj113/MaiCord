@@ -2,19 +2,24 @@
 # Installs what tools/build_linux.sh needs on Ubuntu or Debian (a GitHub Actions ubuntu-24.04 runner, a fresh machine,
 # WSL) the same way every time.
 #
-#   tools/install_linux_toolchain.sh                 clang, lld and llvm 23 from apt.llvm.org, cmake, ninja, python3, git
+#   tools/install_linux_toolchain.sh                 the pinned LLVM toolchain (below), cmake, ninja, python3, git, rsync and
+#                                                    what CMake's and the ABI checks' hosted programs link with
 #   tools/install_linux_toolchain.sh --tests         also the runtime libraries, fonts, dictionaries and tools the test suite
 #                                                    uses (below), and the headers of the ABI checkers
 #   tools/install_linux_toolchain.sh --integration   also what the compositor, D-Bus and audio integration scripts use
-#   tools/install_linux_toolchain.sh --check         install nothing: verify clang 23 is there and print the versions
+#   tools/install_linux_toolchain.sh --check         install nothing: verify the toolchain is there and print the versions
 #
-# Pins (this script is their only home; Dependabot cannot see them):
-#   LLVM major   23: apt.llvm.org's llvm-toolchain-<codename>-23 repository. That repository is a rolling branch (the
-#                pool keeps only the newest 23.x build of each package, so an exact package version cannot be pinned for
-#                longer than days); the major is the pin, tools/build_linux.sh refuses any other, and the resolved version
-#                is printed and written to the job summary so a change of compiler is visible in the log.
-#   Archive key  the fingerprint below. The key is fetched over https, its fingerprint is compared and only then installed
-#                as the repository's signing key; nothing else is trusted by it (signed-by).
+# The toolchain is the Linux asset of the maj113/llvm-pe release pinned in tools/llvm_toolchain.json (clang, clang++,
+# ld.lld, llvm-ar and llvm-ranlib, LLVM 24): tools/resolve_llvm_toolchain.sh fetches it once, checks its SHA-256 and
+# unpacks it into ~/.cache/maicord-toolchain/<tag> (MAICORD_TOOLCHAIN_CACHE, else XDG_CACHE_HOME), as
+# tools/resolve_llvm_toolchain.ps1 does the Windows one; the Windows and Linux assets come from the same tag. Its clang
+# links hosted programs with the system's linker, C library and GCC runtime, which come from apt:
+#   binutils                          ld, for CMake's compiler checks and tools/check_video_abi.py's probe programs
+#   libc6-dev                         crt1.o and libc.so for those links; the headers the libc ABI check reads
+#   libgcc-<N>-dev libstdc++-<N>-dev  crtbegin.o, libgcc and libstdc++ of the distribution's default GCC <N>, for CMake's C++
+#                                     compiler check (clang takes the GCC installation it finds)
+# Its binaries need glibc 2.38 (Ubuntu 24.04, Debian 13 or newer); on an older system, with MAICORD_LLVM_BIN set to a stock
+# LLVM (tools/build_linux.sh), this script installs the packages and leaves the toolchain alone.
 #
 # Packages the test suite and the opt-in scripts need, by what the Linux build opens with dlopen (names for Debian and
 # Ubuntu; tools/test_linux_distros.sh lists the Fedora, Arch and NixOS ones):
@@ -41,10 +46,7 @@
 # Needs apt-get; runs it through sudo when not root. Exit status: nonzero on any failure.
 set -euo pipefail
 
-llvm_major=23
-key_fingerprint=6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
-key_url=https://apt.llvm.org/llvm-snapshot.gpg.key
-key_path=/etc/apt/keyrings/apt.llvm.org.asc
+resolve="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/resolve_llvm_toolchain.sh"
 
 with_tests=0
 with_integration=0
@@ -59,19 +61,21 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-llvm_bin="/usr/lib/llvm-$llvm_major/bin"
-
+# The versions, also in the job summary so a change of compiler is visible in the log; in CI the bin directory goes on
+# PATH and into MAICORD_LLVM_BIN for the later steps, as the Windows setup action does.
 report() {
-    local clang="$llvm_bin/clang"
-    [ -x "$clang" ] || { echo "clang $llvm_major is not installed ($llvm_bin/clang is missing)." >&2; return 1; }
-    local summary
-    summary="$("$clang" --version | head -n 1); $("$llvm_bin/ld.lld" --version | head -n 1); $(cmake --version | head -n 1); ninja $(ninja --version)"
+    local llvm_bin summary
+    llvm_bin="$(bash "$resolve" --no-fetch)"
+    summary="$("$llvm_bin/clang" --version | head -n 1); $("$llvm_bin/ld.lld" --version | head -n 1); $(cmake --version | head -n 1); ninja $(ninja --version)"
     echo "$summary"
     if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
         printf '### Linux toolchain\n\n- %s\n' "${summary//; /$'\n'- }" >> "$GITHUB_STEP_SUMMARY"
     fi
     if [ -n "${GITHUB_PATH:-}" ]; then
         echo "$llvm_bin" >> "$GITHUB_PATH"
+    fi
+    if [ -n "${GITHUB_ENV:-}" ]; then
+        echo "MAICORD_LLVM_BIN=$llvm_bin" >> "$GITHUB_ENV"
     fi
 }
 
@@ -85,10 +89,8 @@ fi
 . /etc/os-release
 case "${ID:-}:${ID_LIKE:-}" in
     ubuntu:*|debian:*|*:*debian*|*:*ubuntu*) ;;
-    *) echo "Unsupported distribution ${ID:-unknown}: use apt.llvm.org's packages for it or the distribution's own LLVM $llvm_major." >&2; exit 1 ;;
+    *) echo "Unsupported distribution ${ID:-unknown}: install the packages above by hand; tools/build_linux.sh fetches the toolchain." >&2; exit 1 ;;
 esac
-codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
-[ -n "$codename" ] || { echo "No codename in /etc/os-release." >&2; exit 1; }
 
 if [ "$(id -u)" = 0 ]; then
     as_root() { "$@"; }
@@ -99,28 +101,13 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 apt_install() { as_root apt-get install -y --no-install-recommends -o Acquire::Retries=5 "$@"; }
 
-# The repository: its signing key by fingerprint, then the source list.
-repository="https://apt.llvm.org/$codename/"
-suite="llvm-toolchain-$codename-$llvm_major"
-if ! grep -qs "$suite" /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null; then
-    as_root apt-get update -o Acquire::Retries=5
-    apt_install ca-certificates curl gnupg
-    scratch="$(mktemp -d)"
-    trap 'rm -rf "$scratch"' EXIT
-    curl --fail --silent --show-error --location --retry 5 "$key_url" -o "$scratch/key.asc"
-    fingerprints="$(gpg --show-keys --with-colons "$scratch/key.asc" | awk -F: '$1 == "fpr" {print $10}')"
-    if ! grep -qx "$key_fingerprint" <<<"$fingerprints"; then
-        echo "The apt.llvm.org key has no fingerprint $key_fingerprint (found: ${fingerprints//$'\n'/ })." >&2
-        exit 1
-    fi
-    as_root install -d -m 0755 /etc/apt/keyrings
-    as_root install -m 0644 "$scratch/key.asc" "$key_path"
-    echo "deb [signed-by=$key_path] $repository $suite main" | as_root tee "/etc/apt/sources.list.d/llvm-$llvm_major.list" >/dev/null
-fi
 as_root apt-get update -o Acquire::Retries=5
-
-apt_install "clang-$llvm_major" "lld-$llvm_major" "llvm-$llvm_major" cmake ninja-build python3 git rsync
-as_root apt-cache policy "clang-$llvm_major" | sed -n '1,3p'
+# The distribution's default GCC: the gcc package depends on gcc-<N>.
+gcc_major="$(apt-cache depends gcc | sed -n 's/^ *Depends: gcc-\([0-9][0-9]*\)$/\1/p' | head -n 1)"
+[ -n "$gcc_major" ] || { echo "No default GCC version in the package lists (apt-cache depends gcc)." >&2; exit 1; }
+apt_install cmake ninja-build python3 git rsync ca-certificates curl xz-utils \
+    binutils libc6-dev "libgcc-$gcc_major-dev" "libstdc++-$gcc_major-dev"
+bash "$resolve" > /dev/null
 
 if [ "$with_tests" = 1 ]; then
     # libssl3t64 is the Ubuntu 24.04 name of libssl3; the other is tried when it does not exist.

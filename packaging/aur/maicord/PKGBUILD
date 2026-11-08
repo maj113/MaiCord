@@ -1,8 +1,9 @@
 # Maintainer: the MaiCord owner <https://github.com/maj113/MaiCord/issues>
 #
-# maicord: MaiCord built from source. The project is written for LLVM 23 (tools/build_linux.sh refuses any other major), which
-# is what Arch ships today (clang, lld and llvm 23.1); when Arch moves to another major this package fails to build until
-# the project does, and maicord-bin is the package that keeps working. No shader toolchain is needed: the client's shaders are
+# maicord: MaiCord built from source with Arch's clang, lld and llvm (23.1 today). The project's own builds use LLVM 24 of
+# maj113/llvm-pe; the build contract adds that toolchain's extra code generation options only when the compiler takes them,
+# so this package builds the same program without them, somewhat bigger. A new LLVM major can still break the build until
+# the project follows, and maicord-bin is the package that keeps working. No shader toolchain is needed: the client's shaders are
 # hand-written GLSL that the build packs with python.
 #
 # Per release: set pkgver; `updpkgsums`, `makepkg --printsrcinfo > .SRCINFO`, push to the AUR repository.

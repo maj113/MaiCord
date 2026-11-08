@@ -63,6 +63,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The build below runs in that private home: resolve its toolchain first, so the pinned one is fetched into (or found in)
+# the user's own cache rather than into the home --out recreates every run.
+if [ -z "$binary" ]; then
+    MAICORD_LLVM_BIN="$(bash "$repository/tools/resolve_llvm_toolchain.sh")" || exit 1
+    export MAICORD_LLVM_BIN
+fi
 export HOME="$out/home"
 export XDG_RUNTIME_DIR="$out/runtime"
 export XDG_DATA_HOME="$out/data"
