@@ -378,6 +378,8 @@ void trim_assets(const Worker& w) noexcept {
 void asset(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     copy_bytes(r.sha256, job.blob.sha256, 32);
     wchar_t path[600], leaf[65];
+    // ensure() can fail before writing path, and the cache write below tests path[0].
+    path[0] = 0;
     hex_wide(job.blob.sha256, 32, leaf);
     leaf[64] = 0;
     Crypto crypto{};
