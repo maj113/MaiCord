@@ -196,20 +196,26 @@ jobs:
             }
           }
 
-  # The Linux port: one freestanding glibc image per test, built with the pinned LLVM toolchain release (the Linux asset of
-  # tools/llvm_toolchain.json) by the same tools/build_linux.sh a developer runs, audited (tools/audit_image.py, in the build)
-  # and tested with Mesa's llvmpipe for the GPU cases; the shaders are GLSL the build packs with python, so
-  # no shader compiler is fetched or built. The integration scripts (headless sway, D-Bus, PulseAudio, speech-dispatcher)
-  # are reported but do not fail the job until the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING is 'true'. The
-  # portable subset of the built tests goes to the distros job as a one-day artifact of this run. Neither job gates the preview
-  # channel: the Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' this job also packages a master build's
-  # tarball and AppImage (the Linux preview feed, signed by the preview job); nothing else is published from here.
-  linux:
-    name: Linux (x86-64 build, tests, ELF audit)
+  # The Linux port: freestanding glibc images built with the pinned LLVM toolchain release (the Linux asset of
+  # tools/llvm_toolchain.json) by the same tools/build_linux.sh a developer runs, audited (tools/audit_image.py, in the
+  # build) and tested with Mesa's llvmpipe for the GPU cases; the shaders are GLSL the build packs with python, so no shader
+  # compiler is fetched or built. As on Windows, the work runs side by side on 4-vCPU runners:
+  #   linux-client  the shipping MaiCord (no test hooks; glibc and musl forms audited) and its artifact, the core test
+  #                 shard against it (--version, the UI text, the plugin SDK compile cases, the desktop entry), the
+  #                 packaging checks, the client and AT-SPI integration runs, and on master the preview tarball and AppImage;
+  #   linux-tests   suite: the app shard but for the cases the portable part takes;
+  #                 portable: the cases tools/linux_portable_tests.txt names (packed for the distros job) and the
+  #                 programs the other integration runs drive, then the ABI checks and those integration runs.
+  # The parts are balanced by measured build and test time (each one also compiles the shipping libraries). The
+  # integration scripts (headless sway, D-Bus, PulseAudio, speech-dispatcher) are reported but do not fail a job until
+  # the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING is 'true'. No Linux job gates the preview channel: the
+  # Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' a master build's tarball and AppImage go to the Linux
+  # preview feed (signed by the preview job); nothing else is published from here.
+  linux-client:
+    name: Linux client (x86-64 build, ELF audit)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     outputs:
-      bundle: ${{ steps.bundle.outputs.name }}
       preview: ${{ steps.preview.outputs.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -224,15 +230,14 @@ jobs:
           python3 -B tools/release/maicord_release.py identity --repository . || echo '::warning::No build identity; building as the project version without the updater.'
 
       # The pinned LLVM toolchain (cached as the Windows jobs cache theirs), cmake, ninja, what hosted links need, and the
-      # runtime libraries, fonts, dictionaries and tools the tests and the integration scripts use.
+      # libraries and tools the core tests, the packaging checks and the integration runs use.
       - uses: ./.github/actions/setup-toolchain
         with:
           linux-packages: integration
 
-      # Configures into ~/mc-build in place (the checkout is on a native file system), builds and audits (tools/audit_image.py)
-      # and runs the suite with ctest. Test limits are three times their local ones for the hosted runner. A build
-      # with tests also compiles the test-only environment switches, so what ships is built again below.
-      - name: Build, audit and test
+      # The client that ships, into ~/mc-build (the checkout is on a native file system): built without the tests'
+      # switches, audited when it links and in its musl form.
+      - name: Build and audit
         env:
           # The shipping client's updater identity, as the Windows client job gives its build, and the flag that lets the
           # tarball install update itself from the channels once they carry the tarball (entry.cpp).
@@ -240,12 +245,21 @@ jobs:
           MAICORD_UPDATE_COMMIT: ${{ steps.identity.outputs.commit }}
           MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
           MAICORD_REQUIRE_DEFLATE_CACHE: "1"
-        run: bash tools/build_linux.sh --test --keep-intermediates --test-timeout-scale 3
+        run: bash tools/build_linux.sh
 
-      # The declarations the Linux build resolves with dlsym, and the libc, errno and addrinfo pins, against the installed
-      # headers (libc6-dev, libssl-dev, libpulse-dev, libspeechd-dev, libfido2-dev, libva-dev, libdav1d-dev, libopenh264-dev).
-      - name: ABI checks
-        run: for abi in libc openssl pulse speechd fido2 video; do python3 -B "tools/check_${abi}_abi.py" --compiler "$MAICORD_LLVM_BIN/clang"; done
+      # The distros job runs this client on headless sway in the distributions that install sway.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-client-${{ github.run_attempt }}
+          path: ~/mc-build/MaiCord
+          if-no-files-found: error
+          retention-days: 1
+
+      # The core shard (maicord-tests.txt) is what runs the client itself; --skip-client keeps the one just built.
+      - name: Core tests
+        env:
+          MAICORD_REQUIRE_DEFLATE_CACHE: "1"
+        run: bash tools/build_linux.sh --test --skip-client --test-shard core --test-timeout-scale 3
 
       # The packages around a stand-in program (packaging/README.md): the reproducible tarball, the AppImage, the one-line
       # installer, valid desktop entry and AppStream metadata, and, with nfpm, the .deb and .rpm.
@@ -254,26 +268,14 @@ jobs:
           sh packaging/nfpm/install_nfpm.sh "$RUNNER_TEMP/tools"
           PATH="$RUNNER_TEMP/tools:$PATH" bash packaging/check.sh
 
-      # Headless sway, the GPU surface, the client on its signed-out screen, AT-SPI, the D-Bus mocks, PulseAudio and
-      # speech-dispatcher (tools/test_linux_integration.sh lists them). tools/test_dbus_real.sh (the real xdg-desktop-portal
-      # and gnome-keyring) is left to a machine with a graphical session: the portal's GTK backend needs a display and the
-      # document portal needs FUSE, which a hosted runner lacks.
-      - name: Integration (Wayland, AT-SPI, D-Bus, audio, speech)
+      # The client on its signed-out screen and behind AT-SPI (tools/test_linux_integration.sh).
+      - name: Integration (client, AT-SPI)
         env:
           MAICORD_LINUX_INTEGRATION_BLOCKING: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING }}
-        run: bash tools/test_linux_integration.sh --out "$RUNNER_TEMP/integration"
+        run: bash tools/test_linux_integration.sh --out "$RUNNER_TEMP/integration" client atspi
 
-      # The cases tools/linux_portable_tests.txt names and the executables they run: what the distros job runs in other
-      # distributions' containers.
-      - name: Pack the portable tests
-        id: bundle
-        run: |
-          python3 tools/linux_portable_tests.py --build "$HOME/mc-build" --output "$RUNNER_TEMP/portable"
-          echo "name=linux-portable-${GITHUB_SHA::8}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
-
-      # The master build's tarball and AppImage (packaging/README.md) for the Linux preview feed: only for a push to master of
-      # the repository that publishes, and only while the Linux channels are published. The client in them is built without
-      # the tests' switches, in a directory of its own.
+      # The master build's tarball and AppImage (packaging/README.md) for the Linux preview feed, from the client above: only
+      # for a push to master of the repository that publishes, and only while the Linux channels are published.
       - name: Package the preview tarball
         id: preview
         if: >-
@@ -281,15 +283,9 @@ jobs:
           steps.identity.outputs.dev == 'true' && vars.MAICORD_LINUX_RELEASES == 'true'
         env:
           VERSION: ${{ steps.identity.outputs.version }}
-          MAICORD_UPDATE_VERSION: ${{ steps.identity.outputs.version }}
-          MAICORD_UPDATE_COMMIT: ${{ steps.identity.outputs.commit }}
-          MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
-          MAICORD_LINUX_BUILD: ${{ runner.temp }}/ship
-          MAICORD_REQUIRE_DEFLATE_CACHE: "1"
         run: |
           set -eu
-          bash tools/build_linux.sh
-          python3 -B packaging/build_tarball.py --binary "$MAICORD_LINUX_BUILD/MaiCord" --version "$VERSION" --output-dir "$RUNNER_TEMP/linux-preview"
+          python3 -B packaging/build_tarball.py --binary "$HOME/mc-build/MaiCord" --version "$VERSION" --output-dir "$RUNNER_TEMP/linux-preview"
           python3 -B packaging/appimage/build_appimage.py --tarball "$RUNNER_TEMP/linux-preview/maicord-$VERSION-linux-x86_64.tar.gz" --output-dir "$RUNNER_TEMP/linux-preview"
           ls -l "$RUNNER_TEMP/linux-preview"
           echo "name=MaiCord-linux-x64-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
@@ -302,26 +298,103 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+  linux-tests:
+    name: Linux tests (${{ matrix.part }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        part: [suite, portable]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: ${{ steps.bundle.outputs.name }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      # The tests build with the identity the client gets (the updater's tests read it).
+      - name: Build identity
+        id: identity
+        run: |
+          python3 -B tools/release/maicord_release.py identity --repository . || echo '::warning::No build identity; building as the project version without the updater.'
+
+      # The runtime libraries, fonts, dictionaries and headers the suite uses; the portable part also runs the integration
+      # scripts and so takes their tools.
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          linux-packages: ${{ matrix.part == 'portable' && 'integration' || 'tests' }}
+
+      # The portable part: every case tools/linux_portable_tests.txt names and one case of each program the integration
+      # runs below drive (which builds it). The suite part: the rest of the app shard. Test limits are three times their
+      # local ones for the hosted runner.
+      - name: Build, audit and test
+        env:
+          PART: ${{ matrix.part }}
+          MAICORD_UPDATE_VERSION: ${{ steps.identity.outputs.version }}
+          MAICORD_UPDATE_COMMIT: ${{ steps.identity.outputs.commit }}
+          MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
+          MAICORD_REQUIRE_DEFLATE_CACHE: "1"
+        run: |
+          set -eu
+          names="$(grep -v -e '^#' -e '^\[' -e '^$' tools/linux_portable_tests.txt | paste -s -d , -)"
+          names="$names,maicord_wayland_window_lifecycle,maicord_gpu_surface_wayland,maicord_dbus_wire,maicord_dbus_bus"
+          names="$names,maicord_dbus_services,maicord_linux_notifications_mock,maicord_dbus_secure_buffer,maicord_dbus_desktop"
+          names="$names,maicord_atspi_bus,maicord_pulse_loopback,maicord_speechd_live"
+          if [ "$PART" = portable ]; then selection=(--test-names "$names"); else selection=(--test-shard app --exclude-test-names "$names"); fi
+          bash tools/build_linux.sh --test --skip-client --keep-intermediates --test-timeout-scale 3 "${selection[@]}"
+
+      # The declarations the Linux build resolves with dlsym, and the libc, errno and addrinfo pins, against the installed
+      # headers (libc6-dev, libssl-dev, libpulse-dev, libspeechd-dev, libfido2-dev, libva-dev, libdav1d-dev, libopenh264-dev),
+      # side by side.
+      - name: ABI checks
+        if: matrix.part == 'portable'
+        run: |
+          for abi in libc openssl pulse speechd fido2 video; do
+            python3 -B "tools/check_${abi}_abi.py" --compiler "$MAICORD_LLVM_BIN/clang" > "$RUNNER_TEMP/abi-$abi.log" 2>&1 &
+          done
+          status=0
+          for abi in libc openssl pulse speechd fido2 video; do
+            wait -n || status=1
+          done
+          for abi in libc openssl pulse speechd fido2 video; do echo "::group::$abi"; cat "$RUNNER_TEMP/abi-$abi.log"; echo "::endgroup::"; done
+          exit "$status"
+
+      # Headless sway, the GPU surface, the D-Bus mocks, PulseAudio and speech-dispatcher (tools/test_linux_integration.sh
+      # lists them; the client and AT-SPI runs are the client job's). tools/test_dbus_real.sh (the real xdg-desktop-portal and
+      # gnome-keyring) is left to a machine with a graphical session: the portal's GTK backend needs a display and the
+      # document portal needs FUSE, which a hosted runner lacks.
+      - name: Integration (Wayland, GPU surface, D-Bus, audio, speech)
+        if: matrix.part == 'portable'
+        env:
+          MAICORD_LINUX_INTEGRATION_BLOCKING: ${{ vars.MAICORD_LINUX_INTEGRATION_BLOCKING }}
+        run: bash tools/test_linux_integration.sh --out "$RUNNER_TEMP/integration" wayland gpu-surface dbus audio speech
+
+      # The cases tools/linux_portable_tests.txt names and the executables they run: what the distros job runs in other
+      # distributions' containers.
+      - name: Pack the portable tests
+        if: matrix.part == 'portable'
+        run: python3 tools/linux_portable_tests.py --build "$HOME/mc-build" --output "$RUNNER_TEMP/portable"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.part == 'portable'
+        with:
+          name: linux-portable-${{ github.run_attempt }}
           path: ${{ runner.temp }}/portable
           if-no-files-found: error
           retention-days: 1
 
   # The one-binary claim on the distributions people run, glibc and musl: the portable subset of the tests, the same
   # executables (retargeted to musl's loader for the musl ones), in a container of each (tools/test_linux_distros.sh documents
-  # which package provides each dlopen()ed library). The runtime needs io_uring, so the script runs the containers with
-  # seccomp unconfined. Fedora, Arch and the musl distributions are rolling and run their latest image on purpose; the others are
-  # pinned by tag.
+  # which package provides each dlopen()ed library), and the shipping client on headless sway where the distribution installs
+  # sway. The runtime needs io_uring, so the script runs the containers with seccomp unconfined. Fedora, Arch and the musl
+  # distributions are rolling and run their latest image on purpose; the others are pinned by tag.
   distros:
     name: Linux distros (${{ matrix.distro }})
-    needs: linux
+    needs: [linux-client, linux-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
-      actions: read # the linux job's bundle from this run
+      actions: read # the Linux jobs' bundle and client from this run
     strategy:
       fail-fast: false
       matrix:
@@ -331,26 +404,31 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Fetch the portable tests
+      - name: Fetch the portable tests and the client
         env:
           GH_TOKEN: ${{ github.token }}
-          BUNDLE: ${{ needs.linux.outputs.bundle }}
-        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$BUNDLE" --dir "$RUNNER_TEMP/portable"
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -eu
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "linux-portable-$ATTEMPT" --dir "$RUNNER_TEMP/portable"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "linux-client-$ATTEMPT" --dir "$RUNNER_TEMP/client"
 
       - name: Run them in ${{ matrix.distro }}
         env:
           DISTRO: ${{ matrix.distro }}
-        run: bash tools/test_linux_distros.sh --engine docker --bundle "$RUNNER_TEMP/portable" --out "$RUNNER_TEMP/distro" "$DISTRO"
+        run: |
+          bash tools/test_linux_distros.sh --engine docker --bundle "$RUNNER_TEMP/portable" --client "$RUNNER_TEMP/client/MaiCord" \
+            --out "$RUNNER_TEMP/distro" "$DISTRO"
 
   # Every green master build of maj113/MaiCord goes to the preview channel.
   # Only this job reads the signing key, and the release environment admits
   # only master and v* tags, so pull requests and forks never reach it. The
-  # Linux job's tarball of the build joins it on the Linux preview feed when
-  # there is one; the job's own result does not decide whether the Windows
+  # Linux client job's tarball of the build joins it on the Linux preview feed
+  # when there is one; that job's own result does not decide whether the Windows
   # build is published.
   preview:
     name: Publish the preview build
-    needs: [client, tests, linux]
+    needs: [client, tests, linux-client]
     if: >-
       ${{ !cancelled() && needs.client.result == 'success' && needs.tests.result == 'success' &&
       github.event_name == 'push' && github.ref == 'refs/heads/master' &&
@@ -403,21 +481,21 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-ChildItem "$env:RUNNER_TEMP\preview" | Format-Table Name, Length -AutoSize
 
-      # The Linux tarball of the same master build (the linux job, when MAICORD_LINUX_RELEASES is 'true') is signed into the
-      # Linux preview feed beside the Windows files. The Linux job gates nothing: without its tarball the Linux feed stays
-      # where it is.
+      # The Linux tarball of the same master build (the linux-client job, when MAICORD_LINUX_RELEASES is 'true') is signed into the
+      # Linux preview feed beside the Windows files. The Linux client job gates nothing: without its tarball the Linux feed
+      # stays where it is.
       - name: Fetch the Linux tarball
-        if: vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux.outputs.preview != ''
+        if: vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux-client.outputs.preview != ''
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-          ARTIFACT: ${{ needs.linux.outputs.preview }}
+          ARTIFACT: ${{ needs.linux-client.outputs.preview }}
         run: |
           gh run download $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --name $env:ARTIFACT --dir "$env:RUNNER_TEMP\linux"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Sign the Linux preview build
-        if: vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux.outputs.preview != ''
+        if: vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux-client.outputs.preview != ''
         shell: powershell
         env:
           MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}

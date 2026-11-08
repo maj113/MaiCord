@@ -5,6 +5,9 @@
 #   tools/build_linux.sh       configure, build the client (MaiCord), audit
 #   --test                     also build and run the registered tests with ctest
 #   --test-names a,b           only the tests named a and b (with --test)
+#   --test-shard app|core      only the tests of that CI shard (maicord-tests.txt, as -TestShard; with --test)
+#   --exclude-test-names a,b   not the tests named a and b (with --test; CI splits the Linux suite with it, so it has no
+#                              build.ps1 counterpart)
 #   --skip-client              tests use the MaiCord already in the build directory instead of building it (with --test)
 #   --keep-intermediates       keep objects, ninja state and compile_commands.json (incremental builds)
 #   --size-report              keep the client's symbol table (it ships stripped) and print its sections and largest
@@ -71,6 +74,8 @@ keep=0
 skip_client=0
 size_report=OFF
 test_names=()
+test_shard=""
+excluded_names=()
 
 value() {
     [ "$#" -ge 2 ] && [[ "$2" != --* ]] || { echo "$1 needs a value." >&2; exit 2; }
@@ -79,6 +84,8 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --test) run_tests=1; shift ;;
         --test-names) value "$@"; IFS=, read -r -a names <<< "$2"; test_names+=("${names[@]}"); shift 2 ;;
+        --test-shard) value "$@"; test_shard="$2"; shift 2 ;;
+        --exclude-test-names) value "$@"; IFS=, read -r -a names <<< "$2"; excluded_names+=("${names[@]}"); shift 2 ;;
         --skip-client) skip_client=1; shift ;;
         --keep-intermediates) keep=1; shift ;;
         --size-report) size_report=ON; shift ;;
@@ -88,11 +95,13 @@ while [ "$#" -gt 0 ]; do
         *) echo "Unknown argument: $1" >&2; usage 2 ;;
     esac
 done
-if [ "$run_tests" = 0 ] && { [ "${#test_names[@]}" -gt 0 ] || [ "$skip_client" = 1 ]; }; then
-    echo "--test-names and --skip-client require --test." >&2
+if [ "$run_tests" = 0 ] && { [ "${#test_names[@]}" -gt 0 ] || [ -n "$test_shard" ] || [ "${#excluded_names[@]}" -gt 0 ] ||
+        [ "$skip_client" = 1 ]; }; then
+    echo "--test-names, --test-shard, --exclude-test-names and --skip-client require --test." >&2
     exit 2
 fi
-for name in "${test_names[@]}"; do
+case "$test_shard" in ""|app|core) ;; *) echo "Unknown test shard: $test_shard (app or core)" >&2; exit 2 ;; esac
+for name in "${test_names[@]}" "${excluded_names[@]}"; do
     [[ "$name" =~ ^[A-Za-z0-9_.+-]+$ ]] || { echo "Invalid test name: $name" >&2; exit 2; }
 done
 if ! [[ "$timeout_scale" =~ ^[1-9][0-9]*$ ]]; then
@@ -175,21 +184,31 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
 # The client (or, without it, the source rules it links after: tools/check_source_rules.py) and the executables of the
 # selected tests (maicord-tests.txt: name, shard, labels and target, tab-separated).
 if [ "$skip_client" = 1 ]; then targets=(maicord_source_rules); else targets=(MaiCord); fi
+filtered=0
+[ "${#test_names[@]}" = 0 ] && [ -z "$test_shard" ] && [ "${#excluded_names[@]}" = 0 ] || filtered=1
+chosen=()
 if [ "$run_tests" = 1 ]; then
-    declare -A registered=() selected=() built=()
+    declare -A registered=() selected=() excluded=() built=()
     for name in "${test_names[@]}"; do selected[$name]=1; done
+    for name in "${excluded_names[@]}"; do excluded[$name]=1; done
     while IFS= read -r line; do
         name="${line%%$'\t'*}"
+        shard="${line#*$'\t'}"
+        shard="${shard%%$'\t'*}"
         target="${line##*$'\t'}"
         registered[$name]=1
-        if [ -n "$target" ] && [ -z "${built[$target]:-}" ] && { [ "${#test_names[@]}" = 0 ] || [ -n "${selected[$name]:-}" ]; }; then
+        { [ "${#test_names[@]}" = 0 ] || [ -n "${selected[$name]:-}" ]; } && { [ -z "$test_shard" ] || [ "$shard" = "$test_shard" ]; } &&
+            [ -z "${excluded[$name]:-}" ] || continue
+        chosen+=("$name")
+        if [ -n "$target" ] && [ -z "${built[$target]:-}" ]; then
             built[$target]=1
             targets+=("$target")
         fi
     done < "$build_directory/maicord-tests.txt"
-    for name in "${test_names[@]}"; do
+    for name in "${test_names[@]}" "${excluded_names[@]}"; do
         [ -n "${registered[$name]:-}" ] || { echo "Unknown registered test: $name" >&2; exit 2; }
     done
+    [ "$filtered" = 0 ] || [ "${#chosen[@]}" -gt 0 ] || { echo "The test selection selects no tests." >&2; exit 2; }
 fi
 started="$(date +%s%N)"
 cmake --build "$build_directory" --parallel "$jobs" --target "${targets[@]}"
@@ -225,8 +244,8 @@ if [ "$run_tests" = 1 ]; then
     if [ "$hard_limit" = unlimited ] || [ "$hard_limit" -gt 65536 ]; then hard_limit=65536; fi
     [ "$(ulimit -Sn)" = unlimited ] || [ "$(ulimit -Sn)" -ge "$hard_limit" ] || ulimit -Sn "$hard_limit" || true
     arguments=(--test-dir "$build_directory" --output-on-failure --parallel "$jobs")
-    if [ "${#test_names[@]}" -gt 0 ]; then
-        regex="^($(IFS='|'; echo "${test_names[*]}"))\$"
+    if [ "$filtered" = 1 ]; then
+        regex="^($(IFS='|'; echo "${chosen[*]}"))\$"
         arguments+=(--tests-regex "$regex")
     fi
     started="$(date +%s%N)"
