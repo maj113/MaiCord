@@ -520,6 +520,180 @@ bool begins_paragraph(Utf8View text,u32 byte) noexcept {
     if(!byte)return true;const u8 last=static_cast<u8>(text.data[byte-1]);if(last-10u<4)return true;
     return (byte>=2&&last==0x85&&static_cast<u8>(text.data[byte-2])==0xc2)||(byte>=3&&(last==0xa8||last==0xa9)&&static_cast<u8>(text.data[byte-2])==0x80&&static_cast<u8>(text.data[byte-3])==0xe2);
 }
+// The font a shaping segment used, for the cut test: its plan (nominal advances), nominal ASCII prefix, cmap and the
+// font-unit-to-pixel scale positioning used.
+struct CutFont {const SfntShapePlan* plan;NativeNominalPlan nominal;const SfntCmap* cmap;__m128 scale;};
+CutFont cut_font(const NativeRunPlanStore& store,NativeRunPlanHandle handle,bool independent,float em) noexcept {
+    const auto* instance=handle.slot&&handle.slot<=store.slots.count?native_font_instance_get(*store.instances,store.slots[handle.slot-1].instance):nullptr;
+    const auto* font=instance?native_font_get(*store.instances->fonts,instance->face):nullptr;
+    const auto* plan=native_run_plan_get(store,handle,independent);
+    return {plan,native_run_plan_nominal(store,handle),font?&font->cmap:nullptr,
+        _mm_div_ss(_mm_set_ss(em),_mm_set_ss(plan?static_cast<float>(plan->units_per_em):1.f))};
+}
+// The cut helper runs at every emergency break: compiled for speed inside the size-optimized adapter.
+#pragma clang attribute pop
+// A line that ends inside a word (an emergency break, the only break the line breaker takes between clusters it does
+// not mark break_before) cuts that word's shaping. HarfBuzz shapes each line's text apart, and browsers reshape at a
+// break that is unsafe to break: where the shaping crossed the cut, the text on each side reshapes alone, so a kerning
+// pair or contextual form no longer spans two lines (Segoe UI's A before a wrapped V keeps its full advance). Lines
+// broken at break opportunities are left alone, and so is a cut nothing crosses: both clusters at it are one nominal
+// glyph (the cmap's, for one UTF-16 unit) at its nominal advance without offsets, as between unkerned letters of a URL.
+// A crossed cut reshapes a window on each side, out to the nearest boundary between two such plain clusters (at most
+// 16 clusters, within the run and its shaping segment), whose glyphs replace the window's. The published glyphs and
+// the runs' widths and origins take the reshaped advances (a tab run absorbs the shift up to its width); the fitted
+// line metrics stay, as in directional publication. A window keeps the paragraph shaping where its reshape fails or
+// maps its clusters to other glyphs (the cluster map and hit geometry share the paragraph's glyph indices).
+// segment(unit,&first,&end) names the shaping segment holding a source unit (its first and end units), or absent when
+// that segment does not reshape; font(key) gives that segment's CutFont; shape(key,text,paragraph_start,work,&line)
+// reshapes text of it as the paragraph shaping did. output.glyphs hold the paragraph glyphs; owner.paragraph_runs
+// take the new origins and widths; owner.cut_checks and owner.cut_reshapes count the cuts and the crossed ones.
+template<class Segment,class Font,class Shape> void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& output,Segment segment,Font font,Shape shape) noexcept {
+    constexpr u32 absent=0xffffffffu,reach=16;
+    const auto& s=owner.paragraph_storage;const auto& paragraph=owner.paragraph_shape;auto runs=owner.paragraph_runs;
+    const Utf8View text{owner.last_text.data,owner.last_text.count};
+    const auto mark=arena_mark(&owner.scratch);struct Rewind {Arena& arena;ArenaMark mark;~Rewind() noexcept {arena_rewind(&arena,mark);}} rewind{owner.scratch,mark};
+    // The cluster holding a source unit: the unit's own index where every earlier cluster is one unit (ASCII and other
+    // simple text), else a binary search over the source-ordered clusters.
+    const auto cluster_at=[&](u32 unit) noexcept {
+        if(unit<paragraph.cluster_count&&s.clusters[unit].source_first==unit)return unit;
+        u32 lo=0,hi=paragraph.cluster_count;
+        while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(s.clusters[mid].source_end<=unit)lo=mid+1;else hi=mid;}return lo;};
+    u32 byte=0,unit=0;
+    // The byte of a source unit: itself in ASCII text, else walking from the previous answer (windows lie within a few
+    // clusters of their cut).
+    const bool ascii=text.bytes==paragraph.source_units;
+    const auto byte_at=[&](u32 target) noexcept {if(ascii)return target;
+        while(unit>target&&byte){u32 lead=byte-1;while(lead&&(static_cast<u8>(text.data[lead])&0xc0u)==0x80u)--lead;unit-=byte-lead==4?2u:1u;byte=lead;}
+        while(unit<target&&byte<text.bytes){const auto cp=utf8_decode_one(text.data+byte,text.bytes-byte);unit+=cp.codepoint>65535?2u:1u;byte+=cp.valid?cp.width:1u;}return byte;};
+    // A plain cluster is one glyph for one UTF-16 unit at its nominal advance without offsets; a strict one is also the
+    // cmap's glyph for that unit's scalar. The plan's affine ASCII prefix answers both with table reads (an ASCII
+    // scalar's glyph is the prefix glyph at its offset). c is a valid cluster of a published run; f has a plan and cmap.
+    // Nominal pixel advances of the current font as float bits (font_of clears them), direct-mapped by glyph: a variable
+    // font's advance reads HVAR. Offsets and advances compare as bits (an offset is zero when its magnitude bits are).
+    u32 memo_glyph[32],memo_bits[32];
+    const auto bits=[](float value) noexcept {u32 out;__builtin_memcpy(&out,&value,4);return out;};
+    const auto plain=[&](u32 c,const CutFont& f,bool strict) noexcept {
+        const auto& cluster=s.clusters[c];if(cluster.glyph_count!=1||cluster.source_end!=cluster.source_first+1)return false;
+        const auto& p=output.glyphs[cluster.glyph_first];if((bits(p.advance_offset)|bits(p.ascender_offset))&0x7fffffffu)return false;
+        const u32 glyph=p.index,prefix=glyph-f.nominal.ascii_first;
+        if(strict&&ascii&&prefix<f.nominal.ascii_count){if(static_cast<u8>(text.data[cluster.source_first])-32u!=prefix)return false;strict=false;}
+        const u32 slot=glyph&31u;
+        if(memo_glyph[slot]!=glyph){double advance=0;
+            if(f.nominal.ascii_advances&&prefix<f.nominal.ascii_count)advance=f.nominal.ascii_advances[prefix];
+            else if(f.plan->advance(f.plan->metric_context,static_cast<u16>(glyph),&advance)!=SfntStatus::ok)return false;
+            memo_glyph[slot]=glyph;memo_bits[slot]=bits(_mm_cvtss_f32(_mm_mul_ss(_mm_set_ss(static_cast<float>(advance)),f.scale)));}
+        if(memo_bits[slot]!=bits(p.advance))return false;
+        if(!strict)return true;
+        u32 scalar=0;
+        if(ascii)scalar=static_cast<u8>(text.data[cluster.source_first]);
+        else{const u32 at=byte_at(cluster.source_first);const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return false;scalar=cp.codepoint;}
+        if(scalar-32u<f.nominal.ascii_count)return glyph==f.nominal.ascii_first+(scalar-32u);
+        u16 mapped=0;return sfnt_cmap_glyph(*f.cmap,scalar,0,&mapped)==SfntStatus::ok&&mapped==glyph;
+    };
+    // The segment and font of the last cut: consecutive cuts usually share them. A segment whose font cannot be read
+    // does not reshape.
+    u32 cached_key=absent,segment_key=absent,segment_first=0,segment_end=0;CutFont cached{};
+    const auto font_of=[&](u32 key) noexcept -> const CutFont& {
+        if(key!=cached_key){cached=font(key);cached_key=key;for(auto& glyph:memo_glyph)glyph=absent;}return cached;};
+    const auto segment_of=[&](u32 at,u32* first,u32* end) noexcept {
+        if(segment_key==absent||at<segment_first||at>=segment_end){segment_key=segment(at,&segment_first,&segment_end);
+            if(segment_key!=absent){const auto& f=font_of(segment_key);if(!f.plan||!f.cmap)segment_key=absent;}}
+        *first=segment_first;*end=segment_end;return segment_key;};
+    // A run that starts a line (x 0) at a cut: a cluster without a break opportunity after one the shaping did not end
+    // at. Returns that cluster, else 0.
+    constexpr u32 unshaped=native_paragraph_newline|native_paragraph_crlf_prefix|native_paragraph_nonvisual|native_paragraph_tab;
+    const auto cut_cluster=[&](u32 i) noexcept -> u32 {
+        if(runs[i].x!=0||!runs[i].glyph_count)return 0;const u32 c=cluster_at(runs[i].source_first);
+        return c&&c<paragraph.cluster_count&&!(s.clusters[c].flags&(native_paragraph_break_before|unshaped|native_paragraph_space))&&!(s.clusters[c-1].flags&unshaped)?c:0;};
+    // Whether the shaping crossed the cut at run i's start (cluster c).
+    const auto crosses=[&](u32 i,u32 c) noexcept {u32 first=0,end=0;const u32 key=segment_of(runs[i].source_first,&first,&end);
+        if(key==absent||first>=runs[i].source_first)return false;const auto& f=font_of(key);return !plain(c-1,f,true)||!plain(c,f,true);};
+    // Most cuts cross nothing: the scan allocates nothing and keeps its state in locals.
+    u32 crossings=0,checks=0;
+    {const NativeParagraphCluster* const clusters=s.clusters.data;const TextGlyph* const glyphs=output.glyphs;
+        const u8* const bytes=reinterpret_cast<const u8*>(text.data);const u32 count=paragraph.cluster_count;
+        constexpr u32 opens=native_paragraph_break_before|unshaped|native_paragraph_space;
+        // The segment's ASCII prefix (advances, first glyph, count, scale) in ASCII text, else a null table: then a
+        // cluster of a prefix byte is strictly plain when it holds that byte's prefix glyph without offsets at the
+        // table's advance (plain's own answer).
+        const u16* table=nullptr;u32 prefix_glyph=0,prefix_count=0;__m128 scale=_mm_setzero_ps();
+        // 1 plain, 0 not, 2 for plain() to answer.
+        const auto quick=[&](u32 k) __attribute__((always_inline)) noexcept -> u32 {
+            const auto& cluster=clusters[k];
+            if(!table||cluster.glyph_count!=1||cluster.source_end!=cluster.source_first+1)[[unlikely]]return 2;
+            const u32 offset=bytes[cluster.source_first]-32u;if(offset>=prefix_count)[[unlikely]]return 2;
+            const auto& p=glyphs[cluster.glyph_first];
+            return !((bits(p.advance_offset)|bits(p.ascender_offset))&0x7fffffffu)&&p.index==prefix_glyph+offset
+                &&bits(_mm_cvtss_f32(_mm_mul_ss(_mm_set_ss(static_cast<float>(table[offset])),scale)))==bits(p.advance);};
+        // The current segment admits cuts at units lo < at < lo + span + 1; span 0 admits none and asks again.
+        u32 lo=0,span=0;
+        for(u32 i=1;i<run_count;++i){const auto& run=runs[i];if(run.x!=0||!run.glyph_count)continue;
+            const u32 at=run.source_first;u32 c=at;
+            if(at>=count||clusters[at].source_first!=at){c=cluster_at(at);if(c>=count)continue;}
+            if(!c||(clusters[c].flags&opens)||(clusters[c-1].flags&unshaped))continue;
+            ++checks;
+            if(at-lo-1>=span)[[unlikely]]{u32 first=0,end=0;
+                if(segment_of(at,&first,&end)==absent){span=0;continue;}
+                lo=first;span=end-first-1;table=ascii?cached.nominal.ascii_advances:nullptr;
+                prefix_glyph=cached.nominal.ascii_first;prefix_count=cached.nominal.ascii_count;scale=cached.scale;
+                if(at-lo-1>=span)continue;}
+            const u32 left=quick(c-1),right=quick(c);
+            if(!left||!right)++crossings;
+            else if((left|right)&2)[[unlikely]]{if((left==2&&!plain(c-1,cached,true))||(right==2&&!plain(c,cached,true)))++crossings;}}}
+    owner.cut_checks+=checks;owner.cut_reshapes+=crossings;
+    if(!crossings)return;
+    // Bit 1, a run starts a line (x 0); bit 0, it starts the line at a cut; bit 2, the shaping crossed that cut. The
+    // fitted geometry decides before any run moves.
+    constexpr u8 cut=1,line_start=2,crossed=4;
+    auto starts=take<u8>(owner.scratch,run_count+1);if(!starts.data)return;
+    crossings=0;
+    for(u32 i=0;i<=run_count;++i){starts[i]=0;if(!i||i==run_count||runs[i].x!=0)continue;starts[i]=line_start;
+        if(const u32 c=cut_cluster(i)){const bool through=crosses(i,c);crossings+=through;starts[i]|=static_cast<u8>(cut|(through?crossed:0));}}
+    // The windows, in source order: the reshaped source range and its segment key.
+    struct Window {u32 first,end,key;};
+    auto windows=take<Window>(owner.scratch,crossings*2);if(!windows.data)return;u32 window_count=0,longest=0;
+    for(u32 i=0;i<run_count;++i){const bool before=(starts[i]&crossed)!=0,after=(starts[i+1]&crossed)!=0;if(!before&&!after)continue;
+        const u32 run_first=cluster_at(runs[i].source_first),run_end=cluster_at(runs[i].source_first+runs[i].source_count-1)+1;
+        u32 right_end=run_first,before_key=absent,first=0,end=0;
+        if(before){before_key=segment_of(runs[i].source_first,&first,&end);
+            if(before_key!=absent){const auto& f=font_of(before_key);const u32 limit=minimum(minimum(run_end,cluster_at(end-1)+1),run_first+reach);
+                right_end=run_first+1;while(right_end<limit&&!(plain(right_end-1,f,false)&&plain(right_end,f,false)))++right_end;}}
+        u32 left_first=run_end,after_key=absent;
+        if(after){after_key=segment_of(runs[i].source_first+runs[i].source_count-1,&first,&end);
+            if(after_key!=absent){const auto& f=font_of(after_key);const u32 limit=maximum(maximum(run_first,cluster_at(first)),run_end>reach?run_end-reach:0u);
+                left_first=run_end-1;while(left_first>limit&&!(plain(left_first-1,f,false)&&plain(left_first,f,false)))--left_first;}}
+        // Windows that meet within one segment reshape the span from the first to the last together.
+        if(before_key!=absent&&after_key==before_key&&left_first<=right_end){windows[window_count++]={run_first,run_end,before_key};continue;}
+        if(before_key!=absent)windows[window_count++]={run_first,right_end,before_key};
+        if(after_key!=absent)windows[window_count++]={left_first,run_end,after_key};}
+    for(u32 w=0;w<window_count;++w){auto& window=windows[w];
+        window.first=s.clusters[window.first].source_first;window.end=s.clusters[window.end-1].source_end;longest=maximum(longest,window.end-window.first);}
+    // The paragraph shaping's line storage serves every window (each is a piece of a segment it shaped); where it fails
+    // (or a cached line shape left none), the windows take storage of their own (a UTF-16 unit takes at most 3 bytes).
+    NativeAsciiLineStorage own{};const NativeAsciiLineStorage* work=&s.work;
+    const auto take_own=[&]() noexcept {own=storage(owner.scratch,longest*3,longest*12+16);work=&own;};
+    if(!s.work.run.glyphs.count)take_own();
+    for(u32 w=0;w<window_count;++w){const auto& window=windows[w];if(window.key==absent)continue;
+        const u32 first_cluster=cluster_at(window.first),last_cluster=cluster_at(window.end-1);
+        const u32 glyph_first=s.clusters[first_cluster].glyph_first,glyph_end=s.clusters[last_cluster].glyph_first+s.clusters[last_cluster].glyph_count;
+        const u32 first_byte=byte_at(window.first),end_byte=byte_at(window.end);if(end_byte<=first_byte)continue;
+        const Utf8View piece{text.data+first_byte,end_byte-first_byte};const bool start=begins_paragraph(text,first_byte);
+        NativeAsciiLineResult line{};auto status=shape(window.key,piece,start,*work,&line);
+        if(status!=SfntStatus::ok&&work!=&own){take_own();status=shape(window.key,piece,start,*work,&line);}
+        bool same=status==SfntStatus::ok&&line.run.glyph_count==glyph_end-glyph_first&&line.run.source_units==window.end-window.first;
+        for(u32 u=0;same&&u<window.end-window.first;++u)same=s.source_glyphs[window.first+u]==absent||work->run.character_glyphs[u]+glyph_first==s.source_glyphs[window.first+u];
+        if(same)for(u32 g=0;g<line.run.glyph_count;++g){const auto& p=work->run.placements[g];output.glyphs[glyph_first+g]={p.advance,p.advance_offset,p.ascender_offset,work->run.glyphs[g],0};}
+    }
+    for(u32 i=0;i<run_count;++i){if(!((starts[i]|starts[i+1])&crossed))continue;
+        // The run's width follows its published advances; the later runs of its line move by the change.
+        float width=0;for(u32 g=0;g<runs[i].glyph_count;++g)width+=output.glyphs[runs[i].glyph_first+g].advance;
+        float delta=width-runs[i].width;runs[i].width=width;
+        for(u32 j=i+1;j<run_count&&delta!=0&&!(starts[j]&line_start);++j){runs[j].x+=delta;
+            if(s.clusters[cluster_at(runs[j].source_first)].flags&native_paragraph_tab){const float left=runs[j].width-delta;
+                runs[j].width=left>0?left:0;delta=left>0?0:-left;}}
+    }
+}
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool paragraph(const TextSystem& system,const Binding& binding,const NativeFormat* format,const NativeTextRequest& request,
     ShapedText* output,TextMeasureResult* measure,const ParagraphMode& mode) noexcept {
     auto& owner=*system.native_text;const Utf8View text=request.text;const float width=request.width,height=request.height;
@@ -578,6 +752,14 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
         if(layout.run_count>output->run_capacity||visible_glyphs>output->glyph_capacity||shape.source_units>output->cluster_capacity||visible_glyphs>65535)return output_capacity_failure(owner);
         if(!retain_runs(owner.fonts,binding.font,layout.run_count,output))return false;
         for(u32 i=0;i<visible_glyphs;++i){const auto& p=s.placements[i];output->glyphs[i]={p.advance,p.advance_offset,p.ascender_offset,s.glyphs[i],0};}
+        // A cut word's sides reshape on their lines where the shaping crossed the cut; the shaping restarts only at
+        // controls, which no run spans.
+        if(layout.flags&native_paragraph_emergency_break)reshape_emergency_cuts(owner,layout.run_count,*output,
+            [&](u32,u32* first,u32* end) noexcept {*first=0;*end=shape.source_units;return 0u;},
+            [&](u32) noexcept {return cut_font(owner.store,binding.plan,system.independent_letters,em);},
+            [&](u32,Utf8View piece,bool start,const NativeAsciiLineStorage& work,NativeAsciiLineResult* line) noexcept {
+                return latin?native_latin_line(owner.store,binding.plan,piece,system.independent_letters,em,work,line,{},em*system.tracking,mode.profile,false,false,true,start):
+                    native_ascii_line(owner.store,binding.plan,piece,system.independent_letters,em,work,line,{},em*system.tracking);});
         for(u32 i=0;i<shape.source_units;++i)output->clusters[i]=i<visible_source?static_cast<u16>(s.source_glyphs[i]):0xffffu;
         for(u32 i=0;i<layout.run_count;++i){const auto& run=owner.paragraph_runs[i];output->runs[i]={binding.font,run.x,run.baseline,em,run.glyph_first,run.glyph_count,run.source_first,run.source_count,0,0,false,true};}
         output->glyph_count=visible_glyphs;output->run_count=layout.run_count;output->cluster_count=shape.source_units;output->width=layout.width;output->width_including_trailing_whitespace=layout.extent;output->height=layout.height;output->line_count=layout.line_count;
@@ -642,7 +824,7 @@ bool native_text_candidate_hits_once(const TextSystem& system,const NativeTextRe
     return paragraph(system,*selected,format,request,nullptr,measure,{latin,nullptr,&hits,nullptr})||styled_hits(system,request,hits,measure);
 }
 NativeTextCandidateCounts native_text_candidate_counts(const TextSystem& system) noexcept {
-    const auto* owner=system.native_text;return owner?NativeTextCandidateCounts{owner->shaped,owner->measured,owner->arabic_shaped,owner->arabic_measured,owner->paragraphs_shaped,owner->paragraphs_measured,owner->latin_shaped,owner->latin_measured}:NativeTextCandidateCounts{};
+    const auto* owner=system.native_text;return owner?NativeTextCandidateCounts{owner->shaped,owner->measured,owner->arabic_shaped,owner->arabic_measured,owner->paragraphs_shaped,owner->paragraphs_measured,owner->latin_shaped,owner->latin_measured,owner->cut_checks,owner->cut_reshapes}:NativeTextCandidateCounts{};
 }
 NativeTextStorageCounts native_text_candidate_storage_counts(const TextSystem& system) noexcept {
     const auto* o=system.native_text;return o?NativeTextStorageCounts{o->scratch.reserved,o->scratch.committed,o->scratch.peak,o->storage_retries}:NativeTextStorageCounts{};

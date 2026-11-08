@@ -775,6 +775,15 @@ bool native_text_styled_plan_or_output(const TextSystem& system,const NativeText
         const u32 visible_source=(layout.flags&native_paragraph_height_trimmed)?(final_run?static_cast<u32>(final_run->source_first)+final_run->source_count:0):shape.source_units;
         if(visible_glyphs>output->glyph_capacity||shape.source_units>output->cluster_capacity||!output->glyphs||!output->clusters)return output_capacity_failure(owner);
         if(!directional)for(u32 i=0;i<visible_glyphs;++i){const auto& p=s.placements[i];output->glyphs[i]={p.advance,p.advance_offset,p.ascender_offset,s.glyphs[i],0};}
+        // A cut word's sides reshape on their lines where the shaping crossed the cut, each within its shaping group
+        // (see prepare_styled_shape).
+        if(!directional&&(layout.flags&native_paragraph_emergency_break))reshape_emergency_cuts(owner,layout.run_count,*output,
+            [&](u32 unit,u32* first,u32* end) noexcept {const auto groups=owner.styled_groups;u32 lo=0,hi=groups.count;
+                while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(groups[mid].end_unit<=unit)lo=mid+1;else hi=mid;}
+                if(lo==groups.count||!groups[lo].binding)return 0xffffffffu;*first=groups[lo].first_unit;*end=groups[lo].end_unit;return lo;},
+            [&](u32 key) noexcept {const auto& group=owner.styled_groups[key];return cut_font(owner.store,group.binding->plan,owner.last_independent,group.em);},
+            [&](u32 key,Utf8View piece,bool start,const NativeAsciiLineStorage& work,NativeAsciiLineResult* line) noexcept {const auto& group=owner.styled_groups[key];
+                return native_latin_line(owner.store,group.binding->plan,piece,owner.last_independent,group.em,work,line,{},owner.styled_spans[0].em*owner.last_tracking,group.profile,group.force,false,true,start);});
         const u32 published_glyphs=directional?rtl_output.written:visible_glyphs;const bool reshaped=directional;
         u32 decoration_count=0;if(decorations&&!native_styled_decorations(owner,layout,width,tab_stop,{output->decorations,output->decoration_capacity},&decoration_count,directional?output:nullptr))return false;
         u32 hit_count=0;

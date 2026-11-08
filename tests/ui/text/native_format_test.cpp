@@ -230,6 +230,27 @@ bool stale_scope_signal(NativeFontSession* session,const wchar_t* path,u32 scope
 }
 #include "native_generation_recovery.inc"
 #include "native_recovery_pressure.inc"
+// An emergency break between A and V cuts the kerned pair: each line's side reshapes alone (as HarfBuzz shapes each
+// line), so A on the first line takes its unkerned advance, through both the line and the styled paths. expected,
+// when nonzero, is that advance in pixels. A cut between unkerned letters (n n) keeps the paragraph shaping: it is
+// checked but not reshaped.
+bool emergency_cut(TextSystem system,float expected) noexcept {
+    auto draw=output();struct Release {ShapedText& value;~Release() noexcept {release_output(value);}} release{draw};
+    for(u32 pair=0;pair<2;++pair){const auto text=pair?utf8_literal("nn"):utf8_literal("AV");
+        CHECK(native_text_candidate_line(system,{{text.data,1},{},1000,1000},&draw,nullptr)&&draw.glyph_count==1);const float alone=draw.glyphs[0].advance;release_output(draw);draw=output();
+        CHECK(pair||!expected||alone==expected);
+        CHECK(native_text_candidate_line(system,{text,{},1000,1000},&draw,nullptr)&&draw.glyph_count==2&&draw.line_count==1);
+        const float joined=draw.glyphs[0].advance,second=draw.glyphs[1].advance;release_output(draw);draw=output();CHECK(pair?joined==alone:joined<alone);
+        // Wide enough for the first letter alone, not for the pair.
+        const float width=alone+(joined+second-alone)/2;const TextStyleSpan style{0,text.bytes,text_style_underline};
+        for(u32 styled=0;styled<2;++styled){const auto before=native_text_candidate_counts(system);
+            CHECK(styled?native_text_candidate_styled(system,{text,{&style,1},width,1000,TextWrapping::wrap},&draw,nullptr):native_text_candidate_line(system,{text,{},width,1000},&draw,nullptr));
+            CHECK(draw.line_count==2&&draw.glyph_count==2&&draw.run_count==2&&draw.runs[0].glyph_count==1&&draw.runs[1].first_glyph==1);
+            CHECK(draw.glyphs[0].advance==alone&&draw.glyphs[1].advance==second);release_output(draw);draw=output();
+            const auto after=native_text_candidate_counts(system);
+            CHECK(after.cut_checks==before.cut_checks+1&&after.cut_reshapes==before.cut_reshapes+(pair?0u:1u));}}
+    return true;
+}
 bool run() noexcept {
     const wchar_t* arg=GetCommandLineW();bool quote=false;while(*arg){if(*arg=='"')quote=!quote;else if(!quote&&(*arg==' '||*arg=='\t'))break;++arg;}while(*arg==' '||*arg=='\t')++arg;
     const wchar_t option[]=L"--stale-signal ";u32 matched=0;while(option[matched]&&arg[matched]==option[matched])++matched;const bool stale_only=!option[matched];if(stale_only)arg+=matched;
@@ -256,6 +277,8 @@ bool run() noexcept {
     CHECK(native_text_format_create(system.native_text,description,&system.native_format));system.em_size=16;
     u32 same=0;CHECK(native_text_format_create(system.native_text,description,&same)&&same==system.native_format);
     family[0]='X';CHECK(exercise(system));family[0]='S';CHECK(braille(system));
+    // Segoe UI's A is 1321 of 2048 units wide; kerning before V takes 140 of them.
+    CHECK(emergency_cut(system,1321.f*16/2048));
     const Utf8View alphabetic[]{utf8_literal("A \xce\xb1\xce\xb2 \xd0\x90\xd0\x91"),utf8_literal("\xce\xb1\xcc\x93\xcc\x81\t\xd0\x98\xcc\x86\nAV")};
     for(const auto text:alphabetic){auto shaped=output();CHECK(native_text_candidate_line(system,{text,{},37,1000000},&shaped,nullptr)&&shaped.native_fonts());
         CHECK(shaped.cluster_count&&shaped.line_count);release_output(shaped);NativeParagraphHits geometry{};TextMeasureResult measure{};
@@ -290,6 +313,13 @@ bool run() noexcept {
     u32 scope=0,again=0;CHECK(native_text_register_font_path(system.native_text,path,&scope));CHECK(native_text_register_font_path(system.native_text,path,&again)&&again==scope);
     const u16 private_family[]{'C','o','m','p','a','g','n','o','n'};description={{private_family,9},scope,{400,5,0},16,64,true};
     CHECK(native_text_format_create(system.native_text,description,&system.native_format));system.em_size=16;CHECK(exercise(system));
+    // The bundled BioRhyme (beside Compagnon) kerns A before V by 80 of 1000 units: the same cut on any machine.
+    {wchar_t bio[1100];u32 n=0,directory=0;while(path[n]){bio[n]=path[n];if(path[n]=='\\'||path[n]=='/')directory=n+1;++n;}
+        const wchar_t file[]=L"BioRhyme.ttf";for(u32 i=0;i<sizeof(file)/sizeof(file[0]);++i)bio[directory+i]=file[i];
+        u32 bio_scope=0;CHECK(native_text_register_font_path(system.native_text,bio,&bio_scope)&&bio_scope);
+        const u16 bio_family[]{'M','a','i','C','o','r','d',' ','B','i','o','R','h','y','m','e'};auto bundled=system;
+        CHECK(native_text_format_create(system.native_text,{{bio_family,16},bio_scope,{400,5,0},16,64,true},&bundled.native_format));
+        CHECK(emergency_cut(bundled,0));}
     auto invalid=system;invalid.native_format=0xffffffffu;TextMeasureResult measured{};CHECK(!native_text_candidate_line(invalid,{utf8_literal("AV"),{},95,1000},nullptr,&measured));
     CHECK(!native_text_format_identity(invalid));CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
     // Published runs and copied editor geometry outlive all format metadata.

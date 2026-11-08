@@ -64,7 +64,9 @@ bool native_text_format_prepare(NativeTextContext*, u32 handle) noexcept;
 u64 native_text_format_identity(const TextSystem&) noexcept;
 // Registers a private face-zero/default-axis font file and returns its scope.
 bool native_text_register_font_path(NativeTextContext*,const wchar_t*,u32* scope) noexcept;
-struct NativeTextCandidateCounts {u64 shaped,measured,arabic_shaped,arabic_measured,paragraphs_shaped,paragraphs_measured,latin_shaped,latin_measured;};
+// cut_checks: emergency breaks published inside a shaping segment; cut_reshapes: those the shaping crossed (kerning,
+// offsets or a substituted cluster at the cut), whose sides reshaped.
+struct NativeTextCandidateCounts {u64 shaped,measured,arabic_shaped,arabic_measured,paragraphs_shaped,paragraphs_measured,latin_shaped,latin_measured,cut_checks,cut_reshapes;};
 NativeTextCandidateCounts native_text_candidate_counts(const TextSystem&) noexcept;
 struct NativeTextStorageCounts {u64 reserved,committed,peak,retries;};
 NativeTextStorageCounts native_text_candidate_storage_counts(const TextSystem&) noexcept;
