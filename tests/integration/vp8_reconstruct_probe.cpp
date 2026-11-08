@@ -13,9 +13,11 @@ namespace maicord {
 namespace {
 Vp8ModeWorkspace modes;
 Vp8CoefficientWorkspace coefficients;
+// Hashes the first `bytes` (the planes) of `source`.
 bool read_hash(ID3D11DeviceContext1* context, ID3D11Buffer* staging, ID3D11Buffer* source,
                u32 bytes, u64* hash) noexcept {
-    context->CopyResource(staging, source);
+    const D3D11_BOX planes{0, 0, 0, bytes, 1, 1};
+    context->CopySubresourceRegion(staging, 0, 0, 0, 0, source, 0, &planes);
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) return false;
     *hash = hash64_bytes(kHash64Seed, mapped.pData, bytes);
@@ -23,7 +25,9 @@ bool read_hash(ID3D11DeviceContext1* context, ID3D11Buffer* staging, ID3D11Buffe
     return true;
 }
 }
-bool vp8_tiled_probe(D3D11Renderer& renderer) noexcept {
+// The production inverse transforms and single-group prediction (vp8_reconstruct.hlsl, vp8_predict.hlsl) against the
+// frozen serial reference, sample for sample, then the loop filter against its frozen reference.
+bool vp8_reconstruct_probe(D3D11Renderer& renderer) noexcept {
     auto* device = renderer.graphics.device;
     auto* context = renderer.graphics.context1;
     auto& gpu = renderer.media_gpu;
@@ -72,13 +76,27 @@ bool vp8_tiled_probe(D3D11Renderer& renderer) noexcept {
             valid = SUCCEEDED(device->CreateBuffer(&desc, nullptr, &staging));
         }
         const u32 bytes = columns * rows * 384u * sizeof(u32);
+        // The reference keeps 32-bit residuals after the planes: a buffer of its own, twice the planes.
+        ID3D11Buffer* reference_yuv = nullptr;
+        ID3D11UnorderedAccessView* reference_uav = nullptr;
+        if (valid) {
+            const D3D11_BUFFER_DESC reference_desc{bytes * 2u, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0,
+                                                   D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0};
+            D3D11_UNORDERED_ACCESS_VIEW_DESC view{};
+            view.Format = DXGI_FORMAT_R32_TYPELESS;
+            view.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+            view.Buffer.NumElements = bytes * 2u / sizeof(u32);
+            view.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
+            valid = SUCCEEDED(device->CreateBuffer(&reference_desc, nullptr, &reference_yuv)) &&
+                    SUCCEEDED(device->CreateUnorderedAccessView(reference_yuv, &view, &reference_uav));
+        }
         u64 actual = 0, expected = 0;
         valid = valid && read_hash(context, staging, gpu.vp8_yuv_buffer, bytes, &actual);
         if (valid) {
             ID3D11ShaderResourceView* inputs[]{gpu.vp8_mode_view, gpu.vp8_coefficient_view};
             context->CSSetShaderResources(0, 2, inputs);
             context->CSSetConstantBuffers(0, 1, &gpu.vp8_constants);
-            context->CSSetUnorderedAccessViews(0, 1, &gpu.vp8_yuv_uav, nullptr);
+            context->CSSetUnorderedAccessViews(0, 1, &reference_uav, nullptr);
             context->CSSetShader(reference_idct, nullptr, 0);
             context->Dispatch((columns * rows * 24u + 63u) / 64u, 1, 1);
             context->CSSetShader(reference, nullptr, 0);
@@ -90,9 +108,11 @@ bool vp8_tiled_probe(D3D11Renderer& renderer) noexcept {
             context->CSSetShaderResources(0, 2, no_inputs);
             context->CSSetConstantBuffers(0, 1, &no_constants);
             context->CSSetShader(nullptr, nullptr, 0);
-            valid = read_hash(context, staging, gpu.vp8_yuv_buffer, bytes, &expected) && actual == expected;
+            valid = read_hash(context, staging, reference_yuv, bytes, &expected) && actual == expected;
         }
-        // The wavefront loop filter (rank x + 2y, 16 macroblocks per rank) must
+        if (reference_uav) reference_uav->Release();
+        if (reference_yuv) reference_yuv->Release();
+        // The anti-diagonal loop filter (each macroblock's vertical then horizontal pass, x + y in steps) must
         // match the frozen serial filter for normal, sharp, simple and segment levels.
         // The mostly-subblock pattern exercises every edge class; one pattern keeps readbacks few.
         for (u32 config = 0; valid && pattern == 1 && config < 4; ++config) {
@@ -127,16 +147,16 @@ bool vp8_tiled_probe(D3D11Renderer& renderer) noexcept {
             filter_cases += valid;
         }
         if (staging) staging->Release();
-        if (!valid) { log_u64(LogLevel::error, "vp8_tiles", "failed_case", cases); break; }
+        if (!valid) { log_u64(LogLevel::error, "vp8_reconstruct", "failed_case", cases); break; }
         samples += bytes / sizeof(u32);
         ++cases;
     }
     if (reference) reference->Release();
     if (reference_idct) reference_idct->Release();
     if (reference_filter) reference_filter->Release();
-    log_u64(LogLevel::info, "vp8_tiles", "exact_cases", cases);
-    log_u64(LogLevel::info, "vp8_tiles", "exact_samples", samples);
-    log_u64(LogLevel::info, "vp8_tiles", "exact_filter_cases", filter_cases);
+    log_u64(LogLevel::info, "vp8_reconstruct", "exact_cases", cases);
+    log_u64(LogLevel::info, "vp8_reconstruct", "exact_samples", samples);
+    log_u64(LogLevel::info, "vp8_reconstruct", "exact_filter_cases", filter_cases);
     return valid;
 }
 } // namespace maicord

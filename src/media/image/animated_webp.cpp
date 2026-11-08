@@ -308,6 +308,49 @@ AnimatedWebpParseResult animated_webp_parse(ConstSlice<u8> encoded, AnimatedWebp
     return result;
 }
 
+AnimatedWebpError animated_webp_frame_payloads(ConstSlice<u8> encoded, const AnimatedWebpFrame& frame,
+                                               ConstSlice<u8>* image_payload, ConstSlice<u8>* alpha_payload) noexcept {
+    *image_payload = {};
+    *alpha_payload = {};
+    const u64 payload_end = static_cast<u64>(frame.payload_offset) + frame.payload_bytes;
+    if ((!encoded.data && encoded.count != 0) || payload_end > encoded.count)
+        return AnimatedWebpError::chunk;
+    u32 cursor = frame.payload_offset;
+    bool image_seen = false;
+    bool alpha_seen = false;
+    bool unknown_seen = false;
+    while (cursor < payload_end) {
+        u32 type = 0;
+        u32 size = 0;
+        u32 payload = 0;
+        u32 end = 0;
+        if (!chunk_bounds(encoded, cursor, static_cast<u32>(payload_end), &type, &size, &payload, &end))
+            return AnimatedWebpError::chunk;
+        if (type == kAlph) {
+            if (image_seen || alpha_seen || unknown_seen || size < 1)
+                return AnimatedWebpError::chunk;
+            *alpha_payload = ConstSlice<u8>{encoded.data + payload, size};
+            alpha_seen = true;
+        } else if (type == kVp8 || type == kVp8l) {
+            const bool codec_matches = (type == kVp8 && frame.codec == AnimatedWebpCodec::vp8_lossy) ||
+                                       (type == kVp8l && frame.codec == AnimatedWebpCodec::vp8l_lossless);
+            if (image_seen || unknown_seen || !codec_matches || (type == kVp8l && alpha_seen))
+                return AnimatedWebpError::chunk;
+            *image_payload = ConstSlice<u8>{encoded.data + payload, size};
+            image_seen = true;
+        } else {
+            if (!image_seen || top_level_type(type))
+                return AnimatedWebpError::chunk;
+            unknown_seen = true;
+        }
+        cursor = end;
+    }
+    if (!image_seen || cursor != payload_end ||
+        (frame.codec == AnimatedWebpCodec::vp8_lossy && frame.has_alpha != alpha_seen))
+        return AnimatedWebpError::chunk;
+    return AnimatedWebpError::none;
+}
+
 AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
     ConstSlice<u8> encoded, const AnimatedWebpImage& image, u32 frame_index, Vp8lWorkspace* vp8l_workspace,
     LossyWebpWorkspace* lossy_workspace, Vp8Keyframe* vp8_frame, Vp8ControlHeader* vp8_header,
@@ -323,58 +366,11 @@ AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
     }
     result.frame = image.frames[frame_index];
     result.frame_index = frame_index;
-    const u64 payload_end = static_cast<u64>(result.frame.payload_offset) + result.frame.payload_bytes;
-    if (payload_end > encoded.count) {
-        result.error = AnimatedWebpError::chunk;
-        return result;
-    }
-
     ConstSlice<u8> image_payload{};
     ConstSlice<u8> alpha_payload{};
-    u32 cursor = result.frame.payload_offset;
-    bool image_seen = false;
-    bool alpha_seen = false;
-    bool unknown_seen = false;
-    while (cursor < payload_end) {
-        u32 type = 0;
-        u32 size = 0;
-        u32 payload = 0;
-        u32 end = 0;
-        if (!chunk_bounds(encoded, cursor, static_cast<u32>(payload_end), &type, &size, &payload, &end)) {
-            result.error = AnimatedWebpError::chunk;
-            return result;
-        }
-        if (type == kAlph) {
-            if (image_seen || alpha_seen || unknown_seen || size < 1) {
-                result.error = AnimatedWebpError::chunk;
-                return result;
-            }
-            alpha_payload = ConstSlice<u8>{encoded.data + payload, size};
-            alpha_seen = true;
-        } else if (type == kVp8 || type == kVp8l) {
-            const bool codec_matches =
-                (type == kVp8 && result.frame.codec == AnimatedWebpCodec::vp8_lossy) ||
-                (type == kVp8l && result.frame.codec == AnimatedWebpCodec::vp8l_lossless);
-            if (image_seen || unknown_seen || !codec_matches || (type == kVp8l && alpha_seen)) {
-                result.error = AnimatedWebpError::chunk;
-                return result;
-            }
-            image_payload = ConstSlice<u8>{encoded.data + payload, size};
-            image_seen = true;
-        } else {
-            if (!image_seen || top_level_type(type)) {
-                result.error = AnimatedWebpError::chunk;
-                return result;
-            }
-            unknown_seen = true;
-        }
-        cursor = end;
-    }
-    if (!image_seen || cursor != payload_end ||
-        (result.frame.codec == AnimatedWebpCodec::vp8_lossy && result.frame.has_alpha != alpha_seen)) {
-        result.error = AnimatedWebpError::chunk;
+    result.error = animated_webp_frame_payloads(encoded, result.frame, &image_payload, &alpha_payload);
+    if (result.error != AnimatedWebpError::none)
         return result;
-    }
 
     if (result.frame.codec == AnimatedWebpCodec::vp8l_lossless) {
         if (!vp8l_workspace || !rgba_output.data) {

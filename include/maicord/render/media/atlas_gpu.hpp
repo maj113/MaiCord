@@ -19,6 +19,15 @@ struct GifPalette;
 struct JpegCoefficientWorkspace;
 struct JpegImage;
 
+// What the VP8 decode shaders need of a GPU (every Direct3D 11 device has it): vp8_predict.hlsl runs one group of
+// 16 x 32 invocations, the most of the VP8 shaders, and vp8_filter.hlsl holds 29696 bytes of shared memory, the most
+// of them (src/gpu/gles/README.md).
+inline constexpr u32 kVp8GpuInvocations = 512;
+inline constexpr u32 kVp8GpuSharedBytes = 29696;
+constexpr bool media_atlas_gpu_vp8_supported(const GpuCaps& caps) noexcept {
+    return caps.max_compute_invocations >= kVp8GpuInvocations && caps.max_shared_bytes >= kVp8GpuSharedBytes;
+}
+
 // The primary and preview surfaces are paged textures (gpu_paged_texture_*) of their atlases' geometry, so they
 // never grow, move or copy: each upload backs the pages its atlas allocated and writes the page holding it.
 struct MediaAtlasGpu {
@@ -50,11 +59,6 @@ struct MediaAtlasGpu {
     GpuSrv* vp8_yuv_view;
     GpuUav* vp8_yuv_uav;
     GpuBuffer* vp8_constants;
-    GpuBuffer* vp8_tile_constants;
-    u16 vp8_tile_columns;
-    u16 vp8_tile_rows;
-    u32 vp8_tile_wave_count;
-    u32 vp8_tile_groups[32];
     GpuComputeShader* vp8_reconstruct_shader;
     GpuComputeShader* vp8_idct_shader;
     GpuBuffer* vp8_filter_constants;
@@ -243,6 +247,6 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
     GpuDevice* device, GpuContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent = 0) noexcept;
 
-static_assert(sizeof(MediaAtlasGpu) == 736);
+static_assert(sizeof(MediaAtlasGpu) == 592);
 
 } // namespace maicord

@@ -519,10 +519,18 @@ MediaAtlasGpuResult renderer_advance_animated_webp(D3D11Renderer* renderer, Medi
         });
 }
 
+#if !defined(_WIN32)
+bool renderer_vp8_gpu(const D3D11Renderer& renderer) noexcept {
+    return renderer.graphics.device && media_atlas_gpu_vp8_supported(gpu_caps(renderer.graphics.device));
+}
+#endif
+
 MediaAtlasGpuResult renderer_reconstruct_vp8_keyframe(
     D3D11Renderer* renderer, const Vp8Keyframe& frame, const Vp8ModeWorkspace& modes,
     const Vp8CoefficientWorkspace& coefficients) noexcept {
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas) {
+    // A GPU without the VP8 path never makes the shaders: the pipeline decodes lossy WebP on the CPU instead.
+    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas ||
+        !renderer_vp8_gpu(*renderer)) {
         return kRejectedMediaRequest;
     }
     const MediaAtlasGpuResult initialized = ensure_primary_media_gpu(renderer);

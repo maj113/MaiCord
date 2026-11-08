@@ -134,8 +134,8 @@ bool run() noexcept {
         const media_scene::Vp8Constants constants = media_scene::vp8_job(job);
         ID3D11ShaderResourceView* views[2] = {yuv_view, alpha_view};
         ID3D11UnorderedAccessView* uavs[1] = {atlas_uav};
-        if (!dispatch(compute, vp8, &constants, sizeof(constants), 2, views, 1, uavs, groups(media_scene::kVp8Width),
-                      groups(media_scene::kVp8Height)))
+        if (!dispatch(compute, vp8, &constants, sizeof(constants), 2, views, 1, uavs, (media_scene::kVp8Width + 63) / 64,
+                      media_scene::kVp8Height))
             return fail("a VP8 dispatch");
     }
 

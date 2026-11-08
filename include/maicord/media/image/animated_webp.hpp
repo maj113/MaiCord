@@ -103,6 +103,9 @@ AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
     LossyWebpWorkspace* lossy_workspace, Vp8Keyframe* vp8_frame,
     Vp8ControlHeader* vp8_header, Slice<u8> rgba_output,
     Slice<u8> alpha_rgba_scratch, Slice<u8> alpha_output) noexcept;
+// The image (VP8 or VP8L) and ALPH chunk payloads of one parsed frame, checked as the frame decode checks them.
+AnimatedWebpError animated_webp_frame_payloads(ConstSlice<u8> encoded, const AnimatedWebpFrame& frame,
+                                               ConstSlice<u8>* image_payload, ConstSlice<u8>* alpha_payload) noexcept;
 
 static_assert(sizeof(AnimatedWebpRetainedMetadata) == 48);
 static_assert(sizeof(AnimatedWebpWorkspace) == 6'216);

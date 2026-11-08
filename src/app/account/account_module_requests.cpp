@@ -87,6 +87,11 @@ void WINAPI module_client_focus(void* instance, bool focused) noexcept {
     if (runtime && client_session_metadata_set_focus(&runtime->client_metadata, focused))
         gateway_client_activity_changed(module_gateway(instance));
 }
+void WINAPI module_media_vp8_cpu(void* instance, bool on_cpu) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    if (runtime)
+        account_media_worker_set_vp8_cpu(&runtime->media, on_cpu);
+}
 
 RestClientSubmitResult WINAPI module_account_settings(void* instance, const AccountSettingsRequest* request,
                                                             u64 request_id) noexcept {
@@ -506,14 +511,7 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
         return status;
     }
     status.profile_id = snapshot.profile_id;
-    status.running = false;
-    status.failed = false;
     status.error = final_session_saved ? AccountModuleError::none : AccountModuleError::session_store;
-    status.session_saves = runtime->session_saves;
-    status.session_save_skips = runtime->session_save_skips;
-    status.session_save_failures = runtime->session_save_failures;
-    status.session_native_error = runtime->session_native_error;
-    status.session_error = static_cast<u8>(runtime->session_error);
     video_stream_decoders_release(&runtime->video);
     SecureZeroMemory(runtime, sizeof(*runtime));
     pages_release(runtime);

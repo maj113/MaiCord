@@ -665,6 +665,9 @@ struct AccountModuleApi {
     // v143: an auto-reset event set after any remote video stream publishes a
     // new picture for voice_video_frame. Owned by the module; valid until stop.
     HANDLE(WINAPI* voice_video_notification)(void*) noexcept;
+    // v146: lossy WebP (stills and animation frames) decodes on the CPU into RGBA8 while on_cpu: the renderer's GPU
+    // has no VP8 path (renderer_vp8_gpu). Lanes take it at their next decode; the default is the GPU path.
+    void(WINAPI* media_vp8_cpu)(void*, bool on_cpu) noexcept;
 };
 
 // The account module's boundary, linked into MaiCord.exe (and a DLL only for
@@ -679,7 +682,8 @@ struct AccountModuleApi {
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 120);
-static_assert(sizeof(AccountModuleApi) == 1000);
+static_assert(sizeof(AccountModuleApi) == 1008);
+static_assert(offsetof(AccountModuleApi, media_vp8_cpu) == 1000);
 static_assert(offsetof(AccountModuleApi, voice_video_notification) == 992);
 static_assert(offsetof(AccountModuleApi, client_focus) == 984);
 static_assert(offsetof(AccountModuleApi, channel_info) == 968);

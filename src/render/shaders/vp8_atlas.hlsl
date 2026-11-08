@@ -21,99 +21,88 @@ ByteAddressBuffer vp8_yuv : register(t0);
 ByteAddressBuffer vp8_alpha : register(t1);
 RWTexture2D<unorm float4> media_atlas : register(u0);
 
-uint load_yuv(uint plane, uint stride, uint x, uint y) {
-    return vp8_yuv.Load((plane + y * stride + x) * 4u);
-}
-
-uint load_alpha(uint x, uint y) {
-    const uint address = y * alpha_stride + x;
-    const uint packed = vp8_alpha.Load(address & ~3u);
-    return (packed >> ((address & 3u) * 8u)) & 255u;
-}
-
-uint fancy_chroma(uint plane, uint x, uint y) {
-    uint top_row = 0u;
-    uint current_row = 0u;
-    bool bottom_output = false;
-    if (y == 0u) {
-        top_row = 0u;
-        current_row = 0u;
-    } else if (y == image_height - 1u && (image_height & 1u) == 0u) {
-        top_row = y >> 1u;
-        current_row = top_row;
-    } else if ((y & 1u) != 0u) {
-        top_row = (y - 1u) >> 1u;
-        current_row = top_row + 1u;
-    } else {
-        current_row = y >> 1u;
-        top_row = current_row - 1u;
-        bottom_output = true;
-    }
-
-    if (x == 0u ||
-        (x == image_width - 1u && (image_width & 1u) == 0u)) {
-        const uint chroma_x = x >> 1u;
-        const uint top = load_yuv(plane, chroma_stride, chroma_x,
-                                  top_row);
-        const uint current = load_yuv(plane, chroma_stride, chroma_x,
-                                      current_row);
-        return bottom_output ? (3u * current + top + 2u) >> 2u
-                             : (3u * top + current + 2u) >> 2u;
-    }
-
-    const uint right_x = (x + 1u) >> 1u;
-    const uint left_x = right_x - 1u;
-    const uint a = load_yuv(plane, chroma_stride, left_x, top_row);
-    const uint b = load_yuv(plane, chroma_stride, right_x, top_row);
-    const uint c = load_yuv(plane, chroma_stride, left_x, current_row);
-    const uint d = load_yuv(plane, chroma_stride, right_x, current_row);
-    if (!bottom_output) {
-        return (x & 1u) != 0u
-                   ? (9u * a + 3u * b + 3u * c + d + 8u) >> 4u
-                   : (3u * a + 9u * b + c + 3u * d + 8u) >> 4u;
-    }
-    return (x & 1u) != 0u
-               ? (3u * a + b + 9u * c + 3u * d + 8u) >> 4u
-               : (a + 3u * b + 3u * c + 9u * d + 8u) >> 4u;
+// Chroma samples x and x + 1 of row y, U in the low and V in the high halfword,
+// so the upsampling filters both planes at once (libwebp's LOAD_UV): no
+// halfword of its sums exceeds 16 bits. Column x + 1 may lie past the plane's
+// width, where the caller ignores it (past the buffer's end it reads 0).
+uint2 load_uv_pair(uint x, uint y) {
+    const uint offset = y * chroma_stride + x;
+    const uint2 u = vp8_yuv.Load2((u_plane_offset + offset) * 4u);
+    const uint2 v = vp8_yuv.Load2((v_plane_offset + offset) * 4u);
+    return u | (v << 16u);
 }
 
 uint clip_rgb(int value) {
     return uint(clamp(value >> 6, 0, 255));
 }
 
-uint3 yuv_to_rgb(uint y, uint u, uint v) {
-    const int scaled_y = (int(y) * 19077) >> 8;
-    const int red = scaled_y + ((int(v) * 26149) >> 8) - 14234;
-    const int green = scaled_y - ((int(u) * 6419) >> 8) -
-                      ((int(v) * 13320) >> 8) + 8708;
-    const int blue = scaled_y + ((int(u) * 33050) >> 8) - 17685;
-    return uint3(clip_rgb(red), clip_rgb(green), clip_rgb(blue));
-}
-
-[numthreads(8, 8, 1)]
+// One thread per pixel, a row of 64 per group: the loads of a group are runs of
+// consecutive words. The host dispatches ((width + 63) / 64, height, 1).
+[numthreads(64, 1, 1)]
 void vp8_to_atlas(uint3 dispatch_id : SV_DispatchThreadID) {
-    if (dispatch_id.x >= image_width || dispatch_id.y >= image_height) {
-        return;
-    }
     const uint x = dispatch_id.x;
     const uint y = dispatch_id.y;
-    const uint alpha = has_alpha != 0u ? load_alpha(x, y) : 255u;
+    if (x >= image_width || y >= image_height) {
+        return;
+    }
+    // Every load is issued before any result is needed, except that an
+    // over-blend first waits for the alpha to skip transparent pixels.
+    const uint luma = vp8_yuv.Load((y * luma_stride + x) * 4u);
+    uint alpha = 255u;
+    [branch] if (has_alpha != 0u) {
+        const uint address = y * alpha_stride + x;
+        alpha = (vp8_alpha.Load(address & ~3u) >> ((address & 3u) * 8u)) & 255u;
+    }
     // Over-blend onto a premultiplied destination: a transparent source leaves
-    // it unchanged and an opaque one replaces it, so neither reads the atlas.
+    // it unchanged (and needs no other read) and an opaque one replaces it, so
+    // only alpha 1..254 reads the atlas.
     const bool over = blend_over != 0u;
     [branch] if (over && alpha == 0u) {
         return;
     }
-    const uint luma = load_yuv(0u, luma_stride, x, y);
-    const uint u = fancy_chroma(u_plane_offset, x, y);
-    const uint v = fancy_chroma(v_plane_offset, x, y);
-    uint3 rgb = yuv_to_rgb(luma, u, v);
-    rgb = (rgb * alpha + 127u) / 255u;
-    const uint2 destination =
-        uint2(destination_x + x, destination_y + y);
+    // Fancy upsampling (libwebp's UpsampleRgbaLinePair): pixel (x, y) lies in
+    // the square of chroma samples a b / c d between columns block.x - 1 and
+    // block.x and rows block.y - 1 and block.y, and takes
+    // (9 * nearest + 3 * each side + farthest + 8) >> 4 of them. Samples past
+    // the picture's edges clamp to the edge, which gives the edge rows' and
+    // columns' two-tap filter and the corners' copies.
+    const uint2 block = (uint2(x, y) + 1u) >> 1u;
+    const uint chroma_right = (image_width + 1u) / 2u - 1u;
+    const uint chroma_bottom = (image_height + 1u) / 2u - 1u;
+    const uint chroma_x = max(block.x, 1u) - 1u;
+    const uint2 top = load_uv_pair(chroma_x, max(block.y, 1u) - 1u);
+    const uint2 bottom = load_uv_pair(chroma_x, min(block.y, chroma_bottom));
+    const uint2 destination = uint2(destination_x + x, destination_y + y);
+    float4 under = 0.0f;
+    [branch] if (over && alpha - 1u < 254u) {
+        under = media_atlas[destination];
+    }
+    const bool inner_x = block.x != 0u && block.x <= chroma_right;
+    const uint a = top.x;
+    const uint b = inner_x ? top.y : top.x;
+    const uint c = bottom.x;
+    const uint d = inner_x ? bottom.y : bottom.x;
+    const bool near_left = (x & 1u) != 0u;
+    const bool near_top = (y & 1u) != 0u;
+    const uint nearest = near_top ? (near_left ? a : b) : (near_left ? c : d);
+    const uint sides = near_left == near_top ? b + c : a + d;
+    // (9n + 3s + 3t + f + 8) >> 4 == (((n + 3s + 3t + f + 8) >> 3) + n) >> 1
+    // exactly; the shift drops bits of V into U's halfword above bit 12,
+    // which the final mask removes.
+    const uint uv = ((((a + b + c + d + 0x00080008u + 2u * sides) >> 3u) + nearest) >> 1u);
+    const int u = int(uv & 255u);
+    const int v = int(uv >> 16u);
+    const int scaled_y = (int(luma) * 19077) >> 8;
+    uint3 rgb = uint3(clip_rgb(scaled_y + ((v * 26149) >> 8) - 14234),
+                      clip_rgb(scaled_y - ((u * 6419) >> 8) - ((v * 13320) >> 8) + 8708),
+                      clip_rgb(scaled_y + ((u * 33050) >> 8) - 17685));
+    // (rgb * alpha + 127) / 255 for products up to 255 * 255, without the
+    // divide (Blinn, "Three Wrongs Make a Right").
+    rgb = rgb * alpha + 128u;
+    rgb = (rgb + (rgb >> 8u)) >> 8u;
     float4 result = float4(float3(rgb), float(alpha)) / 255.0f;
-    [branch] if (over && alpha != 255u) {
-        result += media_atlas[destination] * (1.0f - result.a);
+    if (over) {
+        result += under * (1.0f - result.a);
     }
     media_atlas[destination] = result;
 }

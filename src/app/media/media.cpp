@@ -71,6 +71,11 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
         !application.account.api.media_attachment_request || !application.account.api.media_take) {
         return true;
     }
+#if !defined(_WIN32)
+    // Lossy WebP decodes on the CPU when this GPU has no VP8 path (renderer_vp8_gpu), before any request below.
+    if (application.account.api.media_vp8_cpu)
+        application.account.api.media_vp8_cpu(application.account.instance, !renderer_vp8_gpu(application.renderer));
+#endif
     const u64 now_ms = clock_monotonic_milliseconds(), now_seconds = clock_unix_milliseconds() / 1'000;
     pass(now_ms, now_seconds, 0, repaint);
     // Interaction-only chat animations play for the hovered, else focused, message.

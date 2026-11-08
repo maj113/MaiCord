@@ -232,6 +232,13 @@ maicord_test(MaiCordProfileMediaFitTests ENTRY maicord_profile_media_fit_entry
     TIMEOUT 10
     TEST maicord_profile_media_fit)
 
+# The GPU VP8 gate: a device with the 128 invocations per group the specification guarantees has no GPU VP8 path, and
+# lossy WebP stills and animation frames decode on the CPU into RGBA8 (src/gpu/gles/README.md).
+maicord_test(MaiCordVp8CpuRouteTests ENTRY maicord_vp8_cpu_route_entry
+    SOURCES tests/app/media/vp8_cpu_route.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
+    LIBS maicord_gpu_gles_shaders maicord_gpu_gles ${maicord_linux_app_test_libs}
+    TIMEOUT 20 ENV MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=128 TEST maicord_vp8_cpu_route)
+
 maicord_test(MaiCordDmProfileTests ENTRY maicord_dm_profile_tests_entry
     SOURCES tests/ui/account/dm_profile_panel.cpp src/app/account/dm_profile.cpp src/app/shell/state.cpp
     LIBS maicord_app_client ${maicord_linux_app_test_libs}

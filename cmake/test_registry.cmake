@@ -1777,7 +1777,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         src/app/media/media.cpp src/app/media/animation.cpp src/app/media/requests.cpp src/app/media/requests_message.cpp
         tests/integration/menu_row_ui_probe.cpp tests/integration/animation_preview_probe.cpp
         tests/integration/png_preview_probe.cpp tests/integration/gif_scroll_probe.cpp
-        tests/integration/media_memory_probe.cpp tests/integration/vp8_tiled_probe.cpp
+        tests/integration/media_memory_probe.cpp tests/integration/vp8_reconstruct_probe.cpp
         "${maicord_vp8_reference_reconstruct_header}" "${maicord_vp8_reference_idct_header}"
         "${maicord_vp8_reference_filter_header}" tests/integration/video_frame_reference_probe.cpp
         "${maicord_video_frame_reference_header}" tests/support/media_fixture.cpp

@@ -1317,6 +1317,7 @@ bool fill_api(AccountModuleApi* api) noexcept {
     MC_STUB(105, channel_info);
     MC_STUB(106, collection_title);
     MC_STUB(107, client_focus);
+    MC_STUB(108, media_vp8_cpu);
 #undef MC_STUB
     return true;
 }

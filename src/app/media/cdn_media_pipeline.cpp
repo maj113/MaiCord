@@ -201,7 +201,7 @@ bool reduced_webp_row(void* context, u32 y, const u8* rgba) noexcept {
     return true;
 }
 
-// A still lossy WebP past the GPU path decodes on the CPU into straight RGBA8
+// A still lossy WebP past the GPU path (or on a GPU without it) decodes on the CPU into straight RGBA8
 // at most `extent` px per side; a compressed ALPH plane decodes whole first.
 void reduce_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 extent,
                        CdnStaticWebpState success_state, CdnStaticWebpResult* out) noexcept {
@@ -270,6 +270,11 @@ void decode_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnSt
     const WebpParseResult parsed = webp_parse(encoded, &parsed_image);
     if (parsed.error == WebpError::dimensions)
         return reduce_webp_bytes(pipeline, encoded, kReducedWebpExtent, success_state, out);
+#if !defined(_WIN32)
+    // A GPU without the VP8 path: the keyframe decodes on the CPU, whole.
+    if (parsed.ok() && parsed_image.codec == WebpCodec::vp8_lossy && pipeline->vp8_on_cpu)
+        return reduce_webp_bytes(pipeline, encoded, kReducedWebpExtent, success_state, out);
+#endif
     if (!parsed.ok()) {
         out->decode.parse = parsed;
         out->decode.error = parsed.error;
@@ -468,6 +473,63 @@ void decode_jpeg_bytes(CdnMediaPipeline* pipeline, const MediaAssetKey& key, Con
     out->state = success_state;
 }
 
+#if !defined(_WIN32)
+struct FrameRows {
+    u8* output;
+    u32 width;
+};
+
+bool frame_row(void* context, u32 y, const u8* rgba) noexcept {
+    const auto& rows = *static_cast<const FrameRows*>(context);
+    copy_bytes(rows.output + static_cast<usize>(y) * rows.width * 4u, rgba, rows.width * 4u);
+    return true;
+}
+
+// A GPU without the VP8 path: a lossy animation frame's keyframe decodes on the CPU into straight RGBA8 at the
+// frame's size, the way a lossless frame decodes; its ALPH plane decodes first.
+AnimatedWebpError decode_lossy_frame_rgba8(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
+                                           const AnimatedWebpFrame& frame, CdnAnimatedWebpResult* out) noexcept {
+    ConstSlice<u8> image{}, alpha_chunk{};
+    const AnimatedWebpError chunks = animated_webp_frame_payloads(encoded, frame, &image, &alpha_chunk);
+    if (chunks != AnimatedWebpError::none)
+        return chunks;
+    WebpThumbnailLayout layout{};
+    if (webp_thumbnail_keyframe_layout(image, frame.width, frame.height, {}, &layout) != WebpThumbnailError::none)
+        return AnimatedWebpError::frame_decode;
+    const auto align = [](u64 value) noexcept { return (value + 15u) & ~15ull; };
+    const u64 pixels = u64{frame.width} * frame.height;
+    const u64 output_bytes = align(pixels * 4u);
+    const u64 alpha_bytes = alpha_chunk.data ? align(pixels) : 0;
+    // The ALPH decoder's ARGB scratch is free again before the rows decode.
+    const u64 tail = maximum(alpha_chunk.data ? pixels * 4u : 0ull, u64{layout.workspace_bytes});
+    if (!cdn_media_pipeline_ensure_scanlines(pipeline, output_bytes + alpha_bytes + tail + 16u))
+        return AnimatedWebpError::output_capacity;
+    u8* base = reinterpret_cast<u8*>((reinterpret_cast<usize>(pipeline->scanline_storage) + 15u) & ~usize{15});
+    u8* alpha = base + output_bytes;
+    u8* scratch = alpha + alpha_bytes;
+    if (alpha_chunk.data) {
+        if (!pipeline->webp_workspace)
+            return AnimatedWebpError::invalid_input;
+        if (!webp_alpha_decode(alpha_chunk, frame.width, frame.height, pipeline->webp_workspace,
+                               {scratch, static_cast<u32>(pixels * 4u)}, {alpha, static_cast<u32>(pixels)})
+                 .ok())
+            return AnimatedWebpError::frame_decode;
+        layout.alpha = {alpha, static_cast<u32>(pixels)};
+    }
+    FrameRows rows{base, frame.width};
+    if (webp_thumbnail_decode(layout, {scratch, layout.workspace_bytes}, frame_row, &rows) != WebpThumbnailError::none)
+        return AnimatedWebpError::frame_decode;
+    out->rgba8 = {base, static_cast<u32>(pixels * 4u)};
+    out->decode.frame_image.width = frame.width;
+    out->decode.frame_image.height = frame.height;
+    out->decode.frame_image.codec = WebpCodec::vp8_lossy;
+    out->decode.frame_image.has_alpha = frame.has_alpha;
+    const u64 source_us = u64{frame.duration_ms} * 1'000;
+    out->decode.duration_us = source_us < kAnimatedWebpFrameFloorUs ? kAnimatedWebpFrameFloorUs : source_us;
+    return AnimatedWebpError::none;
+}
+#endif
+
 void decode_animated_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 frame_index,
                                 u16 cache_generation, CdnAnimatedWebpState success_state,
                                 u64 content_identity, CdnAnimatedWebpResult* out) noexcept {
@@ -512,27 +574,36 @@ void decode_animated_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encod
     const AnimatedWebpFrame& requested = animation.frames[frame_index];
     const u32 pixels = static_cast<u32>(requested.width) * requested.height;
     const u32 scratch_bytes = pixels * 4u;
-    const bool external_alpha = requested.codec == AnimatedWebpCodec::vp8_lossy && requested.has_alpha;
-    const u32 required_bytes = requested.codec == AnimatedWebpCodec::vp8l_lossless ? scratch_bytes
-                               : external_alpha                                    ? scratch_bytes + pixels
-                                                                                   : 0u;
-    if (required_bytes > pipeline->scanline_capacity) {
-        saved.content_identity = 0;
-        out->decode.error = AnimatedWebpError::output_capacity;
-        out->state = CdnAnimatedWebpState::decode_rejected;
-        return;
+#if !defined(_WIN32)
+    if (requested.codec == AnimatedWebpCodec::vp8_lossy && pipeline->vp8_on_cpu) {
+        out->decode.frame = requested;
+        out->decode.frame_index = frame_index;
+        out->decode.error = decode_lossy_frame_rgba8(pipeline, encoded, requested, out);
+    } else
+#endif
+    {
+        const bool external_alpha = requested.codec == AnimatedWebpCodec::vp8_lossy && requested.has_alpha;
+        const u32 required_bytes = requested.codec == AnimatedWebpCodec::vp8l_lossless ? scratch_bytes
+                                   : external_alpha                                    ? scratch_bytes + pixels
+                                                                                       : 0u;
+        if (!cdn_media_pipeline_commit_scanlines(pipeline, required_bytes)) {
+            saved.content_identity = 0;
+            out->decode.error = AnimatedWebpError::output_capacity;
+            out->state = CdnAnimatedWebpState::decode_rejected;
+            return;
+        }
+        if (requested.codec == AnimatedWebpCodec::vp8_lossy) {
+            pipeline->lossy_webp_workspace = ::new (pipeline->lossy_webp_workspace) LossyWebpWorkspace;
+        }
+        out->decode = animated_webp_decode_parsed_frame(
+            encoded, animation, frame_index, pipeline->webp_workspace, pipeline->lossy_webp_workspace,
+            &out->vp8_frame, &out->vp8_header,
+            Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity},
+            external_alpha ? Slice<u8>{pipeline->scanline_storage, scratch_bytes} : Slice<u8>{},
+            external_alpha ? Slice<u8>{pipeline->scanline_storage + scratch_bytes,
+                                       pipeline->scanline_capacity - scratch_bytes}
+                           : Slice<u8>{});
     }
-    if (requested.codec == AnimatedWebpCodec::vp8_lossy) {
-        pipeline->lossy_webp_workspace = ::new (pipeline->lossy_webp_workspace) LossyWebpWorkspace;
-    }
-    out->decode = animated_webp_decode_parsed_frame(
-        encoded, animation, frame_index, pipeline->webp_workspace, pipeline->lossy_webp_workspace,
-        &out->vp8_frame, &out->vp8_header,
-        Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity},
-        external_alpha ? Slice<u8>{pipeline->scanline_storage, scratch_bytes} : Slice<u8>{},
-        external_alpha ? Slice<u8>{pipeline->scanline_storage + scratch_bytes,
-                                   pipeline->scanline_capacity - scratch_bytes}
-                       : Slice<u8>{});
     out->decode.parse = animation_parse;
     if (!out->decode.ok()) {
         saved.content_identity = 0;
@@ -546,7 +617,7 @@ void decode_animated_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encod
     }
     if (requested.codec == AnimatedWebpCodec::vp8l_lossless) {
         out->rgba8 = ConstSlice<u8>{pipeline->scanline_storage, out->decode.frame_decode.rgba_bytes};
-    } else if (requested.has_alpha) {
+    } else if (requested.has_alpha && !out->rgba8.data) {
         out->alpha = ConstSlice<u8>{pipeline->scanline_storage + scratch_bytes,
                                     out->decode.lossy_decode.alpha_bytes};
     }

@@ -39,6 +39,10 @@ struct WebpThumbnailLayout {
 };
 
 WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLayout* layout) noexcept;
+// The layout of a bare VP8 keyframe of width x height (an animation frame's VP8 chunk payload), with its raw alpha
+// samples (width * height, unfiltered) or none: animation frames decode on the CPU on a GPU without the VP8 path.
+WebpThumbnailError webp_thumbnail_keyframe_layout(ConstSlice<u8> vp8, u32 width, u32 height, ConstSlice<u8> alpha,
+                                                  WebpThumbnailLayout* layout) noexcept;
 
 // One straight RGBA8 row of width pixels, top to bottom.
 using WebpThumbnailRowSink = bool (*)(void* context, u32 y, const u8* rgba) noexcept;

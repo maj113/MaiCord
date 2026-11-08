@@ -1,5 +1,7 @@
-// twin: src/render/shaders/vp8_reconstruct.hlsl 1c28ae39574d17fc
-// vp8_inverse_dct (STAGE_CS): the residual inverse DCT pass for vp8_reconstruct_tiled.glsl.
+// twin: src/render/shaders/vp8_reconstruct.hlsl e84a78a1d65e292f
+// vp8_inverse_dct (STAGE_CS): the residual inverse DCT pass for vp8_predict.glsl. Residuals are stored per
+// macroblock in raster order, two 16-bit samples to a word: luma rows of 16 (8 words), then the U and the V rows of 8
+// (4 words); 192 words a macroblock.
 layout(local_size_x = 64) in;
 
 layout(std140, binding = 0) uniform Vp8ReconstructionConstants {
@@ -46,11 +48,20 @@ ivec4 inverse_dct_row(ivec4 value) {
     return ivec4(a + d, b + c, b - c, a - d) >> 3;
 }
 
+// Word address of row 0 of 4x4 block `block` (16 luma blocks, then four U and four V).
+uint residual_address(uint macroblock, uint block) {
+    uint base = v_plane_offset + chroma_stride * chroma_rows + macroblock * 192u;
+    if (block < 16u) return base + (block >> 2u) * 32u + (block & 3u) * 2u;
+    uint chroma = block - 16u;
+    return base + 128u + (chroma >> 2u) * 32u + ((chroma >> 1u) & 1u) * 16u + (chroma & 1u) * 2u;
+}
+
+// Prediction is 0..255, so clamping a residual to -256..255 leaves every reconstructed sample as it was and fits it
+// in 16 bits.
 void store_row(uint at, ivec4 row) {
-    vp8_yuv[at] = uint(row.x);
-    vp8_yuv[at + 1u] = uint(row.y);
-    vp8_yuv[at + 2u] = uint(row.z);
-    vp8_yuv[at + 3u] = uint(row.w);
+    uvec4 bounded = uvec4(clamp(row, -256, 255));
+    vp8_yuv[at] = (bounded.x & 65535u) | (bounded.y << 16u);
+    vp8_yuv[at + 1u] = (bounded.z & 65535u) | (bounded.w << 16u);
 }
 
 // Transforms remain independent of the dependency-ordered prediction pass.
@@ -69,12 +80,13 @@ void main() {
     ivec4 v1 = load_coefficient_row(source + 8u);
     ivec4 v2 = load_coefficient_row(source + 16u);
     ivec4 v3 = load_coefficient_row(source + 24u);
-    uint destination = v_plane_offset + chroma_stride * chroma_rows + macroblock * 384u + block * 16u;
+    uint destination = residual_address(macroblock, block);
+    uint row_words = block < 16u ? 8u : 4u;
     int ac = v0.y | v0.z | v0.w | v1.x | v1.y | v1.z | v1.w | v2.x | v2.y | v2.z | v2.w | v3.x | v3.y | v3.z | v3.w;
     if (ac == 0) {
         int dc = (v0.x + 4) >> 3;
         for (uint y = 0u; y < 4u; ++y)
-            store_row(destination + y * 4u, ivec4(dc));
+            store_row(destination + y * row_words, ivec4(dc));
         return;
     }
     // Pass 1 sees signed int16 inputs; unlike pass 2, direct products are safe.
@@ -83,7 +95,7 @@ void main() {
     ivec4 c = ((v1 * 35468) >> 16) - (v3 + ((v3 * 20091) >> 16));
     ivec4 d = v1 + ((v1 * 20091) >> 16) + ((v3 * 35468) >> 16);
     store_row(destination, inverse_dct_row(a + d));
-    store_row(destination + 4u, inverse_dct_row(b + c));
-    store_row(destination + 8u, inverse_dct_row(b - c));
-    store_row(destination + 12u, inverse_dct_row(a - d));
+    store_row(destination + row_words, inverse_dct_row(b + c));
+    store_row(destination + 2u * row_words, inverse_dct_row(b - c));
+    store_row(destination + 3u * row_words, inverse_dct_row(a - d));
 }

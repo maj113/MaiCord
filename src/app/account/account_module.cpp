@@ -969,6 +969,7 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_collection_title,
         maicord::module_client_focus,
         maicord::module_voice_video_notification,
+        maicord::module_media_vp8_cpu,
     };
     maicord::copy_bytes(api, &table, sizeof(table));
     return true;

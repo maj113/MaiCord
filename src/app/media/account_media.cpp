@@ -338,7 +338,8 @@ namespace account_media_detail {
 
 void publish_animated_webp_frame(AccountMedia* media, const MediaAssetKey& key,
                                  const CdnAnimatedWebpResult& decoded, u64 request_id) noexcept {
-    const bool lossy = decoded.decode.frame.codec == AnimatedWebpCodec::vp8_lossy;
+    // A lossy frame decoded on the CPU (a GPU without the VP8 path) is straight RGBA8 like a lossless one.
+    const bool lossy = decoded.decode.frame.codec == AnimatedWebpCodec::vp8_lossy && !decoded.rgba8.data;
     media->frame_webp_image = decoded.decode.frame_image;
     media->frame_animated_webp = decoded.decode.frame;
     if (lossy) {

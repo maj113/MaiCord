@@ -32,7 +32,12 @@ draw or dispatch happens.
   `GL_EXT_disjoint_timer_query` is optional (no GPU timing); `EGL_EXT_buffer_age` and swap with damage are optional (a full blit
   and a full-damage swap).
 - Compute group limits are capability data (`GpuCaps`): `colr_layers` has a 2-slice variant for devices under 512
-  invocations, the decode gates test `max_compute_invocations`.
+  invocations. The GPU VP8 path needs one group of 512 invocations (`vp8_predict.glsl`), above the ES 3.1 floor of 128,
+  and 29696 bytes of shared memory (`vp8_filter.glsl`), above the floor of 16384 that v3d has:
+  `media_atlas_gpu_vp8_supported` (`render/media/atlas_gpu.hpp`, through `renderer_vp8_gpu`) tests
+  `max_compute_invocations` and `max_shared_bytes`, the media pump tells the account module (`media_vp8_cpu`), and on a
+  smaller device lossy WebP stills and animation frames decode on the CPU into RGBA8
+  (`src/app/media/cdn_media_pipeline.cpp`) without a VP8 shader ever being compiled (`maicord_vp8_cpu_route`).
 - The window config is the one without alpha (the compositor reads the buffers as XRGB); a driver with only alpha configs gets
   `EGL_EXT_present_opaque` on the surface instead.
 - Test hooks (`test_hook`, test builds only): `MAICORD_GLES_MAX_COMPUTE_INVOCATIONS`, `_NO_TIMER_QUERY`,

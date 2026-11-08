@@ -817,6 +817,23 @@ WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLay
     return WebpThumbnailError::none;
 }
 
+WebpThumbnailError webp_thumbnail_keyframe_layout(ConstSlice<u8> vp8, u32 width, u32 height, ConstSlice<u8> alpha,
+                                                  WebpThumbnailLayout* layout) noexcept {
+    if (!layout || !vp8.data || (alpha.data && alpha.count != u64{width} * height))
+        return WebpThumbnailError::invalid_input;
+    reset_value<WebpThumbnailLayout>(layout);
+    Vp8Keyframe frame{};
+    if (!vp8_parse_keyframe_bounded(vp8, kWebpThumbnailEncodedMaximumBytes, &frame).ok() || frame.width != width ||
+        frame.height != height)
+        return WebpThumbnailError::vp8_header;
+    layout->vp8 = vp8;
+    layout->alpha = alpha;
+    layout->width = width;
+    layout->height = height;
+    layout->workspace_bytes = static_cast<u32>(carve(nullptr, width, false).bytes);
+    return WebpThumbnailError::none;
+}
+
 WebpThumbnailError webp_thumbnail_decode(const WebpThumbnailLayout& layout, Slice<u8> workspace,
                                          WebpThumbnailRowSink sink, void* context) noexcept {
     if (!sink || !layout.vp8.data || !layout.width || !layout.height || !workspace.data ||

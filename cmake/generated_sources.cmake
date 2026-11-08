@@ -83,7 +83,7 @@ maicord_shader(MAICORD_COLR_LAYERS_HEADER maicord_colr_layers_cs.hpp cs_5_0 colr
 maicord_shader(MAICORD_PNG_COMPUTE_HEADER maicord_png_cs.hpp cs_5_0 png_expand g_maicord_png_compute_shader
     ${maicord_shaders}/png_atlas.hlsl PACK png_compute)
 maicord_shader(MAICORD_VP8_RECONSTRUCT_HEADER maicord_vp8_reconstruct_cs.hpp cs_5_0 vp8_reconstruct
-    g_maicord_vp8_reconstruct_shader ${maicord_shaders}/vp8_reconstruct_tiled.hlsl PACK vp8_reconstruct)
+    g_maicord_vp8_reconstruct_shader ${maicord_shaders}/vp8_predict.hlsl PACK vp8_reconstruct)
 maicord_shader(MAICORD_VP8_IDCT_HEADER maicord_vp8_idct_cs.hpp cs_5_0 vp8_inverse_dct g_maicord_vp8_idct_shader
     ${maicord_shaders}/vp8_reconstruct.hlsl PACK vp8_idct)
 maicord_shader(MAICORD_VP8_FILTER_HEADER maicord_vp8_filter_cs.hpp cs_5_0 vp8_filter g_maicord_vp8_filter_shader

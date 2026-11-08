@@ -320,6 +320,7 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
 }
 
 AccountMediaRequestResult execute(AccountMediaWorkerLane* lane, AccountMediaWorkItem& work) noexcept {
+    lane->media.pipeline.vp8_on_cpu = ReadAcquire(&lane->owner->vp8_on_cpu) != 0;
     switch (work.kind) {
     case AccountMediaWorkKind::collection_title: {
         auto* resolver = lane->media.provider_resolver;

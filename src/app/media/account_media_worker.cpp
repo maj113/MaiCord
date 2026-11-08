@@ -47,6 +47,11 @@ bool account_media_worker_stop_requested(AccountMediaWorker* worker) noexcept {
     return false;
 }
 
+void account_media_worker_set_vp8_cpu(AccountMediaWorker* worker, bool on_cpu) noexcept {
+    if (worker)
+        WriteRelease(&worker->vp8_on_cpu, on_cpu ? 1 : 0);
+}
+
 AccountMediaRequestResult account_media_worker_collection_title(AccountMediaWorker* worker,
     const AccountMediaCollectionTitleRequest& request, MediaTrackTitle* out) noexcept {
     if (!worker || !worker->initialized || !out || !request.track || !media_asset_key_valid(request.key) ||

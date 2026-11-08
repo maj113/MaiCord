@@ -675,7 +675,7 @@ struct D3D11Renderer {
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
 #if defined(_WIN32)
-static_assert(sizeof(D3D11Renderer) == 126048);
+static_assert(sizeof(D3D11Renderer) == 125904);
 #endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process
@@ -865,6 +865,16 @@ MediaAtlasGpuResult renderer_advance_animated_webp_vp8(
     const AnimatedWebpFrame& previous_frame, const AnimatedWebpFrame& animation_frame,
     const Vp8Keyframe& vp8_frame, const Vp8ControlHeader& header, const Vp8ModeWorkspace& modes,
     const Vp8CoefficientWorkspace& coefficients, ConstSlice<u8> alpha) noexcept;
+// Whether lossy WebP decodes on this renderer's GPU (the renderer_*_vp8 calls); otherwise the media pipeline decodes
+// it on the CPU into RGBA8 and no VP8 shader is ever made. Every Direct3D 11 device qualifies; an OpenGL ES device
+// must pass media_atlas_gpu_vp8_supported (render/media/atlas_gpu.hpp).
+#if defined(_WIN32)
+constexpr bool renderer_vp8_gpu(const D3D11Renderer&) noexcept {
+    return true;
+}
+#else
+bool renderer_vp8_gpu(const D3D11Renderer& renderer) noexcept;
+#endif
 MediaAtlasGpuResult renderer_reconstruct_vp8_keyframe(D3D11Renderer* renderer, const Vp8Keyframe& frame,
                                                       const Vp8ModeWorkspace& modes,
                                                       const Vp8CoefficientWorkspace& coefficients) noexcept;

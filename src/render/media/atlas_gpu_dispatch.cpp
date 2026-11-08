@@ -286,7 +286,7 @@ void dispatch_vp8_atlas(MediaAtlasGpu* gpu, GpuContext1* context, const Vp8Keyfr
     bind_compute_2srv(context, gpu->vp8_atlas_shader, gpu->vp8_atlas_constants,
                       gpu->vp8_yuv_view, alpha.count != 0 ? gpu->png_scanline_view : nullptr,
                       texture_uav);
-    gpu_dispatch(context, (frame.width + 7u) / 8u, (frame.height + 7u) / 8u, 1);
+    gpu_dispatch(context, (frame.width + 63u) / 64u, frame.height, 1);
     unbind_compute(context);
 
     gpu->vp8_last_atlas_reconstruction = gpu->vp8_reconstructions;

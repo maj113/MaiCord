@@ -8,57 +8,6 @@ namespace maicord {
 
 using namespace media_atlas_gpu_detail;
 
-namespace {
-// D3D11.1 constant-buffer ranges start at 256-byte boundaries. One upload owns
-// all dispatch constants; changes of image geometry reuse the same GPU buffer.
-struct Vp8TileWaveConstants { u32 diagonal, first_row, rank_span, reserved; u32 padding[60]; };
-static_assert(sizeof(Vp8TileWaveConstants) == 256);
-static_assert(kVp8MacroblockDimensionMaximum <= 32);
-// Waves: ceil((columns + 2 * rows - 2) / 8) + ceil(rows / 2) - 1 diagonals at most.
-static_assert((kVp8MacroblockDimensionMaximum * 3 + 5) / 8 + (kVp8MacroblockDimensionMaximum + 1) / 2 <= 32);
-GpuStatus prepare_vp8_tiles(MediaAtlasGpu* gpu, GpuDevice* device,
-                            GpuContext1* context, u32 columns, u32 rows) noexcept {
-    if (gpu->vp8_tile_constants && gpu->vp8_tile_columns == columns && gpu->vp8_tile_rows == rows)
-        return S_OK;
-    constexpr u32 tile_rows = 2, span = 8;
-    const u32 ranks = columns + 2 * rows - 2;
-    const u32 rank_tiles = (ranks + span - 1) / span;
-    const u32 row_tiles = (rows + tile_rows - 1) / tile_rows;
-    if (!gpu->vp8_tile_constants) {
-        const GpuStatus result = gpu_buffer_create(
-            device, {32 * sizeof(Vp8TileWaveConstants), GpuUsage::dynamic, gpu_bind_constant, false}, nullptr,
-            &gpu->vp8_tile_constants);
-        if (FAILED(result)) return result;
-    }
-    // Only the first `count` 256-byte ranges are ever bound, so the rest stay unwritten.
-    GpuStatus mapped_result = kGpuOk;
-    void* mapped = gpu_map(context, gpu->vp8_tile_constants, GpuMap::discard, &mapped_result);
-    if (!mapped) return FAILED(mapped_result) ? mapped_result : kGpuFail;
-    auto* constants = static_cast<Vp8TileWaveConstants*>(mapped);
-    u32 count = 0;
-    for (u32 diagonal = 0; diagonal < rank_tiles + row_tiles - 1; ++diagonal) {
-        const u32 first = diagonal >= rank_tiles ? diagonal - rank_tiles + 1 : 0;
-        const u32 last = minimum(diagonal, row_tiles - 1);
-        bool intersects = false;
-        for (u32 row = first; row <= last; ++row) {
-            const u32 y0 = row * tile_rows, y1 = minimum(y0 + tile_rows, rows);
-            const u32 r0 = (diagonal - row) * span;
-            intersects = intersects || (r0 < columns + 2 * (y1 - 1) && r0 + span > 2 * y0);
-        }
-        if (!intersects) continue;
-        constants[count].diagonal = diagonal;
-        constants[count].first_row = first;
-        constants[count].rank_span = span;
-        gpu->vp8_tile_groups[count++] = last - first + 1;
-    }
-    gpu_unmap(context, gpu->vp8_tile_constants);
-    gpu->vp8_tile_columns = static_cast<u16>(columns);
-    gpu->vp8_tile_rows = static_cast<u16>(rows);
-    gpu->vp8_tile_wave_count = count;
-    return S_OK;
-}
-} // namespace
-
 MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
     MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context, const Vp8Keyframe& frame,
     const Vp8ModeWorkspace& modes, const Vp8CoefficientWorkspace& coefficients) noexcept {
@@ -79,7 +28,8 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
     const u32 luma_samples = luma_stride * luma_rows;
     const u32 chroma_samples = chroma_stride * chroma_rows;
     const u32 yuv_samples = luma_samples + chroma_samples * 2u;
-    const u32 yuv_bytes = yuv_samples * sizeof(u32) * 2u;
+    // The planes, then the inverse transforms' residuals: half a word per sample (vp8_reconstruct.hlsl).
+    const u32 yuv_bytes = yuv_samples * sizeof(u32) + yuv_samples * sizeof(u16);
 
     GpuStatus result = create_vp8_resources(gpu, device);
     if (SUCCEEDED(result)) {
@@ -97,8 +47,6 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
         return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
 
-    result = prepare_vp8_tiles(gpu, device, context, columns, rows);
-    if (FAILED(result)) { return reject(gpu, MediaAtlasGpuError::device_failure, result); }
     result = upload_discard(context, gpu->vp8_mode_buffer, modes.macroblocks, mode_bytes);
     if (SUCCEEDED(result)) {
         result = upload_discard(context, gpu->vp8_coefficient_buffer, coefficients.macroblocks,
@@ -127,13 +75,10 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
     };
     gpu_update_buffer(context, gpu->vp8_constants, &constants, sizeof(constants));
     gpu_dispatch(context, (macroblock_count * 24u + 63u) / 64u, 1, 1);
+    // vp8_predict.hlsl runs the whole frame's prediction in one group: thread row y owns macroblock row y.
+    static_assert(kVp8MacroblockDimensionMaximum <= 32, "VP8 prediction has 32 thread rows");
     gpu_set_shader(context, gpu->vp8_reconstruct_shader);
-    for (u32 wave = 0; wave < gpu->vp8_tile_wave_count; ++wave) {
-        gpu_set_constants_range(context, 1, gpu->vp8_tile_constants, wave * 16, 16);
-        gpu_dispatch(context, gpu->vp8_tile_groups[wave], 1, 1);
-    }
-    GpuBuffer* no_tiles = nullptr;
-    gpu_set_constants(context, GpuStage::compute, 1, 1, &no_tiles);
+    gpu_dispatch(context, 1, 1, 1);
     unbind_compute(context);
 
     gpu->vp8_width = frame.width;
@@ -143,7 +88,7 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
     gpu->vp8_chroma_stride = static_cast<u16>(chroma_stride);
     gpu->vp8_chroma_rows = static_cast<u16>(chroma_rows);
     ++gpu->vp8_reconstructions;
-    saturating_accumulate(gpu->vp8_reconstruction_dispatches, 1u + gpu->vp8_tile_wave_count);
+    saturating_accumulate(gpu->vp8_reconstruction_dispatches, 2u);
     const u64 uploaded = static_cast<u64>(mode_bytes) + coefficient_bytes;
     saturating_accumulate(gpu->vp8_uploaded_bytes, uploaded);
     const u64 pixels = static_cast<u64>(frame.width) * frame.height;
@@ -217,9 +162,9 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
         sizeof(Vp8MacroblockMode),
         sizeof(Vp8MacroblockCoefficients),
     };
-    // vp8_filter.hlsl gives each wavefront rank (x + 2y) 16 thread rows and no
-    // inner loop: a rank holds at most ceil(columns / 2) macroblocks.
-    static_assert((kWebpDimensionMaximum + 15u) / 16u <= 32u, "VP8 filter rank exceeds 16 macroblocks");
+    // vp8_filter.hlsl filters macroblock rows t and t + 16 on thread row t (32 rows at most) and keeps a level
+    // byte per macroblock (1024 at most).
+    static_assert((kWebpDimensionMaximum + 15u) / 16u <= 32u, "VP8 filter covers 32 macroblock rows");
     gpu_update_buffer(context, gpu->vp8_filter_constants, &constants, sizeof(constants));
     bind_compute_2srv(context, gpu->vp8_filter_shader, gpu->vp8_filter_constants,
                       gpu->vp8_mode_view, gpu->vp8_coefficient_view, gpu->vp8_yuv_uav);
@@ -340,9 +285,6 @@ void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept {
     gpu_release(gpu->vp8_reconstruct_shader);
     gpu_release(gpu->vp8_idct_shader);
     gpu_release(gpu->vp8_constants);
-    gpu_release(gpu->vp8_tile_constants);
-    gpu->vp8_tile_columns = gpu->vp8_tile_rows = 0;
-    gpu->vp8_tile_wave_count = 0;
     gpu_release(gpu->vp8_yuv_uav);
     gpu_release(gpu->vp8_yuv_view);
     gpu_release(gpu->vp8_yuv_buffer);

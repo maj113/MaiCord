@@ -248,7 +248,7 @@ void run() noexcept {
             const media_scene::Vp8Constants constants = media_scene::vp8_job(job);
             GpuSrv* views[2] = {yuv.view, alpha.view};
             dispatched = dispatch(compute, vp8, &constants, sizeof(constants), 2, views, atlas_uav,
-                                  groups(media_scene::kVp8Width), groups(media_scene::kVp8Height)) &&
+                                  (media_scene::kVp8Width + 63) / 64, media_scene::kVp8Height) &&
                          dispatched;
         }
         check(dispatched, "the VP8 dispatches");

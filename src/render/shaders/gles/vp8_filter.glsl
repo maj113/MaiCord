@@ -1,5 +1,5 @@
-// twin: src/render/shaders/vp8_filter.hlsl b0ce14b29e7bca96
-// vp8_filter (STAGE_CS): the VP8 loop filter over the reconstructed planes, macroblocks in wavefront ranks.
+// twin: src/render/shaders/vp8_filter.hlsl d378511b1b251999
+// vp8_filter (STAGE_CS): the VP8 loop filter over the reconstructed planes, macroblocks on anti-diagonal steps.
 layout(local_size_x = 16, local_size_y = 16) in;
 
 layout(std140, binding = 0) uniform Vp8FilterConstants {
@@ -29,24 +29,36 @@ layout(std430, binding = 0) readonly buffer Modes { uint vp8_modes[]; }; //! t0
 layout(std430, binding = 1) readonly buffer Coefficients { uint vp8_coefficients[]; }; //! t1
 layout(std430, binding = 2) buffer Yuv { uint vp8_yuv[]; }; //! u0
 
+// The VP8 loop filter (RFC 6386 section 15), bit for bit the serial raster order. Raster order filters a macroblock's
+// vertical edges, then its horizontal edges. A vertical pass touches its macroblock's rows alone (and the three columns
+// to the left), a horizontal pass its columns alone (and the three rows above), so the passes of the macroblocks on one
+// anti-diagonal x + y touch disjoint samples, and every sample still sees raster order: the horizontal pass of (x, y)
+// comes a step after the vertical pass of (x + 1, y - 1), which rewrote the right three columns of the macroblock
+// above. A lane filters one line of a pass, all its edges in order, in registers. Thread row t holds macroblock rows t
+// and t + 16 (slots); the lines of a slot cross between its passes, and to the slot below, in group memory (29696
+// bytes in all), four samples to a word:
+// tile:   the macroblock after its vertical pass, by rows (luma 16 x 4 words, U and V 8 x 2);
+// left:   its right four columns after its horizontal pass, by columns (luma 4 x 4, U and V 4 x 2);
+// top:    its bottom four rows after its horizontal pass, a word per column (luma 16, U and V 8), by diagonal parity;
+// corner: the bottom four rows of the left neighbour's right four columns after this macroblock's vertical pass (luma
+//         4 words, U and V 4), by diagonal parity.
+// Each sample is written to vp8_yuv once, by the last pass that can change it, and a pass reads the planes only where
+// nothing has written yet, so group barriers suffice.
+// The DXBC stays under the shader pack's 32 KiB entries, and the step loop holds no other loop: WARP stalls for minutes
+// on one there.
+shared uint filter_bytes[256];
+shared uint neighbour_bytes[256];
+shared uint tile[32 * 96];
+shared uint left_band[32 * 32];
+shared uint top_band[2 * 32 * 32];
+shared uint corner[2 * 32 * 12];
+
 uint load_mode_byte(uint address) {
     return (vp8_modes[address >> 2u] >> ((address & 3u) * 8u)) & 255u;
 }
 
 uint load_coefficient_byte(uint address) {
     return (vp8_coefficients[address >> 2u] >> ((address & 3u) * 8u)) & 255u;
-}
-
-uint sample_index(uint plane, uint stride, int x, int y) {
-    return plane + uint(y) * stride + uint(x);
-}
-
-int load_filter_sample(uint plane, uint stride, int x, int y) {
-    return int(vp8_yuv[sample_index(plane, stride, x, y)]);
-}
-
-void store_filter_sample(uint plane, uint stride, int x, int y, int value) {
-    vp8_yuv[sample_index(plane, stride, x, y)] = uint(clamp(value, 0, 255));
 }
 
 int signed_clip1(int value) {
@@ -57,60 +69,120 @@ int signed_clip2(int value) {
     return clamp(value, -16, 15);
 }
 
-void filter_segment(uint plane, uint stride, int edge_x, int edge_y, int step_x, int step_y, int edge_limit,
-                    int interior_limit, int hev_threshold, bool macroblock_edge, bool simple) {
-    int p3 = load_filter_sample(plane, stride, edge_x - 4 * step_x, edge_y - 4 * step_y);
-    int p2 = load_filter_sample(plane, stride, edge_x - 3 * step_x, edge_y - 3 * step_y);
-    int p1 = load_filter_sample(plane, stride, edge_x - 2 * step_x, edge_y - 2 * step_y);
-    int p0 = load_filter_sample(plane, stride, edge_x - step_x, edge_y - step_y);
-    int q0 = load_filter_sample(plane, stride, edge_x, edge_y);
-    int q1 = load_filter_sample(plane, stride, edge_x + step_x, edge_y + step_y);
-    int q2 = load_filter_sample(plane, stride, edge_x + 2 * step_x, edge_y + 2 * step_y);
-    int q3 = load_filter_sample(plane, stride, edge_x + 3 * step_x, edge_y + 3 * step_y);
-    int threshold = 2 * edge_limit + 1;
-    if (4 * abs(p0 - q0) + abs(p1 - q1) > threshold)
-        return;
+uint pack4(ivec4 v) {
+    uvec4 shifted = uvec4(v) << uvec4(0u, 8u, 16u, 24u);
+    return (shifted.x | shifted.y) | (shifted.z | shifted.w);
+}
 
-    if (simple) {
-        int adjustment = 3 * (q0 - p0) + signed_clip1(p1 - q1);
-        int adjustment1 = signed_clip2((adjustment + 4) >> 3);
-        int adjustment2 = signed_clip2((adjustment + 3) >> 3);
-        store_filter_sample(plane, stride, edge_x - step_x, edge_y - step_y, p0 + adjustment2);
-        store_filter_sample(plane, stride, edge_x, edge_y, q0 - adjustment1);
-        return;
-    }
+ivec4 unpack4(uint word) {
+    return ivec4((uvec4(word, word, word, word) >> uvec4(0u, 8u, 16u, 24u)) & 255u);
+}
 
-    if (abs(p3 - p2) > interior_limit || abs(p2 - p1) > interior_limit || abs(p1 - p0) > interior_limit ||
-        abs(q3 - q2) > interior_limit || abs(q2 - q1) > interior_limit || abs(q1 - q0) > interior_limit)
-        return;
-    bool high_edge_variance = abs(p1 - p0) > hev_threshold || abs(q1 - q0) > hev_threshold;
-    if (high_edge_variance) {
-        int adjustment = 3 * (q0 - p0) + signed_clip1(p1 - q1);
-        int adjustment1 = signed_clip2((adjustment + 4) >> 3);
-        int adjustment2 = signed_clip2((adjustment + 3) >> 3);
-        store_filter_sample(plane, stride, edge_x - step_x, edge_y - step_y, p0 + adjustment2);
-        store_filter_sample(plane, stride, edge_x, edge_y, q0 - adjustment1);
-    } else if (macroblock_edge) {
-        int adjustment = signed_clip1(3 * (q0 - p0) + signed_clip1(p1 - q1));
-        int adjustment1 = (27 * adjustment + 63) >> 7;
-        int adjustment2 = (18 * adjustment + 63) >> 7;
-        int adjustment3 = (9 * adjustment + 63) >> 7;
-        store_filter_sample(plane, stride, edge_x - 3 * step_x, edge_y - 3 * step_y, p2 + adjustment3);
-        store_filter_sample(plane, stride, edge_x - 2 * step_x, edge_y - 2 * step_y, p1 + adjustment2);
-        store_filter_sample(plane, stride, edge_x - step_x, edge_y - step_y, p0 + adjustment1);
-        store_filter_sample(plane, stride, edge_x, edge_y, q0 - adjustment1);
-        store_filter_sample(plane, stride, edge_x + step_x, edge_y + step_y, q1 - adjustment2);
-        store_filter_sample(plane, stride, edge_x + 2 * step_x, edge_y + 2 * step_y, q2 - adjustment3);
-    } else {
-        int adjustment = 3 * (q0 - p0);
-        int adjustment1 = signed_clip2((adjustment + 4) >> 3);
-        int adjustment2 = signed_clip2((adjustment + 3) >> 3);
-        int adjustment3 = (adjustment1 + 1) >> 1;
-        store_filter_sample(plane, stride, edge_x - 2 * step_x, edge_y - 2 * step_y, p1 + adjustment3);
-        store_filter_sample(plane, stride, edge_x - step_x, edge_y - step_y, p0 + adjustment2);
-        store_filter_sample(plane, stride, edge_x, edge_y, q0 - adjustment1);
-        store_filter_sample(plane, stride, edge_x + step_x, edge_y + step_y, q1 - adjustment3);
+ivec4 bytes_at(uint w0, uint w1, uint w2, uint w3, uint index) {
+    return ivec4((uvec4(w0, w1, w2, w3) >> (index * 8u)) & 255u);
+}
+
+ivec4 load4(uint index) {
+    return ivec4(vp8_yuv[index], vp8_yuv[index + 1u], vp8_yuv[index + 2u], vp8_yuv[index + 3u]);
+}
+
+// Three or four samples `pitch` bytes apart from byte `address`.
+void store_three(uint address, uint pitch, ivec3 values) {
+    vp8_yuv[address >> 2u] = uint(values.x);
+    vp8_yuv[(address + pitch) >> 2u] = uint(values.y);
+    vp8_yuv[(address + 2u * pitch) >> 2u] = uint(values.z);
+}
+
+void store_four(uint address, uint pitch, ivec4 values) {
+    store_three(address, pitch, values.xyz);
+    vp8_yuv[(address + 3u * pitch) >> 2u] = uint(values.w);
+}
+
+// Filters one line across the edge between p0 and q0 (RFC 6386 section 15) in place. An edge_limit of -1 leaves the
+// line as it is.
+void filter_line(int p3, inout int p2, inout int p1, inout int p0, inout int q0, inout int q1, inout int q2, int q3,
+                 int edge_limit, int interior_limit, int hev_threshold, bool macroblock_edge, bool simple) {
+    bool apply = 4 * abs(p0 - q0) + abs(p1 - q1) <= 2 * edge_limit + 1;
+    bool hev = true;
+    if (!simple) {
+        int interior = max(max(max(abs(p3 - p2), abs(p2 - p1)), max(abs(p1 - p0), abs(q3 - q2))),
+                           max(abs(q2 - q1), abs(q1 - q0)));
+        apply = apply && interior <= interior_limit;
+        hev = max(abs(p1 - p0), abs(q1 - q0)) > hev_threshold;
     }
+    // The common adjustment (the simple filter, and edges of high variance) moves p0 and q0; a macroblock edge of low
+    // variance moves three samples a side, a subblock edge two.
+    bool strong = macroblock_edge && !hev;
+    int base = 3 * (q0 - p0) + (hev || macroblock_edge ? signed_clip1(p1 - q1) : 0);
+    int adjustment1 = signed_clip2((base + 4) >> 3);
+    int adjustment2 = signed_clip2((base + 3) >> 3);
+    int weight = signed_clip1(base);
+    int strong0 = (27 * weight + 63) >> 7;
+    int p0_change = strong ? strong0 : adjustment2;
+    int q0_change = strong ? strong0 : adjustment1;
+    int change1 = strong ? (18 * weight + 63) >> 7 : hev ? 0 : (adjustment1 + 1) >> 1;
+    int change2 = strong ? (9 * weight + 63) >> 7 : 0;
+    if (!apply) {
+        p0_change = 0;
+        q0_change = 0;
+        change1 = 0;
+        change2 = 0;
+    }
+    p0 = clamp(p0 + p0_change, 0, 255);
+    q0 = clamp(q0 - q0_change, 0, 255);
+    if (!simple) {
+        p1 = clamp(p1 + change1, 0, 255);
+        q1 = clamp(q1 - change1, 0, 255);
+        if (macroblock_edge) {
+            p2 = clamp(p2 + change2, 0, 255);
+            q2 = clamp(q2 - change2, 0, 255);
+        }
+    }
+}
+
+// filter_line on a luma line (x) and a chroma line (y) at once: lp and cp hold p3..p0, lq and cq q0..q3. The simple
+// filter sets the chroma limit to -1.
+void filter_pair(inout ivec4 lp, inout ivec4 lq, inout ivec4 cp, inout ivec4 cq, ivec2 edge_limit, int interior_limit,
+                 int hev_threshold, bool macroblock_edge, bool simple) {
+    ivec2 p3 = ivec2(lp.x, cp.x), q3 = ivec2(lq.w, cq.w);
+    ivec2 p2 = ivec2(lp.y, cp.y), p1 = ivec2(lp.z, cp.z), p0 = ivec2(lp.w, cp.w);
+    ivec2 q0 = ivec2(lq.x, cq.x), q1 = ivec2(lq.y, cq.y), q2 = ivec2(lq.z, cq.z);
+    bvec2 apply = lessThanEqual(4 * abs(p0 - q0) + abs(p1 - q1), 2 * edge_limit + 1);
+    bvec2 hev = bvec2(true);
+    if (!simple) {
+        ivec2 interior = max(max(max(abs(p3 - p2), abs(p2 - p1)), max(abs(p1 - p0), abs(q3 - q2))),
+                             max(abs(q2 - q1), abs(q1 - q0)));
+        apply = bvec2(apply.x && interior.x <= interior_limit, apply.y && interior.y <= interior_limit);
+        hev = greaterThan(max(abs(p1 - p0), abs(q1 - q0)), ivec2(hev_threshold));
+    }
+    bvec2 strong = macroblock_edge ? not(hev) : bvec2(false);
+    ivec2 base = 3 * (q0 - p0) + mix(ivec2(0), clamp(p1 - q1, -128, 127), macroblock_edge ? bvec2(true) : hev);
+    ivec2 adjustment1 = clamp((base + 4) >> 3, -16, 15);
+    ivec2 adjustment2 = clamp((base + 3) >> 3, -16, 15);
+    ivec2 weight = clamp(base, -128, 127);
+    ivec2 strong0 = (27 * weight + 63) >> 7;
+    ivec2 p0_change = mix(adjustment2, strong0, strong);
+    ivec2 q0_change = mix(adjustment1, strong0, strong);
+    ivec2 change1 = mix(mix((adjustment1 + 1) >> 1, ivec2(0), hev), (18 * weight + 63) >> 7, strong);
+    ivec2 change2 = mix(ivec2(0), (9 * weight + 63) >> 7, strong);
+    p0_change = mix(ivec2(0), p0_change, apply);
+    q0_change = mix(ivec2(0), q0_change, apply);
+    change1 = mix(ivec2(0), change1, apply);
+    change2 = mix(ivec2(0), change2, apply);
+    p0 = clamp(p0 + p0_change, 0, 255);
+    q0 = clamp(q0 - q0_change, 0, 255);
+    if (!simple) {
+        p1 = clamp(p1 + change1, 0, 255);
+        q1 = clamp(q1 - change1, 0, 255);
+        if (macroblock_edge) {
+            p2 = clamp(p2 + change2, 0, 255);
+            q2 = clamp(q2 - change2, 0, 255);
+        }
+    }
+    lp.yzw = ivec3(p2.x, p1.x, p0.x);
+    cp.yzw = ivec3(p2.y, p1.y, p0.y);
+    lq.xyz = ivec3(q0.x, q1.x, q2.x);
+    cq.xyz = ivec3(q0.y, q1.y, q2.y);
 }
 
 int segment_filter(uint segment) {
@@ -118,76 +190,248 @@ int segment_filter(uint segment) {
                                                                                             : segment_filter3;
 }
 
-void main() {
-    uint lane = gl_LocalInvocationID.x;
-    // Each cohort owns one independent macroblock on rank x + 2*y.
-    uint rank_count = macroblock_columns + 2u * macroblock_rows - 2u;
-    for (uint rank = 0u; rank < rank_count; ++rank) {
-        uint first_row = rank < macroblock_columns ? 0u : (rank - (macroblock_columns - 1u) + 1u) / 2u;
-        uint last_row = min(macroblock_rows - 1u, rank / 2u);
-        if (first_row > last_row)
-            continue; // Uniform empty rank.
-        uint row = first_row + gl_LocalInvocationID.y;
-        bool valid = row <= last_row;
-        uint macroblock_y = valid ? row : 0u;
-        uint macroblock_x = valid ? rank - 2u * row : 0u;
-        uint macroblock = macroblock_y * macroblock_columns + macroblock_x;
-        uint mode_address = macroblock * mode_record_bytes;
-        uint luma_mode = 0u, segment = 0u, has_coefficients = 0u;
-        if (valid) {
-            luma_mode = load_mode_byte(mode_address + 16u);
-            segment = load_mode_byte(mode_address + 18u);
-            has_coefficients = load_coefficient_byte(macroblock * coefficient_record_bytes + 768u);
-        }
-        int level = int(filter_level);
-        if (segmentation_enabled != 0u)
-            level = segment_absolute_delta != 0u ? segment_filter(segment) : level + segment_filter(segment);
-        if (use_filter_delta != 0u) {
-            level += reference_delta0;
-            if (luma_mode == 10u)
-                level += mode_delta0;
-        }
-        level = clamp(level, 0, 63);
-        int interior_limit = level;
-        if (sharpness != 0u) {
-            interior_limit >>= sharpness > 4u ? 2 : 1;
-            interior_limit = min(interior_limit, 9 - int(sharpness));
-        }
-        interior_limit = max(interior_limit, 1);
-        int subblock_limit = 2 * level + interior_limit;
-        int macroblock_limit = subblock_limit + 4;
-        int hev_threshold = level >= 40 ? 2 : level >= 15 ? 1 : 0;
-        bool inner_edges = luma_mode == 10u || has_coefficients != 0u;
-        uint luma_x = macroblock_x * 16u;
-        uint luma_y = macroblock_y * 16u;
-        uint chroma_x = macroblock_x * 8u;
-        uint chroma_y = macroblock_y * 8u;
+// A macroblock's filter level (bits 0-5) and whether it filters its inner edges (bit 6).
+uint macroblock_filter_byte(uint macroblock) {
+    uint luma_mode = load_mode_byte(macroblock * mode_record_bytes + 16u);
+    int level = int(filter_level);
+    if (segmentation_enabled != 0u) {
+        int strength = segment_filter(load_mode_byte(macroblock * mode_record_bytes + 18u));
+        level = segment_absolute_delta != 0u ? strength : level + strength;
+    }
+    if (use_filter_delta != 0u) {
+        level += reference_delta0;
+        if (luma_mode == 10u)
+            level += mode_delta0;
+    }
+    bool inner = luma_mode == 10u || load_coefficient_byte(macroblock * coefficient_record_bytes + 768u) != 0u;
+    return uint(clamp(level, 0, 63)) | (inner ? 64u : 0u);
+}
 
-        // Eight edge passes in order: the macroblock edge then three inner edges between columns, then the same
-        // between rows. Each pass reads what the previous one wrote, so a barrier follows every pass.
-        for (uint pass_index = 0u; pass_index < 8u; ++pass_index) {
-            bool across = pass_index < 4u;
-            uint edge_index = pass_index & 3u;
-            bool macroblock_edge = edge_index == 0u;
-            bool wanted = macroblock_edge ? (across ? macroblock_x : macroblock_y) != 0u : inner_edges;
-            if (valid && level != 0 && wanted) {
-                int limit = macroblock_edge ? macroblock_limit : subblock_limit;
-                // Luma, then (outside the simple filter, on the first two edges, for eight lanes) the U and V planes.
-                for (uint plane = 0u; plane < 3u; ++plane) {
-                    if (plane != 0u && (simple_filter != 0u || lane >= 8u || edge_index >= 2u))
-                        break;
-                    uint offset = plane == 0u ? 0u : plane == 1u ? u_plane_offset : v_plane_offset;
-                    uint stride = plane == 0u ? luma_stride : chroma_stride;
-                    uint origin_x = plane == 0u ? luma_x : chroma_x;
-                    uint origin_y = plane == 0u ? luma_y : chroma_y;
-                    uint along = edge_index * 4u;
-                    filter_segment(offset, stride, int(across ? origin_x + along : origin_x + lane),
-                                   int(across ? origin_y + lane : origin_y + along), across ? 1 : 0, across ? 0 : 1,
-                                   limit, interior_limit, hev_threshold, macroblock_edge, simple_filter != 0u);
-                }
-            }
-            memoryBarrierBuffer();
-            barrier();
+uint filter_byte(uint x, uint y) {
+    uint macroblock = y * macroblock_columns + x;
+    return (filter_bytes[macroblock >> 2] >> ((macroblock & 3u) * 8u)) & 255u;
+}
+
+struct Slot {
+    uint x;
+    uint y;
+    bool present;
+    int edge_limit;     // the macroblock edges' limit
+    int subblock_limit; // the inner edges' limit, -1 without them
+    int interior_limit;
+    int hev_threshold;
+    // Which neighbours filter, and so rewrite samples of this macroblock or its left neighbour: bit 0 (x + 1, y) its
+    // right three columns, bit 1 (x, y + 1) its bottom three rows, bit 2 (x - 1, y + 1) the left neighbour's bottom
+    // three rows.
+    uint neighbours;
+};
+
+bool macroblock_filters(uint x, uint y) {
+    return (filter_byte(x, y) & 63u) != 0u;
+}
+
+Slot macroblock_slot(uint diagonal, uint y) {
+    Slot slot;
+    uint x = diagonal - y;
+    slot.present = y < macroblock_rows && y <= diagonal && x < macroblock_columns;
+    slot.x = slot.present ? x : 0u;
+    slot.y = slot.present ? y : 0u;
+    uint bits = filter_byte(slot.x, slot.y);
+    int level = int(bits & 63u);
+    int interior_limit = level;
+    if (sharpness != 0u) {
+        interior_limit >>= sharpness > 4u ? 2 : 1;
+        interior_limit = min(interior_limit, 9 - int(sharpness));
+    }
+    interior_limit = max(interior_limit, 1);
+    slot.subblock_limit = level != 0 && (bits & 64u) != 0u ? 2 * level + interior_limit : -1;
+    slot.edge_limit = level != 0 ? 2 * level + interior_limit + 4 : -1;
+    slot.interior_limit = interior_limit;
+    slot.hev_threshold = level >= 40 ? 2 : level >= 15 ? 1 : 0;
+    uint macroblock = slot.y * macroblock_columns + slot.x;
+    slot.neighbours = (neighbour_bytes[macroblock >> 2] >> ((macroblock & 3u) * 8u)) & 255u;
+    return slot;
+}
+
+// One pass over a slot's macroblock. Lane i filters luma line i and (outside the simple filter, which leaves chroma
+// alone) line i & 7 of U (lanes 0-7) or V (lanes 8-15): rows for the vertical edges (across), columns for the
+// horizontal ones. A line is the neighbour's four samples (a, ca) and the macroblock's sixteen (b..e) or eight (cb, cc).
+void filter_pass(uint q, Slot slot, bool across, uint parity, uint lane, bool simple) {
+    uint plane = lane >> 3;
+    uint chroma_line = lane & 7u;
+    bool outer = across ? slot.x != 0u : slot.y != 0u;
+    int edge_limit = outer ? slot.edge_limit : -1;
+    uint luma = across ? (slot.y * 16u + lane) * luma_stride + slot.x * 16u
+                       : slot.y * 16u * luma_stride + slot.x * 16u + lane;
+    uint luma_step = across ? 1u : luma_stride;
+    uint chroma = (plane == 0u ? u_plane_offset : v_plane_offset) +
+                  (across ? (slot.y * 8u + chroma_line) * chroma_stride + slot.x * 8u
+                          : slot.y * 8u * chroma_stride + slot.x * 8u + chroma_line);
+    uint chroma_step = across ? 1u : chroma_stride;
+    uint luma_band = q * 32u;
+    uint chroma_band = q * 32u + 16u + plane * 8u;
+    uint luma_tile = q * 96u;
+    uint chroma_tile = q * 96u + 64u + plane * 16u;
+    ivec4 a, b, c, d, e, ca, cb, cc;
+    if (across) {
+        // The macroblock's rows are untouched until now; the left neighbour's columns come from its horizontal pass.
+        b = load4(luma);
+        c = load4(luma + 4u);
+        d = load4(luma + 8u);
+        e = load4(luma + 12u);
+        cb = load4(chroma);
+        cc = load4(chroma + 4u);
+        uint band = luma_band + (lane >> 2);
+        a = bytes_at(left_band[band], left_band[band + 4u], left_band[band + 8u], left_band[band + 12u], lane & 3u);
+        uint chroma_word = chroma_band + (chroma_line >> 2);
+        ca = bytes_at(left_band[chroma_word], left_band[chroma_word + 2u], left_band[chroma_word + 4u],
+                      left_band[chroma_word + 6u], chroma_line & 3u);
+    } else {
+        // The rows above come from the slot above: its last horizontal pass, and in the right four columns its
+        // vertical pass just now, when it had a macroblock to the right.
+        a = ivec4(0);
+        ca = ivec4(0);
+        if (outer) {
+            bool fresh_corner = slot.x + 1u < macroblock_columns;
+            uint above = (parity * 32u + q - 1u) * 12u;
+            uint above_top = (parity ^ 1u) * 1024u + (q - 1u) * 32u;
+            a = lane >= 12u && fresh_corner
+                    ? bytes_at(corner[above], corner[above + 1u], corner[above + 2u], corner[above + 3u], lane - 12u)
+                    : unpack4(top_band[above_top + lane]);
+            uint chroma_corner = above + 4u + plane * 4u;
+            ca = chroma_line >= 4u && fresh_corner
+                     ? bytes_at(corner[chroma_corner], corner[chroma_corner + 1u], corner[chroma_corner + 2u],
+                                corner[chroma_corner + 3u], chroma_line - 4u)
+                     : unpack4(top_band[above_top + 16u + plane * 8u + chroma_line]);
         }
+        uint word = luma_tile + (lane >> 2);
+        uint shift = lane & 3u;
+        b = bytes_at(tile[word], tile[word + 4u], tile[word + 8u], tile[word + 12u], shift);
+        c = bytes_at(tile[word + 16u], tile[word + 20u], tile[word + 24u], tile[word + 28u], shift);
+        d = bytes_at(tile[word + 32u], tile[word + 36u], tile[word + 40u], tile[word + 44u], shift);
+        e = bytes_at(tile[word + 48u], tile[word + 52u], tile[word + 56u], tile[word + 60u], shift);
+        uint chroma_word = chroma_tile + (chroma_line >> 2);
+        uint chroma_shift = chroma_line & 3u;
+        cb = bytes_at(tile[chroma_word], tile[chroma_word + 2u], tile[chroma_word + 4u], tile[chroma_word + 6u],
+                      chroma_shift);
+        cc = bytes_at(tile[chroma_word + 8u], tile[chroma_word + 10u], tile[chroma_word + 12u], tile[chroma_word + 14u],
+                      chroma_shift);
+    }
+
+    // The macroblock edge and the first inner edge, luma and chroma together, then luma's other two.
+    filter_pair(a, b, ca, cb, ivec2(edge_limit, simple ? -1 : edge_limit), slot.interior_limit, slot.hev_threshold,
+                true, simple);
+    filter_pair(b, c, cb, cc, ivec2(slot.subblock_limit, simple ? -1 : slot.subblock_limit), slot.interior_limit,
+                slot.hev_threshold, false, simple);
+    filter_line(c.x, c.y, c.z, c.w, d.x, d.y, d.z, d.w, slot.subblock_limit, slot.interior_limit, slot.hev_threshold,
+                false, simple);
+    filter_line(d.x, d.y, d.z, d.w, e.x, e.y, e.z, e.w, slot.subblock_limit, slot.interior_limit, slot.hev_threshold,
+                false, simple);
+
+    if (across) {
+        tile[luma_tile + lane * 4u] = pack4(b);
+        tile[luma_tile + lane * 4u + 1u] = pack4(c);
+        tile[luma_tile + lane * 4u + 2u] = pack4(d);
+        tile[luma_tile + lane * 4u + 3u] = pack4(e);
+        tile[chroma_tile + chroma_line * 2u] = pack4(cb);
+        tile[chroma_tile + chroma_line * 2u + 1u] = pack4(cc);
+        if (lane >= 12u)
+            corner[(parity * 32u + q) * 12u + lane - 12u] = pack4(a);
+        if (chroma_line >= 4u)
+            corner[(parity * 32u + q) * 12u + 4u + plane * 4u + chroma_line - 4u] = pack4(ca);
+    } else {
+        uint top = parity * 1024u + q * 32u;
+        top_band[top + lane] = pack4(e);
+        top_band[top + 16u + plane * 8u + chroma_line] = pack4(cc);
+        if (lane >= 12u) {
+            uint band = luma_band + (lane - 12u) * 4u;
+            left_band[band] = pack4(b);
+            left_band[band + 1u] = pack4(c);
+            left_band[band + 2u] = pack4(d);
+            left_band[band + 3u] = pack4(e);
+        }
+        if (chroma_line >= 4u) {
+            uint band = chroma_band + (chroma_line - 4u) * 2u;
+            left_band[band] = pack4(cb);
+            left_band[band + 1u] = pack4(cc);
+        }
+    }
+
+    // Each sample goes to memory once, from the last pass that can change it. The neighbour's three samples are final
+    // after this pass, except that (x - 1, y + 1) rewrites the bottom three rows of the left neighbour. The
+    // macroblock's own samples wait for its horizontal pass, its right three columns for (x + 1, y) when that filters,
+    // its bottom three rows for (x, y + 1).
+    uint luma_address = luma * 4u, luma_pitch = luma_step * 4u;
+    uint chroma_address = chroma * 4u, chroma_pitch = chroma_step * 4u;
+    if (outer && slot.edge_limit >= 0) {
+        if (!across || lane < 13u || (slot.neighbours & 4u) == 0u)
+            store_three(luma_address - 3u * luma_pitch, luma_pitch, a.yzw);
+        if (!simple && (!across || chroma_line < 5u || (slot.neighbours & 4u) == 0u))
+            store_three(chroma_address - 3u * chroma_pitch, chroma_pitch, ca.yzw);
+    }
+    if (!across && (lane < 13u || (slot.neighbours & 1u) == 0u)) {
+        store_four(luma_address, luma_pitch, b);
+        store_four(luma_address + 4u * luma_pitch, luma_pitch, c);
+        store_four(luma_address + 8u * luma_pitch, luma_pitch, d);
+        vp8_yuv[(luma_address + 12u * luma_pitch) >> 2u] = uint(e.x);
+        if ((slot.neighbours & 2u) == 0u)
+            store_three(luma_address + 13u * luma_pitch, luma_pitch, e.yzw);
+    }
+    if (!simple && !across && (chroma_line < 5u || (slot.neighbours & 1u) == 0u)) {
+        store_four(chroma_address, chroma_pitch, cb);
+        vp8_yuv[(chroma_address + 4u * chroma_pitch) >> 2u] = uint(cc.x);
+        if ((slot.neighbours & 2u) == 0u)
+            store_three(chroma_address + 5u * chroma_pitch, chroma_pitch, cc.yzw);
+    }
+}
+
+void main() {
+    // Filter levels and inner-edge flags, a byte per macroblock (1024 at most).
+    uint macroblocks = macroblock_columns * macroblock_rows;
+    uint bits = 0u;
+    for (uint k = 0u; k < 4u; ++k) {
+        uint macroblock = gl_LocalInvocationIndex * 4u + k;
+        if (macroblock < macroblocks)
+            bits |= macroblock_filter_byte(macroblock) << (k * 8u);
+    }
+    filter_bytes[gl_LocalInvocationIndex] = bits;
+    memoryBarrierShared();
+    barrier();
+    // Which neighbours filter (Slot::neighbours), a byte per macroblock.
+    uint neighbours = 0u;
+    for (uint n = 0u; n < 4u; ++n) {
+        uint macroblock = gl_LocalInvocationIndex * 4u + n;
+        uint x = macroblock % macroblock_columns, y = macroblock / macroblock_columns;
+        bool below = y + 1u < macroblock_rows;
+        if (macroblock < macroblocks)
+            neighbours |= ((x + 1u < macroblock_columns && macroblock_filters(x + 1u, y) ? 1u : 0u) |
+                           (below && macroblock_filters(x, y + 1u) ? 2u : 0u) |
+                           (below && x != 0u && macroblock_filters(x - 1u, y + 1u) ? 4u : 0u))
+                          << (n * 8u);
+    }
+    neighbour_bytes[gl_LocalInvocationIndex] = neighbours;
+    memoryBarrierShared();
+    barrier();
+
+    uint lane = gl_LocalInvocationID.x;
+    bool simple = simple_filter != 0u;
+    uint diagonals = macroblock_columns + macroblock_rows - 1u;
+    // The vertical pass of slot j on diagonal d runs at step 2d + j and its horizontal pass at the next step, on the
+    // same macroblock. With 17 macroblock rows or more, the second slot's vertical pass shares a step with the first
+    // slot's horizontal pass: other rows of the planes, other group memory but the corner, which diagonal parity keeps
+    // apart.
+    uint steps = 2u * diagonals + (macroblock_rows > 16u ? 1u : 0u);
+    Slot behind = Slot(0u, 0u, false, 0, 0, 0, 0, 0u); // no macroblock before the first step
+    for (uint step_index = 0u; step_index < steps; ++step_index) {
+        if (behind.present)
+            filter_pass(gl_LocalInvocationID.y + ((step_index - 1u) & 1u) * 16u, behind, false,
+                        ((step_index - 1u) >> 1) & 1u, lane, simple);
+        uint row = gl_LocalInvocationID.y + (step_index & 1u) * 16u;
+        Slot slot = macroblock_slot(step_index >> 1, row);
+        if (slot.present)
+            filter_pass(row, slot, true, (step_index >> 1) & 1u, lane, simple);
+        behind = slot;
+        memoryBarrierShared();
+        barrier();
     }
 }

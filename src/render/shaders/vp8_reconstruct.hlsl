@@ -1,4 +1,6 @@
-// Residual inverse DCT pass (vp8_inverse_dct) for vp8_reconstruct_tiled.hlsl.
+// Residual inverse DCT pass (vp8_inverse_dct) for vp8_predict.hlsl. Residuals are stored per
+// macroblock in raster order, two 16-bit samples to a word: luma rows of 16 (8 words), then the U and the V
+// rows of 8 (4 words); 192 words a macroblock.
 cbuffer Vp8ReconstructionConstants : register(b0) {
     uint macroblock_columns;
     uint macroblock_rows;
@@ -37,8 +39,20 @@ int4 load_coefficient_row(uint address) {
                 asint(packed.y << 16u) >> 16, asint(packed.y) >> 16);
 }
 
+// Word address of row 0 of 4x4 block `block` (16 luma blocks, then four U and four V).
 uint residual_address(uint macroblock, uint block) {
-    return (v_plane_offset + chroma_stride * chroma_rows + macroblock * 384u + block * 16u) * 4u;
+    const uint base = v_plane_offset + chroma_stride * chroma_rows + macroblock * 192u;
+    if (block < 16u) return base + (block >> 2u) * 32u + (block & 3u) * 2u;
+    const uint chroma = block - 16u;
+    return base + 128u + (chroma >> 2u) * 32u + ((chroma >> 1u) & 1u) * 16u + (chroma & 1u) * 2u;
+}
+
+// Prediction is 0..255, so clamping a residual to -256..255 leaves every reconstructed sample as it was and
+// fits it in 16 bits.
+uint2 pack_residual(int4 value) {
+    const int4 bounded = clamp(value, -256, 255);
+    return uint2((uint(bounded.x) & 65535u) | (uint(bounded.y) << 16u),
+                 (uint(bounded.z) & 65535u) | (uint(bounded.w) << 16u));
 }
 
 // Exact floor(value * factor / 65536), including negative values. The
@@ -74,13 +88,15 @@ void vp8_inverse_dct(uint3 dispatch_id : SV_DispatchThreadID) {
     const int4 v1 = load_coefficient_row(source + 8u);
     const int4 v2 = load_coefficient_row(source + 16u);
     const int4 v3 = load_coefficient_row(source + 24u);
-    const uint destination = residual_address(macroblock, block);
+    const uint destination = residual_address(macroblock, block) * 4u;
+    const uint row_bytes = block < 16u ? 32u : 16u;
     const int ac = v0.y | v0.z | v0.w | v1.x | v1.y | v1.z | v1.w |
                    v2.x | v2.y | v2.z | v2.w | v3.x | v3.y | v3.z | v3.w;
     if (ac == 0) {
         const int dc = (v0.x + 4) >> 3;
+        const uint2 packed = pack_residual(int4(dc, dc, dc, dc));
         [unroll] for (uint y = 0u; y < 4u; ++y)
-            vp8_yuv.Store4(destination + y * 16u, asuint(int4(dc, dc, dc, dc)));
+            vp8_yuv.Store2(destination + y * row_bytes, packed);
         return;
     }
     // Pass 1 sees signed int16 inputs; unlike pass 2, direct products are safe.
@@ -88,8 +104,8 @@ void vp8_inverse_dct(uint3 dispatch_id : SV_DispatchThreadID) {
     const int4 b = v0 - v2;
     const int4 c = ((v1 * 35468) >> 16) - (v3 + ((v3 * 20091) >> 16));
     const int4 d = v1 + ((v1 * 20091) >> 16) + ((v3 * 35468) >> 16);
-    vp8_yuv.Store4(destination, asuint(inverse_dct_row(a + d)));
-    vp8_yuv.Store4(destination + 16u, asuint(inverse_dct_row(b + c)));
-    vp8_yuv.Store4(destination + 32u, asuint(inverse_dct_row(b - c)));
-    vp8_yuv.Store4(destination + 48u, asuint(inverse_dct_row(a - d)));
+    vp8_yuv.Store2(destination, pack_residual(inverse_dct_row(a + d)));
+    vp8_yuv.Store2(destination + row_bytes, pack_residual(inverse_dct_row(b + c)));
+    vp8_yuv.Store2(destination + 2u * row_bytes, pack_residual(inverse_dct_row(b - c)));
+    vp8_yuv.Store2(destination + 3u * row_bytes, pack_residual(inverse_dct_row(a - d)));
 }

@@ -98,7 +98,7 @@ bool application_media_animation_ui_probe(D3D11Renderer& renderer,
 bool profile_media_sequence_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache* cache, ChatStateStore* state,
                                      UserStore* users) noexcept;
 
-bool vp8_tiled_probe(D3D11Renderer& renderer) noexcept;
+bool vp8_reconstruct_probe(D3D11Renderer& renderer) noexcept;
 bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept;
 
 bool shortcuts_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
@@ -527,8 +527,6 @@ bool rebuild_probe_content_text() noexcept {
                 g_probe.text_measure_cache.backend_calls);
         log_u64(LogLevel::error, "probe", "text_measure_shape_error",
                 static_cast<u64>(g_probe.text.last_shape_error));
-        log_u64(LogLevel::error, "probe", "text_measure_native_error",
-                static_cast<u64>(static_cast<u32>(g_probe.text.native_error)));
         for (u32 command_index = 0; command_index < g_probe.message_text.command_count; ++command_index) {
             const MessageTextCommand& command = g_probe.message_text.commands[command_index];
             UiTextMeasureValue diagnostic_value{};
@@ -781,7 +779,6 @@ bool initialize_fixture(bool focused_text = false) noexcept {
 
     g_probe.text.quads = g_probe.text_quads;
     g_probe.text.batches = g_probe.text_batches;
-    g_probe.text.utf16 = g_probe.response_shape_scratch.shape.utf16;
     g_probe.text.glyphs = g_probe.response_shape_scratch.shape.glyphs;
     g_probe.text.runs = g_probe.response_shape_scratch.shape.runs;
     g_probe.text.clusters = g_probe.response_shape_scratch.shape.clusters;
@@ -3231,7 +3228,7 @@ int run_probe() noexcept {
         }
         if (!shaped_text_cache_equivalence())
             return 18;
-        if (!vp8_tiled_probe(g_probe.renderer))
+        if (!vp8_reconstruct_probe(g_probe.renderer))
             return 1;
         if (!video_frame_reference_probe(g_probe.renderer))
             return 1;

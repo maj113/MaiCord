@@ -139,6 +139,9 @@ struct AccountMediaWorker {
     u8 reserved[3];
     // Clock tick (low 32 bits) at which stop_event was last seen clear; see account_media_worker_stop_requested.
     volatile LONG stop_checked_tick;
+    // Nonzero: lossy WebP decodes on the CPU into RGBA8 (the renderer's GPU has no VP8 path). Set by the UI
+    // thread (account_media_worker_set_vp8_cpu), read by each lane before a decode.
+    volatile LONG vp8_on_cpu;
 };
 
 // Creates the events and lane 0's cache and storage; starts no lane thread.
@@ -147,6 +150,8 @@ AccountMediaRequestResult account_media_worker_initialize(AccountMediaWorker* wo
 // block: the stop event is read with a kernel call at most once per clock tick (a set event is never cached, so
 // every later call reports it), where a per-call wait costs several times the work between two polls.
 bool account_media_worker_stop_requested(AccountMediaWorker* worker) noexcept;
+// Lossy WebP decodes on the CPU into RGBA8 from the lanes' next decode on (the renderer's GPU has no VP8 path).
+void account_media_worker_set_vp8_cpu(AccountMediaWorker* worker, bool on_cpu) noexcept;
 // Starts an idle lane ahead of its first command (storage and thread), as
 // admission does. Fails for a busy or stopping worker or a lane out of range.
 AccountMediaRequestResult account_media_worker_start_lane(AccountMediaWorker* worker, u32 index) noexcept;
