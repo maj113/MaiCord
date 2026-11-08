@@ -38,6 +38,7 @@ jobs:
       attestations: write
     outputs:
       published: ${{ steps.existing.outputs.published }}
+      number: ${{ steps.version.outputs.number }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -427,12 +428,15 @@ jobs:
           MAICORD_REPO_SIGNING_PASSPHRASE: ${{ secrets.MAICORD_REPO_SIGNING_PASSPHRASE }}
         run: bash packaging/repo/publish_site.sh "$RUNNER_TEMP/packages" "$RUNNER_TEMP/site" "Add $TAG to the package repositories"
 
+  # The deployment fails unless the live stable manifests carry this release's update number.
   pages:
     name: Pages
-    needs: [publish, repository]
+    needs: [release, publish, repository]
     if: ${{ !cancelled() && needs.publish.result == 'success' && (needs.publish.outputs.deploy == 'true' || needs.repository.outputs.deploy == 'true') }}
     permissions:
       contents: read
       pages: write
       id-token: write
     uses: ./.github/workflows/deploy-pages.yml
+    with:
+      stable-version: ${{ needs.release.outputs.number }}

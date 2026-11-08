@@ -5,6 +5,13 @@ name: Deploy the update channels
 # older site deployed over a newer one.
 on:
   workflow_call:
+    inputs:
+      stable-version:
+        description: >
+          The update number a release just published: the live stable manifests (Windows, and the Linux tarball's and
+          the AppImage's while MAICORD_LINUX_RELEASES is 'true') must carry it.
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -12,7 +19,7 @@ jobs:
   deploy:
     name: Deploy the update channels
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     concurrency:
       group: pages
       cancel-in-progress: false
@@ -30,9 +37,110 @@ jobs:
           path: site
           persist-credentials: false
 
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+      - id: artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
 
-      - id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+      # What actions/deploy-pages does, but with the deployed files' own build version. The action sends the workflow's
+      # commit SHA, and Pages answers a second deployment of a version it already deployed with that old deployment,
+      # reporting success while the site keeps the old files: the v0.7.0 release's tag pointed at a commit CI had already
+      # deployed, so the release's channels never went live. Pages accepts only a commit of this repository as the
+      # version, so it is the update-channels commit being deployed: every change of the channels is a new commit, and
+      # deploying the same commit again would serve the same files.
+      - name: Deploy
+        id: deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          version="$(git -C site rev-parse HEAD)"
+          oidc="$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r .value)"
+          echo "::add-mask::$oidc"
+          response="$(jq -n --argjson artifact "$ARTIFACT_ID" --arg version "$version" --arg oidc "$oidc" \
+            '{artifact_id: $artifact, pages_build_version: $version, oidc_token: $oidc}' |
+            gh api --method POST "repos/$GITHUB_REPOSITORY/pages/deployments" --input -)"
+          status_url="$(jq -r .status_url <<< "$response")"
+          echo "page_url=$(jq -r .page_url <<< "$response")" >> "$GITHUB_OUTPUT"
+          echo "Pages deployment $version of artifact $ARTIFACT_ID: $status_url"
+          for _ in $(seq 1 120); do
+            sleep 5
+            status="$(gh api "$status_url" --jq .status)" || { echo "The status request failed; asking again."; continue; }
+            case "$status" in
+              succeed) echo "Deployed $version."; exit 0 ;;
+              deployment_failed|deployment_content_failed|deployment_cancelled|deployment_lost)
+                echo "::error::Pages deployment $version ended with $status."; exit 1 ;;
+              *) echo "Status: $status" ;;
+            esac
+          done
+          gh api --method POST "$status_url/cancel" > /dev/null || true
+          echo "::error::Pages deployment $version did not finish in 10 minutes; it was cancelled."
+          exit 1
+
+      # The live site must serve what was just deployed: every signed manifest of the branch, byte for byte (fetched past
+      # the CDN's cache), and after a release the released version on the stable channels. Pages can take a little while
+      # to serve a new deployment, so this asks for up to five minutes.
+      - name: Check the live channels
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          STABLE_VERSION: ${{ inputs.stable-version }}
+          MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, pathlib, sys, time, urllib.error, urllib.request, uuid
+
+          def fail(message):
+              print(f"::error::{message}", flush=True)
+              sys.exit(1)
+
+          site = pathlib.Path("site")
+          base = os.environ["PAGE_URL"].rstrip("/") + "/"
+          expected = {path.relative_to(site).as_posix(): path.read_bytes()
+                      for path in sorted(site.rglob("*.manifest.json")) if ".git" not in path.parts}
+          if not expected:
+              fail("The update-channels branch holds no manifest to check.")
+          stable = os.environ["STABLE_VERSION"]
+          required = []
+          if stable:
+              required.append("updates/p2/maicord-stable.manifest.json")
+              if os.environ.get("MAICORD_LINUX_RELEASES") == "true":
+                  required += ["updates/p2/linux/maicord-stable.manifest.json",
+                               "updates/p2/linux/appimage/maicord-stable.manifest.json"]
+              for path in required:
+                  if path not in expected:
+                      fail(f"{path} is not on the update-channels branch.")
+                  version = json.loads(expected[path])["version"]
+                  if str(version) != stable:
+                      fail(f"The deployed {path} carries version {version}, not the released {stable}.")
+
+          def live(path):
+              request = urllib.request.Request(f"{base}{path}?deployment={uuid.uuid4().hex}",
+                                               headers={"Cache-Control": "no-cache"})
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      return response.read(), response.headers.get("Last-Modified", "?")
+              except urllib.error.HTTPError as error:
+                  return None, f"HTTP {error.code}"
+              except OSError as error:
+                  return None, str(error)
+
+          deadline = time.monotonic() + 300
+          while True:
+              stale = {}
+              for path, content in expected.items():
+                  served, modified = live(path)
+                  if served != content:
+                      stale[path] = modified
+              if not stale:
+                  break
+              if time.monotonic() > deadline:
+                  for path, modified in stale.items():
+                      print(f"::error::{base}{path} does not serve the deployed file (last modified: {modified}).")
+                  sys.exit(1)
+              print(f"{len(stale)} of {len(expected)} manifests not live yet; asking again in 15 s.")
+              time.sleep(15)
+          print(f"The live site serves the {len(expected)} deployed manifests.")
+          for path in required:
+              print(f"{path}: version {stable}")
+          EOF
