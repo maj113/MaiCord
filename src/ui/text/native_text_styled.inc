@@ -1,23 +1,14 @@
 #include "native_text_decorations.inc"
 namespace {
-bool old_hangul_jamo(u32 cp) noexcept {
-    if(cp<0x1113)return false;
-    return (cp>=0x1113&&cp<=0x1160)||(cp>=0x1176&&cp<=0x11a7)||(cp>=0x11c3&&cp<=0x11ff)||
-        (cp>=0xa960&&cp<=0xa97c)||(cp>=0xd7b0&&cp<=0xd7c6)||(cp>=0xd7cb&&cp<=0xd7fb);
-}
 bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* levels) noexcept {
     arena_reset(&owner.scratch);auto scalars=take<u32>(owner.scratch,text.bytes);
-    if(!scalars.data)return false;u32 count=0;bool tabs=false,old_hangul=false,plain_ltr=true;
-    for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return false;tabs|=cp.codepoint==9;old_hangul|=old_hangul_jamo(cp.codepoint);
+    if(!scalars.data)return false;u32 count=0;bool tabs=false,plain_ltr=true;
+    for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return false;tabs|=cp.codepoint==9;
         const auto type=unicode_properties(cp.codepoint)->bidi_class();plain_ltr=plain_ltr&&native_text_ltr_class(type);
         // Borrow the level output for initial classes until bidi resolution.
         levels[count]=static_cast<u8>(type);scalars[count++]=cp.codepoint;at+=cp.width;}
     auto classes=take<NativeScriptClass>(owner.scratch,count);if(!classes.data)return false;
     if(native_script_resolve({scalars.data,count},classes)!=NativeScriptStatus::ok)return false;
-    if(old_hangul){UnicodeGraphemeState state{};u32 first=0;bool old=false;
-        for(u32 i=0;i<=count;++i){const bool boundary=i==count||unicode_grapheme_boundary(state,scalars[i]);
-            if(boundary){if(old)for(u32 j=first;j<i;++j)if(scalars[j]-0xac00u>=11172)classes[j].flags|=128;first=i;old=false;}
-            if(i<count)old|=old_hangul_jamo(scalars[i]);}}
     if(plain_ltr){for(u32 i=0;i<count;++i)levels[i]=0;}
     else {
     auto cells=take<UnicodeBidiCell>(owner.scratch,count);
@@ -43,9 +34,8 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
     u32 at=text.bytes;u16 previous_script=256;u8 profile=0;
     for(u32 index=count;index;){--index;const auto script=classes[index].script;
         if(static_cast<u8>(script)!=previous_script){profile=native_text_script_profile(script,true);if(!profile)return false;previous_script=static_cast<u8>(script);}
-        const u8 value=(classes[index].flags&128)?static_cast<u8>(old_hangul_script>>3):profile;
         const u32 scalar=scalars[index],width=scalar<0x80?1u:scalar<0x800?2u:scalar<0x10000?3u:4u;const u8 level=levels[index];at-=width;
-        for(u32 i=0;i<width;++i){scripts[at+i]=value;levels[at+i]=level;}
+        for(u32 i=0;i<width;++i){scripts[at+i]=profile;levels[at+i]=level;}
     }return true;
 }
 ConstSlice<u8> prepare_line_reset(NativeTextContext& owner) noexcept {

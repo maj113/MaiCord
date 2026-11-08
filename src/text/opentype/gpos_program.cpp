@@ -69,6 +69,7 @@ SfntStatus sfnt_gpos_program_prepare(const SfntLayout& layout,const SfntGdef& gd
                 s=sfnt_context_open(bytes,lookup.type==7?SfntContextKind::sequence:SfntContextKind::chained,limit,layout.lookup_count,{storage.coverages.data?storage.coverages.data+coverage:nullptr,n.coverages},{storage.classes.data?storage.classes.data+classes:nullptr,n.classes},&storage.contexts.data[context++],subwork,&charged);coverage+=n.coverages;classes+=n.classes;}
             subwork-=charged;if(s!=SfntStatus::ok)return s;
             sfnt_lookup_bounds_add(dest.bounds,lookup.type<=2?storage.basic[basic-1].coverage:lookup.type<=6?storage.attachments[attachment-1].coverage[0]:sfnt_context_first_coverage(storage.contexts[context-1]));
+            if(lookup.type>=4&&lookup.type<=6)sfnt_glyph_digest_add_coverage(dest.second,storage.attachments[attachment-1].coverage[1]);
         }
         s=require_children(dest,layout.lookup_count,selected,closure_work);if(s!=SfntStatus::ok)return s;
         dest.bounds.ready=1;

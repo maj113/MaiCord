@@ -29,12 +29,6 @@ inline bool sfnt_cluster_map_starts(const SfntClusterMap& map,u32 source) noexce
 SfntStatus sfnt_cluster_map_plan(const SfntClusterMap& map,u32 first,u32 last,SfntClusterMerge* output,
                                  u64 work_limit=1000000,u64* work_used=nullptr) noexcept;
 void sfnt_cluster_map_commit(SfntClusterMap* map,const SfntClusterMerge& plan) noexcept;
-// Insert a boundary at a caller-validated source-unit boundary. This can split an
-// already merged cluster; it does not recover consumed glyph source indices.
-// Reserve map.levels work before a surrounding glyph edit. Insufficient work or
-// an invalid source fails before mutation. An existing boundary is a valid no-op.
-// No outstanding merge plan may be committed after this mutation.
-SfntStatus sfnt_cluster_map_split(SfntClusterMap* map,u32 source,u64 work_limit=1000000) noexcept;
 // Export first physical glyph index per source cluster, and optionally one byte
 // per glyph marking that first occurrence (not DirectWrite isClusterStart, which
 // is separate shaping policy). Glyph records begin with SfntClusterGlyph; extra

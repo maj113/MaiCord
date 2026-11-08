@@ -4,7 +4,8 @@
 #include "maicord/text/opentype/layout_directory.hpp"
 #include "maicord/text/shaping/alphabetic_run.hpp"
 #include "maicord/text/opentype/lookup_plan.hpp"
-#include "../opentype/lookup_plan_finish.hpp"
+#include "maicord/text/scripts/syllabic_shape.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 void native_profile_shape_plan(SfntShapePlan& output,const SfntShapePlan& parent,const SfntGposProgram* positioning,
     ConstSlice<u16> substitutions,ConstSlice<u16> roots) noexcept {
@@ -125,6 +126,17 @@ SfntStatus native_profile_roots_prepare(const NativeFontInstance& instance,const
     }
     saved_state.keep=true;substitution=selected[0];positioning=selected[1];return SfntStatus::ok;
 }
+namespace {
+// Whether the Hebrew language system of the GPOS table has a mark feature (HarfBuzz's has_gpos_mark).
+SfntStatus hebrew_mark_positioning(const NativeFontFace& font,bool* output,u32 work) noexcept {
+    *output=false;SfntLayout layout{};auto status=native_layout_open(font,1,layout);if(status==SfntStatus::missing_table)return SfntStatus::ok;if(status!=SfntStatus::ok)return status;
+    const u32 scripts[]{sfnt_tag('h','e','b','r'),sfnt_tag('D','F','L','T'),sfnt_tag('l','a','t','n')};SfntLanguageSelection selection{};
+    status=sfnt_layout_select_language(layout,{scripts,3},sfnt_tag('E','N','G',' '),&selection,work);if(status==SfntStatus::missing_table)return SfntStatus::ok;if(status!=SfntStatus::ok)return status;
+    for(u32 i=0;i<selection.language.feature_indices.count/2;++i){const u32 index=byte_load_be16(selection.language.feature_indices.data+i*2);
+        if(index<layout.feature_count&&byte_load_be32(layout.features.data+2+index*6)==sfnt_tag('m','a','r','k')){*output=true;break;}}
+    return SfntStatus::ok;
+}
+}
 SfntStatus native_alphabetic_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,u32 script,bool independent,Arena* state,Arena* scratch,NativeAlphabeticPlan* out,u32 work) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);
     if(script&&script!=sfnt_tag('l','a','t','n')&&!sfnt_alphabetic_script_supported(script))return SfntStatus::invalid_input;
@@ -132,8 +144,20 @@ SfntStatus native_alphabetic_plan_prepare(const NativeRunPlanStore& store,Native
     const auto* parent=source.parent;const auto* instance=source.instance;const auto* font=source.font;
     ArenaScope saved_state{state,arena_mark(state)},saved_scratch{scratch,arena_mark(scratch)};
     NativeAlphabeticPlan plan{run,parent->substitution_roots,parent->positioning_roots,script,independent};
-    if(script!=sfnt_tag('l','a','t','n')){
-        if(script==sfnt_tag('h','e','b','r')){u16 alef=0;const auto status=sfnt_cmap_glyph(font->cmap,0x5d0,0,&alef);if(status!=SfntStatus::ok)return status;plan.hebrew_preparation=alef!=0;}
+    if(script==sfnt_tag('h','a','n','g')){
+        // hb-ot-shaper-hangul: masked GSUB steps instead of roots; GPOS roots from the same features.
+        plan.substitution_roots={};plan.positioning_roots={};
+        for(u32 kind=0;kind<2;++kind){ArenaScope temporary{scratch,arena_mark(scratch)};SfntLayout layout{};
+            auto status=native_layout_open(*font,kind,layout);if(status==SfntStatus::missing_table)continue;if(status!=SfntStatus::ok)return status;
+            SfntFeatureSubstitutions variations{};status=native_layout_variations(*instance,layout,*scratch,variations,work);if(status!=SfntStatus::ok)return status;
+            auto mask=take<u16>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
+            ConstSlice<SfntLookupStep> steps{};ConstSlice<u16> roots{};
+            status=native_plan_steps(kind,*state,*scratch,[&](Slice<SfntLookupStep> output,SfntLookupPlanResult* result) noexcept {
+                return sfnt_hangul_lookup_plan(layout,variations,independent,mask,output,result,work);},steps,roots);
+            if(status!=SfntStatus::ok)return status;
+            if(kind)plan.positioning_roots=roots;else plan.substitution_steps=steps;}
+    }else if(script!=sfnt_tag('l','a','t','n')){
+        if(script==sfnt_tag('h','e','b','r')){const auto status=hebrew_mark_positioning(*font,&plan.mark_positioning,work);if(status!=SfntStatus::ok)return status;}
         const auto status=native_profile_roots_prepare(*instance,*font,script,independent,*state,*scratch,plan.substitution_roots,plan.positioning_roots,work);if(status!=SfntStatus::ok)return status;}
     const auto status=native_positioning_prepare(*font,*parent,plan.positioning_roots,*state,*scratch,&plan.positioning_program,work);if(status!=SfntStatus::ok)return status;
     saved_state.keep=true;*out=plan;return SfntStatus::ok;

@@ -100,28 +100,6 @@ maicord_font_test(MaiCordClustersTests maicord_clusters_entry text/shaping/clust
 maicord_font_test(MaiCordComponentShapingTests maicord_component_shaping_entry text/opentype/component_shaping_test
         UNICODE
     TEST maicord_native_component_shaping)
-maicord_font_test(MaiCordSinhalaInputTests maicord_sinhala_input_entry text/scripts/sinhala_input_test UNICODE)
-maicord_font_test(MaiCordTibetanInputTests maicord_tibetan_input_entry text/scripts/tibetan_input_test UNICODE)
-maicord_add_tests(MaiCordTibetanInputTests TIMEOUT 2 LABELS native-text-tibetan-input
-    TEST maicord_native_tibetan_input)
-maicord_add_tests(MaiCordSinhalaInputTests TIMEOUT 2 LABELS native-text-sinhala-input
-    TEST maicord_native_sinhala_input)
-maicord_font_test(MaiCordKhmerInputTests maicord_khmer_input_entry text/scripts/khmer_input_test UNICODE TIMEOUT 2
-        LABELS native-text-khmer-input
-    TEST maicord_native_khmer_input)
-maicord_font_test(MaiCordUsePlanTests maicord_use_plan_entry text/scripts/use_plan_test TIMEOUT 2 LABELS
-        native-text-use-plan
-    TEST maicord_native_use_plan)
-maicord_font_test(MaiCordMyanmarInputTests maicord_myanmar_input_entry text/scripts/myanmar_input_test TIMEOUT 2
-        LABELS native-text-myanmar-input
-    TEST maicord_native_myanmar_input)
-maicord_add_tests(MaiCordUsePlanTests TIMEOUT 2 LABELS native-text-tibetan-plan
-    TEST maicord_native_tibetan_plan --tibetan)
-maicord_add_tests(MaiCordUsePlanTests TIMEOUT 2 LABELS native-text-myanmar-plan
-    TEST maicord_native_myanmar_plan --myanmar)
-maicord_font_test(MaiCordKhmerPlanTests maicord_khmer_plan_entry text/scripts/khmer_plan_test TIMEOUT 2 LABELS
-        native-text-khmer-plan
-    TEST maicord_native_khmer_plan)
 maicord_font_test(MaiCordShapeStageTests maicord_shape_stage_entry text/shaping/shape_stage_test TIMEOUT 5 LABELS
         native-text-stages
     TEST maicord_native_shape_stages)

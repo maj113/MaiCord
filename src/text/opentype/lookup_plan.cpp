@@ -32,12 +32,8 @@ struct Builder {
     }
     SfntStatus run(bool independent,bool common=false,u32 script=0) noexcept {
         const u32 first=common?sfnt_tag('D','F','L','T'):sfnt_tag('l','a','t','n'),second=common?sfnt_tag('l','a','t','n'):sfnt_tag('D','F','L','T');
-        const bool jamo=script==sfnt_tag('j','a','m','o');
-        const bool hangul=jamo||script==sfnt_tag('h','a','n','g');
-        const u32 candidates[]{jamo?sfnt_tag('h','a','n','g'):script,first,second};SfntLanguageSelection selection{};u64 remaining=work;
-        // Explicit independent-letter typography enables the normal fallback
-        // feature selection; ordinary Hangul keeps a missing script empty.
-        auto s=sfnt_layout_select_language_prepared(layout,{candidates+(script?0:1),hangul&&!independent?1u:script?3u:2u},sfnt_tag('E','N','G',' '),selection,remaining);work=remaining;result.script_tag=selection.script_tag;
+        const u32 candidates[]{script,first,second};SfntLanguageSelection selection{};u64 remaining=work;
+        auto s=sfnt_layout_select_language_prepared(layout,{candidates+(script?0:1),script?3u:2u},sfnt_tag('E','N','G',' '),selection,remaining);work=remaining;result.script_tag=selection.script_tag;
         if(s==SfntStatus::missing_table)return SfntStatus::ok;if(s!=SfntStatus::ok)return s;
         result.language_found=true;result.language_tag=selection.language_tag;const auto& selected=selection.language;
         const u32 words=(static_cast<u32>(layout.lookup_count)+63)/64;if(bits.count<words)return SfntStatus::output_too_small;if(!spend(&work,words))return SfntStatus::resource_limit;
@@ -85,7 +81,7 @@ bool sfnt_alphabetic_script_supported(u32 script) noexcept {
     switch(script){
         case sfnt_tag('l','a','t','n'):case sfnt_tag('g','r','e','k'):case sfnt_tag('c','y','r','l'):
         case sfnt_tag('h','e','b','r'):case sfnt_tag('h','a','n','i'):case sfnt_tag('k','a','n','a'):
-        case sfnt_tag('h','a','n','g'):case sfnt_tag('j','a','m','o'):case sfnt_tag('a','r','m','n'):
+        case sfnt_tag('h','a','n','g'):case sfnt_tag('a','r','m','n'):
         case sfnt_tag('g','e','o','r'):case sfnt_tag('t','h','a','i'):case sfnt_tag('l','a','o',' '):
         case sfnt_tag('e','t','h','i'):case sfnt_tag('c','h','e','r'):
         case sfnt_tag('e','g','y','p'):case sfnt_tag('r','u','n','r'):return true;

@@ -58,8 +58,7 @@ constexpr SfntIndicProfile form_script_profile(u16 script) noexcept {
 }
 static_assert(form_script_profile(devanagari_script)==SfntIndicProfile::devanagari&&form_script_profile(tamil_script)==SfntIndicProfile::tamil&&
     form_script_profile(odia_script)==SfntIndicProfile::odia&&form_script_profile(telugu_script)==SfntIndicProfile::telugu&&form_script_profile(kannada_script)==SfntIndicProfile::kannada&&form_script_profile(malayalam_script)==SfntIndicProfile::malayalam);
-// The final ID (255) is reserved for the synthetic old-Jamo profile.
-constexpr u16 han_script=80,kana_script=96,hangul_script=112,hiragana_script=120,old_hangul_script=255u<<3,armenian_script=160,georgian_script=176,thai_script=192,lao_script=208;
+constexpr u16 han_script=80,kana_script=96,hangul_script=112,hiragana_script=120,armenian_script=160,georgian_script=176,thai_script=192,lao_script=208;
 struct NativeFormatFont {ConstSlice<u16> family;u32 scope;NativeFontProperties properties;};
 // family_handle fills tail padding (sizeof stays 48). It names the first format
 // owning this exact family/scope/property string.
@@ -342,7 +341,7 @@ const NativeAlphabeticPlan* alphabetic_profile(NativeTextContext& owner,const Bi
         case 8:tag=sfnt_tag('l','a','t','n');break;case 16:tag=sfnt_tag('g','r','e','k');break;
         case 32:tag=sfnt_tag('c','y','r','l');break;case 64:tag=sfnt_tag('h','e','b','r');break;
         case han_script:tag=sfnt_tag('h','a','n','i');break;case hiragana_script:case kana_script:tag=sfnt_tag('k','a','n','a');break;
-        case hangul_script:tag=sfnt_tag('h','a','n','g');break;case old_hangul_script:tag=sfnt_tag('j','a','m','o');break;
+        case hangul_script:tag=sfnt_tag('h','a','n','g');break;
         case armenian_script:tag=sfnt_tag('a','r','m','n');break;case georgian_script:tag=sfnt_tag('g','e','o','r');break;
         case ethiopic_script:tag=sfnt_tag('e','t','h','i');break;case cherokee_script:tag=sfnt_tag('c','h','e','r');break;
         case egyptian_script:case egyptian_missing_script:tag=sfnt_tag('e','g','y','p');break;case runic_script:tag=sfnt_tag('r','u','n','r');break;
@@ -444,7 +443,8 @@ const NativeFormat* resolve_format(const TextSystem& system,TextWrapping wrappin
 NativeAsciiLineStorage storage(Arena& arena,u32 source,u32 glyphs,bool arabic=false,bool full_actions=false) noexcept {
     NativeAsciiLineStorage result{};auto& out=result.run;
     if(!arabic)result.clusters=take<NativeLineCluster>(arena,source);auto& s=out.shaping;
-    s.glyphs=take<SfntComponentGlyph>(arena,glyphs);s.components=take<SfntComponentNode>(arena,source);s.cluster_bits=take<u64>(arena,(source+63)/64*2);
+    // Every initial glyph owns a component node; dotted circles and split vowels can outnumber the source units.
+    s.glyphs=take<SfntComponentGlyph>(arena,glyphs);s.components=take<SfntComponentNode>(arena,maximum(source,glyphs));s.cluster_bits=take<u64>(arena,(source+63)/64*2);
     s.character_glyphs=take<u32>(arena,source);s.targets=take<u32>(arena,glyphs);s.associations=take<SfntMarkAssociation>(arena,glyphs);s.advances=take<double>(arena,glyphs);
     s.flags=take<u8>(arena,glyphs);s.positions=take<SfntPosition>(arena,glyphs);s.placements=take<SfntPlacement>(arena,glyphs);
     // Nested match positions and component undo are reused after each edit.

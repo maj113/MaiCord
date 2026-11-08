@@ -28,10 +28,12 @@ SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyph
         // IDs, classes, nominal metrics or component/source associations, and
         // successful position writes stay finite, so later disjoint roots need only
         // this bounded check. Only mark-class glyphs trigger attachment roots; base
-        // glyph IDs must not widen their coverage test.
+        // glyph IDs must not widen their coverage test. An attachment also needs a
+        // glyph it can attach to (HarfBuzz's digest_second).
         const auto* prepared=sfnt_gpos_lookup(*plan.positioning,root);if(!prepared||!prepared->type)return SfntStatus::invalid_input;const auto& lookup=*prepared;
         const bool marks=lookup.type>=4&&lookup.type<=6;
-        if(index&&((marks&&mark_bounds.first>mark_bounds.last)||sfnt_lookup_bounds_miss(lookup.bounds,marks?mark_bounds:glyph_bounds))){
+        if(index&&((marks&&mark_bounds.first>mark_bounds.last)||sfnt_lookup_bounds_miss(lookup.bounds,marks?mark_bounds:glyph_bounds)||
+                   (marks&&lookup.second.low&&!sfnt_glyph_digest_meets(lookup.second,glyph_bounds.digest)))){
             if(!work)return SfntStatus::resource_limit;--work;++result->lookup_operations;continue;
         }
         const SfntGposProgram* program=plan.positioning;

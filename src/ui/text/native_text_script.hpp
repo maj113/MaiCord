@@ -7,9 +7,9 @@ namespace maicord {
 // scalars use Common shaping and the ordinary missing-glyph route; only an
 // unresolved Inherited item still requires a preceding script owner.
 struct NativeTextScriptProfiles {u8 values[256];};
-// Even profiles from 64 up; 255 is the synthetic old-Jamo profile.
+// Even profiles from 64 up.
 inline constexpr u32 native_simple_script_profile=64;
-static_assert(native_simple_script_profile+2*(simple_script_count-1)<255);
+static_assert(native_simple_script_profile+2*(simple_script_count-1)<=255);
 inline constexpr NativeTextScriptProfiles native_text_script_profiles=[]() constexpr noexcept {
     NativeTextScriptProfiles result{};
     const auto both=[&](UnicodeScript script,u8 profile) constexpr noexcept {

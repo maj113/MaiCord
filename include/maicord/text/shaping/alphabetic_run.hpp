@@ -5,15 +5,16 @@ namespace maicord {
 // parent's for Latin) and any GPOS subset the parent lacks live in the caller's state
 // arena; parent and state must stay live. Horizontal en-US Latin, Greek, Cyrillic,
 // Hebrew, Han, kana, Hangul, Armenian, Georgian, Ethiopic, Cherokee, Runic,
-// unformatted Egyptian and simple_script.hpp; kana composition is left to the font. The internal tag jamo
-// selects old Hangul's ordered feature stages instead of hang; script tag 0 selects
-// the Common frontend.
+// unformatted Egyptian and simple_script.hpp; kana composition is left to the font.
+// Hangul (hang) follows hb-ot-shaper-hangul: masked GSUB steps (sfnt_hangul_lookup_plan)
+// replace the substitution roots. Script tag 0 selects the Common frontend.
 struct NativeAlphabeticPlan {
     NativeRunPlanHandle run;
     ConstSlice<u16> substitution_roots,positioning_roots;
     u32 script_tag;
     bool independent;
-    bool hebrew_preparation;
+    // Hebrew: the GPOS table positions marks; without it Hebrew composes presentation forms.
+    bool mark_positioning;
     bool allow_missing = false;
     const SfntGposProgram* positioning_program=nullptr;
     ConstSlice<SfntLookupStep> substitution_steps{};

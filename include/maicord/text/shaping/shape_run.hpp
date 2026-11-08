@@ -25,8 +25,6 @@ struct SfntShapePlan {
     // The Latin compatibility profile refreshes GDEF classes between top-level
     // substitution roots after edits. Nested actions keep effective classes.
     bool refresh_substitution_classes=false;
-    // Greek/Cyrillic placement policy; independent of cluster maps.
-    bool compensate_consecutive_zeroes=false;
     // The fallback Hebrew placement profile keeps GPOS advance changes made
     // after initial mark/ignorable advances were cleared.
     bool retain_zero_positioning=false;

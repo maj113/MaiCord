@@ -43,7 +43,7 @@ u32 sfnt_coverage_index(const SfntCoverage& coverage,u16 glyph) noexcept {
     return coverage_index(coverage.records,coverage.record_count,coverage.format,glyph);
 }
 // Ranges set every covered residue; a span of 64 or more saturates its level.
-void sfnt_lookup_bounds_add(SfntLookupBounds& bounds,const SfntCoverage& coverage) noexcept {
+__attribute__((minsize)) void sfnt_glyph_digest_add_coverage(SfntGlyphDigest& digest,const SfntCoverage& coverage) noexcept {
     if(!coverage.covered_count)return;
     const auto span=[](u32 first,u32 last) noexcept {
         const u32 n=last-first+1,at=first&63;if(n>=64)return ~u64{0};
@@ -52,11 +52,19 @@ void sfnt_lookup_bounds_add(SfntLookupBounds& bounds,const SfntCoverage& coverag
     const u32 stride=coverage.format==1?2u:6u;
     for(u32 i=0;i<coverage.record_count;++i){
         const u16 first=read(coverage.records,i*stride),last=coverage.format==1?first:read(coverage.records,i*stride+2);
-        bounds.digest.low|=span(first,last);bounds.digest.high|=span(first>>6,last>>6);
-        bounds.first=minimum(bounds.first,first);bounds.last=maximum(bounds.last,last);
+        digest.low|=span(first,last);digest.high|=span(first>>6,last>>6);
     }
 }
-SfntStatus sfnt_coverage_glyph(const SfntCoverage& coverage,u32 index,u16* glyph) noexcept {
+__attribute__((minsize)) void sfnt_lookup_bounds_add(SfntLookupBounds& bounds,const SfntCoverage& coverage) noexcept {
+    if(!coverage.covered_count)return;
+    sfnt_glyph_digest_add_coverage(bounds.digest,coverage);
+    const u32 stride=coverage.format==1?2u:6u;
+    for(u32 i=0;i<coverage.record_count;++i){
+        bounds.first=minimum(bounds.first,read(coverage.records,i*stride));
+        bounds.last=maximum(bounds.last,coverage.format==1?read(coverage.records,i*stride):read(coverage.records,i*stride+2));
+    }
+}
+__attribute__((minsize)) SfntStatus sfnt_coverage_glyph(const SfntCoverage& coverage,u32 index,u16* glyph) noexcept {
     if(!glyph)return SfntStatus::invalid_input;*glyph=0;
     if(coverage.format!=1 && coverage.format!=2)return SfntStatus::invalid_input;
     if(index>=coverage.covered_count)return SfntStatus::glyph_out_of_range;

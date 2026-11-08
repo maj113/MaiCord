@@ -45,11 +45,18 @@ unassigned planes share one plane's top-index blocks, and reconstruction is
 verified at every code point. Tables are static and allocate
 nothing. Enum values and layout are tied to the pinned data version.
 
-`python -I tools/unicode/tibetan_categories.py --ucd <UCD.zip>` derives the
-Tibetan cluster categories (`src/text/unicode/generated/tibetan_categories.inc`) from
-the same pinned archive: Indic syllabic and positional categories, General
-Category, canonical combining classes and decompositions, by the rules in the
-script.
+`python -I tools/unicode/syllabic_categories.py --ucd <UCD.zip> --harfbuzz <harfbuzz-15.0.0/src>`
+derives the Khmer, Myanmar and Universal Shaping Engine categories
+(`src/text/unicode/generated/syllabic_categories.inc`) from the same pinned archive and
+HarfBuzz's two pinned `ms-use` override files, by the rules of HarfBuzz's
+`gen-indic-table.py` and `gen-use-table.py`. `tools/syllable_machines.py` turns
+HarfBuzz's Ragel grammars into the syllable machines that read them.
+
+`python -I tools/unicode/canonical_data.py --ucd <UCD.zip>` writes the one-step
+canonical decompositions and primary compositions
+(`src/text/unicode/generated/canonical_data.inc`) that the alphabetic shaper's
+HarfBuzz-style normalization reads. Hangul syllables are algorithmic and CJK
+compatibility ideographs are left out (font fallback maps them directly).
 
 ### Independent verification
 

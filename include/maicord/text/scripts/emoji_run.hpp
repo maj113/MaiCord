@@ -34,7 +34,10 @@ SfntStatus native_emoji_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHand
 // arabic_join_controls preserves the resolved Arabic item's join-control
 // source boundaries and suppression policy in the emoji face, independent of
 // bidi direction (an Arabic-context emoji can have an even level). It does not
-// change the Common emoji feature roots.
+// change the Common emoji feature roots. Such an item of one grapheme laid out
+// left to right is shaped as HarfBuzz shapes an Arabic run against its direction
+// (hb_ensure_native_direction): shaped right to left and published left to
+// right; the source map scratch borrows character_glyphs.
 // Independent non-mark inputs use nominal metrics only after proving that no
 // selected GSUB/GPOS root covers any input glyph; uncertain cases keep full
 // shaping. Both paths fill shaping.flags. Coverage proofs have a separate

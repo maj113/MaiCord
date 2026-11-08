@@ -4,6 +4,7 @@
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
+#include "native_direction.hpp"
 namespace maicord {namespace {
 // A root cannot execute without a covered first glyph. A glyph uncovered by
 // every selected root bypasses substitution and positioning; an unknown result
@@ -66,6 +67,14 @@ SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPla
     if(!parent||!prepared.cmap||!filled(prepared.substitution_roots)||!filled(prepared.positioning_roots)||(text.bytes&&!text.data)||!em_bits||em_bits>=0x7f800000u||em>65536||!filled(s.mapped)||!filled(s.glyphs)||!filled(s.placements)||!filled(s.character_glyphs)||
        !filled(s.shaping.advances)||!filled(s.shaping.targets))return SfntStatus::invalid_input;
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;u32 mapped=0,units=0,boundaries=0;bool controls=false,simple=true;u16 misses[4]{};u32 cached=0,next_miss=0;u64 proof_work=limits.stage_work;
+    // An Arabic-script item laid out left to right is shaped as HarfBuzz does (hb_ensure_native_direction): its
+    // graphemes reversed and shaped right to left, then published left to right. Only an item of one grapheme
+    // takes it (a ZWJ sequence keeps its glyphs in HarfBuzz's visual order, as one cluster); several graphemes
+    // would leave the paragraph's left-to-right cluster order.
+    const bool reversed=arabic&&!rtl&&native_direction::reverses(text)&&[&]() noexcept {
+        u32 previous=0;for(u32 at=0;at<text.bytes;){const auto decoded=utf8_decode_one(text.data+at,text.bytes-at);if(!decoded.valid)return false;
+            if(at&&!native_direction::continues(decoded.codepoint,previous))return false;previous=decoded.codepoint;at+=decoded.width;}
+        return true;}();
     SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,prepared.substitution_roots,prepared.positioning_roots);plan.position_instance.round_variable_anchors=true;
     auto* provenance=reinterpret_cast<u32*>(s.shaping.advances.data);const u64 provenance_units=static_cast<u64>(s.shaping.advances.count)*sizeof(double)/sizeof(u32);
     u32 previous_scalar=0;
@@ -104,6 +113,8 @@ SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPla
         units+=(cp>65535?2u:1u)+(variation?(next.codepoint>65535?2u:1u):0u);at+=scalar.width+(variation?next.width:0u);previous_scalar=variation?next.codepoint:cp;
     }
     if(units>s.character_glyphs.count)return SfntStatus::output_too_small;if(!mapped)return SfntStatus::ok;
+    // One grapheme reversed is itself; HarfBuzz keeps it one cluster.
+    if(reversed){simple=false;boundaries=1;}
     if(simple){if(!filled(s.shaping.flags))return SfntStatus::invalid_input;if(mapped>s.glyphs.count||mapped>s.placements.count||mapped>s.shaping.flags.count)return SfntStatus::output_too_small;
         const auto scale=_mm_div_ss(_mm_set_ss(em),_mm_set_ss(static_cast<float>(plan.units_per_em)));u32 previous=0xffffffffu;float advance=0;
         for(u32 i=0;i<mapped;++i){const auto& g=s.mapped[i];if(previous!=g.glyph.glyph){double metric=0;const auto status=plan.advance(plan.metric_context,g.glyph.glyph,&metric);if(status!=SfntStatus::ok)return status;
@@ -114,8 +125,11 @@ SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPla
         *out={mapped,units,1,0,0};return SfntStatus::ok;
     }
     Controls policy{&plan.gdef,provenance,units,prepared.space_glyph,{{s.shaping.components.data,mapped},false,false},sfnt_cluster_map_frame(s.shaping.cluster_bits.data,units),arabic};
-    SfntShapeRunResult result{};const auto status=sfnt_shape_run(plan,{s.mapped.data,mapped},units,{s.shaping.targets.data,boundaries},rtl,em,s.shaping,&result,limits,{}, {},controls?SfntShapeGlyphPolicy{&policy,finish_controls}:SfntShapeGlyphPolicy{});
+    SfntShapeRunResult result{};auto status=sfnt_shape_run(plan,{s.mapped.data,mapped},units,{s.shaping.targets.data,boundaries},rtl||reversed,em,s.shaping,&result,limits,{}, {},controls?SfntShapeGlyphPolicy{&policy,finish_controls}:SfntShapeGlyphPolicy{});
     out->lookup_operations=result.lookup_operations;if(status!=SfntStatus::ok)return status;
+    // Hidden controls become the space glyph without horizontal offset after positioning (finish_controls).
+    if(controls)for(u32 i=0;i<result.glyph_count;++i)if(s.shaping.glyphs[i].glyph.reserved&1){s.shaping.glyphs[i].glyph.glyph=policy.space;s.shaping.placements[i].advance_offset=0;}
+    if(reversed){status=native_direction::publish_left_to_right(text,units,s.shaping,result.glyph_count,limits.stage_work);if(status!=SfntStatus::ok)return status;}
     if(result.glyph_count>s.glyphs.count||result.glyph_count>s.placements.count)return SfntStatus::output_too_small;
     if(s.character_glyphs.data!=s.shaping.character_glyphs.data)copy_bytes(s.character_glyphs.data,s.shaping.character_glyphs.data,static_cast<usize>(units)*sizeof(u32));
     if(s.placements.data!=s.shaping.placements.data)copy_bytes(s.placements.data,s.shaping.placements.data,static_cast<usize>(result.glyph_count)*sizeof(SfntPlacement));

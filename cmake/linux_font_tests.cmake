@@ -68,14 +68,9 @@ maicord_font_test(MaiCordSimulationPlanTests maicord_simulation_plan_entry text/
     TEST maicord_native_simulation_plans "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Orbitron.ttf")
 maicord_font_test(MaiCordLatinRunTests maicord_latin_run_entry text/scripts/latin_run_test
     TEST maicord_native_latin_guards)
-maicord_font_test(MaiCordSinhalaShapeTests maicord_sinhala_shape_entry text/scripts/sinhala_shape_test UNICODE TIMEOUT 2
-    LABELS native-text-sinhala-shape TEST maicord_native_sinhala_shape)
-maicord_font_test(MaiCordKhmerShapeTests maicord_khmer_shape_entry text/scripts/khmer_shape_test UNICODE TIMEOUT 2
-    LABELS native-text-khmer-shape TEST maicord_native_khmer_shape)
-maicord_font_test(MaiCordTibetanShapeTests maicord_tibetan_shape_entry text/scripts/tibetan_shape_test UNICODE TIMEOUT 2
-    LABELS native-text-tibetan-shape TEST maicord_native_tibetan_shape)
-maicord_font_test(MaiCordMyanmarShapeTests maicord_myanmar_shape_entry text/scripts/myanmar_shape_test UNICODE TIMEOUT 2
-    LABELS native-text-myanmar-shape TEST maicord_native_myanmar_shape)
+# The HarfBuzz cluster-start corpora; the owned system-font modes need the Windows fonts.
+maicord_font_test(MaiCordSyllabicShapeTests maicord_syllabic_shape_entry text/scripts/syllabic_shape_test UNICODE TIMEOUT 5
+    LABELS native-text-syllabic TEST maicord_native_syllabic_shape)
 maicord_font_test(MaiCordEmojiRunTests maicord_emoji_run_entry text/scripts/emoji_run_test TIMEOUT 5
     LABELS native-text-emoji-run TEST maicord_native_emoji_runs)
 maicord_font_test(MaiCordEmojiLineTests maicord_emoji_line_entry text/scripts/emoji_line_test TEST maicord_native_emoji_lines)

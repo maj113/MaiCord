@@ -143,8 +143,9 @@ maicord_compact_sources(
         src/text/fonts/axes.cpp src/text/fonts/session.cpp
         src/ui/text/native_text_catalog.cpp
         # Run once per font instance, script and feature set (the plans are
-        # cached): lookup selection and planning, and nominal participation.
-        src/text/opentype/lookup_plan.cpp src/text/scripts/use_plan.cpp src/text/scripts/devanagari_plan.cpp src/text/scripts/arabic_plan.cpp
+        # cached): the layout directory, lookup selection and planning, and
+        # nominal participation.
+        src/text/opentype/lookup_plan.cpp src/text/scripts/syllabic_plan.cpp src/text/scripts/devanagari_plan.cpp src/text/scripts/arabic_plan.cpp
         src/text/scripts/indic_run_plan.cpp src/text/scripts/arabic_run_plan.cpp src/text/opentype/lookup_selection.cpp
         src/text/opentype/layout_variations.cpp src/text/opentype/nominal_participation.cpp src/text/opentype/nominal_sources.cpp
         src/text/opentype/layout_directory.cpp

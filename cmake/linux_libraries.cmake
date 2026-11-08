@@ -91,7 +91,7 @@ maicord_library(maicord_notification_pcm src/media/audio/notification_pcm.cpp
 maicord_library(maicord_unicode
     src/text/scripts/arabic_joining.cpp src/text/unicode/line_break.cpp src/text/unicode/thai_word_break.cpp
     src/text/unicode/thai_lexical.cpp src/text/unicode/thai_syllable.cpp src/text/unicode/bidi_tailored.cpp
-    src/text/unicode/unicode.cpp src/text/unicode/grapheme.cpp src/text/unicode/bidi.cpp
+    src/text/unicode/unicode.cpp src/text/unicode/canonical.cpp src/text/unicode/grapheme.cpp src/text/unicode/bidi.cpp
     LIBS maicord_core maicord_compression maicord_media_codec)
 # unicode.cpp and thai_lexical.cpp #embed their tables.
 target_compile_options(maicord_unicode PRIVATE -Wno-c23-extensions)
@@ -100,15 +100,11 @@ target_compile_options(maicord_unicode PRIVATE -Wno-c23-extensions)
 # (include/maicord/os/file.hpp); handle_stat.cpp has a Linux twin under src/text/fonts/linux.
 maicord_library(maicord_font
     src/text/scripts/arabic_shape_run.cpp src/text/scripts/arabic_marks.cpp src/text/scripts/arabic_plan.cpp
-    src/text/scripts/devanagari_plan.cpp src/text/scripts/use_plan.cpp src/text/scripts/sinhala_input.cpp
-    src/text/scripts/tibetan_input.cpp src/text/shaping/cluster_run.cpp src/text/scripts/tibetan_shape_cluster.cpp
-    src/text/scripts/khmer_input.cpp src/text/scripts/myanmar_shape_cluster.cpp src/text/scripts/myanmar_input.cpp
-    src/text/scripts/khmer_shape_cluster.cpp src/text/scripts/sinhala_shape_cluster.cpp
-    src/text/scripts/devanagari_forms.cpp
- src/text/shaping/script_paragraphs.cpp
-    src/text/scripts/indic_run_plan.cpp
- src/text/shaping/compact_run.cpp src/text/scripts/indic_syllables.cpp src/text/scripts/indic_shape.cpp
- src/text/opentype/tt_orientation.cpp
+    src/text/scripts/devanagari_plan.cpp src/text/scripts/syllabic_plan.cpp src/text/scripts/syllabic_shape.cpp
+    src/text/shaping/cluster_run.cpp
+    src/text/scripts/devanagari_forms.cpp src/text/shaping/script_paragraphs.cpp src/text/scripts/indic_run_plan.cpp
+    src/text/scripts/indic_syllables.cpp src/text/scripts/indic_shape.cpp src/text/shaping/compact_run.cpp
+    src/text/opentype/tt_orientation.cpp
     src/text/opentype/tt_bold_points.cpp src/text/fonts/session.cpp src/text/fonts/prepare.cpp
     src/text/opentype/gpos_cursive_execute.cpp src/text/opentype/position_anchor.cpp
     src/text/opentype/gpos_mark_execute.cpp src/text/opentype/gpos_ligature_execute.cpp
@@ -123,7 +119,7 @@ maicord_library(maicord_font
     src/text/opentype/glyph_buffer.cpp src/text/opentype/context.cpp src/text/opentype/gsub.cpp
     src/text/opentype/layout_directory.cpp src/text/opentype/lookup_plan.cpp
     src/text/opentype/nominal_participation.cpp src/text/opentype/nominal_sources.cpp src/text/scripts/ascii_run.cpp
-    src/text/scripts/latin_run.cpp src/text/scripts/hebrew_shape_run.cpp src/text/shaping/run_profile.cpp
+    src/text/scripts/latin_run.cpp src/text/shaping/run_profile.cpp
     src/text/scripts/emoji_run.cpp src/text/scripts/emoji_line.cpp src/text/scripts/emoji_paragraph.cpp
     src/text/layout/visibility.cpp src/text/unicode/script_class.cpp src/text/layout/unicode_line_geometry.cpp
     src/text/scripts/latin_line.cpp src/text/scripts/latin_paragraph.cpp src/text/scripts/ascii_line.cpp
@@ -144,7 +140,7 @@ set_property(SOURCE APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
 # line geometry keep their short loops rolled, as in the Windows build (cmake/libraries.cmake has the measurements).
 get_target_property(maicord_rolled_sources maicord_font SOURCES)
 list(FILTER maicord_rolled_sources INCLUDE REGEX
-    "/(opentype/(sfnt|cff_|tt_|truetype_outline|colr_|cpal|gvar|variation_store|metric_variations|layout_directory|layout_tables|gdef|layout_variations|lookup_selection|nominal_)|scripts/(hebrew|sinhala|tibetan|khmer|myanmar|tamil)|layout/unicode_line_geometry)")
+    "/(opentype/(sfnt|cff_|tt_|truetype_outline|colr_|cpal|gvar|variation_store|metric_variations|layout_directory|layout_tables|gdef|layout_variations|lookup_selection|nominal_)|scripts/hebrew|layout/unicode_line_geometry)")
 set_property(SOURCE ${maicord_rolled_sources} APPEND PROPERTY COMPILE_OPTIONS -fno-unroll-loops)
 
 # The system font locator (include/maicord/platform/font): fontconfig through dlopen with a directory scan as the

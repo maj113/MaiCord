@@ -32,11 +32,8 @@ SfntStatus sfnt_common_lookup_plan(const SfntLayout& layout,const SfntFeatureSub
     Slice<u64> scratch,Slice<u16> lookup_indices,SfntLookupPlanResult* result,u64 work_limit=1000000,bool independent_letters=false) noexcept;
 // Scripts accepted by sfnt_alphabetic_script_supported share the feature policy
 // above: the requested script, then latn, then DFLT; ENG then DefaultLangSys.
-// Ordinary Hangul does not fall through when hang is absent; independent
-// typography enables the fallback. The internal jamo profile selects hang GSUB
-// features in ccmp/ljmo/vjmo/tjmo order, deduplicating within each stage but
-// keeping repeated lookup IDs across stages; required features run in the first
-// stage. Output capacity counts every emitted entry.
+// Output capacity counts every emitted entry. (Hangul GSUB uses the masked
+// sfnt_hangul_lookup_plan instead.)
 SfntStatus sfnt_alphabetic_lookup_plan(const SfntLayout&,const SfntFeatureSubstitutions&,u32 script_tag,bool independent,
     Slice<u64> scratch,Slice<u16> lookup_indices,SfntLookupPlanResult*,u64 work_limit=1000000) noexcept;
 // A shaper feature that matches joiners manually (HarfBuzz F_MANUAL_ZWJ: 1, F_MANUAL_ZWNJ: 2).
