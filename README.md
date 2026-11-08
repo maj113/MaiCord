@@ -33,7 +33,7 @@ No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 
 - **Native.** Freestanding C++23 (no STL, CRT, exceptions or RTTI). MaiCord shapes and rasterizes its own text and
   draws its own interface with Direct3D 11 on Windows and OpenGL ES on Wayland.
-- **Small.** One executable of about 6.3 MB on each system, and a download of 5.4 MB on Windows.
+- **Small.** One executable of about 6.3 MB on each system, and a download of 5.2 MB on Windows.
 - **Quiet.** Nothing redraws while nothing changes: no CPU time measured over 20 s of idle.
 - **Yours.** Themes, GPU background effects and native plugins, from a reviewed catalog or your own files.
 
@@ -42,7 +42,7 @@ No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 
 | | Windows | Linux |
 | --- | --- | --- |
-| Download | 5.4 MB zip, portable | 5.3 MB tarball or 5.9 MB AppImage |
+| Download | 5.2 MB zip, portable | 5.3 MB tarball or 5.9 MB AppImage |
 | Executable | one 6.25 MB EXE | one 6.3 MB program |
 | On disk | the EXE plus its profile fonts and license notices, ~9 MB together | the same, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows | the C library, and what a desktop has: OpenSSL, Wayland, EGL and GLES |
