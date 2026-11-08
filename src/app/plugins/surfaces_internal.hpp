@@ -112,7 +112,4 @@ mc_status read_shared_group_dms(u64 user_id, u64* out, u32 capacity, u32* count)
 // The id a descriptor button's slot node carries as action_id: bit 63 set, the button index below.
 inline constexpr u64 kButtonAction = 1ull << 63;
 
-// Runs one timed call and returns its microseconds. Shared by both files.
-u64 elapsed_us(i64 begin) noexcept;
-
 } // namespace maicord::plugin_surfaces_detail

@@ -44,8 +44,6 @@ struct PluginBinding {
     u64 permissions;
     // One allocation: state, the settings block, setting text and the staging area.
     u8* data;
-    u32 data_bytes;
-    u32 state_bytes, settings_bytes;
     // Where each text setting keeps its characters, within data.
     u32 text_offsets[MC_SETTING_MAX];
     u32 text_end;
@@ -58,6 +56,8 @@ struct PluginBinding {
     u64 settings_dirty_since;
     bool started, hooks_published, struck_out;
     u32 calls, strikes;
+    // The ledger's microseconds of the last call that returned (0 without a ledger): what a decorate pass charges.
+    u64 last_call_us;
     // Network: bit i set = the user approved descriptor.network[i]. generation tells this enable from
     // an earlier one of the same owner, so a finished request never reaches a later enable.
     u32 approved_hosts;

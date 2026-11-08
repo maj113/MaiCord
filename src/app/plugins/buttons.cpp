@@ -4,7 +4,6 @@
 #include "surfaces_internal.hpp"
 #include "maicord/app/plugins/call_ledger.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/ui/plugins/slots.hpp"
 
 namespace maicord {
@@ -43,14 +42,15 @@ struct VisibleCall {
         return MC_OK;
     }
 };
-// A predicate that overruns its budget counts as "hidden".
-bool run_visible(Plugin& plugin, u32 index, const mc_message* message) noexcept {
+// A predicate that overruns its budget counts as "hidden". A call it made adds its microseconds to *spent_us.
+bool run_visible(Plugin& plugin, u32 index, const mc_message* message, u64* spent_us = nullptr) noexcept {
     const mc_button_def& def = definition(plugin, index);
     if (plugin.binding->struck_out) return false;
     const mc_button_event event{g_channel_id, g_guild_id, message, index, 0};
     VisibleCall call{def.visible, &event, false};
     const PluginCallResult ran = plugin_binding_call(plugin.binding, PluginCallKind::decorate,
                                                      PluginCallClass::decorate, 0, VisibleCall::run, &call);
+    if (spent_us) *spent_us += plugin.binding->last_call_us;
     return !ran.overran && call.shown;
 }
 
@@ -83,12 +83,6 @@ struct ClickCall {
         return call->function(ctx, call->event);
     }
 };
-
-Plugin* by_owner(u64 owner_id) noexcept {
-    for (u32 i = 0; i < g_plugin_count; ++i)
-        if (g_plugins[i].binding->owner_id == owner_id) return &g_plugins[i];
-    return nullptr;
-}
 
 } // namespace
 
@@ -203,10 +197,8 @@ bool buttons_popover(PluginDecoratePass* pass, const PluginMessageInput& message
             built = true;
         }
         u32 bits = 0;
-        const i64 begin = clock_now();
         for (u32 i = 0; i < plugin.button_count; ++i)
-            if ((asking >> i & 1u) && run_visible(plugin, i, &in)) bits |= 1u << i;
-        pass->spent_us += elapsed_us(begin);
+            if ((asking >> i & 1u) && run_visible(plugin, i, &in, &pass->spent_us)) bits |= 1u << i;
         ++pass->calls;
         if (!memory) memory = &plugin.visible[plugin.visible_next++ % kPopoverMemory];
         *memory = {message.message_id, message.revision, bits};
@@ -236,7 +228,7 @@ u32 buttons_overflow(u64 message_id, u32 bar, Slice<PluginButtonRef> output) noe
 
 bool buttons_activate(u64 owner_id, const PluginSurfaceTarget& target, u64 action_id,
                       const PluginMessageInput* message) noexcept {
-    Plugin* plugin = by_owner(owner_id);
+    Plugin* plugin = find_plugin(owner_id);
     const u64 index = action_id & ~kButtonAction;
     if (!plugin || index >= plugin->button_count || plugin->binding->struck_out) return false;
     const mc_button_def& def = definition(*plugin, static_cast<u32>(index));

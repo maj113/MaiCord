@@ -118,23 +118,18 @@ struct PluginImage {
 #endif
 };
 
-// Opens leaf (a file name in the pinned directory) without following links and checks it. Windows checks the PE
-// headers, holds the file open against writes and maps it; Linux copies the bytes it hashed into a sealed memory
-// file, checks the ELF headers, dynamic section and symbols on that copy and dlopen()s the copy, so what was hashed
-// and checked is exactly what is mapped. Either way the descriptor is then validated. approved must contain every
-// permission the descriptor needs; on any failure nothing stays loaded. The pin's directory on Linux must be the
-// file's parent still (its final path is compared), the file regular, the user's and not writable by others.
+// Opens leaf (a file name in the pinned directory) without following links and checks it. The file's bytes are read
+// once, hashed (sha256) and checked from memory: Windows checks the PE headers on them, holds the file open against
+// writes and maps it; Linux moves them into a sealed memory file, checks the ELF headers, dynamic section and symbols
+// on that copy and dlopen()s the copy, so what was hashed and checked is exactly what is mapped. Either way the
+// descriptor is then validated. approved must contain every permission the descriptor needs; on any failure nothing
+// stays loaded. The pin's directory on Linux must be the file's parent still (its final path is compared), the file
+// regular, the user's and not writable by others.
 PluginLoadResult plugin_image_load(PluginImage*, const PluginDirectory&, const ConstSlice<wchar_t>& leaf,
                                    u64 approved_permissions, const u8* sha256 = nullptr) noexcept;
 // FreeLibrary or dlclose, and reset. The caller stopped the plugin and removed its hooks first.
 PluginLoadResult plugin_image_unload(PluginImage*) noexcept;
 
-#if defined(_WIN32)
-// The checks plugin_image_load applies, on their own, for tests and tooling:
-// headers (bytes of the file's first kilobytes are enough for sections and the
-// export names are read through file), then the descriptor inside a mapped image.
-PluginLoadResult plugin_pe_check(HANDLE file, u64 file_bytes, PluginImage* output) noexcept;
-#endif
 // The descriptor rules, on a loaded image: image is where the image's first byte is mapped.
 PluginLoadResult plugin_descriptor_check(const u8* image, const PluginImage& pe, const mc_descriptor* descriptor,
                                          PluginInfo* info, u64* permissions) noexcept;

@@ -6,7 +6,6 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/plugins/render.hpp"
 #include "maicord/ui/plugins/slots.hpp"
@@ -30,6 +29,12 @@ static_assert(kUiPluginRenderBadges == MC_DECORATION_BADGES && kUiPluginRenderAc
 constexpr u32 kEntries[kKinds] = {256, 128, 64, 32, 4};
 constexpr u32 kArenaBytes[kKinds] = {96u << 10, 24u << 10, 8u << 10, 4u << 10, 3u << 10};
 constexpr u32 kProbe = 4;
+// Every table is a power of two that holds a whole probe, so a probe never wraps onto itself.
+static_assert([] {
+    for (const u32 entries : kEntries)
+        if (entries < kProbe || (entries & (entries - 1))) return false;
+    return true;
+}());
 constexpr u32 kStale = ~0u;
 
 // ---- Records ---------------------------------------------------------------------------------------
@@ -223,7 +228,8 @@ void encode(Sink& s, const mc_decoration& d, u32 total) noexcept {
             record.text = static_cast<u16>(node.text.bytes);
             record.tooltip = static_cast<u16>(node.tooltip.bytes);
             record.value = static_cast<u16>(node.value.bytes);
-            record.icon = node.icon.bytes ? plugin_icon({node.icon.data, node.icon.bytes}) : kNoIcon;
+            // The measuring pass (no output) needs only the size: the icon name is looked up once, when written.
+            record.icon = s.out && node.icon.bytes ? plugin_icon({node.icon.data, node.icon.bytes}) : kNoIcon;
             record.kind = static_cast<u8>(node.kind);
             record.tone = static_cast<u8>(node.tone);
             s.put(&record, sizeof(record));
@@ -291,18 +297,22 @@ u64 rank(const Cache& cache, const Entry& entry) noexcept {
 
 Entry* find(Cache& cache, u64 key, u64 scope, bool create) noexcept {
     const u32 at = home(key, scope);
-    Entry* victim = nullptr;
-    u64 lowest = ~0ull;
-    for (u32 i = 0; i < kProbe && i <= cache.mask; ++i) {
+    for (u32 i = 0; i < kProbe; ++i) {
         Entry& entry = cache.entries[(at + i) & cache.mask];
         if (entry.state && entry.key == key && entry.scope == scope && resident(cache, entry)) return &entry;
+    }
+    if (!create) return nullptr;
+    // The probe's lowest-ranked slot makes room.
+    Entry* victim = nullptr;
+    u64 lowest = ~0ull;
+    for (u32 i = 0; i < kProbe; ++i) {
+        Entry& entry = cache.entries[(at + i) & cache.mask];
         const u64 r = rank(cache, entry);
         if (r < lowest) {
             lowest = r;
             victim = &entry;
         }
     }
-    if (!create) return nullptr;
     reset_value(victim);
     return victim;
 }
@@ -633,9 +643,8 @@ bool evaluate(PluginDecoratePass* pass, u32 kind, u64 key, u64 scope, u32 revisi
             hidden.platforms = 0;
             in = &hidden;
         }
-        const i64 begin = clock_now();
         const PluginCallResult ran = call_kind(plugin, kind, in, &output);
-        pass->spent_us += elapsed_us(begin);
+        pass->spent_us += plugin.binding->last_call_us;
         ++pass->calls;
         // A failed, overrunning or invalid answer is "decorates nothing": cached, so it isn't asked every pass.
         const bool good = !ran.overran && ran.status == MC_OK && decoration_ok(output);
@@ -666,16 +675,8 @@ u32 user_revision(const PluginUserInput& u) noexcept {
 }
 bool prepare_user(PluginDecoratePass* pass, const PluginUserInput& u) noexcept {
     mc_user in{};
-    in.user_id = u.user_id;
-    in.guild_id = u.guild_id;
-    in.channel_id = u.channel_id;
+    fill_user(u, &in);
     in.where = u.where;
-    in.flags = u.flags;
-    in.relationship = u.relationship;
-    in.presence = u.presence;
-    in.platforms = u.platforms;
-    in.name = {u.name.data, u.name.bytes, 0};
-    in.username = {u.username.data, u.username.bytes, 0};
     // The author's name affixes ride on the message's decoration, found through this memo.
     if (u.where == kPluginUserMessageAuthor && u.message_id) author_slot(u.message_id) = {u.message_id, u.user_id};
     return evaluate(pass, kKindUser, u.user_id, u.where, user_revision(u), 1u << u.where, &in);
@@ -688,14 +689,7 @@ u32 entity_revision(u64 a, u64 b, u64 c, u64 d, Utf8View name) noexcept {
 }
 bool prepare_channel(PluginDecoratePass* pass, const PluginChannelInput& c) noexcept {
     mc_channel in{};
-    in.channel_id = c.channel_id;
-    in.guild_id = c.guild_id;
-    in.parent_id = c.parent_id;
-    in.self_permissions = c.self_permissions;
-    in.type = c.type;
-    in.flags = c.flags;
-    in.mention_count = c.mention_count;
-    in.name = {c.name.data, c.name.bytes, 0};
+    fill_channel(c, &in);
     return evaluate(pass, kKindChannel, c.channel_id, 0,
                     entity_revision(c.guild_id, c.self_permissions, (static_cast<u64>(c.type) << 32) | c.flags,
                                     c.mention_count, c.name),
@@ -791,9 +785,7 @@ struct ActionCall {
 bool activate(u64 owner_id, const PluginSurfaceTarget& target, u64 action_id, const PluginMessageInput* message) noexcept {
     if (!action_id) return false;
     if (action_id & kButtonAction) return buttons_activate(owner_id, target, action_id, message);
-    Plugin* plugin = nullptr;
-    for (u32 i = 0; i < g_plugin_count && !plugin; ++i)
-        if (g_plugins[i].binding->owner_id == owner_id) plugin = &g_plugins[i];
+    Plugin* plugin = find_plugin(owner_id);
     if (!plugin || !plugin->action || plugin->binding->struck_out) return false;
     NodeSource sources[2];
     const u32 source_count = node_sources(target, sources);
@@ -854,12 +846,6 @@ PluginSurfaceHost g_published;
 
 namespace plugin_surfaces_detail {
 
-u64 elapsed_us(i64 begin) noexcept {
-    static Clock clock;
-    if (!clock.frequency) clock = clock_initialize();
-    return clock_microseconds(clock, begin, clock_now());
-}
-
 bool text_valid(const mc_str& text, u32 maximum) noexcept { return text_ok(text, maximum); }
 
 void fill_message(const PluginMessageInput& m, mc_message* in) noexcept {
@@ -883,6 +869,12 @@ void fill_message(const PluginMessageInput& m, mc_message* in) noexcept {
 Plugin* find_plugin(const PluginBinding* binding) noexcept {
     for (u32 i = 0; i < g_plugin_count; ++i)
         if (g_plugins[i].binding == binding) return &g_plugins[i];
+    return nullptr;
+}
+
+Plugin* find_plugin(u64 owner_id) noexcept {
+    for (u32 i = 0; i < g_plugin_count; ++i)
+        if (g_plugins[i].binding->owner_id == owner_id) return &g_plugins[i];
     return nullptr;
 }
 

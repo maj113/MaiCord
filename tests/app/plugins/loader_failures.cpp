@@ -8,7 +8,7 @@
 namespace maicord::plugin_loader_failure_test {
 enum class Fault : u8 { none, destroy_hash, ancestor_close, file_close };
 Fault fault{};
-u32 failures = 0, destroy_calls = 0, load_calls = 0, query_calls = 0;
+u32 failures = 0, destroy_calls = 0, load_calls = 0;
 NTSTATUS WINAPI destroy(BCRYPT_HASH_HANDLE hash) noexcept {
     ++destroy_calls;
     if (fault == Fault::destroy_hash) { fault = Fault::none; return static_cast<NTSTATUS>(0xc0000001u); }
@@ -31,10 +31,6 @@ HMODULE WINAPI load(LPCWSTR, HANDLE, DWORD) noexcept {
     SetLastError(ERROR_ACCESS_DENIED);
     return nullptr;
 }
-FARPROC WINAPI query(HMODULE, LPCSTR) noexcept {
-    ++query_calls;
-    return nullptr;
-}
 } // namespace maicord::plugin_loader_failure_test
 
 // The descriptor's network hosts are checked by the HTTP broker (http.cpp), which this test does not link.
@@ -45,12 +41,10 @@ bool plugin_network_hosts_valid(const mc_str*, u32, bool) noexcept { return true
 #define BCryptDestroyHash maicord::plugin_loader_failure_test::destroy
 #define CloseHandle maicord::plugin_loader_failure_test::close_file
 #define LoadLibraryExW maicord::plugin_loader_failure_test::load
-#define GetProcAddress maicord::plugin_loader_failure_test::query
 #include "../../../src/app/plugins/loader.cpp"
 #undef BCryptDestroyHash
 #undef CloseHandle
 #undef LoadLibraryExW
-#undef GetProcAddress
 
 namespace maicord::plugin_loader_failure_test {
 void check(bool okay, const char* message) noexcept {
@@ -108,11 +102,10 @@ void run() noexcept {
     PluginImage image{};
     destroy_calls = 0;
     auto loaded = plugin_image_load(&image, pinned, leaf, 0, abc);
-    check(loaded.error == PluginLoadError::not_pe && !image.module && destroy_calls == 1 &&
-              !load_calls && !query_calls,
+    check(loaded.error == PluginLoadError::not_pe && !image.module && destroy_calls == 1 && !load_calls,
           "the matching digest reaches the PE check, which refuses the bytes before any code load");
     loaded = plugin_image_load(&image, pinned, leaf, 0, wrong);
-    check(loaded.error == PluginLoadError::digest && !load_calls && !query_calls,
+    check(loaded.error == PluginLoadError::digest && !load_calls,
           "a different digest stops the load before the PE check");
     fault = Fault::destroy_hash;
     loaded = plugin_image_load(&image, pinned, leaf, 0, abc);
@@ -120,7 +113,7 @@ void run() noexcept {
           "a failed hash destruction never admits code");
     fault = Fault::file_close;
     loaded = plugin_image_load(&image, pinned, leaf, 0, nullptr);
-    check(loaded.error == PluginLoadError::not_pe && !load_calls && !query_calls,
+    check(loaded.error == PluginLoadError::not_pe && !load_calls,
           "a failed close of the DLL handle changes nothing about the refusal");
     check(plugin_image_load(&image, pinned, ConstSlice<wchar_t>{L"..", 2}, 0, nullptr).error == PluginLoadError::open &&
               plugin_image_load(&image, pinned, ConstSlice<wchar_t>{L"missing.dll", 11}, 0, nullptr).error ==

@@ -8,12 +8,14 @@ objects. The descriptor rules (`maicord_plugin_v6`) are shared.
 - `plugin_directory_open` pins every ancestor with `O_PATH|O_DIRECTORY|O_NOFOLLOW`: owned by root or the user, not writable by
   others unless sticky; the plugins directory the user's alone.
 - `plugin_image_load` opens the leaf relative to the pin with `O_NOFOLLOW` (a regular file of the user that nobody else can write,
-  whose `/proc/self/fd` path is the pinned path and name), copies it into a sealed `memfd` while it hashes it, checks the ELF on
-  that copy and `dlopen`s `/proc/self/fd/N` of the copy with `RTLD_NOW|RTLD_LOCAL`: what was hashed and checked is what runs. The
-  memfd takes no `MFD_EXEC`/`MFD_NOEXEC_SEAL` (Linux 6.3's flags); a system with `vm.memfd_noexec=2` refuses plugins.
+  whose `/proc/self/fd` path is the pinned path and name), moves it into a sealed `memfd` with `sendfile`, maps the copy, hashes
+  and checks the ELF on that mapping and `dlopen`s `/proc/self/fd/N` of the copy with `RTLD_NOW|RTLD_LOCAL`: what was hashed and
+  checked is what runs. The memfd takes no `MFD_EXEC`/`MFD_NOEXEC_SEAL` (Linux 6.3's flags); a system with `vm.memfd_noexec=2`
+  refuses plugins. Windows reads the DLL once into memory, hashes and checks those bytes, and `LoadLibraryExW` maps the file the
+  open handle keeps from being written; everything after the open and the bytes is one shared path.
 - The copy stays open while the plugin is loaded (`PluginImage::sealed_token`): glibc returns an already loaded module for a
   repeated name.
-- `elf_check` requires: x86-64 `ET_DYN`, no entry, `PT_INTERP` or `PT_TLS`; readable and never W+X loads; a non-executable
+- `image_check` requires: x86-64 `ET_DYN`, no entry, `PT_INTERP` or `PT_TLS`; readable and never W+X loads; a non-executable
   `PT_GNU_STACK`; no `DT_NEEDED`, initializer, finalizer or text relocation; no undefined, TLS or IFUNC symbol; one exported symbol,
   `maicord_plugin_v6`, as data; only `R_X86_64_RELATIVE` relocations.
 - `MC_CALL` is empty (System V) and `MC_EXPORT` a default-visibility attribute off Windows. `tools/maicord-plugin build|check|dev|pack

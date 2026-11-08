@@ -348,6 +348,7 @@ struct Call {
         binding.ctx.flags = 0;
         binding.gesture_until_ms = 0;
         ++binding.calls;
+        binding.last_call_us = outcome.elapsed_us;
         if (outcome.overran) {
             ++binding.strikes;
             const PluginRuntime& runtime = *binding.runtime;

@@ -95,17 +95,15 @@ PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCa
     ++ledger->depth;
     ticket.started = clock_now();
     // Only the outermost call owns the marker; nested host->plugin calls are
-    // attributed to the plugin that is already on the stack.
-    if (ticket.outer && ledger->view && owner) {
-        u8 record[9];
-        byte_store_le64(record, owner);
-        record[8] = static_cast<u8>(kind);
-        u8 started[8];
-        byte_store_le64(started, static_cast<u64>(ticket.started));
-        for (u32 i = 0; i < 9; ++i) ledger->view[8 + i] = record[i];
-        for (u32 i = 0; i < 8; ++i) ledger->view[24 + i] = started[i];
-        ledger->view[21] = 0;
-        ledger->view[20] = 1;
+    // attributed to the plugin that is already on the stack. The record's words are
+    // aligned in the page-aligned view and stored whole (the marker is little endian,
+    // as both hosts are); the in-call flag goes last.
+    if (volatile u8* view = ledger->view; ticket.outer && view && owner) {
+        *reinterpret_cast<volatile u64*>(view + 8) = owner;
+        view[16] = static_cast<u8>(kind);
+        *reinterpret_cast<volatile u64*>(view + 24) = static_cast<u64>(ticket.started);
+        view[21] = 0;
+        view[20] = 1;
     }
     return ticket;
 }
@@ -132,16 +130,17 @@ PluginCallOutcome plugin_call_finish(PluginCallLedger* ledger, const PluginCallT
     if (!ledger) return {};
     const i64 now = clock_now();
     if (ledger->depth) --ledger->depth;
-    if (ticket.outer && ledger->view) {
-        ledger->view[20] = 0;
-        ledger->view[21] = 0;
+    if (volatile u8* view = ledger->view; ticket.outer && view) {
+        view[20] = 0;
+        view[21] = 0;
     }
     if (!ticket.owner_id) return {};
     const i64 ticks = now > ticket.started ? now - ticket.started : 0;
     PluginCallOutcome outcome{static_cast<u64>(ticks) * 1'000'000ull / static_cast<u64>(ledger->frequency), false, false};
+    if (outcome.elapsed_us <= class_budget(*ledger, ticket.call_class)) return outcome;
+    // An owner is recorded at its first overrun.
     auto* record = entry(ledger, ticket.owner_id, true);
     if (!record) return outcome;
-    if (outcome.elapsed_us <= class_budget(*ledger, ticket.call_class)) return outcome;
     outcome.overran = true;
     saturating_increment(record->overruns);
     if (record->disable_requested || record->overruns < ledger->overrun_limit) return outcome;
