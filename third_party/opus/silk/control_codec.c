@@ -66,7 +66,6 @@ opus_int silk_control_encoder(
 {
     opus_int   fs_kHz, ret = 0;
 
-    psEnc->sCmn.useDTX                 = encControl->useDTX;
     psEnc->sCmn.useCBR                 = encControl->useCBR;
     psEnc->sCmn.API_fs_Hz              = encControl->API_sampleRate;
     psEnc->sCmn.maxInternal_fs_Hz      = encControl->maxInternalSampleRate;

@@ -56,14 +56,6 @@ void silk_resampler_private_down_FIR(
 );
 
 /* Upsample by a factor 2, high quality */
-void silk_resampler_private_up2_HQ_wrapper(
-    void                            *SS,            /* I/O  Resampler state (unused)    */
-    opus_int16                      *out,           /* O    Output signal [ 2 * len ]   */
-    const opus_int16                *in,            /* I    Input signal [ len ]        */
-    opus_int32                      len             /* I    Number of input samples     */
-);
-
-/* Upsample by a factor 2, high quality */
 void silk_resampler_private_up2_HQ(
     opus_int32                      *S,             /* I/O  Resampler state [ 6 ]       */
     opus_int16                      *out,           /* O    Output signal [ 2 * len ]   */

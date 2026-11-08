@@ -5,8 +5,8 @@
 #   MAIOPUS_LINK_CONTRACT  an INTERFACE target linked privately (link options)
 #   MAIOPUS_LTCG           compile for whole-program optimization with
 #                          MAIOPUS_LTCG_OPTION (default -flto)
-#   MAIOPUS_SSE4_1         required: the x86 SSE4.1 kernels (compile-time selection,
-#                          no runtime CPU dispatch)
+#   MAIOPUS_SSE4_1         required: the x86 SSE4.1 kernels are the only
+#                          implementations (no runtime CPU dispatch, no C fallbacks)
 #   MAIOPUS_ARCH           extra code generation option, e.g. /arch:AVX
 if(NOT DEFINED MAIOPUS_DECODER_TARGET)
     set(MAIOPUS_DECODER_TARGET maiopus_decoder)
@@ -46,8 +46,6 @@ endif()
 if(NOT MAIOPUS_SSE4_1)
     message(FATAL_ERROR "maiopus is x86-64 SSE4.1 code: set MAIOPUS_SSE4_1")
 endif()
-list(APPEND maiopus_definitions
-    OPUS_X86_MAY_HAVE_SSE2 OPUS_X86_PRESUME_SSE2 OPUS_X86_MAY_HAVE_SSE4_1 OPUS_X86_PRESUME_SSE4_1)
 set(maiopus_decoder_simd celt/x86/celt_lpc_sse4_1.c celt/x86/pitch_sse4_1.c)
 set(maiopus_encoder_simd silk/x86/NSQ_del_dec_sse4_1.c silk/x86/VAD_sse4_1.c
     silk/x86/VQ_WMat_EC_sse4_1.c silk/fixed/x86/burg_modified_FIX_sse4_1.c silk/fixed/x86/vector_ops_FIX_sse4_1.c)
@@ -149,7 +147,6 @@ add_library(${MAIOPUS_ENCODER_TARGET} STATIC
     silk/VAD.c
     silk/ana_filt_bank_1.c
     silk/biquad_alt.c
-    silk/check_control_input.c
     silk/control_SNR.c
     silk/control_audio_bandwidth.c
     silk/control_codec.c
@@ -200,7 +197,7 @@ list(REMOVE_ITEM maiopus_encoder_sources ${maiopus_encoder_hot})
 set_source_files_properties(${maiopus_encoder_sources} PROPERTIES COMPILE_OPTIONS "${maiopus_size_options}")
 # Control, initialization and entropy-coding units run once per frame without
 # a sample loop: -Oz, with no measurable encode-time change.
-set(maiopus_encoder_cold silk/control_codec.c silk/check_control_input.c silk/control_SNR.c
+set(maiopus_encoder_cold silk/control_codec.c silk/control_SNR.c
     silk/control_audio_bandwidth.c silk/init_encoder.c silk/HP_variable_cutoff.c silk/LP_variable_cutoff.c
     silk/stereo_encode_pred.c silk/stereo_quant_pred.c)
 set_source_files_properties(${maiopus_encoder_cold} PROPERTIES COMPILE_OPTIONS "${maiopus_smallest_options}")

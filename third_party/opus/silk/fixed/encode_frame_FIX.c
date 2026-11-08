@@ -58,21 +58,12 @@ void silk_encode_do_VAD_FIX(
     }
 
     /**************************************************/
-    /* Convert speech activity into VAD and DTX flags */
+    /* Convert speech activity into VAD flags         */
     /**************************************************/
     if( psEnc->sCmn.speech_activity_Q8 < activity_threshold ) {
         psEnc->sCmn.indices.signalType = TYPE_NO_VOICE_ACTIVITY;
-        psEnc->sCmn.noSpeechCounter++;
-        if( psEnc->sCmn.noSpeechCounter <= NB_SPEECH_FRAMES_BEFORE_DTX ) {
-            psEnc->sCmn.inDTX = 0;
-        } else if( psEnc->sCmn.noSpeechCounter > MAX_CONSECUTIVE_DTX + NB_SPEECH_FRAMES_BEFORE_DTX ) {
-            psEnc->sCmn.noSpeechCounter = NB_SPEECH_FRAMES_BEFORE_DTX;
-            psEnc->sCmn.inDTX           = 0;
-        }
         psEnc->sCmn.VAD_flags[ psEnc->sCmn.nFramesEncoded ] = 0;
     } else {
-        psEnc->sCmn.noSpeechCounter    = 0;
-        psEnc->sCmn.inDTX              = 0;
         psEnc->sCmn.indices.signalType = TYPE_UNVOICED;
         psEnc->sCmn.VAD_flags[ psEnc->sCmn.nFramesEncoded ] = 1;
     }
@@ -149,12 +140,12 @@ opus_int silk_encode_frame_FIX(
         /*****************************************/
         /* Find pitch lags, initial LPC analysis */
         /*****************************************/
-        silk_find_pitch_lags_FIX( psEnc, &sEncCtrl, res_pitch, x_frame - psEnc->sCmn.ltp_mem_length, psEnc->sCmn.arch, scratch );
+        silk_find_pitch_lags_FIX( psEnc, &sEncCtrl, res_pitch, x_frame - psEnc->sCmn.ltp_mem_length, scratch );
 
         /************************/
         /* Noise shape analysis */
         /************************/
-        silk_noise_shape_analysis_FIX( psEnc, &sEncCtrl, res_pitch_frame, x_frame, psEnc->sCmn.arch, scratch );
+        silk_noise_shape_analysis_FIX( psEnc, &sEncCtrl, res_pitch_frame, x_frame, scratch );
 
         /***************************************************/
         /* Find linear prediction coefficients (LPC + LTP) */

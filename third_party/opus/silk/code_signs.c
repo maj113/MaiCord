@@ -79,11 +79,10 @@ void silk_decode_signs(
 )
 {
     opus_int         i, j, p;
-    opus_uint8       icdf[ 2 ];
+    unsigned         icdf0;
     opus_int16       *q_ptr;
     const opus_uint8 *icdf_ptr;
 
-    icdf[ 1 ] = 0;
     q_ptr = pulses;
     i = silk_SMULBB( 7, silk_ADD_LSHIFT( quantOffsetType, signalType, 1 ) );
     icdf_ptr = &silk_sign_iCDF[ i ];
@@ -91,12 +90,13 @@ void silk_decode_signs(
     for( i = 0; i < length; i++ ) {
         p = sum_pulses[ i ];
         if( p > 0 ) {
-            icdf[ 0 ] = icdf_ptr[ silk_min( p & 0x1F, 6 ) ];
+            /* maiopus: the sign table is { icdf0, 0 } (ec_dec_icdf2()) */
+            icdf0 = icdf_ptr[ silk_min( p & 0x1F, 6 ) ];
             for( j = 0; j < SHELL_CODEC_FRAME_LENGTH; j++ ) {
                 if( q_ptr[ j ] > 0 ) {
                     /* attach sign */
                     /* implementation with shift, subtraction, multiplication */
-                    q_ptr[ j ] *= silk_dec_map( ec_dec_icdf( psRangeDec, icdf, 8 ) );
+                    q_ptr[ j ] *= silk_dec_map( ec_dec_icdf2( psRangeDec, icdf0 ) );
                 }
             }
         }

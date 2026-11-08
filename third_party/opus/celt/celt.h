@@ -111,7 +111,7 @@ int celt_encode_with_ec(OpusCustomEncoder * OPUS_RESTRICT st, const opus_res * p
    7680, ...) needs less at its call point. */
 #define CELT_ENCODER_SCRATCH_BYTES 39552
 
-int celt_encoder_init(CELTEncoder *st, int channels, int arch);
+int celt_encoder_init(CELTEncoder *st, int channels);
 
 
 /* Decoder stuff */
@@ -119,15 +119,15 @@ int celt_encoder_init(CELTEncoder *st, int channels, int arch);
 int celt_decoder_get_size(int channels);
 
 
-int celt_decoder_init(CELTDecoder *st, opus_int32 sampling_rate, int channels);
+int celt_decoder_init(CELTDecoder *st, int channels);
 
 int celt_decode_with_ec(OpusCustomDecoder * OPUS_RESTRICT st, const unsigned char *data,
       int len, opus_res * OPUS_RESTRICT pcm, int frame_size, ec_dec *dec, int accum, char *scratch);
 
 /* Decoder: celt_decode_with_ec keeps X (2*960*4), six band arrays and the
    collapse masks (8304), then quant_all_bands takes the band norms (2*800*4)
-   and one band leaf (176*4): 15408. Synthesis and deemphasis (960*4) need
-   less; concealment runs before any allocation and peaks at X plus synthesis
+   and one band leaf (176*4): 15408. Synthesis (960*4) needs less and
+   deemphasis none; concealment runs before any allocation and peaks at X plus synthesis
    (11520). The coded channel count C comes from the packet, so a mono
    decoder needs the same bound. */
 #define CELT_DECODER_SCRATCH_BYTES 15408
@@ -152,11 +152,9 @@ extern const signed char tf_select_table[4][8];
 
 #define VALIDATE_CELT_DECODER(st)
 
-int resampling_factor(opus_int32 rate);
-
 void comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N,
       opus_val16 g0, opus_val16 g1, int tapset0, int tapset1,
-      const celt_coef *window, int overlap, int arch);
+      const celt_coef *window, int overlap);
 
 void init_caps(const CELTMode *m,int *cap,int LM,int C);
 

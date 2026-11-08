@@ -35,8 +35,7 @@ void silk_find_LTP_FIX(
     const opus_int16                r_ptr[],                                /* I    Residual signal after LPC                                                   */
     const opus_int                  lag[ MAX_NB_SUBFR ],                    /* I    LTP lags                                                                    */
     const opus_int                  subfr_length,                           /* I    Subframe length                                                             */
-    const opus_int                  nb_subfr,                               /* I    Number of subframes                                                         */
-    int                             arch                                    /* I    Run-time architecture                                                       */
+    const opus_int                  nb_subfr                                /* I    Number of subframes                                                         */
 )
 {
     opus_int   i, k, extra_shifts;
@@ -51,7 +50,7 @@ void silk_find_LTP_FIX(
         lag_ptr = r_ptr - ( lag[ k ] + LTP_ORDER / 2 );
 
         silk_sum_sqr_shift( &xx, &xx_shifts, r_ptr, subfr_length + LTP_ORDER );                            /* xx in Q( -xx_shifts ) */
-        silk_corrMatrix_FIX( lag_ptr, subfr_length, LTP_ORDER, XXLTP_Q17_ptr, &nrg, &XX_shifts, arch );    /* XXLTP_Q17_ptr and nrg in Q( -XX_shifts ) */
+        silk_corrMatrix_FIX( lag_ptr, subfr_length, LTP_ORDER, XXLTP_Q17_ptr, &nrg, &XX_shifts );          /* XXLTP_Q17_ptr and nrg in Q( -XX_shifts ) */
         extra_shifts = xx_shifts - XX_shifts;
         if( extra_shifts > 0 ) {
             /* Shift XX */
@@ -67,7 +66,7 @@ void silk_find_LTP_FIX(
         } else {
             xX_shifts = xx_shifts;
         }
-        silk_corrVector_FIX( lag_ptr, r_ptr, subfr_length, LTP_ORDER, xXLTP_Q17_ptr, xX_shifts, arch );    /* xXLTP_Q17_ptr in Q( -xX_shifts ) */
+        silk_corrVector_FIX( lag_ptr, r_ptr, subfr_length, LTP_ORDER, xXLTP_Q17_ptr, xX_shifts );          /* xXLTP_Q17_ptr in Q( -xX_shifts ) */
 
         /* At this point all correlations are in Q(-xX_shifts) */
         temp = silk_SMLAWB( 1, nrg, SILK_FIX_CONST( LTP_CORR_INV_MAX, 16 ) );

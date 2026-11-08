@@ -81,6 +81,10 @@ int ec_dec_bit_logp(ec_dec *_this,unsigned _logp);
   Return: The decoded symbol s.*/
 int ec_dec_icdf(ec_dec *_this,const unsigned char *_icdf,unsigned _ftb);
 
+/* maiopus: ec_dec_icdf() for the two-symbol table {_icdf0, 0} with _ftb = 8,
+   without the search loop (the same result, val and rng). */
+int ec_dec_icdf2(ec_dec *_this,unsigned _icdf0);
+
 /*Decodes a symbol given an "inverse" CDF table.
   No call to ec_dec_update() is necessary after this call.
   _icdf: The "inverse" CDF, such that symbol s falls in the range

@@ -52,8 +52,7 @@ void silk_burg_modified(
     const opus_int32            minInvGain_Q30,     /* I    Inverse of max prediction gain                              */
     const opus_int              subfr_length,       /* I    Input signal subframe length (incl. D preceding samples)    */
     const opus_int              nb_subfr,           /* I    Number of subframes stacked in x                            */
-    const opus_int              D,                  /* I    Order                                                       */
-    int                         arch                /* I    Run-time architecture                                       */
+    const opus_int              D                   /* I    Order                                                       */
 )
 {
     opus_int         k, n, s, lz, rshifts, reached_max_gain;
@@ -100,7 +99,7 @@ void silk_burg_modified(
             int i;
             opus_int32 d;
             x_ptr = x + s * subfr_length;
-            celt_pitch_xcorr(x_ptr, x_ptr + 1, xcorr, subfr_length - D, D, arch );
+            celt_pitch_xcorr(x_ptr, x_ptr + 1, xcorr, subfr_length - D, D );
             for( n = 1; n < D + 1; n++ ) {
                for ( i = n + subfr_length - D, d = 0; i < subfr_length; i++ )
                   d = MAC16_16( d, x_ptr[ i ], x_ptr[ i - n ] );
@@ -351,7 +350,7 @@ void silk_burg_modified(
         } else {
             for( s = 0; s < nb_subfr; s++ ) {
                 x_ptr = x + s * subfr_length;
-                C0 -= silk_LSHIFT32( silk_inner_prod_aligned( x_ptr, x_ptr, D, arch ), -rshifts );
+                C0 -= silk_LSHIFT32( silk_inner_prod_aligned( x_ptr, x_ptr, D ), -rshifts );
             }
         }
         /* Approximate residual energy */

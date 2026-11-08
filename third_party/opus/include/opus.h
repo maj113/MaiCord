@@ -90,8 +90,8 @@ extern "C" {
   * for the supported requests.
   *
   * Each opus_encode() call takes exactly one 20 ms frame (960 samples per
-  * channel) and returns the packet length, or a negative error code. Packets
-  * of 2 bytes or less do not need to be transmitted (DTX).
+  * channel) and returns the packet length, or a negative error code. There is
+  * no DTX; a packet of 2 bytes or less carries no audio.
   */
 
 /** Opus encoder state.
@@ -185,7 +185,7 @@ OPUS_EXPORT int opus_encoder_ctl(OpusEncoder *st, int request, ...) OPUS_ARG_NON
   * OpusDecoder *dec = malloc(opus_decoder_get_size(channels));
   * int error = opus_decoder_init(dec, Fs, channels);
   * @endcode
-  * where Fs is the output sampling rate (8000, 12000, 16000, 24000, or 48000)
+  * where Fs is the output sampling rate (48000 only in maiopus)
   * and channels is 1 or 2. The state is continuous in memory and only a
   * shallow copy is sufficient to copy it.
   *
@@ -237,8 +237,8 @@ OPUS_EXPORT OPUS_WARN_UNUSED_RESULT int opus_decoder_get_size(int channels);
   * To reset a previously initialized state, use the #OPUS_RESET_STATE CTL.
   * @param [in] st <tt>OpusDecoder*</tt>: Decoder state.
   * @param [in] Fs <tt>opus_int32</tt>: Sampling rate to decode to (Hz).
-  *                                     This must be one of 8000, 12000, 16000,
-  *                                     24000, or 48000.
+  *                                     maiopus decodes to 48000 only; other
+  *                                     rates return #OPUS_BAD_ARG.
   * @param [in] channels <tt>int</tt>: Number of channels (1 or 2) to decode
   * @retval #OPUS_OK Success or @ref opus_errorcodes
   */

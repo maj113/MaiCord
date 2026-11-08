@@ -68,8 +68,7 @@ static OPUS_INLINE void silk_noise_shape_quantizer(
     opus_int            offset_Q10,             /* I                                    */
     opus_int            length,                 /* I    Input length                    */
     opus_int            shapingLPCOrder,        /* I    Noise shaping AR filter order   */
-    opus_int            predictLPCOrder,        /* I    Prediction filter order         */
-    int                 arch                    /* I    Architecture                    */
+    opus_int            predictLPCOrder         /* I    Prediction filter order         */
 );
 
 void silk_NSQ
@@ -146,7 +145,7 @@ void silk_NSQ
                 celt_assert( start_idx > 0 );
 
                 silk_LPC_analysis_filter( &sLTP[ start_idx ], &NSQ->xq[ start_idx + k * psEncC->subfr_length ],
-                    A_Q12, psEncC->ltp_mem_length - start_idx, psEncC->predictLPCOrder, psEncC->arch );
+                    A_Q12, psEncC->ltp_mem_length - start_idx, psEncC->predictLPCOrder );
 
                 NSQ->rewhite_flag = 1;
                 NSQ->sLTP_buf_idx = psEncC->ltp_mem_length;
@@ -157,7 +156,7 @@ void silk_NSQ
 
         silk_noise_shape_quantizer( NSQ, psIndices->signalType, x_sc_Q10, pulses, pxq, sLTP_Q15, A_Q12, B_Q14,
             AR_shp_Q13, lag, HarmShapeFIRPacked_Q14, Tilt_Q14[ k ], LF_shp_Q14[ k ], Gains_Q16[ k ], Lambda_Q10,
-            offset_Q10, psEncC->subfr_length, psEncC->shapingLPCOrder, psEncC->predictLPCOrder, psEncC->arch );
+            offset_Q10, psEncC->subfr_length, psEncC->shapingLPCOrder, psEncC->predictLPCOrder );
 
         x16    += psEncC->subfr_length;
         pulses += psEncC->subfr_length;
@@ -196,8 +195,7 @@ static OPUS_INLINE void silk_noise_shape_quantizer(
     opus_int            offset_Q10,             /* I                                    */
     opus_int            length,                 /* I    Input length                    */
     opus_int            shapingLPCOrder,        /* I    Noise shaping AR filter order   */
-    opus_int            predictLPCOrder,        /* I    Prediction filter order         */
-    int                 arch                    /* I    Architecture                    */
+    opus_int            predictLPCOrder         /* I    Prediction filter order         */
 )
 {
     opus_int     i;
@@ -206,9 +204,6 @@ static OPUS_INLINE void silk_noise_shape_quantizer(
     opus_int32   exc_Q14, LPC_exc_Q14, xq_Q14, Gain_Q10;
     opus_int32   tmp1, tmp2, sLF_AR_shp_Q14;
     opus_int32   *psLPC_Q14, *shp_lag_ptr, *pred_lag_ptr;
-#ifdef silk_short_prediction_create_arch_coef
-    opus_int32   a_Q12_arch[MAX_LPC_ORDER];
-#endif
 
     shp_lag_ptr  = &NSQ->sLTP_shp_Q14[ NSQ->sLTP_shp_buf_idx - lag + HARM_SHAPE_FIR_TAPS / 2 ];
     pred_lag_ptr = &sLTP_Q15[ NSQ->sLTP_buf_idx - lag + LTP_ORDER / 2 ];
@@ -217,16 +212,12 @@ static OPUS_INLINE void silk_noise_shape_quantizer(
     /* Set up short term AR state */
     psLPC_Q14 = &NSQ->sLPC_Q14[ NSQ_LPC_BUF_LENGTH - 1 ];
 
-#ifdef silk_short_prediction_create_arch_coef
-    silk_short_prediction_create_arch_coef(a_Q12_arch, a_Q12, predictLPCOrder);
-#endif
-
     for( i = 0; i < length; i++ ) {
         /* Generate dither */
         NSQ->rand_seed = silk_RAND( NSQ->rand_seed );
 
         /* Short-term prediction */
-        LPC_pred_Q10 = silk_noise_shape_quantizer_short_prediction(psLPC_Q14, a_Q12, a_Q12_arch, predictLPCOrder, arch);
+        LPC_pred_Q10 = silk_noise_shape_quantizer_short_prediction(psLPC_Q14, a_Q12, predictLPCOrder);
 
         /* Long-term prediction */
         if( signalType == TYPE_VOICED ) {
@@ -245,7 +236,7 @@ static OPUS_INLINE void silk_noise_shape_quantizer(
 
         /* Noise shape feedback */
         celt_assert( ( shapingLPCOrder & 1 ) == 0 );   /* check that order is even */
-        n_AR_Q12 = silk_NSQ_noise_shape_feedback_loop(&NSQ->sDiff_shp_Q14, NSQ->sAR2_Q14, AR_shp_Q13, shapingLPCOrder, arch);
+        n_AR_Q12 = silk_NSQ_noise_shape_feedback_loop(&NSQ->sDiff_shp_Q14, NSQ->sAR2_Q14, AR_shp_Q13, shapingLPCOrder);
 
         n_AR_Q12 = silk_SMLAWB( n_AR_Q12, NSQ->sLF_AR_shp_Q14, Tilt_Q14 );
 

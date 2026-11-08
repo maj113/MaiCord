@@ -48,11 +48,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #define LBRR_MB_MIN_RATE_BPS                    14000
 #define LBRR_WB_MIN_RATE_BPS                    16000
 
-/* DTX settings */
-#define NB_SPEECH_FRAMES_BEFORE_DTX             10      /* eq 200 ms */
-#define MAX_CONSECUTIVE_DTX                     20      /* eq 400 ms */
-#define DTX_ACTIVITY_THRESHOLD                  0.1f
-
 /* VAD decision */
 #define VAD_NO_DECISION                         -1
 #define VAD_NO_ACTIVITY                         0

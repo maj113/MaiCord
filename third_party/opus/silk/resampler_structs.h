@@ -41,8 +41,6 @@ typedef struct _silk_resampler_state_struct{
     opus_int         resampler_function;
     opus_int         batchSize;
     opus_int32       invRatio_Q16;
-    opus_int         FIR_Order;
-    opus_int         FIR_Fracs;
     opus_int         Fs_in_kHz;
     opus_int         Fs_out_kHz;
     opus_int         inputDelay;

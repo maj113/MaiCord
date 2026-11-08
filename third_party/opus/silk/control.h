@@ -79,9 +79,6 @@ typedef struct {
     /* I:   Flag to actually code in-band Forward Error Correction (FEC) in the current packet; 0/1 */
     opus_int LBRR_coded;
 
-    /* I:   Flag to enable discontinuous transmission (DTX); 0/1                            */
-    opus_int useDTX;
-
     /* I:   Flag to use constant bitrate                                                    */
     opus_int useCBR;
 

@@ -189,8 +189,6 @@ typedef struct {
     SideInfoIndices              indices;
     opus_int8                    pulses[ MAX_FRAME_LENGTH ];
 
-    int                          arch;
-
     /* Input/output buffering */
     opus_int16                   inputBuf[ MAX_FRAME_LENGTH + 2 ];  /* Buffer containing input signal                                   */
     opus_int                     inputBufIx;
@@ -209,11 +207,6 @@ typedef struct {
     opus_int16                   ec_prevLagIndex;
 
     silk_resampler_state_struct resampler_state;
-
-    /* DTX */
-    opus_int                     useDTX;                            /* Flag to enable DTX                                               */
-    opus_int                     inDTX;                             /* Flag to signal DTX period                                        */
-    opus_int                     noSpeechCounter;                   /* Counts concecutive nonactive frames, used by DTX                 */
 
     /* Inband Low Bitrate Redundancy (LBRR) data */
     opus_int                     useInBandFEC;                      /* Saves the API setting for query                                  */
@@ -299,7 +292,6 @@ typedef struct {
     /* Stuff used for PLC */
     opus_int                    lossCnt;
     opus_int                    prevSignalType;
-    int                         arch;
 
     silk_PLC_struct sPLC;
 

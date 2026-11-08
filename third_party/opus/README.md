@@ -5,11 +5,13 @@ the changes and added files use the same terms):
 
 - **Decoder: complete.** Every mode (SILK, hybrid, CELT), bandwidth, frame size
   (2.5 to 120 ms per packet), stereo/mono coding, in-band FEC, DTX and packet
-  loss concealment, with 8, 12, 16, 24 or 48 kHz output.
+  loss concealment, with 48 kHz output (MaiCord's only rate; `opus_decoder_init()`
+  refuses the others, and the resamplers and CELT downsampling they need are
+  removed). Requests: reset, gain (set only) and the final range.
 - **Encoder: one voice profile.** 48 kHz mono or stereo PCM16, VOIP tuning, one
-  20 ms VBR frame per packet. Bitrate, complexity, in-band FEC, packet loss, DTX
-  and the VBR constraint are adjustable. For these settings the packets are
-  bit-identical to upstream libopus.
+  20 ms VBR frame per packet, no DTX. Bitrate, complexity, in-band FEC, packet
+  loss and the VBR constraint can be set; the lookahead is the only query. For
+  these settings the packets are bit-identical to upstream libopus.
 - **Fixed point, no heap, no alloca, no C runtime.** States live in caller memory
   (`opus_*_get_size()`/`opus_*_init()`); `opus_encode()` and `opus_decode()`
   work in caller scratch of `OPUS_SCRATCH_BYTES` that holds nothing between
@@ -20,11 +22,15 @@ the changes and added files use the same terms):
   (encoder, caller and configuration input, decoder state validation, algorithm
   invariants) compile to nothing.
 - **x86-64 SSE4.1 only** (`MAIOPUS_SSE4_1`, required, and `MAIOPUS_ARCH`), selected
-  at compile time with no runtime CPU dispatch and no C fallbacks for the kernels:
-  the SILK LPC analysis and synthesis filters, resampler interpolation, delayed
-  decision quantizer, VAD, Burg and VQ, and the CELT pitch, comb filter, MDCT
-  rotation and FFT butterfly kernels. They are bit-exact with upstream's C code; the
-  AVX2 kernel needs an AVX2 baseline and is not included.
+  at compile time with no runtime CPU dispatch (no `arch` arguments or
+  `opus_select_arch()`), no `OPUS_X86_*` conditions and no C
+  fallbacks for the kernels: the SILK LPC analysis and synthesis filters, resampler
+  interpolation, delayed decision quantizer, VAD, Burg, VQ and warped
+  autocorrelation, and the CELT pitch, comb filter, de-emphasis, MDCT rotation and
+  FFT butterfly kernels. They are bit-exact with upstream's C code; the AVX2
+  quantizer needs an AVX2 baseline and is not included, and upstream's SSE4.1
+  non-delayed-decision quantizer (`NSQ_sse4_1.c`) is not either: it covers only a
+  shaping order the encoder never uses.
 
 Upstream: <https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz>,
 SHA-256 `6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1`.
@@ -67,8 +73,9 @@ and rolled: their vector bodies never ran.
   range coder state equal to the encoder's for every packet), pass
   `opus_compare`, and must reproduce pinned PCM hashes of the unmodified
   fixed-point build, mono and stereo.
-- Encoder: packet digests across bitrates, complexities, FEC, DTX, the VBR
-  constraint and setting changes must equal unmodified upstream.
+- Encoder: packet digests across bitrates, complexities, FEC, the VBR
+  constraint and setting changes, and the decoder's final ranges over those
+  packets, must equal unmodified upstream.
 
 ## Updating
 

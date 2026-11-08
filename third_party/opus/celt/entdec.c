@@ -192,6 +192,22 @@ int ec_dec_icdf(ec_dec *_this,const unsigned char *_icdf,unsigned _ftb){
   return ret;
 }
 
+int ec_dec_icdf2(ec_dec *_this,unsigned _icdf0){
+  opus_uint32 r;
+  opus_uint32 d;
+  opus_uint32 s;
+  int         ret;
+  r=_this->rng;
+  d=_this->val;
+  s=IMUL32(r>>8,_icdf0);
+  /*Symbol 1 when d<s (the search then stops at the table's final 0).*/
+  ret=d<s;
+  _this->val=ret?d:d-s;
+  _this->rng=ret?s:r-s;
+  ec_dec_normalize(_this);
+  return ret;
+}
+
 int ec_dec_icdf16(ec_dec *_this,const opus_uint16 *_icdf,unsigned _ftb){
   opus_uint32 r;
   opus_uint32 d;

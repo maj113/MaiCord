@@ -37,11 +37,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "typedef.h"
 #include "resampler_structs.h"
 #include "macros.h"
-#include "cpu_support.h"
-
-#if !defined(OPUS_X86_PRESUME_SSE4_1)
-#error "maiopus: SILK needs the x86 SSE4.1 kernels (MAIOPUS_SSE4_1)"
-#endif
 
 
 /********************************************************************/
@@ -104,7 +99,7 @@ void silk_biquad_alt_stride1(
     const opus_int32            len                 /* I     signal length (must be even)                               */
 );
 
-void silk_biquad_alt_stride2_c(
+void silk_biquad_alt_stride2(
     const opus_int16            *in,                /* I     input signal                                               */
     const opus_int32            *B_Q28,             /* I     MA coefficients [3]                                        */
     const opus_int32            *A_Q28,             /* I     AR coefficients [2]                                        */
@@ -119,8 +114,7 @@ void silk_LPC_analysis_filter(
     const opus_int16            *in,                /* I    Input signal                                                */
     const opus_int16            *B,                 /* I    MA prediction coefficients, Q12 [order]                     */
     const opus_int32            len,                /* I    Signal length                                               */
-    const opus_int32            d,                  /* I    Filter order                                                */
-    int                         arch                /* I    Run-time architecture                                       */
+    const opus_int32            d                   /* I    Filter order                                                */
 );
 
 /* Chirp (bandwidth expand) LP AR filter */
@@ -139,7 +133,7 @@ void silk_bwexpander_32(
 
 /* Compute inverse of LPC prediction gain, and                           */
 /* test if LPC coefficients are stable (all poles within unit circle)    */
-opus_int32 silk_LPC_inverse_pred_gain_c(            /* O   Returns inverse prediction gain in energy domain, Q30        */
+opus_int32 silk_LPC_inverse_pred_gain(              /* O   Returns inverse prediction gain in energy domain, Q30        */
     const opus_int16            *A_Q12,             /* I   Prediction coefficients, Q12 [order]                         */
     const opus_int              order               /* I   Prediction order                                             */
 );
@@ -152,14 +146,6 @@ void silk_ana_filt_bank_1(
     opus_int16                  *outH,              /* O    High band [N/2]                                             */
     const opus_int32            N                   /* I    Number of input samples                                     */
 );
-
-#if !defined(OVERRIDE_silk_biquad_alt_stride2)
-#define silk_biquad_alt_stride2(in, B_Q28, A_Q28, S, out, len, arch) ((void)(arch), silk_biquad_alt_stride2_c(in, B_Q28, A_Q28, S, out, len))
-#endif
-
-#if !defined(OVERRIDE_silk_LPC_inverse_pred_gain)
-#define silk_LPC_inverse_pred_gain(A_Q12, order, arch)     ((void)(arch), silk_LPC_inverse_pred_gain_c(A_Q12, order))
-#endif
 
 /********************************************************************/
 /*                        SCALAR FUNCTIONS                          */
@@ -242,7 +228,6 @@ void silk_autocorr(
     const opus_int16            *inputData,         /* I    Input data to correlate                                     */
     const opus_int              inputDataSize,      /* I    Length of input                                             */
     const opus_int              correlationCount,   /* I    Number of correlation taps to compute                       */
-    int                         arch,               /* I    Run-time architecture                                       */
     char                        *scratch            /* I    Scratch arena                                               */
 );
 
@@ -266,7 +251,6 @@ opus_int silk_pitch_analysis_core(                  /* O    Voicing estimate: 0 
     const opus_int              Fs_kHz,             /* I    Sample frequency (kHz)                                      */
     const opus_int              complexity,         /* I    Complexity setting, 0-2, where 2 is highest                 */
     const opus_int              nb_subfr,           /* I    number of 5 ms subframes                                    */
-    int                         arch,               /* I    Run-time architecture                                       */
     char                        *scratch            /* I    Scratch arena                                               */
 );
 
@@ -285,8 +269,7 @@ void silk_A2NLSF(
 void silk_NLSF2A(
     opus_int16                  *a_Q12,             /* O    monic whitening filter coefficients in Q12,  [ d ]          */
     const opus_int16            *NLSF,              /* I    normalized line spectral frequencies in Q15, [ d ]          */
-    const opus_int              d,                  /* I    filter order (should be even)                               */
-    int                         arch                /* I    Run-time architecture                                       */
+    const opus_int              d                   /* I    filter order (should be even)                               */
 );
 
 /* Convert int32 coefficients to int16 coefs and make sure there's no wrap-around */
@@ -340,8 +323,7 @@ void silk_burg_modified(
     const opus_int32            minInvGain_Q30,     /* I    Inverse of max prediction gain                              */
     const opus_int              subfr_length,       /* I    Input signal subframe length (incl. D preceding samples)    */
     const opus_int              nb_subfr,           /* I    Number of subframes stacked in x                            */
-    const opus_int              D,                  /* I    Order                                                       */
-    int                         arch                /* I    Run-time architecture                                       */
+    const opus_int              D                   /* I    Order                                                       */
 );
 
 /* Copy and multiply a vector by a constant */
@@ -361,8 +343,7 @@ void silk_scale_copy_vector16(
 opus_int32 silk_inner_prod_aligned(
     const opus_int16 *const     inVec1,             /*    I input vector 1                                              */
     const opus_int16 *const     inVec2,             /*    I input vector 2                                              */
-    const opus_int              len,                /*    I vector lengths                                              */
-    int                         arch                /*    I Run-time architecture                                       */
+    const opus_int              len                 /*    I vector lengths                                              */
 );
 
 

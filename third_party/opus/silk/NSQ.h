@@ -30,9 +30,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "SigProc_FIX.h"
 
-#undef silk_short_prediction_create_arch_coef
-
-static OPUS_INLINE opus_int32 silk_noise_shape_quantizer_short_prediction_c(const opus_int32 *buf32, const opus_int16 *coef16, opus_int order)
+static OPUS_INLINE opus_int32 silk_noise_shape_quantizer_short_prediction(const opus_int32 *buf32, const opus_int16 *coef16, opus_int order)
 {
     opus_int32 out;
     silk_assert( order == 10 || order == 16 );
@@ -62,9 +60,7 @@ static OPUS_INLINE opus_int32 silk_noise_shape_quantizer_short_prediction_c(cons
     return out;
 }
 
-#define silk_noise_shape_quantizer_short_prediction(in, coef, coefRev, order, arch)  ((void)arch,silk_noise_shape_quantizer_short_prediction_c(in, coef, order))
-
-static OPUS_INLINE opus_int32 silk_NSQ_noise_shape_feedback_loop_c(const opus_int32 *data0, opus_int32 *data1, const opus_int16 *coef, opus_int order)
+static OPUS_INLINE opus_int32 silk_NSQ_noise_shape_feedback_loop(const opus_int32 *data0, opus_int32 *data1, const opus_int16 *coef, opus_int order)
 {
     opus_int32 out;
     opus_int32 tmp1, tmp2;
@@ -91,8 +87,5 @@ static OPUS_INLINE opus_int32 silk_NSQ_noise_shape_feedback_loop_c(const opus_in
     out = silk_LSHIFT32( out, 1 );
     return out;
 }
-
-#define silk_NSQ_noise_shape_feedback_loop(data0, data1, coef, order, arch)  ((void)arch,silk_NSQ_noise_shape_feedback_loop_c(data0, data1, coef, order))
-
 
 #endif /* SILK_NSQ_H */

@@ -118,7 +118,6 @@ void silk_decode_core(
     silk_decoder_control        *psDecCtrl,                     /* I    Decoder control                             */
     opus_int16                  xq[],                           /* O    Decoded speech                              */
     const opus_int16            pulses[ MAX_FRAME_LENGTH ],     /* I    Pulse signal                                */
-    int                         arch,                           /* I    Run-time architecture                       */
     char                        *scratch                        /* I    Scratch arena                               */
 )
 {
@@ -233,7 +232,7 @@ void silk_decode_core(
                 }
 
                 silk_LPC_analysis_filter( &sLTP[ start_idx ], &psDec->outBuf[ start_idx + k * psDec->subfr_length ],
-                    A_Q12, psDec->ltp_mem_length - start_idx, psDec->LPC_order, arch );
+                    A_Q12, psDec->ltp_mem_length - start_idx, psDec->LPC_order );
 
                 /* After rewhitening the LTP state is unscaled */
                 if( k == 0 ) {

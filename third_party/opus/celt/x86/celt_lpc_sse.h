@@ -36,9 +36,7 @@ void celt_fir_sse4_1(
          opus_val16 *y,
          int N,
          int ord,
-         int arch,
          char *scratch);
-#define celt_fir(x, num, y, N, ord, arch, scratch) \
-    ((void)arch, celt_fir_sse4_1(x, num, y, N, ord, arch, scratch))
+#define celt_fir celt_fir_sse4_1
 
 #endif

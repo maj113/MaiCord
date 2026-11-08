@@ -35,7 +35,6 @@
 #include "mathops.h"
 #include "pitch.h"
 
-#if defined(OPUS_X86_MAY_HAVE_SSE4_1) && defined(FIXED_POINT)
 #include <smmintrin.h>
 #include "x86cpu.h"
 
@@ -310,4 +309,3 @@ void comb_filter_overlap_sse4_1(opus_val32 *y, opus_val32 *x, int T0, int T1, in
         _mm_storeu_si128((__m128i *)(void*)&y[i], sum);
     }
 }
-#endif

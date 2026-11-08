@@ -27,7 +27,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 
 /* Filter coefficients for IIR/FIR polyphase resampling     *
- * Total size: 179 Words (358 Bytes)                        */
+ * Total size: 116 Words (232 Bytes)                        */
 
 #include "resampler_private.h"
 
@@ -36,25 +36,8 @@ POSSIBILITY OF SUCH DAMAGE.
 /* fprintf('\t%6d, %6d, %6d, %6d\n', round(B(2)*2^16), round(-A(2)*2^16), round((1-A(3))*2^16), round(G*2^15)) */
 /* const opus_int16 silk_resampler_up2_hq_notch[ 4 ] = { 9634,  -7012,   7209,  30474 }; */
 
-/* Tables with IIR and FIR coefficients for fractional downsamplers (123 Words) */
-silk_DWORD_ALIGN const opus_int16 silk_Resampler_3_4_COEFS[ 2 + 3 * RESAMPLER_DOWN_ORDER_FIR0 / 2 ] = {
-    -20694, -13867,
-       -49,     64,     17,   -157,    353,   -496,    163,  11047,  22205,
-       -39,      6,     91,   -170,    186,     23,   -896,   6336,  19928,
-       -19,    -36,    102,    -89,    -24,    328,   -951,   2568,  15909,
-};
-
-silk_DWORD_ALIGN const opus_int16 silk_Resampler_2_3_COEFS[ 2 + 2 * RESAMPLER_DOWN_ORDER_FIR0 / 2 ] = {
-    -14457, -14019,
-        64,    128,   -122,     36,    310,   -768,    584,   9267,  17733,
-        12,    128,     18,   -142,    288,   -117,   -865,   4123,  14459,
-};
-
-silk_DWORD_ALIGN const opus_int16 silk_Resampler_1_2_COEFS[ 2 + RESAMPLER_DOWN_ORDER_FIR1 / 2 ] = {
-       616, -14323,
-       -10,     39,     58,    -46,    -84,    120,    184,   -315,   -541,   1284,   5380,   9024,
-};
-
+/* Tables with IIR and FIR coefficients for fractional downsamplers (maiopus: the decimators by 3, 4 and 6
+   that the 48 kHz API rate needs) */
 silk_DWORD_ALIGN const opus_int16 silk_Resampler_1_3_COEFS[ 2 + RESAMPLER_DOWN_ORDER_FIR2 / 2 ] = {
      16102, -15162,
        -13,      0,     20,     26,      5,    -31,    -43,     -4,     65,     90,      7,   -157,   -248,    -44,    593,   1583,   2612,   3271,

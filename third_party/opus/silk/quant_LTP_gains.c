@@ -38,8 +38,7 @@ void silk_quant_LTP_gains(
     const opus_int32            XX_Q17[ MAX_NB_SUBFR*LTP_ORDER*LTP_ORDER ], /* I    Correlation matrix in Q18       */
     const opus_int32            xX_Q17[ MAX_NB_SUBFR*LTP_ORDER ],           /* I    Correlation vector in Q18       */
     const opus_int              subfr_len,                                  /* I    Number of samples per subframe  */
-    const opus_int              nb_subfr,                                   /* I    Number of subframes             */
-    int                         arch                                        /* I    Run-time architecture           */
+    const opus_int              nb_subfr                                    /* I    Number of subframes             */
 )
 {
     opus_int             j, k, cbk_size;

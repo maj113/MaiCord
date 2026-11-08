@@ -72,8 +72,7 @@ opus_int silk_encode_frame_FIX(
 
 /* Initializes the Silk encoder state */
 opus_int silk_init_encoder(
-    silk_encoder_state_Fxx          *psEnc,                                 /* I/O  Pointer to Silk FIX encoder state                                           */
-    int                              arch                                   /* I    Run-time architecture                                                       */
+    silk_encoder_state_Fxx          *psEnc                                  /* I/O  Pointer to Silk FIX encoder state                                           */
 );
 
 /* Control the Silk encoder */
@@ -95,12 +94,11 @@ void silk_noise_shape_analysis_FIX(
     silk_encoder_control_FIX        *psEncCtrl,                             /* I/O  Encoder control FIX                                                         */
     const opus_int16                *pitch_res,                             /* I    LPC residual from pitch analysis                                            */
     const opus_int16                *x,                                     /* I    Input signal [ frame_length + la_shape ]                                    */
-    int                              arch,                                  /* I    Run-time architecture                                                       */
     char                            *scratch                                /* I    Scratch arena                                                               */
 );
 
-/* Autocorrelations for a warped frequency axis */
-void silk_warped_autocorrelation_FIX_c(
+/* Autocorrelations for a warped frequency axis (SSE4.1) */
+void silk_warped_autocorrelation_FIX(
           opus_int32                *corr,                                  /* O    Result [order + 1]                                                          */
           opus_int                  *scale,                                 /* O    Scaling of the correlation vector                                           */
     const opus_int16                *input,                                 /* I    Input data to correlate                                                     */
@@ -108,11 +106,6 @@ void silk_warped_autocorrelation_FIX_c(
     const opus_int                  length,                                 /* I    Length of input                                                             */
     const opus_int                  order                                   /* I    Correlation order (even)                                                    */
 );
-
-#if !defined(OVERRIDE_silk_warped_autocorrelation_FIX)
-#define silk_warped_autocorrelation_FIX(corr, scale, input, warping_Q16, length, order, arch) \
-        ((void)(arch), silk_warped_autocorrelation_FIX_c(corr, scale, input, warping_Q16, length, order))
-#endif
 
 /* Calculation of LTP state scaling */
 void silk_LTP_scale_ctrl_FIX(
@@ -130,7 +123,6 @@ void silk_find_pitch_lags_FIX(
     silk_encoder_control_FIX        *psEncCtrl,                             /* I/O  encoder control                                                             */
     opus_int16                      res[],                                  /* O    residual                                                                    */
     const opus_int16                x[],                                    /* I    Speech signal                                                               */
-    int                             arch,                                   /* I    Run-time architecture                                                       */
     char                            *scratch                                /* I    Scratch arena                                                               */
 );
 
@@ -158,8 +150,7 @@ void silk_find_LTP_FIX(
     const opus_int16                r_lpc[],                                /* I    Residual signal after LPC                                                   */
     const opus_int                  lag[ MAX_NB_SUBFR ],                    /* I    LTP lags                                                                    */
     const opus_int                  subfr_length,                           /* I    Subframe length                                                             */
-    const opus_int                  nb_subfr,                               /* I    Number of subframes                                                         */
-    int                             arch                                    /* I    Run-time architecture                                                       */
+    const opus_int                  nb_subfr                                /* I    Number of subframes                                                         */
 );
 
 void silk_LTP_analysis_filter_FIX(
@@ -183,8 +174,7 @@ void silk_residual_energy_FIX(
     const opus_int32                gains[ MAX_NB_SUBFR ],                  /* I    Quantization gains                                                          */
     const opus_int                  subfr_length,                           /* I    Subframe length                                                             */
     const opus_int                  nb_subfr,                               /* I    Number of subframes                                                         */
-    const opus_int                  LPC_order,                              /* I    LPC order                                                                   */
-    int                             arch                                    /* I    Run-time architecture                                                       */
+    const opus_int                  LPC_order                               /* I    LPC order                                                                   */
 );
 
 /* Residual energy: nrg = wxx - 2 * wXx * c + c' * wXX * c */
@@ -214,8 +204,7 @@ void silk_corrMatrix_FIX(
     const opus_int                  order,                                  /* I    Max lag for correlation                                                     */
     opus_int32                      *XX,                                    /* O    Pointer to X'*X correlation matrix [ order x order ]                        */
     opus_int32                      *nrg,                                   /* O    Energy of x vector                                                          */
-    opus_int                        *rshifts,                               /* O    Right shifts of correlations                                                */
-    int                              arch                                   /* I    Run-time architecture                                                       */
+    opus_int                        *rshifts                                /* O    Right shifts of correlations                                                */
 );
 
 /* Calculates correlation vector X'*t */
@@ -225,8 +214,7 @@ void silk_corrVector_FIX(
     const opus_int                  L,                                      /* I    Length of vectors                                                           */
     const opus_int                  order,                                  /* I    Max lag for correlation                                                     */
     opus_int32                      *Xt,                                    /* O    Pointer to X'*t correlation vector [order]                                  */
-    const opus_int                  rshifts,                                /* I    Right shifts of correlations                                                */
-    int                             arch                                    /* I    Run-time architecture                                                       */
+    const opus_int                  rshifts                                 /* I    Right shifts of correlations                                                */
 );
 
 #endif /* SILK_MAIN_FIX_H */

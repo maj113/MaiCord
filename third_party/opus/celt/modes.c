@@ -34,7 +34,6 @@
 #include "os_support.h"
 #include "stack_alloc.h"
 #include "quant_bands.h"
-#include "cpu_support.h"
 
 static const opus_int16 eband5ms[] = {
 /*0  200 400 600 800  1k 1.2 1.4 1.6  2k 2.4 2.8 3.2  4k 4.8 5.6 6.8  8k 9.6 12k 15.6 */

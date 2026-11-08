@@ -54,9 +54,8 @@ void silk_scale_copy_vector16(
 opus_int32 silk_inner_prod_aligned(
     const opus_int16 *const     inVec1,             /*    I input vector 1                                              */
     const opus_int16 *const     inVec2,             /*    I input vector 2                                              */
-    const opus_int              len,                /*    I vector lengths                                              */
-    int                         arch                /*    I Run-time architecture                                       */
+    const opus_int              len                 /*    I vector lengths                                              */
 )
 {
-   return celt_inner_prod(inVec1, inVec2, len, arch);
+   return celt_inner_prod(inVec1, inVec2, len);
 }

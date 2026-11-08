@@ -82,16 +82,38 @@ void test_opus_decoder(void (*check)(bool, const char*) noexcept) noexcept {
         check(opus_decoder_decode(&decoder, {bad_lengths, 2}, {output, 11520}, &scratch).error == OpusDecodeError::packet &&
                   opus_decoder_reset(&decoder).ok(),
               "Opus native error: malformed VBR frame lengths reach native packet rejection and reset remains usable");
+        // Gain through the decoded output: a CELT packet with an arbitrary payload decodes, after each reset, to the
+        // neutral PCM scaled by the gain (the gain survives the reset); the endpoints mute and saturate.
+        const u8 noise[]{0xf8, 0x5a, 0x3c, 0x96, 0xe1, 0x27, 0xb4, 0x0f, 0x78, 0xc3, 0x69, 0x1e, 0xd2, 0x8b, 0x45, 0xf0, 0x3a, 0x97};
+        const auto peak = [&](const i16* pcm) noexcept {
+            i32 value = 0;
+            for (u32 i = 0; i < 960 * channels; ++i) {
+                const i32 magnitude = pcm[i] < 0 ? -static_cast<i32>(pcm[i]) : pcm[i];
+                if (magnitude > value) value = magnitude;
+            }
+            return value;
+        };
+        i16 neutral[1920];
+        const bool decoded_neutral = opus_decoder_gain(&decoder, 0).ok() && opus_decoder_reset(&decoder).ok() &&
+                                     opus_decoder_decode(&decoder, {noise, sizeof(noise)}, {neutral, 960 * channels}, &scratch).ok();
+        const i32 neutral_peak = decoded_neutral ? peak(neutral) : 0;
+        check(neutral_peak > 8, "Opus gain: the reference packet decodes to audible PCM at neutral gain");
         const i16 gains[]{-32768, -1536, 1536, 32767};
         for (i16 gain : gains) {
-            opus_int32 actual = 0;
-            check(opus_decoder_gain(&decoder, gain).ok() &&
-                      ::opus_decoder_ctl(reinterpret_cast<::OpusDecoder*>(storage), OPUS_GET_GAIN(&actual)) == OPUS_OK && actual == gain &&
-                      opus_decoder_reset(&decoder).ok() &&
-                      ::opus_decoder_ctl(reinterpret_cast<::OpusDecoder*>(storage), OPUS_GET_GAIN(&actual)) == OPUS_OK && actual == gain,
-                  "Opus gain: native signed Q8dB adjustment including endpoints survives reset exactly");
+            const bool decoded_gain = opus_decoder_gain(&decoder, gain).ok() && opus_decoder_reset(&decoder).ok() &&
+                                      opus_decoder_decode(&decoder, {noise, sizeof(noise)}, {output, 960 * channels}, &scratch).ok();
+            const i32 scaled = decoded_gain ? peak(output) : -1;
+            const bool expected = gain == -32768 ? scaled == 0
+                                : gain == -1536  ? scaled * 2 >= neutral_peak - 2 && scaled * 2 <= neutral_peak + 2
+                                : gain == 1536   ? scaled >= neutral_peak * 2 - 2 && scaled <= neutral_peak * 2 + 2
+                                                 : scaled == 32767;
+            check(decoded_gain && expected,
+                  "Opus gain: native signed Q8dB adjustment including endpoints scales the decoded PCM and survives reset");
         }
-        check(opus_decoder_gain(&decoder, 0).ok(), "Opus gain: session can restore neutral header gain");
+        check(opus_decoder_gain(&decoder, 0).ok() && opus_decoder_reset(&decoder).ok() &&
+                  opus_decoder_decode(&decoder, {noise, sizeof(noise)}, {output, 960 * channels}, &scratch).ok() &&
+                  bytes_equal(neutral, output, 960 * channels * static_cast<u32>(sizeof(i16))),
+              "Opus gain: session can restore neutral header gain");
         copy_bytes(saved, storage, bytes);
         opus_decoder_release(&decoder);
         check(!decoder.state && !decoder.initialized && !decoder.state_bytes && !decoder.channels && bytes_equal(saved, storage, bytes) &&

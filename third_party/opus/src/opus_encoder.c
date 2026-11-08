@@ -41,7 +41,6 @@
 #include "pitch.h"
 #include "opus_private.h"
 #include "os_support.h"
-#include "cpu_support.h"
 #include "mathops.h"
 #include "tuning_parameters.h"
 
@@ -58,8 +57,6 @@
 /* VOIP assumes 90% confidence of speech (Q7). */
 #define VOICE_ESTIMATE 115
 
-#define PSEUDO_SNR_THRESHOLD 316.23f    /* 10^(25/10) */
-
 typedef struct {
    opus_val32 XX, XY, YY;
    opus_val16 smoothed_width;
@@ -74,10 +71,7 @@ struct OpusEncoder {
     int          vbr_constraint;
     opus_int32   bitrate_bps;
     opus_int32   user_bitrate_bps;
-    int          arch;
-    int          use_dtx;                 /* general DTX for both SILK and CELT */
 
-#define OPUS_ENCODER_RESET_START stream_channels
     int          stream_channels;
     opus_int16   hybrid_stereo_width_Q14;
     opus_int32   variable_HP_smth2_Q15;
@@ -92,9 +86,6 @@ struct OpusEncoder {
     int          silk_bw_switch;
     int          first;
     StereoWidthState width_mem;
-    int          nb_no_activity_ms_Q1;
-    opus_val32   peak_signal_energy;
-    opus_uint32  rangeFinal;
     /* Needs to be the last field because it may be partially omitted (mono). */
     opus_res     delay_buffer[MAX_ENCODER_BUFFER*2];
 };
@@ -183,10 +174,8 @@ int opus_encoder_init(OpusEncoder* st, opus_int32 Fs, int channels, int applicat
 
     st->stream_channels = st->channels = channels;
 
-    st->arch = opus_select_arch();
-
     silk_enc = (char*)st+st->silk_enc_offset;
-    ret = silk_InitEncoder( silk_enc, st->channels, st->arch, &st->silk_mode );
+    ret = silk_InitEncoder( silk_enc, st->channels, &st->silk_mode );
     if(ret)return OPUS_INTERNAL_ERROR;
 
     /* default SILK parameters */
@@ -202,12 +191,11 @@ int opus_encoder_init(OpusEncoder* st, opus_int32 Fs, int channels, int applicat
     st->silk_mode.complexity                = 9;
     st->silk_mode.useInBandFEC              = 0;
     st->silk_mode.useDRED                   = 0;
-    st->silk_mode.useDTX                    = 0;
     st->silk_mode.useCBR                    = 0;
 
     /* Create CELT encoder */
     celt_enc = (CELTEncoder*)((char*)st+st->celt_enc_offset);
-    err = celt_encoder_init(celt_enc, channels, st->arch);
+    err = celt_encoder_init(celt_enc, channels);
     if(err!=OPUS_OK)return OPUS_INTERNAL_ERROR;
     celt_encoder_ctl(celt_enc, OPUS_SET_COMPLEXITY(st->silk_mode.complexity));
 
@@ -258,11 +246,10 @@ static unsigned char gen_toc(int mode, int framerate, int bandwidth, int channel
    return toc;
 }
 
-static void hp_cutoff(const opus_res *in, opus_int32 cutoff_Hz, opus_res *out, opus_val32 *hp_mem, int len, int channels, int arch)
+static void hp_cutoff(const opus_res *in, opus_int32 cutoff_Hz, opus_res *out, opus_val32 *hp_mem, int len, int channels)
 {
    opus_int32 B_Q28[ 3 ], A_Q28[ 2 ];
    opus_int32 Fc_Q19, r_Q28, r_Q22;
-   (void)arch;
 
    silk_assert( cutoff_Hz <= silk_int32_MAX / SILK_FIX_CONST( 1.5 * 3.14159 / 1000, 19 ) );
    Fc_Q19 = silk_DIV32_16( silk_SMULBB( SILK_FIX_CONST( 1.5 * 3.14159 / 1000, 19 ), cutoff_Hz ), VOICE_FS/1000 );
@@ -284,7 +271,7 @@ static void hp_cutoff(const opus_res *in, opus_int32 cutoff_Hz, opus_res *out, o
    if( channels == 1 ) {
       silk_biquad_alt_stride1( in, B_Q28, A_Q28, hp_mem, out, len );
    } else {
-      silk_biquad_alt_stride2( in, B_Q28, A_Q28, hp_mem, out, len, arch );
+      silk_biquad_alt_stride2( in, B_Q28, A_Q28, hp_mem, out, len );
    }
 }
 
@@ -551,56 +538,6 @@ static int is_digital_silence(const opus_res* pcm, int channels)
    return celt_maxabs_res(pcm, VOICE_FRAME_SIZE*channels) == 0;
 }
 
-static opus_val32 compute_frame_energy(const opus_res *pcm, int channels)
-{
-   int i;
-   opus_val32 sample_max;
-   int max_shift;
-   int shift;
-   opus_val32 energy = 0;
-   int len = VOICE_FRAME_SIZE*channels;
-   /* Max amplitude in the signal */
-   sample_max = RES2INT16(celt_maxabs_res(pcm, len));
-
-   /* Compute the right shift required in the MAC to avoid an overflow */
-   max_shift = celt_ilog2(len);
-   shift = IMAX(0, (celt_ilog2(1+sample_max) << 1) + max_shift - 28);
-
-   /* Compute the energy */
-   for (i=0; i<len; i++)
-      energy += SHR32(MULT16_16(RES2INT16(pcm[i]), RES2INT16(pcm[i])), shift);
-
-   /* Normalize energy by the frame size and left-shift back to the original position */
-   energy /= len;
-   energy = SHL32(energy, shift);
-
-   return energy;
-}
-
-/* Decides if DTX should be turned on (=1) or off (=0) after one more 20 ms frame */
-static int decide_dtx_mode(opus_int activity,            /* indicates if this frame contains speech/music */
-                           int *nb_no_activity_ms_Q1     /* number of consecutive milliseconds with no activity, in Q1 */
-                           )
-
-{
-   if (!activity)
-   {
-      /* The number of consecutive DTX frames should be within the allowed bounds. */
-      (*nb_no_activity_ms_Q1) += 2*20;
-      if (*nb_no_activity_ms_Q1 > NB_SPEECH_FRAMES_BEFORE_DTX*20*2)
-      {
-         if (*nb_no_activity_ms_Q1 <= (NB_SPEECH_FRAMES_BEFORE_DTX + MAX_CONSECUTIVE_DTX)*20*2)
-            /* Valid frame for DTX! */
-            return 1;
-         else
-            (*nb_no_activity_ms_Q1) = NB_SPEECH_FRAMES_BEFORE_DTX*20*2;
-      }
-   } else
-      (*nb_no_activity_ms_Q1) = 0;
-
-   return 0;
-}
-
 static int compute_redundancy_bytes(opus_int32 max_data_bytes, opus_int32 bitrate_bps, int channels)
 {
    int redundancy_bytes_cap;
@@ -645,7 +582,6 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
     int start_band = 0;
     int redundancy_bytes = 0; /* Number of bytes to use for redundancy frame */
     int nb_compr_bytes;
-    opus_uint32 redundant_rng = 0;
     int cutoff_Hz;
     int hp_freq_smth1;
     opus_val16 HB_gain;
@@ -656,7 +592,6 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
     SAVE_STACK;
 
     max_data_bytes = IMIN(orig_max_data_bytes, 1276);
-    st->rangeFinal = 0;
     silk_enc = (char*)st+st->silk_enc_offset;
     celt_enc = (CELTEncoder*)((char*)st+st->celt_enc_offset);
     celt_encoder_ctl(celt_enc, CELT_GET_MODE(&celt_mode));
@@ -665,11 +600,6 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
     if (is_silence)
     {
        activity = 0;
-    }
-    else if (st->mode == MODE_CELT_ONLY) {
-       opus_val32 noise_energy = compute_frame_energy(pcm, st->channels);
-       /* Boosting peak energy a bit because we didn't just average the active frames. */
-       activity = st->peak_signal_energy < (QCONST16(PSEUDO_SNR_THRESHOLD, 0) * (opus_val64)HALF32(noise_energy));
     }
 
     /* For the first frame at a new SILK bandwidth */
@@ -714,7 +644,7 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
     /* convert from log scale to Hertz */
     cutoff_Hz = silk_log2lin( silk_RSHIFT( st->variable_HP_smth2_Q15, 8 ) );
 
-    hp_cutoff(pcm, cutoff_Hz, &pcm_buf[DELAY_COMPENSATION*st->channels], st->hp_mem, VOICE_FRAME_SIZE, st->channels, st->arch);
+    hp_cutoff(pcm, cutoff_Hz, &pcm_buf[DELAY_COMPENSATION*st->channels], st->hp_mem, VOICE_FRAME_SIZE, st->channels);
 
     /* SILK processing */
     HB_gain = Q15ONE;
@@ -832,17 +762,6 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
         }
 
         st->silk_mode.opusCanSwitch = st->silk_mode.switchReady;
-
-        if (activity == VAD_NO_DECISION) {
-           activity = (st->silk_mode.signalType != TYPE_NO_VOICE_ACTIVITY);
-        }
-        if (nBytes==0)
-        {
-           st->rangeFinal = 0;
-           data[-1] = gen_toc(st->mode, VOICE_FRAME_RATE, curr_bandwidth, st->stream_channels);
-           RESTORE_STACK;
-           return 1;
-        }
 
         if (st->silk_mode.opusCanSwitch)
         {
@@ -986,7 +905,6 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
            RESTORE_STACK;
            return OPUS_INTERNAL_ERROR;
         }
-        celt_encoder_ctl(celt_enc, OPUS_GET_FINAL_RANGE(&redundant_rng));
         celt_encoder_ctl(celt_enc, OPUS_RESET_STATE);
     }
 
@@ -1029,9 +947,6 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
               nb_compr_bytes = ret+redundancy_bytes;
            }
         }
-        celt_encoder_ctl(celt_enc, OPUS_GET_FINAL_RANGE(&st->rangeFinal));
-    } else {
-       st->rangeFinal = enc.rng;
     }
 
     /* 5 ms redundant frame for SILK->CELT */
@@ -1064,15 +979,12 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
            RESTORE_STACK;
            return OPUS_INTERNAL_ERROR;
         }
-        celt_encoder_ctl(celt_enc, OPUS_GET_FINAL_RANGE(&redundant_rng));
     }
 
 
     /* Signalling the mode in the first byte */
     data--;
     data[0] |= gen_toc(st->mode, VOICE_FRAME_RATE, curr_bandwidth, st->stream_channels);
-
-    st->rangeFinal ^= redundant_rng;
 
     if (to_celt)
         st->prev_mode = MODE_CELT_ONLY;
@@ -1081,20 +993,6 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
     st->prev_channels = st->stream_channels;
 
     st->first = 0;
-
-    /* DTX decision */
-    if (st->use_dtx && !st->silk_mode.useDTX)
-    {
-       if (decide_dtx_mode(activity, &st->nb_no_activity_ms_Q1))
-       {
-          st->rangeFinal = 0;
-          data[0] = gen_toc(st->mode, VOICE_FRAME_RATE, curr_bandwidth, st->stream_channels);
-          RESTORE_STACK;
-          return 1;
-       }
-    } else {
-       st->nb_no_activity_ms_Q1 = 0;
-    }
 
     /* In the unlikely case that the SILK encoder busted its target, tell
        the decoder to call the PLC */
@@ -1107,7 +1005,6 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
        }
        data[1] = 0;
        ret = 1;
-       st->rangeFinal = 0;
     } else if (st->mode==MODE_SILK_ONLY&&!redundancy)
     {
        /*When in LPC only mode it's perfectly
@@ -1143,7 +1040,6 @@ static opus_int32 opus_encode_native(OpusEncoder *st, const opus_res *pcm, int f
     /* Just avoid insane packet sizes here, but the real bounds are applied later on. */
     max_data_bytes = IMIN(1276*6, out_data_bytes);
 
-    st->rangeFinal = 0;
     if (frame_size != VOICE_FRAME_SIZE || max_data_bytes <= 0)
        return OPUS_BAD_ARG;
 
@@ -1151,12 +1047,6 @@ static opus_int32 opus_encode_native(OpusEncoder *st, const opus_res *pcm, int f
 
     is_silence = is_digital_silence(pcm, st->channels);
 
-    /* Track the peak signal energy */
-    if (!is_silence)
-    {
-       st->peak_signal_energy = MAX32(MULT16_32_Q15(QCONST16(0.999f, 15), st->peak_signal_energy),
-             compute_frame_energy(pcm, st->channels));
-    }
     if (st->channels==2)
        stereo_width = compute_stereo_width(pcm, &st->width_mem);
     else
@@ -1198,10 +1088,6 @@ static opus_int32 opus_encode_native(OpusEncoder *st, const opus_res *pcm, int f
        st->stream_channels = st->channels;
     }
 
-    /* Allow SILK DTX if DTX is enabled but the generalized DTX cannot be used,
-       e.g. because of the complexity setting or sample rate. */
-    st->silk_mode.useDTX = st->use_dtx && !is_silence;
-
     /* Mode selection */
     {
        opus_int32 mode_voice, mode_music;
@@ -1227,10 +1113,6 @@ static opus_int32 opus_encode_native(OpusEncoder *st, const opus_res *pcm, int f
 
        /* When FEC is enabled and there's enough packet loss, use SILK. */
        if (st->silk_mode.useInBandFEC && st->silk_mode.packetLossPercentage > (128-VOICE_ESTIMATE)>>4)
-          st->mode = MODE_SILK_ONLY;
-       /* When encoding voice and DTX is enabled but the generalized DTX cannot be used,
-          use SILK in order to make use of its DTX. */
-       if (st->silk_mode.useDTX)
           st->mode = MODE_SILK_ONLY;
 
        /* If max_data_bytes represents less than 6 kb/s, switch to CELT-only mode */
@@ -1268,7 +1150,7 @@ static opus_int32 opus_encode_native(OpusEncoder *st, const opus_res *pcm, int f
     if (st->mode != MODE_CELT_ONLY && st->prev_mode == MODE_CELT_ONLY)
     {
         silk_EncControlStruct dummy;
-        silk_InitEncoder( silk_enc, st->channels, st->arch, &dummy);
+        silk_InitEncoder( silk_enc, st->channels, &dummy);
         prefill=1;
     }
 
@@ -1368,36 +1250,6 @@ int opus_encoder_ctl(OpusEncoder *st, int request, ...)
             st->user_bitrate_bps = value;
         }
         break;
-        case OPUS_GET_BITRATE_REQUEST:
-        {
-            opus_int32 *value = va_arg(ap, opus_int32*);
-            if (!value)
-            {
-               goto bad_arg;
-            }
-            *value = user_bitrate_to_bitrate(st, 1276);
-        }
-        break;
-        case OPUS_SET_DTX_REQUEST:
-        {
-            opus_int32 value = va_arg(ap, opus_int32);
-            if(value<0 || value>1)
-            {
-               goto bad_arg;
-            }
-            st->use_dtx = value;
-        }
-        break;
-        case OPUS_GET_DTX_REQUEST:
-        {
-            opus_int32 *value = va_arg(ap, opus_int32*);
-            if (!value)
-            {
-               goto bad_arg;
-            }
-            *value = st->use_dtx;
-        }
-        break;
         case OPUS_SET_COMPLEXITY_REQUEST:
         {
             opus_int32 value = va_arg(ap, opus_int32);
@@ -1407,16 +1259,6 @@ int opus_encoder_ctl(OpusEncoder *st, int request, ...)
             }
             st->silk_mode.complexity = value;
             celt_encoder_ctl(celt_enc, OPUS_SET_COMPLEXITY(value));
-        }
-        break;
-        case OPUS_GET_COMPLEXITY_REQUEST:
-        {
-            opus_int32 *value = va_arg(ap, opus_int32*);
-            if (!value)
-            {
-               goto bad_arg;
-            }
-            *value = st->silk_mode.complexity;
         }
         break;
         case OPUS_SET_INBAND_FEC_REQUEST:
@@ -1430,16 +1272,6 @@ int opus_encoder_ctl(OpusEncoder *st, int request, ...)
             st->silk_mode.useInBandFEC = value;
         }
         break;
-        case OPUS_GET_INBAND_FEC_REQUEST:
-        {
-            opus_int32 *value = va_arg(ap, opus_int32*);
-            if (!value)
-            {
-               goto bad_arg;
-            }
-            *value = st->silk_mode.useInBandFEC;
-        }
-        break;
         case OPUS_SET_PACKET_LOSS_PERC_REQUEST:
         {
             opus_int32 value = va_arg(ap, opus_int32);
@@ -1449,16 +1281,6 @@ int opus_encoder_ctl(OpusEncoder *st, int request, ...)
             }
             st->silk_mode.packetLossPercentage = value;
             celt_encoder_ctl(celt_enc, OPUS_SET_PACKET_LOSS_PERC(value));
-        }
-        break;
-        case OPUS_GET_PACKET_LOSS_PERC_REQUEST:
-        {
-            opus_int32 *value = va_arg(ap, opus_int32*);
-            if (!value)
-            {
-               goto bad_arg;
-            }
-            *value = st->silk_mode.packetLossPercentage;
         }
         break;
         case OPUS_SET_VBR_CONSTRAINT_REQUEST:
@@ -1471,16 +1293,6 @@ int opus_encoder_ctl(OpusEncoder *st, int request, ...)
             st->vbr_constraint = value;
         }
         break;
-        case OPUS_GET_VBR_CONSTRAINT_REQUEST:
-        {
-            opus_int32 *value = va_arg(ap, opus_int32*);
-            if (!value)
-            {
-               goto bad_arg;
-            }
-            *value = st->vbr_constraint;
-        }
-        break;
         case OPUS_GET_LOOKAHEAD_REQUEST:
         {
             opus_int32 *value = va_arg(ap, opus_int32*);
@@ -1489,37 +1301,6 @@ int opus_encoder_ctl(OpusEncoder *st, int request, ...)
                goto bad_arg;
             }
             *value = VOICE_FS/400 + DELAY_COMPENSATION;
-        }
-        break;
-        case OPUS_GET_FINAL_RANGE_REQUEST:
-        {
-            opus_uint32 *value = va_arg(ap, opus_uint32*);
-            if (!value)
-            {
-               goto bad_arg;
-            }
-            *value = st->rangeFinal;
-        }
-        break;
-        case OPUS_RESET_STATE:
-        {
-           void *silk_enc;
-           silk_EncControlStruct dummy;
-           char *start;
-           silk_enc = (char*)st+st->silk_enc_offset;
-
-           start = (char*)&st->OPUS_ENCODER_RESET_START;
-           OPUS_CLEAR(start, st->silk_enc_offset - (start - (char*)st));
-
-           celt_encoder_ctl(celt_enc, OPUS_RESET_STATE);
-           silk_InitEncoder( silk_enc, st->channels, st->arch, &dummy );
-           st->stream_channels = st->channels;
-           st->hybrid_stereo_width_Q14 = 1 << 14;
-           st->prev_HB_gain = Q15ONE;
-           st->first = 1;
-           st->mode = MODE_HYBRID;
-           st->bandwidth = OPUS_BANDWIDTH_FULLBAND;
-           st->variable_HP_smth2_Q15 = silk_LSHIFT( silk_lin2log( VARIABLE_HP_MIN_CUTOFF_HZ ), 8 );
         }
         break;
         default:

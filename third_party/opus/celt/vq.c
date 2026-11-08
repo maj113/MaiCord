@@ -51,17 +51,15 @@ void norm_scaledown(celt_norm *X, int N, int shift) {
    for (i=0;i<N;i++) X[i] = PSHR32(X[i], shift);
 }
 
-opus_val32 celt_inner_prod_norm(const celt_norm *x, const celt_norm *y, int len, int arch) {
+opus_val32 celt_inner_prod_norm(const celt_norm *x, const celt_norm *y, int len) {
    int i;
    opus_val32 sum = 0;
-   (void)arch;
    for (i=0;i<len;i++) sum += x[i]*y[i];
    return sum;
 }
-opus_val32 celt_inner_prod_norm_shift(const celt_norm *x, const celt_norm *y, int len, int arch) {
+opus_val32 celt_inner_prod_norm_shift(const celt_norm *x, const celt_norm *y, int len) {
    int i;
    opus_val64 sum = 0;
-   (void)arch;
    for (i=0;i<len;i++) sum += x[i]*(opus_val64)y[i];
    return sum>>2*(NORM_SHIFT-14);
 }
@@ -181,7 +179,7 @@ static unsigned extract_collapse_mask(int *iy, int N, int B)
    return collapse_mask;
 }
 
-opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch, char *scratch)
+opus_val16 op_pvq_search(celt_norm *X, int *iy, int K, int N, char *scratch)
 {
    VARDECL(celt_norm, y);
    VARDECL(int, signx);
@@ -192,11 +190,10 @@ opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch, char *
    opus_val16 yy;
    SAVE_STACK;
 
-   (void)arch;
    ALLOC(y, N, celt_norm);
    ALLOC(signx, N, int);
    {
-      int shift = (celt_ilog2(1+celt_inner_prod_norm_shift(X, X, N, arch))+1)/2;
+      int shift = (celt_ilog2(1+celt_inner_prod_norm_shift(X, X, N))+1)/2;
       shift = IMAX(0, shift+(NORM_SHIFT-14)-14);
       norm_scaledown(X, N, shift);
    }
@@ -330,8 +327,7 @@ opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch, char *
 
 
 unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
-      opus_val32 gain, int resynth
-, int arch, char *scratch)
+      opus_val32 gain, int resynth, char *scratch)
 {
    VARDECL(int, iy);
    opus_val32 yy;
@@ -347,7 +343,7 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
    exp_rotation(X, N, 1, B, K, spread);
 
    {
-      yy = op_pvq_search(X, iy, K, N, arch, scratch);
+      yy = op_pvq_search(X, iy, K, N, scratch);
       collapse_mask = extract_collapse_mask(iy, N, B);
       encode_pulses(iy, N, K, enc);
       if (resynth)
@@ -384,7 +380,7 @@ unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
 }
 
 #ifndef OVERRIDE_renormalise_vector
-void renormalise_vector(celt_norm *X, int N, opus_val32 gain, int arch)
+void renormalise_vector(celt_norm *X, int N, opus_val32 gain)
 {
    int i;
    int k;
@@ -393,7 +389,7 @@ void renormalise_vector(celt_norm *X, int N, opus_val32 gain, int arch)
    opus_val32 t;
    celt_norm *xptr;
    norm_scaledown(X, N, NORM_SHIFT-14);
-   E = EPSILON + celt_inner_prod_norm(X, X, N, arch);
+   E = EPSILON + celt_inner_prod_norm(X, X, N);
    k = celt_ilog2(E)>>1;
    t = VSHR32(E, 2*(k-7));
    g = MULT32_32_Q31(celt_rsqrt_norm(t),gain);
@@ -409,7 +405,7 @@ void renormalise_vector(celt_norm *X, int N, opus_val32 gain, int arch)
 }
 #endif /* OVERRIDE_renormalise_vector */
 
-opus_int32 stereo_itheta(const celt_norm *X, const celt_norm *Y, int stereo, int N, int arch)
+opus_int32 stereo_itheta(const celt_norm *X, const celt_norm *Y, int stereo, int N)
 {
    int i;
    int itheta;
@@ -428,8 +424,8 @@ opus_int32 stereo_itheta(const celt_norm *X, const celt_norm *Y, int stereo, int
          Eside = MAC16_16(Eside, s, s);
       }
    } else {
-      Emid += celt_inner_prod_norm_shift(X, X, N, arch);
-      Eside += celt_inner_prod_norm_shift(Y, Y, N, arch);
+      Emid += celt_inner_prod_norm_shift(X, X, N);
+      Eside += celt_inner_prod_norm_shift(Y, Y, N);
    }
    mid = celt_sqrt32(Emid);
    side = celt_sqrt32(Eside);

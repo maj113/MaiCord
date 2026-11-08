@@ -67,7 +67,6 @@ opus_int silk_Get_Encoder_Size(                         /* O    Returns error co
 opus_int silk_InitEncoder(                              /* O    Returns error code                              */
     void                            *encState,          /* I/O  State                                           */
     int                              channels,          /* I    Number of channels                              */
-    int                              arch,              /* I    Run-time architecture                           */
     silk_EncControlStruct           *encStatus          /* O    Encoder Status                                  */
 );
 
@@ -131,7 +130,6 @@ opus_int silk_Decode(                                   /* O    Returns error co
     ec_dec                          *psRangeDec,        /* I/O  Compressor data structure                       */
     opus_res                        *samplesOut,        /* O    Decoded output speech vector                    */
     opus_int32                      *nSamplesOut,       /* O    Number of samples decoded                       */
-    int                             arch,               /* I    Run-time architecture                           */
     char                            *scratch            /* I    Scratch arena                                   */
 );
 

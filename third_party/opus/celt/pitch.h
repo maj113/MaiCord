@@ -35,24 +35,20 @@
 #define PITCH_H
 
 #include "modes.h"
-#include "cpu_support.h"
 
-#if (defined(OPUS_X86_MAY_HAVE_SSE) && !defined(FIXED_POINT)) \
-  || ((defined(OPUS_X86_MAY_HAVE_SSE4_1) || defined(OPUS_X86_MAY_HAVE_SSE2)) && defined(FIXED_POINT))
 #include "x86/pitch_sse.h"
-#endif
 
 
 void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
-      int len, int C, int factor, int arch, char *scratch);
+      int len, int C, int factor, char *scratch);
 
 void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
-                  int len, int max_pitch, int *pitch, int arch, char *scratch);
+                  int len, int max_pitch, int *pitch, char *scratch);
 
 opus_val16 remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
-      int N, int *T0, int prev_period, opus_val16 prev_gain, int arch, char *scratch);
+      int N, int *T0, int prev_period, opus_val16 prev_gain, char *scratch);
 
-static OPUS_INLINE void dual_inner_prod_c(const opus_val16 *x, const opus_val16 *y01, const opus_val16 *y02,
+static OPUS_INLINE void dual_inner_prod(const opus_val16 *x, const opus_val16 *y01, const opus_val16 *y02,
       int N, opus_val32 *xy1, opus_val32 *xy2)
 {
    int i;
@@ -67,19 +63,9 @@ static OPUS_INLINE void dual_inner_prod_c(const opus_val16 *x, const opus_val16 
    *xy2 = xy02;
 }
 
-#ifndef OVERRIDE_DUAL_INNER_PROD
-# define dual_inner_prod(x, y01, y02, N, xy1, xy2, arch) \
-    ((void)(arch),dual_inner_prod_c(x, y01, y02, N, xy1, xy2))
-#endif
-
-
 opus_val32
-celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
-      opus_val32 *xcorr, int len, int max_pitch, int arch);
-
-#ifndef OVERRIDE_PITCH_XCORR
-# define celt_pitch_xcorr celt_pitch_xcorr_c
-#endif
+celt_pitch_xcorr(const opus_val16 *_x, const opus_val16 *_y,
+      opus_val32 *xcorr, int len, int max_pitch);
 
 
 #endif

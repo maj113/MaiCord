@@ -97,14 +97,3 @@ void silk_resampler_private_up2_HQ(
         out[ 2 * k + 1 ] = (opus_int16)silk_SAT16( silk_RSHIFT_ROUND( out32_1, 10 ) );
     }
 }
-
-void silk_resampler_private_up2_HQ_wrapper(
-    void                            *SS,            /* I/O  Resampler state (unused)    */
-    opus_int16                      *out,           /* O    Output signal [ 2 * len ]   */
-    const opus_int16                *in,            /* I    Input signal [ len ]        */
-    opus_int32                      len             /* I    Number of input samples     */
-)
-{
-    silk_resampler_state_struct *S = (silk_resampler_state_struct *)SS;
-    silk_resampler_private_up2_HQ( S->sIIR, out, in, len );
-}

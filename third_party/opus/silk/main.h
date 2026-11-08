@@ -38,10 +38,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "entenc.h"
 #include "entdec.h"
 
-#if !defined(OPUS_X86_PRESUME_SSE4_1)
-#error "maiopus: SILK needs the x86 SSE4.1 kernels (MAIOPUS_SSE4_1)"
-#endif
-
 /* Scratch bytes silk_NSQ and silk_NSQ_del_dec allocate at most (proved where they allocate) */
 #define SILK_NSQ_SCRATCH_BYTES  9520
 
@@ -132,11 +128,6 @@ void silk_decode_signs(
     const opus_int              sum_pulses[ MAX_NB_SHELL_BLOCKS ]   /* I    Sum of absolute pulses per block        */
 );
 
-/* Check encoder control struct */
-opus_int check_control_input(
-    silk_EncControlStruct        *encControl                    /* I    Control structure                           */
-);
-
 /* Control internal sampling rate */
 opus_int silk_control_audio_bandwidth(
     silk_encoder_state          *psEncC,                        /* I/O  Pointer to Silk encoder state               */
@@ -218,8 +209,7 @@ void silk_quant_LTP_gains(
     const opus_int32            XX_Q17[ MAX_NB_SUBFR*LTP_ORDER*LTP_ORDER ], /* I    Correlation matrix in Q18       */
     const opus_int32            xX_Q17[ MAX_NB_SUBFR*LTP_ORDER ],           /* I    Correlation vector in Q18       */
     const opus_int              subfr_len,                                  /* I    Number of samples per subframe  */
-    const opus_int              nb_subfr,                                   /* I    Number of subframes             */
-    int                         arch                                        /* I    Run-time architecture           */
+    const opus_int              nb_subfr                                    /* I    Number of subframes             */
 );
 
 /* Entropy constrained matrix-weighted VQ, for a single input data vector */
@@ -400,7 +390,6 @@ opus_int silk_decode_frame(
     opus_int32                  *pN,                            /* O    Pointer to size of output frame             */
     opus_int                    lostFlag,                       /* I    0: no loss, 1 loss, 2 decode fec            */
     opus_int                    condCoding,                     /* I    The type of conditional coding to use       */
-    int                         arch,                           /* I    Run-time architecture                       */
     char                        *scratch                        /* I    Scratch arena                               */
 );
 
@@ -426,7 +415,6 @@ void silk_decode_core(
     silk_decoder_control        *psDecCtrl,                     /* I    Decoder control                             */
     opus_int16                  xq[],                           /* O    Decoded speech                              */
     const opus_int16            pulses[ MAX_FRAME_LENGTH ],     /* I    Pulse signal                                */
-    int                         arch,                           /* I    Run-time architecture                       */
     char                        *scratch                        /* I    Scratch arena                               */
 );
 

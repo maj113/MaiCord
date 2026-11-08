@@ -131,7 +131,6 @@ void celt_iir(const opus_val32 *_x,
          int N,
          int ord,
          opus_val16 *mem,
-         int arch,
          char *scratch)
 {
    int i,j;
@@ -156,7 +155,7 @@ void celt_iir(const opus_val32 *_x,
       sum[1]=_x[i+1];
       sum[2]=_x[i+2];
       sum[3]=_x[i+3];
-         xcorr_kernel(rden, y+i, sum, ord, arch);
+         xcorr_kernel(rden, y+i, sum, ord);
       /* Patch up the result to compensate for the fact that this is an IIR */
       y[i+ord  ] = -SROUND16(sum[0],SIG_SHIFT);
       _y[i  ] = sum[0];
@@ -194,7 +193,6 @@ int _celt_autocorr(
                    int          overlap,
                    int          lag,
                    int          n,
-                   int          arch,
                    char        *scratch
                   )
 {
@@ -246,7 +244,7 @@ int _celt_autocorr(
       } else
          shift = 0;
    }
-   celt_pitch_xcorr(xptr, xptr, ac, fastN, lag+1, arch);
+   celt_pitch_xcorr(xptr, xptr, ac, fastN, lag+1);
    for (k=0;k<=lag;k++)
    {
       for (i = k+fastN, d = 0; i < n; i++)

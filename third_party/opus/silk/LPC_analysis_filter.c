@@ -44,8 +44,7 @@ void silk_LPC_analysis_filter(
     const opus_int16            *in,                /* I    Input signal                                                */
     const opus_int16            *B,                 /* I    MA prediction coefficients, Q12 [order]                     */
     const opus_int32            len,                /* I    Signal length                                               */
-    const opus_int32            d,                  /* I    Filter order                                                */
-    int                         arch                /* I    Run-time architecture                                       */
+    const opus_int32            d                   /* I    Filter order                                                */
 )
 {
     opus_int   j;
@@ -57,7 +56,6 @@ void silk_LPC_analysis_filter(
     celt_assert( (d & 1) == 0 );
     celt_assert( d <= len );
 
-    (void)arch;
     ix = d;
     if( len - d >= 8 ) {
         /* Eight outputs per block. A madd of the sample pair (in[n-1-j], in[n-2-j]) with the tap pair

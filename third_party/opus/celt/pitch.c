@@ -126,7 +126,7 @@ static void celt_fir5(opus_val16 *x,
 
 
 void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
-      int len, int C, int factor, int arch, char *scratch)
+      int len, int C, int factor, char *scratch)
 {
    int i;
    opus_val32 ac[5];
@@ -161,7 +161,7 @@ void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x
       x_lp[0] += SHR32(x[1][offset], shift+2) + SHR32(x[1][0], shift+1);
    }
    _celt_autocorr(x_lp, ac, NULL, 0,
-                  4, len, arch, scratch);
+                  4, len, scratch);
 
    /* Noise floor -40 dB */
    ac[0] += SHR32(ac[0],13);
@@ -187,10 +187,9 @@ void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x
    celt_fir5(x_lp, lpc2, len);
 }
 
-/* Pure C implementation. */
 opus_val32
-celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
-      opus_val32 *xcorr, int len, int max_pitch, int arch)
+celt_pitch_xcorr(const opus_val16 *_x, const opus_val16 *_y,
+      opus_val32 *xcorr, int len, int max_pitch)
 {
 
    int i;
@@ -203,7 +202,7 @@ celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
    for (i=0;i<max_pitch-3;i+=4)
    {
       opus_val32 sum[4]={0,0,0,0};
-         xcorr_kernel(_x, _y+i, sum, len, arch);
+         xcorr_kernel(_x, _y+i, sum, len);
       xcorr[i]=sum[0];
       xcorr[i+1]=sum[1];
       xcorr[i+2]=sum[2];
@@ -217,7 +216,7 @@ celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
    for (;i<max_pitch;i++)
    {
       opus_val32 sum;
-      sum = celt_inner_prod(_x, _y+i, len, arch);
+      sum = celt_inner_prod(_x, _y+i, len);
       xcorr[i] = sum;
       maxcorr = MAX32(maxcorr, sum);
    }
@@ -225,7 +224,7 @@ celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
 }
 
 void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
-                  int len, int max_pitch, int *pitch, int arch, char *scratch)
+                  int len, int max_pitch, int *pitch, char *scratch)
 {
    int i, j;
    int lag;
@@ -272,7 +271,7 @@ void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTR
    /* Coarse search with 4x decimation */
 
    maxcorr =
-   celt_pitch_xcorr(x_lp4, y_lp4, xcorr, len>>2, max_pitch>>2, arch);
+   celt_pitch_xcorr(x_lp4, y_lp4, xcorr, len>>2, max_pitch>>2);
 
    find_best_pitch(xcorr, y_lp4, len>>2, max_pitch>>2, best_pitch
                    , 0, maxcorr
@@ -347,7 +346,7 @@ static opus_val16 compute_pitch_gain(opus_val32 xy, opus_val32 xx, opus_val32 yy
 
 static const int second_check[16] = {0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2};
 opus_val16 remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
-      int N, int *T0_, int prev_period, opus_val16 prev_gain, int arch, char *scratch)
+      int N, int *T0_, int prev_period, opus_val16 prev_gain, char *scratch)
 {
    int k, i, T, T0;
    opus_val16 g, g0;
@@ -372,7 +371,7 @@ opus_val16 remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
 
    T = T0 = *T0_;
    ALLOC(yy_lookup, maxperiod+1, opus_val32);
-   dual_inner_prod(x, x, x-T0, N, &xx, &xy, arch);
+   dual_inner_prod(x, x, x-T0, N, &xx, &xy);
    yy_lookup[0] = xx;
    yy=xx;
    for (i=1;i<=maxperiod;i++)
@@ -405,7 +404,7 @@ opus_val16 remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
       {
          T1b = celt_udiv(2*second_check[k]*T0+k, 2*k);
       }
-      dual_inner_prod(x, &x[-T1], &x[-T1b], N, &xy, &xy2, arch);
+      dual_inner_prod(x, &x[-T1], &x[-T1b], N, &xy, &xy2);
       xy = HALF32(xy + xy2);
       yy = HALF32(yy_lookup[T1] + yy_lookup[T1b]);
       g1 = compute_pitch_gain(xy, xx, yy);
@@ -437,7 +436,7 @@ opus_val16 remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
       pg = SHR32(frac_div32(best_xy,best_yy+1),16);
 
    for (k=0;k<3;k++)
-      xcorr[k] = celt_inner_prod(x, x-(T+k-1), N, arch);
+      xcorr[k] = celt_inner_prod(x, x-(T+k-1), N);
    if ((xcorr[2]-xcorr[0]) > MULT16_32_Q15(QCONST16(.7f,15),xcorr[1]-xcorr[0]))
       offset = 1;
    else if ((xcorr[0]-xcorr[2]) > MULT16_32_Q15(QCONST16(.7f,15),xcorr[1]-xcorr[2]))

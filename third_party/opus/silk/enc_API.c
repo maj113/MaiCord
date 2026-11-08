@@ -89,7 +89,6 @@ opus_int silk_Get_Encoder_Size(                         /* O    Returns error co
 opus_int silk_InitEncoder(                              /* O    Returns error code                              */
     void                            *encState,          /* I/O  State                                           */
     int                              channels,          /* I    Number of channels                              */
-    int                              arch,              /* I    Run-time architecture                           */
     silk_EncControlStruct           *encStatus          /* O    Encoder Status                                  */
 )
 {
@@ -101,7 +100,7 @@ opus_int silk_InitEncoder(                              /* O    Returns error co
     /* Reset encoder. Skip second encoder state for mono. */
     silk_memset( psEnc, 0, sizeof( silk_encoder ) - (channels==1)*sizeof( silk_encoder_state_Fxx ) );
     for( n = 0; n < channels; n++ ) {
-        if( ret += silk_init_encoder( &psEnc->state_Fxx[ n ], arch ) ) {
+        if( ret += silk_init_encoder( &psEnc->state_Fxx[ n ] ) ) {
             celt_assert( 0 );
         }
     }
@@ -142,7 +141,6 @@ static opus_int silk_QueryEncoder(                      /* O    Returns error co
     encStatus->packetLossPercentage      = state_Fxx[ 0 ].sCmn.PacketLoss_perc;
     encStatus->complexity                = state_Fxx[ 0 ].sCmn.Complexity;
     encStatus->useInBandFEC              = state_Fxx[ 0 ].sCmn.useInBandFEC;
-    encStatus->useDTX                    = state_Fxx[ 0 ].sCmn.useDTX;
     encStatus->useCBR                    = state_Fxx[ 0 ].sCmn.useCBR;
     encStatus->internalSampleRate        = silk_SMULBB( state_Fxx[ 0 ].sCmn.fs_kHz, 1000 );
     encStatus->allowBandwidthSwitch      = state_Fxx[ 0 ].sCmn.allow_bandwidth_switch;
@@ -184,18 +182,12 @@ opus_int silk_Encode(                                   /* O    Returns error co
     for( n = 0; n < encControl->nChannelsAPI; n++ ) {
         psEnc->state_Fxx[ n ].sCmn.nFramesEncoded = 0;
     }
-    /* Check values in encoder control structure */
-    if( ( ret = check_control_input( encControl ) ) != 0 ) {
-        celt_assert( 0 );
-        RESTORE_STACK;
-        return ret;
-    }
 
     encControl->switchReady = 0;
 
     if( encControl->nChannelsInternal > psEnc->nChannelsInternal ) {
         /* Mono -> Stereo transition: init state of second channel and stereo state */
-        ret += silk_init_encoder( &psEnc->state_Fxx[ 1 ], psEnc->state_Fxx[ 0 ].sCmn.arch );
+        ret += silk_init_encoder( &psEnc->state_Fxx[ 1 ] );
         silk_memset( psEnc->sStereo.pred_prev_Q13, 0, sizeof( psEnc->sStereo.pred_prev_Q13 ) );
         silk_memset( psEnc->sStereo.sSide, 0, sizeof( psEnc->sStereo.sSide ) );
         psEnc->sStereo.mid_side_amp_Q0[ 0 ] = 0;
@@ -231,7 +223,7 @@ opus_int silk_Encode(                                   /* O    Returns error co
         }
         /* Reset Encoder */
         for( n = 0; n < encControl->nChannelsInternal; n++ ) {
-            ret = silk_init_encoder( &psEnc->state_Fxx[ n ], psEnc->state_Fxx[ n ].sCmn.arch );
+            ret = silk_init_encoder( &psEnc->state_Fxx[ n ] );
             /* Restore the variable LP state. */
             if ( prefillFlag == 2 ) {
                 psEnc->state_Fxx[ n ].sCmn.sLP = save_LP;
@@ -274,7 +266,6 @@ opus_int silk_Encode(                                   /* O    Returns error co
                 psEnc->state_Fxx[ n ].sCmn.LBRR_flags[ i ] = 0;
             }
         }
-        psEnc->state_Fxx[ n ].sCmn.inDTX = psEnc->state_Fxx[ n ].sCmn.useDTX;
     }
     celt_assert( encControl->nChannelsInternal == 1 || psEnc->state_Fxx[ 0 ].sCmn.fs_kHz == psEnc->state_Fxx[ 1 ].sCmn.fs_kHz );
 
@@ -533,11 +524,6 @@ opus_int silk_Encode(                                   /* O    Returns error co
                 }
                 if( !prefillFlag ) {
                     ec_enc_patch_initial_bits( psRangeEnc, flags, ( psEnc->state_Fxx[ 0 ].sCmn.nFramesPerPacket + 1 ) * encControl->nChannelsInternal );
-                }
-
-                /* Return zero bytes if all channels DTXed */
-                if( psEnc->state_Fxx[ 0 ].sCmn.inDTX && ( encControl->nChannelsInternal == 1 || psEnc->state_Fxx[ 1 ].sCmn.inDTX ) ) {
-                    *nBytesOut = 0;
                 }
 
                 psEnc->nBitsExceeded += *nBytesOut * 8;

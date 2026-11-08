@@ -38,8 +38,8 @@
 #include "modes.h"
 
 
-opus_val32 celt_inner_prod_norm(const celt_norm *x, const celt_norm *y, int len, int arch);
-opus_val32 celt_inner_prod_norm_shift(const celt_norm *x, const celt_norm *y, int len, int arch);
+opus_val32 celt_inner_prod_norm(const celt_norm *x, const celt_norm *y, int len);
+opus_val32 celt_inner_prod_norm_shift(const celt_norm *x, const celt_norm *y, int len);
 
 void norm_scaleup(celt_norm *X, int N, int shift);
 void norm_scaledown(celt_norm *X, int N, int shift);
@@ -47,12 +47,7 @@ void norm_scaledown(celt_norm *X, int N, int shift);
 
 void exp_rotation(celt_norm *X, int len, int dir, int stride, int K, int spread);
 
-opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch, char *scratch);
-
-#if !defined(OVERRIDE_OP_PVQ_SEARCH)
-#define op_pvq_search(x, iy, K, N, arch, scratch) \
-    (op_pvq_search_c(x, iy, K, N, arch, scratch))
-#endif
+opus_val16 op_pvq_search(celt_norm *X, int *iy, int K, int N, char *scratch);
 
 /** Algebraic pulse-vector quantiser. The signal x is replaced by the sum of
   * the pitch and a combination of pulses such that its norm is still equal
@@ -64,8 +59,7 @@ opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch, char *
  * @ret A mask indicating which blocks in the band received pulses
 */
 unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
-      opus_val32 gain, int resynth
-, int arch, char *scratch);
+      opus_val32 gain, int resynth, char *scratch);
 
 /** Algebraic pulse decoder
  * @param X Decoded normalised spectrum (returned)
@@ -77,9 +71,9 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
 unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
       ec_dec *dec, opus_val32 gain, char *scratch);
 
-void renormalise_vector(celt_norm *X, int N, opus_val32 gain, int arch);
+void renormalise_vector(celt_norm *X, int N, opus_val32 gain);
 
-opus_int32 stereo_itheta(const celt_norm *X, const celt_norm *Y, int stereo, int N, int arch);
+opus_int32 stereo_itheta(const celt_norm *X, const celt_norm *Y, int stereo, int N);
 
 unsigned cubic_quant(celt_norm *X, int N, int K, int B, ec_enc *enc, opus_val32 gain, int resynth);
 unsigned cubic_unquant(celt_norm *X, int N, int K, int B, ec_dec *dec, opus_val32 gain);

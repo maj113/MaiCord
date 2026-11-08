@@ -52,39 +52,10 @@
 #endif
 
 
-int resampling_factor(opus_int32 rate)
-{
-   int ret;
-   switch (rate)
-   {
-   case 48000:
-      ret = 1;
-      break;
-   case 24000:
-      ret = 2;
-      break;
-   case 16000:
-      ret = 3;
-      break;
-   case 12000:
-      ret = 4;
-      break;
-   case 8000:
-      ret = 6;
-      break;
-   default:
-      celt_assert(0);
-      ret = 0;
-      break;
-   }
-   return ret;
-}
-
-
 #ifndef OVERRIDE_comb_filter
 void comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N,
       opus_val16 g0, opus_val16 g1, int tapset0, int tapset1,
-      const celt_coef *window, int overlap, int arch)
+      const celt_coef *window, int overlap)
 {
    /* printf ("%d %d %f %f\n", T0, T1, g0, g1); */
    celt_coef g00, g01, g02, g10, g11, g12;
@@ -123,7 +94,7 @@ void comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N,
    }
 
    /* Compute the part with the constant filter. */
-   comb_filter_const(y+overlap, x+overlap, T1, N-overlap, g10, g11, g12, arch);
+   comb_filter_const(y+overlap, x+overlap, T1, N-overlap, g10, g11, g12);
 }
 #endif /* OVERRIDE_comb_filter */
 

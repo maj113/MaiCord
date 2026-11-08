@@ -41,7 +41,6 @@ void celt_fir_sse4_1(const opus_val16 *x,
          opus_val16 *y,
          int N,
          int ord,
-         int arch,
          char *scratch)
 {
     int i,j;
@@ -61,7 +60,7 @@ void celt_fir_sse4_1(const opus_val16 *x,
    {
       opus_val32 sums[4] = {0};
       __m128i vecSum, vecX;
-         xcorr_kernel(rnum, x+i-ord, sums, ord, arch);
+         xcorr_kernel(rnum, x+i-ord, sums, ord);
       vecSum = _mm_loadu_si128((__m128i *)(void*)sums);
       vecSum = _mm_add_epi32(vecSum, vecNoA);
       vecSum = _mm_srai_epi32(vecSum, SIG_SHIFT);

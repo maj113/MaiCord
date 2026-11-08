@@ -56,9 +56,8 @@
 
 
 /* Forward MDCT trashes the input array */
-#ifndef OVERRIDE_clt_mdct_forward
-void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scalar * OPUS_RESTRICT out,
-      const celt_coef *window, int overlap, int shift, int stride, int arch, char *scratch)
+void clt_mdct_forward(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scalar * OPUS_RESTRICT out,
+      const celt_coef *window, int overlap, int shift, int stride, char *scratch)
 {
    int i;
    int N, N2, N4;
@@ -72,7 +71,6 @@ void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scal
    int scale_shift = st->scale_shift-1;
    int headroom;
    SAVE_STACK;
-   (void)arch;
    scale = st->scale;
 
    N = l->n;
@@ -230,17 +228,14 @@ void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scal
    }
    RESTORE_STACK;
 }
-#endif /* OVERRIDE_clt_mdct_forward */
 
-#ifndef OVERRIDE_clt_mdct_backward
-void clt_mdct_backward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scalar * OPUS_RESTRICT out,
-      const celt_coef * OPUS_RESTRICT window, int overlap, int shift, int stride, int arch)
+void clt_mdct_backward(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scalar * OPUS_RESTRICT out,
+      const celt_coef * OPUS_RESTRICT window, int overlap, int shift, int stride)
 {
    int i;
    int N, N2, N4;
    const kiss_twiddle_scalar *trig;
    int pre_shift, post_shift, fft_shift;
-   (void) arch;
 
    N = l->n;
    trig = l->trig;
@@ -384,4 +379,3 @@ void clt_mdct_backward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_sca
       }
    }
 }
-#endif /* OVERRIDE_clt_mdct_backward */

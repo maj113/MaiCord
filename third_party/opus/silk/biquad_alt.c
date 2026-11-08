@@ -73,7 +73,7 @@ void silk_biquad_alt_stride1(
     }
 }
 
-void silk_biquad_alt_stride2_c(
+void silk_biquad_alt_stride2(
     const opus_int16            *in,                /* I     input signal                                               */
     const opus_int32            *B_Q28,             /* I     MA coefficients [3]                                        */
     const opus_int32            *A_Q28,             /* I     AR coefficients [2]                                        */

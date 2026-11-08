@@ -44,7 +44,7 @@ int bitexact_log2tan(int isin,int icos);
  * @param X Spectrum
  * @param bandE Square root of the energy for each band (returned)
  */
-void compute_band_energies(const CELTMode *m, const celt_sig *X, celt_ener *bandE, int end, int C, int LM, int arch);
+void compute_band_energies(const CELTMode *m, const celt_sig *X, celt_ener *bandE, int end, int C, int LM);
 
 /*void compute_noise_energies(const CELTMode *m, const celt_sig *X, const opus_val16 *tonality, celt_ener *bandE);*/
 
@@ -63,7 +63,7 @@ void normalise_bands(const CELTMode *m, const celt_sig * OPUS_RESTRICT freq, cel
  */
 void denormalise_bands(const CELTMode *m, const celt_norm * OPUS_RESTRICT X,
       celt_sig * OPUS_RESTRICT freq, const celt_glog *bandE, int start,
-      int end, int M, int downsample, int silence);
+      int end, int M, int silence);
 
 #define SPREAD_NONE       (0)
 #define SPREAD_LIGHT      (1)
@@ -98,20 +98,19 @@ void haar1(celt_norm *X, int N0, int stride);
  * @param LM log2() of the number of 2.5 subframes in the frame
  * @param codedBands Last band to receive bits + 1
  * @param seed Random generator seed
- * @param arch Run-time architecture (see opus_select_arch())
  */
 void quant_all_bands(int encode, const CELTMode *m, int start, int end,
       celt_norm * X, celt_norm * Y, unsigned char *collapse_masks,
       const celt_ener *bandE, int *pulses, int shortBlocks, int spread,
       int dual_stereo, int intensity, int *tf_res, opus_int32 total_bits,
       opus_int32 balance, ec_ctx *ec, int M, int codedBands, opus_uint32 *seed,
-      int complexity, int arch, int disable_inv, char *scratch);
+      int complexity, int disable_inv, char *scratch);
 
 void anti_collapse(const CELTMode *m, celt_norm *X_,
       unsigned char *collapse_masks, int LM, int C, int size, int start,
       int end, const celt_glog *logE, const celt_glog *prev1logE,
       const celt_glog *prev2logE, const int *pulses, opus_uint32 seed,
-      int encode, int arch);
+      int encode);
 
 opus_uint32 celt_lcg_rand(opus_uint32 seed);
 

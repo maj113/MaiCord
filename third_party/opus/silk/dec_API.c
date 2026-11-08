@@ -127,7 +127,6 @@ opus_int silk_Decode(                                   /* O    Returns error co
     ec_dec                          *psRangeDec,        /* I/O  Compressor data structure                       */
     opus_res                        *samplesOut,        /* O    Decoded output speech vector                    */
     opus_int32                      *nSamplesOut,       /* O    Number of samples decoded                       */
-    int                             arch,               /* I    Run-time architecture                           */
     char                            *scratch            /* I    Scratch arena                                   */
 )
 {
@@ -329,7 +328,7 @@ opus_int silk_Decode(                                   /* O    Returns error co
                 condCoding = CODE_CONDITIONALLY;
             }
             ret += silk_decode_frame( &channel_state[ n ], psRangeDec, &samplesOut1_tmp[ n ][ 2 ], &nSamplesOutDec, lostFlag, condCoding,
-                arch, scratch );
+                scratch );
         } else {
             silk_memset( &samplesOut1_tmp[ n ][ 2 ], 0, nSamplesOutDec * sizeof( opus_int16 ) );
         }

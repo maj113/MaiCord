@@ -62,9 +62,13 @@ static OPUS_INLINE void decode_split(
     const opus_uint8            *shell_table    /* I    table of shell cdfs                         */
 )
 {
-    if( p > 0 ) {
+    if( p > 1 ) {
         p_child1[ 0 ] = ec_dec_icdf( psRangeDec, &shell_table[ silk_shell_code_table_offsets[ p ] ], 8 );
         p_child2[ 0 ] = p - p_child1[ 0 ];
+    } else if( p == 1 ) {
+        /* maiopus: one pulse splits by the two-symbol table { icdf0, 0 } (ec_dec_icdf2()) */
+        p_child1[ 0 ] = ec_dec_icdf2( psRangeDec, shell_table[ silk_shell_code_table_offsets[ 1 ] ] );
+        p_child2[ 0 ] = 1 - p_child1[ 0 ];
     } else {
         p_child1[ 0 ] = 0;
         p_child2[ 0 ] = 0;

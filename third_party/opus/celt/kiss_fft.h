@@ -32,7 +32,6 @@
 #include <stdlib.h>
 #include <math.h>
 #include "arch.h"
-#include "cpu_support.h"
 
 #ifdef USE_SIMD
 # include <xmmintrin.h>

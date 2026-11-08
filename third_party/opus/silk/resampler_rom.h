@@ -32,8 +32,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "typedef.h"
 #include "resampler_structs.h"
 
-#define RESAMPLER_DOWN_ORDER_FIR0               18
-#define RESAMPLER_DOWN_ORDER_FIR1               24
 #define RESAMPLER_DOWN_ORDER_FIR2               36
 #define RESAMPLER_ORDER_FIR_12                  8
 
@@ -46,9 +44,6 @@ static const opus_int16 silk_resampler_up2_hq_0[ 3 ] = { 1746, 14986, 39083 - 65
 static const opus_int16 silk_resampler_up2_hq_1[ 3 ] = { 6854, 25769, 55542 - 65536 };
 
 /* Tables with IIR and FIR coefficients for fractional downsamplers */
-extern const opus_int16 silk_Resampler_3_4_COEFS[ 2 + 3 * RESAMPLER_DOWN_ORDER_FIR0 / 2 ];
-extern const opus_int16 silk_Resampler_2_3_COEFS[ 2 + 2 * RESAMPLER_DOWN_ORDER_FIR0 / 2 ];
-extern const opus_int16 silk_Resampler_1_2_COEFS[ 2 +     RESAMPLER_DOWN_ORDER_FIR1 / 2 ];
 extern const opus_int16 silk_Resampler_1_3_COEFS[ 2 +     RESAMPLER_DOWN_ORDER_FIR2 / 2 ];
 extern const opus_int16 silk_Resampler_1_4_COEFS[ 2 +     RESAMPLER_DOWN_ORDER_FIR2 / 2 ];
 extern const opus_int16 silk_Resampler_1_6_COEFS[ 2 +     RESAMPLER_DOWN_ORDER_FIR2 / 2 ];
