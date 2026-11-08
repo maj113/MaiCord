@@ -787,7 +787,8 @@ void application_notifications_drain(Application* a) noexcept {
     if(!viewable(state,chat_state_store_find_channel(state,request.channel_id))) {
         log_write(LogLevel::info,"notifications","activation_channel_unavailable"); return;
     }
-    if(a->window) { window_show(a->window,ShowMode::restore); desktop_window_reveal(a->window); }
+    // Reveal restores only a minimized or hidden window, so a maximized one stays maximized.
+    if(a->window) desktop_window_reveal(a->window);
     if(!application_navigate_known_message(request.channel_id,request.message_id))
         log_write(LogLevel::warning,"notifications","activation_navigation_failed");
 }
