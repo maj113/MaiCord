@@ -623,7 +623,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         tests/media/compression/deflate_reference.cpp tests/render/text/shaped_text_cache.cpp src/render/text/shaped_text_cache.cpp
         tests/app/media/animation_modal_pause.cpp tests/core/mailbox_release_race.cpp tests/core/mailbox_acquire_release.cpp
         tests/app/gateway/responsiveness.cpp tests/app/gateway/ready_users.cpp tests/core/json_string_decode.cpp tests/core/json_reader_visit.cpp
-        tests/core/json_scan.cpp tests/core/clock.cpp
+        tests/core/json_scan.cpp tests/core/clock.cpp tests/app/shell/owner_pages.cpp
         tests/platform/net/resolver_publication.cpp tests/app/media/worker_publication.cpp tests/media/image/png_crc.cpp tests/app/shell/frame_rate.cpp
         tests/ui/core/layout_anchors.cpp tests/ui/account/widget_input.cpp tests/ui/text/form.cpp tests/app/chat/threads/forum_form.cpp
         tests/ui/text/secure_edit_history.cpp tests/ui/text/composition_history.cpp tests/ui/text/input_runs.cpp

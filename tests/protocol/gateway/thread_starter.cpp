@@ -26,7 +26,7 @@ void test_thread_starter(Check check) noexcept {
         &message, text, sizeof(text));
     check(decoded && (message.fields & gateway_message_field_thread) && message.thread.present &&
               message.thread.id == 88 && message.thread.message_count == 12 && message.thread.member_count == 3 &&
-              message.thread.last_message_id == 99 && message.thread.archived && !message.thread.locked &&
+              message.thread.archived && !message.thread.locked &&
               utf8_equal(message.thread.name, utf8_literal("Release \xE2\x80\x94 notes")),
           "thread starter: message thread object decodes name, counts and metadata");
     GatewayMessageEvent cleared{};

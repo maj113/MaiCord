@@ -171,20 +171,20 @@ enum class ProfileTone : u8 {
 };
 struct ProfilePart {
     u64 target;
-    UiWidgetHandle widget;
     Utf8View text;
-    Color color;
-    ProfileAction action;
-    ProfileMediaKind media;
-    ProfileLook look;
-    ProfileTone tone;
-    u16 source;
-    // A UiIcon for icon looks and leading button icons; kProfileNoIcon none.
-    u16 icon;
-    u32 style;
     // Tooltip text (activity artwork hover text, a cut-off line, a disabled
     // action's reason).
     Utf8View hint;
+    Color color;
+    UiWidgetHandle widget;
+    u32 style;
+    ProfileAction action;
+    u16 source;
+    // A UiIcon for icon looks and leading button icons; kProfileNoIcon none.
+    u16 icon;
+    ProfileMediaKind media;
+    ProfileLook look;
+    ProfileTone tone;
     bool wrap, centered;
     // 1-based index of the part's chip in the scene's badge list; 0 for none.
     u8 badge;

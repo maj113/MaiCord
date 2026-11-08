@@ -114,16 +114,18 @@ MemberListViewResult member_list_view_rebuild(
         // The list's own rows (another list of the guild cannot take them); a
         // row whose member record was evicted stays a placeholder until the
         // record is fetched again.
-        for (const auto& position : members.positions.entries) {
-            if (!position.occupied || position.scope_slot != scope || position.index >= authoritative->logical_count)
+        const auto& positions = members.positions;
+        const u8 tag = static_cast<u8>(scope + 1);
+        for (u32 at = 0; at < kMemberListPositionCapacity; ++at) {
+            if (positions.scopes[at] != tag || positions.indexes[at] >= authoritative->logical_count)
                 continue;
-            const auto* member = guild_member_store_find(members, guild_id, position.user_id);
+            const auto* member = guild_member_store_find(members, guild_id, positions.user_ids[at]);
             if (!member)
                 continue;
             if (resident >= projection->rows.count) return fail(projection, MemberListViewError::capacity);
             projection->rows[resident++] = {member->user_id, group_id(*member), static_cast<u32>(member - members.records),
                 member->role_color, member->group_position, member->status, MemberListRowKind::member, member->generation,
-                position.index, 0};
+                positions.indexes[at], 0};
             ++resident_members;
         }
         for (const auto& group : members.groups) {

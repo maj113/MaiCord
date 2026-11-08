@@ -156,7 +156,8 @@ GatewayEventDecodeResult decode_interaction(const JsonValue& value, const JsonIn
 struct ThreadContext {
     JsonString name;
     JsonValue metadata;
-    u64 id, last_message_id;
+    u64 id;
+    u64 last_message_id; // Validated only; nothing keeps it.
     u32 message_count, member_count;
     u64 seen;
     bool archived, locked;
@@ -227,7 +228,6 @@ GatewayEventDecodeResult decode_thread(const JsonValue& value, const JsonIndexed
     }
     auto& thread = output->thread;
     thread.id = context.id;
-    thread.last_message_id = context.last_message_id;
     thread.message_count = context.message_count;
     thread.member_count = context.member_count;
     thread.archived = context.archived;

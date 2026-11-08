@@ -100,10 +100,6 @@ struct ReactionPreferenceStore {
     StableStorage collapsed_guilds;
     u32 collapsed_guild_count;
     u16 collapsed_sections; // frequent, favorites, then eight Unicode categories
-    ReactionPreferenceTable tables[kReactionPreferenceKindCount];
-    ReactionEmojiRef favorites[kReactionPreferenceFavoriteCapacity];
-    ReactionPreferencePendingUse pending_uses[kReactionPreferencePendingUseCapacity];
-    ReactionPreferenceFavoriteEdit favorite_edits[kReactionPreferenceFavoriteEditCapacity];
     u32 favorite_count;
     u32 pending_use_count;
     u32 favorite_edit_count;
@@ -111,6 +107,12 @@ struct ReactionPreferenceStore {
     u32 revision;
     // Revision of local changes still unsent (uses or favorite edits).
     u32 unsynced_revision;
+    ReactionPreferenceTable tables[kReactionPreferenceKindCount];
+    // Read only below their counts, so initialize, release and a remote snapshot leave the rest untouched and
+    // these pages stay out of memory until an account fills them. They stay last: see the initializer.
+    ReactionEmojiRef favorites[kReactionPreferenceFavoriteCapacity];
+    ReactionPreferencePendingUse pending_uses[kReactionPreferencePendingUseCapacity];
+    ReactionPreferenceFavoriteEdit favorite_edits[kReactionPreferenceFavoriteEditCapacity];
 };
 
 struct ReactionPreferenceResult {

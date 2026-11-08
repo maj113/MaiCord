@@ -118,7 +118,6 @@ struct MessageRichInteraction {
 // Thread started from this message; id 0 when none is known.
 struct MessageRichThread {
     u64 id;
-    u64 last_message_id;
     MessageRichString name;
     u32 message_count;
     u32 member_count;
@@ -280,7 +279,8 @@ constexpr bool message_rich_record_voice(const MessageRichRecord& record) noexce
     return record.voice_message;
 }
 
-static_assert(sizeof(MessageRichRecord) == 264);
+// Four cache lines: a record lookup touches whole lines, and slots index by a shift.
+static_assert(sizeof(MessageRichRecord) == 256);
 
 // Zeroes a record and points its arrays at the shared empty items. Store slots
 // that are not in use are exactly a cleared record plus their generation.

@@ -182,10 +182,18 @@ void page_selection(u32* actionable, u32* chosen) noexcept {
 
 bool ensure_bank() noexcept {
     auto& p = *owner;
-    if (p.search_bank)
+    if (p.search_bank.arena.base)
         return true;
-    p.search_bank = static_cast<GuildSearchMember*>(commit_pages(sizeof(GuildSearchMember) * kGuildMemberSearchCapacity));
-    return p.search_bank && guild_member_search_bind(&p.search, {p.search_bank, kGuildMemberSearchCapacity});
+    // Address space for every result; replies commit the members they add.
+    return stable_storage_initialize(&p.search_bank, kGuildMemberSearchCapacity, 0, sizeof(GuildSearchMember),
+                                     alignof(GuildSearchMember)) &&
+           guild_member_search_bind(&p.search, {stable_storage_data<GuildSearchMember>(p.search_bank),
+                                                kGuildMemberSearchCapacity});
+}
+// Commits the bank for the members a reply may add (never past its capacity).
+bool reserve_bank(u32 added) noexcept {
+    const u32 needed = minimum(owner->search.count + added, kGuildMemberSearchCapacity);
+    return !needed || stable_storage_reserve(&owner->search_bank, needed);
 }
 
 // Asks for the current filters and page. A search in flight is cancelled
@@ -716,7 +724,7 @@ bool ensure_data() noexcept {
 
 bool members_search_request(GuildModerationRequest* request, GuildMemberSearchQuery* query) noexcept {
     auto& p = *owner;
-    if (!p.search_bank || p.page != Page::members)
+    if (!p.search_bank.arena.base || p.page != Page::members)
         return false;
     GuildMemberSearchQuery q{};
     q.text = {p.search_applied, p.search_applied_bytes};
@@ -764,7 +772,7 @@ void members_search_sent() noexcept {
 
 void members_search_response(const RestClientResponse& response, const Utf8View& body, u64 now) noexcept {
     auto& p = *owner;
-    if (!p.search_bank)
+    if (!p.search_bank.arena.base)
         return;
     auto& s = p.search;
     // A superseded search's receipt only clears the lane.
@@ -795,7 +803,7 @@ void members_search_response(const RestClientResponse& response, const Utf8View&
     GuildMemberSearchPage page{{reinterpret_cast<GuildSearchMember*>(bank), bank ? rows : 0}, 0, 0, false};
     const bool decoded =
         bank && guild_member_search_decode(body, {reinterpret_cast<u32*>(bank + rows_bytes), units}, &page).ok();
-    if (decoded)
+    if (decoded && reserve_bank(page.member_count))
         guild_member_search_apply(&s, page);
     else
         guild_member_search_failed(&s);
@@ -808,7 +816,7 @@ void members_tick(u64 now) noexcept {
     if (p.page != Page::members)
         return;
     // A search held back by another request goes once the lane is free.
-    if (p.search_dirty && !busy() && p.search_bank) {
+    if (p.search_dirty && !busy() && p.search_bank.arena.base) {
         p.search_dirty = p.search_retry = false;
         queue(Op::members_search);
     }
@@ -835,11 +843,10 @@ void members_bulk_ban_update(const GuildBulkBanUpdate& update) noexcept {
 
 void members_release() noexcept {
     auto& p = *owner;
-    if (p.search_bank) {
-        secure_clear_bytes(p.search_bank, sizeof(GuildSearchMember) * kGuildMemberSearchCapacity);
-        pages_release(p.search_bank);
+    if (p.search_bank.arena.base) {
+        secure_clear_bytes(p.search_bank.arena.base, SIZE_T{p.search_bank.capacity} * sizeof(GuildSearchMember));
+        stable_storage_release(&p.search_bank);
     }
-    p.search_bank = nullptr;
     reset_value(&p.search);
     p.selected_count = 0;
 }

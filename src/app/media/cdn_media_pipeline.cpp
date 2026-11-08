@@ -38,13 +38,11 @@ struct CacheLeaseScope {
 };
 
 ConstSlice<u8> copy_result_etag(CdnMediaPipeline* pipeline, const ConstSlice<u8>& etag) noexcept {
-    pipeline->result_etag_bytes = 0;
     if (!etag.data || etag.count == 0 || etag.count > sizeof(pipeline->result_etag)) {
         return {};
     }
     CopyMemory(pipeline->result_etag, etag.data, etag.count);
-    pipeline->result_etag_bytes = etag.count;
-    return ConstSlice<u8>{pipeline->result_etag, pipeline->result_etag_bytes};
+    return ConstSlice<u8>{pipeline->result_etag, etag.count};
 }
 
 // Results are reset out of line: a braced result written at each return would be zeroed in a
@@ -136,26 +134,13 @@ bool gif_key_valid(const MediaAssetKey& key) noexcept {
                 (key.flags & media_asset_flag_animated) != 0);
 }
 
-bool ensure_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept {
-    if (required > 0xFFFFFFFFull)
-        return false;
-    if (pipeline->grow_scanlines && required > pipeline->scanline_capacity) {
-        const auto grown = pipeline->grow_scanlines(pipeline->scanline_owner, static_cast<u32>(required));
-        if (grown.data && grown.count >= required) {
-            pipeline->scanline_storage = grown.data;
-            pipeline->scanline_capacity = grown.count;
-        }
-    }
-    return required <= pipeline->scanline_capacity;
-}
-
 void decode_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnStaticPngState success_state,
                   CdnStaticPngResult* out) noexcept {
     reset(out);
     const auto parsed = png_parse(encoded, &out->image);
     if (parsed.ok()) {
         // Interlaced files and files with many IDAT chunks need room past the output.
-        ensure_scanlines(pipeline, png_decode_buffer_bytes(out->image));
+        cdn_media_pipeline_ensure_scanlines(pipeline, png_decode_buffer_bytes(out->image));
         // Decode tables on the heap for this decode only, not on the lane's
         // stack; a failed allocation fails the decode (null workspace).
         DeflateWorkspace* workspace = deflate_workspace_allocate();
@@ -236,7 +221,7 @@ void reduce_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 e
     const u64 row_bytes = align(u64{width} * 4u * sizeof(u32)) + layout.workspace_bytes;
     // The ALPH decoder's ARGB scratch is free again before the rows decode.
     const u64 tail = maximum(layout.alpha_chunk.data ? pixels * 4u : 0ull, row_bytes);
-    if (!ensure_scanlines(pipeline, output_bytes + alpha_bytes + tail + 16u)) {
+    if (!cdn_media_pipeline_ensure_scanlines(pipeline, output_bytes + alpha_bytes + tail + 16u)) {
         out->decode.error = WebpError::output_capacity;
         return;
     }
@@ -295,7 +280,7 @@ void decode_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnSt
         if (!pipeline->webp_workspace) {
             return set_state(out, CdnStaticWebpState::invalid);
         }
-        ensure_scanlines(pipeline, u64{parsed_image.width} * parsed_image.height * 4u);
+        cdn_media_pipeline_ensure_scanlines(pipeline, u64{parsed_image.width} * parsed_image.height * 4u);
         out->decode =
             webp_lossless_decode_rgba8(encoded, &out->image, pipeline->webp_workspace,
                                        Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity});
@@ -311,7 +296,7 @@ void decode_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnSt
         const u32 pixels = parsed_image.width * parsed_image.height;
         const u32 scratch_bytes = pixels * 4u;
         const u32 required = parsed_image.has_alpha ? scratch_bytes + pixels : 0u;
-        if (required > pipeline->scanline_capacity) {
+        if (!cdn_media_pipeline_commit_scanlines(pipeline, required)) {
             return set_state(out, CdnStaticWebpState::invalid);
         }
         pipeline->lossy_webp_workspace = ::new (pipeline->lossy_webp_workspace) LossyWebpWorkspace;
@@ -376,6 +361,20 @@ bool reduced_jpeg_row(void* context, u32 y, const u8* rgba) noexcept {
     return true;
 }
 
+// Commits *jpeg_workspace through `bytes` (64 KiB steps, at most the workspace).
+bool commit_jpeg_workspace(CdnMediaPipeline* pipeline, u64 bytes) noexcept {
+    if (bytes <= pipeline->jpeg_committed)
+        return true;
+    constexpr u64 kStep = 64u * 1024u;
+    const u32 target =
+        static_cast<u32>(minimum<u64>(sizeof(JpegWorkspace), (bytes + kStep - 1) & ~(kStep - 1)));
+    u8* const first = reinterpret_cast<u8*>(pipeline->jpeg_workspace) + pipeline->jpeg_committed;
+    if (!pages_commit_at(first, target - pipeline->jpeg_committed))
+        return false;
+    pipeline->jpeg_committed = target;
+    return true;
+}
+
 // Decodes a JPEG past the GPU coefficient path's extent into oriented
 // straight RGBA8 at the coarsest DCT scale reaching `target`, at most
 // `limit` px per side.
@@ -395,7 +394,7 @@ void reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 t
         return;
     }
     const u32 rgba_bytes = static_cast<u32>(layout.rgba_bytes);
-    if (!ensure_scanlines(pipeline, rgba_bytes)) {
+    if (!cdn_media_pipeline_ensure_scanlines(pipeline, rgba_bytes)) {
         out->decode.error = JpegError::sink;
         return;
     }
@@ -414,6 +413,9 @@ void reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 t
             return;
         }
         workspace = static_cast<u8*>(temporary);
+    } else if (!commit_jpeg_workspace(pipeline, offsetof(JpegWorkspace, coefficients) + needed)) {
+        out->decode.error = JpegError::sink;
+        return;
     }
     u8* scratch =
         reinterpret_cast<u8*>((reinterpret_cast<usize>(workspace) + 15u) & ~static_cast<usize>(15u));
@@ -691,6 +693,13 @@ void decode_apng_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 f
         out->state = CdnApngState::decode_rejected;
         return;
     }
+    // Frames lie inside the canvas and hold at most kPngIdatSpanCapacity spans, so the canvas' inflated (and
+    // interlaced) bytes bound every frame's decode buffer and the default image's.
+    const PngImage& canvas = animation.canvas;
+    const u32 canvas_bytes = canvas.interlace ? png_decode_buffer_bytes(canvas) : canvas.inflated_bytes;
+    const u32 reserved = pipeline->scanline_reserved;
+    cdn_media_pipeline_commit_scanlines(pipeline,
+                                        canvas_bytes && canvas_bytes < reserved ? canvas_bytes : reserved);
     if (validate_default && !animation.default_in_animation) {
         const PngDecodeResult decoded_default = decode_apng_default(pipeline, encoded, animation);
         if (!decoded_default.ok()) {
@@ -754,6 +763,8 @@ void decode_gif_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 fr
     }
     // The container validates all frame ranges above; pixel data is decoded per requested frame.
     const GifParseResult parse = out->decode.parse;
+    const GifFrame& requested = animation.frames[frame_index];
+    cdn_media_pipeline_commit_scanlines(pipeline, u32{requested.width} * requested.height);
     gif_decode_parsed_frame(&out->decode, encoded, animation, frame_index, pipeline->gif_workspace,
                             Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity});
     out->decode.parse = parse;
@@ -1045,53 +1056,43 @@ void admit_response(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey
 } // namespace
 
 bool cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
-                                   Slice<u8> scanline_storage) noexcept {
+                                   Slice<u8> scanline_storage, u32 scanline_committed) noexcept {
     if (!pipeline || !cache || !cache->entries || !cache->storage || !scanline_storage.data ||
-        scanline_storage.count == 0) {
+        scanline_storage.count == 0 || scanline_committed > scanline_storage.count) {
         return false;
     }
     reset_value<CdnMediaPipeline>(pipeline);
     pipeline->cache = cache;
     pipeline->scanline_storage = scanline_storage.data;
-    pipeline->scanline_capacity = scanline_storage.count;
+    pipeline->scanline_capacity = scanline_committed;
+    pipeline->scanline_reserved = scanline_storage.count;
     return true;
 }
 
-bool cdn_media_pipeline_bind_webp_workspace(CdnMediaPipeline* pipeline, Vp8lWorkspace* workspace) noexcept {
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !workspace ||
-        (reinterpret_cast<usize>(pipeline->scanline_storage) & 3u) != 0) {
+bool cdn_media_pipeline_commit_reserved_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept {
+    if (required > pipeline->scanline_reserved)
         return false;
-    }
-    pipeline->webp_workspace = workspace;
+    constexpr u64 kStep = 64u * 1024u;
+    const u32 target =
+        static_cast<u32>(minimum<u64>(pipeline->scanline_reserved, (required + kStep - 1) & ~(kStep - 1)));
+    u8* const first = pipeline->scanline_storage + pipeline->scanline_capacity;
+    if (!pages_commit_at(first, target - pipeline->scanline_capacity))
+        return false;
+    pipeline->scanline_capacity = target;
     return true;
 }
 
-bool cdn_media_pipeline_bind_animated_webp_workspace(CdnMediaPipeline* pipeline,
-                                                     AnimatedWebpWorkspace* workspace) noexcept {
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !workspace) {
-        return false;
+bool cdn_media_pipeline_ensure_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept {
+    if (cdn_media_pipeline_commit_scanlines(pipeline, required))
+        return true;
+    if (pipeline->grow_scanlines && required > pipeline->scanline_reserved && required <= 0xFFFFFFFFull) {
+        const auto grown = pipeline->grow_scanlines(pipeline->scanline_owner, static_cast<u32>(required));
+        if (grown.data && grown.count >= required) {
+            pipeline->scanline_storage = grown.data;
+            pipeline->scanline_capacity = pipeline->scanline_reserved = grown.count;
+        }
     }
-    workspace->retained.content_identity = 0;
-    pipeline->animated_webp_workspace = workspace;
-    return true;
-}
-
-bool cdn_media_pipeline_bind_apng_workspace(CdnMediaPipeline* pipeline, ApngWorkspace* workspace) noexcept {
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !workspace) {
-        return false;
-    }
-    pipeline->apng_workspace = workspace;
-    pipeline->apng_metadata_valid = false;
-    return true;
-}
-
-bool cdn_media_pipeline_bind_gif_workspace(CdnMediaPipeline* pipeline, GifWorkspace* workspace) noexcept {
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !workspace) {
-        return false;
-    }
-    pipeline->gif_workspace = workspace;
-    pipeline->gif_content_identity = 0;
-    return true;
+    return required <= pipeline->scanline_capacity;
 }
 
 void cdn_media_pipeline_lookup_static_png(CdnStaticPngResult* out, CdnMediaPipeline* pipeline,
@@ -1101,13 +1102,6 @@ void cdn_media_pipeline_lookup_static_png(CdnStaticPngResult* out, CdnMediaPipel
                   [&](const EncodedMediaCacheLookup& cached) {
                       decode_bytes(pipeline, cached.bytes, CdnStaticPngState::decoded_cache_hit, out);
                   });
-}
-
-CdnStaticPngResult cdn_media_pipeline_lookup_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                        u64 now_seconds) noexcept {
-    CdnStaticPngResult result;
-    cdn_media_pipeline_lookup_static_png(&result, pipeline, key, now_seconds);
-    return result;
 }
 
 void cdn_media_pipeline_admit_static_png(CdnStaticPngResult* out, CdnMediaPipeline* pipeline,
@@ -1122,15 +1116,6 @@ void cdn_media_pipeline_admit_static_png(CdnStaticPngResult* out, CdnMediaPipeli
             decode_bytes(pipeline, bytes, state, out);
         },
         [] {});
-}
-
-CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                       const CdnResponseResult& response,
-                                                       ConstSlice<u8> decoded_body,
-                                                       ConstSlice<u8> conditional_etag) noexcept {
-    CdnStaticPngResult result;
-    cdn_media_pipeline_admit_static_png(&result, pipeline, key, response, decoded_body, conditional_etag);
-    return result;
 }
 
 void cdn_media_pipeline_lookup_static_webp(CdnStaticWebpResult* out, CdnMediaPipeline* pipeline,

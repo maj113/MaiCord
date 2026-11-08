@@ -16,7 +16,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         tests/protocol/messages/command_argument_editing.cpp tests/protocol/media/attachment_upload.cpp
         tests/protocol/user/profile_decode_scratch.cpp tests/media/compression/deflate_differential.cpp
         tests/media/compression/deflate_reference.cpp tests/media/image/core_codecs.cpp tests/support/media_fixture.cpp
-        tests/support/media_fixture_encoders.cpp
+        tests/support/media_fixture_encoders.cpp tests/app/shell/owner_pages.cpp
     LIBS maicord_core maicord_compression maicord_protocol maicord_media_core maicord_media_codec maicord_model
     TEST maicord_core)
 

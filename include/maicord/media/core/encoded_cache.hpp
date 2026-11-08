@@ -47,6 +47,9 @@ struct EncodedMediaCache {
     u32 index_tombstones;
     u32 entry_count;
     u32 used_pages;
+    // Storage pages usable now. A cache over a reservation commits page runs as stores first reach them
+    // (pages are taken lowest first), so an idle cache charges no storage.
+    u32 committed_pages;
     u64 stored_bytes;
     u64 clock;
     EncodedMediaCacheCounters counters;
@@ -112,9 +115,11 @@ struct EncodedMediaCacheStoreResult {
 // does not reset this namespace. Replay and seek retain the assigned identity.
 u64 encoded_media_new_content_identity() noexcept;
 
+// `storage_reserved` storage is only reserved: the cache commits it as stores reach it, and a store that
+// cannot commit reports no_capacity. Otherwise the caller committed all of it.
 bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMediaCacheEntry> entries,
                                     Slice<u16> page_owners, Slice<u8> storage,
-                                    Slice<u32> index_buckets) noexcept;
+                                    Slice<u32> index_buckets, bool storage_reserved = false) noexcept;
 EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, const MediaAssetKey& key,
                                                  u64 now_seconds) noexcept;
 EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, const MediaAssetKey& key,

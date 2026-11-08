@@ -76,13 +76,13 @@ inline constexpr u32 kClientThemeCatalogCapacity = 64;
 inline constexpr u32 kClientThemeCatalogFileUnits = 260; // MAX_PATH, checked in client_theme_storage.cpp
 struct ClientThemeCatalogEntry {
     char name[kClientThemeNameMaximumBytes + 1];
+    ClientThemeBase base;
     u32 name_bytes;
     wchar_t file[kClientThemeCatalogFileUnits];
     u32 file_units;
-    FileSnapshot identity;
-    ClientThemeBase base;
     // What a swatch shows (client_theme_document_swatch).
     BackgroundTheme preview;
+    FileSnapshot identity;
 };
 // A document's look as a gradient: its own gradient, or its flat surface as two equal stops (keeping its effect).
 // Theme swatches show it, and the theme editor starts from it.

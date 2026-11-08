@@ -28,7 +28,7 @@ namespace maicord {
 void* pages_map(usize bytes, bool committed) noexcept;
 bool pages_unmap(void* base, usize hint_bytes) noexcept;
 // The base of the recorded range that holds `address` (what VirtualQuery reports as AllocationBase), or null when
-// the address is in none. Linear in the table: for diagnostics and tests, not for hot paths.
+// the address is in none. A binary search under the table's lock: for diagnostics and tests, not for hot paths.
 void* pages_range_base(const void* address) noexcept;
 #endif
 

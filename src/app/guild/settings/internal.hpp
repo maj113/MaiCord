@@ -15,6 +15,7 @@
 #include "../../voice/soundboard.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/model/guild/detail_store.hpp"
+#include "maicord/core/stable_storage.hpp"
 
 namespace maicord::app_detail::server_settings {
 
@@ -320,8 +321,6 @@ struct Settings : SettingsModal {
     // The reorder request's roles and rows, built as the save is sent.
     const RoleRecord* order_rows[kGuildRoleMaximum];
     GuildAdminPosition positions[kGuildRoleMaximum];
-    u64 count_role[kGuildRoleMaximum];
-    u32 count_value[kGuildRoleMaximum];
     u32 counts;
     bool counts_requested;
     u64 editing_role, open_after_create;
@@ -330,11 +329,11 @@ struct Settings : SettingsModal {
     GuildRoleDraft role_base, role_draft;
     bool role_conflict, role_echo, role_missing, hex_invalid;
     u64 role_echo_until;
-    // Members: the chunked search (its bank is committed on the first visit),
-    // the filters, the debounced search text and the bulk-ban selection,
-    // which survives paging.
+    // Members: the chunked search (its bank is reserved on the first visit
+    // and committed as replies add members), the filters, the debounced
+    // search text and the bulk-ban selection, which survives paging.
     GuildMemberSearchStore search;
-    GuildSearchMember* search_bank;
+    StableStorage search_bank;
     u64 search_due_at;
     bool search_dirty, search_retry;
     // The planned request until it is sent, and the clock of the last sent.

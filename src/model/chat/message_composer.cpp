@@ -70,6 +70,19 @@ bool usable(const MessageComposer* composer) noexcept {
     return composer && composer->text && composer->bytes <= composer->capacity;
 }
 
+// An owned draft commits its text in page steps: the arena's offset is the committed prefix, so an edit within it
+// costs one comparison and only an edit crossing into a new page commits. False when the system refuses the pages.
+bool owned_text_reserve(MessageComposer* composer, u32 bytes) noexcept {
+    Arena& storage = composer->owned_storage;
+    if (!composer->owns_storage || bytes <= storage.offset)
+        return true;
+    constexpr usize page = 4 * 1024;
+    const usize offset = storage.offset;
+    const usize target = minimum<usize>((usize{bytes} + page - 1) & ~(page - 1), storage.reserved);
+    // The text is the arena's only allocation, so each extension continues it in place.
+    return arena_allocate(&storage, target - offset, 1) == storage.base + offset;
+}
+
 bool selection_valid(const MessageComposer* composer) noexcept {
     return usable(composer) && text_boundary(*composer, composer->caret) &&
            text_boundary(*composer, composer->anchor);
@@ -97,6 +110,9 @@ MessageComposerResult replace_selection(MessageComposer* composer, Utf8View inse
     }
     if (begin == end && inserted.bytes == 0) {
         return MessageComposerResult::unchanged;
+    }
+    if (!owned_text_reserve(composer, retained + inserted.bytes)) {
+        return MessageComposerResult::capacity;
     }
     if (composer->owns_storage && !composer->history) message_composer_enable_history(composer);
     auto history = history_state(*composer);
@@ -175,13 +191,8 @@ bool message_composer_initialize_owned(MessageComposer* composer, u32 capacity) 
     if (!arena_initialize(&composer->owned_storage, capacity, 0, 4 * 1024, ArenaTag::model)) {
         return false;
     }
-    // This is the first allocation from a fresh, zero-filled reservation.
-    composer->text = arena_allocate<char>(&composer->owned_storage, capacity);
-    if (!composer->text) {
-        arena_release(&composer->owned_storage);
-        reset_value<MessageComposer>(composer);
-        return false;
-    }
+    // Address space only: the draft commits its pages as it grows (owned_text_reserve).
+    composer->text = reinterpret_cast<char*>(composer->owned_storage.base);
     composer->capacity = capacity;
     composer->owns_storage = true;
     composer->document_identity = 1;
@@ -249,7 +260,8 @@ bool message_composer_restore(MessageComposer* composer, u64 channel_id, const U
     const u64 source_end = source_begin + text.bytes;
     const u64 destination_begin = reinterpret_cast<u64>(composer->text);
     const u64 destination_end = destination_begin + composer->capacity;
-    if (text.bytes != 0 && source_begin < destination_end && source_end > destination_begin) {
+    if ((text.bytes != 0 && source_begin < destination_end && source_end > destination_begin) ||
+        !owned_text_reserve(composer, text.bytes)) {
         return false;
     }
     message_composer_reset(composer, channel_id, false);

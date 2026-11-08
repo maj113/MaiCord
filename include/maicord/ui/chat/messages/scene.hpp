@@ -87,27 +87,7 @@ using MessageSceneRichItemLayout = MessageRichItemLayout;
 
 struct MessageSceneRowWidget {
     MessageHandle message;
-    UiWidgetHandle widget;
-    UiWidgetHandle avatar;
-    UiWidgetHandle body;
-    UiWidgetHandle reply;
-    UiWidgetHandle author;
-    UiWidgetHandle content;
-    UiWidgetHandle attachments;
-    UiWidgetHandle embeds;
-    UiWidgetHandle stickers;
-    UiWidgetHandle components;
-    UiWidgetHandle reactions;
-    UiWidgetHandle notice;
-    UiWidgetHandle poll;
-    UiWidgetHandle thread; // thread starter card; zero height without a thread
-    UiWidgetHandle invites; // invite cards for invite links in the content
-    UiWidgetHandle edited;  // the "(edited)" line of a message without text; absent otherwise
-    UiWidgetHandle reaction_buttons[kGatewayMessageReactionMaximum];
-    float reaction_widths[kGatewayMessageReactionMaximum];
-    UiWidgetHandle rich_items[kMessageSceneRichItemMaximum];
-    MessageSceneRichLayout rich_layout;
-    MessageSceneRichItemLayout rich_item_layout;
+    // Scalars, handles and the group layout lead (188 bytes); the per-item arrays of rich rows follow.
     u64 message_id;
     u64 rich_signature;
     u64 component_structure;
@@ -139,6 +119,27 @@ struct MessageSceneRowWidget {
     u16 snapshot_slot;
     // Valid only for the current message identity and scene reset generation.
     bool invite_scan_negative;
+    UiWidgetHandle widget;
+    UiWidgetHandle avatar;
+    UiWidgetHandle body;
+    UiWidgetHandle reply;
+    UiWidgetHandle author;
+    UiWidgetHandle content;
+    UiWidgetHandle attachments;
+    UiWidgetHandle embeds;
+    UiWidgetHandle stickers;
+    UiWidgetHandle components;
+    UiWidgetHandle reactions;
+    UiWidgetHandle notice;
+    UiWidgetHandle poll;
+    UiWidgetHandle thread; // thread starter card; zero height without a thread
+    UiWidgetHandle invites; // invite cards for invite links in the content
+    UiWidgetHandle edited;  // the "(edited)" line of a message without text; absent otherwise
+    MessageSceneRichLayout rich_layout;
+    UiWidgetHandle reaction_buttons[kGatewayMessageReactionMaximum];
+    float reaction_widths[kGatewayMessageReactionMaximum];
+    UiWidgetHandle rich_items[kMessageSceneRichItemMaximum];
+    MessageSceneRichItemLayout rich_item_layout;
 };
 
 // Component interaction feedback, owned by the host: the control awaiting a

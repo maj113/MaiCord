@@ -4,9 +4,6 @@
 
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#if !defined(_WIN32)
-#include "maicord/sys/linux/process.hpp"
-#endif
 
 namespace maicord {
 namespace {
@@ -20,13 +17,16 @@ struct AccountCounters {
 };
 AccountCounters g_accounts[static_cast<u32>(ArenaTag::count)];
 
-AccountCounters& account_of(const Arena* arena) noexcept {
-    const u32 tag = static_cast<u32>(arena->tag);
-    return g_accounts[tag < static_cast<u32>(ArenaTag::count) ? tag : 0];
+AccountCounters& account_of(ArenaTag tag) noexcept {
+    const u32 index = static_cast<u32>(tag);
+    return g_accounts[index < static_cast<u32>(ArenaTag::count) ? index : 0];
 }
 
-void account_commit(const Arena* arena, i64 bytes) noexcept {
-    AccountCounters& account = account_of(arena);
+AccountCounters& account_of(const Arena* arena) noexcept {
+    return account_of(arena->tag);
+}
+
+void account_commit(AccountCounters& account, i64 bytes) noexcept {
     const i64 committed = InterlockedAdd64(&account.committed, bytes);
     // A racing commit may raise the peak first; the loop only ever raises it.
     for (i64 peak = account.peak_committed; committed > peak;) {
@@ -36,27 +36,12 @@ void account_commit(const Arena* arena, i64 bytes) noexcept {
         peak = seen;
     }
 }
-#if defined(_WIN32)
-volatile LONG g_page_size;
 
-usize system_page_size() noexcept {
-    const u32 cached = static_cast<u32>(read_acquire(&g_page_size));
-    if (cached) return cached;
-    Win32SystemInfo info{};
-    GetSystemInfo(info.native());
-    const u32 page_size = info.dwPageSize;
-    // Page size is fixed per process, so racing first callers publish the same
-    // value without a lock. An invalid result is not cached; the caller rejects it.
-    if (is_power_of_two(page_size))
-        InterlockedCompareExchange(&g_page_size, static_cast<LONG>(page_size), 0);
-    return page_size;
+void account_commit(const Arena* arena, i64 bytes) noexcept {
+    account_commit(account_of(arena), bytes);
 }
-#else
-// The kernel reports the page size in the auxiliary vector.
-usize system_page_size() noexcept {
-    return process_startup().page_size;
-}
-#endif
+// The page of x64 Windows and Linux.
+constexpr usize kPageBytes = 4096;
 
 bool align_up(usize value, usize alignment, usize* result) noexcept {
     if (!is_power_of_two(alignment)) {
@@ -116,10 +101,9 @@ bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_by
         return false;
     }
 
-    const usize page_size = system_page_size();
-    const usize page_mask = page_size - 1;
+    constexpr usize page_mask = kPageBytes - 1;
     const usize largest_input = maximum(reserve_bytes, maximum(initial_commit_bytes, commit_step_bytes));
-    if (!is_power_of_two(page_size) || largest_input > ~usize{0} - page_mask) {
+    if (largest_input > ~usize{0} - page_mask) {
         return false;
     }
     const usize reserved = (reserve_bytes + page_mask) & ~page_mask;
@@ -168,17 +152,18 @@ void arena_release(Arena* arena) noexcept {
 }
 
 void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept {
-    if (!arena || !arena->base || bytes == 0 || !is_power_of_two(alignment)) {
+    // A released or never initialized arena reserves nothing, so the bound below refuses it without testing the base.
+    if (!arena || !is_power_of_two(alignment)) {
         return nullptr;
     }
     const usize address = reinterpret_cast<usize>(arena->base) + arena->offset;
-    const usize padding = (usize{0} - address) & (alignment - 1);
-    const usize remaining = arena->reserved - arena->offset;
-    if (padding > remaining || bytes > remaining - padding) {
+    // The offset stays inside the reservation and the padding below the alignment: their sum cannot wrap.
+    const usize aligned_offset = arena->offset + ((usize{0} - address) & (alignment - 1));
+    const usize new_offset = aligned_offset + bytes;
+    // An end at or before the start is a zero or wrapping count; past the reservation it does not fit.
+    if (new_offset <= aligned_offset || new_offset > arena->reserved) {
         return nullptr;
     }
-    const usize aligned_offset = arena->offset + padding;
-    const usize new_offset = aligned_offset + bytes;
 
     if (new_offset > arena->committed) {
         return commit_and_place(arena, new_offset, aligned_offset);
@@ -226,8 +211,7 @@ bool arena_trim(Arena* arena, usize offset) noexcept {
     if (!arena || !arena->base || offset > arena->offset) {
         return false;
     }
-    const usize page_mask = system_page_size() - 1;
-    const usize keep = (offset + page_mask) & ~page_mask;
+    const usize keep = (offset + kPageBytes - 1) & ~(kPageBytes - 1);
     if (keep < arena->committed) {
         if (!pages_decommit(arena->base + keep, arena->committed - keep)) {
             return false;
@@ -242,11 +226,19 @@ bool arena_trim(Arena* arena, usize offset) noexcept {
 }
 
 ArenaAccount arena_account(ArenaTag tag) noexcept {
-    const AccountCounters& account = g_accounts[static_cast<u32>(tag) < static_cast<u32>(ArenaTag::count)
-                                                    ? static_cast<u32>(tag)
-                                                    : 0];
+    const AccountCounters& account = account_of(tag);
     return ArenaAccount{read_acquire(&account.arenas), read_acquire(&account.reserved), read_acquire(&account.committed),
                         read_acquire(&account.peak_committed)};
+}
+
+void arena_account_add(ArenaTag tag, i64 reservations, i64 reserved, i64 committed) noexcept {
+    AccountCounters& account = account_of(tag);
+    if (reservations)
+        InterlockedAdd64(&account.arenas, reservations);
+    if (reserved)
+        InterlockedAdd64(&account.reserved, reserved);
+    if (committed)
+        account_commit(account, committed);
 }
 } // namespace maicord
 

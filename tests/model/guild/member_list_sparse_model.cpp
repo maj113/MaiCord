@@ -242,7 +242,7 @@ void test_member_list_sparse_model(void (*check)(bool, const char*) noexcept) no
         for (u32 i = 0; i < 520; ++i) budget &= member(20'000 + (list - 71) * 1000 + i, i, list);
     }
     u32 held = 0;
-    for (const auto& entry : f.members.positions.entries) held += entry.occupied ? 1u : 0u;
+    for (const u8 scope : f.members.positions.scopes) held += scope ? 1u : 0u;
     check(budget && held == f.members.positions.count && held <= kMemberListPositionCapacity &&
               f.members.positions.evicted_lists >= 1 &&
               list_position_count(70) == kMemberListPositionsPerList &&

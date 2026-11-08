@@ -17,6 +17,8 @@ u16 frecency_age_weight(u64 now_ms, u64 timestamp_ms) noexcept {
 namespace {
 
 constexpr ReactionEmojiRef kNoEmoji = reaction_emoji_unicode(kReactionPreferenceInvalidCatalogIndex);
+// Everything before the count-bounded arrays at the tail, which are never cleared.
+constexpr u32 kClearedBytes = __builtin_offsetof(ReactionPreferenceStore, favorites);
 
 bool store_valid(const ReactionPreferenceStore& store) noexcept {
     for (const auto& table : store.tables)
@@ -225,19 +227,17 @@ bool reaction_preferences_initialize(ReactionPreferenceStore* store) noexcept {
     if (!store || store->collapsed_guilds.arena.base) {
         return false;
     }
-    reset_value<ReactionPreferenceStore>(store);
+    clear_bytes(store, kClearedBytes);
     store->next_sequence = 1;
     for (auto& table : store->tables)
         clear_table(table);
-    for (auto& favorite : store->favorites)
-        favorite = kNoEmoji;
     return true;
 }
 
 void reaction_preferences_release(ReactionPreferenceStore* store) noexcept {
     if (!store) return;
     stable_storage_release(&store->collapsed_guilds);
-    reset_value<ReactionPreferenceStore>(store);
+    clear_bytes(store, kClearedBytes);
 }
 
 ReactionPreferenceResult reaction_preferences_track_emoji(ReactionPreferenceStore* store,
@@ -302,8 +302,6 @@ bool reaction_preferences_apply_remote(ReactionPreferenceStore* store, ConstSlic
         (reaction.count && !reaction.data) || (message.count && !message.data))
         return false;
     store->favorite_count = 0;
-    for (auto& favorite : store->favorites)
-        favorite = kNoEmoji;
     for (u32 i = 0; i < favorites.count && store->favorite_count < kReactionPreferenceFavoriteCapacity; ++i) {
         u32 existing = 0;
         if (favorites[i].valid() && !favorite_index(*store, favorites[i], &existing))

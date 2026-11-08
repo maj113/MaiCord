@@ -234,17 +234,26 @@ struct CdnMediaPipeline {
     u64 gif_content_identity;
     JpegWorkspace* jpeg_workspace;
     u8* scanline_storage;
+    // Decoders get the first scanline_capacity bytes. Storage past them, through scanline_reserved, is a
+    // reservation the pipeline commits in place as a decode needs it.
     u32 scanline_capacity;
-    // Uses existing alignment padding. The workspace marker guards shared parser use.
-    bool apng_metadata_valid;
-    // Optional owner growth after validating dimensions, with no borrowed frame.
+    u32 scanline_reserved;
+    // Optional owner growth past the reservation (it moves the storage), after validating dimensions, with no
+    // borrowed frame.
     void* scanline_owner;
     Slice<u8> (*grow_scanlines)(void*, u32) noexcept;
     // Returned cache metadata is copied here before an encoded-entry lease is
     // released. Each codec lane owns one pipeline, so callers can submit the
     // conditional request without retaining a pointer into evictable storage.
     u8 result_etag[kEncodedMediaCacheMaximumEtagBytes];
-    u32 result_etag_bytes;
+    // The workspace marker guards shared parser use.
+    bool apng_metadata_valid;
+    // Lossy WebP (stills and animation frames) decodes on the CPU into straight RGBA8: the renderer's GPU has no
+    // VP8 path (account_media_worker_set_vp8_cpu). Always false on Windows.
+    bool vp8_on_cpu;
+    // Bytes of *jpeg_workspace committed. An owner that reserves the workspace commits its tables and ICC
+    // profile; the pipeline commits the coefficient blocks an image needs before decoding into them.
+    u32 jpeg_committed;
 };
 
 enum class CdnEncodedAudioState : u8 {
@@ -275,26 +284,20 @@ struct CdnEncodedAudioResult {
     }
 };
 
+// `scanline_storage` is the lane's reserved scanline storage, of which the first `scanline_committed` bytes are
+// committed.
 bool cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
-                                   Slice<u8> scanline_storage) noexcept;
-bool cdn_media_pipeline_bind_webp_workspace(CdnMediaPipeline* pipeline, Vp8lWorkspace* workspace) noexcept;
-bool cdn_media_pipeline_bind_animated_webp_workspace(CdnMediaPipeline* pipeline,
-                                                     AnimatedWebpWorkspace* workspace) noexcept;
-bool cdn_media_pipeline_bind_apng_workspace(CdnMediaPipeline* pipeline, ApngWorkspace* workspace) noexcept;
-bool cdn_media_pipeline_bind_gif_workspace(CdnMediaPipeline* pipeline, GifWorkspace* workspace) noexcept;
-
-// A stale result carries the cached ETag for a conditional request but does
-// not spend decode CPU. Fresh hits are fully parsed, inflated, and filtered.
-CdnStaticPngResult cdn_media_pipeline_lookup_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                        u64 now_seconds) noexcept;
-
-// Consumes only PNG metadata produced by validate_static_image_response.
-// A 200 body is decoded before it is published into the encoded cache. A 304
-// must correlate to an existing ETag-bearing entry.
-CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                       const CdnResponseResult& response,
-                                                       ConstSlice<u8> decoded_body,
-                                                       ConstSlice<u8> conditional_etag = {}) noexcept;
+                                   Slice<u8> scanline_storage, u32 scanline_committed) noexcept;
+// Makes the first `required` bytes of scanline storage usable, committing reserved storage in place (64 KiB
+// steps); false when they lie past the reservation or the system refuses. The storage never moves. The
+// out-of-line part takes a `required` past the capacity.
+bool cdn_media_pipeline_commit_reserved_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept;
+__forceinline bool cdn_media_pipeline_commit_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept {
+    return required <= pipeline->scanline_capacity ||
+           cdn_media_pipeline_commit_reserved_scanlines(pipeline, required);
+}
+// The same, except that a requirement past the reservation asks the owner's grow_scanlines for larger storage.
+bool cdn_media_pipeline_ensure_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept;
 
 // Each operation fills a caller-owned result in place: MSVC copies a returned
 // result into the caller at every call. A stale lookup carries the cached ETag

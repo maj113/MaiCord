@@ -49,6 +49,7 @@ MAICORD_TEST_ENTRY(maicord_tests_entry) {
     maicord::test_command_argument_editing(maicord::expect);
     maicord::test_attachment_upload(maicord::expect);
     maicord::test_profile_decode_scratch(maicord::expect);
+    maicord::test_owner_pages(maicord::expect);
     maicord::test_zlib_deflate();
     maicord::test_jpeg_baseline();
     maicord::test_webp_lossless();

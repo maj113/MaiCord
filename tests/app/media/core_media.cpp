@@ -41,6 +41,7 @@ namespace {
         return result;                                                                                         \
     }
 
+CDN_TEST_VALUE_FORMS(CdnStaticPngResult, static_png)
 CDN_TEST_VALUE_FORMS(CdnStaticWebpResult, static_webp)
 CDN_TEST_VALUE_FORMS(CdnStaticJpegResult, static_jpeg)
 CDN_TEST_VALUE_FORMS(CdnApngResult, apng)
@@ -1069,8 +1070,9 @@ void test_cdn_reduced_jpeg_pipeline() noexcept {
         build_jpeg_exif_orientation_fixture({encoded, fixture.encoded_bytes}, {oriented, sizeof(oriented)}, 6,
                                             false, &oriented_bytes) &&
         encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 8}, {storage, sizeof(storage)}, {buckets, 8}) &&
-        cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)});
+        cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}, sizeof(scanlines));
     pipeline.jpeg_workspace = &g_jpeg_workspace;
+    pipeline.jpeg_committed = sizeof(g_jpeg_workspace);
     const auto policy = [](u32 bytes) noexcept {
         return accepted_cdn_response(byte_literal("\"art-1\""), 2'100, bytes);
     };
@@ -1221,8 +1223,8 @@ void test_cdn_reduced_webp_pipeline() noexcept {
     CdnMediaPipeline pipeline{};
     const bool ready =
         encoded_media_cache_initialize(&cache, {entries, 8}, {owners, 64}, {storage, sizeof(storage)}, {buckets, 16}) &&
-        cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}) &&
-        cdn_media_pipeline_bind_webp_workspace(&pipeline, &g_vp8l_workspace);
+        cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}, sizeof(scanlines));
+    pipeline.webp_workspace = &g_vp8l_workspace;
     const auto policy = [](u32 bytes) noexcept {
         return accepted_cdn_response(byte_literal("\"webp-1\""), 2'100, bytes);
     };
@@ -1287,11 +1289,8 @@ void test_cdn_static_png_pipeline() noexcept {
                                           Slice<u16>{page_owners, 5},
                                           Slice<u8>{storage, sizeof(storage)}, Slice<u32>{buckets, 8}) &&
                cdn_media_pipeline_initialize(&pipeline, &cache,
-                                             Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)}) &&
-               cdn_media_pipeline_bind_webp_workspace(&pipeline, &g_vp8l_workspace) &&
-               cdn_media_pipeline_bind_animated_webp_workspace(&pipeline, &animated_webp_workspace) &&
-               cdn_media_pipeline_bind_apng_workspace(&pipeline, &apng_workspace) &&
-               cdn_media_pipeline_bind_gif_workspace(&pipeline, &gif_workspace),
+                                             Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)},
+                                             sizeof(g_png_scanlines)),
            "cdn_pipeline_caller_owned_initialize");
     pipeline.webp_workspace = &g_vp8l_workspace;
     pipeline.animated_webp_workspace = &animated_webp_workspace;
@@ -1448,6 +1447,7 @@ void test_cdn_static_png_pipeline() noexcept {
                jpeg_not_published_without_workspace,
            "cdn_pipeline_jpeg_lazy_workspace_before_publication");
     pipeline.jpeg_workspace = &g_jpeg_workspace;
+    pipeline.jpeg_committed = sizeof(g_jpeg_workspace);
     const CdnStaticJpegResult jpeg_admitted = cdn_media_pipeline_admit_static_jpeg(
         &pipeline, jpeg_key, jpeg_policy, ConstSlice<u8>{g_png_encoded, jpeg_fixture.encoded_bytes});
     const CdnStaticJpegResult jpeg_hit = cdn_media_pipeline_lookup_static_jpeg(&pipeline, jpeg_key, 2'010);
@@ -1739,12 +1739,12 @@ void test_cdn_static_png_pipeline() noexcept {
            "cdn_pipeline_mixed_animated_webp_all_codec_frames");
 
     const u32 saved_scanline_capacity = pipeline.scanline_capacity;
-    pipeline.scanline_capacity = 32;
+    pipeline.scanline_capacity = pipeline.scanline_reserved = 32;
     const MediaAssetKey constrained_key = media_asset_custom_emoji(904, true);
     const CdnAnimatedWebpResult constrained =
         cdn_media_pipeline_admit_animated_webp(&pipeline, constrained_key, mixed_policy,
                                                ConstSlice<u8>{g_png_encoded, mixed_fixture.encoded_bytes});
-    pipeline.scanline_capacity = saved_scanline_capacity;
+    pipeline.scanline_capacity = pipeline.scanline_reserved = saved_scanline_capacity;
     expect(constrained.state == CdnAnimatedWebpState::decode_rejected &&
                constrained.decode.error == AnimatedWebpError::output_capacity &&
                encoded_media_cache_find(&cache, constrained_key, 6'000).state ==
@@ -1777,8 +1777,7 @@ void test_cdn_gif_metadata_reuse() noexcept {
     u32 buckets[8]{};
     EncodedMediaCache cache{}; CdnMediaPipeline pipeline{}; GifWorkspace workspace{};
     if (!encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8}) ||
-        !cdn_media_pipeline_initialize(&pipeline, &cache, {output, sizeof(output)}) ||
-        !cdn_media_pipeline_bind_gif_workspace(&pipeline, &workspace)) {
+        !cdn_media_pipeline_initialize(&pipeline, &cache, {output, sizeof(output)}, sizeof(output))) {
         expect(false, "gif_metadata_initialize"); return;
     }
     pipeline.gif_workspace = &workspace;
@@ -1872,13 +1871,13 @@ void test_cdn_gif_metadata_reuse() noexcept {
     expect(malformed.state == CdnGifState::decode_rejected && !pipeline.gif_content_identity,
            "gif_metadata_failed_parse_clears_partly_overwritten_workspace");
     const auto recovered = cdn_media_pipeline_decode_gif_frame(&pipeline, a, reinserted.generation, 0, 1000);
-    pipeline.scanline_capacity = 1;
+    pipeline.scanline_capacity = pipeline.scanline_reserved = 1;
     const auto failed_decode = cdn_media_pipeline_decode_gif_frame(&pipeline, a, reinserted.generation, 0, 1000);
     expect(recovered.decoded() && failed_decode.state == CdnGifState::decode_rejected &&
                failed_decode.decode.error == GifError::output_capacity && !pipeline.gif_content_identity &&
                !encoded_media_cache_find(&cache, a, 0).found(),
            "gif_metadata_warm_decode_failure_clears_identity_and_erases_encoded_source");
-    pipeline.scanline_capacity = sizeof(output);
+    pipeline.scanline_capacity = pipeline.scanline_reserved = sizeof(output);
     const auto retry_store = encoded_media_cache_store(&cache, a, bytes, policy);
     const auto retry = cdn_media_pipeline_decode_gif_frame(&pipeline, a, retry_store.generation, 0, 1000);
     const auto invalid_frame = cdn_media_pipeline_decode_gif_frame(&pipeline, a, retry_store.generation, 4, 1000);

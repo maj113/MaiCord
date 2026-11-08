@@ -47,7 +47,8 @@ struct ThumbnailTarget {
 AccountMediaRequestResult publish_local_thumbnail(AccountMedia* media, const MediaAssetKey& key, const u8* rgba, u32 width,
                                                   u32 height) noexcept {
     const u32 bytes = width * height * 4u;
-    if (!width || !height || bytes > media->pipeline.scanline_capacity || !media->pipeline.scanline_storage)
+    if (!width || !height || !media->pipeline.scanline_storage ||
+        !cdn_media_pipeline_commit_scanlines(&media->pipeline, bytes))
         return result(AccountMediaRequestState::failed, AccountMediaError::memory);
     copy_bytes(media->pipeline.scanline_storage, rgba, bytes);
     reset_value<WebpImage>(&media->frame_webp_image);
@@ -139,6 +140,8 @@ ThumbnailStep decode_thumbnail_rows(AccountMedia* media, MediaAttachmentFormat f
             return ThumbnailStep::decode;
         // The first frame, like the official static preview; the strip adds a GIF tag.
         GifDecodeResult decoded;
+        const GifFrame& first = animation.frames[0];
+        cdn_media_pipeline_commit_scanlines(&pipeline, u32{first.width} * first.height);
         gif_decode_parsed_frame(&decoded, encoded, animation, 0, media->gif_workspace,
                                 {pipeline.scanline_storage, pipeline.scanline_capacity});
         if (!decoded.ok() || !target->allocate(animation.canvas_width) ||

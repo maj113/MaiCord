@@ -28,7 +28,6 @@ bool thread_starter_project(const MessageStore& messages, const ChatStateStore& 
         event.channel_id = record->channel_id;
         event.fields = gateway_message_field_thread;
         event.thread.id = thread->id;
-        event.thread.last_message_id = thread->last_message_id;
         event.thread.name = chat_state_store_channel_name(state, *thread);
         event.thread.archived = thread->thread_archived_known && thread->thread_archived;
         event.thread.locked = thread->thread_locked_known && thread->thread_locked;

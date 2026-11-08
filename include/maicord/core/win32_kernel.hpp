@@ -75,6 +75,7 @@
 #define MEM_DECOMMIT 0x00004000
 #define MEM_RELEASE 0x00008000
 #define MEM_FREE 0x00010000
+#define MEM_WRITE_WATCH 0x00200000
 #define SEC_IMAGE 0x01000000
 #define SEC_NOCACHE 0x10000000
 #define SEC_IMAGE_NO_EXECUTE (SEC_IMAGE | SEC_NOCACHE)
@@ -540,6 +541,8 @@ extern "C" __declspec(dllimport) BOOL WINAPI VirtualProtect(LPVOID lpAddress, SI
 extern "C" __declspec(dllimport) BOOL WINAPI VirtualFree(LPVOID lpAddress, SIZE_T dwSize, DWORD dwFreeType);
 extern "C" __declspec(dllimport) SIZE_T WINAPI VirtualQuery(LPCVOID lpAddress, PMEMORY_BASIC_INFORMATION lpBuffer,
     SIZE_T dwLength);
+extern "C" __declspec(dllimport) UINT WINAPI GetWriteWatch(DWORD dwFlags, PVOID lpBaseAddress, SIZE_T dwRegionSize,
+    PVOID* lpAddresses, ULONG_PTR* lpdwCount, LPDWORD lpdwGranularity);
 extern "C" __declspec(dllimport) HANDLE WINAPI CreateFileMappingW(HANDLE hFile,
     LPSECURITY_ATTRIBUTES lpFileMappingAttributes, DWORD flProtect, DWORD dwMaximumSizeHigh, DWORD dwMaximumSizeLow,
     LPCWSTR lpName);

@@ -410,7 +410,6 @@ enum GatewayMessageField : u32 {
 // The thread started from this message (a channel object); null clears it.
 struct GatewayMessageThread {
     u64 id;
-    u64 last_message_id;
     Utf8View name;
     u32 message_count;
     u32 member_count;

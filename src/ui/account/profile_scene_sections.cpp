@@ -705,7 +705,7 @@ float plugin_section(ProfileScene* s, UiWidgetHandle owner, float left, float to
         }
         auto* part = blank(s, owner, {left + x, top + y, left + x + chip, top + y + 26},
                            node.kind == ui_plugin_node_button ? ProfileAction::plugin_slot : ProfileAction::none);
-        attach_badge(s, part) = {part->widget, label, {}, text_style_subtext, true, false};
+        attach_badge(s, part) = {.owner = part->widget, .style = text_style_subtext, .label = label, .leading = true};
         part->target = i;
         part->media = ProfileMediaKind::plugin_slot;
         part->source = node.icon;
@@ -825,7 +825,8 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         // The chip opens the server tag popout (live cards only).
         const auto tag_action = interactive(*s) && a.primary_guild_id ? ProfileAction::guild_tag : ProfileAction::none;
         auto* tag_part = blank(s, owner, r, tag_action);
-        attach_badge(s, tag_part) = {tag_part->widget, a.primary_tag.view(), {}, text_style_subtext, true, false};
+        attach_badge(s, tag_part) = {
+            .owner = tag_part->widget, .style = text_style_subtext, .label = a.primary_tag.view(), .leading = true};
         tag_part->target = a.primary_guild_id;
         const auto layout = ui_badge_layout(s->measure, a.primary_tag.view(), r, true, text_style_subtext);
         auto* glyph = blank(s, owner, layout.icon, tag_action);

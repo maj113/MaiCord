@@ -116,6 +116,9 @@ bool decode_webp_lossy(const ImageCorpusEntry& entry, Arena arena) noexcept {
 }
 bool decode_webp_animated(const ImageCorpusEntry& entry, Arena arena) noexcept {
     auto* animation = arena.take<AnimatedWebpWorkspace>();
+    // The workspace starts zeroed (no retained parse); the arena's bytes are the previous entry's.
+    if (animation)
+        clear_bytes(animation, sizeof(*animation));
     auto* lossy = arena.take<LossyWebpWorkspace>();
     auto* lossless = arena.take<Vp8lWorkspace>();
     auto* frame = arena.take<Vp8Keyframe>();

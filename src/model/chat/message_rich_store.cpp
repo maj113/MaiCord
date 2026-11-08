@@ -639,7 +639,6 @@ void copy_input(MessageRichStore* store, MessageRichRecord* record, const Gatewa
     }
     if ((fields & gateway_message_field_thread) && input.thread.present) {
         record->thread.id = input.thread.id;
-        record->thread.last_message_id = input.thread.last_message_id;
         record->thread.message_count = input.thread.message_count;
         record->thread.member_count = input.thread.member_count;
         record->thread.archived = input.thread.archived;

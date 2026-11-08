@@ -23,6 +23,13 @@
 
 namespace maicord::reaction_history_test {
 using namespace app_detail;
+// The committed bytes of every decode pool, hashed in pool order.
+u64 decode_pool_hash(const HistoryDecodeStorage& storage) noexcept {
+    u64 hash = kHash64Seed;
+    for (u32 pool = 0; pool < kHistoryDecodePoolCount; ++pool)
+        hash = hash64_bytes(hash, storage.base + history_decode_pool_offset(pool), storage.committed[pool]);
+    return hash;
+}
 u32 failures, reaction_admissions, response_calls, sync_calls;
 u32 send_admissions, history_admissions;
 u32 scoped_attempts, scoped_admissions, scoped_responses, scoped_response_bytes;
@@ -338,8 +345,7 @@ void navigation_history_gate(AccountUiRuntime& ui) noexcept {
     const u64 fenwick_before = hash64_bytes(kHash64Seed, fenwick, sizeof(fenwick));
     const u64 rich_records_before = hash64_bytes(kHash64Seed, jump_rich_records, sizeof(jump_rich_records));
     const u64 rich_text_before = hash64_bytes(kHash64Seed, jump_rich_text, sizeof(jump_rich_text));
-    const u64 decode_bytes_before = hash64_bytes(kHash64Seed, decode_before.arena.base,
-                                                 static_cast<u32>(decode_before.arena.committed));
+    const u64 decode_bytes_before = decode_pool_hash(decode_before);
     const auto focused_before = g_app.message_scene.widgets.focused;
     receipt(navigation_gate_request, 200, page);
     check(pump_message_history() && navigation_gate_calls == 1 && navigation_history_responses == 1 &&
@@ -358,8 +364,7 @@ void navigation_history_gate(AccountUiRuntime& ui) noexcept {
               g_app.message_scene.layout_passes == layout_before && g_app.context_focus == context_before,
           "stale same-channel jump cannot replace resident messages, scroll or focus the destination");
     check(bytes_equal(&ui.history_decode_storage, &decode_before, sizeof(decode_before)) &&
-              hash64_bytes(kHash64Seed, decode_before.arena.base,
-                           static_cast<u32>(decode_before.arena.committed)) == decode_bytes_before &&
+              decode_pool_hash(decode_before) == decode_bytes_before &&
               bytes_equal(&ui.message_rich_store, &rich_before, sizeof(rich_before)) &&
               hash64_bytes(kHash64Seed, jump_rich_records, sizeof(jump_rich_records)) ==
                   rich_records_before &&

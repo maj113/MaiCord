@@ -25,34 +25,36 @@ enum class GuildMemberStatus : u8 {
     offline,
 };
 
+// The fields the store's scans and the list projection read come first, so a
+// record's first cache line answers them; the role IDs and the nickname follow.
 struct GuildMemberRecord {
     u64 guild_id;
-    u64 list_id;
     u64 user_id;
+    u64 list_id;
     u64 group_role_id;
     u64 color_role_id;
-    u32 role_color;
-    u32 group_position;
     u32 list_index;
     u32 last_seen;
     u32 revision;
-    u16 nickname_bytes;
+    u32 role_color;
+    u32 group_position;
+    GuildMemberStatus status;
+    bool occupied;
+    bool visible_pinned;
+    bool roles_known;
     u16 generation;
     u16 role_count;
-    GuildMemberStatus status;
-    bool roles_known;
-    bool occupied;
+    u16 nickname_bytes;
     // Every assigned role is retained (inline, or in the overflow past 16).
     bool role_ids_complete;
-    char nickname[kGuildMemberNicknameMaximumBytes];
-    bool visible_pinned;
     bool communication_disabled_known;
-    // The first assigned roles; the overflow span holds the whole list.
-    u64 role_ids[kGuildMemberRoleIdCapacity];
     // Unix seconds; zero when not timed out.
     u32 communication_disabled_until;
     // Overflow offset + 1 of the role_count IDs; zero when inline.
     u32 role_overflow;
+    // The first assigned roles; the overflow span holds the whole list.
+    u64 role_ids[kGuildMemberRoleIdCapacity];
+    char nickname[kGuildMemberNicknameMaximumBytes];
 };
 
 // Contiguous role lists of members past the inline capacity, reserved on
@@ -99,14 +101,13 @@ struct MemberListScope {
 // least recently viewed list gives up its rows.
 inline constexpr u32 kMemberListPositionCapacity = 2'048;
 inline constexpr u32 kMemberListPositionsPerList = 512;
-struct MemberListPosition {
-    u64 user_id;
-    u32 index;
-    u8 scope_slot;
-    bool occupied;
-};
+// Stored as parallel arrays: the scans select a list's rows by the scope byte
+// alone and read users and indexes only for those rows.
 struct MemberListPositionTable {
-    MemberListPosition entries[kMemberListPositionCapacity];
+    u64 user_ids[kMemberListPositionCapacity];
+    u32 indexes[kMemberListPositionCapacity];
+    // The list's scope slot + 1; zero for a free entry.
+    u8 scopes[kMemberListPositionCapacity];
     u32 count;
     u32 evicted_lists;
 };
@@ -123,9 +124,6 @@ struct GuildMemberStore {
     u32 count;
     u32 clock;
     u32 revision;
-    u32 mutations;
-    u32 evictions;
-    u32 rejected;
     // Status-only changes. Structural consumers key on revision; status is
     // projected in place (member_list_view_refresh_presence).
     u32 presence_revision;

@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/media/core/slot_index.hpp"
@@ -135,6 +136,18 @@ u32 find_page_run_locked(const EncodedMediaCache& cache, u32 required_pages) noe
     return kInvalidIndex;
 }
 
+// Commits reserved storage through `end_page`, 64 KiB at a time. Pages are taken lowest first, so the committed
+// prefix reaches only the highest page the cache has used.
+bool commit_storage_locked(EncodedMediaCache* cache, u32 end_page) noexcept {
+    constexpr u32 kStepPages = 64u * 1024u / kEncodedMediaCachePageBytes;
+    const u32 target = minimum(cache->page_capacity, (end_page + kStepPages - 1) & ~(kStepPages - 1));
+    if (!pages_commit_at(cache->storage + cache->committed_pages * kEncodedMediaCachePageBytes,
+                         (target - cache->committed_pages) * kEncodedMediaCachePageBytes))
+        return false;
+    cache->committed_pages = target;
+    return true;
+}
+
 EncodedMediaCacheLookup lookup_locked(EncodedMediaCache* cache, const MediaAssetKey& key, u64 now_seconds,
                                       u32* entry_index) noexcept {
     const u32 index = find_entry_locked(*cache, key);
@@ -168,7 +181,7 @@ u64 encoded_media_new_content_identity() noexcept {
 
 bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMediaCacheEntry> entries,
                                     Slice<u16> page_owners, Slice<u8> storage,
-                                    Slice<u32> index_buckets) noexcept {
+                                    Slice<u32> index_buckets, bool storage_reserved) noexcept {
     if (!cache || !entries.data || entries.count == 0 || entries.count >= kEncodedMediaCacheFreePage ||
         !storage.data || storage.count == 0 || storage.count % kEncodedMediaCachePageBytes != 0 ||
         !index_buckets.data || !is_power_of_two(index_buckets.count) || index_buckets.count < entries.count * 2u) {
@@ -184,6 +197,7 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
     cache->page_owners = page_owners.data;
     cache->page_capacity = pages;
     cache->storage = storage.data;
+    cache->committed_pages = storage_reserved ? 0 : pages;
     cache->index_buckets = index_buckets.data;
     cache->index_bucket_capacity = index_buckets.count;
     for (u32 index = 0; index < entries.count; ++index) {
@@ -337,6 +351,12 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
         }
         release_entry_locked(cache, victim);
         first_page = find_page_run_locked(*cache, required_pages);
+    }
+    if (first_page + required_pages > cache->committed_pages &&
+        !commit_storage_locked(cache, first_page + required_pages)) {
+        maintain_index_locked(cache);
+        ReleaseSRWLockExclusive(cache->lock.native());
+        return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::no_capacity, 0};
     }
 
     const u32 destination_offset = first_page * kEncodedMediaCachePageBytes;

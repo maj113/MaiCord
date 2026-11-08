@@ -500,11 +500,21 @@ void test_message_composer() noexcept {
            "message_composer_scene_owned_storage_release");
 
     MessageComposer owned{};
-    expect(message_composer_initialize_owned(&owned, 64) && owned.owns_storage &&
-               owned.owned_storage.base && owned.text && owned.capacity == 64 &&
-               message_composer_insert_utf8(&owned, utf8_literal("owned")) ==
-                   MessageComposerResult::changed,
-           "message_composer_owned_storage");
+    const bool reserved_only = message_composer_initialize_owned(&owned, 3 * 4096) && owned.owns_storage &&
+        owned.owned_storage.base && owned.text && owned.capacity == 3 * 4096 && !owned.owned_storage.committed;
+    expect(reserved_only && message_composer_insert_utf8(&owned, utf8_literal("owned")) ==
+                   MessageComposerResult::changed &&
+               owned.owned_storage.committed == 4096 && owned.owned_storage.commit_count == 1,
+           "message_composer_owned_storage_commits_its_first_page_with_the_first_text");
+    static char page_text[4096];
+    for (char& c : page_text) c = 'a';
+    const bool same_page = message_composer_insert_utf8(&owned, {page_text, 4096 - 6}) ==
+        MessageComposerResult::changed && owned.bytes == 4095 && owned.owned_storage.commit_count == 1;
+    const bool next_page = message_composer_insert_utf8(&owned, utf8_literal("bc")) ==
+        MessageComposerResult::changed && owned.bytes == 4097 && owned.owned_storage.committed == 8192 &&
+        owned.owned_storage.commit_count == 2 && message_composer_undo(&owned) == MessageComposerResult::changed &&
+        owned.bytes < 4097 && owned.owned_storage.commit_count == 2;
+    expect(same_page && next_page, "message_composer_owned_storage_commits_a_page_only_when_the_draft_enters_it");
     message_composer_release(&owned);
     expect(!owned.owned_storage.base && !owned.text && owned.capacity == 0,
            "message_composer_owned_storage_release");

@@ -49,8 +49,11 @@ inline constexpr u32 kCachePageOwnerBytes = kAccountMediaCachePageCapacity * siz
 inline constexpr u32 kCacheIndexBytes = kAccountMediaCacheIndexCapacity * sizeof(u32);
 inline constexpr u32 kCacheStorageBytes = kAccountMediaCachePageCapacity * kEncodedMediaCachePageBytes;
 inline constexpr u32 kScanlineStorageBytes = maximum(2'097'664u, kGifPixelMaximum);
-inline constexpr u32 kOwnedAllocationBytes = kCacheEntryStorageBytes + kCachePageOwnerBytes +
-                                             kCacheIndexBytes + kCacheStorageBytes + kScanlineStorageBytes;
+// The entries, page owners and index: committed when the owned cache starts. Its storage and every lane's
+// scanlines are reserved and commit as they fill.
+inline constexpr u32 kCacheTableBytes = kCacheEntryStorageBytes + kCachePageOwnerBytes + kCacheIndexBytes;
+static_assert(kCacheTableBytes % 4096u == 0);
+inline constexpr u32 kOwnedAllocationBytes = kCacheTableBytes + kCacheStorageBytes + kScanlineStorageBytes;
 
 } // namespace
 namespace account_media_detail {
@@ -235,8 +238,7 @@ bool fit_frame(AccountMedia* media, const MediaFit& fit, MediaFitRegion source, 
         ok = row && media_fit_push_row(&sink, row);
     }
     auto& pipeline = media->pipeline;
-    if (ok && output > pipeline.scanline_capacity)
-        ok = pipeline.grow_scanlines && pipeline.grow_scanlines(pipeline.scanline_owner, static_cast<u32>(output)).count >= output;
+    ok = ok && cdn_media_pipeline_ensure_scanlines(&pipeline, output);
     if (ok) {
         copy_bytes(pipeline.scanline_storage, block, static_cast<u32>(output));
         *fitted = region;
@@ -517,13 +519,13 @@ static_assert(sizeof(JpegWorkspace) >= sizeof(LossyWebpWorkspace));
 static_assert(is_trivially_default_constructible_v<JpegWorkspace>);
 static_assert(is_trivially_default_constructible_v<LossyWebpWorkspace>);
 
-// Both codecs finish before the worker publishes one borrowed frame. Keep one
-// reservation, and commit the larger extent only when JPEG first needs it.
+// Both codecs finish before the worker publishes one borrowed frame. Keep one reservation and commit what each
+// codec uses of it: the lossy WebP workspace, or the JPEG tables and ICC profile (the pipeline commits the
+// coefficient blocks an image needs).
+inline constexpr usize kJpegTablesBytes = offsetof(JpegWorkspace, coefficients);
 void* allocate_image_workspace(void* existing, usize bytes) noexcept {
     if (existing)
         return pages_commit_at(existing, bytes);
-    if (bytes == sizeof(JpegWorkspace))
-        return commit_pages(bytes);
     void* allocation = pages_reserve(sizeof(JpegWorkspace));
     if (allocation && !pages_commit_at(allocation, bytes)) {
         pages_release(allocation);
@@ -538,12 +540,7 @@ namespace account_media_detail {
 bool ensure_lossy_webp_workspace(AccountMedia* media) noexcept {
     if (media->lossy_webp_workspace)
         return true;
-    // These are the complete bind preconditions. Check them before storage changes.
-    if (!media->pipeline.cache || !media->pipeline.scanline_storage)
-        return false;
-    void* allocation = media->jpeg_workspace;
-    if (!allocation)
-        allocation = allocate_image_workspace(nullptr, sizeof(LossyWebpWorkspace));
+    void* allocation = allocate_image_workspace(media->jpeg_workspace, sizeof(LossyWebpWorkspace));
     if (!allocation)
         return false;
     media->lossy_webp_workspace = ::new (allocation) LossyWebpWorkspace;
@@ -602,12 +599,11 @@ bool ensure_gif_workspace(AccountMedia* media) noexcept {
 
 bool ensure_jpeg_workspace(AccountMedia* media) noexcept {
     if (!media->jpeg_workspace) {
-        if (!media->pipeline.cache || !media->pipeline.scanline_storage)
-            return false;
-        void* allocation = allocate_image_workspace(media->lossy_webp_workspace, sizeof(JpegWorkspace));
+        void* allocation = allocate_image_workspace(media->lossy_webp_workspace, kJpegTablesBytes);
         if (!allocation)
             return false;
         media->jpeg_workspace = static_cast<JpegWorkspace*>(allocation);
+        media->pipeline.jpeg_committed = kJpegTablesBytes;
     }
     // Direct thumbnail parsing also enters here. Default construction starts the
     // JPEG lifetime without clearing bytes. The parser writes every live field.
@@ -736,7 +732,7 @@ Slice<u8> grow_scanlines(void* owner, u32 bytes) noexcept {
     media->expanded_scanlines = replacement;
     // Install the replacement before release. All later decodes use this output.
     media->pipeline.scanline_storage = replacement;
-    media->pipeline.scanline_capacity = capacity;
+    media->pipeline.scanline_capacity = media->pipeline.scanline_reserved = capacity;
     if (previous) {
         pages_release(previous);
     } else if (media->allocation) {
@@ -752,15 +748,13 @@ Slice<u8> grow_scanlines(void* owner, u32 bytes) noexcept {
     }
     return {replacement, capacity};
 }
-// The lane's own scanline storage: the tail of the owned allocation, or a
-// separate one when the encoded cache is shared.
+// The lane's own scanline storage, reserved with nothing committed: the tail of the owned allocation, or a
+// separate reservation when the encoded cache is shared.
 u8* base_scanlines(AccountMedia* media) noexcept {
-    if (media->owns_cache) {
-        auto* base = static_cast<u8*>(media->allocation) + kOwnedAllocationBytes - kScanlineStorageBytes;
-        return pages_commit_at(base, kScanlineStorageBytes) ? base : nullptr;
-    }
+    if (media->owns_cache)
+        return static_cast<u8*>(media->allocation) + kOwnedAllocationBytes - kScanlineStorageBytes;
     if (!media->allocation)
-        media->allocation = commit_pages(kScanlineStorageBytes);
+        media->allocation = pages_reserve(kScanlineStorageBytes);
     return static_cast<u8*>(media->allocation);
 }
 
@@ -772,7 +766,11 @@ AccountMediaRequestResult account_media_initialize(AccountMedia* media, EncodedM
     }
     SecureZeroMemory(media, sizeof(*media));
     const u32 allocation_bytes = shared_cache ? kScanlineStorageBytes : kOwnedAllocationBytes;
-    media->allocation = commit_pages(allocation_bytes);
+    media->allocation = pages_reserve(allocation_bytes);
+    if (media->allocation && !shared_cache && !pages_commit_at(media->allocation, kCacheTableBytes)) {
+        pages_release(media->allocation);
+        media->allocation = nullptr;
+    }
     if (!media->allocation) {
         return result(AccountMediaRequestState::failed, AccountMediaError::memory);
     }
@@ -784,13 +782,13 @@ AccountMediaRequestResult account_media_initialize(AccountMedia* media, EncodedM
         auto* page_owners = reinterpret_cast<u16*>(storage + kCacheEntryStorageBytes);
         auto* index_buckets =
             reinterpret_cast<u32*>(storage + kCacheEntryStorageBytes + kCachePageOwnerBytes);
-        u8* encoded_storage = storage + kCacheEntryStorageBytes + kCachePageOwnerBytes + kCacheIndexBytes;
+        u8* encoded_storage = storage + kCacheTableBytes;
         scanlines = encoded_storage + kCacheStorageBytes;
         if (!encoded_media_cache_initialize(
                 &media->cache, Slice<EncodedMediaCacheEntry>{entries, kAccountMediaCacheEntryCapacity},
                 Slice<u16>{page_owners, kAccountMediaCachePageCapacity},
                 Slice<u8>{encoded_storage, kCacheStorageBytes},
-                Slice<u32>{index_buckets, kAccountMediaCacheIndexCapacity})) {
+                Slice<u32>{index_buckets, kAccountMediaCacheIndexCapacity}, true)) {
             pages_release(media->allocation);
             SecureZeroMemory(media, sizeof(*media));
             return result(AccountMediaRequestState::failed, AccountMediaError::cache);
@@ -798,8 +796,8 @@ AccountMediaRequestResult account_media_initialize(AccountMedia* media, EncodedM
         cache = &media->cache;
         media->owns_cache = true;
     }
-    if (!cdn_media_pipeline_initialize(&media->pipeline, cache,
-                                       Slice<u8>{scanlines, kScanlineStorageBytes})) {
+    if (!cdn_media_pipeline_initialize(&media->pipeline, cache, Slice<u8>{scanlines, kScanlineStorageBytes},
+                                       0)) {
         pages_release(media->allocation);
         SecureZeroMemory(media, sizeof(*media));
         return result(AccountMediaRequestState::failed, AccountMediaError::cache);
@@ -919,9 +917,8 @@ LottieProbe probe_lottie(AccountMedia* media, CacheProbe* probe) noexcept {
     if (published)
         media->frame_cache_generation = lease.lookup.generation;
     if (lease.acquired && !fresh && lease.lookup.etag.count <= sizeof(media->pipeline.result_etag)) {
-        media->pipeline.result_etag_bytes = lease.lookup.etag.count;
         copy_bytes(media->pipeline.result_etag, lease.lookup.etag.data, lease.lookup.etag.count);
-        probe->etag = {media->pipeline.result_etag, media->pipeline.result_etag_bytes};
+        probe->etag = {media->pipeline.result_etag, lease.lookup.etag.count};
     }
     if (lease.acquired)
         encoded_media_cache_release(media->pipeline.cache, &lease);
@@ -958,7 +955,8 @@ bool account_media_trim_scanlines(AccountMedia* media) noexcept {
     pages_release(media->expanded_scanlines);
     media->expanded_scanlines = nullptr;
     media->pipeline.scanline_storage = base;
-    media->pipeline.scanline_capacity = kScanlineStorageBytes;
+    media->pipeline.scanline_capacity = 0;
+    media->pipeline.scanline_reserved = kScanlineStorageBytes;
     return true;
 }
 

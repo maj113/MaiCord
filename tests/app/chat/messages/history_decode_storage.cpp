@@ -73,24 +73,36 @@ struct Fixture {
     u8 account_sentinel;
 } fixture{};
 
-// This fails the real VirtualAlloc commit in arena_allocate: mapped pages
+// This fails the real VirtualAlloc commit of a decode pool: mapped pages
 // cannot be committed as a private reservation. It is an injected allocator
 // rejection, not a claim to reproduce system-wide out-of-memory pressure.
 struct CommitFailure {
-    StableStorage& storage; u8* original; HANDLE mapping; u8* view;
-    explicit CommitFailure(StableStorage& owner) noexcept : storage(owner), original(owner.arena.base),
-        mapping(CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READONLY, 0,
-            static_cast<DWORD>(owner.arena.reserved), nullptr)),
-        view(mapping ? static_cast<u8*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, owner.arena.reserved)) : nullptr) {
-        if (view) storage.arena.base = view;
+    HistoryDecodeStorage& storage; u8* original; HANDLE mapping; u8* view;
+    explicit CommitFailure(HistoryDecodeStorage& owner) noexcept : storage(owner), original(owner.base),
+        mapping(CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READONLY, 0, kHistoryDecodeReservedBytes, nullptr)),
+        view(mapping ? static_cast<u8*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, kHistoryDecodeReservedBytes)) : nullptr) {
+        if (view) storage.base = view;
     }
     ~CommitFailure() noexcept {
-        storage.arena.base = original;
+        storage.base = original;
         if (view) UnmapViewOfFile(view);
         if (mapping) CloseHandle(mapping);
     }
     bool ready() const noexcept { return view != nullptr; }
 };
+usize committed_bytes(const HistoryDecodeStorage& storage) noexcept {
+    usize total = 0;
+    for (const u32 bytes : storage.committed) total += bytes;
+    return total;
+}
+u32 committed_pools(const HistoryDecodeStorage& storage) noexcept {
+    u32 pools = 0;
+    for (const u32 bytes : storage.committed) pools += bytes != 0;
+    return pools;
+}
+u8* pool_base(const HistoryDecodeStorage& storage, HistoryDecodePool pool) noexcept {
+    return storage.base + history_decode_pool_offset(static_cast<u32>(pool));
+}
 
 bool reset_models(AccountUiRuntime& ui) noexcept {
     slowmode_starts = 0; slowmode_channel = 0;
@@ -171,83 +183,126 @@ constexpr auto edit_body = utf8_literal(
 constexpr auto second_send_body = utf8_literal(
     R"({"id":"902","channel_id":"7","author":{"id":"11","username":"self"},"content":"second","timestamp":"2024-08-30T14:00:00Z"})");
 
+// The bytes `elements` elements of `pool` commit: whole pages, held to the pool's reservation.
+u32 pool_bytes(u32 pool, u32 elements, usize page) noexcept {
+    const auto shape = kHistoryDecodePools[pool];
+    const usize bytes = minimum(elements, shape.capacity) * usize{shape.element_bytes};
+    return static_cast<u32>((bytes + page - 1) & ~(page - 1));
+}
+template <typename T> bool pool_slice(Slice<T> slice, const HistoryDecodeStorage& owner, HistoryDecodePool pool) noexcept {
+    const u32 index = static_cast<u32>(pool);
+    const auto shape = kHistoryDecodePools[index];
+    return reinterpret_cast<const u8*>(slice.data) == pool_base(owner, pool) && slice.count &&
+        slice.count == minimum(shape.capacity, owner.committed[index] / shape.element_bytes);
+}
+// Every pool holds exactly `bytes(pool)` committed bytes, all zero, and the rest of its reservation stays reserved.
+template <typename Bytes> bool pools_committed(const HistoryDecodeStorage& owner, Bytes bytes) noexcept {
+    bool valid = true;
+    for (u32 pool = 0; pool < kHistoryDecodePoolCount; ++pool) {
+        const u32 expected = bytes(pool);
+        const u8* start = owner.base + history_decode_pool_offset(pool);
+        valid = valid && owner.committed[pool] == expected &&
+            (!expected || (vm(start, MEM_COMMIT) && vm(start + expected - 1, MEM_COMMIT) && zero(start, expected))) &&
+            (expected == history_decode_pool_bytes(pool) || vm(start + expected, MEM_RESERVE));
+    }
+    return valid;
+}
+
 void storage(AccountUiRuntime& ui, usize page) noexcept {
+    const ArenaAccount account = arena_account(ArenaTag::storage);
+    const auto accounted = [&](usize committed) noexcept {
+        const ArenaAccount now = arena_account(ArenaTag::storage);
+        return now.arenas == account.arenas + 1 && now.reserved == account.reserved + kHistoryDecodeReservedBytes &&
+            now.committed == account.committed + static_cast<i64>(committed);
+    };
     check(application_history_decode_storage_initialize(ui), "history production bank reserve succeeds");
-    auto& owner = ui.history_decode_storage; const auto* base = owner.arena.base;
-    check(base && vm(base, MEM_RESERVE) && !owner.capacity && !owner.arena.committed &&
-        !owner.arena.offset && !owner.arena.commit_count &&
-        owner.reserved_capacity == sizeof(HistoryDecodeBank) / kHistoryDecodeStorageUnitBytes &&
-        owner.element_bytes == kHistoryDecodeStorageUnitBytes && owner.alignment == alignof(HistoryDecodeBank),
-        "history initial actual VM is reserved with zero commitment");
-    measurement("MEASURE history_initial_committed_bytes=", owner.arena.committed);
-    check(!application_history_decode_storage_initialize(ui) && owner.arena.base == base,
+    auto& owner = ui.history_decode_storage; const auto* base = owner.base;
+    check(base && vm(base, MEM_RESERVE) && !committed_bytes(owner) && kHistoryDecodeReservedBytes % page == 0 &&
+        accounted(0), "history initial actual VM is reserved with zero commitment and counted as storage");
+    measurement("MEASURE history_initial_committed_bytes=", committed_bytes(owner));
+    check(!application_history_decode_storage_initialize(ui) && owner.base == base,
         "history repeated initialization preserves original reservation");
     MessageHistoryDecodeScratch scratch{}; scratch.maximum_depth = 123;
-    const auto unchanged = scratch; owner.reserved_capacity = 0;
-    check(!application_message_decode_scratch(ui, &scratch) && same(scratch, unchanged) &&
-        vm(base, MEM_RESERVE) && !owner.capacity && !owner.arena.committed,
-        "history denied admission preserves output and actual initial VM");
-    owner.reserved_capacity = sizeof(HistoryDecodeBank) / kHistoryDecodeStorageUnitBytes;
-    check(!application_message_decode_scratch(ui, nullptr) && !owner.arena.committed,
+    const auto unchanged = scratch;
+    {
+        CommitFailure failure(owner);
+        check(failure.ready() && !application_message_decode_scratch(ui, &scratch) && same(scratch, unchanged) &&
+            !committed_bytes(owner), "history denied admission preserves output and commits nothing");
+    }
+    check(!application_message_decode_scratch(ui, nullptr) && !committed_bytes(owner) && vm(base, MEM_RESERVE),
         "history null scratch output cannot trigger commitment");
     const bool admitted = application_message_decode_scratch(ui, &scratch);
-    check(admitted, "history first access admits complete typed bank");
+    check(admitted, "history first access without a body admits the base pools");
     if (!admitted) return;
-    const usize committed = (kHistoryDecodeBaseBytes + page - 1) & ~(page - 1);
-    check(owner.capacity == kHistoryDecodeBaseBytes / kHistoryDecodeStorageUnitBytes &&
-        owner.arena.offset == kHistoryDecodeBaseBytes &&
-        owner.arena.committed == committed && owner.arena.commit_count == 1 &&
-        vm(base, MEM_COMMIT) && vm(base + committed - 1, MEM_COMMIT) && zero(base, kHistoryDecodeBaseBytes) &&
-        vm(base + committed, MEM_RESERVE),
-        "history first access commits exactly OS-rounded typed bank and untouched bytes are zero");
-    const auto* bank = stable_storage_data<HistoryDecodeBank>(owner);
-    check(scratch.messages.data == bank->messages && scratch.messages.count == kMessageHistoryRequestLimit &&
-        scratch.mention_users.data == bank->named_users && scratch.mention_users.count == kMessageHistoryNamedUserCapacity &&
-        scratch.rich.member_roles.data == bank->member_roles && scratch.rich.member_roles.count == kMessageHistoryMemberRoleCapacity &&
-        scratch.rich.reactions.data == bank->reactions && scratch.rich.reactions.count == kMessageHistoryReactionCapacity &&
-        scratch.rich.attachments.data == bank->attachments && scratch.rich.attachments.count == kMessageHistoryAttachmentCapacity &&
-        scratch.rich.embeds.data == bank->embeds && scratch.rich.embeds.count == kMessageHistoryEmbedCapacity &&
-        scratch.rich.embed_fields.data == bank->embed_fields && scratch.rich.embed_fields.count == kMessageHistoryEmbedFieldCapacity &&
-        scratch.rich.stickers.data == bank->stickers && scratch.rich.stickers.count == kMessageHistoryStickerCapacity &&
-        scratch.rich.components.data == bank->components && scratch.rich.components.count == kMessageHistoryComponentCapacity &&
+    constexpr u32 roles = static_cast<u32>(HistoryDecodePool::member_roles);
+    constexpr u32 last_base = static_cast<u32>(HistoryDecodePool::components);
+    // No body bounds every object pool to one element: one page each. Role IDs are strings; their pool commits whole.
+    check(pools_committed(owner, [&](u32 pool) noexcept {
+            return pool > last_base ? 0u : pool == roles ? history_decode_pool_bytes(pool) : static_cast<u32>(page);
+        }) && committed_pools(owner) == 9 && accounted(committed_bytes(owner)),
+        "history first access commits one zero page per base pool and the whole member role pool");
+    check(pool_slice(scratch.messages, owner, HistoryDecodePool::messages) &&
+        pool_slice(scratch.mention_users, owner, HistoryDecodePool::named_users) &&
+        pool_slice(scratch.rich.member_roles, owner, HistoryDecodePool::member_roles) &&
+        scratch.rich.member_roles.count == kMessageHistoryMemberRoleCapacity &&
+        pool_slice(scratch.rich.reactions, owner, HistoryDecodePool::reactions) &&
+        pool_slice(scratch.rich.attachments, owner, HistoryDecodePool::attachments) &&
+        pool_slice(scratch.rich.embeds, owner, HistoryDecodePool::embeds) &&
+        pool_slice(scratch.rich.embed_fields, owner, HistoryDecodePool::embed_fields) &&
+        pool_slice(scratch.rich.stickers, owner, HistoryDecodePool::stickers) &&
+        pool_slice(scratch.rich.components, owner, HistoryDecodePool::components) &&
         scratch.page_structurals.data == ui.message_history_page_structurals &&
         scratch.content.data == reinterpret_cast<char*>(ui.event_payload_scratch) && scratch.maximum_depth == 64,
-        "history all nine typed slices retain original maximum capacities and existing structural/content unions");
-    measurement("MEASURE history_first_committed_bytes=", owner.arena.committed);
-    const auto first = scratch;
+        "history all nine typed slices end at their committed elements beside the structural/content unions");
+    measurement("MEASURE history_first_committed_bytes=", committed_bytes(owner));
+    const auto first = scratch; const usize first_committed = committed_bytes(owner);
     for (u32 i = 0; i < 100; ++i) check(application_message_decode_scratch(ui, &scratch), "history repeated access succeeds");
-    check(same_scratch(first, scratch) && owner.arena.base == base && owner.arena.commit_count == 1 &&
-        owner.arena.committed == committed, "history repeat access retains identical slices and performs no extra commit");
+    check(same_scratch(first, scratch) && owner.base == base && committed_bytes(owner) == first_committed,
+        "history repeat access retains identical slices and performs no extra commit");
     check(!scratch.rich.snapshot.attachments.data && !scratch.rich.snapshot.embeds.data &&
-        !scratch.rich.snapshot.mention_users.data,
-        "ordinary history exposes no uncommitted optional snapshot pointers");
+        !scratch.rich.snapshot.mention_users.data && !scratch.rich.poll.answers.data,
+        "ordinary history exposes no uncommitted optional snapshot or poll pointers");
+    // The rich page holds 13 JSON objects: each object pool commits through 14 elements, never less than before.
+    const u32 rich_objects = application_message_body_shape(rich_page).objects;
+    check(rich_objects == 13 && application_message_decode_scratch(ui, &scratch, rich_page) &&
+        pools_committed(owner, [&](u32 pool) noexcept {
+            return pool > last_base ? 0u : pool == roles ? history_decode_pool_bytes(pool)
+                                                         : maximum(static_cast<u32>(page), pool_bytes(pool, 14, page));
+        }) && pool_slice(scratch.rich.embeds, owner, HistoryDecodePool::embeds) &&
+        scratch.rich.embeds.count >= 14 && scratch.messages.data == first.messages.data &&
+        accounted(committed_bytes(owner)),
+        "history page admission commits each pool through its body's object count at stable addresses");
+    measurement("MEASURE history_rich_page_committed_bytes=", committed_bytes(owner));
     const auto forwarded_body = utf8_literal(R"({"message_snapshots":[{"message":{"content":"quote"}}]})");
-    const auto before_snapshot = scratch;
-    owner.reserved_capacity = owner.capacity;
-    check(!application_message_decode_scratch(ui, &scratch, forwarded_body) &&
-        same_scratch(before_snapshot, scratch) && owner.arena.committed == committed,
-        "snapshot denied optional admission preserves output and committed base bank");
-    owner.reserved_capacity = sizeof(HistoryDecodeBank) / kHistoryDecodeStorageUnitBytes;
+    const auto before_snapshot = scratch; const usize before_committed = committed_bytes(owner);
+    {
+        CommitFailure failure(owner);
+        check(failure.ready() && !application_message_decode_scratch(ui, &scratch, forwarded_body) &&
+            same_scratch(before_snapshot, scratch) && committed_bytes(owner) == before_committed,
+            "snapshot denied optional admission preserves output and committed pools");
+    }
     check(application_message_decode_scratch(ui, &scratch, forwarded_body),
-        "forwarded history admits full independent snapshot pools in existing reservation");
-    const usize full_committed = (sizeof(HistoryDecodeBank) + page - 1) & ~(page - 1);
-    check(owner.arena.base == base && owner.arena.committed == full_committed &&
-        owner.arena.commit_count == 2 && scratch.rich.attachments.data == first.rich.attachments.data &&
-        scratch.rich.snapshot.attachments.data == bank->snapshot.attachments &&
-        scratch.rich.snapshot.attachments.count == kMessageHistoryAttachmentCapacity &&
-        scratch.rich.snapshot.embeds.data == bank->snapshot.embeds &&
-        scratch.rich.snapshot.embed_fields.count == kMessageHistoryEmbedFieldCapacity &&
-        scratch.rich.snapshot.stickers.count == kMessageHistoryStickerCapacity &&
-        scratch.rich.snapshot.components.count == kMessageHistoryComponentCapacity &&
-        scratch.rich.snapshot.mention_users.data == bank->snapshot.named_users &&
-        scratch.rich.snapshot.mention_users.count == kMessageHistoryNamedUserCapacity,
-        "snapshot pools keep full separate limits without new allocation owner or relocating outer arrays");
-    check((application_message_body_optional_fields(utf8_literal(R"({"message_\u0073napshots":[]})")) & 2) &&
-        !(application_message_body_optional_fields(utf8_literal(R"({"content":"ordinary"})")) & 2),
-        "optional admission conservatively includes escaped property names");
-    measurement("MEASURE history_snapshot_additional_committed_bytes=", full_committed - committed);
+        "forwarded history admits independent snapshot pools in the existing reservation");
+    check(owner.base == base && committed_bytes(owner) == before_committed + 6 * page &&
+        scratch.rich.attachments.data == first.rich.attachments.data &&
+        pool_slice(scratch.rich.snapshot.attachments, owner, HistoryDecodePool::snapshot_attachments) &&
+        pool_slice(scratch.rich.snapshot.embeds, owner, HistoryDecodePool::snapshot_embeds) &&
+        pool_slice(scratch.rich.snapshot.embed_fields, owner, HistoryDecodePool::snapshot_embed_fields) &&
+        pool_slice(scratch.rich.snapshot.stickers, owner, HistoryDecodePool::snapshot_stickers) &&
+        pool_slice(scratch.rich.snapshot.components, owner, HistoryDecodePool::snapshot_components) &&
+        pool_slice(scratch.rich.snapshot.mention_users, owner, HistoryDecodePool::snapshot_named_users) &&
+        !scratch.rich.poll.answers.data && accounted(committed_bytes(owner)),
+        "snapshot pools commit one page each without relocating outer arrays");
+    check((application_message_body_shape(utf8_literal(R"({"message_\u0073napshots":[]})")).optional & 2) &&
+        !(application_message_body_shape(utf8_literal(R"({"content":"ordinary"})")).optional & 2) &&
+        application_message_body_shape(utf8_literal(R"({"a":{"b":"{"}})")).objects == 3,
+        "optional admission conservatively includes escaped property names and counts every brace");
+    measurement("MEASURE history_snapshot_additional_committed_bytes=", committed_bytes(owner) - before_committed);
     application_history_decode_storage_release(ui);
-    check(!owner.arena.base && !owner.capacity && vm(base, MEM_FREE), "history actual account bank release frees reservation");
+    check(!owner.base && !committed_bytes(owner) && vm(base, MEM_FREE) &&
+        arena_account(ArenaTag::storage).committed == account.committed &&
+        arena_account(ArenaTag::storage).arenas == account.arenas,
+        "history actual account bank release frees reservation and its storage account");
     application_history_decode_storage_release(ui);
 }
 
@@ -260,14 +315,14 @@ void history(AccountUiRuntime& ui) noexcept {
     RestClientResponse response{}; response.status_code = 200; response.body_bytes = rich_page.bytes;
     MessageHistoryRestResult accepted{}; MessageHistoryDecodeScratch scratch{};
     const auto before = catchup; const auto pump = g_app.message_pump; const auto store = g_app.message_view.store;
-    const auto* base = ui.history_decode_storage.arena.base;
+    const auto* base = ui.history_decode_storage.base;
     {
         CommitFailure failure(ui.history_decode_storage);
         check(failure.ready(), "history actual commit failure mapping initializes");
         if (failure.ready()) check(!application_message_history_catchup_response(ui, catchup, g_app.message_pump,
                 response, rich_page, 100, &accepted, &scratch) && same(catchup, before) && same(g_app.message_pump, pump) &&
             same(g_app.message_view.store, store) && !ui.user_store.count && !ui.guild_member_store.count &&
-            !ui.history_decode_storage.arena.committed && !ui.history_decode_storage.arena.commit_count && vm(base, MEM_RESERVE),
+            !committed_bytes(ui.history_decode_storage) && vm(base, MEM_RESERVE),
             "history production catchup boundary rejects real allocator failure before decode or model mutation");
     }
     const bool integrated = application_message_history_catchup_response(ui, catchup, g_app.message_pump, response, rich_page,
@@ -277,7 +332,7 @@ void history(AccountUiRuntime& ui) noexcept {
         scratch.messages[0].reactions.count == 1 && scratch.messages[0].attachments.count == 1 &&
         scratch.messages[0].embeds.count == 1 && scratch.messages[0].embed_fields.count == 1 &&
         scratch.messages[0].stickers.count == 1 && scratch.messages[0].components.count == 1 &&
-        ui.history_decode_storage.arena.base == base && ui.history_decode_storage.arena.commit_count == 1;
+        ui.history_decode_storage.base == base && committed_pools(ui.history_decode_storage) == 9;
     check(integrated, "history actual catchup retries admission and preserves all decoded rich output at stable bank address");
     const auto* rich = message_rich_store_find(ui.message_rich_store, 500);
     memset(ui.event_payload_scratch, 0xa5, sizeof(ui.event_payload_scratch));
@@ -294,7 +349,7 @@ void history(AccountUiRuntime& ui) noexcept {
     check(application_message_history_catchup_response(ui, catchup, g_app.message_pump, response, {}, 100,
         &accepted, &scratch) && accepted.error == MessageHistoryRestError::decode &&
         accepted.decode.error == MessageHistoryDecodeError::invalid_input &&
-        !ui.history_decode_storage.arena.committed, "history absent success body preserves classification and zero commitment");
+        !committed_bytes(ui.history_decode_storage), "history absent success body preserves classification and zero commitment");
 }
 
 void forwarded_history(AccountUiRuntime& ui) noexcept {
@@ -314,15 +369,15 @@ void forwarded_history(AccountUiRuntime& ui) noexcept {
         message_history_catchup_take_query(&catchup, &query), "forwarded actual catchup awaits page");
     const auto before = catchup; const auto pump = g_app.message_pump;
     const auto store = g_app.message_view.store; const auto old_scratch = scratch;
-    const u32 reserved = ui.history_decode_storage.reserved_capacity;
-    ui.history_decode_storage.reserved_capacity = ui.history_decode_storage.capacity;
     RestClientResponse response{}; response.status_code = 200; response.body_bytes = body.bytes;
     MessageHistoryRestResult accepted{};
-    check(!application_message_history_catchup_response(ui, catchup, g_app.message_pump,
-        response, body, 100, &accepted, &scratch) && same(catchup, before) && same(pump, g_app.message_pump) &&
-        same(store, g_app.message_view.store) && same_scratch(old_scratch, scratch),
-        "forwarded optional capacity denial precedes HTTP tracker, users and resident timeline mutation");
-    ui.history_decode_storage.reserved_capacity = reserved;
+    {
+        CommitFailure failure(ui.history_decode_storage);
+        check(failure.ready() && !application_message_history_catchup_response(ui, catchup, g_app.message_pump,
+            response, body, 100, &accepted, &scratch) && same(catchup, before) && same(pump, g_app.message_pump) &&
+            same(store, g_app.message_view.store) && same_scratch(old_scratch, scratch),
+            "forwarded admission denial precedes HTTP tracker, users and resident timeline mutation");
+    }
     const bool ok = application_message_history_catchup_response(ui, catchup, g_app.message_pump,
         response, body, 100, &accepted, &scratch) && accepted.accepted() && accepted.decode.page.count == 2;
     check(ok, "forwarded production catchup retries optional admission and decodes two immutable snapshots");
@@ -360,23 +415,24 @@ void send(AccountUiRuntime& ui) noexcept {
         if (failure.ready()) check(!accept_message_send_response(response, send_body) &&
             same(ui.message_composer_controller, controller) && same(g_app.message_view.store, store) &&
             same(g_app.message_rejection, rejection) && g_app.message_rejection_channel_id == rejection_channel &&
-            content(nonce, utf8_literal("local")) && refreshes == refresh_before && !ui.history_decode_storage.arena.committed &&
+            content(nonce, utf8_literal("local")) && refreshes == refresh_before && !committed_bytes(ui.history_decode_storage) &&
             !slowmode_starts,
             "send actual response entrypoint rejects commit failure before HTTP tracker, decode, model and UI mutation");
     }
-    const auto* base = ui.history_decode_storage.arena.base;
+    const auto* base = ui.history_decode_storage.base;
     check(accept_message_send_response(response, send_body) && content(900, utf8_literal("server")) &&
         !message_store_find(g_app.message_view.store, nonce).ok() && !ui.message_composer_controller.request_count &&
-        !ui.message_composer_controller.inflight_nonce && ui.history_decode_storage.arena.commit_count == 1 &&
+        !ui.message_composer_controller.inflight_nonce && committed_pools(ui.history_decode_storage) == 9 &&
         slowmode_starts == 1 && slowmode_channel == 7,
         "send actual response retries and reconciles authoritative output on first bank commitment");
+    const usize committed = committed_bytes(ui.history_decode_storage);
     const auto* detail = message_rich_store_find(ui.message_rich_store, 900);
     check(detail && detail->attachment_count == 1 && detail->attachments[0].size == 64,
         "send actual response retains unchanged attachment fidelity");
     check(queue_send(ui) != 0, "send second actual request submits");
     response.body_bytes = second_send_body.bytes;
     check(accept_message_send_response(response, second_send_body) && content(902, utf8_literal("second")) &&
-        ui.history_decode_storage.arena.base == base && ui.history_decode_storage.arena.commit_count == 1 &&
+        ui.history_decode_storage.base == base && committed_bytes(ui.history_decode_storage) == committed &&
         slowmode_starts == 2 && slowmode_channel == 7,
         "send subsequent actual response reuses committed bank without allocation");
 }
@@ -490,17 +546,18 @@ void edit(AccountUiRuntime& ui) noexcept {
         CommitFailure failure(ui.history_decode_storage); check(failure.ready(), "edit failure mapping initializes");
         if (failure.ready()) check(!accept_message_edit_response(response) && same(edit, before) &&
             same(g_app.message_view.store, store) && content(900, utf8_literal("old")) &&
-            bytes_equal(edit.content, "edited", 6) && refreshes == refresh_before && !ui.history_decode_storage.arena.committed,
+            bytes_equal(edit.content, "edited", 6) && refreshes == refresh_before && !committed_bytes(ui.history_decode_storage),
             "edit actual response entrypoint rejects commit failure before decode, reconciliation or request reset");
     }
-    const auto* base = ui.history_decode_storage.arena.base;
+    const auto* base = ui.history_decode_storage.base;
     check(accept_message_edit_response(response) && content(900, utf8_literal("edited")) &&
         !edit.message_id && !edit.content_bytes && edit.phase == MessageEditRequestPhase::idle &&
-        ui.history_decode_storage.arena.commit_count == 1,
+        committed_pools(ui.history_decode_storage) == 9,
         "edit actual response retries with original request and applies full fidelity after admission");
+    const usize committed = committed_bytes(ui.history_decode_storage);
     edit.message_id = 900; edit.channel_id = 7; edit.phase = MessageEditRequestPhase::submitting;
-    check(accept_message_edit_response(response) && ui.history_decode_storage.arena.base == base &&
-        ui.history_decode_storage.arena.commit_count == 1 && content(900, utf8_literal("edited")),
+    check(accept_message_edit_response(response) && ui.history_decode_storage.base == base &&
+        committed_bytes(ui.history_decode_storage) == committed && content(900, utf8_literal("edited")),
         "edit repeated response uses stable committed scratch without allocating");
     message_edit_runtime_release(&edit);
 }
@@ -654,15 +711,13 @@ void run() noexcept {
         "history production owner commitment follows actual compiled size");
     measurement("MEASURE account_ui_owner_bytes=", sizeof(AccountUiRuntime));
     measurement("MEASURE account_ui_owner_committed_bytes=", info.RegionSize);
-    measurement("MEASURE history_decode_bank_bytes=", sizeof(HistoryDecodeBank));
-    measurement("MEASURE history_storage_owner_bytes=", sizeof(StableStorage));
-    measurement("MEASURE history_snapshot_bank_bytes=", sizeof(HistorySnapshotDecodeBank));
-    measurement("MEASURE history_inline_owner_bytes_removed=", kHistoryDecodeBaseBytes - sizeof(StableStorage));
+    measurement("MEASURE history_decode_reserved_bytes=", kHistoryDecodeReservedBytes);
+    measurement("MEASURE history_storage_owner_bytes=", sizeof(HistoryDecodeStorage));
     storage(*owner, page); history(*owner); forwarded_history(*owner);
     send(*owner); send_lifecycle(*owner); edit(*owner); caption_edit(*owner);
-    const auto* base = owner->history_decode_storage.arena.base;
+    const auto* base = owner->history_decode_storage.base;
     application_history_decode_storage_release(*owner);
-    check(!owner->history_decode_storage.arena.base && vm(base, MEM_FREE), "history final production owner releases active reservation");
+    check(!owner->history_decode_storage.base && vm(base, MEM_FREE), "history final production owner releases active reservation");
     g_app.account_ui = nullptr; g_app.account.instance = nullptr;
     g_app.account.status = {}; g_app.plugin_account_scope_serial = 0;
     VirtualFree(owner, 0, MEM_RELEASE);

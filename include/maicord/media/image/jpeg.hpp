@@ -248,8 +248,8 @@ struct JpegCoefficientWorkspace {
 
 struct JpegWorkspace {
     JpegTables tables;
-    JpegCoefficientWorkspace coefficients;
     JpegIccWorkspace icc;
+    JpegCoefficientWorkspace coefficients;
 };
 
 struct JpegParseResult {

@@ -61,6 +61,7 @@ inline constexpr u32 kMemberMediaLayerCount = 7;
 inline constexpr u32 kMemberMediaCacheCapacity = 128;
 inline constexpr u32 kMemberMediaRowMemory = 64;
 struct MemberMediaCacheEntry {
+    // The probe reads the key, width and state together: they share the first cache line.
     u64 user_id;
     float width;
     u8 state;
@@ -69,11 +70,11 @@ struct MemberMediaCacheEntry {
     bool plain_avatar;
     bool badge;
     bool badge_leading, badge_accent;
+    u8 badge_bytes;
+    char badge_text[32]; // A copy: a replaced store can repeat the revisions in the stamp.
     MediaAssetKey keys[kMemberMediaLayerCount];
     UiRect rectangles[kMemberMediaLayerCount];
     UiRect badge_rectangle;
-    u8 badge_bytes;
-    char badge_text[32]; // A copy: a replaced store can repeat the revisions in the stamp.
 };
 struct MemberMediaCache {
     u64 stamp;

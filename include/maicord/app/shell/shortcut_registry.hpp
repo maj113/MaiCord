@@ -91,8 +91,8 @@ struct ShortcutDefinition {
     ShortcutAction action;
     ShortcutGroup group;
     ShortcutScope scope;
-    Utf8View label;
     ShortcutChord chords[2]; // Second is an optional alternate.
+    Utf8View label;
 };
 
 const ShortcutDefinition* shortcut_definition(ShortcutAction) noexcept;
@@ -120,8 +120,8 @@ u32 shortcut_chord_label(ShortcutChord, Slice<char> output) noexcept;
 struct ShortcutListingRow {
     ShortcutGroup group;
     bool header;
-    Utf8View label;
     ShortcutChord chords[2];
+    Utf8View label;
 };
 u32 shortcut_listing(Utf8View query, Slice<ShortcutListingRow> output) noexcept;
 

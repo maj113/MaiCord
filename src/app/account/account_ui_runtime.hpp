@@ -61,6 +61,15 @@ inline constexpr u32 kMessageDraftCapacity = 64;
 inline constexpr u32 kMessageDraftTextCapacity = 64 * 1024;
 inline constexpr u32 kMessageRequestTextCapacity = 64 * 1024;
 
+// The REST message decode bank (chat/messages/history_decode.hpp): one reservation of separately page-aligned pools,
+// each committed only as far as a body can reach.
+inline constexpr u32 kHistoryDecodePoolCount = 17;
+struct HistoryDecodeStorage {
+    u8* base;
+    // Committed bytes of each pool, page multiples from its start.
+    u32 committed[kHistoryDecodePoolCount];
+};
+
 // The media atlases' geometry and memory policy are the renderer's (MediaAtlasSurface in render/media/atlas.hpp).
 inline constexpr u32 kPreviewMediaAtlasEntryCapacity = 512;
 inline constexpr u32 kPreviewMediaAtlasRowCapacity = 128;
@@ -204,7 +213,7 @@ struct AccountUiRuntime {
         AccountProjectionScratch projection_scratch;
         u32 message_history_object_structurals[kMessageHistoryObjectStructuralCount];
     };
-    StableStorage history_decode_storage;
+    HistoryDecodeStorage history_decode_storage;
     StableStorage message_rich_record_storage;
     u16 message_rich_order[kMessageViewItemCapacity];
     u8 message_rich_text[kMessageRichTextCapacity];
@@ -289,7 +298,9 @@ inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel
 // bytes when the layout baseline went away (the 16 + 8 - 8 terms); the composer controller lost two
 // counters, its send tracker two more and the draft store three (the - 24 term); the poll receipt
 // sequence guard shrank from eight sources to one (the - 56 term); the member media cache's sixth layer
-// (the hovered nameplate's still) moved the alignment padding after it by 16 (the last + 16 term).
+// (the hovered nameplate's still) moved the alignment padding after it by 16 (the last + 16 term); the
+// thread member store lost its rejected counter (the - 8 after it). The member store's base is its size
+// once the position table became parallel arrays (13 bytes a position instead of 16).
 // The paged media atlases: allocations of 24 bytes became 32 (recency), the identity atlas has 128 shelves
 // (was 64), the allocator holds its pages (was 80 bytes) and MediaAtlas lost its growth state (the - 608 term).
 static_assert(kAccountUiFixedBytes ==
@@ -306,7 +317,7 @@ static_assert(kAccountUiFixedBytes ==
                   4'096 * (sizeof(ChannelRecord) + sizeof(u16) + sizeof(CustomEmojiRecord)) - 256 * 1024 -
                   16'384 * sizeof(u64) + sizeof(AccountDemandCommit) + (sizeof(ChatStateStore) - 288) +
                   sizeof(GuildMemberRoleOverflow) + (sizeof(VoiceStateStore) - 32) - 2'048 * sizeof(VoiceState) +
-                  (sizeof(GuildMemberStore) - 39'600) + sizeof(MessageRichSide));
+                  (sizeof(GuildMemberStore) - 33'456) + sizeof(MessageRichSide));
 
 
 } // namespace maicord::app_detail

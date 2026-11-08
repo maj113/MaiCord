@@ -65,6 +65,9 @@ struct ArenaAccount {
     i64 peak_committed;
 };
 ArenaAccount arena_account(ArenaTag tag) noexcept;
+// Counts pages an owner reserves and commits itself, outside an Arena, under `tag`: +1 reservation with its reserved
+// bytes when it maps them, committed bytes as it commits (negative as it decommits), all negated at the release.
+void arena_account_add(ArenaTag tag, i64 reservations, i64 reserved, i64 committed) noexcept;
 
 // A zero count yields nullptr, like a zero byte count.
 template <typename T> T* arena_allocate(Arena* arena, u32 count = 1) noexcept {

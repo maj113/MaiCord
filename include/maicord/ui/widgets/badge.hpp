@@ -29,12 +29,12 @@ UiBadgeLayout ui_badge_compact_layout(UiTextMeasureCache* cache, const Utf8View&
 // bot's name: the brand fill, white text, and a leading check when verified.
 struct UiBadgeWidget {
     UiWidgetHandle owner;
+    u32 style;
     Utf8View label;
     Color marker;
-    u32 style;
-    bool leading, accent;
     UiRect rectangle;
     float opacity = 1;
+    bool leading, accent;
     bool compact = false;
     // The pointer is over the badge (a compact chip lightens).
     bool hovered = false;

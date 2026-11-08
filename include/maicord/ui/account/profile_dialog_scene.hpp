@@ -68,10 +68,10 @@ struct UiProfileDialogContent {
 
 struct UiProfileDialogPart {
     UiWidgetHandle widget;
+    u32 style;
     Utf8View text;
     UiProfileDialogAction action;
     u16 source;
-    u32 style;
     u8 role;
 };
 // The most parts any dialog lays out: a picker's frame, grid, section header,
