@@ -26,8 +26,9 @@ Source0:        https://github.com/maj113/MaiCord/releases/download/v%{version}/
 ExclusiveArch:  x86_64
 BuildRequires:  desktop-file-utils
 # What the program cannot start without, by the sonames it opens (the names of the packages differ between distributions,
-# the capabilities do not): OpenSSL for TLS, the Wayland client libraries, xkbcommon, and the EGL and GLESv2 loaders.
-Requires:       libssl.so.3()(64bit)
+# the capabilities do not): OpenSSL 3 or 4 for TLS (it opens libssl.so.4, else libssl.so.3; a boolean dependency, RPM 4.13+),
+# the Wayland client libraries, xkbcommon, and the EGL and GLESv2 loaders.
+Requires:       (libssl.so.3()(64bit) or libssl.so.4()(64bit))
 Requires:       libwayland-client.so.0()(64bit)
 Requires:       libwayland-egl.so.1()(64bit)
 Requires:       libwayland-cursor.so.0()(64bit)

@@ -22,10 +22,14 @@ KEYWORDS="-* ~amd64"
 RESTRICT="mirror strip"
 QA_PREBUILT="usr/lib/maicord/MaiCord"
 
-# What the program cannot start without: OpenSSL, the Wayland client libraries, xkbcommon, EGL and GLESv2. Everything else it
-# opens with dlopen when it is there (see the optional dependencies).
+# What the program cannot start without: OpenSSL 3 or 4 (it opens libssl.so.4, else libssl.so.3; the subslot is the soname), the
+# Wayland client libraries, xkbcommon, EGL and GLESv2. Everything else it opens with dlopen when it is there (see the optional
+# dependencies).
 RDEPEND="
-	dev-libs/openssl:0/3
+	|| (
+		dev-libs/openssl:0/4
+		dev-libs/openssl:0/3
+	)
 	dev-libs/wayland
 	media-libs/libglvnd
 	media-libs/mesa

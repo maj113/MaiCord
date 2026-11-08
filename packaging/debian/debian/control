@@ -12,7 +12,7 @@ Package: maicord
 Architecture: amd64
 Depends: ${misc:Depends},
  libc6 (>= 2.34),
- libssl3t64 | libssl3,
+ libssl3t64 | libssl3 | libssl4,
  libwayland-client0,
  libwayland-egl1,
  libwayland-cursor0,

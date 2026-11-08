@@ -85,7 +85,7 @@ overrides:
   deb:
     depends:
       - libc6 (>= 2.34)
-      - libssl3t64 | libssl3
+      - libssl3t64 | libssl3 | libssl4
       - libwayland-client0
       - libwayland-egl1
       - libwayland-cursor0
@@ -109,7 +109,7 @@ overrides:
   rpm:
     depends:
       - glibc >= 2.34
-      - libssl.so.3()(64bit)
+      - (libssl.so.3()(64bit) or libssl.so.4()(64bit))
       - libwayland-client.so.0()(64bit)
       - libwayland-egl.so.1()(64bit)
       - libwayland-cursor.so.0()(64bit)

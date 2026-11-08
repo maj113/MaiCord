@@ -15,9 +15,11 @@ pkgdesc="Lightweight, native Discord client (unofficial)"
 url="https://maicord.com/"
 arch="x86_64"
 license="MPL-2.0"
-# What the program cannot start without: OpenSSL for TLS, the Wayland client libraries, xkbcommon, EGL and GLESv2.
-# The shared-library scan would add so:libc.so.6, which musl provides only through its loader: !tracedeps.
-depends="libssl3 wayland-libs-client wayland-libs-egl wayland-libs-cursor libxkbcommon mesa-egl mesa-gles"
+# What the program cannot start without: OpenSSL 3 or 4 for TLS, the Wayland client libraries, xkbcommon, EGL and GLESv2.
+# apk has no alternative dependencies, so OpenSSL is `openssl`, whose libraries are whichever major Alpine ships (libssl3 and
+# libcrypto3 today); `libssl3` or `so:libssl.so.3` would pin it. The shared-library scan would add so:libc.so.6, which musl
+# provides only through its loader: !tracedeps.
+depends="openssl wayland-libs-client wayland-libs-egl wayland-libs-cursor libxkbcommon mesa-egl mesa-gles"
 options="!check !strip !tracedeps"
 source="maicord-$pkgver-linux-x86_64-musl.tar.gz::https://github.com/maj113/MaiCord/releases/download/v$pkgver/maicord-$pkgver-linux-x86_64-musl.tar.gz"
 builddir="$srcdir/maicord-$pkgver-linux-x86_64-musl"

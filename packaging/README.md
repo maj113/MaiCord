@@ -153,9 +153,14 @@ and its `.sha256`, or use the AppImage or a package. Both routes are in the READ
 
 All of them install the tarball's contents and leave the marker out; `depends` are what the program cannot start without (the C
 library, OpenSSL, the Wayland client libraries, xkbcommon, EGL and GLESv2), everything it `dlopen`s is recommended or suggested.
+OpenSSL is 3 or 4 everywhere (the program opens `libssl.so.4`, else `libssl.so.3`): the rpm's boolean
+`(libssl.so.3()(64bit) or libssl.so.4()(64bit))` (RPM 4.13+; nfpm writes it into the header as it is), the deb's
+`libssl3t64 | libssl3 | libssl4`, Gentoo's `|| ( dev-libs/openssl:0/4 dev-libs/openssl:0/3 )`; Arch, the AUR, Alpine and Void
+name the unversioned `openssl` (apk has no alternatives), Nix its own. Tested: the `.rpm` installs on Fedora 45 (OpenSSL 4.0) and
+43 (3.5), the `.deb` on Debian 12.
 
 * **`.deb`, `.rpm` and Arch package (`nfpm/`).** `build.sh <tarball> <dir>` runs the pinned [nfpm](https://nfpm.goreleaser.com/). The rpm's
-  dependencies are library capabilities (`libssl.so.3()(64bit)`, `libEGL.so.1()(64bit)`, ...), which resolve on Fedora, openSUSE
+  dependencies are library capabilities (`libssl.so.3()(64bit)` or `.so.4`, `libEGL.so.1()(64bit)`, ...), which resolve on Fedora, openSUSE
   and the like; the package owns its directories. The Arch package, `maicord-<version>-1-x86_64.pkg.tar.zst` from nfpm's `archlinux`
   packager, has the same files and the `depends` and `optdepends` (with their descriptions) of the AUR `maicord-bin`; being the
   package called `maicord`, it needs no `provides` or `conflicts` (`maicord-bin` conflicts with it). Three nfpm quirks are worked
@@ -242,7 +247,7 @@ cmake --build BUILD
 
 ### What the program opens
 
-`libssl.so.3` (OpenSSL), `libwayland-client/-egl/-cursor`, `libxkbcommon`, `libEGL`/`libGLESv2` are required; `libpulse`, `fontconfig`,
+`libssl.so.4` or `libssl.so.3` (OpenSSL 4 or 3), `libwayland-client/-egl/-cursor`, `libxkbcommon`, `libEGL`/`libGLESv2` are required; `libpulse`, `fontconfig`,
 hunspell or enchant, `libfido2`, speech-dispatcher, VA-API drivers and the portals and Secret Service over D-Bus are used when present.
 
 ## Channels: who acts, what they build
