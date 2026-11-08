@@ -40,38 +40,36 @@ SfntStatus native_latin_paragraph_boundaries(Utf8View text,Slice<NativeParagraph
     return previous==units?SfntStatus::ok:SfntStatus::invalid_input;
 }
 SfntStatus native_script_paragraph_shape(const SfntFontLayoutMetrics& metrics,Utf8View input,float em,
-    const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,NativeParagraphLineSource source,bool* nominal) noexcept {
-    if(nominal)*nominal=false;
+    const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,NativeParagraphLineSource source,bool paragraph_start) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(input.bytes>65535)return SfntStatus::resource_limit;
     if((input.bytes&&!input.data)||(s.source_glyphs.count&&!s.source_glyphs.data)||(s.clusters.count&&!s.clusters.data)||
        (s.glyphs.count&&!s.glyphs.data)||(s.placements.count&&!s.placements.data))return SfntStatus::invalid_input;
-    NativeParagraphShape shaped{};bool simple=true;if(!source.shape)return SfntStatus::invalid_input;
+    NativeParagraphShape shaped{};if(!source.shape)return SfntStatus::invalid_input;
     auto status=sfnt_single_font_line(metrics,em,&shaped.vertical);if(status!=SfntStatus::ok)return status;
+    bool start=paragraph_start;
     for(u32 at=0;at<input.bytes;){const auto cp=utf8_decode_one(input.data+at,input.bytes-at);if(!cp.valid)return SfntStatus::invalid_input;
         if(control(cp.codepoint)||nonvisual(cp.codepoint)){
-            simple=false;
             const u32 count=cp.codepoint==13&&at+1<input.bytes&&input.data[at+1]=='\n'?2u:1u;
             status=native_paragraph_append_control(s,shaped,count,nonvisual(cp.codepoint)?native_paragraph_nonvisual:cp.codepoint==9?native_paragraph_tab:native_paragraph_newline);if(status!=SfntStatus::ok)return status;
-            at+=cp.width+(count-1);continue;
+            start=cp.codepoint!=9&&!nonvisual(cp.codepoint);at+=cp.width+(count-1);continue;
         }
         u32 end=at+cp.width;while(end<input.bytes){const auto next=utf8_decode_one(input.data+end,input.bytes-end);if(!next.valid)return SfntStatus::invalid_input;if(control(next.codepoint)||nonvisual(next.codepoint))break;end+=next.width;}
-        NativeAsciiLineResult line{};status=source.shape(source.context,{input.data+at,end-at},em,s.work,&line);if(status!=SfntStatus::ok)return status;
-        simple=simple&&line.run.nominal_ranges!=0;
+        NativeAsciiLineResult line{};status=source.shape(source.context,{input.data+at,end-at},em,s.work,&line,start);if(status!=SfntStatus::ok)return status;
         status=native_paragraph_append_line(s,line,shaped);if(status!=SfntStatus::ok)return status;
-        at=end;
+        at=end;start=false;
     }
     if(!boundaries.deferred){status=native_latin_paragraph_boundaries(input,{s.clusters.data,shaped.cluster_count},boundaries);if(status!=SfntStatus::ok)return status;}
     *output=shaped;return SfntStatus::ok;
 }
 SfntStatus native_latin_paragraph_shape(const NativeRunPlanStore& store,NativeRunPlanHandle plan,Utf8View input,bool independent,float em,
-    const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,bool* nominal,float trailing_spacing,const NativeAlphabeticPlan* profile,bool force_shaping,bool rtl) noexcept {
-    if(output)reset_value(output);if(nominal)*nominal=false;
+    const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,float trailing_spacing,const NativeAlphabeticPlan* profile,bool force_shaping,bool rtl,bool paragraph_start) noexcept {
+    if(output)reset_value(output);
     const auto* metrics=native_run_plan_metrics(store,plan);if(!metrics)return SfntStatus::invalid_input;
     struct Source {const NativeRunPlanStore& store;NativeRunPlanHandle plan;const NativeAlphabeticPlan* profile;float spacing;bool independent,force,rtl;} source{store,plan,profile,trailing_spacing,independent,force_shaping,rtl};
-    const auto shape=[](void* opaque,Utf8View text,float size,const NativeAsciiLineStorage& storage,NativeAsciiLineResult* result) noexcept {
-        const auto& c=*static_cast<Source*>(opaque);return native_latin_line(c.store,c.plan,text,c.independent,size,storage,result,{},c.spacing,c.profile,c.force,c.rtl,true);
+    const auto shape=[](void* opaque,Utf8View text,float size,const NativeAsciiLineStorage& storage,NativeAsciiLineResult* result,bool start) noexcept {
+        const auto& c=*static_cast<Source*>(opaque);return native_latin_line(c.store,c.plan,text,c.independent,size,storage,result,{},c.spacing,c.profile,c.force,c.rtl,true,start);
     };
-    return native_script_paragraph_shape(*metrics,input,em,s,boundaries,output,{&source,shape},nominal);
+    return native_script_paragraph_shape(*metrics,input,em,s,boundaries,output,{&source,shape},paragraph_start);
 }
 
 }

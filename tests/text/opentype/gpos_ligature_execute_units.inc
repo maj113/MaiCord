@@ -11,8 +11,8 @@ u32 ligature_fixture(u8* b) noexcept {
 void ligature_input(u32 n) noexcept {
     for(u32 i=0;i<n;++i){ligature_glyphs[i]={static_cast<u16>(i<2?i+1:3),i<2?SfntGlyphClass::base:SfntGlyphClass::mark,0};ligature_nominal[i]=i<2?600:0;ligature_state[i]={ligature_nominal[i],0,0};ligature_associations[i]={i<2?0xffffffffu:i&1,i<2?0:i&1};}
 }
-SfntStatus ligature_run(const SfntGposAttachmentLookup& lookup,u32 n,u32 start,bool rtl,Slice<double> prefix,SfntLigatureExecution* result,u64 budget=1000000,SfntComponentAnchorPolicy component=SfntComponentAnchorPolicy::skip_missing,SfntNullAnchorPolicy nulls=SfntNullAnchorPolicy::parent_coordinates) noexcept {
-    const u32 targets[]{0,1};return sfnt_position_execute_ligature_lookup(lookup,{},sfnt_glyph_view({ligature_glyphs,n}),{ligature_nominal,n},{ligature_associations,n},{targets,2},{ligature_state,n},start,n,rtl,{},nulls,component,prefix,result,budget);
+SfntStatus ligature_run(const SfntGposAttachmentLookup& lookup,u32 n,u32 start,bool rtl,Slice<double> prefix,SfntLigatureExecution* result,u64 budget=1000000,SfntComponentAnchorPolicy component=SfntComponentAnchorPolicy::skip_missing) noexcept {
+    const u32 targets[]{0,1};return sfnt_position_execute_ligature_lookup(lookup,{},sfnt_glyph_view({ligature_glyphs,n}),{ligature_associations,n},{targets,2},{ligature_state,n},start,n,rtl,{},component,prefix,result,budget);
 }
 bool ligature_units() noexcept {
     u8 raw[64];const u32 size=ligature_fixture(raw);SfntGposAttachment sub{};if(sfnt_gpos_attachment_open({raw,size},5,4,&sub)!=SfntStatus::ok)return false;
@@ -51,17 +51,18 @@ bool ligature_units() noexcept {
     SfntGposAttachment pair[2]{sub,sub};u8 short_raw[64];copy_bytes(short_raw,raw,64);put(short_raw,44,1);
     if(sfnt_gpos_attachment_open({short_raw,size},5,4,&pair[0])!=SfntStatus::ok)return false;
     ligature_input(4);if(ligature_run({{pair,2},{}},4,0,false,{ligature_prefix,2},&result)!=SfntStatus::ok || result.matches!=2 || result.missing_components!=1)return false;
-    // Null anchors distinguish unknown history from a known component zero.
+    // A NULL ligature anchor does not attach the mark (OpenType GPOS
+    // LigatureAttach; HarfBuzz). Without component history the mark uses the
+    // last component (HarfBuzz MarkLigPos), whose anchor is present here.
     put(raw,46,0);if(sfnt_gpos_attachment_open({raw,size},5,4,&sub)!=SfntStatus::ok)return false;
     ligature_input(4);if(ligature_run(lookup,4,0,false,{ligature_prefix,2},&result)!=SfntStatus::ok || result.matches!=1 || ligature_state[2].advance_offset)return false;
     ligature_input(4);ligature_associations[2].component=sfnt_component_unknown;
-    if(ligature_run(lookup,4,0,false,{ligature_prefix,2},&result)!=SfntStatus::ok || result.matches!=2 || result.compatibility_anchors!=1 || ligature_state[2].advance_offset!=-1220 || ligature_state[2].ascender_offset!=-18)return false;
-    ligature_input(4);ligature_associations[2].component=sfnt_component_unknown;
-    if(ligature_run(lookup,4,0,false,{ligature_prefix,2},&result,1000,SfntComponentAnchorPolicy::skip_missing,SfntNullAnchorPolicy::skip)!=SfntStatus::ok || result.matches!=1 || result.compatibility_anchors)return false;
-    // Resolve the selected component's point on its actual target glyph.
+    if(ligature_run(lookup,4,0,false,{ligature_prefix,2},&result)!=SfntStatus::ok || result.matches!=2 || ligature_state[2].advance_offset!=-820 || ligature_state[2].ascender_offset!=570)return false;
+    // Anchor format 2 positions by its design coordinates; its contour point
+    // matters only to hinting (OpenType GPOS Anchor Table Format 2; HarfBuzz).
     ligature_fixture(raw);put(raw,56,2);put(raw,62,9);if(sfnt_gpos_attachment_open({raw,64},5,4,&sub)!=SfntStatus::ok)return false;
     ligature_input(4);copy_bytes(before,ligature_state,sizeof(before));
-    if(ligature_run(lookup,4,3,false,{ligature_prefix,2},&result)!=SfntStatus::unsupported || result.matches || !bytes_equal(before,ligature_state,sizeof(before)))return false;
+    if(ligature_run(lookup,4,3,false,{ligature_prefix,2},&result)!=SfntStatus::ok || result.matches!=1 || ligature_state[3].advance_offset!=-220 || ligature_state[3].ascender_offset!=570)return false;
     // The ordered fallback obeys the same per-mark commit/work contract.
     ligature_fixture(raw);if(sfnt_gpos_attachment_open({raw,size},5,4,&sub)!=SfntStatus::ok)return false;
     ligature_input(4);ligature_state[0].advance=.5;copy_bytes(before,ligature_state,sizeof(before));

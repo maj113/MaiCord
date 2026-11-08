@@ -9,9 +9,20 @@ enum class SfntGlyphClass : u8 { unassigned,base,ligature,mark,component };
 // aliased subgraphs are not traversed repeatedly. Views borrow immutable bytes;
 // queries require successfully prepared, unmodified views (or an empty GDEF).
 // Lookup owners enforce required-table rules and budget repeated child preparation.
-struct SfntGdef {ConstSlice<u8> table;SfntClassDef glyph_classes,mark_classes;u32 glyph_limit;u16 minor_version;};
+// zwj, zwnj and joiners describe HarfBuzz's matcher for one lookup application (hb_ot_apply_context_t::
+// matcher_t::may_skip): a ZWJ or ZWNJ glyph (the font's; zero when it maps none) that the application may
+// skip is passed over where it does not match the pattern (SKIP_MAYBE). joiners bit 0: input matching may
+// skip ZWJ, bit 1: input ZWNJ, bit 2: context (backtrack and lookahead) ZWJ, bit 3: context ZWNJ. An opened
+// GDEF holds zero; an executor's caller sets them on a copy for a run that holds a joiner glyph.
+struct SfntGdef {ConstSlice<u8> table;SfntClassDef glyph_classes,mark_classes;u32 glyph_limit;u16 minor_version,zwj=0,zwnj=0;u8 joiners=0;};
 struct SfntLookupFilter {const u8* mark_records;u16 flags,mark_format,mark_count;};
-static_assert(sizeof(SfntGdef)==56 && sizeof(SfntLookupFilter)==16);
+static_assert(sizeof(SfntGdef)==64 && sizeof(SfntLookupFilter)==16);
+inline constexpr u8 sfnt_joiner_input_zwj=1,sfnt_joiner_input_zwnj=2,sfnt_joiner_context_zwj=4,sfnt_joiner_context_zwnj=8;
+// Whether glyph is a joiner the application skips unless it matches (context: backtrack or lookahead).
+inline bool sfnt_joiner_skipped(const SfntGdef& gdef,u16 glyph,bool context) noexcept {
+    const u32 bits=context?gdef.joiners>>2u:gdef.joiners;const bool zwj=gdef.zwj&&glyph==gdef.zwj,zwnj=gdef.zwnj&&glyph==gdef.zwnj;
+    return (zwj||zwnj)&&(!zwj||(bits&1u))&&(!zwnj||(bits&2u));
+}
 SfntStatus sfnt_gdef_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntGdef* output) noexcept;
 SfntGlyphClass sfnt_gdef_glyph_class(const SfntGdef& gdef,u16 glyph) noexcept;
 // Direct-mapped glyph class memo for passes over one run (starts empty).

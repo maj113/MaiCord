@@ -13,6 +13,9 @@ struct SfntGlyphSummary {u16 first=65535,last=0;SfntGlyphDigest digest;};
 inline void sfnt_glyph_summary_add(SfntGlyphSummary& s,u16 glyph) noexcept {
     s.first=minimum(s.first,glyph);s.last=maximum(s.last,glyph);sfnt_glyph_digest_add(s.digest,glyph);
 }
+inline bool sfnt_glyph_summary_has(const SfntGlyphSummary& s,u16 glyph) noexcept {
+    return glyph>=s.first&&glyph<=s.last&&sfnt_glyph_digest_has(s.digest,glyph);
+}
 // Conservative first-input coverage: glyph range and digest (zero when not
 // computed, as in hand-assembled programs). ready certifies immutable program
 // facts: 0 for hand-assembled programs (ordinary scan), 1 once prepared, |2

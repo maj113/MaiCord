@@ -72,11 +72,11 @@ inline SfntStatus sfnt_gpos_subtable_match_view(const SfntGposSubtable& sub,cons
 
 // Flags are supplied by the shaping layer, not inferred from Unicode or GDEF.
 // The first glyph must begin a cluster. Storage must not overlap other inputs.
-inline SfntStatus sfnt_position_initialize(ConstSlice<double> advances,ConstSlice<u8> flags,bool rtl,Slice<SfntPosition> output,u64 work=1000000) noexcept {
+inline SfntStatus sfnt_position_initialize(ConstSlice<double> advances,ConstSlice<u8> flags,Slice<SfntPosition> output,u64 work=1000000) noexcept {
     if(advances.count!=flags.count || (advances.count && (!advances.data || !flags.data)))return SfntStatus::invalid_input;if(output.count<advances.count)return SfntStatus::output_too_small;
     if(advances.count && !output.data)return SfntStatus::invalid_input;if(advances.count>work)return SfntStatus::resource_limit;
     for(u32 i=0;i<advances.count;++i)if(!is_finite(advances.data[i]) || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)))return SfntStatus::invalid_input;
-    for(u32 i=0;i<advances.count;++i){const bool zero=(flags.data[i]&sfnt_position_zero_advance)!=0;output.data[i]=sfnt_position_nominal(advances.data[i],zero,rtl);}return SfntStatus::ok;
+    for(u32 i=0;i<advances.count;++i){const bool zero=(flags.data[i]&sfnt_position_zero_advance)!=0;output.data[i]=sfnt_position_nominal(advances.data[i],zero);}return SfntStatus::ok;
 }
 
 // Instances without fvar axes need no variation storage and ignore axis settings.

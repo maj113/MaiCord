@@ -10,7 +10,8 @@ namespace maicord {
 // can pick another face. Empty input is one empty typographic line. A cluster
 // counts as trailing whitespace by its first scalar. Emoji overrides carry no
 // tracking or independent-letter typography. Errors clear the result; scratch
-// and output bytes may change. paragraph_only: see native_latin_line.
+// and output bytes may change. paragraph_only: see native_latin_line;
+// paragraph_start: see native_emoji_run.
 SfntStatus native_emoji_line(const NativeRunPlanStore&,const NativeEmojiPlan&,Utf8View,
-    float em_size,const NativeAsciiLineStorage&,NativeAsciiLineResult*,SfntShapeLimits limits={},bool require_source_coverage=false,bool right_to_left=false,bool arabic_join_controls=false,bool paragraph_only=false) noexcept;
+    float em_size,const NativeAsciiLineStorage&,NativeAsciiLineResult*,SfntShapeLimits limits={},bool require_source_coverage=false,bool right_to_left=false,bool arabic_join_controls=false,bool paragraph_only=false,bool paragraph_start=true) noexcept;
 }

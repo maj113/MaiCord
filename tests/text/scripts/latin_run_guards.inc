@@ -14,7 +14,9 @@ bool profile_guards(NativeAsciiStorage alias) noexcept {
                 bad=profile;bad.script_tag=sfnt_tag('a','r','a','b');CHECK(native_alphabetic_run(store,bad,utf8_literal("a"),16,alias,&result)==SfntStatus::invalid_input&&!result.glyph_count);
                 CHECK(native_alphabetic_run(store,profile,{nullptr,1},16,alias,&result)==SfntStatus::invalid_input&&!result.glyph_count);
                 CHECK(native_alphabetic_run(store,profile,utf8_literal("a"),16,alias,&result,{1000000,100000,0})==SfntStatus::resource_limit&&!result.glyph_count);
-            }else{CHECK(status==SfntStatus::resource_limit);NativeAlphabeticPlan empty{};CHECK(bytes_equal(&profile,&empty,sizeof(profile))&&arena_mark(&profile_state).offset==state_before.offset);}}
+            }else{CHECK(status==SfntStatus::resource_limit);
+                // A failed prepare clears the whole plan (padding too: kZeroDefault); a value-initialized plan's padding is indeterminate.
+                const u8 zero[sizeof(profile)]{};CHECK(bytes_equal(&profile,zero,sizeof(profile))&&arena_mark(&profile_state).offset==state_before.offset);}}
         CHECK(prepared);}
     NativeAlphabeticPlan rejected{};CHECK(native_alphabetic_plan_prepare(store,plan,tags[1],false,&scratch,&scratch,&rejected)==SfntStatus::invalid_input);
     CHECK(native_alphabetic_plan_prepare(store,plan,sfnt_tag('a','r','a','b'),false,&profile_state,&scratch,&rejected)==SfntStatus::invalid_input);
@@ -72,7 +74,8 @@ bool guards() noexcept {
         for(u32 mode=0;mode<2;++mode){++cases;NativeAsciiResult a{},b{};const auto sa=native_latin_run(store,plan,{text,bytes},mode!=0,17.5f,separate,&a);
             const auto sb=native_latin_run(store,plan,{text,bytes},mode!=0,17.5f,alias,&b);
             CHECK(sa==sb&&bytes_equal(&a,&b,sizeof(a)));
-            if(count*(sequence.bytes==4?2u:1u)>256)CHECK(sa==SfntStatus::output_too_small&&!a.glyph_count&&!a.source_units);
+            // A paragraph-initial mark follows a dotted circle (U+0301 is the only mark sequence here).
+            if(count*(sequence.bytes==4?2u:1u)+(sequence.bytes==2?1u:0u)>256)CHECK(sa==SfntStatus::output_too_small&&!a.glyph_count&&!a.source_units);
             else{CHECK(sa==SfntStatus::ok);CHECK(bytes_equal(separate.glyphs.data,alias.glyphs.data,a.glyph_count*sizeof(u16)));
                 CHECK(bytes_equal(separate.placements.data,alias.placements.data,a.glyph_count*sizeof(SfntPlacement))&&bytes_equal(separate.character_glyphs.data,alias.character_glyphs.data,a.source_units*sizeof(u32)));}
         }
@@ -83,7 +86,8 @@ bool guards() noexcept {
     const bool covered=WriteFile(file,latin_coverage_font,sizeof(latin_coverage_font),&written,nullptr)!=0;CloseHandle(file);CHECK(covered&&written==sizeof(latin_coverage_font));
     CHECK(acquire(temporary,path_units,0));arena_reset(&scratch);const auto coverage_storage=shared(storage());const auto accented=utf8_literal("e\xcc\x81");
     CHECK(native_latin_run(store,plan,accented,false,16,coverage_storage,&result)==SfntStatus::ok&&result.glyph_count==1&&result.source_units==2&&coverage_storage.glyphs[0]);
-    CHECK(native_latin_run(store,plan,accented,false,16,coverage_storage,&result,{},true)==SfntStatus::unsupported_sequence&&!result.glyph_count&&!result.source_units);
+    // The font maps the composition, so the normalized sequence is covered (HarfBuzz composes e + U+0301 too).
+    CHECK(native_latin_run(store,plan,accented,false,16,coverage_storage,&result,{},true)==SfntStatus::ok&&result.glyph_count==1&&result.source_units==2);
     CHECK(native_latin_run(store,plan,utf8_literal("\xc3\xa9"),false,16,coverage_storage,&result,{},true)==SfntStatus::ok&&result.glyph_count==1&&result.source_units==1);
     CHECK(compatibility(temporary,path_units));CHECK(hebrew_compatibility(temporary,path_units));CHECK(text_variations(temporary,path_units));return true;
 }

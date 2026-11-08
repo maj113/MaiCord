@@ -51,6 +51,15 @@ SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
         if(status==SfntStatus::missing_table){if(!kind)return SfntStatus::unsupported_sequence;continue;}if(status!=SfntStatus::ok)return status;
         if(!kind&&!parent.substitutions)return SfntStatus::invalid_input;
         SfntFeatureSubstitutions variations{};status=native_layout_variations(*source.instance,layout,*scratch,variations,limits.stage_work);if(status!=SfntStatus::ok)return status;
+        // HarfBuzz's Indic shaper matches joiners manually in its basic and presentation features
+        // (hb-ot-shaper-indic.cc, F_MANUAL_JOINERS), as the default shaper does in mark and mkmk.
+        if(!kind){constexpr u32 tags[]{sfnt_tag('n','u','k','t'),sfnt_tag('a','k','h','n'),sfnt_tag('r','p','h','f'),sfnt_tag('r','k','r','f'),
+                sfnt_tag('p','r','e','f'),sfnt_tag('b','l','w','f'),sfnt_tag('a','b','v','f'),sfnt_tag('h','a','l','f'),sfnt_tag('p','s','t','f'),
+                sfnt_tag('v','a','t','u'),sfnt_tag('c','j','c','t'),sfnt_tag('i','n','i','t'),sfnt_tag('p','r','e','s'),sfnt_tag('a','b','v','s'),
+                sfnt_tag('b','l','w','s'),sfnt_tag('p','s','t','s'),sfnt_tag('h','a','l','n'),sfnt_tag('m','a','r','k'),sfnt_tag('m','k','m','k')};
+            SfntJoinerFeature manual[sizeof(tags)/sizeof(tags[0])];for(u32 i=0;i<sizeof(tags)/sizeof(tags[0]);++i)manual[i]={tags[i],3};
+            ConstSlice<u64> set{};status=native_manual_joiners(layout,variations,{manual,static_cast<u32>(sizeof(tags)/sizeof(tags[0]))},*state,set,limits.stage_work);
+            if(status!=SfntStatus::ok)return status;plan.substitution_manual=set.data;}
         auto mask=take<u16>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
         ConstSlice<SfntLookupStep> steps{};ConstSlice<u16> roots{};Slice<u64> per_syllable{};
         status=native_plan_steps(kind,*state,*scratch,[&](Slice<SfntLookupStep> out,SfntLookupPlanResult* result) noexcept {

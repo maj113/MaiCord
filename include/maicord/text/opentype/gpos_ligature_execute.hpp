@@ -2,8 +2,8 @@
 #include "maicord/text/opentype/gpos_mark_execute.hpp"
 namespace maicord {
 enum class SfntComponentAnchorPolicy : u8 {strict,skip_missing};
-struct SfntLigatureExecution {u64 operations,matches,scan_steps,prefix_queries,ordered_steps,missing_components,compatibility_anchors;};
-static_assert(sizeof(SfntLigatureExecution)==56);
+struct SfntLigatureExecution {u64 operations,matches,scan_steps,prefix_queries,ordered_steps,missing_components;};
+static_assert(sizeof(SfntLigatureExecution)==48);
 // Natural horizontal lookup type 5 with caller-resolved target/component inputs.
 // Associations and glyphs must not change during the lookup; glyph edits
 // invalidate the target indices. Targets may precede start. A missing target
@@ -20,12 +20,12 @@ static_assert(sizeof(SfntLigatureExecution)==56);
 // ignores prefix scratch and sums the touched interval in order; repeated
 // contextual attachments can still cost quadratic interval-sum work.
 // All arrays, output and scratch are disjoint. Both anchors resolve before each
-// mark commits; earlier marks can remain on failure. Null anchors of a known
-// component are skipped; unknown history uses null_policy. component_policy:
-// strict rejects an out-of-range component; skip_missing tries later subtables.
+// mark commits; earlier marks can remain on failure. Null anchors are skipped.
+// component_policy: strict rejects an out-of-range component; skip_missing tries
+// later subtables.
 SfntStatus sfnt_position_execute_ligature_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,
-                                                  ConstSlice<double> nominal_advances,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> target_glyphs,Slice<SfntPosition> positions,
-                                                  u32 start,u32 input_end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy null_policy,
+                                                  ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> target_glyphs,Slice<SfntPosition> positions,
+                                                  u32 start,u32 input_end,bool rtl,const SfntPositionInstance& instance,
                                                   SfntComponentAnchorPolicy component_policy,Slice<double> prefix_scratch,SfntLigatureExecution* result,
                                                   u64 work_limit=1000000,
                                                   SfntPositionApplication application=SfntPositionApplication::scan) noexcept;

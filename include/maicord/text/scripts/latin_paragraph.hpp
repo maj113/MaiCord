@@ -24,10 +24,7 @@ SfntStatus native_latin_paragraph_boundaries(Utf8View,Slice<NativeParagraphClust
 // on success. Optional alphabetic profile extends the frontend to an already
 // resolved Greek/Cyrillic/Hebrew item; script boundaries and direction belong
 // to the caller, and RTL shaping does no paragraph bidi or visual fitting.
-// Optional nominal is true only when every segment took nominal shaping and the
-// input had no TAB, newline or nonvisual items; it is false on failure.
-// Whitespace is represented normally; the consumer decides whether a shortcut
-// applies.
+// paragraph_start: the input begins its paragraph (see native_latin_run).
 SfntStatus native_latin_paragraph_shape(const NativeRunPlanStore&,NativeRunPlanHandle,Utf8View,bool independent,float em,
-    const NativeAsciiParagraphStorage&,NativeLatinBoundaryStorage,NativeParagraphShape*,bool* nominal=nullptr,float trailing_spacing=0,const NativeAlphabeticPlan* profile=nullptr,bool force_shaping=false,bool rtl=false) noexcept;
+    const NativeAsciiParagraphStorage&,NativeLatinBoundaryStorage,NativeParagraphShape*,float trailing_spacing=0,const NativeAlphabeticPlan* profile=nullptr,bool force_shaping=false,bool rtl=false,bool paragraph_start=true) noexcept;
 }

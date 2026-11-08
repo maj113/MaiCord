@@ -11,26 +11,28 @@ SfntStatus glyph_check(const SfntGsubGlyph& glyph,u32 limit) noexcept {
     if(glyph.glyph>=limit)return SfntStatus::glyph_out_of_range;return static_cast<u8>(glyph.glyph_class)<=4?SfntStatus::ok:SfntStatus::invalid_input;
 }
 }
-SfntStatus sfnt_position_execute_mark_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,ConstSlice<double> nominal,ConstSlice<u8> flags,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy policy,SfntMarkExecution* out,u64 work,ConstSlice<SfntMarkAssociation> associations,SfntPositionApplication application,bool component_records,ConstSlice<u32> directory) noexcept {
+SfntStatus sfnt_position_execute_mark_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,ConstSlice<u8> flags,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntMarkExecution* out,u64 work,ConstSlice<SfntMarkAssociation> associations,SfntPositionApplication application,bool component_records,ConstSlice<u32> directory) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
-    if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || nominal.count<count || flags.count<count || positions.count<count || (count && (!nominal.data || !flags.data || !positions.data)) || static_cast<u8>(policy)>1 || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
+    if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || flags.count<count || positions.count<count || (count && (!flags.data || !positions.data)) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(static_cast<u8>(application)>1 || (associations.count && (associations.count<count || !associations.data)) || (directory.count&&!directory.data))return SfntStatus::invalid_input;
     const bool selected=application==SfntPositionApplication::selected;if(selected && start<end)end=start+1;
     if(!lookup.subtables.count || start==end)return SfntStatus::ok;const u8 type=lookup.subtables.data[0].type;const u32 limit=lookup.subtables.data[0].glyph_limit;
     if(type!=4 && type!=6)return SfntStatus::unsupported;
     if(component_records&&glyphs.record_size!=sizeof(SfntComponentGlyph))return SfntStatus::invalid_input;
+    // A joiner the application may skip is passed over in the target search (the iterator has no match function).
+    const auto skipped=[&](const SfntGsubGlyph& glyph) noexcept {return gdef.joiners&&sfnt_joiner_skipped(gdef,glyph.glyph,false);};
     const auto target_eligible=[&](const SfntGsubGlyph& glyph) noexcept {return eligible(glyph,type,gdef,lookup.filter)&&
-        (type!=4||!component_records||reinterpret_cast<const SfntComponentGlyph*>(&glyph)->component!=0xffffffffu);};
+        (type!=4||!component_records||reinterpret_cast<const SfntComponentGlyph*>(&glyph)->component!=0xffffffffu)&&!skipped(glyph);};
     u32 target=0xffffffffu;double distance=0;
-    // A glyph newly classified as a mark can still start a source cluster.
-    // Windows attaches it to the preceding eligible mark across that boundary.
+    // A glyph newly classified as a mark can still start a source cluster; it
+    // attaches to the preceding eligible mark across that boundary (HarfBuzz too).
     for(u32 before=type==6 && sfnt_glyph_at(glyphs,start).glyph_class!=SfntGlyphClass::mark && (flags.data[start]&sfnt_position_cluster_start)?0:start;before;){if(!spend(out,&work))return SfntStatus::resource_limit;++out->search_steps;--before;
         const auto& glyph=sfnt_glyph_at(glyphs,before);auto s=glyph_check(glyph,limit);if(s!=SfntStatus::ok)return s;
         distance+=positions.data[before].advance;if(!is_finite(distance))return SfntStatus::resource_limit;
-        if(target_eligible(glyph)){target=before;break;}if(type==6 && glyph.glyph_class!=SfntGlyphClass::mark && (flags.data[before]&sfnt_position_cluster_start))break;}
+        if(target_eligible(glyph)){target=before;break;}if(type==6 && glyph.glyph_class!=SfntGlyphClass::mark && (flags.data[before]&sfnt_position_cluster_start) && !skipped(glyph))break;}
     for(u32 at=start;at<end;++at){if(!spend(out,&work))return SfntStatus::resource_limit;++out->search_steps;
         const auto& glyph=sfnt_glyph_at(glyphs,at);auto s=glyph_check(glyph,limit);if(s!=SfntStatus::ok)return s;
-        if(type==6 && glyph.glyph_class!=SfntGlyphClass::mark && (flags.data[at]&sfnt_position_cluster_start)){target=0xffffffffu;distance=0;}
+        if(type==6 && glyph.glyph_class!=SfntGlyphClass::mark && (flags.data[at]&sfnt_position_cluster_start) && !skipped(glyph)){target=0xffffffffu;distance=0;}
         u32 attached_target=target;double attached_distance=distance;
         if(type==4&&instance.source_mark_targets&&(glyph.reserved&sfnt_mark_source_target)&&glyph.glyph_class==SfntGlyphClass::mark){
             if(!associations.count)return SfntStatus::invalid_input;const u32 slot=associations[at].target;
@@ -49,9 +51,9 @@ SfntStatus sfnt_position_execute_mark_lookup(const SfntGposAttachmentLookup& loo
                 SfntGposMarkAnchor mark{};s=sfnt_gpos_mark_anchor(sub,glyph.glyph,&mark);if(s!=SfntStatus::ok)return s;if(!mark.covered)continue;
                 const auto& target_glyph=sfnt_glyph_at(glyphs,attached_target);SfntGposTargetAnchors targets{};s=sfnt_gpos_target_anchors(sub,target_glyph.glyph,&targets);if(s!=SfntStatus::ok)return s;if(!targets.covered)continue;
                 SfntAnchor base{};s=sfnt_gpos_target_anchor(targets,0,mark.mark_class,&base);if(s!=SfntStatus::ok)return s;
-                bool applied=false,compatibility=false;
-                s=position_detail::mark_position(base,mark.anchor,targets.parent,positions.data[attached_target],&positions.data[at],attached_distance,nominal.data[attached_target],nominal.data[at],rtl,instance,policy,&applied,&compatibility,&out->operations,&work);
-                if(s!=SfntStatus::ok)return s;if(!applied)continue;++out->matches;if(compatibility)++out->compatibility_anchors;break;
+                bool applied=false;
+                s=position_detail::mark_position(base,mark.anchor,positions.data[attached_target],&positions.data[at],attached_distance,rtl,instance,&applied,&out->operations,&work);
+                if(s!=SfntStatus::ok)return s;if(!applied)continue;++out->matches;break;
             }
         }
         if(target_eligible(glyph)){target=at;distance=positions.data[at].advance;}

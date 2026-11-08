@@ -7,12 +7,6 @@ inline constexpr u32 native_paragraph_space=1,native_paragraph_tab=2,native_para
 // in the flags word so reflow needs no source text or extra array.
 inline constexpr u32 native_paragraph_break_before=8;
 inline constexpr u32 native_paragraph_style_shift=8;
-// First cluster of a nominal font/size group. The styled frontend sets this
-// only when every group is nominal. A single fitting line without trailing
-// whitespace sums these groups; wrapped/shaped lines sum clusters instead.
-// On a nonvisual cluster the same bit instead preserves an explicit bidi
-// item boundary. Nonvisual clusters never establish nominal accumulation.
-inline constexpr u32 native_paragraph_metric_group=16;
 // A source cluster with no drawable glyph. Groups stop at visibility changes;
 // unlike hard breaks this item neither advances nor terminates the line.
 inline constexpr u32 native_paragraph_nonvisual=32;

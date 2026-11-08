@@ -40,6 +40,22 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGsubSubtable* output
     *output=result;return SfntStatus::ok;
 }
 #pragma clang attribute pop
+// One ligature candidate where the application may skip joiners (context.cpp step_joined): a GDEF-ignored glyph
+// is passed over, the expected component (with the mask) matches, a skippable joiner is passed over and any other
+// glyph ends the match. Positions are written only for a match: the caller's prefix cache stays valid otherwise.
+SfntStatus ligature_joined(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,const SfntGlyphView& glyphs,u32 start,
+    ConstSlice<u8> ligature,u8 mask,Slice<u32> positions,u32* last,bool* matched,u32* work) noexcept {
+    *matched=false;const u16 components=r16(ligature,2);const u32 count=sfnt_glyph_count(glyphs);
+    for(u32 pass=0;pass<2;++pass){u32 at=start;
+        for(u32 component=1;component<components;++component){const u16 expected=r16(ligature,4+(component-1)*2);bool found=false;
+            while(at+1<count){++at;if(!spend(work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,at);if(!sfnt_glyph_valid(glyph,sub.glyph_limit))return SfntStatus::invalid_input;
+                if(sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class))continue;
+                if(sfnt_glyph_feature_enabled(glyph,mask)&&glyph.glyph==expected){found=true;break;}
+                if(!sfnt_joiner_skipped(gdef,glyph.glyph,false))break;}
+            if(!found)return SfntStatus::ok;if(pass&&component<positions.count)positions.data[component]=at;}
+        *last=at;}
+    *matched=true;return SfntStatus::ok;
+}
 }
 SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,const SfntGlyphView& glyphs,u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch* output,u32* work,u8 mask) noexcept {
     if(!spend(work))return SfntStatus::resource_limit;if(!sfnt_glyph_valid(sfnt_glyph_at(glyphs,start),sub.glyph_limit))return SfntStatus::invalid_input;
@@ -71,9 +87,9 @@ SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,
                             if(!sfnt_glyph_valid(glyph,sub.glyph_limit))return SfntStatus::invalid_input;if(!sfnt_glyph_feature_enabled(glyph,mask))break;
                             if(!sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class)){next_state=1;next_glyph=glyph.glyph;if(positions.count>1)positions.data[1]=next_position;break;}}
                     }
-                    if(next_state!=1||next_glyph!=r16(ligature,4))continue;at=next_position;
+                    if(next_state!=1||next_glyph!=r16(ligature,4)){if(!gdef.joiners)continue;matches=false;}else at=next_position;
                 }
-                for(u32 component=2;component<components;++component){bool available=false;
+                for(u32 component=2;matches&&component<components;++component){bool available=false;
                     if(component<ready||(component==ready&&stopped)){
                         const u32 distance=component<ready?positions.data[component]-at:stop_distance;
                         // Preserve the public logical-work contract, including
@@ -90,6 +106,7 @@ SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,
                     if(!available || sfnt_glyph_at(glyphs,at).glyph!=r16(ligature,4+(component-1)*2)){matches=false;break;}
                     if(component<positions.count)positions.data[component]=at;
                 }
+                if(!matches&&gdef.joiners){const auto s=ligature_joined(sub,gdef,filter,glyphs,start,ligature,mask,positions,&at,&matches,work);if(s!=SfntStatus::ok)return s;}
                 if(matches){result.input_count=components;result.last_input=at;result.single=r16(ligature,0);found=true;break;}
             }
             if(!found)return SfntStatus::ok;

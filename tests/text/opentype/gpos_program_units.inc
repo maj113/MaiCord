@@ -64,10 +64,10 @@ bool gpos_shared_coverage_units() noexcept {
         SfntLayout layout{};SfntGposProgram program{};
         if(sfnt_layout_open({bytes,sizeof(bytes)},SfntLayoutKind::positioning,&layout)!=SfntStatus::ok||
            sfnt_gpos_program_prepare(layout,{},4,storage,&program)!=SfntStatus::ok||lookup.bounds.ready!=(mode==1?1:3))return false;
-        for(u16 id=1;id<=3;++id){const SfntGsubGlyph glyph{id,SfntGlyphClass::base,0};const double nominal=100;const u8 flag=2;
+        for(u16 id=1;id<=3;++id){const SfntGsubGlyph glyph{id,SfntGlyphClass::base,0};const u8 flag=2;
             SfntPosition position{};SfntGposExecutionResult optimized{},ordinary{};SfntGposExecutionFrame frame{};u32 selected=0;
             const auto run=[&](u64 budget,SfntGposExecutionResult& result) noexcept {position={100,0,0};return sfnt_gpos_execute_program_lookup(program,0,sfnt_glyph_view({&glyph,1}),
-                {&nominal,1},{&flag,1},{},{},{&position,1},0,1,false,{},SfntNullAnchorPolicy::skip,SfntComponentAnchorPolicy::strict,
+                {&flag,1},{},{},{&position,1},0,1,false,{},SfntComponentAnchorPolicy::strict,
                 {{&frame,1},{&selected,1},{},{},{}},{budget,1000},&result);};
             if(run(1000,optimized)!=SfntStatus::ok||position.advance!=100||position.advance_offset||position.ascender_offset)return false;
             // The ordinary scan keeps neither the shared certificate nor a digest.
@@ -109,10 +109,10 @@ bool gpos_prepare_units(const SfntLayout& layout,const SfntGdef& gdef,u32 limit)
         if(!i && status!=SfntStatus::ok)ok=false;++gpos_prepare_guards;}
     pages_release(memory);return ok;
 }
-bool gpos_program_units(const SfntGposProgram& program,u16 index,SfntGlyphView view,ConstSlice<double> nominal,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> state) noexcept {
+bool gpos_program_units(const SfntGposProgram& program,u16 index,SfntGlyphView view,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> state) noexcept {
     const u32 n=sfnt_glyph_count(view);if(n>64)return false;SfntPosition before[64],complete[64];copy_bytes(before,state.data,n*sizeof(SfntPosition));
     u64 bits=0;double prefix[64];SfntGposExecutionScratch scratch{{gpos_frames,32},{gpos_positions,256},{&bits,1},{prefix,targets.count},{cursive_chains,64}};
-    auto execute=[&](u64 work,SfntGposExecutionScratch storage,SfntGposExecutionResult* out) noexcept {copy_bytes(state.data,before,n*sizeof(SfntPosition));return sfnt_gpos_execute_program_lookup(program,index,view,nominal,flags,associations,targets,state,0,n,false,{},SfntNullAnchorPolicy::parent_coordinates,SfntComponentAnchorPolicy::skip_missing,storage,{work,100000},out);};
+    auto execute=[&](u64 work,SfntGposExecutionScratch storage,SfntGposExecutionResult* out) noexcept {copy_bytes(state.data,before,n*sizeof(SfntPosition));return sfnt_gpos_execute_program_lookup(program,index,view,flags,associations,targets,state,0,n,false,{},SfntComponentAnchorPolicy::skip_missing,storage,{work,100000},out);};
     SfntGposExecutionResult r{};if(execute(1000000,scratch,&r)!=SfntStatus::ok || r.operations>10000)return false;const u64 full=r.operations;const u32 depth=r.max_depth;copy_bytes(complete,state.data,n*sizeof(SfntPosition));
     for(u64 budget=0;budget<=full;++budget){const auto s=execute(budget,scratch,&r);++gpos_budget_checks;
         if(s!=(budget<full?SfntStatus::resource_limit:SfntStatus::ok) || r.operations>budget || (s==SfntStatus::ok && !bytes_equal(state.data,complete,n*sizeof(SfntPosition))))return false;}
@@ -135,8 +135,8 @@ bool gpos_cycle_units() noexcept {
     SfntCoverage coverage{};SfntContext context{};SfntGposExecutableLookup lookup{};
     if(sfnt_context_open({context_bytes,sizeof(context_bytes)},SfntContextKind::sequence,2,1,{&coverage,1},{},&context)!=SfntStatus::ok)return false;
     lookup.type=7;lookup.tables.context={&context,1};SfntGposProgram program{{&lookup,1},{},2};SfntGsubGlyph glyph{1,SfntGlyphClass::base,0};
-    const double nominal=600;const u8 flag=2;SfntPosition position{600,0,0};SfntGposExecutionResult result{};SfntGposExecutionFrame cycle_frames[8];u32 cycle_positions[9];
+    const u8 flag=2;SfntPosition position{600,0,0};SfntGposExecutionResult result{};SfntGposExecutionFrame cycle_frames[8];u32 cycle_positions[9];
     SfntGlyphBuffer buffer{};if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(&glyph),sizeof(glyph)},sizeof(glyph),1,&buffer)!=SfntStatus::ok)return false;
-    const auto status=sfnt_gpos_execute_program_lookup(program,0,sfnt_glyph_buffer_view(buffer),{&nominal,1},{&flag,1},{},{},{&position,1},0,1,false,{},SfntNullAnchorPolicy::skip,SfntComponentAnchorPolicy::strict,{{cycle_frames,8},{cycle_positions,9},{},{},{}},{10000,1000},&result);
+    const auto status=sfnt_gpos_execute_program_lookup(program,0,sfnt_glyph_buffer_view(buffer),{&flag,1},{},{},{&position,1},0,1,false,{},SfntComponentAnchorPolicy::strict,{{cycle_frames,8},{cycle_positions,9},{},{},{}},{10000,1000},&result);
     gpos_cycle_depth=result.max_depth;return status==SfntStatus::resource_limit && result.max_depth==8 && position.advance==600 && position.advance_offset==0 && position.ascender_offset==0;
 }

@@ -20,34 +20,34 @@ bool modifier(u32 scalar) noexcept {
 }
 }
 bool sfnt_arabic_combining_mark(u32 scalar) noexcept {return bucket(scalar)<11;}
-SfntStatus sfnt_arabic_mark_order(ConstSlice<u32> scalars,Slice<u32> order,u64 work,bool reorder) noexcept {
+SfntStatus sfnt_arabic_mark_order(ConstSlice<u32> scalars,Slice<u32> order,u64 work) noexcept {
     if((scalars.count && !scalars.data) || (order.count && !order.data))return SfntStatus::invalid_input;
     if(order.count<scalars.count)return SfntStatus::output_too_small;
-    if(static_cast<u64>(scalars.count)*(reorder?16u:2u)>work)return SfntStatus::resource_limit;
+    if(static_cast<u64>(scalars.count)*16u>work)return SfntStatus::resource_limit;
     const u64 size=static_cast<u64>(scalars.count)*4;
     if(byte_ranges_overlap_or_wrap(scalars.data,size,order.data,size))return SfntStatus::invalid_input;
     for(u32 i=0;i<scalars.count;++i)if(!unicode_is_scalar(scalars[i]))return SfntStatus::invalid_input;
     for(u32 i=0;i<scalars.count;++i)order[i]=i;
-    if(!reorder)return SfntStatus::ok;
-    u32 start=0;
-    while(start<scalars.count) {
-        if(bucket(scalars[start])==11){++start;continue;}
-        u32 counts[11]{},prefix[2]{},end=start;bool stopped[2]{};
-        while(end<scalars.count) {
-            const u32 key=bucket(scalars[end]);if(key==11)break;++counts[key];
-            if(key>=9){const u32 group=key-9;if(!stopped[group] && modifier(scalars[end]))++prefix[group];else stopped[group]=true;}
-            ++end;
-        }
-        if(end-start>1) {
-            u32 front[]{start,start+prefix[0]},shadda=start+prefix[0]+prefix[1],next=shadda+counts[6],positions[11]{},seen[2]{};
-            for(u32 key=0;key<11;++key)if(key!=6){positions[key]=next;next+=counts[key]-(key>=9?prefix[key-9]:0);}
-            for(u32 i=start;i<end;++i) {
-                const u32 key=bucket(scalars[i]);u32 at=0;
-                if(key==6)at=shadda++;
-                else if(key>=9 && seen[key-9]++<prefix[key-9])at=front[key-9]++;
-                else at=positions[key]++;
-                order[at]=i;
-            }
+    // HarfBuzz's normalization sorts each run of marks of nonzero class (at most 32,
+    // HB_OT_SHAPE_MAX_COMBINING_MARKS) by modified class, then reorder_marks_arabic moves the
+    // leading modifier combining marks of classes 220 and then 230 to the front of the run.
+    for(u32 start=0;start<scalars.count;){
+        if(!unicode_modified_combining_class(scalars[start])){++start;continue;}
+        u32 end=start+1;while(end<scalars.count&&unicode_modified_combining_class(scalars[end]))++end;
+        const u32 n=end-start;
+        if(n<=32){u8 keys[32];u32* runs=order.data+start;
+            for(u32 k=0;k<n;++k)keys[k]=unicode_modified_combining_class(scalars[start+k]);
+            for(u32 k=1;k<n;++k){const u8 key=keys[k];const u32 index=runs[k];u32 j=k;
+                for(;j&&keys[j-1]>key;--j){keys[j]=keys[j-1];runs[j]=runs[j-1];}
+                keys[j]=key;runs[j]=index;}
+            u32 front=0,i=0;
+            for(u32 cc=220;cc<=230;cc+=10){
+                while(i<n&&keys[i]<cc)++i;if(i==n)break;if(keys[i]>cc)continue;
+                u32 j=i;while(j<n&&keys[j]==cc&&modifier(scalars[runs[j]]))++j;if(i==j)continue;
+                u32 moved[32];u8 moved_keys[32];for(u32 k=i;k<j;++k){moved[k-i]=runs[k];moved_keys[k-i]=keys[k];}
+                for(u32 k=i;k-->front;){runs[k+j-i]=runs[k];keys[k+j-i]=keys[k];}
+                for(u32 k=0;k<j-i;++k){runs[front+k]=moved[k];keys[front+k]=moved_keys[k];}
+                front+=j-i;i=j;}
         }
         start=end;
     }

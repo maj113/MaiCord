@@ -125,8 +125,9 @@ struct Executor {
         // leaves the glyph edit atomic, and a successful commit needs only the packed copy.
         auto s=rebase(edit);if(s!=SfntStatus::ok)return s;
         const bool component_change=components && (type==4 || (type==2 && match.output_count>1));SfntComponentEdit component_edit{};
+        // A decomposed ligature's outputs keep its merged cluster, as in HarfBuzz; the component forest still
+        // records each output's source component.
         if(component_change){
-            if(type==2 && !spend(&work,static_cast<u64>(match.output_count)*clusters->levels))return SfntStatus::resource_limit;
             s=sfnt_components_edit(components,sfnt_glyph_buffer_view(buffer),edit.consumed,type==4,{scratch.replacements.data,replacement_bytes},scratch.component_journal,&component_edit,work);work-=component_edit.operations;if(s!=SfntStatus::ok)return s;
             for(u32 i=0;i<match.output_count;++i)if(byte_load_le32(scratch.replacements.data+i*stride+4)>=clusters->text_count){sfnt_components_rollback(components,{scratch.component_journal.data,component_edit.undo_count});return SfntStatus::invalid_input;}
         }
@@ -134,8 +135,6 @@ struct Executor {
         if(s!=SfntStatus::ok){if(component_change)sfnt_components_rollback(components,{scratch.component_journal.data,component_edit.undo_count});return s;}
         work-=edit.moved_records+edit.consumed.count;
         if(clusters)sfnt_cluster_map_commit(clusters,merge);
-        if(component_change && type==2)for(u32 i=1;i<match.output_count;++i){const u32 boundary_source=byte_load_le32(scratch.replacements.data+i*stride+4);
-            if(boundary_source!=byte_load_le32(scratch.replacements.data+(i-1)*stride+4))sfnt_cluster_map_split(clusters,boundary_source,clusters->levels);}
         copy_bytes(scratch.positions.data,scratch.rebased.data,used*sizeof(u32));
         u32 end=0;s=sfnt_glyph_edit_boundary(edit,result.input_end,&end);if(s!=SfntStatus::ok)return s;result.input_end=end;
         ++result.edits;result.moved_records+=edit.moved_records;

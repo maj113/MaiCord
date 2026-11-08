@@ -140,8 +140,72 @@ bool file_corpus(const wchar_t* path) noexcept {
     const auto* data=static_cast<const u8*>(MapViewOfFile(map,FILE_MAP_READ,0,0,0));const bool ok=data && corpus({data,static_cast<u32>(size.QuadPart)});
     if(data)UnmapViewOfFile(data);CloseHandle(map);CloseHandle(file);return ok;
 }
+// Segments (HarfBuzz per-syllable lookups): ligature 1,2 -> 4 over glyphs 1,2,1,2,1,2 with segment
+// starts 0,2,3 forms in the first and last segments only; the first ligature shortens the run, so the
+// later segment ends must follow the edit.
+bool segment_units() noexcept {
+    const u16 words[]{1,8,1,14,1,1,1,1,4,4,2,2};u8 data[24];
+    for(u32 i=0;i<12;++i){data[i*2]=static_cast<u8>(words[i]>>8);data[i*2+1]=static_cast<u8>(words[i]);}
+    SfntGsubExecutableSubtable subtable{};if(sfnt_gsub_subtable_open({data,24},4,16,&subtable.basic)!=SfntStatus::ok)return false;
+    SfntGsubExecutableLookup lookup{};lookup.type=4;lookup.subtables={&subtable,1};const SfntGsubProgram program{{&lookup,1},{},16};
+    SfntGsubExecutionFrame frames[4];u32 positions[16],rebased[16],consumed[8];u8 replacements[64];SfntComponentUndo journal[16];
+    const SfntGsubExecutionScratch scratch{{frames,4},{positions,16},{rebased,16},{consumed,8},{replacements,64},{journal,16}};
+    const u32 starts[]{0,1,2,3,4,5};
+    const auto execute=[&](ConstSlice<u32> segments,u16* glyphs,u32* count,SfntGsubExecutionResult* result) noexcept {
+        SfntClusterGlyph records[8]{};for(u32 i=0;i<6;++i)records[i]={{static_cast<u16>(i%2?2:1),SfntGlyphClass::base,0},i};
+        SfntGlyphBuffer buffer{};u64 bits[1]{};SfntClusterMap clusters{};
+        if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(records),sizeof(records)},sizeof(SfntClusterGlyph),6,&buffer)!=SfntStatus::ok||
+           sfnt_cluster_map_open(6,{starts,6},{bits,1},&clusters,1000)!=SfntStatus::ok)return SfntStatus::malformed;
+        const auto status=segments.count?sfnt_gsub_execute_lookup(program,0,&buffer,0,6,0,scratch,{100000,100000},result,&clusters,nullptr,0,segments):
+            sfnt_gsub_execute_lookup(program,0,&buffer,0,6,0,scratch,{100000,100000},result,&clusters);
+        const auto view=sfnt_glyph_buffer_view(buffer);*count=sfnt_glyph_count(view);for(u32 i=0;i<*count;++i)glyphs[i]=sfnt_glyph_at(view,i).glyph;
+        return status;
+    };
+    u16 glyphs[8];u32 count=0;SfntGsubExecutionResult result{};const u32 segments[]{0,2,3};
+    if(execute({segments,3},glyphs,&count,&result)!=SfntStatus::ok||count!=4||glyphs[0]!=4||glyphs[1]!=1||glyphs[2]!=2||glyphs[3]!=4||result.edits!=2||result.input_end!=4)return false;
+    if(execute({},glyphs,&count,&result)!=SfntStatus::ok||count!=3||glyphs[0]!=4||glyphs[1]!=4||glyphs[2]!=4||result.edits!=3)return false;
+    // One segment per glyph forms nothing; malformed segments are rejected before any edit.
+    if(execute({starts,6},glyphs,&count,&result)!=SfntStatus::ok||count!=6||result.edits)return false;
+    const u32 late[]{1,3},unsorted[]{0,3,2},beyond[]{0,6};const ConstSlice<u32> bad[]{{late,2},{unsorted,3},{beyond,2}};
+    for(const auto& segments_case:bad)if(execute(segments_case,glyphs,&count,&result)!=SfntStatus::invalid_input||count!=6)return false;
+    return true;
+}
+// HarfBuzz's joiner matching (matcher_t::may_skip): a ZWJ (7) the application may skip in input is passed over unless
+// the rule matches it, in rule order; a ZWNJ (8) stays a mismatch when only ZWJ may be skipped. Ligatures 1,2 -> 4
+// and 1,7 -> 5 in both orders.
+bool joiner_units() noexcept {
+    for(u32 order=0;order<2;++order){
+        const u16 first=order?5:4,first_component=order?7:2,second=order?4:5,second_component=order?2:7;
+        const u16 words[]{1,8,1,14,1,1,1,2,6,12,first,2,first_component,second,2,second_component};u8 data[32];
+        for(u32 i=0;i<16;++i){data[i*2]=static_cast<u8>(words[i]>>8);data[i*2+1]=static_cast<u8>(words[i]);}
+        SfntGsubExecutableSubtable subtable{};if(sfnt_gsub_subtable_open({data,32},4,16,&subtable.basic)!=SfntStatus::ok)return false;
+        SfntGsubExecutableLookup lookup{};lookup.type=4;lookup.subtables={&subtable,1};
+        SfntGsubExecutionFrame frames[4];u32 positions[16],rebased[16],consumed[8];u8 replacements[64];SfntComponentUndo journal[16];
+        const SfntGsubExecutionScratch scratch{{frames,4},{positions,16},{rebased,16},{consumed,8},{replacements,64},{journal,16}};
+        const auto execute=[&](u8 joiners,u16 middle,u16* glyphs,u32* count) noexcept {
+            SfntGdef gdef{};gdef.zwj=7;gdef.zwnj=8;gdef.joiners=joiners;const SfntGsubProgram program{{&lookup,1},gdef,16};
+            SfntGsubGlyph records[4]{{1,SfntGlyphClass::base,0},{middle,SfntGlyphClass::base,0},{2,SfntGlyphClass::base,0}};SfntGlyphBuffer buffer{};SfntGsubExecutionResult result{};
+            if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(records),sizeof(records)},sizeof(SfntGsubGlyph),3,&buffer)!=SfntStatus::ok)return false;
+            if(sfnt_gsub_execute_lookup(program,0,&buffer,0,3,0,scratch,{100000,100000},&result)!=SfntStatus::ok)return false;
+            const auto view=sfnt_glyph_buffer_view(buffer);*count=sfnt_glyph_count(view);for(u32 i=0;i<*count;++i)glyphs[i]=sfnt_glyph_at(view,i).glyph;return true;
+        };
+        u16 glyphs[4];u32 count=0;
+        // Without joiner skipping the ZWJ only forms 1,7.
+        if(!execute(0,7,glyphs,&count)||count!=2||glyphs[0]!=5||glyphs[1]!=2)return false;
+        // Skipping it, the first rule wins: 1,2 keeps the ZWJ after the ligature; 1,7 takes the ZWJ itself.
+        if(!execute(sfnt_joiner_input_zwj,7,glyphs,&count)||count!=2)return false;
+        if(order?(glyphs[0]!=5||glyphs[1]!=2):(glyphs[0]!=4||glyphs[1]!=7))return false;
+        if(!execute(sfnt_joiner_input_zwj,8,glyphs,&count)||count!=3||glyphs[0]!=1||glyphs[1]!=8||glyphs[2]!=2)return false;
+        if(!execute(sfnt_joiner_input_zwnj,8,glyphs,&count)||count!=2||glyphs[0]!=4||glyphs[1]!=8)return false;
+        // A skippable joiner is matched or passed over; it never matches as a context it does not appear in.
+        if(!execute(sfnt_joiner_context_zwj|sfnt_joiner_context_zwnj,8,glyphs,&count)||count!=3)return false;
+    }
+    return true;
+}
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL execution units\n"));return 3;}
+    if(!segment_units()){print(utf8_literal("FAIL execution segments\n"));return 5;}
+    if(!joiner_units()){print(utf8_literal("FAIL execution joiners\n"));return 6;}
     if(!guards()){print(utf8_literal("FAIL execution guards\n"));return 4;}
     const wchar_t* command=test_arguments();
     bool ok=false;if(!*command)ok=corpus({gsub_execution_fixture,sizeof(gsub_execution_fixture)});

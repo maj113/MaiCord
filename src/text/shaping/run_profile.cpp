@@ -1,5 +1,7 @@
 #include "run_profile.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/text/opentype/layout_directory.hpp"
 #include "maicord/text/shaping/alphabetic_run.hpp"
 #include "maicord/text/opentype/lookup_plan.hpp"
 #include "../opentype/lookup_plan_finish.hpp"
@@ -96,22 +98,28 @@ SfntStatus native_lookup_roots_prepare(const SfntLayout& layout,const SfntFeatur
     if(words&&!bits)return SfntStatus::output_too_small;SfntLookupPlanResult result{};
     const auto select=[&](Slice<u16> output) noexcept {return script?sfnt_alphabetic_lookup_plan(layout,variations,script,independent,{bits,words},output,&result,work):
         sfnt_common_lookup_plan(layout,variations,{bits,words},output,&result,work,independent);};
+    // The count pass reports the size; the second pass emits the stages in order.
     auto status=select({});if(status!=SfntStatus::ok&&status!=SfntStatus::output_too_small)return status;
     auto* indices=result.lookup_count?arena_allocate<u16>(&state,result.lookup_count):nullptr;if(result.lookup_count&&!indices)return SfntStatus::resource_limit;
-    status=script==sfnt_tag('j','a','m','o')&&layout.kind==SfntLayoutKind::substitution?select({indices,result.lookup_count}):
-        finish_lookup_plan({bits,words},{indices,result.lookup_count},result.operations,work);
+    status=select({indices,result.lookup_count});
     if(status==SfntStatus::ok)out={indices,result.lookup_count};return status;
 }
+SfntStatus native_manual_joiners(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,ConstSlice<SfntJoinerFeature> features,
+    Arena& state,ConstSlice<u64>& out,u32 work) noexcept {
+    reset_value(&out);const u32 words=(2u*layout.lookup_count+63u)/64u;if(!words)return SfntStatus::ok;
+    const auto mark=arena_mark(&state);auto* bits=arena_allocate<u64>(&state,words);if(!bits)return SfntStatus::resource_limit;
+    for(u32 i=0;i<words;++i)bits[i]=0;bool any=false;
+    const auto status=sfnt_manual_joiner_lookups(layout,variations,features,{bits,words},&any,work);
+    if(status!=SfntStatus::ok||!any){arena_rewind(&state,mark);return status;}
+    out={bits,words};return SfntStatus::ok;
+}
 SfntStatus native_profile_roots_prepare(const NativeFontInstance& instance,const NativeFontFace& font,u32 script,bool independent,
-    Arena& state,Arena& scratch,ConstSlice<u16>& substitution,ConstSlice<u16>& positioning,u32 work,bool alphabetic_gate) noexcept {
+    Arena& state,Arena& scratch,ConstSlice<u16>& substitution,ConstSlice<u16>& positioning,u32 work) noexcept {
     ArenaScope saved_state{&state,arena_mark(&state)},saved_scratch{&scratch,arena_mark(&scratch)};
     ConstSlice<u16> selected[2]{};
     for(u32 kind=0;kind<2;++kind){SfntLayout layout{};auto status=native_layout_open(font,kind,layout);
         if(status==SfntStatus::missing_table)continue;if(status!=SfntStatus::ok)return status;
-        ArenaScope temporary{&scratch,arena_mark(&scratch)};u32 remaining=work;
-        if(alphabetic_gate){const u32 candidates[]{sfnt_tag('l','a','t','n'),sfnt_tag('D','F','L','T')};SfntLanguageSelection selection{};u64 used=0;
-            status=sfnt_layout_select_language(layout,{candidates,2},sfnt_tag('E','N','G',' '),&selection,remaining,&used);if(status==SfntStatus::missing_table)continue;if(status!=SfntStatus::ok)return status;
-            remaining-=static_cast<u32>(used);}
+        ArenaScope temporary{&scratch,arena_mark(&scratch)};const u32 remaining=work;
         SfntFeatureSubstitutions variations{};status=native_layout_variations(instance,layout,scratch,variations,remaining);if(status!=SfntStatus::ok)return status;
         status=native_lookup_roots_prepare(layout,variations,script,independent,state,scratch,selected[kind],remaining);if(status!=SfntStatus::ok)return status;
     }
@@ -126,7 +134,7 @@ SfntStatus native_alphabetic_plan_prepare(const NativeRunPlanStore& store,Native
     NativeAlphabeticPlan plan{run,parent->substitution_roots,parent->positioning_roots,script,independent};
     if(script!=sfnt_tag('l','a','t','n')){
         if(script==sfnt_tag('h','e','b','r')){u16 alef=0;const auto status=sfnt_cmap_glyph(font->cmap,0x5d0,0,&alef);if(status!=SfntStatus::ok)return status;plan.hebrew_preparation=alef!=0;}
-        const auto status=native_profile_roots_prepare(*instance,*font,script,independent,*state,*scratch,plan.substitution_roots,plan.positioning_roots,work,script==sfnt_tag('h','e','b','r')&&!plan.hebrew_preparation);if(status!=SfntStatus::ok)return status;}
+        const auto status=native_profile_roots_prepare(*instance,*font,script,independent,*state,*scratch,plan.substitution_roots,plan.positioning_roots,work);if(status!=SfntStatus::ok)return status;}
     const auto status=native_positioning_prepare(*font,*parent,plan.positioning_roots,*state,*scratch,&plan.positioning_program,work);if(status!=SfntStatus::ok)return status;
     saved_state.keep=true;*out=plan;return SfntStatus::ok;
 }

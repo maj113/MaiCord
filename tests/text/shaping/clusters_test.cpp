@@ -7,7 +7,7 @@
 namespace maicord {namespace {
 #include "../../generated/cluster_execute_fixture.inc"
 u64 bitmap[9000],snapshot[9000];u32 expected_first[262145],expected_end[262145],boundaries[9000];
-u64 model_queries=0,merge_plans=0,split_queries=0,split_operations=0,split_merges=0,execution_queries=0,glyph_checks=0,character_checks=0,start_checks=0,budget_checks=0;u32 failures=0;
+u64 model_queries=0,merge_plans=0,execution_queries=0,glyph_checks=0,character_checks=0,start_checks=0,budget_checks=0;u32 failures=0;
 bool model() noexcept {
     if(sfnt_cluster_map_words(0)!=0 || sfnt_cluster_map_words(64)!=1 || sfnt_cluster_map_words(65)!=3 || sfnt_cluster_map_words(0xffffffffu)!=68174085)return false;
     const u32 lengths[]{1,2,63,64,65,4095,4096,4097,262145};u32 random=0x869421f1;
@@ -34,30 +34,6 @@ bool model() noexcept {
     }
     return true;
 }
-bool split_model() noexcept {
-    const u32 lengths[]{1,2,63,64,65,4095,4096,4097,262145};u32 random=0x185371b9;
-    for(u32 count:lengths)for(u32 mode=0;mode<2;++mode){const u32 zero=0;SfntClusterMap map{};
-        if(sfnt_cluster_map_open(count,mode?ConstSlice<u32>{}:ConstSlice<u32>{&zero,1},{bitmap,9000},&map)!=SfntStatus::ok)return false;
-        for(u32 i=0;i<count;++i){expected_first[i]=mode?i:0;expected_end[i]=mode?i+1:count;}
-        for(u32 pass=0;pass<256;++pass){
-            random^=random<<13;random^=random>>17;random^=random<<5;u32 at=random%count;
-            if(pass<16)at=minimum(pass*63u,count-1);
-            if(pass%4){copy_bytes(snapshot,bitmap,map.storage.count*sizeof(u64));
-                if(sfnt_cluster_map_split(&map,at,map.levels-1)!=SfntStatus::resource_limit || !bytes_equal(bitmap,snapshot,map.storage.count*sizeof(u64)))return false;
-                if(sfnt_cluster_map_split(&map,at,map.levels)!=SfntStatus::ok)return false;++split_operations;
-                const u32 lo=expected_first[at],hi=expected_end[at];for(u32 i=lo;i<at;++i)expected_end[i]=at;for(u32 i=at;i<hi;++i)expected_first[i]=at;
-            }else {random^=random<<13;random^=random>>17;random^=random<<5;u32 last=random%count;if(at>last){const u32 tmp=at;at=last;last=tmp;}
-                SfntClusterMerge plan{};if(sfnt_cluster_map_plan(map,at,last,&plan)!=SfntStatus::ok)return false;sfnt_cluster_map_commit(&map,plan);++split_merges;
-                const u32 lo=expected_first[at],hi=expected_end[last];for(u32 i=lo;i<hi;++i){expected_first[i]=lo;expected_end[i]=hi;}
-            }
-            const u32 probes=count<8192?count:1025;
-            for(u32 q=0;q<probes+3;++q){const u32 source=q<probes?(count<8192?q:static_cast<u32>((static_cast<u64>(q)*(count-1))/(probes-1))):q==probes?at:q==probes+1?(at?at-1:0):minimum(at+1,count-1);u32 first=0,end=0;
-                if(sfnt_cluster_map_find(map,source,&first,&end)!=SfntStatus::ok || first!=expected_first[source] || end!=expected_end[source])return false;++split_queries;}
-        }
-        for(u32 i=0;i<count;++i){u32 first=0,end=0;if(sfnt_cluster_map_find(map,i,&first,&end)!=SfntStatus::ok || first!=expected_first[i] || end!=expected_end[i])return false;++split_queries;}
-    }
-    return true;
-}
 bool units() noexcept {
     SfntClusterMap map{};u32 first=0,end=0;if(sfnt_cluster_map_open(0,{}, {},&map)!=SfntStatus::ok || map.levels || sfnt_cluster_map_find(map,0,&first,&end)!=SfntStatus::invalid_input)return false;
     const u32 starts[]{0,2};if(sfnt_cluster_map_open(4,{starts,2},{bitmap,9000},&map)!=SfntStatus::ok)return false;
@@ -69,26 +45,25 @@ bool units() noexcept {
     records[1].source=2;records[2].source=1;
     if(sfnt_cluster_map_export(map,view,{output,4},{flags,3})!=SfntStatus::ok || output[0]!=0 || output[1]!=0 || output[2]!=1 || output[3]!=1 || flags[0]!=1 || flags[1]!=1 || flags[2])return false;
     if(sfnt_cluster_map_export(map,view,{output,3})!=SfntStatus::output_too_small)return false;
-    copy_bytes(snapshot,bitmap,map.storage.count*sizeof(u64));
-    if(sfnt_cluster_map_split(nullptr,0)!=SfntStatus::invalid_input || sfnt_cluster_map_split(&map,4)!=SfntStatus::invalid_input || !bytes_equal(bitmap,snapshot,map.storage.count*sizeof(u64)))return false;
-    // Measured AB ligature decomposition: X Y M N, character map [0,0,1,1].
-    // First-occurrence bytes [1,1,0,0] deliberately do not claim to reproduce
-    // Windows shaping flags [1,1,1,1] for this case.
+    // A decomposed ligature keeps its merged cluster (HarfBuzz): X Y M N map to [0,0,0,0], and only the first glyph
+    // starts the cluster in glyph order.
     SfntClusterGlyph expanded[4]{{{1,SfntGlyphClass::base,0},0},{{2,SfntGlyphClass::base,0},2},{{3,SfntGlyphClass::mark,0},1},{{4,SfntGlyphClass::mark,0},3}},with_gap[7];u8 first_occurrence[4];
     SfntClusterMerge collapse{};if(sfnt_cluster_map_plan(map,0,3,&collapse)!=SfntStatus::ok)return false;sfnt_cluster_map_commit(&map,collapse);
-    if(sfnt_cluster_map_find(map,3,&first,&end)!=SfntStatus::ok || first || end!=4 || sfnt_cluster_map_split(&map,2,map.levels)!=SfntStatus::ok)return false;
+    if(sfnt_cluster_map_find(map,3,&first,&end)!=SfntStatus::ok || first || end!=4)return false;
     for(u32 split=0;split<=4;++split){for(u32 i=0;i<7;++i)with_gap[i]={{0xffff,SfntGlyphClass::unassigned,0},0xffffffffu};
         for(u32 i=0;i<4;++i)with_gap[i<split?i:i+3]=expanded[i];
         SfntGlyphView separated{&with_gap[0].glyph,split<4?&with_gap[split+3].glyph:nullptr,split,4-split,sizeof(SfntClusterGlyph)};
-        if(sfnt_cluster_map_export(map,separated,{output,4},{first_occurrence,4})!=SfntStatus::ok || output[0]!=0 || output[1]!=0 || output[2]!=1 || output[3]!=1 || first_occurrence[0]!=1 || first_occurrence[1]!=1 || first_occurrence[2] || first_occurrence[3])return false;
+        if(sfnt_cluster_map_export(map,separated,{output,4},{first_occurrence,4})!=SfntStatus::ok || output[0] || output[1] || output[2] || output[3] || first_occurrence[0]!=1 || first_occurrence[1] || first_occurrence[2] || first_occurrence[3])return false;
     }
+    // Every source cluster needs a glyph: with two clusters, one glyph of the first leaves the second empty.
+    const u32 halves[]{0,2};if(sfnt_cluster_map_open(4,{halves,2},{bitmap,9000},&map)!=SfntStatus::ok)return false;
     SfntGlyphView missing{&expanded[0].glyph,nullptr,1,0,sizeof(SfntClusterGlyph)};
     if(sfnt_cluster_map_export(map,missing,{output,4})!=SfntStatus::invalid_input)return false;
     expanded[0].source=4;if(sfnt_cluster_map_export(map,missing,{output,4})!=SfntStatus::invalid_input)return false;
     SfntClusterMerge plan{};if(sfnt_cluster_map_plan(map,3,2,&plan)!=SfntStatus::invalid_input || sfnt_cluster_map_plan(map,0,4,&plan)!=SfntStatus::invalid_input)return false;
     if(sfnt_cluster_map_open(65,{}, {bitmap,2},&map)!=SfntStatus::output_too_small || map.levels)return false;
     const u32 invalid[]{1,2};if(sfnt_cluster_map_open(4,{invalid,2},{bitmap,9000},&map)!=SfntStatus::invalid_input)return false;
-    return sfnt_cluster_map_split(&map,0)==SfntStatus::invalid_input;
+    return true;
 }
 bool guards() noexcept {
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*17));if(!memory)return false;
@@ -99,11 +74,6 @@ bool guards() noexcept {
         for(u32 pass=0;pass<12;++pass){SfntClusterMerge plan{};u64 used=0;if(sfnt_cluster_map_plan(map,0,count-1,&plan,1000000,&used)!=SfntStatus::ok){ok=false;break;}
             if(pass && count>1 && (used!=map.levels*2+2 || plan.commit_work!=used)){ok=false;break;}sfnt_cluster_map_commit(&map,plan);
             u32 first=0,end=0;if(sfnt_cluster_map_find(map,count-1,&first,&end)!=SfntStatus::ok || first || end!=count){ok=false;break;}}
-        if(!ok)break;
-        const u32 cuts[]{1,63,64,65,4095,4096,4097,count-1};
-        for(u32 cut:cuts)if(cut<count){if(sfnt_cluster_map_split(&map,cut,map.levels)!=SfntStatus::ok){ok=false;break;}}
-        for(u32 i=0;i<count && ok;++i){u32 lo=0,hi=count,first=0,end=0;for(u32 cut:cuts)if(cut<count){if(cut<=i)lo=maximum(lo,cut);else hi=minimum(hi,cut);}
-            if(sfnt_cluster_map_find(map,i,&first,&end)!=SfntStatus::ok || first!=lo || end!=hi)ok=false;}
         if(!ok)break;
     }
     pages_release(memory);return ok;
@@ -155,12 +125,11 @@ bool file_corpus(const wchar_t* path) noexcept {
     const auto* data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));const bool ok=data && corpus({data,static_cast<u32>(size.QuadPart)});if(data)UnmapViewOfFile(data);CloseHandle(mapping);CloseHandle(file);return ok;
 }
 int run() noexcept {
-    if(!units()){print(utf8_literal("FAIL cluster units\n"));return 3;}if(!model()){print(utf8_literal("FAIL cluster model\n"));return 4;}if(!split_model()){print(utf8_literal("FAIL cluster split model\n"));return 6;}if(!guards()){print(utf8_literal("FAIL cluster guards\n"));return 5;}
+    if(!units()){print(utf8_literal("FAIL cluster units\n"));return 3;}if(!model()){print(utf8_literal("FAIL cluster model\n"));return 4;}if(!guards()){print(utf8_literal("FAIL cluster guards\n"));return 5;}
     const wchar_t* command=test_arguments();
     bool ok=false;if(!*command)ok=corpus({cluster_execution_fixture,sizeof(cluster_execution_fixture)});
     else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
     print(utf8_literal("model_queries="));number(model_queries);print(utf8_literal("\nmerge_plans="));number(merge_plans);print(utf8_literal("\nexecution_queries="));number(execution_queries);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\ncharacter_cluster_checks="));number(character_checks);print(utf8_literal("\ncluster_start_checks="));number(start_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
-    print(utf8_literal("split_queries="));number(split_queries);print(utf8_literal("\nsplit_operations="));number(split_operations);print(utf8_literal("\nsplit_merges="));number(split_merges);print(utf8_literal("\n"));
     print(ok && !failures?utf8_literal("PASS native cluster updates\n"):utf8_literal("FAIL native cluster updates\n"));return ok && !failures?0:1;
 }
 }}

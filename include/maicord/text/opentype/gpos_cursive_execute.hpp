@@ -17,7 +17,9 @@ SfntStatus sfnt_position_cursive_flush(Slice<SfntPosition> positions,Slice<SfntC
     SfntCursiveDeferred* deferred,SfntCursiveExecution* result,u64 work_limit=1000000) noexcept;
 static_assert(sizeof(SfntCursiveExecution)==32);
 // Natural horizontal root cursive lookup. Both ends of each connection must lie
-// in [start,input_end). Glyphs/nominal metrics are unchanged prepared inputs.
+// in [start,input_end); glyphs are unchanged prepared inputs. The main direction
+// follows HarfBuzz: the earlier glyph's advance (and, right to left, its offset)
+// and the later glyph's advance (and, left to right, its offset) meet the anchors.
 // Lookup RTL chooses the cross-stream chain root independently of run RTL.
 // Without it vertical placement streams; with it, relative edges are stored in
 // position state plus one connection bit per input glyph and resolved backward.
@@ -26,7 +28,7 @@ static_assert(sizeof(SfntCursiveExecution)==32);
 // On error, positions/scratch can hold partial or unresolved work and must be
 // discarded. Variation semantics match mark execution.
 SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,
-                                                 ConstSlice<double> nominal_advances,Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,
+                                                 Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,
                                                  const SfntPositionInstance& instance,Slice<u64> chain_bits,SfntCursiveExecution* result,
                                                  u64 work_limit=1000000) noexcept;
 // One contextual action. The selected glyph bypasses initial filtering. Forward
@@ -41,7 +43,7 @@ SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& 
 // before using the result; forward and discontinuous calls flush automatically.
 // No extra per-glyph storage.
 SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,
-    ConstSlice<double> nominal_advances,Slice<SfntPosition> positions,u32 selected,u32 input_end,bool rtl,
+    Slice<SfntPosition> positions,u32 selected,u32 input_end,bool rtl,
     const SfntPositionInstance& instance,Slice<SfntCursiveChainNode> chains,SfntCursiveExecution* result,
     u64 work_limit=1000000,SfntCursiveDeferred* deferred=nullptr) noexcept;
 }

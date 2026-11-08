@@ -69,14 +69,6 @@ void sfnt_cluster_map_commit(SfntClusterMap* map,const SfntClusterMerge& plan) n
     for(;;){const u32 found=find(*map,at,true);if(found==absent || found>plan.last)return;const u32 word=found>>6;
         clear_word(*map,word,erase_mask(word,plan.first+1,plan.last));if(word==(plan.last>>6))return;at=(word+1)*64;}
 }
-SfntStatus sfnt_cluster_map_split(SfntClusterMap* map,u32 source,u64 work) noexcept {
-    if(!map || source>=map->text_count)return SfntStatus::invalid_input;
-    if(map->levels>work)return SfntStatus::resource_limit;
-    u32 index=source,offset=0,count=word_count(map->text_count);
-    for(u32 level=0;level<map->levels;++level){const u32 word=index>>6;u64& value=map->storage.data[offset+word];const u64 previous=value;
-        value|=u64{1}<<(index&63);if(previous)break;index=word;offset+=count;count=word_count(count);}
-    return SfntStatus::ok;
-}
 SfntStatus sfnt_cluster_map_export(const SfntClusterMap& map,SfntGlyphView glyphs,Slice<u32> characters,Slice<u8> starts,u64 work) noexcept {
     if(!sfnt_glyph_view_valid(glyphs) || glyphs.record_size<sizeof(SfntClusterGlyph) || (characters.count && !characters.data) || (starts.count && !starts.data))return SfntStatus::invalid_input;
     const u32 n=sfnt_glyph_count(glyphs);if(characters.count<map.text_count || (starts.count && starts.count<n))return SfntStatus::output_too_small;

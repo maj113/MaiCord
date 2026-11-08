@@ -36,7 +36,7 @@ bool run_corpus() noexcept {
             if(!kind)for(u32 i=0;i<plan.lookup_count;++i){SfntGsubExecutionResult result{};if(sfnt_gsub_execute_lookup(program,plan_ids[i],&buffer,0,n,0,{{frames,2},{positions,4},{rebased,4},{consumed,4},{replacements,16}},{100000,10000},&result)!=SfntStatus::ok)return fail(f,c,9);}
             double advances[2];u8 flags[2]{2,2};SfntPosition state[2];SfntPlacement placed[2];
             for(u32 i=0;i<n;++i){SfntGlyphMetrics m{};if(glyphs[i].glyph!=wanted[i] || sfnt_horizontal_metrics(metrics,glyphs[i].glyph,&m)!=SfntStatus::ok)return fail(f,c,10);advances[i]=m.advance;++glyph_checks;}
-            if(sfnt_position_initialize({advances,n},{flags,n},false,{state,n})!=SfntStatus::ok)return false;
+            if(sfnt_position_initialize({advances,n},{flags,n},{state,n})!=SfntStatus::ok)return false;
             if(kind)for(u32 i=0;i<plan.lookup_count;++i){SfntGposSubtable tables[1];SfntGposExecutableLookup lookup{};SfntPositionExecution result{};if(gpos_prepare_one(layout,plan_ids[i],gdef,metrics.glyph_count,{tables,1},{},&lookup)!=SfntStatus::ok || lookup.type>2 || sfnt_position_execute_lookup({lookup.tables.basic,lookup.filter},gdef,sfnt_glyph_buffer_view(buffer),{state,n},0,n,false,{},&result)!=SfntStatus::ok)return fail(f,c,11);}
             if(sfnt_position_finalize({state,n},{flags,n},1000,metrics.units_per_em,{placed,n})!=SfntStatus::ok || !bytes_equal(placed,wanted_position,n*12))return fail(f,c,12);placement_checks+=n*3;
             // These fixtures are one ASCII word in one font/style. This does not

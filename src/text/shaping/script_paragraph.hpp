@@ -4,12 +4,14 @@
 namespace maicord {
 // One resolved script/font item. The printable callback and paragraph collector
 // share caller storage; no callback state or duplicate glyph array is retained.
+// start: the printable segment begins its paragraph (HarfBuzz HB_BUFFER_FLAG_BOT).
 struct NativeParagraphLineSource {
     void* context;
-    SfntStatus (*shape)(void*,Utf8View,float,const NativeAsciiLineStorage&,NativeAsciiLineResult*) noexcept;
+    SfntStatus (*shape)(void*,Utf8View,float,const NativeAsciiLineStorage&,NativeAsciiLineResult*,bool start) noexcept;
 };
+// paragraph_start: the item begins its paragraph; a segment after a paragraph separator always does.
 SfntStatus native_script_paragraph_shape(const SfntFontLayoutMetrics&,Utf8View,float,
-    const NativeAsciiParagraphStorage&,NativeLatinBoundaryStorage,NativeParagraphShape*,NativeParagraphLineSource,bool* nominal=nullptr) noexcept;
+    const NativeAsciiParagraphStorage&,NativeLatinBoundaryStorage,NativeParagraphShape*,NativeParagraphLineSource,bool paragraph_start) noexcept;
 // Shapes one printable segment of a script plan: run(store,plan,text,size,storage,&result,spacing,rtl).
 using NativeScriptRun=SfntStatus (*)(const NativeRunPlanStore&,const void* plan,Utf8View,float,const NativeAsciiStorage&,NativeAsciiResult*,float spacing,bool rtl) noexcept;
 // The paragraph frontend shared by every script plan; the plan's run handle supplies the metrics.

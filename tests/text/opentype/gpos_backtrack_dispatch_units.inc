@@ -24,10 +24,10 @@ bool gpos_backtrack_dispatch_units() noexcept {
         for(u16 key=0;key<11;++key)for(u32 gap=0;gap<3;++gap)for(u32 rtl=0;rtl<2;++rtl){
             SfntGsubGlyph input_glyphs[3]{{key,SfntGlyphClass::base,0},{8,SfntGlyphClass::mark,0},{9,SfntGlyphClass::base,0}};
             u32 n=gap==0?1:gap==1?2:3;input_glyphs[n-1]={9,SfntGlyphClass::base,0};
-            double nominal[]{100,100,100};u8 flags[]{2,0,0};SfntPosition positioned[3],expected[3];SfntGposExecutionFrame call_frames[2];u32 matched[2];
+            u8 flags[]{2,0,0};SfntPosition positioned[3],expected[3];SfntGposExecutionFrame call_frames[2];u32 matched[2];
             const auto run=[&](u64 budget,SfntGposExecutionResult& result) noexcept {for(auto& p:positioned)p={100,0,0};
-                return sfnt_gpos_execute_program_lookup(program,0,sfnt_glyph_view({input_glyphs,n}),{nominal,n},{flags,n},{},{},{positioned,n},n-1,n,rtl!=0,{},
-                    SfntNullAnchorPolicy::skip,SfntComponentAnchorPolicy::strict,{{call_frames,2},{matched,2},{},{},{}},{budget,1000},&result);};
+                return sfnt_gpos_execute_program_lookup(program,0,sfnt_glyph_view({input_glyphs,n}),{flags,n},{},{},{positioned,n},n-1,n,rtl!=0,{},
+                    SfntComponentAnchorPolicy::strict,{{call_frames,2},{matched,2},{},{},{}},{budget,1000},&result);};
             SfntGposExecutionResult optimized{},ordinary{};
             if(run(1000,optimized)!=SfntStatus::ok)return false;copy_bytes(expected,positioned,sizeof(expected));
             const auto ready=lookups[0].bounds.ready;lookups[0].bounds.ready&=~u16{4};

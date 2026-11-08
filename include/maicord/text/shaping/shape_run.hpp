@@ -11,6 +11,9 @@ struct SfntShapePlan {
     const SfntGsubProgram* substitutions;
     const SfntGposProgram* positioning;
     ConstSlice<u16> substitution_roots,positioning_roots;
+    // A valid legacy kern table, applied after GPOS (HarfBuzz uses it when GPOS has no kern
+    // feature and kerning is on); empty otherwise.
+    ConstSlice<u8> legacy_kern;
     SfntGdef gdef;
     SfntPositionInstance position_instance;
     void* metric_context;

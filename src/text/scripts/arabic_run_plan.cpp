@@ -6,10 +6,8 @@
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
-// The fallback flag occupies existing slice padding; retained plan size is unchanged.
-struct StoredSteps {const SfntLookupStep* data;u32 count;bool generic=false;};
-static_assert(sizeof(StoredSteps)==sizeof(ConstSlice<SfntLookupStep>));
-struct PlanData {SfntShapePlan shape;StoredSteps steps[2];const SfntCmap* cmap;};
+// Independent letters disable kern, so each typography mode has its own shape descriptor.
+struct PlanData {SfntShapePlan shapes[2];ConstSlice<SfntLookupStep> steps[2];const SfntCmap* cmap;};
 NativeFontResult failure(SfntStatus status) noexcept {return {NativeFontError::font,status,0};}
 NativeArabicPlanSlot* slot(const NativeArabicPlanStore& store,NativeArabicPlanHandle h) noexcept {
     if(!store.runs || !store.slots.data || !h.slot || h.slot>store.slots.count || !h.generation)return nullptr;
@@ -18,28 +16,42 @@ NativeArabicPlanSlot* slot(const NativeArabicPlanStore& store,NativeArabicPlanHa
 SfntStatus prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,PlanData& data,Arena& state,Arena& scratch,u32 work) noexcept {
     NativePlanSource source{};auto status=native_plan_source(store,run,false,&state,&scratch,source);if(status!=SfntStatus::ok)return status;
     const auto* base=source.parent;const auto* font=source.font;
-    data.cmap=&font->cmap;data.shape=*base;reset_value(&data.shape.substitution_roots);reset_value(&data.shape.positioning_roots);
+    data.cmap=&font->cmap;
+    for(auto& shape:data.shapes){shape=*base;reset_value(&shape.substitution_roots);reset_value(&shape.positioning_roots);}
+    reset_value(&data.shapes[1].legacy_kern);
     for(u32 kind=0;kind<2;++kind){SfntLayout layout{};status=native_layout_open(*font,kind,layout);
         if(status==SfntStatus::missing_table){if(!kind)return SfntStatus::unsupported_sequence;continue;}if(status!=SfntStatus::ok)return status;
         const auto mark=arena_mark(&scratch);SfntFeatureSubstitutions variations{};
         status=native_layout_variations(*source.instance,layout,scratch,variations,work);if(status!=SfntStatus::ok)return status;
+        // HarfBuzz's Arabic shaper matches ZWJ manually in its substitution features (hb-ot-shaper-arabic.cc), and
+        // the default shaper joiners in mark and mkmk; the positioning set stays the default plan's.
+        if(!kind){constexpr SfntJoinerFeature manual[]{{sfnt_tag('c','c','m','p'),1},{sfnt_tag('l','o','c','l'),1},{sfnt_tag('i','s','o','l'),1},
+                {sfnt_tag('f','i','n','a'),1},{sfnt_tag('f','i','n','2'),1},{sfnt_tag('f','i','n','3'),1},{sfnt_tag('m','e','d','i'),1},
+                {sfnt_tag('m','e','d','2'),1},{sfnt_tag('i','n','i','t'),1},{sfnt_tag('r','l','i','g'),1},{sfnt_tag('c','a','l','t'),1},
+                {sfnt_tag('l','i','g','a'),1},{sfnt_tag('c','l','i','g'),1},{sfnt_tag('m','s','e','t'),1},{sfnt_tag('m','a','r','k'),3},{sfnt_tag('m','k','m','k'),3}};
+            ConstSlice<u64> set{};status=native_manual_joiners(layout,variations,{manual,static_cast<u32>(sizeof(manual)/sizeof(manual[0]))},state,set,work);if(status!=SfntStatus::ok)return status;
+            for(auto& shape:data.shapes)shape.substitution_manual=set;}
         auto mask=take<u8>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
-        const u32 modes=kind?1u:2u; // Arabic positioning is identical in both modes.
-        for(u32 mode=0;mode<modes;++mode){SfntLookupPlanResult result{};
+        for(u32 mode=0;mode<2;++mode){SfntLookupPlanResult result{};
             status=sfnt_arabic_lookup_plan(layout,variations,mode!=0,mask,{},&result,work);
             if(status!=SfntStatus::ok && status!=SfntStatus::output_too_small)return status;
             if(!kind && !result.language_found)return SfntStatus::unsupported_sequence;
-            if(!kind&&result.script_tag==sfnt_tag('l','a','t','n')){data.steps[0].generic=true;return SfntStatus::ok;}
             auto steps=take<SfntLookupStep>(kind?scratch:state,result.lookup_count);if(!filled(steps))return SfntStatus::resource_limit;
             status=sfnt_arabic_lookup_plan(layout,variations,mode!=0,mask,steps,&result,work);if(status!=SfntStatus::ok)return status;
-            if(!kind)data.steps[mode]={steps.data,result.lookup_count};
-            else{auto roots=take<u16>(state,result.lookup_count);if(!filled(roots))return SfntStatus::resource_limit;
-                for(u32 i=0;i<result.lookup_count;++i)roots[i]=steps[i].lookup;
-                data.shape.positioning_roots={roots.data,roots.count};}
+            if(!kind){data.steps[mode]={steps.data,result.lookup_count};continue;}
+            const auto& first=data.shapes[0].positioning_roots;
+            bool same=mode&&first.count==result.lookup_count;for(u32 i=0;same&&i<first.count;++i)same=first[i]==steps[i].lookup;
+            if(same){data.shapes[1].positioning_roots=first;continue;}
+            auto roots=take<u16>(state,result.lookup_count);if(!filled(roots))return SfntStatus::resource_limit;
+            for(u32 i=0;i<result.lookup_count;++i)roots[i]=steps[i].lookup;
+            data.shapes[mode].positioning_roots={roots.data,roots.count};
         }
         if(!arena_rewind(&scratch,mark))return SfntStatus::invalid_input;
     }
-    return native_positioning_prepare(*font,*base,data.shape.positioning_roots,state,scratch,&data.shape.positioning,work);
+    status=native_positioning_prepare(*font,*base,data.shapes[0].positioning_roots,state,scratch,&data.shapes[0].positioning,work);
+    if(status!=SfntStatus::ok)return status;
+    if(data.shapes[1].positioning_roots.data==data.shapes[0].positioning_roots.data){data.shapes[1].positioning=data.shapes[0].positioning;return SfntStatus::ok;}
+    return native_positioning_prepare(*font,*base,data.shapes[1].positioning_roots,state,scratch,&data.shapes[1].positioning,work);
 }
 }
 NativeFontResult native_arabic_plan_acquire(NativeArabicPlanStore* store,NativeRunPlanHandle run,Arena* scratch,NativeArabicPlanHandle* output,u32 work,usize limit) noexcept {
@@ -72,7 +84,7 @@ NativeFontResult native_arabic_plan_acquire(NativeArabicPlanStore* store,NativeR
 }
 NativeArabicPlanView native_arabic_plan_get(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,bool independent) noexcept {
     const auto* value=slot(store,handle);if(!value)return {};
-    const auto& data=*reinterpret_cast<const PlanData*>(value->state.base);const u32 mode=independent?1u:0u;return {&data.shape,{data.steps[mode].data,data.steps[mode].count},data.cmap,data.steps[0].generic};
+    const auto& data=*reinterpret_cast<const PlanData*>(value->state.base);const u32 mode=independent?1u:0u;return {&data.shapes[mode],data.steps[mode],data.cmap};
 }
 bool native_arabic_plan_release(NativeArabicPlanStore* store,NativeArabicPlanHandle handle) noexcept {
     if(!store)return false;auto* value=slot(*store,handle);if(!value)return false;if(--value->references)return true;

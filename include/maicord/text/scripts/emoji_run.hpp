@@ -28,8 +28,9 @@ SfntStatus native_emoji_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHand
 // Controls other than join controls and variation selectors, including emoji
 // tag suffixes, return unsupported_sequence for itemization.
 // Cmap misses stay zero unless original-source coverage is requested; join
-// controls do not require nominal coverage. One following variation selector
-// is consumed with its base; an unsupported UVS mapping keeps the nominal base.
+// controls and variation selectors do not require nominal coverage. A following
+// variation selector joins its base when the font maps the sequence (cmap format
+// 14); otherwise it stays a separate glyph, hidden like a join control.
 // arabic_join_controls preserves the resolved Arabic item's join-control
 // source boundaries and suppression policy in the emoji face, independent of
 // bidi direction (an Arabic-context emoji can have an even level). It does not
@@ -41,6 +42,7 @@ SfntStatus native_emoji_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHand
 // The shaping scratch holds all provenance and cluster state; no allocation.
 // Storage, output aliasing and result commit rules follow native_ascii_run; the
 // advances prefix also holds one provenance byte per source unit until metrics.
+// paragraph_start follows native_latin_run.
 SfntStatus native_emoji_run(const NativeRunPlanStore&,const NativeEmojiPlan&,Utf8View,
-    float em_size,const NativeAsciiStorage&,NativeAsciiResult*,SfntShapeLimits limits={},bool require_source_coverage=false,bool right_to_left=false,bool arabic_join_controls=false) noexcept;
+    float em_size,const NativeAsciiStorage&,NativeAsciiResult*,SfntShapeLimits limits={},bool require_source_coverage=false,bool right_to_left=false,bool arabic_join_controls=false,bool paragraph_start=true) noexcept;
 }

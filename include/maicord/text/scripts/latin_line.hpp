@@ -12,6 +12,7 @@ struct NativeAlphabeticPlan;
 // logical distances and the paragraph code places directional runs.
 // paragraph_only omits standalone vertical/caret/trailing geometry; only the
 // paragraph collector uses it, after shaping validates source clusters.
+// paragraph_start follows native_latin_run.
 SfntStatus native_latin_line(const NativeRunPlanStore&,NativeRunPlanHandle,Utf8View,
-    bool independent,float em,const NativeAsciiLineStorage&,NativeAsciiLineResult*,SfntShapeLimits limits={},float trailing_spacing=0,const NativeAlphabeticPlan* profile=nullptr,bool force_shaping=false,bool rtl=false,bool paragraph_only=false) noexcept;
+    bool independent,float em,const NativeAsciiLineStorage&,NativeAsciiLineResult*,SfntShapeLimits limits={},float trailing_spacing=0,const NativeAlphabeticPlan* profile=nullptr,bool force_shaping=false,bool rtl=false,bool paragraph_only=false,bool paragraph_start=true) noexcept;
 }

@@ -2,18 +2,17 @@
 #include "maicord/text/opentype/gpos_execute.hpp"
 #include "maicord/text/opentype/gpos_attachment.hpp"
 namespace maicord {
-enum class SfntNullAnchorPolicy : u8 {skip,parent_coordinates};
-struct SfntMarkExecution {u64 operations,matches,search_steps,compatibility_anchors;};
+struct SfntMarkExecution {u64 operations,matches,search_steps;};
 // Resolved target slots in a caller-supplied target directory. UINT32_MAX means
 // no target. Type 6 compares target identity without resolving physical targets.
 // These are shaping inputs; glyph edits invalidate the resolved directory.
 struct SfntMarkAssociation {u32 target,component;};
-// No computed ligature component history: use component zero, with the selected
-// null-anchor policy. Known component indices never use this value.
+// No computed ligature component history: a ligature attachment uses the last
+// component (HarfBuzz). Known component indices never use this value.
 inline constexpr u32 sfnt_component_unknown=0xffffffffu;
 inline constexpr u8 sfnt_mark_source_target=2;
 static_assert(sizeof(SfntMarkAssociation)==8);
-static_assert(sizeof(SfntMarkExecution)==32);
+static_assert(sizeof(SfntMarkExecution)==24);
 // Natural horizontal lookup types 4/6. Nominal advances are the same metric
 // inputs used by position initialization; RTL anchor conversion needs them after
 // advances have changed.
@@ -31,14 +30,11 @@ static_assert(sizeof(SfntMarkExecution)==32);
 // Unresolved targets use ordinary lookup selection. That distance scan is
 // charged to work_limit.
 // Both anchors resolve before a mark position commits. Earlier attachments may
-// remain on failure, so discard failed attempts. Anchor format 2 (contour
-// point) is unsupported.
-// Null policy: skip absent targets, or use parent-header coordinates as Windows
-// does for natural nonvariable fonts (unsupported for variable fonts; header
-// words are never followed as pointers).
+// remain on failure, so discard failed attempts. Anchor format 2 uses its design
+// coordinates (no hinting). A NULL target anchor does not attach the mark.
 SfntStatus sfnt_position_execute_mark_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,
-                                              ConstSlice<double> nominal_advances,ConstSlice<u8> position_flags,Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,
-                                              const SfntPositionInstance& instance,SfntNullAnchorPolicy null_policy,SfntMarkExecution* result,
+                                              ConstSlice<u8> position_flags,Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,
+                                              const SfntPositionInstance& instance,SfntMarkExecution* result,
                                               u64 work_limit=1000000,ConstSlice<SfntMarkAssociation> associations={},
                                               SfntPositionApplication application=SfntPositionApplication::scan,bool component_records=false,
                                               ConstSlice<u32> target_directory={}) noexcept;

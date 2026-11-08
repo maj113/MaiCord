@@ -4,6 +4,8 @@
 #include "../opentype/sfnt_read.hpp"
 #include "maicord/text/opentype/metric_variations.hpp"
 #include "maicord/text/opentype/nominal_participation.hpp"
+#include "maicord/text/opentype/gpos_execute.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/text/base.hpp"
 
 #include "maicord/core/virtual_memory.hpp"
@@ -108,12 +110,21 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
     if(!p.variable&&p.nominal.ascii_count){auto table=take<u16>(state,p.nominal.ascii_count);if(!filled(table))return SfntStatus::resource_limit;
         for(u32 i=0;i<table.count;++i){double value=0;status=p.plans[0].advance(p.plans[0].metric_context,static_cast<u16>(p.nominal.ascii_first+i),&value);if(status!=SfntStatus::ok)return status;table[i]=static_cast<u16>(value);}
         p.nominal.ascii_advances=table.data;}
+    bool gpos_kern=false;u16 zwj=0,zwnj=0;
+    status=sfnt_cmap_glyph(cmap,0x200d,0,&zwj);if(status!=SfntStatus::ok)return status;
+    status=sfnt_cmap_glyph(cmap,0x200c,0,&zwnj);if(status!=SfntStatus::ok)return status;
+    for(auto& plan:p.plans){plan.zwj=zwj;plan.zwnj=zwnj;}
     for(u32 table=0;table<2;++table){
         status=sfnt_table(face,table?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&bytes);
         if(status==SfntStatus::missing_table)continue;if(status!=SfntStatus::ok)return status;
         SfntLayout layout{};status=sfnt_layout_open(bytes,table?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout);if(status!=SfntStatus::ok)return status;
+        for(u32 f=0;table&&f<layout.feature_count;++f)gpos_kern|=byte_load_be32(layout.features.data+2+f*6)==sfnt_tag('k','e','r','n');
         SfntFeatureSubstitutions variations{};u32 variation_work=0;
         if(layout.variations){u32 record=0;status=sfnt_layout_variation_select(layout,{feature_coordinates.data,feature_coordinates.count},&variations,&record,work,&variation_work);if(status!=SfntStatus::ok)return status;}
+        // HarfBuzz's default shaper matches joiners manually in mark and mkmk (F_GLOBAL_MANUAL_JOINERS).
+        {constexpr SfntJoinerFeature manual_features[]{{sfnt_tag('m','a','r','k'),3},{sfnt_tag('m','k','m','k'),3}};ConstSlice<u64> manual{};
+            status=native_manual_joiners(layout,variations,{manual_features,2},state,manual,work);if(status!=SfntStatus::ok)return status;
+            for(auto& plan:p.plans)(table?plan.positioning_manual:plan.substitution_manual)=manual;}
         if(emoji){auto& plan=p.plans[0];
             status=native_lookup_roots_prepare(layout,variations,0,false,state,scratch,
                 table?plan.positioning_roots:plan.substitution_roots,work);if(status!=SfntStatus::ok)return status;
@@ -134,6 +145,10 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
             status=native_positioning_prepare(native_font,p.plans[0],{roots.data,roots.count},state,scratch,&p.plans[0].positioning,work);if(status!=SfntStatus::ok)return status;
             p.plans[1].positioning=p.plans[0].positioning;}
     }
+    // Without a GPOS kern feature HarfBuzz kerns with the legacy kern table (hb-ot-shape.cc, apply_kern); independent letters do not kern.
+    if(!emoji&&!gpos_kern){status=sfnt_table(face,sfnt_tag('k','e','r','n'),&bytes);
+        if(status==SfntStatus::ok){if(sfnt_legacy_kern_valid(bytes)){p.plans[0].legacy_kern=bytes;sfnt_legacy_kern_glyphs(bytes,participation);}}
+        else if(status!=SfntStatus::missing_table)return status;}
     bool any=false;for(u32 i=0;i<nominal_words;++i)any=any||participation[i]!=0;
     if(any){auto retained=take<u64>(state,nominal_words);if(!filled(retained))return SfntStatus::resource_limit;
         copy_bytes(retained.data,participation.data,nominal_words*sizeof(u64));p.nominal.participation={retained.data,nominal_words};}

@@ -27,18 +27,23 @@ bool inert(const SfntShapePlan& plan,u16 glyph,u64* work) noexcept {
         for(u32 j=0;j<count;++j)if(!uncovered(lookup.type<=2?lookup.tables.basic[j].coverage:lookup.type<=6?lookup.tables.attachment[j].coverage[0]:sfnt_context_first_coverage(lookup.tables.context[j]),glyph,work))return false;
     }return true;
 }
-struct Controls {const SfntGdef* gdef;const u8* sources;u32 units;u16 space;SfntComponentForest components;SfntClusterMap clusters;bool arabic;};
+// Per source unit: control kind << 16 | nominal glyph.
+struct Controls {const SfntGdef* gdef;const u32* sources;u32 units;u16 space;SfntComponentForest components;SfntClusterMap clusters;bool arabic;};
+// HarfBuzz hides the default ignorables that substitution left alone (hb_ot_hide_default_ignorables;
+// _hb_glyph_info_is_default_ignorable excludes substituted glyphs), after positioning: a hidden glyph keeps its
+// own glyph through GPOS, marked by reserved bit 0, and becomes the space glyph once shaped (native_emoji_run).
 SfntStatus finish_controls(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
     auto& p=*static_cast<Controls*>(opaque);if(glyphs.count>work)return SfntStatus::resource_limit;if(zero.count<glyphs.count)return SfntStatus::output_too_small;work-=glyphs.count;
     for(u32 i=0;i<glyphs.count;++i){auto& glyph=glyphs[i];if(glyph.source>=p.units)return SfntStatus::invalid_input;
         // Arabic's control ownership follows the restored logical source,
         // including GSUB decomposition. Common emoji follows surviving
         // component ownership instead.
-        const u8 kind=p.sources[glyph.source];bool control=kind&&p.arabic;
+        const u32 kind=glyph.glyph.glyph==static_cast<u16>(p.sources[glyph.source])?p.sources[glyph.source]>>16:0;bool control=kind&&p.arabic;
         if(kind&&!p.arabic&&glyph.component!=0xffffffffu){u32 root=0,ordinal=0;u64 used=0;
             const auto status=sfnt_component_location(p.components,glyph.component,&root,&ordinal,work,&used);work-=used;if(status!=SfntStatus::ok)return status;
             control=root!=0xffffffffu&&p.components.nodes[root].count==1;}
-        if(control){glyph.glyph.glyph=p.space;
+        glyph.glyph.reserved=static_cast<u8>(control);
+        if(control){
             if(kind==1&&glyph.source&&!p.arabic){SfntClusterMerge merge{};u64 used=0;
                 const auto status=sfnt_cluster_map_plan(p.clusters,glyph.source-1,glyph.source,&merge,work,&used);work-=used;if(status!=SfntStatus::ok)return status;
                 if(merge.commit_work>work)return SfntStatus::resource_limit;work-=merge.commit_work;sfnt_cluster_map_commit(&p.clusters,merge);}}
@@ -56,31 +61,47 @@ SfntStatus native_emoji_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
     status=native_positioning_prepare(*font,*parent,plan.positioning_roots,*state,*scratch,&plan.positioning_program,work);if(status!=SfntStatus::ok)return status;
     saved_state.keep=true;*output=plan;return SfntStatus::ok;
 }
-SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPlan& prepared,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits,bool coverage,bool rtl,bool arabic) noexcept {
+SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPlan& prepared,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits,bool coverage,bool rtl,bool arabic,bool paragraph_start) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);u32 em_bits=0;copy_bytes(&em_bits,&em,4);const auto* parent=native_run_plan_get(store,prepared.run);
     if(!parent||!prepared.cmap||!filled(prepared.substitution_roots)||!filled(prepared.positioning_roots)||(text.bytes&&!text.data)||!em_bits||em_bits>=0x7f800000u||em>65536||!filled(s.mapped)||!filled(s.glyphs)||!filled(s.placements)||!filled(s.character_glyphs)||
        !filled(s.shaping.advances)||!filled(s.shaping.targets))return SfntStatus::invalid_input;
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;u32 mapped=0,units=0,boundaries=0;bool controls=false,simple=true;u16 misses[4]{};u32 cached=0,next_miss=0;u64 proof_work=limits.stage_work;
     SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,prepared.substitution_roots,prepared.positioning_roots);plan.position_instance.round_variable_anchors=true;
-    auto* provenance=reinterpret_cast<u8*>(s.shaping.advances.data);const u64 provenance_bytes=static_cast<u64>(s.shaping.advances.count)*sizeof(double);
+    auto* provenance=reinterpret_cast<u32*>(s.shaping.advances.data);const u64 provenance_units=static_cast<u64>(s.shaping.advances.count)*sizeof(double)/sizeof(u32);
+    u32 previous_scalar=0;
     for(u32 at=0;at<text.bytes;){const auto scalar=utf8_decode_one(text.data+at,text.bytes-at);if(!scalar.valid)return SfntStatus::invalid_input;
         const u32 cp=scalar.codepoint;const auto* properties=unicode_properties(cp);const auto category=properties->general_category();
-        const u8 control=cp==0x200d?1u:cp==0x200c?2u:0u;const bool selector=properties->has(UnicodeFlag::variation_selector);
-        if(!control&&!selector&&(category==UnicodeGeneralCategory::cf||category==UnicodeGeneralCategory::cc||category==UnicodeGeneralCategory::zl||category==UnicodeGeneralCategory::zp))return SfntStatus::unsupported_sequence;
+        // A selector the font does not map with its base stays a separate hidden glyph (as in latin_run.cpp). So does any
+        // other default ignorable that is not a format or control character (CGJ, U+17B4/U+17B5), as HarfBuzz hides
+        // it (hb_ot_hide_default_ignorables); its Hangul fillers are not default ignorable (is_default_ignorable).
+        const bool selector=properties->has(UnicodeFlag::variation_selector);
+        const bool format=category==UnicodeGeneralCategory::cf||category==UnicodeGeneralCategory::cc||category==UnicodeGeneralCategory::zl||category==UnicodeGeneralCategory::zp;
+        const bool hidden=!format&&properties->has(UnicodeFlag::default_ignorable_code_point)&&cp!=0x115f&&cp!=0x1160&&cp!=0x3164&&cp!=0xffa0;
+        const u8 control=cp==0x200d?1u:cp==0x200c?2u:selector?3u:hidden?4u:0u;
+        if(!control&&format)return SfntStatus::unsupported_sequence;
         const auto next=at+scalar.width<text.bytes?utf8_decode_one(text.data+at+scalar.width,text.bytes-at-scalar.width):Utf8DecodeResult{};
-        const bool variation=!selector&&next.valid&&unicode_properties(next.codepoint)->has(UnicodeFlag::variation_selector);
         const u32 mapped_cp=rtl&&properties->has(UnicodeFlag::bidi_mirrored)?unicode_bidi_mirror(cp):cp;
-        u16 glyph=0;auto status=sfnt_cmap_glyph(*prepared.cmap,mapped_cp,variation?next.codepoint:0,&glyph);
-        if(status==SfntStatus::unsupported_sequence)status=sfnt_cmap_glyph(*prepared.cmap,mapped_cp,0,&glyph);if(status!=SfntStatus::ok)return status;
+        u16 glyph=0;bool variation=false;
+        if(!selector&&next.valid&&unicode_layout_variation_selector(next.codepoint)){const auto status=sfnt_cmap_glyph(*prepared.cmap,mapped_cp,next.codepoint,&glyph);
+            if(status!=SfntStatus::ok&&status!=SfntStatus::unsupported_sequence)return status;variation=status==SfntStatus::ok&&glyph;}
+        if(!variation){const auto status=sfnt_cmap_glyph(*prepared.cmap,mapped_cp,0,&glyph);if(status!=SfntStatus::ok)return status;}
         if(coverage&&!glyph&&!control)return SfntStatus::unsupported_sequence;
-        if(mapped==s.mapped.count||units>=provenance_bytes)return SfntStatus::output_too_small;
-        const bool attached=(!arabic&&control==1)||category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me;
+        if(mapped==s.mapped.count||units>=provenance_units)return SfntStatus::output_too_small;
+        // HarfBuzz continues the cluster of a ZWJ into the Extended_Pictographic after it (hb_set_unicode_props).
+        const bool attached=(!arabic&&control==1)||category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me||
+            (previous_scalar==0x200d&&properties->has(UnicodeFlag::extended_pictographic));
         if(!units||!attached){if(boundaries==s.shaping.targets.count)return SfntStatus::output_too_small;s.shaping.targets[boundaries++]=units;}
-        const auto glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph);provenance[units]=control;controls=controls||control!=0;s.mapped[mapped++]={{glyph,glyph_class,0},units};
+        // A mark that begins its paragraph follows a dotted circle when the font maps one (HarfBuzz HB_BUFFER_FLAG_BOT),
+        // except a default-ignorable one (as in latin_run.cpp).
+        if(!units&&paragraph_start&&(category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me)&&
+           !properties->has(UnicodeFlag::default_ignorable_code_point)){
+            u16 circle=0;const auto status=sfnt_cmap_glyph(*prepared.cmap,0x25cc,0,&circle);if(status!=SfntStatus::ok)return status;
+            if(circle){if(mapped+1>=s.mapped.count)return SfntStatus::output_too_small;s.mapped[mapped++]={{circle,sfnt_gdef_glyph_class(plan.gdef,circle),0},0};simple=false;}}
+        const auto glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph);provenance[units]=control?static_cast<u32>(control)<<16|glyph:0u;controls=controls||control!=0;s.mapped[mapped++]={{glyph,glyph_class,0},units};
         simple=simple&&glyph&&!control&&!attached&&glyph_class!=SfntGlyphClass::mark;
         if(simple){bool found=false;for(u32 i=0;i<cached;++i)found=found||misses[i]==glyph;
             if(!found){simple=inert(plan,glyph,&proof_work);if(simple){misses[next_miss]=glyph;next_miss=(next_miss+1)&3u;cached=minimum<u32>(4,cached+1);}}}
-        units+=(cp>65535?2u:1u)+(variation?(next.codepoint>65535?2u:1u):0u);at+=scalar.width+(variation?next.width:0u);
+        units+=(cp>65535?2u:1u)+(variation?(next.codepoint>65535?2u:1u):0u);at+=scalar.width+(variation?next.width:0u);previous_scalar=variation?next.codepoint:cp;
     }
     if(units>s.character_glyphs.count)return SfntStatus::output_too_small;if(!mapped)return SfntStatus::ok;
     if(simple){if(!filled(s.shaping.flags))return SfntStatus::invalid_input;if(mapped>s.glyphs.count||mapped>s.placements.count||mapped>s.shaping.flags.count)return SfntStatus::output_too_small;

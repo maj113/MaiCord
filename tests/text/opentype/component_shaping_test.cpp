@@ -1,3 +1,4 @@
+// The corpus expectations are HarfBuzz 15.0.0's (tools/font_reference/harfbuzz_fixture.py component).
 #include "../../support/gsub_program_fixture.hpp"
 #include "../../support/text_seams.hpp"
 #include "maicord/text/opentype/gpos_ligature_execute.hpp"
@@ -27,6 +28,9 @@ SfntGposExecutableLookup shared_gpos_lookups[32];
 SfntGposExecutionFrame gpos_frames[32];u32 gpos_positions[256];SfntCursiveChainNode cursive_chains[64];
 u64 gpos_operations=0,gpos_actions=0;u32 gpos_depth=0;
 u64 shape_runs=0,glyph_checks=0,cluster_checks=0,flag_checks=0,placement_runs=0,float_checks=0,gsub_operations=0,component_export_work=0;u32 failures=0;
+// Known divergent fonts per class (harfbuzz_fixture.py COMPONENT_DIVERGENCES) and, with MAICORD_FIXTURE_RECORD set,
+// the engine's placements printed as pin_component lines for the generator's --pins.
+u64 known_divergent[6]{};bool recording=false;
 u64 commit_budget_checks=0,commit_journal_checks=0;bool commit_tested=false;
 SfntComponentGlyph saved_glyphs[128],committed_glyphs[128];SfntComponentNode saved_nodes[64],committed_nodes[64];
 SfntGsubExecutionScratch scratch() noexcept {return {{frames,32},{positions,256},{rebased,256},{consumed,64},{reinterpret_cast<u8*>(replacements),sizeof(replacements)},{journal,4096}};}
@@ -49,8 +53,9 @@ bool commit_units(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buf
     }
     *buffer=initial;copy_bytes(glyphs,saved_glyphs,sizeof(glyphs));copy_bytes(nodes,saved_nodes,sizeof(nodes));copy_bytes(clusters->storage.data,saved_map,map_bytes);return reached;
 }
-bool placements(ConstSlice<u8> expected,ConstSlice<SfntPlacement> values,u32 font,u32 split,u32 config) noexcept {
-    for(u32 i=0;i<values.count;++i){u32 bits[3];copy_bytes(bits,&values.data[i],12);for(u32 j=0;j<3;++j){++float_checks;if(bits[j]!=byte_load_le32(expected.data+i*12+j*4)){++failures;if(failures<10)error(font,split,utf8_literal("placement mismatch"),config*100+i*3+j);}}}return true;
+bool placements(ConstSlice<u8> expected,ConstSlice<SfntPlacement> values,u32 font,u32 split,u32 config,u32 stage) noexcept {
+    for(u32 i=0;i<values.count;++i){u32 bits[3];copy_bytes(bits,&values.data[i],12);for(u32 j=0;j<3;++j){++float_checks;if(bits[j]!=byte_load_le32(expected.data+i*12+j*4)){++failures;if(failures<10)error(font,split,utf8_literal("placement mismatch"),config*100+i*3+j);
+        if(recording&&!split){print(utf8_literal("pin_component font="));number(font);print(utf8_literal(" config="));number(config);print(utf8_literal(" stage="));number(stage);print(utf8_literal(" word="));number(i*3+j);print(utf8_literal(" actual="));number(bits[j]);print(utf8_literal("\n"));}}}}return true;
 }
 #include "gpos_program_units.inc"
 #include "gpos_backtrack_dispatch_units.inc"
@@ -94,7 +99,9 @@ bool coordinated(const SfntCmap& cmap,const SfntHorizontalMetrics& metrics,const
             if(status!=SfntStatus::ok||result.glyph_count!=count||result.source_units!=units)return false;
             for(u32 i=0;i<count;++i)if(glyphs[i].glyph.glyph!=byte_load_le16(expected_glyphs.data+i*4)||flags[i]!=expected_glyphs.data[i*4+2])return false;
             for(u32 i=0;i<units;++i)if(character_map[i]!=byte_load_le32(characters.data+i*4))return false;
-            if(!bytes_equal(output,expected[positioned].data,count*12))return false;
+            for(u32 i=0;i<count*3;++i){u32 actual=0;copy_bytes(&actual,reinterpret_cast<const u8*>(output)+i*4,4);const u32 wanted=byte_load_le32(expected[positioned].data+i*4);
+                if(actual!=wanted){print(utf8_literal("placement config="));number(c);print(utf8_literal(" positioned="));number(positioned);print(utf8_literal(" value="));number(i);
+                    print(utf8_literal(" actual="));number(actual);print(utf8_literal(" expected="));number(wanted);print(utf8_literal("\n"));if(!recording)return false;}}
             ++coordinated_runs;coordinated_values+=count*5+units;
             const u64 full_work=result.lookup_operations;
             auto short_storage=storage;short_storage.placements.count=count-1;
@@ -121,9 +128,10 @@ bool coordinated(const SfntCmap& cmap,const SfntHorizontalMetrics& metrics,const
     return true;
 }
 bool corpus(ConstSlice<u8> bytes) noexcept {
-    if(bytes.count<12 || !bytes_equal(bytes.data,"MCCMP01\0",8))return false;Reader r{bytes,8};u32 fonts=0;if(!r.word(&fonts) || fonts>10000)return false;
-    for(u32 f=0;f<fonts;++f){u32 size=0,input_count=0,units=0,n=0,cc=0;ConstSlice<u8> raw{},scalars{},characters{},expected_glyphs{},configs{};
-        if(!r.word(&size)||!r.word(&input_count)||!r.word(&units)||!r.word(&n)||!r.word(&cc)||!input_count||input_count>64||!units||units>128||!n||n>64||cc>10000||!r.take(size,&raw)||!r.take(input_count*4,&scalars)||!r.take(units*4,&characters)||!r.take(n*4,&expected_glyphs)||!r.take(cc*(8+24*n),&configs))return false;
+    if(bytes.count<12 || !bytes_equal(bytes.data,"MCCMP02\0",8))return false;Reader r{bytes,8};u32 fonts=0;if(!r.word(&fonts) || fonts>10000)return false;
+    for(u32 f=0;f<fonts;++f){u32 size=0,input_count=0,units=0,n=0,cc=0,divergence=0;ConstSlice<u8> raw{},scalars{},characters{},expected_glyphs{},configs{};
+        if(!r.word(&size)||!r.word(&input_count)||!r.word(&units)||!r.word(&n)||!r.word(&cc)||!r.word(&divergence)||divergence>5||!input_count||input_count>64||!units||units>128||!n||n>64||cc>10000||!r.take(size,&raw)||!r.take(input_count*4,&scalars)||!r.take(units*4,&characters)||!r.take(n*4,&expected_glyphs)||!r.take(cc*(8+24*n),&configs))return false;
+        ++known_divergent[divergence];
         SfntFace face{};SfntCmap cmap{};SfntHorizontalMetrics metrics{};SfntGdef gdef{};SfntLayout gs{},gp{};ConstSlice<u8> table{};SfntGsubProgram program{};
         if(sfnt_open(raw,0,&face)!=SfntStatus::ok || sfnt_cmap_open(face,&cmap)!=SfntStatus::ok || sfnt_horizontal_metrics_open(face,&metrics)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','D','E','F'),&table)!=SfntStatus::ok || sfnt_gdef_open(table,metrics.glyph_count,&gdef)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','S','U','B'),&table)!=SfntStatus::ok || sfnt_layout_open(table,SfntLayoutKind::substitution,&gs)!=SfntStatus::ok || prepare_gsub_program(gs,gdef,metrics.glyph_count,{{gsub_lookups,32},{gsub_subtables,64},{coverages,256},{classes,64}},&program)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','P','O','S'),&table)!=SfntStatus::ok || sfnt_layout_open(table,SfntLayoutKind::positioning,&gp)!=SfntStatus::ok)return error(f,0,utf8_literal("font prepare"));
         SfntFeature gs_feature{},gp_feature{};u32 tag=0;
@@ -167,14 +175,14 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
             u32 target_count=0;u64 used=0;auto status=sfnt_components_export(&forest,view,{targets,64},{associations,64},&target_count,1000000,&used);component_export_work+=used;
             if(status!=SfntStatus::ok)return error(f,split,utf8_literal("association export"),static_cast<u32>(status));++shape_runs;
             Reader config{configs};for(u32 c=0;c<cc;++c){u32 em_bits=0,rtl=0;ConstSlice<u8> expected[2];if(!config.word(&em_bits)||!config.word(&rtl)||rtl>1||!config.take(n*12,&expected[0])||!config.take(n*12,&expected[1]))return false;float em=0;copy_bytes(&em,&em_bits,4);
-                if(sfnt_position_initialize({nominal,n},{flags,n},rtl!=0,{state,n})!=SfntStatus::ok || sfnt_position_finalize({state,n},{flags,n},em,metrics.units_per_em,{output,n})!=SfntStatus::ok)return false;placements(expected[0],{output,n},f,split,c);
+                if(sfnt_position_initialize({nominal,n},{flags,n},{state,n})!=SfntStatus::ok || sfnt_position_finalize({state,n},{flags,n},em,metrics.units_per_em,{output,n})!=SfntStatus::ok)return false;placements(expected[0],{output,n},f,split,c,0);
                 for(u32 i=0;i<lc;++i){SfntGposExecutionResult result{};u64 chain=0;
                     const u16 lookup_index=byte_load_be16(gp_feature.lookup_indices.data+i*2);
-                    if(!split && !c && sfnt_gpos_lookup(position_program,lookup_index)->type>=7 && !gpos_program_units(position_program,lookup_index,view,{nominal,n},{flags,n},{associations,n},{targets,target_count},{state,n}))return error(f,split,utf8_literal("GPOS units"));
-                    status=sfnt_gpos_execute_program_lookup(position_program,byte_load_be16(gp_feature.lookup_indices.data+i*2),view,{nominal,n},{flags,n},{associations,n},{targets,target_count},{state,n},0,n,rtl!=0,{},SfntNullAnchorPolicy::parent_coordinates,SfntComponentAnchorPolicy::skip_missing,{{gpos_frames,32},{gpos_positions,256},{&chain,1},{prefix,target_count},{cursive_chains,64}},{1000000,100000},&result);
+                    if(!split && !c && sfnt_gpos_lookup(position_program,lookup_index)->type>=7 && !gpos_program_units(position_program,lookup_index,view,{flags,n},{associations,n},{targets,target_count},{state,n}))return error(f,split,utf8_literal("GPOS units"));
+                    status=sfnt_gpos_execute_program_lookup(position_program,byte_load_be16(gp_feature.lookup_indices.data+i*2),view,{flags,n},{associations,n},{targets,target_count},{state,n},0,n,rtl!=0,{},SfntComponentAnchorPolicy::skip_missing,{{gpos_frames,32},{gpos_positions,256},{&chain,1},{prefix,target_count},{cursive_chains,64}},{1000000,100000},&result);
                     gpos_operations+=result.operations;gpos_actions+=result.actions;gpos_depth=maximum(gpos_depth,result.max_depth);
                     if(status!=SfntStatus::ok)return error(f,split,utf8_literal("GPOS status"),static_cast<u32>(status));}
-                if(sfnt_position_finalize({state,n},{flags,n},em,metrics.units_per_em,{output,n})!=SfntStatus::ok)return false;placements(expected[1],{output,n},f,split,c);++placement_runs;
+                if(sfnt_position_finalize({state,n},{flags,n},em,metrics.units_per_em,{output,n})!=SfntStatus::ok)return false;placements(expected[1],{output,n},f,split,c,1);++placement_runs;
             }
         }
     }return r.at==r.data.count && commit_tested;
@@ -197,10 +205,12 @@ int run() noexcept {
     if(!gpos_cycle_units()){print(utf8_literal("FAIL GPOS cycle units\n"));return 5;}
     if(!sequence_units() || !affinity_units()){print(utf8_literal("FAIL component sequence units\n"));return 3;}
     if(!position_flag_units()){print(utf8_literal("FAIL positioning flag units\n"));return 4;}
-    const wchar_t* command=test_arguments();
+    const wchar_t* command=test_arguments();wchar_t flag[4];recording=GetEnvironmentVariableW(L"MAICORD_FIXTURE_RECORD",flag,4)!=0;
     bool ok=false;if(!*command)ok=corpus({component_fixture,sizeof(component_fixture)});
     else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
     print(utf8_literal("shape_runs="));number(shape_runs);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\ncluster_checks="));number(cluster_checks);print(utf8_literal("\nplacement_runs="));number(placement_runs);print(utf8_literal("\nfloat_checks="));number(float_checks);print(utf8_literal("\ngsub_operations="));number(gsub_operations);print(utf8_literal("\ncomponent_export_work="));number(component_export_work);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
+    print(utf8_literal("fonts_harfbuzz="));number(known_divergent[0]);print(utf8_literal("\nknown_divergent_mark_coverage="));number(known_divergent[1]);print(utf8_literal("\nknown_divergent_miscounted_ligature="));number(known_divergent[2]);
+    print(utf8_literal("\nknown_divergent_multiple_substitution_marks="));number(known_divergent[3]);print(utf8_literal("\nknown_divergent_nested_context="));number(known_divergent[4]);print(utf8_literal("\nknown_divergent_deferred_attachment="));number(known_divergent[5]);print(utf8_literal("\n"));
     print(utf8_literal("sequence_queries="));number(sequence_queries);print(utf8_literal("\nsequence_edits="));number(sequence_edits);print(utf8_literal("\nsequence_operations="));number(sequence_operations);print(utf8_literal("\nsequence_rollbacks="));number(sequence_rollbacks);print(utf8_literal("\nsequence_max_height="));number(sequence_max_height);print(utf8_literal("\nsequence_max_journal="));number(sequence_max_journal);print(utf8_literal("\n"));
     print(utf8_literal("affinity_first_work="));number(affinity_first_work);print(utf8_literal("\naffinity_repeat_work="));number(affinity_repeat_work);print(utf8_literal("\n"));
     print(utf8_literal("commit_budget_checks="));number(commit_budget_checks);print(utf8_literal("\ncommit_journal_checks="));number(commit_journal_checks);print(utf8_literal("\n"));

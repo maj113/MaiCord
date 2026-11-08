@@ -1,3 +1,6 @@
+// The corpus expectations are HarfBuzz 15.0.0's (tools/font_reference/harfbuzz_fixture.py emoji); a known divergent
+// case (EMOJI_DIVERGENCES) holds the engine's output. With MAICORD_FIXTURE_RECORD set, each known divergent case
+// prints the engine's output as a pin_emoji line for the generator's --pins instead of being checked.
 #include "maicord/text/scripts/emoji_run.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -19,6 +22,9 @@ bool guards(NativeRunPlanHandle handle,const NativeEmojiPlan& plan) noexcept {
     CHECK(native_emoji_run(store,plan,utf8_literal("\xf3\xa0\x81\xa7"),17.5f,storage,&out)==SfntStatus::unsupported_sequence);
     CHECK(native_emoji_run(store,plan,utf8_literal("Q"),17.5f,storage,&out,{},true)==SfntStatus::unsupported_sequence);
     CHECK(native_emoji_run(store,plan,utf8_literal("\xe2\x80\x8c"),17.5f,storage,&out,{},true)==SfntStatus::ok);
+    // CGJ is hidden like the joiners and selectors: the space glyph without advance (hb_ot_hide_default_ignorables).
+    CHECK(native_emoji_run(store,plan,utf8_literal("\xcd\x8f"),17.5f,storage,&out,{},true)==SfntStatus::ok&&out.glyph_count==1&&
+          storage.glyphs[0]==plan.space_glyph&&storage.placements[0].advance==0);
     auto small=storage;small.mapped.count=0;CHECK(native_emoji_run(store,plan,smile,17.5f,small,&out)==SfntStatus::output_too_small&&!out.glyph_count);
     small=storage;small.shaping.targets.count=0;CHECK(native_emoji_run(store,plan,smile,17.5f,small,&out)==SfntStatus::output_too_small&&!out.source_units);
     small=storage;small.shaping.advances.count=0;CHECK(native_emoji_run(store,plan,smile,17.5f,small,&out)==SfntStatus::output_too_small);
@@ -42,8 +48,9 @@ bool guards(NativeRunPlanHandle handle,const NativeEmojiPlan& plan) noexcept {
     }
     CHECK(reached);return true;
 }
+u64 known_divergent=0;bool recording=false;
 bool corpus(ConstSlice<u8> bytes,NativeRunPlanKind kind) noexcept {
-    CHECK(bytes.count>=12&&bytes_equal(bytes.data,"MCEMOJI3",8));Reader reader{bytes,8};u32 count=0;CHECK(reader.word(&count));
+    CHECK(bytes.count>=12&&bytes_equal(bytes.data,"MCEMOJI4",8));Reader reader{bytes,8};u32 count=0;CHECK(reader.word(&count));
     for(font_index=0;font_index<count;++font_index){u32 embedded=0,size=0,case_count=0,reject=0,weight=0;ConstSlice<u8> font{};
         CHECK(reader.word(&embedded)&&reader.word(&size)&&reader.word(&case_count)&&reader.word(&reject)&&reject<=1&&reader.word(&weight)&&reader.take(size,&font));const wchar_t* path=temporary;
         if(embedded){CHECK(embedded==1&&write_font(font));}
@@ -58,9 +65,19 @@ bool corpus(ConstSlice<u8> bytes,NativeRunPlanKind kind) noexcept {
         if(kind==NativeRunPlanKind::emoji){NativeAsciiResult rejected{};CHECK(!native_run_plan_nominal(store,handle).glyph_limit);
             CHECK(native_ascii_run(store,handle,utf8_literal("a"),false,17.5f,ascii_buffers.storage(),&rejected)==SfntStatus::invalid_input);}
         if(!font_index&&embedded)CHECK(guards(handle,plan));
-        for(case_index=0;case_index<case_count;++case_index){u32 em_bits=0,length=0,n=0,units=0;ConstSlice<u8> text{},glyphs{},placements{},map{},flags{},diacritics{};
-            CHECK(reader.word(&em_bits)&&reader.word(&length)&&reader.word(&n)&&reader.word(&units)&&n<=1024&&units<=256&&reader.take(length,&text)&&reader.take(n*2,&glyphs)&&reader.take(n*12,&placements)&&reader.take(units*4,&map)&&reader.take(n,&flags)&&reader.take(n,&diacritics));
-            float em=0;copy_bytes(&em,&em_bits,4);
+        for(case_index=0;case_index<case_count;++case_index){u32 em_bits=0,length=0,n=0,units=0,divergence=0;ConstSlice<u8> text{},glyphs{},placements{},map{},flags{},diacritics{};
+            CHECK(reader.word(&em_bits)&&reader.word(&length)&&reader.word(&n)&&reader.word(&units)&&reader.word(&divergence)&&divergence<=3&&n<=1024&&units<=256&&reader.take(length,&text)&&reader.take(n*2,&glyphs)&&reader.take(n*12,&placements)&&reader.take(units*4,&map)&&reader.take(n,&flags)&&reader.take(n,&diacritics));
+            float em=0;copy_bytes(&em,&em_bits,4);if(kind==NativeRunPlanKind::text&&divergence)++known_divergent;
+            if(recording&&divergence){if(kind!=NativeRunPlanKind::text)continue;const auto s=ascii_buffers.storage();NativeAsciiResult result{};
+                CHECK(native_emoji_run(store,plan,{reinterpret_cast<const char*>(text.data),text.count},em,s,&result)==SfntStatus::ok);const auto* base=native_run_plan_get(store,handle);CHECK(base);
+                const auto list=[&](const char* name,u32 count,auto value) noexcept {print(" ");print(name);print("=");for(u32 i=0;i<count;++i){if(i)print(",");number(value(i));}};
+                print("pin_emoji font=");number(font_index);print(" case=");number(case_index);
+                list("glyphs",result.glyph_count,[&](u32 i) noexcept {return static_cast<u64>(s.glyphs[i]);});
+                list("placements",result.glyph_count*3,[&](u32 i) noexcept {u32 bits=0;copy_bytes(&bits,reinterpret_cast<const u8*>(s.placements.data)+i*4,4);return static_cast<u64>(bits);});
+                list("map",result.source_units,[&](u32 i) noexcept {return static_cast<u64>(s.character_glyphs[i]);});
+                list("flags",result.glyph_count,[&](u32 i) noexcept {return static_cast<u64>(s.shaping.flags[i]);});
+                list("marks",result.glyph_count,[&](u32 i) noexcept {return static_cast<u64>(sfnt_gdef_glyph_class(base->gdef,s.glyphs[i])==SfntGlyphClass::mark?1:0);});
+                print("\n");continue;}
             bool short_proof=false;
             for(u32 mode=0;mode<2+(short_proof?1u:0u);++mode){const auto s=mode==1?ascii_buffers.shared():ascii_buffers.storage();NativeAsciiResult result{};SfntShapeLimits limits{};if(mode==2)limits.stage_work=32;
                 EQUAL(static_cast<u32>(native_emoji_run(store,plan,{reinterpret_cast<const char*>(text.data),text.count},em,s,&result,limits)),static_cast<u32>(SfntStatus::ok));EQUAL(result.glyph_count,n);EQUAL(result.source_units,units);
@@ -80,7 +97,8 @@ bool corpus(ConstSlice<u8> bytes,NativeRunPlanKind kind) noexcept {
     CHECK(reader.at==bytes.count&&nominal_runs&&nominal_runs<runs&&proof_fallbacks);return true;
 }
 bool run() noexcept {
-    CHECK(arena_initialize(&scratch,16*1024*1024,0,4096)&&arena_initialize(&state,1024*1024,0,4096));wchar_t folder[MAX_PATH];
+    CHECK(arena_initialize(&scratch,16*1024*1024,0,4096)&&arena_initialize(&state,1024*1024,0,4096));wchar_t folder[MAX_PATH],flag[4];
+    recording=GetEnvironmentVariableW(L"MAICORD_FIXTURE_RECORD",flag,4)!=0;
     CHECK(GetTempPathW(MAX_PATH,folder)&&GetTempFileNameW(folder,L"mce",0,temporary));
     const wchar_t* command=GetCommandLineW();CHECK(argument(&command,font_path,32768));
     if(!argument(&command,font_path,32768))return corpus({emoji_fixture,sizeof(emoji_fixture)},NativeRunPlanKind::text)&&corpus({emoji_fixture,sizeof(emoji_fixture)},NativeRunPlanKind::emoji);
@@ -89,6 +107,6 @@ bool run() noexcept {
 }}
 extern "C" void maicord_emoji_run_entry() noexcept {
     using namespace maicord;bool ok=emoji_cleanup(run());
-    print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\ndigest=");number(digest);print("\nroot_bytes_sum=");number(root_bytes);print("\nrejected_fonts=");number(rejected_fonts);print("\nnominal_runs=");number(nominal_runs);print("\nproof_fallbacks=");number(proof_fallbacks);
+    print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\ndigest=");number(digest);print("\nroot_bytes_sum=");number(root_bytes);print("\nrejected_fonts=");number(rejected_fonts);print("\nnominal_runs=");number(nominal_runs);print("\nproof_fallbacks=");number(proof_fallbacks);print("\nknown_divergent=");number(known_divergent);
     print(ok?"\nPASS native emoji frontend\n":"\nFAIL native emoji frontend\n");::maicord::test_process_exit(ok?0u:1u);
 }

@@ -73,4 +73,12 @@ UnicodeBracket unicode_bidi_bracket(u32 code_point) noexcept {
     if(slot==mirror_count||!(mirror_values()[slot]&3))return {code_point,UnicodeBracketType::none};
     return {mirror_paired(code_point,slot),static_cast<UnicodeBracketType>(mirror_values()[slot]&3)};
 }
+u8 unicode_modified_combining_class(u32 code_point) noexcept {
+    if(code_point<0x300)return 0;const auto* properties=unicode_properties(code_point);const auto category=properties->general_category();
+    if(category!=UnicodeGeneralCategory::mn&&category!=UnicodeGeneralCategory::mc&&category!=UnicodeGeneralCategory::me)return 0;
+    if(code_point==0x1a60||code_point==0xfc6)return 254;if(code_point==0xf39)return 127;
+    static constexpr u8 permuted[]{22,15,16,17,23,18,19,20,21,14,24,12,25,13,10,11,26,28,29,30,31,32,33,27,34,35};
+    const u32 value=properties->combining_class();if(value-10u<26)return permuted[value-10];
+    return static_cast<u8>(value==84?4:value==91?5:value==103?3:value==130?132:value==132?131:value);
+}
 } // namespace maicord

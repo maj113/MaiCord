@@ -1,3 +1,4 @@
+// The corpus expectations follow HarfBuzz 15.0.0's default features (tools/font_reference/harfbuzz_fixture.py participation).
 #include "maicord/text/opentype/nominal_participation.hpp"
 #include "maicord/text/opentype/nominal_sources.hpp"
 #include "maicord/core/byte_order.hpp"

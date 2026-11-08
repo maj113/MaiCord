@@ -19,13 +19,49 @@ SfntStatus resolve(const SfntValueRecord& record,const SfntPositionInstance& ins
         if(!spend(result,work,static_cast<u64>(data.region_count)+1))return SfntStatus::resource_limit;}
     return sfnt_position_value_resolve(value,instance,out);
 }
+// A value record's placement moves the glyph right; right to left the offset is stored negated (the renderer draws
+// at pen - advance - offset), so an advance change leaves the glyph's placement alone, as in HarfBuzz.
 inline SfntPosition adjusted(const SfntPosition& p,const SfntPositionAdjustment& v,bool rtl) noexcept {
-    return {p.advance+v.design[2],p.advance_offset+(rtl?v.design[2]-v.design[0]:v.design[0]),p.ascender_offset+v.design[1]};
+    return {p.advance+v.design[2],p.advance_offset+(rtl?-v.design[0]:v.design[0]),p.ascender_offset+v.design[1]};
 }
 inline float scaled(double value,__m128 scale) noexcept {
     const __m128 v=_mm_mul_ss(_mm_set_ss(static_cast<float>(value)),scale);
     return _mm_cvtss_f32(_mm_andnot_ps(_mm_cmpeq_ss(v,_mm_setzero_ps()),v));
 }
+// Visits each horizontal, not cross-stream format-0 pair list of a legacy kern table: visit(pairs,count). False when
+// a header leaves the table; the last list may outgrow its 16-bit length (large tables), the table end bounds it.
+template<class Visit> bool kern_lists(ConstSlice<u8> table,Visit visit) noexcept {
+    if(table.count<4||byte_load_be16(table.data))return false;const u32 count=byte_load_be16(table.data+2);u32 at=4;bool found=false;
+    for(u32 i=0;i<count;++i){if(table.count-at<6)return false;const u32 length=byte_load_be16(table.data+at+2),coverage=byte_load_be16(table.data+at+4);
+        if((coverage&0xff05u)==1){if(table.count-at<14)return false;const u32 pairs=byte_load_be16(table.data+at+6),end=i+1==count?table.count:at+length;
+            if(end>table.count||at+14+pairs*6>end)return false;visit(table.data+at+14,pairs);found=true;}
+        if(length<6)return false;at+=length;}
+    return found;
+}
+i32 kern_value(ConstSlice<u8> table,u16 left,u16 right) noexcept {
+    const u32 key=static_cast<u32>(left)<<16|right;i32 sum=0;
+    kern_lists(table,[&](const u8* pairs,u32 count) noexcept {u32 lo=0,hi=count;
+        while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(byte_load_be32(pairs+mid*6)<key)lo=mid+1;else hi=mid;}
+        if(lo<count&&byte_load_be32(pairs+lo*6)==key)sum+=static_cast<i16>(byte_load_be16(pairs+lo*6+4));});
+    return sum;
+}
+}
+bool sfnt_legacy_kern_valid(ConstSlice<u8> table) noexcept {return table.data&&kern_lists(table,[](const u8*,u32) noexcept {});}
+void sfnt_legacy_kern_glyphs(ConstSlice<u8> table,Slice<u64> bitmap) noexcept {
+    kern_lists(table,[&](const u8* pairs,u32 count) noexcept {
+        for(u32 i=0;i<count;++i)for(u32 side=0;side<2;++side){const u32 glyph=byte_load_be16(pairs+i*6+side*2);
+            if(glyph/64<bitmap.count)bitmap.data[glyph/64]|=1ull<<(glyph%64);}});
+}
+SfntStatus sfnt_legacy_kern_apply(ConstSlice<u8> table,SfntGlyphView glyphs,ConstSlice<u8> flags,Slice<SfntPosition> positions,bool rtl,u64* work) noexcept {
+    const u32 count=sfnt_glyph_count(glyphs);if(flags.count<count||positions.count<count)return SfntStatus::invalid_input;
+    for(u32 i=0;i<count;){u32 j=i+1;while(j<count&&(flags.data[j]&sfnt_position_zero_advance))++j;if(j==count)break;
+        if(!*work)return SfntStatus::resource_limit;--*work;
+        const i32 kern=kern_value(table,sfnt_glyph_at(glyphs,i).glyph,sfnt_glyph_at(glyphs,j).glyph);
+        if(kern){const i32 first=kern>>1,second=kern-first;
+            positions.data[i]=adjusted(positions.data[i],{{0,0,static_cast<double>(first),0}},rtl);
+            positions.data[j]=adjusted(positions.data[j],{{static_cast<double>(second),0,static_cast<double>(second),0}},rtl);}
+        i=j;}
+    return SfntStatus::ok;
 }
 bool sfnt_trailing_spacing_valid(float spacing) noexcept {
     u32 bits=0;copy_bytes(&bits,&spacing,4);return (bits&0x7fffffffu)<0x7f800000u&&(!(bits&0x80000000u)||!(bits&0x7fffffffu));
@@ -73,15 +109,16 @@ SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntG
         positions.data[at]=a;if(pair)positions.data[match.second_input]=b;++result->matches;at=match.next_input;
     }return SfntStatus::ok;
 }
-SfntStatus sfnt_position_finalize(ConstSlice<SfntPosition> positions,ConstSlice<u8> flags,float em,u16 upem,Slice<SfntPlacement> output,u64 work,bool consecutive_zeroes,bool retain_zero_positioning) noexcept {
+// A zero-advance glyph keeps its offset: HarfBuzz zeroes mark advances without moving any glyph
+// (zero_mark_widths_by_gdef when GPOS is present).
+SfntStatus sfnt_position_finalize(ConstSlice<SfntPosition> positions,ConstSlice<u8> flags,float em,u16 upem,Slice<SfntPlacement> output,u64 work,bool retain_zero_positioning) noexcept {
     u32 bits=0;copy_bytes(&bits,&em,4);if(!bits || bits>=0x7f800000u || !upem || positions.count!=flags.count || (positions.count && (!positions.data || !flags.data)))return SfntStatus::invalid_input;
     if(output.count<positions.count)return SfntStatus::output_too_small;if(positions.count && !output.data)return SfntStatus::invalid_input;if(positions.count>work)return SfntStatus::resource_limit;
-    const __m128 scale=_mm_div_ss(_mm_set_ss(em),_mm_set_ss(static_cast<float>(upem)));double removed=0;
+    const __m128 scale=_mm_div_ss(_mm_set_ss(em),_mm_set_ss(static_cast<float>(upem)));
     for(u32 i=0;i<positions.count;++i){const auto& p=positions.data[i];const u8 f=flags.data[i];if((f&~3u) || (!i && !(f&sfnt_position_cluster_start)) || !valid(p))return SfntStatus::invalid_input;
-        const bool zero=(f&sfnt_position_zero_advance)!=0&&!retain_zero_positioning;if(consecutive_zeroes?!zero:(f&sfnt_position_cluster_start)!=0)removed=0;
-        const double x=p.advance_offset+removed;if(!is_finite(x))return SfntStatus::resource_limit;const SfntPlacement value{scaled(zero?0:p.advance,scale),scaled(x,scale),scaled(p.ascender_offset,scale)};
+        const bool zero=(f&sfnt_position_zero_advance)!=0&&!retain_zero_positioning;
+        const SfntPlacement value{scaled(zero?0:p.advance,scale),scaled(p.advance_offset,scale),scaled(p.ascender_offset,scale)};
         if(!is_finite(value.advance)||!is_finite(value.advance_offset)||!is_finite(value.ascender_offset))return SfntStatus::resource_limit;output.data[i]=value;
-        if(zero){removed+=p.advance;if(!is_finite(removed))return SfntStatus::resource_limit;}
     }return SfntStatus::ok;
 }
 }

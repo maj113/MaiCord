@@ -156,8 +156,8 @@ bool corpus() noexcept {
     for(u32 f=0;f<count;++f){u32 size=0,kind=0,script=0,language=0,found=0;ConstSlice<u8> font{};
         CHECK(r.word(&size)&&r.word(&kind)&&r.word(&script)&&r.word(&language)&&r.word(&found)&&r.take(size,&font));
         CHECK(write_font(font));NativeRunPlanHandle h{};CHECK(acquire(temporary,&h));
-        for(u32 mode=0;mode<2;++mode){u32 independent=0,rtl=0,n=0,glyph=0,placement[3]{},nominal=0,layout_glyph=0,layout_placement[3]{};ConstSlice<u8> indices{};
-            CHECK(r.word(&independent)&&r.word(&rtl)&&r.word(&n)&&r.word(&glyph)&&r.word(&placement[0])&&r.word(&placement[1])&&r.word(&placement[2])&&r.word(&nominal)&&r.word(&layout_glyph)&&r.word(&layout_placement[0])&&r.word(&layout_placement[1])&&r.word(&layout_placement[2])&&r.take(n*2,&indices));
+        for(u32 mode=0;mode<2;++mode){u32 independent=0,rtl=0,divergence=0,n=0,glyph=0,placement[3]{},nominal=0,layout_glyph=0,layout_placement[3]{};ConstSlice<u8> indices{};
+            CHECK(r.word(&independent)&&r.word(&rtl)&&r.word(&divergence)&&r.word(&n)&&r.word(&glyph)&&r.word(&placement[0])&&r.word(&placement[1])&&r.word(&placement[2])&&r.word(&nominal)&&r.word(&layout_glyph)&&r.word(&layout_placement[0])&&r.word(&layout_placement[1])&&r.word(&layout_placement[2])&&r.take(n*2,&indices));
             const auto* plan=native_run_plan_get(store,h,independent!=0);const auto roots=kind?plan->positioning_roots:plan->substitution_roots;
             CHECK(roots.count==n);for(u32 i=0;i<n;++i){CHECK(roots[i]==byte_load_le16(indices.data+i*2));++values;}
             CHECK(shape(h,independent!=0,rtl!=0,glyph,placement));
@@ -245,10 +245,10 @@ bool line_corpus() noexcept {
     CHECK(r.at==r.bytes.count);return true;
 }
 bool lookup_bound_guards() noexcept {
-    SfntGsubGlyph glyph{0,SfntGlyphClass::unassigned,0};const double nominal=1;const u8 flag=sfnt_position_cluster_start;SfntPosition position{1,0,0};
+    SfntGsubGlyph glyph{0,SfntGlyphClass::unassigned,0};const u8 flag=sfnt_position_cluster_start;SfntPosition position{1,0,0};
     SfntGposExecutableLookup lookup{};lookup.type=1;lookup.bounds.ready=1;
     SfntGposProgram program{{&lookup,1},{},1};SfntGposExecutionResult result{};
-    auto execute=[&](u64 work) noexcept {return sfnt_gpos_execute_program_lookup(program,0,sfnt_glyph_view(ConstSlice<SfntGsubGlyph>{&glyph,1}),{&nominal,1},{&flag,1},{},{},{&position,1},0,1,false,{},SfntNullAnchorPolicy::parent_coordinates,SfntComponentAnchorPolicy::skip_missing,{},{work,100},&result);};
+    auto execute=[&](u64 work) noexcept {return sfnt_gpos_execute_program_lookup(program,0,sfnt_glyph_view(ConstSlice<SfntGsubGlyph>{&glyph,1}),{&flag,1},{},{},{&position,1},0,1,false,{},SfntComponentAnchorPolicy::skip_missing,{},{work,100},&result);};
     CHECK(execute(1)==SfntStatus::ok&&result.operations==1&&!result.matches&&position.advance==1);
     CHECK(execute(0)==SfntStatus::resource_limit&&result.operations==0);
     lookup.bounds.ready=0;CHECK(execute(1)==SfntStatus::resource_limit);CHECK(execute(100)==SfntStatus::ok&&!result.matches&&position.advance==1);

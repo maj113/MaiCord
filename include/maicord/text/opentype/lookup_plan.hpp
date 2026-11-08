@@ -9,10 +9,11 @@ bool sfnt_alphabetic_script_supported(u32 script_tag) noexcept;
 // Latin/horizontal/en-US full-shaping profile. The caller selects the script and
 // must not apply this profile to joining/reordering scripts. Selects latn, then
 // DFLT if latn is absent; ENG, then that script's DefaultLangSys.
-// Required features cannot be suppressed. Default GSUB: ccmp/locl/rlig/rclt/
-// rvrn/liga/clig/calt. Default GPOS: dist/mark/mkmk/kern. Independent letters use
-// ccmp/locl/rlig/rclt/rvrn/dist/mark/mkmk in both tables (explicit typography
-// replaces optional defaults, including calt). All enabled parameters are one.
+// Required features cannot be suppressed. Both tables apply HarfBuzz's horizontal
+// default-shaper features: rvrn/rand/trak/abvm/blwm/ccmp/locl/mark/mkmk/rlig/calt/
+// clig/curs/dist/kern/liga/rclt, in one stage and without the direction features
+// (ltra/ltrm/rtla/rtlm). Independent letters turn off liga, clig and kern. All
+// enabled parameters are one.
 // Plans full shaping only; nominal-mapping eligibility, which can bypass
 // shaping, is separate (nominal_participation.hpp, nominal_sources.hpp).
 // Duplicate feature tags use the first LangSys-listed index. Lookup IDs are
@@ -38,4 +39,11 @@ SfntStatus sfnt_common_lookup_plan(const SfntLayout& layout,const SfntFeatureSub
 // stage. Output capacity counts every emitted entry.
 SfntStatus sfnt_alphabetic_lookup_plan(const SfntLayout&,const SfntFeatureSubstitutions&,u32 script_tag,bool independent,
     Slice<u64> scratch,Slice<u16> lookup_indices,SfntLookupPlanResult*,u64 work_limit=1000000) noexcept;
+// A shaper feature that matches joiners manually (HarfBuzz F_MANUAL_ZWJ: 1, F_MANUAL_ZWNJ: 2).
+struct SfntJoinerFeature {u32 tag;u8 manual;};
+// ORs into bits (two per lookup index, bit 2L ZWJ and 2L+1 ZWNJ; (2*lookup_count+63)/64 words) the manual
+// flags of the lookups of every feature record with one of the tags (any script and language system, with
+// the feature variations applied), for SfntShapePlan's manual joiner sets. Sets *any when a bit is set.
+SfntStatus sfnt_manual_joiner_lookups(const SfntLayout&,const SfntFeatureSubstitutions&,ConstSlice<SfntJoinerFeature> features,
+    Slice<u64> bits,bool* any,u64 work_limit=1000000) noexcept;
 }

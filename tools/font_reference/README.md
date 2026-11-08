@@ -44,6 +44,156 @@ first-party libraries and `kernel32` only.
   Windows shaping, placement or pixel parity. Fixture fonts are first-party test
   data, not application assets.
 
+## text_reference.py
+
+Records the committed references of `MaiCordNativeAppLineTests`
+(`tests/generated/app_line_reference.{bin,inc}`, read by
+`tests/ui/text/app_line_reference.cpp`). Needs uharfbuzz. HarfBuzz is the shaping
+reference; no DirectWrite is involved.
+
+```powershell
+python tools/font_reference/text_reference.py record [--build <build>] [--merge] [--report <file>]
+python tools/font_reference/text_reference.py explain <run key>
+```
+
+`record` runs every registered app-line test from `<build>` (default
+`D:/MaiCord-build/Release`, after a `-KeepIntermediates -Test` build) with
+`MAICORD_TEXT_REFERENCE_RECORD` set. Each process writes two things: a layout digest
+per 64 cases, which is the engine's own output (positions, lines, hits, decorations
+and editor state), and one HarfBuzz request per distinct native run. A request holds
+the font file and face, direction, paragraph start and end (HarfBuzz's BOT and EOT),
+independent-letter features, axes, script anchor, text, and context for joining
+scripts. The tool then shapes each request with HarfBuzz and compares it with the
+native shape in logical order (a right-to-left buffer is reversed) and at the engine's
+cluster granularity: HarfBuzz clusters inside one engine cluster (one per syllable,
+the caret contract) merge, an engine cluster HarfBuzz splits across its edge differs,
+and glyph IDs and design-unit positions must match exactly (positions are left out
+for tracked or simulated runs). It stores a 32-bit digest of the shape found equal and
+marks the other runs divergent: the test counts those and fails only when a run that
+matched HarfBuzz stops matching. `--report` lists divergent runs per script, raw and
+normalised, and the normalised ones by kind, with keys for `explain`.
+
+The reference shapes each published run alone, so a run whose line continues it in a
+separate run can differ from HarfBuzz through the reference itself. Such runs are
+listed in `REFERENCE_CAUSED` (key and reason); they stay divergent in the reference, and
+`--report` lists them apart from the engine's divergences. The one known case is a
+word-final letter followed by its line's trailing space (a separate run): the engine
+kerns it with that space, as HarfBuzz shaping the whole line does, while the reference
+shapes the letter alone.
+
+Each group of 64 cases records the fonts it used, by table-directory digest. On a
+machine whose system fonts (under a Windows font folder) differ, only the groups and
+runs that used them are skipped; a test with nothing left to check exits 77, and
+`tools\build.ps1` prints how many tests and groups were skipped. The repository's
+fonts must match everywhere. Cases that need no other script run with
+`--bundled-fonts` (`cmake/test_registry.cmake`): Segoe UI, Georgia and Consolas become
+the bundled MuseoModerno, Zilla Slab and BioRhyme. `record` prints how many groups a
+machine with other system fonts still checks (`MAICORD_TEXT_REFERENCE_FOREIGN=1`
+simulates one).
+
+`--merge` keeps the committed profiles and adds this machine's fonts and group
+digests; record it from the same source revision. The manual **Text references**
+workflow (`.github/workflows/text-reference.yml`) does that on the hosted
+windows-2025 runner and uploads the merged reference to commit, after which CI
+checks the system-font cases too. Without `--merge` the reference holds this
+machine alone.
+
+## harfbuzz_fixture.py
+
+Re-derives the expectations of first-party shaping fixtures from HarfBuzz 15.0.0
+(uharfbuzz 0.57.0), keeping each fixture's fonts and inputs; needs uharfbuzz, numpy and
+fontTools. No DirectWrite is involved.
+
+```powershell
+python tools/font_reference/harfbuzz_fixture.py arabic|component|emoji|emoji_layout|gpos|hebrew|joining|marks|participation|plan [--pins <file>]
+```
+
+A font without GPOS is shaped with one holding an unused lookup under `DFLT` and
+`hebr`: HarfBuzz positions the marks of a font without GPOS lookups (or, for Hebrew,
+without a `hebr` GPOS script) from glyph extents, and the engine has no such fallback.
+
+Every case is kept. Where the engine knowingly differs from HarfBuzz, the case (or, for
+`gpos` and `component`, the font; for `plan`, the configuration) is marked known divergent
+with its class, and its expectation is the engine's own output, pinned from the test:
+run the test with `MAICORD_FIXTURE_RECORD=1` (it prints a `pin_*` line per known divergent
+case instead of checking it) and regenerate with `--pins <test output>`. Without pins a
+known divergent case takes HarfBuzz's output. Each test prints its known divergent count.
+
+- `arabic`: the `arabic_*_fixture` corpora of `MaiCordTextUnitTests`
+  (`maicord_native_arabic_plan`, `maicord_native_arabic_run`; pins from both), written as
+  `MCARPL4`, each case shaped as Arabic in its direction. Known divergent: GPOS features
+  masked by joining form or `rtlm` (1) and GPOS lookups meeting a default ignorable other
+  than ZWJ and ZWNJ, which HarfBuzz skips (2). No circle is inserted where the engine
+  keeps a leading default ignorable alone or reverses a left-to-right run.
+- `gpos`: the basic, mark, cursive and ligature positioning corpora
+  (`maicord_native_gpos_execute`), each glyph sequence shaped through a cmap that
+  addresses glyphs by ID with the font's `test` lookups (right to left as Arabic, so
+  HarfBuzz does not reverse the sequence). A seeded ligature is formed by a `tlig`
+  lookup from copies of itself, each mark placed after the component it names. Known
+  divergent fonts: HarfBuzz attaches a glyph only its mark coverage calls a mark (the
+  engine attaches GDEF marks) (1); a single or pair lookup gives a mark an advance or a
+  later lookup moves an attachment (HarfBuzz zeroes mark advances and resolves
+  attachments after all lookups, the engine when each applies) (2); a seed names a
+  component the ligature lacks (3).
+- `component`: `component_shaping_fixture` (`maicord_native_component_shaping`), the
+  nominal glyphs of each text shaped as `gpos` does, without and with `test`; where
+  HarfBuzz forms the kept glyphs, the character map and position flags are HarfBuzz's
+  too (the text's grapheme clusters joined with GSUB's merges; a decomposed ligature
+  keeps its merged cluster). Known divergent fonts: mark coverage without a GDEF mark
+  (1); a ligature whose mark-to-ligature component count differs from its GSUB
+  components (a mark after it takes the table's last component in HarfBuzz, the
+  ligature's last one in the engine) (2); marks after a multiple substitution (HarfBuzz
+  never attaches to its later outputs, the engine may) (3); a context nesting a pair,
+  cursive or contextual lookup (HarfBuzz lets the nested lookup match past the context's
+  input, the engine does not) (4); deferred attachment as in `gpos` (5).
+- `emoji_layout`: `emoji_line_fixture` and `emoji_paragraph_fixture`
+  (`maicord_native_emoji_lines`, `maicord_native_emoji_paragraphs`) keep their recorded
+  Windows line and paragraph geometry; a case HarfBuzz shapes to the recorded placements
+  and map with other glyph IDs (a hidden default ignorable as the space glyph) takes
+  HarfBuzz's glyph IDs.
+- `joining`: `arabic_joining_fixture.inc`, read from a font whose form features give
+  every character its own glyph.
+- `marks`: `arabic_marks_fixture.inc`, the mark order HarfBuzz's normalization and
+  `reorder_marks_arabic` give each sequence.
+- `emoji`: `emoji_run_fixture` (`maicord_native_emoji_runs`), each run shaped left to
+  right from the start of its paragraph; flags mark a cluster's first glyph (2) and a
+  GDEF mark or hidden default ignorable (1). Known divergent: fonts with a direction
+  feature (`ltra`, `ltrm`, `rtla`, `rtlm`; the engine's plans do not depend on direction)
+  (1); HarfBuzz keeps a default ignorable's own glyph (substitution touched it; the engine
+  sees an unchanged glyph and hides it) (2); a ligature whose mark-to-ligature component
+  count differs from its GSUB components (3).
+- `hebrew`: `hebrew_compat_fixture.inc` (`maicord_native_latin_guards`), each case shaped
+  as Hebrew in its direction. Known divergent: left-to-right cases, whose graphemes
+  HarfBuzz reverses (the engine does so only for Arabic) (1); GPOS meeting a default
+  ignorable other than ZWJ and ZWNJ (2) or a multiple substitution's output (3).
+- `participation`: `nominal_participation_fixture` (`maicord_native_nominal_participation`),
+  the glyphs HarfBuzz's default features can act on.
+- `plan`: `lookup_plan_fixture` (see below), the lookups of HarfBuzz's default features
+  (rvrn in its own first stage), HarfBuzz's glyph and placement for `a` and the
+  nominal gate. Configurations of fonts with a direction feature are known divergent and
+  shaped by HarfBuzz without those features.
+
+## syllabic_fixtures.py
+
+Re-derives `tests/generated/syllabic_shape_fixture.inc` (`MaiCordSyllabicShapeTests`) from
+HarfBuzz 15.0.0; needs uharfbuzz and fontTools.
+
+```powershell
+python tools/font_reference/syllabic_fixtures.py [--fuzz 1500] [--fonts C:/Windows/Fonts] [--words khmer=<corpus> ...]
+```
+
+- Cluster-start corpora of Sinhala, Khmer, Myanmar and Tibetan
+  (`maicord_native_syllabic_shape`): the fixture's own vectors, word corpora given with
+  `--words` and seeded random sequences. HarfBuzz flags every glyph after the first of a
+  syllable or grapheme unsafe to break; in a font that maps every candidate character and
+  has no layout tables nothing else sets the flag, so the unflagged scalars are the
+  cluster starts. Vectors listed in `DIVERGENT` stay, pinned: the test requires them to
+  keep differing.
+- Sample strings on the Windows fonts of `maicord_native_{khmer,myanmar,sinhala,tibetan}_owned`
+  (glyphs, design-unit positions and the character map) and on Segoe UI (HarfBuzz's
+  default shaper for Myanmar and Sinhala there), with each font's `head`
+  checkSumAdjustment: against another font version the test checks counts only.
+
 ## MaiCordFontReference
 
 `main.cpp`, `program_oracle.cpp`, `dwrite_outline_reference.cpp` and the paint adapter
@@ -261,8 +411,8 @@ MaiCordContextTests.exe context-corpus.bin
 `MaiCordGsubExecutionReference` (`gsub_execution_reference.cpp`) loads a font file
 directly, takes the script from `AnalyzeScript` and records `GetGlyphs` output for
 one script run (Latin, left to right, en-US). The same source builds
-`MaiCordGposExecutionReference`, `MaiCordFeaturePlanReference`,
-`MaiCordEmojiLineReference` and `MaiCordEmojiItemsReference` with other defines.
+`MaiCordFeaturePlanReference`, `MaiCordEmojiLineReference` and
+`MaiCordEmojiItemsReference` with other defines.
 
 ```text
 MaiCordGsubExecutionReference.exe <font-path> <hex scalars, comma separated> <0|1>
@@ -337,93 +487,44 @@ MaiCordGposAttachmentTests.exe <attachment-corpus>.bin
 
 ### GPOS execution
 
-`MaiCordGposExecutionReference` is the GSUB reference built with
-`MAICORD_PLACEMENT_REFERENCE`; it adds `GetGlyphPlacements` with exact binary32
-outputs.
-
-```text
-MaiCordGposExecutionReference.exe <font-path> <hex scalars> <0|1> <em-size bits> <rtl 0|1> <sideways 0|1>
-```
-
-`<em-size bits>` is the decimal bit pattern of the binary32 font size. The JSON
-object gains `placement_hresult`, `em_bits`, `rtl`, `sideways` and `placement_bits`
-(`[advance, advance offset, ascender offset]` float bits per glyph); float bits are
-authoritative. Exit codes as for the GSUB reference.
-
-`gpos_execution_oracle.py generate` creates first-party fonts with isolated GPOS
-scheduling and optional always-on GSUB ligatures, including `components-*` fonts
-(distinct component anchors, scheduled GSUB stages, mark-to-mark follow-ups).
-`record` captures one Latin run, en-US, horizontal placement, both RTL values and
-sizes 1000, 16, 13.25 and 17.3 DIPs. The case `components-delete-intervening-base`
-has prohibited zero-length MultipleSubst output (`invalid_input` metadata); it is
-not valid glyph-deletion semantics, and `export-ligatures` and
-`component_shaping_oracle.py` skip it.
+`gpos_execution_oracle.py` creates first-party fonts with isolated GPOS scheduling
+and optional always-on GSUB ligatures, including `components-*` fonts (distinct
+component anchors, scheduled GSUB stages, mark-to-mark follow-ups).
 
 ```powershell
-python tools/font_reference/gpos_execution_oracle.py generate <fixtures>
-cmake --build <build> --config Release --target MaiCordGposExecutionReference
-python tools/font_reference/gpos_execution_oracle.py record <fixtures> --exe <bin>/MaiCordGposExecutionReference.exe --out <windows>.json
+python tools/font_reference/gpos_execution_oracle.py <fixtures>
 ```
 
-Each `export-*` mode takes `<fixtures> --observations <windows>.json --out
-<corpus>.bin [--header <path>]` and keeps the full font bytes, scheduled lookup
-indices, recorded glyphs and shaping flags, and exact disabled and enabled Windows
-placement bits. Glyphs and shaping flags stay reference inputs. `MaiCordGposExecuteTests`
-(`tests/text/opentype/gpos_execute_test.cpp`) runs all four built-in corpora; given a corpus file, it
-reads the file's format from its magic.
-`export-basic` (`MCGPX01`) selects fixtures with only single/pair lookups,
-including extensions.
+`MaiCordGposExecuteTests` (`tests/text/opentype/gpos_execute_test.cpp`) runs four
+built-in corpora; given a corpus file, it reads the file's format from its magic. The
+basic (`MCGPX02`, single/pair lookups), mark (`MCGMK02`, adds mark-to-base and
+mark-to-mark), cursive (`MCGCU02`, adds cursive) and ligature (`MCGLP02`, root GPOS
+types 1 through 6 with attachment seeds) corpora keep the full font bytes, scheduled
+lookup indices, glyphs and shaping flags, with HarfBuzz placements (or pinned engine
+placements for a known divergent font, whose class version 02 records) from
+`harfbuzz_fixture.py gpos`, which also rewrites the oracle's version 01. The ligature corpus's seeds name each mark's target and
+component (unknown history has its own sentinel and takes the ligature's last
+component, as in HarfBuzz); they are first-party fixture inputs, and no GSUB
+provenance is derived. The `components-*` fonts appear only there.
 
 ```powershell
-python tools/font_reference/gpos_execution_oracle.py export-basic <fixtures> --observations <windows>.json --out <positions>.bin --header tests/generated/gpos_execute_fixture.inc
+python tools/font_reference/harfbuzz_fixture.py gpos
 cmake --build <build> --config Release --target MaiCordGposExecuteTests
-MaiCordGposExecuteTests.exe <positions>.bin
+MaiCordGposExecuteTests.exe
 ```
 
-`export-marks` (`MCGMK01`) adds mark-to-base and
-mark-to-mark lookups; exact floats are compared under the Windows null-target
-compatibility policy.
+`component_shaping_fixture` (`MCCMP02`, with each font's known divergence class) holds ligature-positioning fixtures (GPOS
+1-8) as scalar inputs with expected glyphs, character maps and placements, and no
+attachment seeds; `harfbuzz_fixture.py component` derives the placements. The test
+maps scalars through native cmap, runs the fixture's GSUB schedule with component
+history, then the native GPOS program. Source clusters come from native grapheme
+boundaries and positioning flags from final classes and cluster transitions; recorded
+flags are only compared. Initial predecessor affinity/class grouping is test policy.
 
 ```powershell
-python tools/font_reference/gpos_execution_oracle.py export-marks <fixtures> --observations <windows>.json --out <marks>.bin --header tests/generated/gpos_mark_execute_fixture.inc
-cmake --build <build> --config Release --target MaiCordGposExecuteTests
-MaiCordGposExecuteTests.exe <marks>.bin
-```
-
-`export-cursive` (`MCGCU01`) adds cursive
-lookups.
-
-```powershell
-python tools/font_reference/gpos_execution_oracle.py export-cursive <fixtures> --observations <windows>.json --out <cursive>.bin --header tests/generated/gpos_cursive_execute_fixture.inc
-cmake --build <build> --config Release --target MaiCordGposExecuteTests
-MaiCordGposExecuteTests.exe <cursive>.bin
-```
-
-`export-ligatures` (`MCGLP01`) selects root GPOS
-types 1 through 6 and writes attachment seeds for the ligature fixtures (unknown
-history has its own component sentinel because the measured null-anchor behavior
-differs). The seeds are first-party fixture inputs; no GSUB provenance is derived.
-The `components-*` fonts appear only here; the other exporters omit their GPOS5
-lookups.
-
-```powershell
-python tools/font_reference/gpos_execution_oracle.py export-ligatures <fixtures> --observations <windows>.json --out <ligatures>.bin --header tests/generated/gpos_ligature_execute_fixture.inc
-cmake --build <build> --config Release --target MaiCordGposExecuteTests
-MaiCordGposExecuteTests.exe <ligatures>.bin
-```
-
-`component_shaping_oracle.py` (`MCCMP01`) exports the valid ligature-positioning
-fixtures (GPOS 1-8) as scalar inputs with expected glyphs, character maps and
-placements, and no attachment seeds. The test maps scalars through native cmap, runs
-the fixture's GSUB schedule with component history, then the native GPOS program.
-Source clusters come from native grapheme boundaries and positioning flags from
-final classes and cluster transitions; recorded flags are only compared. Initial
-predecessor affinity/class grouping is test policy.
-
-```powershell
-python tools/font_reference/component_shaping_oracle.py <fixtures> --observations <windows>.json --out <components>.bin --header tests/generated/component_shaping_fixture.inc
+python tools/font_reference/harfbuzz_fixture.py component
 cmake --build <build> --config Release --target MaiCordComponentShapingTests
-MaiCordComponentShapingTests.exe <components>.bin
+MaiCordComponentShapingTests.exe
 ```
 
 `MaiCordCursiveDeferredTests` compares eager and coalesced reverse-cursive
@@ -459,17 +560,15 @@ The binary also has the modes `hit-layout`, `edit-layout`, `font-metrics`,
 `metric-cost`, `ranges`, `range-profile` and `range-interior`, not covered here.
 Exit 0 success, 1 failure, 2 bad arguments.
 
-`lookup_plan_oracle.py` (`MCPLN03`) generates first-party fonts for the two
-MaiCord typography modes (default and independent-letter) and records full
-`TextAnalyzer` shaping and `TextLayout` output (`layout`); `layout-differences.json`
-keeps differences between the two Windows API layers. The native planner owns no
-memory and supports only the horizontal Latin/en-US full-shaping profile and the
-one-scalar nominal gate; it does not decide general `TextLayout` range eligibility
-or other script stages.
+`lookup_plan_fixture` (`MCPLN04`, with each configuration's known divergence class) holds first-party fonts for the two MaiCord
+typography modes (default and independent-letter); `harfbuzz_fixture.py plan`
+derives its lookup lists, HarfBuzz's glyph and placement for `a`, and the nominal
+gate. The native planner owns no memory and supports only the horizontal
+Latin/en-US full-shaping profile and the one-scalar nominal gate; it does not decide
+general `TextLayout` range eligibility or other script stages.
 
 ```powershell
-cmake --build <build> --config Release --target MaiCordFeaturePlanReference
-python tools/font_reference/lookup_plan_oracle.py <output> --exe <bin>/MaiCordFeaturePlanReference.exe --header tests/generated/lookup_plan_fixture.inc
+python tools/font_reference/harfbuzz_fixture.py plan
 cmake --build <build> --config Release --target MaiCordLookupPlanTests
 MaiCordLookupPlanTests.exe
 ```

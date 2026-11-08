@@ -28,7 +28,7 @@ struct SfntGposExecutionFrame {ConstSlice<u8> actions;u32 positions,count,next_a
 struct SfntGposExecutionScratch {Slice<SfntGposExecutionFrame> frames;Slice<u32> positions;Slice<u64> cursive_bits;Slice<double> ligature_prefix;Slice<SfntCursiveChainNode> cursive_chains;};
 struct SfntGposExecutionLimits {u64 operations;u32 match_work;};
 struct SfntGposExecutionResult {u64 operations,matches,actions;u32 max_depth;};
-static_assert(sizeof(SfntGposExecutableLookup)==64 && sizeof(SfntGposProgram)==88 && sizeof(SfntGposExecutionFrame)==32 && sizeof(SfntGposExecutionResult)==32);
+static_assert(sizeof(SfntGposExecutableLookup)==64 && sizeof(SfntGposProgram)==96 && sizeof(SfntGposExecutionFrame)==32 && sizeof(SfntGposExecutionResult)==32);
 // Natural horizontal execution of a caller-scheduled lookup. Contexts match
 // formats 1/2/3; extension lookups are resolved during preparation. Nested input
 // ranges stay within their parent match (including trailing ignored glyphs);
@@ -45,8 +45,8 @@ static_assert(sizeof(SfntGposExecutableLookup)==64 && sizeof(SfntGposProgram)==8
 // are disjoint. Limits bound work and active cycles. On failure positions may
 // hold earlier committed actions: discard the attempt, never retry in place.
 SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 lookup,SfntGlyphView glyphs,
-    ConstSlice<double> nominal_advances,ConstSlice<u8> position_flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> target_glyphs,
+    ConstSlice<u8> position_flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> target_glyphs,
     Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,const SfntPositionInstance& instance,
-    SfntNullAnchorPolicy null_policy,SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,
+    SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,
     SfntGposExecutionLimits limits,SfntGposExecutionResult* output) noexcept;
 }

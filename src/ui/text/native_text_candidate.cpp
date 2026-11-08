@@ -85,6 +85,9 @@ struct IndicFormProfile {IndicFormProfile* next;NativeIndicFormPlan plan;};
 // Glyphs immediately follow this header in the catalog arena. The cache owns
 // one native font reference and shares the immutable base-format identity.
 struct NativeOmissionSign {NativeOmissionSign* next;const NativeFormat* format;NativeFontRunHandle font;float width,baseline;u32 glyphs;};
+// A non-directional styled paragraph's shaping group: its source units and how native_latin_paragraph_shape shaped
+// it (binding null: another shaper, not reshaped at an emergency break).
+struct StyledGroup {u32 first_unit,end_unit;const Binding* binding;const NativeAlphabeticPlan* profile;float em;bool force;};
 static_assert(sizeof(Binding)==40&&sizeof(StyledSpan)==24);
 template<class T> Slice<T> take(Arena& arena,u32 count) noexcept {return {count?arena_allocate<T>(&arena,count):nullptr,count};}
 }
@@ -107,6 +110,8 @@ struct NativeTextContext {
     Slice<NativeParagraphRun> paragraph_runs;bool last_paragraph;u32 storage_retries,text_epoch,route_epoch;const NativeFormat* route_format;
     u64 paragraphs_shaped,paragraphs_measured;
     u64 latin_shaped,latin_measured;
+    // Emergency breaks tested for crossed shaping, and those reshaped (reshape_emergency_cuts).
+    u64 cut_checks,cut_reshapes;
     ConstSlice<TextStyleSpan> last_styles;Slice<StyledSpan> styled_spans;Slice<SfntFontLineParts> styled_parts;
     float last_style_em;bool last_styled,last_fixed_weight;u8 last_mode;bool output_capacity_failed;
     Slice<NativeParagraphLine> styled_lines;
@@ -119,6 +124,8 @@ struct NativeTextContext {
     IndicFormProfile* form_profiles;
     NativeOmissionSign* omission_signs;
     Slice<u16> styled_analysis;
+    // Non-directional styled paragraphs only: the shaping groups, in source order.
+    Slice<StyledGroup> styled_groups;
     // Initially self; after recovery this owns the stable binding/plan backing.
     void* backing;
 };
@@ -136,7 +143,7 @@ static_assert(sizeof(NativeTextContext)%alignof(Binding)==0);
 constexpr usize page_bytes(usize bytes) noexcept {return (bytes+4095u)&~usize{4095};}
 static_assert(sizeof(NativeTextCatalogScope)==112);
 #if defined(_WIN32)
-static_assert(sizeof(NativeTextContext)==2560);
+static_assert(sizeof(NativeTextContext)==2592);
 #endif
 static_assert(binding_region_bytes==16384&&context_reserved_bytes==40960);
 static_assert(page_bytes(sizeof(NativeTextContext))==4096&&
@@ -508,6 +515,11 @@ NativeLatinBoundaryStorage boundary_storage(Slice<NativeParagraphRun> runs) noex
     auto* scalars=reinterpret_cast<u32*>(runs.data);
     return {{scalars,runs.count},{reinterpret_cast<u8*>(scalars+runs.count),runs.count+1}};
 }
+// Whether the text at byte begins a paragraph: it starts the text or follows CR, LF, VT, FF, NEL, LS or PS.
+bool begins_paragraph(Utf8View text,u32 byte) noexcept {
+    if(!byte)return true;const u8 last=static_cast<u8>(text.data[byte-1]);if(last-10u<4)return true;
+    return (byte>=2&&last==0x85&&static_cast<u8>(text.data[byte-2])==0xc2)||(byte>=3&&(last==0xa8||last==0xa9)&&static_cast<u8>(text.data[byte-2])==0x80&&static_cast<u8>(text.data[byte-3])==0xe2);
+}
 bool paragraph(const TextSystem& system,const Binding& binding,const NativeFormat* format,const NativeTextRequest& request,
     ShapedText* output,TextMeasureResult* measure,const ParagraphMode& mode) noexcept {
     auto& owner=*system.native_text;const Utf8View text=request.text;const float width=request.width,height=request.height;
@@ -543,7 +555,7 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
             // Source maps, clusters and runs are bounded by UTF-16 units, not UTF-8 bytes.
             s.source_glyphs=take<u32>(owner.scratch,units);s.clusters=take<NativeParagraphCluster>(owner.scratch,units);
             runs=take<NativeParagraphRun>(owner.scratch,units);if(!runs.data)return false;
-            status=latin?native_latin_paragraph_shape(owner.store,binding.plan,text,system.independent_letters,em,s,boundary_storage(runs),&shape,nullptr,em*system.tracking,mode.profile):native_ascii_paragraph_shape(owner.store,binding.plan,text,system.independent_letters,em,s,&shape,em*system.tracking);
+            status=latin?native_latin_paragraph_shape(owner.store,binding.plan,text,system.independent_letters,em,s,boundary_storage(runs),&shape,em*system.tracking,mode.profile):native_ascii_paragraph_shape(owner.store,binding.plan,text,system.independent_letters,em,s,&shape,em*system.tracking);
             if(status!=SfntStatus::output_too_small||attempt)break;++owner.storage_retries;
         }
         if(status!=SfntStatus::ok){++owner.execute_failed;return false;}

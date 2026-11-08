@@ -79,8 +79,9 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
     auto& state=*static_cast<RtlLineOutput*>(context);auto& owner=state.owner;auto& output=*state.output;const auto& s=owner.paragraph_storage;
     if(first>output.run_capacity||runs.count>output.run_capacity-first||(runs.count&&!output.runs)||!output.glyphs||!output.clusters){output_capacity_failure(owner);return SfntStatus::output_too_small;}
     if(!runs.count&&!state.omission)return SfntStatus::ok;
-    // Trimming keeps the original contextual glyph forms. An omission is an
-    // inline object within the shaped line, not a new shaping boundary.
+    // A run that a line cuts from its shaping group reshapes alone with its joining context, as HarfBuzz
+    // shapes each published run; independent letters reshape every piece of a wrapped paragraph. An
+    // omission is an inline object within the shaped line, not a new shaping boundary.
     const bool refit=!state.omission&&owner.last_independent&&runs.count&&(first||static_cast<u32>(runs[runs.count-1].source_first)+runs[runs.count-1].source_count<owner.paragraph_shape.source_units);
     u32 trailing=0;while(trailing<runs.count&&runs[trailing].source_first<trailing_source)++trailing;
     if(trailing&&static_cast<u32>(runs[trailing-1].source_first)+runs[trailing-1].source_count>trailing_source)return SfntStatus::unsupported_sequence;
@@ -91,17 +92,16 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
         while(state.span+1<owner.styled_spans.count&&owner.styled_spans[state.span].end_unit<=first_run.source_first)++state.span;
         const auto& item=owner.styled_spans[state.span];const u32 analysis=analysis_for(state.span);
         const bool emoji_item=item.binding()->font_flags==emoji_font_flag;
-        const u8 level=level_for(run,analysis);const bool reshape=first_run.glyph_count&&refit&&
+        const bool cut=static_cast<u32>(first_run.source_first)>item.first_unit||static_cast<u32>(first_run.source_first)+first_run.source_count<item.end_unit;
+        const u8 level=level_for(run,analysis);const bool reshape=first_run.glyph_count&&!state.omission&&(refit||cut)&&
             !(item.flags & text_style_custom_emoji) && (!emoji_item||((analysis>>8)&~7u)==arabic_script);
         u32 last=run+1;
-        // A drawing-effect boundary is not a shaping boundary. Refit adjacent
-        // same-font/script/direction runs together, then restore paint ranges.
-        if(reshape&&refit){u32 span=state.span;
+        // A line-fitted run reshapes alone, as its paragraph group did: shaping never crosses a style
+        // range (see same_group in prepare_styled_shape), so only pieces of one styled span refit together.
+        if(reshape){u32 span=state.span;
             while(last<runs.count&&runs[last].glyph_count){
                 while(span+1<owner.styled_spans.count&&owner.styled_spans[span].end_unit<=runs[last].source_first)++span;
-                const auto& next=owner.styled_spans[span];const u32 other=analysis_for(span);
-                if(((next.flags ^ item.flags) & text_style_custom_emoji)||next.em!=item.em||next.binding()->plan.slot!=item.binding()->plan.slot||next.binding()->plan.generation!=item.binding()->plan.generation||
-                   ((next.binding()->key^item.binding()->key)&0x0c000000u)||((other^analysis)&0x7f901u)||((level_for(last,other)^level)&1)||(((analysis>>8)&~7u)==arabic_script&&level_for(last,other)!=level))break;
+                if(span!=state.span||((level_for(last,analysis)^level)&1))break;
                 ++last;
             }
         }
@@ -120,7 +120,8 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
             SfntStatus status;
             if (emoji_item)
                 status = native_emoji_run(owner.store, *item.binding()->emoji, input, item.em, s.work.run,
-                                          &result, {}, false, shaping_rtl, script == arabic_script);
+                                          &result, {}, false, shaping_rtl, script == arabic_script,
+                                          begins_paragraph({owner.last_text.data, owner.last_text.count}, first_byte));
             else if (form_script(script))
                 status = form_run(form_script_profile(script), owner, *item.binding(), input, item.em,
                                   s.work.run, &result, spacing, shaping_rtl);
@@ -137,7 +138,8 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
                     if (script == arabic_script)
                         status = native_arabic_run(owner.arabic_store, item.binding()->arabic, input,
                                                    owner.last_independent, shaping_rtl, item.em, s.work.run,
-                                                   &result);
+                                                   &result, {}, arabic_joining_context({owner.last_text.data, owner.last_text.count}, first_byte, state.byte),
+                                                   begins_paragraph({owner.last_text.data, owner.last_text.count}, first_byte));
                     else {
                         const auto* profile =
                             alphabetic_profile(owner, *item.binding(), script, owner.last_independent);
@@ -146,7 +148,8 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
                         status = native_alphabetic_run(owner.store, *profile, input, item.em, s.work.run,
                                                        &result, {},
                                                        profile->script_tag != 0 && !profile->allow_missing,
-                                                       !mixed || !(analysis & 256), shaping_rtl);
+                                                       !mixed || !(analysis & 256), shaping_rtl,
+                                                       begins_paragraph({owner.last_text.data, owner.last_text.count}, first_byte));
                     }
                     if (status == SfntStatus::ok && spacing)
                         status = sfnt_trailing_spacing(
@@ -171,7 +174,7 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
             if(count>output.glyph_capacity-state.written||state.written+count>65535||end_source>output.cluster_capacity){output_capacity_failure(owner);return SfntStatus::output_too_small;}
             float width=r.glyph_count?0:r.width;
             for(u32 g=0;g<count;++g){const auto& placement=reshape?s.work.run.placements[glyph_first+g]:s.placements[r.glyph_first+g];const u16 glyph=reshape?s.work.run.glyphs[glyph_first+g]:s.glyphs[r.glyph_first+g];
-                const float advance=refit?placement.advance:s.placements[r.glyph_first+g].advance;width=decoration_add(width,advance);
+                const float advance=placement.advance;width=decoration_add(width,advance);
                 output.glyphs[state.written+g]={advance,placement.advance_offset,placement.ascender_offset,glyph,0};}
             for(u32 u=0;u<r.source_count;++u){const u32 glyph=reshape?s.work.run.character_glyphs[source+u]:s.source_glyphs[r.source_first+u];
                 output.clusters[r.source_first+u]=glyph==0xffffffffu?0xffffu:static_cast<u16>(state.written+glyph-glyph_first);}
@@ -458,6 +461,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     else if(presentation_spans(text,styles,presentation,resolved,script_bytes,fallback?&system:nullptr,fallback?format:nullptr,alphabetic?script_bytes:nullptr,fallback,nullptr,editor,mixed?directions:nullptr)!=count)return false;
     NativeSpanAnalysis<StyledSpan> continuity{script_bytes,resolved};
     auto analysis=take<u16>(owner.scratch,mixed?count:0);if(mixed&&!analysis.data)return false;
+    auto groups=take<StyledGroup>(owner.scratch,rtl||mixed?0:count);if(!rtl&&!mixed&&!groups.data)return false;
     const auto prefix=arena_mark(&owner.scratch);
     u32 at=0,units=0;UnicodeGraphemeState graphemes{};
     const bool classify=!system.independent_letters&&(count>1||alphabetic);
@@ -471,7 +475,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         const auto* instance=classify&&!selected?native_font_instance_get(*owner.store.instances,owner.store.slots[span.binding()->plan.slot-1].instance):nullptr;
         const auto* font=instance?native_font_get(*owner.store.instances->fonts,instance->face):nullptr;bool plain=font!=nullptr&&(continuity[i]&~7u)<128;
         while(at<span.end_byte){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid||cp.width>span.end_byte-at)return false;
-            if(editor||classify||emoji){const bool boundary=unicode_grapheme_boundary(graphemes,cp.codepoint);
+            {const bool boundary=unicode_grapheme_boundary(graphemes,cp.codepoint);
                 if(at==span.first_byte){continuity[i]|=boundary?2:0;
                     // The explicit font override separates a standalone skin
                     // modifier from a preceding ordinary-font grapheme.
@@ -498,54 +502,6 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     const auto same_plan=[](const StyledSpan& a,const StyledSpan& b) noexcept {return a.binding()->plan.slot==b.binding()->plan.slot&&a.binding()->plan.generation==b.binding()->plan.generation&&((a.binding()->key^b.binding()->key)&0x0c000000u)==0&&a.em==b.em;};
     const auto paint_identity=[&](u32 byte) noexcept {u32 lo=0,hi=styles.count;while(lo<hi){const u32 mid=lo+(hi-lo)/2;
         if(styles[mid].byte_offset+styles[mid].byte_count<=byte)lo=mid+1;else hi=mid;}return lo<styles.count&&styles[lo].byte_offset<=byte?lo+1:0;};
-    // A new font-property range can restart neutral script context after a
-    // fallback symbol; keep its original start, since a size-only cut through a
-    // selector differs from a complete symbol or a font/decoration transition.
-    // Prior-family availability comes from prepared bindings: acquiring one here
-    // could reset the arena holding these spans.
-    // With tracking the full-shaping script cuts stay, including a neutral space
-    // after an emoji: nominal-space coalescing would change float accumulation
-    // in caret endpoints and decoration ranges despite identical glyph origins.
-    if(mixed&&!system.independent_letters&&!system.tracking){u32 written=0,property_start=0,property_end=0,property_style=0,property_flags=0,previous_property_flags=0;bool neutral_property=false;
-        for(u32 i=0;i<count;){auto item=resolved[i];u16 policy=continuity[i];u8 level=directions[i];u32 last=i+1;
-            if(editor&&styles.count)while(property_end<=item.first_byte){const u32 previous_start=property_start;property_start=property_end;
-                neutral_property=previous_start<property_start;for(u32 byte=previous_start;neutral_property&&byte<property_start;++byte)neutral_property=text.data[byte]==' ';
-                while(property_style<styles.count&&styles[property_style].byte_offset+styles[property_style].byte_count<=property_start)++property_style;
-                previous_property_flags=property_flags;property_flags=property_style<styles.count&&styles[property_style].byte_offset<=property_start?styles[property_style].flags:0;
-                property_end=font_span_end(styles,property_start,text.bytes,property_style,system,format,property_flags);if(property_end<=property_start)return false;
-            }
-            bool resumed_context=editor&&i&&((continuity[i-1]&4)||((continuity[i-1]&~7u)==128))&&property_start;
-            if(resumed_context&&property_start>=resolved[i-1].first_byte&&(!(continuity[i-1]&2)||property_start>resolved[i-1].first_byte))
-                resumed_context=!(property_flags&(text_style_underline|text_style_strikethrough))&&span_size(system,format,property_flags)==em&&
-                    same_query(font_query(owner,format,requested_font(system,property_flags)),font_query(owner,format,0));
-            if(resumed_context&&!neutral_property){const bool font_changed=!same_query(font_query(owner,format,requested_font(system,previous_property_flags)),font_query(owner,format,requested_font(system,item.flags)));
-                resumed_context=font_changed&&!(continuity[i-1]&2)&&span_size(system,format,previous_property_flags)!=item.em;const u32 requested=requested_font(system,previous_property_flags);
-                for(u32 b=0;b<owner.binding_count;++b){const auto& prior=owner.bindings[b];if((prior.key&binding_default)&&prior.font_flags==requested&&(prior.format==format||same_font(prior.format->font,format->font))){resumed_context|=(prior.key&binding_missing_family)==0&&(font_changed||(item.em==em&&span_size(system,format,previous_property_flags)!=em)||((previous_property_flags^item.flags)&(text_style_underline|text_style_strikethrough))||(continuity[i-1]&2)||property_start<resolved[i-1].first_byte);break;}}
-            }
-            // A size or decoration override resumes nominal Latin after emoji,
-            // even when the neutral space inherited the preceding script.
-            const bool fresh_context=resumed_context||(written&&(continuity[written-1]&4)&&(item.em!=em||(item.flags&(text_style_underline|text_style_strikethrough)))&&last<count&&(continuity[last]&1))||(policy&~7u)==128||(written&&(continuity[written-1]&~7u)==128&&
-                paint_identity(resolved[written-1].first_byte)!=paint_identity(item.first_byte));
-            if(last<count&&(!editor||resumed_context||(item.flags&(text_style_underline|text_style_strikethrough))||(item.em!=em&&(continuity[last]&1))||!same_query(font_query(owner,format,requested_font(system,item.flags)),font_query(owner,format,requested_font(system,0))))&&
-               (item.binding()->key&(binding_default|binding_missing_family))==binding_default&&!(level&1)&&level==directions[last]&&fresh_context&&!(policy&4)&&!(continuity[last]&4)&&(policy&~7u)!=64&&(continuity[last]&~7u)!=64&&
-               (!written||resumed_context||!same_plan(resolved[written-1],item))&&same_plan(item,resolved[last])&&item.flags==resolved[last].flags&&
-               paint_identity(item.first_byte)==paint_identity(resolved[last].first_byte)&&((policy^continuity[last])&~7u)){
-                bool spaces=true;for(u32 byte=item.first_byte;spaces&&byte<item.end_byte;++byte)spaces=text.data[byte]==' ';
-                bool compatible=(continuity[last]&1)!=0;
-                if(spaces&&!compatible){const auto* plan=native_run_plan_get(owner.store,item.binding()->plan);
-                    compatible=plan&&plan->substitutions&&!plan->substitutions->lookups.count;
-                    for(u32 byte=resolved[last].first_byte;compatible&&byte<resolved[last].end_byte;){const auto cp=utf8_decode_one(text.data+byte,resolved[last].end_byte-byte);
-                        compatible=cp.valid&&nominal_scalar_is_simple(cp.codepoint);byte+=cp.width;}
-                }
-                // A nominal space can carry a resumed size context even when
-                // the following alphabetic glyph needs shaping. A participating
-                // space retains the old script boundary and accumulation order.
-                if(spaces&&(compatible||(resumed_context&&neutral_property&&(policy&1)&&span_size(system,format,previous_property_flags)!=item.em))){item.end_byte=resolved[last].end_byte;item.end_unit=resolved[last].end_unit;
-                    policy=static_cast<u16>((continuity[last]&~7u)|(policy&2)|((policy&continuity[last])&1));++last;}
-            }
-            resolved[written]=item;continuity[written]=policy;directions[written]=level;++written;i=last;
-        }count=written;
-    }
     // A font override that resolves to the adjacent physical face does not
     // establish a Common script item. Its shared-script frontend is still
     // required; do not substitute separately shaped runs at that boundary.
@@ -592,40 +548,14 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
             if(!plain)for(u32 i=first;i<last;++i)continuity[i]&=static_cast<u16>(~1u);first=last;
         }
     }
-    // Even levels can differ while sharing an LTR shaping context (for
-    // example numbers followed by a space outside the RTL embedding).
-    // Keep full levels on spans for layout; shaping needs their parity.
-    u32 cached_space_span=0xffffffffu;bool cached_space=false;
+    // A shaping group is one drawing run: consecutive spans of one script, face, size, style range and
+    // direction parity (font fallback, UAX #24 script and UAX #9 level cuts come from presentation_spans).
+    // Shaping crosses a style boundary only inside a grapheme, which stays one cluster.
     const auto same_group=[&](u32 a,u32 b) noexcept {const u32 byte=resolved[a].first_byte;
         const bool crlf_cut=byte&&text.data[byte]=='\n'&&text.data[byte-1]=='\r';
-        const u32 a_script=continuity[a]&~7u,b_script=continuity[b]&~7u;
-        bool compatible=a_script==b_script;
-        if(!compatible&&editor&&mixed&&(resolved[a].binding()->key&binding_missing_family)&&
-           ((a_script==arabic_script&&b_script==128)||(a_script==128&&b_script==arabic_script))){
-            const u32 index=a_script==128?a:b;
-            if(cached_space_span!=index){cached_space_span=index;cached_space=true;const auto& common=resolved[index];
-                for(u32 at=common.first_byte;cached_space&&at<common.end_byte;){const auto cp=utf8_decode_one(text.data+at,common.end_byte-at);
-                    cached_space=cp.valid&&(cp.codepoint==32||native_text_bidi_format(cp.codepoint));if(!cp.valid)break;at+=cp.width;}}
-            compatible=cached_space;
-        }
-        return !crlf_cut&&static_cast<u32>(resolved[a].end_unit)-resolved[b].first_unit<=16000&&same_plan(resolved[a],resolved[b])&&compatible&&((continuity[a]^continuity[b])&5u)==0&&(!mixed||((directions[a]^directions[b])&1)==0);};
-    // Brackets share the enclosed Arabic drawing group: opening brackets join
-    // forward and closing brackets backward. Preserve the outer word groups
-    // even when fallback resolves them to the same physical font. The editor
-    // also retains neutral punctuation as Common until this reduction.
-    if(mixed){u32 merged=0;u8 previous_mirrored=0;for(u32 i=0;i<count;++i){
-        const u32 script=continuity[i]&~7u;const bool common=editor&&script==128&&(resolved[i].binding()->key&binding_missing_family);
-        bool neutral=(script==arabic_script||common)&&(directions[i]&1);u8 mirrored=0;for(u32 byte=resolved[i].first_byte;neutral&&byte<resolved[i].end_byte;){const auto cp=utf8_decode_one(text.data+byte,resolved[i].end_byte-byte);if(!cp.valid)return false;
-            neutral=(native_script_class(cp.codepoint).flags&native_script_contextual)!=0;
-            if(unicode_properties(cp.codepoint)->has(UnicodeFlag::bidi_mirrored)){const auto type=unicode_bidi_bracket(cp.codepoint).type;mirrored|=type==UnicodeBracketType::open?1u:type==UnicodeBracketType::close?2u:3u;}byte+=cp.width;}if(!neutral)mirrored=0;
-        const bool common_pair=merged&&editor&&((script==arabic_script&&(continuity[merged-1]&~7u)==128&&(resolved[merged-1].binding()->key&binding_missing_family))||(common&&(continuity[merged-1]&~7u)==arabic_script));
-        if(merged&&((previous_mirrored&1)||(mirrored&2))&&(script==arabic_script||common)&&(directions[i]&1)&&
-           (script==(continuity[merged-1]&~7u)||common_pair)&&same_plan(resolved[i],resolved[merged-1])&&
-           static_cast<u32>(resolved[i].end_unit)-resolved[merged-1].first_unit<=16000&&((continuity[i]^continuity[merged-1])&5u)==0&&directions[i]==directions[merged-1]&&resolved[i].flags==resolved[merged-1].flags&&
-           paint_identity(resolved[i].first_byte)==paint_identity(resolved[merged-1].first_byte)){
-            if(common_pair){if(script==arabic_script)resolved[merged-1].set_binding(resolved[i].binding());continuity[merged-1]=static_cast<u16>(arabic_script|(continuity[merged-1]&7u));}
-            resolved[merged-1].end_byte=resolved[i].end_byte;resolved[merged-1].end_unit=resolved[i].end_unit;
-        }else{resolved[merged]=resolved[i];continuity[merged]=continuity[i];directions[merged]=directions[i];++merged;}previous_mirrored=mirrored;}count=merged;}
+        const bool same_style=(resolved[a].flags==resolved[b].flags&&paint_identity(byte)==paint_identity(resolved[b].first_byte))||!(continuity[a]&2);
+        return !crlf_cut&&static_cast<u32>(resolved[a].end_unit)-resolved[b].first_unit<=16000&&same_plan(resolved[a],resolved[b])&&
+            ((continuity[a]^continuity[b])&~2u)==0&&same_style&&(!mixed||((directions[a]^directions[b])&1)==0);};
     if(mixed)for(u32 i=0;i<count;++i)analysis[i]=static_cast<u16>((static_cast<u16>(script_bytes[i])<<8)|directions[i]);
     // In a standalone Common paragraph, the requested face's proved-inert
     // glyphs skip shaping. Fallback and explicit typography still shape, even
@@ -634,7 +564,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     u32 longest=0;for(u32 i=0;i<count;){u32 last=i+1;while(last<count&&same_group(last,i))++last;
         longest=maximum(longest,static_cast<u32>(resolved[last-1].end_byte)-resolved[i].first_byte);i=last;}
     NativeAsciiParagraphStorage paragraph_buffers;NativeParagraphShape shape{};Slice<char> saved{};Slice<TextStyleSpan> saved_styles{};
-    Slice<SfntFontLineParts> parts{};Slice<NativeParagraphRun> runs{};Slice<NativeParagraphLine> lines{};SfntStatus status=SfntStatus::ok;
+    Slice<SfntFontLineParts> parts{};Slice<NativeParagraphRun> runs{};Slice<NativeParagraphLine> lines{};SfntStatus status=SfntStatus::ok;u32 group_count=0;
     for(u32 attempt=0;attempt<2;++attempt){if(!arena_rewind(&owner.scratch,prefix))return false;const u32 factor=attempt?4u:1u,glyphs=text.bytes*factor+16;
         saved=take<char>(owner.scratch,text.bytes);saved_styles=take<TextStyleSpan>(owner.scratch,styles.count);parts=take<SfntFontLineParts>(owner.scratch,count);
         // Every emitted run owns at least one source unit. Reuse the already
@@ -652,18 +582,14 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
 #endif
             const auto* m=native_run_plan_metrics(owner.store,source->plan);
             if(!m||sfnt_font_line_parts(*m,resolved[i].em,parts.data+i)!=SfntStatus::ok)return false;}
-        u32 span=0;bool nominal=true;
+        u32 span=0;group_count=0;
         auto group_boundaries=boundary_storage(runs);group_boundaries.deferred=true;
-        // Han/kana itemization uses sequential cluster metrics even when the
-        // selected face has no active substitutions or positioning lookups.
-        for(u32 i=0;i<count;++i){const auto script=continuity[i]&~7u;
-            if(script==han_script||script==kana_script||script==hiragana_script||script==hangul_script||script==old_hangul_script)nominal=false;}
-        for(u32 first=0;first<count;){u32 last=first+1;while(last<count&&same_group(last,first))++last;
+        for(u32 first=0;first<count;){u32 last=first+1;while(last<count&&same_group(last,first))++last;StyledGroup group{shape.source_units,0,nullptr,nullptr,0,false};
             auto segment=paragraph_buffers;segment.glyphs={paragraph_buffers.glyphs.data+shape.glyph_count,paragraph_buffers.glyphs.count-shape.glyph_count};
             segment.placements={paragraph_buffers.placements.data+shape.glyph_count,paragraph_buffers.placements.count-shape.glyph_count};
             segment.source_glyphs={paragraph_buffers.source_glyphs.data+shape.source_units,paragraph_buffers.source_glyphs.count-shape.source_units};
             segment.clusters={paragraph_buffers.clusters.data+shape.cluster_count,paragraph_buffers.clusters.count-shape.cluster_count};NativeParagraphShape part{};
-            bool part_nominal=false;const auto& r=resolved[first];const Utf8View input{text.data+r.first_byte,static_cast<u32>(resolved[last-1].end_byte)-r.first_byte};
+            const auto& r=resolved[first];const Utf8View input{text.data+r.first_byte,static_cast<u32>(resolved[last-1].end_byte)-r.first_byte};
             u32 shaping_script=continuity[first]&~7u,shaping_first=first;
             if(shaping_script==128)for(u32 i=first+1;i<last;++i)if((continuity[i]&~7u)==arabic_script){shaping_script=arabic_script;shaping_first=i;break;}
             const float tracking = resolved[0].em * system.tracking;
@@ -690,29 +616,24 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
                     if (r.binding()->font_flags == emoji_font_flag)
                         status = native_emoji_paragraph_shape(
                             owner.store, *r.binding()->emoji, input, r.em, segment, group_boundaries, &part,
-                            false, group_rtl, (continuity[first] & ~7u) == arabic_script);
+                            false, group_rtl, (continuity[first] & ~7u) == arabic_script, begins_paragraph(text, r.first_byte));
                     else if (shaping_script == arabic_script)
                         status = native_arabic_paragraph_shape(
                             owner.arabic_store, resolved[shaping_first].binding()->arabic, input,
                             system.independent_letters, (directions[first] & 1) != 0, r.em, segment,
-                            group_boundaries, &part, tracking);
-                    else
+                            group_boundaries, &part, tracking, text, begins_paragraph(text, r.first_byte));
+                    else {
+                        group.profile=(continuity[first]&~7u)?alphabetic_profile(owner,*r.binding(),continuity[first]&~7u,system.independent_letters):nullptr;
+                        group.force=alphabetic&&(!(continuity[first]&1)||system.tracking!=0)&&
+                            (!common_only||(r.binding()->key&(binding_default|binding_missing_family))!=binding_default||system.independent_letters||system.tracking!=0);
+                        group.binding=r.binding();group.em=r.em;
                         status = native_latin_paragraph_shape(
                             owner.store, r.binding()->plan, input, system.independent_letters, r.em,
-                            segment, group_boundaries, &part, &part_nominal, tracking,
-                            (continuity[first] & ~7u)
-                                ? alphabetic_profile(owner, *r.binding(), continuity[first] & ~7u,
-                                                     system.independent_letters)
-                                : nullptr,
-                            alphabetic && (!(continuity[first] & 1) || system.tracking != 0) &&
-                                (!common_only ||
-                                 (r.binding()->key & (binding_default | binding_missing_family)) !=
-                                     binding_default ||
-                                 system.independent_letters || system.tracking != 0),
-                            mixed ? (directions[first] & 1) != 0 : rtl);
+                            segment, group_boundaries, &part, tracking, group.profile, group.force,
+                            mixed ? (directions[first] & 1) != 0 : rtl, begins_paragraph(text, r.first_byte));
+                    }
                     break;
                 }
-            nominal = nominal && part_nominal;
             if(status!=SfntStatus::ok)break;
             if(!first)shape.vertical=part.vertical;
             for(u32 c=0;c<part.cluster_count;++c){auto& cluster=segment.clusters[c];cluster.source_first+=shape.source_units;cluster.source_end+=shape.source_units;cluster.glyph_first+=shape.glyph_count;
@@ -730,13 +651,11 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
             if(status!=SfntStatus::ok)break;
             for(u32 u=0;u<part.source_units;++u)if(segment.source_glyphs[u]!=0xffffffffu)segment.source_glyphs[u]+=shape.glyph_count;
             shape.source_units+=part.source_units;shape.glyph_count+=part.glyph_count;shape.cluster_count+=part.cluster_count;first=last;
+            if(groups.count){group.end_unit=shape.source_units;groups[group_count++]=group;}
         }
         // Font/script cuts do not establish paragraph boundary context. Analyze
         // once after joining source coordinates and attaching style metadata.
         if(status==SfntStatus::ok)status=native_latin_paragraph_boundaries(text,{paragraph_buffers.clusters.data,shape.cluster_count},boundary_storage(runs));
-        // Character spacing uses sequential cluster widths even when all
-        // font spans otherwise qualify for nominal run-group accumulation.
-        if(!nominal||system.tracking)for(u32 c=0;c<shape.cluster_count;++c)if(!(paragraph_buffers.clusters[c].flags&native_paragraph_nonvisual))paragraph_buffers.clusters[c].flags&=~native_paragraph_metric_group;
         if(status!=SfntStatus::output_too_small||attempt)break;++owner.storage_retries;
     }
     if(status!=SfntStatus::ok){++owner.execute_failed;return false;}
@@ -758,7 +677,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     copy_bytes(saved.data,text.data,text.bytes);copy_bytes(saved_styles.data,styles.data,styles.count*sizeof(TextStyleSpan));
     owner.last_text={saved.data,text.bytes};++owner.text_epoch;owner.last_styles={saved_styles.data,styles.count};owner.styled_spans=spans;owner.styled_parts=parts;owner.styled_lines=lines;
     owner.paragraph_storage=paragraph_buffers;owner.paragraph_shape=shape;owner.paragraph_runs=runs;owner.last_format=format;owner.last_em=em;owner.last_style_em=system.em_size;owner.last_fixed_weight=system.fixed_weight;
-    owner.styled_analysis=analysis;owner.last_independent=system.independent_letters;owner.last_tracking=system.tracking;owner.last_paragraph=true;owner.last_styled=true;owner.last_mode=static_cast<u8>((editor?1:0)|(emoji?2:0)|(alphabetic?4:0)|(fallback?8:0)|(rtl?16:0)|(mixed?32:0)|(system.message_hit_policy?64:0));owner.last_valid=true;
+    owner.styled_analysis=analysis;owner.styled_groups={groups.data,group_count};owner.last_independent=system.independent_letters;owner.last_tracking=system.tracking;owner.last_paragraph=true;owner.last_styled=true;owner.last_mode=static_cast<u8>((editor?1:0)|(emoji?2:0)|(alphabetic?4:0)|(fallback?8:0)|(rtl?16:0)|(mixed?32:0)|(system.message_hit_policy?64:0));owner.last_valid=true;
     if(rtl||mixed){owner.styled_reset=prepare_line_reset(owner);if(owner.styled_reset.count!=shape.cluster_count){owner.last_valid=false;owner.prefer_multiline=false;return false;}}
     return true;
 }

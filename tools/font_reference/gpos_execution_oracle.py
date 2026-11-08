@@ -1,10 +1,10 @@
-"""First-party GPOS fixtures and installed Windows placement observations (QA only)."""
-import argparse,copy,hashlib,json,platform,struct,subprocess,sys
+"""First-party GPOS fixture fonts (QA only). The committed positioning corpora keep these fonts with HarfBuzz
+expectations from harfbuzz_fixture.py gpos."""
+import argparse,copy,json
 from pathlib import Path
 import fontTools
 from fontTools.ttLib import TTFont,newTable
 from fontTools.ttLib.tables.otBase import ValueRecord
-from embed_fixture import write_embedded_array
 from gsub_execution_oracle import obj,coverage,lookup,make_font,ORDER,TEXT,identity,ligature,single,multiple
 from gsub_execution_oracle import context as gsub_context
 from gsub_execution_oracle import context_format as gsub_context_format
@@ -287,122 +287,9 @@ def generate(folder):
             assert f['GPOS'].table.FeatureList.FeatureRecord[0].Feature.LookupListIndex==scheduled
             f.saveXML(path.with_suffix('.ttx'),tables=['GlyphOrder','cmap','hmtx','GDEF','GSUB','GPOS'])
         records.append({k:v for k,v in case.items() if k not in ('lookups','gsub')}|dict(font=identity(path),decoded=identity(path.with_suffix('.ttx'))))
-    (folder/'fixtures.json').write_text(json.dumps(dict(scope='First-party placement fixtures; Windows outputs are measured',fonttools=fontTools.__version__,glyph_order=ORDER,cases=records),indent=2)+'\n')
+    (folder/'fixtures.json').write_text(json.dumps(dict(scope='First-party placement fixtures',fonttools=fontTools.__version__,glyph_order=ORDER,cases=records),indent=2)+'\n')
     print(f'Generated {len(records)} placement fixtures')
 
-def bits(v):return struct.unpack('<I',struct.pack('<f',v))[0]
-def floats(v):return [[struct.unpack('<f',struct.pack('<I',x))[0] for x in row] for row in v]
-CONTROLS={
-    'single-all':[[529,13,-17],[600,0,0]],
-    'single-repeat':[[560,36,12],[600,0,0]],
-    'pair-mask-0':[[529,13,-17],[529,13,-17],[600,0,0]],
-    'pair-present-zero':[[529,13,-17],[600,0,0],[600,0,0]],
-    'cursive-0-ABC':[[490,0,0],[440,0,120],[600,0,240]],
-    'cursive-1-ABC':[[490,0,-240],[440,0,-120],[600,0,0]],
-    'base-AM':[[600,0,0],[0,-320,670]],
-    'mark-AMN':[[600,0,0],[0,-320,670],[0,-190,460]],
-    'lig-gsub-AMBN':[[600,0,0],[0,-520,670],[0,-140,-250]],
-    'context-attach':[[600,0,0],[0,-320,670]],
-}
-def record(folder,exe,out):
-    manifest=json.loads((folder/'fixtures.json').read_text());observations=[];module=None
-    for case in manifest['cases']:
-        path=folder/(case['name']+'.ttf');assert identity(path)['sha256']==case['font']['sha256']
-        for em in (1000.0,16.0,13.25,17.3):
-            for rtl in (0,1):
-                outputs=[]
-                for enabled in (0,1):
-                    command=[str(exe.resolve()),str(path.resolve()),','.join(f'{ord(c):x}' for c in case['text']),str(enabled),str(bits(em)),str(rtl),'0']
-                    run=subprocess.run(command,capture_output=True,text=True,timeout=15)
-                    if run.returncode:raise RuntimeError(f'{case["name"]}, {em}, {rtl}, {enabled}: {run.returncode}: {run.stdout} {run.stderr}')
-                    v=json.loads(run.stdout);assert v['hresult']==v['placement_hresult']==0 and v['em_bits']==bits(em) and v['rtl']==rtl and v['sideways']==0
-                    assert v['feature_enabled']==enabled and len(v['glyphs'])==len(v['placement_bits'])==len(v['glyph_properties'])
-                    assert len(v['clusters'])==len(case['text'].encode('utf-16-le'))//2 and all(i<len(v['glyphs']) for i in v['clusters'])
-                    v['glyph_names']=[ORDER[g] for g in v['glyphs']];v['placement_values']=floats(v['placement_bits']);outputs.append(v)
-                    loaded=Path(v['dwrite_module']).resolve()
-                    if module is None:module=loaded
-                    assert loaded==module
-                assert outputs[0]['glyphs']==outputs[1]['glyphs'] and outputs[0]['clusters']==outputs[1]['clusters']
-                if em==1000 and not rtl and case['name'] in CONTROLS:assert outputs[1]['placement_values']==CONTROLS[case['name']],(case['name'],outputs[1])
-                observations.append(dict(name=case['name'],em_bits=bits(em),rtl=rtl,disabled=outputs[0],enabled=outputs[1]))
-    out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(dict(scope='Installed GetGlyphs/GetGlyphPlacements; one Latin script run, horizontal, both direction flags, four DIP sizes, custom GPOS test feature and always-on GSUB rlig',os=platform.platform(),windows_version=list(sys.getwindowsversion()),executable=identity(exe),fixtures=identity(folder/'fixtures.json'),dwrite=identity(module),placement_fields=['advance','advanceOffset','ascenderOffset'],observations=observations),indent=2)+'\n')
-    print(f'Recorded {len(observations)} enabled/disabled placement pairs')
-def attachment_seed(case,names):
-    # Explicit fixture inputs to positioning. This is not a GSUB implementation.
-    none=(0xffffffff,0);name=case['name'].removesuffix('-extension').removesuffix('-stacked')
-    if name.startswith('lig-direct-') or name=='lig-null-component':
-        target=0xffffffff;result=[]
-        for i,g in enumerate(names):
-            result.append((target,0xffffffff) if g in 'MN' else none)
-            if g not in 'MN':target=i
-        return result
-    if name.startswith('lig-gsub-'):
-        result=[none];component=-1
-        for g in case['input_glyphs']:
-            if g in 'ABC':component+=1
-            else:result.append((0,component))
-        return result
-    name=name.removeprefix('components-');single=[none,(0,0),(0,1)]
-    fixed={
-      'nested-left':[none,(0,0),(0,1),(0,2)],'nested-right':[none,(0,0),(0,1),(0,2),(0,3)],'nested-no-marks':[none,(0,2)],
-      'merge-two-ligatures':[none,(0,0),(0,1),(0,2),(0,3),none,(5,0)],
-      'single-preserve':single,'alternate-preserve':single,'reverse-preserve':single,'multiple-one':single,
-      'multiple-expand':[none,none,(0,0),(1,0)],'multiple-expand-three':[none,none,none,(0,0),(1,0)],
-      'multiple-three-to-two':[none,none,(0,0),(1,0),(1,1)],'multiple-ordinary':[none,none,(0,0),(0,0)],
-      'expand-religate':single,'replace-mark':single,'expand-mark':[none,(0,0),(0,0),(0,1)],
-      'consume-mark':[none,(0,1)],'mark-first-ligature':[none,(0,1)],'all-mark-ligature':[none,(0,1)],
-      'same-component':[none,(0,1),(0,1)],'different-components':single,'direct-default':[none,(0,0xffffffff),(0,0xffffffff)],
-      'independent-groups':[none,(0,0),(0,1),none,(3,0),(3,1)],'null-anchor':single,
-      'context-ligate':single,'context-expand':[none,none,(0,0),(1,0)],'context-ligate-expand':[none,none,(0,0),(1,0)],
-      'chain-ligate-expand':[none,none,none,(1,0),(2,0),none],'nested-context':[none,none,(0,0),(1,0)],
-    }
-    if name.startswith('anchor-count-'):return [none,(0,0),(0,1),(0,2)]
-    if name.startswith(('filter-','adjust-','null-')):return single
-    assert name in fixed,name
-    return fixed[name]
-
-def export_basic(folder,observed,out,header,marks=False,cursive=False,ligatures=False):
-    manifest=json.loads((folder/'fixtures.json').read_text());windows=json.loads(observed.read_text());assert windows['fixtures']['sha256']==identity(folder/'fixtures.json')['sha256']
-    observations={}
-    for o in windows['observations']:observations.setdefault(o['name'],[]).append(o)
-    blobs=[];selected=[]
-    word=lambda *v:struct.pack('<'+'I'*len(v),*v)
-    for case in manifest['cases']:
-        if ligatures and case.get('invalid_input'):continue
-        path=folder/(case['name']+'.ttf');assert identity(path)['sha256']==case['font']['sha256']
-        with TTFont(path) as f:
-            table=f['GPOS'].table;lookups=table.LookupList.Lookup
-            if any((s.ExtensionLookupType if l.LookupType==9 else l.LookupType) not in ((1,2,3,4,5,6) if ligatures else (1,2,3,4,6) if cursive else (1,2,4,6) if marks else (1,2)) for l in lookups for s in l.SubTable):continue
-            configs=observations[case['name']];seed=configs[0]['disabled'];glyphs=seed['glyphs'];flags=[int(p[2] or p[3])|int(p[1])*2 for p in seed['glyph_properties']]
-            classes=f['GDEF'].table.GlyphClassDef.classDefs;scheduled=table.FeatureList.FeatureRecord[0].Feature.LookupListIndex
-            has_associations=ligatures and any((sub.ExtensionLookupType if l.LookupType==9 else l.LookupType)==5 for l in lookups for sub in l.SubTable)
-            target_glyphs=[];associations=[]
-            if has_associations:
-                associations=attachment_seed(case,[ORDER[g] for g in glyphs]);assert len(associations)==len(glyphs),(case['name'],associations,glyphs)
-                target_glyphs=sorted({v[0] for v in associations if v[0]!=0xffffffff});assert target_glyphs
-                associations=[(target_glyphs.index(target) if target!=0xffffffff else target,component) for target,component in associations]
-            data=word(path.stat().st_size,len(glyphs),len(scheduled),len(configs))+(word(len(target_glyphs)) if ligatures else b'')+path.read_bytes()
-            data+=b''.join(struct.pack('<HBB',g,classes.get(ORDER[g],0),flag) for g,flag in zip(glyphs,flags))
-            if has_associations:data+=word(*target_glyphs)+b''.join(word(*v) for v in associations)
-            data+=struct.pack('<'+'H'*len(scheduled),*scheduled)
-            for o in configs:
-                for state in ('disabled','enabled'):
-                    assert o[state]['glyphs']==glyphs and [int(p[2] or p[3])|int(p[1])*2 for p in o[state]['glyph_properties']]==flags
-                data+=word(o['em_bits'],o['rtl'])
-                for state in ('disabled','enabled'):data+=b''.join(word(*v) for v in o[state]['placement_bits'])
-            blobs.append(data);selected.append(dict(name=case['name'],glyphs=len(glyphs),configurations=len(configs),font_sha256=case['font']['sha256']))
-    raw=(b'MCGLP01\0' if ligatures else b'MCGCU01\0' if cursive else b'MCGMK01\0' if marks else b'MCGPX01\0')+word(len(blobs))+b''.join(blobs);out.parent.mkdir(parents=True,exist_ok=True);out.write_bytes(raw)
-    scope='Native basic/mark/cursive positioning with recorded glyphs/shaping flags; no independent script policy, ligature attachment or nested execution' if cursive else 'Native single/pair and mark positioning with recorded glyphs/shaping flags; no independent script policy, cursive, ligature attachment or nested execution' if marks else 'Native basic positioning using recorded glyphs and shaping flags; no independent script policy or attachment execution'
-    if ligatures:scope='Native root positioning with recorded glyphs/shaping flags and explicit fixture target/component inputs; no native GSUB provenance or independent script policy'
-    out.with_suffix('.json').write_text(json.dumps(dict(scope=scope,observations=identity(observed),cases=selected,corpus_sha256=hashlib.sha256(raw).hexdigest()),indent=2)+'\n')
-    if header:write_embedded_array(header,('// First-party Windows placement fixture with explicit target/component seeds; generated by gpos_execution_oracle.py.\n' if ligatures else '// First-party Windows cursive placement fixture; generated by gpos_execution_oracle.py.\n' if cursive else '// First-party Windows mark placement fixture; generated by gpos_execution_oracle.py.\n' if marks else '// First-party Windows basic placement fixture; generated by gpos_execution_oracle.py.\n'),'constexpr u8 position_fixture[]',raw)
-    print(f'Exported {len(blobs)} positioning fonts, {sum(c["configurations"] for c in selected)} configurations, {len(raw)} bytes')
 def main():
-    p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='mode',required=True);g=sub.add_parser('generate');g.add_argument('folder',type=Path);r=sub.add_parser('record');r.add_argument('folder',type=Path);r.add_argument('--exe',type=Path,required=True);r.add_argument('--out',type=Path,required=True)
-    for mode in ('export-basic','export-marks','export-cursive','export-ligatures'):
-        e=sub.add_parser(mode);e.add_argument('folder',type=Path);e.add_argument('--observations',type=Path,required=True);e.add_argument('--out',type=Path,required=True);e.add_argument('--header',type=Path)
-    a=p.parse_args()
-    if a.mode=='generate':generate(a.folder)
-    elif a.mode=='record':record(a.folder,a.exe,a.out)
-    else:export_basic(a.folder,a.observations,a.out,a.header,a.mode=='export-marks',a.mode in ('export-cursive','export-ligatures'),a.mode=='export-ligatures')
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('folder',type=Path);generate(p.parse_args().folder)
 if __name__=='__main__':main()

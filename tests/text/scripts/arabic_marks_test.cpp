@@ -35,15 +35,18 @@ bool contracts() noexcept {
 bool long_span() noexcept {
     constexpr u32 n=12288;auto* input=static_cast<u32*>(pages_allocate(n*4));
     auto* output=static_cast<u32*>(pages_allocate(n*4+4096));if(!input || !output){if(input)pages_release(input);if(output)pages_release(output);return false;}
-    for(u32 i=0;i<n;++i)input[i]=i%3==0?0x64e:i%3==1?0x651:0x655;
+    // Short runs (base, fatha, shadda, hamza below) reorder as hamza below, shadda, fatha; a run longer than
+    // 32 marks keeps its order, as HarfBuzz sorts no longer run (HB_OT_SHAPE_MAX_COMBINING_MARKS).
+    for(u32 i=0;i<n;++i)input[i]=i>n-64?(i%2?0x651:0x64e):i%4==0?0x628:i%4==1?0x64e:i%4==2?0x651:0x655;
     bool ok=pages_protect(input, n*4, PageAccess::read)!=0 && pages_protect(output+n, 4096, PageAccess::none)!=0;
     ok=ok && sfnt_arabic_mark_order({input,n},{output,n},n*16)==SfntStatus::ok;
-    for(u32 i=0;i<n && ok;++i){const u32 group=i/(n/3),rank=i%(n/3);ok=output[i]==rank*3+(group==0?2:group==1?1:0);}
+    for(u32 i=0;i<n-64 && ok;++i){const u32 base=i&~3u,slot=i&3u;ok=output[i]==(slot?base+4-slot:base);}
+    for(u32 i=n-64;i<n && ok;++i)ok=output[i]==i;
     pages_release(output);pages_release(input);return ok;
 }
 int run() noexcept {
     if(!corpus())return 1;if(!contracts())return 2;if(!long_span())return 3;
-    constexpr auto message=utf8_literal("PASS native Arabic mark order: 2873 Windows cases, stable buckets, 12288-mark guarded span\n");DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message.data,message.bytes,&done,nullptr);return 0;
+    constexpr auto message=utf8_literal("PASS native Arabic mark order: 2873 HarfBuzz cases, short and long runs, 12288-scalar guarded span\n");DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message.data,message.bytes,&done,nullptr);return 0;
 }
 }}
 MAICORD_TEST_ENTRY(maicord_arabic_marks_tests_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

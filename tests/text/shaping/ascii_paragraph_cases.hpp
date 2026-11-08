@@ -36,20 +36,20 @@ bool latin_boundary_cases() noexcept {
         const auto controls=utf8_literal("\r\n\t\xe2\x80\xaa\xe2\x80\xab\xe2\x80\xac\xe2\x80\xa9");
         NativeParagraphCluster a[8]{},b[8]{};u32 am[8]{},bm[8]{},scalars[8]{};u8 flags[9]{};
         NativeAsciiParagraphStorage as{},bs{};as.clusters={a,8};bs.clusters={b,8};as.source_glyphs={am,8};bs.source_glyphs={bm,8};
-        NativeParagraphShape expected{},deferred{};bool nominal=true;
-        const NativeParagraphLineSource no_printable{nullptr,[](void*,Utf8View,float,const NativeAsciiLineStorage&,NativeAsciiLineResult*) noexcept {return SfntStatus::unsupported_sequence;}};
+        NativeParagraphShape expected{},deferred{};
+        const NativeParagraphLineSource no_printable{nullptr,[](void*,Utf8View,float,const NativeAsciiLineStorage&,NativeAsciiLineResult*,bool) noexcept {return SfntStatus::unsupported_sequence;}};
         const NativeLatinBoundaryStorage complete{{scalars,8},{flags,9}},later{{},{},true};
         CHECK(!complete.deferred&&later.deferred);
-        CHECK(native_script_paragraph_shape(metrics,controls,10,as,complete,&expected,no_printable)==SfntStatus::ok);
-        CHECK(native_script_paragraph_shape(metrics,controls,10,bs,later,&deferred,no_printable,&nominal)==SfntStatus::ok&&!nominal);
+        CHECK(native_script_paragraph_shape(metrics,controls,10,as,complete,&expected,no_printable,true)==SfntStatus::ok);
+        CHECK(native_script_paragraph_shape(metrics,controls,10,bs,later,&deferred,no_printable,true)==SfntStatus::ok);
         CHECK(deferred.source_units==expected.source_units&&deferred.cluster_count==expected.cluster_count&&!deferred.glyph_count);
         // Explicit analysis runs even if its storage carries the deferred bit.
         auto final=complete;final.deferred=true;
         CHECK(native_latin_paragraph_boundaries(controls,{b,deferred.cluster_count},final)==SfntStatus::ok);
         CHECK(bytes_equal(a,b,expected.cluster_count*sizeof(*a))&&bytes_equal(am,bm,expected.source_units*sizeof(*am)));
-        CHECK(native_script_paragraph_shape(metrics,controls,10,bs,{},&deferred,no_printable)==SfntStatus::output_too_small&&!deferred.source_units);
-        CHECK(native_script_paragraph_shape(metrics,utf8_literal("\xc0"),10,bs,later,&deferred,no_printable)==SfntStatus::invalid_input&&!deferred.source_units);
-        bs.clusters.count=0;CHECK(native_script_paragraph_shape(metrics,controls,10,bs,later,&deferred,no_printable)==SfntStatus::output_too_small&&!deferred.source_units);
+        CHECK(native_script_paragraph_shape(metrics,controls,10,bs,{},&deferred,no_printable,true)==SfntStatus::output_too_small&&!deferred.source_units);
+        CHECK(native_script_paragraph_shape(metrics,utf8_literal("\xc0"),10,bs,later,&deferred,no_printable,true)==SfntStatus::invalid_input&&!deferred.source_units);
+        bs.clusters.count=0;CHECK(native_script_paragraph_shape(metrics,controls,10,bs,later,&deferred,no_printable,true)==SfntStatus::output_too_small&&!deferred.source_units);
     }
     const auto text=utf8_literal("\xf0\x90\x9e\x80" "e\xcc\x81 \xf0\x90\x9e\x80\r\n");
     NativeParagraphCluster clusters[]{{0,2,0,1,6,0},{2,4,1,1,5,0},{4,5,2,1,2,0},{5,7,3,1,6,0},{7,9,4,0,0,native_paragraph_newline}};

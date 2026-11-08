@@ -48,4 +48,4 @@ SfntStatus shape(Utf8View text,u32 script,u32 mode,float em,NativeAsciiStorage s
 #include "latin_run_guards.inc"
 bool run() noexcept {return guards();}
 }}
-MAICORD_TEST_ENTRY(maicord_latin_run_entry) {using namespace maicord;const bool ok=run();print("cases=");number(cases);print(" checks=");number(checks);print(ok?" PASS native Latin runs\n":" FAIL native Latin runs\n");flush();::maicord::test_process_exit(ok&&print_ok?0:1);}
+MAICORD_TEST_ENTRY(maicord_latin_run_entry) {using namespace maicord;const bool ok=run();print("cases=");number(cases);print(" checks=");number(checks);print(" hebrew_known_divergent=");number(hebrew_known_divergent);print(ok?" PASS native Latin runs\n":" FAIL native Latin runs\n");flush();::maicord::test_process_exit(ok&&print_ok?0:1);}

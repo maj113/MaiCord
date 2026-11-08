@@ -45,7 +45,7 @@ bool owned_select(ConstSlice<u8> bytes,u32 index,bool independent,NativeArabicPl
         const auto& state=owned_plans[owned_handle.slot-1].state;MEMORY_BASIC_INFORMATION info{};
         if(VirtualQuery(state.base,&info,sizeof(info))!=sizeof(info) || info.Protect!=PAGE_READONLY)return false;
         const auto normal=native_arabic_plan_get(owned_store,owned_handle),other=native_arabic_plan_get(owned_store,owned_handle,true);const auto* base=native_run_plan_get(owned_run_store,run);
-        if(!normal.shape || normal.shape!=other.shape || normal.shape->substitutions!=base->substitutions || normal.shape->metric_context!=base->metric_context || other.shape->metric_context!=base->metric_context || normal.shape->positioning_roots.data!=other.shape->positioning_roots.data)return false;
+        if(!normal.shape || !other.shape || normal.shape->substitutions!=base->substitutions || other.shape->substitutions!=base->substitutions || normal.shape->metric_context!=base->metric_context || other.shape->metric_context!=base->metric_context)return false;
         bool inherited=base->positioning!=nullptr;
         for(u32 i=0;i<normal.shape->positioning_roots.count;++i){const u16 root=normal.shape->positioning_roots[i];
             if(!normal.shape->positioning||root>=normal.shape->positioning->lookups.count||!sfnt_gpos_lookup(*normal.shape->positioning,root)||!sfnt_gpos_lookup(*normal.shape->positioning,root)->type)return false;

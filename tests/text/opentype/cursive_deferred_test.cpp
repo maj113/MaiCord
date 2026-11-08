@@ -6,20 +6,20 @@
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {
 constexpr u32 capacity=4096;
-SfntGsubGlyph glyphs[capacity];double nominal[capacity];u8 flags[capacity];
+SfntGsubGlyph glyphs[capacity];u8 flags[capacity];
 SfntPosition eager[capacity],coalesced[capacity];SfntCursiveChainNode eager_nodes[capacity],coalesced_nodes[capacity];
 SfntGposAttachment attachment;SfntGposAttachmentLookup lookup;
 u64 comparisons=0,budget_checks=0,long_eager_work=0,long_deferred_work=0,program_work=0;u32 guards=0;
 const u8 cursive_bytes[]{0,1,0,10,0,1,0,16,0,22,0,1,0,1,0,1,0,1,0,10,0,20,0,1,2,18,0,90};
 SfntGlyphView view(u32 n) noexcept {SfntGlyphBuffer buffer{};sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),static_cast<u32>(n*sizeof(SfntGsubGlyph))},sizeof(SfntGsubGlyph),n,&buffer);return sfnt_glyph_buffer_view(buffer);}
 void reset(u32 n,u32 kind=0) noexcept {
-    for(u32 i=0;i<n;++i){glyphs[i]={1,SfntGlyphClass::base,0};nominal[i]=600;flags[i]=2;
+    for(u32 i=0;i<n;++i){glyphs[i]={1,SfntGlyphClass::base,0};flags[i]=2;
         double y=kind==1?static_cast<double>(i%7)/8:kind==2?1099511627776.0+i:kind==3?-1099511627776.0+i:kind==4?static_cast<double>(i%7)-3:kind==5 && i==n/2?1e16:kind==6 && i==n/2?0.1:0;
         eager[i]=coalesced[i]={600,0,y};eager_nodes[i]=coalesced_nodes[i]={0xffffffffu,0xffffffffu};}
 }
 SfntStatus sequence(u32 n,bool deferred,bool rtl,u64 budget,u64* used) noexcept {
     SfntCursiveDeferred pending{};auto* state=deferred?coalesced:eager;auto* nodes=deferred?coalesced_nodes:eager_nodes;u64 work=budget;SfntStatus status=SfntStatus::ok;
-    for(u32 i=0;i+1<n;++i){SfntCursiveExecution r{};status=sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{state,n},i,n,rtl,{}, {nodes,n},&r,work,deferred && n>=32?&pending:nullptr);if(r.operations>work)return SfntStatus::malformed;work-=r.operations;if(status!=SfntStatus::ok)break;}
+    for(u32 i=0;i+1<n;++i){SfntCursiveExecution r{};status=sfnt_position_execute_cursive_selected(lookup,{},view(n),{state,n},i,n,rtl,{}, {nodes,n},&r,work,deferred && n>=32?&pending:nullptr);if(r.operations>work)return SfntStatus::malformed;work-=r.operations;if(status!=SfntStatus::ok)break;}
     if(status==SfntStatus::ok && pending.head!=0xffffffffu){SfntCursiveExecution r{};status=sfnt_position_cursive_flush({state,n},{nodes,n},&pending,&r,work);if(r.operations>work)return SfntStatus::malformed;work-=r.operations;}
     *used=budget-work;return status;
 }
@@ -43,7 +43,7 @@ bool interleaved() noexcept {
         for(u32 action=0;action<128;++action){random^=random<<13;random^=random>>17;random^=random<<5;const u32 at=random%(n-1);SfntCursiveExecution r{};
             if((random&15)==0){if(sfnt_position_cursive_flush({coalesced,n},{coalesced_nodes,n},&pending,&r)!=SfntStatus::ok)return false;const double delta=(random&16)?0.125:17.0;eager[at].ascender_offset+=delta;coalesced[at].ascender_offset+=delta;}
             else {lookup.filter.flags=(random&32)?1:0;
-                if(sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{eager,n},at,n,(trial&1)!=0,{}, {eager_nodes,n},&r)!=SfntStatus::ok || sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{coalesced,n},at,n,(trial&1)!=0,{}, {coalesced_nodes,n},&r,1000000,&pending)!=SfntStatus::ok)return false;}
+                if(sfnt_position_execute_cursive_selected(lookup,{},view(n),{eager,n},at,n,(trial&1)!=0,{}, {eager_nodes,n},&r)!=SfntStatus::ok || sfnt_position_execute_cursive_selected(lookup,{},view(n),{coalesced,n},at,n,(trial&1)!=0,{}, {coalesced_nodes,n},&r,1000000,&pending)!=SfntStatus::ok)return false;}
         }
         SfntCursiveExecution r{};if(sfnt_position_cursive_flush({coalesced,n},{coalesced_nodes,n},&pending,&r)!=SfntStatus::ok || !compare(n))return false;
     }
@@ -59,7 +59,7 @@ bool program() noexcept {
     if(sfnt_context_open({bytes,sizeof(bytes)},SfntContextKind::sequence,2,2,{coverages,n},{},&context)!=SfntStatus::ok)return false;
     SfntGposExecutableLookup lookups[2]{};lookups[0].type=7;lookups[0].tables.context={&context,1};lookups[1].type=3;lookups[1].tables.attachment={&attachment,1};lookups[1].filter.flags=1;
     const SfntGposProgram prepared{{lookups,2},{},2};SfntGposExecutionFrame frame{};SfntGposExecutionResult result{};reset(n);
-    const auto status=sfnt_gpos_execute_program_lookup(prepared,0,view(n),{nominal,n},{flags,n},{},{},{coalesced,n},0,n,false,{},SfntNullAnchorPolicy::skip,SfntComponentAnchorPolicy::strict,{{&frame,1},{matched,n},{},{},{coalesced_nodes,n}},{1000000,100000},&result);
+    const auto status=sfnt_gpos_execute_program_lookup(prepared,0,view(n),{flags,n},{},{},{coalesced,n},0,n,false,{},SfntComponentAnchorPolicy::strict,{{&frame,1},{matched,n},{},{},{coalesced_nodes,n}},{1000000,100000},&result);
     program_work=result.operations;if(status!=SfntStatus::ok || result.actions!=n-1 || result.max_depth!=1 || program_work>static_cast<u64>(n)*20)return false;
     for(u32 i=0;i<n;++i)if(coalesced[i].ascender_offset!=-70.0*(n-1-i))return false;
     return true;
@@ -67,7 +67,7 @@ bool program() noexcept {
 bool guarded() noexcept {
     constexpr u32 n=63;reset(n);SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(4*page));if(!memory)return false;bool ok=pages_protect(memory+page, page, PageAccess::none)!=0 && pages_protect(memory+3*page, page, PageAccess::none)!=0;
     if(ok){auto* state=reinterpret_cast<SfntPosition*>(memory+page-n*sizeof(SfntPosition));auto* nodes=reinterpret_cast<SfntCursiveChainNode*>(memory+3*page-n*sizeof(SfntCursiveChainNode));copy_bytes(state,eager,n*sizeof(SfntPosition));copy_bytes(nodes,eager_nodes,n*sizeof(SfntCursiveChainNode));SfntCursiveDeferred pending{};
-        for(u32 i=0;i+1<n && ok;++i){SfntCursiveExecution r{};ok=sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{state,n},i,n,false,{}, {nodes,n},&r,1000000,&pending)==SfntStatus::ok;}
+        for(u32 i=0;i+1<n && ok;++i){SfntCursiveExecution r{};ok=sfnt_position_execute_cursive_selected(lookup,{},view(n),{state,n},i,n,false,{}, {nodes,n},&r,1000000,&pending)==SfntStatus::ok;}
         SfntCursiveExecution r{};if(ok)ok=sfnt_position_cursive_flush({state,n},{nodes,n},&pending,&r)==SfntStatus::ok;
         for(u32 i=0;i<n && ok;++i)ok=state[i].ascender_offset==-70.0*(n-1-i);++guards;}
     pages_release(memory);return ok;

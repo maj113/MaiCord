@@ -1,3 +1,4 @@
+// The expectations are HarfBuzz 15.0.0's (tools/font_reference/generate_text_variation_fixture.py).
 #include "../../generated/text_variation_fixture.inc"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_types.hpp"
@@ -12,14 +13,16 @@ bool text_variations(const wchar_t* path,u32 path_units) noexcept {
         CHECK(native_alphabetic_plan_prepare(store,plan,tag,independent!=0,&profile_state,&scratch,&profile)==SfntStatus::ok);
         for(const auto& test:text_variation_cases)for(u32 rtl=0;rtl<2;++rtl)for(u32 force=0;force<2;++force){
             if(!(test.profiles&(tag==0?1u:tag==sfnt_tag('l','a','t','n')?2u:4u)))continue;++cases;
-            const auto glyphs=rtl?test.rtl:test.glyphs;
+            const auto glyphs=rtl?test.rtl:test.glyphs;const auto advances=rtl?test.rtl_advances:test.advances;
             arena_reset(&scratch);const auto separate=storage(),alias=shared(storage());NativeAsciiResult a{},b{};
             CHECK(native_alphabetic_run(store,profile,test.text,15.625f,separate,&a,{},true,force!=0,rtl!=0)==SfntStatus::ok);
             CHECK(native_alphabetic_run(store,profile,test.text,15.625f,alias,&b,{},true,force!=0,rtl!=0)==SfntStatus::ok);
+            if(!bytes_equal(&a,&b,sizeof(a))||a.glyph_count!=test.glyphs.count||a.source_units!=test.sources.count){print("variation_case=");number(static_cast<u32>(&test-text_variation_cases));
+                print(" rtl=");number(rtl);print(" force=");number(force);print(" glyphs=");number(a.glyph_count);print("/");number(b.glyph_count);print(" units=");number(a.source_units);print("/");number(b.source_units);print("\n");}
             CHECK(bytes_equal(&a,&b,sizeof(a))&&a.glyph_count==test.glyphs.count&&a.source_units==test.sources.count);
             CHECK(bytes_equal(separate.glyphs.data,glyphs.data,glyphs.count*2)&&bytes_equal(alias.glyphs.data,glyphs.data,glyphs.count*2));
             CHECK(bytes_equal(separate.character_glyphs.data,test.sources.data,test.sources.count*4)&&bytes_equal(alias.character_glyphs.data,test.sources.data,test.sources.count*4));
-            for(u32 g=0;g<a.glyph_count;++g){const SfntPlacement expected{static_cast<float>(500u+100u*glyphs[g])/64.f,0,0};
+            for(u32 g=0;g<a.glyph_count;++g){SfntPlacement expected{};copy_bytes(&expected.advance,advances.data+g,4);
                 CHECK(bytes_equal(separate.placements.data+g,&expected,sizeof(expected))&&bytes_equal(alias.placements.data+g,&expected,sizeof(expected)));}
             auto short_source=alias;short_source.character_glyphs.count=test.sources.count-1;
             CHECK(native_alphabetic_run(store,profile,test.text,15.625f,short_source,&b,{},true,force!=0,rtl!=0)==SfntStatus::output_too_small&&!b.glyph_count&&!b.source_units);

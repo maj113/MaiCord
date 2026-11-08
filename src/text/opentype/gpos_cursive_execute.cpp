@@ -18,45 +18,50 @@ SfntStatus flush(Slice<SfntPosition> positions,Slice<SfntCursiveChainNode> chain
     }
     reset_value(pending);return SfntStatus::ok;
 }
+// HarfBuzz's main-direction cursive adjustment (CursivePosFormat1::apply) of the earlier glyph p (exit anchor x ax) and
+// the later q (entry anchor x bx). Placements are x offsets, negated right to left, as SfntPosition stores them.
+void attach(SfntPosition& p,SfntPosition& q,double ax,double bx,bool rtl) noexcept {
+    if(rtl){const double d=ax-p.advance_offset;p.advance-=d;p.advance_offset+=d;q.advance=bx-q.advance_offset;}
+    else{p.advance=ax+p.advance_offset;const double d=bx+q.advance_offset;q.advance-=d;q.advance_offset-=d;}
+}
 }
 SfntStatus sfnt_position_cursive_flush(Slice<SfntPosition> positions,Slice<SfntCursiveChainNode> chains,SfntCursiveDeferred* pending,SfntCursiveExecution* out,u64 work) noexcept {
     if(!out || !pending)return SfntStatus::invalid_input;reset_value(out);return flush(positions,chains,pending,out,&work);
 }
-SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,ConstSlice<double> nominal,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<u64> bits,SfntCursiveExecution* out,u64 work) noexcept {
+SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<u64> bits,SfntCursiveExecution* out,u64 work) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
-    if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || positions.count<count || nominal.count<count || (count && (!positions.data || !nominal.data)) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
+    if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || positions.count<count || (count && !positions.data) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(!lookup.subtables.count || start==end)return SfntStatus::ok;if(lookup.subtables.data[0].type!=3)return SfntStatus::unsupported;
     const bool backward=(lookup.filter.flags&1)!=0;const u32 length=end-start,words=backward?length/64+(length%64?1u:0u):0;
     if(bits.count<words)return SfntStatus::output_too_small;if(words && !bits.data)return SfntStatus::invalid_input;if(!spend(out,&work,words))return SfntStatus::resource_limit;
-    for(u32 i=0;i<words;++i)bits.data[i]=0;out->chain_words=words;u32 previous=0xffffffffu;double gap_advance=0;
+    for(u32 i=0;i<words;++i)bits.data[i]=0;out->chain_words=words;u32 previous=0xffffffffu;
     for(u32 at=start;at<end;++at){if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const auto& glyph=sfnt_glyph_at(glyphs,at);
         if(glyph.glyph>=lookup.subtables.data[0].glyph_limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(glyph.glyph_class)>4)return SfntStatus::invalid_input;
-        if(sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)){gap_advance+=positions.data[at].advance;if(!is_finite(gap_advance))return SfntStatus::resource_limit;continue;}
+        // A joiner the application may skip is passed over (the cursive iterator has no match function).
+        if(sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)||(gdef.joiners&&sfnt_joiner_skipped(gdef,glyph.glyph,false)))continue;
         if(previous!=0xffffffffu){const auto& first=sfnt_glyph_at(glyphs,previous);
             for(u32 i=0;i<lookup.subtables.count;++i){if(!spend(out,&work))return SfntStatus::resource_limit;SfntGposCursiveAnchors a{},b{};
                 auto s=sfnt_gpos_cursive_anchors(lookup.subtables.data[i],first.glyph,&a);if(s!=SfntStatus::ok)return s;if(!a.covered || !a.exit.table.data)continue;
                 s=sfnt_gpos_cursive_anchors(lookup.subtables.data[i],glyph.glyph,&b);if(s!=SfntStatus::ok)return s;if(!b.covered || !b.entry.table.data)continue;
                 double ax=0,ay=0,bx=0,by=0;s=position_detail::anchor_point(a.exit,instance,&ax,&ay,&out->operations,&work);if(s!=SfntStatus::ok)return s;
                 s=position_detail::anchor_point(b.entry,instance,&bx,&by,&out->operations,&work);if(s!=SfntStatus::ok)return s;
-                auto p=positions.data[previous],q=positions.data[at];
-                if(rtl){const double placement=backward?q.advance-nominal.data[at]-q.advance_offset:p.advance-nominal.data[previous]-p.advance_offset;const double advance=bx-ax+(backward?placement:-placement)-gap_advance;q.advance_offset+=advance-q.advance;q.advance=advance;}
-                else p.advance=ax-bx+(backward?-q.advance_offset:p.advance_offset)-gap_advance;
+                auto p=positions.data[previous],q=positions.data[at];attach(p,q,ax,bx,rtl);
                 if(backward)p.ascender_offset=by-ay;else q.ascender_offset=p.ascender_offset+ay-by;
                 if(!valid(p)||!valid(q))return SfntStatus::resource_limit;positions.data[previous]=p;positions.data[at]=q;
                 if(backward){const u32 slot=previous-start;bits.data[slot/64]|=1ull<<(slot%64);}++out->matches;break;
             }
         }
-        previous=at;gap_advance=0;
+        previous=at;
     }
     if(backward){u32 next=0xffffffffu;for(u32 at=end;at>start;){--at;if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const auto& glyph=sfnt_glyph_at(glyphs,at);
-        if(sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class))continue;const u32 slot=at-start;
+        if(sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)||(gdef.joiners&&sfnt_joiner_skipped(gdef,glyph.glyph,false)))continue;const u32 slot=at-start;
         if(bits.data[slot/64]&(1ull<<(slot%64))){if(next==0xffffffffu)return SfntStatus::malformed;const double y=positions.data[at].ascender_offset+positions.data[next].ascender_offset;if(!is_finite(y))return SfntStatus::resource_limit;positions.data[at].ascender_offset=y;}
         next=at;}}
     return SfntStatus::ok;
 }
-SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,ConstSlice<double> nominal,Slice<SfntPosition> positions,u32 at,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<SfntCursiveChainNode> chains,SfntCursiveExecution* out,u64 work,SfntCursiveDeferred* pending) noexcept {
+SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 at,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<SfntCursiveChainNode> chains,SfntCursiveExecution* out,u64 work,SfntCursiveDeferred* pending) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
-    if(!sfnt_glyph_view_valid(glyphs) || at>=end || end>count || positions.count<count || nominal.count<count || !positions.data || !nominal.data || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
+    if(!sfnt_glyph_view_valid(glyphs) || at>=end || end>count || positions.count<count || !positions.data || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(!lookup.subtables.count)return SfntStatus::ok;if(lookup.subtables.data[0].type!=3)return SfntStatus::unsupported;
     const bool backward=(lookup.filter.flags&1)!=0;
     if(backward && (chains.count<count || !chains.data))return SfntStatus::output_too_small;
@@ -65,11 +70,10 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
     if(pending && pending->head!=0xffffffffu && (!backward || at!=pending->next)){const auto s=flush(positions,chains,pending,out,&work);if(s!=SfntStatus::ok)return s;}
     const auto& selected=sfnt_glyph_at(glyphs,at);const u32 limit=lookup.subtables.data[0].glyph_limit;
     if(selected.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(selected.glyph_class)>4)return SfntStatus::invalid_input;
-    u32 other=at;double gap=0;bool found=false;
+    u32 other=at;bool found=false;
     while(backward?other+1<end:other>0){other=backward?other+1:other-1;if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const auto& g=sfnt_glyph_at(glyphs,other);
         if(g.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(g.glyph_class)>4)return SfntStatus::invalid_input;
-        if(!sfnt_lookup_ignores(gdef,lookup.filter,g.glyph,g.glyph_class)){found=true;break;}
-        gap+=positions.data[other].advance;if(!is_finite(gap))return SfntStatus::resource_limit;
+        if(!sfnt_lookup_ignores(gdef,lookup.filter,g.glyph,g.glyph_class)&&!(gdef.joiners&&sfnt_joiner_skipped(gdef,g.glyph,false))){found=true;break;}
     }
     if(!found)return SfntStatus::ok;const u32 first=backward?at:other,second=backward?other:at;
     const u16 ag=sfnt_glyph_at(glyphs,first).glyph,bg=sfnt_glyph_at(glyphs,second).glyph;
@@ -79,8 +83,7 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
         double ax=0,ay=0,bx=0,by=0;s=position_detail::anchor_point(a.exit,instance,&ax,&ay,&out->operations,&work);if(s!=SfntStatus::ok)return s;
         s=position_detail::anchor_point(b.entry,instance,&bx,&by,&out->operations,&work);if(s!=SfntStatus::ok)return s;
         auto p=positions.data[first],q=positions.data[second];
-        if(rtl){const double placement=backward?q.advance-nominal.data[second]-q.advance_offset:p.advance-nominal.data[first]-p.advance_offset;const double advance=bx-ax+(backward?placement:-placement)-gap;q.advance_offset+=advance-q.advance;q.advance=advance;}
-        else p.advance=ax-bx+(backward?-q.advance_offset:p.advance_offset)-gap;
+        attach(p,q,ax,bx,rtl);
         if(backward)p.ascender_offset=q.ascender_offset+by-ay;else q.ascender_offset=p.ascender_offset+ay-by;
         if(!valid(p)||!valid(q))return SfntStatus::resource_limit;
         if(backward){const double delta=p.ascender_offset-positions.data[first].ascender_offset;if(!is_finite(delta))return SfntStatus::resource_limit;

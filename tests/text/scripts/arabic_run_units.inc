@@ -14,9 +14,7 @@ bool utf8_run_units(SfntShapeStorage storage) noexcept {
         if(status==SfntStatus::ok){if(result.glyph_count!=2||result.source_units!=3||storage.glyphs[0].glyph.glyph!=ltr_glyphs[0]||storage.glyphs[1].glyph.glyph!=ltr_glyphs[1]||!bytes_equal(storage.placements.data,ltr_placements,sizeof(ltr_placements)))return failed(__LINE__);ltr_complete=true;break;}
         if(status!=SfntStatus::resource_limit||result.glyph_count||result.source_units)return failed(__LINE__);}
     if(!ltr_complete)return failed(__LINE__);
-    auto short_ltr=storage;
-    if(native_arabic_plan_get(owned_store,owned_handle,false).generic)short_ltr.glyphs.count=1;
-    else short_ltr.substitutions.replacements.count=sizeof(SfntClusterGlyph);
+    auto short_ltr=storage;short_ltr.glyphs.count=1;
     if(native_arabic_run(owned_store,owned_handle,{text,bytes},false,false,1000,short_ltr,&result)!=SfntStatus::output_too_small||result.glyph_count||result.source_units)return failed(__LINE__);
     for(u32 kind=0;kind<4;++kind){auto short_storage=storage;
         if(kind==0)short_storage.components={};else if(kind==1)short_storage.positions={};else if(kind==2)short_storage.targets={};else short_storage.character_glyphs.count=2;

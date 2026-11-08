@@ -5,9 +5,24 @@
 #include "maicord/text/base.hpp"
 
 namespace maicord {
+namespace {
+// A run's joiner-matching copy of a program, left uninitialized until a joined run fills it.
+template<class Program> struct ProgramCopy {union {Program program;};ProgramCopy() noexcept {}};
+// The copy of a program for one root of a run holding a joiner glyph: its GDEF names the font's joiners and those the
+// root's feature skips (SfntGdef joiners). Out of line: the per-root loops of other runs carry only the branch.
+template<class Program> __attribute__((noinline,cold)) const Program* joined_program(Program& copy,const Program& program,const SfntShapePlan& plan,u8 joiners) noexcept {
+    copy=program;copy.gdef.zwj=plan.zwj;copy.gdef.zwnj=plan.zwnj;copy.gdef.joiners=joiners;return &copy;
+}
+// Whether the run's glyphs (summary) may hold the font's ZWJ or ZWNJ glyph.
+bool holds_joiner(const SfntShapePlan& plan,const SfntGlyphSummary& glyphs) noexcept {
+    return (plan.zwj&&sfnt_glyph_summary_has(glyphs,plan.zwj))||(plan.zwnj&&sfnt_glyph_summary_has(glyphs,plan.zwnj));
+}
+// joined: the run holds a joiner glyph; each root then runs on a copy of the program whose GDEF names the joiners
+// GPOS skips: ZWNJ always, ZWJ unless the root's feature is F_MANUAL_ZWJ, and both in context.
+}
 SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyphs,const SfntGlyphSummary& glyph_bounds,const SfntGlyphSummary& mark_bounds,
-    u32 targets,float em,bool rtl,const SfntShapeStorage& s,SfntShapeRunResult* result,SfntShapeLimits limits,u64& work,bool defer_output) noexcept {
-    const u32 count=sfnt_glyph_count(glyphs);SfntStatus status=SfntStatus::ok;
+    u32 targets,float em,bool rtl,const SfntShapeStorage& s,SfntShapeRunResult* result,SfntShapeLimits limits,u64& work,bool defer_output,bool joined) noexcept {
+    const u32 count=sfnt_glyph_count(glyphs);SfntStatus status=SfntStatus::ok;ProgramCopy<SfntGposProgram> copy;
     for(u32 index=0;index<plan.positioning_roots.count;++index){const u16 root=plan.positioning_roots[index];SfntGposExecutionResult execution{};
         // The first successful root validates the whole run. GPOS cannot edit glyph
         // IDs, classes, nominal metrics or component/source associations, and
@@ -19,15 +34,20 @@ SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyph
         if(index&&((marks&&mark_bounds.first>mark_bounds.last)||sfnt_lookup_bounds_miss(lookup.bounds,marks?mark_bounds:glyph_bounds))){
             if(!work)return SfntStatus::resource_limit;--work;++result->lookup_operations;continue;
         }
+        const SfntGposProgram* program=plan.positioning;
+        if(joined)[[unlikely]]program=joined_program(copy.program,*plan.positioning,plan,static_cast<u8>(((sfnt_manual_joiners(plan.positioning_manual,root)&1u)?0u:sfnt_joiner_input_zwj)|
+            sfnt_joiner_input_zwnj|sfnt_joiner_context_zwj|sfnt_joiner_context_zwnj));
         const auto execute=index?sfnt_gpos_execute_validated_lookup:sfnt_gpos_execute_program_lookup;
-        status=execute(*plan.positioning,root,glyphs,{s.advances.data,count},{s.flags.data,count},
+        status=execute(*program,root,glyphs,{s.flags.data,count},
             {s.associations.data,count},{s.targets.data,targets},{s.positions.data,count},0,count,rtl,plan.position_instance,
-            SfntNullAnchorPolicy::parent_coordinates,SfntComponentAnchorPolicy::skip_missing,s.positioning,
+            SfntComponentAnchorPolicy::skip_missing,s.positioning,
             {work,limits.match_work},&execution);
         result->lookup_operations+=execution.operations;result->position_matches+=execution.matches;
         work-=execution.operations;if(status!=SfntStatus::ok)return status;
     }
-    if(!defer_output)status=sfnt_position_finalize({s.positions.data,count},{s.flags.data,count},em,plan.units_per_em,{s.placements.data,count},limits.stage_work,plan.compensate_consecutive_zeroes,plan.retain_zero_positioning);
+    if(plan.legacy_kern.count){u64 left=work;status=sfnt_legacy_kern_apply(plan.legacy_kern,glyphs,{s.flags.data,count},{s.positions.data,count},rtl,&left);
+        result->lookup_operations+=work-left;work=left;if(status!=SfntStatus::ok)return status;}
+    if(!defer_output)status=sfnt_position_finalize({s.positions.data,count},{s.flags.data,count},em,plan.units_per_em,{s.placements.data,count},limits.stage_work,plan.retain_zero_positioning);
     return status;
 }
 namespace {
@@ -90,13 +110,19 @@ template<bool scoped> __attribute__((always_inline)) inline SfntStatus shape_run
         bounds_current=false;validated=validated&&stages->keeps_records;refresh=plan.refresh_substitution_classes;
         return SfntStatus::ok;
     };
+    // A run holding a joiner glyph matches as HarfBuzz's apply context does: each root runs on a copy of the program
+    // whose GDEF names the joiners GSUB skips: in input ZWJ unless F_MANUAL_ZWJ, in context ZWJ, and ZWNJ unless
+    // F_MANUAL_ZWNJ. Substitution cannot create joiners from other glyphs, so the initial glyphs decide.
+    const bool joined=holds_joiner(plan,substitution);
+    ProgramCopy<SfntGsubProgram> copy;
     for(u32 index=0;index<roots;++index){const u16 root=steps.count?steps[index].lookup:plan.substitution_roots[index];
         const SfntGsubExecutableLookup* prepared=nullptr;status=sfnt_gsub_lookup_prepare(*plan.substitutions,root,&prepared);if(status!=SfntStatus::ok)return status;
         if(stages&&next_stage<=steps[index].stage){status=prepare_stages(steps[index].stage);if(status!=SfntStatus::ok)return status;}
         if(refresh){const auto current=sfnt_glyph_buffer_view(buffer);const u32 count=sfnt_glyph_count(current);
             if(count>work)return SfntStatus::resource_limit;work-=count;result->lookup_operations+=count;
-            reset_value(&substitution);
-            for(u32 i=0;i<count;++i){auto& glyph=const_cast<SfntGsubGlyph&>(sfnt_glyph_at(current,i));glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph.glyph,classes);
+            // Without GDEF glyph classes the input's (synthesized) classes stand, as in HarfBuzz.
+            reset_value(&substitution);const bool classify=plan.gdef.glyph_classes.format!=0;
+            for(u32 i=0;i<count;++i){auto& glyph=const_cast<SfntGsubGlyph&>(sfnt_glyph_at(current,i));if(classify)glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph.glyph,classes);
                 sfnt_glyph_summary_add(substitution,glyph.glyph);}
             refresh=false;bounds_current=true;}
         // Substitutions preserve valid records but invalidate glyph bounds.
@@ -104,10 +130,21 @@ template<bool scoped> __attribute__((always_inline)) inline SfntStatus shape_run
         if(validated&&bounds_current&&sfnt_lookup_bounds_miss(prepared->bounds,substitution)){
             if(!work)return SfntStatus::resource_limit;--work;++result->lookup_operations;continue;
         }
+        const SfntGsubProgram* program=plan.substitutions;
+        if(joined)[[unlikely]]{const u32 manual=sfnt_manual_joiners(plan.substitution_manual,root);
+            program=joined_program(copy.program,*plan.substitutions,plan,static_cast<u8>(((manual&1u)?0u:sfnt_joiner_input_zwj)|sfnt_joiner_context_zwj|((manual&2u)?0u:sfnt_joiner_context_zwnj)));}
         SfntGsubExecutionResult execution{};
         const u32 end=sfnt_glyph_count(sfnt_glyph_buffer_view(buffer));const u8 mask=steps.count?steps[index].feature_mask:0;
-        status=validated?sfnt_gsub_execute_validated_lookup(*plan.substitutions,*prepared,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask):
-            sfnt_gsub_execute_lookup(*plan.substitutions,root,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask);
+        // Single-glyph inputs (types 1, 2, 3 and 8) cannot cross a cluster, so only ligature and contextual
+        // lookups need the initial clusters as segments (validated by the cluster map).
+        if constexpr(scoped)if(((stages->per_cluster[index>>6]>>(index&63))&1)&&prepared->type>=4&&prepared->type<=6&&boundaries.count){
+            status=validated?sfnt_gsub_execute_validated_lookup(*program,*prepared,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask,boundaries):
+                sfnt_gsub_execute_lookup(*program,root,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask,boundaries);
+            result->lookup_operations+=execution.operations;result->substitution_edits+=execution.edits;
+            work-=execution.operations;if(status!=SfntStatus::ok)return status;bounds_current=bounds_current&&!execution.edits;validated=true;
+            refresh=plan.refresh_substitution_classes&&execution.edits!=0;continue;}
+        status=validated?sfnt_gsub_execute_validated_lookup(*program,*prepared,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask):
+            sfnt_gsub_execute_lookup(*program,root,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask);
         result->lookup_operations+=execution.operations;result->substitution_edits+=execution.edits;
         work-=execution.operations;if(status!=SfntStatus::ok)return status;bounds_current=bounds_current&&!execution.edits;validated=true;
         refresh=plan.refresh_substitution_classes&&execution.edits!=0;
@@ -132,7 +169,8 @@ template<bool scoped> __attribute__((always_inline)) inline SfntStatus shape_run
     const bool position_bounds=plan.positioning_roots.count>1;
     const u32 cache_size=plan.cache_advances?(s.targets.count>=64?64u:s.targets.count>=32?32u:0u):0u;
     for(u32 i=0;i<count;++i){auto& record=s.glyphs[i];auto& glyph=record.glyph;
-        if(!policy.prepare)glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph.glyph,classes);
+        // Without GDEF glyph classes the input's (synthesized) classes stand, as in HarfBuzz.
+        if(!policy.prepare){if(plan.gdef.glyph_classes.format)glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph.glyph,classes);}
         else if(s.flags[i]>1)return SfntStatus::invalid_input;
         if(static_cast<u8>(glyph.glyph_class)>4||record.source>=units)return SfntStatus::invalid_input;
         // Glyphs usually follow their sources; the next source unit either starts
@@ -150,7 +188,7 @@ template<bool scoped> __attribute__((always_inline)) inline SfntStatus shape_run
         const double advance=s.advances[i];if(!is_finite(advance))return SfntStatus::invalid_input;
         const bool zero=policy.prepare?s.flags[i]!=0:glyph.glyph_class==SfntGlyphClass::mark;
         s.flags[i]=static_cast<u8>((cluster!=previous?sfnt_position_cluster_start:0)|(zero?sfnt_position_zero_advance:0));previous=cluster;
-        s.positions[i]=sfnt_position_nominal(advance,zero,rtl);
+        s.positions[i]=sfnt_position_nominal(advance,zero);
     }
     if(!defer_output)for(u32 i=0,glyph=absent;i<units;++i){
         if(sfnt_cluster_map_starts(clusters,i))glyph=s.character_glyphs[i];
@@ -159,7 +197,7 @@ template<bool scoped> __attribute__((always_inline)) inline SfntStatus shape_run
     u32 targets=0;
     status=sfnt_components_export(&forest,glyphs,s.targets,s.associations,&targets,limits.stage_work);
     if(status!=SfntStatus::ok)return status;
-    status=shape_position_prepared(plan,glyphs,glyph_bounds,mark_bounds,targets,em,rtl,s,result,limits,work,defer_output);
+    status=shape_position_prepared(plan,glyphs,glyph_bounds,mark_bounds,targets,em,rtl,s,result,limits,work,defer_output,joined);
     if(status==SfntStatus::ok){result->glyph_count=count;result->source_units=units;result->target_count=targets;}
     return status;
 }

@@ -100,8 +100,8 @@ SfntStatus sfnt_gpos_program_prepare(const SfntLayout& layout,const SfntGdef& gd
 #pragma clang attribute pop
 namespace {
 struct Executor {
-    const SfntGposProgram& program;SfntGlyphView glyphs;ConstSlice<double> nominal;ConstSlice<u8> flags;ConstSlice<SfntMarkAssociation> associations;ConstSlice<u32> targets;Slice<SfntPosition> positions;
-    bool rtl;const SfntPositionInstance& instance;SfntNullAnchorPolicy null_policy;SfntComponentAnchorPolicy component_policy;SfntGposExecutionScratch scratch;SfntGposExecutionResult& result;
+    const SfntGposProgram& program;SfntGlyphView glyphs;ConstSlice<u8> flags;ConstSlice<SfntMarkAssociation> associations;ConstSlice<u32> targets;Slice<SfntPosition> positions;
+    bool rtl;const SfntPositionInstance& instance;SfntComponentAnchorPolicy component_policy;SfntGposExecutionScratch scratch;SfntGposExecutionResult& result;
     u64 work;u32 match_work;u32 depth=0,used=0;bool chains_ready=false;SfntCursiveDeferred deferred{};
     SfntStatus flush() noexcept {SfntCursiveExecution r{};const auto s=sfnt_position_cursive_flush(positions,scratch.cursive_chains,&deferred,&r,work);work-=r.operations;return s;}
     SfntStatus attempt(const SfntGposExecutableLookup* entry,u32 at,u32 end,bool selected,u32* resume) noexcept {
@@ -114,12 +114,12 @@ struct Executor {
             if(lookup.type==3){SfntCursiveExecution r{};
                 if(selected){if((lookup.filter.flags&1) && !chains_ready){const u32 n=sfnt_glyph_count(glyphs);if(scratch.cursive_chains.count<n)return SfntStatus::output_too_small;if(!spend(&work,n))return SfntStatus::resource_limit;
                         for(u32 i=0;i<n;++i)scratch.cursive_chains.data[i]={0xffffffffu,0xffffffffu};chains_ready=true;}
-                    s=sfnt_position_execute_cursive_selected(attachment,program.gdef,glyphs,nominal,positions,at,end,rtl,instance,scratch.cursive_chains,&r,work,sfnt_glyph_count(glyphs)>=32?&deferred:nullptr);}
-                else s=sfnt_position_execute_cursive_lookup(attachment,program.gdef,glyphs,nominal,positions,at,end,rtl,instance,scratch.cursive_bits,&r,work);
+                    s=sfnt_position_execute_cursive_selected(attachment,program.gdef,glyphs,positions,at,end,rtl,instance,scratch.cursive_chains,&r,work,sfnt_glyph_count(glyphs)>=32?&deferred:nullptr);}
+                else s=sfnt_position_execute_cursive_lookup(attachment,program.gdef,glyphs,positions,at,end,rtl,instance,scratch.cursive_bits,&r,work);
                 work-=r.operations;result.matches+=r.matches;
-            }else if(lookup.type==5){SfntLigatureExecution r{};s=sfnt_position_execute_ligature_lookup(attachment,program.gdef,glyphs,nominal,associations,targets,positions,at,end,rtl,instance,null_policy,component_policy,scratch.ligature_prefix,&r,work,mode);work-=r.operations;result.matches+=r.matches;}
+            }else if(lookup.type==5){SfntLigatureExecution r{};s=sfnt_position_execute_ligature_lookup(attachment,program.gdef,glyphs,associations,targets,positions,at,end,rtl,instance,component_policy,scratch.ligature_prefix,&r,work,mode);work-=r.operations;result.matches+=r.matches;}
             else {
-                SfntMarkExecution r{};s=sfnt_position_execute_mark_lookup(attachment,program.gdef,glyphs,nominal,flags,positions,at,end,rtl,instance,null_policy,&r,work,associations,mode,associations.count&&glyphs.record_size==sizeof(SfntComponentGlyph),targets);work-=r.operations;result.matches+=r.matches;}
+                SfntMarkExecution r{};s=sfnt_position_execute_mark_lookup(attachment,program.gdef,glyphs,flags,positions,at,end,rtl,instance,&r,work,associations,mode,associations.count&&glyphs.record_size==sizeof(SfntComponentGlyph),targets);work-=r.operations;result.matches+=r.matches;}
             *resume=end;return s;
         }
         if(lookup.type!=7 && lookup.type!=8)return SfntStatus::unsupported;const auto& glyph=sfnt_glyph_at(glyphs,at);
@@ -133,11 +133,13 @@ struct Executor {
             for(;;){if(!previous)return SfntStatus::ok;--previous;if(!spend(&work))return SfntStatus::resource_limit;
                 const auto& back=sfnt_glyph_at(glyphs,previous);
                 if(!sfnt_lookup_ignores(program.gdef,lookup.filter,back.glyph,back.glyph_class))break;}
-            const u16 key=sfnt_glyph_at(glyphs,previous).glyph;u32 high=last;
-            while(first<high){if(!spend(&work))return SfntStatus::resource_limit;const u32 middle=first+(high-first)/2;
-                if(byte_load_be16(lookup.tables.context[middle].coverages[0].records)<key)first=middle+1;else high=middle;}
-            if(first==last||byte_load_be16(lookup.tables.context[first].coverages[0].records)!=key)return SfntStatus::ok;
-            last=first+1;
+            // A skippable joiner as the nearest backtrack glyph may match its own rule or be passed over: try every rule.
+            const u16 key=sfnt_glyph_at(glyphs,previous).glyph;
+            if(!program.gdef.joiners||!sfnt_joiner_skipped(program.gdef,key,true)){u32 high=last;
+                while(first<high){if(!spend(&work))return SfntStatus::resource_limit;const u32 middle=first+(high-first)/2;
+                    if(byte_load_be16(lookup.tables.context[middle].coverages[0].records)<key)first=middle+1;else high=middle;}
+                if(first==last||byte_load_be16(lookup.tables.context[first].coverages[0].records)!=key)return SfntStatus::ok;
+                last=first+1;}
         }
         for(u32 i=first;i<last;++i){if(!spend(&work))return SfntStatus::resource_limit;SfntContextMatch match{};
             u32 first_coverage_index=shared_index;
@@ -167,24 +169,24 @@ struct Executor {
     }
 };
 }
-SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 lookup,SfntGlyphView glyphs,ConstSlice<double> nominal,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy null_policy,SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,SfntGposExecutionLimits limits,SfntGposExecutionResult* output) noexcept {
+SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 lookup,SfntGlyphView glyphs,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,SfntGposExecutionLimits limits,SfntGposExecutionResult* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);const u32 n=sfnt_glyph_count(glyphs);
     const auto* root=lookup<program.lookups.count?sfnt_gpos_lookup(program,lookup):nullptr;
-    if(!sfnt_glyph_view_valid(glyphs) || !root || !root->type || !program.glyph_limit || program.glyph_limit>65536 || start>end || end>n || nominal.count<n || flags.count<n || positions.count<n || (n && (!nominal.data || !flags.data || !positions.data)) || (associations.count && (associations.count<n || !associations.data)) || (targets.count && !targets.data) || static_cast<u8>(null_policy)>1 || static_cast<u8>(component_policy)>1 || static_cast<u8>(instance.arithmetic)>1 || !filled(scratch.frames) || !filled(scratch.positions) || !filled(scratch.cursive_bits) || !filled(scratch.ligature_prefix) || !filled(scratch.cursive_chains) || scratch.positions.count>0x3fffffffu)return SfntStatus::invalid_input;
+    if(!sfnt_glyph_view_valid(glyphs) || !root || !root->type || !program.glyph_limit || program.glyph_limit>65536 || start>end || end>n || flags.count<n || positions.count<n || (n && (!flags.data || !positions.data)) || (associations.count && (associations.count<n || !associations.data)) || (targets.count && !targets.data) || static_cast<u8>(component_policy)>1 || static_cast<u8>(instance.arithmetic)>1 || !filled(scratch.frames) || !filled(scratch.positions) || !filled(scratch.cursive_bits) || !filled(scratch.ligature_prefix) || !filled(scratch.cursive_chains) || scratch.positions.count>0x3fffffffu)return SfntStatus::invalid_input;
     u64 work=limits.operations;
     for(u32 i=0;i<targets.count;++i){if(!spend(&work)){output->operations=limits.operations-work;return SfntStatus::resource_limit;}if(targets.data[i]>=n || (i && targets.data[i]<=targets.data[i-1]))return SfntStatus::invalid_input;}
     SfntGlyphSummary run{};
     for(u32 i=0;i<n;++i){if(!spend(&work)){output->operations=limits.operations-work;return SfntStatus::resource_limit;}const auto& g=sfnt_glyph_at(glyphs,i);const auto& p=positions.data[i];
         sfnt_glyph_summary_add(run,g.glyph);
-        if(g.glyph>=program.glyph_limit || static_cast<u8>(g.glyph_class)>4 || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)) || !is_finite(nominal.data[i]) || !is_finite(p.advance) || !is_finite(p.advance_offset) || !is_finite(p.ascender_offset))return SfntStatus::invalid_input;
+        if(g.glyph>=program.glyph_limit || static_cast<u8>(g.glyph_class)>4 || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)) || !is_finite(p.advance) || !is_finite(p.advance_offset) || !is_finite(p.ascender_offset))return SfntStatus::invalid_input;
         if(associations.count && associations.data[i].target!=0xffffffffu && (associations.data[i].target>=targets.count || targets.data[associations.data[i].target]>=i))return SfntStatus::invalid_input;
     }
     if(sfnt_lookup_bounds_miss(root->bounds,run)){output->operations=limits.operations-work;return SfntStatus::ok;}
-    const auto status=sfnt_gpos_execute_validated_lookup(program,lookup,glyphs,nominal,flags,associations,targets,positions,start,end,rtl,instance,null_policy,component_policy,scratch,{work,limits.match_work},output);
+    const auto status=sfnt_gpos_execute_validated_lookup(program,lookup,glyphs,flags,associations,targets,positions,start,end,rtl,instance,component_policy,scratch,{work,limits.match_work},output);
     output->operations+=limits.operations-work;return status;
 }
-SfntStatus sfnt_gpos_execute_validated_lookup(const SfntGposProgram& program,u16 lookup,SfntGlyphView glyphs,ConstSlice<double> nominal,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy null_policy,SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,SfntGposExecutionLimits limits,SfntGposExecutionResult* output) noexcept {
-    reset_value(output);Executor e{program,glyphs,nominal,flags,associations,targets,positions,rtl,instance,null_policy,component_policy,scratch,*output,limits.operations,limits.match_work};
+SfntStatus sfnt_gpos_execute_validated_lookup(const SfntGposProgram& program,u16 lookup,SfntGlyphView glyphs,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,SfntGposExecutionLimits limits,SfntGposExecutionResult* output) noexcept {
+    reset_value(output);Executor e{program,glyphs,flags,associations,targets,positions,rtl,instance,component_policy,scratch,*output,limits.operations,limits.match_work};
     const auto status=e.run(lookup,start,end);output->operations=limits.operations-e.work;return status;
 }
 }

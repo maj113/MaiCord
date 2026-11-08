@@ -5,19 +5,17 @@ namespace maicord {
 struct NativeArabicPlanHandle {u32 slot,generation;};
 struct NativeArabicPlanSlot {NativeRunPlanHandle run;Arena state;u32 references,generation;};
 struct NativeArabicPlanStore {NativeRunPlanStore* runs;Slice<NativeArabicPlanSlot> slots;};
-struct NativeArabicPlanView {const SfntShapePlan* shape;ConstSlice<SfntLookupStep> steps;const SfntCmap* cmap;bool generic=false;};
+struct NativeArabicPlanView {const SfntShapePlan* shape;ConstSlice<SfntLookupStep> steps;const SfntCmap* cmap;};
 // On-demand Arabic/en-US schedules built on an existing native run plan. Both
 // typography modes share its parsed GSUB/GPOS graphs, metric/variation context
-// and mapped font; only the Arabic roots/steps and one shape descriptor are new,
-// and positioning roots are shared between the modes.
+// and mapped font; only the Arabic roots/steps and a shape descriptor per mode are
+// new, and the modes share positioning unless independent letters drop kerning.
 // A live Arabic plan holds one run-plan reference and is read-only once built;
 // views stay valid while the plan is retained. Slots are zero-initialized,
 // stable and mutated on their owning thread. Handles are store-local.
-// Missing usable GSUB script/language support returns unsupported_sequence; a
-// font offering only the latn script gets a generic plan shaped as Latin. GPOS
-// is enabled only after the GSUB check succeeds. Variation feature selection
-// uses the instance's normalized coordinates. Both modes are prepared together
-// or not at all.
+// Missing usable GSUB script/language support (arab, DFLT, dflt or latn) returns
+// unsupported_sequence. Variation feature selection uses the instance's normalized
+// coordinates. Both modes are prepared together or not at all.
 // Scratch is disposable and reset during preparation. A matching existing plan
 // is reused without allocating. Work limits each parser/planner pass
 // separately; state_limit includes page rounding.
