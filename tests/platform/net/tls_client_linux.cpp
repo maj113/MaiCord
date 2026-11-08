@@ -382,6 +382,7 @@ void connect_case(u16 port, const wchar_t* name, const char* protocol) noexcept 
     const bool opened = open_session(connection, port, name, &error, &status);
     check(opened, "the handshake with the loopback server succeeds");
     if (!opened) {
+        explain("handshake", error, status);
         close_session(connection);
         return;
     }
@@ -449,6 +450,7 @@ void download_case(u16 port, const wchar_t* name, u32 expected_bytes) noexcept {
     const bool opened = open_session(connection, port, name, &error, &status);
     check(opened, "the handshake for the download succeeds");
     if (!opened) {
+        explain("handshake", error, status);
         close_session(connection);
         return;
     }
@@ -529,6 +531,7 @@ void rekey_case(u16 port, const wchar_t* name) noexcept {
     const bool opened = open_session(connection, port, name, &error, &status);
     check(opened, "the handshake for the key update case succeeds");
     if (!opened) {
+        explain("handshake", error, status);
         close_session(connection);
         return;
     }
@@ -564,6 +567,7 @@ void control_case(u16 port, const wchar_t* name) noexcept {
     const bool opened = open_session(connection, port, name, &error, &status);
     check(opened, "the handshake for the control record case succeeds");
     if (!opened) {
+        explain("handshake", error, status);
         close_session(connection);
         return;
     }

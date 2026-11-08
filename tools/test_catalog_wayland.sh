@@ -56,9 +56,10 @@ if [ -z "${MAICORD_CATALOG_NAMESPACE:-}" ]; then
     mkdir -p "$out"
     out="$(cd "$out" && pwd -P)"
     site="$(cd "$site" && pwd -P)"
-    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj "/CN=$host" \
-        -addext "subjectAltName=DNS:$host" -keyout "$out/catalog-key.pem" -out "$out/catalog-cert.pem" 2>/dev/null \
-        || { echo "openssl could not make the certificate" >&2; exit 1; }
+    # shellcheck source=tests/platform/net/tls_certificate.sh
+    source "$here/../tests/platform/net/tls_certificate.sh"
+    certificate "$out/catalog-key.pem" "$out/catalog-cert.pem" "$host" "DNS:$host" ||
+        { echo "openssl could not make the certificate" >&2; exit 1; }
     printf '127.0.0.1 localhost %s\n' "$host" > "$out/catalog-hosts"
     exec unshare -Urnm env MAICORD_CATALOG_NAMESPACE=1 MAICORD_CATALOG_EXPECT="$expect" "$0" --binary "$binary" --site "$site" \
         --out "$out" --host "$host" \

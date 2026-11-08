@@ -86,9 +86,10 @@ if [ -z "${MAICORD_DISCORD_NAMESPACE:-}" ]; then
     [ -z "$site" ] || site="$(cd "$site" && pwd -P)"
     alt=""
     for name in "${names[@]}"; do alt+="DNS:$name,"; done
-    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj "/CN=discord.com" \
-        -addext "subjectAltName=${alt%,}" -keyout "$out/discord-key.pem" -out "$out/discord-cert.pem" 2>/dev/null \
-        || { echo "openssl could not make the certificate" >&2; exit 1; }
+    # shellcheck source=tests/platform/net/tls_certificate.sh
+    source "$here/../tests/platform/net/tls_certificate.sh"
+    certificate "$out/discord-key.pem" "$out/discord-cert.pem" discord.com "${alt%,}" ||
+        { echo "openssl could not make the certificate" >&2; exit 1; }
     printf '127.0.0.1 localhost %s\n' "${names[*]}" > "$out/discord-hosts"
     if [ -n "$dbus" ]; then # a private session bus with the desktop mocks (notifications, portals, secrets), as the user
         # shellcheck source=tools/dbus_test_bus.sh

@@ -3,15 +3,17 @@
 #
 #   tls_stream_smoke.sh <tls_stream test binary> <work directory>
 #
-# Makes a throwaway EC certificate for localhost and 127.0.0.1, starts TLS 1.3 and TLS 1.2 status-page servers and a TLS
-# 1.3 file server on ports the kernel picks, and runs the cases of tests/platform/net/tls_stream_linux.cpp with that
-# certificate as the only trust (SSL_CERT_FILE): a GET by name and by address over both versions, a 100,000 byte
-# download over many records, a name the certificate does not carry, a port nobody listens on, and a stream closed
-# while it connects. Exits 77 (skipped) when there is no `openssl` command.
+# Makes a throwaway EC certificate for localhost and 127.0.0.1 (tls_certificate.sh), starts TLS 1.3 and TLS 1.2
+# status-page servers and a TLS 1.3 file server on ports the kernel picks, and runs the cases of
+# tests/platform/net/tls_stream_linux.cpp with that certificate as the only trust (SSL_CERT_FILE): a GET by name and by
+# address over both versions, a 100,000 byte download over many records, a name the certificate does not carry, a port
+# nobody listens on, and a stream closed while it connects. Exits 77 (skipped) when there is no `openssl` command.
 set -u
 
 binary=$1
 work=$2
+# shellcheck source=tests/platform/net/tls_certificate.sh
+. "$(dirname "$0")/tls_certificate.sh"
 
 if ! command -v openssl >/dev/null 2>&1; then
     echo "SKIP: no openssl command"
@@ -41,9 +43,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout server.key -out server.pem -days 2 \
-    -subj /CN=localhost -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1 ||
-    { echo "FAIL: cannot make the server certificate"; failed=1; exit 1; }
+certificate server.key server.pem localhost || { echo "FAIL: cannot make the server certificate"; failed=1; exit 1; }
 yes 0123456789abcdef | head -c 100000 > payload
 
 # start_server <name> <s_server option>...: sets port_<name> to the port it listens on and pid_<name> to its process.

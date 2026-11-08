@@ -3,16 +3,19 @@
 #
 #   tls_smoke.sh <tls_client test binary> <work directory>
 #
-# Makes a throwaway EC certificate for localhost and 127.0.0.1 and starts four servers on ports the kernel picks (TLS
-# 1.3 and TLS 1.2, each as a status page and as a file server), then runs the cases of tests/platform/net/
-# tls_client_linux.cpp against them with that certificate as the only trust (SSL_CERT_FILE, the override the client
-# honours): sessions by name and by address, a download of 100,000 bytes over many records, a host name the
-# certificate does not name, a certificate nobody trusts, and a server that only speaks TLS 1.1. Exits 77 (skipped)
-# when there is no `openssl` command. Prints the failing case and the server logs, and exits 1, on any failure.
+# Makes a throwaway EC certificate for localhost and 127.0.0.1 (tls_certificate.sh) and starts four servers on ports
+# the kernel picks (TLS 1.3 and TLS 1.2, each as a status page and as a file server), then runs the cases of
+# tests/platform/net/tls_client_linux.cpp against them with that certificate as the only trust (SSL_CERT_FILE, the
+# override the client honours): sessions by name and by address, a download of 100,000 bytes over many records, a host
+# name the certificate does not name, a certificate nobody trusts, and a server that only speaks TLS 1.1. Exits 77
+# (skipped) when there is no `openssl` command. Prints the failing case and the server logs, and exits 1, on any
+# failure.
 set -u
 
 binary=$1
 work=$2
+# shellcheck source=tests/platform/net/tls_certificate.sh
+. "$(dirname "$0")/tls_certificate.sh"
 
 if ! command -v openssl >/dev/null 2>&1; then
     echo "SKIP: no openssl command"
@@ -42,17 +45,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# certificate <name> <common name>: a self-signed certificate for localhost under that subject. The certificate the
-# "untrusted" case trusts instead of the server's has another subject: with the same one, OpenSSL before 3.2 offers it
-# as the issuer and reports an authority key identifier mismatch (30) where later releases report the self-signed
-# certificate (18), so the expected code would depend on the library version.
-certificate() {
-    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout "$1.key" -out "$1.pem" -days 2 \
-        -subj "/CN=$2" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
-}
-
-certificate server localhost || { echo "FAIL: cannot make the server certificate"; failed=1; exit 1; }
-certificate other other.example || { echo "FAIL: cannot make the second certificate"; failed=1; exit 1; }
+# The certificate the "untrusted" case trusts instead of the server's (certificate, tls_certificate.sh) has another
+# subject: with the same one, OpenSSL before 3.2 offers it as the issuer and reports an authority key identifier
+# mismatch (30) where later releases report the self-signed certificate (18), so the expected code would depend on the
+# library version.
+certificate server.key server.pem localhost || { echo "FAIL: cannot make the server certificate"; failed=1; exit 1; }
+certificate other.key other.pem other.example || { echo "FAIL: cannot make the second certificate"; failed=1; exit 1; }
 yes 0123456789abcdef | head -c 100000 > payload
 
 # start_server <name> <s_server option>...: sets port_<name> to the port it listens on.

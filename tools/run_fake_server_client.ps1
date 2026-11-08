@@ -9,7 +9,7 @@
 # The executable (default: the build directory's MaiCord.exe) must hold test hooks; the script refuses a shipping client, which
 # would sign in to the real Discord. It is copied with its fonts and licenses to <Directory>\client and run from there, so the
 # build directory stays free for builds. -World names a MAICORD_FAKE_WORLD directory (world.json and cdn\). The certificate
-# (a throwaway, two days) is made in <Directory> with Git's openssl when none is there. Output, in <Directory> (default
+# (a throwaway, valid from 2000 to 2099) is made in <Directory> with Git's openssl on every run. Output, in <Directory> (default
 # %TEMP%\mc-fake-client): server.log, requests.log, profile\ (the client's LOCALAPPDATA), state.json (process ids), cert.pem.
 # Sign in with any e-mail and password. -Stop ends both processes.
 [CmdletBinding()]
@@ -39,7 +39,7 @@ if ($Stop) { Stop-Recorded; return }
 
 if (!$Executable) { $Executable = Join-Path $repository '..\MaiCord-build\Release\MaiCord.exe' }
 $Executable = (Resolve-Path -LiteralPath $Executable).Path
-# The marker string every image with test hooks carries (include/maicord/core/test_hook.hpp; tools/audit_pe.ps1).
+# The marker string every image with test hooks carries (include/maicord/core/test_hook.hpp; tools/audit_image.py).
 $image = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($Executable))
 if (!$image.Contains('maicord-test-hooks-compiled-in')) {
     throw "$Executable holds no test hooks (a shipping build): it would reach the real Discord. Build with tools\build.ps1 -TestHooks."
@@ -70,21 +70,39 @@ foreach ($assets in 'fonts', 'licenses') {
 if (Test-Path -LiteralPath $userData) { Remove-Item -LiteralPath $userData -Recurse -Force }
 New-Item -ItemType Directory -Path "$userData\Temp" | Out-Null
 
-if (!(Test-Path -LiteralPath $certificate) -or !(Test-Path -LiteralPath $key)) {
-    $openssl = (Get-Command openssl.exe -ErrorAction SilentlyContinue).Source
-    if (!$openssl) { $openssl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe' }
-    if (!(Test-Path -LiteralPath $openssl)) { throw 'openssl.exe was not found (it ships with Git for Windows).' }
-    $names = 'discord.com', 'gateway.discord.gg', 'cdn.discordapp.com', 'media.discordapp.net', 'remote-auth-gateway.discord.gg',
-        'us-qa.discord.media', 'maj113.github.io'
-    $alternatives = ($names | ForEach-Object { "DNS:$_" }) -join ','
-    $env:MSYS_NO_PATHCONV = '1'
-    $ErrorActionPreference = 'Continue' # openssl writes its progress to stderr, which Windows PowerShell 5.1 treats as an error
-    & $openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj /CN=discord.com `
-        -addext "subjectAltName=$alternatives" -keyout $key -out $certificate 2>&1 | Out-Null
+# The certificate, made on every run, valid from 2000 to 2099 rather than from now, as tests/platform/net/tls_certificate.sh
+# makes it (the reasons are there): `openssl req` can only date a certificate from now, so `openssl ca -selfsign` signs the
+# request with these dates, from a throwaway CA database, with the extensions `openssl req -x509` gives.
+$openssl = (Get-Command openssl.exe -ErrorAction SilentlyContinue).Source
+if (!$openssl) { $openssl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe' }
+if (!(Test-Path -LiteralPath $openssl)) { throw 'openssl.exe was not found (it ships with Git for Windows).' }
+$names = 'discord.com', 'gateway.discord.gg', 'cdn.discordapp.com', 'media.discordapp.net', 'remote-auth-gateway.discord.gg',
+    'us-qa.discord.media', 'maj113.github.io'
+$alternatives = ($names | ForEach-Object { "DNS:$_" }) -join ','
+$authority = Join-Path ([IO.Path]::GetTempPath()) ('mc-certificate-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $authority | Out-Null
+$database = $authority.Replace('\', '/') # forward slashes: a backslash escapes in an OpenSSL configuration
+$configuration = @('[ca]', 'default_ca = selfsigned', '[selfsigned]', "database = $database/index.txt",
+    "new_certs_dir = $database", "serial = $database/serial", 'default_md = sha256', 'policy = any_name',
+    'copy_extensions = copy', 'x509_extensions = authority', 'unique_subject = no', '[any_name]', 'commonName = supplied',
+    '[authority]', 'subjectKeyIdentifier = hash', 'authorityKeyIdentifier = keyid:always,issuer',
+    'basicConstraints = critical,CA:true')
+[IO.File]::WriteAllText("$authority\ca.cnf", ($configuration -join "`n") + "`n")
+[IO.File]::WriteAllText("$authority\index.txt", '')
+[IO.File]::WriteAllText("$authority\serial", "01`n")
+$env:MSYS_NO_PATHCONV = '1'
+$ErrorActionPreference = 'Continue' # openssl writes its progress to stderr, which Windows PowerShell 5.1 treats as an error
+& $openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -subj /CN=discord.com `
+    -addext "subjectAltName=$alternatives" -keyout $key -out "$database/request.csr" 2>&1 | Out-Null
+$made = $LASTEXITCODE -eq 0
+if ($made) {
+    & $openssl ca -batch -config "$database/ca.cnf" -selfsign -keyfile $key -in "$database/request.csr" -out $certificate `
+        -notext -startdate 20000101000000Z -enddate 20991231235959Z 2>&1 | Out-Null
     $made = $LASTEXITCODE -eq 0
-    $ErrorActionPreference = 'Stop'
-    if (!$made) { throw 'openssl could not make the certificate.' }
 }
+$ErrorActionPreference = 'Stop'
+Remove-Item -LiteralPath $authority -Recurse -Force
+if (!$made) { throw 'openssl could not make the certificate.' }
 
 foreach ($log in $serverLog, $requestLog) { Set-Content -LiteralPath $log -Value '' -NoNewline }
 $python = (Get-Command python.exe -ErrorAction Stop).Source
