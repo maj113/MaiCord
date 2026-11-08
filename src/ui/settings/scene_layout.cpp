@@ -923,12 +923,14 @@ bool geometry_valid(const UiEditGeometry* geometry) noexcept {
     if (!geometry)
         return true;
     // A borrowed renderer bank is empty before its first native measure, and
-    // a hidden caret may have zero width. Neither represents invalid bounds.
+    // a hidden caret may have zero width. Neither represents invalid bounds;
+    // nor does a selected empty line, which the edit layout reports as a
+    // zero-width rectangle (painting skips it).
     if (geometry->selection_count > 48 || !ui_rect_valid_or_empty(geometry->text) ||
         !ui_rect_valid_or_empty(geometry->caret))
         return false;
     for (u32 i = 0; i < geometry->selection_count; ++i)
-        if (!ui_rect_valid(geometry->selections[i]))
+        if (!ui_rect_valid_or_empty(geometry->selections[i]))
             return false;
     return true;
 }

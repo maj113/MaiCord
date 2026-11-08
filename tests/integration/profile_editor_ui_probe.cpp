@@ -182,10 +182,20 @@ bool profile_editor_pages(D3D11Renderer& renderer, UiTextMeasureCache* measure, 
         R"("premium_type":2,"badges":[{"id":"premium","icon":"abcdef","description":"Nitro subscriber"}]})");
     const float scale = 96.0f / renderer.dpi;
     const UiRect viewport{0, 0, renderer.width * scale, renderer.height * scale};
-    const auto show = [&](bool nitro, bool guild, const wchar_t* name, UiRect view) noexcept {
+    const auto show = [&](bool nitro, bool guild, const wchar_t* name, UiRect view, Utf8View bio = {},
+                          bool reverse = false) noexcept {
         release(&page);
         page = {};
         build(&page, nitro, guild);
+        // Ctrl+A in the focused Bio field: the whole text selected, as the settings layer projects it.
+        if (bio.bytes) {
+            message_composer_release(&page.models[2]);
+            load(&page.models[2], page.bio, sizeof(page.bio), bio);
+            page.editors[2] = {{message_composer_text(page.models[2]), reverse ? bio.bytes : 0u,
+                                reverse ? 0u : bio.bytes, true, true, true},
+                               &renderer.media_picker_edit_geometry,
+                               {}};
+        }
         // A new content revision per frame, as the editor bumps it on every
         // projection; an unchanged revision keeps the scene's previous layout.
         static u32 revision = 0;
@@ -215,6 +225,8 @@ bool profile_editor_pages(D3D11Renderer& renderer, UiTextMeasureCache* measure, 
         ui_settings_scene_bind_navigation(&scene, {page.navigation, 4}, 1);
         ui_settings_scene_bind_palette(&scene, {&context, palette, 1});
         ok = ok && require(ui_settings_scene_update(&scene, &page.registry, view), 4);
+        if (bio.bytes)
+            ok = ok && require(ui_settings_scene_focus(&scene, {UiSettingsTargetKind::control, {1, 2}, 12}), 11);
         UiRect heading{}, card{}, clip{};
         if (ok && ui_settings_scene_aside(scene, &heading, &card, &clip)) {
             preview.anchor = card;
@@ -224,14 +236,35 @@ bool profile_editor_pages(D3D11Renderer& renderer, UiTextMeasureCache* measure, 
             renderer.settings_profile_preview = nullptr;
         renderer_bind_settings_scene(&renderer, &scene);
         ok = ok && require(renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
-                               probe_present(&renderer, kDefaultTheme) && capture(name),
+                               probe_present(&renderer, kDefaultTheme) && (!name || capture(name)),
                            6);
+        // The next projection (a blink, the next key) takes the selection geometry that frame published.
+        if (bio.bytes) {
+            page.content.revision = ++revision;
+            ok = ok && require(ui_settings_scene_update(&scene, &page.registry, view) &&
+                                   renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+                                   probe_present(&renderer, kDefaultTheme),
+                               12);
+        }
         return ok;
     };
     bool ok = show(true, false, L"profile-editor-main.bmp", viewport) &&
               show(false, false, L"profile-editor-main-free.bmp", viewport) &&
               show(false, true, L"profile-editor-guild.bmp", viewport) &&
               show(true, false, L"profile-editor-narrow.bmp", {0, 0, viewport.right * .62f, viewport.bottom});
+    const Utf8View bios[]{
+        utf8_literal("First line\n\nThird line after a blank one\n"),
+        utf8_literal("\n\n\n\n\n\n\n\n\n\n"),
+        utf8_literal("A long first line that wraps across the width of the bio field more than once, twice even.\n\n"
+                     "Hello \xF0\x9F\x98\x80 world \xF0\x9F\x91\x8B\xF0\x9F\x8F\xBD\n"
+                     "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D \xD7\xA2\xD7\x95\xD7\x9C\xD7\x9D and back\n\n"),
+        utf8_literal("one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\ntwelve\n"),
+        utf8_literal("Windows\r\nline\r\n\r\nends\r\n"),
+    };
+    for (u32 i = 0; ok && i < sizeof(bios) / sizeof(bios[0]) * 2; ++i) {
+        log_u64(LogLevel::info, "probe", "profile_editor_bio_select_all", i);
+        ok = show(true, false, i ? nullptr : L"profile-editor-bio-selected.bmp", viewport, bios[i / 2], i & 1);
+    }
     // A picked avatar shown in the preview and the cropper.
     constexpr u32 w = 240, h = 180; // fits the probe's 256 px atlases
     static u8 rgba[w * h * 4];

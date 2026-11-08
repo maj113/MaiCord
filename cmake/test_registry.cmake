@@ -1295,6 +1295,10 @@ maicord_test(MaiCordAccountReconnectTests ONLY WINDOWS ENTRY maicord_account_rec
 # Toast queue: order, merge, overflow, timing by update and wake counts, placement and paint.
 maicord_test(MaiCordToastTests ENTRY maicord_toast_tests_entry SOURCES tests/ui/widgets/toast.cpp
     BUNDLE MaiCordUiUnitTests TIMEOUT 5 TEST maicord_toast)
+# A multi-line settings editor with a selected empty line (Ctrl+A in the profile Bio) lays out, paints and outputs text.
+maicord_test(MaiCordSettingsEditSelectionTests ENTRY maicord_settings_edit_selection_entry
+    SOURCES tests/ui/settings/edit_selection.cpp
+    BUNDLE MaiCordUiUnitTests TIMEOUT 5 TEST maicord_settings_edit_selection)
 # Server Settings invite rows: Copy Link through the clipboard sink, its toast and Revoke.
 maicord_test(MaiCordInviteCopyRuntimeTests ONLY WINDOWS ENTRY maicord_invite_copy_runtime_entry
     SOURCES tests/app/guild/settings/invite_copy_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
@@ -2785,7 +2789,7 @@ maicord_ui_probe_test(maicord_inline_media_controls_ui_probe VIDEO_CONTROLS_UI_P
 # rendition and present (a failed build_layout presents nothing).
 maicord_ui_probe_test(maicord_guild_rail_icon_probe UI_GUILD_RAIL_ICON_PROBE BOOTSTRAP TIMEOUT 20
     LABELS native-ui display RESOURCE_LOCK native_gpu)
-# Profiles settings page, preview card, cropper and decoration picker.
+# Profiles settings page, preview card, cropper and decoration picker; Ctrl+A over a multi-line Bio.
 maicord_ui_probe_test(maicord_profile_editor_ui_probe PROFILE_EDITOR_UI_PROBE BOOTSTRAP TIMEOUT 20
     LABELS native-ui display RESOURCE_LOCK native_gpu)
 # Rich presence cards in the profile popout and full profile.
