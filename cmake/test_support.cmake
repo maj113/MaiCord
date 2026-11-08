@@ -295,9 +295,11 @@ function(maicord_plugin target)
         CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     if(MAICORD_LINUX)
         target_compile_definitions(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:MC_RUNTIME>)
+        # No libc: LLVM 24 turns a string-length loop into a strlen call (an import the loader refuses) unless told not
+        # to, as the compile contract does.
         target_compile_options(${target} PRIVATE -nostdinc -fPIC -fvisibility=hidden -fno-stack-protector
             -fcf-protection=none -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 -Wall -Wextra -Werror
-            -Wno-missing-field-initializers -ffunction-sections -fdata-sections
+            -Wno-missing-field-initializers -ffunction-sections -fdata-sections -fno-builtin-strlen -fno-builtin-wcslen
             $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions> $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
             $<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>)
         target_link_options(${target} PRIVATE -fuse-ld=lld -nostdlib LINKER:-Bsymbolic LINKER:-z,noexecstack
@@ -307,7 +309,9 @@ function(maicord_plugin target)
         return()
     endif()
     target_compile_definitions(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:MC_RUNTIME>)
-    target_compile_options(${target} PRIVATE /clang:-nostdinc /W4 /WX /utf-8 /Zl /GS- /O2 $<$<COMPILE_LANGUAGE:CXX>:/GR->)
+    # No C library in a plugin: LLVM must not turn string-length loops into strlen/wcslen imports.
+    target_compile_options(${target} PRIVATE /clang:-nostdinc /W4 /WX /utf-8 /Zl /GS- /O2
+        /clang:-fno-builtin-strlen /clang:-fno-builtin-wcslen $<$<COMPILE_LANGUAGE:CXX>:/GR->)
     target_link_libraries(${target} PRIVATE maicord_link_contract)
     target_link_options(${target} PRIVATE /NOENTRY /SUBSYSTEM:WINDOWS,6.02)
 endfunction()

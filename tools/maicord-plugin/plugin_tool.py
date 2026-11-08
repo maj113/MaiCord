@@ -39,8 +39,10 @@ VERSION = re.compile(r"(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){2}")  # MAJOR.
 
 # The flags of cmake's maicord_plugin() and of the catalog's CI (MaiCord-plugins scripts/build_catalog.py), so a
 # local build is the catalog's build: same source, same compiler, same bytes (/Brepro).
+# No C library in a plugin: -fno-builtin-strlen/wcslen keep LLVM from turning string-length loops into imports.
 COMPILE = ["/nologo", "/c", "/std:c++latest", "/clang:-nostdinc", "/O2", "/W4", "/WX", "/utf-8", "/Zl", "/GS-", "/GR-",
-           "/permissive-", "/clang:-fno-asynchronous-unwind-tables", "/clang:-fno-unwind-tables", "/DMC_RUNTIME"]
+           "/permissive-", "/clang:-fno-asynchronous-unwind-tables", "/clang:-fno-unwind-tables",
+           "/clang:-fno-builtin-strlen", "/clang:-fno-builtin-wcslen", "/DMC_RUNTIME"]
 LINK = ["/nologo", "/DLL", "/NOENTRY", "/NODEFAULTLIB", "/SUBSYSTEM:WINDOWS,6.02", "/DYNAMICBASE", "/HIGHENTROPYVA",
         "/NXCOMPAT", "/CETCOMPAT", "/OPT:REF", "/OPT:ICF=8", "/INCREMENTAL:NO", "/ALLOWBIND:NO",
         "/MERGE:.pdata=.rdata", "/DEBUG:NONE", "/Brepro", "/mllvm:-enable-machine-outliner"]
@@ -53,7 +55,8 @@ LINUX_TRIPLE = "x86_64-unknown-linux-gnu"
 LINUX_COMPILE = ["-std=c++23", "-O2", "-Wall", "-Wextra", "-Werror", "-Wno-missing-field-initializers", "-nostdinc",
                  "-fPIC", "-fvisibility=hidden", "-fno-stack-protector", "-fcf-protection=none",
                  "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", "-fno-exceptions", "-fno-rtti",
-                 "-fno-threadsafe-statics", "-ffunction-sections", "-fdata-sections", "-DMC_RUNTIME"]
+                 "-fno-threadsafe-statics", "-ffunction-sections", "-fdata-sections", "-fno-builtin-strlen",
+                 "-fno-builtin-wcslen", "-DMC_RUNTIME"]
 LINUX_LINK = ["-fuse-ld=lld", "-nostdlib", "-shared", "-Wl,-Bsymbolic", "-Wl,-z,noexecstack", "-Wl,-z,now",
               "-Wl,--hash-style=gnu", "-Wl,--build-id=none", "-Wl,--gc-sections", "-Wl,--strip-all"]
 TARGETS = ("windows", "linux")

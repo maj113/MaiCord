@@ -161,7 +161,7 @@ class ToolchainTests(Case):
     def test_flags_are_cmakes(self):
         """The flags of maicord_plugin() (cmake/test_support.cmake) and the link contract all appear."""
         support = (REPOSITORY / "cmake" / "test_support.cmake").read_text(encoding="utf-8")
-        compile_line = re.search(r"function\(maicord_plugin target\).*?target_compile_options\(\$\{target\} PRIVATE ([^\n]+)\)",
+        compile_line = re.search(r"function\(maicord_plugin target\).*?target_compile_options\(\$\{target\} PRIVATE (.*?)\)\n",
                                  support, re.S).group(1)
         for flag in re.findall(r"(?<![\w:$<])/[A-Za-z][^\s>)]*|/clang:-nostdinc", compile_line):
             self.assertIn(flag, core.COMPILE)
