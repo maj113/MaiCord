@@ -11,10 +11,10 @@ No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 [![License](https://img.shields.io/badge/license-MPL--2.0-brightgreen)](LICENSE)
 [![CI](https://github.com/maj113/MaiCord/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/maj113/MaiCord/actions/workflows/ci.yml)
 
-**[<kbd> <br> Download <br> </kbd>](https://github.com/maj113/MaiCord/releases/latest)**
-**[<kbd> <br> Install <br> </kbd>](#install)**
-**[<kbd> <br> Website <br> </kbd>](https://maicord.com/)**
-**[<kbd> <br> Themes, effects and plugins <br> </kbd>](https://maicord.com/plugins/)**
+[![Download](https://img.shields.io/badge/Download-8b5cf6?style=for-the-badge)](https://github.com/maj113/MaiCord/releases/latest)
+[![Install](https://img.shields.io/badge/Install-8b5cf6?style=for-the-badge)](#install)
+[![Website](https://img.shields.io/badge/Website-8b5cf6?style=for-the-badge)](https://maicord.com/)
+[![Themes, effects and plugins](https://img.shields.io/badge/Themes%2C%20effects%20and%20plugins-8b5cf6?style=for-the-badge)](https://maicord.com/plugins/)
 
 <br>
 
