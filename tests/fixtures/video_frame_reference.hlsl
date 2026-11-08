@@ -19,6 +19,9 @@ cbuffer VideoConstants : register(b0) {
     uint Step;
     uint2 Visible;
     uint Reserved;
+    // video_frame_gpu_lanes(Step): above 1 the host dispatches one row of
+    // 64 / Lanes written pixels per group (the shader's split blocks).
+    uint Lanes;
 };
 
 float3 convert(uint2 position) {
@@ -32,19 +35,25 @@ float3 convert(uint2 position) {
 }
 
 [numthreads(8, 8, 1)]
-void cs_main(uint3 id : SV_DispatchThreadID) {
-    if (any(id.xy >= Size)) return;
+void cs_main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint index : SV_GroupIndex) {
+    // Only the dispatch geometry follows the host: one thread converts each pixel.
+    uint2 pixel = id.xy;
+    if (Lanes > 1) {
+        if (index % Lanes != 0) return;
+        pixel = uint2(group.x * (64 / Lanes) + index / Lanes, group.y);
+    }
+    if (any(pixel >= Size)) return;
     if (Step <= 1) {
-        Target[Destination + id.xy] = float4(convert(Source + id.xy) / 255.0, 1.0);
+        Target[Destination + pixel] = float4(convert(Source + pixel) / 255.0, 1.0);
         return;
     }
     // Poster thumbnails: average the block, clipped at the visible edge.
-    const uint2 first = id.xy * Step;
+    const uint2 first = pixel * Step;
     const uint2 last = min(first + Step, Visible);
     float3 sum = 0;
     [loop] for (uint y = first.y; y < last.y; ++y)
         [loop] for (uint x = first.x; x < last.x; ++x)
             sum += convert(Source + uint2(x, y));
     const uint2 count = last - first;
-    Target[Destination + id.xy] = float4(sum / (255.0 * count.x * count.y), 1.0);
+    Target[Destination + pixel] = float4(sum / (255.0 * count.x * count.y), 1.0);
 }

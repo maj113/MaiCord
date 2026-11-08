@@ -23,6 +23,7 @@
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/render/media/atlas_gpu.hpp"
 #include "../../../src/render/media/atlas_gpu_internal.hpp"
+#include "../../../src/media/image/jpeg_internal.hpp"
 #include "maicord/media/image/apng_frame.hpp"
 #include "maicord/media/image/png.hpp"
 #include "../../fixtures/webp_fixture.hpp"
@@ -177,14 +178,33 @@ void check_png_formats() noexcept {
 }
 
 // ---- JPEG ------------------------------------------------------------------------------
+// Baseline images in the stored-rows layout of JpegCoefficientWorkspace (the jpeg_idct_rows shader) as well, which
+// the decoder gives only larger images than these.
+bool g_stored_rows;
+
 bool upload_jpeg(ConstSlice<u8> encoded, u64 id, JpegImage* image, MediaAtlasResult* allocation,
                  bool damage = false) noexcept {
     media_atlas_reset(&g->atlas);
-    if (!jpeg_decode_coefficients(encoded, image, &g->jpeg).ok()) {
+    if (!jpeg_decode_coefficients(encoded, image, &g->jpeg).ok() ||
+        (g_stored_rows && !image->progressive &&
+         !jpeg_detail::decode_baseline_coefficients(encoded, *image, &g->jpeg.coefficients, true).ok())) {
         return false;
     }
     if (damage) {
-        g->jpeg.coefficients.blocks[0].values[0] = static_cast<i16>(g->jpeg.coefficients.blocks[0].values[0] + 32);
+        // Block 0's DC: the first coefficient of the blocks, or of block 0's first stored row.
+        u8* dc = g->jpeg.coefficients.bytes + jpeg_coefficient_row_offset(image->coefficient_blocks);
+        if (!g->jpeg.coefficients.whole_blocks) {
+            u32 word = 0;
+            copy_bytes(&word, g->jpeg.coefficients.bytes, sizeof(word));
+            if ((word & 15u) == 0) {
+                return false;
+            }
+            dc += (word >> 8) * 16u;
+        }
+        i16 value = 0;
+        copy_bytes(&value, dc, sizeof(value));
+        value = static_cast<i16>(value + 32);
+        copy_bytes(dc, &value, sizeof(value));
     }
     const MediaAtlasGpuResult uploaded = media_atlas_gpu_upload_jpeg(
         &g->gpu, &g->atlas, g_device, g_context, media_asset_custom_emoji(id, false), *image, g->jpeg.coefficients);
@@ -450,21 +470,24 @@ int run() noexcept {
     }
 
     check_png_formats();
-    check_jpeg_reference("jpeg_420_reference", {kJpeg420Reference, sizeof(kJpeg420Reference)},
-                         {kJpeg420ReferenceRgb, sizeof(kJpeg420ReferenceRgb)}, 1001);
-    check_jpeg_reference("jpeg_progressive_reference",
-                         {reinterpret_cast<const u8*>(kJpegProgressive420Reference), kJpegProgressive420ReferenceBytes},
-                         {reinterpret_cast<const u8*>(kJpegProgressive420ReferenceRgb),
-                          kJpegProgressive420ReferenceRgbBytes},
-                         1002);
-    check_jpeg_reference("jpeg_cmyk_reference", {kJpegCmykAdobeReference, sizeof(kJpegCmykAdobeReference)},
-                         {kJpegCmykAdobeReferenceRgb, sizeof(kJpegCmykAdobeReferenceRgb)}, 1003);
-    check_jpeg_reference("jpeg_ycck_progressive_reference",
-                         {kJpegYcckProgressiveReference, sizeof(kJpegYcckProgressiveReference)},
-                         {kJpegYcckProgressiveReferenceRgb, sizeof(kJpegYcckProgressiveReferenceRgb)}, 1004);
-    check_jpeg_corpus();
-    check_jpeg_reference("jpeg_damage_detected", {kJpeg420Reference, sizeof(kJpeg420Reference)},
-                         {kJpeg420ReferenceRgb, sizeof(kJpeg420ReferenceRgb)}, 1005, true);
+    for (u32 layout = 0; layout < 2; ++layout) {
+        g_stored_rows = layout != 0;
+        check_jpeg_reference("jpeg_420_reference", {kJpeg420Reference, sizeof(kJpeg420Reference)},
+                             {kJpeg420ReferenceRgb, sizeof(kJpeg420ReferenceRgb)}, 1001);
+        check_jpeg_reference(
+            "jpeg_progressive_reference",
+            {reinterpret_cast<const u8*>(kJpegProgressive420Reference), kJpegProgressive420ReferenceBytes},
+            {reinterpret_cast<const u8*>(kJpegProgressive420ReferenceRgb), kJpegProgressive420ReferenceRgbBytes}, 1002);
+        check_jpeg_reference("jpeg_cmyk_reference", {kJpegCmykAdobeReference, sizeof(kJpegCmykAdobeReference)},
+                             {kJpegCmykAdobeReferenceRgb, sizeof(kJpegCmykAdobeReferenceRgb)}, 1003);
+        check_jpeg_reference("jpeg_ycck_progressive_reference",
+                             {kJpegYcckProgressiveReference, sizeof(kJpegYcckProgressiveReference)},
+                             {kJpegYcckProgressiveReferenceRgb, sizeof(kJpegYcckProgressiveReferenceRgb)}, 1004);
+        check_jpeg_corpus();
+        check_jpeg_reference("jpeg_damage_detected", {kJpeg420Reference, sizeof(kJpeg420Reference)},
+                             {kJpeg420ReferenceRgb, sizeof(kJpeg420ReferenceRgb)}, 1005, true);
+    }
+    g_stored_rows = false;
 
     check_vp8("vp8_4x4", {kWebpLossy4x4, sizeof(kWebpLossy4x4)}, 3001);
     check_vp8("vp8_32x24", {kWebpLossy32x24, sizeof(kWebpLossy32x24)}, 3002, kWebpLossy32x24RgbaFnv1a);

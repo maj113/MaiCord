@@ -120,9 +120,9 @@ void test_jpeg_baseline() noexcept {
                image.has_jfif && image.color_transform == JpegColorTransform::ycbcr &&
                image.orientation == JpegOrientation::top_left && image.tables->icc &&
                image.tables->icc->profile.disposition == JpegIccDisposition::none &&
-               g_jpeg_workspace.coefficients.blocks[0].values[0] == 0 &&
-               g_jpeg_workspace.coefficients.blocks[1].values[0] == -256 &&
-               g_jpeg_workspace.coefficients.blocks[2].values[0] == 256,
+               jpeg_coefficient_block(g_jpeg_workspace.coefficients, 3, 0).values[0] == 0 &&
+               jpeg_coefficient_block(g_jpeg_workspace.coefficients, 3, 1).values[0] == -256 &&
+               jpeg_coefficient_block(g_jpeg_workspace.coefficients, 3, 2).values[0] == 256,
            "jpeg_baseline_parse_and_entropy_exact");
 
     u8 oriented_encoded[sizeof(kJpeg420Reference) + 36]{};
@@ -510,9 +510,9 @@ void test_jpeg_baseline() noexcept {
         ConstSlice<u8>{encoded, restarted_fixture.encoded_bytes}, &image, &g_jpeg_workspace);
     expect(restarted.ok() && restarted.parse.restart_markers == 1 &&
                restarted.decoded_blocks == 6 && image.restart_interval == 1 && image.width == 16 &&
-               g_jpeg_workspace.coefficients.blocks[1].values[0] == 0 &&
-               g_jpeg_workspace.coefficients.blocks[3].values[0] == -256 &&
-               g_jpeg_workspace.coefficients.blocks[5].values[0] == 256,
+               jpeg_coefficient_block(g_jpeg_workspace.coefficients, 6, 1).values[0] == 0 &&
+               jpeg_coefficient_block(g_jpeg_workspace.coefficients, 6, 3).values[0] == -256 &&
+               jpeg_coefficient_block(g_jpeg_workspace.coefficients, 6, 5).values[0] == 256,
            "jpeg_restart_predictor_and_sequence");
 
     const u32 restarted_bytes = restarted_fixture.encoded_bytes;
@@ -539,7 +539,9 @@ void test_jpeg_baseline() noexcept {
     for (u32 block = 0; block < progressive_image.coefficient_blocks; ++block) {
         for (u32 coefficient = 1; coefficient < 64; ++coefficient) {
             progressive_has_ac =
-                progressive_has_ac || g_jpeg_workspace.coefficients.blocks[block].values[coefficient] != 0;
+                progressive_has_ac ||
+                jpeg_coefficient_block(g_jpeg_workspace.coefficients, progressive_image.coefficient_blocks, block)
+                        .values[coefficient] != 0;
         }
     }
     expect(progressive.ok() && progressive_image.progressive && progressive.parse.scans == 10 &&
@@ -674,7 +676,9 @@ void test_jpeg_baseline() noexcept {
     bool has_ac = false;
     for (u32 block = 0; block < reference_image.coefficient_blocks && !has_ac; ++block) {
         for (u32 coefficient = 1; coefficient < 64; ++coefficient) {
-            has_ac = has_ac || g_jpeg_workspace.coefficients.blocks[block].values[coefficient] != 0;
+            has_ac = has_ac ||
+                     jpeg_coefficient_block(g_jpeg_workspace.coefficients, reference_image.coefficient_blocks, block)
+                             .values[coefficient] != 0;
         }
     }
     expect(reference.ok() && reference_image.width == 16 && reference_image.height == 16 &&
@@ -695,7 +699,8 @@ void test_jpeg_baseline() noexcept {
     bool cmyk_has_ac = false;
     for (u32 block = 0; block < cmyk_image.coefficient_blocks && !cmyk_has_ac; ++block) {
         for (u32 coefficient = 1; coefficient < 64; ++coefficient) {
-            cmyk_has_ac = g_jpeg_workspace.coefficients.blocks[block].values[coefficient] != 0;
+            cmyk_has_ac = jpeg_coefficient_block(g_jpeg_workspace.coefficients, cmyk_image.coefficient_blocks, block)
+                              .values[coefficient] != 0;
             if (cmyk_has_ac) {
                 break;
             }
@@ -729,7 +734,8 @@ void test_jpeg_baseline() noexcept {
     bool ycck_has_ac = false;
     for (u32 block = 0; block < ycck_image.coefficient_blocks && !ycck_has_ac; ++block) {
         for (u32 coefficient = 1; coefficient < 64; ++coefficient) {
-            ycck_has_ac = g_jpeg_workspace.coefficients.blocks[block].values[coefficient] != 0;
+            ycck_has_ac = jpeg_coefficient_block(g_jpeg_workspace.coefficients, ycck_image.coefficient_blocks, block)
+                              .values[coefficient] != 0;
             if (ycck_has_ac) {
                 break;
             }

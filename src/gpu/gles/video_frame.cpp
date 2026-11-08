@@ -18,8 +18,9 @@ struct VideoConstants {
     u32 crop_x, crop_y, width, height, x, y;
     YuvRgbCoefficients color;
     u32 step, visible_width, visible_height, rotation;
+    u32 lanes, unused[3];
 };
-static_assert(sizeof(VideoConstants) == 64);
+static_assert(sizeof(VideoConstants) == 80);
 
 GpuStatus ensure_resources(VideoFrameGpu* gpu, GpuDevice* device) noexcept {
     GpuStatus status = kGpuOk;
@@ -68,9 +69,10 @@ GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device, GpuCont
     void* mapped = gpu_map(context, gpu->constants, GpuMap::discard, &status);
     if (!mapped)
         return gpu_ok(status) ? kGpuFail : status;
+    const u32 lanes = video_frame_gpu_lanes(step);
     const VideoConstants constants{frame.crop_x, frame.crop_y, width, height, x, y,
                                    yuv_rgb_coefficients(frame.bt709, frame.full_range), step, frame.width, frame.height,
-                                   frame.rotation};
+                                   frame.rotation, lanes, {}};
     copy_bytes(mapped, &constants, sizeof(constants));
     gpu_unmap(context, gpu->constants);
     GpuSrv* inputs[]{frame.luma, frame.chroma};
@@ -82,7 +84,10 @@ GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device, GpuCont
     gpu_set_constants(context, GpuStage::compute, 0, 1, &gpu->constants);
     gpu_set_srvs(context, GpuStage::compute, 0, 2, inputs);
     gpu_set_uavs(context, 0, 1, &destination);
-    gpu_dispatch(context, (output_width + 7u) / 8u, (output_height + 7u) / 8u, 1);
+    if (lanes > 1)
+        gpu_dispatch(context, (output_width + 64u / lanes - 1u) / (64u / lanes), output_height, 1);
+    else
+        gpu_dispatch(context, (output_width + 7u) / 8u, (output_height + 7u) / 8u, 1);
     gpu_set_srvs(context, GpuStage::compute, 0, 2, empty);
     GpuUav* no_uav = nullptr;
     gpu_set_uavs(context, 0, 1, &no_uav);

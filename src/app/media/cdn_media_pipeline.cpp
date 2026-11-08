@@ -442,7 +442,18 @@ void decode_jpeg_bytes(CdnMediaPipeline* pipeline, const MediaAssetKey& key, Con
         return set_state(out, CdnStaticJpegState::jpeg_workspace_required);
     }
     pipeline->jpeg_workspace = ::new (pipeline->jpeg_workspace) JpegWorkspace;
-    out->decode = jpeg_decode_coefficients(encoded, &out->image, pipeline->jpeg_workspace);
+    out->decode.parse = jpeg_parse(encoded, &out->image, pipeline->jpeg_workspace);
+    out->decode.error = out->decode.parse.error;
+    if (out->decode.ok()) {
+        const JpegParseResult parse = out->decode.parse;
+        const u64 blocks = jpeg_coefficient_workspace_bytes(out->image.coefficient_blocks);
+        if (commit_jpeg_workspace(pipeline, offsetof(JpegWorkspace, coefficients) + blocks))
+            out->decode =
+                jpeg_decode_parsed_coefficients(encoded, out->image, &pipeline->jpeg_workspace->coefficients);
+        else
+            out->decode.error = JpegError::sink;
+        out->decode.parse = parse;
+    }
     if (out->decode.error == JpegError::dimensions || out->decode.error == JpegError::encoded_limit) {
         const bool profile = key.kind == MediaAssetKind::profile_image;
         return reduce_jpeg_bytes(

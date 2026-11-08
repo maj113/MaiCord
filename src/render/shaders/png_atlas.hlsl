@@ -125,7 +125,9 @@ void png_expand(uint3 dispatch_id : SV_DispatchThreadID) {
     [branch] if (blend_over && rgba.a == 0u) {
         return;
     }
-    rgba.rgb = (rgba.rgb * rgba.a + 127u) / 255u;
+    // (c * a + 127) / 255 without the division: exact for every 8-bit c and a.
+    const uint3 scaled = rgba.rgb * rgba.a + 128u;
+    rgba.rgb = (scaled + (scaled >> 8u)) >> 8u;
     const uint2 destination =
         uint2(destination_x + x, destination_y + dispatch_id.y);
     float4 result = float4(rgba) / 255.0f;

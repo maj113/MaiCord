@@ -92,6 +92,8 @@ maicord_shader(MAICORD_VP8_ATLAS_HEADER maicord_vp8_atlas_cs.hpp cs_5_0 vp8_to_a
     ${maicord_shaders}/vp8_atlas.hlsl PACK vp8_atlas)
 maicord_shader(MAICORD_JPEG_IDCT_HEADER maicord_jpeg_idct_cs.hpp cs_5_0 jpeg_idct g_maicord_jpeg_idct_shader
     ${maicord_shaders}/jpeg.hlsl PACK jpeg_idct)
+maicord_shader(MAICORD_JPEG_IDCT_ROWS_HEADER maicord_jpeg_idct_rows_cs.hpp cs_5_0 jpeg_idct
+    g_maicord_jpeg_idct_rows_shader ${maicord_shaders}/jpeg.hlsl PACK jpeg_idct_rows JPEG_STORED_ROWS=1)
 maicord_shader(MAICORD_JPEG_ATLAS_HEADER maicord_jpeg_atlas_cs.hpp cs_5_0 jpeg_to_atlas g_maicord_jpeg_atlas_shader
     ${maicord_shaders}/jpeg.hlsl PACK jpeg_atlas)
 maicord_shader(MAICORD_VIDEO_FRAME_HEADER video_frame_cs.hpp cs_5_0 cs_main g_maicord_video_frame_shader

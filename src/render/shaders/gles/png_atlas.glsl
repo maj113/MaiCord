@@ -1,4 +1,4 @@
-// twin: src/render/shaders/png_atlas.hlsl 2cf02d5cfa7e64fc
+// twin: src/render/shaders/png_atlas.hlsl 5d2c21457cc7d3bd
 // png_expand (STAGE_CS): decodes reconstructed PNG scanlines into the premultiplied media atlas.
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -109,7 +109,9 @@ void main() {
     bool blend_over = reserved0 == 1u;
     if (blend_over && rgba.a == 0u)
         return;
-    rgba.rgb = (rgba.rgb * rgba.a + 127u) / 255u;
+    // (c * a + 127) / 255 without the division: exact for every 8-bit c and a.
+    uvec3 scaled = rgba.rgb * rgba.a + 128u;
+    rgba.rgb = (scaled + (scaled >> 8u)) >> 8u;
     ivec2 destination = ivec2(uvec2(destination_x, destination_y) + id);
     vec4 result = vec4(rgba) * (1.0 / 255.0);
     if (blend_over && rgba.a != 255u)

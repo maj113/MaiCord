@@ -77,7 +77,9 @@ struct Data {
     u8 png_gray_alpha[65 * 16 + 8];       // 16 x 16, 16-bit gray and alpha, one filter byte per row
     u32 yuv[kVp8Samples];
     u8 vp8_alpha[kVp8LumaSamples + 8];
-    i16 jpeg_coefficients[kJpegBlocks * 64];
+    // As the decoder stores them (jpeg.hpp, JpegCoefficientWorkspace): a word per block (how many rows it stores and
+    // the index of its first), 32 bytes in all, then the stored rows (rows 0 and 1 of each block; the rest are zero).
+    i16 jpeg_coefficients[16 + kJpegBlocks * 2 * 8];
     u16 jpeg_quantization[2 * 64];
 };
 
@@ -121,7 +123,8 @@ inline void build(Data* data) noexcept {
             data->yuv[kVp8LumaSamples + kVp8ChromaSamples + y * (kVp8Width / 2) + x] = 120 + (x * 7 + y * 11) % 90;
         }
     for (u32 block = 0; block < kJpegBlocks; ++block) {
-        i16* coefficients = data->jpeg_coefficients + block * 64;
+        data->jpeg_coefficients[block * 2] = static_cast<i16>(block * 2 << 8 | 2);
+        i16* coefficients = data->jpeg_coefficients + 16 + block * 16;
         coefficients[0] = static_cast<i16>((block + 1) * 40 - 100); // DC
         coefficients[1] = 30, coefficients[8] = -20, coefficients[9] = static_cast<i16>(block * 4);
         coefficients[2] = static_cast<i16>(block & 1 ? -12 : 12);

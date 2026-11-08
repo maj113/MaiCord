@@ -1,6 +1,6 @@
-// video_frame.hlsl (shared-chroma fast path for even steps) must match the
-// frozen per-pixel converter for every step, crop, range and matrix; a frame
-// without plane views is refused.
+// video_frame.hlsl (float conversion, unrolled small blocks, chroma quads and
+// split large blocks) must match the frozen per-pixel converter for every
+// step, crop, range and matrix; a frame without plane views is refused.
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/media/video_frame_gpu.hpp"
 #include "maicord/core/hash.hpp"
@@ -135,6 +135,8 @@ bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept {
 
     struct Geometry { u32 crop_x, crop_y, width, height; };
     constexpr Geometry geometries[] = {{0, 0, kCodedWidth, kCodedHeight}, {2, 4, 189, 121}, {6, 2, 64, 63}};
+    // Steps 7 and 11 take the shader's split blocks (4 and 8 lanes, video_frame_gpu_lanes).
+    constexpr u32 steps[] = {1, 2, 3, 4, 5, 7, 11};
     u32 cases = 0;
     u64 hashes[2]{};
     ID3D11ComputeShader* production = nullptr;
@@ -147,7 +149,7 @@ bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept {
         context->ClearUnorderedAccessViewUint(target_view, clear);
         u32 cell = 0;
         for (const auto& geometry : geometries) {
-            for (u32 step = 1; valid && step <= 5; ++step) {
+            for (const u32 step : steps) {
                 // Matrix/range variants; cells stay inside the target.
                 for (u32 variant = 0; valid && variant < 2; ++variant, ++cell) {
                     GpuVideoFrame frame{source, 0, geometry.crop_x, geometry.crop_y, geometry.width,
@@ -164,7 +166,7 @@ bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept {
         valid = valid && read_target(context, staging, target, &hashes[side]);
     }
     if (production) converter.shader = production;
-    valid = valid && production && hashes[0] == hashes[1] && cases == 30;
+    valid = valid && production && hashes[0] == hashes[1] && cases == 42;
     // Plane views are required: there is no copy into a renderer surface.
     const u32 converted = converter.frames;
     valid = valid && video_frame_gpu_present(&converter, device, context,

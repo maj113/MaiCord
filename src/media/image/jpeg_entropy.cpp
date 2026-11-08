@@ -203,8 +203,11 @@ __forceinline i32 receive_extend(JpegEntropyReader* reader, u32 bits) noexcept {
                              : static_cast<i32>(value);
 }
 
+// End: also stores, after a decode that succeeds, one past the last coefficient (zigzag order) it read.
+template <bool End>
 __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecodeTable& dc_table,
-                                      const JpegAcDecodeTable& ac_table, i32* predictor, JpegCoefficientBlock* block) noexcept {
+                                      const JpegAcDecodeTable& ac_table, i32* predictor, JpegCoefficientBlock* block,
+                                      u32* end) noexcept {
     for (u32 index = 0; index < 64; ++index) {
         block->values[index] = 0;
     }
@@ -273,6 +276,9 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
         block->values[kZigzagToRaster[coefficient]] = static_cast<i16>(value);
         ++coefficient;
     }
+    if constexpr (End) {
+        *end = coefficient;
+    }
     return true;
 }
 
@@ -280,8 +286,42 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
 bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegAcDecodeTable& ac_table,
                   i32* predictor, JpegCoefficientBlock* block) noexcept {
     JpegEntropyReader local = *reader;
-    const bool ok = decode_block_local(&local, dc_table, ac_table, predictor, block);
+    const bool ok = decode_block_local<false>(&local, dc_table, ac_table, predictor, block, nullptr);
     *reader = local;
+    return ok;
+}
+
+namespace {
+// By the end of a block's coefficients in zigzag order: the raster rows up to the last any of them lies in.
+struct RowsThrough {
+    u8 values[65];
+};
+constexpr RowsThrough rows_through() noexcept {
+    RowsThrough table{};
+    u32 last_row = 0;
+    for (u32 end = 1; end <= 64; ++end) {
+        const u32 row = kZigzagToRaster[end - 1] >> 3;
+        last_row = row > last_row ? row : last_row;
+        table.values[end] = static_cast<u8>(last_row + 1);
+    }
+    return table;
+}
+constexpr RowsThrough kRowsThrough = rows_through();
+} // namespace
+
+// The block is decoded in place at row *stored, and keeps the rows up to the last its coefficients reach (all eight
+// after a failure).
+bool decode_block_rows(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegAcDecodeTable& ac_table,
+                       i32* predictor, u8* word, u8* rows, u32* stored) noexcept {
+    JpegEntropyReader local = *reader;
+    u32 end = 64;
+    const bool ok = decode_block_local<true>(&local, dc_table, ac_table, predictor,
+                                             reinterpret_cast<JpegCoefficientBlock*>(rows + *stored * 16u), &end);
+    *reader = local;
+    const u32 count = ok ? kRowsThrough.values[end] : 8u;
+    const u32 packed = *stored << 8 | count;
+    memcpy(word, &packed, sizeof(packed));
+    *stored += count;
     return ok;
 }
 

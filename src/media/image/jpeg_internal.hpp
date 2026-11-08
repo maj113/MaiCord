@@ -207,6 +207,13 @@ JpegError find_entropy_end(ConstSlice<u8> encoded, u32 start, JpegScan* scan, u3
 void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegAcDecodeTable* ac) noexcept;
 bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegAcDecodeTable& ac_table,
                   i32* predictor, JpegCoefficientBlock* block) noexcept;
+// decode_block in place at row *stored of `rows`, keeping its rows up to the last its coefficients reach (all eight
+// after a failure): writes its word and advances *stored past them.
+bool decode_block_rows(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegAcDecodeTable& ac_table,
+                       i32* predictor, u8* word, u8* rows, u32* stored) noexcept;
+// The baseline scan into either layout of JpegCoefficientWorkspace (jpeg_decode_parsed_coefficients picks by size).
+JpegDecodeResult decode_baseline_coefficients(ConstSlice<u8> encoded, const JpegImage& image,
+                                              JpegCoefficientWorkspace* coefficients, bool stored_rows) noexcept;
 bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, const JpegTables& tables,
                              const JpegScan& scan, JpegCoefficientBlock* blocks,
                              JpegDecodeResult* result) noexcept;

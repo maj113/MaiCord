@@ -72,7 +72,7 @@ bool run() noexcept {
     ID3D11ComputeShader *png = nullptr, *vp8 = nullptr, *jpeg_idct = nullptr, *jpeg_atlas = nullptr;
     if (!gpu_ok(gpu_compute_shader_create(device, ShaderId::png_compute, &png)) ||
         !gpu_ok(gpu_compute_shader_create(device, ShaderId::vp8_atlas, &vp8)) ||
-        !gpu_ok(gpu_compute_shader_create(device, ShaderId::jpeg_idct, &jpeg_idct)) ||
+        !gpu_ok(gpu_compute_shader_create(device, ShaderId::jpeg_idct_rows, &jpeg_idct)) ||
         !gpu_ok(gpu_compute_shader_create(device, ShaderId::jpeg_atlas, &jpeg_atlas)))
         return fail("a decode shader");
     D3D11DrawPipelineOwner pipeline{};

@@ -242,10 +242,50 @@ struct JpegCoefficientBlock {
     i16 values[64];
 };
 
+// From 128 KiB of coefficient blocks. Below it, rows lose on the GPU when its reads are batched (a 128 px 4:2:0
+// image, 384 blocks, by 2%; 16-100 px images by 5%), and break even at 768 blocks.
+inline constexpr u32 kJpegStoredRowsMinimumBlocks = 1024;
+
+// The decoded coefficients as the GPU reads them (src/render/shaders/jpeg.hlsl), so the upload is one copy of
+// what the image holds. A baseline decode of at least kJpegStoredRowsMinimumBlocks blocks writes a word per block,
+// then, from the first 16-byte boundary after the words, each block in decode order as its rows (eight
+// coefficients in raster order) up to the last its coefficients reach. A block's word holds how many of its rows
+// are stored, from the first (bits 0-3; a row not stored is zero), and the index of its first stored row (bits
+// 8-31). A progressive decode refines every block across its scans, and a smaller image gains nothing from the
+// rows (the GPU's read of a block's word costs more than the bytes it saves), so those keep whole blocks in block
+// order at that boundary instead, without words (whole_blocks).
 struct JpegCoefficientWorkspace {
-    JpegCoefficientBlock blocks[kJpegCoefficientBlockMaximum];
+    u32 stored_rows;
+    u32 whole_blocks;
+    u32 reserved[2];
+    u8 bytes[kJpegCoefficientBlockMaximum * (sizeof(u32) + sizeof(JpegCoefficientBlock))];
 };
 
+constexpr u32 jpeg_coefficient_row_offset(u32 blocks) noexcept {
+    return (blocks * 4u + 15u) & ~15u;
+}
+
+// The bytes of a workspace a decode of `blocks` blocks may write (every row stored).
+constexpr u32 jpeg_coefficient_workspace_bytes(u32 blocks) noexcept {
+    return static_cast<u32>(sizeof(u32) * 4) + jpeg_coefficient_row_offset(blocks) +
+           blocks * static_cast<u32>(sizeof(JpegCoefficientBlock));
+}
+
+// What the GPU reads of a decode of `blocks` blocks: the words and the stored rows, or the whole blocks.
+constexpr ConstSlice<u8> jpeg_coefficient_upload(const JpegCoefficientWorkspace& coefficients, u32 blocks) noexcept {
+    return coefficients.whole_blocks
+               ? ConstSlice<u8>{coefficients.bytes + jpeg_coefficient_row_offset(blocks),
+                                blocks * static_cast<u32>(sizeof(JpegCoefficientBlock))}
+               : ConstSlice<u8>{coefficients.bytes,
+                                jpeg_coefficient_row_offset(blocks) + coefficients.stored_rows * 16u};
+}
+
+// Block `block` of a decode of `blocks` blocks in raster order, its unstored rows zero.
+JpegCoefficientBlock jpeg_coefficient_block(const JpegCoefficientWorkspace& coefficients, u32 blocks,
+                                            u32 block) noexcept;
+
+// The coefficients come last: an owner may commit the tables and ICC profile alone and the coefficient blocks
+// a parsed image holds as it decodes.
 struct JpegWorkspace {
     JpegTables tables;
     JpegIccWorkspace icc;
@@ -320,6 +360,7 @@ static_assert(sizeof(JpegIccLut) == 268);
 static_assert(sizeof(JpegIccProfile) == 440);
 static_assert(sizeof(JpegIccWorkspace) == 451'000);
 static_assert(sizeof(JpegCoefficientBlock) == 128);
-static_assert(sizeof(JpegCoefficientWorkspace) == 2'097'152);
+static_assert(sizeof(JpegCoefficientWorkspace) == 2'162'704);
+static_assert(jpeg_coefficient_workspace_bytes(kJpegCoefficientBlockMaximum) == sizeof(JpegCoefficientWorkspace));
 
 } // namespace maicord

@@ -1456,7 +1456,8 @@ void test_cdn_static_png_pipeline() noexcept {
                jpeg_admitted.image.height == 8 &&
                jpeg_admitted.coefficients == &g_jpeg_workspace.coefficients &&
                jpeg_hit.state == CdnStaticJpegState::decoded_cache_hit &&
-               jpeg_hit.decode.decoded_blocks == 6 && jpeg_hit.coefficients->blocks[3].values[0] == -256 &&
+               jpeg_hit.decode.decoded_blocks == 6 &&
+               jpeg_coefficient_block(*jpeg_hit.coefficients, jpeg_hit.image.coefficient_blocks, 3).values[0] == -256 &&
                bytes_equal(jpeg_hit.etag, byte_literal("\"jpeg-1\"")),
            "cdn_pipeline_jpeg_decode_before_cache_and_fresh_hit");
 
@@ -2256,7 +2257,9 @@ void test_account_media_cached_frame() noexcept {
             jpeg_frame.height == 8 && jpeg_frame.row_pitch == 64 && jpeg_frame.source_message_id == 7'002 &&
             jpeg_frame.source_message_revision == 9 && jpeg_frame.bytes.count == 0 &&
             jpeg_frame.jpeg_image->tables == &media.jpeg_workspace->tables &&
-            jpeg_frame.jpeg_coefficients->blocks[3].values[0] == -256 && !media.client_started,
+            jpeg_coefficient_block(*jpeg_frame.jpeg_coefficients, jpeg_frame.jpeg_image->coefficient_blocks, 3)
+                    .values[0] == -256 &&
+            !media.client_started,
         "account_media_lazy_jpeg_cache_hit_gpu_records");
     ApngFixtureResult apng_fixture{};
     expect(build_rgba8_apng_fixture(Slice<u8>{g_png_encoded, sizeof(g_png_encoded)},

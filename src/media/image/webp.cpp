@@ -77,11 +77,15 @@ __forceinline bool fail_at_end(BitReader* reader) noexcept {
     return false;
 }
 
+// The code-length code: 19 symbols, codewords of at most 7 bits.
 struct SmallHuffmanCode {
     u16 counts[16];
     u16 symbols[19];
     u16 symbol_count;
     u16 single_symbol;
+    u8 table_bits;
+    // By the next table_bits stream bits: symbol | length << 5.
+    u8 table[1u << 7];
 };
 
 // Counts the code lengths; only a single-symbol code or a complete prefix code is admitted.
@@ -117,16 +121,34 @@ bool count_code(const u8* lengths, u32 alphabet_size, u16* counts, u16* symbol_c
     return true;
 }
 
-// Symbols with a code, by length and then value: the canonical decode order.
-void sort_symbols(const u8* lengths, u32 alphabet_size, u16* output) noexcept {
-#pragma clang loop unroll(disable)
+// Symbols with a code, by length and then value: the canonical decode order,
+// as a counting sort over the counts of each length.
+void sort_symbols(const u8* lengths, u32 alphabet_size, const u16* counts, u16* output) noexcept {
+    u16 next[16];
+    u32 offset = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 length = 1; length <= 15; ++length) {
-        for (u32 symbol = 0; symbol < alphabet_size; ++symbol) {
-            if (lengths[symbol] == length) {
-                *output++ = static_cast<u16>(symbol);
-            }
+        next[length] = static_cast<u16>(offset);
+        offset += counts[length];
+    }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+    for (u32 symbol = 0; symbol < alphabet_size; ++symbol) {
+        const u32 length = lengths[symbol];
+        if (length != 0) {
+            output[next[length]++] = static_cast<u16>(symbol);
         }
     }
+}
+
+// The next codeword of the same length in stream order: the canonical code plus
+// one, with the codeword's bits reversed (the stream is read LSB first).
+__forceinline u32 next_reversed_code(u32 code, u32 length) noexcept {
+    u32 bit = 1u << (length - 1u);
+    while ((code & bit) != 0) {
+        code ^= bit;
+        bit >>= 1;
+    }
+    return code | bit;
 }
 
 bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* code) noexcept {
@@ -134,13 +156,54 @@ bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* co
     if (!count_code(lengths, alphabet_size, code->counts, &code->symbol_count, &code->single_symbol)) {
         return false;
     }
-    sort_symbols(lengths, alphabet_size, code->symbols);
+    sort_symbols(lengths, alphabet_size, code->counts, code->symbols);
+    if (code->symbol_count < 2) {
+        return true;
+    }
+    // Lengths are 3-bit values: every codeword fits the 7-bit table.
+    u32 longest = 7;
+    while (code->counts[longest] == 0) {
+        --longest;
+    }
+    const u32 size = 1u << longest;
+    u32 reversed = 0;
+    u32 sorted = 0;
+#pragma clang loop unroll(disable)
+    for (u32 length = 1; length <= longest; ++length) {
+        for (u32 left = code->counts[length]; left != 0; --left) {
+            const u8 entry = static_cast<u8>(code->symbols[sorted++] | length << 5);
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+            for (u32 index = reversed; index < size; index += 1u << length) {
+                code->table[index] = entry;
+            }
+            reversed = next_reversed_code(reversed, length);
+        }
+    }
+    code->table_bits = static_cast<u8>(longest);
+    return true;
+}
+
+// The next code-length symbol: the table decode of decode_canonical's codeword.
+bool decode_length_symbol(BitReader* reader, const SmallHuffmanCode& code, u16* symbol) noexcept {
+    if (code.symbol_count == 1) {
+        *symbol = code.single_symbol;
+        return true;
+    }
+    // Past the end peek_bits reads zeros: a codeword longer than the remaining
+    // bits is where a bit-serial decode runs out.
+    const u32 entry = code.table[static_cast<u32>(peek_bits(*reader)) & ((1u << code.table_bits) - 1u)];
+    const u32 length = entry >> 5;
+    if (length > total_bits(*reader) - reader->bit_position) {
+        return fail_at_end(reader);
+    }
+    reader->bit_position += length;
+    *symbol = static_cast<u16>(entry & 31u);
     return true;
 }
 
 // Canonical decoding of the next codeword, bit-serial semantics: the first
-// read bit is the codeword's most significant bit. One body serves both code
-// layouts.
+// read bit is the codeword's most significant bit. Codes whose tables did not
+// fit the lookup capacity decode here.
 bool decode_canonical(BitReader* reader, const u16* counts, u32 symbol_count, u16 single_symbol, const u16* symbols,
                       u16* symbol) noexcept {
     if (symbol_count == 1) {
@@ -172,13 +235,84 @@ bool decode_canonical(BitReader* reader, const u16* counts, u32 symbol_count, u1
     return false;
 }
 
-template <typename Code>
-__forceinline bool decode_huffman(BitReader* reader, const Code& code, const u16* symbols, u16* symbol) noexcept {
-    return decode_canonical(reader, code.counts, code.symbol_count, code.single_symbol, symbols, symbol);
+// Index width of the second-level table that opens at codeword length
+// `length`: the length at which the codes still to place (`left`) fill the
+// table's share of the code space, a complete code filling it exactly.
+u32 second_level_bits(const u16* left, u32 length, u32 root_bits) noexcept {
+    i32 space = 1 << (length - root_bits);
+    while (length < 15) {
+        space -= left[length];
+        if (space <= 0) {
+            break;
+        }
+        ++length;
+        space <<= 1;
+    }
+    return length - root_bits;
 }
 
-// Root lookup for codewords of up to kVp8lLookupBits bits: entry = symbol |
-// length << 12, zero where a longer codeword continues (canonical decoding).
+// Lookup tables of one code, the two-level layout of libwebp's
+// src/utils/huffman_utils.c: a root table indexed by the next root_bits stream
+// bits and, per root entry whose codewords are longer, a second-level table
+// indexed by the bits after them. Entry = value | length << 12. A root entry
+// with a length past root_bits links to its second-level table: value is the
+// table's offset from the root, length - root_bits its index width. Second-level
+// entries hold the codeword length - root_bits. A null table measures: the
+// return is the entry count either way.
+u32 build_tables(const u16* counts, const u16* symbols, u32 longest, u32 root_bits, u16* table) noexcept {
+    const u32 root_size = 1u << root_bits;
+    u32 reversed = 0;
+    u32 sorted = 0;
+    if (table) {
+#pragma clang loop unroll(disable)
+        for (u32 length = 1; length <= root_bits; ++length) {
+            for (u32 left = counts[length]; left != 0; --left) {
+                const u16 entry = static_cast<u16>(symbols[sorted++] | length << 12);
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+                for (u32 index = reversed; index < root_size; index += 1u << length) {
+                    table[index] = entry;
+                }
+                reversed = next_reversed_code(reversed, length);
+            }
+        }
+    }
+    u16 left[16];
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+    for (u32 length = 0; length < 16; ++length) {
+        left[length] = counts[length];
+    }
+    u32 size = root_size;
+    u32 current = 0;
+    u32 current_bits = 0;
+    u32 open = 0; // codewords of the current length the open table has room for
+#pragma clang loop unroll(disable)
+    for (u32 length = root_bits + 1; length <= longest; ++length) {
+        open <<= 1;
+        const u32 sub_length = length - root_bits;
+        for (; left[length] != 0; --left[length]) {
+            if (open == 0) {
+                current_bits = second_level_bits(left, length, root_bits);
+                current = size;
+                size += 1u << current_bits;
+                open = 1u << sub_length;
+                if (table) {
+                    table[reversed & (root_size - 1u)] = static_cast<u16>(current | (root_bits + current_bits) << 12);
+                }
+            }
+            --open;
+            if (table) {
+                const u16 entry = static_cast<u16>(symbols[sorted++] | sub_length << 12);
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+                for (u32 index = reversed >> root_bits; index < (1u << current_bits); index += 1u << sub_length) {
+                    table[current + index] = entry;
+                }
+                reversed = next_reversed_code(reversed, length);
+            }
+        }
+    }
+    return size;
+}
+
 void build_lookup(Vp8lWorkspace* workspace, Vp8lHuffmanCode* code) noexcept {
     code->table_bits = 0;
     if (code->symbol_count < 2) {
@@ -188,34 +322,17 @@ void build_lookup(Vp8lWorkspace* workspace, Vp8lHuffmanCode* code) noexcept {
     while (code->counts[longest] == 0) {
         --longest;
     }
-    const u32 bits = minimum(longest, kVp8lLookupBits);
-    const u32 size = 1u << bits;
-    if (size > kVp8lLookupCapacity - workspace->lookup_count) {
+    const u32 root_bits = minimum(longest, kVp8lLookupBits);
+    const u32 size = longest > root_bits ? build_tables(code->counts, nullptr, longest, root_bits, nullptr)
+                                         : 1u << root_bits;
+    // Link offsets are 12-bit entry values.
+    if (size > kVp8lLookupCapacity - workspace->lookup_count || size > 0x1000u) {
         return;
     }
-    u16* table = workspace->lookup + workspace->lookup_count;
-    for (u32 index = 0; index < size; ++index) {
-        table[index] = 0;
-    }
-    const u16* symbols = workspace->symbols + code->symbol_offset;
-    u32 canonical = 0;
-    u32 sorted = 0;
-#pragma clang loop unroll(disable)
-    for (u32 length = 1; length <= bits; ++length, canonical <<= 1) {
-        for (u32 left = code->counts[length]; left != 0; --left, ++canonical, ++sorted) {
-            u32 reversed = 0;
-#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-            for (u32 bit = 0; bit < length; ++bit) {
-                reversed |= ((canonical >> bit) & 1u) << (length - 1u - bit);
-            }
-            const u16 entry = static_cast<u16>(symbols[sorted] | length << 12);
-            for (u32 index = reversed; index < size; index += 1u << length) {
-                table[index] = entry;
-            }
-        }
-    }
+    build_tables(code->counts, workspace->symbols + code->symbol_offset, longest, root_bits,
+                 workspace->lookup + workspace->lookup_count);
     code->table_offset = workspace->lookup_count;
-    code->table_bits = static_cast<u8>(bits);
+    code->table_bits = static_cast<u8>(root_bits);
     workspace->lookup_count += size;
 }
 
@@ -227,8 +344,27 @@ bool build_code(Vp8lWorkspace* workspace, u32 alphabet_size, Vp8lHuffmanCode* co
         return false;
     }
     code->symbol_offset = workspace->symbol_count;
-    sort_symbols(workspace->code_lengths, alphabet_size, workspace->symbols + workspace->symbol_count);
+    sort_symbols(workspace->code_lengths, alphabet_size, code->counts, workspace->symbols + workspace->symbol_count);
     workspace->symbol_count += code->symbol_count;
+    build_lookup(workspace, code);
+    return true;
+}
+
+// A simple code: one symbol, or two of codeword length 1. The state build_code
+// gives the same code lengths, without a pass over the alphabet.
+bool build_simple_code(Vp8lWorkspace* workspace, u32 first, u32 second, Vp8lHuffmanCode* code) noexcept {
+    reset_value<Vp8lHuffmanCode>(code);
+    const u32 count = first == second ? 1u : 2u;
+    if (workspace->symbol_count + count > kVp8lHuffmanSymbolCapacity) {
+        return false;
+    }
+    code->counts[1] = static_cast<u16>(count);
+    code->symbol_count = static_cast<u16>(count);
+    code->single_symbol = static_cast<u16>(maximum(first, second));
+    code->symbol_offset = workspace->symbol_count;
+    workspace->symbols[workspace->symbol_count] = static_cast<u16>(minimum(first, second));
+    workspace->symbols[workspace->symbol_count + count - 1u] = static_cast<u16>(maximum(first, second));
+    workspace->symbol_count += count;
     build_lookup(workspace, code);
     return true;
 }
@@ -267,7 +403,7 @@ __forceinline u32 window_read_bits(BitReader* reader, BitWindow* window, u32 cou
     return value;
 }
 
-// The next symbol through the window; codewords past the lookup decode canonically.
+// The next symbol through the window; codes without tables decode canonically.
 __forceinline bool window_decode(BitReader* reader, BitWindow* window, const Vp8lWorkspace* workspace,
                                  const Vp8lHuffmanCode& code, u16* symbol) noexcept {
     if (code.symbol_count == 1) {
@@ -278,20 +414,26 @@ __forceinline bool window_decode(BitReader* reader, BitWindow* window, const Vp8
         if (window->available < 15) {
             window_fill(*reader, window);
         }
-        const u32 entry =
-            workspace->lookup[code.table_offset + (static_cast<u32>(window->bits) & ((1u << code.table_bits) - 1u))];
-        const u32 length = entry >> 12;
-        if (length != 0) {
-            // Below 15 bits the window holds exactly the rest of the stream.
-            if (length > window->available) {
-                return fail_at_end(reader);
-            }
-            window_consume(reader, window, length);
-            *symbol = static_cast<u16>(entry & 0xFFFu);
-            return true;
+        const u16* table = workspace->lookup + code.table_offset;
+        const u32 root_bits = code.table_bits;
+        const u32 bits = static_cast<u32>(window->bits);
+        u32 entry = table[bits & ((1u << root_bits) - 1u)];
+        u32 length = entry >> 12;
+        if (length > root_bits) {
+            entry = table[(entry & 0xFFFu) + (bits >> root_bits & ((1u << (length - root_bits)) - 1u))];
+            length = root_bits + (entry >> 12);
         }
+        // Below 15 bits the window holds exactly the rest of the stream, zeros
+        // after it: a codeword longer than that is where a bit-serial decode runs out.
+        if (length > window->available) {
+            return fail_at_end(reader);
+        }
+        window_consume(reader, window, length);
+        *symbol = static_cast<u16>(entry & 0xFFFu);
+        return true;
     }
-    const bool decoded = decode_huffman(reader, code, workspace->symbols + code.symbol_offset, symbol);
+    const bool decoded = decode_canonical(reader, code.counts, code.symbol_count, code.single_symbol,
+                                          workspace->symbols + code.symbol_offset, symbol);
     window_fill(*reader, window);
     return decoded;
 }
@@ -302,9 +444,6 @@ inline constexpr u8 kCodeLengthOrder[19] = {
 
 bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* workspace,
                        Vp8lHuffmanCode* code) noexcept {
-    for (u32 index = 0; index < alphabet_size; ++index) {
-        workspace->code_lengths[index] = 0;
-    }
     if (read_bits(reader, 1) != 0) {
         const u32 symbols = read_bits(reader, 1) + 1;
         const u32 first_bits = read_bits(reader, 1) != 0 ? 8u : 1u;
@@ -312,23 +451,25 @@ bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* work
         if (reader->failed || first >= alphabet_size) {
             return false;
         }
-        workspace->code_lengths[first] = 1;
+        u32 second = first;
         if (symbols == 2) {
-            const u32 second = read_bits(reader, 8);
+            second = read_bits(reader, 8);
             if (reader->failed || second >= alphabet_size) {
                 return false;
             }
-            workspace->code_lengths[second] = 1;
         }
-        return build_code(workspace, alphabet_size, code);
+        return build_simple_code(workspace, first, second, code);
     }
 
+    for (u32 index = 0; index < alphabet_size; ++index) {
+        workspace->code_lengths[index] = 0;
+    }
     u8 length_code_lengths[19]{};
     const u32 length_code_count = read_bits(reader, 4) + 4;
     for (u32 index = 0; index < length_code_count; ++index) {
         length_code_lengths[kCodeLengthOrder[index]] = static_cast<u8>(read_bits(reader, 3));
     }
-    SmallHuffmanCode length_code{};
+    SmallHuffmanCode length_code;
     if (reader->failed || !build_small_code(length_code_lengths, 19, &length_code)) {
         return false;
     }
@@ -345,7 +486,7 @@ bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* work
     while (output < alphabet_size && maximum_codes != 0) {
         --maximum_codes;
         u16 value = 0;
-        if (!decode_huffman(reader, length_code, length_code.symbols, &value)) {
+        if (!decode_length_symbol(reader, length_code, &value)) {
             return false;
         }
         if (value < 16) {
@@ -588,6 +729,32 @@ __forceinline u32 distance_value(u32 code, u32 width) noexcept {
     return value < 1 ? 1u : static_cast<u32>(value);
 }
 
+// A backward copy within the output, distance >= 1. From distance 4 on, four
+// pixels per step read only pixels already written; distances 1 and 2 repeat
+// a pattern (the copy's own output).
+__forceinline void copy_backward(u32* target, u32 distance, u32 length) noexcept {
+    const u32* source = target - distance;
+    u32 index = 0;
+    if (distance >= 4) {
+        for (; index + 4 <= length; index += 4) {
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(target + index),
+                             _mm_loadu_si128(reinterpret_cast<const __m128i*>(source + index)));
+        }
+    } else if (distance != 3) {
+        const __m128i pattern =
+            distance == 1 ? _mm_set1_epi32(static_cast<int>(source[0]))
+                          : _mm_shuffle_epi32(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(source)),
+                                              _MM_SHUFFLE(1, 0, 1, 0));
+        for (; index + 4 <= length; index += 4) {
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(target + index), pattern);
+        }
+    }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+    for (; index < length; ++index) {
+        target[index] = source[index];
+    }
+}
+
 bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_meta, u32* output,
                           u32 output_capacity) noexcept {
     if (width == 0 || height == 0 || static_cast<u64>(width) * height > output_capacity) {
@@ -656,6 +823,11 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
                 return false;
             }
         }
+        Vp8lHuffmanGroup& entry = workspace->groups[group];
+        entry.trivial_literal =
+            entry.codes[1].symbol_count == 1 && entry.codes[2].symbol_count == 1 && entry.codes[3].symbol_count == 1;
+        entry.literal_arb = static_cast<u32>(entry.codes[3].single_symbol) << 24 |
+                            static_cast<u32>(entry.codes[1].single_symbol) << 16 | entry.codes[2].single_symbol;
     }
 
     const u32 pixel_count = width * height;
@@ -664,6 +836,10 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
     const u32 block_mask = prefix_bits != 0 ? (1u << prefix_bits) - 1u : ~0u;
     u32* const color_cache = workspace->color_cache;
     const u32 cache_shift = 32u - cache_bits;
+    // The color cache takes pixels in output order, lazily: output[0, cached)
+    // are in it, the rest go in before a cache symbol reads it (libwebp's
+    // src/dec/vp8l_dec.c does the same), so literals and copies skip the hash.
+    u32 cached = 0;
     u32 position = 0;
     u32 x = 0;
     u32 y = 0;
@@ -680,21 +856,21 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
             return false;
         }
         if (green < 256) {
-            u16 red = 0;
-            u16 blue = 0;
-            u16 alpha = 0;
-            if (!window_decode(&state->reader, &window, workspace, codes->codes[1], &red) ||
-                !window_decode(&state->reader, &window, workspace, codes->codes[2], &blue) ||
-                !window_decode(&state->reader, &window, workspace, codes->codes[3], &alpha)) {
-                set_error(state, WebpError::huffman);
-                return false;
+            u32 pixel = codes->literal_arb | static_cast<u32>(green) << 8;
+            if (!codes->trivial_literal) {
+                u16 red = 0;
+                u16 blue = 0;
+                u16 alpha = 0;
+                if (!window_decode(&state->reader, &window, workspace, codes->codes[1], &red) ||
+                    !window_decode(&state->reader, &window, workspace, codes->codes[2], &blue) ||
+                    !window_decode(&state->reader, &window, workspace, codes->codes[3], &alpha)) {
+                    set_error(state, WebpError::huffman);
+                    return false;
+                }
+                pixel = static_cast<u32>(alpha) << 24 | static_cast<u32>(red) << 16 | static_cast<u32>(green) << 8 |
+                        blue;
             }
-            const u32 pixel = static_cast<u32>(alpha) << 24 | static_cast<u32>(red) << 16 |
-                              static_cast<u32>(green) << 8 | blue;
             output[position++] = pixel;
-            if (cache_bits != 0) {
-                color_cache[static_cast<u32>(0x1E35A7BDull * pixel) >> cache_shift] = pixel;
-            }
             if (++x == width) {
                 x = 0;
                 ++y;
@@ -712,24 +888,12 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
                 set_error(state, WebpError::distance);
                 return false;
             }
-            u32* target = output + position;
-            const u32* source = target - distance;
-            if (cache_bits != 0) {
-                for (u32 index = 0; index < length; ++index) {
-                    const u32 pixel = source[index];
-                    target[index] = pixel;
-                    color_cache[static_cast<u32>(0x1E35A7BDull * pixel) >> cache_shift] = pixel;
-                }
-            } else {
-                for (u32 index = 0; index < length; ++index) {
-                    target[index] = source[index];
-                }
-            }
+            copy_backward(output + position, distance, length);
             position += length;
             x += length;
-            while (x >= width) {
-                x -= width;
-                ++y;
+            if (x >= width) {
+                y += x / width;
+                x %= width;
             }
             if (prefix_bits != 0 && position < pixel_count) {
                 codes = &workspace->groups[workspace->subimage_pixels[(y >> prefix_bits) * prefix_width + (x >> prefix_bits)] >> 8 & 0xFFFFu];
@@ -740,9 +904,12 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
                 set_error(state, WebpError::bitstream);
                 return false;
             }
-            const u32 pixel = color_cache[cache_index];
-            output[position++] = pixel;
-            color_cache[static_cast<u32>(0x1E35A7BDull * pixel) >> cache_shift] = pixel;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+            for (; cached < position; ++cached) {
+                const u32 pixel = output[cached];
+                color_cache[static_cast<u32>(0x1E35A7BDull * pixel) >> cache_shift] = pixel;
+            }
+            output[position++] = color_cache[cache_index];
             if (++x == width) {
                 x = 0;
                 ++y;
@@ -772,26 +939,6 @@ __forceinline u32 average_pixels(u32 first, u32 second) noexcept {
     return (((first ^ second) & 0xFEFEFEFEu) >> 1) + (first & second);
 }
 
-__forceinline u32 select_predictor(u32 left, u32 top, u32 top_left) noexcept {
-    // Sums over the four channels of |estimate - l| = |t - tl| and
-    // |estimate - t| = |l - tl|, as byte sums of absolute differences.
-    const __m128i corner = _mm_cvtsi32_si128(static_cast<int>(top_left));
-    const i32 left_distance =
-        _mm_cvtsi128_si32(_mm_sad_epu8(_mm_cvtsi32_si128(static_cast<int>(top)), corner));
-    const i32 top_distance =
-        _mm_cvtsi128_si32(_mm_sad_epu8(_mm_cvtsi32_si128(static_cast<int>(left)), corner));
-    return left_distance < top_distance ? left : top;
-}
-
-__forceinline u32 clamp_add_subtract(u32 first, u32 second, u32 third) noexcept {
-    const __m128i zero = _mm_setzero_si128();
-    const __m128i a = _mm_unpacklo_epi8(_mm_cvtsi32_si128(static_cast<int>(first)), zero);
-    const __m128i b = _mm_unpacklo_epi8(_mm_cvtsi32_si128(static_cast<int>(second)), zero);
-    const __m128i c = _mm_unpacklo_epi8(_mm_cvtsi32_si128(static_cast<int>(third)), zero);
-    const __m128i sum = _mm_sub_epi16(_mm_add_epi16(a, b), c);
-    return static_cast<u32>(_mm_cvtsi128_si32(_mm_packus_epi16(sum, sum)));
-}
-
 __forceinline u32 clamp_add_half(u32 average, u32 top_left) noexcept {
     // Per channel clamp(a + (a - b) / 2), the division truncating toward zero.
     const __m128i zero = _mm_setzero_si128();
@@ -803,54 +950,129 @@ __forceinline u32 clamp_add_half(u32 average, u32 top_left) noexcept {
     return static_cast<u32>(_mm_cvtsi128_si32(_mm_packus_epi16(sum, sum)));
 }
 
+__forceinline __m128i load_pixels(const u32* pixels) noexcept {
+    return _mm_loadu_si128(reinterpret_cast<const __m128i*>(pixels));
+}
+
+// average_pixels on four pixels: pavgb rounds up, so drop the carried half.
+__forceinline __m128i average_pixels4(__m128i first, __m128i second) noexcept {
+    return _mm_sub_epi8(_mm_avg_epu8(first, second), _mm_and_si128(_mm_xor_si128(first, second), _mm_set1_epi8(1)));
+}
+
+// Mode 1 (left) over [begin, end): a running per-channel sum, four pixels per
+// step as an in-register prefix sum (libwebp's PredictorAdd1_SSE2 technique).
+void predict_left_run(u32* pixels, u32 begin, u32 end) noexcept {
+    u32 p = begin;
+    __m128i left = _mm_set1_epi32(static_cast<int>(pixels[begin - 1]));
+    for (; p + 4 <= end; p += 4) {
+        __m128i sum = load_pixels(pixels + p);
+        sum = _mm_add_epi8(sum, _mm_slli_si128(sum, 4));
+        sum = _mm_add_epi8(sum, _mm_slli_si128(sum, 8));
+        sum = _mm_add_epi8(sum, left);
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(pixels + p), sum);
+        left = _mm_shuffle_epi32(sum, _MM_SHUFFLE(3, 3, 3, 3));
+    }
+    u32 last = static_cast<u32>(_mm_cvtsi128_si32(left));
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+    for (; p < end; ++p) {
+        last = add_pixels(pixels[p], last);
+        pixels[p] = last;
+    }
+}
+
 // One run of pixels sharing a predictor mode; top_right of the last pixel in a
 // row is the first pixel of the current row, which is pixels[p - width + 1].
 // The left pixel stays in a register from one pixel to the next.
 template <u32 Mode>
 void predict_run(u32* pixels, u32 begin, u32 end, u32 width) noexcept {
-    u32 left = pixels[begin - 1];
-    for (u32 p = begin; p < end; ++p) {
-        const u32 top = pixels[p - width];
-        u32 predicted = 0;
-        if constexpr (Mode == 0) {
-            predicted = 0xFF000000u;
-        } else if constexpr (Mode == 1) {
-            predicted = left;
-        } else if constexpr (Mode == 2) {
-            predicted = top;
-        } else if constexpr (Mode == 3) {
-            predicted = pixels[p - width + 1];
-        } else if constexpr (Mode == 4) {
-            predicted = pixels[p - width - 1];
-        } else if constexpr (Mode == 5) {
-            predicted = average_pixels(average_pixels(left, pixels[p - width + 1]), top);
-        } else if constexpr (Mode == 6) {
-            predicted = average_pixels(left, pixels[p - width - 1]);
-        } else if constexpr (Mode == 7) {
-            predicted = average_pixels(left, top);
-        } else if constexpr (Mode == 8) {
-            predicted = average_pixels(pixels[p - width - 1], top);
-        } else if constexpr (Mode == 9) {
-            predicted = average_pixels(top, pixels[p - width + 1]);
-        } else if constexpr (Mode == 10) {
-            predicted = average_pixels(average_pixels(left, pixels[p - width - 1]),
-                                       average_pixels(top, pixels[p - width + 1]));
-        } else if constexpr (Mode == 11) {
-            predicted = select_predictor(left, top, pixels[p - width - 1]);
-        } else if constexpr (Mode == 12) {
-            predicted = clamp_add_subtract(left, top, pixels[p - width - 1]);
-        } else {
-            predicted = clamp_add_half(average_pixels(left, top), pixels[p - width - 1]);
+    u32 p = begin;
+    if constexpr (Mode == 0 || Mode == 2 || Mode == 3 || Mode == 4 || Mode == 8 || Mode == 9) {
+        // These read the row above and, for a row's last pixel, the row's first
+        // pixel (already final), never a pixel of their own step: four at a time.
+        for (; p + 4 <= end; p += 4) {
+            const u32* above = pixels + p - width;
+            __m128i predicted;
+            if constexpr (Mode == 0) {
+                predicted = _mm_set1_epi32(static_cast<int>(0xFF000000u));
+            } else if constexpr (Mode == 2) {
+                predicted = load_pixels(above);
+            } else if constexpr (Mode == 3) {
+                predicted = load_pixels(above + 1);
+            } else if constexpr (Mode == 4) {
+                predicted = load_pixels(above - 1);
+            } else if constexpr (Mode == 8) {
+                predicted = average_pixels4(load_pixels(above - 1), load_pixels(above));
+            } else {
+                predicted = average_pixels4(load_pixels(above), load_pixels(above + 1));
+            }
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(pixels + p),
+                             _mm_add_epi8(load_pixels(pixels + p), predicted));
         }
-        left = add_pixels(pixels[p], predicted);
-        pixels[p] = left;
+    }
+    if constexpr (Mode == 11 || Mode == 12) {
+        // The left pixel stays in a vector register: its serial chain makes no
+        // round trip through a general register. Bytes past the pixel stay zero.
+        __m128i left = _mm_cvtsi32_si128(static_cast<int>(pixels[p - 1]));
+        const __m128i zero = _mm_setzero_si128();
+        for (; p < end; ++p) {
+            const __m128i top = _mm_cvtsi32_si128(static_cast<int>(pixels[p - width]));
+            const __m128i top_left = _mm_cvtsi32_si128(static_cast<int>(pixels[p - width - 1]));
+            __m128i predicted;
+            if constexpr (Mode == 11) {
+                // Select: the channel sums |estimate - l| = |t - tl| and |estimate - t| =
+                // |l - tl| as sums of absolute byte differences; left where the first is smaller.
+                const __m128i left_wins =
+                    _mm_cmpgt_epi16(_mm_sad_epu8(left, top_left), _mm_sad_epu8(top, top_left));
+                predicted = _mm_blendv_epi8(top, left, _mm_shufflelo_epi16(left_wins, 0));
+            } else {
+                const __m128i sum = _mm_sub_epi16(
+                    _mm_add_epi16(_mm_unpacklo_epi8(left, zero), _mm_unpacklo_epi8(top, zero)),
+                    _mm_unpacklo_epi8(top_left, zero));
+                predicted = _mm_packus_epi16(sum, zero);
+            }
+            left = _mm_add_epi8(_mm_cvtsi32_si128(static_cast<int>(pixels[p])), predicted);
+            pixels[p] = static_cast<u32>(_mm_cvtsi128_si32(left));
+        }
+    } else {
+        u32 left = pixels[p - 1];
+        for (; p < end; ++p) {
+            const u32 top = pixels[p - width];
+            u32 predicted = 0;
+            if constexpr (Mode == 0) {
+                predicted = 0xFF000000u;
+            } else if constexpr (Mode == 2) {
+                predicted = top;
+            } else if constexpr (Mode == 3) {
+                predicted = pixels[p - width + 1];
+            } else if constexpr (Mode == 4) {
+                predicted = pixels[p - width - 1];
+            } else if constexpr (Mode == 5) {
+                predicted = average_pixels(average_pixels(left, pixels[p - width + 1]), top);
+            } else if constexpr (Mode == 6) {
+                predicted = average_pixels(left, pixels[p - width - 1]);
+            } else if constexpr (Mode == 7) {
+                predicted = average_pixels(left, top);
+            } else if constexpr (Mode == 8) {
+                predicted = average_pixels(pixels[p - width - 1], top);
+            } else if constexpr (Mode == 9) {
+                predicted = average_pixels(top, pixels[p - width + 1]);
+            } else if constexpr (Mode == 10) {
+                predicted = average_pixels(average_pixels(left, pixels[p - width - 1]),
+                                           average_pixels(top, pixels[p - width + 1]));
+            } else {
+                static_assert(Mode == 13, "mode 1 runs in predict_left_run, 11 and 12 above");
+                predicted = clamp_add_half(average_pixels(left, top), pixels[p - width - 1]);
+            }
+            left = add_pixels(pixels[p], predicted);
+            pixels[p] = left;
+        }
     }
 }
 
 void predict_mode_run(u8 mode, u32* pixels, u32 begin, u32 end, u32 width) noexcept {
     switch (mode) {
     case 0: predict_run<0>(pixels, begin, end, width); break;
-    case 1: predict_run<1>(pixels, begin, end, width); break;
+    case 1: predict_left_run(pixels, begin, end); break;
     case 2: predict_run<2>(pixels, begin, end, width); break;
     case 3: predict_run<3>(pixels, begin, end, width); break;
     case 4: predict_run<4>(pixels, begin, end, width); break;
@@ -871,13 +1093,8 @@ void inverse_predictor(const Transform& transform, const Vp8lWorkspace* workspac
     const u32 block = 1u << transform.size_bits;
     const u32 blocks_wide = (width + block - 1) >> transform.size_bits;
     // read_transforms admitted only modes 0..13 and a map within capacity.
-    u32 left = add_pixels(pixels[0], 0xFF000000u);
-    pixels[0] = left;
-#pragma clang loop unroll(disable)
-    for (u32 x = 1; x < width; ++x) {
-        left = add_pixels(pixels[x], left);
-        pixels[x] = left;
-    }
+    pixels[0] = add_pixels(pixels[0], 0xFF000000u);
+    predict_left_run(pixels, 1, width);
     for (u32 y = 1; y < transform.height; ++y) {
         const u32 row = y * width;
         pixels[row] = add_pixels(pixels[row], pixels[row - width]);
@@ -906,26 +1123,26 @@ void inverse_color(const Transform& transform, const Vp8lWorkspace* workspace, u
             const signed char green_to_blue = static_cast<signed char>(element >> 8);
             const signed char red_to_blue = static_cast<signed char>(element >> 16);
             const u32 end = minimum((column + 1u) << transform.size_bits, width);
-            // Four pixels per step in 32-bit lanes: the same signed products,
-            // arithmetic shifts and byte wrap as the scalar loop below.
-            const __m128i to_red = _mm_set1_epi32(green_to_red);
-            const __m128i to_blue = _mm_set1_epi32(green_to_blue);
-            const __m128i red_to_blue_lanes = _mm_set1_epi32(red_to_blue);
-            const __m128i low_byte = _mm_set1_epi32(0xFF);
+            // Four pixels per step in 16-bit lanes (libwebp's
+            // TransformColorInverse_SSE2 technique): green, or the new red,
+            // in a lane's high byte times the coefficient * 8, high half:
+            // (color * coefficient) >> 5 with the same sign and floor; only
+            // the low byte is added.
+            const __m128i green_factors =
+                _mm_set1_epi32(static_cast<i32>(static_cast<u32>(green_to_red * 8) << 16 |
+                                                static_cast<u16>(green_to_blue * 8)));
+            const __m128i red_factor = _mm_set1_epi32(static_cast<u16>(red_to_blue * 8));
+            const __m128i green_high = _mm_setr_epi8(-1, 1, -1, 1, -1, 5, -1, 5, -1, 9, -1, 9, -1, 13, -1, 13);
+            const __m128i red_high = _mm_setr_epi8(-1, 2, -1, -1, -1, 6, -1, -1, -1, 10, -1, -1, -1, 14, -1, -1);
+            const __m128i red_blue_bytes = _mm_set1_epi32(0x00FF00FF);
+            const __m128i blue_byte = _mm_set1_epi32(0xFF);
             for (; x + 4 <= end; x += 4) {
                 __m128i* slot = reinterpret_cast<__m128i*>(row + x);
                 const __m128i pixel = _mm_loadu_si128(slot);
-                const __m128i green = _mm_srai_epi32(_mm_slli_epi32(pixel, 16), 24);
-                const __m128i red = _mm_and_si128(
-                    _mm_add_epi32(_mm_srli_epi32(pixel, 16), _mm_srai_epi32(_mm_mullo_epi32(to_red, green), 5)),
-                    low_byte);
-                const __m128i signed_red = _mm_srai_epi32(_mm_slli_epi32(red, 24), 24);
-                const __m128i blue = _mm_and_si128(
-                    _mm_add_epi32(_mm_add_epi32(pixel, _mm_srai_epi32(_mm_mullo_epi32(to_blue, green), 5)),
-                                  _mm_srai_epi32(_mm_mullo_epi32(red_to_blue_lanes, signed_red), 5)),
-                    low_byte);
-                const __m128i kept = _mm_and_si128(pixel, _mm_set1_epi32(static_cast<int>(0xFF00FF00u)));
-                _mm_storeu_si128(slot, _mm_or_si128(_mm_or_si128(kept, _mm_slli_epi32(red, 16)), blue));
+                const __m128i deltas = _mm_mulhi_epi16(_mm_shuffle_epi8(pixel, green_high), green_factors);
+                const __m128i red_done = _mm_add_epi8(pixel, _mm_and_si128(deltas, red_blue_bytes));
+                const __m128i red_delta = _mm_mulhi_epi16(_mm_shuffle_epi8(red_done, red_high), red_factor);
+                _mm_storeu_si128(slot, _mm_add_epi8(red_done, _mm_and_si128(red_delta, blue_byte)));
             }
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for (; x < end; ++x) {
@@ -958,26 +1175,70 @@ void inverse_subtract_green(const Transform& transform, u32* pixels) noexcept {
     }
 }
 
+// Expands one row's packed indices in place, right to left: a packed pixel's
+// outputs lie at or after it, so no output overwrites a packed pixel still to
+// read. Indices past palette_count decode as transparent black: `palette` has
+// 256 entries, zero past the palette.
+template <u32 Bits>
+__forceinline void expand_indexed_row(const u32* packed, u32* row, u32 width, const u32* palette) noexcept {
+    constexpr u32 kPerPixel = 1u << Bits;
+    constexpr u32 kSampleBits = 8u >> Bits;
+    constexpr u32 kMask = (1u << kSampleBits) - 1u;
+    u32 full = width >> Bits;
+    const u32 tail = width & (kPerPixel - 1u);
+    if (tail != 0) {
+        u32 indices = packed[full] >> 8;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+        for (u32 index = 0; index < tail; ++index, indices >>= kSampleBits) {
+            row[full * kPerPixel + index] = palette[indices & kMask];
+        }
+    }
+    if constexpr (Bits == 3) {
+        // Eight 1-bit indices: each lane takes the second color where its bit is set.
+        const __m128i first = _mm_set1_epi32(static_cast<int>(palette[0]));
+        const __m128i second = _mm_set1_epi32(static_cast<int>(palette[1]));
+        const __m128i low_bits = _mm_setr_epi8(1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 8, 8, 8, 8);
+        const __m128i high_bits =
+            _mm_setr_epi8(16, 16, 16, 16, 32, 32, 32, 32, 64, 64, 64, 64, -128, -128, -128, -128);
+        while (full != 0) {
+            --full;
+            const __m128i indices = _mm_set1_epi8(static_cast<char>(packed[full] >> 8));
+            const __m128i low = _mm_cmpeq_epi8(_mm_and_si128(indices, low_bits), low_bits);
+            const __m128i high = _mm_cmpeq_epi8(_mm_and_si128(indices, high_bits), high_bits);
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(row + full * 8u), _mm_blendv_epi8(first, second, low));
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(row + full * 8u + 4u), _mm_blendv_epi8(first, second, high));
+        }
+    } else {
+        while (full != 0) {
+            --full;
+            u32 indices = packed[full] >> 8;
+            u32* out = row + full * kPerPixel;
+            for (u32 index = 0; index < kPerPixel; ++index, indices >>= kSampleBits) {
+                out[index] = palette[indices & kMask];
+            }
+        }
+    }
+}
+
 void inverse_color_indexing(const Transform& transform, const u32* palette, u32 current_width,
                             u32* pixels) noexcept {
-    // Indices past palette_count decode as transparent black.
-    u32 table[256];
-#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-    for (u32 index = 0; index < 256; ++index) {
-        table[index] = index < transform.palette_count ? palette[index] : 0;
+    const u32 width = transform.width;
+    if (transform.width_bits == 0) {
+        const u32 count = width * transform.height;
+#pragma clang loop vectorize(disable) interleave(disable)
+        for (u32 index = 0; index < count; ++index) {
+            pixels[index] = palette[pixels[index] >> 8 & 0xFFu];
+        }
+        return;
     }
-    const u32 bits = transform.width_bits;
-    const u32 sample_bits = 8u >> bits;
-    const u32 mask = bits == 0 ? 0xFFu : (1u << sample_bits) - 1u;
-    for (u32 reverse_y = transform.height; reverse_y != 0; --reverse_y) {
-        const u32 y = reverse_y - 1;
-        const u32* packed_row = pixels + y * current_width;
-        u32* row = pixels + y * transform.width;
-        for (u32 reverse_x = transform.width; reverse_x != 0; --reverse_x) {
-            const u32 x = reverse_x - 1;
-            const u32 packed = packed_row[x >> bits];
-            const u32 shift = (x & ((1u << bits) - 1u)) * sample_bits;
-            row[x] = table[(packed >> 8 & 0xFFu) >> shift & mask];
+    // Rows bottom up: a row's outputs lie past every packed row above it.
+    for (u32 y = transform.height; y-- != 0;) {
+        const u32* packed = pixels + y * current_width;
+        u32* row = pixels + y * width;
+        switch (transform.width_bits) {
+        case 1: expand_indexed_row<1>(packed, row, width, palette); break;
+        case 2: expand_indexed_row<2>(packed, row, width, palette); break;
+        default: expand_indexed_row<3>(packed, row, width, palette); break;
         }
     }
 }
@@ -1087,7 +1348,7 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
     Transform transforms[4]{};
     u32 transform_count = 0;
     u32 decoded_width = image->width;
-    u32 palette[256]{};
+    u32 palette[256]{}; // zero past the palette: out-of-range indices decode as transparent black
     if (!read_transforms(&state, image->width, image->height, transforms, &transform_count, &decoded_width,
                          palette)) {
         result.error = state.error;
@@ -1098,8 +1359,12 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
         result.error = state.error;
         return result;
     }
+    // A subtract-green read first is undone last: in the RGBA pass, sparing a
+    // pass over the image.
+    const bool green_in_order_pass =
+        rgba_order && transform_count != 0 && transforms[0].type == TransformType::subtract_green;
     u32 current_width = decoded_width;
-    for (u32 reverse = transform_count; reverse != 0; --reverse) {
+    for (u32 reverse = transform_count; reverse != (green_in_order_pass ? 1u : 0u); --reverse) {
         const Transform& transform = transforms[reverse - 1];
         switch (transform.type) {
         case TransformType::predictor:
@@ -1125,13 +1390,22 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
     if (rgba_order) {
         // Packed 0xAARRGGBB to R, G, B, A bytes.
         const __m128i order = _mm_setr_epi8(2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
+        // Green (byte 1 of each pixel) onto red (byte 2) and blue (byte 0), or nothing.
+        const __m128i spread = green_in_order_pass
+                                   ? _mm_setr_epi8(1, -1, 1, -1, 5, -1, 5, -1, 9, -1, 9, -1, 13, -1, 13, -1)
+                                   : _mm_set1_epi8(-1);
         u32 index = 0;
         for (; index + 4 <= pixel_count; index += 4) {
             __m128i* slot = reinterpret_cast<__m128i*>(pixels + index);
-            _mm_storeu_si128(slot, _mm_shuffle_epi8(_mm_loadu_si128(slot), order));
+            const __m128i value = _mm_loadu_si128(slot);
+            _mm_storeu_si128(slot, _mm_shuffle_epi8(_mm_add_epi8(value, _mm_shuffle_epi8(value, spread)), order));
         }
         for (; index < pixel_count; ++index) {
-            const u32 pixel = pixels[index];
+            u32 pixel = pixels[index];
+            if (green_in_order_pass) {
+                const u32 green = pixel >> 8 & 0xFFu;
+                pixel = add_pixels(pixel, green << 16 | green);
+            }
             rgba_output[index * 4] = channel(pixel, 16);
             rgba_output[index * 4 + 1] = channel(pixel, 8);
             rgba_output[index * 4 + 2] = channel(pixel, 0);

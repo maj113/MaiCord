@@ -19,8 +19,9 @@ inline constexpr u32 kVp8lTransformPixelCapacity =
     (kWebpDimensionMaximum / 4) * (kWebpDimensionMaximum / 4);
 inline constexpr u32 kVp8lMaximumAlphabetSize = 2'328;
 inline constexpr u32 kVp8lColorCacheCapacity = 2'048;
-// Root lookup tables of the Huffman codes of one entropy image: up to 2^8
-// entries per code; codes past the capacity decode canonically.
+// Lookup tables of the Huffman codes of one entropy image: a root table of up
+// to 2^8 entries per code plus second-level tables for longer codewords; codes
+// past the capacity decode canonically.
 inline constexpr u32 kVp8lLookupBits = 8;
 inline constexpr u32 kVp8lLookupCapacity = 16'384;
 
@@ -83,6 +84,11 @@ struct Vp8lHuffmanCode {
 
 struct Vp8lHuffmanGroup {
     Vp8lHuffmanCode codes[5];
+    // Red, blue and alpha codes of one symbol each: a literal is literal_arb
+    // with the decoded green, and only green is read.
+    u32 literal_arb;
+    bool trivial_literal;
+    u8 reserved[3];
 };
 
 struct Vp8lWorkspace {

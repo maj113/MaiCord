@@ -6,6 +6,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/media/image/gif.hpp"
 #include "maicord/media/image/jpeg.hpp"
+#include "../../../src/media/image/jpeg_internal.hpp"
 #include "../../../src/media/image/png_common.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/virtual_memory.hpp"
@@ -593,7 +594,7 @@ bool decode_block(ReferenceReader* reader, const JpegHuffmanTable& dc_table,
 
 // The baseline scan loop of the bit-serial decoder.
 JpegDecodeResult reference_baseline(ConstSlice<u8> encoded, const JpegImage& image,
-                                    JpegCoefficientWorkspace* coefficients) noexcept {
+                                    JpegCoefficientBlock* blocks) noexcept {
     JpegDecodeResult result{};
     ReferenceReader reader{ConstSlice<u8>{encoded.data + image.entropy_offset, image.entropy_bytes}, 0, 0, 0,
                            JpegError::none};
@@ -625,7 +626,7 @@ JpegDecodeResult reference_baseline(ConstSlice<u8> encoded, const JpegImage& ima
                     const u32 block_index = component.block_offset + block_y * component.block_columns + block_x;
                     if (block_index >= image.coefficient_blocks ||
                         !decode_block(&reader, dc, ac, &predictor[component_index],
-                                      &coefficients->blocks[block_index])) {
+                                      &blocks[block_index])) {
                         result.error = reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                         return result;
                     }
@@ -646,15 +647,20 @@ JpegDecodeResult reference_baseline(ConstSlice<u8> encoded, const JpegImage& ima
 
 // Every block is compared, including those written before a failure.
 bool same_decode(const JpegDecodeResult& fast, const JpegDecodeResult& reference, const JpegCoefficientWorkspace& a,
-                 const JpegCoefficientWorkspace& b, u32 blocks) noexcept {
-    return fast.error == reference.error && fast.decoded_blocks == reference.decoded_blocks &&
-           fast.decoded_scans == reference.decoded_scans &&
-           bytes_equal(a.blocks, b.blocks, blocks * static_cast<u32>(sizeof(JpegCoefficientBlock)));
+                 const JpegCoefficientBlock* b, u32 blocks) noexcept {
+    bool same = fast.error == reference.error && fast.decoded_blocks == reference.decoded_blocks &&
+                fast.decoded_scans == reference.decoded_scans;
+    for (u32 block = 0; block < blocks && same; ++block) {
+        const JpegCoefficientBlock unpacked = jpeg_coefficient_block(a, blocks, block);
+        same = bytes_equal(&unpacked, &b[block], sizeof(JpegCoefficientBlock));
+    }
+    return same;
 }
 
 void test_jpeg_entropy(Check check) noexcept {
     auto* workspace = reinterpret_cast<JpegWorkspace*>(reserve(sizeof(JpegWorkspace)));
-    auto* reference = reinterpret_cast<JpegCoefficientWorkspace*>(reserve(sizeof(JpegCoefficientWorkspace)));
+    auto* reference = reinterpret_cast<JpegCoefficientBlock*>(
+        reserve(kJpegCoefficientBlockMaximum * sizeof(JpegCoefficientBlock)));
     u8* const mutated = reserve(1u << 20);
     if (!workspace || !reference || !mutated) {
         check(false, "jpeg_entropy_reference_allocation");
@@ -673,14 +679,22 @@ void test_jpeg_entropy(Check check) noexcept {
         }
         ++images;
         const u32 blocks = image.coefficient_blocks;
+        // Both layouts of JpegCoefficientWorkspace: whole blocks (what these small images get) and stored rows.
         const auto compare = [&](ConstSlice<u8> encoded, const JpegImage& variant) noexcept {
-            clear_bytes(workspace->coefficients.blocks, blocks * static_cast<u32>(sizeof(JpegCoefficientBlock)));
-            clear_bytes(reference->blocks, blocks * static_cast<u32>(sizeof(JpegCoefficientBlock)));
-            const JpegDecodeResult fast = jpeg_decode_parsed_coefficients(encoded, variant, &workspace->coefficients);
+            clear_bytes(reference, blocks * static_cast<u32>(sizeof(JpegCoefficientBlock)));
             const JpegDecodeResult expected = reference_baseline(encoded, variant, reference);
             ++cases;
             failures += expected.error == JpegError::none ? 0u : 1u;
-            return same_decode(fast, expected, workspace->coefficients, *reference, blocks);
+            bool same = true;
+            for (u32 layout = 0; layout < 2 && same; ++layout) {
+                clear_bytes(workspace->coefficients.bytes, jpeg_coefficient_workspace_bytes(blocks) - 16u);
+                const JpegDecodeResult fast =
+                    layout == 0 ? jpeg_decode_parsed_coefficients(encoded, variant, &workspace->coefficients)
+                                : jpeg_detail::decode_baseline_coefficients(encoded, variant, &workspace->coefficients,
+                                                                            true);
+                same = same_decode(fast, expected, workspace->coefficients, reference, blocks);
+            }
+            return same;
         };
         exact = exact && compare({entry.data, entry.bytes}, image);
         // Truncated entropy segments at every length near the start and end, sampled between.

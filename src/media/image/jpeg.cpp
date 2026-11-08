@@ -711,6 +711,20 @@ JpegDecodeResult decode_progressive_scans(ConstSlice<u8> encoded, const JpegImag
 } // namespace jpeg_detail
 using namespace jpeg_detail;
 
+JpegCoefficientBlock jpeg_coefficient_block(const JpegCoefficientWorkspace& coefficients, u32 blocks,
+                                            u32 block) noexcept {
+    JpegCoefficientBlock result{};
+    const u8* const stored = coefficients.bytes + jpeg_coefficient_row_offset(blocks);
+    if (coefficients.whole_blocks) {
+        memcpy(&result, stored + block * sizeof(JpegCoefficientBlock), sizeof(result));
+        return result;
+    }
+    const u32 word = byte_load_le32(coefficients.bytes + block * 4u);
+    const u32 rows = word & 15u;
+    memcpy(&result, stored + (word >> 8) * 16u, (rows < 8u ? rows : 8u) * 16u);
+    return result;
+}
+
 JpegParseResult jpeg_parse(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspace* workspace) noexcept {
     return parse_jpeg(encoded, image, workspace, false);
 }
@@ -727,10 +741,28 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
         return result;
     }
 
+    coefficients->stored_rows = 0;
     if (image.progressive) {
-        return decode_progressive_scans(encoded, image, coefficients->blocks);
+        coefficients->whole_blocks = 1;
+        return decode_progressive_scans(
+            encoded, image,
+            reinterpret_cast<JpegCoefficientBlock*>(coefficients->bytes +
+                                                    jpeg_coefficient_row_offset(image.coefficient_blocks)));
     }
+    return decode_baseline_coefficients(encoded, image, coefficients,
+                                        image.coefficient_blocks >= kJpegStoredRowsMinimumBlocks);
+}
 
+// The baseline scan: stored_rows writes the words and each block's rows in decode order, else whole blocks in
+// block order (JpegCoefficientWorkspace).
+JpegDecodeResult jpeg_detail::decode_baseline_coefficients(ConstSlice<u8> encoded, const JpegImage& image,
+                                                           JpegCoefficientWorkspace* coefficients,
+                                                           bool stored_rows) noexcept {
+    JpegDecodeResult result{};
+    u8* const words = coefficients->bytes;
+    u8* const rows = words + jpeg_coefficient_row_offset(image.coefficient_blocks);
+    coefficients->stored_rows = 0;
+    coefficients->whole_blocks = stored_rows ? 0u : 1u;
     JpegEntropyReader reader = entropy_reader(ConstSlice<u8>{encoded.data + image.entropy_offset, image.entropy_bytes});
     JpegDecodeTable dc_decode[kJpegTableMaximum];
     JpegAcDecodeTable ac_decode[kJpegTableMaximum];
@@ -739,9 +771,11 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
     const u32 total_mcus = static_cast<u32>(image.mcu_columns) * image.mcu_rows;
     u8 expected_restart = 0;
     u32 mcu_x = 0, mcu_y = 0;
+    u32 stored = 0;
     for (u32 mcu = 0; mcu < total_mcus; ++mcu) {
         if (image.restart_interval != 0 && mcu != 0 && mcu % image.restart_interval == 0) {
             if (!entropy_consume_restart(&reader, expected_restart)) {
+                coefficients->stored_rows = stored;
                 result.error = reader.error;
                 return result;
             }
@@ -762,9 +796,14 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
                     const u32 block_y = mcu_y * component.vertical_sampling + vertical;
                     const u32 block_index =
                         component.block_offset + block_y * component.block_columns + block_x;
-                    if (block_index >= image.coefficient_blocks ||
-                        !decode_block(&reader, dc, ac, &predictor[component_index],
-                                      &coefficients->blocks[block_index])) {
+                    const bool decoded =
+                        block_index < image.coefficient_blocks &&
+                        (stored_rows ? decode_block_rows(&reader, dc, ac, &predictor[component_index],
+                                                         words + block_index * 4u, rows, &stored)
+                                     : decode_block(&reader, dc, ac, &predictor[component_index],
+                                                    reinterpret_cast<JpegCoefficientBlock*>(rows) + block_index));
+                    if (!decoded) {
+                        coefficients->stored_rows = stored;
                         result.error =
                             reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                         return result;
@@ -778,6 +817,7 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
             ++mcu_y;
         }
     }
+    coefficients->stored_rows = stored;
     if (!entropy_at_end(&reader) || result.decoded_blocks != image.coefficient_blocks) {
         result.error = reader.error == JpegError::none ? JpegError::entropy : reader.error;
         return result;

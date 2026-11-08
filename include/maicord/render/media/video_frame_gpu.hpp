@@ -25,6 +25,14 @@ GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device,
     GpuUav* destination, u32 x, u32 y, u32 step = 1) noexcept;
 void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept;
 
+// Threads of video_frame.hlsl that share one destination pixel's step x step
+// block (its Lanes): a large step leaves too few pixels to hide the block's
+// load latency, so they split its rows. With more than one, the dispatch has
+// one destination row and 64 / lanes pixels per group.
+constexpr u32 video_frame_gpu_lanes(u32 step) noexcept {
+    return step >= 11 ? 8u : step >= 7 ? 4u : 1u;
+}
+
 static_assert(sizeof(VideoFrameGpu) == 40);
 
 } // namespace maicord

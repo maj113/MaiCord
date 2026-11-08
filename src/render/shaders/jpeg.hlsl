@@ -61,6 +61,11 @@ uint load_u16(ByteAddressBuffer source, uint address) {
     return (packed >> ((address & 2u) * 8u)) & 65535u;
 }
 
+// The coefficients as the decoder stores them (jpeg.hpp, JpegCoefficientWorkspace): whole blocks in block order,
+// or with JPEG_STORED_ROWS one word per block (bits 0-3: how many of its rows are stored, from the first; bits
+// 8-31: the index of its first stored row), then the stored rows, 16 bytes each, from the first 16-byte boundary
+// after the words; a row not stored is zero.
+//
 // Two cooperative 1-D passes: one dequantization load per coefficient.
 // Group-wide barriers are uniform; no hardware wave-width assumption.
 groupshared float idct_dequantized[64];
@@ -105,7 +110,16 @@ groupshared float idct_horizontal[64];
     const uint x = group_thread.x;
     const uint y = group_thread.y;
     const uint coefficient = y * 8u + x;
+#if defined(JPEG_STORED_ROWS)
+    const uint header = jpeg_coefficients.Load(block * 4u);
+    const uint row_base = (coefficient_block_count * 4u + 15u) & ~15u;
+    int value = 0;
+    if (y < (header & 15u)) {
+        value = load_i16(jpeg_coefficients, row_base + ((header >> 8u) + y) * 16u + x * 2u);
+    }
+#else
     const int value = load_i16(jpeg_coefficients, block * 128u + coefficient * 2u);
+#endif
     const uint quantization =
         load_u16(jpeg_auxiliary, (quantization_table * 64u + coefficient) * 2u);
     idct_dequantized[coefficient] = float(value * int(quantization));
