@@ -20,11 +20,11 @@ endif()
 set(CMAKE_BUILD_TYPE Release CACHE STRING "Build configuration" FORCE)
 
 if(MAICORD_LINUX)
-    project(MaiCord VERSION 0.6.6 LANGUAGES C CXX)
+    project(MaiCord VERSION 0.7.0 LANGUAGES C CXX)
 else()
     # MASM (src/core/runtime_x64.asm) is the Build Tools' ml64 (tools/build.ps1 names it): llvm-ml encodes
     # register-to-register instructions the other valid way, which would change MaiCord.exe.
-    project(MaiCord VERSION 0.6.6 LANGUAGES C CXX RC ASM_MASM)
+    project(MaiCord VERSION 0.7.0 LANGUAGES C CXX RC ASM_MASM)
     if(NOT CMAKE_ASM_MASM_COMPILER MATCHES "[/\\\\]ml64\\.exe$")
         message(FATAL_ERROR "MaiCord assembles with the MSVC Build Tools' ml64.exe (CMAKE_ASM_MASM_COMPILER=${CMAKE_ASM_MASM_COMPILER}).")
     endif()

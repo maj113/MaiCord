@@ -47,7 +47,7 @@ body:
     id: version
     attributes:
       label: MaiCord version
-      description: Release tag (e.g. v0.6.7) or commit SHA for source builds. Settings > Updates shows it, and `MaiCord --version` prints it on Linux.
+      description: Release tag (e.g. v0.7.0) or commit SHA for source builds. Settings > Updates shows it, and `MaiCord --version` prints it on Linux.
     validations:
       required: true
   - type: input

@@ -3,7 +3,7 @@
 <img src=".github/assets/banner.svg" alt="MaiCord, a native Discord client for Windows and Linux" width="100%">
 
 **Written from scratch in C++ and drawn on the GPU.**<br>
-No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
+No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 
 [![Latest release](https://img.shields.io/github/v/release/maj113/MaiCord?sort=semver&display_name=tag)](https://github.com/maj113/MaiCord/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/maj113/MaiCord/total)](https://github.com/maj113/MaiCord/releases)
@@ -40,7 +40,7 @@ No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 
 - **Native.** Freestanding C++23 (no STL, CRT, exceptions or RTTI). MaiCord shapes and rasterizes its own text and
   draws its own interface with Direct3D 11 on Windows and OpenGL ES on Wayland.
-- **Small.** One executable of about 6.5 MB on each system, and a download of 5.3 MB on Windows.
+- **Small.** One executable of about 6.3 MB on each system, and a download of 5.4 MB on Windows.
 - **Quiet.** Nothing redraws while nothing changes: no CPU time measured over 20 s of idle.
 - **Yours.** Themes, GPU background effects and native plugins, from a reviewed catalog or your own files.
 
@@ -49,17 +49,18 @@ No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 
 | | Windows | Linux |
 | --- | --- | --- |
-| Download | 5.3 MB zip, portable | 5.3 MB tarball or 5.9 MB AppImage |
-| Executable | one 6.49 MB EXE | one 6.5 MB program |
+| Download | 5.4 MB zip, portable | 5.3 MB tarball or 5.9 MB AppImage |
+| Executable | one 6.25 MB EXE | one 6.3 MB program |
 | On disk | the EXE plus its profile fonts and license notices, ~9 MB together | the same, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows | the C library, and what a desktop has: OpenSSL, Wayland, EGL and GLES |
-| First frame | ~0.1 s | ~0.7 s (Mesa d3d12) to ~1.0 s (llvmpipe, software) |
+| First frame | ~0.1 s | ~0.6 s (Mesa d3d12) to ~0.9 s (llvmpipe, software) |
 | Idle | no CPU time measured over 20 s | the same: 0.00% CPU, under one wakeup a second |
 | Memory at the login screen | 54 MB working set | ~165 MB resident, mostly the GPU driver's libraries; the program's own image and heap are ~13 MB |
 
 Measured on one machine (Ryzen 7 5800X, Radeon RX 9070 XT): a Release build on Windows, and the Linux build in WSL2
-under headless sway, each on a fresh profile at the signed-out screen, with the idle figures over 20 seconds. Sizes are
-the 0.6.6 Windows zip and the Linux 0.6.7 files. Other machines and drivers differ, Linux memory most of all.
+under headless sway, each on a fresh profile at the signed-out screen, with the idle figures over 20 seconds. Sizes and
+the Linux figures are 0.7.0's; the Windows startup, idle and memory figures are 0.6.6's. Other machines and drivers
+differ, Linux memory most of all.
 
 </details>
 

@@ -19,7 +19,7 @@ body:
     id: version
     attributes:
       label: MaiCord version
-      placeholder: v0.6.7
+      placeholder: v0.7.0
     validations:
       required: true
   - type: input
