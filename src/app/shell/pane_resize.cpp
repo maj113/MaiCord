@@ -1,5 +1,6 @@
 #include "input.hpp"
 #include "../account/account_presentation.hpp"
+#include "../account/login/ui.hpp"
 #include "../account/account_text_retry.hpp"
 #include "overlay_input.hpp"
 #include "state.hpp"
@@ -76,7 +77,10 @@ bool apply_pending_pane_layout() noexcept {
     if (!g_app.pane_layout_pending)
         return true;
     g_app.pane_layout_pending = false;
-    if (synchronize_shell_layout() && refresh_account_text_for_layout())
+    // The shell layout measures the composer, which takes the edit geometry the sign-in field shares; while the
+    // form shows, measure its field again so the caret and pointer hit tests keep a layout (as a resize does).
+    if (synchronize_shell_layout() && refresh_account_text_for_layout() &&
+        (!g_app.login.visible || application_synchronize_login_view()))
         return true;
     g_app.pane_layout_pending = true;
     return false;

@@ -10,9 +10,10 @@
 #include "maicord/platform/window/key.hpp"
 #include "../../support/window_fixture.hpp"
 namespace maicord::app_detail {
-namespace { u32 layouts, text_updates; bool fail_layout; }
+namespace { u32 layouts, text_updates, login_views; bool fail_layout, fail_login_view; }
 bool synchronize_shell_layout() noexcept { ++layouts; return !fail_layout; }
 bool refresh_account_text(bool) noexcept { ++text_updates; return true; }
+bool application_synchronize_login_view() noexcept { ++login_views; return !fail_login_view; }
 }
 namespace maicord {
 void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
@@ -128,6 +129,18 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
     check(!apply_pending_pane_layout() && g_app.pane_layout_pending, "failed pane layout remains pending");
     fail_layout = false;
     check(apply_pending_pane_layout() && !g_app.pane_layout_pending, "pane layout retries after failure");
+    // The shell layout re-measures the composer, which takes the edit geometry the sign-in field shares: with the
+    // form showing, the field is measured again after it, or the first click on it finds no layout.
+    const bool saved_login_visible = g_app.login.visible;
+    g_app.login.visible = true; g_app.pane_layout_pending = true; layouts = text_updates = login_views = 0;
+    check(apply_pending_pane_layout() && layouts == 1 && text_updates == 1 && login_views == 1 &&
+              !g_app.pane_layout_pending,
+          "pane layout under the sign-in form measures the form again after the shell");
+    g_app.pane_layout_pending = true; fail_login_view = true;
+    check(!apply_pending_pane_layout() && g_app.pane_layout_pending && login_views == 2,
+          "a sign-in view that fails to follow the pane layout keeps it pending");
+    fail_login_view = false; g_app.pane_layout_pending = false; login_views = 0;
+    g_app.login.visible = saved_login_visible;
     g_app.renderer.dpi = 0; g_app.channel_pane_width = g_app.member_pane_width = 0; g_app.member_pane_visible = false; g_app.frame_pending = false;
     bool visible = keyboard_focus_after_event(false, window_test::key_down(key::tab), false);
     check(visible && keyboard_focus_after_event(visible, window_test::pointer_move(0, 0), false), "keyboard focus survives pointer hover");
