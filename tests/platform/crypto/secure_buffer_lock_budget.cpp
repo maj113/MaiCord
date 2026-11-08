@@ -19,7 +19,8 @@ maicord_lock_budget_peer_release(maicord::SecureBuffer* buffer) noexcept {
 namespace maicord::lock_budget_test {
 enum class Fault : u32 { real, nonquota, mutex_create, mutex_wait, mutex_timeout,
     query, setter, later_query, later_setter, retry_nonquota, decrypt, ceiling, maximum,
-    second_chance, grow, extra_pages, persistent_quota, abandoned };
+    second_chance, grow, extra_pages, persistent_quota, abandoned,
+    overlap_fast, overlap_second_chance, persistent_resources };
 Fault fault = Fault::real;
 u32 lock_calls = 0, query_calls = 0, set_calls = 0, mutex_calls = 0;
 u32 close_calls = 0, release_calls = 0, failures = 0;
@@ -38,11 +39,14 @@ BOOL WINAPI lock(LPVOID address, SIZE_T bytes) noexcept {
         inspected_allocation = address;
         for (u32 i = 0; i < inspected_bytes; ++i) static_cast<u8*>(address)[i] = 0xa5;
     }
-    if ((fault == Fault::second_chance && lock_calls >= 2) ||
-        ((fault == Fault::grow || fault == Fault::abandoned) && lock_calls >= 3) ||
+    if ((fault == Fault::second_chance && lock_calls >= 2) || (fault == Fault::overlap_fast && lock_calls >= 2) ||
+        ((fault == Fault::grow || fault == Fault::abandoned || fault == Fault::overlap_second_chance) && lock_calls >= 3) ||
         (fault == Fault::extra_pages && lock_calls >= 6)) return TRUE;
+    // Windows Server 2025 reports an overlapping concurrent shortfall as ERROR_NO_SYSTEM_RESOURCES.
+    const bool overlap = fault == Fault::persistent_resources || (fault == Fault::overlap_fast && lock_calls == 1) ||
+        (fault == Fault::overlap_second_chance && lock_calls == 2);
     SetLastError((fault == Fault::nonquota || (fault == Fault::retry_nonquota && lock_calls >= 3))
-        ? ERROR_NOACCESS : ERROR_WORKING_SET_QUOTA);
+        ? ERROR_NOACCESS : overlap ? ERROR_NO_SYSTEM_RESOURCES : ERROR_WORKING_SET_QUOTA);
     return FALSE;
 }
 HANDLE WINAPI mutex_create(LPSECURITY_ATTRIBUTES attributes, BOOL owner, LPCWSTR name) noexcept {
@@ -316,8 +320,9 @@ void failed_allocation(Fault value, u32 expected, u32 closes, u32 releases) noex
         "lock budget: nonquota failure never enters policy recovery");
     if (value == Fault::ceiling || value == Fault::maximum) check(!set_calls,
         "lock budget: absolute cap and existing maximum forbid policy growth");
-    if (value == Fault::persistent_quota) check(set_calls == 9 && lock_calls == 11 && fake_minimum == 1024 * 1024,
-        "lock budget: doubling recovery reaches the cap in 9 sets/11 locks");
+    if (value == Fault::persistent_quota || value == Fault::persistent_resources)
+        check(set_calls == 9 && lock_calls == 11 && fake_minimum == 1024 * 1024,
+            "lock budget: doubling recovery reaches the cap in 9 sets/11 locks");
 }
 void controlled_failures() noexcept {
     failed_allocation(Fault::nonquota, ERROR_NOACCESS, 0, 0);
@@ -332,7 +337,9 @@ void controlled_failures() noexcept {
     failed_allocation(Fault::ceiling, ERROR_WORKING_SET_QUOTA, 1, 1);
     failed_allocation(Fault::maximum, ERROR_WORKING_SET_QUOTA, 1, 1);
     failed_allocation(Fault::persistent_quota, ERROR_WORKING_SET_QUOTA, 1, 1);
-    const Fault successes[] = {Fault::second_chance, Fault::grow, Fault::extra_pages, Fault::abandoned};
+    failed_allocation(Fault::persistent_resources, ERROR_NO_SYSTEM_RESOURCES, 1, 1);
+    const Fault successes[] = {Fault::second_chance, Fault::grow, Fault::extra_pages, Fault::abandoned,
+        Fault::overlap_fast, Fault::overlap_second_chance};
     for (Fault value : successes) {
         reset_fault(value, 4097); SecureBuffer source{}, destination{};
         check(secure_buffer_initialize(&source, inspected_bytes).ok(), "lock budget: controlled recheck/growth succeeds");
@@ -345,9 +352,10 @@ void controlled_failures() noexcept {
         check(set_calls == before_release && policy_preserved && close_calls == 1 && release_calls == 1 && wipe_observed &&
             lifecycle_preserved && !ownership_depth,
             "lock budget: release wipes transferred allocation without lowering process quota");
-        const u32 expected_sets = value == Fault::second_chance ? 0 : value == Fault::extra_pages ? 4 : 1;
+        const bool rechecked = value == Fault::second_chance || value == Fault::overlap_fast;
+        const u32 expected_sets = rechecked ? 0 : value == Fault::extra_pages ? 4 : 1;
         check(set_calls == expected_sets && fake_minimum == 204800 +
-            (value == Fault::second_chance ? 0 : 8192 + (value == Fault::extra_pages ? 7 * 4096 : 0)),
+            (rechecked ? 0 : 8192 + (value == Fault::extra_pages ? 7 * 4096 : 0)),
             "lock budget: page-rounded initial span plus 1/2/4-page retries");
     }
     fault = Fault::real; inspect_free = false;

@@ -17,12 +17,19 @@ SecureBufferResult failure(SecureBufferError error, u32 native_error = 0, u32 by
 }
 
 // VirtualLock's process-wide quota is the minimum working set less an
-// undocumented overhead. Only recover that specific failure; ordinary buffers
+// undocumented overhead. Only recover a quota shortfall; ordinary buffers
 // keep the original one-call path and never change working-set policy.
 constexpr SIZE_T kLockRecoveryMinimumLimit = 1024 * 1024;
 constexpr u32 kLockRecoveryAttempts = 16;
 // A DPAPI blob is the plaintext plus a few hundred bytes; this leaves headroom.
 constexpr u32 kProtectedOverheadGuess = 1024;
+
+// The shortfall is ERROR_WORKING_SET_QUOTA, except that Windows Server 2025
+// (build 26100) reports ERROR_NO_SYSTEM_RESOURCES for a lock that overlaps
+// another thread's over-quota VirtualLock in the same process.
+bool lock_shortfall(u32 error) noexcept {
+    return error == ERROR_WORKING_SET_QUOTA || error == ERROR_NO_SYSTEM_RESOURCES;
+}
 
 struct LockBudgetGuard {
     HANDLE mutex;
@@ -61,7 +68,7 @@ u32 acquire_lock_budget(HANDLE* acquired) noexcept {
 u32 lock_pages(void* address, u32 bytes) noexcept {
     if (VirtualLock(address, bytes)) return 0;
     u32 error = thread_last_error();
-    if (error != ERROR_WORKING_SET_QUOTA) return error;
+    if (!lock_shortfall(error)) return error;
     HANDLE mutex = nullptr;
     const u32 acquired = acquire_lock_budget(&mutex);
     if (acquired) return acquired;
@@ -71,7 +78,7 @@ u32 lock_pages(void* address, u32 bytes) noexcept {
     // ownership is also safe: no local accounting state needs reconstruction.
     if (VirtualLock(address, bytes)) return 0;
     error = thread_last_error();
-    if (error != ERROR_WORKING_SET_QUOTA) return error;
+    if (!lock_shortfall(error)) return error;
 
     SYSTEM_INFO system{};
     GetSystemInfo(&system);
@@ -96,7 +103,7 @@ u32 lock_pages(void* address, u32 bytes) noexcept {
             return thread_last_error();
         if (VirtualLock(address, bytes)) return 0;
         error = thread_last_error();
-        if (error != ERROR_WORKING_SET_QUOTA) return error;
+        if (!lock_shortfall(error)) return error;
         // Retries cover the overhead and quota that a concurrent fast-path
         // lock took after this raise: one page, then doubling to the cap.
         growth = attempt ? growth * 2 : page;
