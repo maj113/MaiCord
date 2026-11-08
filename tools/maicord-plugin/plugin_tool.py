@@ -46,14 +46,16 @@ LINK = ["/nologo", "/DLL", "/NOENTRY", "/NODEFAULTLIB", "/SUBSYSTEM:WINDOWS,6.02
         "/MERGE:.pdata=.rdata", "/DEBUG:NONE", "/Brepro", "/mllvm:-enable-machine-outliner"]
 # The Linux recipe of cmake's maicord_plugin() and of the catalog's Linux build: a freestanding shared object (the SDK
 # headers only, no libc), hidden symbols, relative relocations only (-fPIC with -Bsymbolic), a non-executable stack and
-# no build id, so a local build is the catalog's build: same source, same compiler, same bytes.
+# no build id, so a local build is the catalog's build: same source, same compiler, same bytes. A section per function
+# and per object lets --gc-sections drop what nothing reaches (MC_RUNTIME's unused memmove and memcmp too), and
+# --strip-all leaves the symbol table out, as the DLL has none: the loader reads only the dynamic one.
 LINUX_TRIPLE = "x86_64-unknown-linux-gnu"
 LINUX_COMPILE = ["-std=c++23", "-O2", "-Wall", "-Wextra", "-Werror", "-Wno-missing-field-initializers", "-nostdinc",
                  "-fPIC", "-fvisibility=hidden", "-fno-stack-protector", "-fcf-protection=none",
                  "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", "-fno-exceptions", "-fno-rtti",
-                 "-fno-threadsafe-statics", "-DMC_RUNTIME"]
+                 "-fno-threadsafe-statics", "-ffunction-sections", "-fdata-sections", "-DMC_RUNTIME"]
 LINUX_LINK = ["-fuse-ld=lld", "-nostdlib", "-shared", "-Wl,-Bsymbolic", "-Wl,-z,noexecstack", "-Wl,-z,now",
-              "-Wl,--hash-style=gnu", "-Wl,--build-id=none", "-Wl,--gc-sections"]
+              "-Wl,--hash-style=gnu", "-Wl,--build-id=none", "-Wl,--gc-sections", "-Wl,--strip-all"]
 TARGETS = ("windows", "linux")
 
 

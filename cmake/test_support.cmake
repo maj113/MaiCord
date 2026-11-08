@@ -285,7 +285,8 @@ endfunction()
 # (<stdint.h> and <stddef.h> from sys/libc), /W4 /WX without the client's warning exceptions, no CRT and no entry
 # point. Linux: plugins/<target's output name>.so from the same headers, -Wall -Wextra -Werror, no libc, hidden
 # symbols, a non-executable stack and only relative relocations (-fPIC with -Bsymbolic), whose one export is the
-# descriptor. C++ sources take memcpy and the other compiler helpers from plugin.hpp (MC_RUNTIME); C sources list
+# descriptor; a section per function and object for --gc-sections, and no symbol table (--strip-all), as the DLL.
+# C++ sources take memcpy and the other compiler helpers from plugin.hpp (MC_RUNTIME); C sources list
 # $<TARGET_OBJECTS:maicord_runtime> (Windows) or ${MAICORD_PLUGIN_C_RUNTIME} (Linux) instead.
 function(maicord_plugin target)
     add_library(${target} SHARED ${ARGN})
@@ -296,11 +297,11 @@ function(maicord_plugin target)
         target_compile_definitions(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:MC_RUNTIME>)
         target_compile_options(${target} PRIVATE -nostdinc -fPIC -fvisibility=hidden -fno-stack-protector
             -fcf-protection=none -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 -Wall -Wextra -Werror
-            -Wno-missing-field-initializers
+            -Wno-missing-field-initializers -ffunction-sections -fdata-sections
             $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions> $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
             $<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>)
         target_link_options(${target} PRIVATE -fuse-ld=lld -nostdlib LINKER:-Bsymbolic LINKER:-z,noexecstack
-            LINKER:-z,now LINKER:--hash-style=gnu LINKER:--build-id=none LINKER:--gc-sections)
+            LINKER:-z,now LINKER:--hash-style=gnu LINKER:--build-id=none LINKER:--gc-sections LINKER:--strip-all)
         set_target_properties(${target} PROPERTIES PREFIX "" SUFFIX ".so" SKIP_BUILD_RPATH ON
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins")
         return()

@@ -1000,13 +1000,14 @@ class LinuxTargetTests(Case):
         branch = re.search(r"if\(MAICORD_LINUX\)(.*?)return\(\)", support, re.S).group(1)
         for flag in ("-nostdinc", "-fPIC", "-fvisibility=hidden", "-fno-stack-protector", "-fcf-protection=none",
                      "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", "-O2", "-Wall", "-Wextra", "-Werror",
-                     "-Wno-missing-field-initializers", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics"):
+                     "-Wno-missing-field-initializers", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics",
+                     "-ffunction-sections", "-fdata-sections"):
             self.assertIn(flag, branch)
             self.assertIn(flag, core.LINUX_COMPILE)
         for cmake, option in (("-nostdlib", "-nostdlib"), ("-Bsymbolic", "-Wl,-Bsymbolic"),
                               ("-z,noexecstack", "-Wl,-z,noexecstack"), ("-z,now", "-Wl,-z,now"),
                               ("--hash-style=gnu", "-Wl,--hash-style=gnu"), ("--build-id=none", "-Wl,--build-id=none"),
-                              ("--gc-sections", "-Wl,--gc-sections")):
+                              ("--gc-sections", "-Wl,--gc-sections"), ("--strip-all", "-Wl,--strip-all")):
             self.assertIn(cmake, branch)
             self.assertIn(option, core.LINUX_LINK)
 

@@ -150,9 +150,9 @@ and checks the result, on Windows too when clang and ld.lld are on `PATH`):
 clang++ --target=x86_64-unknown-linux-gnu -std=c++23 -O2 -Wall -Wextra -Werror -Wno-missing-field-initializers \
   -nostdinc -I<include> -I<include>/maicord/sys/libc -fPIC -fvisibility=hidden -fno-stack-protector \
   -fcf-protection=none -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-exceptions -fno-rtti \
-  -fno-threadsafe-statics -DMC_RUNTIME -c plugin.cpp -o plugin.o
+  -fno-threadsafe-statics -ffunction-sections -fdata-sections -DMC_RUNTIME -c plugin.cpp -o plugin.o
 clang++ --target=x86_64-unknown-linux-gnu -fuse-ld=lld -nostdlib -shared -Wl,-Bsymbolic -Wl,-z,noexecstack \
-  -Wl,-z,now -Wl,--hash-style=gnu -Wl,--build-id=none -Wl,--gc-sections plugin.o -o my-plugin.so
+  -Wl,-z,now -Wl,--hash-style=gnu -Wl,--build-id=none -Wl,--gc-sections -Wl,--strip-all plugin.o -o my-plugin.so
 ```
 
 (`-nostdinc` with `<include>/maicord/sys/libc` gives `stdint.h` and `stddef.h`;

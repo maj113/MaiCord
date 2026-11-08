@@ -64,6 +64,19 @@
 
 #include "maicord_plugin.h"
 
+// MC_DETAIL_NO_UNROLL: before a loop over a fixed table, which clang would otherwise unroll into one copy of
+// the body per entry. MC_DETAIL_NOINLINE: a helper with many call sites that is smaller called than copied.
+#if defined(__clang__)
+#define MC_DETAIL_NO_UNROLL _Pragma("nounroll")
+#else
+#define MC_DETAIL_NO_UNROLL
+#endif
+#if defined(_MSC_VER) && !defined(__clang__)
+#define MC_DETAIL_NOINLINE __declspec(noinline)
+#else
+#define MC_DETAIL_NOINLINE __attribute__((noinline))
+#endif
+
 namespace mc {
 
 using u8 = uint8_t;
@@ -72,6 +85,39 @@ using u32 = uint32_t;
 using u64 = uint64_t;
 using i32 = int32_t;
 using i64 = int64_t;
+
+namespace detail {
+// Copies text into a buffer: one memcpy call (MC_RUNTIME supplies it), where a byte loop is unrolled and
+// vectorized at every use. bytes may be 0 with a null source.
+inline void copy_bytes(char* to, const char* from, u32 bytes) {
+    if (bytes)
+        __builtin_memcpy(to, from, bytes);
+}
+// copy_bytes for the hot text paths (Text::append, Draft::replace and confirm, the decoration copy): up to 16
+// bytes inline with overlapping word moves, no call, as fast as the byte loops it replaced; longer through memcpy.
+inline void copy_text(char* to, const char* from, u32 bytes) {
+    if (bytes > 16) {
+        __builtin_memcpy(to, from, bytes);
+    } else if (bytes >= 8) {
+        u64 head, tail;
+        __builtin_memcpy(&head, from, 8);
+        __builtin_memcpy(&tail, from + bytes - 8, 8);
+        __builtin_memcpy(to, &head, 8);
+        __builtin_memcpy(to + bytes - 8, &tail, 8);
+    } else if (bytes >= 4) {
+        u32 head, tail;
+        __builtin_memcpy(&head, from, 4);
+        __builtin_memcpy(&tail, from + bytes - 4, 4);
+        __builtin_memcpy(to, &head, 4);
+        __builtin_memcpy(to + bytes - 4, &tail, 4);
+    } else if (bytes) {
+        const char first = from[0], middle = from[bytes >> 1], last = from[bytes - 1];
+        to[0] = first;
+        to[bytes >> 1] = middle;
+        to[bytes - 1] = last;
+    }
+}
+} // namespace detail
 
 // ---- Strings ------------------------------------------------------------------
 
@@ -227,8 +273,7 @@ template <u32 N> class Text {
             overflow_ = true;
             return false;
         }
-        for (u32 i = 0; i < text.bytes; ++i)
-            data_[size_ + i] = text.data[i];
+        detail::copy_bytes(data_ + size_, text.data, text.bytes);
         size_ += text.bytes;
         return true;
     }
@@ -270,8 +315,7 @@ struct Draft : mc_draft {
     bool replace(Str replacement) {
         if (replacement.bytes == 0 || replacement.bytes > buffer_capacity)
             return false;
-        for (u32 i = 0; i < replacement.bytes; ++i)
-            buffer[i] = replacement.data[i];
+        detail::copy_text(buffer, replacement.data, replacement.bytes);
         replaced_bytes = replacement.bytes;
         verdict = MC_DRAFT_REPLACE;
         return true;
@@ -284,8 +328,7 @@ struct Draft : mc_draft {
     bool confirm(Str question) {
         if (question.bytes == 0 || question.bytes > MC_CONFIRM_TEXT_MAX || question.bytes > buffer_capacity)
             return false;
-        for (u32 i = 0; i < question.bytes; ++i)
-            buffer[i] = question.data[i];
+        detail::copy_text(buffer, question.data, question.bytes);
         replaced_bytes = question.bytes;
         verdict = MC_DRAFT_CONFIRM;
         return true;
@@ -513,21 +556,42 @@ namespace detail {
 // A valid decoration's text totals about 12.3 KiB.
 inline char g_kept[16384];
 inline u32 g_kept_used;
-inline mc_str kept(mc_str text) {
-    if (!text.bytes || text.bytes > sizeof(g_kept) - g_kept_used)
-        return text;
-    char* at = g_kept + g_kept_used;
-    for (u32 i = 0; i < text.bytes; ++i)
-        at[i] = text.data[i];
-    g_kept_used += text.bytes;
-    return {at, text.bytes, 0};
+// out already holds text: points it at a copy in g_kept instead, or leaves it when text is empty or doesn't
+// fit. In place (no 16- or 80-byte values passed by copy on Win64 or kept live across memcpy), one body for
+// every decoration call, the copy last so it is a tail call, and text read from the caller's source in
+// registers: reloading out just after the caller stored it misses store-to-load forwarding.
+MC_DETAIL_NOINLINE inline void keep(mc_str& out, const char* data, u32 bytes) {
+    if (!bytes || bytes > sizeof(g_kept) - g_kept_used)
+        return;
+    char* const at = g_kept + g_kept_used;
+    g_kept_used += bytes;
+    out = {at, bytes, 0};
+    copy_text(at, data, bytes);
 }
-inline mc_node kept(mc_node node) {
-    node.text = kept(node.text);
-    node.icon = kept(node.icon);
-    node.tooltip = kept(node.tooltip);
-    node.value = kept(node.value);
-    return node;
+inline void keep(mc_str& out, const mc_str& text) {
+    keep(out, text.data, text.bytes);
+}
+// Sets out to text, kept: inline, for the single texts a decorate hook sets on every visible row (prefix,
+// suffix, collapsed label, content), so a short name costs no call; the caller's other stores go first, so
+// nothing stays live across the memcpy of a long one.
+inline void keep_here(mc_str& out, const mc_str& text) {
+    const u32 bytes = text.bytes;
+    if (!bytes || bytes > sizeof(g_kept) - g_kept_used) {
+        out = text;
+        return;
+    }
+    char* const at = g_kept + g_kept_used;
+    const char* const data = text.data;
+    g_kept_used += bytes;
+    out = {at, bytes, 0};
+    copy_text(at, data, bytes);
+}
+// slot already holds a copy of node.
+inline void keep(mc_node& slot, const mc_node& node) {
+    keep(slot.text, node.text);
+    keep(slot.icon, node.icon);
+    keep(slot.tooltip, node.tooltip);
+    keep(slot.value, node.value);
 }
 } // namespace detail
 
@@ -608,7 +672,7 @@ struct Decoration : mc_decoration {
     }
     void collapse(Str label = {}) {
         visibility = MC_VIS_COLLAPSED;
-        collapsed_label = detail::kept(label);
+        detail::keep_here(collapsed_label, label);
     }
     void blur_media() {
         media = MC_MEDIA_BLUR;
@@ -617,40 +681,47 @@ struct Decoration : mc_decoration {
         media = MC_MEDIA_HIDE;
     }
     void prefix(Str text, Tone tone = Tone::neutral) {
-        name_prefix = detail::kept(text);
         name_tone = static_cast<u32>(tone);
+        detail::keep_here(name_prefix, text);
     }
     void suffix(Str text, Tone tone = Tone::neutral) {
-        name_suffix = detail::kept(text);
         name_tone = static_cast<u32>(tone);
+        detail::keep_here(name_suffix, text);
     }
     // Shows markdown instead of the message text (display only).
     void replace_content(Str markdown) {
-        content = detail::kept(markdown);
         flags |= MC_DECO_REPLACE_CONTENT;
+        detail::keep_here(content, markdown);
     }
-    bool badge(const mc_node& node) {
+    // badge and card are called, not inlined: a hook that may add one (typing-indicator's rows) keeps a short
+    // early-return path, with no callee-saved registers to save. accessory stays inline: out of line, it made
+    // mutual-group-dms spill at entry (both measured end to end).
+    MC_DETAIL_NOINLINE bool badge(const mc_node& node) {
         if (badge_count >= MC_DECORATION_BADGES)
             return false;
-        badges[badge_count++] = detail::kept(node);
+        mc_node& slot = badges[badge_count++];
+        slot = node;
+        detail::keep(slot, node);
         return true;
     }
     bool accessory(const mc_node& node) {
         if (accessory_count >= MC_DECORATION_ACCESSORIES)
             return false;
-        accessories[accessory_count++] = detail::kept(node);
+        mc_node& slot = accessories[accessory_count++];
+        slot = node;
+        detail::keep(slot, node);
         return true;
     }
-    void card(const mc_card& block) {
+    MC_DETAIL_NOINLINE void card(const mc_card& block) {
         mc_card& c = mc_decoration::card;
         c = block;
-        c.title = detail::kept(block.title);
-        c.text = detail::kept(block.text);
-        c.caption = detail::kept(block.caption);
-        c.link = detail::kept(block.link);
-        c.thumbnail = detail::kept(block.thumbnail);
-        for (u32 i = 0; i < c.button_count && i < MC_CARD_BUTTONS; ++i)
-            c.buttons[i].label = detail::kept(block.buttons[i].label);
+        detail::keep(c.title, block.title);
+        detail::keep(c.text, block.text);
+        detail::keep(c.caption, block.caption);
+        detail::keep(c.link, block.link);
+        detail::keep(c.thumbnail, block.thumbnail);
+        for (u32 i = 0; i < block.button_count && i < MC_CARD_BUTTONS; ++i)
+            detail::keep(c.buttons[i].label, block.buttons[i].label);
         has_card = 1;
     }
 };
@@ -708,8 +779,7 @@ struct Reply {
         u32 bytes = text.bytes < call->reply_capacity ? text.bytes : call->reply_capacity;
         while (bytes < text.bytes && bytes && (static_cast<u8>(text.data[bytes]) & 0xC0) == 0x80)
             --bytes; // cut on a character boundary
-        for (u32 i = 0; i < bytes; ++i)
-            call->reply[i] = text.data[i];
+        detail::copy_bytes(call->reply, text.data, bytes);
         call->reply_bytes = bytes;
         call->reply_tone = static_cast<u32>(tone);
         return {kind};
@@ -808,25 +878,33 @@ struct Pending {
 inline constexpr u32 kPendingMax = 16;
 inline Pending g_pending[kPendingMax];
 inline u64 g_pending_key;
+// The first free entry, or null: one loop every start_pending shares.
+inline Pending* free_pending() {
+    MC_DETAIL_NO_UNROLL
+    for (Pending& slot : g_pending)
+        if (!slot.resume)
+            return &slot;
+    return nullptr;
+}
 // Calls start(key) with a fresh key and keeps the entry only when it returns MC_OK.
 template <class Result, auto F, class Start> mc_status start_pending(u64 tag, Start start) {
     static_assert(same<decltype(F), void (*)(Ctx&, const Result&, u64)>,
                   "the result handler must be void (Ctx&, const HttpResult&/ModalResult&/BannerResult&, u64 tag)");
-    for (Pending& slot : g_pending)
-        if (!slot.resume) {
-            slot = {++g_pending_key, tag,
-                    [](Ctx& ctx, const mc_completion& done, u64 user_tag) { F(ctx, Result{&done}, user_tag); },
-                    Result::kind};
-            const mc_status status = start(slot.key);
-            if (status != MC_OK)
-                slot = {};
-            return status;
-        }
-    return MC_E_BUSY;
+    Pending* const slot = free_pending();
+    if (!slot)
+        return MC_E_BUSY;
+    *slot = {++g_pending_key, tag,
+             [](Ctx& ctx, const mc_completion& done, u64 user_tag) { F(ctx, Result{&done}, user_tag); },
+             Result::kind};
+    const mc_status status = start(slot->key);
+    if (status != MC_OK)
+        *slot = {};
+    return status;
 }
 // Forgets every pending call of kind; returns the last key, or 0.
 inline u64 forget_pending(u32 kind) {
     u64 key = 0;
+    MC_DETAIL_NO_UNROLL
     for (Pending& slot : g_pending)
         if (slot.resume && slot.kind == kind) {
             key = slot.key;
@@ -877,23 +955,22 @@ struct Http {
     mc_ctx* raw;
 
     template <auto F, int D = 0> mc_status get(Str url, u64 tag = 0) const {
-        return request<F, D>(MC_HTTP_GET, url, {}, tag, nullptr, 0);
+        return request<F, D>(make(MC_HTTP_GET, url, {}, nullptr, 0), tag);
     }
     template <auto F, int D = 0, u32 N> mc_status get(Str url, u64 tag, const HttpHeader (&headers)[N]) const {
-        return request<F, D>(MC_HTTP_GET, url, {}, tag, headers, N);
+        return request<F, D>(make(MC_HTTP_GET, url, {}, headers, N), tag);
     }
     template <auto F, int D = 0> mc_status post(Str url, Str body, u64 tag = 0) const {
-        return request<F, D>(MC_HTTP_POST, url, body, tag, nullptr, 0);
+        return request<F, D>(make(MC_HTTP_POST, url, body, nullptr, 0), tag);
     }
     template <auto F, int D = 0, u32 N>
     mc_status post(Str url, Str body, u64 tag, const HttpHeader (&headers)[N]) const {
-        return request<F, D>(MC_HTTP_POST, url, body, tag, headers, N);
+        return request<F, D>(make(MC_HTTP_POST, url, body, headers, N), tag);
     }
 
   private:
-    template <auto F, int D>
-    mc_status request(u32 method, Str url, Str body, u64 tag, const HttpHeader* headers, u32 count) const {
-        static_assert(detail::PluginSlot<D>::hosts != 0, "ctx.http needs .network = {\"host\", ...} in MC_PLUGIN");
+    // Built at the call site, so request<F> (one per handler) takes three register arguments.
+    static mc_http_request make(u32 method, Str url, Str body, const HttpHeader* headers, u32 count) {
         mc_http_request request{};
         request.method = method;
         request.url = url;
@@ -901,6 +978,10 @@ struct Http {
         request.header_count = count;
         request.body = body.data;
         request.body_bytes = body.bytes;
+        return request;
+    }
+    template <auto F, int D> mc_status request(const mc_http_request& request, u64 tag) const {
+        static_assert(detail::PluginSlot<D>::hosts != 0, "ctx.http needs .network = {\"host\", ...} in MC_PLUGIN");
         mc_ctx* ctx = raw;
         return detail::start_pending<HttpResult, F>(tag, [&](u64 key) { return ctx->api->http(ctx, &request, key); });
     }
@@ -1043,109 +1124,112 @@ struct Kept {
 class Ctx {
   public:
     // Every entry point makes one: the decoration text buffer starts over.
-    explicit Ctx(mc_ctx* raw)
-        : store{raw}, http{raw}, composer{raw}, read{raw}, kept{raw}, raw_(raw) {
+    explicit Ctx(mc_ctx* raw) : store{raw} {
         detail::g_kept_used = 0;
     }
 
-    Store store;
-    Http http;
-    Composer composer;
-    Reader read;
-    Kept kept;
+    // Views of the call's mc_ctx, overlaid: each is the one pointer they all begin with, so a Ctx is a pointer
+    // and an entry point makes it with one store.
+    union {
+        Store store;
+        Http http;
+        Composer composer;
+        Reader read;
+        Kept kept;
+    };
 
     mc_ctx* raw() const {
-        return raw_;
+        return store.raw;
     }
     // The values from MC_SETTINGS; plain loads.
     const Settings& settings() const {
-        return *static_cast<const Settings*>(raw_->settings);
+        return *static_cast<const Settings*>(raw()->settings);
     }
     // The MC_STATE object, zeroed at first start.
     template <class T> T& state() const {
         static_assert(detail::same<T, typename detail::StateSlot<sizeof(T) * 0>::value_type>,
                       "ctx.state<T>(): T must be the type named by MC_STATE");
-        return *static_cast<T*>(raw_->state);
+        return *static_cast<T*>(raw()->state);
     }
     bool gesture() const {
-        return (raw_->flags & MC_CTX_GESTURE) != 0;
+        return (raw()->flags & MC_CTX_GESTURE) != 0;
     }
     bool reloaded() const {
-        return (raw_->flags & MC_CTX_RELOADED) != 0;
+        return (raw()->flags & MC_CTX_RELOADED) != 0;
     }
     bool first_start() const {
-        return (raw_->flags & MC_CTX_FIRST_START) != 0;
+        return (raw()->flags & MC_CTX_FIRST_START) != 0;
     }
 
     mc_status toast(Str text, Tone tone = Tone::neutral) const {
-        return raw_->api->toast(raw_, text, static_cast<u32>(tone), 0);
+        return raw()->api->toast(raw(), text, static_cast<u32>(tone), 0);
     }
     void log(Str text) const {
-        raw_->api->log(raw_, MC_LOG_INFO, text);
+        raw()->api->log(raw(), MC_LOG_INFO, text);
     }
     void log(Level level, Str text) const {
-        raw_->api->log(raw_, static_cast<u32>(level), text);
+        raw()->api->log(raw(), static_cast<u32>(level), text);
     }
 
     // Changes one of the plugin's settings (mc::Setting::<field>); visible from the next call.
     template <class Id> mc_status set_setting(Id id, bool value) const {
         const u8 byte = value ? 1 : 0;
-        return raw_->api->set_setting(raw_, static_cast<u32>(id), &byte, 1);
+        return raw()->api->set_setting(raw(), static_cast<u32>(id), &byte, 1);
     }
     template <class Id> mc_status set_setting(Id id, i32 value) const {
-        return raw_->api->set_setting(raw_, static_cast<u32>(id), &value, sizeof(value));
+        return raw()->api->set_setting(raw(), static_cast<u32>(id), &value, sizeof(value));
     }
     template <class Id> mc_status set_setting(Id id, u32 value) const {
-        return raw_->api->set_setting(raw_, static_cast<u32>(id), &value, sizeof(value));
+        return raw()->api->set_setting(raw(), static_cast<u32>(id), &value, sizeof(value));
     }
     template <class Id> mc_status set_setting(Id id, u64 value) const {
-        return raw_->api->set_setting(raw_, static_cast<u32>(id), &value, sizeof(value));
+        return raw()->api->set_setting(raw(), static_cast<u32>(id), &value, sizeof(value));
     }
     template <class Id> mc_status set_setting(Id id, Str value) const {
-        return raw_->api->set_setting(raw_, static_cast<u32>(id), value.data, value.bytes);
+        return raw()->api->set_setting(raw(), static_cast<u32>(id), value.data, value.bytes);
     }
 
     // -- Decorations and buttons --
     // The decorate hook is asked again for these at the next pass; id 0 = all.
     mc_status invalidate_message(u64 id) const {
-        return raw_->api->invalidate(raw_, MC_INVALIDATE_MESSAGE, id);
+        return raw()->api->invalidate(raw(), MC_INVALIDATE_MESSAGE, id);
     }
     mc_status invalidate_user(u64 id) const {
-        return raw_->api->invalidate(raw_, MC_INVALIDATE_USER, id);
+        return raw()->api->invalidate(raw(), MC_INVALIDATE_USER, id);
     }
     mc_status invalidate_channel(u64 id) const {
-        return raw_->api->invalidate(raw_, MC_INVALIDATE_CHANNEL, id);
+        return raw()->api->invalidate(raw(), MC_INVALIDATE_CHANNEL, id);
     }
     mc_status invalidate_guild(u64 id) const {
-        return raw_->api->invalidate(raw_, MC_INVALIDATE_GUILD, id);
+        return raw()->api->invalidate(raw(), MC_INVALIDATE_GUILD, id);
     }
     mc_status invalidate_headers() const {
-        return raw_->api->invalidate(raw_, MC_INVALIDATE_HEADER, 0);
+        return raw()->api->invalidate(raw(), MC_INVALIDATE_HEADER, 0);
     }
     mc_status invalidate_buttons() const {
-        return raw_->api->invalidate(raw_, MC_INVALIDATE_BUTTONS, 0);
+        return raw()->api->invalidate(raw(), MC_INVALIDATE_BUTTONS, 0);
     }
     // Decorations set without a pull hook; null clears.
     mc_status push_message(u64 channel, u64 message, const Decoration* d) const {
-        return raw_->api->decorate_push(raw_, MC_HOOK_DECORATE_MESSAGE, message, channel, d);
+        return raw()->api->decorate_push(raw(), MC_HOOK_DECORATE_MESSAGE, message, channel, d);
     }
     // Covers every surface the user appears on.
     mc_status push_user(u64 user, const Decoration* d) const {
-        return raw_->api->decorate_push(raw_, MC_HOOK_DECORATE_USER, user, 0, d);
+        return raw()->api->decorate_push(raw(), MC_HOOK_DECORATE_USER, user, 0, d);
     }
     mc_status push_channel(u64 channel, const Decoration* d) const {
-        return raw_->api->decorate_push(raw_, MC_HOOK_DECORATE_CHANNEL, channel, 0, d);
+        return raw()->api->decorate_push(raw(), MC_HOOK_DECORATE_CHANNEL, channel, 0, d);
     }
     mc_status push_guild(u64 guild, const Decoration* d) const {
-        return raw_->api->decorate_push(raw_, MC_HOOK_DECORATE_GUILD, guild, 0, d);
+        return raw()->api->decorate_push(raw(), MC_HOOK_DECORATE_GUILD, guild, 0, d);
     }
     // where: MC_HEADER_CHANNEL, MC_HEADER_MEMBER_LIST, or 0 for both.
     mc_status push_header(u32 where, const Decoration* d) const {
-        return raw_->api->decorate_push(raw_, MC_HOOK_DECORATE_HEADER, where, 0, d);
+        return raw()->api->decorate_push(raw(), MC_HOOK_DECORATE_HEADER, where, 0, d);
     }
     // The state of the button MC_BUTTON(F, ...) declared.
     template <auto F, int D = 0> mc_status button(const ButtonState& state) const {
-        return raw_->api->button_state(raw_, detail::button_index<F, D>(), &state);
+        return raw()->api->button_state(raw(), detail::button_index<F, D>(), &state);
     }
 
     // -- Feedback and navigation --
@@ -1153,7 +1237,7 @@ class Ctx {
     // reaches F: void (Ctx&, const BannerResult&, u64 tag).
     template <auto F> mc_status banner(const Banner& b) const {
         detail::forget_pending(MC_COMPLETION_BANNER);
-        mc_ctx* ctx = raw_;
+        mc_ctx* ctx = raw();
         return detail::start_pending<BannerResult, F>(b.tag, [&](u64 key) {
             Banner keyed = b;
             keyed.tag = key;
@@ -1165,98 +1249,96 @@ class Ctx {
         detail::forget_pending(MC_COMPLETION_BANNER);
         Banner untagged = b;
         untagged.tag = 0;
-        return raw_->api->banner(raw_, &untagged);
+        return raw()->api->banner(raw(), &untagged);
     }
     mc_status clear_banner() const {
-        return raw_->api->banner_clear(raw_, detail::forget_pending(MC_COMPLETION_BANNER));
+        return raw()->api->banner_clear(raw(), detail::forget_pending(MC_COMPLETION_BANNER));
     }
     // In a gesture. F: void (Ctx&, const ModalResult&, u64 tag).
     template <auto F> mc_status modal(const Modal& m, u64 tag = 0) const {
-        mc_ctx* ctx = raw_;
+        mc_ctx* ctx = raw();
         return detail::start_pending<ModalResult, F>(tag, [&](u64 key) { return ctx->api->modal(ctx, &m, key); });
     }
     // In a gesture: a modal whose answer needs no handler, such as an information dialog (MC_MODAL_INFO).
     mc_status modal(const Modal& m) const {
-        return raw_->api->modal(raw_, &m, 0);
+        return raw()->api->modal(raw(), &m, 0);
     }
     mc_status open_url(Str url) const {
-        return raw_->api->open_url(raw_, url);
+        return raw()->api->open_url(raw(), url);
     }
     template <int D = 0> mc_status copy(Str text) const {
         static_assert(detail::declared<D>(MC_PERM_CLIPBOARD), "ctx.copy needs .permissions = MC_PERM_CLIPBOARD");
-        return raw_->api->copy_text(raw_, text);
+        return raw()->api->copy_text(raw(), text);
     }
     mc_status open_channel(u64 channel) const {
-        return raw_->api->open(raw_, MC_OPEN_CHANNEL, channel, 0);
+        return raw()->api->open(raw(), MC_OPEN_CHANNEL, channel, 0);
     }
     mc_status open_profile(u64 user, u64 guild = 0) const {
-        return raw_->api->open(raw_, MC_OPEN_PROFILE, user, guild);
+        return raw()->api->open(raw(), MC_OPEN_PROFILE, user, guild);
     }
 
     // -- Local messages --
     // A message only you see in the open channel; its id, or 0.
     u64 local_message(Str text, u64 channel = 0) const {
         u64 id = 0;
-        return raw_->api->local_message(raw_, channel, text, &id) == MC_OK ? id : 0;
+        return raw()->api->local_message(raw(), channel, text, &id) == MC_OK ? id : 0;
     }
     mc_status remove_local_message(u64 channel, u64 id) const {
-        return raw_->api->local_message_remove(raw_, channel, id);
+        return raw()->api->local_message_remove(raw(), channel, id);
     }
 
     // -- Actions: a gesture, or MC_PERM_AUTOMATED_ACTIONS --
     template <int D = 0> mc_status send(u64 channel, Str text, u32 flags = 0, u64 reply_to = 0) const {
         static_assert(detail::may_write<D>(), "ctx.send needs .permissions = MC_PERM_ACT_MESSAGES");
         const mc_send request{channel, reply_to, text, flags, 0};
-        return raw_->api->send_message(raw_, &request);
+        return raw()->api->send_message(raw(), &request);
     }
     template <int D = 0> mc_status edit_message(u64 channel, u64 message, Str text) const {
         static_assert(detail::may_write<D>(), "ctx.edit_message needs .permissions = MC_PERM_ACT_MESSAGES");
-        return raw_->api->edit_message(raw_, channel, message, text);
+        return raw()->api->edit_message(raw(), channel, message, text);
     }
     // emoji: Unicode, or name:id.
     template <int D = 0> mc_status react(u64 channel, u64 message, Str emoji, bool remove = false) const {
         static_assert(detail::may_write<D>(), "ctx.react needs .permissions = MC_PERM_ACT_MESSAGES");
-        return raw_->api->react(raw_, channel, message, emoji, remove ? MC_REACT_REMOVE : 0u);
+        return raw()->api->react(raw(), channel, message, emoji, remove ? MC_REACT_REMOVE : 0u);
     }
     template <int D = 0> mc_status delete_message(u64 channel, u64 message) const {
         static_assert(detail::may_write<D>(), "ctx.delete_message needs .permissions = MC_PERM_ACT_MESSAGES");
-        return raw_->api->delete_own(raw_, channel, message);
+        return raw()->api->delete_own(raw(), channel, message);
     }
     // scope: MC_READ_CHANNEL, MC_READ_GUILD or MC_READ_ALL (id 0).
     template <int D = 0> mc_status mark_read(u32 scope, u64 id) const {
         static_assert(detail::may_write<D>(), "ctx.mark_read needs .permissions = MC_PERM_ACT_MESSAGES");
-        return raw_->api->mark_read(raw_, scope, id);
+        return raw()->api->mark_read(raw(), scope, id);
     }
     // null clears.
     template <int D = 0> mc_status set_activity(const Activity* activity) const {
         static_assert(detail::declared<D>(MC_PERM_ACT_PRESENCE),
                       "ctx.set_activity needs .permissions = MC_PERM_ACT_PRESENCE");
-        return raw_->api->set_activity(raw_, activity);
+        return raw()->api->set_activity(raw(), activity);
     }
 
     // -- Timers: MC_HOOK_TIMER gets Timer{id} --
     mc_status timer(u64 id, u32 interval_ms, bool repeat = false) const {
-        return raw_->api->timer(raw_, id, interval_ms, repeat ? 1u : 0u);
+        return raw()->api->timer(raw(), id, interval_ms, repeat ? 1u : 0u);
     }
     mc_status cancel_timer(u64 id) const {
-        return raw_->api->cancel_timer(raw_, id);
+        return raw()->api->cancel_timer(raw(), id);
     }
 
     // -- Time --
     // Unix milliseconds (UTC); 0 on failure.
     u64 now_ms() const {
         u64 ms = 0;
-        return raw_->api->clock(raw_, &ms) == MC_OK ? ms : 0;
+        return raw()->api->clock(raw(), &ms) == MC_OK ? ms : 0;
     }
     // The user's offset from UTC in seconds (east positive, daylight saving included) at unix_seconds.
     i32 local_offset(i64 unix_seconds) const {
         i32 seconds = 0;
-        return raw_->api->local_offset(raw_, unix_seconds, &seconds) == MC_OK ? seconds : 0;
+        return raw()->api->local_offset(raw(), unix_seconds, &seconds) == MC_OK ? seconds : 0;
     }
-
-  private:
-    mc_ctx* raw_;
 };
+static_assert(sizeof(Ctx) == sizeof(mc_ctx*));
 
 // ---- URLs ---------------------------------------------------------------------
 
@@ -1294,8 +1376,7 @@ struct Writer {
             overflow = true;
             return;
         }
-        for (u32 i = 0; i < text.bytes; ++i)
-            out[size + i] = text.data[i];
+        mc::detail::copy_bytes(out + size, text.data, text.bytes);
         size += text.bytes;
     }
 };
@@ -1308,13 +1389,13 @@ inline bool any_matches(Str key, const StrList& a, const StrList& b) {
             return true;
     return false;
 }
-// 7 or 8 when an http:// or https:// scheme starts at text[at], else 0.
+// 7 or 8 when an http:// or https:// scheme starts at text[at], else 0. strip_params asks at every byte, so
+// "http" is compared once.
 inline u32 scheme_length(Str text, u32 at) {
-    if (text.sub(at, 7).equals_ascii_nocase("http://"))
-        return 7;
-    if (text.sub(at, 8).equals_ascii_nocase("https://"))
-        return 8;
-    return 0;
+    if (!text.sub(at, 4).equals_ascii_nocase("http"))
+        return 0;
+    const u32 secure = text.sub(at + 4, 1).equals_ascii_nocase("s") ? 1 : 0;
+    return text.sub(at + 4 + secure, 3) == "://" ? 7 + secure : 0;
 }
 // Where the link starting at text[at] ends: at whitespace or <>"`, without
 // trailing punctuation and markdown markers, or ')'s that close nothing.
@@ -1454,30 +1535,18 @@ inline bool read_string(Str body, u32& at, char* out, u32 capacity, u32* bytes) 
     if (at >= body.bytes || body.data[at] != '"')
         return false;
     u32 size = 0;
+    // Writes code as UTF-8 straight into out: the continuation bytes from the last, then the lead byte.
     const auto put = [&](u32 code) {
-        char encoded[4];
-        u32 length = 0;
-        if (code < 0x80) {
-            encoded[length++] = static_cast<char>(code);
-        } else if (code < 0x800) {
-            encoded[length++] = static_cast<char>(0xC0 | code >> 6);
-            encoded[length++] = static_cast<char>(0x80 | (code & 0x3F));
-        } else if (code < 0x10000) {
-            encoded[length++] = static_cast<char>(0xE0 | code >> 12);
-            encoded[length++] = static_cast<char>(0x80 | (code >> 6 & 0x3F));
-            encoded[length++] = static_cast<char>(0x80 | (code & 0x3F));
-        } else {
-            encoded[length++] = static_cast<char>(0xF0 | code >> 18);
-            encoded[length++] = static_cast<char>(0x80 | (code >> 12 & 0x3F));
-            encoded[length++] = static_cast<char>(0x80 | (code >> 6 & 0x3F));
-            encoded[length++] = static_cast<char>(0x80 | (code & 0x3F));
-        }
         if (!out)
             return true;
+        const u32 length = code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
         if (length > capacity - size)
             return false;
-        for (u32 i = 0; i < length; ++i)
-            out[size++] = encoded[i];
+        char* const at = out + size;
+        size += length;
+        for (u32 i = length - 1; i > 0; --i, code >>= 6)
+            at[i] = static_cast<char>(0x80 | (code & 0x3F));
+        at[0] = static_cast<char>(length == 1 ? code : 0xF00u >> length | code); // 0xC0, 0xE0, 0xF0 | code
         return true;
     };
     for (++at; at < body.bytes;) {
@@ -2034,6 +2103,7 @@ template <auto F> void MC_CALL timer_hook(mc_ctx* raw, uint64_t id) {
 }
 // Routes a result to the handler its call registered (see start_pending).
 inline void MC_CALL completion_hook(mc_ctx* raw, const mc_completion* done) {
+    MC_DETAIL_NO_UNROLL
     for (Pending& slot : g_pending)
         if (slot.resume && slot.key == done->tag && slot.kind == done->kind) {
             const Pending taken = slot;
@@ -2743,16 +2813,76 @@ template <auto F, int D> consteval u32 button_index() {
 #if defined(_WIN32)
 extern "C" const int _fltused = 0;
 #endif
-extern "C" void* memcpy(void* destination, const void* source, size_t bytes) {
+// rep movsb forwards, a byte at a time as far as anything can tell. Its own function: rsi and rdi are callee-saved
+// on Win64, and saving them in memcpy would add a push and a pop to every short copy.
+static __attribute__((noinline)) void* mc_runtime_copy_forward(void* destination, const void* source, size_t bytes) {
     void* result = destination;
     __asm__ volatile("rep movsb" : "+D"(destination), "+S"(source), "+c"(bytes) : : "memory");
     return result;
 }
+// Copies under 4 KiB move overlapping words and 16-byte blocks (SSE2, every x86-64): rep movsb takes about 16
+// cycles to start on Zen 3 and up to 35 on CPUs without fast short strings (before Ice Lake), more than the whole
+// copy of a text that size. no_builtin: the block loop must not become a call to memcpy.
+extern "C" __attribute__((no_builtin)) void* memcpy(void* destination, const void* source, size_t bytes) {
+    typedef char block __attribute__((vector_size(16)));
+    char* to = static_cast<char*>(destination);
+    const char* from = static_cast<const char*>(source);
+    if (bytes <= 16) {
+        if (bytes >= 8) {
+            unsigned long long head, tail;
+            __builtin_memcpy(&head, from, 8);
+            __builtin_memcpy(&tail, from + bytes - 8, 8);
+            __builtin_memcpy(to, &head, 8);
+            __builtin_memcpy(to + bytes - 8, &tail, 8);
+        } else if (bytes >= 4) {
+            unsigned head, tail;
+            __builtin_memcpy(&head, from, 4);
+            __builtin_memcpy(&tail, from + bytes - 4, 4);
+            __builtin_memcpy(to, &head, 4);
+            __builtin_memcpy(to + bytes - 4, &tail, 4);
+        } else if (bytes) {
+            const char first = from[0], middle = from[bytes >> 1], last = from[bytes - 1];
+            to[0] = first;
+            to[bytes >> 1] = middle;
+            to[bytes - 1] = last;
+        }
+        return destination;
+    }
+    if (bytes <= 32) {
+        block head, tail;
+        __builtin_memcpy(&head, from, 16);
+        __builtin_memcpy(&tail, from + bytes - 16, 16);
+        __builtin_memcpy(to, &head, 16);
+        __builtin_memcpy(to + bytes - 16, &tail, 16);
+        return destination;
+    }
+    if (bytes < 4096) {
+        // The first 16 and the last 32 bytes unaligned, the middle in 32-byte steps with the destination 16-byte
+        // aligned, so no store splits a cache line (text buffers such as Text<N>'s start at odd addresses).
+        block head, tail0, tail1;
+        __builtin_memcpy(&head, from, 16);
+        __builtin_memcpy(&tail0, from + bytes - 32, 16);
+        __builtin_memcpy(&tail1, from + bytes - 16, 16);
+        __builtin_memcpy(to, &head, 16);
+#pragma clang loop unroll(disable) vectorize(disable)
+        for (size_t at = (0 - reinterpret_cast<size_t>(to)) & 15, end = bytes - 32; at < end; at += 32) {
+            block chunk0, chunk1;
+            __builtin_memcpy(&chunk0, from + at, 16);
+            __builtin_memcpy(&chunk1, from + at + 16, 16);
+            __builtin_memcpy(__builtin_assume_aligned(to + at, 16), &chunk0, 16);
+            __builtin_memcpy(__builtin_assume_aligned(to + at + 16, 16), &chunk1, 16);
+        }
+        __builtin_memcpy(to + bytes - 32, &tail0, 16);
+        __builtin_memcpy(to + bytes - 16, &tail1, 16);
+        return destination;
+    }
+    [[clang::musttail]] return mc_runtime_copy_forward(destination, source, bytes); // a jump: no frame here
+}
 extern "C" void* memmove(void* destination, const void* source, size_t bytes) {
     const auto to = reinterpret_cast<size_t>(destination);
     const auto from = reinterpret_cast<size_t>(source);
-    if (to - from >= bytes)
-        return memcpy(destination, source, bytes); // no overlap, or copying down
+    if (to - from >= bytes) // no overlap, or copying down: forwards a byte at a time (memcpy's blocks could not)
+        [[clang::musttail]] return mc_runtime_copy_forward(destination, source, bytes);
     void* result = destination;
     char* last_to = static_cast<char*>(destination) + bytes - 1;
     const char* last_from = static_cast<const char*>(source) + bytes - 1;
