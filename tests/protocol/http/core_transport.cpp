@@ -2081,7 +2081,7 @@ void test_tls_client_shared_credential() noexcept {
 }
 
 // Every ClientHello names the server and offers ALPN "http/1.1"; where Schannel has TLS 1.3 (Windows 11 and Server
-// 2022, build 20348 and later) it offers TLS 1.3 beside 1.2, which the legacy SCHANNEL_CRED never did.
+// 2022, build 20348 and later) it offers TLS 1.3 beside 1.2.
 void test_tls_client_hello() noexcept {
     constexpr u16 kAlpn = 16;
     constexpr u16 kSupportedVersions = 43;

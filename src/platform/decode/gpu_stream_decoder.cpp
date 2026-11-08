@@ -160,18 +160,15 @@ HRESULT gpu_stream_create_decoder(GpuStream* stream, const GpuStreamDecoderDesc&
     }
     if (SUCCEEDED(status)) {
         // Resolution/level support (1440p, 4K) differs per GPU; ask the driver
-        // before allocating a large DPB when the runtime offers the query.
+        // before allocating a large DPB. Windows 10's runtime has the query.
         ID3D11VideoDevice1* video1 = nullptr;
-        if (SUCCEEDED(stream->video->QueryInterface(__uuidof(ID3D11VideoDevice1),
-                                                    reinterpret_cast<void**>(&video1)))) {
-            DXGI_RATIONAL rate = desc.rate;
-            UINT caps = 0;
-            if (SUCCEEDED(video1->GetVideoDecoderCaps(desc.profile, desc.width, desc.height, &rate, 0,
-                                                      nullptr, &caps)) &&
-                (caps & D3D11_VIDEO_DECODER_CAPS_UNSUPPORTED))
-                status = DXGI_ERROR_UNSUPPORTED;
-            video1->Release();
-        }
+        stream->video->QueryInterface(__uuidof(ID3D11VideoDevice1), reinterpret_cast<void**>(&video1));
+        DXGI_RATIONAL rate = desc.rate;
+        UINT caps = 0;
+        if (SUCCEEDED(video1->GetVideoDecoderCaps(desc.profile, desc.width, desc.height, &rate, 0, nullptr, &caps)) &&
+            (caps & D3D11_VIDEO_DECODER_CAPS_UNSUPPORTED))
+            status = DXGI_ERROR_UNSUPPORTED;
+        video1->Release();
     }
     D3D11_VIDEO_DECODER_CONFIG selected{};
     if (SUCCEEDED(status))

@@ -38,9 +38,9 @@ struct AccountSessionStoreResult {
 
 // Stores the profile-bound normal-user Resume state, authenticated user ID, a
 // valid analytics heartbeat session and the jar's unexpired persistent
-// cookies, if any (session cookies stay in memory). Version 1 loads with
-// unknown user identity, versions before 3 without a heartbeat session and
-// before 4 without cookies; all are upgraded on the next save. Load restores
+// cookies, if any (session cookies stay in memory). Versions before 3 load
+// without a heartbeat session and before 4 without cookies (no release wrote
+// version 1, which is refused); all are upgraded on the next save. Load restores
 // saved cookies into the jar, replacing its contents.
 AccountSessionStoreResult account_user_session_store_save(
     const wchar_t* path, const GatewayUserSessionSnapshot& snapshot,

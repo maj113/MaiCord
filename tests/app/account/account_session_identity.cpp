@@ -9,54 +9,6 @@
 
 namespace maicord {
 namespace {
-// Independent v1 wire fixture, encrypted for the test process's Windows user.
-// It intentionally has no authenticated-user field and uses a different profile key.
-bool write_legacy(const wchar_t* path, u64 profile_id) noexcept {
-    constexpr auto session = utf8_literal("synthetic-legacy-session");
-    constexpr auto url = utf8_literal("wss://127.0.0.1:1");
-    const u8 magic[8] = {'M', 'A', 'I', 'C', 'U', 'S', 'E', 'S'};
-    SecureBuffer payload{};
-    if (!secure_buffer_initialize(&payload, 32 + session.bytes + url.bytes).ok())
-        return false;
-    byte_store_le32(payload.data, 1);
-    byte_store_le32(payload.data + 4, 1);
-    byte_store_le64(payload.data + 8, profile_id);
-    byte_store_le64(payload.data + 16, 42);
-    byte_store_le32(payload.data + 24, session.bytes);
-    byte_store_le32(payload.data + 28, url.bytes);
-    copy_bytes(payload.data + 32, session.data, session.bytes);
-    copy_bytes(payload.data + 32 + session.bytes, url.data, url.bytes);
-    payload.bytes = payload.capacity;
-    u8 entropy[32]{};
-    copy_bytes(entropy, magic, 8);
-    byte_store_le32(entropy + 8, 1);
-    byte_store_le32(entropy + 12, 1);
-    byte_store_le64(entropy + 16, profile_id);
-    u8 file[4096]{};
-    const auto encrypted =
-        secure_buffer_protect_user_bound(payload, {entropy, 32}, {file + 40, sizeof(file) - 40});
-    secure_buffer_release(&payload);
-    SecureZeroMemory(entropy, sizeof(entropy));
-    if (!encrypted.ok())
-        return false;
-    copy_bytes(file, magic, 8);
-    byte_store_le32(file + 8, 1);
-    byte_store_le32(file + 12, 40);
-    byte_store_le32(file + 16, 40 + encrypted.bytes);
-    byte_store_le32(file + 20, encrypted.bytes);
-    byte_store_le64(file + 24, profile_id);
-    byte_store_le32(file + 32, 1);
-    HANDLE handle =
-        CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    DWORD written = 0;
-    const bool ok = handle != INVALID_HANDLE_VALUE &&
-                    WriteFile(handle, file, 40 + encrypted.bytes, &written, nullptr) &&
-                    written == 40 + encrypted.bytes;
-    if (handle != INVALID_HANDLE_VALUE)
-        CloseHandle(handle);
-    SecureZeroMemory(file, sizeof(file));
-    return ok;
-}
 bool rewrite_version(const wchar_t* path, u32 version) noexcept {
     HANDLE handle =
         CreateFileW(path, GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -83,24 +35,31 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
     if (!temporary)
         return;
     constexpr u64 profile_id = 0x123456789abcdef0ull;
+    constexpr auto session = utf8_literal("synthetic-legacy-session");
+    constexpr auto url = utf8_literal("wss://127.0.0.1:1");
+    // A resume state whose authenticated user is not known yet.
     GatewayUserSessionSnapshot legacy{};
-    check(write_legacy(path, profile_id) &&
-              account_user_session_store_load(path, profile_id, &legacy).ok() && legacy.has_resume &&
-              legacy.profile_id == profile_id && legacy.resume.sequence == 42 && !legacy.self_user_id,
-          "v1 session retains resume state without mistaking its profile key for a user ID");
-    if (!legacy.has_resume) {
-        DeleteFileW(path);
-        return;
-    }
+    legacy.profile_id = profile_id;
+    legacy.has_resume = true;
+    legacy.resume.valid = true;
+    legacy.resume.sequence = 42;
+    legacy.resume.session_id_bytes = static_cast<u16>(session.bytes);
+    legacy.resume.resume_url_bytes = static_cast<u16>(url.bytes);
+    copy_bytes(legacy.resume.session_id, session.data, session.bytes);
+    copy_bytes(legacy.resume.resume_url, url.data, url.bytes);
     GatewayUserSessionSnapshot unknown{};
     check(account_user_session_store_save(path, legacy).ok() &&
               account_user_session_store_load(path, profile_id, &unknown).ok() &&
               unknown.has_resume && !unknown.self_user_id && unknown.resume.sequence == 42,
-          "v1 upgrade can preserve an unknown identity without inventing one");
+          "a session can preserve an unknown identity without inventing one");
+    if (!unknown.has_resume) {
+        DeleteFileW(path);
+        return;
+    }
     GatewayUserSessionSnapshot current = legacy;
     current.self_user_id = ~u64{0};
     check(account_user_session_store_save(path, current).ok(),
-          "legacy session can be upgraded with an authenticated identity");
+          "session can be upgraded with an authenticated identity");
     GatewayUserSessionSnapshot restored{};
     check(account_user_session_store_load(path, profile_id, &restored).ok() &&
               restored.self_user_id == current.self_user_id && restored.profile_id == profile_id &&
@@ -112,11 +71,16 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
               unchanged.self_user_id == restored.self_user_id &&
               unchanged.profile_id == restored.profile_id,
           "identity-bearing session retains cross-profile rejection and output atomicity");
-    check(rewrite_version(path, 1) &&
+    check(rewrite_version(path, 2) &&
               account_user_session_store_load(path, profile_id, &unchanged).error ==
                   AccountSessionStoreError::unprotect &&
               unchanged.self_user_id == restored.self_user_id,
-          "changing a v2 header to v1 cannot bypass the version-bound DPAPI protection");
+          "changing a v4 header to v2 cannot bypass the version-bound DPAPI protection");
+    check(rewrite_version(path, 1) &&
+              account_user_session_store_load(path, profile_id, &unchanged).error ==
+                  AccountSessionStoreError::version &&
+              unchanged.self_user_id == restored.self_user_id,
+          "v1 sessions, which no release wrote, fail without publishing an identity");
     check(rewrite_version(path, 99) &&
               account_user_session_store_load(path, profile_id, &unchanged).error ==
                   AccountSessionStoreError::version &&

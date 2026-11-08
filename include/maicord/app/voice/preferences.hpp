@@ -7,7 +7,7 @@ namespace maicord {
 // settings, self mute/deafen and per-user playback volume. Separate from
 // preferences.bin so device IDs and the user table can grow independently.
 inline constexpr u32 kVoicePreferenceUsers = 256;
-// v2 adds the soundboard volume and mute; v1 records still load.
+// v2 adds the soundboard volume and mute; v1, which no release wrote, is refused.
 inline constexpr u32 kVoicePreferencesVersion = 2;
 struct VoiceUserVolume {
     u64 user_id;

@@ -88,11 +88,6 @@ struct ApplicationVideo {
     }
     static void operator delete(void*, void*) noexcept {
     }
-    // MSVC emits a scalar deleting destructor even for this placement-only owner.
-    // Its valid cleanup is explicit destruction followed by VirtualFree.
-    static void operator delete(void*, decltype(sizeof(0))) noexcept {
-        fail_fast_invalid_argument();
-    }
     explicit ApplicationVideo(InlineAudioSceneSelection selected_scene) noexcept : ui(selected_scene) {
         source.audio = true;
     }

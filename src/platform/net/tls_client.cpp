@@ -73,9 +73,8 @@ constexpr Http11Protocols kHttp11Protocols{kHttp11ProtocolsBytes - kProtocolList
 // credential, which is what lets a later connection to a host resume an earlier handshake. It is
 // never freed: workers may still hold contexts made from it when the process exits.
 //
-// SCH_CREDENTIALS with no TLS_PARAMETERS takes the system's protocol defaults: TLS 1.3 and 1.2 where Schannel has
-// TLS 1.3 (Windows 11, Server 2022), TLS 1.2 elsewhere. The legacy SCHANNEL_CRED never negotiates TLS 1.3; it is
-// the fallback of a Windows 10 older than 1809, which does not know SCH_CREDENTIALS. Both carry the same flags.
+// SCH_CREDENTIALS (Windows 10 1809, the floor) with no TLS_PARAMETERS takes the system's protocol defaults: TLS 1.3
+// and 1.2 where Schannel has TLS 1.3 (Windows 11, Server 2022), TLS 1.2 elsewhere.
 SRWLOCK g_credentials_lock = SRWLOCK_INIT;
 CredHandle g_credentials;
 u32 g_maximum_token_bytes;
@@ -115,13 +114,6 @@ TlsResult share_credentials(TlsClient* client) noexcept {
         status = AcquireCredentialsHandleW(nullptr, const_cast<wchar_t*>(UNISP_NAME_W),
                                            SECPKG_CRED_OUTBOUND, nullptr, &configuration, nullptr, nullptr,
                                            &g_credentials, &expiry);
-        if (status != SEC_E_OK) {
-            SCHANNEL_CRED legacy{};
-            legacy.dwVersion = SCHANNEL_CRED_VERSION;
-            legacy.dwFlags = flags;
-            status = AcquireCredentialsHandleW(nullptr, const_cast<wchar_t*>(UNISP_NAME_W), SECPKG_CRED_OUTBOUND,
-                                               nullptr, &legacy, nullptr, nullptr, &g_credentials, &expiry);
-        }
         if (status != SEC_E_OK) {
             return result(TlsError::credential_acquire, status);
         }

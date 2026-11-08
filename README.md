@@ -261,9 +261,9 @@ details.
 <details>
 <summary><b>Linux</b>: x86-64, Linux 6.1+, a Wayland session, glibc 2.34+ or musl</summary>
 
-- x86-64 with AVX and AES-NI, and Linux 6.1 or newer: the network loop runs on io_uring, so a system that disables it
-  (`kernel.io_uring_disabled`, Docker's and Podman's default seccomp profile) is refused at startup with the cause named.
-  Stock Ubuntu 22.04 and RHEL 9 kernels are older than 6.1
+- x86-64 with AVX, AES-NI and PCLMULQDQ, and Linux 6.1 or newer: the network loop runs on io_uring, so a system that
+  disables it (`kernel.io_uring_disabled`, Docker's and Podman's default seccomp profile) is refused at startup with the
+  cause named. Stock Ubuntu 22.04 and RHEL 9 kernels are older than 6.1
 - glibc 2.34 or newer, or musl (Alpine, Void, Chimera). The release is checked in containers of Ubuntu 22.04, Debian 12,
   AlmaLinux 9, Fedora, Arch, NixOS, Alpine, Void and Chimera
 - A Wayland compositor: there is no X11 backend. MaiCord draws its own title bar, so it needs no server-side

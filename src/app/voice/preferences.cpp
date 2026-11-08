@@ -11,7 +11,7 @@ namespace {
 constexpr u8 kMagic[8]{'M', 'A', 'I', 'V', 'O', 'I', 'C', 'E'};
 constexpr u32 kHeaderBytes = 40, kChecksumOffset = 32, kUserBytes = 11;
 constexpr u8 kAutomatic = 1, kProcessing = 2, kSelfMute = 4, kSelfDeaf = 8, kSoundboardMuted = 16;
-constexpr u8 kKnownFlagsV1 = 15, kKnownFlags = 31;
+constexpr u8 kKnownFlags = 31;
 
 u32 id_length(const wchar_t* id) noexcept {
     u32 length = 0;
@@ -125,11 +125,8 @@ bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferenc
     const u8* r = record.data;
     if (!preferences || !r || record.count < kHeaderBytes + 2 || !bytes_equal(r, kMagic, 8))
         return false;
-    const u32 version = byte_load_le32(r + 8);
-    if ((version != 1 && version != kVoicePreferencesVersion) || byte_load_le32(r + 12) != record.count ||
-        byte_load_le64(r + kChecksumOffset) != checksum(record) ||
-        (r[25] & ~(version == 1 ? kKnownFlagsV1 : kKnownFlags)) || (version == 1 && r[26]) || r[27] ||
-        r[26] > 100)
+    if (byte_load_le32(r + 8) != kVoicePreferencesVersion || byte_load_le32(r + 12) != record.count ||
+        byte_load_le64(r + kChecksumOffset) != checksum(record) || (r[25] & ~kKnownFlags) || r[27] || r[26] > 100)
         return false;
     const u32 input = byte_load_le16(r + 28), speaker = byte_load_le16(r + 30);
     if (input >= kVoiceDeviceIdCharacters || speaker >= kVoiceDeviceIdCharacters ||
@@ -148,7 +145,7 @@ bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferenc
     decoded.self_mute = (r[25] & kSelfMute) != 0;
     decoded.self_deaf = (r[25] & kSelfDeaf) != 0;
     decoded.soundboard_muted = (r[25] & kSoundboardMuted) != 0;
-    decoded.soundboard_volume = version == 1 ? 100 : r[26];
+    decoded.soundboard_volume = r[26];
     u32 at = kHeaderBytes;
     for (u32 i = 0; i < input; ++i, at += 2)
         a.input_device[i] = static_cast<wchar_t>(byte_load_le16(r + at));

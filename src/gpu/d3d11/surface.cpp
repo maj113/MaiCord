@@ -101,19 +101,14 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
         return failure(surface, "direct_composition_swap_chain_creation_failed", result);
     }
 
+    // DXGI 1.3 (Windows 8.1) swap chains are IDXGISwapChain2.
     IDXGISwapChain2* latency = nullptr;
-    result = surface->swap_chain->QueryInterface(
-        __uuidof(IDXGISwapChain2), reinterpret_cast<void**>(&latency));
-    if (SUCCEEDED(result)) {
-        // The maximum frame latency of a waitable swap chain is 1 by default.
-        surface->frame_latency_waitable = latency->GetFrameLatencyWaitableObject();
-        latency->Release();
-        if (!surface->frame_latency_waitable) {
-            result = E_FAIL;
-        }
-    }
-    if (FAILED(result)) {
-        return failure(surface, "dxgi_1_3_resize_surface_unavailable", result);
+    surface->swap_chain->QueryInterface(__uuidof(IDXGISwapChain2), reinterpret_cast<void**>(&latency));
+    // The maximum frame latency of a waitable swap chain is 1 by default.
+    surface->frame_latency_waitable = latency->GetFrameLatencyWaitableObject();
+    latency->Release();
+    if (!surface->frame_latency_waitable) {
+        return failure(surface, "dxgi_1_3_resize_surface_unavailable", E_FAIL);
     }
 
     surface->buffer_width = desc.width;

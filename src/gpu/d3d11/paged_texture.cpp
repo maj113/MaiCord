@@ -127,8 +127,9 @@ GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* paged, 
     const u32 want = (rows + paged->band_rows - 1u) / paged->band_rows;
     const u32 have = (paged->committed[page] + paged->band_rows - 1u) / paged->band_rows;
     // The pool gives bands back only once the GPU has passed the unmaps that freed them: ResizeTilePool frees the
-    // memory at once, while work queued before the unmaps may still write it (that hung an AMD GPU). The event
-    // `unmapped` is ended after an unmap; an unmap while it is pending ends it again once it has passed.
+    // memory at once, and work queued before the unmaps may still write it, so shrinking earlier is a use after free
+    // on any GPU. The event `unmapped` is ended after an unmap; an unmap while it is pending ends it again once it
+    // has passed.
     bool shrink = false;
     if (paged->shrinking && context->GetData(paged->unmapped, nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK) {
         if (paged->unmapped_again) {

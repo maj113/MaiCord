@@ -28,17 +28,14 @@ const UiaRuntime* load_runtime() noexcept {
               resolve(runtime.automation, "UiaRaiseAutomationPropertyChangedEvent",
                       &runtime.raise_property_changed_event) &&
               resolve(runtime.automation, "UiaRaiseStructureChangedEvent", &runtime.raise_structure_changed_event) &&
+              resolve(runtime.automation, "UiaRaiseNotificationEvent", &runtime.raise_notification_event) &&
               resolve(runtime.automation, "UiaClientsAreListening", &runtime.clients_are_listening) &&
               resolve(runtime.core, "SysAllocStringLen", &runtime.alloc_string_len) &&
               resolve(runtime.core, "SysFreeString", &runtime.free_string) &&
               resolve(runtime.core, "SafeArrayCreateVector", &runtime.create_vector) &&
               resolve(runtime.core, "SafeArrayPutElement", &runtime.put_element) &&
-              resolve(runtime.core, "SafeArrayDestroy", &runtime.destroy_array) &&
               resolve(runtime.automation, "UiaDisconnectProvider", &runtime.disconnect_provider) &&
               resolve(runtime.automation, "UiaGetReservedNotSupportedValue", &runtime.reserved_not_supported);
-    // Optional: Windows 10 1709+.
-    if (ok)
-        resolve(runtime.automation, "UiaRaiseNotificationEvent", &runtime.raise_notification_event);
     if (!ok) {
         // Libraries stay loaded on success for the process lifetime: UI
         // Automation keeps references to our objects until it disconnects.
@@ -839,7 +836,7 @@ bool uia_host_raise_property(UiaProviderHost* host, u64 key, const UiAccessPrope
 
 bool uia_host_raise_notification(UiaProviderHost* host, u64 key, UiaNotificationKind kind,
                                  UiaNotificationProcessing processing, Utf8View text, Utf8View activity) noexcept {
-    if (!host || !host->runtime || !host->runtime->raise_notification_event || !text.bytes)
+    if (!host || !host->runtime || !text.bytes)
         return false;
     auto* element = event_element(host, key);
     if (!element)

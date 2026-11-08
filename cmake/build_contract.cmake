@@ -37,7 +37,7 @@ set(CMAKE_CXX_STANDARD_LIBRARIES "")
 set(CMAKE_C_STANDARD_LIBRARIES "")
 
 if(NOT WIN32)
-    message(FATAL_ERROR "MaiCord targets Windows 10 or newer.")
+    message(FATAL_ERROR "MaiCord targets Windows 10 version 1809 or newer.")
 endif()
 
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
@@ -115,7 +115,6 @@ target_compile_options(maicord_compile_contract INTERFACE
     $<$<COMPILE_LANGUAGE:CXX>:/permissive->
     # Pin the SDK ReadAcquire/WriteRelease semantics; this is already the x64 default.
     $<$<COMPILE_LANGUAGE:CXX>:/volatile:ms>
-    $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
     $<$<COMPILE_LANGUAGE:CXX>:/Zl>
     $<$<COMPILE_LANGUAGE:CXX>:/GS->
     $<$<COMPILE_LANGUAGE:CXX>:/GR->
@@ -125,8 +124,6 @@ target_compile_options(maicord_compile_contract INTERFACE
     $<$<COMPILE_LANGUAGE:CXX>:/fp:precise>
     $<$<COMPILE_LANGUAGE:CXX>:/arch:AVX>
     $<$<COMPILE_LANGUAGE:CXX>:-maes>
-    $<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>
-    $<$<COMPILE_LANGUAGE:CXX>:/Zc:inline>
     $<$<COMPILE_LANGUAGE:CXX>:/Zc:threadSafeInit->
     $<$<COMPILE_LANGUAGE:CXX>:/Gy>
     $<$<COMPILE_LANGUAGE:CXX>:/Gw>

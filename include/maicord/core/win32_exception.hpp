@@ -47,7 +47,7 @@ struct __declspec(align(16)) _XSAVE_FORMAT {
 };
 typedef _XSAVE_FORMAT XSAVE_FORMAT;
 typedef XSAVE_FORMAT XMM_SAVE_AREA32;
-struct __declspec(align(16)) __pragma(warning(push)) __pragma(warning(disable : 4845)) __declspec(no_init_all) __pragma(warning(pop)) _CONTEXT {
+struct __declspec(align(16)) __declspec(no_init_all) _CONTEXT {
     DWORD64 P1Home;
     DWORD64 P2Home;
     DWORD64 P3Home;

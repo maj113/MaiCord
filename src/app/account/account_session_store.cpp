@@ -15,7 +15,6 @@ namespace {
 inline constexpr u8 kMagic[8] = {'M', 'A', 'I', 'C', 'U', 'S', 'E', 'S'};
 inline constexpr u32 kHeaderBytes = 40;
 inline constexpr u32 kEntropyBytes = 32;
-inline constexpr u32 kLegacyPayloadHeaderBytes = 32;
 inline constexpr u32 kPayloadHeaderBytes = 40;
 inline constexpr u32 kFlagResume = 1u << 0;
 inline constexpr u32 kFlagHeartbeat = 1u << 1;
@@ -96,10 +95,9 @@ bool encode(const GatewayUserSessionSnapshot& snapshot, const ClientHeartbeatSes
 bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_flags, u32 version,
             GatewayUserSessionSnapshot* snapshot, ClientHeartbeatSession* heartbeat,
             CookieJar* cookies) noexcept {
-    const u32 header_bytes = version == 1 ? kLegacyPayloadHeaderBytes : kPayloadHeaderBytes;
     const u32 heartbeat_bytes = (expected_flags & kFlagHeartbeat) ? kHeartbeatBytes : 0;
     const bool has_cookies = (expected_flags & kFlagCookies) != 0;
-    if (!snapshot || payload.bytes < header_bytes || byte_load_le32(payload.data) != version ||
+    if (!snapshot || payload.bytes < kPayloadHeaderBytes || byte_load_le32(payload.data) != version ||
         byte_load_le32(payload.data + 4) != expected_flags ||
         byte_load_le64(payload.data + 8) != expected_profile_id || (heartbeat_bytes && version < 3) ||
         (has_cookies && version < 4)) {
@@ -107,7 +105,7 @@ bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_f
     }
     const u32 session_bytes = byte_load_le32(payload.data + 24);
     const u32 url_bytes = byte_load_le32(payload.data + 28);
-    const u64 cookie_offset = static_cast<u64>(header_bytes) + session_bytes + url_bytes + heartbeat_bytes;
+    const u64 cookie_offset = u64{kPayloadHeaderBytes} + session_bytes + url_bytes + heartbeat_bytes;
     const u32 cookie_bytes =
         has_cookies && cookie_offset + 4 <= payload.bytes ? byte_load_le32(payload.data + cookie_offset) : 0;
     if (session_bytes >= kGatewaySessionIdCapacity || url_bytes >= kGatewayResumeUrlCapacity ||
@@ -117,7 +115,7 @@ bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_f
     }
     ClientHeartbeatSession restored{};
     if (heartbeat_bytes) {
-        const u8* record = payload.data + header_bytes + session_bytes + url_bytes;
+        const u8* record = payload.data + kPayloadHeaderBytes + session_bytes + url_bytes;
         restored.created_ms = byte_load_le64(record);
         restored.last_used_ms = byte_load_le64(record + 8);
         copy_bytes(restored.uuid, record + 16, kGatewayUserLaunchIdBytes);
@@ -127,7 +125,7 @@ bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_f
     }
     GatewayUserSessionSnapshot decoded{};
     decoded.profile_id = expected_profile_id;
-    decoded.self_user_id = version == 1 ? 0 : byte_load_le64(payload.data + 32);
+    decoded.self_user_id = byte_load_le64(payload.data + 32);
     if ((expected_flags & kFlagResume) != 0) {
         if (session_bytes == 0 || url_bytes == 0) {
             return false;
@@ -136,8 +134,8 @@ bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_f
         decoded.resume.sequence = byte_load_le64(payload.data + 16);
         decoded.resume.session_id_bytes = static_cast<u16>(session_bytes);
         decoded.resume.resume_url_bytes = static_cast<u16>(url_bytes);
-        copy_bytes(decoded.resume.session_id, payload.data + header_bytes, session_bytes);
-        copy_bytes(decoded.resume.resume_url, payload.data + header_bytes + session_bytes,
+        copy_bytes(decoded.resume.session_id, payload.data + kPayloadHeaderBytes, session_bytes);
+        copy_bytes(decoded.resume.resume_url, payload.data + kPayloadHeaderBytes + session_bytes,
                    url_bytes);
         decoded.has_resume = true;
         if (!gateway_resume_validate(decoded.resume)) {
@@ -257,7 +255,8 @@ AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u
     }
     const u32 file_size = read.bytes;
     const u32 version = byte_load_le32(file_bytes + 8);
-    if (version == 0 || version > kUserAccountSessionStoreVersion) {
+    // Version 2 (0.2.0 to 0.4.0) is still read: a saved account untouched since then keeps that file.
+    if (version < 2 || version > kUserAccountSessionStoreVersion) {
         file_persistence_secure_release(file_bytes, file_size);
         return failure(AccountSessionStoreError::version);
     }

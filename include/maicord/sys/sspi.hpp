@@ -41,7 +41,6 @@
 
 // <Schannel.h>
 #define UNISP_NAME_W L"Microsoft Unified Security Protocol Provider"
-#define SCHANNEL_CRED_VERSION 0x00000004
 #define SCH_CREDENTIALS_VERSION 0x00000005
 #define SCH_CRED_NO_DEFAULT_CREDS 0x00000010
 #define SCH_CRED_MANUAL_CRED_VALIDATION 0x00000008
@@ -135,23 +134,6 @@ struct _SecPkgContext_SessionInfo {
     BYTE rgbSessionId[32];
 };
 typedef _SecPkgContext_SessionInfo SecPkgContext_SessionInfo;
-struct _SCHANNEL_CRED {
-    DWORD dwVersion;
-    DWORD cCreds;
-    PCCERT_CONTEXT* paCred;
-    HCERTSTORE hRootStore;
-    DWORD cMappers;
-    struct _HMAPPER** aphMappers;
-    DWORD cSupportedAlgs;
-    ALG_ID* palgSupportedAlgs;
-    DWORD grbitEnabledProtocols;
-    DWORD dwMinimumCipherStrength;
-    DWORD dwMaximumCipherStrength;
-    DWORD dwSessionLifespan;
-    DWORD dwFlags;
-    DWORD dwCredFormat;
-};
-typedef _SCHANNEL_CRED SCHANNEL_CRED;
 struct _SCH_CREDENTIALS {
     DWORD dwVersion;
     DWORD dwCredFormat;

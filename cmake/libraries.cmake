@@ -105,7 +105,7 @@ maicord_library(maicord_media_codec
 # The MPEG audio decoder is C: the contract's C++ code generation and warnings,
 # for C (LTO comes from the contract).
 target_compile_options(maicord_media_codec PRIVATE
-    "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/Zl;/GS-;/O2;/Ob1;/arch:AVX;/fp:precise;/utf-8;/Gy;/Gw;/GF;/Brepro;-Wno-missing-braces>")
+    "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/Zl;/GS-;/O2;/Ob1;/arch:AVX;/fp:precise;/Gy;/Gw;/GF;/Brepro;-Wno-missing-braces>")
 
 # Voice send encoder; linked only through the account module.
 maicord_library(maicord_voice_encoder src/media/audio/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)

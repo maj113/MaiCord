@@ -183,7 +183,6 @@ void probe_caps(GpuDevice& device, bool es32) noexcept {
     caps.max_shared_bytes = static_cast<u32>(value);
     api.glGetIntegerv(gl::kMaxComputeShaderStorageBlocks, &value);
     caps.max_compute_storage_buffers = static_cast<u32>(value);
-    caps.compute = true; // the context is ES 3.1 or newer
     caps.float_render_targets = es32 || has_extension(api, "GL_EXT_color_buffer_float");
     caps.half_render_targets =
         caps.float_render_targets || has_extension(api, "GL_EXT_color_buffer_half_float");
