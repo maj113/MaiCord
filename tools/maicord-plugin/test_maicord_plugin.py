@@ -167,8 +167,8 @@ class ToolchainTests(Case):
             self.assertIn(flag, core.COMPILE)
         self.assertIn("/GR-", core.COMPILE)
         contract = (REPOSITORY / "cmake" / "build_contract.cmake").read_text(encoding="utf-8")
-        block = re.search(r"add_library\(maicord_link_contract INTERFACE\)\s*target_link_options\(maicord_link_contract INTERFACE(.*?)\)\n",
-                          contract, re.S).group(1)
+        block = re.search(r"add_library\(maicord_link_contract INTERFACE\).*?else\(\)\s*"
+                          r"target_link_options\(maicord_link_contract INTERFACE(.*?)\)\n", contract, re.S).group(1)
         for flag in re.findall(r"(?<![\w])/[A-Z][A-Za-z:=.,0-9-]*", block):
             self.assertIn(flag, core.LINK)
         self.assertIn("/NOENTRY", core.LINK)
