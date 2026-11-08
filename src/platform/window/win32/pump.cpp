@@ -10,9 +10,14 @@ namespace maicord {
 namespace {
 
 // Synchronization timer for tolerant waits: SetWaitableTimerEx lets the system slip an expiry to batch it with other
-// wakeups, which a timeout of MsgWaitForMultipleObjectsEx cannot.
+// wakeups, which a timeout of MsgWaitForMultipleObjectsEx cannot. A wake for anything else leaves it armed: the next
+// tolerant wait for the same deadline waits on it as it is (arming again would only replace it with the same expiry),
+// and the next exact wait disarms it.
 Waitable g_wake_timer;
 bool g_wake_timer_created;
+// The deadline (clock_monotonic_milliseconds) and the tolerance the timer is armed for; zero while it is not.
+u64 g_wake_due_ms;
+u32 g_wake_tolerance_ms;
 
 bool key_message(UINT message) noexcept {
     return message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP;
@@ -33,7 +38,13 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
             g_wake_timer_created = true;
             g_wake_timer = timer_create_waitable(false, false);
         }
-        if (g_wake_timer && timer_arm(g_wake_timer, timeout_ms, tolerance_ms)) {
+        // The caller counts the timeout from its own reading of the same clock: an unchanged deadline sums to the same
+        // millisecond.
+        const u64 due = clock_monotonic_milliseconds() + timeout_ms;
+        if (g_wake_timer && ((g_wake_due_ms == due && g_wake_tolerance_ms == tolerance_ms) ||
+                             timer_arm(g_wake_timer, timeout_ms, tolerance_ms))) {
+            g_wake_due_ms = due;
+            g_wake_tolerance_ms = tolerance_ms;
             for (u32 i = 0; i < count; ++i)
                 joined[i] = set[i];
             joined[count] = g_wake_timer;
@@ -43,13 +54,17 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
             wait_timeout = INFINITE;
         }
     }
+    // An exact wait (or one whose arming failed) does not wait for the deadline a tolerant one left armed.
+    if (timer_index == 0xFFFFFFFFu && g_wake_due_ms) {
+        timer_cancel(g_wake_timer);
+        g_wake_due_ms = 0;
+    }
     DWORD waited = MsgWaitForMultipleObjectsEx(total, total != 0 ? handles : nullptr, wait_timeout, QS_ALLINPUT,
                                                MWMO_INPUTAVAILABLE);
-    if (timer_index != 0xFFFFFFFFu) {
-        if (waited == WAIT_OBJECT_0 + timer_index)
-            waited = WAIT_TIMEOUT;
-        else
-            timer_cancel(g_wake_timer);
+    // The auto-reset timer's expiry is spent by the wait that returns it, and reads as the timeout.
+    if (timer_index != 0xFFFFFFFFu && waited == WAIT_OBJECT_0 + timer_index) {
+        waited = WAIT_TIMEOUT;
+        g_wake_due_ms = 0;
     }
     WindowWaitResult result{};
     result.failed = waited == WAIT_FAILED;

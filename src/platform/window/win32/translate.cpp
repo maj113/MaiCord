@@ -1,6 +1,6 @@
 // Windows messages into window events: the one place that decodes wparam, lparam and the MK_ and WM_ numbers
-// (include/maicord/platform/window/win32.hpp). Pure but for the keyboard and cursor state it reads and the window
-// state it remembers between two WM_WINDOWPOSCHANGED.
+// (include/maicord/platform/window/win32.hpp). Pure but for the keyboard and cursor state it reads, the window state it
+// remembers between two WM_WINDOWPOSCHANGED and the point of the hit test before a cursor query.
 #include "maicord/platform/window/win32.hpp"
 
 #include "maicord/core/win32_user.hpp"
@@ -83,13 +83,18 @@ bool settings_area_is(LPARAM lparam, const wchar_t* area) noexcept {
 // The state bits the last WM_WINDOWPOSCHANGED reported, to name what changed.
 u32 g_window_state;
 
+// The screen point of the last WM_NCHITTEST. The system hit-tests the pointer's position and then sends the
+// WM_SETCURSOR for the answer, so the cursor query takes the point from it instead of asking the system again. The
+// window is null once a cursor query spent it.
+HWND g_hit_window;
+LPARAM g_hit_point;
+
 } // namespace
 
 bool win32_translate(HWND window, UINT message, WPARAM wparam, LPARAM lparam, WindowEvent* out) noexcept {
     WindowEvent& event = *out;
     event = {};
     event.window = window;
-    event.time_ms = static_cast<u32>(GetMessageTime());
     switch (message) {
     case WM_MOUSEMOVE:
         event.type = EventType::pointer_move;
@@ -156,22 +161,28 @@ bool win32_translate(HWND window, UINT message, WPARAM wparam, LPARAM lparam, Wi
     case WM_CANCELMODE:
         event.type = EventType::cancel_input;
         break;
-    case WM_SETCURSOR:
+    case WM_NCHITTEST:
+        g_hit_window = window;
+        g_hit_point = lparam;
+        break;
+    case WM_SETCURSOR: {
+        // The hit test's point is spent by the query that follows it; one sent without a hit test asks the system.
+        POINT point{static_cast<short>(LOWORD(g_hit_point)), static_cast<short>(HIWORD(g_hit_point))};
+        const bool hit = g_hit_window == window;
+        g_hit_window = nullptr;
         // Only the client area is the application's; the frame's cursors stay the system's.
         if (LOWORD(lparam) != HTCLIENT)
             break;
         event.type = EventType::cursor_query;
-        {
-            POINT point{};
-            if (GetCursorPos(&point) && ScreenToClient(window, &point)) {
-                event.pointer.x = static_cast<float>(point.x);
-                event.pointer.y = static_cast<float>(point.y);
-            } else {
-                // The system cannot tell where the pointer is: no position (NaN), which no rectangle contains.
-                event.pointer.x = event.pointer.y = __builtin_nanf("");
-            }
+        if ((hit || GetCursorPos(&point)) && ScreenToClient(window, &point)) {
+            event.pointer.x = static_cast<float>(point.x);
+            event.pointer.y = static_cast<float>(point.y);
+        } else {
+            // The system cannot tell where the pointer is: no position (NaN), which no rectangle contains.
+            event.pointer.x = event.pointer.y = __builtin_nanf("");
         }
         break;
+    }
     case WM_CONTEXTMENU:
         event.type = EventType::context_menu;
         if (static_cast<short>(LOWORD(lparam)) == -1 && static_cast<short>(HIWORD(lparam)) == -1) {
@@ -303,6 +314,9 @@ bool win32_translate(HWND window, UINT message, WPARAM wparam, LPARAM lparam, Wi
     default:
         break;
     }
+    // The press and release times (one system call each) count multi-clicks; no other event's time is read.
+    if (event.type == EventType::pointer_down || event.type == EventType::pointer_up)
+        event.time_ms = static_cast<u32>(GetMessageTime());
     return event.type != EventType::none;
 }
 

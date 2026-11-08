@@ -285,7 +285,7 @@ __declspec(noinline) HRESULT element_query(Element* element, const GUID* iid, vo
     if (!iid)
         return E_INVALIDARG;
     void* result = nullptr;
-    if (*iid == kIidUnknown || *iid == kIidSimple) {
+    if (*iid == __uuidof(IUnknown) || *iid == kIidSimple) {
         result = &element->simple;
     } else if (*iid == kIidFragment) {
         result = &element->fragment;

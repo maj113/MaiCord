@@ -41,11 +41,9 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
     IDXGIDevice* dxgi_device = nullptr;
     IDXGIAdapter* adapter = nullptr;
     IDXGIFactory2* factory = nullptr;
-    result = device->QueryInterface(
-        __uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi_device));
-    if (SUCCEEDED(result)) {
-        result = dxgi_device->GetAdapter(&adapter);
-    }
+    // Every Direct3D 11 device is an IDXGIDevice.
+    device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi_device));
+    result = dxgi_device->GetAdapter(&adapter);
     if (SUCCEEDED(result)) {
         result = adapter->GetParent(__uuidof(IDXGIFactory2),
                                     reinterpret_cast<void**>(&factory));

@@ -101,7 +101,7 @@ struct UiaBounds {
     double left, top, width, height;
 };
 
-inline constexpr GUID kIidUnknown{0x00000000, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
+// IUnknown is __uuidof(IUnknown), the one copy the other COM objects compare with.
 inline constexpr GUID kIidSimple{0xd6dd68d1, 0x86fd, 0x4332, {0x86, 0x66, 0x9a, 0xbe, 0xde, 0xa2, 0xd2, 0x4c}};
 inline constexpr GUID kIidFragment{0xf7063da8, 0x8359, 0x439c, {0x92, 0x97, 0xbb, 0xc5, 0x29, 0x9a, 0x7d, 0x87}};
 inline constexpr GUID kIidFragmentRoot{0x620ce2a5, 0xab8f, 0x40a9, {0x86, 0xcb, 0xde, 0x3c, 0x75, 0x59, 0x9b, 0x58}};
@@ -132,7 +132,6 @@ using AllocStringLen = BSTR(WINAPI*)(const OLECHAR*, UINT);
 using FreeString = void(WINAPI*)(BSTR);
 using CreateVector = SAFEARRAY*(WINAPI*)(VARTYPE, LONG, ULONG);
 using PutElement = HRESULT(WINAPI*)(SAFEARRAY*, LONG*, void*);
-using DestroyArray = HRESULT(WINAPI*)(SAFEARRAY*);
 using ReservedValue = HRESULT(WINAPI*)(void**);
 
 } // namespace provider_detail
@@ -152,7 +151,6 @@ struct UiaRuntime {
     FreeString free_string;
     CreateVector create_vector;
     PutElement put_element;
-    DestroyArray destroy_array;
     ReservedValue reserved_not_supported;
 };
 

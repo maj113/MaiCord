@@ -119,8 +119,7 @@ struct WindowEvent {
     u8 flags;      // EventFlag
     u8 modifiers;  // Modifier; filled for key, pointer-button and wheel events only
     u8 button;     // PointerButton for pointer_down and pointer_up
-    u32 time_ms;   // message time (wraps)
-    u32 window_id; // the main window until a second window exists
+    u32 time_ms;   // message time (wraps); Windows fills it for pointer_down and pointer_up only (multi-click counting)
     union {
         struct {
             float x, y;

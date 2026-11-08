@@ -9,14 +9,9 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/sys/winrt.hpp"
 
+// RoGetActivationFactory and WindowsDeleteString (maicord/sys/winrt.hpp) are
 // combase.dll exports, imported by name through the import library that
-// cmake/libraries.cmake generates from src/platform/desktop/combase.def. The
-// signatures match roapi.h and winstring.h.
-extern "C" {
-__declspec(dllimport) HRESULT __stdcall RoGetActivationFactory(HSTRING class_id, const GUID& iid,
-                                                                void** factory);
-HRESULT __stdcall WindowsDeleteString(HSTRING string);
-}
+// cmake/libraries.cmake generates from src/platform/desktop/combase.def.
 
 namespace maicord::toast_abi {
 

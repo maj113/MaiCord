@@ -17,8 +17,9 @@ void application_log_start_gpu(GpuDevice* device) noexcept {
     IDXGIDevice* dxgi = nullptr;
     IDXGIAdapter* adapter = nullptr;
     DXGI_ADAPTER_DESC description{};
-    if (SUCCEEDED(device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi))) &&
-        SUCCEEDED(dxgi->GetAdapter(&adapter)) && SUCCEEDED(adapter->GetDesc(&description))) {
+    // Every Direct3D 11 device is an IDXGIDevice.
+    device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi));
+    if (SUCCEEDED(dxgi->GetAdapter(&adapter)) && SUCCEEDED(adapter->GetDesc(&description))) {
         // The adapter name is ASCII in practice; anything else becomes '?'.
         char name[128];
         u32 used = 0;

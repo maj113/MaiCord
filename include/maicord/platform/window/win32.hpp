@@ -81,7 +81,8 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
                          void* context, Window* out, const char** reason) noexcept;
 
 // Translates one message into the event it stands for and returns true when the message is modeled
-// (event->type != none). Reads GetKeyState and the cursor and window position only.
+// (event->type != none). Reads GetKeyState, a press's or release's message time and the cursor and window position
+// only; a cursor query takes the point of the WM_NCHITTEST before it, and asks the system without one.
 bool win32_translate(HWND window, UINT message, WPARAM wparam, LPARAM lparam, WindowEvent* event) noexcept;
 
 } // namespace maicord

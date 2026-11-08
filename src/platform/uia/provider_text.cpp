@@ -146,7 +146,7 @@ HRESULT STDMETHODCALLTYPE range_query_interface(void* self, const GUID* iid, voi
     *out = nullptr;
     if (!iid)
         return E_INVALIDARG;
-    if (*iid != kIidUnknown && *iid != kIidTextRange)
+    if (*iid != __uuidof(IUnknown) && *iid != kIidTextRange)
         return E_NOINTERFACE;
     InterlockedIncrement(&static_cast<TextRange*>(self)->references);
     *out = self;

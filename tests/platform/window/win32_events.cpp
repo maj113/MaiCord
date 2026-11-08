@@ -1,5 +1,9 @@
+#include "maicord/core/win32_image.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/pump.hpp"
 #include "maicord/platform/window/win32.hpp"
+#include "maicord/ui/core/cursor.hpp"
 #include "../../support/test_output.hpp"
 
 // The Windows backend's events: win32_translate on every message the application models, and the window
@@ -67,6 +71,10 @@ void translations(HWND window) noexcept {
     check(e.type == EventType::pointer_down && e.button == static_cast<u8>(PointerButton::back) &&
               e.pointer.buttons == bit_of(PointerButton::back),
           "translate: X1 is the back button");
+    e = translate(window, WM_XBUTTONDBLCLK, MAKEWPARAM(MK_XBUTTON2, XBUTTON2), MAKELPARAM(1, 2));
+    check(e.type == EventType::pointer_down && e.button == static_cast<u8>(PointerButton::forward) &&
+              (e.flags & ev_double_click) != 0,
+          "translate: an X2 double click is a forward pointer_down flagged as a double click");
     e = translate(window, WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON2), MAKELPARAM(1, 2));
     check(e.type == EventType::pointer_up && e.button == static_cast<u8>(PointerButton::forward) &&
               e.pointer.buttons == 0,
@@ -412,6 +420,331 @@ void procedure() noexcept {
           "proc: destruction reaches the sink and posts the quit message");
 }
 
+// --- what each path asks the system ------------------------------------------------------------------------------
+// This executable's import slots of the calls below point at counting forwarders while the paths run: an idle wake,
+// a pointer move, a press, a key, a resize step. The sink asks the window service what the client's sink asks for
+// the same events (shell/window_dispatch.cpp, shell/window_state.hpp).
+
+template <typename T, T... I>
+struct Indices {};
+
+struct Counted {
+    const char* name;
+    u8 arguments;  // 4: up to four, all in registers; else the function's own count
+    bool system;   // enters the kernel on every call
+};
+constexpr Counted kCounted[]{
+    {"GetMessageTime", 4, true},       {"GetCursorPos", 4, true},
+    {"GetKeyState", 4, false},         {"SetCursor", 4, true},
+    {"TrackMouseEvent", 4, true},      {"SetFocus", 4, true},
+    {"TranslateMessage", 4, true},     {"PeekMessageW", 5, true},
+    {"MsgWaitForMultipleObjectsEx", 5, true}, {"SetWaitableTimerEx", 7, true},
+    {"CancelWaitableTimer", 4, true},  {"ValidateRect", 4, true},
+    {"GetFocus", 4, false},            {"ScreenToClient", 4, false},
+    {"IsIconic", 4, false},            {"IsZoomed", 4, false},
+    {"IsWindowVisible", 4, false},     {"GetClientRect", 4, false},
+    {"GetDpiForWindow", 4, false},     {"GetSystemMetricsForDpi", 4, false},
+    {"GetWindowLongPtrW", 4, false},   {"DispatchMessageW", 4, false},
+    {"DefWindowProcW", 4, false},
+};
+constexpr u32 kCountedTotal = sizeof(kCounted) / sizeof(kCounted[0]);
+
+u64 g_real[kCountedTotal];
+u64* g_slot[kCountedTotal];
+u32 g_calls[kCountedTotal];
+u32 g_mark[kCountedTotal];
+
+template <u32 I>
+u64 WINAPI forward4(u64 a, u64 b, u64 c, u64 d) noexcept {
+    ++g_calls[I];
+    return reinterpret_cast<u64(WINAPI*)(u64, u64, u64, u64) noexcept>(g_real[I])(a, b, c, d);
+}
+template <u32 I>
+u64 WINAPI forward5(u64 a, u64 b, u64 c, u64 d, u64 e) noexcept {
+    ++g_calls[I];
+    return reinterpret_cast<u64(WINAPI*)(u64, u64, u64, u64, u64) noexcept>(g_real[I])(a, b, c, d, e);
+}
+template <u32 I>
+u64 WINAPI forward7(u64 a, u64 b, u64 c, u64 d, u64 e, u64 f, u64 g) noexcept {
+    ++g_calls[I];
+    return reinterpret_cast<u64(WINAPI*)(u64, u64, u64, u64, u64, u64, u64) noexcept>(g_real[I])(a, b, c, d, e, f, g);
+}
+template <u32 I>
+u64 forwarder() noexcept {
+    if constexpr (kCounted[I].arguments == 7)
+        return reinterpret_cast<u64>(&forward7<I>);
+    else if constexpr (kCounted[I].arguments == 5)
+        return reinterpret_cast<u64>(&forward5<I>);
+    else
+        return reinterpret_cast<u64>(&forward4<I>);
+}
+template <u32... I>
+void forwarders(u64* out, Indices<u32, I...>) noexcept {
+    ((out[I] = forwarder<I>()), ...);
+}
+
+bool same_name(const char* a, const char* b) noexcept {
+    u32 i = 0;
+    while (a[i] && a[i] == b[i])
+        ++i;
+    return a[i] == b[i];
+}
+
+bool write_slot(u64* slot, u64 value) noexcept {
+    DWORD previous = 0;
+    if (!VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &previous))
+        return false;
+    *slot = value;
+    VirtualProtect(slot, sizeof(*slot), previous, &previous);
+    return true;
+}
+
+// Points every counted import of this executable at its forwarder; false when one is not imported. The build keeps no
+// import name table, so a slot is known by the address the loader wrote into it.
+bool count_imports() noexcept {
+    u64 forward[kCountedTotal];
+    forwarders(forward, __make_integer_seq<Indices, u32, kCountedTotal>{});
+    const HMODULE modules[]{GetModuleHandleW(L"user32.dll"), GetModuleHandleW(L"kernel32.dll")};
+    for (u32 c = 0; c < kCountedTotal; ++c)
+        for (const HMODULE module : modules)
+            if (!g_real[c] && module)
+                g_real[c] = reinterpret_cast<u64>(GetProcAddress(module, kCounted[c].name));
+    auto* base = reinterpret_cast<u8*>(GetModuleHandleW(nullptr));
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
+        base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    const auto& directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    for (auto* entry = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(base + directory.VirtualAddress); entry->Name;
+         ++entry)
+        for (auto* slot = reinterpret_cast<u64*>(base + entry->FirstThunk); *slot; ++slot)
+            for (u32 c = 0; c < kCountedTotal; ++c)
+                if (!g_slot[c] && g_real[c] && *slot == g_real[c] && write_slot(slot, forward[c]))
+                    g_slot[c] = slot;
+    bool all = true;
+    for (u32 c = 0; c < kCountedTotal; ++c)
+        all = all && g_slot[c];
+    return all;
+}
+
+void restore_imports() noexcept {
+    for (u32 c = 0; c < kCountedTotal; ++c)
+        if (g_slot[c])
+            write_slot(g_slot[c], g_real[c]);
+}
+
+void mark() noexcept {
+    for (u32 c = 0; c < kCountedTotal; ++c)
+        g_mark[c] = g_calls[c];
+}
+
+u32 since_mark(const char* name) noexcept {
+    for (u32 c = 0; c < kCountedTotal; ++c)
+        if (same_name(kCounted[c].name, name))
+            return g_calls[c] - g_mark[c];
+    return 0;
+}
+
+// Writes "<path> <call>=<count>" for each counted call since mark(), and the path's total and kernel entries.
+void report(const char* path) noexcept {
+    u32 total = 0, system = 0;
+    for (u32 c = 0; c < kCountedTotal; ++c) {
+        const u32 calls = g_calls[c] - g_mark[c];
+        if (!calls)
+            continue;
+        total += calls;
+        if (kCounted[c].system)
+            system += calls;
+        test_write_text("costs: ");
+        test_write_text(path);
+        test_write_text(" ");
+        test_write_text(kCounted[c].name);
+        test_write_metric("=", calls);
+    }
+    test_write_text("costs: ");
+    test_write_text(path);
+    test_write_metric(" calls=", total);
+    test_write_text("costs: ");
+    test_write_text(path);
+    test_write_metric(" system calls=", system);
+}
+
+constexpr u32 kCostCaption = 32;
+u32 cost_caption_height(void*) noexcept {
+    return kCostCaption;
+}
+bool cost_caption_hidden(void*) noexcept {
+    return false;
+}
+FrameHit cost_caption_hit(void*, float, float y) noexcept {
+    return y < static_cast<float>(kCostCaption) ? FrameHit::caption : FrameHit::client;
+}
+void cost_caption_flag(void*, bool) noexcept {}
+void cost_caption_part(void*, FrameHit) noexcept {}
+void cost_caption_leave(void*) noexcept {}
+bool cost_caption_release(void*, FrameHit) noexcept {
+    return false;
+}
+bool cost_caption_bar(void*, FrameBarRects*) noexcept {
+    return false;
+}
+
+Window g_cost_window;
+
+void cost_sink(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
+    if (!g_cost_window)
+        return;
+    switch (event.type) {
+    case EventType::state_changed:
+        (void)window_state(g_cost_window);
+        (void)window_metrics(g_cost_window);
+        result->handled = true;
+        break;
+    case EventType::cursor_query: {
+        float x = 0, y = 0;
+        g_cursor_from_sink = window_pointer_position(g_cost_window, &x, &y);
+        g_cursor_x = x;
+        g_cursor_y = y;
+        window_set_cursor(g_cost_window, UiCursor::arrow);
+        result->handled = true;
+        break;
+    }
+    case EventType::pointer_down:
+        window_focus(g_cost_window);
+        result->handled = true;
+        break;
+    case EventType::size_limits:
+        result->width_px = 200;
+        result->height_px = 150;
+        result->handled = true;
+        break;
+    default:
+        break;
+    }
+}
+
+bool pass_keys(void*, const WindowEvent&) noexcept {
+    return false;
+}
+
+void drain() noexcept {
+    while (window_pump(64, 1'000'000, {}).dispatched)
+        ;
+}
+
+// The system's order for the pointer over the client: the hit test, the cursor query for its answer, the message.
+void pointer_message(HWND hwnd, UINT message, WPARAM wparam, POINT client) noexcept {
+    POINT screen = client;
+    ClientToScreen(hwnd, &screen);
+    const LRESULT hit = SendMessageW(hwnd, WM_NCHITTEST, 0, MAKELPARAM(screen.x, screen.y));
+    SendMessageW(hwnd, WM_SETCURSOR, reinterpret_cast<WPARAM>(hwnd), MAKELPARAM(static_cast<WORD>(hit), message));
+    SendMessageW(hwnd, message, wparam, MAKELPARAM(client.x, client.y));
+}
+
+void costs() noexcept {
+    UnregisterClassW(L"MaiCordMainWindow", GetModuleHandleW(nullptr));
+    static const Win32CaptionOps caption{nullptr,           cost_caption_height,  cost_caption_hidden,
+                                         cost_caption_hit,  cost_caption_flag,    cost_caption_flag,
+                                         cost_caption_part, cost_caption_leave,   cost_caption_part,
+                                         cost_caption_release, cost_caption_bar};
+    const char* reason = "";
+    Window window{};
+    check(win32_window_create({utf8_literal("MaiCord window costs"), {}, 400, 300, false},
+                              {0, nullptr, &caption, false}, cost_sink, nullptr, &window, &reason),
+          "costs: the backend creates a captioned main window");
+    if (!window)
+        return;
+    g_cost_window = window;
+    const HWND hwnd = win32_hwnd(window);
+    check(count_imports(), "costs: every counted call is imported by this executable");
+    drain();
+
+    // Idle: a wake with nothing to do, in the foreground (exact) and in the background (a tolerant timer).
+    mark();
+    window_wait(nullptr, 0, 0, 0);
+    window_pump(64, 1'000'000, {});
+    report("idle wake, exact timeout");
+    // A message the system sends meanwhile ends the wait first; the next one waits for the timer again.
+    WindowWaitResult expired{};
+    for (u32 attempt = 0; attempt < 4 && !expired.timed_out; ++attempt) {
+        mark();
+        expired = window_wait(nullptr, 0, 1, 1);
+        window_pump(64, 1'000'000, {});
+    }
+    report("idle wake, tolerant timer");
+    check(expired.timed_out, "costs: the tolerant timer's expiry reads as the timeout");
+    // Input while a tolerant deadline stands: the second wake waits for the same deadline (measured over a stretch the
+    // millisecond tick did not move through, so both waits name the same deadline).
+    WindowWaitResult woken{};
+    bool steady = false;
+    for (u32 attempt = 0; attempt < 4 && !steady; ++attempt) {
+        const u64 tick = GetTickCount64();
+        const u64 deadline = tick + 5'000;
+        PostMessageW(hwnd, WM_NULL, 0, 0);
+        window_wait(nullptr, 0, static_cast<u32>(deadline - GetTickCount64()), 50);
+        window_pump(64, 1'000'000, {});
+        mark();
+        PostMessageW(hwnd, WM_NULL, 0, 0);
+        woken = window_wait(nullptr, 0, static_cast<u32>(deadline - GetTickCount64()), 50);
+        window_pump(64, 1'000'000, {});
+        steady = GetTickCount64() == tick;
+    }
+    report("input wake, tolerant deadline unchanged");
+    check(woken.window_input, "costs: a posted message wakes a tolerant wait");
+    check(!steady || (since_mark("SetWaitableTimerEx") == 0 && since_mark("CancelWaitableTimer") == 0),
+          "costs: a wake for something else keeps the timer armed for the unchanged deadline");
+    mark();
+    window_wait(nullptr, 0, 0, 0);
+    report("exact wait after a tolerant one");
+    check(since_mark("CancelWaitableTimer") == 1, "costs: an exact wait disarms the timer the tolerant one left");
+
+    // The pointer over the client, once to arm the leave notification, then measured.
+    const POINT inside{100, 100};
+    pointer_message(hwnd, WM_MOUSEMOVE, 0, inside);
+    mark();
+    g_cursor_from_sink = false;
+    pointer_message(hwnd, WM_MOUSEMOVE, 0, {101, 101});
+    report("pointer move");
+    check(g_cursor_from_sink && g_cursor_x == 101.0f && g_cursor_y == 101.0f,
+          "costs: the cursor query reads the point of the hit test before it");
+    check(since_mark("GetCursorPos") == 0 && since_mark("GetMessageTime") == 0,
+          "costs: a pointer move reads neither the cursor nor the message time from the system");
+
+    // A press and release on the focused window.
+    SetFocus(hwnd);
+    mark();
+    pointer_message(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, inside);
+    pointer_message(hwnd, WM_LBUTTONUP, 0, inside);
+    report("press and release");
+    check(since_mark("GetCursorPos") == 0 && since_mark("GetMessageTime") == 2 && since_mark("SetFocus") == 0,
+          "costs: a press and release read their two times and leave the focused window's focus alone");
+
+    // A key through the loop as the client pumps it: prefilter, TranslateMessage, the character it posts (after the
+    // leave notifications the pointer above queued: the pointer is never over the hidden window).
+    const WindowPumpHooks keys{nullptr, pass_keys, nullptr, nullptr};
+    drain();
+    mark();
+    PostMessageW(hwnd, WM_KEYDOWN, 'A', 1 | (0x1E << 16));
+    window_pump(64, 1'000'000, keys);
+    report("key press");
+    check(since_mark("GetMessageTime") == 0, "costs: a key press reads no message time");
+    mark();
+    PostMessageW(hwnd, WM_KEYUP, 'A', static_cast<LPARAM>(0xC0000001u | (0x1Eu << 16)));
+    window_pump(64, 1'000'000, keys);
+    report("key release");
+    check(since_mark("GetMessageTime") == 0, "costs: a key release reads no message time");
+
+    // One step of a resize, as the sizing loop moves an edge.
+    SetWindowPos(hwnd, nullptr, 0, 0, 640, 480, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    mark();
+    SetWindowPos(hwnd, nullptr, 0, 0, 648, 488, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    report("resize step");
+    check(since_mark("GetMessageTime") == 0, "costs: a resize step reads no message time");
+
+    restore_imports();
+    g_cost_window = nullptr;
+    DestroyWindow(hwnd);
+    drain();
+}
+
 } // namespace
 } // namespace maicord
 
@@ -428,6 +761,7 @@ MAICORD_TEST_ENTRY(maicord_window_win32_events_entry) {
         DestroyWindow(fixture);
     }
     procedure();
+    costs();
     if (have_saved)
         SetKeyboardState(saved);
     test_exit(failures, "window win32 events");

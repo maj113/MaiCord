@@ -32,12 +32,10 @@ HardwareDevice create_hardware_device() noexcept {
         D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS, levels,
         static_cast<UINT>(sizeof(levels) / sizeof(levels[0])),
         D3D11_SDK_VERSION, &hardware.device, nullptr, &hardware.context);
-    ID3D11Multithread* multithread = nullptr;
+    // ID3D11Multithread is the Windows 10 runtime's: every device context has it.
     if (SUCCEEDED(hardware.result)) {
-        hardware.result = hardware.context->QueryInterface(__uuidof(ID3D11Multithread),
-                                                           reinterpret_cast<void**>(&multithread));
-    }
-    if (SUCCEEDED(hardware.result)) {
+        ID3D11Multithread* multithread = nullptr;
+        hardware.context->QueryInterface(__uuidof(ID3D11Multithread), reinterpret_cast<void**>(&multithread));
         multithread->SetMultithreadProtected(TRUE);
         multithread->Release();
     }
@@ -175,10 +173,9 @@ u64 gpu_adapter_key(const GpuDevice* device) {
     IDXGIDevice* dxgi_device = nullptr;
     IDXGIAdapter* adapter = nullptr;
     u64 key = 0;
-    HRESULT result = const_cast<GpuDevice*>(device)->QueryInterface(__uuidof(IDXGIDevice),
-                                                                    reinterpret_cast<void**>(&dxgi_device));
-    if (SUCCEEDED(result))
-        result = dxgi_device->GetAdapter(&adapter);
+    // Every Direct3D 11 device is an IDXGIDevice.
+    const_cast<GpuDevice*>(device)->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi_device));
+    const HRESULT result = dxgi_device->GetAdapter(&adapter);
     DXGI_ADAPTER_DESC description{};
     if (SUCCEEDED(result) && SUCCEEDED(adapter->GetDesc(&description))) {
         const u32 parts[]{description.VendorId, description.DeviceId, description.SubSysId,

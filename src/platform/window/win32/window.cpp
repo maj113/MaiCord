@@ -257,11 +257,13 @@ bool window_pointer_captured(Window window) noexcept {
     return GetCapture() == win32_hwnd(window);
 }
 
-// One copy: the callers ignore the result, so inlining would only repeat the GetFocus fallback at every click.
+// One copy: the callers ignore the result, so inlining would only repeat the GetFocus checks at every click.
 __declspec(noinline) bool window_focus(Window window) noexcept {
     const HWND hwnd = win32_hwnd(window);
-    // SetFocus returns the window that had the focus, null when none did or on failure.
-    return SetFocus(hwnd) != nullptr || GetFocus() == hwnd;
+    // Clicks ask again for the focus the window already holds: GetFocus reads the thread's own state without entering
+    // the system, and SetFocus would change nothing. SetFocus returns the window that had the focus, null when none
+    // did or on failure.
+    return GetFocus() == hwnd || SetFocus(hwnd) != nullptr || GetFocus() == hwnd;
 }
 
 WindowMetrics window_metrics(Window window) noexcept {
@@ -291,7 +293,6 @@ u32 window_state(Window window) noexcept {
     return state;
 }
 
-// SM_CXFRAME + SM_CXPADDEDBORDER.
 u32 window_resize_border(Window, u32 dpi) noexcept {
     return static_cast<u32>(window_frame_border(dpi));
 }

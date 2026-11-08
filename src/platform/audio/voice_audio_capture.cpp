@@ -78,17 +78,17 @@ IMMDevice* endpoint(Runtime& r, Engine& e) noexcept {
     return device;
 }
 HRESULT initialize(Engine& e, bool processing, bool raw) noexcept {
+    // IAudioClient2 (Windows 8, below the floor) adds SetClientProperties; held for this call only.
     IAudioClient2* client2 = nullptr;
-    if (SUCCEEDED(e.client->QueryInterface(__uuidof(IAudioClient2), reinterpret_cast<void**>(&client2)))) {
-        AudioClientProperties properties{};
-        properties.cbSize = sizeof(properties);
-        properties.eCategory = processing ? AudioCategory_Communications : AudioCategory_Other;
-        properties.Options = raw ? AUDCLNT_STREAMOPTIONS_RAW : AUDCLNT_STREAMOPTIONS_NONE;
-        const HRESULT h = client2->SetClientProperties(&properties);
-        com_release(client2);
-        if (FAILED(h) && raw)
-            return h;
-    }
+    e.client->QueryInterface(__uuidof(IAudioClient2), reinterpret_cast<void**>(&client2));
+    AudioClientProperties properties{};
+    properties.cbSize = sizeof(properties);
+    properties.eCategory = processing ? AudioCategory_Communications : AudioCategory_Other;
+    properties.Options = raw ? AUDCLNT_STREAMOPTIONS_RAW : AUDCLNT_STREAMOPTIONS_NONE;
+    const HRESULT h = client2->SetClientProperties(&properties);
+    client2->Release();
+    if (FAILED(h) && raw)
+        return h;
     constexpr WAVEFORMATEX format{WAVE_FORMAT_PCM, 1, kRate, kRate * 2, 2, 16, 0};
     return e.client->Initialize(AUDCLNT_SHAREMODE_SHARED,
                                 AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
