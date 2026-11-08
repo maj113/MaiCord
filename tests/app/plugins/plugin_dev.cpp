@@ -209,8 +209,9 @@ void run_reload(const wchar_t* directory, const wchar_t* base, const wchar_t* de
     check(console_contains(" State reset: its layout changed.") && strips_mark("mark", "marked"),
           "the console says why, and the settings are kept");
 
-    // A budget strike reaches the console.
-    application_catalog_runtime()->ledger->pre_budget_us = 1000;
+    // A budget strike reaches the console. A 1 us budget: the fixture's slow loop takes about 1 ms on a fast CPU,
+    // too close to any budget measured in milliseconds.
+    application_catalog_runtime()->ledger->pre_budget_us = 1;
     check(strips_mark("slow", nullptr) && console_has(DevLineKind::strike, "pre_send ran past its time budget", "Reload Fixture"),
           "a time-budget strike is logged");
     check(console_contains("Strike 1 of 3."), "with its count");
