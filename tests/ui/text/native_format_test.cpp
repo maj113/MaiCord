@@ -21,22 +21,22 @@ bool exercise(TextSystem system) noexcept {
     CHECK(system.native_format);
     const auto text=utf8_literal("AV office caf\xc3\xa9\nAV\tTo");auto draw=output();
     struct Release {ShapedText& value;~Release() noexcept {release_output(value);}} release{draw};
-    CHECK(native_text_candidate_line(system,text,95,1000,&draw,nullptr));CHECK(draw.native_fonts()&&draw.glyph_count&&draw.line_count>1);release_output(draw);draw=output();
+    CHECK(native_text_candidate_line(system,{text,{},95,1000},&draw,nullptr));CHECK(draw.native_fonts()&&draw.glyph_count&&draw.line_count>1);release_output(draw);draw=output();
     const TextStyleSpan style{3,6,text_style_link|text_style_underline};const TextHitRange hit{0,18,65535,0};
-    CHECK(native_text_candidate_styled(system,text,{&style,1},95,1000,&draw,nullptr,TextWrapping::wrap,TextOverflow::clip,{&hit,1}));
+    CHECK(native_text_candidate_styled(system,{text,{&style,1},95,1000,TextWrapping::wrap,TextOverflow::clip,{&hit,1}},&draw,nullptr));
     CHECK(draw.native_fonts()&&draw.decoration_count&&draw.hit_region_count);
     NativeParagraphHits geometry{};NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{advances,1280},&geometry,{parts,16}};TextMeasureResult measure{};
-    CHECK(native_text_candidate_styled(system,text,{&style,1},95,1000,nullptr,&measure,TextWrapping::wrap,TextOverflow::clip,{},&storage));
+    CHECK(native_text_candidate_hits(system,{text,{&style,1},95,1000,TextWrapping::wrap,TextOverflow::clip},storage,&measure));
     CHECK(measure.ok()&&geometry.source_units==20&&geometry.lines.count>1);
     NativeParagraphHitMetric metric{};float x=0;CHECK(native_paragraph_hit_position(geometry,10,false,&metric,&x)==SfntStatus::ok);
     const Utf8View emoji[]{utf8_literal("\xf0\x9f\x98\x80"),utf8_literal("\xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x91\xa7"),
         utf8_literal("\xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf"),
         utf8_literal("A\xf0\x9f\x98\x80" "B")};
     for(const auto input:emoji){release_output(draw);draw=output();
-        CHECK(native_text_candidate_line(system,input,37,1000000,&draw,nullptr));CHECK(draw.native_fonts()&&draw.glyph_count&&draw.run_count);
+        CHECK(native_text_candidate_line(system,{input,{},37,1000000},&draw,nullptr));CHECK(draw.native_fonts()&&draw.glyph_count&&draw.run_count);
         const TextStyleSpan effect{0,input.bytes,text_style_underline|(input.data[0]=='A'?text_style_link:text_style_bold|text_style_italic)};release_output(draw);draw=output();
-        CHECK(native_text_candidate_styled(system,input,{&effect,1},37,1000000,&draw,nullptr,TextWrapping::wrap));
-        CHECK(native_text_candidate_hits(system,input,37,1000000,TextWrapping::wrap,storage,&measure));
+        CHECK(native_text_candidate_styled(system,{input,{&effect,1},37,1000000,TextWrapping::wrap},&draw,nullptr));
+        CHECK(native_text_candidate_hits(system,{input,{},37,1000000,TextWrapping::wrap},storage,&measure));
         CHECK(measure.ok()&&measure.utf16_units==draw.cluster_count&&native_paragraph_hit_position(geometry,1,false,&metric,&x)==SfntStatus::ok);}
     CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));return true;
 }
@@ -49,18 +49,18 @@ bool braille(TextSystem system) noexcept {
         const Utf8View input{text,bytes};auto draw=output();
         struct Release {ShapedText& value;~Release() noexcept {release_output(value);}} release{draw};
         TextMeasureResult measure{};
-        CHECK(native_text_candidate_line(system,input,1000,1000,nullptr,&measure));
+        CHECK(native_text_candidate_line(system,{input,{},1000,1000},nullptr,&measure));
         CHECK(measure.ok()&&measure.utf16_units==135&&measure.line_count==8);
-        for(u32 warm=0;warm<2;++warm){CHECK(native_text_candidate_line(system,input,1000,1000,&draw,nullptr));
+        for(u32 warm=0;warm<2;++warm){CHECK(native_text_candidate_line(system,{input,{},1000,1000},&draw,nullptr));
             CHECK(draw.native_fonts()&&draw.cluster_count==135&&draw.line_count==8&&draw.glyph_count>=128);
             for(u32 i=0;i<draw.glyph_count;++i)CHECK(draw.glyphs[i].index);
             release_output(draw);draw=output();}
         const TextStyleSpan style{0,bytes,text_style_bold|text_style_underline};
-        CHECK(native_text_candidate_styled(system,input,{&style,1},1000,1000,&draw,nullptr,TextWrapping::wrap));
+        CHECK(native_text_candidate_styled(system,{input,{&style,1},1000,1000,TextWrapping::wrap},&draw,nullptr));
         CHECK(draw.native_fonts()&&draw.line_count==8&&draw.decoration_count);
     }
     const auto mixed=utf8_literal("A\xe2\xa0\x80\xe2\xa3\xbf\nZ");TextMeasureResult measure{};
-    CHECK(native_text_candidate_line(system,mixed,1000,1000,nullptr,&measure)&&measure.ok()&&measure.line_count==2);
+    CHECK(native_text_candidate_line(system,{mixed,{},1000,1000},nullptr,&measure)&&measure.ok()&&measure.line_count==2);
     CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));return true;
 }
 bool family_cache(NativeFontSession* session) noexcept {
@@ -92,12 +92,12 @@ bool simulated_formats(NativeFontSession* session) noexcept {
     const auto text=utf8_literal("AV A\xcc\x81\tTo\r\nAV");
     for(u32 mode=0;mode<4;++mode){NativeTextFormatDescription description{{family,17},0,{static_cast<u16>((mode&1)?600:400),5,static_cast<u8>((mode&2)?2:0)},16,64,true};
         CHECK(native_text_format_create(system.native_text,description,&system.native_format));auto draw=output();
-        CHECK(native_text_candidate_line(system,text,37,1000,&draw,nullptr)&&draw.native_fonts()&&draw.run_count);
+        CHECK(native_text_candidate_line(system,{text,{},37,1000},&draw,nullptr)&&draw.native_fonts()&&draw.run_count);
         const auto* font=native_font_run_get(*native_font_session_runs(session),draw.runs[0].native_face);CHECK(font&&font->simulations==mode);
         if(!mode)common=font->instance;else CHECK(font->instance.slot==common.slot&&font->instance.generation==common.generation);
         release_output(draw);NativeParagraphHits geometry{};TextMeasureResult measure{};
         NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{advances,1280},&geometry,{parts,16}};
-        CHECK(native_text_candidate_hits(system,text,37,1000,TextWrapping::wrap,storage,&measure)&&measure.ok()&&geometry.lines.count);
+        CHECK(native_text_candidate_hits(system,{text,{},37,1000,TextWrapping::wrap},storage,&measure)&&measure.ok()&&geometry.lines.count);
     }CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));return true;
 }
 bool system_cache(NativeFontSession* session,const wchar_t* path) noexcept {
@@ -257,10 +257,10 @@ bool run() noexcept {
     u32 same=0;CHECK(native_text_format_create(system.native_text,description,&same)&&same==system.native_format);
     family[0]='X';CHECK(exercise(system));family[0]='S';CHECK(braille(system));
     const Utf8View alphabetic[]{utf8_literal("A \xce\xb1\xce\xb2 \xd0\x90\xd0\x91"),utf8_literal("\xce\xb1\xcc\x93\xcc\x81\t\xd0\x98\xcc\x86\nAV")};
-    for(const auto text:alphabetic){auto shaped=output();CHECK(native_text_candidate_line(system,text,37,1000000,&shaped,nullptr)&&shaped.native_fonts());
+    for(const auto text:alphabetic){auto shaped=output();CHECK(native_text_candidate_line(system,{text,{},37,1000000},&shaped,nullptr)&&shaped.native_fonts());
         CHECK(shaped.cluster_count&&shaped.line_count);release_output(shaped);NativeParagraphHits geometry{};TextMeasureResult measure{};
         NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{advances,1280},&geometry,{parts,16}};
-        CHECK(native_text_candidate_hits(system,text,37,1000000,TextWrapping::wrap,storage,&measure)&&measure.ok()&&geometry.source_units);
+        CHECK(native_text_candidate_hits(system,{text,{},37,1000000,TextWrapping::wrap},storage,&measure)&&measure.ok()&&geometry.source_units);
         CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));}
     const u32 first_format=system.native_format;const u64 first_identity=native_text_format_identity(system);
     const auto instances=native_font_session_stats(system.native_fonts).instances;
@@ -274,15 +274,15 @@ bool run() noexcept {
     const u16 georgia[]{'G','e','o','r','g','i','a'};description={{georgia,7},0,{400,5,0},16,64,true};
     CHECK(native_text_format_create(system.native_text,description,&system.native_format));system.em_size=16;
     const auto fallback_text=utf8_literal("a\xcb\x91\xcc\x81" "a\t\xcb\x91\n");auto fallback_draw=output();
-    CHECK(native_text_candidate_line(system,fallback_text,37,1000,&fallback_draw,nullptr)&&fallback_draw.native_fonts());
+    CHECK(native_text_candidate_line(system,{fallback_text,{},37,1000},&fallback_draw,nullptr)&&fallback_draw.native_fonts());
     CHECK(fallback_draw.run_count>2);release_output(fallback_draw);
     NativeParagraphHits fallback_geometry{};TextMeasureResult fallback_measure{};
     NativeParagraphHitStorage fallback_storage{{hit_clusters,256},{hit_lines,257},{advances,1280},&fallback_geometry,{parts,16}};
-    CHECK(native_text_candidate_hits(system,fallback_text,37,1000,TextWrapping::wrap,fallback_storage,&fallback_measure)&&fallback_measure.ok());
+    CHECK(native_text_candidate_hits(system,{fallback_text,{},37,1000,TextWrapping::wrap},fallback_storage,&fallback_measure)&&fallback_measure.ok());
     const u32 normal_format=system.native_format;u32 bold_format=0;description.properties.weight=600;
     CHECK(native_text_format_create(system.native_text,description,&bold_format));
     for(u32 i=0;i<6;++i){system.native_format=(i&1)?bold_format:normal_format;auto draw=output();
-        CHECK(native_text_candidate_line(system,utf8_literal("a\xcb\x91" "a"),1000000,1000,&draw,nullptr)&&draw.native_fonts());
+        CHECK(native_text_candidate_line(system,{utf8_literal("a\xcb\x91" "a"),{},1000000,1000},&draw,nullptr)&&draw.native_fonts());
         CHECK(draw.run_count==((i&1)?1u:3u));release_output(draw);}
     CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
     // Private face-zero registration is also independent of COM collections.
@@ -290,14 +290,14 @@ bool run() noexcept {
     u32 scope=0,again=0;CHECK(native_text_register_font_path(system.native_text,path,&scope));CHECK(native_text_register_font_path(system.native_text,path,&again)&&again==scope);
     const u16 private_family[]{'C','o','m','p','a','g','n','o','n'};description={{private_family,9},scope,{400,5,0},16,64,true};
     CHECK(native_text_format_create(system.native_text,description,&system.native_format));system.em_size=16;CHECK(exercise(system));
-    auto invalid=system;invalid.native_format=0xffffffffu;TextMeasureResult measured{};CHECK(!native_text_candidate_line(invalid,utf8_literal("AV"),95,1000,nullptr,&measured));
+    auto invalid=system;invalid.native_format=0xffffffffu;TextMeasureResult measured{};CHECK(!native_text_candidate_line(invalid,{utf8_literal("AV"),{},95,1000},nullptr,&measured));
     CHECK(!native_text_format_identity(invalid));CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
     // Published runs and copied editor geometry outlive all format metadata.
     auto retained=output();const auto text=utf8_literal("A \xce\xb1\xf0\x9f\x98\x80\xd0\x91 To");
-    CHECK(native_text_candidate_line(system,text,1000000,1000,&retained,nullptr));
+    CHECK(native_text_candidate_line(system,{text,{},1000000,1000},&retained,nullptr));
     NativeParagraphHits geometry{};NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{advances,1280},&geometry,{parts,16}};
     const TextStyleSpan style{0,text.bytes,text_style_underline};
-    CHECK(native_text_candidate_styled(system,text,{&style,1},95,1000,nullptr,&measured,TextWrapping::wrap,TextOverflow::clip,{},&storage));
+    CHECK(native_text_candidate_hits(system,{text,{&style,1},95,1000,TextWrapping::wrap,TextOverflow::clip},storage,&measured));
     NativeParagraphHitMetric before{},after{};float before_x=0,after_x=0;
     CHECK(native_paragraph_hit_position(geometry,3,false,&before,&before_x)==SfntStatus::ok);
     native_text_context_release(&system.native_text);CHECK(!system.native_text&&native_font_session_release(&system.native_fonts));

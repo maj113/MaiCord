@@ -93,7 +93,7 @@ bool probe_script_wrapped(WrappedProbeScript script) noexcept {
     const u32 digit=name_bytes+6;
     // The profile card keeps a fixed bio width, so each mode repeats a sample up to this many bytes to force wrapping.
     constexpr u32 dpis[]{96,144};constexpr u32 bio_bytes[]{160,320,480};constexpr float viewport_widths[]{144,216,360};
-    TextGlyph glyphs[1024];TextRun runs[256];u16 clusters[1024];wchar_t utf16[1024];
+    TextGlyph glyphs[1024];TextRun runs[256];u16 clusters[1024];
     ShapedText shaped{};valid=valid&&shaped_text_initialize(&shaped,{glyphs,1024},{runs,256},{clusters,1024});
     for(u32 scale=0;valid&&scale<2;++scale){
         renderer_set_dpi(&renderer,dpis[scale]);
@@ -115,8 +115,7 @@ bool probe_script_wrapped(WrappedProbeScript script) noexcept {
                 const auto& command=commands[i];if(command.owner.handle.slot!=scene.bio_widget.slot)continue;
                 found=true;auto selected=renderer_text_system(&renderer,command.face);
                 valid=command.wrapping==TextWrapping::wrap&&command.style_flags==0&&
-                    text_shape_utf8(&selected,command.text,command.styles,ui_rect_width(command.rectangle),ui_rect_height(command.rectangle),
-                        {utf16,1024},&shaped,TextWrapping::wrap,TextOverflow::ellipsis).ok()&&shaped.line_count>1;
+                    text_shape_utf8(&selected, {command.text,command.styles,ui_rect_width(command.rectangle),ui_rect_height(command.rectangle),TextWrapping::wrap,TextOverflow::ellipsis}, &shaped).ok()&&shaped.line_count>1;
                 valid=valid&&shaped.native_fonts();
                 log_u64(LogLevel::info,tag,"case",sample*6+mode*2+scale);
                 log_u64(LogLevel::info,tag,"lines",shaped.line_count);

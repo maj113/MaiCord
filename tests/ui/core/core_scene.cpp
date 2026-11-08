@@ -3318,7 +3318,6 @@ void test_text_shaping() noexcept {
                                          reinterpret_cast<IUnknown**>(&oracle))),
            "text_shaping_directwrite_oracle");
 
-    wchar_t utf16[256]{};
     TextGlyph glyphs[512]{};
     TextRun runs[32]{};
     u16 clusters[256]{};
@@ -3330,8 +3329,7 @@ void test_text_shaping() noexcept {
                                   Slice<TextHitRegion>{hit_regions, 32}),
            "shaped_text_initialize");
 
-    TextShapeResult result = text_shape_utf8(&system, utf8_literal("office"), {}, 300.0f, 100.0f,
-                                             Slice<wchar_t>{utf16, 256}, &shaped);
+    TextShapeResult result = text_shape_utf8(&system, {utf8_literal("office"), {}, 300.0f, 100.0f}, &shaped);
     bool clusters_written = result.ok() && shaped.cluster_count == 6;
     for (u32 index = 0; index < shaped.cluster_count; ++index) {
         clusters_written = clusters_written && shaped.clusters[index] != 0xFFFF;
@@ -3355,8 +3353,7 @@ void test_text_shaping() noexcept {
     system.tracking = .2f;
     for (const auto sample : explicit_emoji_samples) {
         const TextStyleSpan style{0, sample.bytes, text_style_bold | text_style_italic | text_style_monospace};
-        const auto shaped_emoji = text_shape_utf8(&system, sample, {&style, 1}, 300, 100,
-                                                        {utf16, 256}, &shaped);
+        const auto shaped_emoji = text_shape_utf8(&system, {sample, {&style, 1}, 300, 100}, &shaped);
         emoji_family_exact &= shaped_emoji.ok() && shaped.run_count != 0;
         for (u32 run = 0; run < shaped.run_count; ++run) {
             IDWriteFontFace* reference = nullptr;
@@ -3370,20 +3367,17 @@ void test_text_shaping() noexcept {
                 emoji_family_exact &= named && family[i] == expected[i];
             com_release(names); com_release(face);com_release(reference);
         }
-        const auto measured = text_measure_utf8(&system, sample, {&style,1}, 300,100,
-                                                        {utf16,256},TextWrapping::no_wrap);
+        const auto measured = text_measure_utf8(&system, {sample, {&style,1}, 300,100,TextWrapping::no_wrap});
         emoji_family_exact &= measured.ok() && measured.width == shaped.width;
     }
     system.independent_letters = false;
     system.tracking = 0;
     expect(emoji_family_exact, "explicit_emoji_font_all_sequences_and_measurement_without_substitution");
-    const auto ascii_text = text_shape_utf8(&system, utf8_literal("123*#"), {}, 300, 100,
-                                           {utf16,256}, &shaped);
+    const auto ascii_text = text_shape_utf8(&system, {utf8_literal("123*#"), {}, 300, 100}, &shaped);
     expect(ascii_text.ok() && shaped.glyph_count == 5,
            "emoji_selection_preserves_plain_digits_and_punctuation");
 
-    result = text_shape_utf8(&system, utf8_literal("\xF0\x9F\x98\x84"), {}, 100.0f, 100.0f,
-                             Slice<wchar_t>{utf16, 256}, &shaped);
+    result = text_shape_utf8(&system, {utf8_literal("\xF0\x9F\x98\x84"), {}, 100.0f, 100.0f}, &shaped);
     IDWriteFactory2* color_factory = nullptr;
     IDWriteColorGlyphRunEnumerator* color_layers = nullptr;
     bool color_layer_found = false;
@@ -3426,8 +3420,8 @@ void test_text_shaping() noexcept {
     expect(result.ok() && color_layer_found, "text_shape_segoe_emoji_exposes_directwrite_color_layers");
 
     result = text_shape_utf8(
-        &system, utf8_literal("A reply preview that is deliberately wider than its retained row"), {}, 72.0f,
-        20.0f, Slice<wchar_t>{utf16, 256}, &shaped, TextWrapping::no_wrap, TextOverflow::ellipsis);
+        &system, {utf8_literal("A reply preview that is deliberately wider than its retained row"), {}, 72.0f,
+        20.0f, TextWrapping::no_wrap, TextOverflow::ellipsis}, &shaped);
     expect(result.ok() && shaped.line_count == 1 && shaped.glyph_count != 0 && shaped.width <= 72.0f,
            "text_shape_single_line_character_ellipsis");
 
@@ -3437,9 +3431,8 @@ void test_text_shaping() noexcept {
         {10, 4, text_style_mention},
         {15, 6, text_style_underline | text_style_strikethrough},
     };
-    result = text_shape_utf8(&system, utf8_literal("Bold code link strike"),
-                             ConstSlice<TextStyleSpan>{styled_spans, 4}, 300.0f, 100.0f,
-                             Slice<wchar_t>{utf16, 256}, &shaped);
+    result = text_shape_utf8(&system, {utf8_literal("Bold code link strike"),
+                             ConstSlice<TextStyleSpan>{styled_spans, 4}, 300.0f, 100.0f}, &shaped);
     bool saw_bold = false;
     bool saw_monospace = false;
     bool saw_mention = false;
@@ -3474,9 +3467,8 @@ void test_text_shaping() noexcept {
         {8, 1, text_style_monospace | text_style_code_block | text_style_syntax_number},
         {9, 12, text_style_monospace | text_style_code_block},
     };
-    result = text_shape_utf8(&system, utf8_literal("int a = 1;\nreturn a;\n"),
-                             ConstSlice<TextStyleSpan>{fenced_code_spans, 6}, 300.0f, 200.0f,
-                             Slice<wchar_t>{utf16, 256}, &shaped);
+    result = text_shape_utf8(&system, {utf8_literal("int a = 1;\nreturn a;\n"),
+                             ConstSlice<TextStyleSpan>{fenced_code_spans, 6}, 300.0f, 200.0f}, &shaped);
     u32 fenced_backgrounds = 0;
     float fenced_background_height = 0.0f;
     for (u32 index = 0; index < shaped.decoration_count; ++index) {
@@ -3495,8 +3487,8 @@ void test_text_shaping() noexcept {
         {6, 10, 9, 0},
     };
     result = text_shape_utf8(
-        &system, utf8_literal("alpha beta gamma delta"), ConstSlice<TextStyleSpan>{},
-        70.0f, 200.0f, Slice<wchar_t>{utf16, 256}, &shaped, TextWrapping::wrap, TextOverflow::clip, ConstSlice<TextHitSpan>{interactive_hits, 2});
+        &system, {utf8_literal("alpha beta gamma delta"), ConstSlice<TextStyleSpan>{},
+        70.0f, 200.0f, TextWrapping::wrap, TextOverflow::clip, ConstSlice<TextHitSpan>{interactive_hits, 2}}, &shaped);
     bool saw_hit_7 = false;
     bool saw_hit_9 = false;
     bool positive_hits = result.ok() && shaped.hit_region_count >= 2;
@@ -3511,16 +3503,16 @@ void test_text_shaping() noexcept {
 
     constexpr TextHitSpan split_hit[] = {{1, 1, 1, 0}};
     const TextShapeResult split_hit_result = text_shape_utf8(
-        &system, utf8_literal("\xC3\xA9x"), ConstSlice<TextStyleSpan>{},
-        300.0f, 100.0f, Slice<wchar_t>{utf16, 256}, &shaped, TextWrapping::wrap, TextOverflow::clip, ConstSlice<TextHitSpan>{split_hit, 1});
+        &system, {utf8_literal("\xC3\xA9x"), ConstSlice<TextStyleSpan>{},
+        300.0f, 100.0f, TextWrapping::wrap, TextOverflow::clip, ConstSlice<TextHitSpan>{split_hit, 1}}, &shaped);
     expect(split_hit_result.error == TextShapeError::invalid_input, "text_shape_hit_rejects_utf8_split");
 
     constexpr TextStyleSpan list_span[] = {
         {0, 6, text_style_list | text_style_list_bullet | text_style_list_depth_1},
     };
     result =
-        text_shape_utf8(&system, utf8_literal("  list"), ConstSlice<TextStyleSpan>{list_span, 1},
-                        300.0f, 100.0f, Slice<wchar_t>{utf16, 256}, &shaped);
+        text_shape_utf8(&system, {utf8_literal("  list"), ConstSlice<TextStyleSpan>{list_span, 1},
+                        300.0f, 100.0f}, &shaped);
     bool list_bullet = false;
     for (u32 index = 0; index < shaped.decoration_count; ++index) {
         list_bullet = list_bullet || shaped.decorations[index].kind == TextDecorationKind::list_bullet;
@@ -3532,9 +3524,8 @@ void test_text_shaping() noexcept {
         {2, 4, text_style_list | text_style_list_bullet | text_style_mention},
         {7, 8, text_style_list | text_style_list_bullet | text_style_mention},
     };
-    result = text_shape_utf8(&system, utf8_literal("  @Mai #general"),
-                             ConstSlice<TextStyleSpan>{split_list_spans, 3}, 300.0f, 100.0f,
-                             Slice<wchar_t>{utf16, 256}, &shaped);
+    result = text_shape_utf8(&system, {utf8_literal("  @Mai #general"),
+                             ConstSlice<TextStyleSpan>{split_list_spans, 3}, 300.0f, 100.0f}, &shaped);
     u32 split_list_bullets = 0;
     for (u32 index = 0; index < shaped.decoration_count; ++index) {
         split_list_bullets += shaped.decorations[index].kind == TextDecorationKind::list_bullet ? 1u : 0u;
@@ -3563,8 +3554,8 @@ void test_text_shaping() noexcept {
             const MessageMarkdownResult parsed =
                 message_markdown_parse(item.source, Slice<char>{list_text, 256}, Slice<u32>{list_bytes, 256},
                                        Slice<TextStyleSpan>{list_styles, 64});
-            result = text_shape_utf8(&system, parsed.text, ConstSlice<TextStyleSpan>{list_styles, parsed.span_count},
-                                     300.0f, 400.0f, Slice<wchar_t>{utf16, 256}, &shaped);
+            result = text_shape_utf8(&system, {parsed.text, ConstSlice<TextStyleSpan>{list_styles, parsed.span_count},
+                                     300.0f, 400.0f}, &shaped);
             u32 bullets = 0;
             float previous_top = -1.0f;
             bool ordered = parsed.ok() && result.ok();
@@ -3583,20 +3574,18 @@ void test_text_shaping() noexcept {
         {3, 2, text_style_italic},
     };
     result =
-        text_shape_utf8(&system, utf8_literal("abcdef"), ConstSlice<TextStyleSpan>{overlap_spans, 2},
-                        300.0f, 100.0f, Slice<wchar_t>{utf16, 256}, &shaped);
+        text_shape_utf8(&system, {utf8_literal("abcdef"), ConstSlice<TextStyleSpan>{overlap_spans, 2},
+                        300.0f, 100.0f}, &shaped);
     constexpr TextStyleSpan split_unicode[] = {
         {1, 1, text_style_bold},
     };
     const TextShapeResult split_result = text_shape_utf8(
-        &system, utf8_literal("\xC3\xA9x"), ConstSlice<TextStyleSpan>{split_unicode, 1}, 300.0f, 100.0f,
-        Slice<wchar_t>{utf16, 256}, &shaped);
+        &system, {utf8_literal("\xC3\xA9x"), ConstSlice<TextStyleSpan>{split_unicode, 1}, 300.0f, 100.0f}, &shaped);
     expect(result.error == TextShapeError::invalid_input &&
                split_result.error == TextShapeError::invalid_input,
            "text_shape_style_ranges_reject_overlap_and_utf8_split");
 
-    result = text_shape_utf8(&system, utf8_literal("office"), {}, 300.0f, 100.0f, Slice<wchar_t>{utf16, 256},
-                             &shaped);
+    result = text_shape_utf8(&system, {utf8_literal("office"), {}, 300.0f, 100.0f}, &shaped);
     expect(result.ok() && shaped.run_count != 0, "text_shape_plain_after_styled_reset");
 
     GlyphPathCommand path_commands[256]{};
@@ -3633,30 +3622,30 @@ void test_text_shaping() noexcept {
            "shaped_text_reset_releases_runs");
 
     const char malformed[] = {static_cast<char>(0xC0), static_cast<char>(0x80)};
-    result = text_shape_utf8(&system, Utf8View{malformed, 2}, {}, 300.0f, 100.0f, Slice<wchar_t>{utf16, 256},
-                             &shaped);
+    result = text_shape_utf8(&system, {Utf8View{malformed, 2}, {}, 300.0f, 100.0f}, &shaped);
     expect(result.error == TextShapeError::invalid_utf8 && shaped.run_count == 0,
            "text_shape_reject_invalid_utf8");
-
-    result = text_shape_utf8(&system, Utf8View{"\xF0\x9F\x98\x80", 4}, {}, 300.0f, 100.0f,
-                             Slice<wchar_t>{utf16, 1}, &shaped);
-    expect(result.error == TextShapeError::output_too_small && result.utf16_units == 2,
-           "text_shape_utf16_bound");
 
     TextGlyph tiny_glyph[1]{};
     TextRun tiny_run[1]{};
     u16 tiny_clusters[32]{};
     ShapedText tiny{};
     expect(shaped_text_initialize(&tiny, Slice<TextGlyph>{tiny_glyph, 1}, Slice<TextRun>{tiny_run, 1},
+                                  Slice<u16>{tiny_clusters, 1}),
+           "text_shape_one_cluster_initialize");
+    result = text_shape_utf8(&system, {Utf8View{"\xF0\x9F\x98\x80", 4}, {}, 300.0f, 100.0f}, &tiny);
+    expect(result.error == TextShapeError::output_too_small && result.utf16_units == 2 && tiny.run_count == 0,
+           "text_shape_utf16_bound");
+    shaped_text_reset(&tiny);
+
+    expect(shaped_text_initialize(&tiny, Slice<TextGlyph>{tiny_glyph, 1}, Slice<TextRun>{tiny_run, 1},
                                   Slice<u16>{tiny_clusters, 32}),
            "text_shape_tiny_initialize");
-    result = text_shape_utf8(&system, utf8_literal("bounded output"), {}, 300.0f, 100.0f,
-                             Slice<wchar_t>{utf16, 256}, &tiny);
+    result = text_shape_utf8(&system, {utf8_literal("bounded output"), {}, 300.0f, 100.0f}, &tiny);
     expect(result.error == TextShapeError::output_too_small && tiny.glyph_count == 0 && tiny.run_count == 0,
            "text_shape_glyph_bound_atomic");
 
-    result = text_shape_utf8(&system, utf8_literal("first\nsecond"), {}, 300.0f, 100.0f,
-                             Slice<wchar_t>{utf16, 256}, &shaped);
+    result = text_shape_utf8(&system, {utf8_literal("first\nsecond"), {}, 300.0f, 100.0f}, &shaped);
     bool multiline_clusters = result.ok() && shaped.cluster_count == 12 && shaped.clusters[5] == 0xFFFF;
     for (u32 index = 0; index < shaped.cluster_count && multiline_clusters; ++index) {
         multiline_clusters = index == 5 || shaped.clusters[index] != 0xFFFF;
@@ -3666,7 +3655,7 @@ void test_text_shaping() noexcept {
            "text_shape_hard_break_non_rendering_cluster");
 
     const Utf8View arabic{"\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7", 10};
-    result = text_shape_utf8(&system, arabic, {}, 300.0f, 100.0f, Slice<wchar_t>{utf16, 256}, &shaped);
+    result = text_shape_utf8(&system, {arabic, {}, 300.0f, 100.0f}, &shaped);
     bool right_to_left = false;
     for (u32 index = 0; index < shaped.run_count; ++index) {
         right_to_left = right_to_left || (shaped.runs[index].bidi_level & 1u) != 0;
@@ -3675,7 +3664,6 @@ void test_text_shaping() noexcept {
            "text_shape_arabic_bidi");
     shaped_text_reset(&shaped);
     text_system_release(&system);
-    com_release(oracle);
     expect(!system.native_text && !system.native_fonts, "text_system_release");
 }
 

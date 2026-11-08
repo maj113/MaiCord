@@ -84,10 +84,7 @@ bool prepare_native(TextEditLayoutOwner* owner,const TextEditLayoutInput& input,
     const u32 run_capacity=minimum(input.text.bytes,(owner->storage.capacity*8-base_bytes)/static_cast<u32>(sizeof(NativeParagraphHitRun)));u32 required_runs=0;
     NativeParagraphHitStorage storage{{clusters,n},{lines,n+1},{advances,advance_capacity},&geometry->hits,{styles,style_capacity},{runs,run_capacity},&required_runs};
     const auto wrapping=(input.options&text_edit_layout_wrap)?TextWrapping::wrap:TextWrapping::no_wrap;
-    const auto fit=[&]() noexcept {return input.styles.count?
-        native_text_candidate_styled(editor_system,source,input.styles,input.width,input.maximum_layout_height,nullptr,&geometry->measure,wrapping,TextOverflow::clip,{},&storage):
-        native_text_candidate_hits(editor_system,source,input.width,input.maximum_layout_height,wrapping,storage,&geometry->measure);};
-    if(!fit()){
+    if(!native_text_candidate_hits(editor_system,{source,input.styles,input.width,input.maximum_layout_height,wrapping},storage,&geometry->measure)){
         const u32 required=native_text_candidate_hit_style_capacity(system);
         if(required>input.text.bytes||required_runs>input.text.bytes||(required<=style_capacity&&required_runs<=run_capacity)){
             while(fallback_stage<TextNativeFallback::stages&&!fallback.build(editor_system,shaping.text,fallback_stage))++fallback_stage;

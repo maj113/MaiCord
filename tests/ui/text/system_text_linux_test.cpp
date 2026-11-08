@@ -55,7 +55,6 @@ struct Storage {
     TextGlyph glyphs[kGlyphCapacity];
     TextRun runs[kRunCapacity];
     u16 clusters[kGlyphCapacity];
-    wchar_t utf16[1024];
 };
 
 Storage g_storage;
@@ -113,7 +112,7 @@ void shape(TextSystem& system, const Sample& sample, const char* expect_family) 
     while (sample.text[bytes])
         ++bytes;
     const TextShapeResult result =
-        text_shape_utf8(&system, {sample.text, bytes}, {}, 100000.0f, 100000.0f, {g_storage.utf16, 1024}, &shaped);
+        text_shape_utf8(&system, {{sample.text, bytes}, {}, 100000.0f, 100000.0f}, &shaped);
     if (!result.ok()) {
         // A host without the font for this script cannot shape it: required only with the Ubuntu packages.
         check(!strict(), sample.name);
@@ -125,9 +124,9 @@ void shape(TextSystem& system, const Sample& sample, const char* expect_family) 
         shaped_text_reset(&shaped);
         return;
     }
-    check(result.glyph_count > 0 && result.run_count > 0 && shaped.width > 0.0f && shaped.height > 0.0f, sample.name);
+    check(shaped.glyph_count > 0 && shaped.run_count > 0 && shaped.width > 0.0f && shaped.height > 0.0f, sample.name);
     bool glyphs_real = true;
-    for (u32 i = 0; i < result.glyph_count; ++i)
+    for (u32 i = 0; i < shaped.glyph_count; ++i)
         glyphs_real = glyphs_real && shaped.glyphs[i].index != 0;
     check(glyphs_real, sample.name);
     bool covers = sample.scalar == 0;
@@ -188,15 +187,14 @@ void message_bold_emoji_statistics(TextSystem& base) noexcept {
     NativeParagraphHitStorage retained{{g_hit_clusters, 256}, {g_hit_lines, 257}, {g_hit_advances, 1280},
                                        &geometry,             {g_hit_parts, 256}, {g_hit_runs, 256}};
     TextMeasureResult measured{};
-    const bool selectable = native_text_candidate_styled(system, text, {styles, 7}, 1000.0f, 1000.0f, nullptr,
-                                                         &measured, TextWrapping::wrap, TextOverflow::clip, {},
-                                                         &retained);
+    const bool selectable =
+        native_text_candidate_hits(system, {text, {styles, 7}, 1000.0f, 1000.0f}, retained, &measured);
     ShapedText shaped{};
     check(shaped_text_initialize(&shaped, {g_storage.glyphs, kGlyphCapacity}, {g_storage.runs, kRunCapacity},
                                  {g_storage.clusters, kGlyphCapacity}),
           "shaped_text_initialize");
     const bool drawn =
-        native_text_candidate_styled(system, text, {styles, 7}, 1000.0f, 1000.0f, &shaped, nullptr, TextWrapping::wrap);
+        native_text_candidate_styled(system, {text, {styles, 7}, 1000.0f, 1000.0f, TextWrapping::wrap}, &shaped, nullptr);
     bool emoji_face = false, glyphs_real = drawn;
     for (u32 r = 0; drawn && r < shaped.run_count; ++r) {
         SystemFontName name{};
@@ -237,8 +235,8 @@ LineProbe probe_line(const TextSystem& base, Utf8View text, u32 flags) noexcept 
     NativeParagraphHitStorage retained{{g_hit_clusters, 256}, {g_hit_lines, 257}, {g_hit_advances, 1280},
                                        &geometry,             {g_hit_parts, 256}, {g_hit_runs, 256}};
     TextMeasureResult measured{};
-    if (!native_text_candidate_styled(system, text, spans, 1000.0f, 1000.0f, nullptr, &measured, TextWrapping::wrap,
-                                      TextOverflow::clip, {}, &retained) ||
+    if (!native_text_candidate_hits(system, {text, spans, 1000.0f, 1000.0f, TextWrapping::wrap,
+                                      TextOverflow::clip}, retained, &measured) ||
         !measured.ok() || geometry.lines.count < 1)
         return probe;
     probe.height = measured.height;
@@ -248,7 +246,7 @@ LineProbe probe_line(const TextSystem& base, Utf8View text, u32 flags) noexcept 
     check(shaped_text_initialize(&shaped, {g_storage.glyphs, kGlyphCapacity}, {g_storage.runs, kRunCapacity},
                                  {g_storage.clusters, kGlyphCapacity}, {g_decorations, 16}),
           "shaped_text_initialize");
-    if (native_text_candidate_styled(system, text, spans, 1000.0f, 1000.0f, &shaped, nullptr, TextWrapping::wrap)) {
+    if (native_text_candidate_styled(system, {text, spans, 1000.0f, 1000.0f, TextWrapping::wrap}, &shaped, nullptr)) {
         for (u32 i = 0; i < shaped.decoration_count; ++i)
             if (g_decorations[i].kind == TextDecorationKind::background && (g_decorations[i].style_flags & text_style_mention)) {
                 probe.pill = true;

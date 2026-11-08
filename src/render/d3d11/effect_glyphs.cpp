@@ -62,7 +62,6 @@ bool effect_glyph_grid_build(D3D11Renderer* renderer, GpuSrv** view) noexcept {
     TextGlyph glyphs[8];
     TextRun runs[4];
     u16 clusters[8];
-    wchar_t utf16[8];
     bool ok = true;
     {
         GlyphRasterBatch batch(&gpu, context);
@@ -81,8 +80,7 @@ bool effect_glyph_grid_build(D3D11Renderer* renderer, GpuSrv** view) noexcept {
             ShapedText shaped{};
             if (!shaped_text_initialize(&shaped, Slice<TextGlyph>{glyphs, 8}, Slice<TextRun>{runs, 4},
                                         Slice<u16>{clusters, 8}) ||
-                !text_shape_utf8(&system, Utf8View{utf8, bytes}, {}, 200.f, 200.f, Slice<wchar_t>{utf16, 8}, &shaped)
-                     .ok())
+                !text_shape_utf8(&system, {Utf8View{utf8, bytes}, {}, 200.f, 200.f}, &shaped).ok())
                 continue;
             if (shaped.run_count && shaped.glyph_count) {
                 const TextRun& run = shaped.runs[0];

@@ -168,10 +168,9 @@ inline bool theme_typography_ui_probe(D3D11Renderer& renderer) noexcept {
             "bounded native shaping storage"))
         return false;
     auto shape_system = renderer.glyph_text.system;
-    wchar_t shape_units[32]{};
     const TextStyleSpan subtext_span{0, 4, text_style_subtext};
     const auto shape_result = text_shape_utf8(
-        &shape_system, utf8_literal("Size"), {&subtext_span, 1}, 256, 128, {shape_units, 32}, &shaped);
+        &shape_system, {utf8_literal("Size"), {&subtext_span, 1}, 256, 128}, &shaped);
     const bool shaped_size = shape_result.ok() && shaped.run_count &&
                              shaped.runs[0].em_size == changed.body_size * changed.subtext_ratio;
     shaped_text_reset(&shaped);

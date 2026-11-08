@@ -40,7 +40,6 @@ enum class RendererTextBuildError : u8 {
 struct RendererTextStorage {
     GlyphQuad* quads;
     GlyphDrawBatch* batches;
-    wchar_t* utf16;
     TextGlyph* glyphs;
     TextRun* runs;
     u16* clusters;
@@ -51,7 +50,6 @@ struct RendererTextStorage {
     TextHitRegion* content_hit_regions;
     u32 quad_capacity;
     u32 batch_capacity;
-    u32 utf16_capacity;
     u32 glyph_capacity;
     u32 run_capacity;
     u32 cluster_capacity;
@@ -67,7 +65,6 @@ struct RendererTextStorage {
     u32 rebuilds;
     u32 rejected;
     u32 message_geometry_quads;
-    HRESULT native_error;
     RendererTextBuildError last_error;
     TextShapeError last_shape_error;
     u16 substitutions;

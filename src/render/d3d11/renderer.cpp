@@ -511,7 +511,6 @@ bool renderer_prepare_login_form_text(D3D11Renderer* renderer) noexcept {
     constexpr usize bytes =
         sizeof(RendererLoginFormTextStorage) + 512 + sizeof(GlyphQuad) * kRendererContentGlyphCapacity +
         sizeof(GlyphDrawBatch) * kRendererContentBatchCapacity +
-        sizeof(wchar_t) * kRendererLoginFormUnitCapacity +
         sizeof(TextGlyph) * kRendererLoginFormGlyphCapacity +
         sizeof(TextRun) * kRendererContentRunCapacity + sizeof(u16) * kRendererLoginFormUnitCapacity +
         sizeof(TextHitSpan) + sizeof(TextHitRegion) * 2 + sizeof(TextDecoration) +
@@ -528,7 +527,6 @@ bool renderer_prepare_login_form_text(D3D11Renderer* renderer) noexcept {
     text.quads = arena_allocate<GlyphQuad>(&arena, text.quad_capacity = kRendererContentGlyphCapacity);
     text.batches =
         arena_allocate<GlyphDrawBatch>(&arena, text.batch_capacity = kRendererContentBatchCapacity);
-    text.utf16 = arena_allocate<wchar_t>(&arena, text.utf16_capacity = kRendererLoginFormUnitCapacity);
     text.glyphs = arena_allocate<TextGlyph>(&arena, text.glyph_capacity = kRendererLoginFormGlyphCapacity);
     text.runs = arena_allocate<TextRun>(&arena, text.run_capacity = kRendererContentRunCapacity);
     text.clusters = arena_allocate<u16>(&arena, text.cluster_capacity = kRendererLoginFormUnitCapacity);
@@ -570,8 +568,8 @@ void renderer_release_login_form_text(D3D11Renderer* renderer) noexcept {
 
 bool renderer_bind_text_storage(D3D11Renderer* renderer, RendererTextStorage* storage) noexcept {
     if (!renderer || !storage || !storage->quads || storage->quad_capacity == 0 || !storage->batches ||
-        storage->batch_capacity == 0 || !storage->utf16 || storage->utf16_capacity == 0 ||
-        !storage->glyphs || storage->glyph_capacity == 0 || !storage->runs || storage->run_capacity == 0 ||
+        storage->batch_capacity == 0 || !storage->glyphs || storage->glyph_capacity == 0 || !storage->runs ||
+        storage->run_capacity == 0 ||
         !storage->clusters || storage->cluster_capacity == 0 || !storage->hit_spans ||
         storage->hit_span_capacity == 0 || storage->hit_span_capacity > kTextHitSpanMaximum ||
         !storage->hit_region_scratch || storage->hit_region_scratch_capacity == 0 ||
@@ -606,7 +604,6 @@ bool renderer_bind_text_storage(D3D11Renderer* renderer, RendererTextStorage* st
     storage->content_semantic_count = 0;
     storage->content_hit_region_count = 0;
     storage->message_geometry_quads = 0;
-    storage->native_error = S_OK;
     storage->last_error = RendererTextBuildError::none;
     storage->last_shape_error = TextShapeError::none;
     content_text_retention_reset(&renderer->content_text_retention);
@@ -651,24 +648,23 @@ bool renderer_text_measure_backend(void* context, const UiTextMeasureRequest& re
                                    UiTextMeasureValue* value) noexcept {
     auto* renderer = static_cast<D3D11Renderer*>(context);
     RendererTextStorage* storage = renderer ? renderer->content_text : nullptr;
-    if (!renderer || !storage || !storage->utf16 || !value) {
+    if (!renderer || !storage || !value) {
         return false;
     }
     auto system = renderer_text_system(renderer, request.face);
-    TextMeasureResult measured = text_measure_utf8(
-        &system, request.text, request.styles, request.constraint.width, request.constraint.height,
-        Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
-        request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap);
-    if (measured.error == TextShapeError::output_too_small) {
-        measured = text_measure_utf8(&system, utf8_literal("…"),
-                                     ConstSlice<TextStyleSpan>{}, request.constraint.width,
-                                     request.constraint.height,
-                                     Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
-                                     request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap);
-    }
+    // Text with more UTF-16 units than the content storage shapes measures as
+    // the overflow sign it draws.
+    u32 units = 0;
+    const bool oversized = request.text.bytes > storage->cluster_capacity &&
+                           utf8_utf16_position_for_byte_offset(request.text, request.text.bytes, &units) &&
+                           units > storage->cluster_capacity;
+    const TextMeasureResult measured =
+        text_measure_utf8(&system, {oversized ? utf8_literal("…") : request.text,
+                                    oversized ? ConstSlice<TextStyleSpan>{} : request.styles, request.constraint.width,
+                                    request.constraint.height,
+                                    request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap});
     if (!measured.ok()) {
         storage->last_shape_error = measured.error;
-        storage->native_error = measured.native_error;
         LogEvent("measure_failed")
             .field("owner", request.key.source_id)
             .field("text_bytes", request.text.bytes)

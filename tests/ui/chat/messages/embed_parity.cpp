@@ -17,7 +17,6 @@ namespace maicord {
 namespace embed_parity_detail {
 
 TextSystem text_system;
-wchar_t utf16[1024];
 TextGlyph glyphs[1024];
 TextRun runs[256];
 u16 clusters[1024];
@@ -111,7 +110,7 @@ Shaped shape_styled(Utf8View text, ConstSlice<TextStyleSpan> styles, float width
     Shaped result{};
     if (!shaped_text_initialize(&output, {glyphs, 1024}, {runs, 256}, {clusters, 1024}, {decorations, 64}))
         return result;
-    result.ok = text_shape_utf8(&text_system, text, styles, width, 4096, {utf16, 1024}, &output).ok();
+    result.ok = text_shape_utf8(&text_system, {text, styles, width, 4096}, &output).ok();
     for (u32 i = 0; i < output.glyph_count; ++i) {
         result.notdef += output.glyphs[i].index == 0 ? 1u : 0u;
         result.advance += output.glyphs[i].advance;
@@ -178,7 +177,7 @@ void test_default_ignorables(Check check) noexcept {
 // No missing glyph, no advance and no measured width.
 bool draws_nothing(Utf8View text) noexcept {
     const Shaped g = shape_styled(text);
-    const auto m = text_measure_utf8(&text_system, text, {}, 1000, 1000, {utf16, 1024});
+    const auto m = text_measure_utf8(&text_system, {text, {}, 1000, 1000});
     return g.ok && g.notdef == 0 && close_to(g.width, 0) && close_to(g.advance, 0) && m.ok() && close_to(m.width, 0);
 }
 // "[#ff0000,#000000]" in tag characters: hidden profile colours in a bio.
@@ -202,7 +201,7 @@ u32 append_hidden_colors(char* out, u32 n) noexcept {
 void test_baseless_ignorables(Check check) noexcept {
     char text[256];
     u32 n = append_hidden_colors(text, 0);
-    const auto measured = text_measure_utf8(&text_system, {text, n}, {}, 1000, 1000, {utf16, 1024});
+    const auto measured = text_measure_utf8(&text_system, {{text, n}, {}, 1000, 1000});
     check(n == 68 && measured.utf16_units == 34 && draws_nothing({text, n}), "hidden_tag_bio_draws_nothing");
 
     const float hello = shape_styled(utf8_literal("Hello")).width;
@@ -270,8 +269,7 @@ void test_baseless_ignorables(Check check) noexcept {
                                           {parts[i], 2}};
         TextMeasureResult measure{};
         return shaping.text.bytes == source.bytes &&
-               native_text_candidate_hits(text_system, shaping.text, 1000, 1000, TextWrapping::wrap, storage,
-                                          &measure) &&
+               native_text_candidate_hits(text_system, {shaping.text, {}, 1000, 1000, TextWrapping::wrap}, storage, &measure) &&
                measure.ok() && geometry[i].source_units == measure.utf16_units;
     };
     const auto caret = [&](u32 i, u32 unit) noexcept {
@@ -392,8 +390,7 @@ void test_link_hits(Check check) noexcept {
     const TextHitSpan hits[]{{8, 58, 0, 0}};
     ShapedText output{};
     bool ok = shaped_text_initialize(&output, {glyphs, 1024}, {runs, 256}, {clusters, 1024}, {decorations, 64}, {hit_regions, 64});
-    ok = ok && text_shape_utf8(&text_system, text, {styles, 3}, 160, 1000, {utf16, 1024},
-                               &output, TextWrapping::wrap, TextOverflow::clip, {hits, 1})
+    ok = ok && text_shape_utf8(&text_system, {text, {styles, 3}, 160, 1000, TextWrapping::wrap, TextOverflow::clip, {hits, 1}}, &output)
                    .ok();
     u32 regions = 0;
     float first_top = 0, last_top = 0;
@@ -434,9 +431,9 @@ Fixture fixture;
 namespace {
 
 bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* output) noexcept {
-    auto result = text_measure_utf8(&text_system, request.text, request.styles, request.constraint.width,
-                                    request.constraint.height, {utf16, 1024},
-                                    request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap);
+    auto result = text_measure_utf8(&text_system, {request.text, request.styles, request.constraint.width,
+                                    request.constraint.height,
+                                    request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap});
     *output = {{result.width_including_trailing_whitespace, result.height}, result.line_count};
     return result.ok();
 }
@@ -550,8 +547,7 @@ float shaped_em(const MessageTextCommand* c, float* height) noexcept {
     ShapedText output{};
     float em = -1;
     if (c && shaped_text_initialize(&output, {glyphs, 1024}, {runs, 256}, {clusters, 1024}, {decorations, 64}) &&
-        text_shape_utf8(&text_system, c->text, c->styles, ui_rect_width(c->rectangle), 4096, {utf16, 1024},
-                        &output)
+        text_shape_utf8(&text_system, {c->text, c->styles, ui_rect_width(c->rectangle), 4096}, &output)
             .ok()) {
         for (u32 i = 0; i < output.run_count; ++i)
             if (output.runs[i].glyph_count)
@@ -953,8 +949,7 @@ AnsiPaint ansi_paint(const MessageTextCommand* command) noexcept {
         return result;
     const ConstSlice<TextStyleSpan> styles = command->styles;
     const Utf8View text = command->text;
-    if (!text_shape_utf8(&text_system, text, styles, maximum(1.0f, ui_rect_width(command->rectangle)), 4000,
-                         {utf16, 1024}, &output)
+    if (!text_shape_utf8(&text_system, {text, styles, maximum(1.0f, ui_rect_width(command->rectangle)), 4000}, &output)
              .ok() ||
         !ansi_text_tag_glyphs(output, text, styles)) {
         shaped_text_reset(&output);
@@ -1162,8 +1157,7 @@ void test_code_block_embeds(Check check) noexcept {
     ShapedText out{};
     u32 block_backgrounds = 0, ansi_backgrounds = 0, underlines = 0, lines = 0;
     if (c.code && shaped_text_initialize(&out, {glyphs, 1024}, {runs, 256}, {clusters, 1024}, {decorations, 64}) &&
-        text_shape_utf8(&text_system, c.code->text, c.code->styles, ui_rect_width(c.code->rectangle), 4096,
-                        {utf16, 1024}, &out)
+        text_shape_utf8(&text_system, {c.code->text, c.code->styles, ui_rect_width(c.code->rectangle), 4096}, &out)
             .ok()) {
         lines = out.line_count;
         for (u32 i = 0; i < out.decoration_count; ++i) {

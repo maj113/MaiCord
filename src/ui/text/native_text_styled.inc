@@ -794,7 +794,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     spans.count=count;
     if (!normalize_flag_cells(text, {spans.data, spans.count}, paragraph_buffers, shape)) return false;
     copy_bytes(saved.data,text.data,text.bytes);copy_bytes(saved_styles.data,styles.data,styles.count*sizeof(TextStyleSpan));
-    owner.last_text={saved.data,text.bytes};owner.last_styles={saved_styles.data,styles.count};owner.styled_spans=spans;owner.styled_parts=parts;owner.styled_lines=lines;
+    owner.last_text={saved.data,text.bytes};++owner.text_epoch;owner.last_styles={saved_styles.data,styles.count};owner.styled_spans=spans;owner.styled_parts=parts;owner.styled_lines=lines;
     owner.paragraph_storage=paragraph_buffers;owner.paragraph_shape=shape;owner.paragraph_runs=runs;owner.last_format=format;owner.last_em=em;owner.last_style_em=system.em_size;owner.last_fixed_weight=system.fixed_weight;
     owner.styled_analysis=analysis;owner.last_independent=system.independent_letters;owner.last_tracking=system.tracking;owner.last_paragraph=true;owner.last_styled=true;owner.last_mode=static_cast<u8>((editor?1:0)|(emoji?2:0)|(alphabetic?4:0)|(fallback?8:0)|(rtl?16:0)|(mixed?32:0)|(system.message_hit_policy?64:0));owner.last_valid=true;
     if(rtl||mixed){owner.styled_reset=prepare_line_reset(owner);if(owner.styled_reset.count!=shape.cluster_count){owner.last_valid=false;owner.prefer_multiline=false;return false;}}
@@ -819,9 +819,11 @@ u32 native_text_candidate_hit_style_capacity(const TextSystem& system) noexcept 
 // Retained-layout publication is a hot path even when shape preparation is
 // cached: compiled for speed inside the size-optimized adapter.
 #pragma clang attribute pop
-bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,
-    ShapedText* output,TextMeasureResult* measure,TextWrapping wrapping,TextOverflow overflow,ConstSlice<TextHitRange> hits,NativeParagraphHitStorage* editor,
-    Slice<NativeParagraphLineFit> fit,NativeParagraphLayout* planning,NativeTrimPlanScratch* plan_storage=nullptr,bool require_styled=false) noexcept {
+bool native_text_styled_plan_or_output(const TextSystem& system,const NativeTextRequest& request,ShapedText* output,TextMeasureResult* measure,
+    NativeParagraphHitStorage* editor,const TrimPlanTarget* plan=nullptr,bool require_styled=false) noexcept {
+    const Utf8View text=request.text;const ConstSlice<TextStyleSpan> styles=request.styles;const ConstSlice<TextHitRange> hits=request.hits;
+    const float width=request.width,height=request.height;const TextWrapping wrapping=request.wrapping;const TextOverflow overflow=request.overflow;
+    Slice<NativeParagraphLineFit> fit=plan?plan->fit:Slice<NativeParagraphLineFit>{};
     if(editor){if(!editor->output||output)return false;*editor->output={};if(editor->required_visual_runs)*editor->required_visual_runs=0;}
     if(overflow==TextOverflow::ellipsis&&!(height>0))return false;
     if(!system.native_text||!tracking_valid(system.tracking)||!text.bytes||text.bytes>native_text_maximum_bytes||!text.data||styles.count>kTextStyleSpanMaximum||(styles.count&&!styles.data)||(!output&&!measure)||hits.count>kTextHitSpanMaximum||(hits.count&&(!hits.data||!output)))return false;
@@ -877,22 +879,24 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
     else if((fallback_only||!prepare_styled_shape(owner,system,format,text,styles,em,geometry,editor!=nullptr,presentation,extended))&&
         !prepare_styled_shape(owner,system,format,text,styles,em,geometry,editor!=nullptr,presentation,extended,true,rtl,mixed,!fallback_only))return false;
     const auto& shape=owner.paragraph_shape;const auto& s=owner.paragraph_storage;NativeParagraphLayout layout{};const float tab_stop=format->tab_stop;
-    if(plan_storage){if(!plan_storage->allocate(owner,shape.cluster_count))return false;fit=plan_storage->fit;}
+    if(plan&&plan->storage){if(!plan->storage->allocate(owner,shape.cluster_count))return false;fit=plan->storage->fit;}
     const auto transient_mark=arena_mark(&owner.scratch);
     struct Rewind {Arena& arena;ArenaMark mark;~Rewind() noexcept {arena_rewind(&arena,mark);}} rewind{owner.scratch,transient_mark};
     const auto reset=directional?owner.styled_reset:ConstSlice<u8>{};if(directional&&reset.count!=shape.cluster_count)return false;
     // A measurement supplies reset eligibility but has no publication sink.
     RtlLineOutput rtl_output{owner,output};
+    // Directional publication writes the clusters its runs cover; units no run covers keep 0xFFFF.
+    if(directional&&output&&output->clusters)for(u32 i=0,n=minimum(shape.source_units,output->cluster_capacity);i<n;++i)output->clusters[i]=0xffffu;
     const NativeParagraphLineSink directional_output{&rtl_output,directional&&output?publish_rtl_line:nullptr,reset,directional?split_rtl_fallback_space:nullptr};
     const auto fitted=editor&&!directional&&!styles.count&&owner.styled_parts.count==1?
         native_prepared_paragraph_layout(shape,{s.clusters.data,shape.cluster_count},{s.placements.data,shape.glyph_count},width,tab_stop,wrapping==TextWrapping::wrap,owner.paragraph_runs,&layout,editor):
         native_prepared_styled_paragraph_layout(shape,{s.clusters.data,shape.cluster_count},{s.placements.data,shape.glyph_count},{owner.styled_parts.data,owner.styled_parts.count},width,tab_stop,wrapping==TextWrapping::wrap,owner.paragraph_runs,&layout,output?owner.styled_lines:Slice<NativeParagraphLine>{},editor,directional_output,overflow==TextOverflow::ellipsis?height:0,fit);
     if(fitted!=SfntStatus::ok){++owner.execute_failed;return false;}
-    if(planning){*planning=layout;return true;}
+    if(plan&&plan->planning){*plan->planning=layout;return true;}
     if(editor&&directional&&!native_directional_hits(owner,layout,*editor)){*editor->output={};return false;}
     if(overflow==TextOverflow::ellipsis&&((layout.flags&native_paragraph_emergency_break)||layout.width>width)){
         if(layout.line_count==1&&!editor){
-            if(trim_single_line(owner,nullptr,system,format,text,width,height,wrapping,layout,output,measure,directional?&rtl_output:nullptr,hits))return true;}
+            if(trim_single_line(system,nullptr,format,request,layout,output,measure,directional?&rtl_output:nullptr))return true;}
         return false;}
     if(output){
         const auto* final_run=layout.run_count?owner.paragraph_runs.data+layout.run_count-1:nullptr;
@@ -921,13 +925,13 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
             const u32 first_glyph=reshaped?output->runs[i].first_glyph:run.glyph_first,glyphs=reshaped?output->runs[i].glyph_count:run.glyph_count;
             output->runs[i]={style.binding()->font,x,run.baseline,style.em,first_glyph,glyphs,run.source_first,run.source_count,style.flags,level,false,true};}
         output->glyph_count=published_glyphs;output->run_count=layout.run_count;output->cluster_count=shape.source_units;output->decoration_count=decoration_count;output->hit_region_count=hit_count;output->width=layout.width;output->width_including_trailing_whitespace=layout.extent;output->height=layout.height;output->line_count=layout.line_count;++owner.shaped;++owner.paragraphs_shaped;
-    }else{*measure={S_OK,layout.width,layout.extent,layout.height,shape.source_units,layout.line_count,TextShapeError::none};++owner.measured;++owner.paragraphs_measured;}
+    }else{*measure={layout.width,layout.extent,layout.height,shape.source_units,layout.line_count,TextShapeError::none};++owner.measured;++owner.paragraphs_measured;}
     return true;
 }
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
-bool native_text_candidate_styled_once(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,
-    ShapedText* output,TextMeasureResult* measure,TextWrapping wrapping,TextOverflow overflow,ConstSlice<TextHitRange> hits,NativeParagraphHitStorage* editor) noexcept {
+bool native_text_candidate_styled_once(const TextSystem& system,const NativeTextRequest& request,ShapedText* output,TextMeasureResult* measure,
+    NativeParagraphHitStorage* editor) noexcept {
     CatalogOperation catalog_operation(system.native_text);
-    return native_text_styled_plan_or_output(system,text,styles,width,height,output,measure,wrapping,overflow,hits,editor,{},nullptr);
+    return native_text_styled_plan_or_output(system,request,output,measure,editor);
 }

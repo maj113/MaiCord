@@ -789,7 +789,6 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     g_probe.text.content_hit_regions = g_probe.content_hit_regions;
     g_probe.text.quad_capacity = kRendererContentGlyphCapacity;
     g_probe.text.batch_capacity = kRendererContentBatchCapacity;
-    g_probe.text.utf16_capacity = kRendererContentTextUnitCapacity;
     g_probe.text.glyph_capacity = kRendererContentTextUnitCapacity;
     g_probe.text.run_capacity = kRendererContentRunCapacity;
     g_probe.text.cluster_capacity = kRendererContentTextUnitCapacity;

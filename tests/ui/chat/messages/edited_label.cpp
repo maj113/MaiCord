@@ -118,7 +118,6 @@ struct Shaped {
     bool ok;
 };
 TextSystem font_system;
-wchar_t utf16[1024];
 TextGlyph glyphs[1024];
 TextRun runs[256];
 u16 clusters[1024];
@@ -135,8 +134,8 @@ Shaped shape(Utf8View string, ConstSlice<TextStyleSpan> spans, ConstSlice<Messag
     if (!shaped_text_initialize(&output, {glyphs, 1024}, {runs, 256}, {clusters, 1024}, {decorations, 64},
                                 {hit_regions, 64}))
         return result;
-    result.ok = text_shape_utf8(&font_system, string, spans, width, 4096, {utf16, 1024}, &output, TextWrapping::wrap,
-                                TextOverflow::clip, {hits, hit_count})
+    result.ok = text_shape_utf8(&font_system, {string, spans, width, 4096, TextWrapping::wrap,
+                                TextOverflow::clip, {hits, hit_count}}, &output)
                     .ok();
     result.width = output.width;
     result.height = output.height;

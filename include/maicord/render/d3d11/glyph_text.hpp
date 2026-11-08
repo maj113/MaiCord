@@ -56,7 +56,6 @@ struct D3D11GlyphTextOwner {
     ShapedText title;
     GlyphAtlasAllocator allocator;
     GlyphAtlasGpu gpu;
-    wchar_t* utf16;
     TextGlyph* glyphs;
     TextRun* runs;
     u16* clusters;

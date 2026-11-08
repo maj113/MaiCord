@@ -83,7 +83,6 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
             if (!renderer_bind_thread_browser_scene(&renderer, application_thread_browser_scene())) return failed(6);
             if (!renderer_rebuild_content_text(&renderer, theme)) {
                 log_u64(LogLevel::error, "thread_browser", "native_text_build_error", static_cast<u64>(renderer.content_text->last_error));
-                log_u64(LogLevel::error, "thread_browser", "native_text_hresult", static_cast<u32>(renderer.content_text->native_error));
                 return failed(7);
             }
             return true;

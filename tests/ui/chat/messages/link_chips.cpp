@@ -385,7 +385,6 @@ void test_chip_cells(Check check) noexcept {
     static u16 clusters[256];
     static TextHitRegion regions[16];
     static TextDecoration decorations[16];
-    static wchar_t utf16[256];
     const Utf8View text = utf8_literal("xxxxxxxx " ICON "general" CHEVRON ICON);
     const u32 cell = 9, chevron = cell + 9 + 7 + 3, message = chevron + 9;
     const TextStyleSpan styles[]{{cell, text.bytes - cell, text_style_mention}};
@@ -393,8 +392,7 @@ void test_chip_cells(Check check) noexcept {
     const auto shape = [&](float width) noexcept {
         ShapedText output{};
         const bool ok = shaped_text_initialize(&output, {glyphs, 256}, {runs, 64}, {clusters, 256}, {decorations, 16}, {regions, 16}) &&
-                        text_shape_utf8(&system, text, {styles, 1}, width, 1000, {utf16, 256},
-                                        &output, TextWrapping::wrap, TextOverflow::clip, {hits, 3})
+                        text_shape_utf8(&system, {text, {styles, 1}, width, 1000, TextWrapping::wrap, TextOverflow::clip, {hits, 3}}, &output)
                             .ok() &&
                         output.hit_region_count == 3;
         const u32 lines = output.line_count;

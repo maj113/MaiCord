@@ -13,7 +13,7 @@ bool same_multiline_controls(const Output& native,const Output& reference) noexc
 bool compare_multiline_plan(DWriteTextSystem system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,TextWrapping wrapping) noexcept {
     auto native=system;native.factory=nullptr;native.format=nullptr;
     NativeParagraphLineFit fit[256]{};NativeParagraphLayout placed{};
-    CHECK(native_text_prepare_trim_plan(native,text,styles,width,height,wrapping,{fit,256},&placed));
+    CHECK(native_text_prepare_trim_plan(native,{text,styles,width,height,wrapping},{fit,256},&placed));
     const auto clusters=native_text_candidate_prepared_clusters(native);
     IDWriteTextLayout* layout=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextLayout(utf16,reference_output.text.cluster_count,system.format,width,height,&layout)));
     struct Release {IDWriteTextLayout*& value;~Release() noexcept {com_release(value);}} release{layout};
@@ -104,12 +104,12 @@ bool native_multiline_trim_corpus(DWriteTextSystem system) noexcept {
     if(multiline_plan_profiles){
         NativeParagraphLineFit fit[256]{};NativeParagraphLayout layout{};NativeParagraphCluster saved[256]{};
         const auto text=texts[0];auto selected=system;selected.factory=nullptr;selected.format=nullptr;
-        CHECK(native_text_prepare_trim_plan(selected,text,{},system.em_size*2,1,TextWrapping::wrap,{fit,256},&layout));
+        CHECK(native_text_prepare_trim_plan(selected,{text,{},system.em_size*2,1,TextWrapping::wrap},{fit,256},&layout));
         const auto original=native_text_candidate_prepared_clusters(selected);CHECK(original.count&&original.count<=256&&layout.line_count>1);
         const u32 count=original.count;copy_bytes(saved,original.data,count*sizeof(NativeParagraphCluster));
-        CHECK(!native_text_prepare_trim_plan(selected,text,{},system.em_size*2,1,TextWrapping::wrap,{fit,1},&layout));
+        CHECK(!native_text_prepare_trim_plan(selected,{text,{},system.em_size*2,1,TextWrapping::wrap},{fit,1},&layout));
         CHECK(!layout.line_count&&!layout.run_count&&!layout.width&&!layout.height);
-        CHECK(native_text_prepare_trim_plan(selected,text,{},1000000,1000000,TextWrapping::wrap,{fit,256},&layout));
+        CHECK(native_text_prepare_trim_plan(selected,{text,{},1000000,1000000,TextWrapping::wrap},{fit,256},&layout));
         const auto complete=native_text_candidate_prepared_clusters(selected);CHECK(complete.count==count&&bytes_equal(saved,complete.data,count*sizeof(NativeParagraphCluster))&&layout.line_count==2);
         for(u32 i=0;i<layout.line_count;++i)CHECK(!(fit[i].flags&(native_line_fit_hidden|native_line_fit_force_sign|native_line_fit_sign|native_line_fit_trimmed)));
     }

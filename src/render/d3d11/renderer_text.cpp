@@ -114,11 +114,11 @@ bool append_login_text_command(D3D11Renderer* renderer, const UiTextCommand& com
     const TextStyleSpan span{0, command.text.bytes, command.style_flags};
     const float maximum_width = maximum(ui_rect_width(command.rectangle), 1.0f);
     const float maximum_height = maximum(ui_rect_height(command.rectangle), 1.0f);
-    const TextShapeResult shaped =
-        text_shape_utf8(&renderer->glyph_text.system, command.text,
-                        {&span, command.style_flags == text_style_none ? 0u : 1u}, maximum_width,
-                        maximum_height, Slice<wchar_t>{renderer->glyph_text.utf16, kRendererGlyphCapacity},
-                        &renderer->glyph_text.title, command.wrapping, command.overflow);
+    const TextShapeResult shaped = text_shape_utf8(
+        &renderer->glyph_text.system,
+        {command.text, {&span, command.style_flags == text_style_none ? 0u : 1u}, maximum_width, maximum_height,
+         command.wrapping, command.overflow},
+        &renderer->glyph_text.title);
     if (!shaped.ok()) {
         return false;
     }
@@ -1300,14 +1300,12 @@ bool renderer_prepare_typography(D3D11Renderer* renderer, const UiThemeTypograph
                  native_text_format_prepare(system.native_text, system.native_format) &&
                  native_text_format_prepare(system.native_text, owner->native_code_format);
     // Prepare the actual shaping/measurement path before the snapshot can publish.
-    wchar_t scratch[64]{};
     if (ready) {
-        const auto body = text_measure_utf8(&system, utf8_literal("Typography 012"), {}, 4096, 4096,
-                                            {scratch, 64}, TextWrapping::no_wrap);
+        const auto body =
+            text_measure_utf8(&system, {utf8_literal("Typography 012"), {}, 4096, 4096, TextWrapping::no_wrap});
         const TextStyleSpan code_style{0, 14, text_style_monospace};
-        const auto code =
-            text_measure_utf8(&system, utf8_literal("Typography 012"), {&code_style, 1}, 4096, 4096,
-                              {scratch, 64}, TextWrapping::no_wrap);
+        const auto code = text_measure_utf8(
+            &system, {utf8_literal("Typography 012"), {&code_style, 1}, 4096, 4096, TextWrapping::no_wrap});
         ready = body.ok() && code.ok();
     }
     if (!ready) {

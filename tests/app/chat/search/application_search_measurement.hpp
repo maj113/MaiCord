@@ -81,9 +81,7 @@ inline void test_search_measurement() noexcept {
                                 ui_rect_height(commands[i].rectangle) == long_height;
     check(body_geometry,
           "search measurement: host width and height agree with the actual native body text rectangle");
-    wchar_t utf16[128]{};
-    const auto metrics = text_measure_utf8(&measurement_text_owner, long_body, {}, bank->measured_width, 464,
-                                           {utf16, 128}, TextWrapping::wrap);
+    const auto metrics = text_measure_utf8(&measurement_text_owner, {long_body, {}, bank->measured_width, 464, TextWrapping::wrap});
     const float difference = long_height - (metrics.height + 2);
     check(metrics.ok() && metrics.line_count == 5 && difference > -1 && difference < 1 && long_height > 48,
           "search measurement: the five-line body's native metrics fit the source body extent with its padding");

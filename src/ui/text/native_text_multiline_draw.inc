@@ -4,25 +4,25 @@ namespace {
 // dimension change can still fall back to the fitting/single-line path. Its
 // only caller (shape_request_attempt, from text_shape_utf8) has a usable
 // native context, non-empty validated text and non-null styles.
-bool prefers_multiline(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,TextWrapping wrapping) noexcept {
-    const auto& owner=*system.native_text;
+bool prefers_multiline(const TextSystem& system,const NativeTextRequest& request) noexcept {
+    const auto& owner=*system.native_text;const Utf8View text=request.text;const ConstSlice<TextStyleSpan> styles=request.styles;
     if(!owner.last_valid||!owner.prefer_multiline||owner.last_independent!=system.independent_letters||owner.last_tracking!=system.tracking||
        owner.last_text.count!=text.bytes||!bytes_equal(owner.last_text.data,text.data,text.bytes))return false;
     if(owner.last_styled){if(owner.last_style_em!=system.em_size||owner.last_fixed_weight!=system.fixed_weight||owner.last_styles.count!=styles.count||
         !bytes_equal(owner.last_styles.data,styles.data,styles.count*sizeof(TextStyleSpan)))return false;}
     else if(styles.count)return false;
-    return resolve_format(system,wrapping)==owner.last_format;
+    return resolve_format(system,request.wrapping)==owner.last_format;
 }
 }
-bool native_text_candidate_trimmed_once(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,
-    ShapedText* output,TextWrapping wrapping,ConstSlice<TextHitRange> hits) noexcept {
+bool native_text_candidate_trimmed_once(const TextSystem& system,const NativeTextRequest& request,ShapedText* output) noexcept {
     CatalogOperation catalog_operation(system.native_text);
+    const ConstSlice<TextStyleSpan> styles=request.styles;const ConstSlice<TextHitRange> hits=request.hits;const float width=request.width;
     if((styles.count&&!styles.data)||styles.count>kTextStyleSpanMaximum||!output||output->run_count||output->native_fonts()||!output->runs||!output->glyphs||!output->clusters)return false;
     bool geometry=hits.count!=0;for(u32 i=0;i<styles.count;++i)geometry|=(styles[i].flags&native_decoration_flags)!=0;
     NativeTrimPlanScratch scratch{};NativeParagraphLayout layout{};
-    if(!prepare_trim_plan(system,text,styles,width,height,wrapping,{},&layout,&scratch,geometry))return false;
+    if(!prepare_trim_plan(system,request,{},&layout,&scratch,geometry))return false;
     if(layout.line_count<2){system.native_text->prefer_multiline=false;return false;}
-    auto& owner=*system.native_text;const auto* format=resolve_format(system,wrapping);if(!format)return false;
+    auto& owner=*system.native_text;const auto* format=resolve_format(system,request.wrapping);if(!format)return false;
     const auto* sign=omission_sign(owner,format);if(!sign)return false;
     const auto& shape=owner.paragraph_shape;const auto& s=owner.paragraph_storage;auto fit=scratch.fit;
     const bool styled=owner.last_styled,directional=styled&&(owner.last_mode&48)!=0;

@@ -27,7 +27,6 @@ struct CaptionLine {
     TextGlyph glyphs[kCaptionGlyphCapacity];
     TextRun runs[kCaptionRunCapacity];
     u16 clusters[kCaptionGlyphCapacity];
-    wchar_t utf16[kCaptionGlyphCapacity];
     bool shaped;
 };
 
@@ -215,10 +214,9 @@ bool shape_line(D3D11Renderer* renderer, CaptionLine* line, Utf8View text, u32 f
     if (line->shaped)
         return true;
     const TextStyleSpan style{0, text.bytes, flags, size, {}};
-    const TextShapeResult shaped = text_shape_utf8(
-        &renderer->glyph_text.system, text, ConstSlice<TextStyleSpan>{&style, 1}, width, height,
-        Slice<wchar_t>{line->utf16, kCaptionGlyphCapacity}, &line->shape, TextWrapping::no_wrap,
-        TextOverflow::ellipsis);
+    const TextShapeResult shaped =
+        text_shape_utf8(&renderer->glyph_text.system,
+                        {text, {&style, 1}, width, height, TextWrapping::no_wrap, TextOverflow::ellipsis}, &line->shape);
     line->shaped = shaped.ok();
     return line->shaped;
 }

@@ -10,9 +10,9 @@ inline bool probe_native_profile_asset(TextSystem system,u16 id) noexcept {
     for(u32 i=0;i<6;++i)path[at++]=prefix[i];for(u32 i=0;files[id-1][i];++i)path[at++]=files[id-1][i];path[at]=0;
     auto* store=native_font_session_fonts(system.native_fonts);NativeFontHandle expected{};
     if(!native_font_acquire(store,path,0,&expected).ok())return false;
-    ShapedText output{};TextGlyph glyphs[8]{};TextRun runs[8]{};u16 clusters[8]{};wchar_t utf16[8]{};
+    ShapedText output{};TextGlyph glyphs[8]{};TextRun runs[8]{};u16 clusters[8]{};
     struct Release {NativeFontStore* store;NativeFontHandle expected;ShapedText& output;~Release() noexcept {shaped_text_reset(&output);native_font_release(store,expected);}} release{store,expected,output};
-    if(!shaped_text_initialize(&output,{glyphs,8},{runs,8},{clusters,8})||!text_shape_utf8(&system,utf8_literal("AV"),{},1000,1000,{utf16,8},&output).ok()||!output.run_count||!output.glyph_count)return false;
+    if(!shaped_text_initialize(&output,{glyphs,8},{runs,8},{clusters,8})||!text_shape_utf8(&system, {utf8_literal("AV"),{},1000,1000}, &output).ok()||!output.run_count||!output.glyph_count)return false;
     for(u32 i=0;i<output.run_count;++i){if(!output.runs[i].native_font)return false;
         const auto* run=native_font_run_get(*native_font_session_runs(output.native_fonts()),output.runs[i].native_face);
         if(!run||run->source.face.slot!=expected.slot||run->source.face.generation!=expected.generation)return false;}

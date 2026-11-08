@@ -1169,10 +1169,9 @@ void test_message_text_presentation() noexcept {
         }
         compact_reply_emoji_found =
             utf8_equal(command.text, utf8_literal("Reply Author \xF0\x9F\x98\x80"));
-        wchar_t reply_scratch[256]{};
         compact_reply_measures = compact_reply_measures && text_measure_utf8(
-            &reply_text_system, command.text, command.styles, 400, 40, {reply_scratch, 256},
-            TextWrapping::no_wrap).ok();
+            &reply_text_system, {command.text, command.styles, 400, 40,
+            TextWrapping::no_wrap}).ok();
         for (u32 style = 0; style < command.styles.count; ++style) {
             compact_reply_emoji_is_not_jumbo = compact_reply_emoji_is_not_jumbo &&
                                                (command.styles[style].flags & text_style_jumbo_emoji) == 0;

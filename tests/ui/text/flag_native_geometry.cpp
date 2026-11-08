@@ -14,8 +14,8 @@ NativeParagraphHitStorage storage(NativeParagraphHits* output) noexcept {
 bool atom(const TextSystem& system,Utf8View text,u32 flags,float extent) noexcept {
     TextStyleSpan style{0,text.bytes,flags}; NativeParagraphHits geometry{};TextMeasureResult measured{};
     auto retained = storage(&geometry);
-    CHECK(native_text_candidate_styled(system,text,{&style,1},extent,128,nullptr,&measured,
-        TextWrapping::wrap,TextOverflow::clip,{},&retained));
+    CHECK(native_text_candidate_hits(system,{text,{&style,1},extent,128,
+        TextWrapping::wrap,TextOverflow::clip},retained,&measured));
     CHECK(measured.ok()&&close(measured.width,extent)&&geometry.source_units==text.bytes/2&&geometry.lines.count==1);
     NativeParagraphHitMetric metric{};u32 count=0;
     CHECK(native_paragraph_hit_range(geometry,0,geometry.source_units,0,0,{&metric,1},&count)==SfntStatus::ok);
@@ -42,8 +42,8 @@ bool run() noexcept {
     const TextStyleSpan mixed_styles[]{{1,8,text_style_custom_emoji},{10,8,text_style_custom_emoji}};
     NativeParagraphHits mixed_geometry{}; TextMeasureResult mixed_measure{};
     auto mixed_storage = storage(&mixed_geometry);
-    CHECK(native_text_candidate_styled(system,mixed,{mixed_styles,2},256,128,nullptr,&mixed_measure,
-        TextWrapping::wrap,TextOverflow::clip,{},&mixed_storage));
+    CHECK(native_text_candidate_hits(system,{mixed,{mixed_styles,2},256,128,
+        TextWrapping::wrap,TextOverflow::clip},mixed_storage,&mixed_measure));
     CHECK(mixed_geometry.source_units==11&&mixed_geometry.lines.count==1);
     NativeParagraphHitMetric mixed_metric{};u32 mixed_count=0;
     for(u32 first=1;first<=6;first+=5) {
@@ -56,7 +56,7 @@ bool run() noexcept {
     const auto adjacent=utf8_literal("\xF0\x9F\x87\xB9\xF0\x9F\x87\xAF\xF0\x9F\x87\xB9\xF0\x9F\x87\xB0");
     const TextStyleSpan style{0,adjacent.bytes,text_style_custom_emoji};NativeParagraphHits geometry{};TextMeasureResult measured{};
     auto retained=storage(&geometry);
-    CHECK(native_text_candidate_styled(system,adjacent,{&style,1},16,128,nullptr,&measured,TextWrapping::wrap,TextOverflow::clip,{},&retained));
+    CHECK(native_text_candidate_hits(system,{adjacent,{&style,1},16,128,TextWrapping::wrap,TextOverflow::clip},retained,&measured));
     CHECK(geometry.source_units==8&&geometry.lines.count==2&&close(measured.width,16));
     NativeParagraphHitMetric metrics[2]{};u32 count=0;
     CHECK(native_paragraph_hit_range(geometry,0,8,0,0,{metrics,2},&count)==SfntStatus::ok&&count==2&&
@@ -64,11 +64,11 @@ bool run() noexcept {
     NativeParagraphHitMetric prior{};float prior_x=0;
     CHECK(native_paragraph_hit_position(geometry,4,false,&prior,&prior_x)==SfntStatus::ok);
     // Warm refitting and independent measurement preserve the source atom.
-    CHECK(native_text_candidate_styled(system,adjacent,{&style,1},32,128,nullptr,&measured,TextWrapping::wrap)&&close(measured.width,32));
+    CHECK(native_text_candidate_styled(system,{adjacent,{&style,1},32,128,TextWrapping::wrap},nullptr,&measured)&&close(measured.width,32));
     system.independent_letters=true;
     CHECK(atom(system,tj,text_style_custom_emoji,16));system.independent_letters=false;
     TextStyleSpan code{0,tj.bytes,text_style_monospace};
-    CHECK(native_text_candidate_styled(system,tj,{&code,1},128,128,nullptr,&measured,TextWrapping::wrap)&&measured.width>0&&measured.utf16_units==4);
+    CHECK(native_text_candidate_styled(system,{tj,{&code,1},128,128,TextWrapping::wrap},nullptr,&measured)&&measured.width>0&&measured.utf16_units==4);
     CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
     print("PASS flag native geometry: true RI/tag ranges, em cells, wrap, warm retention and code control\n");return true;
 }

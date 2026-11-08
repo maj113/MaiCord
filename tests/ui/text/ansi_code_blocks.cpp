@@ -365,7 +365,6 @@ u32 ansi_rectangles(const ShapedText& text, TextDecoration* first, TextDecoratio
 void layout_case(Check check, TextSystem* system, const char* name) noexcept {
     static Output output;
     output = Output{};
-    static wchar_t utf16[256];
     if (!shaped_text_initialize(&output.text, {output.glyphs, 256}, {output.runs, 64}, {output.clusters, 256}, {output.decorations, 64})) {
         check(false, name);
         return;
@@ -375,7 +374,7 @@ void layout_case(Check check, TextSystem* system, const char* name) noexcept {
     TextStyleSpan styles[2]{{0, 6, text_style_monospace | text_style_code_block},
                             {6, 20, text_style_monospace | text_style_code_block}};
     ansi_span_set_colors(styles[1], xterm(1), xterm(4));
-    const auto shaped = text_shape_utf8(system, text, {styles, 2}, 110, 1000, {utf16, 256}, &output.text);
+    const auto shaped = text_shape_utf8(system, {text, {styles, 2}, 110, 1000}, &output.text);
     TextDecoration first{}, last{};
     const u32 count = shaped.ok() ? ansi_rectangles(output.text, &first, &last) : 0;
     bool glyphs = shaped.ok() && ansi_text_tag_glyphs(output.text, text, {styles, 2});
@@ -396,7 +395,6 @@ void layout_case(Check check, TextSystem* system, const char* name) noexcept {
 void line_case(Check check, TextSystem* system) noexcept {
     static Output output;
     output = Output{};
-    static wchar_t utf16[256];
     if (!shaped_text_initialize(&output.text, {output.glyphs, 256}, {output.runs, 64}, {output.clusters, 256}, {output.decorations, 64})) {
         check(false, "ansi: line layout storage");
         return;
@@ -415,7 +413,7 @@ void line_case(Check check, TextSystem* system) noexcept {
     ansi_span_set_colors(styles[2], xterm(2), 0);
     ansi_span_set_colors(styles[3], xterm(196), 0);
     ansi_span_set_colors(styles[4], xterm(4), xterm(3));
-    const auto shaped = text_shape_utf8(system, text, {styles, 6}, 1000, 1000, {utf16, 256}, &output.text);
+    const auto shaped = text_shape_utf8(system, {text, {styles, 6}, 1000, 1000}, &output.text);
     u32 plain = 0, red = 0, green = 0, both_under = 0, both_struck = 0, blue = 0, gray = 0, other = 0;
     for (u32 i = 0; shaped.ok() && i < output.text.decoration_count; ++i) {
         const TextDecoration& d = output.text.decorations[i];
@@ -493,7 +491,6 @@ bool paint_case(TextSystem* system, Utf8View input, float width, bool interactiv
     storage = Storage{};
     *counts = PaintCounts{};
     Output& output = storage.output;
-    static wchar_t utf16[256];
     auto& p = parse(input);
     const ConstSlice<TextStyleSpan> spans{p.spans, p.result.span_count};
     const Utf8View text = p.result.text;
@@ -506,16 +503,14 @@ bool paint_case(TextSystem* system, Utf8View input, float width, bool interactiv
     // measured lines (the multi-line draw path) at the measured height.
     float height = 1000;
     if (measured) {
-        const auto measure = text_measure_utf8(system, text, spans, width, 1000, {utf16, 256});
+        const auto measure = text_measure_utf8(system, {text, spans, width, 1000});
         if (!measure.ok())
             return false;
         height = measure.height;
     }
     const TextHitSpan link{0, heading == ~0u ? 1u : heading, 0, 0};
-    const auto shaped = interactive ? text_shape_utf8(system, text, spans, width, height,
-                                                      {utf16, 256}, &output.text, TextWrapping::wrap, TextOverflow::clip, {&link, 1})
-                                    : text_shape_utf8(system, text, spans, width, height, {utf16, 256},
-                                                      &output.text);
+    const auto shaped = interactive ? text_shape_utf8(system, {text, spans, width, height, TextWrapping::wrap, TextOverflow::clip, {&link, 1}}, &output.text)
+                                    : text_shape_utf8(system, {text, spans, width, height}, &output.text);
     if (!shaped.ok() || !ansi_text_tag_glyphs(output.text, text, spans))
         return false;
     // Each glyph's pen position and baseline (ASCII: one byte, one cluster).

@@ -186,9 +186,9 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
         from_cache = cached.glyph_count <= room && cached.decoration_count <= room - cached.glyph_count;
     }
     const auto shape = [&](Utf8View text, ConstSlice<TextStyleSpan> spans, u32 hits) noexcept {
-        return text_shape_utf8(&text_system, text, spans, maximum_width, maximum_height,
-                               Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
-                               wrapping, overflow, {storage->hit_spans, hits});
+        return text_shape_utf8(&text_system,
+                               {text, spans, maximum_width, maximum_height, wrapping, overflow, {storage->hit_spans, hits}},
+                               &storage->scratch);
     };
     bool primary_shape = true;
     // The single overflow glyph replaces text that does not fit.
@@ -206,7 +206,6 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
     const auto shape_failed = [&](const TextShapeResult& failed) noexcept {
         storage->last_error = RendererTextBuildError::shape;
         storage->last_shape_error = failed.error;
-        storage->native_error = failed.native_error;
         shaped_text_reset(&storage->scratch);
         return false;
     };
@@ -579,10 +578,9 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         }
         if (command.effect.kind == 7) {
             auto system = command_text_system(renderer, command.face);
-            wchar_t scratch[4]{};
             const TextStyleSpan zero_style{0, 1, command.style_flags};
-            const auto zero = text_measure_utf8(&system, utf8_literal("0"), {&zero_style, 1}, 256,
-                                                64, {scratch, 4}, TextWrapping::no_wrap);
+            const auto zero =
+                text_measure_utf8(&system, {utf8_literal("0"), {&zero_style, 1}, 256, 64, TextWrapping::no_wrap});
             u32 units = 0;
             utf8_utf16_position_for_byte_offset(command.text, command.text.bytes, &units);
             material.colors[7].alpha =

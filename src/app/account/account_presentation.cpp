@@ -670,7 +670,6 @@ bool rebuild_account_text_cache(bool scroll_refresh, bool scroll_moving) noexcep
                               ui.renderer_text.batch_count};
         LogEvent("content_text_build_failed")
             .fields("build_error\0shape_error\0quads\0batches", render)
-            .error("native_error", static_cast<u32>(ui.renderer_text.native_error))
             .write(LogLevel::error, "render");
         const bool fallback_built = renderer_rebuild_shell_text(&g_app.renderer, application_theme());
         log_u64(fallback_built ? LogLevel::warning : LogLevel::error, "render",

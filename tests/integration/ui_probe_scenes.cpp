@@ -4934,11 +4934,10 @@ bool probe_profile_card() noexcept {
     TextRun hebrew_runs[16];
     u16 hebrew_clusters[128];
     ShapedText hebrew_output{};
-    wchar_t hebrew_utf16[128];
     valid = valid &&
             shaped_text_initialize(&hebrew_output, {hebrew_glyphs, 128}, {hebrew_runs, 16},
                                    {hebrew_clusters, 128}) &&
-            text_shape_utf8(&hebrew_system, hebrew_bio, {}, 10000, 10000, {hebrew_utf16, 128}, &hebrew_output)
+            text_shape_utf8(&hebrew_system, {hebrew_bio, {}, 10000, 10000}, &hebrew_output)
                 .ok() &&
             hebrew_output.native_fonts();
     shaped_text_reset(&hebrew_output);
@@ -4959,12 +4958,10 @@ bool probe_profile_card() noexcept {
     TextRun wrapped_runs[128];
     u16 wrapped_clusters[512];
     ShapedText wrapped_output{};
-    wchar_t wrapped_utf16[512];
     valid = valid &&
             shaped_text_initialize(&wrapped_output, {wrapped_glyphs, 512}, {wrapped_runs, 128},
                                    {wrapped_clusters, 512}) &&
-            text_shape_utf8(&hebrew_system, {data->bio.data, data->bio.bytes}, {}, 180, 10000,
-                            {wrapped_utf16, 512}, &wrapped_output)
+            text_shape_utf8(&hebrew_system, {{data->bio.data, data->bio.bytes}, {}, 180, 10000}, &wrapped_output)
                 .ok() &&
             wrapped_output.native_fonts() && wrapped_output.line_count > 1;
     shaped_text_reset(&wrapped_output);
@@ -5010,9 +5007,9 @@ bool probe_profile_card() noexcept {
             }
             const bool native =
                 command.face == UiTextFace::normal && !command.effect.kind && !command.style_flags &&
-                text_shape_utf8(&hebrew_system, command.text, command.styles, ui_rect_width(command.rectangle),
-                                ui_rect_height(command.rectangle), {wrapped_utf16, 512}, &wrapped_output,
-                                command.wrapping, command.overflow, {hits, scene.bio_semantic_count})
+                text_shape_utf8(&hebrew_system, {command.text, command.styles, ui_rect_width(command.rectangle),
+                                ui_rect_height(command.rectangle),
+                                command.wrapping, command.overflow, {hits, scene.bio_semantic_count}}, &wrapped_output)
                     .ok() &&
                 wrapped_output.native_fonts() && wrapped_output.line_count > 1 &&
                 (!expect_height_trim || wrapped_output.glyph_count < 16) &&

@@ -212,7 +212,7 @@ inline bool reference_shape_measure(DWriteTextSystem& reference,Utf8View input,C
     // The independent shape already captured DirectWrite GetMetrics for this
     // exact request. Keep every native measure; avoid rebuilding its oracle.
     const auto& shaped=reference_output.text;
-    *output={S_OK,shaped.width,shaped.width_including_trailing_whitespace,shaped.height,shaped.cluster_count,shaped.line_count,TextShapeError::none};
+    *output={shaped.width,shaped.width_including_trailing_whitespace,shaped.height,shaped.cluster_count,shaped.line_count,TextShapeError::none};
     // Caller controls cover font/em/style/typography/wrapping cells and cut
     // boundaries; additional controls are spread across the entire matrix.
     control=control||((reference_measure_controls+reference_measure_reuses)&255u)==0;

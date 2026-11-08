@@ -384,7 +384,7 @@ bool glyph_text_owner_empty(const D3D11GlyphTextOwner& owner) noexcept {
 bool glyph_text_owner_ready(const D3D11Renderer& renderer) noexcept {
     const D3D11GlyphTextOwner& owner = renderer.glyph_text;
     const bool system_ready = owner.system.native_fonts && owner.system.native_text && owner.system.native_format;
-    return owner.storage.base && owner.utf16 && owner.glyphs && owner.runs && owner.clusters &&
+    return owner.storage.base && owner.glyphs && owner.runs && owner.clusters &&
            owner.path_commands && owner.atlas_entries && owner.atlas_rows && owner.title_quads &&
            owner.font_faces && system_ready && owner.title.glyphs && owner.title.runs &&
            owner.title.clusters && owner.allocator.entries && owner.allocator.rows && owner.gpu.surface &&

@@ -563,7 +563,6 @@ bool application_initialize_account_ui(Application& application) noexcept {
     }
     runtime->renderer_text.quads = runtime->renderer_text_quads;
     runtime->renderer_text.batches = runtime->renderer_text_batches;
-    runtime->renderer_text.utf16 = runtime->response_shape_scratch.shape.utf16;
     runtime->renderer_text.glyphs = runtime->response_shape_scratch.shape.glyphs;
     runtime->renderer_text.runs = runtime->response_shape_scratch.shape.runs;
     runtime->renderer_text.clusters = runtime->response_shape_scratch.shape.clusters;
@@ -577,7 +576,6 @@ bool application_initialize_account_ui(Application& application) noexcept {
     runtime->renderer_text.content_hit_regions = runtime->renderer_content_hit_regions;
     runtime->renderer_text.quad_capacity = kRendererContentGlyphCapacity;
     runtime->renderer_text.batch_capacity = kRendererContentBatchCapacity;
-    runtime->renderer_text.utf16_capacity = kRendererContentTextUnitCapacity;
     runtime->renderer_text.glyph_capacity = kRendererContentTextUnitCapacity;
     runtime->renderer_text.run_capacity = kRendererContentRunCapacity;
     runtime->renderer_text.cluster_capacity = kRendererContentTextUnitCapacity;

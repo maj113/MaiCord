@@ -18,11 +18,10 @@ enum class TextShapeError : u8 {
     unsupported,
 };
 
+// Returned in a register: the caller's ShapedText already holds the glyph and
+// run counts.
 struct TextShapeResult {
-    HRESULT native_error;
     u32 utf16_units;
-    u32 glyph_count;
-    u32 run_count;
     TextShapeError error;
 
     constexpr bool ok() const noexcept {
@@ -31,7 +30,6 @@ struct TextShapeResult {
 };
 
 struct TextMeasureResult {
-    HRESULT native_error;
     float width;
     float width_including_trailing_whitespace;
     float height;
@@ -165,8 +163,8 @@ static_assert(sizeof(ShapedText) == 104);
 static_assert(sizeof(TextHitSpan) == 12);
 static_assert(sizeof(TextHitRegion) == 20);
 
-// Checks shaping input and reports the UTF-16 units it needs in `output`.
-TextShapeResult validate_text_input(Utf8View input, Slice<wchar_t> output) noexcept;
+// Checks shaping input and reports the UTF-16 units it occupies.
+TextShapeResult validate_text_input(Utf8View input) noexcept;
 // Converts byte-addressed hit spans into UTF-16 ranges; false for an invalid span.
 bool resolve_text_hits(Utf8View input, ConstSlice<TextHitSpan> hits, TextHitRange* resolved) noexcept;
 // Binds caller-owned output storage. Decorations and hit regions are optional;
@@ -232,16 +230,22 @@ private:
     char local_[512];
 };
 
+// One layout: the text, its styles and the box it lays out in. Measurement
+// lays out clipped and without hits; shaping honors overflow, and hit spans
+// (at most kTextHitSpanMaximum) request hit regions.
+struct TextLayoutRequest {
+    Utf8View text;
+    ConstSlice<TextStyleSpan> styles;
+    float maximum_width;
+    float maximum_height;
+    TextWrapping wrapping = TextWrapping::wrap;
+    TextOverflow overflow = TextOverflow::clip;
+    ConstSlice<TextHitSpan> hits{};
+};
+
 // Layout/shaping is a cache-build operation, never a paint-path operation.
-// All retained glyph/run/cluster output is caller-owned and bounded. Plain
-// text passes empty styles; hit spans (at most kTextHitSpanMaximum) request
-// hit regions.
-TextShapeResult text_shape_utf8(TextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
-                                float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
-                                ShapedText* output, TextWrapping wrapping = TextWrapping::wrap,
-                                TextOverflow overflow = TextOverflow::clip,
-                                ConstSlice<TextHitSpan> hits = {}) noexcept;
-TextMeasureResult text_measure_utf8(TextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
-                                    float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
-                                    TextWrapping wrapping = TextWrapping::wrap) noexcept;
+// All retained glyph/run/cluster output is caller-owned and bounded: text with
+// more UTF-16 units than output->cluster_capacity is output_too_small.
+TextShapeResult text_shape_utf8(TextSystem* system, const TextLayoutRequest& request, ShapedText* output) noexcept;
+TextMeasureResult text_measure_utf8(TextSystem* system, const TextLayoutRequest& request) noexcept;
 } // namespace maicord

@@ -11,19 +11,29 @@ u32 native_text_candidate_style_capacity(Utf8View,ConstSlice<TextStyleSpan>) noe
 // Metric slots the prepared shape needs after a failed attempt; it can exceed
 // the source-only estimate. Grow only that storage and retry.
 u32 native_text_candidate_hit_style_capacity(const TextSystem&) noexcept;
-// Retained geometry for unstyled ASCII/resolved Latin and eligible mixed
-// text/emoji. Caller-owned storage must be disjoint from candidate scratch;
-// mixed font metrics need native_text_candidate_style_capacity entries.
-bool native_text_candidate_hits(const TextSystem&,Utf8View,float width,float height,
-    TextWrapping,NativeParagraphHitStorage,TextMeasureResult*) noexcept;
+// One adapter layout: validated text, folded style spans and resolved hit
+// ranges within a box. The shared text entry point checks every field.
+struct NativeTextRequest {
+    Utf8View text;
+    ConstSlice<TextStyleSpan> styles;
+    float width;
+    float height;
+    TextWrapping wrapping = TextWrapping::wrap;
+    TextOverflow overflow = TextOverflow::clip;
+    ConstSlice<TextHitRange> hits{};
+};
+// Retained editor geometry, laid out clipped: unstyled ASCII/resolved Latin
+// and eligible mixed text/emoji take the paragraph path, styled text the styled
+// one. Caller-owned storage must be disjoint from candidate scratch; mixed
+// font metrics need native_text_candidate_style_capacity entries.
+bool native_text_candidate_hits(const TextSystem&, const NativeTextRequest&, NativeParagraphHitStorage&,
+                                TextMeasureResult*) noexcept;
 // Returns and clears the output-capacity failure flag of the current public
 // shape attempt; scratch/profile errors never set it.
 bool native_text_candidate_take_output_failure(const TextSystem&) noexcept;
 // Ellipsis dispatch: the fitting, styled and multiline alternatives share one
 // staged generation retry; a failed alternative cannot consume another.
-bool native_text_candidate_ellipsis(const TextSystem&, Utf8View, ConstSlice<TextStyleSpan>, float width,
-                                    float height, ShapedText*, TextWrapping,
-                                    ConstSlice<TextHitRange>) noexcept;
+bool native_text_candidate_ellipsis(const TextSystem&, const NativeTextRequest&, ShapedText*) noexcept;
 bool native_text_context_initialize(NativeTextContext**, NativeFontSession*) noexcept;
 void native_text_context_release(NativeTextContext**) noexcept;
 // Transactional rebuild. The callback borrows a staged context and must not keep
@@ -70,12 +80,8 @@ ConstSlice<NativeParagraphCluster> native_text_candidate_prepared_clusters(const
 // letters, recognized marks, join controls and internal spaces; Arabic digits,
 // general bidi, fallback and truncating ellipsis take the general path. False leaves
 // output untouched and retains no partially shaped run. A non-null output requests
-// shaping, otherwise measurement is returned.
-bool native_text_candidate_line(const TextSystem&,Utf8View,float maximum_width,
-    float maximum_height,ShapedText* output,TextMeasureResult* measure,TextWrapping wrapping=TextWrapping::wrap,TextOverflow overflow=TextOverflow::clip) noexcept;
-// A retained hit request (non-null retained) uses the editor's font-property-only
-// run policy and caller-owned, disjoint hit and style-metric buffers. It needs
-// measurement output and no ShapedText output; the geometry keeps no font object.
-bool native_text_candidate_styled(const TextSystem&,Utf8View,ConstSlice<TextStyleSpan>,float width,float height,
-    ShapedText*,TextMeasureResult*,TextWrapping,TextOverflow=TextOverflow::clip,ConstSlice<TextHitRange> hits={},NativeParagraphHitStorage* retained=nullptr) noexcept;
+// shaping, otherwise measurement is returned. The line path reads no styles or hits.
+bool native_text_candidate_line(const TextSystem&, const NativeTextRequest&, ShapedText* output,
+                                TextMeasureResult* measure) noexcept;
+bool native_text_candidate_styled(const TextSystem&, const NativeTextRequest&, ShapedText*, TextMeasureResult*) noexcept;
 }

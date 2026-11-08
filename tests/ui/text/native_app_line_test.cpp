@@ -48,11 +48,10 @@ bool input_validation() noexcept {
         CHECK(check({nullptr,1},{},TextShapeError::invalid_input,0));
         CHECK(check(utf8_literal("A"),{nullptr,1},TextShapeError::invalid_input,0));
         const auto mixed=utf8_literal("A\xc3\xa9\xe6\xb0\xb4\xf0\x9f\x98\x80");
-        for(u32 capacity=0;capacity<=6;++capacity){wchar_t scratch[8];for(auto& unit:scratch)unit=0x1234;
-            CHECK(check(mixed,{scratch+1,capacity},capacity<5?TextShapeError::output_too_small:TextShapeError::none,5));
-            CHECK(scratch[0]==0x1234&&scratch[6]==0x1234&&scratch[7]==0x1234);
-            if(side==2&&capacity>=5){const wchar_t expected[]{L'A',0xe9,0x6c34,0xd83d,0xde00};CHECK(bytes_equal(scratch+1,expected,sizeof(expected)));}
-            else for(auto unit:scratch)CHECK(unit==0x1234);
+        for(u32 capacity=1;capacity<=6;++capacity){TextGlyph glyphs[16];TextRun runs[4];u16 clusters[6];ShapedText bounded{};
+            CHECK(shaped_text_initialize(&bounded,{glyphs,16},{runs,4},{clusters,capacity}));
+            const auto shaped=text_shape_utf8(&system,{mixed,{},10000,10000},&bounded);shaped_text_reset(&bounded);
+            CHECK(shaped.utf16_units==5&&(capacity<5?shaped.error==TextShapeError::output_too_small:shaped.ok()));++tested;
         }
     }
     print("input_validation_cases=");number(tested);print("\n");return true;

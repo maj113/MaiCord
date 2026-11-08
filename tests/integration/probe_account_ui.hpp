@@ -18,7 +18,6 @@ inline RendererTextStorage& probe_bind_renderer_text(AccountUiRuntime& ui, TextH
     auto& text = ui.renderer_text;
     text.quads = ui.renderer_text_quads;
     text.batches = ui.renderer_text_batches;
-    text.utf16 = ui.response_shape_scratch.shape.utf16;
     text.glyphs = ui.response_shape_scratch.shape.glyphs;
     text.runs = ui.response_shape_scratch.shape.runs;
     text.clusters = ui.response_shape_scratch.shape.clusters;
@@ -29,7 +28,7 @@ inline RendererTextStorage& probe_bind_renderer_text(AccountUiRuntime& ui, TextH
     text.content_hit_regions = ui.renderer_content_hit_regions;
     text.quad_capacity = kRendererContentGlyphCapacity;
     text.batch_capacity = kRendererContentBatchCapacity;
-    text.utf16_capacity = text.glyph_capacity = text.cluster_capacity = kRendererContentTextUnitCapacity;
+    text.glyph_capacity = text.cluster_capacity = kRendererContentTextUnitCapacity;
     text.run_capacity = kRendererContentRunCapacity;
     text.hit_span_capacity = kTextHitSpanMaximum;
     text.hit_region_scratch_capacity = text.content_hit_region_capacity = kRendererContentHitRegionCapacity;

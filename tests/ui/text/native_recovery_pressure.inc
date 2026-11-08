@@ -6,7 +6,7 @@ bool recovery_session_pressure(const wchar_t* path) noexcept {
     u32 scope=0;CHECK(native_text_register_font_path(system.native_text,replacement.file,&scope));
     const u16 missing[]{'N','o','-','M','a','i','C','o','r','d','-','F','a','m','i','l','y'},family[]{'C','o','m','p','a','g','n','o','n'};
     CHECK(native_text_format_create(system.native_text,{{missing,17},scope,{400,5,0},16,64,true},&system.native_format));
-    GenerationOutput old,draw;CHECK(native_text_candidate_line(system,utf8_literal("AV office"),1000,1000,&old.text,nullptr));
+    GenerationOutput old,draw;CHECK(native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&old.text,nullptr));
     auto alias=system;const u64 identity=native_text_format_identity(alias);const auto old_run=old.text.runs[0].native_face;
     auto* session=system.native_fonts;const auto initial=native_font_session_stats(session);CHECK(initial.live.faces==1&&initial.instances==1);
     struct Pressure {
@@ -34,7 +34,7 @@ bool recovery_session_pressure(const wchar_t* path) noexcept {
     CHECK(replacement.replace(path));
     CHECK(native_text_format_create(system.native_text,{{family,9},scope,{400,5,0},16,64,true},&system.native_format));
     recovery_marker(system.native_text,session,64);
-    const bool recovered=native_text_candidate_line(system,utf8_literal("AV office"),1000,1000,&draw.text,nullptr);
+    const bool recovered=native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&draw.text,nullptr);
     if(pressure_expect_commit_failure){
         CHECK(!recovered&&!draw.text.native_fonts()&&!draw.text.run_count&&native_text_format_identity(alias)==identity);
         CHECK(native_font_run_get(*native_font_session_runs(session),old_run)&&native_font_session_stats(session).live.faces==64);
@@ -42,7 +42,7 @@ bool recovery_session_pressure(const wchar_t* path) noexcept {
         CHECK(native_font_run_release(native_font_session_runs(session),pressure.runs[62]));pressure.runs[62]={};
         CHECK(native_font_instance_release(native_font_session_instances(session),pressure.instances[62]));pressure.instances[62]={};
         CHECK(native_font_release(native_font_session_fonts(session),pressure.faces[62]));pressure.faces[62]={};
-        CHECK(native_text_candidate_line(system,utf8_literal("AV office"),1000,1000,&draw.text,nullptr));
+        CHECK(native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&draw.text,nullptr));
     }else CHECK(recovered);
     CHECK(draw.text.run_count&&draw.text.native_fonts()==session&&native_text_format_identity(alias)!=identity);
     CHECK(native_font_run_get(*native_font_session_runs(session),old_run));

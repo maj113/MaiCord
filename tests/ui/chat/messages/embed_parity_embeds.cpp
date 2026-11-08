@@ -461,7 +461,7 @@ void test_text_sizes(Check check) noexcept {
         ShapedText out{};
         float value = -1;
         if (shaped_text_initialize(&out, {glyphs, 1024}, {runs, 256}, {clusters, 1024}, {decorations, 64}) &&
-            text_shape_utf8(&text_system, text, {&span, 1}, 1000, 1000, {utf16, 1024}, &out).ok() &&
+            text_shape_utf8(&text_system, {text, {&span, 1}, 1000, 1000}, &out).ok() &&
             out.run_count != 0) {
             value = out.runs[0].em_size;
             if (width)
@@ -487,10 +487,10 @@ void test_text_sizes(Check check) noexcept {
     for (u32 i = 0; native_sizes && i < 4; ++i) {
         ShapedText out{};
         native_sizes = shaped_text_initialize(&out, {glyphs, 1024}, {runs, 256}, {clusters, 1024}) &&
-                       text_shape_utf8(&native, hello, {&native_spans[i], 1}, 1000, 1000, {utf16, 1024}, &out)
+                       text_shape_utf8(&native, {hello, {&native_spans[i], 1}, 1000, 1000}, &out)
                            .ok() &&
                        out.run_count && out.runs[0].native_font && out.runs[0].em_size == native_ems[i] &&
-                       text_measure_utf8(&native, hello, {&native_spans[i], 1}, 1000, 1000, {utf16, 1024})
+                       text_measure_utf8(&native, {hello, {&native_spans[i], 1}, 1000, 1000})
                            .ok();
         shaped_text_reset(&out);
     }
@@ -505,20 +505,20 @@ void test_text_sizes(Check check) noexcept {
     ShapedText long_out{};
     bool long_sizes = native.native_text && native.native_format &&
                       shaped_text_initialize(&long_out, {glyphs, 1024}, {runs, 256}, {clusters, 1024}) &&
-                      text_shape_utf8(&native, row, {many, 40}, 1000, 1000, {utf16, 1024}, &long_out).ok() &&
+                      text_shape_utf8(&native, {row, {many, 40}, 1000, 1000}, &long_out).ok() &&
                       long_out.glyph_count == 40;
     for (u32 i = 0; long_sizes && i < long_out.run_count; ++i)
         long_sizes = long_out.runs[i].em_size == 24;
     shaped_text_reset(&long_out);
-    const auto many_measure = text_measure_utf8(&native, row, {many, 40}, 1000, 1000, {utf16, 1024});
-    const auto whole_measure = text_measure_utf8(&native, row, {&whole, 1}, 1000, 1000, {utf16, 1024});
+    const auto many_measure = text_measure_utf8(&native, {row, {many, 40}, 1000, 1000});
+    const auto whole_measure = text_measure_utf8(&native, {row, {&whole, 1}, 1000, 1000});
     check(long_sizes && many_measure.ok() && whole_measure.ok() && many_measure.width == whole_measure.width &&
               many_measure.height == whole_measure.height,
           "long_sized_span_lists_fold_beyond_the_inline_buffer");
     TextStyleSpan invalid{0, 5, 0, text_size_count};
     check(em(hello, invalid) < 0 && em(hello, {0, 5, 0, 0}) < 0, "size_only_spans_need_a_valid_size");
     const auto measured = [&](TextStyleSpan span) noexcept {
-        return text_measure_utf8(&text_system, hello, {&span, 1}, 1000, 1000, {utf16, 1024}).height;
+        return text_measure_utf8(&text_system, {hello, {&span, 1}, 1000, 1000}).height;
     };
     check(measured({0, 5, 0, text_size_xl}) > measured({0, 5, text_style_bold}) &&
               measured({0, 5, 0, text_size_xs}) < measured({0, 5, text_style_bold}),
@@ -577,8 +577,8 @@ void test_quote_blocks(Check check) noexcept {
     // spans every line, 16 DIP left of the text.
     ShapedText out{};
     bool shaped = shaped_text_initialize(&out, {glyphs, 1024}, {runs, 256}, {clusters, 1024}, {decorations, 64}) &&
-                  text_shape_utf8(&text_system, body[1]->text, body[1]->styles, ui_rect_width(body[1]->rectangle),
-                                  4096, {utf16, 1024}, &out)
+                  text_shape_utf8(&text_system, {body[1]->text, body[1]->styles, ui_rect_width(body[1]->rectangle),
+                                  4096}, &out)
                       .ok();
     u32 spines = 0;
     TextDecoration spine{};
@@ -635,8 +635,7 @@ void test_native_text_never_fails(Check check) noexcept {
         text[n++] = 'c';
         const TextStyleSpan bold{0, n, text_style_bold, text_size_sm};
         shaped = shaped && shape_styled({text, n}, {}).ok;
-        measured = measured && text_measure_utf8(&text_system, {text, n}, {&bold, 1}, 1000, 1000,
-                                                 {utf16, 1024}).ok();
+        measured = measured && text_measure_utf8(&text_system, {{text, n}, {&bold, 1}, 1000, 1000}).ok();
     }
     check(shaped, "native_every_scalar_shapes_without_failing_the_item");
     check(measured, "native_every_scalar_measures_without_failing_the_item");
@@ -653,7 +652,7 @@ void test_native_text_never_fails(Check check) noexcept {
     bool agree = true;
     for (const Utf8View name : names) {
         const TextStyleSpan span{0, name.bytes, text_style_bold, text_size_sm};
-        const auto m = text_measure_utf8(&text_system, name, {&span, 1}, 400, 4096, {utf16, 1024});
+        const auto m = text_measure_utf8(&text_system, {name, {&span, 1}, 400, 4096});
         const Shaped s = shape_styled(name, {&span, 1}, 400);
         agree = agree && m.ok() && s.ok && close_to(m.width, s.width) && m.width > 20;
     }
@@ -675,7 +674,7 @@ void test_native_text_never_fails(Check check) noexcept {
         n += encode(kSimpleScripts[i], text + n);
         text[n++] = 'b';
         const Shaped s = shape_styled({text, n}, {});
-        const auto m = text_measure_utf8(&text_system, {text, n}, {}, 1000, 1000, {utf16, 1024});
+        const auto m = text_measure_utf8(&text_system, {{text, n}, {}, 1000, 1000});
         simple = simple && s.ok && m.ok() && s.notdef == (simple_script_covered[i] ? 0u : 2u) && s.width > ab &&
                  close_to(m.width, s.width);
     }
@@ -749,7 +748,7 @@ void test_native_text_never_fails(Check check) noexcept {
     for (u32 form = 0; form < 3; ++form) {
         const Utf8View text = forms[form];
         const TextStyleSpan span{0, text.bytes, 0, text_size_sm};
-        const auto m = text_measure_utf8(&text_system, text, {&span, 1}, 520, 1'000'000, {utf16, 1024});
+        const auto m = text_measure_utf8(&text_system, {text, {&span, 1}, 520, 1'000'000});
         const Shaped s = shape_styled(text, {&span, 1}, 520);
         cyrillic = cyrillic && m.ok() && s.ok && s.notdef <= (form == 2 ? 1u : 0u) && m.width > 100 &&
                    close_to(m.height, s.height);
@@ -765,7 +764,7 @@ void test_native_text_never_fails(Check check) noexcept {
             bytes += encode(0x2063, yi + bytes);
     }
     const TextStyleSpan span{0, bytes, 0, text_size_sm};
-    const auto m = text_measure_utf8(&text_system, {yi, bytes}, {&span, 1}, 400, 1'000'000, {utf16, 1024});
+    const auto m = text_measure_utf8(&text_system, {{yi, bytes}, {&span, 1}, 400, 1'000'000});
     check(m.ok() && m.line_count > 1, "native_pathological_field_measures");
 }
 

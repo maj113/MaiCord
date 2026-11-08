@@ -392,13 +392,11 @@ bool measure_rows(ApplicationSearch& s) noexcept {
         bank.measured_tracking == system.tracking && bank.measured_native_text == system.native_text &&
         bank.measured_native_format == system.native_format && bank.measured_dpi == g_app.renderer.dpi)
         return false;
-    wchar_t scratch[1024];
     for (u32 i = 0; i < bank.page.message_count; ++i) {
         UiSearchRow row{};
         if (!resolve(&s, i, &row))
             return false;
-        const auto measured = text_measure_utf8(&system, row.body, {}, width, 464.f, {scratch, 1024},
-                                                TextWrapping::wrap);
+        const auto measured = text_measure_utf8(&system, {row.body, {}, width, 464.f});
         bank.body_heights[i] = measured.ok() ? maximum(24.f, minimum(464.f, measured.height + 2.f)) : 48.f;
     }
     bank.measured_width = width;

@@ -238,7 +238,6 @@ struct SpacingLine {
     TextGlyph glyphs[kGlyphs];
     TextRun runs[8];
     u16 clusters[kGlyphs];
-    wchar_t utf16[kGlyphs];
 };
 SpacingLine g_line;
 
@@ -249,8 +248,7 @@ bool shape_line(D3D11Renderer& renderer, Utf8View text, u32 flags) noexcept {
         return false;
     // Plain body text carries no span, as the kit shapes it.
     const TextStyleSpan style{0, text.bytes, flags, 0, {}};
-    return text_shape_utf8(&renderer.glyph_text.system, text, {&style, flags ? 1u : 0u}, 4000, 400,
-                           {line.utf16, kGlyphs}, &line.shape, TextWrapping::no_wrap)
+    return text_shape_utf8(&renderer.glyph_text.system, {text, {&style, flags ? 1u : 0u}, 4000, 400, TextWrapping::no_wrap}, &line.shape)
         .ok();
 }
 

@@ -44,14 +44,14 @@ bool generation_recovery(const wchar_t* path) noexcept {
     u32 scope=0;CHECK(native_text_register_font_path(system.native_text,path,&scope)&&scope==31);
     CHECK(native_text_format_create(system.native_text,{{private_name,9},31,{400,5,0},16,64,true},&system.native_format)&&system.native_format==131);
     auto alias=system;alias.native_format=1;const auto before_id=native_text_format_identity(alias);const auto private_id=native_text_format_identity(system);auto* root=system.native_text;
-    GenerationOutput old,draw;CHECK(native_text_candidate_line(alias,utf8_literal("AV office"),1000,1000,&old.text,nullptr));
+    GenerationOutput old,draw;CHECK(native_text_candidate_line(alias,{utf8_literal("AV office"),{},1000,1000},&old.text,nullptr));
     auto* old_fonts=old.text.native_fonts();const auto old_run=old.text.runs[0].native_face;CHECK(native_font_run_get(*native_font_session_runs(old_fonts),old_run));
     struct Trial {ShapedText* output;const void* staged=nullptr;u32 calls=0;bool accept=false;} trial{&draw.text};
     const auto attempt=[](const TextSystem& staged,void* opaque) noexcept {
         auto& t=*static_cast<Trial*>(opaque);++t.calls;t.staged=staged.native_text;
         CHECK(!native_text_context_rebuild(staged,[](const TextSystem&,void*) noexcept {return true;},nullptr));
         if(!t.accept)return false;
-        return native_text_candidate_line(staged,utf8_literal("A \xce\xb1\xf0\x9f\x98\x80\xd0\x91 To"),1000,1000,t.output,nullptr);
+        return native_text_candidate_line(staged,{utf8_literal("A \xce\xb1\xf0\x9f\x98\x80\xd0\x91 To"),{},1000,1000},t.output,nullptr);
     };
     CHECK(!native_text_context_rebuild(system,attempt,&trial)&&trial.calls==1&&system.native_text==root&&native_text_format_identity(alias)==before_id&&native_text_format_identity(system)==private_id);
     MEMORY_BASIC_INFORMATION region{};CHECK(VirtualQuery(trial.staged,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE);
@@ -66,7 +66,7 @@ bool generation_recovery(const wchar_t* path) noexcept {
     // borrowed coverage all remain usable through the original context aliases.
     const u32 handles[]{1,64,65,129,130,131};for(u32 handle:handles){
         auto current=system;current.native_format=handle;current.em_size=handle==131?16.f:15.f+handle;TextMeasureResult result{};
-        CHECK(native_text_candidate_line(current,utf8_literal("AV office"),1000,1000,nullptr,&result)&&result.ok());
+        CHECK(native_text_candidate_line(current,{utf8_literal("AV office"),{},1000,1000},nullptr,&result)&&result.ok());
     }
     const auto changed_id=native_text_format_identity(alias);trial.accept=false;
     CHECK(!native_text_context_rebuild(alias,attempt,&trial)&&native_text_format_identity(alias)==changed_id&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
@@ -99,16 +99,16 @@ bool automatic_generation_recovery(const wchar_t* path) noexcept {
     // uses system fallback, leaving the unselected private file replaceable.
     CHECK(native_text_format_create(system.native_text,{{missing,17},scope,{400,5,0},16,64,true},&system.native_format));
     auto alias=system;const auto identity=native_text_format_identity(alias);auto* root=system.native_text;
-    GenerationOutput old,draw;CHECK(native_text_candidate_line(system,utf8_literal("AV office"),1000,1000,&old.text,nullptr));
+    GenerationOutput old,draw;CHECK(native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&old.text,nullptr));
     const auto old_run=old.text.runs[0].native_face;auto* old_fonts=old.text.native_fonts();
     CHECK(temp.replace(path));
     // Existing CFF bold simulation is unsupported. Failed staged preparation
     // must keep the original generation and independently retained output.
     CHECK(native_text_format_create(system.native_text,{{family,9},scope,{600,5,0},16,64,true},&system.native_format));
-    CHECK(!native_text_candidate_line(system,utf8_literal("AV office"),1000,1000,&draw.text,nullptr)&&!draw.text.native_fonts()&&!draw.text.run_count);
+    CHECK(!native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&draw.text,nullptr)&&!draw.text.native_fonts()&&!draw.text.run_count);
     CHECK(native_text_format_identity(alias)==identity&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
     CHECK(native_text_format_create(system.native_text,{{family,9},scope,{400,5,0},16,64,true},&system.native_format));
-    const bool recovered=native_text_candidate_line(system,utf8_literal("AV office"),1000,1000,&draw.text,nullptr);
+    const bool recovered=native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&draw.text,nullptr);
     if(recovery_expect_mismatch){
         CHECK(!recovered&&!draw.text.native_fonts()&&!draw.text.run_count&&native_text_format_identity(alias)==identity&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
         print("PASS injected second acquisition mismatch: bounded failure, original generation and output retained\n");return true;
@@ -120,7 +120,7 @@ bool automatic_generation_recovery(const wchar_t* path) noexcept {
     const auto* a=native_font_session_fonts(old_fonts);const auto* b=native_font_session_fonts(draw.text.native_fonts());
     const auto& a_file=a->files[a->faces[old_value->source.face.slot-1].file_slot];const auto& b_file=b->files[b->faces[new_value->source.face.slot-1].file_slot];
     CHECK(!bytes_equal(&a_file.identity,&b_file.identity,sizeof(a_file.identity)));
-    TextMeasureResult measured{};CHECK(native_text_candidate_line(alias,utf8_literal("AV office"),1000,1000,nullptr,&measured)&&measured.ok());
+    TextMeasureResult measured{};CHECK(native_text_candidate_line(alias,{utf8_literal("AV office"),{},1000,1000},nullptr,&measured)&&measured.ok());
     CHECK(measured.width==old.text.width&&measured.height==old.text.height);
     print("PASS automatic stale acquisition recovery after unselected ancestor replacement; old output retained, fallback geometry exact\n");return true;
 }

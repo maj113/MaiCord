@@ -95,7 +95,6 @@ inline i32 nearest_i32(float value) noexcept {
 constexpr i32 kSubpixelShift = 2, kSubpixelBins = 1 << kSubpixelShift;
 
 struct GlyphTextStorage {
-    wchar_t utf16[kRendererGlyphCapacity];
     TextGlyph glyphs[kRendererGlyphCapacity];
     TextRun runs[kRendererTextRunCapacity];
     u16 clusters[kRendererGlyphCapacity];
@@ -907,9 +906,7 @@ bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, GpuContext* cont
     // Login/content normally replaces the bootstrap title before the first draw.
     // Keep its shape and atlas entries absent until a caller actually needs them.
     if (owner->title.run_count == 0 &&
-        !text_shape_utf8(&owner->system, utf8_literal("MaiCord - GPU text"), {}, 600.0f, 64.0f,
-                         Slice<wchar_t>{owner->utf16, kRendererGlyphCapacity}, &owner->title)
-             .ok()) {
+        !text_shape_utf8(&owner->system, {utf8_literal("MaiCord - GPU text"), {}, 600.0f, 64.0f}, &owner->title).ok()) {
         return false;
     }
     if (reset_atlas) {
@@ -958,7 +955,7 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
 #endif
     if (!system.ok()) {
         d3d11_glyph_text_release(owner);
-        return initialize_result(D3D11GlyphTextInitializeError::text_system, system.native_error);
+        return initialize_result(D3D11GlyphTextInitializeError::text_system);
     }
     if (!shaped_text_initialize(&owner->title, Slice<TextGlyph>{owner->glyphs, kRendererGlyphCapacity},
                                 Slice<TextRun>{owner->runs, kRendererTextRunCapacity},

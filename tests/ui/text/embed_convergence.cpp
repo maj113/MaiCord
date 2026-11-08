@@ -40,11 +40,9 @@ struct Fixture {
 };
 Fixture fixture;
 TextSystem text_system;
-wchar_t scratch_text[8192];
 bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* output) noexcept {
     auto result = text_measure_utf8(
-        &text_system, request.text, request.styles, request.constraint.width, request.constraint.height,
-        {scratch_text, 8192}, request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap);
+        &text_system, {request.text, request.styles, request.constraint.width, request.constraint.height, request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap});
     *output = {{result.width_including_trailing_whitespace, result.height}, result.line_count};
     return result.ok();
 }

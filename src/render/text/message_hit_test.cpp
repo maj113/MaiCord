@@ -82,8 +82,7 @@ bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& co
            !take_position_spans(owner.storage,command,&styles))return false;
         u32 required_runs=0;NativeParagraphHitStorage storage{clusters,lines,advances,&geometry->hits,parts,runs,&required_runs,widths};
         const auto wrap=command.wrapping;
-        const bool built=styles.count?native_text_candidate_styled(system,shaped,styles,width,height,nullptr,&geometry->measure,wrap,TextOverflow::clip,{},&storage):
-            native_text_candidate_hits(system,shaped,width,height,wrap,storage,&geometry->measure);
+        const bool built=native_text_candidate_hits(system,{shaped,styles,width,height,wrap},storage,&geometry->measure);
         if(!built){const u32 required=native_text_candidate_hit_style_capacity(system);
             if(required>units||required_runs>units||(required<=style_capacity&&required_runs<=run_capacity)){
                 while(fallback_stage<TextNativeFallback::stages&&!fallback.build(system,shaping.text,fallback_stage))++fallback_stage;
