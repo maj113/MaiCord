@@ -226,7 +226,7 @@ __forceinline bool file_duplicate_sealed(FileHandle file, FileHandle* sealed) no
 inline bool dir_open(DirIter* iterator, const wchar_t* directory) noexcept {
     wchar_t pattern[1024];
     u32 length = 0;
-    while (directory[length] && length < 1020)
+    while (length < 1020 && directory[length])
         pattern[length] = directory[length], ++length;
     if (directory[length]) {
         SetLastError(ERROR_FILENAME_EXCED_RANGE);

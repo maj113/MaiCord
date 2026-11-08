@@ -76,9 +76,9 @@ inline u8 av1_stream_free_surface(const Av1GpuStreamState& state, u32 used, u32 
     for (const u8 surface : state.slot_surface)
         if (surface != kAv1NoSurface)
             used |= 1u << surface;
-    for (u8 i = 0; i < count; ++i)
+    for (u32 i = 0; i < count; ++i)
         if (!(used >> i & 1))
-            return i;
+            return static_cast<u8>(i);
     return kAv1NoSurface;
 }
 
