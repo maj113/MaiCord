@@ -8,7 +8,7 @@
 #   tools/test_client_wayland.sh --binary PATH         another build of the client
 #   tools/test_client_wayland.sh --scale 1.5           sway output scale (fractional; 2 is integer)
 #   tools/test_client_wayland.sh --gallium d3d12       GALLIUM_DRIVER for the client (WSL's GPU; default llvmpipe's software)
-#   tools/test_client_wayland.sh --settle 3 --idle 10  seconds before the first screenshot, and the idle measurement window
+#   tools/test_client_wayland.sh --settle 3 --idle 10  seconds from the window's appearance to the first screenshot, and the idle window
 #   tools/test_client_wayland.sh --out DIR             logs and screenshots (default ~/mc-client-qa)
 #   tools/test_client_wayland.sh --keep                leave the client running when the script ends (sway stays up with it)
 #   tools/test_client_wayland.sh --terminate TERM|INT|HUP  end the run with that signal and check for a clean exit (status 0, normal_exit logged)
@@ -109,6 +109,15 @@ export MAICORD_SECRET_SERVICE=off
 "$binary" > "$out/client.out" 2>&1 &
 client_pid=$!
 status=0
+# A cold start (a fresh CI runner where nothing has loaded Mesa yet) can take longer than the settle time to map the
+# window: on sway, wait for it first (at most 30 s), then settle.
+if [ "$compositor" != current ]; then
+    for _ in $(seq 1 300); do
+        kill -0 "$client_pid" 2>/dev/null || break
+        swaymsg -t get_tree 2>/dev/null | grep -q '"io.github.maj113.MaiCord"' && break
+        sleep 0.1
+    done
+fi
 sleep "$settle"
 if ! kill -0 "$client_pid" 2>/dev/null; then
     wait "$client_pid"; echo "the client exited early (status $?); see $out/client.out and the log" >&2
