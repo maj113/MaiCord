@@ -1,0 +1,21 @@
+Package: maicord
+Architecture: amd64
+Version: 0.7.0
+Priority: optional
+Section: net
+Maintainer: maj113 <https://github.com/maj113/MaiCord/issues>
+Installed-Size: 8709
+Depends: libc6 (>= 2.34), libssl3t64 | libssl3 | libssl4, libwayland-client0, libwayland-egl1, libwayland-cursor0, libxkbcommon0, libegl1, libgles2
+Recommends: libgl1-mesa-dri, libpulse0, libfontconfig1, fonts-noto-color-emoji, xdg-desktop-portal, libhunspell-1.7-0 | libenchant-2-2, gnome-keyring | kwalletmanager | keepassxc
+Suggests: fonts-noto-cjk, hunspell-en-us, enchant-2, speech-dispatcher, libfido2-1
+Filename: pool/main/m/maicord/maicord_0.7.0_amd64.deb
+Size: 4983440
+MD5sum: 127fb078e783211560aebfc9870db97e
+SHA1: 6656010fae0da74c97a8f4458f097a9debfd0c59
+SHA256: 2125c5e8f8f55b17b3ba821945a64426d0489640aa8da0c3c877bd821c17db7a
+SHA512: 6f5c3ebacb65edbfd988801328eff18170d9331d89b1ed8ebfde86cdc4a658c3686447abbec5e8cc15e0c7074949042384c9ee10bad1be293d9e6c384db3f2c7
+Homepage: https://maicord.com/
+Description: A lightweight, native Discord client (unofficial).
+ MaiCord draws its own interface on the GPU; there is no Electron, browser engine or web view. It is not affiliated
+ with, endorsed by or supported by Discord Inc.
+
