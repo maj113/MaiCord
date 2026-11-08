@@ -175,7 +175,31 @@ bool styled_paragraph_cases() noexcept {
     CHECK(leading_hits()==SfntStatus::ok&&native_paragraph_hit_point(hits,-1,5,&point)==SfntStatus::ok&&!point.source_position&&!point.inside);
     return true;
 }
+// The ASCII pair table agrees with unicode_line_breaks (UAX #14, checked
+// against LineBreakTest.txt): every pair of printable ASCII, TAB, CR and LF
+// bytes, and every string of up to five bytes over one byte per class, deep
+// enough for LB15c, LB20a and the LB25 number contexts.
+bool ascii_break_equivalence() noexcept {
+    const auto same=[](const char* bytes,u32 count) noexcept {
+        NativeParagraphCluster clusters[5]{};u32 scalars[5];u8 breaks[6];
+        for(u32 i=0;i<count;++i){clusters[i]={i,i+1,0,0,0,0};scalars[i]=static_cast<u8>(bytes[i]);}
+        native_ascii_paragraph_flags({bytes,count},{clusters,count});
+        if(!unicode_line_breaks({scalars,count},{breaks,count+1}))return false;
+        for(u32 i=1;i<count;++i)if(((clusters[i].flags&native_paragraph_break_before)!=0)!=(breaks[i]!=0))return false;
+        return true;
+    };
+    char bytes[5];
+    for(u32 a=9;a<127;++a)for(u32 b=9;b<127;++b){
+        if((a>13&&a<32)||a==11||a==12||(b>13&&b<32)||b==11||b==12)continue;
+        bytes[0]=static_cast<char>(a);bytes[1]=static_cast<char>(b);CHECK(same(bytes,2));
+    }
+    constexpr char classes[]="a0 ()}!./\"-\t$%\r\n";constexpr u32 n=sizeof(classes)-1;
+    for(u32 length=1;length<=5;++length){u32 total=1;for(u32 i=0;i<length;++i)total*=n;
+        for(u32 index=0;index<total;++index){u32 v=index;for(u32 i=0;i<length;++i){bytes[i]=classes[v%n];v/=n;}CHECK(same(bytes,length));}}
+    return true;
+}
 bool paragraph_cases() noexcept {
+    CHECK(ascii_break_equivalence());
     NativeParagraphShape shape{6,3,5,{10,7}};
     NativeParagraphCluster flagged[6]{};for(u32 i=0;i<6;++i)flagged[i]={i,i+1,0,0,0,0};
     native_ascii_paragraph_flags(utf8_literal("ab \t\r\n"),{flagged,6});

@@ -6,14 +6,11 @@ offline development inputs: normal CMake builds use the checked-in generated
 files and need neither Python nor a network connection.
 
 The native tests (`MaiCordUnicodeTests`, `MaiCordBidiTests`,
-`MaiCordLineTailoredTests`) run through the build script:
+`MaiCordLineBreakTests`) run through the build script:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test -TestNames maicord_native_unicode,maicord_native_bidi,maicord_native_line_compat
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test -TestNames maicord_native_unicode,maicord_native_bidi,maicord_native_line_break
 ```
-
-Unicode conformance does not establish DirectWrite or app parity (layout,
-carets, pixels).
 
 ## Property data
 
@@ -30,16 +27,18 @@ notice in `assets/licenses/Unicode-3.0.txt`.
 
 Output is `include/maicord/text/unicode/generated/unicode_data.hpp`,
 `src/text/unicode/generated/unicode_data.inc` (with the deflated tables in
-`unicode_data_packed.bin`, inflated on the first non-ASCII lookup) and the official grapheme vectors in
-`tests/generated/grapheme_break_test.inc`. `--repo <scratch-root>` regenerates
+`unicode_data_packed.bin`, inflated on the first non-ASCII lookup) and the official
+break vectors: GraphemeBreakTest.txt in `tests/generated/grapheme_break_test.inc`,
+LineBreakTest.txt in `tests/generated/line_break_test.inc` and `.bin`. `--repo <scratch-root>` regenerates
 into another root. The report records input hashes, enum labels and bit
 positions, layout candidates, generated-file hashes and counts.
 
 The stored properties are `FIELDS` and `FLAGS` in the script; Script_Extensions
-contributes only Arabic membership. The first record word holds the fields the
+contributes only Arabic membership and East_Asian_Width only the UAX #14
+`$EastAsian` bit (F, W or H). The first record word holds the fields the
 per-scalar text passes read (bidi class, general category, line and grapheme
-break, joining type, flags), the second script, combining class and the Indic
-categories.
+break, joining type, flags), the second script, combining class, the Indic
+categories and the East Asian bit.
 Records sit behind a three-level page index (shared pages, direct IDs for uniform
 spans, a 128-entry ASCII index); `compact_pages.py` overlaps pages, identical
 unassigned planes share one plane's top-index blocks, and reconstruction is
@@ -64,7 +63,7 @@ Expected values come from the [flat XML dataset](https://www.unicode.org/Public/
 compares every code point, all stored fields and flags, both derived predicates
 and mirror and bracket values exactly, and rejects non-contiguous coverage,
 truncation and trailing data. `<native.bin>` is `MCUCDS2` plus NUL, then per code
-point ten field bytes in schema order, three little-endian uint32 (flags,
+point eleven field bytes in schema order, three little-endian uint32 (flags,
 mirror, paired bracket) and one bracket-type byte.
 
 ## Grapheme clusters
@@ -74,7 +73,9 @@ mirror, paired bracket) and one bracket-type byte.
 bytes of state, one pass, no allocation or backward scan. Keep the state across
 chunks and reset it at the start of text. The caller supplies decoded scalar
 values and handles malformed encoding. These are default Unicode boundaries, not
-shaping clusters or a Windows caret policy.
+shaping clusters or a Windows caret policy. `MaiCordUnicodeTests` passes all 766
+cases of GraphemeBreakTest.txt. The engine has no UAX #29 word or sentence
+segmenter.
 
 ## Bidirectional ordering
 
@@ -101,18 +102,24 @@ repository, so CTest alone does not establish conformance.
 
 ## Line-break opportunities
 
-`line_breaks_tailored` (`include/maicord/text/unicode/detail/line_break_tailored.hpp`)
-is the en-US line-break tailoring message layout uses, matching the platform
-text stack: Unicode 17 / UAX #14 revision 55 with the platform's class
-remappings. It takes scalar values as a UTF decoder yields them and writes
-`count + 1` caller-owned bytes (0 prohibited, 1 allowed, 2 mandatory), in one
-linear pass with constant additional state; null input or short output leaves
-the output untouched. It is not a
-dictionary segmenter.
+`unicode_line_breaks` (`include/maicord/text/unicode/detail/line_break.hpp`)
+implements the default rules of
+[UAX #14 revision 55](https://www.unicode.org/reports/tr14/tr14-55.html) (Unicode
+17.0.0) without tailoring, LB1 included (AI, SG, XX to AL; SA to CM or AL; CJ to
+NS); Thai runs then take dictionary breaks from `native_thai_word_breaks`. It
+takes scalar values as a UTF decoder yields them and writes `count + 1`
+caller-owned bytes (0 prohibited, 1 allowed, 2 mandatory), in one linear pass
+with constant additional state; null input or short output leaves the output
+untouched. Rules that read ahead (LB15b, LB15c, LB19a, LB25, LB28a) keep their
+boundary's fallback until the next one or two bases arrive. Pairs whose answer
+depends on their two classes alone come from a table built from the rules at
+compile time; the rest run the rules in order. The ASCII paragraph path
+(`ascii_paragraph.cpp`) applies the same rules to bytes.
 
-`MaiCordLineTailoredTests` runs unit and stress checks and imports only
-KERNEL32.dll. The official `LineBreakTest.txt` cases are not compiled into the
-repository.
+`MaiCordLineBreakTests` passes all 19,338 cases of LineBreakTest.txt and runs
+unit and stress checks; `maicord_native_run_plans` checks the ASCII path against
+it over every byte pair and every string of up to five bytes over the ASCII
+classes.
 
 ## Thai word breaking data
 

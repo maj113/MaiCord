@@ -79,11 +79,11 @@ maicord_test(MaiCordBidiTests ENTRY maicord_bidi_tests_entry SOURCES tests/text/
     LIBS maicord_core maicord_unicode
     BUNDLE MaiCordTextUnitTests
     TEST maicord_native_bidi)
-maicord_test(MaiCordLineTailoredTests ENTRY maicord_line_tailored_entry SOURCES
-        tests/text/unicode/line_tailored_test.cpp
+maicord_test(MaiCordLineBreakTests ENTRY maicord_line_break_entry SOURCES
+        tests/text/unicode/line_break_test.cpp
     LIBS maicord_core maicord_unicode
     BUNDLE MaiCordTextUnitTests
-    TEST maicord_native_line_compat)
+    TEST maicord_native_line_break)
 maicord_font_test(MaiCordLayoutTableTests maicord_layout_tables_entry text/opentype/layout_tables_test
     TEST maicord_native_layout_tables)
 maicord_font_test(MaiCordGdefTests maicord_gdef_tests_entry text/opentype/gdef_test

@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import optimal_deflate  # noqa: E402
 LIMIT = 0x110000
 EXPECTED_UCD_SHA256 = '2066d1909b2ea93916ce092da1c0ee4808ea3ef8407c94b4f14f5b7eb263d28e'
-# Runtime text properties: UCD alias, C++ name, getter, source, default.
+# Runtime text properties: UCD alias, C++ name, getter, source, default. A field
+# without a C++ name is a number (ccc) or, for ea, the bit UAX #14 reads: whether
+# East_Asian_Width is F, W or H ($EastAsian).
 FIELDS = [
     ('bc', 'BidiClass', 'bidi_class', 'extracted/DerivedBidiClass.txt', 'L'),
     ('gc', 'GeneralCategory', 'general_category', 'extracted/DerivedGeneralCategory.txt', 'Cn'),
@@ -27,7 +29,9 @@ FIELDS = [
     ('InCB', 'IndicConjunctBreak', 'indic_conjunct_break', 'DerivedCoreProperties.txt', 'None'),
     ('InSC', 'IndicSyllabicCategory', 'indic_syllabic_category', 'IndicSyllabicCategory.txt', 'Other'),
     ('InPC', 'IndicPositionalCategory', 'indic_positional_category', 'IndicPositionalCategory.txt', 'NA'),
+    ('ea', None, 'east_asian_wide', 'EastAsianWidth.txt', 'N'),
 ]
+EAST_ASIAN = ('F', 'W', 'H')
 FLAGS = ['Default_Ignorable_Code_Point', 'White_Space', 'Bidi_Mirrored',
          'Emoji', 'Extended_Pictographic', 'Variation_Selector',
          'Arabic_Script_Extension']
@@ -167,6 +171,26 @@ def tier(values, shift, uniform):
     return ids, flat
 
 
+def official_vectors(lines, first):
+    """The cases of an official break test file, each a list of (scalar, whether a boundary precedes it). Every
+    case opens with the marker `first` and ends in a boundary."""
+    for line in lines:
+        tokens = line.partition('#')[0].split()
+        if not tokens:
+            continue
+        if len(tokens) % 2 != 1 or tokens[0] != first or tokens[-1] != '÷':
+            raise ValueError('Invalid official break vector')
+        case = []
+        for i in range(1, len(tokens), 2):
+            if tokens[i-1] not in ('÷', '×'):
+                raise ValueError('Invalid break marker')
+            cp = int(tokens[i], 16)
+            if not 0 <= cp < LIMIT or 0xd800 <= cp <= 0xdfff:
+                raise ValueError('Invalid test scalar')
+            case.append((cp, tokens[i-1] == '÷'))
+        yield case
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--ucd', required=True, type=Path)
@@ -226,7 +250,10 @@ def main():
                         value = parts[1]
                     lo, end = bounds(parts[0])
                     values[lo:end] = bytes([number(value)]) * (end - lo)
-            if key != 'ccc':
+            if key == 'ea':
+                wide = {number(value) for value in EAST_ASIAN}
+                values = bytearray(value in wide for value in values)
+            elif key != 'ccc':
                 used = set(values)
                 if key == 'sc':
                     for line in read('ScriptExtensions.txt'):
@@ -268,11 +295,11 @@ def main():
         widths = [max(1, max(column).bit_length()) for column in columns]
         # The first word holds every field the per-scalar text passes read
         # (bidi class, general category, line and grapheme break, joining type,
-        # flags); script, combining class and the Indic categories fill the
-        # second. No field crosses a word. Keep FIELDS in the native dump/schema
-        # order used by verify_xml.py.
+        # flags); script, combining class, the Indic categories and the East
+        # Asian bit fill the second. No field crosses a word. Keep FIELDS in the
+        # native dump/schema order used by verify_xml.py.
         offsets, bits = [0] * len(widths), 0
-        for i in (0, 1, 5, 4, 7, 6, 10, 2, 3, 8, 9):
+        for i in (0, 1, 5, 4, 7, 6, 11, 2, 3, 8, 9, 10):
             if bits // 32 != (bits + widths[i] - 1) // 32:
                 raise ValueError(f'Field {i} crosses a 32-bit word')
             offsets[i] = bits; bits += widths[i]
@@ -328,21 +355,17 @@ def main():
             if line.strip() and not line.lstrip().startswith('#'):
                 parts = fields(line); brackets.append((int(parts[0], 16), int(parts[1], 16), {'o': 1, 'c': 2}[parts[2]]))
         graphemes, grapheme_count = [], 0
-        for line in read('auxiliary/GraphemeBreakTest.txt'):
-            tokens = line.partition('#')[0].split()
-            if not tokens:
-                continue
-            if len(tokens)%2 != 1 or tokens[0] != '÷' or tokens[-1] != '÷':
-                raise ValueError('Invalid official grapheme vector')
-            case = []
-            for i in range(1,len(tokens),2):
-                if tokens[i-1] not in ('÷','×'):
-                    raise ValueError('Invalid grapheme boundary marker')
-                cp = int(tokens[i],16)
-                if not 0 <= cp < LIMIT or 0xd800 <= cp <= 0xdfff:
-                    raise ValueError('Invalid test scalar')
-                case.append(cp | (0x80000000 if tokens[i-1]=='÷' else 0))
-            graphemes.extend([len(case),*case]);grapheme_count += 1
+        for case in official_vectors(read('auxiliary/GraphemeBreakTest.txt'), '÷'):
+            graphemes.extend([len(case), *(cp | (0x80000000 if boundary else 0) for cp, boundary in case)])
+            grapheme_count += 1
+        line_vectors, line_count = bytearray(), 0
+        for case in official_vectors(read('auxiliary/LineBreakTest.txt'), '×'):
+            if len(case) > 255:
+                raise ValueError('Line break vector exceeds its count byte')
+            line_vectors.append(len(case))
+            for cp, boundary in case:
+                line_vectors += (cp | boundary << 23).to_bytes(3, 'little')
+            line_count += 1
     mirrors.sort(); brackets.sort()
     notice = '// Generated from Unicode 17.0.0; do not edit. Unicode License v3.\n// Copyright (c) 1991-2025 Unicode, Inc. See assets/licenses/Unicode-3.0.txt.\n'
     header = notice + '#pragma once\n#include "maicord/text/base.hpp"\nnamespace maicord {\n'
@@ -354,7 +377,7 @@ def main():
     header += 'private:\n    template<u32 At,u32 Width> constexpr u32 value() const noexcept {return (words[At/32]>>(At%32))&((1u<<Width)-1);}\n'
     header += 'public:\n'
     for i, (key, enum, getter, *_) in enumerate(FIELDS):
-        kind = 'Unicode' + enum if enum else 'u8'
+        kind = 'Unicode' + enum if enum else 'bool' if key == 'ea' else 'u8'
         header += f'    constexpr {kind} {getter}() const noexcept {{return static_cast<{kind}>(value<{offsets[i]},{widths[i]}>());}}\n'
     header += f'    constexpr u32 flags() const noexcept {{return value<{offsets[-1]},{widths[-1]}>();}}\n'
     header += '    constexpr bool has(UnicodeFlag flag) const noexcept {return (flags()&static_cast<u32>(flag))!=0;}\n};\n'
@@ -370,16 +393,27 @@ def main():
     gpath = args.repo / 'tests/generated/grapheme_break_test.inc'
     gpath.parent.mkdir(parents=True, exist_ok=True)
     gpath.write_text(notice + f'static constexpr u32 grapheme_vector_count={grapheme_count};\n' + cpp_array('u32','grapheme_vectors',graphemes), encoding='utf-8', newline='\n')
+    lpath = args.repo / 'tests/generated/line_break_test.inc'
+    lbin = lpath.with_suffix('.bin')
+    lbin.write_bytes(line_vectors)
+    lpath.write_text(notice + '// Each case: a count byte, then per scalar 3 little-endian bytes, the scalar with bit 23 set\n'
+                     '// where a break opportunity precedes it. Every case ends in an opportunity.\n'
+                     '#pragma clang diagnostic push\n#pragma clang diagnostic ignored "-Wc++26-extensions"\n'
+                     f'static constexpr u32 line_break_vector_count={line_count};\n'
+                     f'static constexpr u8 line_break_vectors[]{{\n#embed "{lbin.name}"\n}};\n#pragma clang diagnostic pop\n',
+                     encoding='utf-8', newline='\n')
     auxiliary_bytes = 128 + len(mirrors)*4
     report = {'unicode_version': '17.0.0', 'ucd_sha256': digest(args.ucd.read_bytes()), 'sources': used_sources,
               'fields': [{'ucd': k, 'getter': g, 'enum': e, 'values': enumerations.get(k), 'offset': offsets[i], 'width': widths[i]}
                          for i, (k,e,g,*_) in enumerate(FIELDS)],
               'flags': [{'name': name, 'xml': alias, 'bit': i} for i, (name, alias) in enumerate(zip(FLAGS, FLAG_XML))],
               'record_count': len(records),
-              'grapheme_vectors': grapheme_count, 'grapheme_scalars': len(graphemes)-grapheme_count, 'record_bits': bits, 'record_bytes': words*4, 'layout': layout, 'layout_candidates': candidates,
+              'grapheme_vectors': grapheme_count, 'grapheme_scalars': len(graphemes)-grapheme_count,
+              'line_break_vectors': line_count, 'line_break_scalars': (len(line_vectors)-line_count)//3,
+              'record_bits': bits, 'record_bytes': words*4, 'layout': layout, 'layout_candidates': candidates,
               'table_bytes': layout['index_bytes'] + len(records)*words*4 + auxiliary_bytes, 'packed_table_bytes': len(packed),
               'mirror_count': len(mirrors), 'bracket_count': len(brackets),
-              'generated': {str(p.relative_to(args.repo)): digest(p.read_bytes()) for p in [hpath,dpath,ppath,gpath]}}
+              'generated': {str(p.relative_to(args.repo)): digest(p.read_bytes()) for p in [hpath,dpath,ppath,gpath,lpath,lbin]}}
     args.report.parent.mkdir(parents=True, exist_ok=True); args.report.write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps({k:report[k] for k in ['record_count','record_bits','record_bytes','layout','table_bytes','mirror_count','bracket_count']}))
 

@@ -65,6 +65,9 @@ def main():
                     key = field['ucd']
                     if key == 'ccc':
                         expected.append(int(values[key]))
+                    elif key == 'ea':
+                        # Stored as the UAX #14 $EastAsian bit: Fullwidth, Wide or Halfwidth.
+                        expected.append(int(values[key] in ('F', 'W', 'H')))
                     else:
                         value = aliases[key].get(values[key], values[key])
                         expected.append(field['values'].index(value))

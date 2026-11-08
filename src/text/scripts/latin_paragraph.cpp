@@ -3,26 +3,12 @@
 #include "maicord/text/scripts/latin_line.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/text/layout/visibility.hpp"
-#include "maicord/text/unicode/detail/line_break_tailored.hpp"
+#include "maicord/text/unicode/detail/line_break.hpp"
 #include "maicord/text/unicode/detail/thai_word_break.hpp"
 #include "../shaping/script_paragraph.hpp"
 namespace maicord {namespace {
 bool control(u32 cp) noexcept {return cp==9||cp==10||cp==13||cp==0x85||cp==0x2028||cp==0x2029;}
 bool nonvisual(u32 cp) noexcept {return cp==0x200b||native_text_bidi_format(cp)||native_text_zero_width_control(cp);}
-void format_boundaries(ConstSlice<u32> scalars,Slice<u8> breaks) noexcept {
-    // Windows retains explicit-level cuts between invisible items even when
-    // their final resolved levels agree. Reuse a free bit in boundary scratch.
-    u8 levels[126]{};u32 depth=1,overflow=0;u8 previous=0;bool previous_format=false;
-    for(u32 i=0;i<scalars.count;++i){const u32 cp=scalars[i];u8 level=levels[depth-1];
-        if(cp==0x202a||cp==0x202b||cp==0x202d||cp==0x202e){const bool odd=cp==0x202b||cp==0x202e;
-            const u32 next=odd?((level+1u)|1u):((level+2u)&~1u);
-            if(next<=125&&!overflow){level=static_cast<u8>(next);levels[depth++]=level;}else ++overflow;
-        }else if(cp==0x202c){if(overflow)--overflow;else if(depth>1)--depth;}
-        const bool format=native_text_bidi_format(cp);if(format&&previous_format&&level!=previous)breaks[i]|=4;
-        previous=level;previous_format=format;
-        if(unicode_properties(cp)->bidi_class()==UnicodeBidiClass::b){depth=1;overflow=0;previous=0;previous_format=false;}
-    }
-}
 }
 SfntStatus native_latin_paragraph_boundaries(Utf8View text,Slice<NativeParagraphCluster> clusters,NativeLatinBoundaryStorage s) noexcept {
     if((text.bytes&&!text.data)||(clusters.count&&!clusters.data)||(s.scalar_count&&!s.scalar_data)||(s.breaks.count&&!s.breaks.data))return SfntStatus::invalid_input;
@@ -30,9 +16,8 @@ SfntStatus native_latin_paragraph_boundaries(Utf8View text,Slice<NativeParagraph
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return SfntStatus::invalid_input;
         if(count==s.scalar_count)return SfntStatus::output_too_small;s.scalar_data[count++]=cp.codepoint;thai|=cp.codepoint-0xe00u<128;bidi_format|=native_text_bidi_format(cp.codepoint);units+=cp.codepoint>65535?2u:1u;at+=cp.width;}
     if(s.breaks.count<=count)return SfntStatus::output_too_small;
-    if(!line_breaks_tailored({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
+    if(!unicode_line_breaks({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
     if(thai&&!native_thai_word_breaks({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
-    if(bidi_format)format_boundaries({s.scalar_data,count},s.breaks);
     u32 scalar=0,source=0,previous=0;
     for(u32 i=0;i<clusters.count;++i){auto& c=clusters[i];
         if(c.source_first!=previous||c.source_end<=c.source_first||c.source_end>units)return SfntStatus::invalid_input;

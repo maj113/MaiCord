@@ -5,49 +5,73 @@
 #include "../opentype/layout_float.hpp"
 namespace maicord {namespace {
 using B=UnicodeLineBreak;
-B kind(char c) noexcept {return unicode_properties(static_cast<u8>(c))->line_break();}
-// LB rules for ASCII between a and b; visible is the class of the last
-// non-space character before them (xx when none).
+inline B kind(char c) noexcept {return unicode_properties(static_cast<u8>(c))->line_break();}
+constexpr bool affix(B b) noexcept {return b==B::pr||b==B::po;}
+// UAX #14 (revision 55) for ASCII between a and b, as unicode_line_breaks
+// decides it; visible is the class of the last non-space character before
+// them (xx when none). Pairs in contextual() read more than this.
 constexpr bool allowed(B a,B b,B visible) noexcept {
-    if(a==B::cr&&b==B::lf)return false;if(a==B::cr||a==B::lf)return true;
-    if(b==B::sp||b==B::cr||b==B::lf)return false;
-    if(b==B::cl||b==B::cp||b==B::ex||b==B::is||b==B::sy)return false;
-    if(visible==B::op)return false;
-    if(visible==B::qu&&b==B::op)return false;
-    if(a==B::sp)return true;
-    if(a==B::qu||b==B::qu||b==B::hy||b==B::ba)return false;
-    if((a==B::al&&b==B::nu)||(a==B::nu&&b==B::al))return false;
-    if((a==B::pr||a==B::po)&&b==B::al)return false;
-    if(((a==B::pr||a==B::po)&&(b==B::op||b==B::nu))||((a==B::op||a==B::hy||a==B::is||a==B::sy)&&b==B::nu))return false;
-    if(a==B::nu&&(b==B::nu||b==B::pr||b==B::po))return false;
-    if((a==B::cp||a==B::cl)&&(b==B::pr||b==B::po))return false;
-    if((a==B::al&&b==B::al)||(a==B::is&&b==B::al)||((a==B::al||a==B::nu)&&b==B::op)||(a==B::cp&&(b==B::al||b==B::nu)))return false;
+    if(a==B::cr&&b==B::lf)return false;if(a==B::cr||a==B::lf)return true; // LB4, LB5
+    if(b==B::sp||b==B::cr||b==B::lf)return false; // LB6, LB7
+    if(b==B::cl||b==B::cp||b==B::ex||b==B::sy)return false; // LB13
+    if(visible==B::op)return false; // LB14
+    if(b==B::is)return false; // LB15d
+    if(a==B::sp)return true; // LB18
+    if(a==B::qu||b==B::qu||b==B::hy||b==B::ba)return false; // LB19, LB21
+    if((a==B::al&&b==B::nu)||(a==B::nu&&b==B::al))return false; // LB23
+    if((affix(a)&&b==B::al)||(a==B::al&&affix(b)))return false; // LB24
+    if((a==B::nu&&(affix(b)||b==B::nu))||((affix(a)||a==B::hy||a==B::is)&&b==B::nu))return false; // LB25
+    if((a==B::al&&b==B::al)||(a==B::is&&b==B::al))return false; // LB28, LB29
+    if(((a==B::al||a==B::nu)&&b==B::op)||(a==B::cp&&(b==B::al||b==B::nu)))return false; // LB30
     return true;
 }
+// The pairs that read context beyond the pair: SP ÷ IS NU (LB15c), a
+// word-initial hyphen (LB20a) and the number rules of LB25.
+constexpr bool contextual(B a,B b) noexcept {
+    return (a==B::sp&&b==B::is)||(a==B::hy&&b==B::al)||((a==B::cl||a==B::cp||a==B::sy||a==B::is)&&affix(b))||
+        (a==B::sy&&b==B::nu)||(affix(a)&&b==B::op);
+}
 // The classes of printable ASCII, TAB, CR and LF, and the rules above over all
-// their pairs: one row of break bits per class a before the pair, indexed by b.
+// their pairs: one row per class a before the pair, indexed by b, with the
+// break bits low and the contextual pairs high.
 constexpr B classes[16]={B::al,B::nu,B::sp,B::op,B::cp,B::cl,B::ex,B::is,B::sy,B::qu,B::hy,B::ba,B::pr,B::po,B::cr,B::lf};
-constexpr u32 space_id=2,no_visible=16;
-struct Rules {u16 after[16],after_space[17];u8 id[static_cast<u32>(B::zwj)+1];};
+constexpr u32 nu_id=1,space_id=2,op_id=3,cp_id=4,cl_id=5,is_id=7,sy_id=8,hy_id=10,pr_id=12,po_id=13,cr_id=14,lf_id=15,no_visible=16;
+struct Rules {u32 after[16],after_space[17];u8 id[static_cast<u32>(B::zwj)+1];};
 constexpr Rules make_rules() noexcept {
     Rules r{};
-    for(u32 a=0;a<16;++a)for(u32 b=0;b<16;++b)r.after[a]|=static_cast<u16>(allowed(classes[a],classes[b],classes[a])<<b);
-    for(u32 v=0;v<17;++v)for(u32 b=0;b<16;++b)r.after_space[v]|=static_cast<u16>(allowed(B::sp,classes[b],v<16?classes[v]:B::xx)<<b);
+    for(u32 a=0;a<16;++a)for(u32 b=0;b<16;++b)
+        r.after[a]|=static_cast<u32>(allowed(classes[a],classes[b],classes[a]))<<b|static_cast<u32>(contextual(classes[a],classes[b]))<<(b+16);
+    // After spaces LB14 holds before LB15c.
+    for(u32 v=0;v<17;++v)for(u32 b=0;b<16;++b)r.after_space[v]|=static_cast<u32>(allowed(B::sp,classes[b],v<16?classes[v]:B::xx))<<b|
+        static_cast<u32>(v!=op_id&&contextual(B::sp,classes[b]))<<(b+16);
     for(u32 c=0;c<16;++c)r.id[static_cast<u32>(classes[c])]=static_cast<u8>(c);
     return r;
 }
 constexpr Rules rules=make_rules();
+u32 id_at(const char* data,u32 bytes,u32 at) noexcept {return at<bytes?rules.id[static_cast<u32>(kind(data[at]))]:no_visible;}
+// A contextual pair after a, with its second byte at at; the rare pairs read the bytes around them.
+__declspec(noinline) bool contextual_break(u32 a,const char* data,u32 bytes,u32 at) noexcept {
+    const auto id=[data,bytes](u32 i) noexcept {return id_at(data,bytes,i);};
+    if(a==space_id)return id(at+1)==nu_id; // LB15c
+    if(a==hy_id){const u32 before=at>=2?id(at-2):no_visible;return before!=space_id&&before!=cr_id&&before!=lf_id&&before!=no_visible;} // LB20a
+    if(a==pr_id||a==po_id){const u32 next=id(at+1);return next!=nu_id&&(next!=is_id||id(at+2)!=nu_id);} // LB25: (PR|PO) × OP IS? NU
+    // LB25: NU (SY|IS)* (CL|CP)? × (PO|PR), NU (SY|IS)* × NU
+    u32 i=at-(a==cl_id||a==cp_id?2u:1u);
+    while(i<at&&(id(i)==sy_id||id(i)==is_id))--i;
+    return i>=at||id(i)!=nu_id;
+}
 float tab(float pen,float stop) noexcept {
     const float q=pen/stop;if(!(q>=0)||q>1000000)return -1;
     return static_cast<float>(static_cast<u32>(q)+1)*stop;
 }
 }
 void native_ascii_paragraph_flags(Utf8View text,Slice<NativeParagraphCluster> clusters) noexcept {
-    u32 next=0,previous=0,visible=no_visible;
-    for(u32 at=0;at<text.bytes&&next<clusters.count;++at){const u32 b=rules.id[static_cast<u32>(kind(text.data[at]))];
+    const char* data=text.data;const u32 bytes=text.bytes;u32 next=0,previous=0,visible=no_visible;
+    for(u32 at=0;at<bytes&&next<clusters.count;++at){const u32 b=rules.id[static_cast<u32>(kind(data[at]))];
         if(clusters[next].source_first==at){auto& c=clusters[next++];
-            const u32 row=previous==space_id?rules.after_space[visible]:rules.after[previous];
-            c.flags|=(b==space_id?native_paragraph_space:0)|(at&&(row>>b&1)?native_paragraph_break_before:0);}
+            const u32 bits=(previous==space_id?rules.after_space[visible]:rules.after[previous])>>b;
+            const bool split=bits&0x10000?contextual_break(previous,data,bytes,at):bits&1;
+            c.flags|=(b==space_id?native_paragraph_space:0)|(at&&split?native_paragraph_break_before:0);}
         previous=b;if(b!=space_id)visible=b;}
 }
 SfntStatus native_line_trim_cut(ConstSlice<NativeParagraphCluster> clusters,float width,float extent,

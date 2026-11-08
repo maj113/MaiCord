@@ -47,13 +47,13 @@ extern const UnicodeProperties unicode_ascii_records[] = {
     {{0x017c1b2eu,0x015900adu}},
     {{0x097c2e4eu,0x015900adu}},
 };
-static constexpr u32 unicode_table_bytes=44720,unicode_mirror_count=428;
+static constexpr u32 unicode_table_bytes=45176,unicode_mirror_count=428;
 static constexpr u32 unicode_records_at=0;
-static constexpr u32 unicode_top_at=12840;
-static constexpr u32 unicode_middle_at=14888;
-static constexpr u32 unicode_leaves_at=26630;
-static constexpr u32 unicode_mirror_points_at=43008;
-static constexpr u32 unicode_mirror_values_at=43864;
+static constexpr u32 unicode_top_at=13024;
+static constexpr u32 unicode_middle_at=15072;
+static constexpr u32 unicode_leaves_at=26830;
+static constexpr u32 unicode_mirror_points_at=43464;
+static constexpr u32 unicode_mirror_values_at=44320;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc++26-extensions"
 static constexpr u8 unicode_packed[] = {

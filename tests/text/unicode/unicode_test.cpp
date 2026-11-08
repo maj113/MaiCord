@@ -62,7 +62,7 @@ bool dump(const wchar_t* path) noexcept {
         const u8 fields[]{static_cast<u8>(p.bidi_class()),static_cast<u8>(p.general_category()),static_cast<u8>(p.script()),p.combining_class(),
             static_cast<u8>(p.grapheme_break()),static_cast<u8>(p.line_break()),static_cast<u8>(p.joining_type()),
             static_cast<u8>(p.indic_conjunct_break()),static_cast<u8>(p.indic_syllabic_category()),
-            static_cast<u8>(p.indic_positional_category())};
+            static_cast<u8>(p.indic_positional_category()),static_cast<u8>(p.east_asian_wide())};
         const u32 numbers[]{p.flags(),unicode_bidi_mirror(cp),bracket.paired};
         const u8 suffix[]{static_cast<u8>(bracket.type)};
         ok=append(file,fields,sizeof(fields)) && append(file,numbers,sizeof(numbers)) && append(file,suffix,sizeof(suffix));

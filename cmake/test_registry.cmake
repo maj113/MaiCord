@@ -1254,9 +1254,9 @@ maicord_test(MaiCordSystemSpellcheckTests ENTRY maicord_system_spellcheck_entry 
 maicord_test(MaiCordTextPointerSelectionTests ENTRY maicord_text_pointer_selection_entry
     SOURCES tests/ui/text/pointer_selection.cpp
     BUNDLE MaiCordUiUnitTests TIMEOUT 10 TEST maicord_text_pointer_selection)
-maicord_test(MaiCordLineTailoredTests ENTRY maicord_line_tailored_entry SOURCES tests/text/unicode/line_tailored_test.cpp
+maicord_test(MaiCordLineBreakTests ENTRY maicord_line_break_entry SOURCES tests/text/unicode/line_break_test.cpp
     LIBS maicord_core maicord_unicode kernel32
-    BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_native_line_compat)
+    BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_native_line_break)
 maicord_font_test(MaiCordLayoutTableTests maicord_layout_tables_entry text/opentype/layout_tables_test STANDALONE
     TEST maicord_native_layout_tables)
 maicord_font_test(MaiCordGdefTests maicord_gdef_tests_entry text/opentype/gdef_test STANDALONE TEST maicord_native_gdef)

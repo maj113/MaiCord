@@ -89,7 +89,7 @@ maicord_library(maicord_notification_pcm src/media/audio/notification_pcm.cpp
     LIBS maicord_core maicord_compression maicord_media_codec)
 
 maicord_library(maicord_unicode
-    src/text/scripts/arabic_joining.cpp src/text/unicode/line_break_tailored.cpp src/text/unicode/thai_word_break.cpp
+    src/text/scripts/arabic_joining.cpp src/text/unicode/line_break.cpp src/text/unicode/thai_word_break.cpp
     src/text/unicode/thai_lexical.cpp src/text/unicode/thai_syllable.cpp src/text/unicode/bidi_tailored.cpp
     src/text/unicode/unicode.cpp src/text/unicode/grapheme.cpp src/text/unicode/bidi.cpp
     LIBS maicord_core maicord_compression maicord_media_codec)

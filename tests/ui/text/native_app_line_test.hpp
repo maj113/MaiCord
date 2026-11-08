@@ -8,7 +8,7 @@
 #include "../../../src/ui/text/native_text_span.hpp"
 #include "../../../src/ui/text/native_text_script.hpp"
 #include "maicord/text/unicode/detail/thai_word_break.hpp"
-#include "maicord/text/unicode/detail/line_break_tailored.hpp"
+#include "maicord/text/unicode/detail/line_break.hpp"
 #include "maicord/text/unicode/grapheme.hpp"
 #include "maicord/ui/text/native_text_candidate.hpp"
 #include "maicord/ui/media/emoji_presentation.hpp"

@@ -399,6 +399,7 @@ public:
     constexpr UnicodeIndicConjunctBreak indic_conjunct_break() const noexcept {return static_cast<UnicodeIndicConjunctBreak>(value<20,2>());}
     constexpr UnicodeIndicSyllabicCategory indic_syllabic_category() const noexcept {return static_cast<UnicodeIndicSyllabicCategory>(value<48,6>());}
     constexpr UnicodeIndicPositionalCategory indic_positional_category() const noexcept {return static_cast<UnicodeIndicPositionalCategory>(value<54,4>());}
+    constexpr bool east_asian_wide() const noexcept {return static_cast<bool>(value<58,1>());}
     constexpr u32 flags() const noexcept {return value<25,7>();}
     constexpr bool has(UnicodeFlag flag) const noexcept {return (flags()&static_cast<u32>(flag))!=0;}
 };

@@ -9,6 +9,7 @@
 #include "maicord/text/shaping/alphabetic_run.hpp"
 #include "maicord/text/layout/detail/paragraph_layout.hpp"
 #include "../../../src/text/shaping/script_paragraph.hpp"
+#include "maicord/text/unicode/detail/line_break.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/virtual_memory.hpp"
