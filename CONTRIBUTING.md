@@ -120,7 +120,6 @@ environment switches that only tests use (`include/maicord/core/test_hook.hpp`: 
 | `MAICORD_SECRET_SERVICE=off` | Keep the master key in the 0600 key file instead of the Secret Service. |
 | `MAICORD_NOTIFICATION_BACKEND=portal\|direct` | Force the notification route. |
 | `MAICORD_SPELLCHECK_BACKEND=hunspell\|enchant` | Force the spell-check library. |
-| `MAICORD_WSL_GPU=0` | On WSL keep Mesa's default renderer instead of `GALLIUM_DRIVER=d3d12`. |
 | `MAICORD_PLUGIN_DEV`, `MAICORD_EFFECT_DEV` | Developer Mode folders (both systems). |
 | `MAICORD_FPS_TITLE=1` | Frame rate in the window title (both systems). |
 
@@ -363,7 +362,7 @@ once the window, the device and the updater exist):
 [I] [start] system os=Linux kernel=6.18.58.1-microsoft-standard-WSL2 distro="Ubuntu 24.04.5 LTS" libc=glibc glibc=2.39 runtime=native
 [I] [start] machine cpu="AMD Ryzen 7 5800X 8-Core Processor" cores=16 ram_mib=15947 locale=en-US pid=24931
 [I] [start] display count=1 dpi=96 scale_percent=100
-[I] [start] gpu backend=gles description="Microsoft Corporation | D3D12 (AMD Radeon RX 9070 XT) | OpenGL ES 3.1 Mesa 25.2.8-0ubuntu0.24.04.4" wsl_d3d12=1
+[I] [start] gpu backend=gles description="Microsoft Corporation | D3D12 (AMD Radeon RX 9070 XT) | OpenGL ES 3.1 Mesa 25.2.8-0ubuntu0.24.04.4"
 [I] [start] install kind=package channel=stable updates=off
 ```
 

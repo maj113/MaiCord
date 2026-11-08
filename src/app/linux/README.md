@@ -17,9 +17,8 @@ AT-SPI host).
   before the renderer's device start, which EGL needs. `application_platform_window_create` makes `window_set_frame_listener` feed
   `gpu_surface_frame_callback` (the surface's eventfd), and `gpu_surface_set_frame_request` has every windowed `gpu_surface_present`
   ask the window for the next callback before the swap commits. On Wayland `gpu_frame_wait` never blocks.
-- On WSL (`/dev/dxg`, environment choosing no renderer) the client sets `GALLIUM_DRIVER=d3d12` itself (`gpu_device_prefer_wsl_gpu`,
-  before the renderer's device start); device creation retries without it when d3d12 cannot make a context. `MAICORD_WSL_GPU=0` keeps
-  Mesa's default (llvmpipe). Measured on WSLg (Mesa 25.2.8, RX 9070 XT): scroll 61 fps on both renderers, 136% CPU on llvmpipe against
+- The renderer is whatever Mesa's environment chooses; the client sets no driver itself. On WSL, `GALLIUM_DRIVER=d3d12` selects the
+  GPU instead of llvmpipe. Measured on WSLg (Mesa 25.2.8, RX 9070 XT): scroll 61 fps on both renderers, 136% CPU on llvmpipe against
   28% on d3d12; first frame with cold caches 1.0 s of CPU on llvmpipe (shader JIT) against 0.4 s on d3d12 (the AMD d3d12 driver keeps
   its own cache in `$XDG_CACHE_HOME/AMD/DxcCache`).
 - `shutdown_signal.cpp`: SIGTERM, SIGINT and SIGHUP are blocked at the entry before any thread exists and read from a `signalfd`; the

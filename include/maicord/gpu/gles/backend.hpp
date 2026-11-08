@@ -52,13 +52,6 @@ struct GpuSurface {
 using GpuFrameRequest = void (*)(void* context) noexcept;
 void gpu_surface_set_frame_request(GpuFrameRequest request, void* context) noexcept;
 
-// On WSL Mesa's EGL finds no GPU through the render nodes and falls back to llvmpipe; the GPU is its d3d12 driver
-// (GALLIUM_DRIVER=d3d12, through /dev/dxg). Call before the first gpu_device_create, on the main thread: when /dev/dxg
-// exists and the environment chose no renderer (GALLIUM_DRIVER, MESA_LOADER_DRIVER_OVERRIDE, LIBGL_ALWAYS_SOFTWARE; or
-// MAICORD_WSL_GPU=0), the process environment gets GALLIUM_DRIVER=d3d12, which the device creation takes back and retries
-// without when d3d12 cannot make a context (or the window's display). Elsewhere it does nothing.
-void gpu_device_prefer_wsl_gpu() noexcept;
-
 // Frame timing, held by value, zeroed: a pair of GL timestamp queries (GL_EXT_disjoint_timer_query), so the create
 // fails where caps.timer_query is false.
 struct GpuTimer {

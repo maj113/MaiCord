@@ -26,9 +26,6 @@ void frame_request(void*) noexcept {
 } // namespace
 
 void application_platform_window_prepare() noexcept {
-    // On WSL the GPU is Mesa's d3d12 driver, which the default lookup does not find; chosen before anything reads the
-    // environment on another thread.
-    gpu_device_prefer_wsl_gpu();
     // The GPU device is made on the compositor's connection (EGL gets its display from it); a missing compositor
     // is reported when the window is created.
     if (void* display = window_wayland_connect())

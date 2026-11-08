@@ -8,7 +8,7 @@ draw or dispatch happens.
 | File | What |
 |---|---|
 | `loader.cpp`, `internal.hpp` | library loading, entry-point tables (`include/maicord/sys/linux/{egl,gles}.hpp`), handle slabs, state tracker |
-| `device.cpp` | display and config choice, context, caps probe, prestart worker, `GALLIUM_DRIVER=d3d12` on WSL |
+| `device.cpp` | display and config choice, context, caps probe, prestart worker |
 | `resources.cpp` | buffers, textures, views, samplers, map/update/copy/readback |
 | `draw.cpp` | program cache (one link per vertex/pixel pair), resource binding from the shader manifests, draws, dispatches |
 | `shader_pack.cpp` | the GLSL pack (`tools/build_gles_shader_pack.py` over the hand-written `src/render/shaders/gles`, one solid zlib stream), shader and compute-program creation |
@@ -48,8 +48,7 @@ draw or dispatch happens.
 - The window config is the one without alpha (the compositor reads the buffers as XRGB); a driver with only alpha configs gets
   `EGL_EXT_present_opaque` on the surface instead.
 - Test hooks (`test_hook`, test builds only): `MAICORD_GLES_MAX_COMPUTE_INVOCATIONS`, `_NO_TIMER_QUERY`,
-  `_ALPHA_WINDOW`, `_CHECK` (a GL error is reported after each draw and clear). User override: `MAICORD_WSL_GPU=0` keeps Mesa's
-  default (llvmpipe) on WSL instead of d3d12.
+  `_ALPHA_WINDOW`, `_CHECK` (a GL error is reported after each draw and clear).
 - Tests: `maicord_gpu_*` (goldens captured from Direct3D 11 in `tests/gpu/golden`, renewed by `tools/update_gpu_goldens.py`) run on
   llvmpipe anywhere and with `GALLIUM_DRIVER=d3d12` on WSL; `tools/test_gpu_surface.sh` shows the EGL window path on headless sway.
 

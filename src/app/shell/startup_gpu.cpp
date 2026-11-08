@@ -56,14 +56,8 @@ void application_log_start_gpu(GpuDevice* device) noexcept {
     feature[at] = 0;
     line.field("feature_level", feature);
 #else
-    // Vendor, renderer and GL ES version in one string; under WSL the renderer names Mesa's d3d12 driver.
-    const char* description = gpu_device_description(device);
-    line.field("backend", "gles").quoted("description", description);
-    bool d3d12 = false;
-    for (const char* at = description; at && *at && !d3d12; ++at)
-        d3d12 = at[0] == 'D' && at[1] == '3' && at[2] == 'D' && at[3] == '1' && at[4] == '2';
-    if (d3d12)
-        line.field("wsl_d3d12", u64{1});
+    // Vendor, renderer and GL ES version in one string.
+    line.field("backend", "gles").quoted("description", gpu_device_description(device));
 #endif
     line.write(LogLevel::info, "start");
 }
