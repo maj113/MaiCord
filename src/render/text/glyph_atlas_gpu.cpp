@@ -171,8 +171,20 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
         if(!upload){failed=true;return gpu_error(GlyphAtlasGpuError::upload,result);}
         mapped=static_cast<u8*>(upload);
     }
-    CopyMemory(mapped+glyph_raster_header_bytes+static_cast<usize>(cursor)*sizeof(GlyphPathCommand),outline.commands,
-               static_cast<usize>(outline.count)*sizeof(GlyphPathCommand));
+    // Each end_closed goes up as a line back to its contour's first point, so the shaders close a contour through
+    // the same line path as every other edge and keep no contour start. The shaders' separate closing edge was lost
+    // on Intel's Windows driver (UHD 630, issue #11): an L lost its bar, an n its right stem, a d filled in.
+    auto* destination=reinterpret_cast<GlyphPathCommand*>(mapped+glyph_raster_header_bytes)+cursor;
+    float start_x=0,start_y=0;
+    for(u32 i=0;i<outline.count;++i){
+        GlyphPathCommand command=outline.commands[i];
+        if(command.kind==GlyphPathCommandKind::begin_filled||command.kind==GlyphPathCommandKind::begin_hollow){
+            start_x=command.x1;start_y=command.y1;
+        }else if(command.kind==GlyphPathCommandKind::end_closed){
+            command={start_x,start_y,0,0,0,0,GlyphPathCommandKind::line,{}};
+        }
+        destination[i]=command;
+    }
     const GlyphRasterJob constants{
         x|(y<<16),width|(height<<16),outline.count|(outline.fill_rule==GlyphFillRule::winding?1u<<16:0)|
             (static_cast<u32>(stroke_half_width*256.0f+0.5f)<<17),

@@ -142,9 +142,10 @@ void accumulate_cubic(float2 start, GlyphPathCommand command, bool distance) {
     }
 }
 
+// Contours arrive closed: GlyphRasterBatch::add uploads each end_closed as a line
+// back to its contour's first point, and end markers draw nothing.
 void trace_commands(uint first_command, uint command_count) {
     float2 current = 0.0f;
-    float2 contour_start = 0.0f;
     bool contour_filled = false;
     [loop]
     for (uint index = 0; index < command_count; ++index) {
@@ -154,18 +155,8 @@ void trace_commands(uint first_command, uint command_count) {
         GlyphPathCommand command;
         command.point1=asfloat(first.xy);command.point2=asfloat(first.zw);
         command.point3=asfloat(last.xy);command.kind=last.z;
-        if (command.kind == 0 || command.kind == 1) {
-            current = command.point1;
-            contour_start = current;
-            contour_filled = command.kind == 0;
-        } else if (command.kind == 2 || command.kind == 5) {
-            const float2 end = command.kind == 2 ? command.point1 : contour_start;
-            const uint relevant = contour_filled ? relevance(min(current, end), max(current, end)) : 0;
-            if (relevant) {
-                accumulate_segment(current, end, relevant);
-            }
-            current = end;
-        } else if (command.kind == 3) {
+        // Most frequent kind first, as in the plain loop of glyph_coverage.
+        if (command.kind == 3) {
             const uint relevant =
                 contour_filled ? relevance(min(min(current, command.point1), min(command.point2, command.point3)),
                                            max(max(current, command.point1), max(command.point2, command.point3)))
@@ -176,6 +167,16 @@ void trace_commands(uint first_command, uint command_count) {
                 accumulate_cubic(current, command, false);
             }
             current = command.point3;
+        } else if (command.kind == 2) {
+            const float2 end = command.point1;
+            const uint relevant = contour_filled ? relevance(min(current, end), max(current, end)) : 0;
+            if (relevant) {
+                accumulate_segment(current, end, relevant);
+            }
+            current = end;
+        } else if (command.kind <= 1) {
+            current = command.point1;
+            contour_filled = command.kind == 0;
         }
     }
 }
@@ -231,13 +232,14 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
     const float2 sample_position =
         outline_origin + (float2(dispatch_id.xy - allocation_padding) + 0.5f) / pixels_per_em;
     float2 current = 0.0f;
-    float2 contour_start = 0.0f;
     int winding = 0;
     // Infinity keeps the reduction valid even when sample coordinates are large.
     float minimum_distance_squared = asfloat(0x7f800000u);
     float stroke_distance_squared = asfloat(0x7f800000u);
     bool contour_filled = false;
 
+    // Contours arrive closed: GlyphRasterBatch::add uploads each end_closed as a
+    // line back to its contour's first point, and end markers draw nothing.
     [loop]
     for (uint index = 0; index < command_count; ++index) {
         const uint at=28*(GLYPH_JOBS+(raster.w&65535)+index);
@@ -246,21 +248,9 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
         GlyphPathCommand command;
         command.point1=asfloat(first.xy);command.point2=asfloat(first.zw);
         command.point3=asfloat(last.xy);command.kind=last.z;
-        if (command.kind == 0 || command.kind == 1) {
-            current = command.point1;
-            contour_start = current;
-            contour_filled = command.kind == 0;
-        } else if (command.kind == 2) {
-            // Uniform per command: a filled contour skips the stroke distance
-            // instead of computing it and selecting it away.
-            [branch] if (contour_filled) {
-                accumulate_line(sample_position, current, command.point1, winding,
-                                minimum_distance_squared);
-            } else if (stroking) {
-                accumulate_stroke(sample_position, current, command.point1, stroke_distance_squared);
-            }
-            current = command.point1;
-        } else if (command.kind == 3) {
+        // Most frequent kind first: AMD runs this chain about 2% faster than
+        // one that tests the contour start first.
+        if (command.kind == 3) {
             if (contour_filled) {
                 float2 segment_start = current;
                 // Three copies keep loop overhead bounded without twelve copies
@@ -290,14 +280,19 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
                 }
             }
             current = command.point3;
-        } else if (command.kind == 5) {
+        } else if (command.kind == 2) {
+            // Uniform per command: a filled contour skips the stroke distance
+            // instead of computing it and selecting it away.
             [branch] if (contour_filled) {
-                accumulate_line(sample_position, current, contour_start, winding,
+                accumulate_line(sample_position, current, command.point1, winding,
                                 minimum_distance_squared);
             } else if (stroking) {
-                accumulate_stroke(sample_position, current, contour_start, stroke_distance_squared);
+                accumulate_stroke(sample_position, current, command.point1, stroke_distance_squared);
             }
-            current = contour_start;
+            current = command.point1;
+        } else if (command.kind <= 1) {
+            current = command.point1;
+            contour_filled = command.kind == 0;
         }
     }
 #endif

@@ -139,8 +139,18 @@ inline u32 encode(const Batch& batch, u8* out) noexcept {
             for (u32 b = 0; b < 4; ++b)
                 out[i * kRecordBytes + 16 + k * 4 + b] = static_cast<u8>(bits >> (8 * b));
         }
-        for (u32 c = 0; c < job.count; ++c)
-            __builtin_memcpy(out + (kJobRecords + cursor + c) * kRecordBytes, &job.commands[c], kRecordBytes);
+        // As GlyphRasterBatch::add uploads them, end_closed commands become lines back to their contour's start.
+        float start_x = 0, start_y = 0;
+        for (u32 c = 0; c < job.count; ++c) {
+            Command command = job.commands[c];
+            if (command.kind == kBeginFilled || command.kind == kBeginHollow) {
+                start_x = command.p[0];
+                start_y = command.p[1];
+            } else if (command.kind == kEndClosed) {
+                command = {{start_x, start_y, 0, 0, 0, 0}, kLine};
+            }
+            __builtin_memcpy(out + (kJobRecords + cursor + c) * kRecordBytes, &command, kRecordBytes);
+        }
         cursor += job.count;
     }
     return bytes;
