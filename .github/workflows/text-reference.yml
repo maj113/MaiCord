@@ -37,6 +37,8 @@ jobs:
 
       - name: Record and merge
         shell: powershell
+        env:
+          PYTHONUTF8: "1" # the divergence report prints text outside the runner console's cp1252
         run: |
           $ErrorActionPreference = 'Stop'
           python -m pip install --disable-pip-version-check uharfbuzz==0.57.0
