@@ -10,6 +10,7 @@ namespace maicord {
 // group and serialized as complete groups.
 enum UserSettingsGroup : u8 {
     user_settings_versions = 1,
+    user_settings_voice_and_video = 5,
     user_settings_text_and_images = 6,
     user_settings_notifications = 7,
     user_settings_privacy = 8,
@@ -23,9 +24,10 @@ constexpr u32 user_settings_group_bit(u32 group) noexcept {
 }
 // Status (11) and guild folders (14) have dedicated owners and are excluded.
 inline constexpr u32 kUserSettingsStoredGroups =
-    user_settings_group_bit(user_settings_versions) | user_settings_group_bit(user_settings_text_and_images) |
-    user_settings_group_bit(user_settings_notifications) | user_settings_group_bit(user_settings_privacy) |
-    user_settings_group_bit(user_settings_localization) | user_settings_group_bit(user_settings_appearance);
+    user_settings_group_bit(user_settings_versions) | user_settings_group_bit(user_settings_voice_and_video) |
+    user_settings_group_bit(user_settings_text_and_images) | user_settings_group_bit(user_settings_notifications) |
+    user_settings_group_bit(user_settings_privacy) | user_settings_group_bit(user_settings_localization) |
+    user_settings_group_bit(user_settings_appearance);
 inline constexpr u32 kUserSettingsProtoMaximumProtoBytes = 16 * 1024 * 1024;
 inline constexpr u32 kUserSettingsProtoArenaBytes = 64 * 1024;
 inline constexpr u32 kUserSettingsProtoMaximumGroupBytes = 24 * 1024;

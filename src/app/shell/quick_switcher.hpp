@@ -7,6 +7,8 @@
 
 namespace maicord::app_detail {
 bool application_quick_switcher_active() noexcept;
+// Opens the switcher (Ctrl+K; Home's "Find or start a conversation").
+bool application_quick_switcher_open() noexcept;
 // Friend picker for a new conversation (zero) or for adding people to a DM or group.
 bool application_quick_switcher_open_picker(u64 channel_id) noexcept;
 void application_quick_switcher_close() noexcept;

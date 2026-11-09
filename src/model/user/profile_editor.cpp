@@ -39,18 +39,48 @@ bool resets(ProfileEditorTab tab, const ProfileEditorDraft& draft, ProfileEditor
         return !draft.decoration_sku;
     case profile_editor_effect:
         return !draft.effect_sku;
+    case profile_editor_name_style:
+        return !profile_name_style_set(draft.name_style);
+    case profile_editor_nameplate:
+        return !draft.nameplate_sku;
     default:
         return false;
     }
 }
 } // namespace
 
+u32 profile_name_font_index(u16 id) noexcept {
+    for (u32 i = 0; i < kProfileNameFontCount; ++i)
+        if (kProfileNameFonts[i].id == id)
+            return i;
+    return ~0u;
+}
+
+u32 profile_name_effect_index(u16 id) noexcept {
+    for (u32 i = 0; i < kProfileNameEffectCount; ++i)
+        if (kProfileNameEffects[i].id == id)
+            return i;
+    return ~0u;
+}
+
+ProfileNameStyle profile_name_style_with_effect(const ProfileNameStyle& style, u32 index) noexcept {
+    const auto& effect = kProfileNameEffects[index < kProfileNameEffectCount ? index : 0];
+    ProfileNameStyle out{style.font ? style.font : kProfileNameFonts[0].id, effect.id, effect.colors, {}};
+    for (u32 i = 0; i < effect.colors; ++i)
+        out.colors[i] = effect.defaults[i];
+    // A classic effect's chosen colours carry over to another classic effect; a palette (Gummy, Prism) starts whole.
+    if (effect.colors <= 2 && style.color_count <= 2)
+        for (u32 i = 0; i < style.color_count && i < out.color_count; ++i)
+            out.colors[i] = style.colors[i];
+    return out;
+}
+
 ProfileEditorGate profile_editor_gate(ProfileEditorTab tab, u8 premium_type, bool change_nickname) noexcept {
     const bool nitro = premium_type == kProfileEditorNitroPremiumType;
     if (tab == ProfileEditorTab::main) {
         u16 enabled = profile_editor_all;
         if (!nitro)
-            enabled &= static_cast<u16>(~(profile_editor_banner | profile_editor_theme));
+            enabled &= static_cast<u16>(~(profile_editor_banner | profile_editor_theme | profile_editor_name_style));
         return {enabled};
     }
     u16 enabled = profile_editor_pronouns;
@@ -58,7 +88,7 @@ ProfileEditorGate profile_editor_gate(ProfileEditorTab tab, u8 premium_type, boo
         enabled |= profile_editor_name;
     if (nitro)
         enabled |= profile_editor_avatar | profile_editor_decoration | profile_editor_effect | profile_editor_banner |
-                   profile_editor_theme | profile_editor_bio;
+                   profile_editor_theme | profile_editor_bio | profile_editor_name_style | profile_editor_nameplate;
     return {enabled};
 }
 
@@ -93,6 +123,10 @@ u16 profile_editor_changes(ProfileEditorTab tab, const ProfileEditorBase& base, 
     if (tab == ProfileEditorTab::main && draft.accent_set &&
         (!base.has_accent || base.accent != draft.accent))
         changed |= profile_editor_accent;
+    if (draft.name_style_set && !profile_name_style_equal(draft.name_style, base.name_style))
+        changed |= profile_editor_name_style;
+    if (draft.nameplate_set && draft.nameplate_sku != base.nameplate_sku)
+        changed |= profile_editor_nameplate;
     return changed;
 }
 
@@ -102,7 +136,7 @@ i32 profile_editor_bio_remaining(Utf8View bio, u32 limit) noexcept {
 }
 
 static bool allowed(ProfileEditorTab tab, u16 changed, const ProfileEditorDraft& draft, ProfileEditorGate gate) noexcept {
-    for (u16 bit = 1; bit && bit <= profile_editor_bio; bit = static_cast<u16>(bit << 1)) {
+    for (u16 bit = 1; bit && bit <= profile_editor_nameplate; bit = static_cast<u16>(bit << 1)) {
         if (!(changed & bit) || (gate.enabled & bit))
             continue;
         if (!resets(tab, draft, static_cast<ProfileEditorField>(bit)))
@@ -156,6 +190,14 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
             user->fields |= user_patch_avatar_decoration;
             user->avatar_decoration_sku = draft.decoration_sku;
         }
+        if (changed & profile_editor_name_style) {
+            user->fields |= user_patch_name_style;
+            user->name_style = draft.name_style;
+        }
+        if (changed & profile_editor_nameplate) {
+            user->fields |= user_patch_nameplate;
+            user->nameplate_sku = draft.nameplate_sku;
+        }
     } else {
         if (changed & profile_editor_name) {
             member->fields |= member_edit_nick;
@@ -170,6 +212,14 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
         if (changed & profile_editor_decoration) {
             member->fields |= member_edit_avatar_decoration;
             member->avatar_decoration_sku = draft.decoration_sku;
+        }
+        if (changed & profile_editor_name_style) {
+            member->fields |= member_edit_name_style;
+            member->name_style = draft.name_style;
+        }
+        if (changed & profile_editor_nameplate) {
+            member->fields |= member_edit_nameplate;
+            member->nameplate_sku = draft.nameplate_sku;
         }
     }
     if (changed & profile_editor_banner) {
@@ -207,10 +257,6 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
             profile->collectibles[profile->collectible_count++] = draft.effect_sku;
     }
     return true;
-}
-
-u32 profile_editor_format_color(u32 color, Slice<char> output) noexcept {
-    return color > 0xFFFFFF ? 0 : color_hex_format(color << 8 | 0xFFu, false, output);
 }
 
 } // namespace maicord

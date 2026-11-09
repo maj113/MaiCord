@@ -7,6 +7,8 @@
 #include "maicord/render/effects/lottie_program.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/media/image/jpeg.hpp"
+#include "maicord/media/image/dominant_color.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/media/core/asset.hpp"
 #include "maicord/core/win32_error.hpp"
@@ -635,13 +637,13 @@ MediaAtlasGpuResult renderer_advance_animated_webp_vp8(
         });
 }
 
-bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<u8> rgba, u32* width,
-                              u32* height) noexcept {
+namespace {
+// One resident allocation of the primary or the preview atlas as straight RGBA8 rows.
+bool read_rgba(D3D11Renderer* renderer, MediaAssetKey key, bool preview, Slice<u8> rgba, u32* width,
+               u32* height) noexcept {
     if (!renderer || !width || !height || !rgba.data || !renderer->graphics.device ||
         !renderer->graphics.context || !media_asset_key_valid(key))
         return false;
-    // Same domain selection as presentation: large previews live in the preview atlas.
-    const bool preview = media_asset_large_preview(key) && renderer->preview_media_atlas;
     MediaAtlas* atlas = preview ? renderer->preview_media_atlas : renderer->media_atlas;
     GpuPagedTexture* surface = preview ? renderer->media_gpu.preview_surface : renderer->media_gpu.surface;
     if (!atlas || !surface)
@@ -673,6 +675,82 @@ bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<
         *height = allocation.height;
     }
     return ok;
+}
+// image_palette of a resident allocation, or of its crop drawn crop->size pixels square (each pixel the crop's
+// nearest texel, the source scaled to the allocation).
+u32 palette(D3D11Renderer* renderer, MediaAssetKey key, bool preview, const RendererPaletteCrop* crop,
+            u32* colors) noexcept {
+    MediaAtlas* atlas = !renderer || !colors || !media_asset_key_valid(key) ? nullptr
+                        : preview ? renderer->preview_media_atlas
+                                  : renderer->media_atlas;
+    const MediaAtlasResult resident = atlas ? media_atlas_peek(atlas, key) : MediaAtlasResult{};
+    if (!atlas || !resident.ok() || !resident.width || !resident.height ||
+        (crop && (!crop->size || crop->size > 1024 || !crop->width || !crop->height || !crop->source_width)))
+        return 0;
+    // The pixels, the drawn crop, then the histogram.
+    const u32 pixel_bytes = u32{resident.width} * resident.height * 4u;
+    const u32 crop_bytes = crop ? crop->size * crop->size * 4u : 0;
+    const usize bytes = usize{pixel_bytes} + crop_bytes + kImageDominantColorHistogramEntries * 4u;
+    auto* memory = static_cast<u8*>(commit_pages(bytes));
+    if (!memory)
+        return 0;
+    u32 width = 0, height = 0, count = 0;
+    u32* const histogram = reinterpret_cast<u32*>(memory + pixel_bytes + crop_bytes);
+    if (read_rgba(renderer, key, preview, {memory, pixel_bytes}, &width, &height)) {
+        const u8* pixels = memory;
+        if (crop) {
+            u8* drawn = memory + pixel_bytes;
+            const float scale = static_cast<float>(width) / static_cast<float>(crop->source_width);
+            for (u32 j = 0; j < crop->size; ++j)
+                for (u32 i = 0; i < crop->size; ++i) {
+                    // The visual (rotated) position, turned back into the unrotated crop.
+                    const float u = (static_cast<float>(i) + .5f) / static_cast<float>(crop->size);
+                    const float v = (static_cast<float>(j) + .5f) / static_cast<float>(crop->size);
+                    const float su = crop->rotation == 90 ? v : crop->rotation == 180 ? 1 - u : crop->rotation == 270 ? 1 - v : u;
+                    const float sv = crop->rotation == 90 ? 1 - u : crop->rotation == 180 ? 1 - v : crop->rotation == 270 ? u : v;
+                    const u32 x = minimum<u32>(width - 1, static_cast<u32>((static_cast<float>(crop->x) +
+                                                                             su * static_cast<float>(crop->width)) * scale));
+                    const u32 y = minimum<u32>(height - 1, static_cast<u32>((static_cast<float>(crop->y) +
+                                                                              sv * static_cast<float>(crop->height)) * scale));
+                    copy_bytes(drawn + (j * crop->size + i) * 4u, memory + (u64{y} * width + x) * 4u, 4);
+                }
+            pixels = drawn;
+            width = height = crop->size;
+        }
+        count = image_palette({pixels, width * height * 4u}, width, height,
+                              {histogram, kImageDominantColorHistogramEntries}, colors);
+    }
+    pages_release(memory, bytes);
+    return count;
+}
+} // namespace
+
+bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<u8> rgba, u32* width,
+                              u32* height) noexcept {
+    // Same domain selection as presentation: large previews live in the preview atlas.
+    return renderer && read_rgba(renderer, key, media_asset_large_preview(key) && renderer->preview_media_atlas, rgba,
+                                 width, height);
+}
+
+u32 renderer_media_palette(D3D11Renderer* renderer, MediaAssetKey key, u32* colors) noexcept {
+    return renderer ? palette(renderer, key, media_asset_large_preview(key) && renderer->preview_media_atlas,
+                              nullptr, colors)
+                    : 0;
+}
+
+u32 renderer_media_crop_palette(D3D11Renderer* renderer, MediaAssetKey key, const RendererPaletteCrop& crop,
+                                u32* colors) noexcept {
+    return renderer ? palette(renderer, key, media_asset_large_preview(key) && renderer->preview_media_atlas, &crop,
+                              colors)
+                    : 0;
+}
+
+bool renderer_media_dominant_color(D3D11Renderer* renderer, MediaAssetKey key, u32* rgb) noexcept {
+    u32 colors[kImagePaletteColors];
+    if (!rgb || !renderer_media_palette(renderer, key, colors))
+        return false;
+    *rgb = colors[0];
+    return true;
 }
 
 namespace {

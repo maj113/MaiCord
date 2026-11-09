@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
+#include "maicord/protocol/guild/automation.hpp"
 #include "maicord/protocol/guild/moderation.hpp"
 #include "../../support/test_output.hpp"
 
@@ -142,6 +143,51 @@ void test_bulk_ban_update() noexcept {
               utf8_equal(copied, body) && guild_bulk_ban_update_decode(copied, {scratch, 8192}, &update) &&
               update.guild_id == 100 && update.banned_count == 2 && update.failed_count == 1,
           "bulk ban update: GUILD_BULK_BAN_UPDATE arrives verbatim with its banned and failed users");
+}
+
+// Server Settings' apps and AutoMod events reach the client verbatim; their ids decode.
+void test_automation_events() noexcept {
+    struct Case {
+        Utf8View name, body;
+        GatewayClientDispatchKind kind;
+        u64 id, application_id, channel_id;
+    };
+    const Case cases[]{
+        {utf8_literal("AUTO_MODERATION_RULE_CREATE"), utf8_literal(R"({"id":"5","guild_id":"100","trigger_type":1})"),
+         GatewayClientDispatchKind::automod_rule_create, 5, 0, 0},
+        {utf8_literal("AUTO_MODERATION_RULE_UPDATE"), utf8_literal(R"({"guild_id":"100","id":"5","enabled":false})"),
+         GatewayClientDispatchKind::automod_rule_update, 5, 0, 0},
+        {utf8_literal("AUTO_MODERATION_RULE_DELETE"), utf8_literal(R"({"id":"5","guild_id":"100"})"),
+         GatewayClientDispatchKind::automod_rule_delete, 5, 0, 0},
+        {utf8_literal("WEBHOOKS_UPDATE"), utf8_literal(R"({"guild_id":"100","channel_id":"30"})"),
+         GatewayClientDispatchKind::webhooks_update, 0, 0, 30},
+        {utf8_literal("INTEGRATION_CREATE"),
+         utf8_literal(R"({"id":"6","type":"discord","application":{"id":"9"},"guild_id":"100"})"),
+         GatewayClientDispatchKind::integrations_update, 6, 0, 0},
+        {utf8_literal("INTEGRATION_UPDATE"), utf8_literal(R"({"id":"6","guild_id":"100"})"),
+         GatewayClientDispatchKind::integrations_update, 6, 0, 0},
+        {utf8_literal("INTEGRATION_DELETE"), utf8_literal(R"({"id":"6","guild_id":"100","application_id":"9"})"),
+         GatewayClientDispatchKind::integrations_update, 6, 9, 0},
+        {utf8_literal("GUILD_INTEGRATIONS_UPDATE"), utf8_literal(R"({"guild_id":"100"})"),
+         GatewayClientDispatchKind::integrations_update, 0, 0, 0},
+        {utf8_literal("APPLICATION_COMMAND_PERMISSIONS_UPDATE"),
+         utf8_literal(R"({"id":"9","application_id":"9","guild_id":"100","permissions":[]})"),
+         GatewayClientDispatchKind::command_permissions_update, 9, 9, 0},
+    };
+    bool all = true;
+    for (const auto& c : cases) {
+        const auto routed = route(c.name, c.body);
+        const Utf8View copied{reinterpret_cast<const char*>(payload.data), payload.count};
+        GuildAutomationEvent decoded{};
+        all = all && routed.ok() && event.dispatch_kind == c.kind && utf8_equal(copied, c.body) &&
+              guild_automation_event_decode(copied, {scratch, 8192}, &decoded) && decoded.guild_id == 100 &&
+              decoded.id == c.id && decoded.application_id == c.application_id && decoded.channel_id == c.channel_id;
+    }
+    GuildAutomationEvent none{};
+    check(all && route(utf8_literal("CHANNEL_INFO"), utf8_literal(R"({"guild_id":"1","channels":[]})")).ok() &&
+              event.dispatch_kind == GatewayClientDispatchKind::channel_info &&
+              !guild_automation_event_decode(utf8_literal(R"({"id":"5"})"), {scratch, 8192}, &none),
+          "automation events: AutoMod rule, webhook, integration and command permission events arrive verbatim");
 }
 
 void test_member_timeout() noexcept {
@@ -495,7 +541,9 @@ void test_guild_details() noexcept {
                         R"("system_channel_flags":2176,"rules_channel_id":"501","public_updates_channel_id":null,)"
                         R"("safety_alerts_channel_id":"502","premium_progress_bar_enabled":true,)"
                         R"("description":"A lab é","vanity_url_code":"lab","member_count":42,)"
-                        R"("splash":"0123456789abcdef0123456789abcdef",)"
+                        R"("splash":"0123456789abcdef0123456789abcdef","preferred_locale":"es-419",)"
+                        R"("owner_configured_content_level":3,"nsfw_level":1,)"
+                        R"("discovery_splash":"fedcba9876543210fedcba9876543210",)"
                         R"("incidents_data":{"invites_disabled_until":"2026-10-07T00:00:00.000000+00:00",)"
                         R"("dms_disabled_until":null,"raid_detected_at":null,"lockdown_duration_hours":2},)"
                         R"("features":["NEWS","ACTIVITY_FEED_DISABLED_BY_USER","FUTURE_THING","COMMUNITY"],)"));
@@ -515,9 +563,13 @@ void test_guild_details() noexcept {
               d.lockdown_duration_hours == 2 && utf8_equal(description, utf8_literal("A lab \xC3\xA9")) &&
               utf8_equal(vanity, utf8_literal("lab")) && d.feature_count == 4 &&
               utf8_equal({d.splash, d.splash_bytes}, utf8_literal("0123456789abcdef0123456789abcdef")) &&
-              names_equal(names, kRun, sizeof(kRun) - 1),
-          "guild details: GUILD_UPDATE carries tier, boosts, flags, community channels, text, incidents and every "
-          "feature name in server order");
+              names_equal(names, kRun, sizeof(kRun) - 1) &&
+              utf8_equal({d.preferred_locale, d.preferred_locale_bytes}, utf8_literal("es-419")) &&
+              d.owner_configured_content_level == 3 && d.nsfw_level == 1 &&
+              utf8_equal({d.discovery_splash, d.discovery_splash_bytes},
+                         utf8_literal("fedcba9876543210fedcba9876543210")),
+          "guild details: GUILD_UPDATE carries tier, boosts, flags, community channels, text, incidents, language, "
+          "content levels and every feature name in server order");
     GatewayClientRoleMutation role{};
     check(gateway_client_event_guild_role(event, payload, 1, &role, &name) && role.id == 30 &&
               utf8_equal(name, utf8_literal("Mods")) &&
@@ -727,6 +779,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_guild_admin_gateway_entry() 
     using namespace maicord::guild_admin_gateway_test;
     test_membership();
     test_bulk_ban_update();
+    test_automation_events();
     test_member_timeout();
     test_member_quarantine();
     test_self_member_authority();

@@ -11,6 +11,9 @@ namespace maicord::app_detail {
 void application_activity_tick(u64 now_ms) noexcept;
 u64 application_activity_next_wake() noexcept;
 void application_activity_clear() noexcept;
+// True while a streamer tool (OBS, XSplit, Streamlabs, Twitch Studio, Bebo) runs; scanned while game detection or
+// automatic Streamer Mode is on.
+bool application_activity_streamer_tool_running() noexcept;
 // A plugin's rich presence (the plugin API's set_activity). The newest one set
 // replaces the detected game while activity sharing is on; null clears the
 // owner's. Text is copied (cut to 128 bytes). False when no slot is free.

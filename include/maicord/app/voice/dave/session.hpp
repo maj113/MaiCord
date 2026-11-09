@@ -2,6 +2,7 @@
 #include "maicord/app/voice/dave/key_package.hpp"
 #include "maicord/app/voice/dave/receive_sender.hpp"
 #include "maicord/app/voice/mls/group.hpp"
+#include "maicord/protocol/voice/dave_codec.hpp"
 
 namespace maicord {
 inline constexpr u16 kDaveProtocolVersion = 1;
@@ -105,6 +106,14 @@ MlsStatus dave_session_execute_transition(DaveSession* session, u16 transition_i
 bool dave_session_can_encrypt(const DaveSession& session) noexcept;
 // Whole Opus packet; passthrough copy while the executed protocol version is zero.
 DaveSealResult dave_session_encrypt(DaveSession* session, ConstSlice<u8> opus, Slice<u8> output) noexcept;
+// One encoded video frame (encoder output, before RTP); passthrough copies it
+// unchanged. Otherwise dave_frame_prepare into prepared (frame.count +
+// frame.count / 4 + 4 bytes), seal with its clear ranges into output
+// (prepared + 255 bytes) through scratch (as large as prepared); H.264/H.265
+// retry with the next nonce, as libdave does up to 10 times, while a start
+// code shows in the encrypted bytes. All four spans are disjoint.
+DaveSealResult dave_session_encrypt_video(DaveSession* session, DaveVideoCodec codec, ConstSlice<u8> frame,
+                                          Slice<u8> prepared, Slice<u8> scratch, Slice<u8> output) noexcept;
 enum class DaveMediaError : u8 {
     none,
     invalid_input,

@@ -3,9 +3,9 @@ namespace maicord { struct GatewayClientEvent; }
 #include "maicord/ui/voice/channel_rows.hpp"
 
 namespace maicord::app_detail {
-// Voice channel extras in the channel list: each voice channel's status and
-// session timer (server values from Request Channel Info and its updates),
-// "Set a channel status" for the connected channel and "Invite to Voice".
+// Voice channel extras in the channel list: each voice channel's status (server values from Request Channel
+// Info and its updates), "Set a channel status" for the connected channel and "Invite to Voice". The official
+// client draws no timer on the row, so none is drawn here.
 
 // Gateway mailbox observer: sessions, CHANNEL_INFO and the start time and
 // status updates, guild and channel deletes.

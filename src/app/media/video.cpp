@@ -924,7 +924,7 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
         video->ui.video.keyboard_focus = video_input_focus_current(*video) && g_app.keyboard_focus_visible;
         ui_video_scene_hover(&video->ui.video, video_pointer_position());
         const bool was_idle = video->ui.video.idle;
-        ui_video_scene_tick(&video->ui.video, now_ms, g_app.preferences.reduced_motion);
+        ui_video_scene_tick(&video->ui.video, now_ms, application_reduced_motion());
         if (video->collection_count && g_app.account.api.collection_title) {
             MediaTrackTitle current{}, hovered{};
             AccountMediaCollectionTitleRequest query{video->source.key, video->source.revision, video->collection_track, true};
@@ -942,7 +942,7 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
         if (video->expanded && !was_idle && video->ui.video.idle && video->ui.video.preview_hovered)
             application_set_cursor(UiCursor::hidden);
         video->presentation_wake_ms =
-            ui_video_scene_next_wake(video->ui.video, now_ms, g_app.preferences.reduced_motion);
+            ui_video_scene_next_wake(video->ui.video, now_ms, application_reduced_motion());
         g_app.renderer.video_scene = &video->ui.video;
         g_app.renderer.video_scene_search_result = searched && !video->expanded;
         g_app.renderer.video_scene_viewer = video->expanded;

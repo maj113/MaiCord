@@ -703,6 +703,33 @@ DaveSealResult dave_session_encrypt(DaveSession* session, ConstSlice<u8> opus, S
         copy_bytes(output.data, opus.data, opus.count);
     return {opus.count, 0, 0, DaveSealError::none};
 }
+DaveSealResult dave_session_encrypt_video(DaveSession* session, DaveVideoCodec codec, ConstSlice<u8> frame,
+                                          Slice<u8> prepared, Slice<u8> scratch, Slice<u8> output) noexcept {
+    if (!session || !frame.data || !frame.count)
+        return {0, 0, 0, DaveSealError::invalid_input};
+    if (!dave_session_can_encrypt(*session))
+        return {0, 0, 0, DaveSealError::not_initialized};
+    if (session->passthrough_until_ms == kDavePassthroughForever) {
+        if (output.count < frame.count)
+            return {0, 0, 0, DaveSealError::output_capacity};
+        copy_bytes(output.data, frame.data, frame.count);
+        return {frame.count, 0, 0, DaveSealError::none};
+    }
+    DaveClearRange ranges[kDaveMaximumClearRanges];
+    const auto plan = dave_frame_prepare(codec, frame, prepared, {ranges, kDaveMaximumClearRanges});
+    if (!plan.bytes)
+        return {0, 0, 0, DaveSealError::invalid_input};
+    const ConstSlice<u8> body{prepared.data, plan.bytes};
+    const ConstSlice<DaveClearRange> clear{ranges, plan.range_count};
+    DaveSealResult sealed{};
+    for (u32 attempt = 0; attempt != 10; ++attempt) {
+        sealed = dave_frame_seal_ranges(session->sealer, session->kdf, body, clear, scratch, output);
+        if (!sealed.ok() || codec == DaveVideoCodec::av1 ||
+            dave_frame_start_code_free({output.data, sealed.bytes}, clear))
+            return sealed;
+    }
+    return {0, 0, 0, DaveSealError::crypto_failure};
+}
 DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, const ConstSlice<u8>& frame,
                                      u64 now_ms, const Slice<u8>& scratch,
                                      const Slice<u8>& output) noexcept {

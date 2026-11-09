@@ -209,8 +209,8 @@ bool synchronize_member_subscription_impl(u64 now_ms) noexcept {
     const bool admitted_source = same_source && scene.active && scene.source == &ui.member_list &&
                                  scene.source_revision == ui.member_list.revision;
     const u32 visible_rows =
-        visible ? static_cast<u32>(ui_rect_height(pane->rectangle) / kMemberListRowHeight) + 2 : 0;
-    const u32 first_visible = same_source ? static_cast<u32>(scene.scroll_dips / kMemberListRowHeight) : 0;
+        visible ? static_cast<u32>(ui_rect_height(pane->rectangle) / member_list_row_height()) + 2 : 0;
+    const u32 first_visible = same_source ? static_cast<u32>(scene.scroll_dips / member_list_row_height()) : 0;
     const u32 logical_count = same_source ? member_list_view_count(ui.member_list) : 0;
     MemberListPinnedRange desired_visible{};
     if (visible && admitted_source && scene.count)

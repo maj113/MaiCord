@@ -5,6 +5,7 @@
 #include "../guild/card.hpp"
 #include "expression_card.hpp"
 #include "../guild/banner.hpp"
+#include "../guild/settings/settings.hpp"
 #include "catalog_preview_log.hpp"
 #include "maicord/render/media/inline_media.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
@@ -426,7 +427,14 @@ bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexce
     if (key.kind == MediaAssetKind::embed && application_stream_preview_key_current(key))
         return true;
     if (key.kind == MediaAssetKind::profile_image &&
-        (application_guild_card_key_current(key) || application_guild_banner_key_current(key)))
+        (application_guild_card_key_current(key) || application_guild_banner_key_current(key) ||
+         application_guild_settings_preview_key_current(key)))
+        return true;
+    // Active Now's activity art (the Friends page, under no requests dialog).
+    if (key.kind == MediaAssetKind::profile_image && application.renderer.friends_scene &&
+        application.renderer.friends_scene->active &&
+        !(application.renderer.friends_requests_scene && application.renderer.friends_requests_scene->active) &&
+        friends_activity_media_current(*application.renderer.friends_scene, key))
         return true;
     if (application.renderer.settings_scene && application.renderer.settings_scene->active)
         return false;
@@ -515,13 +523,21 @@ bool ApplicationMediaPump::request_settings_avatars() noexcept {
         }
         if (avatar.media->key.kind == MediaAssetKind::profile_image) {
             // Default avatars: the hash carries the CDN path, fetched by URL
-            // under the profile card's key.
+            // under the profile card's key; a game cover carries its full URL.
             ProfileMedia media{};
             media.key = avatar.media->key;
-            constexpr auto host = utf8_literal("https://cdn.discordapp.com/");
-            copy_bytes(media.url.data, host.data, host.bytes);
-            copy_bytes(media.url.data + host.bytes, hash.data, hash.bytes);
-            media.url.bytes = static_cast<u16>(host.bytes + hash.bytes);
+            const Utf8View url = avatar.media->url;
+            if (url.bytes) {
+                if (url.bytes > sizeof(media.url.data))
+                    continue;
+                copy_bytes(media.url.data, url.data, url.bytes);
+                media.url.bytes = static_cast<u16>(url.bytes);
+            } else {
+                constexpr auto host = utf8_literal("https://cdn.discordapp.com/");
+                copy_bytes(media.url.data, host.data, host.bytes);
+                copy_bytes(media.url.data + host.bytes, hash.data, hash.bytes);
+                media.url.bytes = static_cast<u16>(host.bytes + hash.bytes);
+            }
             if (!request_profile_media(media, &stop, false,
                                        nullptr))
                 return false;
@@ -533,6 +549,32 @@ bool ApplicationMediaPump::request_settings_avatars() noexcept {
                   ? request_visible_hashed_identity(avatar.media->key, hash,
                                                     &stop, false)
                   : request_visible_user_avatar_value(avatar.media->key.id, hash, &stop, false)))
+            return false;
+        if (stop)
+            return true;
+    }
+    // The Server Profile preview card's game icons and custom banner by URL, its traits' server emoji by key.
+    MediaAssetKey key{};
+    Utf8View url{};
+    for (u32 index = 0; application_guild_settings_preview_media(index, &key, &url); ++index) {
+        if (message_media_controller_upload_budget_reached(&application.message_media, uploads))
+            return true;
+        if (!url.bytes) {
+            bool stop = false;
+            if (!request_visible_static_media(key, &stop, false, true))
+                return false;
+            if (stop)
+                return true;
+            continue;
+        }
+        if (url.bytes > sizeof(ProfileMedia{}.url.data))
+            continue;
+        ProfileMedia media{};
+        media.key = key;
+        copy_bytes(media.url.data, url.data, url.bytes);
+        media.url.bytes = static_cast<u16>(url.bytes);
+        bool stop = false;
+        if (!request_profile_media(media, &stop, false, nullptr))
             return false;
         if (stop)
             return true;
@@ -849,7 +891,21 @@ bool ApplicationMediaPump::request_friends_avatars(bool* stop) noexcept {
     const auto visited =
         friends_avatar_media_visit(*scene, application.account_ui->user_store, callbacks);
     *stop = visited.stopped;
-    return visited.ok;
+    if (!visited.ok || *stop || scene != application.renderer.friends_scene)
+        return visited.ok;
+    // Active Now's activity art and badges, by URL like the profile's.
+    ProfileMedia media;
+    for (u32 i = 0; friends_activity_media_resolve(*scene, i, &media) && !*stop; ++i) {
+        if (!ui_rect_intersects(media.rectangle, media.clip))
+            continue;
+        if (message_media_controller_upload_budget_reached(&application.message_media, uploads)) {
+            *stop = true;
+            break;
+        }
+        if (!request_profile_media(media, stop, false, nullptr))
+            return false;
+    }
+    return true;
 }
 
 bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
@@ -888,9 +944,10 @@ bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
         }
         message_media_controller_observe_retry(&application.message_media, requested.retry_at_ms);
     }
-    // The server tag popout's icon, tag badge and banner, fetched by URL.
-    GuildCardMedia cards[3];
-    const u32 card_count = application_guild_card_media(cards, 3);
+    // The server tag popout's icon, tag badge, banner and game pictures, fetched by URL, then its traits' custom
+    // emoji by key.
+    GuildCardMedia cards[kGuildCardMediaCapacity];
+    const u32 card_count = application_guild_card_media(cards, kGuildCardMediaCapacity);
     for (u32 i = 0; i < card_count && !*stop; ++i) {
         ProfileMedia media{};
         media.key = cards[i].key;
@@ -902,6 +959,16 @@ bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
         if (!request_profile_media(media, stop, false, &failure))
             return false;
         application_guild_card_media_failed(cards[i].key, failure);
+    }
+    // An animated trait emoji joins the shared animation timeline while shown, as the composer's do.
+    MediaAssetKey trait_emoji[kUiGuildCardTraits];
+    const u32 trait_emoji_count = application_guild_card_emoji_media(trait_emoji, kUiGuildCardTraits);
+    for (u32 i = 0; i < trait_emoji_count && !*stop; ++i) {
+        bool force = false;
+        if ((trait_emoji[i].flags & media_asset_flag_animated) && animation_resident(trait_emoji[i], &force))
+            continue;
+        if (!request_visible_static_media(trait_emoji[i], stop, force, true))
+            return false;
     }
     // The emoji/sticker popout's picture and pack stickers by key, and its server's icon.
     MediaAssetKey expressions[1 + kUiExpressionCardPreviews];

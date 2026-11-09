@@ -236,6 +236,7 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
         (image_type == CdnImageType::lottie_json &&
          (host != CdnHost::cdn || !sticker_json_target_valid(target))) ||
         (host == CdnHost::activity_art && (image_type != CdnImageType::jpeg || !activity_art_target_valid(target))) ||
+        (host == CdnHost::web_asset && (image_type != CdnImageType::png || !web_asset_target_valid(target))) ||
         (cdn_catalog_provider(host) && !catalog_provider_request_valid(host, image_type, target))) {
         return CdnRequestResult{0, CdnHttpError::invalid_target};
     }

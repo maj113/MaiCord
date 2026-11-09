@@ -43,7 +43,7 @@ bool navigation_gaps_ui_probe(D3D11Renderer& renderer, NavigationView* view, con
         return fail(3);
     renderer.unread_banner_scene = nullptr;
 
-    // A voice row with a session timer, a status and "Invite to Voice".
+    // A voice row with a status and "Invite to Voice".
     static VoiceChannelInfoStore info;
     static UiVoiceChannelExtras extras;
     voice_channel_info_store_reset(&info);
@@ -52,14 +52,12 @@ bool navigation_gaps_ui_probe(D3D11Renderer& renderer, NavigationView* view, con
     for (u32 i = 0; i < view->channel_count && !voice; ++i)
         if (view->channel_rows[i].type == 2)
             voice = view->channel_rows[i].id;
-    constexpr u64 now_s = 1'790'000'000;
-    if (!voice || !voice_channel_info_store_set_start(&info, state.selected_guild_id, voice, now_s - 3'723) ||
+    if (!voice ||
         !voice_channel_info_store_set_status(&info, state.selected_guild_id, voice,
                                              utf8_literal("Pairing on the glyph atlas <:wave:123>")))
         return fail(6);
     extras.info = &info;
     extras.invite_channel_id = voice;
-    extras.clock_s = now_s;
     extras.revision = 1;
     const UiVoiceChannelExtras* previous_extras = view->voice_extras;
     view->voice_extras = &extras;

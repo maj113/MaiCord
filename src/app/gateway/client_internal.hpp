@@ -6,6 +6,7 @@
 #include "maicord/app/account/client_session_metadata.hpp"
 #include "maicord/app/voice/receive.hpp"
 #include "maicord/app/gateway/stream_session.hpp"
+#include "maicord/app/gateway/go_live_stream.hpp"
 #include "maicord/app/voice/send.hpp"
 
 #include "maicord/core/byte_queue.hpp"
@@ -134,6 +135,9 @@ struct GatewayClientRuntime {
     SRWLOCK resume_lock;
     // A token READY handed out (AUTH_TOKEN_REFRESH) that the owner has not taken yet; under resume_lock.
     SecureBuffer refreshed_credential;
+    // A token the owner replaced (a password or MFA change) that the worker sends from its next IDENTIFY or RESUME;
+    // under resume_lock (gateway_adopt_replacement_credential).
+    SecureBuffer replacement_credential;
     SRWLOCK subscription_lock;
     NetworkSignal subscription_signal;
     GatewayGuildSubscription desired_subscription;
@@ -172,6 +176,14 @@ struct GatewayClientRuntime {
     GatewayClientStreamSnapshot stream_snapshot; // Under voice_lock.
     u32 desired_stream_volume;
     bool stream_request_pending, stream_volume_pending;
+    // Go Live sending (go_live_stream.hpp). UI commands queue under voice_lock;
+    // the session is worker-owned.
+    GatewayGoLive go_live;
+    GoLiveCommand go_live_commands[kGatewayGoLiveCommands];
+    u32 go_live_command_count;
+    GoLiveSnapshot go_live_snapshot; // Under voice_lock.
+    GoLiveBackend go_live_backend;   // Under voice_lock until the worker installs it.
+    bool go_live_backend_dirty;
     struct GatewayUserRuntime* user;
     GatewayClient* owner;
     GatewayOutboundQueue outbound;
@@ -387,10 +399,14 @@ bool publish_relationship_stream(void* opaque, const GatewayClientEvent& event,
 Slice<char> dispatch_scratch(GatewayClientRuntime* runtime) noexcept;
 Slice<u32> object_scratch(GatewayClientRuntime* runtime) noexcept;
 void publish_resume(GatewayClientRuntime* runtime, const GatewayResumeState& state) noexcept;
+// Makes a token the owner replaced (gateway_client_replace_credential) the session's credential.
+void gateway_adopt_replacement_credential(GatewayClientRuntime* runtime) noexcept;
 void publish_failure(GatewayClient* client, GatewayClientError error, u32 native_error) noexcept;
 void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
 void reset_voice(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
 void apply_video_wants(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
+// Worker: installs the Go Live producers and applies queued UI commands.
+void apply_go_live(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept;
 
 struct ReadyProjectionBinding {
     GatewayClient* client;

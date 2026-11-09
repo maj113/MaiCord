@@ -2,7 +2,9 @@
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/widgets/kit.hpp"
+#include "maicord/ui/widgets/badge.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
+#include "maicord/ui/guild/card_scene.hpp"
 
 namespace maicord {
 using namespace settings_scene_detail;
@@ -20,7 +22,8 @@ bool field_row(UiSettingsControlKind kind) noexcept {
     return kind != UiSettingsControlKind::category && kind != UiSettingsControlKind::notice &&
            kind != UiSettingsControlKind::tabs && kind != UiSettingsControlKind::error &&
            kind != UiSettingsControlKind::status && kind != UiSettingsControlKind::disclosure &&
-           kind != UiSettingsControlKind::markdown && kind != UiSettingsControlKind::footnote;
+           kind != UiSettingsControlKind::markdown && kind != UiSettingsControlKind::footnote &&
+           kind != UiSettingsControlKind::preview;
 }
 u32 default_choice(const UiSettingsPageContent& content, u32 index) noexcept {
     const auto* p = presentation(content, index);
@@ -74,12 +77,20 @@ UiChipTone tag_tone(UiSettingsVariant variant) noexcept {
 // placeholder that the image hides, as member list and message avatars do,
 // never initials that a transparent image would show through.
 bool avatar_backed(const UiSettingsPageContent& content, u32 index) noexcept {
-    if (!content.avatar_media || !has_flag(content, index, ui_settings_presentation_avatar) ||
-        content.controls[index].kind != UiSettingsControlKind::action)
+    // Action rows, edit cells (a Server Profile trait's custom emoji on its emoji button) and a banner row's upload
+    // tile (its custom banner, without the avatar flag).
+    const auto kind = content.controls[index].kind;
+    const bool upload = kind == UiSettingsControlKind::swatches && more(content, index, ui_settings_more_upload_tile);
+    if (!content.avatar_media || (!upload && !has_flag(content, index, ui_settings_presentation_avatar)) ||
+        (kind != UiSettingsControlKind::action && !upload &&
+         !(kind == UiSettingsControlKind::edit && more(content, index, ui_settings_more_cell))))
         return false;
     const auto& media = content.avatar_media[index];
     // Emoji and sticker previews are named by their ID alone.
     if (media.key.kind == MediaAssetKind::custom_emoji || media.key.kind == MediaAssetKind::sticker)
+        return media.key.id != 0;
+    // A profile image may name its picture by URL (a game's cover).
+    if (media.key.kind == MediaAssetKind::profile_image && media.url.bytes)
         return media.key.id != 0;
     return (media.key.kind == MediaAssetKind::user_avatar || media.key.kind == MediaAssetKind::guild_icon ||
             media.key.kind == MediaAssetKind::profile_image) &&
@@ -309,7 +320,8 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     }
     if (const auto* item = c.kind == UiSettingsControlKind::action ? list_item(scene.content, index) : nullptr)
         return p.ok() && paint_list_row(scene, theme, t, paint, r, index, *item, state, dragged || selected);
-    if (p && c.kind == UiSettingsControlKind::action && ui_rect_has_area(r.lead)) {
+    const bool cell = more(scene.content, index, ui_settings_more_cell);
+    if (p && c.kind == UiSettingsControlKind::action && ui_rect_has_area(r.lead) && !cell) {
         const float alpha = c.enabled ? 1.f : .5f;
         UiRect lead = r.lead;
         if (has_flag(scene.content, index, ui_settings_presentation_grip)) {
@@ -332,7 +344,19 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             p.use<ui_admin_dot_paint>(t, UiRect{lead.left, r.label.top, lead.right, r.label.bottom}, fill, alpha);
         }
     }
-    if (p && c.kind != UiSettingsControlKind::status && ui_rect_has_area(r.chips)) {
+    if (p && c.kind == UiSettingsControlKind::action && ui_rect_has_area(r.tag) &&
+        more(scene.content, index, ui_settings_more_name_tag)) {
+        // The author line's compact chip: the muted fill and the badge leading the tag.
+        p.rounded(r.tag, theme.tokens.fill.muted, theme.scale.radius_sm);
+        if (const auto* glyph = glyph_tile(scene.content, index, 0)) {
+            const float cy = (r.tag.top + r.tag.bottom) * .5f, x = r.tag.left + kUiBadgeCompactPadding;
+            p.use<ui_icon_paint_styled>(glyph->icon, UiRect{x, cy - kUiBadgeCompactIcon * .5f, x + kUiBadgeCompactIcon,
+                                                            cy + kUiBadgeCompactIcon * .5f},
+                                        UiIconStyle{color_from_rgb24(glyph->ink), color_from_rgb24(glyph->fill), 0});
+        }
+    }
+    if (p && c.kind != UiSettingsControlKind::status && c.kind != UiSettingsControlKind::preview &&
+        ui_rect_has_area(r.chips)) {
         // Accent rows (role lists) lead each chip with its colour dot, a
         // neutral one for colourless roles; plain chips (keybinds) have none.
         const bool dots = accent(scene.content, index);
@@ -354,12 +378,20 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     if (card) {
         if (!(edges & card_last))
             p.use<ui_card_hairline_paint>(t, r.row);
-    } else if (!scene.content.sectioned && field_row(c.kind) && next < scene.content.controls.count &&
+    } else if (!scene.content.sectioned && !cell && field_row(c.kind) && next < scene.content.controls.count &&
                field_row(scene.content.controls[next].kind))
         p.fill({r.row.left, r.row.bottom - 1, r.row.right, r.row.bottom}, tc.separator);
     if (scene.content.sectioned && c.kind != UiSettingsControlKind::tabs && section_trailing(scene.content, index) > 0) {
         const float y = r.row.bottom - kSectionGap - 1;
-        p.fill({r.row.left, y, r.row.right, y + 1}, tc.separator);
+        // A grid's last cell rules the whole line.
+        UiRect rule = r.row;
+        if (const auto place = cell_place(scene.content, index); place.cell) {
+            const float width = ui_rect_width(r.row), gap = t.metric.lead_gap;
+            rule.left -= static_cast<float>(place.column) * (width + gap);
+            rule.right = rule.left + static_cast<float>(place.columns) * width +
+                         static_cast<float>(place.columns - 1) * gap;
+        }
+        p.fill({rule.left, y, rule.right, y + 1}, tc.separator);
     }
     if (!p)
         return false;
@@ -372,9 +404,73 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         if (has_flag(scene.content, index, ui_settings_presentation_tristate))
             p.use<ui_tristate_paint>(t, r.control, c.selected_choice, hovered_option, state);
         else
-            p.use<ui_segmented_paint>(t, r.control, c.choices.count, c.selected_choice, hovered_option, state);
+            p.use<ui_segmented_paint>(t, r.control, c.choices.count, c.selected_choice, hovered_option, state,
+                                      segment_motion(scene, c));
         break;
     case UiSettingsControlKind::swatches:
+        if (more(scene.content, index, ui_settings_more_banner_tiles)) {
+            // Profile banner presets: each tile the banner's glow of its colour, the chosen one ringed. An upload
+            // tile (the last, ui_settings_more_upload_tile) is a plain plate under its picture, or an image glyph.
+            const float radius = t.metric.control_radius, ring = theme.scale.space_1;
+            const bool upload = more(scene.content, index, ui_settings_more_upload_tile);
+            for (u32 i = 0; p && i < c.choices.count; ++i) {
+                const auto tile = banner_tile_rect(t, r.control, i);
+                const float alpha = c.enabled ? 1.f : t.disabled_alpha;
+                if (upload && i + 1 == c.choices.count) {
+                    p.rounded(tile, ui_settings_color_alpha(tc.mod_normal, alpha), radius);
+                    if (!avatar_backed(scene.content, index)) {
+                        const float cx = (tile.left + tile.right) * .5f, cy = (tile.top + tile.bottom) * .5f;
+                        const float half = t.metric.list_icon * .5f;
+                        p.icon(UiIcon::image, {cx - half, cy - half, cx + half, cy + half},
+                               ui_settings_color_alpha(tc.text_subtle, alpha));
+                    }
+                } else {
+                    Color fill = tc.mod_strong;
+                    resolve_color(scene, c.id, i, &fill);
+                    fill.alpha *= alpha;
+                    p.use<ui_guild_profile_banner_paint>(tile, fill, radius, 0.f);
+                }
+                const auto option = choice_state(scene, state, c, i);
+                const bool focused = option.focused && scene.focus_visible;
+                if (c.selected_choice == i || focused || (option.hovered && c.enabled))
+                    p.rounded_border(ui_rect_shrink(tile, -ring * 2), {},
+                                     focused                    ? tc.focus_ring
+                                     : c.selected_choice == i ? tc.text_strong
+                                                              : ui_settings_color_alpha(tc.text_strong, .4f),
+                                     radius + ring * 2, ring);
+            }
+            break;
+        }
+        if (more(scene.content, index, ui_settings_more_glyphs)) {
+            // Badge tiles: the glyph in its two colours on a neutral tile, the chosen one ringed; a locked set dims
+            // its tiles and marks each with a lock.
+            const float radius = t.metric.control_radius, ring = theme.scale.space_1 * .5f;
+            const float alpha = c.enabled ? 1.f : t.disabled_alpha;
+            const float inset = (kGlyphTile - kGlyphTileIcon) * .5f, mark_size = kGlyphTile * .4f;
+            for (u32 i = 0; p && i < c.choices.count; ++i) {
+                const auto tile = glyph_tile_rect(t, r.control, i);
+                const auto option = choice_state(scene, state, c, i);
+                const bool focused = option.focused && scene.focus_visible;
+                p.rounded(tile, option.hovered && c.enabled ? tc.mod_normal : tc.mod_subtle, radius);
+                const auto* glyph = glyph_tile(scene.content, index, i);
+                if (!glyph)
+                    continue;
+                p.use<ui_icon_paint_styled>(glyph->icon, ui_rect_shrink(tile, inset),
+                                            UiIconStyle{ui_settings_color_alpha(color_from_rgb24(glyph->ink), alpha),
+                                                        ui_settings_color_alpha(color_from_rgb24(glyph->fill), alpha),
+                                                        0});
+                const UiIcon mark = glyph->mark;
+                if (mark != UiIcon::count) {
+                    const UiRect corner{tile.right - mark_size, tile.top, tile.right, tile.top + mark_size};
+                    p.rounded(corner, tc.mod_strong, mark_size * .5f)
+                        .icon(mark, ui_rect_shrink(corner, mark_size * .2f), tc.text_strong);
+                }
+                if (c.selected_choice == i || focused)
+                    p.rounded_border(ui_rect_shrink(tile, -ring * 2), {}, focused ? tc.focus_ring : tc.text_strong,
+                                     radius + ring * 2, ring * 2);
+            }
+            break;
+        }
         for (u32 i = 0; p && i < c.choices.count; ++i) {
             Color fill = tc.mod_strong;
             resolve_color(scene, c.id, i, &fill);
@@ -396,12 +492,17 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                                            theme.scale.radius_sm);
         break;
     }
-    case UiSettingsControlKind::buttons:
+    case UiSettingsControlKind::buttons: {
+        // The first button is the primary; a critical row's others are critical-secondary (Remove Icon).
+        const auto others = variant(scene.content, index) == UiSettingsVariant::critical
+                                ? UiSettingsButtonVariant::critical_secondary
+                                : UiSettingsButtonVariant::secondary;
         for (u32 i = 0; p && i < c.choices.count; ++i)
             p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, i, scene.measure),
-                                            i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
+                                            i ? others : UiSettingsButtonVariant::primary,
                                             choice_state(scene, state, c, i));
         break;
+    }
     case UiSettingsControlKind::colors:
         // Profile theme swatches: the colour with a matching
         // border and a pencil at the top end, its caption below.
@@ -425,7 +526,20 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                                             hover_option(scene, state, c.choices.count));
         break;
     case UiSettingsControlKind::action:
-        if (c.action_label.bytes)
+        if (cell) {
+            // A game tile's cover plate (the renderer draws the cover over it; the check and the focus ring come
+            // after it, ui_settings_scene_paint_cell_marks); without a cover, a controller glyph.
+            const float radius = t.metric.control_radius;
+            if (avatar_backed(scene.content, index))
+                p.rounded(r.lead, theme.avatar_placeholder, radius);
+            else {
+                const float cx = (r.lead.left + r.lead.right) * .5f, cy = (r.lead.top + r.lead.bottom) * .5f;
+                const float glyph = t.metric.list_icon;
+                p.rounded(r.lead, tc.mod_subtle, radius)
+                    .icon(UiIcon::controller, {cx - glyph * .5f, cy - glyph * .5f, cx + glyph * .5f, cy + glyph * .5f},
+                          ui_settings_color_alpha(tc.text_subtle, c.enabled ? 1.f : t.disabled_alpha));
+            }
+        } else if (c.action_label.bytes)
             p.use<ui_settings_button_paint>(t, r.control, button_variant(scene.content, index), state);
         break;
     case UiSettingsControlKind::choice:
@@ -440,6 +554,24 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         UiSettingsControlGeometry geometry{};
         if (!ui_settings_scene_control_geometry(scene, entry.target, &geometry))
             break;
+        if (cell) {
+            // A trait: the emoji button (a smiley until an emoji is set; the text pass draws a standard emoji, the
+            // renderer a server emoji's picture) and the clear button, inside the field.
+            p.use<ui_input_shell_paint>(t, r.control, UiControlState{c.enabled, state.hovered, false, view.focused},
+                                        field_error(scene.content, index));
+            const auto lead = hover_option(scene, state, 1), clear = hover_option(scene, state, 0);
+            if (lead.hovered && c.enabled)
+                p.rounded(r.lead, tc.mod_subtle, theme.scale.radius_sm);
+            if (!c.detail.bytes && !avatar_backed(scene.content, index))
+                p.icon(UiIcon::emoji, ui_rect_shrink(r.lead, theme.scale.space_1),
+                       lead.hovered && c.enabled ? tc.text_strong : tc.text_subtle);
+            if (ui_rect_has_area(r.value))
+                p.icon(UiIcon::circle_x, ui_rect_shrink(r.value, theme.scale.space_1),
+                       clear.hovered && c.enabled ? tc.text_strong : tc.text_subtle);
+            p.use<ui_edit_field_paint_content>(ui_rect_overlap(geometry.text, geometry.clip), view, c.editor->geometry,
+                                               theme, dpi);
+            break;
+        }
         if (ui_rect_has_area(r.value)) {
             UiControlState button = hover_option(scene, state, 0);
             button.focused = false;
@@ -595,6 +727,40 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         break;
     case UiSettingsControlKind::error:
         break;
+    case UiSettingsControlKind::preview:
+        if (const auto* s = scene.content.preview) {
+            p.rounded_border(r.body, tc.card_fill, tc.card_border, t.metric.card_radius, 1);
+            if (ui_rect_has_area(r.lead))
+                p.rounded(r.lead, tc.brand, ui_rect_width(r.lead) * .5f);
+            // Role Colors "Next to names": an 8-DIP dot before each name.
+            if (s->role_style == 1 && s->role_rgb) {
+                const Color dot = color_from_rgb24(s->role_rgb);
+                const UiRect lines[]{s->compact ? r.description : r.tag, s->compact ? r.value : UiRect{}};
+                for (const auto& line : lines)
+                    if (ui_rect_has_area(line)) {
+                        const float middle = (line.top + line.bottom) * .5f;
+                        p.rounded({line.left, middle - 4, line.left + 8, middle + 4}, dot, 4);
+                    }
+            }
+            // The first message's reactions: yours (highlighted) and another.
+            for (u32 i = 0; ui_rect_has_area(r.chips) && i < 2; ++i) {
+                const UiRect pill{r.chips.left + i * 56.f, r.chips.top, r.chips.left + i * 56.f + 52, r.chips.bottom};
+                p.rounded_border(pill, i ? tc.mod_subtle : tc.emphasis_selected, i ? tc.card_border : tc.emphasis_outline,
+                                 theme.scale.radius_md, 1);
+            }
+            // Example avatars (idle, do not disturb, online) with their status dots.
+            const Color fills[]{tc.brand, tc.mod_strong, tc.positive};
+            const Color statuses[]{theme.tokens.status.idle, theme.tokens.status.dnd, theme.tokens.status.online};
+            for (u32 i = 0; ui_rect_has_area(r.icon) && i < 3; ++i) {
+                const UiRect avatar{r.icon.left + i * 40.f, r.icon.top, r.icon.left + i * 40.f + 32, r.icon.bottom};
+                p.rounded(avatar, fills[i], 16)
+                    .rounded({avatar.right - 12, avatar.bottom - 12, avatar.right + 2, avatar.bottom + 2}, tc.card_fill, 7)
+                    .rounded({avatar.right - 9, avatar.bottom - 9, avatar.right - 1, avatar.bottom - 1}, statuses[i], 4);
+            }
+            if (ui_rect_has_area(r.control))
+                p.use<ui_settings_button_paint>(t, r.control, UiSettingsButtonVariant::primary, decltype(state){});
+        }
+        break;
     }
     return p.ok();
 }
@@ -643,7 +809,7 @@ bool paint_nav(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             p.use<ui_settings_separator_paint>(t, node->rectangle);
             continue;
         }
-        const bool selected = row.kind == UiSettingsNavKind::page && ui_page_key_equal(row.target.page, scene.selected_page);
+        const bool selected = nav_selected(scene, row);
         const auto state = widget_state(scene, handle, row.target, true);
         p.use<ui_settings_nav_item_paint>(t, node->rectangle, selected, row.destructive, state);
         if (row.icon < UiIcon::count)
@@ -790,6 +956,61 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
     return p.end();
 }
 
+bool ui_settings_scene_paint_cell_marks(const UiSettingsScene& scene, const Theme& theme, PaintStream* paint) noexcept {
+    if (!scene.active)
+        return true;
+    if (!paint || !current(scene))
+        return false;
+    const UiSettingsThemeTokens t(theme);
+    const auto& tc = t.color;
+    const auto* body = ui_widget_manager_layout_node(scene.widgets, scene.body);
+    if (!body)
+        return true;
+    UiPaint p{paint, theme};
+    p.clip(ui_rect_overlap(body->rectangle, body->clip_rectangle));
+    for (u32 i = 0; p && i < scene.widgets.count; ++i) {
+        const auto& entry = entries(scene)[i];
+        const u32 index = entry.source_index;
+        if (entry.role != EntryRole::row || index >= scene.content.controls.count)
+            continue;
+        const auto& c = scene.content.controls[index];
+        const UiWidgetHandle handle{static_cast<u16>(i), scene.widgets.generation};
+        RowLayout r{};
+        UiRect clip{};
+        if (c.kind == UiSettingsControlKind::swatches && more(scene.content, index, ui_settings_more_upload_tile) &&
+            c.choices.count && row_layout_for(scene, t, handle, index, &r, &clip)) {
+            // The official upload tile: hovering it (enabled) shows the scrim and a 20 DIP pencil over it.
+            const auto tile = banner_tile_rect(t, r.control, c.choices.count - 1);
+            // The pointer's option (palette_hovered_index, set only over the hovered row's options) is the upload tile.
+            if (!c.enabled || scene.palette_hovered_index + 1 != c.choices.count ||
+                !ui_rect_has_area(ui_rect_overlap(tile, clip)))
+                continue;
+            const float cx = (tile.left + tile.right) * .5f, cy = (tile.top + tile.bottom) * .5f;
+            const float half = t.metric.list_icon * .5f * (20.f / 24.f);
+            p.rounded(tile, tc.scrim, t.metric.control_radius)
+                .icon(UiIcon::edit, {cx - half, cy - half, cx + half, cy + half},
+                      ui_surface_foreground(theme, tc.scrim));
+            continue;
+        }
+        if (c.kind != UiSettingsControlKind::action || !more(scene.content, index, ui_settings_more_cell))
+            continue;
+        if (!row_layout_for(scene, t, handle, index, &r, &clip) || !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
+            continue;
+        const auto state = widget_state(scene, handle, entry.target, c.enabled);
+        const float radius = t.metric.control_radius, ring = theme.scale.space_1;
+        // Over the cover: the hover outline or keyboard ring, then a chosen game's check.
+        if (state.focused && scene.focus_visible)
+            p.rounded_border(ui_rect_shrink(r.lead, -ring * 2), {}, tc.focus_ring, radius + ring * 2, ring);
+        else if (state.hovered && c.enabled)
+            p.rounded_border(r.lead, {}, ui_settings_color_alpha(tc.text_strong, .4f), radius, ring);
+        if (c.checked && ui_rect_has_area(r.icon))
+            p.rounded(r.icon, ui_settings_color_alpha(tc.brand, c.enabled ? 1.f : t.disabled_alpha), theme.scale.radius_sm)
+                .icon(UiIcon::check, ui_rect_shrink(r.icon, theme.scale.space_1), ui_surface_foreground(theme, tc.brand));
+    }
+    p.unclip();
+    return p.end();
+}
+
 namespace settings_scene_detail {
 namespace {
 void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTokens& t, UiWidgetHandle handle,
@@ -875,6 +1096,55 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
         }
         return;
     }
+    if (c.kind == UiSettingsControlKind::preview && scene.content.preview) {
+        const auto& s = *scene.content.preview;
+        const UiKitMeasure* m = scene.measure;
+        const float em = s.text_size > 0 ? s.text_size : 16.f;
+        text(handle, c.label, r.label, tc.text_subtle, kUiKitTextBody);
+        const Color name_ink = s.role_style == 0 && s.role_rgb ? color_from_rgb24(s.role_rgb) : tc.text_strong;
+        const float dot = s.role_style == 1 && s.role_rgb ? 12.f : 0.f;
+        const float name_width = ui_kit_chat_text_width(m, s.author, kUiKitTextBodyBold, em);
+        // A line led by the name (compact rows: every line) then text runs, each after the one before. The sample is
+        // chat text: the chat face at the chat size.
+        const auto runs = [&](const UiRect& line, bool named, const Utf8View* parts, u32 count, bool link_last) noexcept {
+            float x = line.left;
+            if (named) {
+                text(handle, s.author, {x + dot, line.top, minimum(line.right, x + dot + name_width + 2), line.bottom},
+                     name_ink, kUiKitTextBodyBold, ui_text_chat);
+                x += dot + name_width + 6;
+            }
+            for (u32 i = 0; i < count && x < line.right; ++i) {
+                const bool link = link_last && i + 1 == count;
+                const u32 style = kUiKitTextBody | (link && s.underline ? text_style_underline : 0u);
+                text(handle, parts[i], {x, line.top, line.right, line.bottom}, link ? tc.link : tc.text_default, style,
+                     ui_text_chat);
+                x += ui_kit_chat_text_width(m, parts[i], kUiKitTextBody, em);
+            }
+        };
+        if (c.choices.count >= 3) {
+            const Utf8View first[]{c.choices[0]}, second[]{c.choices[1], c.choices[2]};
+            if (s.compact) {
+                text(handle, s.time, r.tag, tc.text_subtle, kUiKitTextSmall, ui_text_end | ui_text_chat);
+                runs(r.description, true, first, 1, false);
+                runs(r.value, true, second, 2, true);
+            } else {
+                const char initial[2]{s.author.bytes ? s.author.data[0] : '?', 0};
+                text(handle, {initial, 1}, r.lead, tc.on_brand, kUiKitTextBodyBold, ui_text_center);
+                runs(r.tag, true, nullptr, 0, false);
+                text(handle, s.time, {r.tag.left + dot + name_width + 8, r.tag.top, r.tag.right, r.tag.bottom},
+                     tc.text_subtle, kUiKitTextSmall, ui_text_chat);
+                runs(r.description, false, first, 1, false);
+                runs(r.value, false, second, 2, true);
+            }
+        }
+        // The reactions: 🥀 3 (yours) and 🪤 1. A reaction pill is a fixed box with a fixed count, as in the chat.
+        constexpr Utf8View reactions[]{utf8_literal("\xF0\x9F\xA5\x80 3"), utf8_literal("\xF0\x9F\xAA\xA4 1")};
+        for (u32 i = 0; ui_rect_has_area(r.chips) && i < 2; ++i)
+            text(handle, reactions[i], {r.chips.left + i * 56.f, r.chips.top, r.chips.left + i * 56.f + 52, r.chips.bottom},
+                 i ? tc.text_default : tc.emphasis_outline, kUiKitTextLabelBold, ui_text_center);
+        text(handle, c.action_label, r.control, tc.on_brand, kUiKitTextLabelBold, ui_text_center);
+        return;
+    }
     if (c.kind == UiSettingsControlKind::markdown) {
         auto* block = markdown_block(scene.content, index, row_context(scene));
         const auto visible = ui_rect_overlap(r.body, clip);
@@ -898,6 +1168,11 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
         text(handle, c.label, r.label, tc.text_subtle, text_description, ui_text_wrap);
         if (ui_rect_has_area(r.control))
             text(handle, c.action_label, r.control, state.hovered ? tc.text_strong : tc.link, text_description);
+        return;
+    }
+    if (c.kind == UiSettingsControlKind::action && more(scene.content, index, ui_settings_more_cell)) {
+        // A game tile's name under its cover, cut to one line.
+        text(handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), kUiKitTextSmallBold);
         return;
     }
     if (c.kind == UiSettingsControlKind::tabs) {
@@ -927,13 +1202,27 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
                  ui_settings_color_alpha(count_hovered ? tc.text_strong : tc.text_default, dim), text_label);
         return;
     }
-    text(handle, c.label, r.label,
-         c.kind == UiSettingsControlKind::notice && variant(scene.content, index) == UiSettingsVariant::critical
-             ? tc.critical_text
-             : ui_settings_color_alpha(tc.text_strong, dim),
-         text_label);
-    text(handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim), text_description,
-         ui_text_wrap);
+    if (c.kind == UiSettingsControlKind::action && more(scene.content, index, ui_settings_more_name_tag)) {
+        // A name previewed in chat: the name in its colour, the tag in its chip, the message under them.
+        Color name = tc.text_strong;
+        if (accent(scene.content, index))
+            (void)resolve_color(scene, c.id, kUiSettingsAccentChoice, &name);
+        text(handle, c.label, r.label, name, text_heading);
+        if (ui_rect_has_area(r.tag))
+            text(handle, c.detail,
+                 {r.tag.left + kUiBadgeCompactPadding + kUiBadgeCompactIcon + kUiBadgeCompactIconGap, r.tag.top,
+                  r.tag.right, r.tag.bottom},
+                 tc.text_default, text_value);
+        text(handle, c.description, r.description, tc.text_default, text_description, ui_text_wrap);
+    } else {
+        text(handle, c.label, r.label,
+             c.kind == UiSettingsControlKind::notice && variant(scene.content, index) == UiSettingsVariant::critical
+                 ? tc.critical_text
+                 : ui_settings_color_alpha(tc.text_strong, dim),
+             text_label);
+        text(handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim), text_description,
+             ui_text_wrap);
+    }
     // Initials only for avatar rows without an image to draw.
     if (c.kind == UiSettingsControlKind::action && has_flag(scene.content, index, ui_settings_presentation_avatar) &&
         !avatar_backed(scene.content, index)) {
@@ -952,19 +1241,31 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
     }
     switch (c.kind) {
     case UiSettingsControlKind::segments:
-        if (!has_flag(scene.content, index, ui_settings_presentation_tristate))
-            for (u32 i = 0; i < c.choices.count; ++i)
+        if (!has_flag(scene.content, index, ui_settings_presentation_tristate)) {
+            // The labels cross-fade with the plate; the weight follows once the label is mostly the selected one.
+            const auto motion = segment_motion(scene, c);
+            for (u32 i = 0; i < c.choices.count; ++i) {
+                const float shown = segment_selection(motion, c.selected_choice, i);
                 text(handle, c.choices[i], ui_segmented_option(t, r.control, c.choices.count, i),
-                     ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong : tc.text_default, dim),
-                     c.selected_choice == i ? text_button : text_dropdown, ui_text_center);
+                     ui_settings_color_alpha(shown <= 0   ? tc.text_default
+                                             : shown >= 1 ? tc.text_strong
+                                                          : ui_settings_color_mix(tc.text_default, tc.text_strong, shown),
+                                             dim),
+                     shown >= .5f ? text_button : text_dropdown, ui_text_center);
+            }
+        }
         break;
-    case UiSettingsControlKind::buttons:
+    case UiSettingsControlKind::buttons: {
+        const auto others = variant(scene.content, index) == UiSettingsVariant::critical
+                                ? UiSettingsButtonVariant::critical_secondary
+                                : UiSettingsButtonVariant::secondary;
         for (u32 i = 0; i < c.choices.count; ++i)
             text(handle, c.choices[i], option_rect(t, c, r.control, i, scene.measure),
-                 ui_settings_button_text(t, i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
+                 ui_settings_button_text(t, i ? others : UiSettingsButtonVariant::primary,
                                          hover_option(scene, state, i)),
                  text_button, ui_text_center);
         break;
+    }
     case UiSettingsControlKind::colors:
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto swatch = option_rect(t, c, r.control, i, scene.measure);
@@ -1026,7 +1327,11 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
     }
     case UiSettingsControlKind::edit:
     case UiSettingsControlKind::multiline: {
-        if (ui_rect_has_area(r.value) && c.action_label.bytes)
+        if (more(scene.content, index, ui_settings_more_cell)) {
+            // A trait's emoji sits on its button; the clear button is a glyph.
+            if (c.detail.bytes)
+                text(handle, c.detail, r.lead, ui_settings_color_alpha(tc.text_strong, dim), text_label, ui_text_center);
+        } else if (ui_rect_has_area(r.value) && c.action_label.bytes)
             text(handle, c.action_label, r.value,
                  ui_settings_button_text(t, UiSettingsButtonVariant::primary, hover_option(scene, state, 0)), text_button,
                  ui_text_center);
@@ -1047,18 +1352,20 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
                   geometry.field.right - 14, geometry.field.bottom - 10},
                  variant(scene.content, index) == UiSettingsVariant::critical ? tc.critical_text : tc.text_default,
                  text_button, ui_text_end);
+        // A grid cell's text that does not fit ends in an ellipsis while the field is not being edited.
+        const bool cut = more(scene.content, index, ui_settings_more_cell) && !editor.view.focused;
         if (ui_rect_has_area(text_clip))
             pen.emit({entered ? editor.view.text : editor.placeholder,
                       {&scene.widgets, handle},
-                      measured ? editor.geometry->text : geometry.text,
+                      measured && !cut ? editor.geometry->text : geometry.text,
                       text_clip,
                       entered ? ui_settings_color_alpha(tc.text_strong, dim) : tc.text_subtle,
                       0,
                       UiTextAlignment::start,
-                      c.kind == UiSettingsControlKind::multiline || measured ? UiTextAlignment::start
-                                                                             : UiTextAlignment::center,
+                      c.kind == UiSettingsControlKind::multiline || (measured && !cut) ? UiTextAlignment::start
+                                                                                      : UiTextAlignment::center,
                       c.kind == UiSettingsControlKind::multiline ? TextWrapping::wrap : TextWrapping::no_wrap,
-                      TextOverflow::clip});
+                      cut ? TextOverflow::ellipsis : TextOverflow::clip});
         break;
     }
     default:
@@ -1093,7 +1400,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
                 tc.nav_header, text_eyebrow);
             continue;
         }
-        const bool selected = row.kind == UiSettingsNavKind::page && ui_page_key_equal(row.target.page, scene.selected_page);
+        const bool selected = nav_selected(scene, row);
         const auto state = widget_state(scene, handle, row.target, true);
         nav(handle, row.label, ui_settings_nav_label_rect(t, node->rectangle, row.icon < UiIcon::count),
             ui_settings_nav_item_text(t, selected, row.destructive, state), text_label);
@@ -1102,6 +1409,19 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
             nav(handle, digits,
                 ui_settings_nav_badge_rect(node->rectangle, false, ui_kit_text_width(scene.measure, digits, text_value)),
                 tc.on_brand, text_value, ui_text_center);
+        }
+    }
+    // The sidebar note: one start-aligned 12/16 line per '\n'-separated part.
+    if (const UiRect note = frame(scene, t.metric).nav_note; ui_rect_has_area(note)) {
+        const Utf8View all = scene.navigation_note;
+        u32 start = 0, line = 0;
+        for (u32 i = 0; i <= all.bytes && line < kUiSettingsNavigationNoteLines; ++i) {
+            if (i < all.bytes && all.data[i] != '\n')
+                continue;
+            const float top = note.top + static_cast<float>(line++) * kNavNoteLine;
+            text.in(note)(scene.sidebar, {all.data + start, i - start}, {note.left, top, note.right, top + kNavNoteLine},
+                          tc.text_subtle, kTextStyleSizeCodeXs);
+            start = i + 1;
         }
     }
     if (scene.search_field.generation) {

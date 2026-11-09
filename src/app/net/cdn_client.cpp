@@ -159,6 +159,7 @@ const wchar_t* host_wide(CdnHost host) noexcept {
     case CdnHost::catalog_tenor: return L"media.tenor.com";
     case CdnHost::catalog_giphy: return L"media.giphy.com";
     case CdnHost::activity_art: return L"i.scdn.co";
+    case CdnHost::web_asset: return L"discord.com";
     default: return nullptr;
     }
 }
@@ -850,6 +851,8 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
          (request.host != CdnHost::cdn || !sticker_json_target_valid(request.target))) ||
         (request.host == CdnHost::activity_art &&
          (request.image_type != CdnImageType::jpeg || !activity_art_target_valid(request.target))) ||
+        (request.host == CdnHost::web_asset &&
+         (request.image_type != CdnImageType::png || !web_asset_target_valid(request.target))) ||
         (cdn_catalog_provider(request.host) &&
          !catalog_provider_request_valid(request.host, request.image_type, request.target)) ||
         (!request.target.data && request.target.count != 0) ||

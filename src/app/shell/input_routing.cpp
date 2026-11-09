@@ -1,5 +1,6 @@
 #include "../chat/inbox.hpp"
 #include "../media/downloads.hpp"
+#include "../voice/go_live.hpp"
 #include "../account/profile.hpp"
 
 #include "state.hpp"
@@ -222,6 +223,9 @@ UiInputDisposition content_input(void*, const UiInputEvent& event) noexcept {
 }
 
 UiInputDisposition profile_input(void*, const UiInputEvent& event) noexcept {
+    // The message field's emoji popout sits over the profile and takes its keys first.
+    if (application_media_picker_input(event.kind, event.code, event.repeated))
+        return UiInputDisposition::handled;
     if (event.kind == UiInputKind::key_down || event.kind == UiInputKind::system_key_down ||
         event.kind == UiInputKind::key_up)
         application_profile_key(event.code, event.kind != UiInputKind::key_up, event.repeated);
@@ -256,6 +260,8 @@ bool route_application_input(UiInputKind kind, u32 code, bool repeated) noexcept
     if (application_thread_browser_consume_key_tail(kind, code, repeated))
         return true;
     if (application_downloads_input(kind, code, repeated))
+        return true;
+    if (application_go_live_modal_input(kind, code, repeated))
         return true;
     if (application_shortcuts_overlay_input(kind, code, repeated))
         return true;

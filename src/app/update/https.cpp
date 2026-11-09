@@ -179,7 +179,9 @@ u32 https_exchange_head(const UpdateHttpRequest& request, const HttpsExchangeOpt
     };
     bool ok = add(options.body.count ? utf8_literal("POST ") : utf8_literal("GET ")) &&
         add({request.target.data, request.target.count}) && add(utf8_literal(" HTTP/1.1\r\nHost: ")) &&
-        add(request.host_name) && add(utf8_literal("\r\nAccept-Encoding: identity\r\nConnection: close\r\n"));
+        add(request.host_name) &&
+        add(options.accept_gzip ? utf8_literal("\r\nAccept-Encoding: gzip\r\nConnection: close\r\n")
+                                : utf8_literal("\r\nAccept-Encoding: identity\r\nConnection: close\r\n"));
     bool agent = false, accept = false;
     for (u32 i = 0; ok && i < options.headers.count; ++i) {
         const auto& h = options.headers[i];
@@ -237,6 +239,9 @@ UpdateTransportError update_http_read(UpdateHttpReader* r, const UpdateHttpReque
             response->retry_after_seconds = fields.retry_after_seconds; response->has_retry_after = fields.has_retry_after;
             response->ratelimit_reset_unix = fields.ratelimit_reset_unix; response->has_ratelimit_reset = fields.has_ratelimit_reset;
             response->ratelimit_exhausted = fields.ratelimit_exhausted;
+            copy_bytes(response->etag, fields.etag, fields.etag_bytes);
+            response->etag_bytes = fields.etag_bytes;
+            response->gzip = fields.gzip;
             response->status = head.head.status_code;
             response->content_length = head.head.content_length; response->has_content_length = head.head.has_content_length;
             drop(buffer, bytes, head.head.header_bytes);

@@ -114,7 +114,7 @@ bool member_paging_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure,
         user_store_upsert(&users, 90004, utf8_literal("Arrived at wire 50002")).ok() &&
         member_list_scene_initialize(&scene, {rows, 64}, {widgets, 257}, {nodes, 257});
     scene.measure = &measure;
-    const float scroll = 50000.f * kMemberListRowHeight;
+    const float scroll = 50000.f * member_list_row_height();
     UiRect gap_rectangle{}, known_rectangle{};
     UiScrollbarGeometry scrollbar{};
     if (valid) {
@@ -149,7 +149,7 @@ bool member_paging_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure,
                 paging_check(!(widget->flags & (ui_widget_hit_test | ui_widget_focusable)), "gap_widget_interactive") &&
                 paging_check(member_list_scene_hit_test(scene, (gap_rectangle.left + gap_rectangle.right) * .5f,
                     (gap_rectangle.top + gap_rectangle.bottom) * .5f).user_id == 0, "gap_hit_resolves_member") &&
-                paging_check(gap_rectangle.top - known_rectangle.top == kMemberListRowHeight, "wire_row_spacing_incorrect") &&
+                paging_check(gap_rectangle.top - known_rectangle.top == member_list_row_height(), "wire_row_spacing_incorrect") &&
                 paging_check(scrollbar.visible, "logical_scrollbar_missing") &&
                 paging_check(scene.source_count == 100000, "logical_count_incorrect") &&
                 paging_check(scene.count < 64, "materialization_unbounded") &&

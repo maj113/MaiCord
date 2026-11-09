@@ -350,8 +350,9 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 settings_stores_dispatch(client, runtime, event.envelope, now_ms);
             }
             // STREAM_* carry the stream token: consumed here, never mailboxed.
-            if (gateway_stream_dispatch(&runtime->stream.control, event.envelope, index, 64,
-                                        now_ms)) {
+            // Each control takes the events of its own key (watched / ours).
+            if (gateway_stream_dispatch(&runtime->stream.control, event.envelope, index, 64, now_ms) &&
+                gateway_stream_dispatch(&runtime->go_live.control, event.envelope, index, 64, now_ms)) {
                 publish_voice_snapshot(client, runtime);
                 checkpoint_resume_sequence(runtime);
                 continue;
@@ -667,6 +668,12 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
         return {next_worker_wait(client, runtime, event.now_ms),
                 runtime->stopping && shutdown_drained(runtime)};
     }
+    if (voice_connection_owns(runtime->go_live.connection, completion)) {
+        voice_connection_completion(&runtime->go_live.connection, runtime->go_live.control.setup, loop, completion,
+                                    event.now_ms);
+        return {next_worker_wait(client, runtime, event.now_ms),
+                runtime->stopping && shutdown_drained(runtime)};
+    }
     // Capture wake-ups only need the voice drive that follows every event.
     if (completion.kind == NetworkOperationKind::signal && completion.signal == &runtime->voice_send_signal)
         return {next_worker_wait(client, runtime, event.now_ms), runtime->stopping && shutdown_drained(runtime)};
@@ -959,6 +966,10 @@ NetworkWorkerStep gateway_worker_handler(void* opaque, NetworkLoop* loop,
     if (gateway_stream_session_busy(runtime->stream)) {
         gateway_stream_session_drive(&runtime->stream, runtime->voice, loop, runtime->voice_send.applied,
                                      event.now_ms);
+        publish_voice_snapshot(client, runtime);
+    }
+    if (gateway_go_live_busy(runtime->go_live)) {
+        gateway_go_live_drive(&runtime->go_live, runtime->voice, loop, event.now_ms);
         publish_voice_snapshot(client, runtime);
     }
     drive_client_activity(runtime, event.now_ms);

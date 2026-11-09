@@ -60,6 +60,7 @@ const Theme& application_theme() noexcept {
         (!publication.ready || publication.previous_kind != g_app.preferences.theme ||
          !background_theme_equal(publication.previous_gradient, g_app.preferences.gradient))) {
         Theme& theme = publication.set_theme(client_theme_projection(g_app.preferences));
+        theme_desaturate(&theme, 100u - g_app.preferences.desaturation);
         theme.styles = publication.styles;
         theme.style_revision = publication.styles ? publication.styles->revision : 0;
         remember_preferences(publication, g_app.preferences);

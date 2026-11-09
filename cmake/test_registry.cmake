@@ -379,6 +379,26 @@ maicord_test(MaiCordTestServerTests ONLY WINDOWS ENTRY maicord_test_server_entry
     LIBS maicord_core maicord_platform kernel32 ws2_32 bcrypt maicord_sspicli crypt32
     DEFINES MAICORD_TEST_HOOKS=1
     TIMEOUT 15 TEST maicord_test_server)
+# Go Live end to end (tests/app/voice/go_live_loopback.cpp): MaiCord's sender session streams H.264, H.265 and AV1
+# with stream audio and DAVE to MaiCord's receive path through tools/fake_discord_server.py's stream server, which
+# tools/test_go_live_loopback.py starts (the test hooks point the connections at it); the H.264 frames are decoded on
+# the GPU and checked. The three codecs run side by side (each has its own server and client, paced by the clock), and
+# the case holds no GPU chain (it renders no window). Skipped (77) without openssl or a hardware video device.
+maicord_test(MaiCordGoLiveLoopbackTests ONLY WINDOWS ENTRY maicord_go_live_loopback_entry
+    SOURCES tests/app/voice/go_live_loopback.cpp src/platform/net/test_server.cpp src/platform/net/network.cpp
+        src/platform/net/tls_client.cpp
+    LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_account_media maicord_model
+        maicord_media_codec maicord_media_core maicord_voice_encoder kernel32 crypt32 ws2_32 maicord_sspicli bcrypt
+        d3d11 ole32 user32
+    DEFINES MAICORD_TEST_HOOKS=1
+    INCLUDES src/app)
+if(NOT MAICORD_LINUX)
+    add_test(NAME maicord_go_live_loopback
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_go_live_loopback.py"
+            "$<TARGET_FILE:MaiCordGoLiveLoopbackTests>" "${CMAKE_BINARY_DIR}/go-live-loopback")
+    set_tests_properties(maicord_go_live_loopback PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77 LABELS gpu)
+    maicord_test_target(maicord_go_live_loopback MaiCordGoLiveLoopbackTests)
+endif()
 # Context menus (targets, a submenu, checkbox, visibility), typed slash commands against the composer's own
 # option parsing, banners, modals and the navigation actions, against the UI fixture and a recording host.
 maicord_plugin(MaiCordPluginUiFixture tests/fixtures/plugin_ui_fixture.c ${MAICORD_PLUGIN_C_RUNTIME})
@@ -458,7 +478,8 @@ maicord_test(MaiCordNativeExtensionTests ONLY WINDOWS ENTRY maicord_native_exten
         tests/model/user/member_user_perf.cpp src/render/text/edit_layout.cpp tests/ui/chat/messages/context_controller.cpp
         tests/ui/settings/scene.cpp tests/ui/widgets/kit.cpp tests/ui/widgets/settings_choice.cpp tests/ui/account/password_recovery.cpp tests/ui/account/password_reset_ui.cpp
         tests/model/user/profile_editor_layout.cpp tests/protocol/auth/phone_recovery.cpp tests/ui/account/password_phone_ui.cpp tests/ui/account/friends_scene.cpp
-        tests/ui/account/friends_media.cpp tests/ui/text/form_confirmation.cpp tests/app/gateway/relationship_sync.cpp tests/model/user/friend_search.cpp
+        tests/ui/account/friends_media.cpp tests/ui/text/form_confirmation.cpp tests/ui/widgets/color_picker.cpp
+        tests/app/gateway/relationship_sync.cpp tests/model/user/friend_search.cpp
         tests/app/settings/client_preferences.cpp tests/ui/layout/scroll_host_preferences.cpp tests/ui/guild/menu_rail_smooth_scroll.cpp
         tests/app/chat/visible_author_hydration.cpp tests/ui/theme/background_theme.cpp tests/ui/theme/background_effect_policy.cpp
         tests/ui/theme/background_color_math.cpp src/render/text/content_text_retention.cpp tests/ui/settings/theme_editor.cpp
@@ -492,10 +513,10 @@ maicord_test(MaiCordNativeExtensionTests ONLY WINDOWS ENTRY maicord_native_exten
     INCLUDES src/app third_party/opus/include "${MAICORD_GENERATED_DIRECTORY}"
     DEFINES "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\""
     USES_CLIENT MaiCord)
-# The same 163 fixtures run once across four private process/profile owners.
+# The same 164 fixtures run once across four private process/profile owners.
 # Shard 0 keeps all 5 durable update fixtures serial and runs 40 other fixtures;
-# shard 1 runs 40 and shards 2 and 3 run 39. Every shard checks its exact function count.
-set(maicord_extension_fixture_counts 45 40 39 39)
+# shards 1 and 2 run 40 and shard 3 runs 39. Every shard checks its exact function count.
+set(maicord_extension_fixture_counts 45 40 40 39)
 foreach(maicord_extension_shard RANGE 0 3)
     set(maicord_extension_test maicord_native_extensions)
     list(GET maicord_extension_fixture_counts ${maicord_extension_shard} maicord_extension_fixture_count)
@@ -504,7 +525,7 @@ foreach(maicord_extension_shard RANGE 0 3)
     endif()
     maicord_add_tests(MaiCordNativeExtensionTests
         PASS_REGULAR_EXPRESSION
-            "PASS native extensions shard=${maicord_extension_shard}/4 fixtures=${maicord_extension_fixture_count}/163"
+            "PASS native extensions shard=${maicord_extension_shard}/4 fixtures=${maicord_extension_fixture_count}/164"
         TEST ${maicord_extension_test} --fixture-shard ${maicord_extension_shard} 4)
 endforeach()
 if(NOT MAICORD_LINUX)
@@ -691,6 +712,7 @@ maicord_test(MaiCordSettingsRuntimeTests ONLY WINDOWS ENTRY maicord_settings_run
         tests/app/settings/settings_choice_runtime.cpp tests/app/settings/user_settings_runtime.cpp
         tests/app/settings/account_settings_runtime.cpp tests/app/settings/keybinds_settings_runtime.cpp
         src/app/settings/user_settings.cpp src/app/settings/account_settings.cpp src/app/shell/state.cpp
+        src/app/settings/test_mode.cpp
         src/app/settings/settings.cpp src/app/settings/settings_projection.cpp src/app/settings/settings_activation.cpp
         src/app/settings/settings_input.cpp src/app/settings/catalog.cpp src/app/settings/theme_editor.cpp
         src/app/notifications/desktop_settings.cpp src/app/effects/effects.cpp src/app/plugins/surfaces.cpp
@@ -698,13 +720,15 @@ maicord_test(MaiCordSettingsRuntimeTests ONLY WINDOWS ENTRY maicord_settings_run
         src/render/text/content_text_retention.cpp src/core/log.cpp src/app/update/updates.cpp
         src/app/voice/settings.cpp src/app/voice/settings_binding.cpp
         src/app/settings/keybinds_settings.cpp src/app/account/activity.cpp src/app/account/game_detection.cpp
+        src/app/account/game_detection_system.cpp src/app/account/detectable_list.cpp
         tests/app/store/store_routing_runtime.cpp tests/app/store/store_runtime_stubs.cpp src/app/store/store_host.cpp
         src/app/store/store_source.cpp src/app/store/store_projection.cpp src/app/store/store_page.cpp
         src/app/store/store_detail.cpp src/app/store/store_dialogs.cpp src/app/store/store_act.cpp
         src/app/store/store_preview_pump.cpp src/app/store/store_preview_decode.cpp src/app/media/local_preview_thumbnail.cpp
     LIBS bcrypt ws2_32 maicord_sspicli maicord_compile_contract maicord_core maicord_window_null maicord_platform maicord_app_core
         maicord_ui maicord_client_preferences maicord_plugin_runtime
-        maicord_message_media maicord_ui_input maicord_packages maicord_media_core kernel32 user32 shell32 ole32
+        maicord_message_media maicord_ui_input maicord_packages maicord_media_core maicord_webauthn kernel32 user32 shell32
+        ole32 ntdll
     INCLUDES src/app
     DEPENDS MaiCordPluginUiFixture MaiCordPluginSurfacesFixture
     TEST maicord_settings_runtime)
@@ -722,11 +746,17 @@ maicord_test(MaiCordGuildCommunityTests ONLY WINDOWS ENTRY maicord_guild_communi
 # animation, the list inset, header paint/text and the server tag popout.
 maicord_test(MaiCordGuildBannerTests ENTRY maicord_guild_banner_entry SOURCES tests/ui/guild/banner.cpp
     BUNDLE MaiCordAppWaveTests TIMEOUT 10 TEST maicord_guild_banner)
-# Rich presence, automatic idle, opcode 3, activity sharing, game
-# detection, message requests and DM safety warnings.
+# Rich presence, automatic idle, opcode 3, activity sharing, message requests
+# and DM safety warnings.
 maicord_test(MaiCordPresenceWaveTests ENTRY maicord_presence_wave_entry
-    SOURCES tests/ui/widgets/presence_wave.cpp src/app/account/game_detection.cpp
+    SOURCES tests/ui/widgets/presence_wave.cpp
     BUNDLE MaiCordAppWaveTests TIMEOUT 10 TEST maicord_presence_wave)
+# Game detection over fake process snapshots: Discord's detectable entries, path, file-name and argument matching,
+# launchers, exclusions, windowless processes, several games, per-game detection and the saved record. The presence
+# sequence (shown, held, cleared, replaced) is in tests/app/account/activity_retry.cpp.
+maicord_test(MaiCordGameDetectionTests ENTRY maicord_game_detection_entry
+    SOURCES tests/app/account/game_detection.cpp src/app/account/game_detection.cpp src/app/account/detectable_list.cpp
+    BUNDLE MaiCordAppWaveTests TIMEOUT 10 TEST maicord_game_detection)
 # Profile rich presence cards: order, text, timers, progress, asset URLs and
 # artwork fallback, popout and full profile layout, ticks, and the application
 # icon and button metadata requests.
@@ -834,11 +864,12 @@ maicord_test(MaiCordVoiceTests ONLY WINDOWS ENTRY maicord_voice_tests_entry
         tests/app/voice/connection_setup.cpp tests/app/gateway/voice_control.cpp tests/app/account/account_session_identity.cpp
         tests/protocol/voice/gateway.cpp tests/protocol/voice/heartbeat.cpp tests/protocol/voice/session.cpp tests/platform/net/tls_stream_lifecycle.cpp
         tests/app/voice/socket.cpp tests/app/voice/connection.cpp tests/protocol/voice/media_events.cpp tests/app/voice/udp.cpp
-        tests/app/voice/udp_handoff.cpp tests/protocol/gateway/voice.cpp tests/model/voice/state_store.cpp tests/ui/voice/elapsed_timer.cpp
+        tests/app/voice/udp_handoff.cpp tests/protocol/gateway/voice.cpp tests/model/voice/state_store.cpp tests/ui/voice/channel_rows.cpp
         tests/protocol/voice/channel_info.cpp tests/protocol/voice/gateway_policy.cpp tests/app/voice/dave/session.cpp tests/app/voice/video_rtp_receive.cpp
         tests/app/voice/jitter_buffer.cpp tests/app/voice/playback.cpp tests/app/voice/receive.cpp tests/app/voice/call_view.cpp
         tests/app/voice/stream_watch.cpp tests/protocol/guild/stage_channel.cpp tests/protocol/voice/video_signaling.cpp tests/app/voice/dave/video_frames.cpp
         tests/app/voice/video_sink.cpp tests/protocol/gateway/stream.cpp tests/app/voice/send.cpp tests/app/voice/preferences.cpp
+        tests/ui/voice/go_live_scene.cpp tests/app/voice/go_live_send.cpp tests/app/voice/go_live_thumbnails.cpp
         src/app/voice/settings_binding.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_model kernel32 crypt32 ws2_32
         maicord_sspicli bcrypt maicord_ui maicord_media_codec ole32 maicord_client_preferences user32
@@ -855,6 +886,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
             tests/app/account/account_module_dormant.cpp tests/app/account/account_inventory.cpp
             tests/app/media/parity.cpp tests/app/media/catalog_media.cpp tests/ui/chat/messages/preparation.cpp
             tests/render/media/atlas_pressure.cpp tests/ui/shell/composer_geometry.cpp
+            tests/ui/chat/composer/typing_strip.cpp
             tests/ui/chat/messages/reply_grouping.cpp tests/ui/chat/messages/markdown_cache.cpp
             tests/app/chat/messages/interaction_rules.cpp tests/ui/chat/timeline_overlay_regressions.cpp
             tests/ui/chat/messages/chat_display.cpp tests/app/chat/messages/live_updates.cpp
@@ -927,7 +959,8 @@ maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
         src/app/chat/composer/commands_frecency.cpp src/app/chat/composer/commands_picker.cpp
         src/app/chat/composer/commands_draft.cpp src/app/chat/composer/builtin_commands.cpp
         src/app/chat/composer/plugin_commands.cpp src/app/shell/state.cpp src/app/settings/modal.cpp
-        src/app/chat/messages/feedback.cpp tests/app/account/activity_retry.cpp
+        src/app/chat/messages/feedback.cpp tests/app/account/activity_retry.cpp src/app/account/game_detection.cpp
+        src/app/account/detectable_list.cpp
         tests/app/account/custom_status_retry.cpp tests/app/notifications/retry.cpp tests/app/guild/community_retry.cpp
         tests/app/guild/invite_retry.cpp
     INCLUDES src/app
@@ -991,6 +1024,18 @@ maicord_test(MaiCordWebAuthnRegistrationTests ENTRY maicord_webauthn_registratio
     BUNDLE MaiCordProtocolTests TIMEOUT 10 TEST maicord_webauthn_registration)
 maicord_test(MaiCordGuildSettingsTests ENTRY maicord_guild_settings_entry SOURCES tests/model/guild/settings_model.cpp
     BUNDLE MaiCordModelTests TIMEOUT 10 TEST maicord_guild_settings)
+# Access, Enable Community / Community Overview and Server Template: the member-verification, template and discovery
+# requests and replies, the guild PATCH's community fields, and the Access form and community drafts.
+maicord_test(MaiCordCommunityAdminTests ENTRY maicord_community_admin_entry SOURCES tests/protocol/guild/community_admin.cpp
+    BUNDLE MaiCordModelTests TIMEOUT 10 TEST maicord_community_admin)
+# Server Tag: the tag fields of the server profile (decode, draft, badge catalogue, validation) and the exact tag
+# PATCH and PUT /users/@me/clan requests.
+maicord_test(MaiCordServerTagTests ENTRY maicord_server_tag_entry SOURCES tests/model/guild/server_tag.cpp
+    BUNDLE MaiCordModelTests TIMEOUT 10 TEST maicord_server_tag)
+# Game mentions (<@$id>): the syntax, the game cache and search, the composer's @game token, the markdown chip, the
+# GET /games and /games/autocomplete targets and the game profile's details.
+maicord_test(MaiCordGameMentionsTests ENTRY maicord_game_mentions_tests_entry SOURCES tests/model/chat/game_mentions.cpp
+    BUNDLE MaiCordAppUnitTests TIMEOUT 10 TEST maicord_game_mentions)
 # Role manager: tri-state permissions and switch, role reorder and
 # hierarchy, View Server as Role and the role editor's locks and drafts.
 maicord_test(MaiCordRoleManagerTests ONLY WINDOWS ENTRY maicord_role_manager_entry
@@ -1001,6 +1046,11 @@ maicord_test(MaiCordRoleManagerTests ONLY WINDOWS ENTRY maicord_role_manager_ent
 maicord_test(MaiCordGuildModerationTests ONLY WINDOWS ENTRY maicord_guild_moderation_entry
     SOURCES tests/protocol/guild/moderation.cpp tests/protocol/http/rest_submit_hook.cpp src/app/guild/account_guild_moderation.cpp
     BUNDLE MaiCordAccountRequestTests TIMEOUT 10 TEST maicord_guild_moderation)
+# Integrations, webhooks, command permissions and AutoMod rules: every route,
+# method and body, the limits, the keyword boxes, the replies and the transport.
+maicord_test(MaiCordGuildAutomationTests ONLY WINDOWS ENTRY maicord_guild_automation_entry
+    SOURCES tests/protocol/guild/automation.cpp tests/protocol/http/rest_submit_hook.cpp src/app/guild/account_guild_automation.cpp
+    BUNDLE MaiCordAccountRequestTests TIMEOUT 10 TEST maicord_guild_automation)
 maicord_test(MaiCordGuildAdminAccountTests ENTRY maicord_account_guild_admin_entry
     SOURCES tests/app/guild/account_guild_admin.cpp tests/protocol/http/rest_submit_hook.cpp src/app/guild/account_guild_admin.cpp
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_guild_admin_account)
@@ -1110,7 +1160,8 @@ maicord_test(MaiCordAccountMenuRuntimeTests ONLY WINDOWS ENTRY maicord_account_m
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_account_menu_runtime)
 maicord_test(MaiCordDmProfileTests ENTRY maicord_dm_profile_tests_entry
-    SOURCES tests/ui/account/dm_profile_panel.cpp src/app/account/dm_profile.cpp src/app/shell/state.cpp
+    SOURCES tests/ui/account/dm_profile_panel.cpp src/app/account/dm_profile.cpp src/app/chat/private_header.cpp
+        src/app/shell/state.cpp
     BUNDLE MaiCordAppUnitTests
     WINDOWS SOURCES src/core/log.cpp
     TIMEOUT 10 TEST maicord_dm_profile)

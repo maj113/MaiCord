@@ -1318,6 +1318,11 @@ bool fill_api(AccountModuleApi* api) noexcept {
     MC_STUB(106, collection_title);
     MC_STUB(107, client_focus);
     MC_STUB(108, media_vp8_cpu);
+    MC_STUB(109, guild_automation);
+    MC_STUB(110, credential_replace);
+    MC_STUB(111, go_live);
+    MC_STUB(112, go_live_snapshot);
+    MC_STUB(113, go_live_preview);
 #undef MC_STUB
     return true;
 }

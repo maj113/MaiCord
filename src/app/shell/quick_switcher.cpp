@@ -326,7 +326,7 @@ bool application_quick_switcher_synchronize() noexcept {
     ui_widget_manager_focus(&q->scene.widgets, q->scene.edit);
     return true;
 }
-static bool application_quick_switcher_open() noexcept {
+bool application_quick_switcher_open() noexcept {
     if (!available()) return true;
     if (application_quick_switcher_active()) return true;
     application_composer_text_input_suspend();

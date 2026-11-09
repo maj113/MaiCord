@@ -16,8 +16,9 @@ inline bool application_background_motion_possible(bool package_effect) noexcept
                application_theme().background, package_effect,
                application_window_visible(),
                application_window_minimized(), r.live_resize,
-               g_app.preferences.reduced_motion || r.reduced_motion,
-               g_app.surface_motion.system_preference_cached && g_app.surface_motion.client_area_animation,
+               application_reduced_motion(),
+               !g_app.preferences.reduced_motion_sync ||
+                   (g_app.surface_motion.system_preference_cached && g_app.surface_motion.client_area_animation),
                g_app.login.visible ||
                    (application_settings_active() && !application_theme_editor_active() &&
                     !application_effects_preview_running()));

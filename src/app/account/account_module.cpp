@@ -5,6 +5,7 @@
 #include "maicord/app/account/account_user_social.hpp"
 #include "maicord/app/guild/account_guild_community.hpp"
 #include "maicord/app/guild/account_guild_moderation.hpp"
+#include "maicord/app/guild/account_guild_automation.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/account/account_relationships.hpp"
 #include "maicord/app/chat/messages/account_message_ack.hpp"
@@ -197,6 +198,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
         return result;
     }
     video_stream_decoders_initialize(&runtime->video);
+    runtime->go_live.picture_event = runtime->video.frame_event;
     account_soundboard_initialize(&runtime->soundboard);
     account_voice_message_initialize(&runtime->voice_message);
     if (!copy_path(session_path, runtime->session_path) || !copy_path(profile_path, runtime->profile_path)) {
@@ -778,6 +780,14 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
             return invalid;
         path.count = writer.used;
         route = 0x50524546;
+    } else if (operation == 7) {
+        // Application Test Mode's access check: user is the application (Settings > Developer).
+        ProtocolWriter writer{{target, 96}, 0};
+        if (!protocol_writer_append_literal(&writer, "/api/v9/activities/") ||
+            !protocol_writer_append_u64(&writer, user) || !protocol_writer_append_literal(&writer, "/test-mode"))
+            return invalid;
+        path.count = writer.used;
+        route = 0x544d4f44;
     } else if (operation == 5 || operation == 6) {
         // 5: the public applications whose icons stand in for missing activity
         // art (value: comma-separated IDs). 6: an activity's metadata (value:
@@ -970,6 +980,11 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_client_focus,
         maicord::module_voice_video_notification,
         maicord::module_media_vp8_cpu,
+        maicord::module_lane<maicord::account_guild_automation_submit>,
+        maicord::module_credential_replace,
+        maicord::module_go_live,
+        maicord::module_go_live_snapshot,
+        maicord::module_go_live_preview,
     };
     maicord::copy_bytes(api, &table, sizeof(table));
     return true;

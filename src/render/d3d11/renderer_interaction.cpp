@@ -392,6 +392,10 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 clie
         if ((semantic.reserved & kRendererSearchSemanticFlag) ||
             semantic.kind == MessageMarkdownSemanticKind::chip_icon ||
             semantic.kind == MessageMarkdownSemanticKind::guild_icon ||
+            semantic.kind == MessageMarkdownSemanticKind::game_icon ||
+            semantic.kind == MessageMarkdownSemanticKind::author_avatar ||
+            semantic.kind == MessageMarkdownSemanticKind::role_dot ||
+            semantic.kind == MessageMarkdownSemanticKind::alt_text ||
             semantic.kind == MessageMarkdownSemanticKind::edited)
             continue;
         // Message rows clip to themselves: only the visible timeline takes hits.
@@ -419,9 +423,9 @@ RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Rend
         !renderer_message_view_hit_test(renderer, client_x_pixels, client_y_pixels)) {
         return RendererMessageTextPositionHit{};
     }
-    return message_position_hit_test(&renderer.message_hit_test, *presentation,
-                                            renderer.glyph_text.system, renderer.dpi, client_x_pixels,
-                                            client_y_pixels);
+    return message_position_hit_test(&renderer.message_hit_test, *presentation, renderer.glyph_text.system,
+                                     renderer_text_system(&renderer, ui_text_face_chat(UiTextFace::normal)),
+                                     renderer.dpi, client_x_pixels, client_y_pixels);
 }
 
 MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer& renderer, float x, float y) noexcept {
@@ -429,7 +433,8 @@ MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer& renderer, float x
     if (!presentation || !renderer.message_scene || !renderer.message_scene->active ||
         !ui_rect_contains(renderer.message_scene->viewport, x, y))
         return {};
-    return message_emoji_hit_test(&renderer.message_hit_test, *presentation, renderer.glyph_text.system, x, y);
+    return message_emoji_hit_test(&renderer.message_hit_test, *presentation, renderer.glyph_text.system,
+                                  renderer_text_system(&renderer, ui_text_face_chat(UiTextFace::normal)), x, y);
 }
 
 RendererEditedLabelHit renderer_edited_label_hit_test(const D3D11Renderer& renderer, float x, float y) noexcept {

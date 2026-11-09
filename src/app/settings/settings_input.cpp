@@ -23,6 +23,10 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
     }
     if (ui_input_consume_key_tail(&g_app.settings_held_key, {kind, code, repeated}))
         return true;
+    // The Zoom level's shortcuts work everywhere but in the image viewer, whose own zoom takes them.
+    if (kind == UiInputKind::key_down && !g_app.image_viewer.scene.active &&
+        application_zoom_shortcut(shortcut_chord_from_keyboard(code)))
+        return true;
     auto* settings = g_app.settings;
     if (!settings || !settings->scene.active) {
         if (kind == UiInputKind::key_down && !repeated &&
@@ -219,6 +223,9 @@ bool application_settings_window_event(const WindowEvent& event) noexcept {
             return settled(*settings, true);
     }
     if (event.type == EventType::character && (event.flags & ev_system) == 0) {
+        // A dialog over Settings types its own text (on Linux characters reach this handler before its own).
+        if (g_app.text_form)
+            return false;
         const u32 character = event.character.unit;
         if (application_store_character(character))
             return true;

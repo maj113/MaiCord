@@ -20,7 +20,7 @@ inline constexpr u32 kMemberListRootId = 1;
 UiLayoutStyle row_style() noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fill();
-    style.height = ui_layout_fixed(kMemberListRowHeight);
+    style.height = ui_layout_fixed(member_list_row_height());
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     return style;
 }
@@ -64,7 +64,7 @@ MemberListSceneResult failure(MemberListScene* scene, MemberListSceneError error
 
 float clamp_scroll(const MemberListView& source, const UiRect& viewport,
                    float requested) noexcept {
-    const float content = static_cast<float>(member_list_view_count(source)) * kMemberListRowHeight;
+    const float content = static_cast<float>(member_list_view_count(source)) * member_list_row_height();
     const float maximum_scroll = maximum(0.0f, content - ui_rect_height(viewport));
     return minimum(maximum(requested, 0.0f), maximum_scroll);
 }
@@ -73,14 +73,14 @@ UiVirtualRange member_virtual_range(u32 count, float scroll, float viewport_heig
     if (count == 0 || viewport_height <= 0.0f) {
         return UiVirtualRange{};
     }
-    const u32 first_visible = minimum(count - 1, static_cast<u32>(scroll / kMemberListRowHeight));
+    const u32 first_visible = minimum(count - 1, static_cast<u32>(scroll / member_list_row_height()));
     const u32 first =
         first_visible > kMemberListSceneOverscanRows ? first_visible - kMemberListSceneOverscanRows : 0;
-    const float visible_rows_f = viewport_height / kMemberListRowHeight;
+    const float visible_rows_f = viewport_height / member_list_row_height();
     const u32 visible_rows = static_cast<u32>(visible_rows_f) + 2u;
     const u32 requested = visible_rows + kMemberListSceneOverscanRows * 2u;
     return UiVirtualRange{first, minimum(requested, count - first),
-                          static_cast<float>(first) * kMemberListRowHeight - scroll};
+                          static_cast<float>(first) * member_list_row_height() - scroll};
 }
 
 void clear_materialization(MemberListScene* scene) noexcept {
@@ -183,7 +183,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
                           (!source->authoritative || !source->source_members ||
                            source->source_member_revision == source->source_members->revision);
     const float local_scroll =
-        maximum(0.0f, scroll - static_cast<float>(range.first) * kMemberListRowHeight);
+        maximum(0.0f, scroll - static_cast<float>(range.first) * member_list_row_height());
     if (retained) {
         if (ui_rect_equal(scene->viewport, viewport) && scene->scroll_dips == scroll)
             return MemberListSceneResult{MemberListSceneError::none, range.first, range.count, scroll, false};
@@ -264,7 +264,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
     scene->state = state;
     scene->viewport = viewport;
     scene->focused_user_id = restore_focus;
-    scene->content_height = static_cast<float>(member_list_view_count(*source)) * kMemberListRowHeight;
+    scene->content_height = static_cast<float>(member_list_view_count(*source)) * member_list_row_height();
     scene->scroll_dips = scroll;
     scene->source_revision = source->revision;
     scene->source_count = member_list_view_count(*source);

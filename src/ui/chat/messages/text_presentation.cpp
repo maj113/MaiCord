@@ -2,6 +2,7 @@
 
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/chat/game_store.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
@@ -187,6 +188,13 @@ bool message_text_presentation_bind_guild_members(MessageTextPresentation* prese
     return true;
 }
 
+bool message_text_presentation_bind_games(MessageTextPresentation* presentation, const GameStore* games) noexcept {
+    if (!presentation)
+        return false;
+    presentation->games = games;
+    return true;
+}
+
 MessageTextPresentationResult message_text_presentation_build(
     MessageTextPresentation* presentation, const MessageScene& scene, const ChatStateStore& state,
     const UserStore* users, const NavigationView& navigation, const Theme& theme,
@@ -230,6 +238,9 @@ MessageTextPresentationResult message_text_presentation_build(
     presentation->measurement_count = 0;
     presentation->markdown_entity_epoch =
         markdown_entity_epoch(state, users, presentation->guild_members, navigation);
+    if (presentation->games)
+        presentation->markdown_entity_epoch =
+            hash64_mix(presentation->markdown_entity_epoch, presentation->games->revision);
     reset_value<MessageTextRichMetrics>(&presentation->rich);
     presentation->next_timestamp_update_unix_seconds = 0;
     presentation->status_dots = false;
@@ -239,6 +250,7 @@ MessageTextPresentationResult message_text_presentation_build(
     presentation->scroll_moving = false;
     presentation->last_error = MessageTextPresentationError::none;
     presentation->active = false;
+    presentation->underline_links = scene.display.underline_links;
     if (!append_intro(presentation, scene, theme))
         return reject_build(presentation);
     for (u32 index = 0; index < scene.count; ++index) {
@@ -309,7 +321,7 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
                 backend_revision},
             command.text, command.styles,
             UiSize{ui_rect_width(command.rectangle), ui_rect_height(command.rectangle)},
-            command.wrapping == TextWrapping::no_wrap};
+            command.wrapping == TextWrapping::no_wrap, message_text_command_face(command)};
         UiTextMeasureValue value{};
         if (!ui_text_measure_cache_measure(cache, request, &value).ok()) {
             presentation->last_error = MessageTextPresentationError::measurement;

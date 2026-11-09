@@ -55,6 +55,7 @@ u32 encode(const UserAppearance& v, u8* image) noexcept {
     r.bot = v.bot;
     r.primary_enabled = v.primary_enabled;
     r.emoji_animated = v.emoji_animated;
+    r.system = v.system;
     u32 used = kRecordHeaderBytes;
     const auto put = [&](AppearanceText& field, const auto& text) noexcept {
         field.bytes = minimum<u16>(text.bytes, static_cast<u16>(sizeof(text.data)));
@@ -153,6 +154,7 @@ void user_appearance_expand(const UserAppearanceRecord& r, UserAppearance* outpu
     a.bot = r.bot;
     a.primary_enabled = r.primary_enabled;
     a.emoji_animated = r.emoji_animated;
+    a.system = r.system;
     const auto get = [](auto& text, const AppearanceText& field) noexcept {
         text.bytes = minimum<u16>(field.bytes, static_cast<u16>(sizeof(text.data)));
         copy_bytes(text.data, field.view().data, text.bytes);
@@ -166,13 +168,13 @@ void user_appearance_expand(const UserAppearanceRecord& r, UserAppearance* outpu
     get(a.status_emoji, r.status_emoji);
 }
 bool user_appearance_upsert(UserAppearanceStore* s, const UserAppearance& v) noexcept {
-    if (!s || !v.user_id || (v.fields & ~511u))
+    if (!s || !v.user_id || (v.fields & ~1023u))
         return false;
     if (!v.fields)
         return true;
     const auto* found = user_appearance_find(*s, v.user_id, v.guild_id);
     // Empty optional fields carry clearing semantics without creating empty cold records.
-    if (!found && !v.bot && !v.public_flags && !v.name.font_id && !v.name.effect_id &&
+    if (!found && !v.bot && !v.system && !v.public_flags && !v.name.font_id && !v.name.effect_id &&
         !v.decoration.bytes && !v.nameplate_sku && !v.nameplate.bytes && !v.avatar.bytes &&
         !v.primary_enabled && !v.activity.bytes && !v.status_emoji.bytes && !v.status_emoji_id)
         return true;
@@ -192,6 +194,8 @@ bool user_appearance_upsert(UserAppearanceStore* s, const UserAppearance& v) noe
     }
     if (v.fields & appearance_bot)
         next.bot = v.bot;
+    if (v.fields & appearance_system)
+        next.system = v.system;
     if (v.fields & appearance_flags)
         next.public_flags = v.public_flags;
     if (v.fields & appearance_name)
@@ -331,12 +335,14 @@ struct AppearanceReader {
 };
 } // namespace
 u32 user_appearance_write(const UserAppearance& a, Slice<u8> output) noexcept {
-    if (!a.fields || (a.fields & ~511u) || a.name.color_count > 8 || !output.data)
+    if (!a.fields || (a.fields & ~1023u) || a.name.color_count > 8 || !output.data)
         return 0;
     AppearanceWriter w{output};
     w.scalar(a.fields);
     if (a.fields & appearance_bot)
         w.scalar(a.bot);
+    if (a.fields & appearance_system)
+        w.scalar(a.system);
     if (a.fields & appearance_flags)
         w.scalar(a.public_flags);
     if (a.fields & appearance_name) {
@@ -379,7 +385,7 @@ bool read_appearance(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* 
         return true;
     AppearanceReader r{input};
     r.scalar(a.fields);
-    if (a.fields & ~511u)
+    if (a.fields & ~1023u)
         return false;
     if (a.fields & appearance_bot) {
         u8 v = 0;
@@ -387,6 +393,13 @@ bool read_appearance(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* 
         if (v > 1)
             return false;
         a.bot = v != 0;
+    }
+    if (a.fields & appearance_system) {
+        u8 v = 0;
+        r.scalar(v);
+        if (v > 1)
+            return false;
+        a.system = v != 0;
     }
     if (a.fields & appearance_flags)
         r.scalar(a.public_flags);

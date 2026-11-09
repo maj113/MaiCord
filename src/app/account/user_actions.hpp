@@ -24,11 +24,16 @@ MessageContextMenuExtras application_user_actions_message_extras(const MessageRe
 bool application_user_actions_message_activate(u64 message_id, u32 action) noexcept;
 // The command index for the active channel changed: an open Apps list refreshes.
 void application_user_actions_commands_changed() noexcept;
+// Says `text` aloud at Settings > Accessibility's Text-to-Speech rate (Speak message and the rate's Preview);
+// false when no speech engine is available.
+bool application_user_actions_speak(Utf8View text) noexcept;
 
 // Notes: the text a profile shows (draft while typing), loading on demand.
 Utf8View application_user_note(u64 user_id, bool* loading) noexcept;
 bool application_user_note_edit(u64 user_id, Utf8View text) noexcept;
 void application_user_note_flush(u64 user_id) noexcept;
+// The note's last save was refused (its retries ran out); the next edit tries again.
+bool application_user_note_failed(u64 user_id) noexcept;
 // USER_NOTE_UPDATE data (verbatim JSON).
 void application_user_actions_note_gateway(Utf8View data) noexcept;
 

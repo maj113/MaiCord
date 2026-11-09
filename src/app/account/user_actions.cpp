@@ -730,7 +730,7 @@ bool application_user_actions_message_activate(u64 message_id, u32 action) noexc
             append(utf8_literal(" said "));
         }
         append(content);
-        if (!speech_speak(&s.speech, {s.speak, used}))
+        if (!application_user_actions_speak({s.speak, used}))
             log_write(LogLevel::warning, "user_menu", "speech_unavailable");
         return true;
     }
@@ -756,6 +756,11 @@ void application_user_actions_commands_changed() noexcept {
         open_apps(kCommandTypeMessage, owner, PopupOwnerKind::message);
     else if (g_app.popup_owner_kind == PopupOwnerKind::member && owner == g_state->menu_user)
         open_apps(kCommandTypeUser, owner, PopupOwnerKind::member);
+}
+
+bool application_user_actions_speak(Utf8View text) noexcept {
+    auto* s = ensure();
+    return s && speech_speak(&s->speech, text, client_preferences_speech_rate(g_app.preferences.speech_rate));
 }
 
 Utf8View application_user_note(u64 user_id, bool* loading) noexcept {
@@ -785,6 +790,11 @@ void application_user_note_flush(u64 user_id) noexcept {
         user_note_flush(store, user_id, clock_monotonic_milliseconds());
         wake();
     }
+}
+bool application_user_note_failed(u64 user_id) noexcept {
+    const auto* store = g_state ? g_state->notes : nullptr;
+    const auto* entry = store ? user_note_find(*store, user_id) : nullptr;
+    return entry && entry->save_failed;
 }
 
 void application_user_actions_note_gateway(Utf8View data) noexcept {

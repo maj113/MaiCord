@@ -25,7 +25,12 @@ enum GuildDetailField : u16 {
     guild_detail_member_count = 1u << 11,
     // The invite splash hash.
     guild_detail_splash = 1u << 12,
-    guild_detail_all = (1u << 13) - 1,
+    // preferred_locale, and owner_configured_content_level with nsfw_level.
+    guild_detail_preferred_locale = 1u << 13,
+    guild_detail_content_level = 1u << 14,
+    // The Discovery banner hash.
+    guild_detail_discovery_splash = 1u << 15,
+    guild_detail_all = 0xFFFF,
 };
 
 // Features Server Settings reads, decoded from the feature names. Names
@@ -46,6 +51,20 @@ enum GuildFeature : u64 {
     guild_feature_creator_monetizable_disabled = 1ull << 20,
     guild_feature_summaries_ga = 1ull << 24,
     guild_feature_summaries_enabled = 1ull << 25,
+    // GUILD_TAGS (the Server Tag) and the badge packs it may add.
+    guild_feature_guild_tags = 1ull << 32,
+    guild_feature_badge_pack_pets = 1ull << 33,
+    guild_feature_badge_pack_flex = 1ull << 34,
+    guild_feature_badge_pack_plant = 1ull << 35,
+    guild_feature_badge_pack_creepy_crawlies = 1ull << 36,
+    // Access: discovery and membership screening; VERIFIED and PARTNERED
+    // servers skip the discovery requirements.
+    guild_feature_discoverable = 1ull << 40,
+    guild_feature_verification_gate = 1ull << 41,
+    guild_feature_manual_approval = 1ull << 42,
+    guild_feature_preview_enabled = 1ull << 43,
+    guild_feature_verified = 1ull << 44,
+    guild_feature_partnered = 1ull << 45,
 };
 // Zero for names Server Settings does not act on.
 u64 guild_feature_bit(Utf8View name) noexcept;
@@ -59,6 +78,8 @@ inline constexpr u32 kGuildDetailDescriptionMaximumBytes = 1'200;
 inline constexpr u32 kGuildDetailVanityMaximumBytes = 64;
 // An image hash: 32 hex characters, "a_" first when animated.
 inline constexpr u32 kGuildDetailHashBytes = 34;
+// A locale code (en-US, es-419).
+inline constexpr u32 kGuildDetailLocaleBytes = 8;
 
 struct GuildDetailRecord {
     u64 guild_id;
@@ -89,6 +110,13 @@ struct GuildDetailRecord {
     bool feature_names_kept;
     u8 splash_bytes;
     char splash[kGuildDetailHashBytes];
+    u8 preferred_locale_bytes;
+    // 0 default, 1 explicit, 2 safe, 3 age-restricted.
+    u8 owner_configured_content_level;
+    u8 nsfw_level;
+    char preferred_locale[kGuildDetailLocaleBytes];
+    u8 discovery_splash_bytes;
+    char discovery_splash[kGuildDetailHashBytes];
 };
 
 struct GuildDetailStore {
@@ -128,6 +156,11 @@ struct GuildDetailInput {
     u8 lockdown_duration_hours;
     bool premium_progress_bar_enabled;
     bool keep_feature_names;
+    u8 owner_configured_content_level;
+    u8 nsfw_level;
+    Utf8View preferred_locale;
+    // Empty for none.
+    Utf8View discovery_splash;
 };
 
 bool guild_detail_store_bind(GuildDetailStore* store, Slice<GuildDetailRecord> records, Slice<char> text) noexcept;

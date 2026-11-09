@@ -266,15 +266,23 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
     valid = valid && fixture_input(UiInputKind::key_down, key::escape, false) && !g_app.text_form &&
             local.saves == 0 && g_app.context_focus == &previous && g_app.message_composer.focused &&
             fixture_input(UiInputKind::key_up, key::escape, false);
-    // The shipping host consumes one outside/focus dismissal, preserving its parent.
+    // The shipping host consumes one outside dismissal, preserving its parent.
     valid = valid && fixture_open(request);
     const u32 before_dismiss_saves = local.saves;
     valid = valid &&
             application_text_form_window_event(window_test::pointer_down(1, 1)) &&
             !g_app.text_form && local.saves == before_dismiss_saves && g_app.context_focus == &previous;
+    // A dialog outlives the window losing focus, as the official client's do, and its field takes typing again
+    // once the window has the focus back.
     valid = valid && fixture_open(request) &&
-            application_text_form_window_event(window_test::focus_changed(false)) && !g_app.text_form &&
-            local.saves == before_dismiss_saves;
+            application_text_form_window_event(window_test::focus_changed(false)) && g_app.text_form &&
+            !g_app.text_form->caret_visible && local.saves == before_dismiss_saves;
+    application_text_form_window_event(window_test::focus_changed(true));
+    const u32 refocused_bytes = valid ? g_app.text_form->edit.storage.bytes : 0;
+    valid = valid && g_app.text_form && fixture_input(UiInputKind::character, 'q', false) &&
+            g_app.text_form->edit.storage.bytes == refocused_bytes + 1 &&
+            fixture_input(UiInputKind::key_down, key::escape, false) && !g_app.text_form &&
+            fixture_input(UiInputKind::key_up, key::escape, false) && local.saves == before_dismiss_saves;
     initial[0] = 'b';
     name[0] = 'p';
     local.reject = true;

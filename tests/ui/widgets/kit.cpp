@@ -48,6 +48,34 @@ void test_segmented(Check check, const UiSettingsThemeTokens& t) noexcept {
               paint.count == 4 && paint_stream_reset(&paint, 1000, 1000) &&
               ui_segmented_paint(&paint, t, track, 2, ~0u, ~0u, {false, false, false, false}) && paint.count == 1,
           "segmented: the track, the selected plate, a hovered plate and the focus ring; no selection paints the track only");
+    const auto first_cell = ui_segmented_cell(t, track, 2, 0), second_cell = ui_segmented_cell(t, track, 2, 1);
+    const float pad = t.metric.segment_padding;
+    check(near(second_cell.left - first_cell.right, pad) && near(first_cell.left, first.left) &&
+              near(second_cell.right, second.right) && near(first_cell.top, first.top) &&
+              near(first_cell.bottom, first.bottom) && inside(first_cell, first) && inside(second_cell, second) &&
+              near(first_cell.left - track.left, pad) && near(track.right - second_cell.right, pad),
+          "segmented: neighbouring plates keep the track padding between them and the outer edges keep the padding");
+    const auto rest = ui_segmented_plate(t, track, 2, 1, {});
+    const auto start = ui_segmented_plate(t, track, 2, 1, {0, 0}), end = ui_segmented_plate(t, track, 2, 1, {0, 1});
+    const auto mid = ui_segmented_plate(t, track, 2, 1, {0, .25f});
+    check(near(rest.left, second_cell.left) && near(rest.right, second_cell.right) && near(start.left, first_cell.left) &&
+              near(start.right, first_cell.right) && near(end.left, second_cell.left) && near(end.right, second_cell.right) &&
+              near(mid.left, first_cell.left + (second_cell.left - first_cell.left) * .25f) &&
+              near(mid.right, first_cell.right + (second_cell.right - first_cell.right) * .25f) &&
+              near(mid.top, first_cell.top) && near(mid.bottom, first_cell.bottom) &&
+              near(ui_segmented_plate(t, track, 2, 1, {1, 0}).left, second_cell.left) &&
+              near(ui_segmented_plate(t, track, 2, 1, {5, 0}).left, second_cell.left),
+          "segmented: the plate slides between two options with its progress and rests on the selection otherwise");
+    // Hover and selected plates are a padding apart; a plate sliding over the hovered option hides its hover plate.
+    check(paint_stream_reset(&paint, 1000, 1000) &&
+              ui_segmented_paint(&paint, t, track, 2, 1, 0, {true, false, false, false}) && paint.count == 3 &&
+              near(paint.quads[1].right, first_cell.right) && near(paint.quads[2].left, second_cell.left) &&
+              near(paint.quads[2].left - paint.quads[1].right, pad) && paint_stream_reset(&paint, 1000, 1000) &&
+              ui_segmented_paint(&paint, t, track, 2, 1, 0, {true, false, false, false}, {0, .5f}) && paint.count == 2 &&
+              paint_stream_reset(&paint, 1000, 1000) &&
+              ui_segmented_paint(&paint, t, track, 2, 1, ~0u, {true, false, false, false}, {0, .25f}) &&
+              paint.count == 2 && near(paint.quads[1].left, mid.left) && near(paint.quads[1].right, mid.right),
+          "segmented: hover and selected plates never touch, a moving plate paints where it slides");
     paint_stream_release(&paint);
 }
 

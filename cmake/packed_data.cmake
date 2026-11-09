@@ -95,24 +95,21 @@ add_custom_command(
         include/maicord/ui/widgets/icon_ids.inc
     VERBATIM)
 
-# The permission grid (src/model/guild/permission_grid_data.inc) and the built-in games (src/app/account/game_data.inc)
-# ship as zlib streams their owners inflate on first use; tests/model/guild/settings_model.cpp and
-# tests/ui/widgets/presence_wave.cpp check the decoded tables against the data files.
+# The permission grid (src/model/guild/permission_grid_data.inc) ships as a zlib stream its owner inflates on first
+# use; tests/model/guild/settings_model.cpp checks the decoded table against the data file.
 set(MAICORD_PERMISSION_GRID_PACK "${MAICORD_GENERATED_DIRECTORY}/permission_grid_pack.inc")
-set(MAICORD_GAME_PACK "${MAICORD_GENERATED_DIRECTORY}/game_pack.inc")
 add_custom_command(
-    OUTPUT "${MAICORD_PERMISSION_GRID_PACK}" "${MAICORD_GAME_PACK}"
-    BYPRODUCTS "${MAICORD_GENERATED_DIRECTORY}/permission_grid_packed.bin" "${MAICORD_GENERATED_DIRECTORY}/game_packed.bin"
+    OUTPUT "${MAICORD_PERMISSION_GRID_PACK}"
+    BYPRODUCTS "${MAICORD_GENERATED_DIRECTORY}/permission_grid_packed.bin"
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_tables.py" "${MAICORD_GENERATED_DIRECTORY}"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/model/guild/permission_grid_data.inc"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/model/guild/permission_grid.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/model/guild/permission_bits.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/app/account/game_data.inc"
     DEPENDS tools/pack_tables.py tools/pack_settings_catalog.py tools/optimal_deflate.py
         tools/font_reference/embed_fixture.py
         src/model/guild/permission_grid_data.inc include/maicord/model/guild/permission_grid.hpp
-        include/maicord/model/guild/permission_bits.hpp src/app/account/game_data.inc
+        include/maicord/model/guild/permission_bits.hpp
     VERBATIM)
 
 # Cold text that is large and repetitive ships as a zlib stream its owner inflates on first use
@@ -146,5 +143,4 @@ function(maicord_embed_pack source)
 endfunction()
 maicord_embed_pack(src/app/settings/catalog.cpp "${MAICORD_SETTINGS_CATALOG_PACK}")
 maicord_embed_pack(src/model/guild/permission_grid.cpp "${MAICORD_PERMISSION_GRID_PACK}")
-maicord_embed_pack(src/app/account/game_detection.cpp "${MAICORD_GAME_PACK}")
 maicord_embed_pack(src/app/chat/composer/builtin_commands.cpp "${MAICORD_BUILTIN_COMMANDS_PACK}")

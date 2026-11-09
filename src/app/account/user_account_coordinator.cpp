@@ -142,10 +142,16 @@ UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinato
         const GatewayClientResult gateway = gateway_client_status(&coordinator->gateway);
         coordinator->state.gateway_error = gateway.error;
         coordinator->state.native_error = gateway.native_error;
-        if (gateway.close_code == 4004 || rest_client_status(&coordinator->rest).authentication_rejected ||
+        const bool rejected = gateway.close_code == 4004 && !coordinator->credential_replaced;
+        if (rejected || rest_client_status(&coordinator->rest).authentication_rejected ||
             rest_client_status(&coordinator->details).authentication_rejected) {
             // Only rejected credentials end the session (and its saved token).
             set_failure(coordinator, UserAccountCoordinatorError::authentication_rejected);
+        } else if (gateway.close_code == 4004) {
+            // The old token's session closed after its replacement: a fresh IDENTIFY sends the new one (the restart
+            // clears the mark, so a second 4004 is a rejection).
+            if (!coordinator->state.gateway_restart_at_ms)
+                coordinator->state.gateway_restart_at_ms = now_ms;
         } else if (gateway.close_code >= 4010 && gateway.close_code <= 4014) {
             // Invalid shard/version/intents configuration cannot recover by
             // repeating IDENTIFY. Keep the credentials for an explicit restart
@@ -204,6 +210,7 @@ UserAccountCoordinatorResult user_account_coordinator_restart_gateway(
         return coordinator->state;
     }
     coordinator->state.gateway_restart_at_ms = 0;
+    coordinator->credential_replaced = false;
     if (coordinator->state.phase != UserAccountCoordinatorPhase::running)
         coordinator->state.phase = UserAccountCoordinatorPhase::gateway_connecting;
     return coordinator->state;
@@ -231,6 +238,18 @@ bool user_account_coordinator_take_refreshed_credential(UserAccountCoordinator* 
     // REST writes every later request head with it; a 401 to a request already sent with the old one is not a
     // rejection of the session.
     const ConstSlice<u8> token = secure_buffer_view(*output);
+    if (coordinator->rest.runtime)
+        rest_client_replace_credential(&coordinator->rest, token);
+    if (coordinator->details.runtime)
+        rest_client_replace_credential(&coordinator->details, token);
+    return true;
+}
+
+bool user_account_coordinator_replace_credential(UserAccountCoordinator* coordinator,
+                                                 ConstSlice<u8> token) noexcept {
+    if (!coordinator || !gateway_client_replace_credential(&coordinator->gateway, token))
+        return false;
+    coordinator->credential_replaced = true;
     if (coordinator->rest.runtime)
         rest_client_replace_credential(&coordinator->rest, token);
     if (coordinator->details.runtime)

@@ -1,4 +1,6 @@
 #include "../../account/dm_profile.hpp"
+#include "../game_lookup.hpp"
+#include "../../settings/test_mode.hpp"
 #include "../../account/activity.hpp"
 #include "../../guild/invite_cards.hpp"
 #include "components.hpp"
@@ -280,6 +282,8 @@ static constexpr RequestLane kDetailsLanes[] = {
      MessageHistoryRequestOwner::invite_cards},
     {application_soundboard_pending, application_soundboard_submit, MessageHistoryRequestOwner::soundboard},
     {application_dm_profile_pending, application_dm_profile_submit, MessageHistoryRequestOwner::dm_profile},
+    {application_game_lookup_pending, application_game_lookup_submit, MessageHistoryRequestOwner::game_lookup},
+    {application_test_mode_pending, application_test_mode_submit, MessageHistoryRequestOwner::test_mode},
 };
 
 static bool admit_details_lane(const RequestLane& lane, u64 now) noexcept {
@@ -445,6 +449,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
                                                ? kMessageFlagSuppressNotifications
                                                : 0u) |
                                               (message_submit.suppress_embeds ? kMessageFlagSuppressEmbeds : 0u) |
+                                              (message_submit.tts ? kMessageCreateTts : 0u) |
                                               // A recorded voice message is its only attachment.
                                               (message_submit.attachment_count == 1 &&
                                                        attachment_upload_is_voice(message_submit.attachments[0])
@@ -691,6 +696,8 @@ static constexpr ResponseRoute kResponseRoutes[] = {
     {MessageHistoryRequestOwner::commands, application_commands_response},
     {MessageHistoryRequestOwner::user_profile, application_profile_response, true},
     {MessageHistoryRequestOwner::dm_profile, application_dm_profile_response, true},
+    {MessageHistoryRequestOwner::game_lookup, application_game_lookup_response, true},
+    {MessageHistoryRequestOwner::test_mode, application_test_mode_response, true},
     {MessageHistoryRequestOwner::message_reaction, route_message_reaction},
 };
 

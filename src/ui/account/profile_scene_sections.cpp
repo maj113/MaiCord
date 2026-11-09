@@ -5,6 +5,8 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/model/user/store.hpp"
+#include "maicord/model/chat/game_store.hpp"
+#include "maicord/ui/chat/game_media.hpp"
 
 namespace maicord {
 using namespace profile_scene_detail;
@@ -206,12 +208,51 @@ void mutual_count(ProfileString<64>* text, u32 n, bool servers) noexcept {
     append(text, servers ? (n == 1 ? utf8_literal(" Mutual Server") : utf8_literal(" Mutual Servers"))
                          : (n == 1 ? utf8_literal(" Mutual Friend") : utf8_literal(" Mutual Friends")));
 }
+// "+N", the count of what a row leaves out.
+Utf8View plus_count(ProfileString<8>* text, u32 n) noexcept {
+    text->bytes = 0;
+    append(text, utf8_literal("+"));
+    append_number(text, n);
+    return text->view();
+}
 const UserAppearanceRecord* appearance(const ProfileScene& s, u32 field) noexcept {
     const auto& p = *s.profile;
     const auto* guild = s.users ? user_appearance_find(s.users->appearance, p.user_id, p.guild_id) : nullptr;
     if (guild && (guild->fields & field) && (field != appearance_name || guild->name.font_id || guild->name.effect_id))
         return guild;
     return s.users ? user_appearance_find(s.users->appearance, p.user_id) : nullptr;
+}
+const NameStyle* name_style(const ProfileScene& s) noexcept {
+    // The editor's preview draws the drafted style, which only its own profile carries.
+    if (s.presentation == ProfilePresentation::preview) {
+        const auto& p = *s.profile;
+        const auto& guild = p.guild_appearance;
+        const bool server = p.guild_id && (guild.fields & appearance_name) && (guild.name.font_id || guild.name.effect_id);
+        const auto& a = server ? guild : p.user_appearance;
+        return a.fields & appearance_name ? &a.name : nullptr;
+    }
+    const auto* a = appearance(s, appearance_name);
+    return a ? &a->name : nullptr;
+}
+// The editor preview's member-list row while a nameplate is drafted, as the member list draws it: the nameplate
+// behind a 32 DIP avatar and the name in its style. Returns the section height (0 without one).
+float nameplate_row(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
+    const auto& p = *s->profile;
+    const auto& server = p.guild_appearance;
+    const auto& a = p.guild_id && (server.fields & appearance_nameplate) ? server : p.user_appearance;
+    if (s->presentation != ProfilePresentation::preview || !(a.fields & appearance_nameplate) || !a.nameplate_sku)
+        return 0;
+    caption(s, owner, {left, top, left + width, top + 16}, utf8_literal("Nameplate"), kXs | text_style_bold,
+            ProfileTone::subtle);
+    const float row = top + 24;
+    blank(s, owner, {left, row, left + width, row + 42})->media = ProfileMediaKind::nameplate;
+    blank(s, owner, {left + 8, row + 5, left + 40, row + 37})->media = ProfileMediaKind::avatar;
+    const auto display = p.nickname.bytes ? p.nickname.view() : p.display_name.view();
+    const auto* style = name_style(*s);
+    const float name_width = text_width(s, display, width - 60, kMd, style ? profile_name_face(style->font_id)
+                                                                            : UiTextFace::normal);
+    s->row_name_widget = caption(s, owner, {left + 52, row + 11, left + 52 + name_width, row + 31}, display, kMd)->widget;
+    return 24 + 42;
 }
 bool bot(const ProfileScene& s) noexcept {
     return s.profile->user_appearance.bot;
@@ -220,283 +261,10 @@ bool self(const ProfileScene& s) noexcept {
     return s.profile->user_id == s.self_id;
 }
 
-CardMetrics card_metrics(bool large) noexcept {
-    return large ? CardMetrics{12, 100, 32, 12, 4} : CardMetrics{8, 60, 24, 8, 2};
-}
-namespace {
-constexpr float kCardTitle = 18, kCardLine = 16;
 void unfocusable(ProfileScene* s, const ProfilePart* part) noexcept {
     if (auto* widget = part ? ui_widget_manager_resolve(&s->widgets, part->widget) : nullptr)
         widget->flags = static_cast<u16>(widget->flags & ~ui_widget_focusable);
 }
-// The action a part takes only to show its hint: the popout card's own click,
-// or none in the full profile.
-ProfileAction hint_action(const ProfileScene& s) noexcept {
-    return modal(s) ? ProfileAction::hint : ProfileAction::card;
-}
-u16 part_index(const ProfileScene& s, const ProfilePart* part) noexcept {
-    return part && part >= s.parts && part < s.parts + s.part_count ? static_cast<u16>(part - s.parts) : kNoPart;
-}
-// One text line. Popout lines stay on one line and a cut-off line carries its
-// full text as a hint; full profile lines wrap. Returns its height.
-float card_text(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, const Utf8View& text, u32 flags,
-                float line, u16 item) noexcept {
-    if (!text.bytes)
-        return 0;
-    const bool wrap = modal(*s);
-    const float height = wrap ? maximum(line, measure(s, text, width, true, flags).height) : line;
-    const bool cut = !wrap && measure(s, text, 4096, false, flags).width > width;
-    auto* part = add(s, owner, {left, top, left + width, top + height}, text,
-                     cut ? hint_action(*s) : ProfileAction::none, flags, ProfileLook::plain, ProfileTone::normal);
-    part->wrap = height > line;
-    part->media = ProfileMediaKind::activity_text;
-    part->source = item;
-    if (cut) {
-        part->hint = text;
-        unfocusable(s, part);
-    }
-    return height;
-}
-// The width a changing time string needs at its length (digits as 8s).
-float clock_width(ProfileScene* s, const Utf8View& text, u32 flags) noexcept {
-    char widest[16];
-    const u32 bytes = minimum<u32>(text.bytes, sizeof(widest));
-    for (u32 i = 0; i < bytes; ++i)
-        widest[i] = text.data[i] >= '0' && text.data[i] <= '9' ? '8' : text.data[i];
-    return text_width(s, {widest, bytes}, 4096, flags) + 1;
-}
-} // namespace
-void shift(ProfileScene* s, u32 first, float dy) noexcept {
-    for (u32 i = first; dy != 0 && i < s->part_count; ++i) {
-        auto* node = ui_widget_manager_layout_node(&s->widgets, s->parts[i].widget);
-        if (node)
-            node->spec.style.margin.top += dy;
-    }
-}
-namespace {
-bool application_icon(const ProfileScene& s, u64 application, bool* known) noexcept {
-    *known = false;
-    for (u32 i = 0; i < s.applications.count; ++i)
-        if (s.applications[i].id == application) {
-            *known = true;
-            return s.applications[i].icon.bytes != 0;
-        }
-    return false;
-}
-// A card's button: full width in the popout, its natural width (at most the
-// column) in the full profile. Returns its width.
-float card_button(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool full,
-                  const Utf8View& label, UiIcon glyph, ProfileAction action, u16 item, u64 index,
-                  const Utf8View& hint) noexcept {
-    const bool disabled = action == ProfileAction::activity_join;
-    const float text = text_width(s, label, 400, kSm | text_style_bold);
-    const float content = (glyph != UiIcon::count ? 24.f : 0.f) + text;
-    const float w = full ? width : minimum(width, content + 32);
-    auto* b = blank(s, owner, {left, top, left + w, top + 32}, action, ProfileLook::secondary);
-    b->media = ProfileMediaKind::activity_action;
-    b->source = item;
-    b->target = index;
-    b->hint = hint;
-    const ProfileTone tone = disabled ? ProfileTone::muted : ProfileTone::normal;
-    float x = left + maximum(16.f, (w - content) * .5f);
-    if (glyph != UiIcon::count) {
-        icon(s, owner, {x, top + 8, x + 16, top + 24}, glyph, ProfileAction::none, tone);
-        x += 24;
-    }
-    caption(s, owner, {x, top, maximum(x + 1, minimum(x + text + 1, left + w - 16)), top + 32}, label,
-            kSm | text_style_bold, tone);
-    return w;
-}
-} // namespace
-float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, float right, u32 card, u32 item,
-                    u64 now_ms, ProfileAction action) noexcept {
-    auto& l = labels(s);
-    const auto& a = l.activity_set.items[item];
-    auto& c = l.activity_content[card];
-    const bool large = modal(*s);
-    const auto m = card_metrics(large);
-    if (!profile_activity_content(a, bot(*s), self(*s), &c))
-        return 0;
-    auto* background = blank(s, owner, {left, top, right, top + 1}, action, ProfileLook::card);
-    background->media = ProfileMediaKind::activity_card;
-    background->source = static_cast<u16>(item);
-    const u16 source = static_cast<u16>(item);
-    float y = top + m.pad;
-    if (c.heading.bytes) {
-        caption(s, owner, {left + m.pad, y, right - m.pad, y + 16}, c.heading.view(), kXs | text_style_bold,
-                ProfileTone::strong);
-        y += 16 + 8;
-    }
-    // Artwork, top-aligned in the body row.
-    const float row = y;
-    float text_left = left + m.pad;
-    if (c.artwork) {
-        bool known = false;
-        const bool icon_ready = application_icon(*s, a.application_id, &known);
-        const auto art = user_activity_artwork(a, icon_ready);
-        if (a.application_id && !known && art.large != UserActivityArt::large &&
-            s->missing_icon_count < kUserActivityMaximum)
-            s->missing_icons[s->missing_icon_count++] = a.application_id;
-        const Utf8View large_hint = art.large == UserActivityArt::large ? user_activity_text(a, UserActivityField::large_text)
-                                    : art.large == UserActivityArt::small_image
-                                        ? user_activity_text(a, UserActivityField::small_text)
-                                        : Utf8View{};
-        auto* image = blank(s, owner, {left + m.pad, row, left + m.pad + m.image, row + m.image},
-                            large_hint.bytes ? hint_action(*s) : ProfileAction::none);
-        image->media = ProfileMediaKind::activity_large;
-        image->source = source;
-        image->target = static_cast<u64>(art.large);
-        image->hint = large_hint;
-        unfocusable(s, image);
-        if (art.badge) {
-            const float x = left + m.pad + m.image + 4, sy = row + m.image + 4;
-            const auto small_hint = user_activity_text(a, UserActivityField::small_text);
-            auto* corner = blank(s, owner, {x - m.small, sy - m.small, x, sy},
-                                 small_hint.bytes ? hint_action(*s) : ProfileAction::none);
-            corner->media = ProfileMediaKind::activity_small;
-            corner->source = source;
-            corner->hint = small_hint;
-            unfocusable(s, corner);
-        }
-        text_left += m.image + m.gap;
-    }
-    const float text_right = right - m.pad, column = maximum(1.f, text_right - text_left);
-    // The details column, laid out from the row's top, then centred on the artwork.
-    const u32 column_first = s->part_count;
-    float cy = row;
-    if (c.title.bytes)
-        cy += card_text(s, owner, text_left, cy, column, c.title.view(), kSm | text_style_bold, kCardTitle, source);
-    for (u32 i = 0; i < c.line_count; ++i)
-        cy += card_text(s, owner, text_left, cy, column, c.lines[i].view(), kXs, kCardLine, source);
-    ActivityTimer timer{kNoPart, kNoPart, kNoPart, kNoPart, kNoPart, static_cast<u8>(item), static_cast<u8>(card)};
-    const auto clock = c.chips ? profile_activity_clock(a, now_ms) : ProfileActivityClock{};
-    if (c.chips && (c.party.bytes || c.episode.bytes || clock.timer != ProfileActivityTimer::none)) {
-        if (cy > row)
-            cy += 4;
-        float x = 0, line_top = cy;
-        const auto chip = [&](ProfileActivityGlyph glyph, const Utf8View& text, bool timed) noexcept {
-            const float label = timed ? clock_width(s, text, kXs) : text_width(s, text, 4096, kXs);
-            const float w = minimum(column, 16 + label);
-            if (x > 0 && x + w > column) {
-                x = 0;
-                line_top += kCardLine;
-            }
-            const float cx = text_left + x;
-            const auto tone = timed ? ProfileTone::positive : ProfileTone::normal;
-            auto* glyph_part = icon(s, owner, {cx, line_top + 2, cx + 12, line_top + 14},
-                                    profile_activity_glyph_icon(glyph), ProfileAction::none,
-                                    timed ? ProfileTone::positive : ProfileTone::subtle);
-            auto* label_part = caption(s, owner, {cx + 16, line_top, cx + w, line_top + kCardLine}, text, kXs, tone);
-            label_part->media = ProfileMediaKind::activity_text;
-            label_part->source = source;
-            if (timed) {
-                timer.clock = part_index(*s, label_part);
-                timer.glyph = part_index(*s, glyph_part);
-            }
-            x += w + 8;
-        };
-        auto& clock_text = l.activity_time[card][0];
-        clock_text.bytes = static_cast<u16>(
-            profile_activity_clock_text(clock.seconds, {clock_text.data, sizeof(clock_text.data)}));
-        const auto clock_glyph =
-            clock.timer == ProfileActivityTimer::countdown ? ProfileActivityGlyph::timer : c.clock_glyph;
-        const bool timed = clock.timer != ProfileActivityTimer::none;
-        if (c.party.bytes)
-            chip(ProfileActivityGlyph::party, c.party.view(), false);
-        if (timed)
-            chip(clock_glyph, clock_text.view(), true);
-        if (c.episode.bytes)
-            chip(ProfileActivityGlyph::episode, c.episode.view(), false);
-        cy = line_top + kCardLine;
-    }
-    ProfileActivityProgress progress{};
-    if (profile_activity_progress(a, now_ms, &progress)) {
-        if (cy > row)
-            cy += 4;
-        auto& elapsed = l.activity_time[card][1];
-        auto& total = l.activity_time[card][2];
-        elapsed.bytes = static_cast<u16>(
-            profile_activity_track_text(progress.elapsed, {elapsed.data, sizeof(elapsed.data)}));
-        total.bytes = static_cast<u16>(profile_activity_track_text(progress.duration, {total.data, sizeof(total.data)}));
-        // Digits as 8s size the ends; monospace would draw an inline-code box.
-        const u32 flags = kXs;
-        const float label = maximum(clock_width(s, elapsed.view(), flags), clock_width(s, total.view(), flags));
-        auto* left_label = caption(s, owner, {text_left, cy, text_left + label, cy + kCardLine}, elapsed.view(), flags);
-        auto* right_label = caption(s, owner, {text_right - label, cy, text_right, cy + kCardLine}, total.view(), flags);
-        auto* bar = blank(s, owner, {text_left + label + 8, cy + 7, maximum(text_left + label + 9, text_right - label - 8), cy + 9});
-        left_label->media = ProfileMediaKind::activity_text;
-        right_label->media = ProfileMediaKind::activity_clock;
-        bar->media = ProfileMediaKind::activity_progress;
-        left_label->source = right_label->source = bar->source = source;
-        bar->color = {progress.fraction, 0, 0, 1};
-        timer.elapsed = part_index(*s, left_label);
-        timer.total = part_index(*s, right_label);
-        timer.bar = part_index(*s, bar);
-        cy += kCardLine;
-    }
-    // Buttons: the activity's own, Watch for a stream, or the disabled Ask to Join.
-    Utf8View button_labels[2]{};
-    u32 buttons = 0;
-    ProfileAction button_action = ProfileAction::activity_button;
-    UiIcon button_icon = UiIcon::count;
-    if (interactive(*s) && c.action == ProfileActivityAction::custom) {
-        for (u32 i = 0; i < a.button_count && i < 2; ++i)
-            button_labels[buttons++] = user_activity_text(a, i ? UserActivityField::button_1 : UserActivityField::button_0);
-    } else if (interactive(*s) && c.action == ProfileActivityAction::watch) {
-        button_labels[buttons++] = utf8_literal("Watch");
-        button_action = ProfileAction::activity_watch;
-    } else if (interactive(*s) && c.action == ProfileActivityAction::join) {
-        button_labels[buttons++] = utf8_literal("Ask to Join");
-        button_action = ProfileAction::activity_join;
-        button_icon = UiIcon::controller;
-    }
-    const Utf8View button_hint = button_action == ProfileAction::activity_join ? c.hint.view() : Utf8View{};
-    if (large && buttons) {
-        cy += cy > row ? 8.f : 0.f;
-        float x = 0;
-        for (u32 i = 0; i < buttons; ++i) {
-            const float natural = minimum(column, text_width(s, button_labels[i], 400, kSm | text_style_bold) + 32 +
-                                                      (button_icon != UiIcon::count ? 24.f : 0.f));
-            if (x > 0 && x + natural > column) {
-                x = 0;
-                cy += 32 + 8;
-            }
-            const float w = card_button(s, owner, text_left + x, cy, column - x, false, button_labels[i], button_icon,
-                                        button_action, source, i, button_hint);
-            x += w + 8;
-        }
-        cy += 32;
-    }
-    const float details = cy - row;
-    const float body = c.artwork ? maximum(m.image, details) : details;
-    shift(s, column_first, (body - details) * .5f);
-    float bottom = row + body;
-    if (!large && buttons) {
-        bottom += 12;
-        for (u32 i = 0; i < buttons; ++i) {
-            card_button(s, owner, left + m.pad, bottom, right - left - 2 * m.pad, true, button_labels[i], button_icon,
-                        button_action, source, i, button_hint);
-            bottom += 32 + (i + 1 < buttons ? 8.f : 0.f);
-        }
-    }
-    bottom += m.pad;
-    place(s, background->widget, {left, top, right, bottom});
-    if ((timer.clock != kNoPart || timer.bar != kNoPart) && l.timer_count < kUserActivityMaximum)
-        l.timers[l.timer_count++] = timer;
-    return bottom - top;
-}
-// The profile user's cards in the official order; the set is copied into the
-// scene first. Offline users show none.
-u32 activity_cards(ProfileScene* s, u8* order) noexcept {
-    auto& l = labels(s);
-    s->activity_set = nullptr;
-    if (!s->users || !s->profile || s->presence == UiPresence::offline ||
-        !user_activity_find(s->users->activities, s->profile->user_id, &l.activity_set) || !l.activity_set.count)
-        return 0;
-    s->activity_set = &l.activity_set;
-    return profile_activity_order(l.activity_set, {order, kUserActivityMaximum});
-}
-
 // The custom status thought bubble. Returns its height (0 when there is no
 // custom status). max_width bounds the whole bubble.
 float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top, float max_width) noexcept {
@@ -747,8 +515,8 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         tag = ui_rect_width(ui_badge_widget_layout(s->measure, app, {0, 0, 96, 16}).outer) + 4;
     }
     // Measured in the face it is drawn in: a custom name font is wider than the default one.
-    const auto* name_style = appearance(*s, appearance_name);
-    const UiTextFace name_face = name_style ? profile_name_face(name_style->name.font_id) : UiTextFace::normal;
+    const auto* style = name_style(*s);
+    const UiTextFace name_face = style ? profile_name_face(style->font_id) : UiTextFace::normal;
     const float name_width =
         maximum(24.f, text_width(s, display, width - tag - (note ? 28.f : 0.f), name_flags, name_face));
     auto* name = add(s, owner, {left, top, left + name_width, top + line}, display,
@@ -833,8 +601,32 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         glyph->media = ProfileMediaKind::guild_icon;
         glyph->target = a.primary_guild_id;
     }
-    if (p.badge_count) {
-        // Popouts chunk 12 badges a row; the modal keeps one row.
+    if (p.badge_count && !bot(*s)) {
+        // The boxed badge list: the first six 20 DIP badges 2 apart, then "+N" for the rest, padded 1x3 in a box
+        // whose edge sits 1 DIP outside the padding (the row keeps 1 DIP above and below for it).
+        const u32 shown = minimum<u32>(p.badge_count, 6), hidden = p.badge_count - shown;
+        const auto more = hidden ? plus_count(&labels(s).badges_more, hidden) : Utf8View{};
+        const float more_w = hidden ? maximum(20.f, text_width(s, more, width, kSm) + 4) : 0;
+        const float content = shown * 22.f - 2 + (hidden ? 2 + more_w : 0);
+        const auto row = slot(minimum(content + 6, width), 24);
+        blank(s, owner, {row.left - 1, row.top, row.right + 1, row.bottom}, ProfileAction::none,
+              ProfileLook::badge_box);
+        for (u32 i = 0; i < shown; ++i) {
+            const float bx = row.left + 3 + i * 22.f;
+            if (bx + 20 > left + width)
+                break;
+            // The description is the tooltip.
+            auto* b = blank(s, owner, {bx, row.top + 2, bx + 20, row.top + 22}, ProfileAction::badge);
+            b->media = ProfileMediaKind::badge;
+            b->source = static_cast<u16>(i);
+            b->hint = p.badges[i].description.view();
+        }
+        if (hidden) {
+            const float mx = row.left + 3 + shown * 22.f;
+            caption(s, owner, {mx, row.top + 2, mx + more_w, row.top + 22}, more, kSm)->centered = true;
+        }
+    } else if (p.badge_count) {
+        // A bot's bare badges: popouts chunk 12 a row; the modal keeps one row.
         const u32 per_row = large ? p.badge_count : 12;
         const u32 shown = minimum<u32>(p.badge_count, 24);
         const u32 rows = (shown + per_row - 1) / per_row;
@@ -1000,6 +792,56 @@ float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
     caption(s, owner, {left + 12, top + height + 8, left + w - 12, top + height + 40}, label, kXs);
     return height + 40;
 }
+// The Game Collection row (the client's widget breadcrumb): with any game-list widget, a card titled "Game
+// Collection" with the first four of the widgets' loaded games that have an icon, 24 DIPs and 4 apart at its end;
+// past four games the last icon dims under "+N" (the games not shown). The card opens the full profile's Board.
+float game_collection(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
+    const auto& p = *s->profile;
+    // The editor's preview card leaves it out.
+    bool listed = false;
+    for (u32 i = 0; s->presentation != ProfilePresentation::preview && i < p.widget_count; ++i)
+        listed |= p.widgets[i].kind != ProfileWidgetKind::application;
+    if (!listed)
+        return 0;
+    u64 ids[kProfileWidgetGameMaximum];
+    const u32 total = profile_widget_game_ids(p, ids, kProfileWidgetGameMaximum);
+    u64 shown[4];
+    u32 count = 0;
+    for (u32 i = 0; i < total && count < 4; ++i) {
+        const auto* game = s->games ? game_store_find(*s->games, ids[i]) : nullptr;
+        GameImageMedia media;
+        if (game && game->state == GameState::known && game_icon_media(game->game, 24, s->media_dpi, &media))
+            shown[count++] = ids[i];
+    }
+    // The DM panel (the sidebar redesign) keeps the 8 DIP padding but titles it a size larger.
+    const bool sidebar = panel(*s);
+    const float pad = 8, height = 24 + 2 * pad;
+    const auto action = interactive(*s) ? ProfileAction::widgets : ProfileAction::none;
+    blank(s, owner, {left, top, left + width, top + height}, action, ProfileLook::card);
+    const float icons = count ? count * 28.f - 4 : 0;
+    const float right = left + width - pad, x0 = right - icons;
+    caption(s, owner, {left + pad, top + pad, x0 - 4, top + pad + 24}, utf8_literal("Game Collection"),
+            sidebar ? kSm : kXs, ProfileTone::strong);
+    // Only the card takes keyboard focus; its icons share its click.
+    for (u32 i = 0; i < count; ++i) {
+        const float x = x0 + i * 28.f;
+        const UiRect r{x, top + pad, x + 24, top + pad + 24};
+        unfocusable(s, blank(s, owner, r, action, ProfileLook::game_plate));
+        const bool more = i == count - 1 && total > 4;
+        auto* icon = blank(s, owner, r, action);
+        icon->media = ProfileMediaKind::collection_game;
+        icon->target = shown[i];
+        icon->style = more;
+        unfocusable(s, icon);
+        if (more) {
+            unfocusable(s, blank(s, owner, r, action, ProfileLook::count_veil));
+            auto* label = caption(s, owner, r, plus_count(&labels(s).games_more, total - count), kXs,
+                                  ProfileTone::on_accent);
+            label->centered = true;
+        }
+    }
+    return height;
+}
 
 // A primary or secondary button with an optional leading icon; zero-width
 // labels make a square icon button. Returns its width.
@@ -1044,9 +886,11 @@ void header_parts(ProfileScene* s, ProfileAction avatar_action) noexcept {
 void resolve_theme(ProfileScene* s) noexcept {
     const auto d = profile_display(*s->profile, s->presentation == ProfilePresentation::preview);
     s->themed = d.themed;
-    s->theme_primary = d.theme[0];
-    s->theme_secondary = d.theme[1];
-    s->theme_dark = d.themed && profile_theme_dark(d.theme[0]);
+    s->avatar_themed = d.avatar_theme;
+    const bool avatar = d.avatar_theme && s->has_avatar_theme;
+    s->theme_primary = d.avatar_theme ? avatar ? s->avatar_theme[0] : kProfileAvatarThemeFallback : d.theme[0];
+    s->theme_secondary = d.avatar_theme ? avatar ? s->avatar_theme[1] : kProfileAvatarThemeFallback : d.theme[1];
+    s->theme_dark = d.themed && profile_theme_dark(s->theme_primary);
     s->has_banner_color = d.has_color;
     s->banner_color = d.color;
 }

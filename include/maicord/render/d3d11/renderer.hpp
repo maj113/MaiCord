@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/render/text/effect.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
 
 #include "maicord/core/base.hpp"
 #include "maicord/render/media/animation_frame_cache_gpu.hpp"
@@ -32,6 +33,7 @@
 namespace maicord {
 
 struct ChatStateStore;
+struct GameStore;
 struct ForumPostSurface;
 struct GuildRailScene;
 struct LoginScene;
@@ -59,6 +61,7 @@ struct UiGuildBannerView;
 struct UiGuildCardScene;
 struct UiImageViewer;
 struct UiInboxScene;
+struct UiGoLiveScene;
 struct UiMediaPickerScene;
 struct UiMessageForwardScene;
 struct UiPinnedMessagesScene;
@@ -71,6 +74,7 @@ struct UiSearchScene;
 struct UiSettingsScene;
 struct UiShortcutsScene;
 struct UiStreamCardScene;
+struct UiNamesCardScene;
 struct UiExpressionCardScene;
 struct UiTextMeasureCache;
 struct UiTextMeasureRequest;
@@ -227,6 +231,10 @@ struct RendererLayerOpacity {
     float forum_form;
 };
 static_assert(sizeof(RendererLayerOpacity) == 24);
+// A surface's draw-time pose (renderer_set_layer_transform): uniform scale about a DIP origin, then a DIP shift.
+struct RendererLayerTransform {
+    float scale, origin_x, origin_y, shift_x, shift_y;
+};
 
 // A built frame's retained copy: paint quads, clips and batches, and the media
 // quads with their handles, domains and batches (renderer_frame_copy_record).
@@ -375,6 +383,9 @@ struct D3D11Renderer {
     const UiToastScene* toast_scene;
     u32 toast_paint_first_batch, toast_text_first_batch;
     float toast_opacity;
+    // What remains of the tooltip's entrance (renderer_set_tooltip_entrance), 0 when settled: it draws at opacity
+    // 1 - remaining and grows from kUiMotionTooltipScale about its centre.
+    float tooltip_entrance_remaining;
     const UiFriendsScene* friends_scene;
     const UiFriendsScene* friends_requests_scene;
     const UiSearchScene* search_scene;
@@ -399,6 +410,9 @@ struct D3D11Renderer {
     u32 interaction_text_message_forward_revision;
     const UiDownloadScene* download_scene;
     u32 interaction_text_download_revision;
+    // Go Live's screen share dialog (popup layer), drawn with the other message modals.
+    const UiGoLiveScene* go_live_scene;
+    u32 interaction_text_go_live_revision;
     // Keyboard shortcuts overlay (Ctrl+/), drawn above the message modals.
     const UiShortcutsScene* shortcuts_scene;
     u32 interaction_text_shortcuts_revision;
@@ -409,6 +423,9 @@ struct D3D11Renderer {
     // Go Live preview card beside a voice channel's live user, popup layer.
     const UiStreamCardScene* stream_card_scene;
     u32 interaction_text_stream_card_revision;
+    // The names popout under a one-to-one DM header's avatar and name (popup layer).
+    const UiNamesCardScene* names_card_scene;
+    u32 interaction_text_names_card_revision;
     // Server tag popout (popup layer), opened from a server tag chip.
     const UiGuildCardScene* guild_card_scene;
     u32 interaction_text_guild_card_revision;
@@ -448,6 +465,8 @@ struct D3D11Renderer {
     UiTextMeasureCache* message_measure_cache;
     const ChatStateStore* chat_state;
     const UserStore* user_store;
+    // Game mention icons (chat/game_lookup.hpp); null before the first game.
+    const GameStore* game_store;
     const NavigationView* navigation_view;
     RendererLoginFormTextStorage* login_form_text;
     RendererInlineMediaStorage inline_media;
@@ -551,6 +570,9 @@ struct D3D11Renderer {
     // Server tag popout with a banner picture: its card and banner paint, the
     // banner media, then its foreground (icon ring, chips) under the icon.
     u32 guild_card_foreground_first_batch, guild_card_banner_media_end_batch;
+    // Popup paint that draws over the popup layer's media (a server tag popout's game markers), from here to the
+    // theme editor's paint; ~0u without any.
+    u32 popup_overlay_paint_first_batch;
     // Settings page stays outside its optional choice popup's ranges.
     u32 settings_choice_paint_first_batch, settings_choice_paint_end_batch;
     u32 settings_choice_media_first_batch, settings_choice_media_end_batch;
@@ -570,6 +592,9 @@ struct D3D11Renderer {
     // dialog's, since only one of the two is ever on screen.
     const UiStoreScene* settings_store;
     const UiProfileDialogScene* settings_profile_dialog;
+    // The Server Profile settings page's live preview: a guild card pinned in the page's aside, drawn in the
+    // profile preview's slot (with the marks over the page's grid cells).
+    const UiGuildCardScene* settings_guild_preview;
     u32 settings_preview_paint_first_batch, settings_preview_foreground_first_batch,
         settings_preview_paint_end_batch;
     u32 settings_preview_media_first_batch, settings_preview_effect_media_first_batch,
@@ -601,9 +626,9 @@ struct D3D11Renderer {
     // it is never redrawn from the (signed-out, empty) shell.
     bool settings_backdrop_valid, settings_backdrop_failed, settings_backdrop_frozen;
     // Layer transform currently bound while drawing; scissors follow it.
-    float draw_layer_scale, draw_layer_origin_x, draw_layer_origin_y;
-    // Popup entrance: uniform scale about a DIP origin, 1 when settled.
-    float popup_layer_scale, popup_layer_origin_x, popup_layer_origin_y;
+    float draw_layer_scale, draw_layer_origin_x, draw_layer_origin_y, draw_layer_shift_x, draw_layer_shift_y;
+    // Entrance and exit poses by RendererLayerSurface, identity (scale 1) when settled.
+    RendererLayerTransform layer_transform[static_cast<u32>(RendererLayerSurface::count)];
     u32 form_text_first_batch, form_paint_first_batch;
     u32 forum_media_first_batch, forum_media_end_batch;
     u32 forum_paint_end_batch, forum_text_end_batch;
@@ -675,7 +700,7 @@ struct D3D11Renderer {
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
 #if defined(_WIN32)
-static_assert(sizeof(D3D11Renderer) == 125896);
+static_assert(sizeof(D3D11Renderer) == 126072);
 #endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process
@@ -818,6 +843,22 @@ bool renderer_bind_preview_media_atlas(D3D11Renderer* renderer, MediaAtlas* atla
 // Copies one resident media allocation to straight RGBA8 rows (Copy image).
 bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<u8> rgba, u32* width,
                               u32* height) noexcept;
+// image_palette of one resident media allocation, read back from the GPU (a stall: callers keep the result):
+// writes up to kImagePaletteColors colours and returns how many; 0 while `key` is not resident or when the read
+// fails.
+u32 renderer_media_palette(D3D11Renderer* renderer, MediaAssetKey key, u32* colors) noexcept;
+// A picked local picture as its crop draws it, `size` pixels square: the crop rectangle in the
+// source's pixels (source_width wide, before rotation) and the clockwise turn (0, 90, 180, 270).
+struct RendererPaletteCrop {
+    u32 x, y, width, height, source_width, size;
+    u16 rotation;
+};
+// image_palette of that drawn crop; 0 while the picture is not resident or when the read fails.
+u32 renderer_media_crop_palette(D3D11Renderer* renderer, MediaAssetKey key, const RendererPaletteCrop& crop,
+                                u32* colors) noexcept;
+// image_dominant_color of one resident media allocation, read back from the GPU (a stall: callers keep the
+// result). False while `key` is not resident or when the read fails.
+bool renderer_media_dominant_color(D3D11Renderer* renderer, MediaAssetKey key, u32* rgb) noexcept;
 void renderer_unbind_media_atlas(D3D11Renderer* renderer) noexcept;
 MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer, MediaAssetKey key,
                                                          u16 width, u16 height, u32 row_pitch,

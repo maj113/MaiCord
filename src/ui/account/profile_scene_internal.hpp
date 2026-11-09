@@ -1,7 +1,8 @@
 #pragma once
 
 #include "maicord/ui/account/profile_scene.hpp"
-#include "maicord/ui/account/profile_activity.hpp"
+#include "maicord/model/user/profile_connection.hpp"
+#include "maicord/ui/account/activity_card.hpp"
 #include "maicord/ui/plugins/slots.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -9,9 +10,12 @@
 
 namespace maicord::profile_scene_detail {
 
-constexpr u32 capacity = 320;
+// Enough for a full profile's card beside a Board of every game widget.
+constexpr u32 capacity = 448;
 // One widget per part and the root.
 constexpr u32 kWidgets = capacity + 1;
+// Connected accounts a card lists (the profile model keeps as many).
+constexpr u32 kConnectionMaximum = 16;
 // Chips a card holds: the bot tag, the server tag and the plugin chips.
 constexpr u32 kBadges = 12;
 // Text variants as size codes (1rem = the body size).
@@ -31,25 +35,40 @@ struct ActivityTimer {
     u16 clock, glyph, elapsed, total, bar;
     u8 item, card;
 };
+// A connected account's owned text: its "Member since" line, its statistics and its link's accessible name.
+struct ConnectionLabels {
+    ProfileString<64> since;
+    ProfileConnectionChip chips[kProfileConnectionChipMaximum];
+    ProfileString<192> access;
+};
 struct Storage {
     UiWidget widgets[kWidgets];
     UiLayoutNode nodes[kWidgets];
     ProfilePart parts[capacity];
     // Owned labels; other parts borrow profile text.
-    ProfileString<64> mutual_text[2], tab_text[2], roles_more, member_since[2];
+    ProfileString<64> mutual_text[2], tab_text[2], roles_more, member_since[2], friends_since;
+    // An empty tab's heading ("Name doesn't have any activity to share here").
+    ProfileString<192> empty_heading;
+    // The Board's game tag rows' "+N".
+    ProfileString<8> tags_more[kProfileWidgetGameMaximum];
     // The username line: a bot's "name#1234".
     ProfileString<136> username_tag;
+    // The badge box's "+N" (badges past the first six); the game collection's "+N".
+    ProfileString<8> badges_more, games_more;
     // The panel's command chips: "/name".
     ProfileString<132> command_label[kProfileCommandMaximum];
-    ProfileString<64> connection_line[16];
-    char connection_initial[16][2];
-    // The laid-out activities and their cards' text (the store changes under
-    // them): per card the timer chip and the progress bar's ends.
+    ConnectionLabels connection[kConnectionMaximum];
+    // The laid-out activities and their cards (the store changes under them).
     UserActivitySet activity_set;
-    ProfileActivityContent activity_content[kUserActivityMaximum];
-    ProfileString<16> activity_time[kUserActivityMaximum][3];
+    UiActivityCard activity_card[kUserActivityMaximum];
     ActivityTimer timers[kUserActivityMaximum];
     u32 timer_count;
+    // The voice card's channel name, "in <server>", its members' names (the
+    // avatars' tooltips) and the collage's "+N".
+    ProfileString<104> voice_channel;
+    ProfileString<112> voice_guild;
+    ProfileString<64> voice_names[4];
+    ProfileString<8> voice_more;
     // A tick's time while it lays the cards out again (0: the clock).
     u64 tick_ms;
     // Set when a part cannot be added; the layout reports it once, at its end.
@@ -63,7 +82,7 @@ struct Storage {
         TextStyleSpan spans[128];
     } bio_work;
 };
-static_assert(sizeof(Storage::connection_line) / sizeof(ProfileString<64>) ==
+static_assert(sizeof(Storage::connection) / sizeof(ConnectionLabels) ==
               sizeof(UserProfile::connections) / sizeof(ProfileConnection));
 // Rich presence cards: a header line, then the artwork (the small image on its
 // corner) beside the title, text lines, chips (party, timer, episode) and the
@@ -94,15 +113,26 @@ ProfilePart* caption(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, co
                      ProfileTone tone = ProfileTone::normal) noexcept;
 void place(ProfileScene* s, UiWidgetHandle handle, const UiRect& r) noexcept;
 void mutual_count(ProfileString<64>* text, u32 n, bool servers) noexcept;
+Utf8View plus_count(ProfileString<8>* text, u32 n) noexcept;
 const UserAppearanceRecord* appearance(const ProfileScene& s, u32 field) noexcept;
+// The name's font and effect: the drafted one on the editor's preview, else the stored one.
+const NameStyle* name_style(const ProfileScene& s) noexcept;
+float nameplate_row(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept;
 bool bot(const ProfileScene& s) noexcept;
 bool self(const ProfileScene& s) noexcept;
 u64 activity_now(ProfileScene& s) noexcept;
 CardMetrics card_metrics(bool large) noexcept;
-void shift(ProfileScene* s, u32 first, float dy) noexcept;
+// Keeps a part out of keyboard focus (it only carries a tooltip).
+void unfocusable(ProfileScene* s, const ProfilePart* part) noexcept;
 float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, float right, u32 card, u32 item,
                     u64 now_ms, ProfileAction action) noexcept;
 u32 activity_cards(ProfileScene* s, u8* order) noexcept;
+// The voice card ("In voice", "In a call", "In a stage"): the user's channel
+// with its members and Join; its height, 0 when the user is in no channel
+// this account can see (or an activity of theirs runs in it).
+float voice_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, float right,
+                 ProfileAction action) noexcept;
+bool voice_card_shown(const ProfileScene& s) noexcept;
 float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top, float max_width) noexcept;
 bool roles_shown(const ProfileScene& s) noexcept;
 float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool clamp) noexcept;
@@ -117,6 +147,7 @@ void peer_row(ProfileScene* s, UiWidgetHandle owner, bool friends, u32 index, co
 float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept;
 float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool clamp,
                 bool view_bio = true) noexcept;
+float game_collection(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept;
 void header_geometry(ProfileScene* s, const UiRect& banner, float avatar_left, float avatar_top, float size) noexcept;
 void header_parts(ProfileScene* s, ProfileAction avatar_action) noexcept;
 void resolve_theme(ProfileScene* s) noexcept;

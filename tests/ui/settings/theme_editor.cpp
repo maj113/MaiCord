@@ -3,6 +3,7 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/widgets/color_picker.hpp"
 namespace maicord {
 void test_theme_editor(void (*check)(bool, const char*) noexcept) noexcept {
     UiThemeEditorScene scene{};
@@ -59,10 +60,8 @@ void test_theme_editor(void (*check)(bool, const char*) noexcept) noexcept {
     check(retained && scene.saturation > .72f && scene.saturation < .74f && scene.value > .79f &&
               scene.value < .81f,
           "theme editor: 64 true float color drags retain layout storage handles and opening lifetime");
-    check(ui_theme_editor_hsv_rgb(0, 1, 1) == 0xff0000 &&
-              ui_theme_editor_hsv_rgb(1.f / 3, 1, 1) == 0x00ff00 &&
-              ui_theme_editor_hsv_rgb(2.f / 3, 1, 1) == 0x0000ff &&
-              ui_theme_editor_hsv_rgb(1, 0, 1) == 0xffffff,
+    check(color_picker_rgb({0, 1, 1}) == 0xff0000 && color_picker_rgb({1.f / 3, 1, 1}) == 0x00ff00 &&
+              color_picker_rgb({2.f / 3, 1, 1}) == 0x0000ff && color_picker_rgb({1, 0, 1}) == 0xffffff,
           "theme editor: native HSV primaries hue seam and neutral white are exact");
     check(!ui_theme_editor_focus(&scene, UiThemeEditorElement::speed) &&
               !ui_theme_editor_key(&scene, UiThemeEditorElement::density, 0x23, &out),

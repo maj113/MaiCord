@@ -1,132 +1,336 @@
 #include "maicord/app/account/game_detection.hpp"
-#include "maicord/core/win32_process.hpp"
-#include "maicord/app/account/account_profile.hpp"
-#include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/packed_reader.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/media/compression/inflated_block.hpp"
-#if defined(_WIN32)
-#include "maicord/core/win32_user.hpp"
-#include "maicord/sys/process_info.hpp"
-#endif
-#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
-#include <game_pack.inc>
-// Common titles and their Windows executables (src/app/account/game_data.inc: names only, no service-owned
-// assets), shipped as one zlib stream (the format is in tools/pack_tables.py) that the first reader inflates.
-DetectableGame g_builtin[kGameCount];
-InflatedBlock g_builtin_block;
+// The official client's streamer tools (its running-game store), "obs" being the Linux one.
+constexpr Utf8View kStreamerTools = utf8_literal(
+    "obs/obs.exe|obs32.exe|obs64.exe|obs|xsplit.gamecaster.exe|xsplit.core.exe|gamecaster.exe|bebo.exe|"
+    "streamlabs obs.exe|streamlabs desktop.exe|twitchstudio.exe");
+constexpr u8 kMagic[4] = {'M', 'C', 'G', '2'};
+constexpr u8 kOldMagic[4] = {'M', 'C', 'G', '1'};
 
-// Runs once on the inflated bytes, before any thread sees them.
-void publish_builtin(const u8* data) noexcept {
-    PackedReader in{data};
-    for (auto& game : g_builtin) {
-        game.name = in.text();
-        game.executables = in.text();
+struct Entry {
+    Utf8View name, arguments;
+    bool launcher, exact;
+};
+Entry parse(Utf8View text) noexcept {
+    Entry entry{};
+    if (text.bytes && text.data[0] == '*') {
+        entry.launcher = true;
+        text = {text.data + 1, text.bytes - 1};
     }
+    u32 name = 0;
+    while (name < text.bytes && text.data[name] != '?')
+        ++name;
+    if (name < text.bytes)
+        entry.arguments = {text.data + name + 1, text.bytes - name - 1};
+    entry.name = {text.data, name};
+    if (entry.name.bytes && entry.name.data[0] == '>') {
+        entry.exact = true;
+        entry.name = {entry.name.data + 1, entry.name.bytes - 1};
+    }
+    return entry;
 }
-bool ready() noexcept {
-    return g_builtin_block.state == 2 ||
-           inflated_block_load(g_builtin_block, kGamePacked, sizeof(kGamePacked), kGameBytes, publish_builtin) != nullptr;
-}
-constexpr u8 kMagic[4] = {'M', 'C', 'G', '1'};
-
-bool listed(Utf8View list, Utf8View name) noexcept {
+// Calls visit(entry) for each '|'-separated entry until it returns false.
+template <typename Visit> void each_entry(Utf8View list, Visit visit) noexcept {
     u32 begin = 0;
     for (u32 i = 0; i <= list.bytes; ++i)
         if (i == list.bytes || list.data[i] == '|') {
-            if (utf8_equal({list.data + begin, i - begin}, name))
-                return true;
+            if (i > begin && !visit(parse({list.data + begin, i - begin})))
+                return;
             begin = i + 1;
         }
-    return false;
 }
-bool running(ConstSlice<Utf8View> processes, Utf8View executable) noexcept {
-    for (u32 i = 0; i < processes.count; ++i)
-        if (utf8_equal(processes[i], executable))
-            return true;
-    return false;
+Utf8View file_of(Utf8View path) noexcept {
+    u32 start = path.bytes;
+    while (start && path.data[start - 1] != '/' && path.data[start - 1] != '\\')
+        --start;
+    return {path.data + start, path.bytes - start};
 }
-// Adds a process name to the snapshot once, normalized as registered executables are.
-void add_process(Slice<char> storage, Slice<Utf8View> names, u32* count, u32* used, Utf8View name) noexcept {
-    char normalized[kRegisteredGameExecutableBytes];
-    u8 bytes = 0;
-    if (!game_detection_normalize(name, normalized, &bytes) || bytes > storage.count - *used ||
-        running({names.data, *count}, {normalized, bytes}))
+// `name` ends `path` and starts at a segment boundary.
+bool ends_at_segment(Utf8View path, Utf8View name) noexcept {
+    if (!name.bytes || name.bytes > path.bytes)
+        return false;
+    const u32 at = path.bytes - name.bytes;
+    return (at == 0 || path.data[at - 1] == '/') && bytes_equal(path.data + at, name.data, name.bytes);
+}
+u32 find(Utf8View text, Utf8View needle) noexcept {
+    if (!needle.bytes || needle.bytes > text.bytes)
+        return ~0u;
+    for (u32 at = 0; at + needle.bytes <= text.bytes; ++at)
+        if (text.data[at] == needle.data[0] && bytes_equal(text.data + at, needle.data, needle.bytes))
+            return at;
+    return ~0u;
+}
+bool contains(Utf8View text, Utf8View needle) noexcept {
+    return find(text, needle) != ~0u;
+}
+bool names(const Entry& entry, const GameProcess& process) noexcept {
+    return (entry.exact ? utf8_equal(file_of(process.path), entry.name) : ends_at_segment(process.path, entry.name)) &&
+           (!entry.arguments.bytes || contains(process.arguments, entry.arguments));
+}
+// Calls visit(game index) for each game of the list with an executable file named like `file`, in list order
+// (a hash collision may name others: visitors match the entries), until it returns false.
+template <typename Visit> void each_named(const DetectableList& list, Utf8View file, Visit visit) noexcept {
+    if (!list.header || !file.bytes)
         return;
-    copy_bytes(storage.data + *used, normalized, bytes);
-    names[(*count)++] = {storage.data + *used, bytes};
-    *used += bytes;
+    const u32 hash = detectable_hash(file);
+    u32 low = 0, high = list.header->key_count;
+    while (low < high) {
+        const u32 middle = (low + high) / 2;
+        if (list.keys[middle].hash < hash)
+            low = middle + 1;
+        else
+            high = middle;
+    }
+    for (; low < list.header->key_count && list.keys[low].hash == hash; ++low)
+        if (!visit(list.keys[low].game))
+            return;
 }
-#if defined(_WIN32)
-struct WindowOwners {
-    DWORD pids[512];
-    u32 count;
+// The process's game, or nothing for a launcher, a game turned off or a blocked added program.
+GameDetectionMatch match_process(const RegisteredGames& custom, const DetectableList& list,
+                                 const GameProcess& process) noexcept {
+    for (u32 i = 0; i < custom.count && i < kRegisteredGameMaximum; ++i) {
+        const auto& game = custom.items[i];
+        if (!(game.flags & registered_game_added) ||
+            !ends_at_segment(process.path, {game.executable, game.executable_bytes}))
+            continue;
+        if ((game.flags & registered_game_detection_off) || game_detection_blocked(list, process.path))
+            return {};
+        return {{game.name, game.name_bytes}, 0, process.pid, i, true, true};
+    }
+    GameDetectionMatch match{};
+    each_named(list, file_of(process.path), [&](u32 index) noexcept {
+        const auto game = detectable_list_game(list, index);
+        bool launcher = false;
+        if (!game_executables_match(game.executables, process, &launcher))
+            return true;
+        match.found = !launcher;
+        for (u32 k = 0; k < custom.count && k < kRegisteredGameMaximum && match.found; ++k)
+            match.found = custom.items[k].application_id != game.application_id ||
+                          !(custom.items[k].flags & registered_game_detection_off);
+        if (match.found)
+            match = {game.name, game.application_id, process.pid, index, false, true};
+        return false;
+    });
+    return match;
+}
+// One piece of a pattern: a literal run, decoded into the caller's buffer.
+struct PatternParse {
+    char literal[256];
+    u32 starts[16], ends[16], count;
+    bool anchored_start, anchored_end, valid;
 };
-BOOL CALLBACK collect_window(HWND window, LPARAM opaque) {
-    auto& owners = *reinterpret_cast<WindowOwners*>(opaque);
-    if (!IsWindowVisible(window) || GetWindow(window, GW_OWNER) || !GetWindowTextLengthW(window))
-        return TRUE;
-    DWORD pid = 0;
-    GetWindowThreadProcessId(window, &pid);
-    for (u32 i = 0; i < owners.count; ++i)
-        if (owners.pids[i] == pid)
-            return TRUE;
-    if (owners.count < 512)
-        owners.pids[owners.count++] = pid;
-    return TRUE;
+// Discord's exclusion patterns are regular expressions; this reads the subset of literal characters, escaped
+// punctuation, `.*`, a leading `^` and a trailing `$`.
+PatternParse parse_pattern(Utf8View pattern) noexcept {
+    PatternParse p{};
+    u32 at = 0, used = 0;
+    bool open = false; // a literal run is being read
+    if (at < pattern.bytes && pattern.data[at] == '^')
+        p.anchored_start = ++at != 0;
+    bool leading = true;
+    for (; at < pattern.bytes; ++at) {
+        char c = pattern.data[at];
+        if (c == '$' && at + 1 == pattern.bytes) {
+            p.anchored_end = true;
+            break;
+        }
+        if (c == '.' && at + 1 < pattern.bytes && pattern.data[at + 1] == '*') {
+            ++at;
+            if (leading)
+                p.anchored_start = false;
+            open = false;
+            p.anchored_end = false;
+            continue;
+        }
+        if (c == '\\' && at + 1 < pattern.bytes && !ascii_is_alnum(pattern.data[at + 1]))
+            c = pattern.data[++at];
+        else if (c == '.' || c == '[' || c == ']' || c == '(' || c == ')' || c == '*' || c == '+' || c == '?' ||
+                 c == '{' || c == '}' || c == '|' || c == '^' || c == '$' || c == '\\')
+            return {};
+        if (!open) {
+            if (p.count == 16)
+                return {};
+            p.starts[p.count] = p.ends[p.count] = used;
+            ++p.count;
+            open = true;
+        }
+        if (used == sizeof(p.literal))
+            return {};
+        p.literal[used++] = ascii_lower(c);
+        p.ends[p.count - 1] = used;
+        leading = false;
+    }
+    // A wildcard after the last literal unanchors the end.
+    if (p.anchored_end && !open)
+        p.anchored_end = false;
+    p.valid = p.count != 0;
+    return p;
 }
-#endif
+bool valid_name(Utf8View name) noexcept {
+    return name.bytes && name.bytes <= kRegisteredGameNameBytes && utf8_validate(name).valid;
+}
+// A free entry, or the detected game played longest ago (added programs and games turned off stay).
+u32 take_slot(RegisteredGames* games) noexcept {
+    if (games->count < kRegisteredGameMaximum)
+        return games->count++;
+    u32 oldest = kRegisteredGameNone;
+    for (u32 i = 0; i < games->count; ++i) {
+        const auto& game = games->items[i];
+        if (!(game.flags & (registered_game_added | registered_game_detection_off)) &&
+            (oldest == kRegisteredGameNone || game.last_played_ms < games->items[oldest].last_played_ms))
+            oldest = i;
+    }
+    return oldest;
+}
 } // namespace
 
-ConstSlice<DetectableGame> game_detection_builtin() noexcept {
-    return ready() ? ConstSlice<DetectableGame>{g_builtin, kGameCount} : ConstSlice<DetectableGame>{};
+u32 detectable_hash(Utf8View file) noexcept {
+    u32 hash = 2166136261u;
+    for (u32 i = 0; i < file.bytes; ++i)
+        hash = (hash ^ static_cast<u8>(file.data[i])) * 16777619u;
+    return hash;
 }
-bool game_detection_normalize(Utf8View basename, char* output, u8* bytes) noexcept {
-    if (!output || !bytes || !basename.data || !basename.bytes || basename.bytes > kRegisteredGameExecutableBytes ||
-        !utf8_validate(basename).valid)
+bool detectable_pattern_supported(Utf8View pattern) noexcept {
+    return parse_pattern(pattern).valid;
+}
+bool detectable_pattern_match(Utf8View pattern, Utf8View text) noexcept {
+    const PatternParse p = parse_pattern(pattern);
+    if (!p.valid)
         return false;
-    for (u32 i = 0; i < basename.bytes; ++i) {
-        const char c = basename.data[i];
-        if (c == '\\' || c == '/' || c == ':' || c == '|' || static_cast<u8>(c) < 0x20)
-            return false;
-        output[i] = ascii_lower(c);
+    u32 at = 0;
+    for (u32 i = 0; i < p.count; ++i) {
+        const Utf8View piece{p.literal + p.starts[i], p.ends[i] - p.starts[i]};
+        const bool first = i == 0 && p.anchored_start, last = i + 1 == p.count && p.anchored_end;
+        if (first) {
+            if (piece.bytes > text.bytes || !bytes_equal(text.data, piece.data, piece.bytes) ||
+                (last && piece.bytes != text.bytes))
+                return false;
+            at = piece.bytes;
+        } else if (last) {
+            if (piece.bytes > text.bytes - at ||
+                !bytes_equal(text.data + text.bytes - piece.bytes, piece.data, piece.bytes))
+                return false;
+        } else {
+            const u32 found = find({text.data + at, text.bytes - at}, piece);
+            if (found == ~0u)
+                return false;
+            at += found + piece.bytes;
+        }
     }
-    *bytes = static_cast<u8>(basename.bytes);
     return true;
 }
-u32 game_detection_display_name(Utf8View basename, Slice<char> output) noexcept {
-    if (!output.data || !basename.bytes)
+namespace {
+void put_u64(u8* output, u64 value) noexcept {
+    for (u32 i = 0; i < 8; ++i)
+        output[i] = static_cast<u8>(value >> (8 * i));
+}
+u64 get_u64(const u8* input) noexcept {
+    u64 value = 0;
+    for (u32 i = 0; i < 8; ++i)
+        value |= static_cast<u64>(input[i]) << (8 * i);
+    return value;
+}
+} // namespace
+
+DetectableGame detectable_list_game(const DetectableList& list, u32 index) noexcept {
+    const auto& row = list.games[index];
+    return {{list.text + row.name, row.name_bytes}, {list.text + row.executables, row.executables_bytes},
+            row.application_id};
+}
+bool game_executables_match(Utf8View executables, const GameProcess& process, bool* launcher) noexcept {
+    bool game = false, launch = false;
+    each_entry(executables, [&](const Entry& entry) noexcept {
+        if (names(entry, process))
+            (entry.launcher ? launch : game) = true;
+        return !game;
+    });
+    if (launcher)
+        *launcher = !game && launch;
+    return game || launch;
+}
+bool detectable_list_names(const DetectableList& list, const GameProcess& process) noexcept {
+    bool named = false;
+    each_named(list, file_of(process.path), [&](u32 index) noexcept {
+        named = game_executables_match(detectable_list_game(list, index).executables, process, nullptr);
+        return !named;
+    });
+    return named;
+}
+bool game_detection_blocked(const DetectableList& list, Utf8View path) noexcept {
+    if (!list.header)
+        return false;
+    const char* exclusions = list.text + list.header->games_text_bytes;
+    bool blocked = false;
+    each_entry({exclusions, list.header->exclusions_bytes}, [&](const Entry& entry) noexcept {
+        blocked = contains(path, entry.name);
+        return !blocked;
+    });
+    // Patterns are whole '|'-separated texts (the build refuses one holding '|').
+    const Utf8View patterns{exclusions + list.header->exclusions_bytes, list.header->patterns_bytes};
+    for (u32 begin = 0, i = 0; !blocked && i <= patterns.bytes; ++i)
+        if (i == patterns.bytes || patterns.data[i] == '|') {
+            blocked = i > begin && detectable_pattern_match({patterns.data + begin, i - begin}, path);
+            begin = i + 1;
+        }
+    return blocked;
+}
+bool game_detection_streamer_tool(const GameProcess& process) noexcept {
+    return game_executables_match(kStreamerTools, process, nullptr);
+}
+bool game_detection_normalize(Utf8View path, char* output, u8* bytes) noexcept {
+    if (!output || !bytes || !path.data || !path.bytes || !utf8_validate(path).valid)
+        return false;
+    u32 start = 0;
+    if (path.bytes > kRegisteredGameExecutableBytes) {
+        start = path.bytes - kRegisteredGameExecutableBytes;
+        while (start < path.bytes && path.data[start - 1] != '/' && path.data[start - 1] != '\\')
+            ++start;
+        if (start == path.bytes)
+            return false;
+    }
+    for (u32 i = start; i < path.bytes; ++i) {
+        const char c = path.data[i];
+        if (static_cast<u8>(c) < 0x20)
+            return false;
+        output[i - start] = c == '\\' ? '/' : ascii_lower(c);
+    }
+    *bytes = static_cast<u8>(path.bytes - start);
+    return true;
+}
+u32 game_detection_display_name(Utf8View path, Slice<char> output) noexcept {
+    const Utf8View file = file_of(path);
+    if (!output.data || !file.bytes)
         return 0;
-    u32 bytes = basename.bytes;
-    if (bytes > 4 && basename.data[bytes - 4] == '.' && ascii_lower(basename.data[bytes - 3]) == 'e' &&
-        ascii_lower(basename.data[bytes - 2]) == 'x' && ascii_lower(basename.data[bytes - 1]) == 'e')
+    u32 bytes = file.bytes;
+    if (bytes > 4 && file.data[bytes - 4] == '.' && ascii_lower(file.data[bytes - 3]) == 'e' &&
+        ascii_lower(file.data[bytes - 2]) == 'x' && ascii_lower(file.data[bytes - 1]) == 'e')
         bytes -= 4;
-    bytes = utf8_copy_truncated(output.data, output.count, {basename.data, bytes});
+    bytes = utf8_copy_truncated(output.data, output.count, {file.data, bytes});
     if (bytes && output.data[0] >= 'a' && output.data[0] <= 'z')
         output.data[0] = static_cast<char>(output.data[0] - 'a' + 'A');
     return bytes;
 }
-bool registered_games_add(RegisteredGames* games, const Utf8View& name,
-                          const Utf8View& executable) noexcept {
-    if (!games || games->count >= kRegisteredGameMaximum || !name.bytes || name.bytes > kRegisteredGameNameBytes ||
-        !utf8_validate(name).valid)
-        return false;
+bool registered_games_add(RegisteredGames* games, Utf8View name, Utf8View path) noexcept {
     RegisteredGame game{};
-    if (!game_detection_normalize(executable, game.executable, &game.executable_bytes))
+    if (!games || !valid_name(name) || !game_detection_normalize(path, game.executable, &game.executable_bytes))
         return false;
     for (u32 i = 0; i < games->count; ++i)
-        if (utf8_equal({games->items[i].executable, games->items[i].executable_bytes},
-                 {game.executable, game.executable_bytes}))
+        if ((games->items[i].flags & registered_game_added) &&
+            utf8_equal({games->items[i].executable, games->items[i].executable_bytes},
+                       {game.executable, game.executable_bytes}))
             return false;
+    const u32 slot = take_slot(games);
+    if (slot == kRegisteredGameNone)
+        return false;
     copy_bytes(game.name, name.data, name.bytes);
     game.name_bytes = static_cast<u8>(name.bytes);
-    games->items[games->count++] = game;
+    game.flags = registered_game_added;
+    games->items[slot] = game;
     return true;
 }
 bool registered_games_remove(RegisteredGames* games, u32 index) noexcept {
@@ -137,99 +341,85 @@ bool registered_games_remove(RegisteredGames* games, u32 index) noexcept {
     reset_value(&games->items[--games->count]);
     return true;
 }
-GameDetectionMatch game_detection_match(const RegisteredGames& custom, ConstSlice<DetectableGame> builtin,
-                                        ConstSlice<Utf8View> processes) noexcept {
-    for (u32 i = 0; i < custom.count && i < kRegisteredGameMaximum; ++i) {
-        const auto& game = custom.items[i];
-        if (running(processes, {game.executable, game.executable_bytes}))
-            return {{game.name, game.name_bytes}, i, true, true};
-    }
-    for (u32 i = 0; i < builtin.count; ++i)
-        for (u32 p = 0; p < processes.count; ++p)
-            if (listed(builtin[i].executables, processes[p]))
-                return {builtin[i].name, i, false, true};
-    return {};
+u32 registered_games_seen(RegisteredGames* games, Utf8View name, u64 application_id) noexcept {
+    if (!games || !application_id || !name.bytes)
+        return kRegisteredGameNone;
+    for (u32 i = 0; i < games->count; ++i)
+        if (games->items[i].application_id == application_id)
+            return i;
+    const u32 slot = take_slot(games);
+    if (slot == kRegisteredGameNone)
+        return slot;
+    auto& game = games->items[slot];
+    reset_value(&game);
+    game.application_id = application_id;
+    game.name_bytes = static_cast<u8>(utf8_copy_truncated(game.name, kRegisteredGameNameBytes, name));
+    return slot;
 }
-#if defined(_WIN32)
-u32 game_detection_snapshot(Slice<char> storage, Slice<Utf8View> names, bool windowed_only) noexcept {
-    if (!storage.data || !names.data)
-        return 0;
-    WindowOwners owners{};
-    if (windowed_only)
-        EnumWindows(collect_window, reinterpret_cast<LPARAM>(&owners));
-    const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE)
-        return 0;
-    const DWORD self = process_id();
-    PROCESSENTRY32W entry{};
-    entry.dwSize = sizeof(entry);
-    u32 count = 0, used = 0;
-    for (BOOL more = Process32FirstW(snapshot, &entry); more && count < names.count;
-         more = Process32NextW(snapshot, &entry)) {
-        if (entry.th32ProcessID == self || entry.th32ProcessID <= 4)
+GameDetectionMatch game_detection_select(const RegisteredGames& custom, const DetectableList& list,
+                                         ConstSlice<GameProcess> processes, u32 previous_pid,
+                                         u32 foreground_pid) noexcept {
+    GameDetectionMatch best{};
+    u32 best_rank = 0, best_order = ~0u;
+    for (u32 i = 0; i < processes.count; ++i) {
+        const auto& process = processes[i];
+        if (!process.windowed)
             continue;
-        if (windowed_only) {
-            bool owns = false;
-            for (u32 i = 0; i < owners.count && !owns; ++i)
-                owns = owners.pids[i] == entry.th32ProcessID;
-            if (!owns)
-                continue;
+        const auto match = match_process(custom, list, process);
+        if (!match.found)
+            continue;
+        const u32 rank = foreground_pid && process.pid == foreground_pid ? 3
+                         : previous_pid && process.pid == previous_pid   ? 2
+                                                                         : 1;
+        const u32 order = (match.custom ? 0 : 0x10000) + match.index;
+        if (rank > best_rank || (rank == best_rank && order < best_order)) {
+            best = match;
+            best_rank = rank;
+            best_order = order;
         }
-        char utf8[kRegisteredGameExecutableBytes * 3];
-        const int converted = WideCharToMultiByte(CP_UTF8, 0, entry.szExeFile, -1, utf8, sizeof(utf8), nullptr,
-                                                  nullptr);
-        if (converted > 1)
-            add_process(storage, names, &count, &used, {utf8, static_cast<u32>(converted - 1)});
     }
-    CloseHandle(snapshot);
-    return count;
+    return best;
 }
-#else
-u32 game_detection_snapshot(Slice<char> storage, Slice<Utf8View> names, bool windowed_only) noexcept {
-    // No client learns which processes own windows on Wayland, so "windowed" lists every process of the user. The
-    // name is the process's comm: the program name the kernel keeps (Wine and Proton processes carry the .exe name).
-    (void)windowed_only;
-    if (!storage.data || !names.data)
-        return 0;
-    DirIter directory{};
-    if (!dir_open(&directory, L"/proc"))
-        return 0;
-    const u32 self = process_id();
-    u32 count = 0, used = 0;
-    DirEntry entry{};
-    while (count < names.count && dir_next(&directory, &entry)) {
-        u32 pid = 0;
-        bool numeric = entry.name[0] != 0;
-        for (u32 i = 0; entry.name[i] && numeric; ++i) {
-            numeric = entry.name[i] >= L'0' && entry.name[i] <= L'9';
-            pid = pid * 10 + static_cast<u32>(entry.name[i] - L'0');
+GameCandidate game_detection_candidate(const RegisteredGames& custom, const DetectableList& list,
+                                       Utf8View file) noexcept {
+    GameCandidate candidate{};
+    const auto visit = [&](const Entry& entry) noexcept {
+        if (utf8_equal(file_of(entry.name), file)) {
+            candidate.named = true;
+            candidate.arguments |= entry.arguments.bytes != 0;
         }
-        if (!numeric || pid == self)
-            continue;
-        wchar_t path[48] = L"/proc/";
-        u32 length = 6;
-        for (u32 i = 0; entry.name[i] && length < 30; ++i)
-            path[length++] = entry.name[i];
-        for (const wchar_t c : L"/comm")
-            path[length++] = c;
-        // No access hint: an fadvise of a 16-byte procfs file is one more system call per process for nothing.
-        const FileHandle file = file_open(path, {FileAccess::read, FileCreate::existing,
-                                                 kFileShareRead | kFileShareWrite, 0});
-        if (file == INVALID_HANDLE_VALUE)
-            continue;
-        char text[64];
-        u32 read = 0;
-        const bool got = file_read(file, text, sizeof(text), &read);
-        file_close(file);
-        while (got && read && (text[read - 1] == '\n' || text[read - 1] == '\r'))
-            --read;
-        if (got)
-            add_process(storage, names, &count, &used, {text, read});
-    }
-    dir_close(&directory);
-    return count;
+        return true;
+    };
+    each_named(list, file, [&](u32 index) noexcept {
+        each_entry(detectable_list_game(list, index).executables, visit);
+        return true;
+    });
+    each_entry(kStreamerTools, visit);
+    for (u32 i = 0; i < custom.count && i < kRegisteredGameMaximum && !candidate.named; ++i)
+        candidate.named = (custom.items[i].flags & registered_game_added) &&
+                          utf8_equal(file_of({custom.items[i].executable, custom.items[i].executable_bytes}), file);
+    return candidate;
 }
-#endif
+u32 game_detection_arguments(const DetectableList& list, Utf8View file, Utf8View command_line,
+                              Slice<char> output) noexcept {
+    u32 used = 0;
+    if (!output.data)
+        return 0;
+    each_named(list, file, [&](u32 index) noexcept {
+        each_entry(detectable_list_game(list, index).executables, [&](const Entry& entry) noexcept {
+            const Utf8View argument = entry.arguments;
+            if (argument.bytes && argument.bytes < output.count - used && utf8_equal(file_of(entry.name), file) &&
+                !contains({output.data, used}, argument) && contains(command_line, argument)) {
+                copy_bytes(output.data + used, argument.data, argument.bytes);
+                used += argument.bytes;
+                output.data[used++] = '\n';
+            }
+            return true;
+        });
+        return true;
+    });
+    return used;
+}
 u32 registered_games_encode(const RegisteredGames& games, Slice<u8> output) noexcept {
     if (!output.data || games.count > kRegisteredGameMaximum)
         return 0;
@@ -246,59 +436,61 @@ u32 registered_games_encode(const RegisteredGames& games, Slice<u8> output) noex
         return 0;
     for (u32 i = 0; i < games.count; ++i) {
         const auto& g = games.items[i];
-        if (!put(&g.name_bytes, 1) || !put(g.name, g.name_bytes) || !put(&g.executable_bytes, 1) ||
-            !put(g.executable, g.executable_bytes))
+        u8 numbers[17];
+        numbers[0] = g.flags;
+        put_u64(numbers + 1, g.application_id);
+        put_u64(numbers + 9, g.last_played_ms);
+        if (!put(numbers, sizeof(numbers)) || !put(&g.name_bytes, 1) || !put(g.name, g.name_bytes) ||
+            !put(&g.executable_bytes, 1) || !put(g.executable, g.executable_bytes))
             return 0;
     }
     return at;
 }
 bool registered_games_decode(ConstSlice<u8> input, RegisteredGames* output) noexcept {
-    if (!output || !input.data || input.count < 5 || !bytes_equal(input.data, kMagic, 4) ||
-        input.data[4] > kRegisteredGameMaximum)
+    if (!output || !input.data || input.count < 5 || input.data[4] > kRegisteredGameMaximum)
+        return false;
+    const bool old = bytes_equal(input.data, kOldMagic, 4);
+    if (!old && !bytes_equal(input.data, kMagic, 4))
         return false;
     RegisteredGames games{};
     u32 at = 5;
+    const auto text = [&](Utf8View* value) noexcept {
+        if (at >= input.count || input.data[at] > input.count - at - 1)
+            return false;
+        *value = {reinterpret_cast<const char*>(input.data + at + 1), input.data[at]};
+        at += 1 + input.data[at];
+        return true;
+    };
     for (u32 i = 0; i < input.data[4]; ++i) {
-        if (at >= input.count)
+        u8 flags = registered_game_added;
+        u64 application_id = 0, last_played_ms = 0;
+        if (!old) {
+            if (input.count - at < 17)
+                return false;
+            flags = input.data[at];
+            application_id = get_u64(input.data + at + 1);
+            last_played_ms = get_u64(input.data + at + 9);
+            at += 17;
+        }
+        Utf8View name{}, executable{};
+        if (!text(&name) || !text(&executable) || !valid_name(name) ||
+            (flags & ~(registered_game_added | registered_game_detection_off)))
             return false;
-        const u8 name = input.data[at++];
-        if (name > input.count - at)
+        // Stored executables are normalized; a built-in game's entry has an application id and no executable.
+        if (flags & registered_game_added) {
+            if (application_id || !registered_games_add(&games, name, executable) ||
+                (!old && !utf8_equal({games.items[i].executable, games.items[i].executable_bytes}, executable)))
+                return false;
+        } else if (executable.bytes || registered_games_seen(&games, name, application_id) != i ||
+                   !utf8_equal({games.items[i].name, games.items[i].name_bytes}, name)) {
             return false;
-        const Utf8View name_view{reinterpret_cast<const char*>(input.data + at), name};
-        at += name;
-        if (at >= input.count)
-            return false;
-        const u8 exe = input.data[at++];
-        if (exe > input.count - at)
-            return false;
-        const Utf8View exe_view{reinterpret_cast<const char*>(input.data + at), exe};
-        at += exe;
-        if (!registered_games_add(&games, name_view, exe_view))
-            return false;
+        }
+        games.items[i].flags = flags;
+        games.items[i].last_played_ms = last_played_ms;
     }
     if (at != input.count)
         return false;
     *output = games;
     return true;
-}
-bool registered_games_load(RegisteredGames* games) noexcept {
-    if (!games)
-        return false;
-    reset_value(games);
-    wchar_t path[kAccountProfileMaximumPathCharacters];
-    if (!data_path(path, kAccountProfileMaximumPathCharacters, L"games.bin").ok())
-        return false;
-    u8 record[5 + kRegisteredGameMaximum * (2 + kRegisteredGameNameBytes + kRegisteredGameExecutableBytes)];
-    const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
-    return read.error == FileReadError::missing || (read.ok() && registered_games_decode({record, read.bytes}, games));
-}
-bool registered_games_save(const RegisteredGames& games) noexcept {
-    wchar_t path[kAccountProfileMaximumPathCharacters];
-    u8 record[5 + kRegisteredGameMaximum * (2 + kRegisteredGameNameBytes + kRegisteredGameExecutableBytes)];
-    const u32 bytes = registered_games_encode(games, {record, sizeof(record)});
-    if (!bytes)
-        return false;
-    const DataPathResult built = data_path(path, kAccountProfileMaximumPathCharacters, L"games.bin", true);
-    return built.ok() && file_persistence_write_atomic(path, built.length, {record, bytes}).ok();
 }
 } // namespace maicord

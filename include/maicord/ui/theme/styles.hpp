@@ -153,12 +153,18 @@ bool ui_theme_resolve_emphasis(Theme*) noexcept;
 // Selected-tint alpha boost at the highest elevation (ui_emphasis_selected).
 inline constexpr float kUiThemeEmphasisElevationBoost = 1.5f;
 // Fonts are restricted to the existing licensed catalog. One base em serves UI
-// and message body text; semantic flags select these ratios, not another font bank.
+// text; semantic flags select these ratios, not another font bank. Chat text (faces carrying
+// kUiTextFaceChatBit) has its own em: Accessibility's Text size in chat, zero while it follows body_size. It is
+// published, never read from a theme document.
 struct UiThemeTypography {
     float body_size{16}, heading_1_ratio{1.5f}, heading_2_ratio{1.25f}, heading_3_ratio{1.1f};
-    float subtext_ratio{.8125f}, mono_ratio{.9375f};
+    float subtext_ratio{.8125f}, mono_ratio{.9375f}, chat_size{0};
     UiTextFace body_face{UiTextFace::normal}, code_face{UiTextFace::mono};
 };
+// The em of chat text: Text size in chat, or the body size while it follows the theme.
+constexpr float ui_theme_chat_size(const UiThemeTypography& typography) noexcept {
+    return typography.chat_size ? typography.chat_size : typography.body_size;
+}
 // Semantic DIP dimensions only. Colors/background stay in Theme; product labels,
 // capacities, permissions and widget identities are not theme data. Defaults
 // match the shared primitives. Consumers project these into their own styles.

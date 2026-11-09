@@ -49,11 +49,18 @@ UiRect caret_pixel_rectangle(const UiRect& caret, const UiRect& clip, u32 dpi) n
 // The reply bar's mention switch (no button box): tinted @ icon and divider.
 bool shell_presentation_paint_reply_mention(const MessageComposerScene& scene, const Theme& theme,
                                             PaintStream* stream) noexcept;
+// Where the message list ends and whether it is scrolled away from the newest message: while it is, the overlay
+// first fades the list's bottom into the chat background behind the typing strip (a flat theme only: a
+// background effect has no flat colour to fade into).
+struct ShellTypingFade {
+    UiRect list;
+    bool scrolled_away;
+};
 // `dots`, when given, receives where animated typing dots were painted
 // (quads 0 when none were).
 bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene,
     const MessageComposerPresentationInput& input, const Theme& theme, PaintStream* paint, u32 dpi,
-    UiTypingDotsPaint* dots = nullptr) noexcept;
+    UiTypingDotsPaint* dots = nullptr, const ShellTypingFade* fade = nullptr) noexcept;
 
 // A nonzero visual selection only changes the sidebar location highlight.
 // Navigation admission and composer permissions still use their ordinary owners.

@@ -19,6 +19,7 @@
 #include "../plugins/surface_host.hpp"
 #include "user_actions.hpp"
 #include "profile_editor.hpp"
+#include "../media/picker.hpp"
 #include "../chat/composer/composer.hpp"
 #include "../chat/application_link_trust.hpp"
 #include "../chat/composer/text_edit_keys.hpp"
@@ -33,10 +34,19 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/protocol/guild/admin.hpp"
 #include "../chat/messages/history_decode.hpp"
+#include "../voice/voice.hpp"
+#include "../chat/game_lookup.hpp"
+#include "../chat/game_profile.hpp"
+#include "../settings/settings.hpp"
+#include "../settings/catalog.hpp"
+#include "../settings/streamer_mode.hpp"
+#include "maicord/model/user/profile_connection.hpp"
 
 namespace maicord::app_detail {
 namespace {
 constexpr int kWheelNotch = 120; // The wheel's delta for one notch (WHEEL_DELTA).
+// metadata_button for a Spotify card's album art (0 and 1 are custom buttons).
+constexpr u8 kMetadataAlbum = 2;
 template <u32 N> void assign(ProfileString<N>* to, Utf8View from) noexcept {
     to->bytes = static_cast<u16>(minimum(N, from.bytes));
     copy_bytes(to->data, from.data, to->bytes);
@@ -53,6 +63,30 @@ bool repaint(bool text = false) noexcept {
 }
 MessageComposer& edit_model(ApplicationProfile& p) noexcept {
     return p.scene.note_editing ? p.note : p.message;
+}
+// The relationship facts the card shows (buttons, Friends Since); true when they changed.
+bool sync_relation(ProfileScene& s, u64 user) noexcept {
+    const u8 relation = application_friends_relation(user);
+    const auto* store = relation == 1 ? application_friends_relationships() : nullptr;
+    const auto* record = store ? relationship_store_find(*store, user) : nullptr;
+    const u64 since = record ? record->since_ms : 0;
+    const bool changed = relation != s.relation || since != s.friends_since_ms;
+    s.relation = relation;
+    s.friends_since_ms = since;
+    return changed;
+}
+// The profile's widget games (the Board, the popout's Game Collection): asked
+// for while the card shows; true when the cache changed since the last layout.
+bool sync_games(ApplicationProfile& p) noexcept {
+    u64 ids[kProfileWidgetGameMaximum];
+    const u32 count = profile_widget_game_ids(p.data, ids, kProfileWidgetGameMaximum);
+    for (u32 i = 0; i < count; ++i)
+        game_lookup_want(ids[i]);
+    p.scene.games = application_games();
+    const u32 revision = game_lookup_revision();
+    const bool changed = count && revision != p.games_revision;
+    p.games_revision = revision;
+    return changed;
 }
 // Visible: the window is shown and not minimized (tests run without one).
 bool window_shown() noexcept {
@@ -131,12 +165,15 @@ bool activity_response(ApplicationProfile& p, const RestClientResponse& response
     if (metadata) {
         p.metadata_pending = false;
         char url[1024];
-        const u32 bytes = ok ? user_activity_button_url(body, {g_app.account_ui->profile_decode.structurals, 16384},
-                                                        p.metadata_button, {url, sizeof(url)})
-                             : 0;
+        const Slice<u32> structurals{g_app.account_ui->profile_decode.structurals, 16384};
+        // metadata_button 0 and 1: the activity's buttons; kMetadataAlbum: Spotify's album.
+        const bool album = p.metadata_button == kMetadataAlbum;
+        const u32 bytes = !ok    ? 0
+                          : album ? user_activity_album_url(body, structurals, {url, sizeof(url)})
+                                  : user_activity_button_url(body, structurals, p.metadata_button, {url, sizeof(url)});
         // Only for the card still shown: a link from a closed card would surprise.
         if (bytes && p.scene.active && p.data.user_id == p.metadata_user)
-            application_link_open({url, bytes}, false);
+            application_link_open({url, bytes}, album);
         return true;
     }
     if (ok)
@@ -159,10 +196,11 @@ bool activity_response(ApplicationProfile& p, const RestClientResponse& response
 void load_note(ApplicationProfile& p) noexcept {
     auto& s = p.scene;
     const u64 user = p.data.user_id;
+    s.hide_personal = application_streamer_hide_personal();
     s.note_visible = g_app.account_ui && user && user != g_app.account_ui->chat_state.self_user_id;
     if (!s.note_visible) {
         reset_value(&s.note_text);
-        s.note_loading = false;
+        s.note_loading = s.note_failed = false;
         return;
     }
     bool loading = false;
@@ -171,6 +209,7 @@ void load_note(ApplicationProfile& p) noexcept {
     copy_bytes(p.note_display, text.data, bytes);
     s.note_text = {p.note_display, bytes};
     s.note_loading = loading && !bytes;
+    s.note_failed = application_user_note_failed(user);
 }
 void sync_note_edit(ApplicationProfile& p) noexcept {
     auto& e = p.scene.edit;
@@ -325,7 +364,7 @@ bool mutate_role(ApplicationProfile& p, u64 role, bool add) noexcept {
     return profile_scene_layout(&p.scene, application_viewport_dips(), true) && repaint(true);
 }
 // The popout becomes the full profile (UserProfileModalV2) on a tab.
-bool show_modal(ApplicationProfile& p, u8 tab, bool note = false) noexcept {
+bool show_modal(ApplicationProfile& p, ProfileTab tab, bool note = false) noexcept {
     auto& s = p.scene;
     if (s.presentation != ProfilePresentation::modal) {
         p.message.focused = false;
@@ -337,7 +376,7 @@ bool show_modal(ApplicationProfile& p, u8 tab, bool note = false) noexcept {
         // A new surface: its entrance replays.
         ++s.opens;
     }
-    s.tab = tab;
+    s.section = tab;
     s.secondary_scroll = 0;
     s.scroll_to_note = note;
     if (!profile_scene_layout(&s, application_viewport_dips(), true))
@@ -356,17 +395,36 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
     case ProfileAction::note:
         return s.note_editing || begin_note(*p);
     case ProfileAction::open_note:
-        return show_modal(*p, 0, true);
+        return show_modal(*p, ProfileTab::widgets, true);
+    // The full profile opens on its first tab (the Board, else Activity).
     case ProfileAction::expand:
     case ProfileAction::view_bio:
+    case ProfileAction::widgets:
+        return show_modal(*p, ProfileTab::widgets);
     case ProfileAction::card:
     case ProfileAction::activity:
-        return show_modal(*p, 0);
+        return show_modal(*p, ProfileTab::activity);
     case ProfileAction::friends:
-        return show_modal(*p, 1);
+        return show_modal(*p, ProfileTab::friends);
     case ProfileAction::servers:
-        // A bot's tabs are Activity and Mutual Servers.
-        return show_modal(*p, s.self_id == p->data.user_id ? 0 : p->data.user_appearance.bot ? 1 : 2);
+        return show_modal(*p, ProfileTab::servers);
+    case ProfileAction::widget_more:
+        if (part)
+            s.widgets_expanded = static_cast<u8>(s.widgets_expanded ^ (1u << (part->source & 7)));
+        break;
+    case ProfileAction::game: {
+        // The game's profile replaces the full profile.
+        const u64 game = part ? part->target : 0;
+        if (!game)
+            return true;
+        application_profile_close();
+        return application_game_profile_open(game) || true;
+    }
+    case ProfileAction::add_game:
+        application_profile_close();
+        return application_settings_open_page(
+                   {kSettingsNativeOwner, static_cast<u64>(SettingsPanel::registered_games) + 1}) ||
+               true;
     case ProfileAction::command: {
         // The chip closes the profile, then fills the composer
         // (closing keeps the profile's data).
@@ -388,12 +446,12 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
     case ProfileAction::add_friend:
         if (!application_friends_user_action(p->data.user_id, ApplicationFriendsUserAction::add))
             log_u64(LogLevel::warning, "profile", "add_friend_refused", p->data.user_id);
-        s.relation = application_friends_relation(p->data.user_id);
+        sync_relation(s, p->data.user_id);
         break;
     case ProfileAction::accept_friend:
         if (!application_friends_user_action(p->data.user_id, ApplicationFriendsUserAction::accept))
             log_u64(LogLevel::warning, "profile", "accept_friend_refused", p->data.user_id);
-        s.relation = application_friends_relation(p->data.user_id);
+        sync_relation(s, p->data.user_id);
         break;
     case ProfileAction::relationship:
         return open_friend_menu(*p, part_rectangle(*p, target));
@@ -448,27 +506,64 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
         application_profile_close();
         return select_content_guild(id);
     }
-    case ProfileAction::activity_button: {
-        // The button's URL lives in the activity's metadata, fetched on click.
+    case ProfileAction::activity_button:
+    case ProfileAction::activity_spotify: {
         const auto* set = s.activity_set;
-        if (!part || !set || part->source >= set->count || part->target > 1 || p->metadata_pending)
+        const bool spotify = action == ProfileAction::activity_spotify;
+        if (!part || !set || part->source >= set->count || (!spotify && part->target > 1))
             return true;
-        const auto session = user_activity_text(set->items[part->source], UserActivityField::session);
-        if (!session.bytes || session.bytes > sizeof(p->metadata_session.data))
+        const auto& a = set->items[part->source];
+        const bool album = spotify && part->media == ProfileMediaKind::activity_large;
+        if (spotify && !album) {
+            // Play on Spotify and the track title: the track's page.
+            char url[128];
+            const u32 bytes = user_activity_spotify_url(a, {url, sizeof(url)});
+            if (bytes)
+                application_link_open({url, bytes}, true);
+            return true;
+        }
+        // A button's URL, or the album behind Spotify's art, lives in the
+        // activity's metadata, fetched on click.
+        const auto session = user_activity_text(a, UserActivityField::session);
+        if (p->metadata_pending || !session.bytes || session.bytes > sizeof(p->metadata_session.data))
             return true;
         copy_bytes(p->metadata_session.data, session.data, session.bytes);
         p->metadata_session.bytes = static_cast<u16>(session.bytes);
-        p->metadata_button = static_cast<u8>(part->target);
+        p->metadata_button = album ? kMetadataAlbum : static_cast<u8>(part->target);
         p->metadata_user = p->data.user_id;
-        p->metadata_application = set->items[part->source].application_id;
+        p->metadata_application = a.application_id;
         p->metadata_pending = true;
         p->retry_at = 0;
         return true;
     }
+    case ProfileAction::voice_join: {
+        // Joins the channel (or opens the call already there) and closes the card.
+        const auto* channel = part && part->target && g_app.account_ui
+                                  ? chat_state_store_find_channel(g_app.account_ui->chat_state, part->target)
+                                  : nullptr;
+        const u64 channel_id = part ? part->target : 0;
+        application_profile_close();
+        return !channel_id || application_voice_join(channel ? channel->guild_id : 0, channel_id) || true;
+    }
+    case ProfileAction::voice_guild:
+        if (!part || !part->target)
+            return true;
+        application_profile_close();
+        return select_content_guild(part->target);
     case ProfileAction::badge:
         // Through the link rules: Discord's own hosts open at once, others warn.
         if (part && part->source < p->data.badge_count && p->data.badges[part->source].link.bytes)
             application_open_content_url(p->data.badges[part->source].link.view());
+        return true;
+    case ProfileAction::connection:
+        // A known service's page opens at once; a domain asks first (the official client's rule).
+        if (part && part->source < p->data.connection_count) {
+            char url[512];
+            const auto& connection = p->data.connections[part->source];
+            const u32 bytes = profile_connection_url(connection, {url, sizeof(url)});
+            if (bytes)
+                application_link_open({url, bytes}, profile_connection_link_trusted(connection));
+        }
         return true;
     case ProfileAction::activity_watch: {
         // The stream page opens like the official client's, without a warning.
@@ -484,6 +579,13 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
         application_profile_close();
         return queue_private_conversation(PrivateConversationOperation::open, id);
     }
+    case ProfileAction::emoji:
+        // The picker inserts into the field, which keeps its focus. It opens beside the card (the client opens it
+        // over the card from the button; profile cards draw above pickers here).
+        p->message.focused = true;
+        ui_widget_manager_focus(&s.widgets, s.message_field);
+        return application_media_picker_open_field(s.rectangle, p->data.user_id) &&
+               application_profile_refresh_message();
     case ProfileAction::retry:
         p->pending = true;
         p->retry_at = 0;
@@ -495,7 +597,7 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
     return profile_scene_layout(&s, application_viewport_dips(), true) && repaint(true);
 }
 } // namespace
-bool application_profile_expand(u64 user, u8 tab) noexcept {
+bool application_profile_expand(u64 user, ProfileTab tab) noexcept {
     auto* p = g_app.profile;
     if (!p || !p->scene.active || p->data.user_id != user)
         return false;
@@ -529,7 +631,7 @@ bool application_profile_menu_activate(u32 action) noexcept {
                                                             : ApplicationFriendsUserAction::accept;
         if (!application_friends_user_action(user, intent))
             log_u64(LogLevel::warning, "profile", "relationship_action_refused", static_cast<u64>(intent));
-        p->scene.relation = application_friends_relation(user);
+        sync_relation(p->scene, user);
         return profile_scene_layout(&p->scene, application_viewport_dips(), true) && repaint(true);
     }
     if (action >= menu_role_first && action - menu_role_first < p->menu_role_count)
@@ -570,7 +672,7 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
                          : kind == ProfileAnchor::member ? ProfilePlacement::left
                                                          : ProfilePlacement::right;
     p->scene.presentation = ProfilePresentation::popout;
-    p->scene.relation = application_friends_relation(user);
+    sync_relation(p->scene, user);
     p->scene.scroll_to_note = false;
     p->scene.opened_ms = clock_monotonic_milliseconds();
     const auto& state = g_app.account_ui->chat_state;
@@ -627,10 +729,12 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     p->scene.reduced_motion = application_reduced_motion();
     p->scene.media_dpi = static_cast<u16>(g_app.renderer.dpi);
     p->scene.measure = &g_app.account_ui->text_measure_cache;
+    p->scene.voice_states = &g_app.account_ui->voice_states;
     p->scene.applications = p->applications.view();
     profile_commands_resolve(&p->commands, p->data, p->loaded_at, state.selected_channel_id,
                              g_app.account_ui->active_channel_id);
     p->scene.commands = profile_commands_view(p->commands);
+    sync_games(*p);
     if (!profile_scene_open(&p->scene, &p->data, &state, &g_app.account_ui->user_store,
                             state.self_user_id, anchor, application_viewport_dips()))
         return false;
@@ -643,13 +747,16 @@ bool application_profile_open_edit(u64 user) noexcept {
     application_profile_close();
     return application_profile_editor_open(ProfileEditorTab::main);
 }
-bool application_profile_close() noexcept {
+namespace {
+// Closes the card now (the full profile's exit transition ends here).
+void close_now() noexcept {
     if (!g_app.profile || !g_app.profile->scene.active)
-        return true;
+        return;
     application_composer_text_input_suspend();
     application_surface_motion_retire(RendererLayerSurface::profile);
     auto& s = g_app.profile->scene;
     end_note(*g_app.profile);
+    application_media_picker_close_field();
     s.active = false;
     g_app.profile->message.focused = false;
     g_app.profile->message_blink_at = 0;
@@ -665,7 +772,17 @@ bool application_profile_close() noexcept {
     ui_button_keyboard_cancel(&s.keyboard);
     application_release_capture();
     ++s.revision;
-    return repaint(true);
+    repaint(true);
+}
+} // namespace
+bool application_profile_close() noexcept {
+    if (!g_app.profile || !g_app.profile->scene.active)
+        return true;
+    // The full profile plays the modal exit first; the popout closes at once.
+    if (g_app.profile->scene.presentation != ProfilePresentation::modal ||
+        !application_surface_motion_exit(RendererLayerSurface::profile, close_now))
+        close_now();
+    return true;
 }
 void application_profile_release() noexcept {
     application_composer_text_input_suspend();
@@ -684,14 +801,16 @@ void application_profile_synchronize() noexcept {
     auto* p = g_app.profile;
     if (!p || !p->scene.active || !g_app.account_ui)
         return;
-    // A landed command index changes a bot's Commands.
+    // A landed command index changes a bot's Commands; landed games the Board.
+    bool changed = sync_games(*p);
     if (profile_commands_resolve(&p->commands, p->data, p->loaded_at,
                                  g_app.account_ui->chat_state.selected_channel_id,
                                  g_app.account_ui->active_channel_id)) {
         p->scene.commands = profile_commands_view(p->commands);
-        if (profile_scene_layout(&p->scene, application_viewport_dips(), true))
-            repaint(true);
+        changed = true;
     }
+    if (changed && profile_scene_layout(&p->scene, application_viewport_dips(), true))
+        repaint(true);
 }
 void application_profile_layout(UiRect viewport) noexcept {
     auto* p = g_app.profile;
@@ -726,12 +845,18 @@ void application_profile_layout(UiRect viewport) noexcept {
     const bool plugins = ui_plugin_slot_surface_active(kUiPluginSlotProfileSection) &&
                          plugin_revision != g_plugin_surface_revision;
     plugin_revision = g_plugin_surface_revision;
-    const u8 relation = application_friends_relation(p->data.user_id);
-    const bool moved = !ui_rect_equal(s.anchor, anchor) || relation != s.relation || plugins ||
+    const bool related = sync_relation(s, p->data.user_id);
+    // Streamer Mode's personal information switch applies at once.
+    const bool streamer = application_streamer_hide_personal() != s.hide_personal;
+    s.hide_personal = application_streamer_hide_personal();
+    const auto* call = application_voice_call();
+    const u64 connected = call ? call->channel_id : 0;
+    const bool moved = !ui_rect_equal(s.anchor, anchor) || related || streamer || plugins ||
+                       s.connected_channel != connected ||
                        s.media_dpi != static_cast<u16>(g_app.renderer.dpi);
+    s.connected_channel = connected;
     s.media_dpi = static_cast<u16>(g_app.renderer.dpi);
     s.anchor = anchor;
-    s.relation = relation;
     profile_scene_layout(&s, viewport, moved);
 }
 bool application_profile_refresh_message() noexcept {
@@ -888,7 +1013,7 @@ bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noex
     }
     if (event == UiButtonPointerEvent::cancel)
         s.bio_pressed = 0;
-    const bool in_edit = s.edit.active && ui_rect_contains(s.edit_rectangle, point.x, point.y);
+    const bool in_edit = profile_scene_over_edit(s, point.x, point.y);
     if (event == UiButtonPointerEvent::cancel)
         p->message_dragging = false;
     if (s.edit.active && ((event == UiButtonPointerEvent::press && in_edit) || p->message_dragging)) {
@@ -955,7 +1080,7 @@ bool application_profile_double_click(UiPoint point) noexcept {
     auto* p = g_app.profile;
     if (!p || !p->scene.active)
         return false;
-    if (p->scene.edit.active && ui_rect_contains(p->scene.edit_rectangle, point.x, point.y)) {
+    if (profile_scene_over_edit(p->scene, point.x, point.y)) {
         application_profile_pointer(UiButtonPointerEvent::press, point);
         auto& model = edit_model(*p);
         message_composer_select_word(&model, model.caret);
@@ -1183,6 +1308,7 @@ bool application_profile_response(const RestClientResponse& response, Utf8View b
     profile_commands_resolve(&p->commands, p->data, p->loaded_at, g_app.account_ui->chat_state.selected_channel_id,
                              g_app.account_ui->active_channel_id);
     p->scene.commands = profile_commands_view(p->commands);
+    sync_games(*p);
     return profile_scene_layout(&p->scene, application_viewport_dips(), true) && repaint(true);
 }
 MessageComposer* application_profile_edit_model() noexcept {
@@ -1192,6 +1318,18 @@ bool application_profile_edit_focused() noexcept {
     auto* p = g_app.profile;
     return p && p->scene.active && p->scene.edit.active && edit_model(*p).focused &&
            (p->scene.note_editing || !p->message_pending);
+}
+bool application_profile_insert_message_text(Utf8View text) noexcept {
+    auto* p = g_app.profile;
+    if (!p || !p->scene.active || !p->scene.edit.active || p->scene.note_editing || p->message_pending)
+        return false;
+    auto& model = p->message;
+    const u32 first = minimum(model.anchor, model.caret), last = maximum(model.anchor, model.caret);
+    if (message_composer_replace_range(&model, first, last, text) != MessageComposerResult::changed)
+        return false;
+    model.focused = true;
+    ui_widget_manager_focus(&p->scene.widgets, p->scene.message_field);
+    return application_profile_refresh_message();
 }
 void application_profile_note_changed() noexcept {
     auto* p = g_app.profile;

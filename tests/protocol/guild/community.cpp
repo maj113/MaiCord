@@ -572,10 +572,12 @@ void test_guild_profile() noexcept {
               utf8_equal({profile.tag, profile.tag_bytes}, utf8_literal("GEAR")) && profile.icon_bytes == 34 &&
               profile.badge_bytes == 32 && !profile.banner_bytes && profile.online_count == 1234 &&
               profile.member_count == 56789 && profile.has_brand_color && profile.brand_color == 0x5865F2 &&
-              profile.features == (guild_profile_tags | guild_profile_discoverable) && profile.trait_count == 2 &&
+              profile.features == (guild_profile_tags | guild_profile_discoverable | guild_profile_community) &&
+              profile.premium_tier == 2 && !profile.premium_subscription_count && profile.trait_count == 2 &&
               utf8_equal({profile.traits[0].label, profile.traits[0].label_bytes}, utf8_literal("First")) &&
               utf8_equal({profile.traits[1].label, profile.traits[1].label_bytes}, utf8_literal("Second")),
-          "guild profile: decode keeps counts, tag, badge, brand colour, known features and traits by position");
+          "guild profile: decode keeps counts, tag, badge, brand colour, boost level, known features and traits by "
+          "position");
     // A large community server's profile as the server returns it (the invite's
     // embedded profile object): DISCOVERABLE with a custom banner, which the
     // card draws from the discovery-splash path, and no brand colour.
@@ -592,6 +594,14 @@ void test_guild_profile() noexcept {
     UiGuildImageMedia banner{};
     const bool community_ok = guild_profile_decode(community, {scratch, 8192}, &profile);
     check(community_ok && (profile.features & guild_profile_discoverable) && !profile.has_brand_color &&
+              profile.features == (guild_profile_partnered | guild_profile_discoverable | guild_profile_community |
+                                   guild_profile_verification_gate) &&
+              profile.premium_subscription_count == 49 && profile.premium_tier == 3 && profile.game_count == 1 &&
+              profile.games[0].id == 500000000000000011ull && profile.games[0].level == 2 &&
+              profile.games[0].score == 50000 && !profile.traits[0].emoji_id && !profile.traits[0].emoji_animated &&
+              utf8_equal({profile.traits[0].emoji_name, profile.traits[0].emoji_name_bytes}, utf8_literal("gear")) &&
+              utf8_equal({profile.traits[1].emoji_name, profile.traits[1].emoji_name_bytes},
+                         utf8_literal("video_game")) &&
               utf8_equal({profile.banner, profile.banner_bytes}, utf8_literal("1234abcd1234abcd1234abcd1234abcd")) &&
               ui_guild_card_banner_media(profile.id, {profile.banner, profile.banner_bytes},
                                          (profile.features & guild_profile_discoverable) != 0, 96, &banner) &&
@@ -601,6 +611,21 @@ void test_guild_profile() noexcept {
               media_asset_key_valid(banner.key) && banner.key.kind == MediaAssetKind::profile_image &&
               media_asset_embed_format(banner.key) == MediaAttachmentFormat::jpeg,
           "guild profile: a discoverable profile's custom banner resolves the discovery-splash JPEG");
+    // Games by activity score, highest first, equal scores in their listed order; a custom trait emoji by ID; an
+    // application server's gate and manual approval.
+    const auto ordered = utf8_literal(
+        R"({"id":"10","name":"Games","game_activity":{"2":{"activity_level":1,"activity_score":10},"3":)"
+        R"({"activity_level":2,"activity_score":50},"1":{"activity_level":1,"activity_score":10}},)"
+        R"("game_application_ids":["1","2","3","4"],"traits":[{"label":"Pepe","position":0,"emoji_id":"777",)"
+        R"("emoji_name":"pepe","emoji_animated":true}],"features":["MEMBER_VERIFICATION_MANUAL_APPROVAL",)"
+        R"("MEMBER_VERIFICATION_GATE_ENABLED"]})");
+    static GuildProfile games{};
+    check(guild_profile_decode(ordered, {scratch, 8192}, &games) && games.game_count == 4 && games.games[0].id == 3 &&
+              games.games[0].level == 2 && games.games[1].id == 1 && games.games[2].id == 2 &&
+              games.games[3].id == 4 && !games.games[3].score && games.traits[0].emoji_id == 777 &&
+              games.traits[0].emoji_animated &&
+              games.features == (guild_profile_manual_approval | guild_profile_verification_gate),
+          "guild profile: games by activity score, a custom trait emoji and the application-to-join features");
     // The card asks for 512 * dpr, capped at the 512 px the CDN JPEG decoder takes
     // (a 16:9 splash is 512x288 at size=512; the decoder refuses 1024x576).
     UiGuildImageMedia scaled_banner{}, private_banner{};
@@ -652,11 +677,15 @@ void test_guild_profile() noexcept {
     const UiRect panel = card.panel;
     const float bx = (card.button.left + card.button.right) * .5f + panel.left,
                 by = (card.button.top + card.button.bottom) * .5f + panel.top;
+    const auto middle = [](const UiRect& r) noexcept { return (r.top + r.bottom) * .5f; };
     valid = valid && card.active && ui_rect_width(panel) == kUiGuildCardWidth && panel.left >= chip.right &&
-            card.name.top >= card.icon.bottom && card.tag_chip.top >= card.name.bottom &&
-            card.online.top >= card.tag_chip.bottom && card.established.top >= card.online.bottom &&
+            card.name.top >= card.icon.bottom && card.tag_chip.left >= card.name.right + 4 &&
+            middle(card.tag_chip) == middle(card.name) && ui_rect_height(card.tag_chip) == 16 &&
+            !ui_rect_has_area(card.server_badge) && card.online.top >= card.name.bottom &&
+            card.established.top >= card.online.bottom &&
             card.description.top >= card.established.bottom && card.traits[0].top >= card.description.bottom &&
-            card.traits[1].left >= card.traits[0].right && card.button.top >= card.traits[0].bottom &&
+            card.traits[1].left >= card.traits[0].right && card.visible_traits == 2 &&
+            !ui_rect_has_area(card.overflow) && card.button.top >= card.traits[0].bottom &&
             card.button.bottom + panel.top <= panel.bottom &&
             utf8_equal({card.online_text, card.online_bytes}, utf8_literal("1,234 Online")) &&
             utf8_equal({card.members_text, card.members_bytes}, utf8_literal("56,789 Members")) &&
@@ -664,7 +693,8 @@ void test_guild_profile() noexcept {
             ui_guild_card_hit(card, bx, by) == UiGuildCardControl::action &&
             ui_guild_card_hit(card, panel.left + 4, panel.top + 4) == UiGuildCardControl::none &&
             ui_guild_card_contains(card, panel.left + 4, panel.top + 4) && !ui_guild_card_contains(card, 10, 10);
-    check(valid, "guild card: name, tag, counts, founding month, description, traits and Join stack in the card");
+    check(valid, "guild card: name with its tag chip on one line, counts, founding month, description, traits and "
+                 "Join stack in the card");
     const u32 revision = card.revision;
     content.action = UiGuildCardAction::none;
     valid = ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr) &&
@@ -692,6 +722,145 @@ void test_guild_profile() noexcept {
               grouped(~0ull, "18,446,744,073,709,551,615"),
           "guild card: no action has no button; private, failed (retry) and loading phases; it flips left; "
           "counts group thousands");
+}
+
+// The tag popout as the official client lays it out: the server badge and tag chip on the name line, at most two
+// lines of trait chips and then "+ N more" (its tooltip names the rest).
+void test_guild_card_tag() noexcept {
+    using B = UiGuildCardBadge;
+    check(ui_guild_card_badge({}) == B::none &&
+              ui_guild_card_badge({false, false, false, false, false, 0, 3}) == B::boost &&
+              ui_guild_card_badge({false, false, false, false, false, 1, 0}) == B::boost &&
+              ui_guild_card_badge({true, true, true, true, false, 3, 9}) == B::verified &&
+              ui_guild_card_badge({false, true, true, true, false, 3, 9}) == B::partnered &&
+              ui_guild_card_badge({false, false, true, false, false, 2, 9}) == B::community &&
+              ui_guild_card_badge({false, false, true, true, false, 0, 0}) == B::discoverable &&
+              ui_guild_card_badge({false, false, false, true, false, 0, 0}) == B::none,
+          "guild card: verified, partnered, then community (public when discoverable), else the boost level");
+    // Two lines of 268 DIPs, 4 apart; the last line keeps room for the overflow chip unless the final trait ends it.
+    const float five[]{113, 113, 113, 113, 113}, four[]{120, 120, 120, 120}, wide[]{120, 120, 120, 120, 120},
+                small[]{50, 50};
+    check(ui_guild_card_visible_traits(five, 5, 70, 268, 2) == 3 &&
+              ui_guild_card_visible_traits(four, 4, 80, 268, 2) == 4 &&
+              ui_guild_card_visible_traits(wide, 5, 80, 268, 2) == 3 &&
+              ui_guild_card_visible_traits(small, 2, 80, 268, 2) == 2 &&
+              ui_guild_card_visible_traits(five, 5, 70, 268, 1) == 1 && !ui_guild_card_visible_traits(five, 0, 70, 268, 2),
+          "guild card: traits fill two lines, reserving the overflow chip's room on the last but not for the final "
+          "trait");
+    static UiGuildCardScene card{};
+    UiGuildCardContent content{};
+    content.guild_id = 1234567890123456789ull;
+    content.phase = UiGuildCardPhase::ready;
+    content.name = utf8_literal("YURI!!!!");
+    content.tag = utf8_literal("YURI");
+    content.server = {false, false, false, false, false, 2, 7};
+    constexpr Utf8View labels[]{utf8_literal("Trait number 1"), utf8_literal("Trait number 2"),
+                                utf8_literal("Trait number 3"), utf8_literal("Trait number 4"),
+                                utf8_literal("Trait number 5")};
+    for (u32 i = 0; i < 5; ++i)
+        content.traits[i] = labels[i];
+    // A folded trait's Unicode emoji leads its tooltip chip.
+    content.trait_emoji[3] = utf8_literal("\xE2\x9A\x99\xEF\xB8\x8F");
+    content.trait_count = 5;
+    content.online_count = 4414;
+    content.member_count = 12518;
+    const UiRect viewport{0, 0, 1280, 800}, chip{400, 300, 460, 320};
+    bool valid = ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr);
+    const auto middle = [](const UiRect& r) noexcept { return (r.top + r.bottom) * .5f; };
+    const auto centre_hint = [&](const UiRect& r, UiGuildCardHint* found) noexcept {
+        UiGuildCardHint ignored{};
+        return ui_guild_card_hint(card, card.panel.left + (r.left + r.right) * .5f,
+                                  card.panel.top + (r.top + r.bottom) * .5f, found ? found : &ignored);
+    };
+    UiGuildCardHint traits{}, badge{};
+    valid = valid && card.server_badge_kind == B::boost && card.boost_tier == 2 && card.boosted &&
+            card.server_badge.left == card.name.right + 4 && ui_rect_width(card.server_badge) == 18 &&
+            card.tag_chip.left == card.server_badge.right + 4 && middle(card.server_badge) == middle(card.name) &&
+            middle(card.tag_chip) == middle(card.name) && ui_rect_width(card.tag_badge) == 14 &&
+            card.online.top == card.name.bottom && card.visible_traits == 3 &&
+            card.traits[1].top == card.traits[0].top && card.traits[2].top == card.traits[0].bottom + 4 &&
+            card.traits[2].left == kUiGuildCardPadding && card.overflow.top == card.traits[2].top &&
+            card.overflow.left == card.traits[2].right + 4 && ui_rect_height(card.overflow) == 28 &&
+            utf8_equal({card.overflow_text, card.overflow_bytes}, utf8_literal("+ 2 more")) &&
+            centre_hint(card.overflow, &traits) && traits.kind == UiGuildCardHintKind::traits &&
+            utf8_equal(traits.text, utf8_literal("\xE2\x9A\x99\xEF\xB8\x8F Trait number 4\nTrait number 5")) &&
+            centre_hint(card.server_badge, &badge) && badge.kind == UiGuildCardHintKind::server_badge &&
+            utf8_equal(badge.text, utf8_literal("Level 2\n7 Boosts")) &&
+            !centre_hint(card.traits[0], nullptr);
+    check(valid, "guild card: the boost badge (Level 2, 7 Boosts) and YURI chip follow the name; three traits, then "
+                 "+ 2 more whose tooltip lists the rest as chips");
+    // Every trait shown leaves no overflow chip or tooltip.
+    content.trait_count = 2;
+    valid = ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr) &&
+            card.visible_traits == 2 && !card.overflow_bytes && !ui_rect_has_area(card.overflow) &&
+            !centre_hint(card.traits[1], nullptr);
+    content.server = {};
+    valid = valid && ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr) &&
+            !ui_rect_has_area(card.server_badge) && card.tag_chip.left == card.name.right + 4;
+    check(valid, "guild card: no overflow when every trait fits; no badge without boosts or a server kind");
+    // A verified, partnered public server's badge names both, who can join and its boosts; an invite-only community
+    // server and an application server say so.
+    content.server = {true, true, true, true, false, 3, 1249};
+    valid = ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr) &&
+            centre_hint(card.server_badge, &badge) &&
+            utf8_equal(badge.text, utf8_literal("Community Server\nVerified & Partnered\nAnyone can join this server.\n"
+                                                "Level 3 \xC2\xB7 1,249 Boosts"));
+    content.server = {false, false, true, false, false, 0, 0};
+    valid = valid && ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr) &&
+            centre_hint(card.server_badge, &badge) &&
+            utf8_equal(badge.text, utf8_literal("Community Server\nPeople with an invite link can join."));
+    content.server = {false, true, true, false, true, 0, 1};
+    valid = valid && ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr) &&
+            centre_hint(card.server_badge, &badge) &&
+            utf8_equal(badge.text, utf8_literal("Community Server\nDiscord Partner\nPeople must submit an application "
+                                                "to join.\nNo Level \xC2\xB7 1 Boost"));
+    check(valid, "guild card: the server badge's tooltip names the kind, who can join and the boosts");
+    // A trait's emoji takes 16 DIPs and 4 before its label; a custom one is the host's media.
+    content.server = {};
+    content.trait_count = 2;
+    content.trait_emoji[0] = utf8_literal("\xF0\x9F\x8E\xAE");
+    content.trait_emoji_media[1] = media_asset_custom_emoji(777, false);
+    valid = ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr);
+    UiGuildCardMedia emoji{};
+    const UiRect second = card.traits[1];
+    valid = valid && ui_rect_width(card.traits[0]) == 105 + 20 + 18 && ui_rect_width(second) == 105 + 20 + 18 &&
+            card.trait_emoji_bytes[0] == 4 && !media_asset_key_valid(card.trait_emoji_keys[0]) &&
+            ui_guild_card_media(card, kUiGuildCardTraitEmojiMedia + 1, &emoji) &&
+            emoji.key.id == 777 && emoji.rectangle.left == card.panel.left + second.left + 9 &&
+            ui_rect_width(emoji.rectangle) == 16 && !ui_guild_card_media(card, kUiGuildCardTraitEmojiMedia, &emoji);
+    check(valid, "guild card: trait emoji lead their labels, Unicode as text, custom as media");
+    // Games: five 26 DIP icons 4 apart, then the sixth's picture dimmed under "+2" whose tooltip names the rest;
+    // each icon's tooltip names its game; a lone game is named beside its icon.
+    content.trait_count = 0;
+    content.game_count = 7;
+    constexpr Utf8View names[]{utf8_literal("One"), utf8_literal("Two"), utf8_literal("Three"),
+                               utf8_literal("Four"), utf8_literal("Five")};
+    for (u32 i = 0; i < kUiGuildCardGames; ++i) {
+        content.games[i] = media_asset_custom_emoji(100 + i, false);
+        content.game_names[i] = names[i];
+    }
+    content.games_more_icons[0] = media_asset_custom_emoji(105, false);
+    content.games_more_icons[1] = media_asset_custom_emoji(106, false);
+    content.games_more_names = utf8_literal("Six\nSeven");
+    valid = ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr);
+    UiGuildCardHint game{}, more{};
+    UiGuildCardMedia dimmed{}, picture{};
+    valid = valid && card.shown_games == 5 && ui_rect_width(card.games[0]) == 26 &&
+            card.games[1].left == card.games[0].right + 4 && card.games_more.left == card.games[4].right + 4 &&
+            utf8_equal({card.games_more_text, card.games_more_bytes}, utf8_literal("+2")) &&
+            centre_hint(card.games[2], &game) && game.kind == UiGuildCardHintKind::game && game.index == 2 &&
+            utf8_equal(game.text, utf8_literal("Three")) && centre_hint(card.games_more, &more) &&
+            more.kind == UiGuildCardHintKind::games && utf8_equal(more.text, utf8_literal("Six\nSeven")) &&
+            more.media.count == kUiGuildCardGamesMore && more.media[1].id == 106 &&
+            ui_guild_card_media(card, kUiGuildCardGameMedia, &picture) && ui_rect_width(picture.rectangle) == 24 &&
+            ui_guild_card_media(card, kUiGuildCardGamesMoreMedia, &dimmed) && dimmed.key.id == 105 &&
+            dimmed.opacity < .3f && !ui_rect_has_area(card.game_name);
+    content.game_count = 1;
+    valid = valid && ui_guild_card_show(&card, content.guild_id, content, chip, viewport, 1000, true, nullptr) &&
+            ui_rect_has_area(card.game_name) && card.game_name.left == card.games[0].right + 8 &&
+            !ui_rect_has_area(card.games_more) && !centre_hint(card.games[0], nullptr);
+    ui_guild_card_close(&card);
+    check(valid, "guild card: games row icons, +N over the sixth with the rest as its tooltip, a lone game's name");
 }
 
 void test_links() noexcept {
@@ -1069,6 +1238,7 @@ void run() noexcept {
     test_create();
     test_links();
     test_guild_profile();
+    test_guild_card_tag();
     test_gateway();
     test_navigation();
     test_navigation_rows();

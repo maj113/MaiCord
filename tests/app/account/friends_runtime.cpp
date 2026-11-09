@@ -43,11 +43,11 @@ struct AccountFixture { RestClient rest; } account{};
 UiWidget popup_widgets[32]{};UiLayoutNode popup_nodes[32]{};u8 modal_token{};
 struct Observations {
     u32 failures, submissions, builds, form_opens, input_layouts, input_syncs;
-    u64 request_id, user_id, profile_user, dm_user;
+    u64 request_id, user_id, profile_user, dm_user, call_channel, request_channel;
     RelationshipOperation operation;
     RestMethod method;
     RestClientSubmitError admission;
-    bool settings, fail_build;
+    bool settings, fail_build, requests_mode;
     char body[256]; u32 body_bytes;
     char target[128];u32 target_bytes;
     char clipboard[kFriendsSearchBytes];u32 clipboard_bytes;
@@ -100,12 +100,14 @@ bool remove_relationship(Utf8View json, u64 sequence, bool synchronize = true) n
 }
 bool action(UiFriendsAction operation, u64 user = 0, UiFriendsTab tab = UiFriendsTab::all,UiFriendsSectionKind section=UiFriendsSectionKind::incoming) noexcept {
     auto* current = scene();
-    if(application_friends_search_focused()){
+    // Tab leaves the fields (Add Friend's username, then its note).
+    for(u32 field=0;field<3&&application_friends_search_focused();++field){
         synthetic_input(UiInputKind::key_down,key::tab,false);
         synthetic_input(UiInputKind::key_up,key::tab,false);
     }
     if(operation==UiFriendsAction::profile||operation==UiFriendsAction::remove||operation==UiFriendsAction::block||
-        operation==UiFriendsAction::ignore||operation==UiFriendsAction::unignore){
+        operation==UiFriendsAction::ignore||operation==UiFriendsAction::unignore||operation==UiFriendsAction::nickname||
+        operation==UiFriendsAction::voice_call){
         if(!current||!action(UiFriendsAction::more,user,tab)||!g_app.popup_scene.active||g_app.popup_scene.owner_id!=user)return false;
         return application_friends_popup_action(0xF100u+static_cast<u32>(operation));
     }
@@ -272,12 +274,13 @@ void search_runtime_fixture() noexcept {
         action(UiFriendsAction::search,0,UiFriendsTab::online)&&replace_query(utf8_literal("needle.user"))&&only_row(101),
         "friends search: Online has an independent lazy borrowed query document");
     check(tab(UiFriendsTab::pending)&&action(UiFriendsAction::search,0,UiFriendsTab::pending)&&
-        replace_query(utf8_literal("pending"))&&only_row(103)&&tab(UiFriendsTab::blocked)&&
-        action(UiFriendsAction::search,0,UiFriendsTab::blocked)&&replace_query(utf8_literal("block.account"))&&only_row(104)&&
+        replace_query(utf8_literal("pending"))&&only_row(103)&&
         tab(UiFriendsTab::all)&&utf8_equal(message_composer_text(*application_friends_search_model()),utf8_literal("needle"))&&
         scene()->source_count==2&&tab(UiFriendsTab::online)&&utf8_equal(message_composer_text(*application_friends_search_model()),utf8_literal("needle.user"))&&
-        tab(UiFriendsTab::add_friend)&&!application_friends_search_model()&&!text_input_ready(application_friends_search_target()),
-        "friends search: four tabs retain separate queries and Add friend exposes no search document");
+        tab(UiFriendsTab::add_friend)&&application_friends_search_model()&&application_friends_search_model()!=all&&
+        application_friends_search_focused()&&text_input_ready(application_friends_search_target())&&
+        !application_friends_search_model()->bytes,
+        "friends search: three list tabs retain separate queries and Add Friend focuses its own username document");
     check(tab(UiFriendsTab::all)&&action(UiFriendsAction::search),"friends search: returns to retained All query");
     const auto visible_target=application_friends_search_target();
     check(action(UiFriendsAction::more,101)&&g_app.popup_scene.active&&g_app.popup_owner_kind==PopupOwnerKind::friends&&
@@ -334,7 +337,7 @@ void search_runtime_fixture() noexcept {
     const auto costs=message_composer_history_costs(*all);
     check(costs.payload_bytes==2048&&costs.used_bytes<=costs.payload_bytes&&costs.group_bytes<=kFriendsSearchBytes,
         "friends search: history payload stays bounded independently of borrowed text storage");
-    constexpr UiFriendsTab query_tabs[]={UiFriendsTab::online,UiFriendsTab::pending,UiFriendsTab::blocked};
+    constexpr UiFriendsTab query_tabs[]={UiFriendsTab::online,UiFriendsTab::pending};
     for(const auto value:query_tabs){
         check(tab(value)&&action(UiFriendsAction::search,0,value)&&replace_query({}),"friends search: fixture clears retained tab query");
     }
@@ -363,10 +366,13 @@ void confirmation_runtime_fixture() noexcept {
         "friends confirmation: server-requested approval sends consent only after native Save");
     submitted=seen.submissions;opened=seen.form_opens;
     check(action(UiFriendsAction::more,70)&&g_app.popup_owner_kind==PopupOwnerKind::friends&&g_app.popup_scene.owner_id==70&&
-        g_app.popup_scene.item_count==4&&g_app.popup_scene.items[1].action==0xF100u+static_cast<u32>(UiFriendsAction::remove)&&
-        g_app.popup_scene.items[3].action==0xF100u+static_cast<u32>(UiFriendsAction::ignore)&&
-        (g_app.popup_scene.items[1].flags&popup_item_danger)&&seen.submissions==submitted&&seen.form_opens==opened,
-        "friends confirmation: production More popup owns identity and exposes destructive actions without mutating");
+        g_app.popup_scene.item_count==6&&g_app.popup_scene.items[1].action==0xF100u+static_cast<u32>(UiFriendsAction::voice_call)&&
+        g_app.popup_scene.items[2].action==0xF100u+static_cast<u32>(UiFriendsAction::nickname)&&
+        utf8_equal(g_app.popup_scene.items[2].label,utf8_literal("Add Friend Nickname"))&&
+        g_app.popup_scene.items[3].action==0xF100u+static_cast<u32>(UiFriendsAction::remove)&&
+        g_app.popup_scene.items[5].action==0xF100u+static_cast<u32>(UiFriendsAction::ignore)&&
+        (g_app.popup_scene.items[3].flags&popup_item_danger)&&seen.submissions==submitted&&seen.form_opens==opened,
+        "friends confirmation: production More popup owns identity and exposes call, nickname and destructive actions without mutating");
     check(remove_relationship(utf8_literal(R"({"id":"70"})"),201,false)&&
         application_friends_popup_action(0xF100u+static_cast<u32>(UiFriendsAction::remove))&&!g_app.popup_scene.active&&
         g_app.popup_owner_kind==PopupOwnerKind::none&&seen.form_opens==opened&&seen.submissions==submitted&&application_friends_synchronize(),
@@ -382,8 +388,6 @@ void confirmation_runtime_fixture() noexcept {
     g_app.account.status.profile_id=profile;
     check(snapshot(utf8_literal(R"([{"id":"70","type":2}])"),203)&&application_friends_synchronize()&&
         !block.valid(block.owner)&&!block.save(block.owner,{}),"friends confirmation: changed relationship type rejects retained approval");cancel_form();
-    check(tab(UiFriendsTab::blocked)&&action(UiFriendsAction::profile,70,UiFriendsTab::blocked),
-        "friends confirmation: blocked More retains legal Profile without inline secondary widget");
     check(snapshot(utf8_literal(R"([{"id":"90","type":3,"is_stranger_request":true,"user":{"id":"90","username":"removed"}}])"),204)&&
         application_friends_synchronize()&&tab(UiFriendsTab::pending)&&action(UiFriendsAction::accept,90,UiFriendsTab::pending),
         "friends confirmation: stale-ID fixture opens stranger confirmation");
@@ -567,6 +571,39 @@ void stale_bulk_retry_runtime_fixture() noexcept {
         response(354,200,utf8_literal("[]"))&&tab(UiFriendsTab::all),
         "friends bulk retry: stale rate-limited bulk intent submits no repeated DELETE and explicit recovery uses GET");
 }
+void nickname_and_call_runtime_fixture() noexcept {
+    check(snapshot(utf8_literal(R"([{"id":"120","type":1,"user":{"id":"120","username":"nick.friend","global_name":"Nick Friend"}}])"),900)&&
+        application_friends_synchronize()&&tab(UiFriendsTab::all),"friends nickname: fixture publishes one friend");
+    const auto forms=seen.form_opens, submissions=seen.submissions;
+    check(action(UiFriendsAction::nickname,120)&&seen.form_opens==forms+1&&!seen.form.confirmation_only&&
+        utf8_equal(seen.form.title,utf8_literal("Add Friend Nickname"))&&!seen.form.initial.bytes&&
+        seen.form.maximum_codepoints==32&&seen.form.valid(seen.form.owner)&&seen.submissions==submissions,
+        "friends nickname: More opens the nickname editor without a request");
+    check(save_form(utf8_literal("  Bestie  "))&&application_friends_submit(900,9000)&&
+        seen.operation==RelationshipOperation::nickname&&seen.method==RestMethod::patch&&
+        utf8_equal({seen.target,seen.target_bytes},utf8_literal("/api/v9/users/@me/relationships/120"))&&
+        utf8_equal({seen.body,seen.body_bytes},utf8_literal("{\"nickname\":\"Bestie\"}"))&&response(900,204),
+        "friends nickname: Save PATCHes the trimmed nickname");
+    UiFriendsRow updated{};
+    check(row(120,&updated)&&utf8_equal(updated.display_name,utf8_literal("Bestie")),
+        "friends nickname: the friend row shows the saved nickname at once");
+    check(action(UiFriendsAction::nickname,120)&&utf8_equal(seen.form.title,utf8_literal("Change Friend Nickname"))&&
+        utf8_equal(seen.form.initial,utf8_literal("Bestie"))&&save_form({})&&application_friends_submit(901,9100)&&
+        utf8_equal({seen.body,seen.body_bytes},utf8_literal("{\"nickname\":null}"))&&response(901,204)&&
+        row(120,&updated)&&utf8_equal(updated.display_name,utf8_literal("Nick Friend")),
+        "friends nickname: an empty nickname clears it back to the friend's name");
+    const auto stale=seen.form;
+    check(action(UiFriendsAction::nickname,120)&&remove_relationship(utf8_literal(R"({"id":"120"})"),901,false)&&
+        !seen.form.valid(seen.form.owner)&&!stale.valid(stale.owner),
+        "friends nickname: removing the friend invalidates an open nickname editor");
+    cancel_form();
+    check(snapshot(utf8_literal(R"([{"id":"121","type":1,"user":{"id":"121","username":"caller"}}])"),902)&&
+        application_friends_synchronize()&&tab(UiFriendsTab::all),"friends call: fixture publishes one friend");
+    seen.call_channel=0;
+    check(action(UiFriendsAction::voice_call,121)&&seen.dm_user==121&&!application_friends_active()&&
+        application_friends_synchronize()&&!seen.call_channel&&application_friends_show(),
+        "friends call: Start Voice Call opens the DM and never rings a conversation that is not theirs");
+}
 void bounded_performance_fixture() noexcept {
     constexpr u32 records = 4096;
     constexpr u64 first_id = 10000, sequence = 1000;
@@ -732,39 +769,73 @@ void run() noexcept {
         seen.form.valid&&seen.form.valid(seen.form.owner)&&!application_friends_pending(1600)&&seen.submissions==before_block_submissions&&
         save_form()&&application_friends_submit(4,1600),
         "friends: More Block opens native confirmation and only explicit approval submits");
+    const auto blocked = [](u64 id) noexcept {
+        const auto* store = application_friends_relationships();
+        const auto* record = store ? relationship_store_find(*store, id) : nullptr;
+        return record && record->type == RelationshipType::blocked;
+    };
     check(snapshot(utf8_literal(R"([{"id":"10","type":1},{"id":"20","type":2}])"), 3) &&
-        application_friends_synchronize() && response(4, 204) && tab(UiFriendsTab::blocked) &&
-        row(20, &before) && before.kind == UiFriendsKind::blocked,
-        "friends: newer Gateway membership epoch survives late successful mutation completion");
-    check(action(UiFriendsAction::unblock, 20, UiFriendsTab::blocked) && application_friends_submit(5, 1700) &&
+        application_friends_synchronize() && response(4, 204) && tab(UiFriendsTab::all) && blocked(20) &&
+        !row(20, &before) && scene()->source_count == 1,
+        "friends: newer Gateway membership epoch survives late successful mutation completion; blocked users list no tab");
+    check(application_friends_user_action(20, ApplicationFriendsUserAction::unblock) && application_friends_submit(5, 1700) &&
         response(5, 429, {}, 1800, {0, false, true}) &&
         !application_friends_pending(100000) && !application_friends_next_wake() && scene()->phase == UiFriendsPhase::error,
         "friends: CAPTCHA rejection becomes explicit error without automatic rate-limit retry");
-    check(action(UiFriendsAction::retry, 0, UiFriendsTab::blocked) && application_friends_submit(6, 1800) &&
+    check(action(UiFriendsAction::retry, 0, UiFriendsTab::all) && application_friends_submit(6, 1800) &&
         response(6, 429, {}, 1900, {40002, true, false}) && !application_friends_pending(100000) &&
         !application_friends_next_wake(),
         "friends: account verification code alone also suppresses automatic 429 retry");
-    check(action(UiFriendsAction::retry, 0, UiFriendsTab::blocked) && application_friends_submit(60, 1900) &&
-        response(60, 204) && tab(UiFriendsTab::all) && scene()->source_count == 1,
+    check(action(UiFriendsAction::retry, 0, UiFriendsTab::all) && application_friends_submit(60, 1900) &&
+        response(60, 204) && !blocked(20) && scene()->source_count == 1,
         "friends: explicit Retry resubmits preserved operation and successful removal updates authoritative rows");
     check(action(UiFriendsAction::profile, 10) && seen.profile_user == 10 &&
         action(UiFriendsAction::open_dm, 10) && seen.dm_user == 10 && !application_friends_active() && !scene() &&
         application_friends_show() && !application_friends_pending(2000),
         "friends: profile and DM semantic actions route correct identity, hide chat surface and reopen without GET");
+    UiFriendsTarget send_checked{};
+    const UiFriendsTarget send{UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend};
     const auto before_add_forms=seen.form_opens;
-    check(tab(UiFriendsTab::add_friend) && action(UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend) && seen.form_opens == before_add_forms+1 &&
-        seen.form.valid && seen.form.save && seen.form.valid(seen.form.owner),
-        "friends: Add friend opens bounded owner-validated text form seam");
-    char username[] = "friend.name";
-    check(save_form({username, sizeof(username) - 1}),
-        "friends: validated text form queues copied username");
-    for (u32 i = 0; i < sizeof(username) - 1; ++i) username[i] = 'x';
+    check(tab(UiFriendsTab::add_friend) && application_friends_search_focused() && application_friends_search_model() &&
+        scene()->content->search.active && !ui_friends_scene_activation(*scene(), send, &send_checked) &&
+        seen.form_opens == before_add_forms,
+        "friends: Add Friend opens on its own username field; Send waits for a name and no dialog opens");
+    const auto add_submissions = seen.submissions;
+    check(replace_query(utf8_literal("bad name!")) && synthetic_input(UiInputKind::key_down, key::enter, false) &&
+        !application_friends_pending(2000) && seen.submissions == add_submissions &&
+        utf8_equal(scene()->status, utf8_literal("Hm, didn't work. Double check that the username is correct.")) &&
+        scene()->content->tone == UiFriendsTone::danger && scene()->phase == UiFriendsPhase::ready,
+        "friends: Enter on a malformed username reports under the field without a request");
+    auto* add_field = application_friends_search_model();
+    check(add_field && synthetic_input(UiInputKind::key_down, 'A', false, synthetic_control) && add_field->anchor == 0 &&
+        add_field->caret == add_field->bytes && add_field->bytes == 9 &&
+        synthetic_input(UiInputKind::key_down, key::backspace, false) && !add_field->bytes,
+        "friends: Ctrl+A selects the whole Add Friend field and Backspace then clears it");
+    check(replace_query(utf8_literal("friend.name")) && !scene()->status.bytes &&
+        scene()->content->tone == UiFriendsTone::neutral && action(UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend),
+        "friends: typing clears the result and Send Friend Request queues the field's username");
     check(application_friends_submit(7, 2000) && seen.operation == RelationshipOperation::request &&
         utf8_equal({seen.body, seen.body_bytes}, utf8_literal("{\"username\":\"friend.name\",\"discriminator\":null}")) && response(7, 400) &&
-        !application_friends_pending(100000), "friends: username is copied through controller/helper and rejection never invents outgoing row");
-    check(action(UiFriendsAction::retry, 0, UiFriendsTab::add_friend) && application_friends_submit(8, 2100) &&
-        utf8_equal({seen.body, seen.body_bytes}, utf8_literal("{\"username\":\"friend.name\",\"discriminator\":null}")) && response(8, 204),
-        "friends: explicit username Retry preserves payload when request and retry storage alias");
+        !application_friends_pending(100000) && scene()->phase == UiFriendsPhase::ready &&
+        utf8_equal(scene()->status, utf8_literal("Hm, didn't work. Double check that the username is correct.")) &&
+        scene()->content->tone == UiFriendsTone::danger &&
+        utf8_equal(message_composer_text(*application_friends_search_model()), utf8_literal("friend.name")),
+        "friends: a rejected request reports under the field, keeps the name and never invents an outgoing row");
+    check(action(UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend) && application_friends_submit(8, 2100) &&
+        response(8, 400, {}, 0, {80000, false, false}) &&
+        utf8_equal(scene()->status, utf8_literal("friend.name is not accepting friend requests. They\xE2\x80\x99ll have to add you to become friends.")),
+        "friends: a closed account names the user it could not reach");
+    check(action(UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend) && application_friends_submit(80, 2150) &&
+        response(80, 400, {}, 0, {80007, false, false}) &&
+        utf8_equal(scene()->status, utf8_literal("You're already friends with that user!")),
+        "friends: an existing friendship is reported as Discord words it");
+    check(action(UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend) && application_friends_submit(81, 2200) &&
+        utf8_equal({seen.body, seen.body_bytes}, utf8_literal("{\"username\":\"friend.name\",\"discriminator\":null}")) && response(81, 204) &&
+        utf8_equal(scene()->status, utf8_literal("Success! Your friend request to friend.name was sent.")) &&
+        scene()->content->tone == UiFriendsTone::positive && !application_friends_search_model()->bytes,
+        "friends: a sent request reports success and empties the field for the next name");
+    check(tab(UiFriendsTab::all) && !scene()->status.bytes && scene()->content->tone == UiFriendsTone::neutral,
+        "friends: leaving Add Friend drops its finished result");
     check(tab(UiFriendsTab::all) && recovery_error(4) && scene()->source_count == 1 &&
         action(UiFriendsAction::retry) && application_friends_submit(9, 2200) && seen.operation == RelationshipOperation::list,
         "friends: incomplete Gateway snapshot preserves current model and explicit recovery Retry queues GET");
@@ -806,9 +877,9 @@ void run() noexcept {
     const bool copied_snapshot = snapshot(utf8_literal(R"([{"id":"50","type":1,"user":{"id":"50","username":"elliot"}}])"), 10);
     const bool copied_sync = copied_snapshot && application_friends_synchronize();
     const bool copied_tab = copied_sync && tab(UiFriendsTab::add_friend);
-    const bool copied_action = copied_tab && action(UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend);
-    const bool copied_save = copied_action && save_form(utf8_literal("pending.friend"));
-    const bool copied_submit = copied_save && application_friends_submit(15, 2800);
+    const bool copied_typed = copied_tab && replace_query(utf8_literal("pending.friend"));
+    const bool copied_action = copied_typed && action(UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend);
+    const bool copied_submit = copied_action && application_friends_submit(15, 2800);
     const bool copied_operation = copied_submit && seen.operation == RelationshipOperation::request;
     check(copied_operation,
         "friends: copied username mutation is accepted before incomplete live-state marker");
@@ -835,7 +906,7 @@ void run() noexcept {
     check(application_friends_synchronize() && !scene()->source_count,
         "friends: repaint rebinds fresh empty projection after live row invalidation");
     search_runtime_fixture();confirmation_runtime_fixture();pending_sections_runtime_fixture();ignore_and_decline_runtime_fixture();
-    stale_classification_runtime_fixture();stale_bulk_retry_runtime_fixture();
+    stale_classification_runtime_fixture();stale_bulk_retry_runtime_fixture();nickname_and_call_runtime_fixture();
     bounded_performance_fixture();
     void* owner = g_app.friends;
     const auto* requests_bank_address=application_friends_storage_metrics().requests_indices.address;
@@ -923,6 +994,22 @@ bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<Pop
 bool queue_private_conversation(PrivateConversationOperation operation, u64 user) noexcept {
     if (operation != PrivateConversationOperation::open) return false;
     friends_runtime_test::seen.dm_user = user;return true;
+}
+bool application_private_channel_call(u64 channel) noexcept {
+    friends_runtime_test::seen.call_channel = channel;return true;
+}
+bool application_private_channel_request_busy(u64) noexcept { return false; }
+bool application_private_channel_accept_request(u64 channel) noexcept {
+    friends_runtime_test::seen.request_channel = channel;return true;
+}
+bool application_private_channel_ignore_request(u64 channel) noexcept {
+    friends_runtime_test::seen.request_channel = ~channel;return true;
+}
+void application_private_channel_set_requests_mode(bool requests) noexcept {
+    friends_runtime_test::seen.requests_mode = requests;
+}
+bool application_motion_hover_tick(UiMotionHover* hover, u64 id, u64 now, const UiMotionStyle& style) noexcept {
+    return ui_motion_hover_tick(hover, id, now, style, true);
 }
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept {
     ++friends_runtime_test::seen.form_opens;friends_runtime_test::seen.form = request;

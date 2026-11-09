@@ -58,20 +58,25 @@ float ui_settings_button_width(const UiSettingsLayoutTokens& tokens, UiSettingsB
 bool ui_settings_button_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& rect,
                               UiSettingsButtonVariant variant, UiControlState state) noexcept {
     const auto& c = tokens.color;
+    // The plate eases between its rest and hover fills (ui_control_hover); a press shows at once. Settled states
+    // keep their exact token colours.
+    const float hover = ui_control_hover(state);
+    const auto eased = [hover](const Color& rest, const Color& hovered) noexcept {
+        return hover <= 0 ? rest : hover >= 1 ? hovered : ui_settings_color_mix(rest, hovered, hover);
+    };
     Color fill{}, border{};
     switch (variant) {
     case UiSettingsButtonVariant::primary:
-        fill = state.pressed ? c.brand_active : state.hovered ? c.brand_hover : c.brand;
+        fill = state.pressed ? c.brand_active : eased(c.brand, c.brand_hover);
         border = c.button_border;
         break;
     case UiSettingsButtonVariant::critical:
         fill = state.pressed ? ui_settings_color_mix(c.critical_hover, {0, 0, 0, 1}, .1f)
-               : state.hovered ? c.critical_hover
-                               : c.critical;
+                             : eased(c.critical, c.critical_hover);
         border = c.button_border;
         break;
     default:
-        fill = state.pressed ? c.mod_strong : state.hovered ? c.mod_normal : c.mod_subtle;
+        fill = state.pressed ? c.mod_strong : eased(c.mod_subtle, c.mod_normal);
         border = ui_settings_color_alpha(c.border_subtle, .33f);
         break;
     }
@@ -109,7 +114,8 @@ Color ui_settings_button_text(const UiSettingsTokens& tokens, UiSettingsButtonVa
     const auto& c = tokens.color;
     const Color color = variant == UiSettingsButtonVariant::primary || variant == UiSettingsButtonVariant::critical
                             ? c.on_brand
-                            : c.text_strong;
+                        : variant == UiSettingsButtonVariant::critical_secondary ? c.critical_text
+                                                                                 : c.text_strong;
     return ui_settings_color_alpha(color, state.enabled ? 1.f : tokens.disabled_alpha);
 }
 

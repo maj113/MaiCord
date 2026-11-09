@@ -21,9 +21,12 @@
 #include "../../account/account_ui_runtime.hpp"
 
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/desktop/screen_color.hpp"
 
 namespace maicord::app_detail {
 namespace {
+// The desktop could not pick a colour from the screen once: the eyedropper stays hidden for the session.
+bool g_eyedropper_unavailable;
 struct LoginFormMeasureStorage {
     UiTextMeasureCache cache;
     UiTextMeasureRecord records[kTextFormElements * kUiTextMeasureCacheWays];
@@ -46,6 +49,7 @@ bool user_dismissible(const ApplicationTextForm& form) noexcept {
 }
 void end_capture(ApplicationTextForm* form) noexcept {
     form->dragging = false;
+    form->color_drag = TextFormElement::count;
     form->pointer_button = ui_widget_invalid_handle();
     ui_widget_manager_capture(&form->scene.widgets, ui_widget_invalid_handle());
     application_release_capture();
@@ -137,24 +141,35 @@ bool project(ApplicationTextForm* form) noexcept {
         content.single_action = request.single_action;
         return text_form_update(&form->scene, content, application_viewport_dips(), form->measure);
     }
-    // Only ordinary fields may lend their stable model bytes to presentation.
+    // Only ordinary fields may lend their stable model bytes to presentation; a secret field shows its bullets.
     // The scene/renderer are detached before this model is released.
-    if (form->edit.password || form->edit.storage.bytes > form->edit.storage.capacity ||
+    if (form->edit.password != request.secret || form->edit.storage.bytes > form->edit.storage.capacity ||
         form->edit.storage.capacity > kApplicationTextFormBytes)
         return false;
-    const auto text = secure_edit_view(form->edit);
+    Utf8View shown{};
     SecureEditUtf16Selection selection{};
-    if (text.count != form->edit.storage.bytes || (!text.data && text.count) ||
-        secure_edit_utf16_selection(form->edit, &selection) != SecureEditResult::unchanged)
-        return false;
-    secure_text_store_composition(form->store, &form->composition);
+    if (request.secret) {
+        SecureEditRenderWindow window{};
+        if (secure_edit_render_window(form->edit, kApplicationTextFormSecretCodepoints, {form->mask, sizeof(form->mask)},
+                                      &shown.bytes, &window) != SecureEditResult::unchanged)
+            return false;
+        shown.data = form->mask;
+        selection = {window.anchor, window.caret};
+    } else {
+        const auto text = secure_edit_view(form->edit);
+        if (text.count != form->edit.storage.bytes || (!text.data && text.count) ||
+            secure_edit_utf16_selection(form->edit, &selection) != SecureEditResult::unchanged)
+            return false;
+        shown = {reinterpret_cast<const char*>(text.data), text.count};
+        secure_text_store_composition(form->store, &form->composition);
+    }
     TextFormContent content{request.title,
                              request.context,
                              request.label,
                              form->status,
                              utf8_literal("Cancel"),
                              form->progress_accept.bytes ? form->progress_accept : request.accept,
-                             {reinterpret_cast<const char*>(text.data), text.count},
+                             shown,
                              form->editable ? selection.anchor : selection.caret,
                              selection.caret,
                              form->can_accept,
@@ -180,6 +195,13 @@ bool project(ApplicationTextForm* form) noexcept {
     content.error = form->error;
     content.swatch = request.swatch;
     content.swatch_rgba = form->swatch_rgba;
+    content.picker = request.picker;
+    content.qr = request.qr;
+    if (request.picker) {
+        content.color = form->color;
+        content.color.eyedropper = !g_eyedropper_unavailable;
+        content.color.picking = form->color_picking;
+    }
     return text_form_update(&form->scene, content, application_viewport_dips(), form->measure);
 }
 // Runs the request's check on the current text, remembering it while the
@@ -193,6 +215,13 @@ bool check_text(ApplicationTextForm* form) noexcept {
     if (!form->request.check(form->request.owner, text, &rgba))
         return false;
     form->swatch_rgba = rgba;
+    if (form->request.picker) {
+        // Typed text moves the square and the hue bar; the picker's own writes keep the hue it set.
+        if (!form->color_writing)
+            form->color.hsv = color_picker_hsv(rgba >> 8, form->color.hsv);
+        if (form->request.color_changed && form->request.valid(form->request.owner))
+            form->request.color_changed(form->request.owner, rgba >> 8);
+    }
     if (text.bytes <= sizeof(form->accepted)) {
         copy_bytes(form->accepted, text.data, text.bytes);
         form->accepted_bytes = static_cast<u8>(text.bytes);
@@ -212,6 +241,65 @@ bool refresh(ApplicationTextForm* form) noexcept {
     form->refreshing = false;
     application_request_frame();
     return result;
+}
+// A colour picker's own change (square, hue bar, keys, a swatch, the eyedropper): the field shows the colour as
+// #RRGGBB and the check previews it, keeping the hue the picker set.
+void set_color(ApplicationTextForm* form, ColorPickerHsv hsv) noexcept {
+    form->color.hsv = hsv;
+    char hex[8];
+    const u32 bytes = color_hex_format(color_picker_rgb(hsv) << 8 | 0xFF, false, {hex, sizeof(hex)});
+    form->color_writing = true;
+    secure_edit_assign(&form->edit, {hex, bytes});
+    reset_value(&form->status);
+    form->error = false;
+    check_text(form);
+    form->color_writing = false;
+    refresh(form);
+}
+void pick_settled(void*) noexcept {
+    application_request_frame();
+}
+void end_pick(ApplicationTextForm* form) noexcept {
+    screen_color_pick_end();
+    form->color_picking = false;
+    reset_value(&form->status);
+}
+// The eyedropper: starts a pick, or ends the one under way.
+void toggle_pick(ApplicationTextForm* form) noexcept {
+    if (form->color_picking) {
+        end_pick(form);
+    } else if (screen_color_pick_start(pick_settled, nullptr)) {
+        form->color_picking = true;
+        form->error = false;
+#if defined(_WIN32)
+        form->status = utf8_literal("Click anywhere on your screen to pick a color. Right-click or press Esc to cancel.");
+#else
+        form->status = utf8_literal("Pick a color anywhere on your screen.");
+#endif
+    } else {
+        g_eyedropper_unavailable = true;
+        form->status = utf8_literal("Colors can't be picked from the screen here.");
+        form->error = true;
+    }
+    refresh(form);
+}
+// The eyedropper's answer, once it settled.
+void poll_pick(ApplicationTextForm* form) noexcept {
+    u32 rgb = 0;
+    const auto state = form->color_picking ? screen_color_pick_state(&rgb) : ScreenColorState::idle;
+    if (state == ScreenColorState::idle || state == ScreenColorState::picking)
+        return;
+    end_pick(form);
+    if (state == ScreenColorState::picked) {
+        set_color(form, color_picker_hsv(rgb, form->color.hsv));
+        return;
+    }
+    if (state == ScreenColorState::failed) {
+        g_eyedropper_unavailable = true;
+        form->status = utf8_literal("Colors can't be picked from the screen here.");
+        form->error = true;
+    }
+    refresh(form);
 }
 // Applies a pending progress update. False when the form closed instead.
 bool settle(ApplicationTextForm* form) noexcept {
@@ -295,6 +383,18 @@ bool activate(ApplicationTextForm* form, TextFormElement element) noexcept {
         }
         return true;
     }
+    if (element == TextFormElement::eyedropper) {
+        if (form->editable)
+            toggle_pick(form);
+        return true;
+    }
+    if (element == TextFormElement::color_swatches) {
+        if (form->editable && form->color.focused_swatch < form->color.suggested.count)
+            set_color(form, color_picker_hsv(form->suggested[form->color.focused_swatch], form->color.hsv));
+        return true;
+    }
+    if (element == TextFormElement::color_field || element == TextFormElement::color_hue)
+        return true;
     u32 at = 0;
     if (text_form_choice_index(element, &at)) {
         // A new choice starts the field over, empty and untyped.
@@ -433,7 +533,12 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         (request.select_options.count && request.select_selected >= request.select_options.count) ||
         ((request.check || request.swatch) && request.confirmation_only) || (request.swatch && !request.check) ||
         ((request.detail.bytes || request.single_action) && !request.confirmation_only) ||
-        request.detail.bytes > kApplicationTextFormDetailBytes || !utf8_validate(request.detail).valid)
+        request.detail.bytes > kApplicationTextFormDetailBytes || !utf8_validate(request.detail).valid ||
+        (request.secret && (request.confirmation_only || !request.single_line || request.check ||
+                            request.maximum_codepoints - 1 >= kApplicationTextFormSecretCodepoints)) ||
+        (request.picker && (!request.swatch || !request.check || request.secret ||
+                            request.suggested_colors.count > kColorPickerSuggestedColors ||
+                            (!request.suggested_colors.data && request.suggested_colors.count))))
         return false;
     const Utf8View labels[] = {request.title,  request.context, request.label,       request.accept,
                                request.cancel, request.option,  request.placeholder, request.rejected};
@@ -509,10 +614,17 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
     form->request.detail = {form->detail, request.detail.bytes};
     form->choice_selected = ~0u;
     form->select_selected = request.select_selected;
+    if (request.picker) {
+        copy_bytes(form->suggested, request.suggested_colors.data,
+                   static_cast<u32>(request.suggested_colors.count * sizeof(u32)));
+        form->request.suggested_colors = {form->suggested, request.suggested_colors.count};
+        form->color.suggested = form->request.suggested_colors;
+        form->color_drag = TextFormElement::count;
+    }
     bool initialized = true;
     if (!request.confirmation_only) {
         initialized = secure_edit_initialize(
-            &form->edit, request.maximum_bytes ? request.maximum_bytes : kApplicationTextFormBytes, false,
+            &form->edit, request.maximum_bytes ? request.maximum_bytes : kApplicationTextFormBytes, request.secret,
             {request.maximum_codepoints, !request.single_line});
         if (initialized) {
             const auto assigned = secure_edit_assign(&form->edit, request.initial);
@@ -520,7 +632,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
             if (initialized)
                 check_text(form);
         }
-        initialized = initialized && secure_edit_enable_history(&form->edit, 32 * 1024);
+        initialized = initialized && (request.secret || secure_edit_enable_history(&form->edit, 32 * 1024));
         form->blink_ms = application_caret_blink_ms();
         if (!form->blink_ms)
             form->blink_ms = 500;
@@ -604,6 +716,57 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
     return true;
 }
 
+namespace {
+// A colour picker's Apply: the field's colour to the owner's save.
+bool save_color(TextFormOwnerKey key, Utf8View text) noexcept {
+    u32 rgb = 0;
+    const auto* form = g_app.text_form;
+    return form && color_hex_parse_rgb24(text, &rgb) && form->request.color_save(key, rgb);
+}
+} // namespace
+
+bool application_color_picker_open(const ApplicationColorPickerRequest& picker) noexcept {
+    if (!picker.save || picker.rgb > 0xFFFFFF)
+        return false;
+    char hex[8];
+    const u32 bytes = color_hex_format(picker.rgb << 8 | 0xFF, false, {hex, sizeof(hex)});
+    ApplicationTextFormRequest request{};
+    request.title = picker.title;
+    request.label = picker.label;
+    request.accept = utf8_literal("Apply");
+    request.initial = {hex, bytes};
+    request.owner = picker.owner;
+    request.valid = picker.valid;
+    request.save = save_color;
+    request.closed = picker.closed;
+    request.maximum_codepoints = 7;
+    request.single_line = true;
+    request.placeholder = utf8_literal("#RRGGBB");
+    request.check = application_text_form_color_check;
+    request.rejected = utf8_literal("That isn't a hex color. Use #RGB or #RRGGBB.");
+    request.swatch = true;
+    request.picker = true;
+    request.suggested_colors = picker.suggested;
+    request.color_changed = picker.preview;
+    request.color_save = picker.save;
+    return application_text_form_open(request);
+}
+
+bool application_text_form_set_slider(UiPoint point, double value) noexcept {
+    auto* form = g_app.text_form;
+    if (!form || !valid(form) || !form->editable)
+        return false;
+    const auto element = text_form_hit_test(form->scene, point.x, point.y);
+    const bool hue = element == TextFormElement::color_hue;
+    if (!hue && element != TextFormElement::color_field)
+        return false;
+    const float at = maximum(0.f, minimum(static_cast<float>(value / (hue ? 360 : 100)), 1.f));
+    auto hsv = form->color.hsv;
+    (hue ? hsv.hue : hsv.saturation) = at;
+    set_color(form, hsv);
+    return true;
+}
+
 void application_text_form_close(bool restore_focus, bool rebuild) noexcept {
     auto* form = g_app.text_form;
     if (!form)
@@ -625,6 +788,8 @@ void application_text_form_close(bool restore_focus, bool rebuild) noexcept {
     if (login_owner)
         renderer_release_login_form_text(&g_app.renderer);
     end_capture(form);
+    if (form->color_picking)
+        screen_color_pick_end();
     if (!form->request.confirmation_only)
         secure_text_store_release(&form->store);
     text_form_surface_release(&form->surface);
@@ -694,6 +859,11 @@ bool application_text_form_synchronize() noexcept {
         application_text_form_close(false);
         return true;
     }
+    if (form->color_picking) {
+        poll_pick(form);
+        if (g_app.text_form != form)
+            return true;
+    }
     if (changed || styles_changed || measure_changed || !form->scene.layout_signature)
         return refresh(form);
     if (form->scene.content.focus_visible != g_app.keyboard_focus_visible ||
@@ -722,9 +892,30 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
     const auto focused = text_form_focused(form->scene);
     if (kind == UiInputKind::key_down && code == key::escape) {
         g_app.text_form_held_key = code;
-        if (user_dismissible(*form))
+        // Escape first ends a pick under way, then closes.
+        if (form->color_picking) {
+            end_pick(form);
+            refresh(form);
+        } else if (user_dismissible(*form))
             application_text_form_close();
         return true;
+    }
+    if (kind == UiInputKind::key_down && form->editable &&
+        (focused == TextFormElement::color_field || focused == TextFormElement::color_hue ||
+         focused == TextFormElement::color_swatches)) {
+        auto hsv = form->color.hsv;
+        if (focused == TextFormElement::color_swatches) {
+            const auto* row = text_form_node(form->scene, TextFormElement::color_swatches);
+            if (row && color_picker_swatch_key(row->rectangle, form->color.suggested.count,
+                                               &form->color.focused_swatch, code)) {
+                refresh(form);
+                return true;
+            }
+        } else if (focused == TextFormElement::color_field ? color_picker_field_key(&hsv, code, shift)
+                                                           : color_picker_hue_key(&hsv, code, shift)) {
+            set_color(form, hsv);
+            return true;
+        }
     }
     if (kind == UiInputKind::key_down && code == key::tab) {
         if (text_form_move_focus(&form->scene, shift))
@@ -778,14 +969,15 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
     if (ctrl && (code == 'Z' || code == 'Y')) {
         // A text service owns its active composition. Let it finish before
         // replaying model history; consumed native keys never reach this path.
-        if (form->composition.active)
+        // A secret field keeps no history.
+        if (form->composition.active || form->request.secret)
             return true;
         return apply(form,
                      code == 'Y' || shift ? secure_edit_redo(&form->edit) : secure_edit_undo(&form->edit));
     }
     if (ctrl && code == 'A')
         return apply(form, secure_edit_select_all(&form->edit));
-    if (ctrl && (code == 'C' || code == 'X')) {
+    if (ctrl && (code == 'C' || code == 'X') && !form->request.secret) {
         secure_edit_break_history_run(&form->edit);
         const auto first = minimum(form->edit.anchor, form->edit.caret),
                    last = maximum(form->edit.anchor, form->edit.caret);
@@ -863,10 +1055,7 @@ bool application_text_form_window_event(const WindowEvent& event) noexcept {
     const float x = input_pointer(event) ? client_dip_x(event) : 0.f;
     const float y = input_pointer(event) ? client_dip_y(event) : 0.f;
     if (input_focus_lost(event)) {
-        if (user_dismissible(*form)) {
-            application_text_form_close(false);
-            return true;
-        }
+        // The dialog stays open, as the official client's do; the window's focus returning resumes the field.
         end_capture(form);
         ui_button_keyboard_cancel(&form->keyboard);
         if (!form->request.confirmation_only) {
@@ -897,6 +1086,7 @@ bool application_text_form_window_event(const WindowEvent& event) noexcept {
             end_capture(form);
         else {
             form->dragging = false;
+            form->color_drag = TextFormElement::count;
             form->pointer_button = ui_widget_invalid_handle();
             ui_widget_manager_capture(&form->scene.widgets, ui_widget_invalid_handle());
         }
@@ -929,11 +1119,32 @@ bool application_text_form_window_event(const WindowEvent& event) noexcept {
         }
         application_focus_window();
         const auto element = text_form_hit_test(form->scene, x, y);
+        if (form->editable && (element == TextFormElement::color_field || element == TextFormElement::color_hue ||
+                               element == TextFormElement::color_swatches)) {
+            // The square and the hue bar follow the pointer until release; a swatch applies at once.
+            if (!focus_field(form, element))
+                return true;
+            const auto* node = text_form_node(form->scene, element);
+            if (element == TextFormElement::color_swatches) {
+                const u32 at = color_picker_swatch_at(node->rectangle, form->color.suggested.count, x, y);
+                if (at < form->color.suggested.count) {
+                    form->color.focused_swatch = at;
+                    set_color(form, color_picker_hsv(form->suggested[at], form->color.hsv));
+                }
+                return true;
+            }
+            set_color(form, element == TextFormElement::color_field
+                                ? color_picker_field_at(form->color.hsv, node->rectangle, x, y)
+                                : color_picker_hue_at(form->color.hsv, node->rectangle, x));
+            if (application_capture_widget(&form->scene.widgets, form->scene.elements[static_cast<u32>(element)]))
+                form->color_drag = element;
+            return true;
+        }
         u32 at = 0;
         if (element == TextFormElement::edit || element == TextFormElement::cancel ||
             element == TextFormElement::accept || element == TextFormElement::option ||
-            element == TextFormElement::select || text_form_choice_index(element, &at) ||
-            text_form_select_index(element, &at)) {
+            element == TextFormElement::select || element == TextFormElement::eyedropper ||
+            text_form_choice_index(element, &at) || text_form_select_index(element, &at)) {
             if (!focus_field(form, element))
                 return true;
             const auto handle = form->scene.elements[static_cast<u32>(element)];
@@ -960,11 +1171,25 @@ bool application_text_form_window_event(const WindowEvent& event) noexcept {
     case EventType::pointer_move: {
         if (form->dragging && input_held(event))
             pointer_position(form, x, y, true);
+        if ((form->color_drag == TextFormElement::color_field || form->color_drag == TextFormElement::color_hue) &&
+            input_held(event)) {
+            const auto* node = text_form_node(form->scene, form->color_drag);
+            if (node) {
+                const auto hsv = form->color_drag == TextFormElement::color_field
+                                     ? color_picker_field_at(form->color.hsv, node->rectangle, x, y)
+                                     : color_picker_hue_at(form->color.hsv, node->rectangle, x);
+                if (hsv.hue != form->color.hsv.hue || hsv.saturation != form->color.hsv.saturation ||
+                    hsv.value != form->color.hsv.value)
+                    set_color(form, hsv);
+            }
+            return true;
+        }
         // Footer buttons and the option row light up only under the pointer.
         const auto element = text_form_hit_test(form->scene, x, y);
         u32 at = 0;
         const auto hovered = element == TextFormElement::cancel || element == TextFormElement::accept ||
                                      element == TextFormElement::option || element == TextFormElement::select ||
+                                     element == TextFormElement::eyedropper ||
                                      text_form_choice_index(element, &at) || text_form_select_index(element, &at)
                                  ? form->scene.elements[static_cast<u32>(element)]
                                  : ui_widget_invalid_handle();

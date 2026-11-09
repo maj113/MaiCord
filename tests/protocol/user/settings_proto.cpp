@@ -424,9 +424,9 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
               utf8_equal(path(w.target_bytes), utf8_literal("/api/v9/users/@me/settings-proto/1")) &&
               utf8_equal(view(w.body_bytes), utf8_literal("{\"settings\":\"agJIAQ==\",\"required_data_version\":7}")),
           "account settings: settings-proto PATCH serializes the partial message");
-    r.reserved = 1;
-    check(!account_settings_request_valid(r), "account settings: reserved bytes must be zero");
-    r.reserved = 0;
+    r.option = 1;
+    check(!account_settings_request_valid(r), "account settings: settings requests take no option");
+    r.option = 0;
     r.required_data_version = 0;
     r.required_data_version_present = true;
     w = account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)});
@@ -475,6 +475,192 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
               utf8_equal({masked, email}, utf8_literal("r**@example.com")) &&
               utf8_equal({masked + 16, phone}, utf8_literal("********0123")),
           "account settings: error codes and masked email and phone");
+
+    // Text operations: exact paths and bodies (Userdoccers resources/user, email and phone verification,
+    // connected accounts, consents), optional texts left out.
+    const auto written = [&](AccountSettingsOperation operation, ConstSlice<Utf8View> texts, u64 id, u8 option,
+                             Utf8View expected_path, Utf8View expected_body, RestMethod method) noexcept {
+        AccountSettingsRequest t{};
+        t.operation = operation;
+        t.texts = texts;
+        t.id = id;
+        t.option = option;
+        const auto result = account_settings_write_request(t, {target, sizeof(target)}, {body, sizeof(body)});
+        return result.ok() && result.method == method && utf8_equal(path(result.target_bytes), expected_path) &&
+               utf8_equal(view(result.body_bytes), expected_body) && !account_settings_primary(operation);
+    };
+    const Utf8View name_password[]{utf8_literal("rob.two"), utf8_literal("pa\"ss")};
+    check(written(AccountSettingsOperation::username, {name_password, 2}, 0, 0, utf8_literal("/api/v9/users/@me"),
+                  utf8_literal("{\"username\":\"rob.two\",\"password\":\"pa\\\"ss\"}"), RestMethod::patch),
+          "account settings: a username change sends the name and the escaped password");
+    const Utf8View email_change[]{utf8_literal("new@example.com"), {}, utf8_literal("pw")};
+    check(written(AccountSettingsOperation::email, {email_change, 3}, 0, 0, utf8_literal("/api/v9/users/@me"),
+                  utf8_literal("{\"email\":\"new@example.com\",\"password\":\"pw\"}"), RestMethod::patch) &&
+              written(AccountSettingsOperation::email_challenge, {}, 0, 0, utf8_literal("/api/v9/users/@me/email"), {},
+                      RestMethod::put),
+          "account settings: an email change without a token leaves email_token out; the challenge is a bare PUT");
+    const Utf8View number[]{utf8_literal("+15550100123")};
+    const Utf8View phone_add[]{utf8_literal("ptok"), utf8_literal("pw")};
+    check(written(AccountSettingsOperation::phone_code, {number, 1}, 0, 0, utf8_literal("/api/v9/users/@me/phone"),
+                  utf8_literal("{\"phone\":\"+15550100123\",\"change_phone_reason\":\"user_settings_update\"}"),
+                  RestMethod::post) &&
+              written(AccountSettingsOperation::phone_add, {phone_add, 2}, 0, 0, utf8_literal("/api/v9/users/@me/phone"),
+                      utf8_literal("{\"phone_token\":\"ptok\",\"password\":\"pw\",\"change_phone_reason\":"
+                                   "\"user_settings_update\"}"),
+                      RestMethod::post) &&
+              written(AccountSettingsOperation::phone_remove, {phone_add + 1, 1}, 0, 0,
+                      utf8_literal("/api/v9/users/@me/phone"),
+                      utf8_literal("{\"password\":\"pw\",\"change_phone_reason\":\"user_settings_update\"}"),
+                      RestMethod::delete_method),
+          "account settings: phone numbers are added with a code, then a token and the password, with a reason");
+    const Utf8View key_nonce[]{utf8_literal("key"), utf8_literal("nonce")};
+    const Utf8View finish[]{utf8_literal("ticket"), utf8_literal("backup"), utf8_literal("abcd1234")};
+    check(written(AccountSettingsOperation::backup_codes, {key_nonce, 2}, 0, 1,
+                  utf8_literal("/api/v9/users/@me/mfa/codes-verification"),
+                  utf8_literal("{\"key\":\"key\",\"nonce\":\"nonce\",\"regenerate\":true}"), RestMethod::post) &&
+              written(AccountSettingsOperation::mfa_finish, {finish, 3}, 0, 0, utf8_literal("/api/v9/mfa/finish"),
+                      utf8_literal("{\"ticket\":\"ticket\",\"mfa_type\":\"backup\",\"data\":\"abcd1234\"}"),
+                      RestMethod::post) &&
+              written(AccountSettingsOperation::totp_disable, {}, 0, 0, utf8_literal("/api/v9/users/@me/mfa/totp/disable"),
+                      {}, RestMethod::post),
+          "account settings: backup codes, MFA verification and turning the app off");
+    const Utf8View key_name[]{utf8_literal("Desk key")};
+    check(written(AccountSettingsOperation::security_key_create, {}, 0, 0,
+                  utf8_literal("/api/v9/users/@me/mfa/webauthn/credentials"), utf8_literal("{}"), RestMethod::post) &&
+              written(AccountSettingsOperation::security_key_rename, {key_name, 1}, 77, 0,
+                      utf8_literal("/api/v9/users/@me/mfa/webauthn/credentials/77"),
+                      utf8_literal("{\"name\":\"Desk key\"}"), RestMethod::patch) &&
+              written(AccountSettingsOperation::security_key_delete, {}, 77, 0,
+                      utf8_literal("/api/v9/users/@me/mfa/webauthn/credentials/77"), {}, RestMethod::delete_method),
+          "account settings: security keys are created, renamed and removed by id");
+    // The registration's second request names the key and carries the ticket and the credential JSON, whose quotes escape.
+    const Utf8View key_credential[]{utf8_literal("Desk key"), utf8_literal("tkt.1"),
+                                    utf8_literal("{\"id\":\"AQID\",\"type\":\"public-key\"}")};
+    AccountSettingsRequest incomplete{};
+    incomplete.operation = AccountSettingsOperation::security_key_create;
+    incomplete.texts = {key_credential, 2};
+    check(written(AccountSettingsOperation::security_key_create, {key_credential, 3}, 0, 0,
+                  utf8_literal("/api/v9/users/@me/mfa/webauthn/credentials"),
+                  utf8_literal("{\"name\":\"Desk key\",\"ticket\":\"tkt.1\",\"credential\":\"{\\\"id\\\":\\\"AQID\\\","
+                               "\\\"type\\\":\\\"public-key\\\"}\"}"),
+                  RestMethod::post) &&
+              !account_settings_request_valid(incomplete),
+          "account settings: a security key's registration sends its name, ticket and credential, and nothing short of all three");
+    {
+        constexpr char ticket[] = "{\"ticket\":\"tkt.1\",\"challenge\":\"{\\\"publicKey\\\":{}}\"}";
+        char decoded[64];
+        u32 structurals[512];
+        const u32 ticket_bytes = account_settings_decode_member({ticket, sizeof(ticket) - 1}, {structurals, 512},
+                                                                utf8_literal("ticket"), {decoded, sizeof(decoded)});
+        char challenge[64];
+        const u32 challenge_bytes = account_settings_decode_member({ticket, sizeof(ticket) - 1}, {structurals, 512},
+                                                                   utf8_literal("challenge"), {challenge, sizeof(challenge)});
+        check(ticket_bytes == 5 && bytes_equal(decoded, "tkt.1", 5) && challenge_bytes == 16 &&
+                  bytes_equal(challenge, "{\"publicKey\":{}}", 16),
+              "account settings: the first answer's ticket and challenge string decode");
+    }
+    const Utf8View connection[]{utf8_literal("reddit"), utf8_literal("run&hide")};
+    check(written(AccountSettingsOperation::connection_patch, {connection, 2}, 1,
+                  static_cast<u8>(AccountConnectionField::show_activity),
+                  utf8_literal("/api/v9/users/@me/connections/reddit/run%26hide"), utf8_literal("{\"show_activity\":true}"),
+                  RestMethod::patch) &&
+              written(AccountSettingsOperation::connection_patch, {connection, 2}, 0,
+                      static_cast<u8>(AccountConnectionField::metadata_visibility),
+                      utf8_literal("/api/v9/users/@me/connections/reddit/run%26hide"),
+                      utf8_literal("{\"metadata_visibility\":0}"), RestMethod::patch) &&
+              written(AccountSettingsOperation::connection_delete, {connection, 2}, 0, 0,
+                      utf8_literal("/api/v9/users/@me/connections/reddit/run%26hide"), {}, RestMethod::delete_method),
+          "account settings: a connection's path encodes its id; its options PATCH one field");
+    check(written(AccountSettingsOperation::consent_patch, {}, 1, static_cast<u8>(AccountConsent::personalization),
+                  utf8_literal("/api/v9/users/@me/consent"), utf8_literal("{\"grant\":[\"personalization\"],\"revoke\":[]}"),
+                  RestMethod::post) &&
+              written(AccountSettingsOperation::harvest_create, {}, 0, 0x41, utf8_literal("/api/v9/users/@me/harvest"),
+                      utf8_literal("{\"backends\":[\"Account\",\"Zendesk\"]}"), RestMethod::post),
+          "account settings: consents grant or revoke one type; a data request names its backends");
+    r = {};
+    r.operation = AccountSettingsOperation::session_logout;
+    r.payload = bytes_of(utf8_literal("a1,b2"));
+    w = account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)});
+    check(w.ok() && utf8_equal(view(w.body_bytes), utf8_literal("{\"session_id_hashes\":[\"a1\",\"b2\"]}")),
+          "account settings: logging out every other device lists each hash");
+    AccountSettingsRequest bad{};
+    bad.operation = AccountSettingsOperation::username;
+    bad.texts = {name_password, 1};
+    AccountSettingsRequest no_backends{};
+    no_backends.operation = AccountSettingsOperation::harvest_create;
+    AccountSettingsRequest header{};
+    header.operation = AccountSettingsOperation::totp_disable;
+    header.mfa = utf8_literal("jwt\r\nX-Evil: 1");
+    const Utf8View empty_password[]{utf8_literal("rob"), {}};
+    AccountSettingsRequest empty{};
+    empty.operation = AccountSettingsOperation::username;
+    empty.texts = {empty_password, 2};
+    check(!account_settings_request_valid(bad) && !account_settings_request_valid(no_backends) &&
+              !account_settings_request_valid(header) && !account_settings_request_valid(empty),
+          "account settings: a missing text, no backends, a header-breaking MFA token or an empty password is refused");
+
+    // The answers of the account flows.
+    constexpr char challenge[] = "{\"message\":\"Two factor is required for this operation\",\"code\":60003,\"mfa\":"
+                                 "{\"ticket\":\"tk\",\"methods\":[{\"type\":\"webauthn\",\"challenge\":\"{\\\"publicKey\\\""
+                                 ":{}}\"},{\"type\":\"totp\",\"backup_codes_allowed\":true},{\"type\":\"sms\"}]}}";
+    AccountMfaChallenge mfa{};
+    char webauthn[64];
+    u32 webauthn_bytes = 0;
+    check(account_settings_decode_mfa_challenge({challenge, sizeof(challenge) - 1}, {structurals, 512}, &mfa,
+                                                {webauthn, sizeof(webauthn)}, &webauthn_bytes) &&
+              utf8_equal({mfa.ticket, mfa.ticket_bytes}, utf8_literal("tk")) &&
+              mfa.methods == (kAccountAuthenticatorWebauthn | kAccountAuthenticatorTotp | kAccountAuthenticatorSms |
+                              kAccountMfaMethodBackup) &&
+              utf8_equal({webauthn, webauthn_bytes}, utf8_literal("{\"publicKey\":{}}")),
+          "account settings: an MFA challenge decodes its ticket, methods and WebAuthn options");
+    constexpr char codes[] = "{\"token\":\"t\",\"backup_codes\":[{\"user_id\":\"1\",\"code\":\"abcd1234\",\"consumed\":true},"
+                             "{\"user_id\":\"1\",\"code\":\"efgh5678\",\"consumed\":false}]}";
+    AccountBackupCode backup[4]{};
+    char token[16];
+    check(account_settings_decode_backup_codes({codes, sizeof(codes) - 1}, {structurals, 512}, {backup, 4}) == 2 &&
+              backup[0].consumed && !backup[1].consumed && backup[1].code_bytes == 8 &&
+              account_settings_decode_member({codes, sizeof(codes) - 1}, {structurals, 512}, utf8_literal("token"),
+                                             {token, sizeof(token)}) == 1 &&
+              account_settings_decode_member({codes, sizeof(codes) - 1}, {structurals, 512}, utf8_literal("nonce"),
+                                             {token, sizeof(token)}) == ~0u,
+          "account settings: backup codes decode with their use; named members decode or are absent");
+    constexpr char keys[] = "[{\"id\":\"1219430671865610261\",\"type\":1,\"name\":\"AlienKey\",\"last_used\":null}]";
+    AccountSecurityKey key[2]{};
+    check(account_settings_decode_security_keys({keys, sizeof(keys) - 1}, {structurals, 512}, {key, 2}) == 1 &&
+              key[0].id == 1219430671865610261ull && key[0].name_bytes == 8,
+          "account settings: security keys decode their id and name");
+    constexpr char connections[] =
+        "[{\"type\":\"reddit\",\"id\":\"run&hide\",\"name\":\"alien\",\"visibility\":1,\"friend_sync\":false,"
+        "\"show_activity\":true,\"verified\":true,\"two_way_link\":false,\"metadata_visibility\":0,\"metadata\":"
+        "{\"gold\":\"0\"},\"revoked\":false,\"integrations\":[]},{\"type\":\"steam\",\"name\":\"no id\"}]";
+    AccountConnection linked[4]{};
+    check(account_settings_decode_connections({connections, sizeof(connections) - 1}, {structurals, 512}, {linked, 4}) == 1 &&
+              linked[0].visible && linked[0].show_activity && !linked[0].metadata_visible && !linked[0].revoked &&
+              utf8_equal({linked[0].id, linked[0].id_bytes}, utf8_literal("run&hide")),
+          "account settings: connections decode their display options and drop one without an id");
+    constexpr char consents[] = "{\"usage_statistics\":{\"consented\":false},\"personalization\":{\"consented\":true}}";
+    constexpr char harvest[] = "{\"harvest_id\":\"1\",\"status\":3,\"created_at\":\"2024-12-20T02:56:56.639579+00:00\"}";
+    AccountConsents consent{};
+    AccountHarvest harvested{};
+    check(account_settings_decode_consents({consents, sizeof(consents) - 1}, {structurals, 512}, &consent) &&
+              !consent.usage_statistics && consent.personalization &&
+              account_settings_decode_harvest({harvest, sizeof(harvest) - 1}, {structurals, 512}, &harvested) &&
+              harvested.status == 3 && harvested.created_ms == 1'734'663'416'639ull,
+          "account settings: consents and the latest data request decode");
+    constexpr char refused[] = "{\"code\":50035,\"errors\":{\"email\":{\"_errors\":[{\"code\":\"EMAIL_TYPE_INVALID_EMAIL\","
+                               "\"message\":\"Not a well formed email address.\"}]}},\"message\":\"Invalid Form Body\"}";
+    constexpr char plain[] = "{\"message\":\"Missing Access\",\"code\":50001}";
+    char reason[64];
+    const u32 field_reason = account_settings_error_message({refused, sizeof(refused) - 1}, {structurals, 512}, {reason, 64});
+    const bool field_ok = utf8_equal({reason, field_reason}, utf8_literal("Not a well formed email address."));
+    const u32 plain_reason = account_settings_error_message({plain, sizeof(plain) - 1}, {structurals, 512}, {reason, 64});
+    check(field_ok && utf8_equal({reason, plain_reason}, utf8_literal("Missing Access")),
+          "account settings: errors report the field's message, else the body's");
+    constexpr char authenticators[] = "{\"username\":\"rob\",\"mfa_enabled\":true,\"flags\":16,\"authenticator_types\":[2,1]}";
+    check(account_settings_decode_self({authenticators, sizeof(authenticators) - 1}, {structurals, 512}, &user) &&
+              user.mfa_enabled &&
+              user.authenticators == (kAccountAuthenticatorTotp | kAccountAuthenticatorWebauthn | kAccountAuthenticatorSms),
+          "account settings: the self user's authenticators come from authenticator_types and the SMS flag");
 }
 } // namespace maicord
 

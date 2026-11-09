@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Deflate-pack constant tables whose pointers and padding cost more than their text (two tables, one tool).
+"""Deflate-pack a constant table whose pointers and padding cost more than its text.
 
-Usage: pack_tables.py OUTPUT_DIRECTORY PERMISSION_DATA PERMISSION_HEADER PERMISSION_BITS GAME_DATA
+Usage: pack_tables.py OUTPUT_DIRECTORY PERMISSION_DATA PERMISSION_HEADER PERMISSION_BITS
 
-Each data file is C++ that a test also compiles as constant data (permission_grid_data.inc, game_data.inc). This tool reads exactly that text (no C++ is compiled) and writes, per table, a generated
+The data file is C++ that a test also compiles as constant data (permission_grid_data.inc). This tool reads exactly that text (no C++ is compiled) and writes a generated
 `<name>_pack.inc` (counts, sizes and the `#embed` of the zlib stream) that the table's owner inflates on first use
 through inflated_block.hpp and walks with PackedReader (core/packed_reader.hpp). A construct this reader
 misreads fails the table's pack test instead of shipping.
 
-Streams (a str is its bytes then a NUL; empty means none):
+Stream (a str is its bytes then a NUL; empty means none):
     permission grid: per channel text: str label, description; then per entry: u8 bit number, str label,
         description, u8 channel text + 1 (0 none), u8 group, u8 scopes; then one str per group label
-    games: per game: str name, executables
 """
 import pathlib
 import re
@@ -115,21 +114,10 @@ def permission_grid(directory, data, header, bits):
          [("Entries", len(entries)), ("ChannelTexts", len(channel)), ("Groups", len(labels))], out)
 
 
-def games(directory, data):
-    table = tables_of(pathlib.Path(data).read_text(encoding="utf-8"), "constexpr DetectableGame kBuiltin")["kBuiltin"][1]
-    out = bytearray()
-    for item in table:
-        name, executables = item[1]
-        put_text(out, text_of(name))
-        put_text(out, text_of(executables))
-    emit(directory, "game", "Game", [("Count", len(table))], out)
-
-
 def main():
     directory = pathlib.Path(sys.argv[1])
     directory.mkdir(parents=True, exist_ok=True)
     permission_grid(directory, *sys.argv[2:5])
-    games(directory, sys.argv[5])
 
 
 if __name__ == "__main__":

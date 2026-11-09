@@ -104,6 +104,8 @@ def struct_defaults(source, struct):
 def document():
     styles = strip_comments((THEME / 'styles.hpp').read_text(encoding='utf-8'))
     typography = struct_defaults(styles, 'UiThemeTypography')
+    # chat_size is published from Accessibility's Text size in chat; a theme document never sets it.
+    typography.pop('chat_size')
     typography.update({'body_face': 'normal', 'code_face': 'mono'})
     semantic, scale, motion = token_tables()
     return {

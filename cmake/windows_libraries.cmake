@@ -192,8 +192,11 @@ maicord_library(maicord_app_core
     src/app/voice/transmit.cpp src/app/voice/send.cpp src/app/voice/soundboard_audio.cpp src/app/voice/account_soundboard.cpp
     src/app/voice/message_flow.cpp src/app/voice/message_recorder.cpp src/app/voice/account_voice_message.cpp
     src/app/voice/call_video_presenter.cpp src/app/voice/stream_preview_cache.cpp src/app/voice/stream_watch_view.cpp
+    # Go Live sending: the session, RTP/RTCP sender and bandwidth estimation.
+    src/app/gateway/go_live_stream.cpp src/app/voice/go_live_send.cpp
     # acceptance_record.cpp: durable floor records shared by update_acceptance and the plugin catalog.
     src/app/account/login/acceptance_record.cpp src/app/gateway/guild_details.cpp src/app/guild/account_guild_moderation.cpp
+    src/app/guild/account_guild_automation.cpp
     src/app/update/changelog.cpp
     src/app/media/embed_resolver.cpp
     src/app/media/segmented_video_fetch.cpp

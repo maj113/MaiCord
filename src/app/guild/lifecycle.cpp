@@ -13,6 +13,7 @@
 #include "../shell/state.hpp"
 #include "../chat/composer/text_form.hpp"
 #include "../settings/user_settings.hpp"
+#include "../settings/streamer_mode.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/log.hpp"
@@ -370,7 +371,10 @@ Utf8View footer_status(Bank& bank) noexcept {
 void project_invite(Bank& bank) noexcept {
     auto& p = *owner;
     const bool edit = editable();
-    const Utf8View link = p.invite_valid ? invite_link(bank) : utf8_literal("Generating a link\xE2\x80\xA6");
+    // Streamer Mode's "Hide invite links": the link still copies.
+    const Utf8View link = !p.invite_valid                    ? utf8_literal("Generating a link\xE2\x80\xA6")
+                          : application_streamer_hide_invites() ? utf8_literal("Hidden; Use copy button")
+                                                                : invite_link(bank);
     const bool copied = p.copied_until && clock_monotonic_milliseconds() < p.copied_until;
     push({control_link, link, p.invite_valid ? expiry_sentence(bank) : Utf8View{}, UiSettingsControlKind::action,
           p.invite_valid, false, {}, 0, copied ? utf8_literal("Copied") : utf8_literal("Copy"), nullptr},
@@ -1045,7 +1049,7 @@ void application_guild_lifecycle_close(bool restore_focus) noexcept {
     // A queued request is dropped; one in flight finishes and is discarded.
     owner->queued = false;
     owner->menu = Menu::none;
-    settings_modal_leave(*owner, restore_focus && application_account_available());
+    settings_modal_close(*owner, restore_focus && application_account_available());
 }
 
 void application_guild_lifecycle_release() noexcept {

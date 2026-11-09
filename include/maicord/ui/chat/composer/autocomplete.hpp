@@ -27,6 +27,8 @@ enum class ComposerAutocompleteKind : u8 {
     // Per-suggestion kinds inside a member ('@') autocomplete.
     role,
     global_mention,
+    // "@game" (Mention a game): picking it starts the game search token.
+    game_input,
 };
 
 struct ComposerAutocompleteSuggestion {
@@ -79,12 +81,15 @@ struct ComposerAutocomplete {
 // match quality (equal, word, prefix, substring) times the composer frecency
 // in `preferences` (its message table), then name. Unicode emoji show their
 // primary shortcode, once each, without separate skin-tone variants.
+// game_mentions lists "@game" among the globals, in DMs too, as the official
+// client does while its "show games in autocomplete" setting is on.
 bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const MessageComposer& composer,
                                  const MemberListView& members, const UserStore& users,
                                  const NavigationView& navigation,
                                  const ChatStateStore& state, const GuildMemberStore* member_store = nullptr,
                                  const MessageStore* messages = nullptr,
-                                 const ReactionPreferenceStore* preferences = nullptr) noexcept;
+                                 const ReactionPreferenceStore* preferences = nullptr,
+                                 bool game_mentions = false) noexcept;
 void composer_autocomplete_release(ComposerAutocomplete* autocomplete) noexcept;
 
 } // namespace maicord

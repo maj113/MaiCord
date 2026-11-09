@@ -38,6 +38,9 @@ bool activate_navigation_press(const WindowEvent& event) noexcept;
 // Moves the selection for a registry navigation shortcut (Alt+arrows and friends).
 bool handle_navigation_shortcut(NavigationShortcut shortcut) noexcept;
 bool activate_focused_navigation() noexcept;
+// Frame time: turns the chevron of the category collapsed or expanded last (100 ms linear, the official
+// client's) and publishes it on the navigation scene.
+void application_navigation_chevron_synchronize(u64 now_ms) noexcept;
 bool handle_message_action_bar_click(const WindowEvent& event) noexcept;
 bool handle_message_click(const WindowEvent& event) noexcept;
 bool handle_content_click(const WindowEvent& event) noexcept;

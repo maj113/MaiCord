@@ -1,4 +1,5 @@
 #include "commands.hpp"
+#include "game_search.hpp"
 #include "../../account/profile.hpp"
 #include "composer.hpp"
 
@@ -8,6 +9,9 @@
 #include "../../shell/window_state.hpp"
 #include "../../plugins/popup_plugin_owner.hpp"
 #include "../../plugins/pipeline_host.hpp"
+#include "../../settings/user_settings.hpp"
+#include "../../media/picker.hpp"
+#include "maicord/ui/media/picker.hpp"
 
 #include "maicord/app/guild/mention_member_query.hpp"
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
@@ -80,6 +84,27 @@ void note_mention_member_query() noexcept {
     g_mention_member_query_composer = true;
     note_member_query(autocomplete.member_query_guild_id, composer.channel_id, query);
 }
+// Show stickers in autocomplete results: a ':' query of two characters or more also lists the stickers matching it
+// (the /sticker list, its scoring and sendability) above the emoji suggestions, or above the composer when no emoji
+// matches; the list lasts while that query does and sending a sticker replaces the query with nothing.
+struct StickerQuery {
+    bool active;
+    u32 begin, end, revision;
+};
+StickerQuery g_sticker_query{};
+bool synchronize_sticker_query(const UiRect& anchor) noexcept {
+    const ComposerAutocomplete& autocomplete = g_app.composer_autocomplete;
+    const MessageComposer& composer = g_app.message_composer;
+    const u32 begin = autocomplete.token_begin, end = autocomplete.token_end;
+    if (!application_user_settings_sticker_autocomplete() || !composer.text || end > composer.bytes ||
+        end < begin + 3 || composer.text[begin] != ':') {
+        g_sticker_query.active = false; // the picker closes the list on its next synchronize
+        return true;
+    }
+    g_sticker_query = {true, begin, end, composer.text_revision};
+    return application_media_picker_inline(UiMediaPickerKind::sticker, {composer.text + begin + 1, end - begin - 1},
+                                           anchor, true);
+}
 
 bool composer_owns_popup() noexcept {
     return g_app.popup_owner_kind == PopupOwnerKind::autocomplete ||
@@ -95,6 +120,7 @@ void close_composer_popup() noexcept {
 bool synchronize_autocomplete() noexcept {
     if (application_composer_text_input_composing() ||
         (g_app.profile && g_app.profile->scene.active) || !g_app.message_composer.focused) {
+        g_sticker_query.active = false;
         g_app.composer_autocomplete.member_query_guild_id = 0;
         cancel_composer_member_query();
         close_composer_popup();
@@ -108,20 +134,32 @@ bool synchronize_autocomplete() noexcept {
     bool commands_handled = false;
     if (!application_commands_sync(&commands_handled)) return false;
     if (commands_handled) {
+        g_sticker_query.active = false;
+        cancel_composer_member_query();
+        return true;
+    }
+    bool games_handled = false;
+    if (!application_game_search_sync(&games_handled))
+        return false;
+    if (games_handled) {
+        g_sticker_query.active = false;
         cancel_composer_member_query();
         return true;
     }
     AccountUiRuntime& ui = *g_app.account_ui;
     if (!composer_autocomplete_build(&g_app.composer_autocomplete, g_app.message_composer, ui.member_list,
                                      ui.user_store, ui.navigation_view, ui.chat_state, &ui.guild_member_store,
-                                     &g_app.message_view.store, &ui.reaction_preferences)) {
+                                     &g_app.message_view.store, &ui.reaction_preferences,
+                                     application_user_settings_game_mentions_autocomplete())) {
         return false;
     }
     note_mention_member_query();
     const ComposerAutocomplete& autocomplete = g_app.composer_autocomplete;
     if (autocomplete.count == 0) {
         close_composer_popup();
-        return true;
+        const auto* surface = ui_widget_manager_layout_node(g_app.message_composer_scene.widgets,
+                                                            g_app.message_composer_scene.surface);
+        return !surface || synchronize_sticker_query(surface->rectangle);
     }
     PopupItem items[kComposerAutocompleteCapacity];
     for (u32 index = 0; index < autocomplete.count; ++index) {
@@ -137,7 +175,8 @@ bool synchronize_autocomplete() noexcept {
             items[index].status = static_cast<u8>(suggestion.status);
         }
         if (suggestion.item_kind == ComposerAutocompleteKind::role ||
-            suggestion.item_kind == ComposerAutocompleteKind::global_mention) {
+            suggestion.item_kind == ComposerAutocompleteKind::global_mention ||
+            suggestion.item_kind == ComposerAutocompleteKind::game_input) {
             // The @ glyph, in the role colour when the role has one.
             items[index].presentation = ui_menu_row_presentation(UiIcon::mention);
             items[index].detail = suggestion.description;
@@ -180,7 +219,8 @@ bool synchronize_autocomplete() noexcept {
             g_app.popup_scene.items[index] = items[index];
         }
         ++g_app.popup_scene.revision;
-        return true;
+        return synchronize_sticker_query(ui_rect_has_area(g_app.popup_scene.rectangle) ? g_app.popup_scene.rectangle
+                                                                                        : anchor);
     }
     const PopupSceneResult opened = popup_scene_open(
         &g_app.popup_scene, PopupKind::autocomplete, owner_id,
@@ -189,7 +229,8 @@ bool synchronize_autocomplete() noexcept {
         return false;
     }
     set_popup_owner(PopupOwnerKind::autocomplete);
-    return true;
+    return synchronize_sticker_query(ui_rect_has_area(g_app.popup_scene.rectangle) ? g_app.popup_scene.rectangle
+                                                                                    : anchor);
 }
 
 } // namespace
@@ -198,7 +239,21 @@ bool refresh_active_autocomplete() noexcept {
     const bool shown = composer_owns_popup() && g_app.popup_scene.active;
     // An '@' query in a guild also re-runs while closed: members the gateway
     // returns for it may now match (the official client re-queries on member changes).
-    return (!shown && !g_app.composer_autocomplete.member_query_guild_id) || synchronize_autocomplete();
+    return (!shown && !g_app.composer_autocomplete.member_query_guild_id && !g_sticker_query.active) ||
+           synchronize_autocomplete();
+}
+
+bool application_composer_emoji_query_active() noexcept {
+    return g_sticker_query.active && g_app.message_composer.focused &&
+           g_app.message_composer.text_revision == g_sticker_query.revision;
+}
+
+bool application_composer_emoji_query_clear() noexcept {
+    if (!application_composer_emoji_query_active())
+        return refresh_message_composer_ui();
+    g_sticker_query.active = false;
+    return composer_apply_result(
+        message_composer_replace_range(&g_app.message_composer, g_sticker_query.begin, g_sticker_query.end, {}), true);
 }
 
 void application_mention_member_query_tick(u64 now_ms) noexcept {

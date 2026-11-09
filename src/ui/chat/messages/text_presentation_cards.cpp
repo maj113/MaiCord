@@ -204,6 +204,33 @@ bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObs
 }
 
 namespace {
+// Show image descriptions: an attachment with a description shows "ALT" 4 DIPs inside its bottom-left corner, the
+// official client's 14 px semibold label on a 32-DIP scrim pill (renderer_layout_media.cpp paints the pill around the
+// label's glyphs); clicking it opens the description's popout (tooltip.cpp). Small previews and hidden media show
+// none. The label's target is the attachment's index, with kMessageAltSnapshot set when it is a forwarded snapshot's
+// (message_rich_store_snapshot), not the forward's own.
+bool append_alt_badge(MessageTextPresentation* presentation, Utf8View description, bool snapshot, u32 attachment,
+                      const UiRect& media, const UiWidgetReference& owner, const UiRect& clip, const Theme& theme,
+                      const MessageRecord& record, u16 measurement) noexcept {
+    if (!message_rich_display().image_descriptions || !description.bytes || ui_rect_width(media) < 64.0f ||
+        ui_rect_height(media) < 48.0f)
+        return true;
+    const UiRect box{media.left + 12.5f, media.bottom - 36.0f, media.left + 64.0f, media.bottom - 4.0f};
+    const UiRect visible = ui_rect_intersection(clip, box);
+    if (!ui_rect_has_area(visible))
+        return true;
+    if (presentation->style_count >= presentation->styles.count ||
+        presentation->semantic_count >= presentation->semantics.count)
+        return fail(presentation, MessageTextPresentationError::capacity);
+    constexpr Utf8View label = utf8_literal("ALT");
+    auto& style = presentation->styles[presentation->style_count++];
+    style = TextStyleSpan{0, label.bytes, text_style_bold, text_size_sm};
+    auto& semantic = presentation->semantics[presentation->semantic_count++];
+    semantic = MessageMarkdownSemantic{attachment | (snapshot ? kMessageAltSnapshot : 0ull), 0, label.bytes, 0, 0,
+                                       MessageMarkdownSemanticKind::alt_text, 0};
+    return append_command(presentation, label, {&style, 1}, {&semantic, 1}, owner, box, visible,
+                          theme.tokens.text.on_accent, &record, measurement, kLookMiddle);
+}
 // Message annotations below the content: a plugin card (an embed), the
 // failed-interaction notice and the ephemeral footer (an eye, "Only you can
 // see this \u2022 Dismiss message"). They extend the notice item, after any
@@ -880,6 +907,10 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                                    item_layout->rectangle.top + preview_height};
                 if (!append_obscure_label(presentation, obscure, media, owner, attachment_clip, theme, *record,
                                           measurement_index) ||
+                    (obscure == MessageMediaObscure::none &&
+                     !append_alt_badge(presentation, message_rich_store_string(*rich_store, attachment.description),
+                                       rich->forwarded_snapshot_child, index, media, owner, attachment_clip, theme, *record,
+                                       measurement_index)) ||
                     !ui_text_flow_advance(&flow, required_extent)) {
                     return fail(presentation, MessageTextPresentationError::layout);
                 }

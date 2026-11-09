@@ -32,6 +32,9 @@ enum class CdnHost : u8 {
     // i.scdn.co: Spotify album art of rich presence cards ("/image/<id>" as
     // JPEG), which the official client loads from there too.
     activity_art,
+    // discord.com/assets: a connected account's logo (and the game pictures of its statistics), the files the web
+    // client serves them from ("/assets/<16 hex digits>.png").
+    web_asset,
     // Resolved, credential-free YouTube media only. CDN client targets carry
     // the full HTTPS URL because Google assigns a per-stream subdomain.
     google_video,
@@ -55,6 +58,7 @@ enum class CdnHost : u8 {
     soundcloud_audio,
 };
 inline constexpr char kActivityArtHost[] = "i.scdn.co";
+inline constexpr char kWebAssetHost[] = "discord.com";
 // An activity art target: "/image/" and 1-64 ASCII letters or digits.
 constexpr bool activity_art_target_valid(ConstSlice<u8> target) noexcept {
     static constexpr char prefix[] = "/image/";
@@ -65,6 +69,22 @@ constexpr bool activity_art_target_valid(ConstSlice<u8> target) noexcept {
         const u8 c = target[i];
         if (i < prefix_bytes ? c != static_cast<u8>(prefix[i])
                              : !ascii_is_alnum(c))
+            return false;
+    }
+    return true;
+}
+// A web asset target: "/assets/", 16 lowercase hexadecimal digits and ".png".
+constexpr bool web_asset_target_valid(ConstSlice<u8> target) noexcept {
+    static constexpr char prefix[] = "/assets/", suffix[] = ".png";
+    constexpr u32 prefix_bytes = sizeof(prefix) - 1, hex_bytes = 16, suffix_bytes = sizeof(suffix) - 1;
+    if (!target.data || target.count != prefix_bytes + hex_bytes + suffix_bytes)
+        return false;
+    for (u32 i = 0; i < target.count; ++i) {
+        const u8 c = target[i];
+        const bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+        if (i < prefix_bytes ? c != static_cast<u8>(prefix[i])
+            : i < prefix_bytes + hex_bytes ? !hex
+                                           : c != static_cast<u8>(suffix[i - prefix_bytes - hex_bytes]))
             return false;
     }
     return true;

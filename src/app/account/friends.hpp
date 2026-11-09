@@ -17,6 +17,8 @@ bool application_friends_active() noexcept;
 bool application_friends_requests_active() noexcept;
 void application_friends_close_requests() noexcept;
 bool application_friends_show() noexcept;
+// Message Requests: the same page listing DMs from people the user may not know (Requests and Spam).
+bool application_friends_show_requests() noexcept;
 void application_friends_hide() noexcept;
 void application_friends_release() noexcept;
 bool application_friends_synchronize() noexcept;
@@ -43,8 +45,9 @@ inline u8 application_friends_relation(u64 user_id) noexcept {
     application_friends_user_relation(user_id, &relation);
     return relation;
 }
-// Relationship changes from the user context menu; removing and blocking ask first.
-enum class ApplicationFriendsUserAction : u8 { add, accept, cancel, remove, block, unblock };
+// Relationship changes from the user context menu and settings; removing and blocking ask first,
+// unblocking and unignoring do not.
+enum class ApplicationFriendsUserAction : u8 { add, accept, cancel, remove, block, unblock, unignore };
 bool application_friends_user_action(u64 user_id, ApplicationFriendsUserAction action) noexcept;
 void application_friends_tick(u64 now_ms) noexcept;
 u64 application_friends_search_next_wake() noexcept;

@@ -18,11 +18,13 @@ bool push(GatewayStreamControl* stream, GatewayStreamCommandKind kind, const Gat
     ++stream->queue_count;
     return true;
 }
-// A watch that was never sent needs no delete: drop it from the queue.
+// A watch or create that was never sent needs no delete: drop it from the queue.
 bool unsend_watch(GatewayStreamControl* stream, const GatewayStreamKey& key) noexcept {
     for (u32 i = 0; i != stream->queue_count; ++i) {
         const u32 at = (stream->queue_head + i) % kGatewayStreamCommandQueue;
-        if (stream->queue[at].kind != GatewayStreamCommandKind::watch || !(stream->queue[at].key == key))
+        const auto kind = stream->queue[at].kind;
+        if ((kind != GatewayStreamCommandKind::watch && kind != GatewayStreamCommandKind::create) ||
+            !(stream->queue[at].key == key))
             continue;
         for (u32 k = i; k + 1 < stream->queue_count; ++k)
             stream->queue[(stream->queue_head + k) % kGatewayStreamCommandQueue] =
@@ -45,13 +47,37 @@ void clear_session(GatewayStreamControl* stream, GatewayStreamEnd end) noexcept 
 bool matches(const GatewayStreamControl& stream, const GatewayStreamKey& key) noexcept {
     return gateway_stream_active(stream) && stream.key == key;
 }
+void viewers(GatewayStreamControl* stream, u32 count, const u64* ids) noexcept {
+    stream->viewer_count = count;
+    copy_bytes(stream->viewer_ids, ids, (count < kGatewayStreamViewerIds ? count : kGatewayStreamViewerIds) * 8u);
+}
 void update(GatewayStreamControl* stream, const GatewayStreamUpdate& event) noexcept {
     if (!matches(*stream, event.key))
         return;
     if (event.has_viewers)
-        stream->viewer_count = event.viewer_count;
+        viewers(stream, event.viewer_count, event.viewer_ids);
     if (event.has_paused)
         stream->paused = event.paused;
+}
+bool begin(GatewayStreamControl* stream, GatewayStreamCommandKind kind, const GatewayStreamKey& key,
+           u64 now_ms) noexcept {
+    if (!gateway_stream_key_valid(key) || !stream->setup.user_id || !stream->setup.login_session.bytes)
+        return false;
+    if (matches(*stream, key))
+        return true;
+    if (gateway_stream_active(*stream)) {
+        if (stream->queue_count + 2 > kGatewayStreamCommandQueue)
+            return false;
+        gateway_stream_stop(stream, GatewayStreamEnd::stopped);
+    }
+    if (!push(stream, kind, key))
+        return false;
+    clear_session(stream, GatewayStreamEnd::none);
+    stream->key = key;
+    stream->delete_reason = GatewayStreamDeleteReason::none;
+    stream->phase = GatewayStreamPhase::requested;
+    stream->create_deadline_ms = deadline_after(now_ms, kGatewayStreamCreateTimeoutMs);
+    return true;
 }
 } // namespace
 
@@ -66,22 +92,29 @@ bool gateway_stream_active(const GatewayStreamControl& stream) noexcept {
 }
 
 bool gateway_stream_watch(GatewayStreamControl* stream, const GatewayStreamKey& key, u64 now_ms) noexcept {
-    if (!gateway_stream_key_valid(key) || !stream->setup.user_id || !stream->setup.login_session.bytes)
+    return begin(stream, GatewayStreamCommandKind::watch, key, now_ms);
+}
+
+bool gateway_stream_create_own(GatewayStreamControl* stream, const GatewayStreamKey& key, u64 now_ms) noexcept {
+    return key.owner_id == stream->setup.user_id && begin(stream, GatewayStreamCommandKind::create, key, now_ms);
+}
+
+bool gateway_stream_set_paused(GatewayStreamControl* stream, bool paused) noexcept {
+    if (!gateway_stream_active(*stream))
         return false;
-    if (matches(*stream, key))
-        return true;
-    if (gateway_stream_active(*stream)) {
-        if (stream->queue_count + 2 > kGatewayStreamCommandQueue)
-            return false;
-        gateway_stream_stop(stream, GatewayStreamEnd::stopped);
+    const auto kind = paused ? GatewayStreamCommandKind::pause : GatewayStreamCommandKind::resume;
+    // A queued pause/resume not sent yet is replaced: only the latest state matters.
+    for (u32 i = 0; i != stream->queue_count; ++i) {
+        auto& queued = stream->queue[(stream->queue_head + i) % kGatewayStreamCommandQueue];
+        if (queued.kind == GatewayStreamCommandKind::pause || queued.kind == GatewayStreamCommandKind::resume) {
+            queued.kind = kind;
+            stream->paused = paused;
+            return true;
+        }
     }
-    if (!push(stream, GatewayStreamCommandKind::watch, key))
+    if (!push(stream, kind, stream->key))
         return false;
-    clear_session(stream, GatewayStreamEnd::none);
-    stream->key = key;
-    stream->delete_reason = GatewayStreamDeleteReason::none;
-    stream->phase = GatewayStreamPhase::requested;
-    stream->create_deadline_ms = deadline_after(now_ms, kGatewayStreamCreateTimeoutMs);
+    stream->paused = paused;
     return true;
 }
 
@@ -120,6 +153,11 @@ GatewayCommandWriteResult gateway_stream_write(const GatewayStreamCommand& comma
         return gateway_write_stream_delete(command.key, output);
     case GatewayStreamCommandKind::ping:
         return gateway_write_stream_ping(command.key, output);
+    case GatewayStreamCommandKind::create:
+        return gateway_write_stream_create(command.key, output);
+    case GatewayStreamCommandKind::pause:
+    case GatewayStreamCommandKind::resume:
+        return gateway_write_stream_set_paused(command.key, command.kind == GatewayStreamCommandKind::pause, output);
     default:
         return {0, GatewayCommandError::invalid_input};
     }
@@ -128,7 +166,7 @@ GatewayCommandWriteResult gateway_stream_write(const GatewayStreamCommand& comma
 void gateway_stream_create(GatewayStreamControl* stream, const GatewayStreamCreate& event, u64 now_ms) noexcept {
     if (!matches(*stream, event.key))
         return;
-    stream->viewer_count = event.viewer_count;
+    viewers(stream, event.viewer_count, event.viewer_ids);
     stream->paused = event.paused;
     stream->create_deadline_ms = 0;
     if (!event.rtc_server_id)

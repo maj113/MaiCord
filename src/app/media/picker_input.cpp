@@ -613,7 +613,7 @@ bool application_media_picker_window_event(const WindowEvent& event) noexcept {
     const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
     const float x = point.x, y = point.y;
     const bool inside = ui_rect_contains(ui_rect_intersection(p->scene.panel, p->scene.viewport), x, y);
-    const bool resize_hit = !p->reaction_message_id &&
+    const bool resize_hit = !p->reaction_message_id && !p->field_mode &&
                             ui_rect_contains(p->scene.viewport, x, y) &&
                             ui_splitter_hit(p->scene.panel, UiSplitterEdge::left, x, y);
     if (p->resizing) {

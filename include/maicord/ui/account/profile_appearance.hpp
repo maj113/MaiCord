@@ -98,15 +98,25 @@ inline u32 profile_modal_background(u32 primary, u32 secondary, bool dark) noexc
     return background_color_pack(background_color_from_hsl(hsl));
 }
 
+// An avatar-themed card's colours until its avatar's are read (the official
+// client's PRIMARY_530 grey).
+inline constexpr u32 kProfileAvatarThemeFallback = 0x41434A;
+// Theme size of the avatar picture an avatar-themed card reads its colours from.
+inline constexpr float kProfileAvatarThemeDips = 80;
+
 // The per-server profile: guild values win when set, the accent colour is the
-// user's. Theme colours apply to Nitro (premium type 2) profiles and to previews.
+// user's. Nitro (premium type 2) profiles are themed; previews show a drafted theme.
 struct ProfileDisplay {
     Utf8View bio, pronouns, banner, avatar, decoration;
+    // The theme colours of a themed card; with avatar_theme the card has none of
+    // its own and takes its avatar's top two colours (ProfileScene::avatar_theme).
     u32 theme[2];
     u64 effect;
-    // Banner colour: theme primary, else the accent; has_color false when neither.
+    // Banner colour: the first theme colour, else user_profile.accent_color,
+    // black included; has_color false when neither, and the card takes its
+    // avatar's colour (ProfileScene::avatar_color).
     u32 color;
-    bool themed, has_color, guild_banner, guild_avatar;
+    bool themed, avatar_theme, has_color, guild_banner, guild_avatar;
 };
 inline ProfileDisplay profile_display(const UserProfile& p, bool preview = false) noexcept {
     ProfileDisplay d{};
@@ -119,15 +129,18 @@ inline ProfileDisplay profile_display(const UserProfile& p, bool preview = false
     d.decoration = p.guild_appearance.decoration.bytes ? p.guild_appearance.decoration.view()
                                                        : p.user_appearance.decoration.view();
     d.effect = p.guild_effect_sku_id ? p.guild_effect_sku_id : p.effect_sku_id;
-    d.themed = (p.has_guild_theme || p.has_theme) && (preview || p.premium_type == 2);
+    // The theme colours in force: the member profile's list when it has one (a
+    // reset list holds none), else the user's.
+    const bool colors = p.has_guild_theme || (!p.guild_theme_reset && p.has_theme);
     const u32* theme = p.has_guild_theme ? p.guild_theme_colors : p.theme_colors;
-    if (d.themed) {
+    d.themed = p.premium_type == 2 || (preview && colors);
+    d.avatar_theme = d.themed && !colors;
+    if (d.themed && colors) {
         d.theme[0] = theme[0];
         d.theme[1] = theme[1];
     }
     // The banner colour is theme_colors[0] ?? accent even without Nitro.
-    const bool colors = p.has_guild_theme || p.has_theme;
-    d.has_color = colors || p.accent_color;
+    d.has_color = colors || p.has_accent;
     d.color = colors ? theme[0] : p.accent_color;
     return d;
 }

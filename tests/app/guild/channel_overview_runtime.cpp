@@ -8,6 +8,7 @@
 #include "../../support/test_output.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "../../../src/app/shell/state.hpp"
+#include "../../../src/app/shell/window_state.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/text/edit_layout.hpp"
@@ -110,6 +111,52 @@ void permit(bool value = true) noexcept {
     channel.effective_permissions =
         kPermissionViewChannel | (value ? kPermissionManageChannels : 0);
     channel.actions = channel_action_view | (value ? channel_action_manage_channel : 0);
+}
+// The deferred dialog close (settings_modal_close): the scene stays bound while it fades and shrinks out, then the
+// exit spring's end, input or reduced motion releases it.
+SettingsDialog exit_dialog;
+constexpr UiPageKey kExitPage{0x45584954, 1}; // "EXIT"
+bool show_exit_dialog() noexcept {
+    exit_dialog.layer.scene = &exit_dialog.scene;
+    const bool shown = settings_dialog_begin(exit_dialog, kExitPage, utf8_literal("Exit")) &&
+                       settings_dialog_show(exit_dialog, kExitPage, 0, false, []() noexcept { return true; });
+    g_app.renderer.settings_modal_progress = 1; // the entrance has settled
+    return shown && g_app.renderer.settings_scene == &exit_dialog.scene;
+}
+void dialog_exit() noexcept {
+    g_window_state.visible = true;
+    g_window_state.minimized = false;
+    g_app.renderer.live_resize = false;
+    g_app.preferences.reduced_motion = false;
+    check(show_exit_dialog(), "Dialog exit: a shown dialog binds its scene");
+    settings_modal_close(exit_dialog, false);
+    settings_modal_exit_synchronize(1000);
+    check(exit_dialog.scene.active && g_app.renderer.settings_scene == &exit_dialog.scene &&
+              g_app.renderer.settings_modal_progress == 1,
+          "Dialog exit: closing keeps the scene bound and shown as its exit starts");
+    settings_modal_exit_synchronize(1120);
+    const float leaving = g_app.renderer.settings_modal_progress;
+    check(leaving > 0 && leaving < 1 && exit_dialog.scene.active,
+          "Dialog exit: the dialog fades and shrinks on the exit spring");
+    settings_modal_exit_synchronize(1240);
+    check(!exit_dialog.scene.active && !g_app.renderer.settings_scene && g_app.renderer.settings_modal_progress == 1,
+          "Dialog exit: the end of the exit releases the scene and restores the identity pose");
+    check(show_exit_dialog(), "Dialog exit: the dialog opens again");
+    settings_modal_close(exit_dialog, false);
+    settings_modal_exit_synchronize(2000);
+    settings_modal_finish_exit();
+    check(!exit_dialog.scene.active && !g_app.renderer.settings_scene,
+          "Dialog exit: input ends a playing exit at once");
+    check(show_exit_dialog(), "Dialog exit: the dialog opens a third time");
+    settings_modal_close(exit_dialog, false);
+    check(show_exit_dialog() && exit_dialog.scene.active && g_app.renderer.settings_scene == &exit_dialog.scene,
+          "Dialog exit: reopening during the exit ends it first and binds the new opening");
+    g_app.preferences.reduced_motion = true;
+    settings_modal_close(exit_dialog, false);
+    check(!exit_dialog.scene.active && !g_app.renderer.settings_scene,
+          "Dialog exit: reduced motion closes at once");
+    g_app.preferences.reduced_motion = false;
+    ui_settings_scene_release(&exit_dialog.scene);
 }
 void run() noexcept {
     g_app.window = window_test::open();
@@ -407,6 +454,7 @@ void run() noexcept {
     check(!owner && !g_app.renderer.settings_scene &&
               !application_channel_overview_next_wake() && !application_channel_overview_caret_wake(),
           "Overview runtime: release removes owner scene binding and all deadlines");
+    dialog_exit();
     window_test::close();
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
@@ -433,6 +481,9 @@ bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32* po
     *position = 0;
     return true;
 }
+u64 text_edit_signature(Utf8View) noexcept {
+    return 0;
+}
 bool clipboard_write_utf8(const Utf8View&) noexcept {
     return true;
 }
@@ -457,6 +508,14 @@ ClipboardTextResult clipboard_read_utf8(const Slice<char>&) noexcept {
     }                                                                                    \
     u64 owner##_next_wake() noexcept { return 0; }
 namespace app_detail {
+// The shared scheduler's tick on the test's explicit clock (surface_motion.cpp's own host is not linked here).
+float application_motion_tick(UiMotionTransition* transition, const UiMotionScope& scope, float target, u64 now_ms,
+                              const UiMotionStyle& style) noexcept {
+    if (!transition->scope.owner)
+        ui_motion_transition_reset(transition, scope, target);
+    ui_motion_transition_tick(transition, scope, target, now_ms, style, application_reduced_motion(), true);
+    return transition->value;
+}
 INACTIVE_MODAL_CORE(application_guild_settings)
 INACTIVE_MODAL_REQUESTS(application_guild_settings, Utf8View)
 void application_guild_settings_gateway(const GatewayClientEvent&, const Utf8View&) noexcept {}
@@ -471,6 +530,7 @@ INACTIVE_MODAL_CORE(application_guild_community)
 INACTIVE_MODAL_REQUESTS(application_guild_community, Utf8View)
 INACTIVE_MODAL_CORE(application_custom_status)
 INACTIVE_MODAL_CORE(application_plugin_settings)
+INACTIVE_MODAL_CORE(application_game_profile)
 bool application_profile_editor_input(UiInputKind, u32, bool) noexcept { return false; }
 bool application_profile_editor_window_event(const WindowEvent&) noexcept { return false; }
 SettingsLayer* application_profile_editor_edit_layer() noexcept { return nullptr; }

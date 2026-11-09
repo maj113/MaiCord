@@ -232,6 +232,25 @@ bool paint_stream_push_edge_strip(PaintStream* stream, const UiRect& shape, floa
     return true;
 }
 
+bool paint_stream_push_banner_glow(PaintStream* stream, const UiRect& rectangle, const Color& outer, const Color& inner,
+                                   float radius, float gradient_height) noexcept {
+    if (!stream || !paint_coordinate_valid(gradient_height) || !(gradient_height > 0)) {
+        if (stream)
+            ++stream->rejected;
+        return false;
+    }
+    const u32 before = stream->count;
+    if (!paint_stream_push_rounded(stream, rectangle, outer, radius))
+        return false;
+    if (stream->count != before) {
+        auto& quad = stream->quads[before];
+        quad.border = inner;
+        quad.border_width = kPaintBannerGlowMode;
+        quad.reserved_x = gradient_height;
+    }
+    return true;
+}
+
 bool paint_stream_push_sv_square(PaintStream* stream, const UiRect& rectangle, const Color& hue, float radius) noexcept {
     const u32 before = stream ? stream->count : 0;
     if (!paint_stream_push_rounded(stream, rectangle, hue, radius))

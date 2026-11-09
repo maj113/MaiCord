@@ -2,6 +2,7 @@
 #include "theme_views_probe.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
+#include "maicord/ui/widgets/color_picker.hpp"
 
 namespace maicord {
 namespace {
@@ -281,9 +282,9 @@ bool theme_editor_pixels(BackgroundThemeProbeContext c, Theme theme) noexcept {
     };
     {
         PixelReadback pixels{r};
-        if (!sample(pixels, sv->rectangle, .25f, .25f, ui_theme_editor_hsv_rgb(editor.hue, .25f, .75f)))
+        if (!sample(pixels, sv->rectangle, .25f, .25f, color_picker_rgb({editor.hue, .25f, .75f})))
             return failure(24);
-        if (!sample(pixels, hue->rectangle, .08f, .5f, ui_theme_editor_hsv_rgb(.08f, 1, 1)))
+        if (!sample(pixels, hue->rectangle, .08f, .5f, color_picker_rgb({.08f, 1, 1})))
             return failure(25);
         if (!sample(pixels, gradient->rectangle, .25f, .5f, 0x666600))
             return failure(26);

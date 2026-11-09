@@ -63,7 +63,15 @@ VertexOutput ui_vertex(VertexInput input, uint vertex_id : SV_VertexID) {
     const float2 premultiply = kind >= 0.0f ? alpha : 1.0f;
     output.fill = float4(input.fill.rgb * premultiply.x, alpha.x);
     output.border = float4(input.border.rgb * premultiply.y, alpha.y);
-    output.local_and_dip = float4(lerp(-half_size, half_size, corner), position);
+    float2 local = lerp(-half_size, half_size, corner);
+    // A turned icon (kind -9, border.a radians clockwise; see ui_icon_paint_turned) samples its square cell
+    // along the reverse turn. Unturned icons keep the exact 1:1 pixel-snapped read.
+    if (kind == -9.0f && input.border.a != 0.0f) {
+        float s, c;
+        sincos(input.border.a, s, c);
+        local = float2(c * local.x + s * local.y, c * local.y - s * local.x);
+    }
+    output.local_and_dip = float4(local, position);
     output.parameters = input.parameters;
     output.half_size = half_size;
     return output;
@@ -213,6 +221,15 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
                  saturate((position - input.fill.a) / max(input.border.a - input.fill.a, 0.0001f)));
         const float alpha = group_opacity * saturate(0.5f - signed_distance / antialias_width);
         return float4(color * alpha, alpha);
+    }
+    if (input.parameters.y == -11.0f) {
+        // Server profile banner: radial-gradient(105.43% 127.05% at 50.1% 127.05%, border 20.65%, fill 85.16%)
+        // over the quad's width and its top parameters.z DIPs.
+        const float width = half_size.x * 2.0f, height = input.parameters.z;
+        const float2 offset = local + half_size - float2(width * 0.501f, height * 1.2705f);
+        const float t = length(offset / max(float2(width * 1.0543f, height * 1.2705f), 0.0001f));
+        const float4 color = lerp(input.border, input.fill, saturate((t - 0.2065f) / (0.8516f - 0.2065f)));
+        return float4(color.rgb * color.a, color.a) * saturate(0.5f - signed_distance / antialias_width);
     }
     // -2: vertical two-colour gradient.
     const float4 gradient =

@@ -28,6 +28,12 @@ enum GuildSettingsSection : u32 {
     guild_settings_bans = 1u << 8,
     // Shown like Server Profile; the custom invite link needs Administrator.
     guild_settings_boost_perks = 1u << 9,
+    // Integrations (apps, webhooks, followed channels): Manage Server or Manage Webhooks.
+    guild_settings_integrations = 1u << 10,
+    // AutoMod rules: Manage Server.
+    guild_settings_automod = 1u << 11,
+    // Server Tag (the guild tag editor): Manage Server.
+    guild_settings_server_tag = 1u << 12,
 };
 // Any of these opens Server Settings; Kick and Timeout Members alone do not.
 inline constexpr PermissionSet kGuildSettingsOpenPermissions =
@@ -106,9 +112,11 @@ enum class GuildProfileImageEdit : u8 {
     replace,
     remove,
 };
+// custom_banner: replace while a new custom banner (Discoverable servers' upload tile) waits for the save.
 struct GuildServerProfileDraft {
     GuildAdminProfile profile;
     GuildProfileImageEdit icon;
+    GuildProfileImageEdit custom_banner;
 };
 // The Banner presets after "Server Icon Color": brand_color_primary values.
 inline constexpr u32 kGuildProfileBannerColorCount = 9;
@@ -126,14 +134,31 @@ void guild_server_profile_set_private(GuildServerProfileDraft*, const GuildAdmin
 // The selected Banner swatch: 0 for the icon colour, 1 + preset index, or
 // ~0u for anything else (an uploaded banner or another colour).
 u32 guild_server_profile_banner_choice(const GuildServerProfileDraft&) noexcept;
-// Picks a swatch: the preset colour (none for 0) and no uploaded banner.
+// Picks a swatch: the preset colour (none for 0) and no uploaded banner, which
+// is how the official page removes a custom banner.
 void guild_server_profile_set_banner_choice(GuildServerProfileDraft*, u32 choice) noexcept;
-// The PATCH /guilds/{g}/profile body of a draft. `icon_uri` is the new icon
-// when it is replaced. Trait emoji resolve against the guild's custom emoji;
-// an unknown custom emoji is left out. `traits` receives the trait views the
-// write borrows, as do the draft's strings. False for an invalid draft.
-bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View icon_uri, const ChatStateStore& state,
-                                u64 guild_id, Slice<GuildServerProfileTraitWrite> traits,
+// A new custom banner replaces the stored one; its data URI goes to the write.
+void guild_server_profile_set_custom_banner(GuildServerProfileDraft*) noexcept;
+// Traits: up to five slots of an emoji and a label of 1-24 characters (a
+// label longer than that is cut at a character). A slot saves only with a
+// label. A standard emoji is stored by its name, as the official client writes
+// emoji_name ("video_game"); setting one replaces any stored custom emoji;
+// clearing empties the slot.
+bool guild_server_profile_set_trait_label(GuildServerProfileDraft*, u32 slot, Utf8View label) noexcept;
+bool guild_server_profile_set_trait_emoji(GuildServerProfileDraft*, u32 slot, Utf8View name) noexcept;
+void guild_server_profile_clear_trait(GuildServerProfileDraft*, u32 slot) noexcept;
+// Games: the chosen applications in the order they were added, at most
+// kGuildAdminProfileGameMaximum. Toggling adds an absent game (false when
+// full) or removes a present one.
+bool guild_server_profile_has_game(const GuildServerProfileDraft&, u64 application_id) noexcept;
+bool guild_server_profile_toggle_game(GuildServerProfileDraft*, u64 application_id) noexcept;
+// The PATCH /guilds/{g}/profile body of a draft. `icon_uri` and
+// `custom_banner_uri` are the new pictures' data URIs when replaced. Trait
+// emoji resolve against the guild's custom emoji; an unknown custom emoji is
+// left out. `traits` receives the trait views the write borrows, as do the
+// draft's strings. False for an invalid draft.
+bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View icon_uri, Utf8View custom_banner_uri,
+                                const ChatStateStore& state, u64 guild_id, Slice<GuildServerProfileTraitWrite> traits,
                                 GuildServerProfileWrite* write) noexcept;
 
 // Boost Perks draft: the guild PATCH sends all three every time; unchanged
@@ -269,7 +294,6 @@ bool guild_settings_order_changed(const ChatStateStore&, u64 guild_id, ConstSlic
 // Role colours: 0 means none. Hex parsing accepts "#RRGGBB" or "RRGGBB".
 inline constexpr u32 kGuildRoleColorCount = 20;
 extern const u32 kGuildRoleColors[kGuildRoleColorCount];
-u32 guild_role_color_format(u32 color, Slice<char> output) noexcept;
 // Packed RGBA for presentation, with a neutral grey for no colour.
 u32 guild_role_color_rgba(u32 color) noexcept;
 // Avatar fill for a person without a role colour, stable per user.

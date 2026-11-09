@@ -77,6 +77,9 @@ GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* clien
         runtime->video_frames.bind_keyframes(runtime->video_frames.context, {});
     gateway_voice_release(&runtime->voice);
     gateway_stream_session_release(&runtime->stream);
+    gateway_go_live_release(&runtime->go_live);
+    // A replaced token the worker had not sent yet is the one the profile keeps.
+    gateway_adopt_replacement_credential(runtime);
     if (runtime->credential.data &&
         secure_buffer_transfer(&returned_profile->credential, &runtime->credential)) {
         returned_profile->metadata = runtime->user->metadata;
@@ -176,6 +179,33 @@ bool gateway_client_take_refreshed_credential(GatewayClient* client, SecureBuffe
                        secure_buffer_transfer(output, &runtime->refreshed_credential);
     ReleaseSRWLockExclusive(&runtime->resume_lock);
     return taken;
+}
+
+bool gateway_client_replace_credential(GatewayClient* client, ConstSlice<u8> token) noexcept {
+    auto* runtime = user_runtime(client);
+    if (!runtime || !token.count || token.count > kGatewayUserMaximumTokenBytes)
+        return false;
+    for (u32 i = 0; i < token.count; ++i)
+        if (token.data[i] <= 0x20 || token.data[i] >= 0x7F)
+            return false;
+    SecureBuffer worker{}, owner{};
+    if (!secure_buffer_initialize(&worker, token.count).ok() || !secure_buffer_assign(&worker, token).ok() ||
+        !secure_buffer_initialize(&owner, token.count).ok() || !secure_buffer_assign(&owner, token).ok()) {
+        secure_buffer_release(&worker);
+        secure_buffer_release(&owner);
+        return false;
+    }
+    // The worker takes its copy at its next IDENTIFY or RESUME; the owner takes the other the way it takes a token
+    // READY refreshed (REST and the saved profile).
+    AcquireSRWLockExclusive(&runtime->resume_lock);
+    secure_buffer_release(&runtime->replacement_credential);
+    secure_buffer_transfer(&runtime->replacement_credential, &worker);
+    secure_buffer_release(&runtime->refreshed_credential);
+    secure_buffer_transfer(&runtime->refreshed_credential, &owner);
+    ReleaseSRWLockExclusive(&runtime->resume_lock);
+    if (client->notification_event)
+        event_set(client->notification_event);
+    return true;
 }
 
 bool gateway_client_subscribe_guild_members(GatewayClient* client,
@@ -768,6 +798,56 @@ bool gateway_client_has_video_frames(const GatewayClient* client, const void* co
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
     AcquireSRWLockShared(&runtime->voice_lock);
     const bool installed = runtime->video_frames.context == context;
+    ReleaseSRWLockShared(&runtime->voice_lock);
+    return installed;
+}
+
+bool gateway_client_go_live(GatewayClient* client, const GoLiveCommand& command) noexcept {
+    auto* runtime = user_runtime(client);
+    if (!runtime || !client->worker.thread || load_phase(client) != GatewayClientPhase::ready)
+        return false;
+    AcquireSRWLockExclusive(&runtime->voice_lock);
+    const auto& voice = runtime->voice_snapshot;
+    // Streaming needs the local call in the stream's channel; the worker re-checks.
+    const bool allowed = command.kind != GoLiveCommandKind::start ||
+                         (voice.phase != VoiceSetupPhase::idle && voice.channel_id == command.channel_id);
+    const bool queued = allowed && runtime->go_live_command_count != kGatewayGoLiveCommands;
+    if (queued)
+        runtime->go_live_commands[runtime->go_live_command_count++] = command;
+    ReleaseSRWLockExclusive(&runtime->voice_lock);
+    if (queued)
+        wake_worker(client, &runtime->voice_signal);
+    return queued;
+}
+
+bool gateway_client_go_live_snapshot(const GatewayClient* client, GoLiveSnapshot* output) noexcept {
+    auto* runtime = user_runtime(client);
+    if (!runtime || !output)
+        return false;
+    AcquireSRWLockShared(&runtime->voice_lock);
+    *output = runtime->go_live_snapshot;
+    ReleaseSRWLockShared(&runtime->voice_lock);
+    return true;
+}
+
+bool gateway_client_set_go_live_backend(GatewayClient* client, const GoLiveBackend& backend) noexcept {
+    auto* runtime = user_runtime(client);
+    if (!runtime || !client->worker.thread)
+        return false;
+    AcquireSRWLockExclusive(&runtime->voice_lock);
+    runtime->go_live_backend = backend;
+    runtime->go_live_backend_dirty = true;
+    ReleaseSRWLockExclusive(&runtime->voice_lock);
+    wake_worker(client, &runtime->voice_signal);
+    return true;
+}
+
+bool gateway_client_has_go_live_backend(const GatewayClient* client) noexcept {
+    if (!client || !client->runtime)
+        return false;
+    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
+    AcquireSRWLockShared(&runtime->voice_lock);
+    const bool installed = runtime->go_live_backend.context != nullptr;
     ReleaseSRWLockShared(&runtime->voice_lock);
     return installed;
 }

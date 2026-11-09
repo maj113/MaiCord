@@ -1042,7 +1042,7 @@ void test_message_text_presentation() noexcept {
                 (utf8_equal(command.text,
                             utf8_literal("Reply Author A reply to @Layout Author in \xE2\x80\x83\xE2\x80\x85\xE2\x80\x8D"
                                          "reply-channel whose measured width must be ellipsized")) &&
-                 ui_rect_height(command.rectangle) == 18.0f &&
+                 ui_rect_height(command.rectangle) == message_scene_reply_line_height(scene) &&
                  command.wrapping == TextWrapping::no_wrap &&
                  command.overflow == TextOverflow::ellipsis && command.styles.count >= 3 &&
                  // The quoted <#7> chip keeps only its icon cell, never a hit target.
@@ -1723,6 +1723,239 @@ void test_message_text_presentation() noexcept {
             !message_text_presentation_toggle_spoiler(&presentation, store, nullptr, spoiler_hit, &stale_changed) &&
             !stale_changed,
         "message_text_stale_interaction_revision_is_rejected");
+}
+
+namespace {
+// A measurer that follows the text size: a line is the glyph box of its largest run (1.3 em; Segoe UI's is 1.33), a
+// character half an em, at the chat em for chat-face requests and at 16 for the interface's.
+struct ChatTextSizeMeasure {
+    float chat_em;
+    u32 chat_requests, interface_requests;
+};
+bool chat_text_size_measure(void* opaque, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
+    auto* fixture = static_cast<ChatTextSizeMeasure*>(opaque);
+    if (!fixture || !value || request.constraint.width <= 0.0f || request.constraint.height <= 0.0f)
+        return false;
+    const bool chat = ui_text_face_is_chat(request.face);
+    ++(chat ? fixture->chat_requests : fixture->interface_requests);
+    const float em = chat ? fixture->chat_em : 16.0f;
+    float size = 0.0f;
+    u32 covered = 0;
+    for (u32 i = 0; i < request.styles.count; ++i) {
+        const auto& span = request.styles[i];
+        size = maximum(size, text_style_font_size(em, text_style_fold_size(span.flags, span.size)));
+        covered += span.byte_count;
+    }
+    if (covered < request.text.bytes || !(size > 0.0f))
+        size = maximum(size, em);
+    const float line = size * 1.3f, glyph = size * 0.5f;
+    const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / glyph));
+    const u32 lines =
+        request.text.bytes == 0 ? 0u : request.no_wrap ? 1u : (request.text.bytes + columns - 1u) / columns;
+    const float natural = static_cast<float>(request.text.bytes) * glyph;
+    *value = UiTextMeasureValue{UiSize{minimum(request.constraint.width, natural), static_cast<float>(lines) * line},
+                                lines};
+    return true;
+}
+bool chat_text_size_finalize(void*, const Theme&) noexcept {
+    return true;
+}
+} // namespace
+
+// Accessibility's Text size in chat sizes message text only. At 12, 16 and 24 every line the scene lays out holds
+// the glyph box of its text (the author line, the reply, the body, the embed), the author line is the chat size's
+// own, and the reaction pill's fixed-box label stays at the interface's size.
+void test_chat_text_size() noexcept {
+    MessageRecord records[1]{};
+    u32 order[1]{};
+    u8 source_text[512]{};
+    MessageStore store{};
+    u32 item_units[1]{};
+    u64 fenwick[1]{};
+    UiVariableList list{};
+    MessageTimeline timeline{};
+    MessageScene scene{};
+    MessageSceneRowWidget rows[1]{};
+    UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
+    UiLayoutNode layout[kMessageSceneWidgetsPerRow + 1]{};
+    const u32 default_units = ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height);
+    const bool model_ready =
+        message_store_initialize(&store, Slice<MessageRecord>{records, 1}, Slice<u32>{order, 1},
+                                 Slice<u8>{source_text, 512}) &&
+        message_store_upsert(&store, MessageInput{91'000, 7, 9, 1'700'000'000'000ull, 0,
+                                                  utf8_literal("**Bold** words that wrap across the row and `code`"),
+                                                  0})
+            .ok() &&
+        ui_variable_list_initialize(&list, Slice<u32>{item_units, 1}, Slice<u64>{fenwick, 1}, 1, default_units) &&
+        message_timeline_initialize(&timeline, &store, &list, default_units, ui_extent_units(320.0f), true) &&
+        message_scene_initialize(&scene, &timeline, Slice<MessageSceneRowWidget>{rows, 1},
+                                 Slice<UiWidget>{widgets, kMessageSceneWidgetsPerRow + 1},
+                                 Slice<UiLayoutNode>{layout, kMessageSceneWidgetsPerRow + 1});
+    GatewayMessageEmbed embeds[1]{};
+    embeds[0].type = GatewayMessageEmbedType::rich;
+    embeds[0].author_name = utf8_literal("Embed author");
+    embeds[0].title = utf8_literal("Embed title");
+    embeds[0].description = utf8_literal("An embed description long enough to wrap onto a second line");
+    embeds[0].footer_text = utf8_literal("Embed footer");
+    GatewayMessageReaction reactions[2]{};
+    for (u32 index = 0; index < 2; ++index) {
+        reactions[index].name = utf8_literal("spark");
+        reactions[index].count = index + 1;
+        reactions[index].normal_count = index + 1;
+    }
+    GatewayMessageEvent rich_event{};
+    rich_event.id = 91'000;
+    rich_event.fields = gateway_message_field_message_reference | gateway_message_field_referenced_message |
+                        gateway_message_field_reactions | gateway_message_field_embeds;
+    rich_event.reference.message_id = 90'999;
+    rich_event.reference.channel_id = 7;
+    rich_event.reference.author_id = 8;
+    rich_event.reference.author_name = utf8_literal("Reply Author");
+    rich_event.reference.content = utf8_literal("The quoted message");
+    rich_event.reference.state = GatewayMessageReferenceState::available;
+    rich_event.embeds = ConstSlice<GatewayMessageEmbed>{embeds, 1};
+    rich_event.reactions = ConstSlice<GatewayMessageReaction>{reactions, 2};
+    MessageRichStore rich_store{};
+    const MessageStoreResult source_record = message_store_find(store, 91'000);
+    const MessageRecord* source_message =
+        source_record.ok() ? message_store_resolve(store, source_record.handle) : nullptr;
+    const bool rich_ready =
+        model_ready && source_message &&
+        message_rich_store_initialize(
+            &rich_store, Slice<MessageRichRecord>{g_message_scene_rich_records, 32},
+            Slice<u16>{g_message_scene_rich_order, 32}, Slice<u8>{g_message_scene_rich_text, 16 * 1024}) &&
+        message_timeline_bind_rich_store(&timeline, &rich_store) &&
+        message_rich_store_apply(&rich_store, 91'000, source_message->revision, rich_event).ok();
+    MessageTextPresentation presentation{};
+    const bool presentation_ready = message_text_presentation_initialize(
+        &presentation, Slice<MessageTextCommand>{g_message_text_commands, kMaximumMessageTextCommands},
+        Slice<char>{g_message_text_utf8, kMaximumMessageTextUtf8Bytes},
+        Slice<TextStyleSpan>{g_message_text_styles, kMaximumMessageTextStyleSpans},
+        Slice<MessageMarkdownSemantic>{g_message_text_semantics, kMaximumMessageTextSemantics},
+        Slice<MessageTextMeasurement>{g_message_text_measurements, kMaximumMessageTextMeasurements},
+        Slice<MessageTextSpoilerReveal>{g_message_text_spoiler_reveals, kMaximumMessageTextSpoilerReveals},
+        Slice<u32>{g_message_text_byte_styles, kMessageTextByteStyleScratchCapacity});
+    ChatStateStore state{};
+    GuildRecord state_guilds[1]{};
+    u16 state_guild_order[1]{};
+    ChannelRecord state_channels[1]{};
+    u16 state_channel_order[1]{};
+    RoleRecord state_roles[1]{};
+    PermissionOverwriteRecord state_overwrites[1]{};
+    u8 state_names[256]{};
+    NavigationView navigation{};
+    UserStore users{};
+    UserRecord user_records[1]{};
+    u32 user_order[1]{};
+    u8 user_names[32]{};
+    const bool state_ready =
+        user_store_initialize(&users, Slice<UserRecord>{user_records, 1}, Slice<u32>{user_order, 1},
+                              Slice<u8>{user_names, 32}) &&
+        user_store_upsert(&users, 9, utf8_literal("Layout Author")).ok() &&
+        chat_state_store_initialize(&state, Slice<GuildRecord>{state_guilds, 1}, Slice<u16>{state_guild_order, 1},
+                                    Slice<ChannelRecord>{state_channels, 1}, Slice<u16>{state_channel_order, 1},
+                                    Slice<u8>{state_names, 256}) &&
+        chat_state_store_bind_permissions(&state, Slice<RoleRecord>{state_roles, 1},
+                                          Slice<PermissionOverwriteRecord>{state_overwrites, 1}) &&
+        chat_state_store_upsert_guild(
+            &state, GuildInput{70, utf8_literal("Reply Guild"), GuildMutationKind::create, 9})
+            .ok() &&
+        chat_state_store_upsert_channel(&state, ChannelInput{7, 70, 0, utf8_literal("reply-channel"), 0, 0, 0}).ok();
+    navigation.selected_channel_id = 7;
+    ChatTextSizeMeasure fixture{};
+    UiTextMeasureCache cache{};
+    const bool cache_ready =
+        ui_text_measure_cache_initialize(&cache,
+                                         Slice<UiTextMeasureRecord>{g_message_text_coordinator_records,
+                                                                    kMaximumMessageTextMeasureCacheRecords},
+                                         chat_text_size_measure, &fixture);
+    const MessageTextCoordinatorRequest request{&scene,         &presentation,        &cache, &state,
+                                                &users,         &navigation,          &kDefaultTheme,
+                                                chat_text_size_finalize, nullptr, 1'700'000'100ull, 1};
+    const bool arranged = message_scene_update(&scene, UiRect{0.0f, 0.0f, 720.0f, 320.0f}).ok();
+    expect(rich_ready && presentation_ready && state_ready && cache_ready && arranged,
+           "chat_text_size_fixture_is_ready");
+    if (!(rich_ready && presentation_ready && state_ready && cache_ready && arranged))
+        return;
+
+    constexpr float sizes[]{12.0f, 16.0f, 24.0f};
+    float author_lines[3]{}, reaction_heights[3]{}, content_heights[3]{};
+    bool fits_at[2][3]{};
+    UiResolvedThemeStyles styles{};
+    // Cozy rows, then compact ones (the name and the time join the text's flow).
+    for (u32 mode = 0; mode < 2; ++mode) {
+        if (mode && !message_scene_set_display(&scene, MessageSceneDisplay{0, true})) {
+            expect(false, "chat_text_size_compact_display_applies");
+            return;
+        }
+        for (u32 at = 0; at < 3; ++at) {
+            // 16 is the theme's own size, which the publication stores as "follows the body size".
+            UiThemeTypography typography{};
+            typography.chat_size = sizes[at] == 16.0f ? 0.0f : sizes[at];
+            const bool applied = ui_theme_styles_apply(&styles, typography, UiThemeMetrics{}).ok() &&
+                                 message_scene_bind_theme_styles(&scene, &styles);
+            fixture = ChatTextSizeMeasure{sizes[at], 0, 0};
+            ui_text_measure_cache_invalidate(&cache);
+            const MessageTextCoordinatorResult converged = applied ? message_text_coordinator_converge(request)
+                                                                   : MessageTextCoordinatorResult{};
+            bool fits = converged.ok() && converged.finalized && presentation.command_count != 0 && scene.count == 1;
+            for (u32 i = 0; fits && i < presentation.command_count; ++i) {
+                const MessageTextCommand& command = presentation.commands[i];
+                // No glyph box taller than the line that holds it. (A reaction's label sits in its fixed 24-DIP pill
+                // at the interface's size: the measurer's 1.3 em box is a little over that pill's inner 20.)
+                fits = command.measurement_kind == MessageTextMeasurementKind::reaction ||
+                       command.measured_height <= ui_rect_height(command.rectangle) + 0.01f;
+                if (mode)
+                    continue;
+                if (command.measurement_kind == MessageTextMeasurementKind::reaction && !reaction_heights[at])
+                    reaction_heights[at] = command.measured_height;
+                if (command.measurement_kind == MessageTextMeasurementKind::content && !content_heights[at])
+                    content_heights[at] = command.measured_height;
+                if (command.measurement_kind == MessageTextMeasurementKind::none && !author_lines[at] &&
+                    command.owner.handle.slot == scene.rows[0].author.slot)
+                    author_lines[at] = ui_rect_height(command.rectangle);
+            }
+            fits_at[mode][at] = fits && fixture.chat_requests != 0 && fixture.interface_requests != 0;
+        }
+    }
+    expect(fits_at[0][0], "chat_text_size_12_every_line_holds_its_glyph_box");
+    expect(fits_at[0][1], "chat_text_size_16_every_line_holds_its_glyph_box");
+    expect(fits_at[0][2], "chat_text_size_24_every_line_holds_its_glyph_box");
+    expect(fits_at[1][0] && fits_at[1][1] && fits_at[1][2],
+           "chat_text_size_compact_rows_hold_their_glyph_boxes_at_12_16_and_24");
+    const auto equal = [](float a, float b) noexcept { return a - b < 0.01f && b - a < 0.01f; };
+    expect(equal(author_lines[0], 12.0f * 1.3125f) && equal(author_lines[1], 16.0f * 1.3125f) &&
+               equal(author_lines[2], 24.0f * 1.3125f),
+           "chat_text_size_author_line_is_the_chat_sizes_own");
+    expect(content_heights[0] > 0.0f && content_heights[0] < content_heights[1] &&
+               content_heights[1] < content_heights[2],
+           "chat_text_size_body_grows_with_the_setting");
+    expect(reaction_heights[0] > 0.0f && equal(reaction_heights[0], reaction_heights[1]) &&
+               equal(reaction_heights[1], reaction_heights[2]),
+           "chat_text_size_reaction_label_stays_at_the_interface_size");
+    // Which commands are chat text: the author line, replies, the body and embeds; reactions, file cards, components,
+    // notices and the unread divider's label sit in fixed boxes and keep the interface's size.
+    constexpr MessageTextMeasurementKind chat_kinds[]{MessageTextMeasurementKind::none, MessageTextMeasurementKind::reply,
+                                                      MessageTextMeasurementKind::content,
+                                                      MessageTextMeasurementKind::embed};
+    constexpr MessageTextMeasurementKind box_kinds[]{MessageTextMeasurementKind::attachment,
+                                                     MessageTextMeasurementKind::component,
+                                                     MessageTextMeasurementKind::reaction,
+                                                     MessageTextMeasurementKind::notice};
+    MessageTextCommand sample{};
+    bool faces = true;
+    for (const auto kind : chat_kinds) {
+        sample.measurement_kind = kind;
+        faces = faces && ui_text_face_is_chat(message_text_command_face(sample));
+    }
+    for (const auto kind : box_kinds) {
+        sample.measurement_kind = kind;
+        faces = faces && !ui_text_face_is_chat(message_text_command_face(sample));
+    }
+    sample.measurement_kind = MessageTextMeasurementKind::none;
+    sample.interface_text = true;
+    faces = faces && !ui_text_face_is_chat(message_text_command_face(sample));
+    expect(faces, "chat_text_size_commands_in_fixed_boxes_keep_the_interface_size");
 }
 
 void test_message_rich_widget_materializer() noexcept {

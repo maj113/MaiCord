@@ -9,10 +9,14 @@
 #include "maicord/protocol/guild/invite.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
+#include "maicord/ui/layout/density.hpp"
 #include "maicord/ui/guild/rail_scene.hpp"
 #include "maicord/ui/guild/channel_controls.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/shell/presentation.hpp"
+#include "maicord/ui/shell/notice_band.hpp"
+#include "maicord/ui/core/paint.hpp"
+#include "maicord/ui/core/scene.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -586,6 +590,8 @@ void channel_controls() noexcept {
     text.effective_permissions |= kPermissionManageRoles;
     check(edit_denied && channel_controls_can_edit(text), "Manage Permissions alone opens Edit Channel");
 
+    // UI Density's Compact keeps the 30-DIP channel row (Default is 34, Spacious 38).
+    g_ui_density = UiDensity::compact;
     const UiRect row{0, 0, 240, 30};
     ChannelViewRow channel{};
     channel.controls = channel_row_invite | channel_row_settings;
@@ -602,6 +608,17 @@ void channel_controls() noexcept {
     channel.mention_count = 3;
     check(ui_rect_equal(shell_navigation_control_rectangle(row, channel, channel_row_settings), {190, 7, 206, 23}),
           "row controls sit before a mention badge");
+    channel.mention_count = 0;
+    g_ui_density = UiDensity::standard;
+    const bool standard = shell_navigation_row_height(channel) == 34 &&
+                          ui_rect_equal(shell_navigation_control_rectangle({0, 0, 240, 34}, channel, channel_row_settings),
+                                        {212, 9, 228, 25});
+    g_ui_density = UiDensity::spacious;
+    check(standard && shell_navigation_row_height(channel) == 38 &&
+              ui_rect_equal(shell_navigation_control_rectangle({0, 0, 240, 38}, channel, channel_row_settings),
+                        {212, 11, 228, 27}),
+          "UI Density: Default channel rows are 34 DIPs and Spacious 38, the controls centred in them");
+    g_ui_density = UiDensity::standard;
     ChannelViewRow group{};
     group.type = 4;
     group.controls = channel_row_create;
@@ -619,6 +636,79 @@ void channel_controls() noexcept {
           "the server header's chevron follows the name inside the dropdown's fill");
 }
 
+// ---- notice band ----------------------------------------------------------
+void notice_band() noexcept {
+    static UiScene scene{};
+    UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+    const bool plain = ui_scene_initialize_bootstrap(&scene) &&
+                       ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, metrics, 1280, 800);
+    const auto* rail = plain ? ui_scene_node(scene, UiSemantic::guild_rail) : nullptr;
+    const auto* title = plain ? ui_scene_node(scene, UiSemantic::title_bar) : nullptr;
+    const float rail_top = rail ? rail->rectangle.top : -1, title_top = title ? title->rectangle.top : -1;
+    const float rail_bottom = rail ? rail->rectangle.bottom : -1;
+    metrics.notice_height = kUiNoticeBandHeight;
+    ++metrics.revision;
+    const bool inset = ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, metrics, 1280, 800);
+    rail = ui_scene_node(scene, UiSemantic::guild_rail);
+    title = ui_scene_node(scene, UiSemantic::title_bar);
+    const auto* root = ui_scene_node(scene, UiSemantic::root);
+    check(plain && inset && rail && title && root && rail->rectangle.top == rail_top + 36 &&
+              title->rectangle.top == title_top + 36 && rail->rectangle.bottom == rail_bottom &&
+              root->rectangle.top == 0 && root->rectangle.bottom == 800,
+          "notice band: the shell lays out below its 36-DIP inset, the root still spans the window");
+
+    UiNoticeBand band{};
+    band.text = utf8_literal("Test mode is currently active for Starfall. Unpublished SKUs will appear.");
+    band.bold[0] = {34, 8, text_style_bold};
+    band.bold_count = 1;
+    band.action = utf8_literal("Disable");
+    band.kind = UiNoticeKind::warning;
+    band.dismissible = true;
+    band.height = kUiNoticeBandHeight;
+    const auto g = ui_notice_band_geometry(band, root->rectangle, nullptr);
+    check(ui_rect_equal(g.band, {0, 0, 1280, 36}) && ui_rect_equal(g.dismiss, {1244, 0, 1280, 36}) &&
+              g.action.left >= g.text.right + 8 && g.action.bottom - g.action.top == 24 &&
+              ui_notice_band_hit(g, 1260, 18) == UiNoticeBandPart::dismiss &&
+              ui_notice_band_hit(g, (g.action.left + g.action.right) * .5f, 18) == UiNoticeBandPart::action &&
+              ui_notice_band_hit(g, g.text.left + 4, 18) == UiNoticeBandPart::band &&
+              ui_notice_band_hit(g, 640, 40) == UiNoticeBandPart::none,
+          "notice band: the X sits in a 36-DIP square at the trailing edge, the button after the text, and the "
+          "panes below the band take their own clicks");
+    band.height = 12;
+    const auto expanding = ui_notice_band_geometry(band, root->rectangle, nullptr);
+    band.dismissible = false;
+    const auto fixed = ui_notice_band_geometry(band, root->rectangle, nullptr);
+    check(ui_rect_equal(expanding.band, {0, 0, 1280, 12}) && expanding.text.bottom == 12 &&
+              expanding.text.top == -24 && !ui_rect_has_area(fixed.dismiss),
+          "notice band: while it expands its parts slide in from above, clipped to the shown height; no X unless "
+          "dismissible");
+
+    const UiNoticeRequest requests[]{{1, true, false}, {0, true, false}, {2, false, false}};
+    UiNoticeRequest dismissed[3]{requests[0], requests[1], requests[2]};
+    dismissed[1].dismissed = true;
+    const UiNoticeRequest none[]{{0, false, false}, {1, true, true}};
+    check(ui_notice_band_select({requests, 3}) == 1 && ui_notice_band_select({dismissed, 3}) == 0 &&
+              ui_notice_band_select({none, 2}) == 2 && ui_notice_band_select({}) == 0,
+          "notice band: only the highest-priority notice shows; a dismissed one yields to the next");
+
+    PaintStream paint{};
+    band.height = kUiNoticeBandHeight;
+    band.dismissible = true;
+    const bool painted = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1280, 800) &&
+                         ui_notice_band_paint(&paint, band, ui_notice_band_geometry(band, root->rectangle, nullptr),
+                                              kDefaultTheme) &&
+                         paint.count >= 3;
+    const u32 tinted = paint.count;
+    band.kind = UiNoticeKind::brand;
+    const bool solid = paint_stream_reset(&paint, 1280, 800) &&
+                       ui_notice_band_paint(&paint, band, ui_notice_band_geometry(band, root->rectangle, nullptr),
+                                            kDefaultTheme) &&
+                       paint.count + 1 == tinted;
+    paint_stream_release(&paint);
+    check(painted && solid, "notice band: warning tints the app frame, brand fills solid, with the button and the X");
+    ui_scene_release(&scene);
+}
+
 void run() noexcept {
     unread_banner();
     guild_folders();
@@ -626,6 +716,7 @@ void run() noexcept {
     folder_publication();
     taskbar();
     channel_controls();
+    notice_band();
 }
 } // namespace maicord::navigation_gaps_test
 

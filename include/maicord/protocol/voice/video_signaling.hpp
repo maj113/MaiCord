@@ -38,6 +38,10 @@ constexpr u32 voice_video_software_bit(VoiceVideoCodec codec) noexcept {
 // Decode-only offers for the decodable codec bits in Discord's priority order (AV1, H265, H264); on Windows
 // H.264 is always offered, on Linux only what a decoder handles. Returns the count written.
 u32 voice_video_decode_offers(u32 decodable, Slice<VoiceCodecOffer> output) noexcept;
+// Offers for a connection that also sends video: every codec the GPU encodes
+// (encode true) or decodes, hardware ones in Discord's priority order (AV1,
+// H265, H264), then software-only decodes. Offer i is payload type 101 + 2i.
+u32 voice_video_offers(u32 decodable, u32 encodable, Slice<VoiceCodecOffer> output) noexcept;
 struct VoiceSelectProtocolMedia {
     VoiceGatewaySelectProtocol transport;
     // Priority order; empty when video is unsupported (audio-only offer).
@@ -65,6 +69,21 @@ struct VoiceSinkWant {
 inline constexpr u8 kVoiceSinkWantsDefaultQuality = 100;
 GatewayCommandWriteResult voice_gateway_write_media_sink_wants(u8 any_quality, ConstSlice<VoiceSinkWant> wants,
                                                                const Slice<u8>& output) noexcept;
+
+// Video (op 12) from a sender: the one full-quality stream ("rid" "100") with
+// its RTX SSRC and limits. A zero ssrc clears video (streams []). A zero
+// max_width/max_height means the source resolution.
+struct VoiceVideoSendStream {
+    u32 ssrc, rtx_ssrc, max_bitrate;
+    u16 max_width, max_height;
+    u8 max_framerate, quality;
+    bool active;
+};
+struct VoiceVideoState {
+    u32 audio_ssrc;
+    VoiceVideoSendStream stream;
+};
+GatewayCommandWriteResult voice_gateway_write_video(const VoiceVideoState& state, Slice<u8> output) noexcept;
 
 // Session Update (op 14) from the server; every field is optional and null is
 // treated as absent. Strings borrow the input. Failure preserves output.

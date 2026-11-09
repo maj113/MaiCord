@@ -5,6 +5,7 @@
 #include "maicord/model/user/note_store.hpp"
 #include "maicord/model/user/active_now.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
+#include "maicord/ui/account/activity_card.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/message_store.hpp"
 #include "maicord/model/chat/reaction_preferences.hpp"
@@ -414,8 +415,27 @@ void test_friends_active_now(void (*check)(bool, const char*) noexcept) noexcept
     bool heading = false;
     if (ui_text_command_stream_initialize(&stream, {commands, 64}) && ui_friends_scene_text_output(scene, kDefaultTheme, &stream_output, nullptr))
         for (u32 i = 0; i < stream.count; ++i)
-            heading = heading || utf8_equal(commands[i].text, utf8_literal("Active now"));
+            heading = heading || utf8_equal(commands[i].text, utf8_literal("Active Now"));
     check(heading, "active now: the column is titled");
+    UiRect first{}, second{};
+    UiPoint origin{}, unused{};
+    check(ui_friends_scene_active_card(scene, 0, &first, &origin) &&
+              ui_friends_scene_active_card(scene, 1, &second, &unused) &&
+              ui_rect_height(first) == 96 && second.top == first.bottom + 12 && origin.y == first.top + 96 &&
+              !ui_friends_scene_active_card(scene, 2, &first, &origin),
+          "active now: cards without activity details keep their compact height");
+    static UiActivityCard details{};
+    details.height = 60;
+    cards[0].activity = &details;
+    ++active.revision;
+    check(ui_friends_scene_update(&scene, &source, UiFriendsTab::online, UiFriendsPhase::ready, {}, wide, nullptr,
+                                  nullptr, &active) &&
+              ui_friends_scene_active_card(scene, 0, &first, &origin) &&
+              ui_friends_scene_active_card(scene, 1, &second, &unused) &&
+              ui_rect_height(first) == 96 + 60 + 12 && second.top == first.bottom + 12 && origin.x == first.left + 14,
+          "active now: a card grows by its activity's details and pushes the next card down");
+    cards[0].activity = nullptr;
+    ++active.revision;
     active.collapsed = true;
     ++active.revision;
     check(ui_friends_scene_update(&scene, &source, UiFriendsTab::online, UiFriendsPhase::ready, {}, wide, nullptr,

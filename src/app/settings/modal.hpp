@@ -29,9 +29,14 @@ template <typename Owner>
     }
     return owner;
 }
-// Releases the scene and frees the owner (the caller releases its own resources first).
+// Ends the playing dialog exit now (null: whichever dialog exits; otherwise only that one): see
+// settings_modal_close.
+void settings_modal_finish_exit(const SettingsModal* modal = nullptr) noexcept;
+// Ends a pending exit of `owner`'s dialog, then releases the scene and frees the owner (the caller releases its
+// own resources first).
 template <typename Owner>
 inline void settings_modal_free(Owner*& owner) noexcept {
+    settings_modal_finish_exit(owner);
     ui_settings_scene_release(&owner->scene);
     owner_release(owner);
 }
@@ -107,8 +112,16 @@ void settings_modal_unbind(SettingsModal& modal) noexcept;
 void settings_modal_restore_focus(bool restore_focus) noexcept;
 // Rebuilds the shell text and requests a frame after a close.
 void settings_modal_repaint_shell() noexcept;
-// The usual end of a close: unbind, restore focus, repaint the shell.
+// The usual end of a close: unbind, restore focus, repaint the shell, at once.
 void settings_modal_leave(SettingsModal& modal, bool restore_focus) noexcept;
+// The close a dialog plays: the same as settings_modal_leave, except that a shown dialog's scene stays bound
+// while it fades and shrinks on the modal exit spring (kUiMotionModalExit) and is unbound when the exit ends,
+// at the next settings modal opening, on input, or when its owner is freed. The focus returns at once. Reduced
+// motion, a hidden window or a scene that is not the shown dialog leaves at once. The owner must keep the state
+// its page shows until then; its scene stays active meanwhile.
+void settings_modal_close(SettingsModal& modal, bool restore_focus) noexcept;
+// Frame time: advances the playing exit and requests the frames it needs.
+void settings_modal_exit_synchronize(u64 now_ms) noexcept;
 // The projection a repaint presents: false when `projected` failed; otherwise a frame and the page text.
 [[nodiscard]] bool settings_modal_present(bool projected) noexcept;
 // The end of a page projection: the focus ring follows the keyboard and the scene updates.

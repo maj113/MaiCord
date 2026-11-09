@@ -5,9 +5,21 @@ namespace maicord {
 enum class RestMethod : u8;
 inline constexpr u64 kRelationshipsRouteId = 0x52454C4154494F4Eull;
 inline constexpr u32 kRelationshipUsernameMaximumBytes = 32;
+// A friend nickname: 1-32 characters (PATCH /users/@me/relationships/{id}).
+inline constexpr u32 kRelationshipNicknameMaximumCodepoints = 32;
+// A friend request's personal note: up to 120 characters on one line (POST /users/@me/relationships `note`).
+inline constexpr u32 kRelationshipNoteMaximumCodepoints = 120;
+inline constexpr u32 kRelationshipNoteMaximumBytes = 4 * kRelationshipNoteMaximumCodepoints;
+// A request's text argument: the username, then optionally a line feed and the note.
+inline constexpr u32 kRelationshipRequestTextMaximumBytes =
+    kRelationshipUsernameMaximumBytes + 1 + kRelationshipNoteMaximumBytes;
+// The largest body a relationship operation writes (a request whose note is all escaped quotes).
+inline constexpr u32 kRelationshipBodyMaximumBytes = 2 * kRelationshipNoteMaximumBytes + 96;
 inline constexpr u32 kRelationshipsMaximumBytes = 4u * 1024u * 1024u;
+// `request` sends the text argument's username and note; `nickname` sets a friend's nickname from it (empty text
+// clears it).
 enum class RelationshipOperation : u8 { list, request, accept, remove, block, accept_stranger,
-    ignore, unignore, clear_incoming, clear_hidden };
+    ignore, unignore, clear_incoming, clear_hidden, nickname };
 enum class RelationshipEvent : u8 { add, remove, update };
 enum class RelationshipWriteError : u8 { none, invalid_input, output_too_small };
 using RelationshipWriteResult = ByteResult<RelationshipWriteError>;
@@ -30,10 +42,10 @@ struct RelationshipMutation {
     RelationshipUser user;
     bool preserve_nickname;
 };
-static_assert(sizeof(RelationshipMutation) == 456);
+static_assert(sizeof(RelationshipMutation) == 464);
 static_assert(offsetof(RelationshipMutation, record) == 0);
-static_assert(offsetof(RelationshipMutation, user) == 144);
-static_assert(offsetof(RelationshipMutation, preserve_nickname) == 448);
+static_assert(offsetof(RelationshipMutation, user) == 152);
+static_assert(offsetof(RelationshipMutation, preserve_nickname) == 456);
 enum class RelationshipsDecodeError : u8 { none, invalid_input, scan, json, record, capacity, duplicate, store };
 struct RelationshipsDecodeResult {
     RelationshipsDecodeError error;

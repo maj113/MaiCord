@@ -196,7 +196,8 @@ void begin_shutdown(GatewayClient* client, GatewayClientRuntime* runtime) noexce
 
 bool shutdown_drained(GatewayClientRuntime* runtime) noexcept {
     if (runtime->resolver.pending || runtime->outstanding_socket_operations != 0 ||
-        !voice_connection_drained(runtime->voice_connection) || !voice_connection_drained(runtime->stream.connection)) {
+        !voice_connection_drained(runtime->voice_connection) || !voice_connection_drained(runtime->stream.connection) ||
+        !voice_connection_drained(runtime->go_live.connection)) {
         return false;
     }
     release_resolver(runtime);
@@ -555,6 +556,8 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
         runtime->rate_deadline_ms = next.next_allowed_ms;
         return OutboundDrive::rate_limited;
     }
+    if (next.action == GatewayLifecycleAction::send_identify || next.action == GatewayLifecycleAction::send_resume)
+        gateway_adopt_replacement_credential(runtime);
     if (next.state != GatewayOutboundState::action || !runtime->credential.data ||
         !runtime->credential.locked) {
         return OutboundDrive::failed;

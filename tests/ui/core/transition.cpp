@@ -153,5 +153,56 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
     ui_motion_transition_reset(&motion, {0, 1}, 1);
     check(!motion.scope.owner && motion.value == 0,
           "motion: invalid lifetime cannot bind even an immediate value");
+
+    // The official client's curves: CSS ease (cubic-bezier(.25, .1, .25, 1)) is .8024 at x = .5; the springs start at
+    // 0, rise monotonically to their first crossing and end exactly on 1.
+    const float ease = ui_motion_curve_sample(UiMotionCurve::css_ease, .5f);
+    check(ease > .80f && ease < .805f && ui_motion_curve_sample(UiMotionCurve::css_ease, 0) == 0 &&
+              ui_motion_curve_sample(UiMotionCurve::css_ease, 1) == 1,
+          "motion: CSS ease solves its bezier");
+    bool springs = true;
+    constexpr UiMotionCurve kSprings[]{UiMotionCurve::spring_exit, UiMotionCurve::spring_quick};
+    for (const UiMotionCurve curve : kSprings) {
+        float previous = 0;
+        springs = springs && ui_motion_curve_sample(curve, 0) == 0 && ui_motion_curve_sample(curve, 1) == 1;
+        for (u32 step = 1; step <= 8; ++step) {
+            const float value = ui_motion_curve_sample(curve, static_cast<float>(step) / 32);
+            springs = springs && value > previous && value <= 1;
+            previous = value;
+        }
+    }
+    check(springs && ui_motion_curve_sample(UiMotionCurve::spring_quick, .3125f) >= .97f &&
+              ui_motion_curve_sample(UiMotionCurve::spring_exit, .5f) < .9f &&
+              ui_motion_style_valid(kUiMotionTooltip) && ui_motion_style_valid(kUiMotionModalExit) &&
+              ui_motion_style_valid(kUiMotionHover) && !ui_motion_style_valid({120, UiMotionCurve::count}),
+          "motion: the tooltip spring nears its target by 50 ms, the exit spring is overdamped");
+    const UiMotionPose slide_down = ui_motion_slide(0, UiMotionEdge::bottom, 10, false);
+    const UiMotionPose slide_left = ui_motion_slide(.5f, UiMotionEdge::left, 10, true);
+    const UiMotionPose grown = ui_motion_scale(.5f, .9f);
+    check(slide_down.y == 10 && slide_down.x == 0 && slide_down.opacity == 1 && slide_left.x == -5 &&
+              slide_left.y == 0 && slide_left.opacity == .5f && ui_motion_slide(0, UiMotionEdge::top, 10, false).y == -10 &&
+              grown.scale == .95f && grown.opacity == .5f && ui_motion_expand(.25f, 80) == 20,
+          "motion: poses start away from the anchor and grow toward rest");
+    check(ui_motion_edge({0, 0, 10, 10}, {0, 12, 40, 40}) == UiMotionEdge::bottom &&
+              ui_motion_edge({0, 50, 10, 60}, {0, 0, 40, 40}) == UiMotionEdge::top &&
+              ui_motion_edge({0, 0, 10, 60}, {20, 0, 40, 40}) == UiMotionEdge::right &&
+              ui_motion_edge({50, 0, 60, 60}, {0, 0, 40, 40}) == UiMotionEdge::left &&
+              ui_motion_edge({0, 0, 60, 60}, {10, 10, 40, 40}) == UiMotionEdge::none,
+          "motion: the anchor edge a surface opens on");
+    UiMotionHover hover{};
+    check(ui_motion_hover_tick(&hover, 3, 1000, {100, UiMotionCurve::linear}, false) &&
+              ui_motion_hover_amount(hover, 3) == 0 && ui_motion_hover_next_wake(hover) == 1016,
+          "motion hover: the hovered control starts its fade");
+    ui_motion_hover_tick(&hover, 4, 1050, {100, UiMotionCurve::linear}, false);
+    check(ui_motion_hover_amount(hover, 3) == .5f && ui_motion_hover_amount(hover, 4) == 0 &&
+              ui_motion_hover_amount(hover, 0) == 0,
+          "motion hover: the control left behind eases out from where it was");
+    ui_motion_hover_tick(&hover, 3, 1075, {100, UiMotionCurve::linear}, false);
+    check(ui_motion_hover_amount(hover, 3) == .375f && ui_motion_hover_amount(hover, 4) == .25f,
+          "motion hover: returning to a fading control resumes it");
+    check(ui_motion_hover_tick(&hover, 0, 1080, {100, UiMotionCurve::linear}, true) &&
+              ui_motion_hover_amount(hover, 3) == 0 && ui_motion_hover_amount(hover, 4) == 0 &&
+              !ui_motion_hover_next_wake(hover),
+          "motion hover: reduced motion snaps every amount without a wake");
 }
 } // namespace maicord

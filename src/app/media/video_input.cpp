@@ -204,7 +204,7 @@ bool application_video_pump(bool* repaint) noexcept {
 }
 
 u64 application_video_next_wake() noexcept {
-    const u64 inline_wake = g_app.video && video_surface_available() && !g_app.preferences.reduced_motion
+    const u64 inline_wake = g_app.video && video_surface_available() && !application_reduced_motion()
                                 ? g_app.video->presentation_wake_ms
                                 : 0;
     const u64 call_wake = application_call_next_wake();

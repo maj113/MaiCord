@@ -24,6 +24,7 @@
 #include "maicord/protocol/guild/channel_overview.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"
 #include "../support/application_content_input_inactive.hpp"
+#include "../../src/app/chat/game_profile.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};
@@ -88,8 +89,7 @@ bool project() noexcept {
     if (r.width * 96.f / r.dpi < 600.f)
         metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_navigation);
     metrics.composer_height = message_composer_scene_preferred_height(
-        g_app.message_composer, ui_scene_composer_width(metrics, r.width * 96.f / r.dpi), false,
-        notice.bytes != 0);
+        g_app.message_composer, ui_scene_composer_width(metrics, r.width * 96.f / r.dpi), false);
     metrics.revision = 7700u + metrics.flags + (notice.bytes ? 100u : 0u);
     if (!ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel, metrics,
                                       r.width * 96.f / r.dpi, r.height * 96.f / r.dpi) ||
@@ -600,13 +600,14 @@ bool message_style_boundaries() noexcept {
         command.styles = {spans + i, 1};
         message_hit_test_cache_invalidate(&cache);
         const auto hit = message_position_hit_test(&cache, presentation, g_app.renderer.glyph_text.system,
-                                                   96, 8, 8);
+                                                   g_app.renderer.glyph_text.system, 96, 8, 8);
         if (hit.valid != (i < 4)) return false;
     }
     command.text = utf8_literal("a\x80" "b");
     command.styles = {spans, 1};
     message_hit_test_cache_invalidate(&cache);
-    return !message_position_hit_test(&cache, presentation, g_app.renderer.glyph_text.system, 96, 8, 8).valid;
+    return !message_position_hit_test(&cache, presentation, g_app.renderer.glyph_text.system,
+                                      g_app.renderer.glyph_text.system, 96, 8, 8).valid;
 }
 
 // Emoji hits on real shaped text: Unicode emoji are whole shaping clusters
@@ -650,7 +651,7 @@ bool message_emoji_hits() noexcept {
     MessageEmojiHit last{};
     // Sweep the first line: each emoji is hit once as a run of points inside its cell.
     for (float x = 20; x < 620 && seen <= 5; x += .5f) {
-        const auto hit = message_emoji_hit_test(&cache, presentation, system, x, 30);
+        const auto hit = message_emoji_hit_test(&cache, presentation, system, system, x, 30);
         if (hit.kind == MessageEmojiHitKind::none) {
             ++misses;
             last = {};
@@ -667,13 +668,13 @@ bool message_emoji_hits() noexcept {
     }
     const u32 builds = cache.builds;
     command.measurement_kind = MessageTextMeasurementKind::none;
-    const bool author_line = message_emoji_hit_test(&cache, presentation, system, 25, 30).kind ==
+    const bool author_line = message_emoji_hit_test(&cache, presentation, system, system, 25, 30).kind ==
                              MessageEmojiHitKind::none;
     command.measurement_kind = MessageTextMeasurementKind::content;
     command.text = utf8_literal("plain words only");
     command.styles = {};
     command.semantics = {};
-    const bool plain = message_emoji_hit_test(&cache, presentation, system, 25, 30).kind == MessageEmojiHitKind::none &&
+    const bool plain = message_emoji_hit_test(&cache, presentation, system, system, 25, 30).kind == MessageEmojiHitKind::none &&
                        cache.builds == builds;
     return seen == 5 && misses && author_line && plain;
 }
@@ -848,6 +849,11 @@ bool application_request_frame() noexcept {
     ++fixture->frames;
     return true;
 }
+// Category chevrons settle at once here (the shared scheduler is covered by the surface motion host test).
+float application_motion_tick(UiMotionTransition*, const UiMotionScope&, float target, u64,
+                              const UiMotionStyle&) noexcept {
+    return target;
+}
 const Theme& application_theme() noexcept {
     return fixture->theme;
 }
@@ -897,9 +903,16 @@ bool application_friends_active() noexcept {
 bool application_friends_show() noexcept {
     return false;
 }
+bool application_friends_show_requests() noexcept {
+    return false;
+}
 void application_friends_hide() noexcept {
 }
 bool application_message_forward_open(u64) noexcept {
+    return false;
+}
+// No game mention is clicked here (src/app/chat/game_profile.hpp).
+bool application_game_profile_open(u64) noexcept {
     return false;
 }
 bool application_downloads_save_target(float, float) noexcept {

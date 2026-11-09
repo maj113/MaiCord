@@ -401,7 +401,7 @@ bool begin(const OpenRequest& request) noexcept {
     viewer.closing = false;
     viewer.origin = request.origin;
     ++viewer.reveal_generation;
-    ui_motion_transition_reset(&viewer.reveal, reveal_scope(), g_app.preferences.reduced_motion ? 1.0f : 0.0f);
+    ui_motion_transition_reset(&viewer.reveal, reveal_scope(), application_reduced_motion() ? 1.0f : 0.0f);
     ui_image_viewer_set_reveal(&viewer.scene, viewer.reveal.value, request.origin);
     viewer.item_index = static_cast<u8>(start);
     select_item(start);
@@ -493,7 +493,7 @@ void application_image_viewer_dismiss() noexcept {
     auto& viewer = g_app.image_viewer;
     if (!viewer.scene.active || viewer.closing)
         return;
-    if (g_app.preferences.reduced_motion) {
+    if (application_reduced_motion()) {
         application_image_viewer_close();
         return;
     }
@@ -608,7 +608,7 @@ bool application_image_viewer_synchronize() noexcept {
     }
     const u64 now = clock_monotonic_milliseconds();
     ui_motion_transition_tick(&viewer.reveal, reveal_scope(), viewer.closing ? 0.0f : 1.0f, now,
-                              viewer.closing ? kRevealClose : kRevealOpen, g_app.preferences.reduced_motion, true);
+                              viewer.closing ? kRevealClose : kRevealOpen, application_reduced_motion(), true);
     ui_image_viewer_set_reveal(&scene, viewer.reveal.value, viewer.origin);
     if (viewer.closing && !viewer.reveal.active && viewer.reveal.value <= 0) {
         application_image_viewer_close();

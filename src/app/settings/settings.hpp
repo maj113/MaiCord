@@ -6,6 +6,7 @@
 namespace maicord { struct UiSettingsAvatarMedia; struct UiSettingsScene; }
 #include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
+#include "maicord/app/shell/shortcut_registry.hpp"
 
 namespace maicord::app_detail {
 // Settings avatar rows: the cached user's avatar key and hash, or an empty
@@ -22,6 +23,11 @@ UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, const Ut
                                                            u16 discriminator) noexcept;
 void application_preferences_initialize() noexcept;
 void application_preferences_apply() noexcept;
+// Lays the interface out again at Accessibility's Zoom level (the window's DPI scaled by it).
+void application_zoom_apply() noexcept;
+// Ctrl+= / Ctrl+- / Ctrl+0 (ShortcutAction::zoom_in, zoom_out, zoom_reset) step the Zoom level a mark or reset it
+// to 100%; false for any other chord.
+bool application_zoom_shortcut(ShortcutChord) noexcept;
 // Suspends media animations while reduced motion, a live resize, an inactive
 // or a minimized window holds them; resumes them otherwise.
 void application_animation_activity_synchronize() noexcept;
@@ -73,4 +79,7 @@ bool application_settings_open_key(Utf8View key) noexcept;
 bool application_settings_open_page(UiPageKey page) noexcept;
 bool application_settings_focus_search() noexcept;
 void application_settings_refresh_pages() noexcept;
+// An owner whose texts the settings pages borrow is about to free them (account settings at an account's stop): the
+// pages forget their controls and project again from scratch.
+void application_settings_drop_borrowed() noexcept;
 } // namespace maicord::app_detail

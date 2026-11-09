@@ -42,6 +42,10 @@ enum AccessSurface : u8 {
     surface_caption,
     surface_profile,
     surface_store,
+    surface_go_live,
+    surface_voice_card,
+    // The app-wide notice band (shell/notice.hpp): its line, button and X.
+    surface_notice,
 };
 
 constexpr u32 kNodeCapacity = 8192;

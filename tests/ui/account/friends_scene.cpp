@@ -1,6 +1,8 @@
 #include "maicord/ui/account/friends_scene.hpp"
 #include "../../support/layout_validation.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/core/paint.hpp"
+#include "maicord/ui/core/transition.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 namespace maicord {
 namespace {
@@ -164,6 +166,101 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "friends_visible_avatar_geometry_borrows_retained_row_without_resolving");
     check(!ui_friends_scene_visible_row(scene, scene.count, &visible) && !visible.row.user_id,
           "friends_visible_avatar_geometry_rejects_out_of_range");
+    UiFriendsVisibleRow pointed{};
+    const bool pointed_row = ui_friends_scene_visible_row(scene, 0, &pointed);
+    const float pointed_y = (pointed.rectangle.top + pointed.rectangle.bottom) * .5f;
+    check(pointed_row &&
+              ui_widget_manager_hover(&scene.widgets,
+                                      ui_widget_manager_hit_test(scene.widgets, pointed.rectangle.right - 30, pointed_y)) &&
+              ui_friends_scene_hovered_row(scene) == pointed.row.user_id &&
+              ui_widget_manager_hover(&scene.widgets,
+                                      ui_widget_manager_hit_test(scene.widgets, pointed.rectangle.left + 60, pointed_y)) &&
+              ui_friends_scene_hovered_row(scene) == pointed.row.user_id &&
+              ui_widget_manager_hover(&scene.widgets, ui_widget_invalid_handle()) && !ui_friends_scene_hovered_row(scene),
+          "friends_row_hover_follows_the_row_over_its_own_actions");
+    UiTextCommand named_commands[128]{};
+    char named_text[512];
+    UiTextCommandStream named{};
+    UiTextOutput named_output{&named, nullptr};
+    const auto hovered_name = [&]() noexcept {
+        bool found = false;
+        if (!ui_text_command_stream_initialize(&named, {named_commands, 128}, {named_text, sizeof(named_text)}) ||
+            !ui_friends_scene_text_output(scene, kDefaultTheme, &named_output, nullptr))
+            return false;
+        for (u32 i = 0; i < named.count; ++i) {
+            const auto& c = named_commands[i];
+            found |= utf8_equal(c.text, utf8_literal("Borrowed display name borrowed.username")) && c.styles.count == 2 &&
+                     c.styles.data[0].byte_count == 21 && (c.styles.data[0].flags & text_style_bold) &&
+                     c.styles.data[1].byte_offset == 22 && (c.styles.data[1].flags & text_style_subtext);
+        }
+        return found;
+    };
+    const u32 named_revision = scene.revision;
+    const bool named_row = ui_widget_manager_hover(
+                               &scene.widgets, ui_widget_manager_hit_test(scene.widgets, pointed.rectangle.left + 60, pointed_y)) &&
+                           ui_friends_scene_name_hover(&scene) && scene.revision != named_revision &&
+                           !ui_friends_scene_name_hover(&scene) && hovered_name();
+    check(named_row && ui_widget_manager_hover(&scene.widgets, ui_widget_invalid_handle()) &&
+              ui_friends_scene_name_hover(&scene) && !hovered_name(),
+          "friends_the_pointers_row_shows_the_username_after_the_name");
+    // The row plates fade through the host's hover motion: the outgoing and incoming plates both sit between nothing
+    // and full mid-fade (the paint scales their own alpha), only the pointer's row stays once it settles, and reduced
+    // motion switches at once.
+    UiMotionHover fade{};
+    scene.row_hover = &fade;
+    UiFriendsVisibleRow rows[3]{};
+    bool rows_found = true;
+    for (u32 i = 0; i < 3; ++i)
+        rows_found = rows_found && ui_friends_scene_visible_row(scene, i, &rows[i]);
+    PaintStream plates{};
+    const auto plate = [&](const UiFriendsVisibleRow& row) noexcept {
+        float alpha = 0;
+        if (!paint_stream_reset(&plates, 1000, 800) || !ui_friends_scene_paint(scene, kDefaultTheme, &plates))
+            return -1.f;
+        for (u32 i = 0; i < plates.count; ++i) {
+            const auto& quad = plates.quads[i];
+            if (quad.left == row.rectangle.left + 1 && quad.top == row.rectangle.top + 1 &&
+                quad.right == row.rectangle.right - 1 && quad.bottom == row.rectangle.bottom - 1 &&
+                quad.border_width == 1.f)
+                alpha = maximum(alpha, quad.fill.alpha);
+        }
+        return alpha;
+    };
+    const auto move = [&](u64 hovered, u64 now, bool reduced) noexcept {
+        return ui_motion_hover_tick(&fade, hovered, now, kUiMotionRowHover, reduced);
+    };
+    move(rows[0].row.user_id, 1000, false);
+    move(rows[0].row.user_id, 1300, false);
+    const float full = rows_found ? plate(rows[0]) : 0;
+    move(rows[1].row.user_id, 1300, false);
+    const float leaving_start = plate(rows[0]), entering_start = plate(rows[1]);
+    move(rows[1].row.user_id, 1400, false);
+    const float leaving_mid = plate(rows[0]), entering_mid = plate(rows[1]);
+    move(rows[1].row.user_id, 1500, false);
+    const float leaving_end = plate(rows[0]), entering_end = plate(rows[1]);
+    check(rows_found && full > 0 && leaving_start == full && entering_start == 0 && leaving_mid > 0 &&
+              leaving_mid < full && entering_mid > leaving_mid && entering_mid < full && leaving_end == 0 &&
+              entering_end == full && ui_motion_hover_next_wake(fade) == 0,
+          "friends_row_plates_fade_out_and_in_through_intermediate_alpha_and_settle");
+    // A quick sweep over three rows leaves at most the pointer's row and the one it just left lit; the first
+    // row's plate is gone at once and the last settles alone.
+    move(rows[0].row.user_id, 2000, false);
+    move(rows[1].row.user_id, 2050, false);
+    move(rows[2].row.user_id, 2100, false);
+    const float swept_first = plate(rows[0]), swept_second = plate(rows[1]), swept_third = plate(rows[2]);
+    move(rows[2].row.user_id, 2400, false);
+    check(swept_first == 0 && swept_second >= 0 && swept_second < full && swept_third < full &&
+              plate(rows[0]) == 0 && plate(rows[1]) == 0 && plate(rows[2]) == full &&
+              ui_motion_hover_next_wake(fade) == 0,
+          "friends_quick_pointer_sweep_never_leaves_two_rows_lit_once_settled");
+    move(rows[0].row.user_id, 3000, true);
+    const float reduced_first = plate(rows[0]);
+    move(rows[1].row.user_id, 3001, true);
+    check(reduced_first == full && plate(rows[0]) == 0 && plate(rows[1]) == full &&
+              ui_motion_hover_next_wake(fade) == 0,
+          "friends_row_plates_switch_instantly_under_reduced_motion");
+    paint_stream_release(&plates);
+    scene.row_hover = nullptr;
     UiFriendsScene search_scene{};
     UiFriendsContent content{{{}, 0, 0, true, false, false}, 16384, 1};
     const UiRect search_view{0, 0, 320, 320};
@@ -172,32 +269,64 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               ui_rect_height(ui_friends_scene_search_geometry(search_scene).field) == 36 &&
               search_scene.count < 8,
           "friends_optional_inline_search_has_native_field_geometry");
-    check(search_scene.count_heading_bytes == 13 &&
-              bytes_equal(search_scene.count_heading, "10000 / 16384", 13),
-          "friends_filtered_and_total_count_heading_uses_fixed_bank");
+    constexpr auto all_heading = utf8_literal("All friends \xE2\x80\x94 10000");
+    check(utf8_equal({search_scene.count_heading, search_scene.count_heading_bytes}, all_heading),
+          "friends_all_tab_heads_its_list_with_the_friend_count");
+    UiFriendsScene bar_scene{};
+    const UiRect bar_view{100, 98, 900, 650}, bar{116, 50, 700, 98};
+    bool tabs_in_bar = ui_friends_scene_update(&bar_scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {},
+                                               bar_view, nullptr, nullptr, nullptr, bar);
+    u32 tab_mask = 0;
+    for (float x = bar.left; tabs_in_bar && x < bar.right; x += 2) {
+        const auto hit = ui_friends_scene_hit_test(bar_scene, x, 74);
+        if (hit.action == UiFriendsAction::select_tab)
+            tab_mask |= 1u << static_cast<u32>(hit.tab);
+    }
+    const auto* bar_title = ui_widget_manager_layout_node(bar_scene.widgets, bar_scene.heading);
+    check(tabs_in_bar && tab_mask == 15 && bar_title && bar_title->rectangle.top >= bar.top &&
+              bar_title->rectangle.bottom <= bar.bottom && bar_title->rectangle.left >= bar.left + 24 &&
+              ui_friends_scene_contains(bar_scene, 300, 74) && ui_friends_scene_contains(bar_scene, 300, 300) &&
+              !ui_friends_scene_contains(bar_scene, 800, 74),
+          "friends_title_and_tabs_sit_in_the_header_toolbar");
+    ui_friends_scene_release(&bar_scene);
     UiFriendsScene count_scene{};
     FriendsFixture count_fixture{};
     UiFriendsSource count_source{&count_fixture, 0, 1, friends_resolve, friends_find};
-    const Utf8View count_labels[]{utf8_literal("0 results"), utf8_literal("1 result"),
-                                  utf8_literal("2 results")};
+    const Utf8View count_labels[]{{}, utf8_literal("All friends \xE2\x80\x94 1"),
+                                  utf8_literal("All friends \xE2\x80\x94 2")};
     for (u32 n = 0; n < 3; ++n) {
         count_fixture.count = n;
         count_source.count = n;
         ++count_source.revision;
         check(ui_friends_scene_update(&count_scene, &count_source, UiFriendsTab::all, UiFriendsPhase::ready,
                                       {}, search_view) &&
-                  count_scene.count_heading_bytes == count_labels[n].bytes &&
-                  bytes_equal(count_scene.count_heading, count_labels[n].data, count_labels[n].bytes),
-              "friends_count_heading_pluralizes_zero_one_and_many_results");
+                  utf8_equal({count_scene.count_heading, count_scene.count_heading_bytes}, count_labels[n]) &&
+                  (n != 0) == !count_scene.empty.generation,
+              "friends_count_heading_names_the_tab_and_an_empty_tab_shows_its_empty_state_instead");
     }
+    UiFriendsTarget empty_add{};
+    count_fixture.count = 0;
+    count_source.count = 0;
+    ++count_source.revision;
+    check(ui_friends_scene_update(&count_scene, &count_source, UiFriendsTab::online, UiFriendsPhase::ready, {},
+                                  search_view) &&
+              ui_friends_scene_activation(count_scene, {UiFriendsAction::add_friend, 0, UiFriendsTab::online},
+                                          &empty_add) &&
+              ui_friends_scene_update(&count_scene, &count_source, UiFriendsTab::pending, UiFriendsPhase::ready, {},
+                                      search_view) &&
+              count_scene.empty.generation &&
+              !ui_friends_scene_activation(count_scene, {UiFriendsAction::add_friend, 0, UiFriendsTab::pending},
+                                           &empty_add),
+          "friends_empty_online_and_all_offer_add_friend_while_pending_only_explains");
     count_fixture.count = 1;
     count_source.count = 1;
     ++count_source.revision;
     UiFriendsContent filtered_count{{}, 4, 1};
-    check(ui_friends_scene_update(&count_scene, &count_source, UiFriendsTab::all, UiFriendsPhase::ready, {},
+    check(ui_friends_scene_update(&count_scene, &count_source, UiFriendsTab::online, UiFriendsPhase::ready, {},
                                   search_view, &filtered_count) &&
-              count_scene.count_heading_bytes == 5 && bytes_equal(count_scene.count_heading, "1 / 4", 5),
-          "friends_single_filtered_result_preserves_total_count_heading");
+              utf8_equal({count_scene.count_heading, count_scene.count_heading_bytes},
+                         utf8_literal("Online \xE2\x80\x94 1")),
+          "friends_filtered_heading_counts_the_rows_shown");
     ui_friends_scene_release(&count_scene);
     const auto search_calls = fixture.calls;
     const auto search_generation = search_scene.widgets.generation;
@@ -304,32 +433,33 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               scene.count == 146,
           "friends_maximum_native_viewport_retains_visible_rows_and_overscan");
     // 145 avatar intersections plus144 badges (last badge is below the clip),
-    // the selected tab's pill and scrollbar =291 quads, plus a circle and a glyph
-    // for each visible Message/More icon button (144 or 145 rows).
+    // the selected tab's pill, the Add Friend tab's brand pill and scrollbar =292
+    // quads, plus a circle and a glyph for each visible Message/More icon button
+    // (144 or 145 rows).
     const bool tall_painted = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 800, 8192) &&
                               ui_friends_scene_paint(scene, kDefaultTheme, &paint);
-    const u32 icon_quads = paint.count - 291;
+    const u32 icon_quads = paint.count - 292;
     check(tall_painted && (icon_quads == 4 * 144 || icon_quads == 4 * 145) && paint.clip_count == 5 &&
               paint.clip_depth == 1 && paint.rejected == 0,
           "friends_maximum_native_viewport_exact_bounded_paint");
     ui_friends_scene_set_focus_visible(&scene, true);
     check(paint_stream_reset(&paint, 800, 8192) && ui_friends_scene_paint(scene, kDefaultTheme, &paint) &&
-              paint.count == 292 + icon_quads,
+              paint.count == 293 + icon_quads,
           "friends_tall_viewport_preserves_focused_row_outline");
     ui_friends_scene_set_focus_visible(&scene, false);
     fixture.presence = UiPresence::idle;
     ++source.revision;
     // Idle/offline/unknown/busy each use two presence primitives. The full
-    // native viewport needs145 avatars+2*144 badges+2 chrome=435 quads.
+    // native viewport needs145 avatars+2*144 badges+3 chrome=436 quads.
     check(ui_friends_scene_update(&scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, tall) &&
               paint_stream_reset(&paint, 800, 8192) &&
-              ui_friends_scene_paint(scene, kDefaultTheme, &paint) && paint.count == 435 + icon_quads &&
+              ui_friends_scene_paint(scene, kDefaultTheme, &paint) && paint.count == 436 + icon_quads &&
               paint.rejected == 0,
           "friends_tall_viewport_two_primitive_presence_fits_native_budget");
     check(paint_stream_reset(&paint, 800, 8192) &&
               ui_friends_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96, false) &&
-              paint.count == 147 + icon_quads && ui_friends_scene_presence_paint(scene, kDefaultTheme, &paint) &&
-              paint.count == 435 + icon_quads && paint.clip_depth == 1,
+              paint.count == 148 + icon_quads && ui_friends_scene_presence_paint(scene, kDefaultTheme, &paint) &&
+              paint.count == 436 + icon_quads && paint.clip_depth == 1,
           "friends_avatar_base_and_presence_overlay_preserve_complete_paint_budget");
     UiFriendsScene tall_search{};
     UiFriendsContent tall_content{{utf8_literal("borrow"), 0, 6, true, true, true}, 16384, 1};
@@ -350,6 +480,15 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               ui_friends_scene_paint(tall_search, kDefaultTheme, &paint, &tall_edit) &&
               paint.count < kMaxPaintQuads && paint.clip_count < 12 && paint.rejected == 0,
           "friends_tall_search_and_maximum_selection_geometry_fit_shared_native_paint_budget");
+    // Text-only changes (the search text here, Active Now timers alike) repaint without
+    // moving rows, so a press held across them still activates on release.
+    const u32 text_revision = tall_search.revision, text_layout = tall_search.layout_revision;
+    ++tall_content.revision;
+    check(ui_friends_scene_update(&tall_search, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, tall,
+                                  &tall_content) &&
+              tall_search.revision != text_revision && tall_search.layout_revision == text_layout &&
+              ui_friends_scene_scroll(&tall_search, 60) && tall_search.layout_revision != text_layout,
+          "friends_text_updates_keep_the_layout_revision_scrolls_move_it");
     ui_friends_scene_release(&tall_search);
     fixture.presence = UiPresence::online;
     paint_stream_release(&paint);
@@ -400,32 +539,39 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               !ui_friends_scene_activation(scene, {UiFriendsAction::accept, 1, UiFriendsTab::pending},
                                            &request),
           "friends_outgoing_cancel_distinct_from_accept");
-    fixture.kind = UiFriendsKind::blocked;
+    // The Message Requests page: Requests and Spam tabs, rows with Ignore and Accept DM.
+    fixture.kind = UiFriendsKind::message_request;
     ++source.revision;
-    check(ui_friends_scene_update(&scene, &source, UiFriendsTab::blocked, UiFriendsPhase::ready, {},
-                                  viewport) &&
-              ui_friends_scene_activation(scene, {UiFriendsAction::unblock, 1, UiFriendsTab::blocked},
+    UiFriendsContent spam_content{{}, 0, 1};
+    spam_content.spam_count = 2;
+    UiFriendsScene requests_page{};
+    constexpr auto pending_heading = utf8_literal("Pending Requests \xE2\x80\x94 ");
+    check(ui_friends_scene_update(&requests_page, &source, UiFriendsTab::requests, UiFriendsPhase::ready, {}, viewport,
+                                  &spam_content) &&
+              ui_friends_scene_activation(requests_page, {UiFriendsAction::accept_dm, 1, UiFriendsTab::requests},
                                           &request) &&
-              !ui_friends_scene_activation(scene, {UiFriendsAction::open_dm, 1, UiFriendsTab::blocked},
-                                           &request),
-          "friends_blocked_unblock_semantics");
-    const auto contains_online_color = [](const PaintStream& p) noexcept {
-        for (u32 i = 0; i < p.count; ++i)
-            if (bytes_equal(&p.quads[i].fill, &kDefaultTheme.tokens.status.online, sizeof(Color)))
-                return true;
-        return false;
-    };
-    check(paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
-              ui_friends_scene_paint(scene, kDefaultTheme, &paint) && !contains_online_color(paint) &&
-              fixture.presence == UiPresence::online,
-          "friends_blocked_presence_is_neutral_without_mutating_source");
+              ui_friends_scene_activation(requests_page, {UiFriendsAction::ignore_dm, 1, UiFriendsTab::requests},
+                                          &request) &&
+              ui_friends_scene_activation(requests_page, {UiFriendsAction::open_dm, 1, UiFriendsTab::requests},
+                                          &request) &&
+              !ui_friends_scene_activation(requests_page, {UiFriendsAction::more, 1, UiFriendsTab::requests},
+                                           &request) &&
+              ui_friends_scene_activation(requests_page, {UiFriendsAction::select_tab, 0, UiFriendsTab::spam},
+                                          &request) &&
+              !ui_friends_scene_activation(requests_page, {UiFriendsAction::select_tab, 0, UiFriendsTab::online},
+                                           &request) &&
+              utf8_equal({requests_page.spam_label, requests_page.spam_label_bytes}, utf8_literal("Spam (2)")) &&
+              requests_page.count_heading_bytes > pending_heading.bytes &&
+              bytes_equal(requests_page.count_heading, pending_heading.data, pending_heading.bytes) &&
+              !ui_friends_scene_update(&requests_page, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, viewport),
+          "friends_message_requests_page_lists_request_dms_with_ignore_and_accept");
+    ui_friends_scene_release(&requests_page);
+    // Blocked accounts are listed in settings: no Friends tab admits their rows, nor request DMs.
     fixture.kind = UiFriendsKind::friend_user;
     ++source.revision;
-    check(
-        ui_friends_scene_update(&scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, viewport) &&
-            paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
-            ui_friends_scene_paint(scene, kDefaultTheme, &paint) && contains_online_color(paint),
-        "friends_unblocked_projection_restores_retained_online_presence");
+    check(ui_friends_scene_update(&scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, viewport) &&
+              !ui_friends_scene_activation(scene, {UiFriendsAction::cancel, 1, UiFriendsTab::all}, &request),
+          "friends_all_tab_lists_friends_again_after_pending");
     paint_stream_release(&paint);
     check(ui_friends_scene_update(&scene, nullptr, UiFriendsTab::online, UiFriendsPhase::loading, {},
                                   viewport) &&
@@ -442,11 +588,46 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
         ui_friends_scene_update(&scene, nullptr, UiFriendsTab::all, UiFriendsPhase::ready, {}, viewport) &&
             scene.count == 0,
         "friends_empty_list_has_retained_native_surface");
-    check(ui_friends_scene_update(&scene, nullptr, UiFriendsTab::add_friend, UiFriendsPhase::ready, {},
-                                  viewport) &&
+    UiFriendsContent username{{{}, 0, 0, true, false, false}, 0, 1};
+    check(ui_friends_scene_update(&scene, nullptr, UiFriendsTab::add_friend, UiFriendsPhase::ready, {}, viewport,
+                                  &username) &&
+              scene.intro.generation && !scene.empty.generation &&
+              !ui_friends_scene_activation(scene, {UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend},
+                                           &request) &&
+              ui_friends_scene_activation(scene, {UiFriendsAction::search, 0, UiFriendsTab::add_friend}, &request),
+          "friends_add_friend_is_an_inline_username_field_whose_send_waits_for_text");
+    username.search = {utf8_literal("ada.lin"), 0, 7, true, true, true};
+    ++username.revision;
+    username.note = {{}, 0, 0, true, false, false};
+    const bool sent = ui_friends_scene_update(&scene, nullptr, UiFriendsTab::add_friend, UiFriendsPhase::ready, {},
+                                              viewport, &username);
+    const auto send_field = ui_friends_scene_search_geometry(scene);
+    check(sent &&
               ui_friends_scene_activation(scene, {UiFriendsAction::add_friend, 0, UiFriendsTab::add_friend},
-                                          &request),
-          "friends_add_friend_delegates_native_form");
+                                          &request) &&
+              !ui_friends_scene_activation(scene, {UiFriendsAction::clear_search, 0, UiFriendsTab::add_friend},
+                                           &request) &&
+              ui_rect_width(send_field.clear) == 152 && send_field.text.right <= send_field.clear.left,
+          "friends_add_friend_send_button_sits_inside_the_field_after_the_text");
+    UiTextCommand add_commands[64]{};
+    char add_text[256];
+    UiTextCommandStream add_stream{};
+    UiTextOutput add_output{&add_stream, nullptr};
+    bool send_label = false, hint = false, note = false, counter = false, helper = false;
+    if (ui_text_command_stream_initialize(&add_stream, {add_commands, 64}, {add_text, sizeof(add_text)}) &&
+        ui_friends_scene_text_output(scene, kDefaultTheme, &add_output, nullptr))
+        for (u32 i = 0; i < add_stream.count; ++i) {
+            send_label |= utf8_equal(add_commands[i].text, utf8_literal("Send Friend Request"));
+            hint |= utf8_equal(add_commands[i].text, utf8_literal("You can add friends with their Discord username."));
+            note |= utf8_equal(add_commands[i].text, utf8_literal("Personalize your request (Optional)"));
+            counter |= utf8_equal(add_commands[i].text, utf8_literal("120"));
+            helper |= utf8_equal(add_commands[i].text,
+                                 utf8_literal("What you write here will also show up in your DM if you become friends."));
+        }
+    check(send_label && hint, "friends_add_friend_text_names_the_send_button_and_explains_usernames");
+    check(note && counter && helper && ui_rect_has_area(ui_friends_scene_note_geometry(scene).field) &&
+              ui_friends_scene_activation(scene, {UiFriendsAction::note, 0, UiFriendsTab::add_friend}, &request),
+          "friends_add_friend_offers_an_optional_note_with_its_characters_left");
     const auto safe_generation = scene.widgets.generation;
     UiFriendsSource invalid{&fixture, 16385, 1, friends_resolve};
     check(!ui_friends_scene_update(&scene, &invalid, UiFriendsTab::all, UiFriendsPhase::ready, {},
@@ -679,13 +860,15 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
     UiFriendsContent empty_content{{utf8_literal("missing"), 0, 7, true, false, false}, 13, 1};
     check(ui_friends_scene_update(&empty_sections, &empty_source, UiFriendsTab::pending,
                                   UiFriendsPhase::ready, {}, compact, &empty_content, &empty_projection) &&
-              empty_sections.count == 0 && empty_fixture.calls == 0 &&
+              empty_sections.count == 0 && empty_fixture.calls == 0 && empty_sections.empty.generation &&
               !ui_friends_scene_scrollbar(empty_sections).visible &&
               !ui_friends_scene_activation(
                   empty_sections, {UiFriendsAction::clear_incoming, 0, UiFriendsTab::pending}, &request) &&
+              !ui_friends_scene_activation(
+                  empty_sections, {UiFriendsAction::toggle_section, 0, UiFriendsTab::pending}, &request) &&
               ui_friends_scene_activation(
                   empty_sections, {UiFriendsAction::toggle_hidden, 0, UiFriendsTab::pending}, &request),
-          "friends_sections_empty_filtered_results_preserve_zero_headers_without_resolution_or_bulk_clear");
+          "friends_sections_empty_filtered_results_show_no_results_without_headers_resolution_or_bulk_clear");
     const UiFriendsPhase opening_phases[]{UiFriendsPhase::loading, UiFriendsPhase::error};
     for (const auto phase : opening_phases)
         check(ui_friends_scene_update(&empty_sections, &empty_source, UiFriendsTab::pending, phase, {},

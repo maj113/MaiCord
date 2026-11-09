@@ -12,6 +12,9 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/model/user/store.hpp"
+#include "maicord/model/chat/game_store.hpp"
+#include "maicord/model/user/profile_connection.hpp"
+#include "maicord/protocol/gateway/message_events.hpp"
 
 #include "maicord/core/win32_system_time.hpp"
 #include "maicord/media/core/asset.hpp"
@@ -202,10 +205,356 @@ void test_profile_badges(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(named && links == 3 && images == 3,
           "profile badges: UI Automation names each badge by its description; linked badges are links");
+    // The boxed list (a user's, not a bot's): the first six badges in one box, the rest counted as "+N"; hovering
+    // a badge lights the box.
+    profile.badges[6] = profile.badges[2];
+    profile.badges[7] = profile.badges[3];
+    profile.badge_count = 8;
+    scene.presentation = ProfilePresentation::popout;
+    bool boxed = opened && profile_scene_layout(&scene, scene.viewport, true);
+    UiRect box{}, first{}, last{}, more{};
+    u32 shown = 0;
+    UiWidgetHandle hover{};
+    for (u32 i = 0; boxed && i < scene.part_count; ++i) {
+        const auto& part = scene.parts[i];
+        const auto* node = ui_widget_manager_layout_node(scene.widgets, part.widget);
+        if (!node)
+            continue;
+        if (part.look == ProfileLook::badge_box)
+            box = node->rectangle;
+        if (part.media == ProfileMediaKind::badge) {
+            first = shown++ ? first : node->rectangle;
+            last = node->rectangle;
+            hover = part.widget;
+        }
+        if (utf8_equal(part.text, utf8_literal("+2")))
+            more = node->rectangle;
+    }
+    boxed = boxed && shown == 6 && ui_rect_height(box) == 24 && first.left - box.left == 4 &&
+            first.top - box.top == 2 && box.bottom - first.bottom == 2 && last.left - first.left == 110 &&
+            more.left == last.right + 2 && more.right + 4 == box.right;
+    const auto box_fill = [&](bool lit) noexcept {
+        PaintStream paint{};
+        bool found = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1280, 900) &&
+                     profile_scene_paint(scene, kDefaultTheme, &paint);
+        bool fill = false;
+        const auto want = lit ? kDefaultTheme.tokens.state.row_selected : kDefaultTheme.tokens.state.row_hover;
+        for (u32 q = 0; found && q < paint.count; ++q) {
+            const auto& quad = paint.quads[q];
+            fill |= quad.left == box.left && quad.right == box.right && quad.fill.red == want.red &&
+                    quad.fill.alpha == want.alpha && quad.border_width == 1;
+        }
+        paint_stream_release(&paint);
+        return found && fill;
+    };
+    const bool resting = boxed && box_fill(false);
+    scene.widgets.hovered = hover;
+    check(resting && box_fill(true), "profile badges: a user's first six badges sit in one box with +N for the rest");
+    scene.widgets.hovered = {};
+    profile_scene_release(&scene);
+}
+// The Game Collection row (the client's widget breadcrumb): six games over two game-list widgets (one listed twice,
+// one without an icon) and an application widget; the row shows the first four with an icon, the last dimmed
+// under "+2" (six games, four shown), and opens the full profile's Board.
+void test_profile_game_collection(void (*check)(bool, const char*) noexcept) noexcept {
+    constexpr auto json = utf8_literal(
+        R"({"user":{"id":"42","username":"gamer"},"widgets":[)"
+        R"({"id":"1","data":{"type":"favorite_games","games":[{"game_id":"501"},{"game_id":"502"},{"game_id":"503"}]}},)"
+        R"({"id":"2","data":{"type":"played_games","games":[{"game_id":"502"},{"game_id":"504"},{"game_id":"505"},)"
+        R"({"game_id":"506"}]}},{"id":"3","data":{"type":"application","application_id":"77"}}]})");
+    static UserProfile profile{};
+    static ProfileScene scene{};
+    static GameRecord records[8];
+    static GameSearchEntry searches[1];
+    static GameStore games{};
+    u32 scratch[1024];
+    bool ok = user_profile_decode(json, {scratch, 1024}, 42, 0, &profile) &&
+              game_store_initialize(&games, {records, 8}, {searches, 1});
+    for (u64 id = 501; ok && id <= 506; ++id) {
+        GuildAdminGame game{};
+        game.id = id;
+        game.name_bytes = 4;
+        copy_bytes(game.name, "Game", 4);
+        if (id != 503) {
+            game.icon_bytes = 32;
+            copy_bytes(game.icon, "0123456789abcdef0123456789abcdef", 32);
+        }
+        game_store_put(&games, game, true, 1);
+    }
+    const auto row = [&](ProfilePresentation presentation, const GameStore* store, UiRect* card, u32* icons,
+                         const ProfilePart** last, UiRect* more) noexcept {
+        *card = *more = {};
+        *icons = 0;
+        *last = nullptr;
+        scene.presentation = presentation;
+        scene.games = store;
+        if (!profile_scene_layout(&scene, scene.viewport, true))
+            return false;
+        constexpr u64 expected[4]{501, 502, 504, 505};
+        bool titled = false, placed = true;
+        float previous = 0;
+        for (u32 i = 0; i < scene.part_count; ++i) {
+            const auto& part = scene.parts[i];
+            const auto* node = ui_widget_manager_layout_node(scene.widgets, part.widget);
+            if (!node)
+                continue;
+            if (part.look == ProfileLook::card && part.action == ProfileAction::widgets)
+                *card = node->rectangle;
+            titled |= utf8_equal(part.text, utf8_literal("Game Collection"));
+            if (utf8_equal(part.text, utf8_literal("+2")))
+                *more = node->rectangle;
+            if (part.media != ProfileMediaKind::collection_game)
+                continue;
+            const auto r = node->rectangle;
+            placed = placed && *icons < 4 && part.target == expected[*icons] && part.action == ProfileAction::widgets &&
+                     ui_rect_width(r) == 24 && ui_rect_height(r) == 24 && part.style == (*icons == 3 ? 1u : 0u) &&
+                     (!*icons || r.left - previous == 28);
+            previous = r.left;
+            ++*icons;
+            *last = &part;
+        }
+        return titled && placed;
+    };
+    UiRect card{}, more{};
+    u32 icons = 0;
+    const ProfilePart* last = nullptr;
+    ok = ok && profile.widget_count == 3 && profile_scene_open(&scene, &profile, nullptr, nullptr, 1,
+                                                               {700, 100, 720, 120}, {0, 0, 1280, 900});
+    bool shown = ok && row(ProfilePresentation::popout, &games, &card, &icons, &last, &more) && icons == 4 && last;
+    const auto* icon = shown ? ui_widget_manager_layout_node(scene.widgets, last->widget) : nullptr;
+    ProfileMedia media{};
+    constexpr auto icon_url =
+        utf8_literal("https://cdn.discordapp.com/app-icons/505/0123456789abcdef0123456789abcdef.png?size=");
+    shown = shown && icon && ui_rect_height(card) == 40 && icon->rectangle.right + 8 == card.right &&
+            icon->rectangle.top - card.top == 8 && ui_rect_equal(more, icon->rectangle) &&
+            profile_media_resolve(scene, static_cast<u32>(last - scene.parts), &media) && media.opacity == .5f &&
+            media_asset_key_valid(media.key) && media.url.bytes > icon_url.bytes &&
+            bytes_equal(media.url.data, icon_url.data, icon_url.bytes);
+    const auto hit = shown ? profile_scene_part(scene, profile_scene_hit_test(scene, card.left + 20, card.top + 20))
+                           : nullptr;
+    check(shown && hit && hit->action == ProfileAction::widgets,
+          "profile game collection: the popout shows four game icons, the last dimmed under +2, opening the Board");
+    // Before the games load the row keeps its title without icons; the DM panel shows it too; the editor's
+    // preview and a profile without game lists do not.
+    const bool bare = row(ProfilePresentation::popout, nullptr, &card, &icons, &last, &more) && icons == 0 &&
+                      ui_rect_height(card) == 40;
+    scene.anchor = {684, 48, 1000, 700};
+    const bool panel = row(ProfilePresentation::panel, &games, &card, &icons, &last, &more) && icons == 4;
+    scene.anchor = {700, 100, 720, 120};
+    const bool preview = !row(ProfilePresentation::preview, &games, &card, &icons, &last, &more) && !icons;
+    profile.widgets[0].kind = profile.widgets[1].kind = ProfileWidgetKind::application;
+    const bool none = !row(ProfilePresentation::popout, &games, &card, &icons, &last, &more) && !icons;
+    check(bare && panel && preview && none,
+          "profile game collection: titled before its games load, in the DM panel, not in the preview or without games");
+    profile_scene_release(&scene);
+}
+// Connected accounts (their metadata, text and URLs are checked with the decode in profile_decode_scratch.cpp):
+// the full profile and the DM panel list them (the official popout lists none), each as a white tile with the logo,
+// the name as a link with its arrow and verified mark, "Member since" and the statistics, with Steam's item counts
+// beside their games' pictures.
+void test_profile_connections(void (*check)(bool, const char*) noexcept) noexcept {
+    constexpr auto all = utf8_literal(
+        R"({"user":{"id":"42","username":"linked"},"connected_accounts":[)"
+        R"({"type":"steam","id":"76561198000000001","name":"Zupko","verified":true,"metadata":{"created_at":"2020-01-19T12:00:00+00:00","game_count":"172","item_count_dota2":"0","item_count_tf2":"84"}},)"
+        R"({"type":"github","id":"583231","name":"Zupk","verified":true,"metadata":{}},)"
+        R"({"type":"spotify","id":"zupk user","name":"Đero Đerković","verified":true,"metadata":null},)"
+        R"({"type":"reddit","id":"t2_x","name":"alien","verified":true,"metadata":{"gold":"0","mod":"1","total_karma":"20223","created_at":"2019-05-02T20:28:37"}},)"
+        R"({"type":"twitter","id":"12","name":"jack","verified":true,"metadata":{"verified":"1","statuses_count":"1234","followers_count":5600000}},)"
+        R"({"type":"ebay","id":"e","name":"seller","verified":false,"metadata":{"positive_feedback_percentage":"99.8","top_rated_seller":"1"}},)"
+        R"({"type":"paypal","id":"p","name":"pal","verified":true,"metadata":{"verified":"1"}},)"
+        R"({"type":"tiktok","id":"t","name":"tik","verified":true,"metadata":{"follower_count":"3","following_count":"4","likes_count":"1000","verified":"1"}},)"
+        R"({"type":"soundcloud","id":"s","name":"sound","verified":false}]})");
+    static UserProfile profile{};
+    static ProfileScene scene{};
+    u32 scratch[2048];
+    const bool decoded = user_profile_decode(all, {scratch, 2048}, 42, 0, &profile);
+    // The rows: Steam, GitHub and Spotify in the full profile and the DM panel.
+    constexpr auto three = utf8_literal(
+        R"({"user":{"id":"42","username":"linked"},"connected_accounts":[)"
+        R"({"type":"steam","id":"76561198000000001","name":"Zupko","verified":true,"metadata":{"created_at":"2020-01-19T12:00:00+00:00","game_count":"172","item_count_dota2":"0","item_count_tf2":"84"}},)"
+        R"({"type":"github","id":"583231","name":"Zupk","verified":false},)"
+        R"({"type":"spotify","id":"zupk","name":"Đero Đerković","verified":true}]})");
+    static UserProfile linked{};
+    const bool read = user_profile_decode(three, {scratch, 2048}, 42, 0, &linked);
+    char since[96] = "Member since ";
+    u64 created = 0;
+    const auto date = parse_iso_timestamp({utf8_literal("2020-01-19T12:00:00+00:00"), 0, false}, &created)
+                          ? format_profile_date(created / 1000, {since + 13, sizeof(since) - 13})
+                          : TimestampFormatResult{};
+    const Utf8View expected_since{since, 13 + date.bytes};
+    struct Row {
+        UiRect box, tile, name, line, chips;
+        u32 tiles, names, arrows, marks, figures, pictures, lines;
+        bool since;
+    } rows[3]{};
+    const auto read_rows = [&](const ProfileScene& s) noexcept {
+        for (auto& row : rows)
+            row = Row{};
+        u32 row = 0;
+        for (u32 i = 0; i < s.part_count; ++i) {
+            const auto& part = s.parts[i];
+            const auto* node = ui_widget_manager_layout_node(s.widgets, part.widget);
+            if (!node)
+                continue;
+            if (part.look == ProfileLook::connection_tile) {
+                row = static_cast<u32>(part.source) + 1;
+                if (row > 3)
+                    return false;
+                rows[row - 1].tile = node->rectangle;
+                rows[row - 1].box = node->rectangle;
+                ++rows[row - 1].tiles;
+                continue;
+            }
+            // Parts of a row lie in the card (the full profile's tab panel is beside it) within 70 DIPs of its tile
+            // (the panel's footer and header buttons follow the rows).
+            if (!row || node->rectangle.left >= s.card.right || node->rectangle.top < rows[row - 1].tile.top - 1 ||
+                node->rectangle.top >= rows[row - 1].tile.top + 70)
+                continue;
+            auto& r = rows[row - 1];
+            r.box = {minimum(r.box.left, node->rectangle.left), minimum(r.box.top, node->rectangle.top),
+                     maximum(r.box.right, node->rectangle.right), maximum(r.box.bottom, node->rectangle.bottom)};
+            if (part.action == ProfileAction::connection) {
+                r.name = node->rectangle;
+                ++r.names;
+            } else if (part.icon == static_cast<u16>(UiIcon::external_link))
+                ++r.arrows;
+            else if (part.icon == static_cast<u16>(UiIcon::badge_check))
+                ++r.marks;
+            else if (part.media == ProfileMediaKind::connection_chip) {
+                ++r.pictures;
+                r.chips = node->rectangle;
+            } else if (utf8_equal(part.text, expected_since)) {
+                r.since = true;
+                r.line = node->rectangle;
+            } else if (part.text.bytes && (part.style & text_style_bold)) {
+                ++r.figures;
+                r.chips = node->rectangle;
+            } else if (part.text.bytes)
+                ++r.lines;
+        }
+        return true;
+    };
+    const auto count_tiles = [](const ProfileScene& s) noexcept {
+        u32 tiles = 0;
+        for (u32 i = 0; i < s.part_count; ++i)
+            tiles += s.parts[i].look == ProfileLook::connection_tile;
+        return tiles;
+    };
+    scene.presentation = ProfilePresentation::modal;
+    const bool modal = read && profile_scene_open(&scene, &linked, nullptr, nullptr, 1, {700, 100, 720, 120},
+                                                  {0, 0, 1280, 900}) &&
+                       read_rows(scene);
+    const auto layout_ok = [&]() noexcept {
+        const auto& steam_row = rows[0];
+        const auto& github_row = rows[1];
+        bool stacked = true, sized = true;
+        for (u32 i = 0; i < 3; ++i) {
+            sized = sized && rows[i].tiles == 1 && rows[i].names == 1 && ui_rect_width(rows[i].tile) == 32 &&
+                    ui_rect_height(rows[i].tile) == 32 && rows[i].name.left == rows[i].tile.right + 12 &&
+                    rows[i].tile.left == rows[0].tile.left;
+            for (u32 j = i + 1; j < 3; ++j)
+                stacked = stacked && !ui_rect_intersects(rows[i].box, rows[j].box);
+            stacked = stacked && (!i || rows[i].tile.top >= rows[i - 1].box.bottom + 16);
+        }
+        // Steam: the name, then "Member since", then the figures 24 below (two pictures), each line under the last.
+        return stacked && sized && steam_row.arrows == 1 && steam_row.marks == 1 && steam_row.since &&
+               steam_row.figures == 3 && steam_row.lines == 3 && steam_row.pictures == 2 &&
+               steam_row.line.top >= steam_row.name.bottom && steam_row.chips.top >= steam_row.line.bottom &&
+               steam_row.tile.top == steam_row.name.top &&
+               // GitHub: a bare name is centred on its tile and has no mark; Spotify's has one.
+               github_row.arrows == 1 && !github_row.marks && !github_row.since && !github_row.figures &&
+               github_row.name.top - github_row.tile.top == 6 && rows[2].marks == 1 &&
+               ui_rect_height(github_row.box) == 32;
+    };
+    check(modal && layout_ok(), "profile connections: the full profile lists a tile, name, date and statistics per account");
+    // Each tile and picture asks for its logo from the web client's asset host; the name opens the account.
+    bool media = modal;
+    u32 logos = 0, games = 0;
+    for (u32 i = 0; modal && i < scene.part_count; ++i) {
+        ProfileMedia m{};
+        const auto& part = scene.parts[i];
+        if (part.media != ProfileMediaKind::connection_logo && part.media != ProfileMediaKind::connection_chip)
+            continue;
+        const bool got = profile_media_resolve(scene, i, &m);
+        const Utf8View want =
+            part.media == ProfileMediaKind::connection_chip
+                ? (part.source == static_cast<u16>(ProfileConnectionChipIcon::dota_2)
+                       ? utf8_literal("https://discord.com/assets/44e2229fd99bc14e.png")
+                       : utf8_literal("https://discord.com/assets/9eb53b4fa3cc12d5.png"))
+            : part.source == 0 ? utf8_literal("https://discord.com/assets/b68f2f4df4af9085.png")
+            : part.source == 1 ? utf8_literal("https://discord.com/assets/1cc92a6d139af44d.png")
+                               : utf8_literal("https://discord.com/assets/40518c6ced9fed93.png");
+        media = media && got && utf8_equal(m.url.view(), want) && media_asset_key_valid(m.key) &&
+                (part.media != ProfileMediaKind::connection_logo || ui_rect_width(m.rectangle) == 24);
+        logos += part.media == ProfileMediaKind::connection_logo;
+        games += part.media == ProfileMediaKind::connection_chip;
+    }
+    check(media && logos == 3 && games == 2,
+          "profile connections: logos and game pictures are fetched from the web client's asset host");
+    // A screen reader reads "GitHub: Zupk, opens in browser"; the links are focusable and the tile is an image.
+    static UiAccessNode nodes[512];
+    static char text[32768];
+    static u32 slots[2048], keys[1024];
+    static UiAccessTree tree{};
+    const bool named = modal && ui_access_tree_initialize(&tree, {nodes, 512}, {text, sizeof(text)}, {slots, 2048},
+                                                          {keys, 1024}) &&
+                       ui_access_tree_reset(&tree, utf8_literal("Profile"), {0, 0, 1280, 900}) &&
+                       profile_scene_access(&tree, 0, scene, 1, true) != kUiAccessNone && ui_access_tree_finish(&tree);
+    u32 links = 0, images = 0;
+    for (u32 i = 1; named && i < tree.count; ++i) {
+        const auto name = ui_access_name(tree, i);
+        if (tree.nodes[i].role == UiAccessRole::link)
+            links += (utf8_equal(name, utf8_literal("Steam: Zupko, opens in browser")) ||
+                      utf8_equal(name, utf8_literal("GitHub: Zupk, opens in browser")) ||
+                      utf8_equal(name, utf8_literal("Spotify: Đero Đerković, opens in browser"))) &&
+                     (tree.nodes[i].state & ui_access_focusable);
+        if (tree.nodes[i].role == UiAccessRole::image)
+            images += utf8_equal(name, utf8_literal("Steam")) || utf8_equal(name, utf8_literal("Dota 2")) ||
+                      utf8_equal(name, utf8_literal("Team Fortress 2"));
+    }
+    check(named && links == 3 && images == 3,
+          "profile connections: the links are named by service and account and are keyboard focusable");
+    // The popout lists none; the DM panel lists them (and Streamer Mode hides them in both the panel and the card).
+    scene.presentation = ProfilePresentation::popout;
+    bool popout = modal && profile_scene_layout(&scene, scene.viewport, true);
+    const u32 popout_tiles = count_tiles(scene);
+    scene.presentation = ProfilePresentation::panel;
+    scene.anchor = {900, 0, 1220, 840};
+    const bool panel = popout && profile_scene_layout(&scene, scene.viewport, true) && read_rows(scene);
+    const u32 panel_tiles = count_tiles(scene);
+    const bool panel_rows = panel && layout_ok();
+    scene.hide_personal = true;
+    const bool panel_hidden = panel && profile_scene_layout(&scene, scene.viewport, true);
+    const u32 hidden_tiles = count_tiles(scene);
+    scene.presentation = ProfilePresentation::modal;
+    const bool modal_hidden = panel_hidden && profile_scene_layout(&scene, scene.viewport, true);
+    check(popout && popout_tiles == 0 && panel && panel_tiles == 3 && panel_rows && panel_hidden &&
+              hidden_tiles == 0 && modal_hidden && count_tiles(scene) == 0,
+          "profile connections: none in the popout, listed in the DM panel, hidden by Streamer Mode");
+    scene.hide_personal = false;
+    // All eight accounts keep every row apart in the full profile, whatever their lines.
+    ProfileScene wide{};
+    wide.presentation = ProfilePresentation::modal;
+    bool apart = decoded && profile.connection_count == 8 &&
+                 profile_scene_open(&wide, &profile, nullptr, nullptr, 1, {700, 100, 720, 120}, {0, 0, 1280, 900});
+    UiRect last_box{};
+    u32 listed = 0;
+    for (u32 i = 0; apart && i < wide.part_count; ++i) {
+        const auto* node = ui_widget_manager_layout_node(wide.widgets, wide.parts[i].widget);
+        if (!node || wide.parts[i].look != ProfileLook::connection_tile)
+            continue;
+        apart = apart && (!listed || node->rectangle.top >= last_box.bottom + 16 - 1);
+        last_box = node->rectangle;
+        ++listed;
+    }
+    check(apart && listed == 8, "profile connections: eight accounts are eight tiles, each below the last");
+    profile_scene_release(&wide);
     profile_scene_release(&scene);
 }
 void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept {
     test_profile_badges(check);
+    test_profile_connections(check);
+    test_profile_game_collection(check);
     {
         char json[kProfileBioMaximumUtf8Bytes + 128]{};
         constexpr auto prefix =
@@ -342,6 +691,19 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
           "profile_compact_wire_preserves_style_sku_activity");
     check(!user_appearance_read({wire, bytes - 1}, 42, 0, &restored),
           "profile_truncated_appearance_rejected");
+    UserAppearanceStore official_store{};
+    UserAppearance official{}, official_back{};
+    official.user_id = 43;
+    official.fields = appearance_system;
+    official.system = true;
+    const u32 official_bytes = user_appearance_write(official, {wire, 1024});
+    const auto* official_record = user_appearance_upsert(&official_store, official) && official_store.count
+                                      ? user_appearance_find(official_store, 43)
+                                      : nullptr;
+    check(official_bytes && user_appearance_read({wire, official_bytes}, 43, 0, &official_back) && official_back.system &&
+              official_record && official_record->system,
+          "profile_system_account_flag_round_trips_and_is_stored");
+    user_appearance_release(&official_store);
     a.name.color_count = 9;
     check(!user_appearance_write(a, {wire, 1024}),
           "profile_invalid_palette_does_not_read_beyond_colors");
@@ -547,6 +909,102 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
     // Theme colours need Nitro (premium type 2) outside the editor preview.
     check(!scene.themed && scene.has_banner_color && scene.banner_color == 16711680,
           "profile_theme_colors_need_nitro_but_still_color_the_banner");
+    // The banner without a picture, filled as the official client fills it (its display profile's primary colour:
+    // the first theme colour, the member's over the user's, else user_profile.accent_color; else the avatar's
+    // colour; else the plain banner). A black accent is a colour and an absent one is not; a member profile's accent
+    // is not used (Userdoccers: not respected on guild profiles) and its reset theme ([null, null]) is no theme.
+    {
+        static ProfileScene fill_scene;
+        static UserProfile fill_profile;
+        const auto same = [](const Color& a, const Color& b) noexcept {
+            return a.red == b.red && a.green == b.green && a.blue == b.blue && a.alpha == b.alpha;
+        };
+        // The card for `json` in server 7 fills its banner with `rgb` when its profile names a colour (`named`),
+        // else with the plain banner.
+        const auto fills = [&](Utf8View json, u32 rgb, bool named = true) noexcept {
+            fill_scene = {};
+            if (!user_profile_decode(json, {scratch, 4096}, 42, 7, &fill_profile) ||
+                !profile_scene_open(&fill_scene, &fill_profile, nullptr, nullptr, 1, {800, 60, 1000, 104},
+                                    {0, 0, 1000, 800}))
+                return false;
+            return fill_scene.has_banner_color == named &&
+                   same(profile_scene_banner_color(fill_scene, kDefaultTheme),
+                        named ? color_from_rgb24(rgb) : kDefaultTheme.tokens.profile.banner);
+        };
+        check(fills(utf8_literal(R"({"user":{"id":"42","username":"okrama"},"user_profile":{"accent_color":39270}})"),
+                    0x009966) &&
+                  fill_profile.has_accent,
+              "profile_banner_fill_takes_the_accent_colour");
+        check(fills(utf8_literal(R"({"user":{"id":"42","username":"black"},"user_profile":{"accent_color":0}})"), 0),
+              "profile_banner_fill_black_accent_is_a_colour");
+        check(fills(utf8_literal(R"({"user":{"id":"42","username":"theme"},)"
+                                 R"("user_profile":{"accent_color":255,"theme_colors":[1193046,11259375]}})"),
+                    0x123456),
+              "profile_banner_fill_first_theme_colour_before_the_accent");
+        check(fills(utf8_literal(R"({"user":{"id":"42","username":"reset"},"user_profile":{"accent_color":255},)"
+                                 R"("guild_member_profile":{"theme_colors":[null,null]}})"),
+                    255) &&
+                  !fill_profile.has_guild_theme,
+              "profile_banner_fill_member_reset_theme_is_no_theme");
+        check(fills(utf8_literal(R"({"user":{"id":"42","username":"member","accent_color":null},)"
+                                 R"("user_profile":{"accent_color":null},"guild_member_profile":{"accent_color":16711680}})"),
+                    0, false) &&
+                  !fill_profile.has_accent,
+              "profile_banner_fill_member_accent_and_null_accent_name_no_colour");
+        // Without a colour of its own the card takes its avatar's, once the host has read it, and paints it.
+        fill_scene.has_avatar_color = true;
+        fill_scene.avatar_color = 0x088959;
+        PaintStream paint{};
+        bool painted = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 800) &&
+                       profile_scene_paint(fill_scene, kDefaultTheme, &paint) && paint.rejected == 0;
+        bool avatar_fill = false;
+        for (u32 i = 0; painted && i < paint.count; ++i)
+            avatar_fill |= same(paint.quads[i].fill, color_from_rgb24(0x088959));
+        paint_stream_release(&paint);
+        check(painted && avatar_fill && same(profile_scene_banner_color(fill_scene, kDefaultTheme),
+                                             color_from_rgb24(0x088959)),
+              "profile_banner_fill_without_a_colour_takes_the_avatar_colour");
+        const bool accent = fills(
+            utf8_literal(R"({"user":{"id":"42","username":"okrama"},"user_profile":{"accent_color":39270}})"), 0x009966);
+        fill_scene.has_avatar_color = true;
+        fill_scene.avatar_color = 0x088959;
+        check(accent && same(profile_scene_banner_color(fill_scene, kDefaultTheme), color_from_rgb24(0x009966)),
+              "profile_banner_fill_accent_before_the_avatar_colour");
+        // A member profile's reset theme hides the user's own theme too (the client's DisplayProfile takes the
+        // member's theme colours whenever the member profile has them): the banner goes straight to the accent.
+        check(fills(utf8_literal(R"({"user":{"id":"42","username":"reset"},)"
+                                 R"("user_profile":{"accent_color":255,"theme_colors":[1193046,11259375]},)"
+                                 R"("guild_member_profile":{"theme_colors":[null,null]}})"),
+                    255) &&
+                  !fill_scene.themed,
+              "profile_member_reset_theme_hides_the_user_theme");
+        // A Nitro card without theme colours of its own takes them from its avatar: the 530 grey until the host
+        // has read the avatar's palette, then its two colours; its banner keeps its accent.
+        const bool nitro = fills(utf8_literal(R"({"user":{"id":"42","username":"nitro"},"premium_type":2,)"
+                                              R"("user_profile":{"accent_color":255}})"),
+                                 255);
+        const bool grey = nitro && fill_scene.themed && fill_scene.avatar_themed &&
+                          fill_scene.theme_primary == kProfileAvatarThemeFallback &&
+                          fill_scene.theme_secondary == kProfileAvatarThemeFallback;
+        fill_scene.has_avatar_theme = true;
+        fill_scene.avatar_theme[0] = 0x088959;
+        fill_scene.avatar_theme[1] = 0x788908;
+        check(grey && profile_scene_layout(&fill_scene, fill_scene.viewport, true) &&
+                  fill_scene.theme_primary == 0x088959 && fill_scene.theme_secondary == 0x788908 &&
+                  !fill_scene.theme_dark == !profile_theme_dark(0x088959) &&
+                  same(profile_scene_banner_color(fill_scene, kDefaultTheme), color_from_rgb24(255)),
+              "profile_nitro_card_without_theme_takes_its_avatar_colours");
+        // Its own theme colours win, and a card without Nitro takes no avatar theme.
+        check(fills(utf8_literal(R"({"user":{"id":"42","username":"own"},"premium_type":2,)"
+                                 R"("user_profile":{"theme_colors":[1193046,11259375]}})"),
+                    0x123456) &&
+                  fill_scene.themed && !fill_scene.avatar_themed && fill_scene.theme_primary == 0x123456 &&
+                  fills(utf8_literal(R"({"user":{"id":"42","username":"classic"},"premium_type":1,)"
+                                     R"("user_profile":{"accent_color":255}})"),
+                        255) &&
+                  !fill_scene.themed && !fill_scene.avatar_themed,
+              "profile_avatar_theme_only_for_nitro_cards_without_their_own");
+    }
     // Which image the card's banner part requests, whatever mix of sources the profile response carries: the
     // member banner when set, else the user's (from user_profile or from the user object), static as PNG and
     // animated as WebP (or the GIF fallback), with or without theme colours, at the smallest CDN size covering
@@ -912,7 +1370,7 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
         profile.mutual_friends[i].name.bytes = static_cast<u16>(name.bytes);
     }
     scene.presentation = ProfilePresentation::modal;
-    scene.tab = 1;
+    scene.section = ProfileTab::friends;
     PaintStream profile_paint{};
     bool crowded = paint_stream_initialize(&profile_paint);
     for (u32 scroll = 0; crowded && scroll < 3; ++scroll) {
@@ -1255,6 +1713,56 @@ void test_profile_modal_layout(Check check) noexcept {
     check(ok && message && message->look == ProfileLook::primary && find_part(s, ProfileAction::relationship) &&
               !find_part(s, ProfileAction::add_friend),
           "profile modal: friends get Message, the Friend button and More");
+    const auto has = [&](Utf8View text) noexcept {
+        for (u32 i = 0; i < s.part_count; ++i)
+            if (utf8_equal(s.parts[i].text, text))
+                return true;
+        return false;
+    };
+    // Friends Since follows Member Since for a friend; a loaded profile's empty mutual tab says so.
+    s.friends_since_ms = 1'600'000'000'000ull;
+    s.phase = ProfilePhase::ready;
+    s.section = ProfileTab::servers;
+    ok = profile_scene_layout(&s, s.viewport, true);
+    check(ok && has(utf8_literal("Friends Since")) && s.tab == 2 &&
+              has(utf8_literal("You don’t have any servers in common")),
+          "profile modal: Friends Since, and the official empty Mutual Servers tab");
+    // A mutual server's second line is the member's nickname there.
+    profile.mutual_guild_count = 1;
+    profile.mutual_guilds[0].id = 9;
+    set_text(&profile.mutual_guilds[0].nick, utf8_literal("Nick There"));
+    ok = profile_scene_layout(&s, s.viewport, true);
+    check(ok && has(utf8_literal("Nick There")), "profile modal: a mutual server shows the nickname there");
+    // The Board, first of the tabs: a favorite game (comment, shown tags) and two of three games in rotation.
+    profile.widget_count = 2;
+    profile.widgets[0] = {1, 0, ProfileWidgetKind::favorite_games, 0, 1};
+    profile.widgets[1] = {2, 0, ProfileWidgetKind::current_games, 1, 3};
+    profile.widget_game_count = 4;
+    for (u32 i = 0; i < 4; ++i)
+        profile.widget_games[i].game_id = 601 + i;
+    set_text(&profile.widget_games[0].comment, utf8_literal("Best game"));
+    profile.widget_games[0].tags = (1u << profile_widget_expert) | (1u << profile_widget_noob);
+    s.section = ProfileTab::widgets;
+    ok = profile_scene_layout(&s, s.viewport, true);
+    u32 covers = 0;
+    for (u32 i = 0; i < s.part_count; ++i)
+        covers += s.parts[i].media == ProfileMediaKind::widget_game && s.parts[i].action == ProfileAction::game;
+    check(ok && s.tab == 0 && has(utf8_literal("Board")) && has(utf8_literal("Favorite Game")) &&
+              has(utf8_literal("Games in Rotation")) && has(utf8_literal("Best game")) && has(utf8_literal("Expert")) &&
+              has(utf8_literal("Show more")) && covers == 3,
+          "profile modal: the Board leads the tabs with the favorite game and two games in rotation");
+    profile.widget_count = profile.widget_game_count = 0;
+    profile.mutual_guild_count = 0;
+    // A refused note save shows Discord's error under the note; Streamer Mode hides the note (and bio, connections).
+    s.note_visible = true;
+    s.note_failed = true;
+    ok = profile_scene_layout(&s, s.viewport, true);
+    check(ok && has(utf8_literal("Note (only visible to you)")) &&
+              has(utf8_literal("Uh-oh, something went wrong. Please try again later.")),
+          "profile modal: a refused note save says so under the note");
+    s.hide_personal = true;
+    ok = profile_scene_layout(&s, s.viewport, true);
+    check(ok && !has(utf8_literal("Note (only visible to you)")), "profile modal: Streamer Mode hides the note");
     profile_scene_release(&s);
 }
 // Theme math (section 3), per-server fallbacks (section 4) and the profile
@@ -1383,6 +1891,30 @@ void test_profile_theme_preview(Check check) noexcept {
               profile_scene_paint(s, kDefaultTheme, &paint) && profile_scene_foreground(s, kDefaultTheme, &paint, nullptr) &&
               paint.rejected == 0,
           "profile preview: paints and draws its foreground without an edit geometry");
+    // A drafted nameplate adds the member-list row under the card's sections: the nameplate's still (the member
+    // list's URL), a 32 DIP avatar and the name in its style, and the card grows by the row.
+    {
+        const float plain = s.preview_height;
+        preview.user_appearance.fields |= appearance_nameplate;
+        preview.user_appearance.nameplate_sku = 1234;
+        bool laid = profile_scene_layout(&s, {0, 0, 1280, 720}, true);
+        bool plate = false, row_avatar = false;
+        for (u32 i = 0; laid && i < s.part_count; ++i) {
+            ProfileMedia media{};
+            if (s.parts[i].media == ProfileMediaKind::nameplate && profile_media_resolve(s, i, &media))
+                plate = utf8_equal(media.url.view(),
+                                   utf8_literal("https://cdn.discordapp.com/media/v1/collectibles-shop/1234/static")) &&
+                        ui_rect_height(media.rectangle) == 42 && media.mask_radius == 4;
+            row_avatar |= s.parts[i].media == ProfileMediaKind::avatar && ui_rect_width(part_rect(s, &s.parts[i])) == 32;
+        }
+        check(laid && plate && row_avatar && s.preview_height == plain + 24 + 42 + 12 &&
+                  s.row_name_widget.generation != 0,
+              "profile preview: a drafted nameplate shows on a member-list row under the card");
+        preview.user_appearance.fields &= ~static_cast<u32>(appearance_nameplate);
+        laid = profile_scene_layout(&s, {0, 0, 1280, 720}, true);
+        check(laid && s.preview_height == plain && !s.row_name_widget.generation,
+              "profile preview: without a nameplate the row is gone");
+    }
     // Scrolled partly above its page: the editor lays the card out in the
     // page's visible area, so it keeps its anchor and every part is cut there.
     const UiRect page{40, 100, 700, 600};

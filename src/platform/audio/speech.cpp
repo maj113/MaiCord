@@ -26,12 +26,21 @@ static bool speech_available(Speech* speech) noexcept {
     if (FAILED(CoCreateInstance(kSpVoiceClass, nullptr, CLSCTX_INPROC_SERVER, kSpVoiceInterface, &voice)) || !voice)
         return false;
     speech->voice = voice;
+    long base = 0;
+    if (SUCCEEDED(static_cast<ISpVoice*>(voice)->GetRate(&base)))
+        speech->base = static_cast<i16>(base < -10 ? -10 : base > 10 ? 10 : base);
     return true;
 }
 
-bool speech_speak(Speech* speech, Utf8View text) noexcept {
+bool speech_speak(Speech* speech, Utf8View text, i32 rate) noexcept {
     if (!text.data || !text.bytes || !speech_available(speech))
         return false;
+    rate = rate < -10 ? -10 : rate > 10 ? 10 : rate;
+    if (rate != speech->rate) {
+        const i32 adjusted = speech->base + rate;
+        if (SUCCEEDED(static_cast<ISpVoice*>(speech->voice)->SetRate(adjusted < -10 ? -10 : adjusted > 10 ? 10 : adjusted)))
+            speech->rate = static_cast<i16>(rate);
+    }
     wchar_t* wide = static_cast<wchar_t*>(
         commit_pages((kSpeechMaximumChars + 1) * sizeof(wchar_t)));
     if (!wide)

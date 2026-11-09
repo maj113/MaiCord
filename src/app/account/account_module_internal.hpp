@@ -15,6 +15,7 @@
 #include "maicord/app/media/account_download.hpp"
 #include "maicord/app/media/account_upload.hpp"
 #include "maicord/app/voice/video_stream_decoders.hpp"
+#include "maicord/app/gateway/go_live_devices.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -55,6 +56,9 @@ struct AccountModuleRuntime {
     AccountActionCaptcha action_captcha;
     // Call video decoders; installed into the current gateway runtime.
     VideoStreamDecoders video;
+    // Go Live producers (capture, encoder, stream audio) on the renderer's
+    // device; installed into the current gateway runtime.
+    GoLiveDevices go_live;
     // Soundboard fetch/decode/cache and the effect mixer calls render.
     AccountSoundboard soundboard;
     // Voice message recording and preview.
@@ -218,6 +222,7 @@ bool WINAPI module_channel_info(void* instance, u64 guild_id) noexcept;
 void WINAPI module_client_focus(void* instance, bool focused) noexcept;
 RestClientSubmitResult WINAPI module_account_settings(void* instance, const AccountSettingsRequest* request,
                                                             u64 request_id) noexcept;
+bool WINAPI module_credential_replace(void* instance, const u8* token, u32 bytes) noexcept;
 bool admit_thread_action(AccountModuleRuntime& runtime, const ThreadActionRequest& request) noexcept;
 bool admit_thread_creation(AccountModuleRuntime& runtime, const ThreadCreationRequest&) noexcept;
 
@@ -251,6 +256,9 @@ void WINAPI module_media_vp8_cpu(void* instance, bool on_cpu) noexcept;
 bool WINAPI module_stream_watch(void* instance, const GatewayStreamKey* key) noexcept;
 RestClientSubmitResult WINAPI module_stream_preview(void* instance, const GatewayStreamKey* key,
                                                     u64 request_id) noexcept;
+bool WINAPI module_go_live(void* instance, const GoLiveCommand* command) noexcept;
+bool WINAPI module_go_live_snapshot(void* instance, GoLiveSnapshot* output) noexcept;
+bool WINAPI module_go_live_preview(void* instance, VideoStreamFrame* output) noexcept;
 bool joins_guild(const GuildCommunityRequest& request) noexcept;
 bool accepts_invite(const GuildInviteRequest& request) noexcept;
 bool admit_invite(AccountModuleRuntime&, const GuildInviteRequest& request) noexcept;

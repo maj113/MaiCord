@@ -42,7 +42,7 @@ bool reveal_index(MemberListScene* scene, u32 index) noexcept {
     const auto* row = member_list_view_row(*scene->source, index);
     const u64 user_id = known_member ? row->user_id : 0;
     scene->focused_source_index = index;
-    const u64 extent = ui_extent_units(kMemberListRowHeight);
+    const u64 extent = ui_extent_units(member_list_row_height());
     const u64 offset = static_cast<u64>(static_cast<double>(scene->scroll_dips) * kUiExtentUnitsPerDip);
     u64 revealed = 0;
     if (!ui_scroll_reveal_units(index * extent, extent, scene->source->count * extent, offset,
@@ -68,10 +68,10 @@ MemberListHit member_list_scene_navigate(MemberListScene* scene, UiListMove move
     if (!source_valid(scene)) return {};
     u32 current = focused_index(*scene);
     if (current == kUiListNoSelection && move == UiListMove::restore && scene->scroll_dips >= 0)
-        current = static_cast<u32>(scene->scroll_dips / kMemberListRowHeight);
+        current = static_cast<u32>(scene->scroll_dips / member_list_row_height());
     if (scene->source->authoritative && scene->source_count) {
         if (current == kUiListNoSelection) current = minimum(scene->source_count - 1,
-            static_cast<u32>(scene->scroll_dips / kMemberListRowHeight));
+            static_cast<u32>(scene->scroll_dips / member_list_row_height()));
         if ((move == UiListMove::previous && !current) ||
             (move == UiListMove::next && current == scene->source_count - 1)) return {};
         u32 index = current;
@@ -101,8 +101,8 @@ MemberListHit member_list_scene_page(MemberListScene* scene, bool reverse) noexc
         const float scroll = maximum(0.0f, scene->scroll_dips + delta);
         u32 current = focused_index(*scene);
         if (current == kUiListNoSelection) current = minimum(scene->source_count - 1,
-            static_cast<u32>(scene->scroll_dips / kMemberListRowHeight));
-        const u32 page = maximum(1u, static_cast<u32>(ui_rect_height(scene->viewport) / kMemberListRowHeight));
+            static_cast<u32>(scene->scroll_dips / member_list_row_height()));
+        const u32 page = maximum(1u, static_cast<u32>(ui_rect_height(scene->viewport) / member_list_row_height()));
         const u32 index = reverse ? (current > page ? current - page : 0) :
             static_cast<u32>(minimum(static_cast<u64>(current) + page, static_cast<u64>(scene->source_count - 1)));
         scene->focused_source_index = index;
@@ -113,12 +113,12 @@ MemberListHit member_list_scene_page(MemberListScene* scene, bool reverse) noexc
         if (!member_list_scene_focus_user(scene, id)) return {};
         return {id, scene->widgets.focused, index};
     }
-    const u64 extent = ui_extent_units(kMemberListRowHeight);
+    const u64 extent = ui_extent_units(member_list_row_height());
     const auto target = ui_list_page(scene->source->count, focused_index(*scene),
         static_cast<u64>(static_cast<double>(scene->scroll_dips) * kUiExtentUnitsPerDip),
         ui_extent_units(ui_rect_height(scene->viewport)), scene->source->count * extent, reverse,
         [](void*, u32 index) noexcept {
-            const u64 stride = ui_extent_units(kMemberListRowHeight);
+            const u64 stride = ui_extent_units(member_list_row_height());
             return UiListRowBounds{index * stride, (static_cast<u64>(index) + 1) * stride};
         }, eligible, scene);
     if (!target.ok()) return {};

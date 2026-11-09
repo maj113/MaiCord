@@ -65,6 +65,10 @@ enum class ShortcutAction : u8 {
     shortcuts_help,
     open_settings,
     downloads,
+    // Accessibility's Zoom level, a mark at a time.
+    zoom_in,
+    zoom_out,
+    zoom_reset,
     count
 };
 
@@ -149,14 +153,15 @@ ShortcutRecordStep shortcut_recorder_input(ShortcutRecorder*, bool down, u32 key
                                            ShortcutChord* recorded) noexcept;
 bool shortcut_key_is_modifier(u32 key) noexcept;
 
-// Custom keybinds: user chords for voice actions that also work while the
-// window is in the background during a call. Push to talk lives in the voice
-// preferences (one key held by the capture thread); the others persist in
-// %LOCALAPPDATA%\MaiCord\keybinds.bin.
+// Custom keybinds: user chords for voice actions and Toggle Streamer Mode that
+// also work while the window is in the background during a call. Push to talk
+// lives in the voice preferences (one key held by the capture thread); the
+// others persist in %LOCALAPPDATA%\MaiCord\keybinds.bin.
 enum class CustomKeybindAction : u8 {
     push_to_talk,
     toggle_mute,
     toggle_deafen,
+    toggle_streamer_mode,
     count
 };
 inline constexpr u32 kCustomKeybindMaximum = 8;

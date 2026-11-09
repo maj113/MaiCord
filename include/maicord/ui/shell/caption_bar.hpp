@@ -50,6 +50,8 @@ struct UiCaptionBarState {
     float frame;
     // The part whose tooltip shows below the bar, none while hidden.
     UiCaptionPart tooltip;
+    // What remains of the tooltip's entrance (kUiMotionTooltip), 0 when settled: it draws at opacity 1 - this.
+    float tooltip_entrance;
 };
 
 struct UiCaptionBarLayout {

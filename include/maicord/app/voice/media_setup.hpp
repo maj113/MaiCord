@@ -25,11 +25,15 @@ struct VoiceMediaSetup {
     VoicePacketCrypto packets;
     NetworkAddress endpoint;
     u32 ssrc, offered_modes, selected_mode;
+    u32 video_ssrc, video_rtx_ssrc; // Ready's assigned local video send SSRCs (zero: none).
     u32 keyframe_interval_ms; // Server-requested send keyframe interval; zero when unset.
     u16 dave_protocol_version;
     VoiceVideoCodec video_codec; // The call's negotiated video codec (op 4, then op 14).
-    // Decodable bits offered in Select Protocol; senders may use any of them.
+    // Codec bits offered in Select Protocol; senders may use any of them.
     u32 video_offer;
+    // VoiceVideoCodec of offer i (payload type 101 + 2i, RTX the next).
+    u8 video_codecs[8];
+    u8 video_codec_count;
     bool has_ready, has_description;
 };
 VoiceMediaSetupError voice_media_ready(VoiceMediaSetup* setup, const VoiceReady& ready) noexcept;

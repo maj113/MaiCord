@@ -25,13 +25,16 @@ enum class UiVoiceControl : u8 {
     mute,
     deafen,
     disconnect,
-    channel
+    channel,
+    screen_share // "Share Your Screen", or the stream menu while live.
 };
 struct UiVoicePanelView {
     u64 guild_id, channel_id;
     UiVoicePanelState state;
     UiVoiceSignal signal;
     bool self_mute, self_deaf, server_mute, server_deaf, speaking;
+    // Connected card: the screen-share button (enabled when this call can stream) and its live state.
+    bool share_enabled, share_live;
     UiVoiceControl hovered, pressed;
 };
 inline constexpr float kUiVoicePanelHeight = 52, kUiVoicePanelGap = 8;
@@ -41,6 +44,8 @@ constexpr float ui_voice_panel_reserve(const UiVoicePanelView* view) noexcept {
 }
 UiRect ui_voice_panel_rectangle(const UiRect& footer) noexcept;
 UiRect ui_voice_panel_disconnect(const UiRect& panel) noexcept;
+// Left of disconnect while connected; empty otherwise.
+UiRect ui_voice_panel_screen_share(const UiRect& panel, const UiVoicePanelView& view) noexcept;
 UiRect ui_voice_panel_status_text(const UiRect& panel) noexcept;
 UiRect ui_voice_panel_channel_text(const UiRect& panel) noexcept;
 // Microphone and deafen buttons left of the settings button in the account panel.

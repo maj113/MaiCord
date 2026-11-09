@@ -21,22 +21,26 @@ RestClientSubmitResult account_guild_community_submit(RestClient* rest,
         body = {interest, guild_community_write_interest_body({interest, sizeof(interest)})};
     else if (request->operation == GuildCommunityOperation::guild_join)
         body = {interest, guild_community_write_join_body({interest, sizeof(interest)})};
-    // The RSVP list is a user route; everything else buckets per guild.
-    const bool user_route = request->operation == GuildCommunityOperation::event_rsvps;
+    // The RSVP list is a user route and the discovery categories a global one; everything else buckets per guild.
+    const bool user_route = request->operation == GuildCommunityOperation::event_rsvps ||
+                            request->operation == GuildCommunityOperation::discovery_categories;
     // The tag popout's join carries the X-Context-Properties header.
     u8 context[64];
     const u32 context_bytes = join ? guild_community_write_join_context({context, sizeof(context)}) : 0;
     if (join && !context_bytes)
         return {RestClientSubmitError::invalid_input};
-    return rest_client_submit(rest, {{target, path.target_bytes},
-                                     body.count ? body : ConstSlice<u8>{},
-                                     {path.route_id, user_route ? 0 : request->guild_id, path.method,
-                                      user_route ? RestMajorParameter::none
-                                                         : RestMajorParameter::guild},
-                                     request_id,
-                                     kRestClientDefaultTimeoutMs,
-                                     body.count != 0,
-                                     {},
-                                     {context, context_bytes}});
+    const RestClientRequest wire{{target, path.target_bytes},
+                                 body.count ? body : ConstSlice<u8>{},
+                                 {path.route_id, user_route ? 0 : request->guild_id, path.method,
+                                  user_route ? RestMajorParameter::none : RestMajorParameter::guild},
+                                 request_id,
+                                 kRestClientDefaultTimeoutMs,
+                                 body.count != 0,
+                                 {},
+                                 {context, context_bytes}};
+    // A template list or a new template carries the whole serialized server.
+    return guild_community_operation_large_reply(request->operation)
+               ? rest_client_submit_large_response(rest, wire, kGuildTemplateMaximumResponseBytes)
+               : rest_client_submit(rest, wire);
 }
 } // namespace maicord

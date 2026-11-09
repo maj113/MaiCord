@@ -38,7 +38,8 @@ bool ui_guild_splash_media(u64 guild_id, Utf8View hash, bool discovery, u32 size
                            UiGuildImageMedia* output) noexcept;
 // The server tag card's banner: a DISCOVERABLE profile's custom banner, from
 // the discovery-splash path at 512 DIPs (size 512 * dpr). False (the card's
-// default gradient) for any other profile or a malformed hash.
+// colour glow, ui_guild_profile_banner_paint) for any other profile or a
+// malformed hash.
 inline constexpr u32 kUiGuildCardBannerRequestDips = 512;
 bool ui_guild_card_banner_media(u64 guild_id, Utf8View custom_banner, bool discoverable, u32 dpi,
                                 UiGuildImageMedia* output) noexcept;

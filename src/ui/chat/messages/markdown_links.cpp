@@ -1218,7 +1218,38 @@ bool command_mention_name(Utf8View input, u32 begin, u32 end) noexcept {
     return length != 0;
 }
 
+// <@$id>: a game mention chip, the official client's mention with the game's
+// icon (an em, 3 px before the name) and its name, "unknown-game" while the
+// game is unknown. Surfaces without chips (resolve_channel unset) read
+// "@name".
+bool emit_game_mention(Parser* parser, u64 id, u32 begin, u32 end) noexcept {
+    const MessageMarkdownOptions* options = parser->options;
+    parser->input_offset = end + 1;
+    if (options && options->preserve_entities)
+        return emit_range(parser, begin, end + 1, text_style_mention);
+    Utf8View name{};
+    if (options && options->resolve_entity) {
+        name = options->resolve_entity(options->context, MessageMarkdownEntityKind::game, id);
+        if (!chip_view_valid(name) || !output_available(*parser, name.bytes + 8))
+            reset_value<Utf8View>(&name);
+    }
+    const bool hovered = semantic_hovered(*parser, MessageMarkdownSemanticKind::game_mention, begin);
+    const Chip chip{parser, text_style_mention | (hovered ? u32{text_style_interactive_hover} : 0u), begin, hovered};
+    const u32 display_begin = parser->output_bytes;
+    if (!(options && options->resolve_channel
+              ? emit_chip_cell(chip, MessageMarkdownSemanticKind::game_icon, id, kChipCell, kChipGap3)
+              : emit_byte(parser, '@', chip.style)) ||
+        !emit_view(parser, name.bytes ? name : utf8_literal("unknown-game"), chip.style))
+        return false;
+    saturating_increment(name.bytes ? parser->resolved_entities : parser->unresolved_entities);
+    ++parser->transformations;
+    append_semantic(parser, MessageMarkdownSemanticKind::game_mention, id, display_begin,
+                    parser->output_bytes - display_begin, begin, end + 1 - begin);
+    return true;
+}
+
 } // namespace
+
 bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
     *matched = false;
     if (parser->options && parser->options->profile_bio && starts_with(*parser, "<@", 2))
@@ -1241,6 +1272,13 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
     }
     if (*matched) {
         return true;
+    }
+    u64 game_id = 0;
+    if (begin + 3 < end && parser->input.data[begin + 1] == '@' && parser->input.data[begin + 2] == '$' &&
+        decimal_range(parser->input, begin + 3, end) && decimal_u64(parser->input, begin + 3, end, &game_id) &&
+        game_id != 0) {
+        *matched = true;
+        return emit_game_mention(parser, game_id, begin, end);
     }
     if (begin + 2 < end && parser->input.data[begin + 1] == '@') {
         u32 digits = begin + 2;

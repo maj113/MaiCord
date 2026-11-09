@@ -8,6 +8,8 @@ void application_commands_composer(MessageComposerProjectionContext*) noexcept;
 bool application_commands_sync(bool* handled) noexcept;
 bool application_commands_activate(u32 action) noexcept;
 bool application_commands_send(bool* handled) noexcept;
+// The draft about to be sent is /tts's message, unchanged since: send it with "tts". Clears the mark.
+bool application_commands_take_tts() noexcept;
 bool application_commands_submit(u64 now) noexcept;
 bool application_commands_pending(u64 now) noexcept;
 bool application_commands_response(const RestClientResponse&, Utf8View body) noexcept;

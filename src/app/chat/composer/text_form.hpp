@@ -3,6 +3,7 @@
 #include "maicord/ui/core/input_router.hpp"
 #include "../threads/forum_post.hpp"
 #include "maicord/platform/window/event.hpp"
+#include "maicord/ui/widgets/qr_code.hpp"
 
 namespace maicord::app_detail {
 struct TextFormOwnerKey {
@@ -78,17 +79,50 @@ struct ApplicationTextFormRequest {
     TextFormCheck check;
     Utf8View rejected;
     bool swatch;
+    // Editors only: a password field (single line, at most kApplicationTextFormSecretCodepoints). Its text shows as
+    // bullets, keeps no undo history, is never copied and takes no input method.
+    bool secret;
+    // Editors: a QR code under `context` (size 0 for none) and the text under it, borrowed until the form closes.
+    QrCodeModules qr;
+    Utf8View qr_caption;
     // Confirmations only: read-only text under `label` (static and wrapping,
     // never editable or focused), up to kApplicationTextFormDetailBytes.
     Utf8View detail;
     // Confirmations only: Accept is the only button; Escape and a click
     // outside still dismiss the form.
     bool single_action;
+    // Editors with `swatch` and `check` only: the colour picker around the hex field (application_color_picker_open
+    // sets these; a form may also set them itself and keep its text `save`). `color_changed` (optional) sees every
+    // valid colour as it changes (dragging, keys, typing, a swatch, the eyedropper); `color_save` is the RGB save
+    // application_color_picker_open's Apply calls.
+    bool picker;
+    ConstSlice<u32> suggested_colors;
+    void (*color_changed)(TextFormOwnerKey key, u32 rgb) noexcept;
+    bool (*color_save)(TextFormOwnerKey key, u32 rgb) noexcept;
 };
 // Check for colour editors: #RGB or #RRGGBB, with or without the '#'.
 inline bool application_text_form_color_check(TextFormOwnerKey, Utf8View text, u32* swatch_rgba) noexcept {
     return color_hex_parse(text, false, swatch_rgba);
 }
+// The colour picker, as in the official client's custom colour popout, shared by every colour field: a
+// saturation/value square and a hue bar, the hex field with an eyedropper beside it where the desktop can pick from
+// the screen, and suggested swatches (ui/widgets/color_picker.hpp). All of it works from the keyboard and reads to
+// screen readers. `preview` (optional) sees every change for a live preview; Apply calls `save` (true closes the
+// picker); every close calls `closed` (optional; after a close without Apply, restore what preview showed). `valid`
+// gates the callbacks as for any text form, and application_text_form_cancel_owner(valid) closes the picker.
+struct ApplicationColorPickerRequest {
+    Utf8View title, label; // the dialog's title; the field's name for screen readers
+    TextFormOwnerKey owner;
+    TextFormOwnerValid valid;
+    u32 rgb;                 // 0xRRGGBB to start from
+    ConstSlice<u32> suggested; // up to kColorPickerSuggestedColors swatches (0xRRGGBB)
+    void (*preview)(TextFormOwnerKey key, u32 rgb) noexcept;
+    bool (*save)(TextFormOwnerKey key, u32 rgb) noexcept;
+    TextFormClosed closed;
+};
+bool application_color_picker_open(const ApplicationColorPickerRequest& request) noexcept;
+// Screen readers set a colour picker's slider under `point` (the square's saturation in 0-100, the hue in 0-360).
+bool application_text_form_set_slider(UiPoint point, double value) noexcept;
 bool application_text_form_forum_child(const ApplicationForumPostTicket&) noexcept;
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept;
 void application_text_form_close(bool restore_focus = true, bool redraw = true) noexcept;

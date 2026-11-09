@@ -6,6 +6,7 @@
 #include "lifecycle.hpp"
 #include "../account/profile_editor.hpp"
 #include "../chat/report.hpp"
+#include "../chat/game_profile.hpp"
 #include "community.hpp"
 #include "../account/custom_status.hpp"
 #include "../plugins/settings_dialog.hpp"
@@ -165,6 +166,9 @@ constexpr HostedModal kModals[] = {
     {application_plugin_settings_active, application_plugin_settings_close, application_plugin_settings_release,
      application_plugin_settings_synchronize, application_plugin_settings_settings_layer,
      application_plugin_settings_caret_wake, nullptr, nullptr, nullptr, nullptr},
+    {application_game_profile_active, application_game_profile_close, application_game_profile_release,
+     application_game_profile_synchronize, application_game_profile_settings_layer,
+     application_game_profile_caret_wake, nullptr, nullptr, nullptr, nullptr},
 };
 #undef MAICORD_HOSTED_MODAL
 

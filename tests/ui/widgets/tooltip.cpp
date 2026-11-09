@@ -280,5 +280,48 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
               bold[0].byte_offset == 26 &&
               words(5, utf8_literal("party"), 3, 3, utf8_literal(":party:"), 24),
           "tooltip reaction label: Unicode emoji use their shortcode and names that do not fit are dropped");
+    // A card (the server badge's): its first line bold in the label colour, the rest muted below, left-aligned.
+    UiTooltipTarget card{{target.key.owner, 7, 9, 1, 0x400}, {12, 12, 44, 44}, utf8_literal("Level 3\n12 Boosts")};
+    card.layout = UiTooltipLayout::card;
+    const bool card_shown = ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 6000) &&
+                            ui_tooltip_tick(&scene, 6500, &cache) && ui_tooltip_visible(scene);
+    const float card_left = scene.rectangle.left + padding_x, card_top = scene.rectangle.top + padding_y;
+    check(card_shown && ui_rect_width(scene.rectangle) == 9 * 7 + padding_x * 2 &&
+              ui_rect_height(scene.rectangle) == 18 * 2 + padding_y * 2 &&
+              ui_text_command_stream_initialize(&reaction_text, {commands, 2}) &&
+              ui_tooltip_text_output(scene, kDefaultTheme, &reaction_output) && reaction_text.count == 2 &&
+              utf8_equal(commands[0].text, utf8_literal("Level 3")) && (commands[0].style_flags & text_style_bold) &&
+              commands[0].rectangle.left == card_left && commands[0].rectangle.top == card_top &&
+              utf8_equal(commands[1].text, utf8_literal("12 Boosts")) &&
+              !(commands[1].style_flags & text_style_bold) && commands[1].rectangle.top == card_top + 18 &&
+              commands[1].color.red == kDefaultTheme.tokens.text.muted.red &&
+              commands[1].horizontal_alignment == UiTextAlignment::start,
+          "tooltip card: a bold title over muted subtitles, start-aligned");
+    card.bold = {names, 1};
+    ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 6600);
+    check(!scene.visible && !scene.pending, "tooltip card: bold runs are the label layout's alone");
+    // Rows ("+N"'s other games): each line beside the host's 24 DIP picture, 8 apart, rows 4 apart.
+    const MediaAssetKey pictures[]{media_asset_custom_emoji(1, false), media_asset_custom_emoji(2, false)};
+    UiTooltipTarget rows{{target.key.owner, 7, 10, 1, 0x500}, {12, 12, 44, 44}, utf8_literal("Six\nSeven")};
+    rows.layout = UiTooltipLayout::rows;
+    rows.row_media = {pictures, 2};
+    MediaAssetKey picture{};
+    const bool rows_shown = ui_tooltip_offer(&scene, rows, viewport, UiTooltipTrigger::pointer, 7000) &&
+                            ui_tooltip_tick(&scene, 7500, &cache) && ui_tooltip_visible(scene) &&
+                            ui_tooltip_row_media(scene, 1, &square, &picture);
+    check(rows_shown && scene.row_count == 2 && ui_rect_width(scene.rectangle) == 24 + 8 + 5 * 7 + padding_x * 2 &&
+              ui_rect_height(scene.rectangle) == 24 * 2 + 4 + padding_y * 2 && picture.id == 2 &&
+              square.left == scene.rectangle.left + padding_x && square.top == scene.rectangle.top + padding_y + 28 &&
+              ui_rect_width(square) == 24 && ui_rect_height(square) == 24 &&
+              !ui_tooltip_row_media(scene, 2, &square, &picture) &&
+              ui_text_command_stream_initialize(&reaction_text, {commands, 2}) &&
+              ui_tooltip_text_output(scene, kDefaultTheme, &reaction_output) && reaction_text.count == 2 &&
+              commands[1].rectangle.left == scene.rectangle.left + padding_x + 32 &&
+              commands[1].rectangle.top == scene.rectangle.top + padding_y + 28,
+          "tooltip rows: each line leads with its picture's square");
+    card.bold = {};
+    card.row_media = {pictures, 2};
+    ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 7600);
+    check(!scene.visible && !scene.pending, "tooltip rows: pictures belong to the rows layout alone");
 }
 } // namespace maicord

@@ -14,13 +14,17 @@ bool text_composer_emoji_rectangle(const TextEditLayoutOwner& owner,
     if (!rectangle || !clip || !scene.active || !owner.active || index >= scene.projection_span_count) return false;
     const auto& span = scene.projection_spans[index];
     const auto* field = message_composer_scene_layout_node(scene, MessageComposerControl::edit);
+    const bool game = span.kind == MessageComposerProjectionKind::game;
     if (!field || (span.kind != MessageComposerProjectionKind::emoji &&
-                   span.kind != MessageComposerProjectionKind::regional_flag)) return false;
+                   span.kind != MessageComposerProjectionKind::regional_flag && !game)) return false;
     const auto text = message_composer_scene_display_text(scene);
+    // A known game's chip starts with its icon cell (an em space, U+2003).
+    if (game && (span.display_first + 3 > text.bytes ||
+                 !bytes_equal(text.data + span.display_first, "\xE2\x80\x83", 3))) return false;
     u32 first = 0, last = 0, count = 0;
     TextEditMetric metric{};
     if (!utf8_utf16_position_for_byte_offset(text, span.display_first, &first) ||
-        !utf8_utf16_position_for_byte_offset(text, span.display_last, &last) ||
+        !utf8_utf16_position_for_byte_offset(text, game ? span.display_first + 3 : span.display_last, &last) ||
         !text_edit_layout_range_geometry(owner, first, last, {&metric, 1}, &count) || !count) return false;
     const float extent = owner.em_size;
     const float x = metric.left + metric.width * .5f, y = metric.top + metric.height * .5f;

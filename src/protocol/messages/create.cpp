@@ -28,7 +28,7 @@ MessageCreateWriteResult write_message_create_body(Utf8View content, u64 nonce,
     u64 channel_id, u64 reply_message_id, ConstSlice<UploadedAttachment> attachments,
     ConstSlice<u64> sticker_ids, Slice<u8> output, bool mention_reply_author, u32 flags) noexcept {
     if (!output.data || (!content.data && content.bytes) || (!content.bytes && !attachments.count && !sticker_ids.count) ||
-        (flags & ~(kMessageFlagSuppressNotifications | kMessageFlagVoiceMessage)) != 0 ||
+        (flags & ~(kMessageFlagSuppressNotifications | kMessageFlagVoiceMessage | kMessageCreateTts)) != 0 ||
         content.bytes > kMessageCreateMaximumContentBytes || nonce == 0 ||
         ((channel_id == 0) != (reply_message_id == 0)) ||
         attachments.count > kAttachmentUploadMaximumCount || (!attachments.data && attachments.count) ||
@@ -67,7 +67,8 @@ MessageCreateWriteResult write_message_create_body(Utf8View content, u64 nonce,
                         mention_reply_author ? "true}" : "false}")) {
         return error(MessageCreateWriteError::output_too_small);
     }
-    if (!protocol_write(&writer, ",\"tts\":false,\"flags\":", flags)) {
+    if (!protocol_write(&writer, (flags & kMessageCreateTts) ? ",\"tts\":true,\"flags\":" : ",\"tts\":false,\"flags\":",
+                        flags & ~kMessageCreateTts)) {
         return error(MessageCreateWriteError::output_too_small);
     }
     if (attachments.count) {

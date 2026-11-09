@@ -39,6 +39,9 @@ enum class GatewayStreamCommandKind : u8 {
     watch,
     remove, // STREAM_DELETE
     ping,
+    create, // STREAM_CREATE (our own stream)
+    pause,  // STREAM_SET_PAUSED true
+    resume, // STREAM_SET_PAUSED false
 };
 struct GatewayStreamCommand {
     GatewayStreamKey key;
@@ -55,6 +58,7 @@ struct GatewayStreamControl {
     u64 create_deadline_ms;
     u32 queue_head, queue_count;
     u32 viewer_count;
+    u64 viewer_ids[kGatewayStreamViewerIds]; // The first min(viewer_count, 32) viewers.
     GatewayStreamPhase phase;
     GatewayStreamEnd end;
     GatewayStreamDeleteReason delete_reason;
@@ -70,6 +74,12 @@ bool gateway_stream_active(const GatewayStreamControl& stream) noexcept;
 bool gateway_stream_watch(GatewayStreamControl* stream, const GatewayStreamKey& key, u64 now_ms) noexcept;
 // Ends the watched stream; sends STREAM_DELETE when the server knows about it.
 void gateway_stream_stop(GatewayStreamControl* stream, GatewayStreamEnd end) noexcept;
+// Go Live sending: the same session for the local user's own stream, opened
+// with STREAM_CREATE (op 18) instead of STREAM_WATCH. key is our own stream
+// key (owner = the bound user). Same failures as gateway_stream_watch.
+bool gateway_stream_create_own(GatewayStreamControl* stream, const GatewayStreamKey& key, u64 now_ms) noexcept;
+// Owner only: STREAM_SET_PAUSED (op 22). False without an active stream or room in the queue.
+bool gateway_stream_set_paused(GatewayStreamControl* stream, bool paused) noexcept;
 // Peek/commit like gateway_voice_next: commit only after the whole command
 // was accepted by the serialized Gateway send path.
 bool gateway_stream_next(const GatewayStreamControl& stream, GatewayStreamCommand* output) noexcept;

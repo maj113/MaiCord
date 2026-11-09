@@ -195,6 +195,27 @@ inline bool theme_typography_ui_probe(D3D11Renderer& renderer) noexcept {
                                             cache.backend_calls == unchanged_calls + 1,
                                         "backend-token exhaustion clears real cached entries before reuse"))
         return false;
+    // Text size in chat sizes chat text alone: with the body size kept, the chat face's system has the chat em and
+    // formats of its own, the interface's face keeps the body em, and the same text measures wider in the chat face.
+    changed.chat_size = 24;
+    RendererTypographyCandidate chat_candidate{};
+    const bool chat_committed = renderer_prepare_typography(&renderer, changed, &chat_candidate) &&
+                                renderer_commit_typography(&renderer, &chat_candidate);
+    renderer_discard_typography(&chat_candidate);
+    auto interface_system = renderer_text_system(&renderer, UiTextFace::normal);
+    auto chat_system = renderer_text_system(&renderer, ui_text_face_chat(UiTextFace::normal));
+    const auto chat_code = renderer_text_system(&renderer, ui_text_face_chat(UiTextFace::mono));
+    const TextLayoutRequest line{request.text, {}, 4096, 4096, TextWrapping::no_wrap};
+    const auto interface_line = text_measure_utf8(&interface_system, line);
+    const auto chat_line = text_measure_utf8(&chat_system, line);
+    if (!theme_typography_probe_require(
+            chat_committed && renderer.glyph_text.system.em_size == 19 && interface_system.em_size == 19 &&
+                chat_system.em_size == 24 && chat_code.em_size == 24 && chat_system.native_format &&
+                chat_system.native_format != interface_system.native_format && chat_code.native_format &&
+                chat_code.native_format != chat_system.native_format && interface_line.ok() && chat_line.ok() &&
+                chat_line.width > interface_line.width * 1.1f && chat_line.height > interface_line.height * 1.1f,
+            "chat text takes the chat size while the interface keeps the body size"))
+        return false;
     if (!theme_typography_probe_require(
             renderer_prepare_typography(&renderer, original, &scope.candidate) &&
                 renderer_commit_typography(&renderer, &scope.candidate) &&

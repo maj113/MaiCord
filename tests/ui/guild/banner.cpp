@@ -450,7 +450,88 @@ void test_card() noexcept {
     const Color lit = ui_guild_card_banner_highlight(base);
     check(!ui_guild_card_media(scene, kUiGuildCardBannerMedia, &media) && lit.red > base.red &&
               lit.green > base.green && lit.blue >= base.blue && lit.alpha == 1,
-          "card: without a picture the brand colour brightens toward the bottom");
+          "card: without a picture the banner colour brightens toward its glow's centre");
+    // Without a picture the banner is one radial glow instance over the 120 DIP banner (its rounded rectangle reaches
+    // 16 below, under the banner clip): the brand or icon colour outside, brighten(c, 1.75) at the centre; with
+    // neither colour, the theme's server banner colour.
+    static PaintStream paint;
+    const bool painting = paint_stream_initialize(&paint);
+    const auto glow = [&](const Color& outer) noexcept {
+        if (!painting || !paint_stream_reset(&paint) || !ui_guild_card_paint(scene, kDefaultTheme, &paint))
+            return false;
+        u32 found = 0;
+        bool valid = true;
+        for (u32 i = 0; i < paint.count; ++i) {
+            const auto& q = paint.quads[i];
+            if (q.border_width != kPaintBannerGlowMode)
+                continue;
+            ++found;
+            valid = valid && same(q.fill, outer) && same(q.border, ui_guild_card_banner_highlight(outer)) &&
+                    approx(q.reserved_x, kUiGuildCardBanner) && approx(q.top, scene.panel.top) &&
+                    approx(q.bottom, scene.panel.top + kUiGuildCardBanner + 16) &&
+                    approx(q.right - q.left, kUiGuildCardWidth);
+        }
+        return found == 1 && valid && !paint.rejected;
+    };
+    content.banner_color = 0xA16CAB;
+    content.has_banner_color = true;
+    const bool coloured = ui_guild_card_show(&scene, 10, content, {400, 300, 460, 320}, {0, 0, 1280, 800}, 1000,
+                                             true, nullptr) &&
+                          glow(color_from_rgb24(0xA16CAB, 1));
+    content.has_banner_color = false;
+    const bool plain = ui_guild_card_show(&scene, 10, content, {400, 300, 460, 320}, {0, 0, 1280, 800}, 1000, true,
+                                          nullptr) &&
+                       glow(kDefaultTheme.tokens.profile.server_banner);
+    check(coloured && plain, "card: the banner glows radially in its colour, else in the theme's server banner colour");
+    // The member count's dot is the neutral offline grey (#9d9ea5 in the dark theme), the online dot green.
+    const auto& offline = kDefaultTheme.tokens.status.offline;
+    const UiRect members{scene.panel.left + scene.members_dot.left, scene.panel.top + scene.members_dot.top,
+                         scene.panel.left + scene.members_dot.right, scene.panel.top + scene.members_dot.bottom};
+    bool dot = false;
+    if (paint_stream_reset(&paint) && ui_guild_card_paint_foreground(scene, kDefaultTheme, &paint))
+        for (u32 i = 0; i < paint.count; ++i)
+            dot = dot || (same(UiRect{paint.quads[i].left, paint.quads[i].top, paint.quads[i].right,
+                                      paint.quads[i].bottom},
+                               members) &&
+                          same(paint.quads[i].fill, offline));
+    check(dot && approx(offline.red, 157 / 255.f) && approx(offline.green, 158 / 255.f) &&
+              approx(offline.blue, 165 / 255.f),
+          "card: the member count's dot takes status.offline, the official neutral grey");
+    // The accessibility saturation scales an icon-derived colour's HSL saturation: unchanged at 100%, grey at 0%.
+    const u32 grey = ui_guild_card_desaturate(0xA16CAB, 0), half = ui_guild_card_desaturate(0xA16CAB, .5f);
+    const auto channel = [](u32 rgb, u32 shift) noexcept { return (rgb >> shift) & 255; };
+    check(ui_guild_card_desaturate(0xA16CAB, 1) == 0xA16CAB && channel(grey, 16) == channel(grey, 8) &&
+              channel(grey, 8) == channel(grey, 0) && channel(half, 16) < 161 && channel(half, 16) > channel(grey, 16) &&
+              channel(half, 8) > 108,
+          "card: the saturation setting greys an icon-coloured banner in proportion");
+    // A busy game (activity level 2) wears a 14 DIP disc in the highest surface 4 DIPs past its icon's top right
+    // corner, a filled flame in the official orange (#fa9746) inside; other games and the foreground carry none.
+    content.game_count = 2;
+    content.games[0] = media_asset_custom_emoji(1, false);
+    content.games[1] = media_asset_custom_emoji(2, false);
+    const auto disc_count = [&]() noexcept {
+        u32 discs = 0;
+        const UiRect game{scene.panel.left + scene.games[1].left, scene.panel.top + scene.games[1].top,
+                          scene.panel.left + scene.games[1].right, scene.panel.top + scene.games[1].bottom};
+        if (!paint_stream_reset(&paint) || !ui_guild_card_paint_overlay(scene, kDefaultTheme, &paint))
+            return ~0u;
+        for (u32 i = 0; i < paint.count; ++i)
+            discs += same(UiRect{paint.quads[i].left, paint.quads[i].top, paint.quads[i].right, paint.quads[i].bottom},
+                          UiRect{game.right - 10, game.top - 4, game.right + 4, game.top + 10}) &&
+                     same(paint.quads[i].fill, kDefaultTheme.surface_high);
+        return discs;
+    };
+    const bool calm = ui_guild_card_show(&scene, 10, content, {400, 300, 460, 320}, {0, 0, 1280, 800}, 1000, true,
+                                         nullptr) &&
+                      disc_count() == 0;
+    content.game_high[1] = true;
+    const bool busy = ui_guild_card_show(&scene, 10, content, {400, 300, 460, 320}, {0, 0, 1280, 800}, 1000, true,
+                                         nullptr) &&
+                      disc_count() == 1 && paint.count > 2 && !paint.rejected;
+    const auto& orange = kDefaultTheme.tokens.accent.game_activity;
+    check(calm && busy && approx(orange.red, 250 / 255.f) && approx(orange.green, 151 / 255.f) &&
+              approx(orange.blue, 70 / 255.f),
+          "card: a busy game's icon wears the flame marker over its corner, drawn over the media");
 }
 
 void run() noexcept {

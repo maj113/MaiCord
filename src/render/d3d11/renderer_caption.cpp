@@ -95,14 +95,15 @@ u64 appearance_stamp(const D3D11Renderer& renderer, const RendererCaption& capti
                      const Theme& theme) noexcept {
     const UiCaptionBarState& s = caption.state;
     u64 hash = kHash64Seed;
-    const u32 state[8]{static_cast<u32>(s.hovered),
+    const u32 state[9]{static_cast<u32>(s.hovered),
                        static_cast<u32>(s.pressed),
                        s.active,
                        s.maximized,
                        static_cast<u32>(s.update),
                        s.settings,
                        static_cast<u32>(s.frame * 96.0f),
-                       static_cast<u32>(s.tooltip)};
+                       static_cast<u32>(s.tooltip),
+                       static_cast<u32>(s.tooltip_entrance * 255.0f)};
     hash = hash64_bytes(hash, state, sizeof(state));
     // Whole percent steps of download progress.
     hash = hash64_mix(hash, static_cast<u64>(s.progress * 100.0f));
@@ -399,6 +400,17 @@ bool append_tooltip(D3D11Renderer* renderer, RendererCaption* caption, const The
     if (!ui_tooltip_paint_box(&caption->paint, theme, box, anchor, UiTooltipPlacement::below, style) ||
         caption->paint.rejected)
         return false;
+    // The entrance (the same pop as content tooltips, opacity only here): the box, its shadow and arrow and the
+    // label draw at the shown fraction.
+    const float shown = 1 - (caption->state.tooltip_entrance > 0 && caption->state.tooltip_entrance <= 1
+                                 ? caption->state.tooltip_entrance
+                                 : 0);
+    for (u32 i = caption->tooltip_first_quad; shown < 1 && i < caption->paint.count; ++i) {
+        caption->paint.quads[i].fill.alpha *= shown;
+        caption->paint.quads[i].border.alpha *= shown;
+    }
+    Color ink = theme.text_primary;
+    ink.alpha *= shown;
     const float scale = static_cast<float>(renderer->dpi) / 96.0f;
     // Shadow and arrow reach beyond the box.
     const float reach = style.arrow_size + 2;
@@ -406,7 +418,7 @@ bool append_tooltip(D3D11Renderer* renderer, RendererCaption* caption, const The
                       static_cast<LONG>((box.right + reach) * scale + 1),
                       static_cast<LONG>((box.bottom + reach) * scale + 1)};
     caption->tooltip_pixels = pixels;
-    return append_line(renderer, line, caption->glyphs + title_count, theme.text_primary,
+    return append_line(renderer, line, caption->glyphs + title_count, ink,
                        (box.left + box.right - line.shape.width) * .5f,
                        (box.top + box.bottom - line.shape.height) * .5f, count);
 }
@@ -466,11 +478,11 @@ bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& stat
         caption->dirty = true;
         renderer->caption = caption;
     }
-    // A hidden, moved or relabelled tooltip; geometry and theme changes
-    // repaint the whole target.
+    // A hidden, moved, relabelled or still fading-in tooltip (the content under it repaints, so each step
+    // blends over a clean picture); geometry and theme changes repaint the whole target.
     const UiCaptionBarState& old = caption->state;
     if (old.tooltip != state.tooltip || old.update != state.update || old.maximized != state.maximized ||
-        old.settings != state.settings)
+        old.settings != state.settings || old.tooltip_entrance != state.tooltip_entrance)
         release_tooltip_pixels(renderer, caption);
     caption->state = state;
     const u32 bytes = minimum<u32>(title.bytes, kCaptionTitleCapacity);

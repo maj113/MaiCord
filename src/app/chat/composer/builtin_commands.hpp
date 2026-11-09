@@ -6,7 +6,7 @@
 namespace maicord::app_detail {
 // The "Built-in" commands, the last picker section.
 // They never reach an application: text commands rewrite the message that is
-// then sent normally, /gif and /sticker show their results above the option
+// then sent normally (/tts's with "tts": true), /gif and /sticker show their results above the option
 // bar (a result is what gets sent), /leave asks to leave the group, /msg opens
 // the DM and sends there, and /nick, /thread, /kick, /ban and /timeout call the
 // API on the command lane, answering with a local notice as the client's bot
@@ -16,6 +16,8 @@ inline constexpr u64 kBuiltinCommandApplication = 1;
 const CommandIndex* builtin_commands_index() noexcept;
 // Each command's availability in this channel.
 bool builtin_command_available(const ApplicationCommand&, u64 channel_id) noexcept;
+// /tts: its text is sent as a text-to-speech message.
+bool builtin_command_speaks(const ApplicationCommand&) noexcept;
 enum class BuiltinCommandRun : u8 {
     failed,
     // *text is the message to send in place of the draft.

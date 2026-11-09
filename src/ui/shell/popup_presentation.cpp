@@ -135,6 +135,11 @@ UiRect picker_media_rectangle(const PopupItem& item, const UiLayoutNode& row) no
         const float y = (r.top + r.bottom - kPickerHeaderIcon) * .5f;
         return {r.left + kPickerRowPadding, y, r.left + kPickerRowPadding + kPickerHeaderIcon, y + kPickerHeaderIcon};
     }
+    // A Generic row's small icon (a game's) sits centred on its line.
+    if (!(item.flags & popup_item_command_row)) {
+        const float y = (r.top + r.bottom - kPickerHeaderIcon) * .5f;
+        return {r.left + kPickerRowPadding, y, r.left + kPickerRowPadding + kPickerHeaderIcon, y + kPickerHeaderIcon};
+    }
     const float top = r.top + kPickerRowPadding + kPickerLineGap;
     return {r.left + kPickerRowPadding, top, r.left + kPickerRowPadding + kPickerImage, top + kPickerImage};
 }
@@ -153,9 +158,10 @@ float picker_text_left(const PopupItem& item, const UiLayoutNode& row) noexcept 
         return item.presentation.icon_plus_one || (item.flags & popup_item_avatar)
                    ? row.rectangle.left + kPickerRowPadding + kPickerHeaderIcon + kPickerHeaderGap
                    : row.rectangle.left + kPickerRowPadding;
-    return row.rectangle.left + kPickerRowPadding +
-           ((item.flags & popup_item_avatar) || item.presentation.icon_plus_one ? kPickerImage + kPickerImageGap
-                                                                                 : 0.f);
+    const bool icon = (item.flags & popup_item_avatar) || item.presentation.icon_plus_one;
+    if (!(item.flags & popup_item_command_row))
+        return row.rectangle.left + kPickerRowPadding + (icon ? kPickerHeaderIcon + kPickerImageGap * .5f : 0.f);
+    return row.rectangle.left + kPickerRowPadding + (icon ? kPickerImage + kPickerImageGap : 0.f);
 }
 bool picker_keyboard_focus(const PopupScene& scene, u32 index) noexcept {
     return scene.selected_index == index && !scene.pointer_selection &&
@@ -165,11 +171,13 @@ float picker_measure(UiTextMeasureCache* measure, const PopupScene& scene, const
                      float limit, u16 tag) noexcept {
     if (!measure || !value.bytes)
         return limit;
+    // Unstyled text goes without a span, as shell_text_width measures it: the native shaper refuses an empty span.
     const TextStyleSpan span{0, value.bytes, flags};
     UiTextMeasureValue measured{};
     if (!ui_text_measure_cache_measure(
              measure,
-             {{scene.owner_id, hash64_bytes(kHash64Seed, value.data, value.bytes), 0, tag, 0}, value, {&span, 1},
+             {{scene.owner_id, hash64_bytes(kHash64Seed, value.data, value.bytes), 0, tag, 0}, value,
+              flags ? ConstSlice<TextStyleSpan>{&span, 1} : ConstSlice<TextStyleSpan>{},
               {maximum(1.f, limit), kCommandRowHeight}, true},
              &measured)
              .ok())
@@ -335,9 +343,14 @@ bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout
                                command, theme))
             p.fail();
     } else if (!(item.flags & popup_item_command_row)) {
-        // A Generic row (the selected command's option and choice lists).
+        // A Generic row (the selected command's option and choice lists, the
+        // composer's game results with their icons).
         if (pointed)
             p.rounded(r, ui_background_hover_color(theme, theme.surface_high, .28f), theme.scale.radius_sm);
+        if (item.flags & popup_item_avatar)
+            p.rounded(picker_media_rectangle(item, *layout.row), theme.interactive, theme.scale.radius_sm);
+        else if (item.presentation.icon_plus_one)
+            p.icon(ui_menu_row_icon(item.presentation), picker_media_rectangle(item, *layout.row), theme.text_secondary);
     } else {
         if (pointed)
             p.rounded(r, ui_background_hover_color(theme, theme.surface_high, .28f), theme.scale.radius_sm);
@@ -416,8 +429,10 @@ void picker_text(UiTextPen<>& text, const PopupScene& scene, u32 index, const Th
         // muted in the rest of the line (16 DIPs after the text, at least ten characters).
         const float right = r.right - kPickerRowPadding;
         const float detail_minimum = item.detail.bytes ? 70.f : 0.f;
-        const float width = picker_measure(measure, scene, item.label, text_style_none,
-                                           maximum(1.f, right - left - detail_minimum), 0x4347);
+        // Without a description the text takes the whole line, so rounding never cuts a label that fits.
+        const float width = item.detail.bytes ? picker_measure(measure, scene, item.label, text_style_none,
+                                                               maximum(1.f, right - left - detail_minimum), 0x4347)
+                                              : right - left;
         const float detail_left = minimum(right, left + width + kPickerImageGap);
         push_picker_text(text, scene, index, layout, item.label, {left, r.top, left + width, r.bottom},
                          theme.text_primary, text_style_none);
@@ -710,6 +725,10 @@ PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& 
         command->rectangle = picker ? picker_media_rectangle(item, *layout.row) : popup_avatar_rectangle(*layout.row);
         if (picker && command->avatar && (item.flags & popup_item_command_category))
             command->corner_radius = picker_media_radius(scene, index, command->rectangle);
+        // A Generic row's icon (a game's) keeps its square, slightly rounded.
+        else if (picker && command->avatar &&
+                 !(item.flags & (popup_item_command_row | popup_item_command_section)))
+            command->corner_radius = kPickerHeaderIcon * .25f;
     }
     return PopupMediaPresentationStatus::ready;
 }

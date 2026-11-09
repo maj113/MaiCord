@@ -216,6 +216,15 @@ enum class GatewayClientDispatchKind : u8 {
     channel_info,
     voice_channel_start_time_update,
     voice_channel_status_update,
+    // Server Settings apps and AutoMod, verbatim JSON (protocol/guild/automation.hpp decodes their ids):
+    // AUTO_MODERATION_RULE_CREATE/UPDATE/DELETE, WEBHOOKS_UPDATE, INTEGRATION_CREATE/UPDATE/DELETE and
+    // GUILD_INTEGRATIONS_UPDATE (one kind), and APPLICATION_COMMAND_PERMISSIONS_UPDATE.
+    automod_rule_create,
+    automod_rule_update,
+    automod_rule_delete,
+    webhooks_update,
+    integrations_update,
+    command_permissions_update,
 };
 
 enum class GatewayClientDispatchRouteError : u8 {
@@ -279,6 +288,8 @@ enum GatewayClientMessageMentionFlag : u8 {
     gateway_client_message_interaction_metadata_present = 1u << 6,
     gateway_client_message_pinned = 1u << 7,
 };
+// A created or updated message's forwarding_features bit above the forwarding features: it was sent as /tts.
+inline constexpr u32 kGatewayClientMessageTts = 1u << 8;
 
 struct GatewayClientMessageMutation {
     u64 id;
@@ -288,7 +299,8 @@ struct GatewayClientMessageMutation {
     u64 edited_timestamp_ms;
     u32 flags;
     u32 fields;
-    // Bulk deletion uses it as an ID count; create/update use it for object-presence policy.
+    // Bulk deletion uses it as an ID count; create/update use it for object-presence policy
+    // (GatewayMessageForwardingFeature) and kGatewayClientMessageTts.
     // The dispatch kind discriminates these values, keeping the mailbox compact.
     union {
         u32 id_count;

@@ -13,6 +13,45 @@ namespace {
 // Keyboard zones in Tab order.
 constexpr UiSettingsFocusZone kFocusZones[]{UiSettingsFocusZone::search, UiSettingsFocusZone::sidebar,
                                             UiSettingsFocusZone::panel, UiSettingsFocusZone::close};
+// The official client's segmented control has no transition (its plate jumps); MaiCord slides it on the hover
+// fade's duration with an ease-out curve.
+constexpr UiMotionStyle kSegmentMotion{170, UiMotionCurve::css_ease_out};
+constexpr UiMotionScope kSegmentScope{1, 1};
+constexpr u8 kSegmentNone = 0xFF;
+// Remembers which option each plain segments row of the page shows selected. A row whose option changed since the
+// last projection starts its plate sliding from the one it left (one row at a time; none under reduced motion).
+void track_segments(UiSettingsScene* scene, bool keep) noexcept {
+    auto& segment = scene->segment;
+    const auto& controls = scene->content.controls;
+    u64 ids[kUiSettingsSegmentMemory];
+    u8 choices[kUiSettingsSegmentMemory];
+    u32 count = 0;
+    if (!keep)
+        segment.control_id = 0;
+    for (u32 i = 0; i < controls.count && count < kUiSettingsSegmentMemory; ++i) {
+        const auto& c = controls[i];
+        if (c.kind != UiSettingsControlKind::segments || has_flag(scene->content, i, ui_settings_presentation_tristate))
+            continue;
+        const u8 choice = c.selected_choice < minimum<u32>(c.choices.count, kSegmentNone)
+                              ? static_cast<u8>(c.selected_choice)
+                              : kSegmentNone;
+        for (u32 k = 0; keep && k < segment.memory_count; ++k)
+            if (segment.memory_ids[k] == c.id) {
+                const u8 before = segment.memory_choices[k];
+                if (before != choice && before != kSegmentNone && choice != kSegmentNone && !scene->reduced_motion) {
+                    segment.control_id = c.id;
+                    segment.from = before;
+                    ui_motion_transition_reset(&segment.transition, kSegmentScope, 0);
+                }
+                break;
+            }
+        ids[count] = c.id;
+        choices[count++] = choice;
+    }
+    copy_bytes(segment.memory_ids, ids, count * static_cast<u32>(sizeof(u64)));
+    copy_bytes(segment.memory_choices, choices, count);
+    segment.memory_count = static_cast<u8>(count);
+}
 bool option_kind(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
            kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
@@ -107,7 +146,9 @@ UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens& tok
     l.panel = {l.sidebar.right, viewport.top, viewport.right, viewport.bottom};
     const float padding = m.panel_padding_x * (1 - .5f * squeeze), close_gap = 24 - 8 * squeeze;
     const float left = l.panel.left + padding;
-    const float right = minimum(l.panel.right - padding - m.close_size - close_gap, left + m.panel_max_width);
+    // A wide page (a form beside its preview) takes the room up to the close button, at most kUiSettingsWideMaximum.
+    const float right = minimum(l.panel.right - padding - m.close_size - close_gap,
+                                left + (wide ? kUiSettingsWideMaximum : m.panel_max_width));
     l.column = {left, viewport.top + 56, maximum(left + 1, right), viewport.bottom};
     l.close = ui_settings_close_rect(tokens, l.column.right + close_gap + m.close_size * .5f, viewport.top + 56);
     return l;
@@ -163,6 +204,15 @@ bool ui_settings_scene_bind_navigation(UiSettingsScene* scene, ConstSlice<UiSett
         return false;
     scene->navigation = navigation;
     scene->navigation_revision = revision;
+    scene->layout_signature = 0;
+    return true;
+}
+bool ui_settings_scene_set_navigation_note(UiSettingsScene* scene, Utf8View note) noexcept {
+    if (!scene || !valid_text(note))
+        return false;
+    if (scene->navigation_note.data == note.data && scene->navigation_note.bytes == note.bytes)
+        return false;
+    scene->navigation_note = note;
     scene->layout_signature = 0;
     return true;
 }
@@ -247,11 +297,32 @@ bool ui_settings_scene_tick(UiSettingsScene* scene, u64 now_ms, bool reduced_mot
         scene->clock_ms = animating ? now_ms : 0;
         ++scene->motion_revision;
     }
-    return animating;
+    // A segments row's plate slides to its new option; settled (or reduced motion) it rests there at once. The
+    // labels' weight swaps at the halfway point and rests at the settle: those two ticks rebuild the text, the
+    // others only repaint.
+    if (auto& segment = scene->segment; segment.control_id) {
+        const float before = segment.transition.value;
+        const bool moved = ui_motion_transition_tick(&segment.transition, kSegmentScope, 1.f, now_ms, kSegmentMotion,
+                                                     reduced_motion, true);
+        const bool settled = !segment.transition.active;
+        if (settled)
+            segment.control_id = 0;
+        if (settled || (before < .5f && segment.transition.value >= .5f)) {
+            ++scene->revision;
+            ++scene->motion_revision;
+        } else if (moved)
+            ++scene->motion_revision;
+    }
+    // Button plates ease to and from their hover fill (paint only).
+    if (ui_motion_hover_tick(&scene->hover_motion, hover_motion_id(scene->widgets.hovered), now_ms, kUiMotionHover,
+                             reduced_motion))
+        ++scene->motion_revision;
+    return animating || ui_settings_scene_animating(*scene);
 }
 
 bool ui_settings_scene_animating(const UiSettingsScene& scene) noexcept {
-    return scene.animation.started_ms != 0;
+    return scene.animation.started_ms != 0 || scene.segment.control_id != 0 || scene.hover_motion.in.active ||
+           scene.hover_motion.out.active;
 }
 
 bool ui_settings_page_content_valid(const UiSettingsPageContent& content) noexcept {
@@ -332,6 +403,7 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
     scene->projected_navigation_revision = scene->navigation_revision;
     scene->layout_signature = signature;
     scene->selected_page = selected;
+    track_segments(scene, previous_active && !changed_page);
     if (changed_page) {
         scene->content_offset = 0;
         scene->flash_control = 0;
@@ -669,6 +741,11 @@ bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, const UiSe
                                    ? pad
                                    : minimum(pad, maximum(0.f, (ui_rect_height(field) - 24.f) * .5f));
         text_rectangle = {field.left + pad, field.top + vertical, field.right - pad, field.bottom - vertical};
+        // An edit cell's text runs between its emoji and clear buttons.
+        if (more(scene.content, index, ui_settings_more_cell) && ui_rect_has_area(row.lead)) {
+            text_rectangle.left = row.lead.right + t.metric.chip_padding;
+            text_rectangle.right = (ui_rect_has_area(row.value) ? row.value.left : field.right) - t.metric.chip_padding;
+        }
     } else if (control->kind == UiSettingsControlKind::choice)
         text_rectangle = ui_select_text_rect(t, field);
     const auto visible = ui_rect_overlap(field, clip);
@@ -690,8 +767,20 @@ bool ui_settings_scene_editor_hit(const UiSettingsScene& scene, float x, float y
         reset_value(output);
     const auto target = ui_settings_scene_hit_test(scene, x, y);
     const auto* control = ui_settings_scene_control(scene, target);
-    return control && control->enabled && editor_kind(control->kind) &&
-           ui_settings_scene_control_geometry(scene, target, output) && ui_rect_contains(output->clip, x, y);
+    if (!(control && control->enabled && editor_kind(control->kind) &&
+          ui_settings_scene_control_geometry(scene, target, output) && ui_rect_contains(output->clip, x, y)))
+        return false;
+    // An edit cell's buttons are not part of its text.
+    u32 index = 0;
+    if (ui_settings_scene_control(scene, target, &index) && more(scene.content, index, ui_settings_more_cell)) {
+        RowLayout row{};
+        if (row_layout_for(scene, SceneTokens(scene), target_handle(scene, target), index, &row) &&
+            (ui_rect_contains(row.lead, x, y) || ui_rect_contains(row.value, x, y))) {
+            reset_value(output);
+            return false;
+        }
+    }
+    return true;
 }
 bool ui_settings_scene_bind_palette(UiSettingsScene* scene, UiSettingsPaletteSource source) noexcept {
     if (!scene || (source.resolve && (!source.context || !source.revision)) ||
@@ -807,11 +896,13 @@ bool ui_settings_scene_radio_pointer(const UiSettingsScene& scene, const UiSetti
 bool ui_settings_scene_button_hit(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y) noexcept {
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
-    if (c && c->kind == UiSettingsControlKind::edit && c->action_label.bytes && c->enabled) {
+    const bool cell = c && more(scene.content, index, ui_settings_more_cell);
+    if (c && c->kind == UiSettingsControlKind::edit && (c->action_label.bytes || cell) && c->enabled) {
         RowLayout row{};
         UiRect clip{};
         return row_layout_for(scene, SceneTokens(scene), target_handle(scene, target), index, &row, &clip) &&
-               ui_rect_contains(ui_rect_overlap(row.value, clip), x, y);
+               (ui_rect_contains(ui_rect_overlap(row.value, clip), x, y) ||
+                (cell && ui_rect_contains(ui_rect_overlap(row.lead, clip), x, y)));
     }
     UiSettingsControlGeometry geometry{};
     return c && (c->kind == UiSettingsControlKind::notice || c->kind == UiSettingsControlKind::action ||
@@ -836,9 +927,10 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, const UiSett
     UiSettingsControlGeometry geometry{};
     if (!output || !ui_coordinate_valid(x) || !ui_coordinate_valid(y) || !c || !c->enabled)
         return false;
+    const bool edit_cell = c->kind == UiSettingsControlKind::edit && more(scene.content, index, ui_settings_more_cell);
     if ((list_item(scene.content, index) && c->kind == UiSettingsControlKind::action) ||
-        (c->kind == UiSettingsControlKind::edit && c->action_label.bytes)) {
-        // List rows report their part; an edit row its button as choice 0.
+        (c->kind == UiSettingsControlKind::edit && (c->action_label.bytes || edit_cell))) {
+        // List rows report their part; an edit row its button as choice 0 (an edit cell its leading button as 1).
         const SceneTokens t(scene);
         RowLayout row{};
         UiRect clip{};
@@ -846,7 +938,9 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, const UiSett
             !ui_rect_contains(clip, x, y))
             return false;
         const u32 part = c->kind == UiSettingsControlKind::edit
-                             ? (ui_rect_contains(row.value, x, y) ? 0u : ~0u)
+                             ? (ui_rect_contains(row.value, x, y)                ? 0u
+                                : edit_cell && ui_rect_contains(row.lead, x, y) ? 1u
+                                                                                : ~0u)
                              : list_part(t, scene.content, index, row.row, x, y);
         if (part == ~0u)
             return false;
@@ -861,7 +955,11 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, const UiSett
                            ? (tristate ? ui_tristate_hit(t, geometry.field, x, y)
                                        : ui_segmented_hit(t, geometry.field, c->choices.count, x, y))
                        : c->kind == UiSettingsControlKind::swatches
-                           ? ui_color_grid_hit(t, geometry.field, c->choices.count, x, y)
+                           ? (more(scene.content, index, ui_settings_more_banner_tiles)
+                                  ? banner_tile_hit(t, geometry.field, c->choices.count, x, y)
+                              : more(scene.content, index, ui_settings_more_glyphs)
+                                  ? glyph_tile_hit(t, geometry.field, c->choices.count, x, y)
+                                  : ui_color_grid_hit(t, geometry.field, c->choices.count, x, y))
                            : option_hit(t, *c, geometry.field, x, y, scene.measure);
     if (choice == ~0u)
         return false;
@@ -1004,7 +1102,7 @@ bool ui_settings_scene_aside(const UiSettingsScene& scene, UiRect* heading, UiRe
     float left = scene.layout.column.left, top = 0;
     if (aside.beside) {
         // Sticky 24 DIP below the scroller's top while its rows scroll by.
-        left = scene.layout.column.left + body_width(scene) - aside.width;
+        left = scene.layout.column.left + aside.form + kAsideGap;
         const float start = f.body.top + row_start(scene, content.aside_row) - scene.content_offset;
         const float end = f.body.top + content_extent(scene, t.metric) - t.metric.panel_padding_bottom -
                           scene.content_offset - aside.block;
@@ -1062,14 +1160,24 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
         const UiWidgetHandle handle{static_cast<u16>(*cursor), scene.widgets.generation};
         RowLayout r{};
         UiRect clip{};
-        if (!row_layout_for(scene, t, handle, index, &r, &clip) || !ui_rect_has_area(r.lead))
+        if (!row_layout_for(scene, t, handle, index, &r, &clip))
+            continue;
+        // A banner row's upload tile (its last) shows the picture covering it.
+        const bool upload = more(scene.content, index, ui_settings_more_upload_tile);
+        const auto& c = scene.content.controls[index];
+        if (upload ? !c.choices.count : !ui_rect_has_area(r.lead))
             continue;
         // Same circle as paint_row's loading placeholder.
-        const UiRect avatar = avatar_rect(t.metric, scene.content, index, r.lead);
+        const UiRect avatar = upload ? banner_tile_rect(t, r.control, c.choices.count - 1)
+                                     : avatar_rect(t.metric, scene.content, index, r.lead);
         const UiRect visible = ui_rect_overlap(avatar, clip);
         if (!ui_rect_has_area(visible))
             continue;
-        *output = {&media, {&scene.widgets, handle}, avatar, visible};
+        // Game tiles round their covers; a trait's custom emoji keeps its own shape.
+        const bool tile = upload || (more(scene.content, index, ui_settings_more_cell) &&
+                                     c.kind == UiSettingsControlKind::action);
+        *output = {&media, {&scene.widgets, handle}, avatar, visible, tile, upload,
+                   tile ? t.metric.control_radius : 0.f};
         ++*cursor;
         return true;
     }

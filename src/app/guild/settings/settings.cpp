@@ -12,6 +12,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/account/account_profile_edit.hpp"
 #include "../../account/account_access.hpp"
+#include "maicord/core/test_hook.hpp"
 
 namespace maicord::app_detail::server_settings {
 
@@ -30,7 +31,12 @@ enum class PageGroup : u8 {
     none,
     expression,
     people,
+    apps,
     moderation,
+    // Standalone entries after a divider and no heading (Enable Community,
+    // Server Template), each its own group.
+    community,
+    templates,
 };
 struct PageDefinition {
     Page page;
@@ -43,6 +49,8 @@ struct PageDefinition {
 constexpr PageDefinition kPages[]{
     {Page::profile, PageGroup::none, UiIcon::guild, guild_settings_profile, utf8_literal("Server Profile"),
      &kProfilePage},
+    {Page::server_tag, PageGroup::none, UiIcon::tag, guild_settings_server_tag, utf8_literal("Server Tag"),
+     &kServerTagPage},
     {Page::engagement, PageGroup::none, UiIcon::activity, guild_settings_engagement, utf8_literal("Engagement"),
      &kEngagementPage},
     {Page::boost_perks, PageGroup::none, UiIcon::boost, guild_settings_boost_perks, utf8_literal("Boost Perks"),
@@ -58,11 +66,21 @@ constexpr PageDefinition kPages[]{
     {Page::roles, PageGroup::people, UiIcon::shield, guild_settings_roles, utf8_literal("Roles"), &kRolesPage},
     {Page::invites, PageGroup::people, UiIcon::user_plus, guild_settings_invites, utf8_literal("Invites"),
      &kInvitesPage},
+    {Page::access, PageGroup::people, UiIcon::lock, guild_settings_invites, utf8_literal("Access"), &kAccessPage},
+    {Page::integrations, PageGroup::apps, UiIcon::webhook, guild_settings_integrations, utf8_literal("Integrations"),
+     &kIntegrationsPage},
     {Page::safety, PageGroup::moderation, UiIcon::shield_check, guild_settings_safety, utf8_literal("Safety Setup"),
      &kSafetyPage},
     {Page::audit_log, PageGroup::moderation, UiIcon::audit_log, guild_settings_audit_log, utf8_literal("Audit Log"),
      &kAuditLogPage},
     {Page::bans, PageGroup::moderation, UiIcon::gavel, guild_settings_bans, utf8_literal("Bans"), &kBansPage},
+    {Page::automod, PageGroup::moderation, UiIcon::shield_alert, guild_settings_automod, utf8_literal("AutoMod"),
+     &kAutoModPage},
+    // The label follows the COMMUNITY feature (community_page_label).
+    {Page::community, PageGroup::community, UiIcon::compass, guild_settings_invites, utf8_literal("Enable Community"),
+     &kCommunityPage},
+    {Page::guild_template, PageGroup::templates, UiIcon::file_text, guild_settings_invites,
+     utf8_literal("Server Template"), &kTemplatePage},
 };
 static_assert(sizeof(kPages) / sizeof(kPages[0]) == kPageCount);
 constexpr bool pages_in_order() noexcept {
@@ -72,11 +90,21 @@ constexpr bool pages_in_order() noexcept {
     return true;
 }
 static_assert(pages_in_order());
-constexpr Utf8View kGroupHeaders[]{{}, utf8_literal("EXPRESSION"), utf8_literal("PEOPLE"), utf8_literal("MODERATION")};
+constexpr Utf8View kGroupHeaders[]{{},
+                                   utf8_literal("EXPRESSION"),
+                                   utf8_literal("PEOPLE"),
+                                   utf8_literal("APPS"),
+                                   utf8_literal("MODERATION"),
+                                   {},
+                                   {}};
 
 const PageDefinition& page_definition(Page page) noexcept {
     const u32 index = static_cast<u32>(page);
     return kPages[index && index <= kPageCount ? index - 1 : 0];
+}
+// The sidebar and submenu label of a page in one guild.
+Utf8View page_label(const PageDefinition& definition, u64 guild_id) noexcept {
+    return definition.page == Page::community ? community_page_label(guild_id) : definition.label;
 }
 const PageOps& ops() noexcept {
     return *page_definition(owner->page).ops;
@@ -122,7 +150,9 @@ namespace guild_settings_detail {
 bool read_op(Op op) noexcept {
     return op == Op::role_counts || op == Op::ban_list || op == Op::invite_list || op == Op::audit_page ||
            op == Op::sticker_list || op == Op::widget_get || op == Op::profile_get || op == Op::vanity_get ||
-           op == Op::members_search || op == Op::ban_search;
+           op == Op::members_search || op == Op::ban_search || (op == Op::apps && apps_reading()) ||
+           (op == Op::automod && automod_reading()) || op == Op::top_games ||
+           (op == Op::server_access && server_access_reading());
 }
 
 } // namespace guild_settings_detail
@@ -176,9 +206,11 @@ void release_images() noexcept {
     release_picked(&p.icon);
     release_picked(&p.banner);
     release_picked(&p.splash);
+    release_picked(&p.custom_banner);
     release_uri(&p.icon_uri, &p.icon_uri_bytes);
     release_uri(&p.banner_uri, &p.banner_uri_bytes);
     release_uri(&p.splash_uri, &p.splash_uri_bytes);
+    release_uri(&p.custom_banner_uri, &p.custom_banner_uri_bytes);
 }
 
 } // namespace
@@ -199,11 +231,20 @@ EditorStorage editor_storage(Editor index) noexcept {
     auto& p = *owner;
     switch (index) {
     case editor_name: return {p.name_text, kGuildAdminNameBytes, kGuildAdminNameCodepoints, false};
-    case editor_hex: return {p.hex_text, 16, 7, false};
     case editor_description:
         return {p.description_text, kGuildAdminProfileDescriptionBytes, kGuildAdminProfileDescriptionCodepoints, true};
     case editor_vanity: return {p.vanity_text, kGuildAdminVanityCodeBytes, kGuildAdminVanityCodeCharacters, false};
-    default: return {p.search_text, kSearchBytes, 100, false};
+    case editor_words: return {p.words_text, kWordsBytes, kWordsCodepoints, true};
+    case editor_patterns: return {p.patterns_text, kPatternsBytes, kPatternsCodepoints, true};
+    case editor_allowed: return {p.allowed_text, kWordsBytes, kWordsCodepoints, true};
+    case editor_tag: return {p.tag_text, kGuildAdminTagBytes, kGuildAdminTagCharacters, false};
+    case editor_game_search:
+        return {p.game_search_text, sizeof(p.game_search_text), kGuildAdminGameQueryCodepoints, false};
+    default:
+        if (index >= editor_trait && index <= editor_trait_last)
+            return {p.trait_text[index - editor_trait], kGuildAdminProfileTraitBytes, kGuildAdminProfileTraitCodepoints,
+                    false};
+        return {p.search_text, kSearchBytes, 100, false};
     }
 }
 
@@ -222,11 +263,17 @@ namespace {
 
 Editor editor_of(u64 control) noexcept {
     return control == control_name          ? editor_name
-           : control == control_hex         ? editor_hex
            : control == control_search      ? editor_search
            : control == control_description ? editor_description
            : control == control_vanity      ? editor_vanity
-                                            : editor_count;
+           : control == control_words       ? editor_words
+           : control == control_patterns    ? editor_patterns
+           : control == control_allowed     ? editor_allowed
+           : control == control_games_search ? editor_game_search
+           : control == control_tag_text      ? editor_tag
+           : control >= control_trait && control < control_trait + kGuildAdminProfileTraits
+               ? static_cast<Editor>(editor_trait + (control - control_trait))
+               : editor_count;
 }
 
 } // namespace
@@ -435,12 +482,20 @@ bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
         rgba = guild_role_color_rgba(p.role_draft.color);
     else if (p.page == Page::roles && p.editing_role && id == control_color && choice <= kGuildRoleColorCount)
         rgba = guild_role_color_rgba(choice ? kGuildRoleColors[choice - 1] : 0);
+    else if (p.page == Page::roles && p.editing_role && id == control_hex && choice == 0)
+        rgba = guild_role_color_rgba(p.role_draft.color);
     else if (p.page == Page::profile && id == control_banner_colors && choice <= kGuildProfileBannerColorCount) {
-        // The first swatch stands for the icon's own colour.
+        // The first tile stands for the icon's own colour.
         u32 color = 0;
         if (choice)
             color_hex_parse_rgb24(kGuildProfileBannerColors[choice - 1], &color);
+        else
+            color = profile_icon_color();
         rgba = guild_role_color_rgba(color);
+    } else if (p.page == Page::server_tag) {
+        u32 color = 0;
+        if (tag_color(id, choice, &color))
+            rgba = guild_role_color_rgba(color);
     }
     if (!rgba)
         return false;
@@ -456,6 +511,7 @@ bool project_page() noexcept {
     p.bank_index ^= 1;
     Bank bank{p.banks[p.bank_index], kBankBytes, 0};
     p.control_count = 0;
+    p.glyph_tile_count = 0;
     ops().project(bank);
     const bool dirty = page_dirty(), saving = p.request_id && mutation_pending();
     p.footer = {footer_status(), utf8_literal("Save changes"), utf8_literal("Reset"), dirty || saving, can_save(), saving,
@@ -468,6 +524,8 @@ bool project_page() noexcept {
         content.presentation = selected ? p.presentation : nullptr;
         content.avatar_media = selected ? p.avatar_media : nullptr;
         content.list_items = selected ? p.list_items : nullptr;
+        content.glyph_tiles = selected ? p.glyph_tiles : nullptr;
+        content.glyph_tile_count = selected ? p.glyph_tile_count : 0;
         content.footer = selected ? &p.footer : nullptr;
         if (selected) {
             if (p.page == Page::roles && p.editing_role) {
@@ -476,16 +534,28 @@ bool project_page() noexcept {
                 bank.add({p.role_draft.name, p.role_draft.name_bytes});
                 content.title = bank.since(start);
             } else
-                content.title = page_definition(p.page).label;
+                content.title = page_label(page_definition(p.page), p.guild_id);
             content.description = p.page == Page::roles && !p.editing_role
                                       ? utf8_literal("Use roles to group your server members and assign permissions.")
                                       : Utf8View{};
+            // Server Profile lays out as sections beside its live preview.
+            if (p.page == Page::profile)
+                profile_page_content(&content);
             ++content.revision;
         }
     }
     ui_settings_scene_set_focus_visible(&p.scene, g_app.keyboard_focus_visible);
     ui_settings_scene_bind_palette(&p.scene, {owner, resolve_color, ++p.palette_revision});
-    return ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips());
+    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()))
+        return false;
+    // The preview card sits where the scene placed the aside; a new card height lays the page out again.
+    if (profile_place_preview()) {
+        ++page_content(p.page).revision;
+        if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()))
+            return false;
+        profile_place_preview();
+    }
+    return true;
 }
 
 void build_navigation() noexcept {
@@ -503,21 +573,49 @@ void build_navigation() noexcept {
                 header[i] = static_cast<char>(header[i] - 32);
     }
     p.nav_count = 0;
-    const auto add = [&](UiSettingsNavEntry entry) noexcept { p.nav[p.nav_count++] = entry; };
+    const auto add = [&](UiSettingsNavEntry entry) noexcept {
+        if (p.nav_count < sizeof(p.nav) / sizeof(p.nav[0]))
+            p.nav[p.nav_count++] = entry;
+    };
     add({UiSettingsNavKind::header, false, UiIcon::count,
          header_bytes ? Utf8View{header, header_bytes} : utf8_literal("SERVER SETTINGS"), {}, 0});
+    // Every section after the first starts with a divider; the headed ones
+    // follow it with their heading.
     PageGroup group = PageGroup::none;
+    const auto enter = [&](PageGroup next) noexcept {
+        group = next;
+        add({UiSettingsNavKind::separator, false, UiIcon::count, {}, {}, 0});
+        if (kGroupHeaders[static_cast<u32>(next)].bytes)
+            add({UiSettingsNavKind::header, false, UiIcon::count, kGroupHeaders[static_cast<u32>(next)], {}, 0});
+    };
+    // App Directory is a link (no page) that shows with the settings, under
+    // Integrations when that shows.
+    bool app_directory = false;
+    const auto add_app_directory = [&]() noexcept {
+        app_directory = true;
+        if (group != PageGroup::apps)
+            enter(PageGroup::apps);
+        add({UiSettingsNavKind::action, false, UiIcon::external_link, utf8_literal("App Directory"), {},
+             kAppDirectoryAction});
+    };
+    // Community servers reach AutoMod from Safety Setup, which stays selected while it shows (the official sidebar).
+    const bool community = (guild_features() & guild_feature_community) != 0 && page_allowed(Page::safety);
     for (const auto& definition : kPages) {
-        if (!page_allowed(definition.page))
+        if (!page_allowed(definition.page) || (community && definition.page == Page::automod))
             continue;
-        if (definition.group != group) {
-            group = definition.group;
-            if (group != PageGroup::none)
-                add({UiSettingsNavKind::header, false, UiIcon::count, kGroupHeaders[static_cast<u32>(group)], {},
-                     0});
-        }
-        add({UiSettingsNavKind::page, false, definition.icon, definition.label, page_key(definition.page), 0});
+        if (!app_directory && definition.group > PageGroup::apps)
+            add_app_directory();
+        if (definition.group != group)
+            enter(definition.group);
+        UiSettingsNavEntry entry{UiSettingsNavKind::page, false, definition.icon, page_label(definition, p.guild_id),
+                                 page_key(definition.page), 0};
+        entry.badge = server_template_nav_badge(definition.page);
+        if (community && definition.page == Page::safety)
+            entry.subpage = page_key(Page::automod);
+        add(entry);
     }
+    if (!app_directory)
+        add_app_directory();
     if (guild_settings_can_delete(p.access)) {
         add({UiSettingsNavKind::separator, false, UiIcon::count, {}, {}, 0});
         add({UiSettingsNavKind::action, true, UiIcon::trash, utf8_literal("Delete Server"), {}, kDeleteServerAction});
@@ -600,9 +698,12 @@ Utf8View failure_text(const RestClientResponse& response, const Utf8View& body) 
 void ensure_page_data() noexcept {
     if (owner->page == Page::soundboard && connected())
         application_soundboard_request_guild(owner->guild_id);
-    if (busy() || !connected() || !ops().ensure_data)
+    if (busy() || !connected())
         return;
-    ops().ensure_data();
+    if (ops().ensure_data && ops().ensure_data())
+        return;
+    // Nothing for the page to read: the template's sync state, for the sidebar's dot.
+    server_template_ensure_status();
 }
 
 ChannelCreate creation{};
@@ -697,6 +798,8 @@ GuildImageProfile pick_profile(Pick pick) noexcept {
     case Pick::role_icon: return GuildImageProfile::role_icon;
     case Pick::emoji: return GuildImageProfile::emoji;
     case Pick::sticker: return GuildImageProfile::sticker;
+    // Webhook avatars are prepared like a server icon.
+    case Pick::webhook_avatar: return GuildImageProfile::icon;
     default: return GuildImageProfile::count;
     }
 }
@@ -719,7 +822,10 @@ void start_pick(Pick pick) noexcept {
                                 utf8_literal("Choose an emoji image"),
                                 utf8_literal("Choose a sticker file"),
                                 utf8_literal("Choose a sound file"),
-                                utf8_literal("Choose an invite background")};
+                                utf8_literal("Choose an invite background"),
+                                utf8_literal("Choose a webhook avatar"),
+                                utf8_literal("Choose a Discovery banner"),
+                                utf8_literal("Choose a server banner")};
     p.pick = pick;
     p.pick_role = pick == Pick::role_icon ? p.editing_role : 0;
     p.picker_consumed = false;
@@ -774,7 +880,8 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
     auto& p = *owner;
     Picked* slot = pick == Pick::icon       ? &p.icon
                    : pick == Pick::banner   ? &p.banner
-                   : pick == Pick::splash   ? &p.splash
+                   : pick == Pick::splash || pick == Pick::discovery_splash ? &p.splash
+                   : pick == Pick::custom_banner ? &p.custom_banner
                    : pick == Pick::role_icon ? &p.role_icon
                                              : &p.upload;
     if (pick == Pick::role_icon && p.pick_role != p.editing_role)
@@ -783,7 +890,8 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
     ProfileImageInfo info{};
     Utf8View error{};
     bool ok = read_picked_file(path, &picked, &error);
-    if (ok && (pick == Pick::icon || pick == Pick::splash))
+    if (ok && (pick == Pick::icon || pick == Pick::splash || pick == Pick::discovery_splash ||
+               pick == Pick::custom_banner))
         ok = probe_profile_image(&picked, path, &info, &error);
     else if (ok && pick == Pick::sound) {
         // MP3/Ogg checked by the account module's demuxers (size, length).
@@ -820,13 +928,21 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
         p.profile_draft.icon = GuildProfileImageEdit::replace;
         break;
     case Pick::splash:
+    case Pick::discovery_splash:
+    case Pick::custom_banner:
         slot->info.source_kind = info.kind;
         slot->info.kind = info.kind;
         slot->info.width = info.width;
         slot->info.height = info.height;
         slot->info.bytes = slot->bytes;
+        if (pick == Pick::custom_banner) {
+            release_uri(&p.custom_banner_uri, &p.custom_banner_uri_bytes);
+            guild_server_profile_set_custom_banner(&p.profile_draft);
+            break;
+        }
         release_uri(&p.splash_uri, &p.splash_uri_bytes);
-        p.boost_draft.splash = GuildProfileImageEdit::replace;
+        if (pick == Pick::splash)
+            p.boost_draft.splash = GuildProfileImageEdit::replace;
         break;
     case Pick::banner:
         release_uri(&p.banner_uri, &p.banner_uri_bytes);
@@ -953,8 +1069,10 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         repaint();
         return;
     case UiSettingsTargetKind::action:
-        if (target.control_id == kDeleteServerAction && guild_settings_can_delete(p.access) && editable() &&
-            !busy() && !guard_dirty())
+        if (target.control_id == kAppDirectoryAction)
+            open_app_directory();
+        else if (target.control_id == kDeleteServerAction && guild_settings_can_delete(p.access) && editable() &&
+                 !busy() && !guard_dirty())
             open_expression_form(form_delete_server, 0);
         return;
     case UiSettingsTargetKind::control:
@@ -1012,15 +1130,13 @@ bool edited(SettingsLayer*, u64 control) noexcept {
             p.role_draft.name_bytes = static_cast<u16>(minimum(text.bytes, kGuildAdminNameBytes));
             copy_bytes(p.role_draft.name, text.data, p.role_draft.name_bytes);
         }
-    } else if (editor == editor_hex && p.page == Page::roles && p.editing_role) {
-        u32 color = 0;
-        p.hex_invalid = text.bytes && !color_hex_parse_rgb24(text, &color);
-        if (!text.bytes)
-            p.role_draft.color = 0;
-        else if (!p.hex_invalid)
-            p.role_draft.color = color;
     } else if (editor == editor_search) {
         p.scene.content_offset = 0;
+    } else if (p.page == Page::profile && (editor == editor_game_search ||
+                                           (editor >= editor_trait && editor <= editor_trait_last))) {
+        profile_edited(editor, text);
+    } else if (p.page == Page::server_tag && editor == editor_tag) {
+        tag_edited(text);
     }
     return true;
 }
@@ -1028,7 +1144,7 @@ SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
     const Editor editor = editor_of(control);
     return editor == editor_count
                ? SettingsLayerEditor{}
-               : SettingsLayerEditor{&owner->models[editor], &owner->bindings[editor], editor == editor_description};
+               : SettingsLayerEditor{&owner->models[editor], &owner->bindings[editor], editor_storage(editor).multiline};
 }
 void context_hook(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
     if (editable() && ops().context)
@@ -1206,7 +1322,8 @@ u32 application_guild_settings_page_items(u64 guild_id, u32 action_base, Slice<P
     u32 used = 0;
     for (const auto& definition : kPages)
         if ((sections & definition.section) && used < output.count)
-            popup_item_set(&output[used++], definition.label, action_base + static_cast<u32>(definition.page),
+            popup_item_set(&output[used++], page_label(definition, guild_id),
+                           action_base + static_cast<u32>(definition.page),
                            popup_item_enabled);
     return used;
 }
@@ -1220,12 +1337,10 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
         owner = settings_modal_allocate<Settings>(kHooks);
         if (!owner)
             return false;
-        message_composer_initialize(&owner->models[editor_name], {owner->name_text, kGuildAdminNameBytes});
-        message_composer_initialize(&owner->models[editor_hex], {owner->hex_text, 16});
-        message_composer_initialize(&owner->models[editor_search], {owner->search_text, kSearchBytes});
-        message_composer_initialize(&owner->models[editor_description],
-                                    {owner->description_text, kGuildAdminProfileDescriptionBytes});
-        message_composer_initialize(&owner->models[editor_vanity], {owner->vanity_text, kGuildAdminVanityCodeBytes});
+        for (u32 i = 0; i < editor_count; ++i) {
+            const auto storage = editor_storage(static_cast<Editor>(i));
+            message_composer_initialize(&owner->models[i], {storage.text, storage.capacity});
+        }
         guild_ban_store_bind(&owner->bans, {owner->ban_records, kBanCapacity});
     }
     auto& p = *owner;
@@ -1253,6 +1368,8 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.engagement_conflict = p.engagement_echo = p.engagement_guild_sent = false;
     p.widget_requested = p.widget_loaded = p.widget_failed = p.profile_requested = false;
     p.profile_loaded = false;
+    p.top_games_requested = p.top_games_failed = p.has_icon_color = false;
+    p.top_game_count = 0;
     p.vanity_requested = p.vanity_loaded = p.vanity_failed = p.vanity_error = false;
     p.vanity_base_bytes = 0;
     p.vanity_uses = 0;
@@ -1316,6 +1433,20 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     return false;
 }
 
+// Fake-server UI probes (tools/test_server_settings_wayland.sh): MAICORD_TEST_GUILD_SETTINGS names a page by its
+// sidebar label, and Server Settings opens there once, on the first server, as soon as the account is ready.
+void application_guild_settings_test_open() noexcept {
+#if defined(MAICORD_TEST_HOOKS) && !defined(_WIN32)
+    static bool opened;
+    const char* label = test_hook("MAICORD_TEST_GUILD_SETTINGS");
+    if (opened || !label || !g_app.account_ui || !connected() || !state().guild_count)
+        return;
+    for (const auto& definition : kPages)
+        if (utf8_equal(definition.label, {label, c_string_length(label)}))
+            opened = application_guild_settings_open(state().guilds[0].id, static_cast<u8>(definition.page));
+#endif
+}
+
 void application_guild_settings_close(bool restore_focus) noexcept {
     if (!owner || !owner->scene.active)
         return;
@@ -1336,6 +1467,7 @@ void application_guild_settings_close(bool restore_focus) noexcept {
     next_form = 0;
     settings_modal_unbind(*owner);
     owner->page = Page::none;
+    profile_close_preview();
     owner->editing_role = 0;
     settings_modal_restore_focus(restore_focus && application_account_available());
     synchronize_member_subscription(clock_monotonic_milliseconds());
@@ -1349,6 +1481,9 @@ void application_guild_settings_release() noexcept {
     // A null request cancels this DETAILS request; its receipt is still drained.
     application_cancel_request(&AccountModuleApi::guild_admin, owner->request_id);
     members_release();
+    apps_release();
+    automod_release();
+    server_access_release();
     if (owner->picker.runtime) {
         native_file_picker_cancel(&owner->picker);
         native_file_picker_release(&owner->picker, 5'000);
@@ -1393,8 +1528,24 @@ bool application_guild_settings_synchronize() noexcept {
     const u64 sig = signature();
     if (sig != p.signature) {
         p.signature = sig;
+        // The Community entry's label follows the guild's features.
+        for (u32 i = 0; i < p.nav_count; ++i)
+            if (p.nav[i].kind == UiSettingsNavKind::page && ui_page_key_equal(p.nav[i].page, page_key(Page::community)) &&
+                p.nav[i].label.data != community_page_label(p.guild_id).data) {
+                build_navigation();
+                break;
+            }
         changed = true;
     }
+    // The Server Template entry's dot follows the template's sync state.
+    for (u32 i = 0; i < p.nav_count; ++i)
+        if (p.nav[i].kind == UiSettingsNavKind::page &&
+            ui_page_key_equal(p.nav[i].page, page_key(Page::guild_template)) &&
+            p.nav[i].badge != server_template_nav_badge(Page::guild_template)) {
+            build_navigation();
+            changed = true;
+            break;
+        }
     if (changed)
         return repaint();
     return settings_modal_refresh(p);

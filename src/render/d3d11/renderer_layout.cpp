@@ -19,6 +19,7 @@
 #include "maicord/ui/voice/panel.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/ui/guild/banner.hpp"
+#include "maicord/ui/chat/game_media.hpp"
 #include "maicord/ui/chat/threads/header.hpp"
 #include "renderer_draw.hpp"
 #include "renderer_caption.hpp"
@@ -104,6 +105,21 @@ bool chip_semantic_visible(const MessageTextSemantic& semantic, MessageMarkdownS
            ((semantic.reserved & kRendererSearchSemanticFlag) != 0) == search;
 }
 
+// A game chip's icon (ui/chat/game_media.hpp) and whether the atlas holds it. A value-initialized result reads as ok,
+// so a game without an icon answers not_found.
+MediaAtlasResult game_icon_allocation(const D3D11Renderer& renderer, u64 game_id) noexcept {
+    GameImageMedia media;
+    if (!renderer.media_atlas || !game_chip_icon_media(renderer.game_store, game_id, &media)) {
+        MediaAtlasResult missing{};
+        missing.error = MediaAtlasError::not_found;
+        return missing;
+    }
+    return media_atlas_peek(renderer.media_atlas, media.key);
+}
+bool game_icon_resident(const D3D11Renderer& renderer, u64 game_id) noexcept {
+    return game_icon_allocation(renderer, game_id).ok();
+}
+
 // Link chip icons follow their text (theme icons in the mention colour,
 // on-accent while the chip is hovered) and draw above it, so the hovered
 // chip's accent pill never covers them. A quoted forward's icon is plain text.
@@ -118,8 +134,28 @@ bool paint_chip_icons(D3D11Renderer* renderer, const Theme& theme, bool search) 
         if (region.semantic_index >= text.content_semantic_count)
             continue;
         const MessageTextSemantic& semantic = text.content_semantics[region.semantic_index];
-        if (!chip_semantic_visible(semantic, MessageMarkdownSemanticKind::chip_icon, search) ||
-            semantic.target >= static_cast<u64>(MessageMarkdownChipIcon::count))
+        // A compact row's role dot: a disc in the role colour (desaturated with user colours), as wide as its cell.
+        if (!search && chip_semantic_visible(semantic, MessageMarkdownSemanticKind::role_dot, false)) {
+            const float side = minimum(region.right - region.left, region.bottom - region.top);
+            const float mid_x = (region.left + region.right) * .5f, mid_y = (region.top + region.bottom) * .5f;
+            const UiRect disc{mid_x - side * .5f, mid_y - side * .5f, mid_x + side * .5f, mid_y + side * .5f};
+            const UiRect disc_clip = ui_rect_intersection(renderer->message_scene->viewport, disc);
+            if (!ui_rect_has_area(disc_clip))
+                continue;
+            const bool cut = !ui_rect_equal(disc_clip, disc);
+            const Color dot = message_user_color(color_from_rgb24(static_cast<u32>(semantic.target)),
+                                                 renderer->message_scene->display.user_color_desaturation);
+            if ((cut && !paint_stream_push_clip(&renderer->paint_stream, disc_clip)) ||
+                !paint_stream_push_rounded(&renderer->paint_stream, disc, dot, side * .5f) ||
+                (cut && !paint_stream_pop_clip(&renderer->paint_stream)))
+                return false;
+            continue;
+        }
+        // A game chip without its icon in the atlas shows the placeholder glyph.
+        const bool game = chip_semantic_visible(semantic, MessageMarkdownSemanticKind::game_icon, search);
+        if (game ? game_icon_resident(*renderer, semantic.target)
+                 : !chip_semantic_visible(semantic, MessageMarkdownSemanticKind::chip_icon, search) ||
+                       semantic.target >= static_cast<u64>(MessageMarkdownChipIcon::count))
             continue;
         const UiRect cell = chip_icon_cell(region);
         const UiRect clip = search ? ui_search_scene_content_clip(*renderer->search_scene, cell)
@@ -127,8 +163,10 @@ bool paint_chip_icons(D3D11Renderer* renderer, const Theme& theme, bool search) 
         if (!ui_rect_has_area(clip))
             continue;
         const bool clipped = !ui_rect_equal(clip, cell);
-        const auto icon = static_cast<MessageMarkdownChipIcon>(semantic.target);
-        const Color color = icon == MessageMarkdownChipIcon::forward || icon == MessageMarkdownChipIcon::pending_dots
+        const auto icon = game ? MessageMarkdownChipIcon::count : static_cast<MessageMarkdownChipIcon>(semantic.target);
+        // The placeholder keeps the default icon colour, as the official client's does.
+        const Color color = game ? ui_foreground_color(theme, theme.text_secondary)
+                            : icon == MessageMarkdownChipIcon::forward || icon == MessageMarkdownChipIcon::pending_dots
                                 ? plain
                             : icon == MessageMarkdownChipIcon::failed ? ui_foreground_color(theme, theme.tokens.text.danger)
                             : icon == MessageMarkdownChipIcon::ephemeral ? ui_foreground_color(theme, theme.text_secondary)
@@ -151,7 +189,7 @@ bool paint_chip_icons(D3D11Renderer* renderer, const Theme& theme, bool search) 
             continue;
         }
         if ((clipped && !paint_stream_push_clip(&renderer->paint_stream, clip)) ||
-            !ui_icon_paint(&renderer->paint_stream, chip_ui_icon(icon), cell, color) ||
+            !ui_icon_paint(&renderer->paint_stream, game ? UiIcon::image : chip_ui_icon(icon), cell, color) ||
             (clipped && !paint_stream_pop_clip(&renderer->paint_stream)))
             return false;
     }
@@ -584,8 +622,10 @@ bool queue_header_tag_icon(D3D11Renderer* renderer, const MessageScene& scene, c
     return !allocation.ok() || queue_media_quad(renderer, allocation, media.rectangle, media.clip, false);
 }
 
-// Server icons of link chips: the round CDN icon over its cell.
-bool queue_chip_guild_icons(D3D11Renderer* renderer, bool search) noexcept {
+// Server icons of link chips: the round CDN icon over its cell. Game mention
+// icons: the game's icon over its em cell, corners rounded by radius_sm (the
+// official client's 4 px). A compact row's author avatar: round over its em cell.
+bool queue_chip_guild_icons(D3D11Renderer* renderer, const Theme& theme, bool search) noexcept {
     if (!renderer->content_text || !renderer->chat_state || !renderer->media_atlas ||
         !renderer->media_gpu.texture_view || (!search && !renderer->message_scene) ||
         (search && !renderer->search_scene))
@@ -598,20 +638,34 @@ bool queue_chip_guild_icons(D3D11Renderer* renderer, bool search) noexcept {
         if (region.semantic_index >= text.content_semantic_count)
             continue;
         const MessageTextSemantic& semantic = text.content_semantics[region.semantic_index];
-        if (!chip_semantic_visible(semantic, MessageMarkdownSemanticKind::guild_icon, search))
+        const bool game = chip_semantic_visible(semantic, MessageMarkdownSemanticKind::game_icon, search);
+        const bool author = !search && chip_semantic_visible(semantic, MessageMarkdownSemanticKind::author_avatar, false);
+        if (!game && !author && !chip_semantic_visible(semantic, MessageMarkdownSemanticKind::guild_icon, search))
             continue;
-        const GuildRecord* guild = chat_state_store_find_guild(*renderer->chat_state, semantic.target);
-        if (!guild || !guild->icon_variant || !guild->icon_hash_bytes)
-            continue;
-        const MediaAtlasResult allocation =
-            media_atlas_peek(renderer->media_atlas, media_asset_guild_icon(guild->id, guild->icon_variant, false));
+        MediaAtlasResult allocation{};
+        if (author) {
+            const UserRecord* user =
+                renderer->user_store ? user_store_find(*renderer->user_store, semantic.target) : nullptr;
+            if (!user || !find_user_avatar(*renderer, *user, &allocation))
+                continue;
+        } else {
+            const GuildRecord* guild =
+                game ? nullptr : chat_state_store_find_guild(*renderer->chat_state, semantic.target);
+            if (!game && (!guild || !guild->icon_variant || !guild->icon_hash_bytes))
+                continue;
+            allocation = game ? game_icon_allocation(*renderer, semantic.target)
+                              : media_atlas_peek(renderer->media_atlas,
+                                                 media_asset_guild_icon(guild->id, guild->icon_variant, false));
+        }
         if (!allocation.ok())
             continue;
         const UiRect cell = chip_icon_cell(region);
         const UiRect clip = search ? ui_search_scene_content_clip(*renderer->search_scene, cell)
                                    : renderer->message_scene->viewport;
         const u32 before = renderer->media_quad_count;
-        if (!queue_media_quad(renderer, allocation, cell, clip, true, first))
+        MediaQuadStyle style = kPlainMediaQuad;
+        style.radius = game ? theme.scale.radius_sm : 0.f;
+        if (!queue_media_quad(renderer, allocation, cell, clip, !game, first, style))
             return false;
         first = first && renderer->media_quad_count == before;
     }
@@ -731,9 +785,8 @@ bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, c
             reveal_media_underlay(*renderer, media_before, {ring.left - 6, ring.top - 6, ring.right + 6, ring.bottom + 6},
                                   theme.surface_high);
         } else if (kind == ProfileMediaKind::banner) {
-            const u32 accent = profile.profile->accent_color;
-            const Color fallback = accent ? color_from_rgb24(accent) : theme.surface_high;
-            reveal_media_underlay(*renderer, media_before, profile.banner, fallback);
+            reveal_media_underlay(*renderer, media_before, profile.banner,
+                                  profile_scene_banner_color(profile, theme));
         }
     }
     // Effects composite above card glyphs, separately from banner/avatar media.
@@ -819,6 +872,64 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
         paint_end = paint_stream_seal(&paint);
         renderer->settings_preview_controls_first_batch = paint_end;
         return true;
+    }
+    if (!dialog && renderer->settings_scene) {
+        // The Server Profile page: its live preview card (a pinned guild card in the aside) and the marks over the
+        // page's grid cells (a chosen game's check) and upload tile (its hover shade), above the page's media.
+        const auto* card = renderer->settings_guild_preview;
+        const bool shown = card && card->active;
+        bool cells = false;
+        for (u32 i = 0; !cells && i < renderer->settings_scene->content.controls.count; ++i)
+            cells = renderer->settings_scene->content.presentation &&
+                    (renderer->settings_scene->content.presentation[i].more &
+                     (ui_settings_more_cell | ui_settings_more_upload_tile));
+        if (shown || cells) {
+            const auto viewport = shown ? card->viewport : renderer->settings_scene->viewport;
+            const auto section = [&](auto&& emit) noexcept {
+                return paint_stream_push_clip(&paint, viewport.left, viewport.top, viewport.right, viewport.bottom) &&
+                       emit() && paint_stream_pop_clip(&paint);
+            };
+            paint_first = paint_stream_seal(&paint);
+            if (shown && !section([&]() noexcept { return ui_guild_card_paint(*card, theme, &paint); }))
+                return false;
+            foreground = paint_stream_seal(&paint);
+            media_first = renderer->media_batch_count;
+            const bool atlas = renderer->media_atlas && renderer->media_gpu.texture_view;
+            UiGuildCardMedia media{};
+            // The banner picture under the foreground; the icon and the game icons over it.
+            if (shown && atlas && ui_guild_card_media(*card, kUiGuildCardBannerMedia, &media)) {
+                const MediaAtlasResult allocation = media_atlas_find(renderer->media_atlas, media.key);
+                if (allocation.ok() && allocation.width && allocation.height &&
+                    !queue_media_quad(renderer, allocation,
+                                      ui_call_video_fit(media.rectangle, allocation.width, allocation.height, true),
+                                      ui_rect_intersection(media.clip, viewport), false, true,
+                                      MediaQuadStyle{media.mask, media.opacity, 0.f, media.mask_radius, 0.f, 0}))
+                    return false;
+            }
+            renderer->settings_preview_effect_media_first_batch = renderer->media_batch_count;
+            if (!section([&]() noexcept {
+                    return (!shown || ui_guild_card_paint_foreground(*card, theme, &paint)) &&
+                           ui_settings_scene_paint_cell_marks(*renderer->settings_scene, theme, &paint);
+                }))
+                return false;
+            paint_end = paint_stream_seal(&paint);
+            renderer->settings_preview_controls_first_batch = paint_end;
+            bool first = true;
+            for (u32 index = 0; shown && atlas && index < kUiGuildCardMediaCount;
+                 ++index, media = {}) {
+                if (index == 1 || index == kUiGuildCardBannerMedia || !ui_guild_card_media(*card, index, &media))
+                    continue;
+                const MediaAtlasResult allocation = media_atlas_find(renderer->media_atlas, media.key);
+                if (!allocation.ok())
+                    continue;
+                if (!queue_media_quad(renderer, allocation, media.rectangle, ui_rect_intersection(media.clip, viewport),
+                                      false, first, MediaQuadStyle{{}, media.opacity, media.radius, 0.f, 0.f, 0}))
+                    return false;
+                first = false;
+            }
+            media_end = renderer->media_batch_count;
+            return true;
+        }
     }
     const auto* preview = renderer->settings_profile_preview;
     const auto* scene = renderer->settings_profile_dialog;
@@ -1197,6 +1308,11 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             }
             return true;
         };
+        const auto* rows_source = renderer->navigation_view ? renderer->navigation_view->private_rows : nullptr;
+        const u64 selected_private = renderer->chat_state && renderer->navigation_view &&
+                                             !renderer->navigation_view->friends_mode
+                                         ? renderer->chat_state->selected_channel_id
+                                         : 0;
         for (u32 i = 0; i < scene.count && renderer->media_quad_count < kRendererMediaQuadCapacity; ++i) {
             const auto& row = scene.rows[i];
             if (!channel_is_private(row.view.type))
@@ -1204,8 +1320,30 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const auto* avatar = ui_widget_manager_layout_node(scene.widgets, row.icon);
             if (!avatar || !ui_rect_intersects(avatar->rectangle, scene.viewport))
                 continue;
+            // A hovered or selected conversation's nameplate (its still under the animation) sits on the highlight.
+            ProfileMedia row_media{};
+            if (rows_source) {
+                const UiPrivateRowMedia plates[]{UiPrivateRowMedia::nameplate_still, UiPrivateRowMedia::nameplate};
+                for (const auto layer : plates) {
+                    if (!ui_private_row_media(scene, i, *rows_source, selected_private, !renderer->system_animation_off,
+                                              layer, &row_media))
+                        continue;
+                    const auto plate = media_atlas_find(renderer->media_atlas, row_media.key);
+                    if (plate.ok() &&
+                        !queue_media_quad(renderer, plate, row_media.rectangle, row_media.clip, false, false,
+                                          MediaQuadStyle{{}, 1.f, theme.scale.radius_sm, 0.f, 0.f, 0}))
+                        return layout_step_failed(__LINE__);
+                }
+            }
             if (!private_avatars(row.view.type, row.view.id, avatar->rectangle, scene.viewport))
                 return layout_step_failed(__LINE__);
+            // The server tag's badge leads its chip.
+            if (rows_source && ui_private_row_media(scene, i, *rows_source, selected_private, false,
+                                                    UiPrivateRowMedia::tag, &row_media)) {
+                const auto badge = media_atlas_find(renderer->media_atlas, row_media.key);
+                if (badge.ok() && !queue_media_quad(renderer, badge, row_media.rectangle, row_media.clip, false))
+                    return layout_step_failed(__LINE__);
+            }
         }
         const auto* header_channel =
             renderer->ui_scene && renderer->ui_scene->view == UiShellView::private_channels
@@ -1320,6 +1458,13 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, theme.interactive))
                 return layout_step_failed(__LINE__);
         }
+        // Active Now's activity art and badges over their placeholders (the requests dialog dims them away).
+        ProfileMedia art;
+        for (u32 i = 0; renderer->media_quad_count < kRendererMediaQuadCapacity &&
+                        friends_activity_media_resolve(scene, i, &art);
+             ++i)
+            if (ui_rect_intersects(art.rectangle, art.clip) && !queue_profile_part(renderer, art, art.mask, art.mask_radius, false))
+                return layout_step_failed(__LINE__);
     }
     if (!content_hidden && d3d11_renderer_active(renderer->member_list_scene) &&
         renderer->member_list_scene->users && renderer->media_atlas && renderer->media_gpu.texture_view) {
@@ -1439,9 +1584,16 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (messages_visible && !content_hidden && !paint_chip_icons(renderer, theme, false))
         return layout_step_failed(__LINE__);
     UiTypingDotsPaint typing_dots{};
+    // Scrolled away from the newest message, the list's bottom fades behind the typing strip.
+    ShellTypingFade typing_fade{};
+    const UiLayoutNode* fade_list =
+        renderer->ui_scene ? ui_scene_node(*renderer->ui_scene, UiSemantic::message_view) : nullptr;
+    if (messages_visible && fade_list && message_scene->timeline)
+        typing_fade = {fade_list->rectangle, !message_scene->timeline->follow_bottom};
     if (!content_hidden &&
         !shell_presentation_build_composer_overlay(renderer->message_composer_scene, composer_presentation,
-                                                   theme, &renderer->paint_stream, renderer->dpi, &typing_dots))
+                                                   theme, &renderer->paint_stream, renderer->dpi, &typing_dots,
+                                                   &typing_fade))
         return layout_step_failed(__LINE__);
     renderer_record_typing_dots(renderer, typing_dots);
     renderer->overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
@@ -1701,6 +1853,11 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         if (!ui_download_scene_paint(*renderer->download_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
     }
+    if (d3d11_renderer_go_live_visible(*renderer)) {
+        const UnfilteredPaint scope(&renderer->paint_stream);
+        if (!ui_go_live_scene_paint(*renderer->go_live_scene, theme, &renderer->paint_stream))
+            return layout_step_failed(__LINE__);
+    }
     if (d3d11_renderer_message_forward_visible(*renderer)) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         const auto popup_edit = d3d11_renderer_popup_edit_geometry(*renderer);
@@ -1733,12 +1890,15 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (d3d11_renderer_stream_card_visible(*renderer) &&
         !ui_stream_card_paint(*renderer->stream_card_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
+    if (d3d11_renderer_names_card_visible(*renderer) &&
+        !ui_names_card_paint(*renderer->names_card_scene, theme, &renderer->paint_stream))
+        return layout_step_failed(__LINE__);
     if (d3d11_renderer_expression_card_visible(*renderer) &&
         !ui_expression_card_paint(*renderer->expression_card_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     // The server tag popout: card and banner colour, then (after its banner
     // picture, see below) the foreground under its icon and badge.
-    renderer->guild_card_foreground_first_batch = ~0u;
+    renderer->guild_card_foreground_first_batch = renderer->popup_overlay_paint_first_batch = ~0u;
     renderer->guild_card_banner_media_end_batch = 0;
     if (d3d11_renderer_guild_card_visible(*renderer)) {
         if (!ui_guild_card_paint(*renderer->guild_card_scene, theme, &renderer->paint_stream))
@@ -1866,6 +2026,23 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             first_interaction_media = false;
         }
     }
+    // Screen share sources: their live thumbnails, letterboxed, dimmed under the hover call to action.
+    if (d3d11_renderer_go_live_visible(*renderer)) {
+        const auto& scene = *renderer->go_live_scene;
+        for (u32 index = 0; index < scene.source_count; ++index) {
+            UiRect picture{}, clip{};
+            bool dim = false;
+            u8 domain = 0;
+            MediaAtlasResult allocation{};
+            if (!ui_go_live_scene_thumbnail(scene, index, &picture, &clip, &dim) ||
+                !find_call_preview(*renderer, scene.sources[index].thumbnail, &allocation, &domain))
+                continue;
+            if (!queue_media_quad(renderer, allocation, picture, clip, false, first_interaction_media,
+                                  MediaQuadStyle{clip, dim ? .4f : 1.f, 0.f, 8.f, 0.f, domain}))
+                return layout_step_failed(__LINE__);
+            first_interaction_media = false;
+        }
+    }
     // Inbox mention authors and poll voters cover their neutral avatar circles.
     if (d3d11_renderer_inbox_visible(*renderer) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
@@ -1901,6 +2078,21 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             }
         }
     }
+    // The names popout's server pictures over their discs.
+    if (d3d11_renderer_names_card_visible(*renderer) && renderer->media_atlas && renderer->media_gpu.texture_view) {
+        UiNamesCardMedia media{};
+        for (u32 index = 0; index < kUiNamesCardRows * kUiNamesCardIcons; ++index, media = {}) {
+            if (!ui_names_card_media(*renderer->names_card_scene, index, &media))
+                continue;
+            const MediaAtlasResult allocation = media_atlas_find(renderer->media_atlas, media.key);
+            if (!allocation.ok() || !allocation.width || !allocation.height)
+                continue;
+            if (!queue_media_quad(renderer, allocation, media.rectangle, media.clip, true, first_interaction_media,
+                                  MediaQuadStyle{{}, media.opacity, 0.f, 0.f, 0.f, 0}))
+                return layout_step_failed(__LINE__);
+            first_interaction_media = false;
+        }
+    }
     // The emoji/sticker popout's picture, the pack's stickers and the server icon.
     if (d3d11_renderer_expression_card_visible(*renderer) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
@@ -1918,11 +2110,13 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             first_interaction_media = false;
         }
     }
-    // The server tag popout's icon and tag badge cover their plates.
+    // The server tag popout's icon, tag badge, game pictures and trait emoji cover their plates.
     if (d3d11_renderer_guild_card_visible(*renderer) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         UiGuildCardMedia media{};
-        for (u32 index = 0; index < 2; ++index, media = {}) {
+        for (u32 index = 0; index < kUiGuildCardMediaCount; ++index, media = {}) {
+            if (index == kUiGuildCardBannerMedia)
+                continue;
             if (!ui_guild_card_media(*renderer->guild_card_scene, index, &media))
                 continue;
             const MediaAtlasResult allocation = media_atlas_find(renderer->media_atlas, media.key);
@@ -2044,6 +2238,11 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             first_interaction_media = false;
         }
     }
+    // Popup paint over the popup media: the server tag popout's busy-game markers.
+    renderer->popup_overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
+    if (d3d11_renderer_guild_card_visible(*renderer) &&
+        !ui_guild_card_paint_overlay(*renderer->guild_card_scene, theme, &renderer->paint_stream))
+        return layout_step_failed(__LINE__);
     renderer->theme_editor_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     if (renderer_theme_editor_visible(*renderer)) {
         if (!paint_stream_push_clip(&renderer->paint_stream, 0, 0, width_dip, height_dip))

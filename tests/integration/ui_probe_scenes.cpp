@@ -1603,8 +1603,7 @@ bool probe_friends_scene() noexcept {
             return false;
         const auto kind = f.tab == UiFriendsTab::pending
                               ? (index & 1 ? UiFriendsKind::outgoing : UiFriendsKind::incoming)
-                          : f.tab == UiFriendsTab::blocked ? UiFriendsKind::blocked
-                                                           : UiFriendsKind::friend_user;
+                              : UiFriendsKind::friend_user;
         *out = {f.peer_avatar && index == 0 ? 123ull : index + 1ull,
                 index + 1 == f.count ? utf8_literal("Last native friend") : utf8_literal("Native friend"),
                 utf8_literal("native.friend"),
@@ -1701,10 +1700,10 @@ bool probe_friends_scene() noexcept {
                probe_text_pixels({rectangles, rectangle_count + 1});
     };
     const wchar_t* captures[]{L"friends-online.bmp", L"friends-all.bmp", L"friends-pending.bmp",
-                              L"friends-blocked.bmp", L"friends-add-friend.bmp"};
-    for (u32 tab = 0; tab < 5; ++tab) {
+                              L"friends-add-friend.bmp"};
+    for (u32 tab = 0; tab < 4; ++tab) {
         fixture.tab = static_cast<UiFriendsTab>(tab);
-        fixture.count = tab == 4 ? 0 : tab == 3 ? 1 : tab == 1 ? 4 : 2;
+        fixture.count = tab == 3 ? 0 : tab == 2 ? 1 : tab == 1 ? 4 : 2;
         source.count = fixture.count;
         ++source.revision;
         if (!ui_friends_scene_update(&friends, &source, fixture.tab, UiFriendsPhase::ready, {}, center()))
@@ -2024,7 +2023,7 @@ bool probe_friends_scene() noexcept {
     ++search_content.revision;
     if (!ui_friends_scene_update(&friends, &source, fixture.tab, UiFriendsPhase::ready, {}, center(),
                                  &search_content) ||
-        friends.count_heading_bytes != 5 || !bytes_equal(friends.count_heading, "0 / 4", 5) ||
+        friends.count_heading_bytes != 0 || !friends.empty.generation ||
         !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
         !probe_present(&g_probe.renderer, kDefaultTheme) ||
         !probe_capture_frame(L"friends-search-no-results.bmp"))
@@ -4523,6 +4522,8 @@ bool probe_braille_profile() noexcept {
     bool valid = data.bio.bytes == 139 && profile_scene_open(&scene, &data, &g_probe.chat_state,
         &g_probe.users, 1, {viewport.right - 100, 90, viewport.right, 134}, viewport);
     for (u32 pass = 0; valid && pass < 4; ++pass) {
+        // Stages 271-274: the four passes' layout and frame; 2711-2714 their bio text; 2721-2724 the shell text.
+        g_probe.failure_stage = 271 + pass;
         if (pass == 2) {
             profile_scene_release(&scene);
             scene.phase = ProfilePhase::ready;
@@ -4531,16 +4532,22 @@ bool probe_braille_profile() noexcept {
                 {viewport.right - 100, 90, viewport.right, 134}, viewport);
         }
         scene.presentation = (pass & 1) != 0 ? ProfilePresentation::modal : ProfilePresentation::popout;
-        valid = profile_scene_layout(&scene, viewport, true) && scene.part_count > 5 &&
+        valid = valid && profile_scene_layout(&scene, viewport, true) && scene.part_count > 5 &&
             utf8_equal(scene.bio_display.view(), data.bio.view()) && rebuild_probe_content_text() &&
             probe_present(&g_probe.renderer, kDefaultTheme) &&
             probe_capture_frame(pass & 1 ? (pass == 1 ? L"braille-profile-expanded.bmp" : L"braille-profile-expanded-warm.bmp")
                 : (pass == 0 ? L"braille-profile.bmp" : L"braille-profile-warm.bmp"));
+        if (valid)
+            g_probe.failure_stage = 2711 + pass;
         const auto* node = ui_widget_manager_layout_node(scene.widgets, scene.bio_widget);
         valid = valid && node && probe_text_pixels({&node->rectangle, 1});
+        if (valid)
+            g_probe.failure_stage = 2721 + pass;
         if (scene.presentation == ProfilePresentation::popout)
             valid = valid && probe_text_pixels({shell_labels, 2});
     }
+    if (valid)
+        g_probe.failure_stage = 2730;
     // Inject a biography-only measurement failure while the card is open.
     // Verify real GPU text in the recovery card and the unaffected shell.
     UiTextMeasureRecord records[16]{};
@@ -4559,7 +4566,11 @@ bool probe_braille_profile() noexcept {
         rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
         probe_text_pixels({shell_labels, 2}) && probe_capture_frame(L"braille-profile-failure-contained.bmp");
     const auto* recovered_bio = ui_widget_manager_layout_node(scene.widgets, scene.bio_widget);
+    if (valid)
+        g_probe.failure_stage = 2731;
     valid = valid && recovered_bio && probe_text_pixels({&recovered_bio->rectangle, 1});
+    if (valid)
+        g_probe.failure_stage = 2732;
     scene.measure = &g_probe.text_measure_cache;
     valid = valid && profile_scene_layout(&scene, viewport, true) &&
         utf8_equal(scene.bio_display.view(), data.bio.view()) && rebuild_probe_content_text() &&
@@ -4567,6 +4578,8 @@ bool probe_braille_profile() noexcept {
         probe_capture_frame(L"braille-profile-recovered.bmp");
     profile_scene_release(&scene);
     g_probe.renderer.profile_scene = nullptr;
+    if (valid)
+        g_probe.failure_stage = 2733;
     valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
         probe_text_pixels({shell_labels, 2}) &&
         probe_capture_frame(L"braille-profile-closed.bmp");
@@ -4632,13 +4645,18 @@ bool probe_profile_member_modal() noexcept {
         // A part left without geometry: its command fails the renderer's checks.
         if (valid) {
             g_probe.failure_stage = 278 + member;
+            // The shell's own text under the modal may reach into the name's box: only the name's glyphs must go.
+            g_probe.renderer.profile_scene = nullptr;
+            valid = rebuild_probe_content_text();
+            const u32 beneath = probe_quads_in(name_rect);
+            g_probe.renderer.profile_scene = &scene;
             node->rectangle.right = node->rectangle.left - 10;
-            valid = rebuild_probe_content_text() && probe_quads_in(message) > 0 && probe_quads_in(name_rect) == 0 &&
-                    probe_present(&g_probe.renderer, kDefaultTheme) &&
+            valid = valid && rebuild_probe_content_text() && probe_quads_in(message) > 0 &&
+                    probe_quads_in(name_rect) == beneath && probe_present(&g_probe.renderer, kDefaultTheme) &&
                     probe_capture_frame(member ? L"profile-member-roles-contained.bmp"
                                                : L"profile-member-no-roles-contained.bmp");
             valid = valid && profile_scene_layout(&scene, viewport, true) && rebuild_probe_content_text() &&
-                    probe_quads_in(name_rect) > 0 && probe_quads_in(message) > 0;
+                    probe_quads_in(name_rect) > beneath && probe_quads_in(message) > 0;
         }
         profile_scene_release(&scene);
         g_probe.renderer.profile_scene = nullptr;
@@ -5321,7 +5339,7 @@ bool probe_profile_card() noexcept {
     valid = valid && probe_profile_hover(scene);
     UiRect tab_rectangles[3]{};
     for (u32 selected_tab = 0; selected_tab < 3; ++selected_tab) {
-        scene.tab = static_cast<u8>(selected_tab);
+        scene.section = static_cast<ProfileTab>(static_cast<u32>(ProfileTab::activity) + selected_tab);
         valid = valid && profile_scene_layout(&scene, viewport, true);
         for (u32 i = 0; i < scene.part_count; ++i)
             if (scene.parts[i].look == ProfileLook::tab) {
@@ -5333,16 +5351,31 @@ bool probe_profile_card() noexcept {
                     valid = valid && ui_rect_equal(tab_rectangles[index], node->rectangle);
             }
     }
-    scene.tab = 0;
+    scene.section = ProfileTab::activity;
     valid = valid && profile_scene_layout(&scene, viewport, true);
     const auto fixed_banner = scene.banner, fixed_avatar = scene.avatar;
-    // Add enough details to require scrolling without making the fixed header move.
+    // Add enough details to require scrolling without making the fixed header move: sixteen connected accounts, Steam
+    // (with its games and item counts), GitHub and Spotify in turn.
     data->connection_count = 16;
     for (u32 i = 0; i < 16; ++i) {
-        copy_bytes(data->connections[i].type.data, "Service", 7);
-        data->connections[i].type.bytes = 7;
-        copy_bytes(data->connections[i].name.data, "Connected account", 17);
-        data->connections[i].name.bytes = 17;
+        auto& connection = data->connections[i];
+        const char* const types[]{"steam", "github", "spotify"};
+        const char* const type = types[i % 3];
+        connection.type.bytes = static_cast<u16>(c_string_length(type));
+        copy_bytes(connection.type.data, type, connection.type.bytes);
+        copy_bytes(connection.id.data, "76561198000000001", 17);
+        connection.id.bytes = 17;
+        copy_bytes(connection.name.data, "Connected account", 17);
+        connection.name.bytes = 17;
+        connection.verified = i % 2 == 0;
+        if (i % 3 == 0) {
+            copy_bytes(connection.created_at.data, "2020-01-19T12:00:00+00:00", 25);
+            connection.created_at.bytes = 25;
+            connection.count_mask = 7;
+            connection.count[0] = 172;
+            connection.count[1] = 0;
+            connection.count[2] = 84;
+        }
     }
     if (valid && !profile_scene_layout(&scene, viewport, true)) {
         g_probe.failure_stage = 152;
@@ -5376,7 +5409,7 @@ bool probe_profile_card() noexcept {
     valid = valid && assignable && removable;
     // A narrow window: the full profile fills it.
     scene.presentation = ProfilePresentation::modal;
-    scene.tab = 1;
+    scene.section = ProfileTab::friends;
     valid = valid && profile_scene_layout(&scene, {0, 0, 640, 600}, true) &&
             ui_rect_width(scene.rectangle) == 640 && rebuild_probe_content_text() &&
             probe_present(&g_probe.renderer, kDefaultTheme) &&
@@ -5593,11 +5626,27 @@ bool probe_profile_activity_card() noexcept {
         g_probe.failure_stage = 741;
     // The full profile lists every activity under Activity.
     scene.presentation = ProfilePresentation::modal;
-    scene.tab = 0;
+    scene.section = ProfileTab::activity;
     valid = valid && profile_scene_layout(&scene, viewport, true) && upload() && cards == 3 && progress == 1 &&
             artwork == 4 &&
             rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) && avatar_above_body() &&
             probe_capture_frame(L"profile-activity-tab.bmp");
+    if (valid)
+        g_probe.failure_stage = 742;
+    // The Board leads the tabs once the profile has game widgets: a favorite game (comment and tags) and a grid.
+    data->widget_count = 2;
+    data->widgets[0] = {1, 0, ProfileWidgetKind::favorite_games, 0, 1};
+    data->widgets[1] = {2, 0, ProfileWidgetKind::played_games, 1, 6};
+    data->widget_game_count = 7;
+    for (u32 i = 0; i < 7; ++i)
+        data->widget_games[i] = {1402418696126992445ull + i, 0, {}};
+    copy_bytes(data->widget_games[0].comment.data, "Every season, every map.", 24);
+    data->widget_games[0].comment.bytes = 24;
+    data->widget_games[0].tags = (1u << profile_widget_expert) | (1u << profile_widget_looking_for_group);
+    scene.section = ProfileTab::widgets;
+    valid = valid && profile_scene_layout(&scene, viewport, true) && scene.tab == 0 && rebuild_probe_content_text() &&
+            probe_present(&g_probe.renderer, kDefaultTheme) && probe_capture_frame(L"profile-board-tab.bmp");
+    data->widget_count = data->widget_game_count = 0;
     if (valid)
         g_probe.failure_stage = 743;
     // The popout with Spotify alone: album art, track, artists and the bar.
@@ -5695,7 +5744,9 @@ bool probe_rich_composer() noexcept {
                  message_composer_scene_initialize_owned(&scene);
     message_composer_reset(&model, 42, false);
     UiRect viewport{50, 100, 550, 148};
-    float preferred = 48;
+    // The measured composer includes the always-reserved typing strip above the editor row.
+    const float strip = message_composer_scene_chrome_height(false, 0);
+    float preferred = 48 + strip;
     const auto refresh = [&]() noexcept {
         if (!message_composer_scene_update(&scene, &model, viewport, true).ok() ||
             !renderer_bind_message_composer_scene(&g_probe.renderer, &scene) ||
@@ -5712,7 +5763,7 @@ bool probe_rich_composer() noexcept {
         const u32 line_count = text_edit_layout_line_count(g_probe.renderer.composer_layout);
         valid = valid && line_count;
         wrapped = line_count > 1;
-        valid = valid && (wrapped ? preferred > 48 : preferred == 48);
+        valid = valid && (wrapped ? preferred > 48 + strip : preferred == 48 + strip);
     }
     valid = valid && wrapped;
     if (valid)
@@ -5721,7 +5772,7 @@ bool probe_rich_composer() noexcept {
     const auto rich = utf8_literal("**Bold** *italic* `code` @everyone\n```cpp\nint x = "
                                    "1;\n```\none\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n");
     valid = valid && message_composer_restore(&model, 42, rich, rich.bytes, rich.bytes) && refresh() &&
-            preferred == 208;
+            preferred == 208 + strip;
     auto& layout = g_probe.renderer.composer_layout;
     // Styled composer geometry is native; its parity with DirectWrite edit
     // layouts is covered by the native app-line editor corpora.
@@ -6141,7 +6192,8 @@ bool probe_voice_message_bar() noexcept {
     bool valid = message_composer_initialize(&model, {buffer, sizeof(buffer)}) &&
                  message_composer_scene_initialize_owned(&scene);
     message_composer_reset(&model, 43, false);
-    UiRect viewport{50, 100, 550, 148};
+    // The editor row of 48 DIP sits below the always-reserved typing strip.
+    UiRect viewport{50, 100, 550, 148 + message_composer_scene_chrome_height(false, 0)};
     float preferred = 48;
     UiComposerVoiceView view{};
     const auto show = [&]() noexcept {

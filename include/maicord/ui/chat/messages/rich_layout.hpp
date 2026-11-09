@@ -196,11 +196,13 @@ struct MessageRichDisplay {
     MessageMediaAnimation stickers = MessageMediaAnimation::always;
     MessageSpoilerReveal spoilers = MessageSpoilerReveal::on_click;
     bool convert_emoticons = true;
+    bool image_descriptions = false; // view_image_descriptions: an ALT badge on media with a description
 };
 constexpr bool message_rich_display_equal(const MessageRichDisplay& a, const MessageRichDisplay& b) noexcept {
     return a.attachment_media == b.attachment_media && a.embed_media == b.embed_media && a.embeds == b.embeds &&
            a.reactions == b.reactions && a.gifs == b.gifs && a.emoji == b.emoji && a.stickers == b.stickers &&
-           a.spoilers == b.spoilers && a.convert_emoticons == b.convert_emoticons;
+           a.spoilers == b.spoilers && a.convert_emoticons == b.convert_emoticons &&
+           a.image_descriptions == b.image_descriptions;
 }
 // True when an animation should play: always, or while its message is
 // hovered or focused in interaction mode. Paused media shows its first frame.

@@ -1,8 +1,6 @@
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/voice/panel.hpp"
-#include "maicord/ui/voice/video_controls.hpp"
-#include "maicord/model/voice/channel_info_store.hpp"
 
 namespace maicord {
 bool ui_voice_participant_row(const ChannelViewRow& row, const UiRect& row_rectangle,
@@ -49,44 +47,31 @@ UiRect ui_voice_disconnect_rectangle(UiRect footer) noexcept {
     return ui_voice_panel_disconnect(ui_voice_panel_rectangle(footer));
 }
 
-u32 ui_voice_elapsed_format(u64 elapsed_ms, char* output, u32 capacity) noexcept {
-    if (!output || capacity < kUiVoiceElapsedBytes)
+u32 ui_voice_duration_text(u64 elapsed_s, char* output, u32 capacity) noexcept {
+    if (!output || capacity < kUiVoiceDurationBytes)
         return 0;
+    const u64 amounts[3]{elapsed_s / 3'600, elapsed_s / 60 % 60, elapsed_s % 60};
+    const char* const units[3]{" hour", " minute", " second"};
     u32 used = 0;
-    ui_video_append_clock(output, used, elapsed_ms, false);
-    return used;
-}
-
-bool ui_voice_timer_tick(UiVoiceTimerClock* clock, u64 now_ms, u64 unix_ms, bool visible, bool focused) noexcept {
-    if (!clock)
-        return false;
-    if (!visible) {
-        clock->visible = false;
-        clock->wake_ms = 0;
-        return false;
+    for (u32 i = 0; i < 3; ++i) {
+        if (!amounts[i] && (i < 2 || used))
+            continue;
+        if (used) {
+            output[used++] = ',';
+            output[used++] = ' ';
+        }
+        char digits[20];
+        u32 count = 0;
+        for (u64 value = amounts[i]; value || !count; value /= 10)
+            digits[count++] = static_cast<char>('0' + value % 10);
+        while (count)
+            output[used++] = digits[--count];
+        for (const char* unit = units[i]; *unit; ++unit)
+            output[used++] = *unit;
+        if (amounts[i] != 1)
+            output[used++] = 's';
     }
-    const bool shown = clock->visible;
-    clock->visible = true;
-    const u64 second = unix_ms / 1'000, period = focused ? 1 : kUiVoiceTimerSlowSeconds;
-    // Coming on screen, a missed boundary or a clock set back shows the time at once.
-    const bool changed = second != clock->shown_s &&
-                         (!shown || second >= clock->shown_s + period || second < clock->shown_s);
-    if (changed)
-        clock->shown_s = second;
-    const u64 next_ms = (clock->shown_s + period) * 1'000;
-    clock->wake_ms = now_ms + (next_ms > unix_ms ? next_ms - unix_ms : 1);
-    return changed;
-}
-
-u32 ui_voice_timer_label(const ChannelViewRow& row, const UiVoiceChannelExtras* extras, char* output,
-                         u32 capacity) noexcept {
-    if (row.type != 2 || row.mention_count || !extras || !extras->info || !extras->clock_s)
-        return 0;
-    const auto* info = voice_channel_info_store_find(*extras->info, row.id);
-    if (!info || !info->start_s)
-        return 0;
-    const u64 elapsed = extras->clock_s > info->start_s ? extras->clock_s - info->start_s : 0;
-    return ui_voice_elapsed_format(elapsed * 1'000, output, capacity);
+    return used;
 }
 
 bool ui_voice_invite_observe(UiVoiceInviteCountdown* countdown, u64 connected_channel_id) noexcept {
@@ -122,7 +107,7 @@ bool ui_voice_invite_dismiss(UiVoiceInviteCountdown* countdown) noexcept {
 
 UiRect ui_voice_status_rectangle(const ChannelViewRow& row, UiRect row_rectangle) noexcept {
     const float left = row_rectangle.left + kShellChannelLabelLeft + static_cast<float>(row.depth) * kShellChannelIndent;
-    const float top = row_rectangle.top + kShellNavigationVoiceHeadHeight - 4.0f;
+    const float top = row_rectangle.top + shell_navigation_head_height() - 4.0f;
     return {left, top, maximum(left, row_rectangle.right - 10.0f), top + kShellNavigationStageTopicHeight};
 }
 
@@ -143,15 +128,5 @@ bool ui_voice_invite_row(const ChannelViewRow& row, const UiRect& row_rectangle,
                     top + kShellNavigationVoiceInviteHeight};
     *output = result;
     return true;
-}
-
-UiRect ui_voice_elapsed_rectangle(UiRect label, u32 bytes, float gap, float* name_right) noexcept {
-    // Subtext digit advance; ':' is narrower, which only leaves slack.
-    constexpr float advance = 6.25f;
-    const float left = maximum(label.left, label.right - static_cast<float>(bytes) * advance);
-    if (name_right)
-        *name_right = bytes ? maximum(label.left, left - gap) : label.right;
-    const float top = label.top;
-    return bytes ? UiRect{left, top, label.right, top + kShellNavigationVoiceHeadHeight - 10.0f} : UiRect{};
 }
 } // namespace maicord

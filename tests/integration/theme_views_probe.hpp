@@ -349,8 +349,9 @@ inline bool theme_views_ui_probe(BackgroundThemeProbeContext c) noexcept {
                 if (command.owner.handle.slot == ui_scene_widget(shell, UiSemantic::friends_button).slot &&
                     command.owner.handle.generation == ui_scene_widget(shell, UiSemantic::friends_button).generation &&
                     utf8_equal(command.text, utf8_literal("Friends")))
+                    // The 16-DIP padding, then the 20-DIP people glyph and its 12-DIP gap.
                     padded_friends_ink =
-                        command.rectangle.left == friends_button->rectangle.left + 16.f &&
+                        command.rectangle.left == friends_button->rectangle.left + 16.f + 32.f &&
                         command.rectangle.right == friends_button->rectangle.right - 16.f &&
                         pixels.ink(ui_rect_intersection(command.rectangle, command.clip),
                                    theme.text_primary);

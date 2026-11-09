@@ -22,4 +22,8 @@ struct FriendsAvatarMediaVisitResult {
 // Only retained rows intersecting the current viewport can reach a request.
 FriendsAvatarMediaVisitResult friends_avatar_media_visit(const UiFriendsScene&,
     const UserStore&, const FriendsAvatarMediaCallbacks&) noexcept;
+// Active Now's activity images (art and its corner badge) over every shown
+// card in order, placed on the card and clipped to it; false past the last.
+bool friends_activity_media_resolve(const UiFriendsScene&, u32 index, ProfileMedia*) noexcept;
+bool friends_activity_media_current(const UiFriendsScene&, MediaAssetKey) noexcept;
 } // namespace maicord

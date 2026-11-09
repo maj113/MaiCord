@@ -321,33 +321,45 @@ void test_message_composer() noexcept {
         typing_store, typing_users, 10, 1, Slice<char>{typing_text, kMessageTypingLabelMaximumBytes});
     const bool single_typing_label = typing_text_result.ok() && typing_text_result.users == 1 &&
                                      utf8_equal(Utf8View{typing_text, typing_text_result.bytes},
-                                                utf8_literal("Alice is typing…"));
+                                                utf8_literal("Alice is typing..."));
     typing_store_start(&typing_store, 10, 20, 3, 200);
+    typing_text_result = message_typing_presentation_build(
+        typing_store, typing_users, 10, 1, Slice<char>{typing_text, kMessageTypingLabelMaximumBytes});
+    const bool two_typing_label = typing_text_result.ok() && typing_text_result.users == 2 &&
+                                  utf8_equal(Utf8View{typing_text, typing_text_result.bytes},
+                                             utf8_literal("Alice and Bob are typing..."));
     typing_store_start(&typing_store, 10, 20, 4, 200);
     MessageTypingName typing_names[3]{};
     typing_text_result = message_typing_presentation_build(
         typing_store, typing_users, 10, 1, Slice<char>{typing_text, kMessageTypingLabelMaximumBytes}, typing_names);
+    // Like the official client: commas between names, no comma before "and", and three plain periods.
     const bool three_typing_label = typing_text_result.ok() && typing_text_result.users == 3 &&
+                                    typing_text_result.named == 3 &&
                                     utf8_equal(Utf8View{typing_text, typing_text_result.bytes},
-                                               utf8_literal("Alice, Bob, and Cara are typing…"));
-    // Each name's span lets the shell colour it: offset, bytes and the typist's id.
+                                               utf8_literal("Alice, Bob and Cara are typing..."));
+    // Each name's span lets the shell draw it bold: offset and bytes.
     const bool typing_name_spans =
-        typing_names[0].user_id == 2 && typing_names[0].offset == 0 && typing_names[0].bytes == 5 &&
-        typing_names[1].user_id == 3 && typing_names[1].offset == 7 && typing_names[1].bytes == 3 &&
-        typing_names[2].user_id == 4 && typing_names[2].offset == 16 && typing_names[2].bytes == 4 &&
+        typing_names[0].offset == 0 && typing_names[0].bytes == 5 &&
+        typing_names[1].offset == 7 && typing_names[1].bytes == 3 &&
+        typing_names[2].offset == 15 && typing_names[2].bytes == 4 &&
         utf8_equal(Utf8View{typing_text + typing_names[2].offset, typing_names[2].bytes}, utf8_literal("Cara"));
     typing_store_start(&typing_store, 10, 20, 5, 200);
+    MessageTypingName several_names[3]{};
     typing_text_result = message_typing_presentation_build(
-        typing_store, typing_users, 10, 1, Slice<char>{typing_text, kMessageTypingLabelMaximumBytes});
+        typing_store, typing_users, 10, 1, Slice<char>{typing_text, kMessageTypingLabelMaximumBytes}, several_names);
+    // Four or more people: "Several people" (bold, the one span) are typing...
     const bool several_typing_label = typing_text_result.ok() && typing_text_result.users == 4 &&
+                                      typing_text_result.named == 1 && several_names[0].offset == 0 &&
+                                      several_names[0].bytes == 14 &&
                                       utf8_equal(Utf8View{typing_text, typing_text_result.bytes},
-                                                 utf8_literal("Several people are typing…"));
+                                                 utf8_literal("Several people are typing..."));
     const TypingStoreResult before_expiry = typing_store_tick(&typing_store, 10'199);
     const TypingStoreResult at_expiry = typing_store_tick(&typing_store, 10'200);
     expect(typing_ready && local_typing.ok() && local_typing.accepted && !early_typing.ready &&
                ready_typing.ready && ready_typing.channel_id == 10 && !ready_typing.suppressed &&
                optimistic_message.ok() && optimistic_message.changed && alice_typing.ok() &&
-               single_typing_label && three_typing_label && typing_name_spans && several_typing_label && before_expiry.ok() &&
+               single_typing_label && two_typing_label && three_typing_label && typing_name_spans && several_typing_label &&
+               before_expiry.ok() &&
                !before_expiry.changed && at_expiry.ok() && at_expiry.changed && typing_store.count == 0,
            "typing_cadence_labels_message_stop_and_expiry");
 

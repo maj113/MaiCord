@@ -119,6 +119,13 @@ bool paint_stream_push_line(PaintStream* stream, UiPoint a, UiPoint b, float wid
 inline constexpr float kPaintEdgeStripMode = -10;
 bool paint_stream_push_edge_strip(PaintStream* stream, const UiRect& shape, float width, const Color& color,
                                   float radius) noexcept;
+// A server profile banner's radial glow: CSS radial-gradient(105.43% 127.05% at 50.1% 127.05%, inner 20.65%,
+// outer 85.16%) over the box formed by the rounded rectangle's width and its top gradient_height DIPs (a taller
+// rectangle keeps its lower corners out of a clip at that height). One instance: fill carries outer, border inner,
+// reserved_x the height.
+inline constexpr float kPaintBannerGlowMode = -11;
+bool paint_stream_push_banner_glow(PaintStream* stream, const UiRect& rectangle, const Color& outer, const Color& inner,
+                                   float radius, float gradient_height) noexcept;
 // A single clipped, transparent focus outline. No geometry for ineligible focus.
 bool paint_stream_push_focus(PaintStream* stream, const UiWidgetManager& owner,
                              const Color& color) noexcept;

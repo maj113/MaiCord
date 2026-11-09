@@ -23,6 +23,17 @@ constexpr struct {
     {utf8_literal("CREATOR_MONETIZABLE_DISABLED"), guild_feature_creator_monetizable_disabled},
     {utf8_literal("SUMMARIES_ENABLED_GA"), guild_feature_summaries_ga},
     {utf8_literal("SUMMARIES_ENABLED_BY_USER"), guild_feature_summaries_enabled},
+    {utf8_literal("GUILD_TAGS"), guild_feature_guild_tags},
+    {utf8_literal("GUILD_TAGS_BADGE_PACK_PETS"), guild_feature_badge_pack_pets},
+    {utf8_literal("GUILD_TAGS_BADGE_PACK_FLEX"), guild_feature_badge_pack_flex},
+    {utf8_literal("GUILD_TAGS_BADGE_PACK_PLANT"), guild_feature_badge_pack_plant},
+    {utf8_literal("GUILD_TAGS_BADGE_PACK_CREEPY_CRAWLIES"), guild_feature_badge_pack_creepy_crawlies},
+    {utf8_literal("DISCOVERABLE"), guild_feature_discoverable},
+    {utf8_literal("MEMBER_VERIFICATION_GATE_ENABLED"), guild_feature_verification_gate},
+    {utf8_literal("MEMBER_VERIFICATION_MANUAL_APPROVAL"), guild_feature_manual_approval},
+    {utf8_literal("PREVIEW_ENABLED"), guild_feature_preview_enabled},
+    {utf8_literal("VERIFIED"), guild_feature_verified},
+    {utf8_literal("PARTNERED"), guild_feature_partnered},
 };
 
 GuildDetailRecord* find(GuildDetailStore* store, u64 guild_id) noexcept {
@@ -109,7 +120,10 @@ bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& i
         input.description.bytes > kGuildDetailDescriptionMaximumBytes ||
         input.vanity_url_code.bytes > kGuildDetailVanityMaximumBytes ||
         input.splash.bytes > kGuildDetailHashBytes || (input.splash.bytes && !input.splash.data) ||
-        input.feature_names.count > 0xFFFF ||
+        input.preferred_locale.bytes > kGuildDetailLocaleBytes ||
+        (input.preferred_locale.bytes && !input.preferred_locale.data) ||
+        input.discovery_splash.bytes > kGuildDetailHashBytes ||
+        (input.discovery_splash.bytes && !input.discovery_splash.data) || input.feature_names.count > 0xFFFF ||
         (input.feature_names.count && !input.feature_names.data))
         return false;
     u64 features = 0;
@@ -152,6 +166,18 @@ bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& i
     if (k & guild_detail_splash) {
         copy_bytes(record->splash, input.splash.data, input.splash.bytes);
         record->splash_bytes = static_cast<u8>(input.splash.bytes);
+    }
+    if (k & guild_detail_preferred_locale) {
+        copy_bytes(record->preferred_locale, input.preferred_locale.data, input.preferred_locale.bytes);
+        record->preferred_locale_bytes = static_cast<u8>(input.preferred_locale.bytes);
+    }
+    if (k & guild_detail_discovery_splash) {
+        copy_bytes(record->discovery_splash, input.discovery_splash.data, input.discovery_splash.bytes);
+        record->discovery_splash_bytes = static_cast<u8>(input.discovery_splash.bytes);
+    }
+    if (k & guild_detail_content_level) {
+        record->owner_configured_content_level = input.owner_configured_content_level;
+        record->nsfw_level = input.nsfw_level;
     }
     if (k & guild_detail_incidents) {
         record->invites_disabled_until_ms = input.invites_disabled_until_ms;

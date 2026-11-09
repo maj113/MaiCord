@@ -463,6 +463,8 @@ struct GatewayMessageEvent {
     // member.roles did not fit the caller's scratch: member_roles is empty and
     // the author's roles are unknown.
     bool member_roles_partial;
+    // "tts": sent as a text-to-speech message (/tts); never a field bit.
+    bool tts;
     GatewayMessageSnapshot snapshot;
     GatewayMessagePoll poll;
     GatewayMessageThread thread;

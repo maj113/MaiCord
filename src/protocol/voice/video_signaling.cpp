@@ -85,6 +85,29 @@ u32 voice_video_decode_offers(u32 decodable, Slice<VoiceCodecOffer> output) noex
 #endif
 }
 
+u32 voice_video_offers(u32 decodable, u32 encodable, Slice<VoiceCodecOffer> output) noexcept {
+    static constexpr VoiceVideoCodec order[]{VoiceVideoCodec::av1, VoiceVideoCodec::h265, VoiceVideoCodec::h264};
+    VoiceCodecOffer decodes[kVoiceVideoMaximumCodecs];
+    const u32 decode_count = voice_video_decode_offers(decodable, {decodes, kVoiceVideoMaximumCodecs});
+    const auto decoded = [&](VoiceVideoCodec codec) noexcept {
+        for (u32 i = 0; i != decode_count; ++i)
+            if (decodes[i].codec == codec)
+                return true;
+        return false;
+    };
+    // Hardware codecs (encoded, or decoded without software) in Discord's order, then software-only decodes.
+    u32 count = 0;
+    for (u32 pass = 0; pass != 2; ++pass)
+        for (const auto codec : order) {
+            const bool encode = (encodable & voice_video_codec_bit(codec)) != 0, decode = decoded(codec);
+            const bool software = decode && (decodable & voice_video_software_bit(codec)) != 0;
+            const bool hardware = encode || (decode && !software);
+            if ((pass ? !hardware && decode : hardware) && count < output.count)
+                output[count++] = {codec, encode, decode};
+        }
+    return count;
+}
+
 bool voice_rtc_connection_id(ConstSlice<u8> random, Slice<char> output) noexcept {
     if (random.count != 16 || !random.data || output.count < kVoiceRtcConnectionIdBytes || !output.data)
         return false;
@@ -183,6 +206,31 @@ GatewayCommandWriteResult voice_gateway_write_media_sink_wants(u8 any_quality, C
             previous = best;
         }
         writer.put("\"any\":", any_quality, "}}");
+    });
+}
+
+GatewayCommandWriteResult voice_gateway_write_video(const VoiceVideoState& state, Slice<u8> output) noexcept {
+    const auto& stream = state.stream;
+    const bool sending = stream.ssrc != 0;
+    if (!byte_range_valid({output.data, output.count}) ||
+        byte_ranges_overlap({reinterpret_cast<const u8*>(&state), sizeof(state)}, {output.data, output.count}) ||
+        (sending && (!stream.rtx_ssrc || stream.quality > 100)))
+        return {0, GatewayCommandError::invalid_input};
+    return write_json_command(output, [&](Writer& writer) noexcept {
+        writer.put("{\"op\":12,\"d\":{\"audio_ssrc\":", state.audio_ssrc, ",\"video_ssrc\":", stream.ssrc,
+                   ",\"rtx_ssrc\":", stream.rtx_ssrc, ",\"streams\":[");
+        if (sending) {
+            const bool source = !stream.max_width || !stream.max_height;
+            writer.put("{\"type\":\"video\",\"rid\":\"100\",\"ssrc\":", stream.ssrc, ",\"active\":", stream.active,
+                       ",\"quality\":", stream.quality, ",\"rtx_ssrc\":", stream.rtx_ssrc, ",\"max_bitrate\":",
+                       stream.max_bitrate, ",\"max_framerate\":", stream.max_framerate,
+                       ",\"max_resolution\":{\"type\":");
+            if (source)
+                writer.put("\"source\",\"width\":0,\"height\":0}}");
+            else
+                writer.put("\"fixed\",\"width\":", stream.max_width, ",\"height\":", stream.max_height, "}}");
+        }
+        writer.put("]}}");
     });
 }
 

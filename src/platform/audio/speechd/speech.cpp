@@ -1,9 +1,10 @@
 // Text-to-speech on Linux: "Speak message" says the text through speech-dispatcher (libspeechd, loaded with dlopen like the
 // other system libraries; SAPI, src/platform/audio/speech.cpp, stays Windows-only). It keeps the Windows semantics:
 // opened lazily on the first use, asynchronous, a new request interrupts the previous one, release stops it, and a system
-// without a speech engine answers false (the caller logs "speech_unavailable"). The voice, rate and language are the
-// user's: speech-dispatcher's own configuration (and a per-client section for "maicord"), as SAPI takes the voice and the
-// rate of the Windows speech settings.
+// without a speech engine answers false (the caller logs "speech_unavailable"). The voice and language are the user's:
+// speech-dispatcher's own configuration (and a per-client section for "maicord"), as SAPI takes the voice of the Windows
+// speech settings; the rate is the configured one until MaiCord's Text-to-Speech rate moves it (rate x 10 on
+// speech-dispatcher's -100..100 scale).
 #include "maicord/core/log_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/shared_library.hpp"
@@ -53,7 +54,7 @@ const Api* library() noexcept {
     return &g_api;
 }
 
-bool speak(Speech* speech, const Api* (*load)() noexcept, Utf8View text) noexcept {
+bool speak(Speech* speech, const Api* (*load)() noexcept, Utf8View text, i32 rate) noexcept {
     if (!speech || !text.data || !text.bytes)
         return false;
     if (!speech->voice && speech->attempted)
@@ -83,12 +84,16 @@ bool speak(Speech* speech, const Api* (*load)() noexcept, Utf8View text) noexcep
     }
     auto* connection = static_cast<Connection*>(speech->voice);
     api->spd_cancel(connection);
+    rate = rate < -10 ? -10 : rate > 10 ? 10 : rate;
+    if (rate != speech->rate && api->spd_set_voice_rate(connection, rate * 10) == 0)
+        speech->rate = static_cast<i16>(rate);
     if (api->spd_say(connection, kPriorityText, buffer) >= 0)
         return true;
-    // The daemon went away: the connection is useless, and the next call opens another.
+    // The daemon went away: the connection is useless, and the next call opens another (at the configured rate).
     api->spd_close(connection);
     speech->voice = nullptr;
     speech->attempted = false;
+    speech->rate = 0;
     return false;
 }
 
@@ -105,8 +110,8 @@ void release(Speech* speech, const Api* api) noexcept {
 
 } // namespace speechd
 
-bool speech_speak(Speech* speech, Utf8View text) noexcept {
-    return speechd::speak(speech, speechd::library, text);
+bool speech_speak(Speech* speech, Utf8View text, i32 rate) noexcept {
+    return speechd::speak(speech, speechd::library, text, rate);
 }
 
 void speech_release(Speech* speech) noexcept {

@@ -20,6 +20,7 @@
 #include "maicord/ui/plugins/slot_surfaces.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/ui/shell/presentation.hpp"
+#include "maicord/ui/shell/notice_band.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/guild/member_list.hpp"
 #include "maicord/model/chat/message_composer.hpp"
@@ -50,14 +51,13 @@ constexpr TextLook kLookLine{};
 constexpr TextLook kLookLineOwned{.owned = true};
 constexpr TextLook kLookClipped{.overflow = TextOverflow::clip};
 constexpr TextLook kLookCentered{.horizontal = UiTextAlignment::center, .overflow = TextOverflow::clip};
+constexpr TextLook kLookCenteredBold{.style_flags = kUiNoticeActionStyle,
+                                    .horizontal = UiTextAlignment::center,
+                                    .overflow = TextOverflow::clip};
 constexpr TextLook kLookSub{.style_flags = text_style_subtext};
 constexpr TextLook kLookSubOwned{.style_flags = text_style_subtext, .owned = true};
 constexpr TextLook kLookBold{.style_flags = text_style_bold};
 constexpr TextLook kLookCode{.style_flags = kTextStyleSizeCodeSm, .owned = true};
-constexpr TextLook kLookTimer{.style_flags = text_style_subtext,
-                              .horizontal = UiTextAlignment::end,
-                              .overflow = TextOverflow::clip,
-                              .owned = true};
 constexpr TextLook kLookBadge{.style_flags = text_style_subtext | text_style_bold,
                               .horizontal = UiTextAlignment::center,
                               .overflow = TextOverflow::clip};
@@ -157,16 +157,15 @@ static __declspec(noinline) bool title_output(const UiScene& scene, const ChatSt
                                               UiTextOutput* stream, const UserStore* users,
                                               u64 visual_selected_channel_id, const UiLayoutNode* title,
                                               const UiLayoutNode* title_label) noexcept {
-    Utf8View title_text = scene.view == UiShellView::friends ? utf8_literal("Friends")
-                          : state.home_selected              ? utf8_literal("Direct messages")
-                                                             : utf8_literal("MaiCord");
+    // The Friends page draws its title and tabs in this header itself.
+    if (scene.view == UiShellView::friends && !visual_selected_channel_id)
+        return true;
+    Utf8View title_text = state.home_selected ? utf8_literal("Direct messages") : utf8_literal("MaiCord");
     char private_title[512];
     const ChannelRecord* selected_channel =
         chat_state_store_find_channel(state, visual_selected_channel_id
             ? visual_selected_channel_id : navigation.selected_channel_id);
-    if (scene.view == UiShellView::friends && !visual_selected_channel_id) {
-        title_text = utf8_literal("Friends");
-    } else if (state.restore_channel_id && !visual_selected_channel_id) {
+    if (state.restore_channel_id && !visual_selected_channel_id) {
         title_text = utf8_literal("Loading…");
     } else if (selected_channel) {
         const Utf8View name = channel_is_private(selected_channel->type)
@@ -193,9 +192,19 @@ static __declspec(noinline) bool title_output(const UiScene& scene, const ChatSt
         title_text_rectangle.right = header_slot.badge.rectangle.left - 8;
     if (header_slot.badge.label.bytes && !ui_badge_text_output(header_slot.badge, scene.widgets, theme, stream))
         return reject(stream);
+    // A one-to-one DM's name wears its peer's display-name font and effect, as in the DM list.
+    TextLook title_look = selected_channel && channel_is_private(selected_channel->type) ? kLookLineOwned : kLookLine;
+    UiTextEffect title_effect;
+    const auto peer = selected_channel && selected_channel->type == 1 ? private_channel_peer(state, selected_channel->id) : 0;
+    if (const auto* appearance = peer && users ? user_appearance_find(users->appearance, peer) : nullptr) {
+        title_look.face = profile_name_face(appearance->name.font_id);
+        title_effect = profile_name_effect(appearance->name,
+                                           ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::title_label)),
+                                           scene.widgets.hover_started_ms);
+        title_look.effect = &title_effect;
+    }
     if (!append_command(scene.widgets, ui_scene_widget(scene, title_label ? UiSemantic::title_label : UiSemantic::title_bar), title_text, title_text_rectangle,
-                        title_text_owner->rectangle, theme.text_primary, stream,
-                        selected_channel && channel_is_private(selected_channel->type) ? kLookLineOwned : kLookLine))
+                        title_text_owner->rectangle, theme.text_primary, stream, title_look))
         return reject(stream);
     // A one-to-one DM's activity follows the name (its glyph: private_channel_rows).
     char activity_line[192];
@@ -287,56 +296,70 @@ static __declspec(noinline) bool footer_output(const UiScene& scene, const ChatS
     return true;
 }
 
-// The typing line. Without role colours ("Role colors everywhere") it is one command; with them each name is
-// its own bold command in the member's colour and the text between keeps the label's, laid left to right
-// by measured width.
+// The typing line: one command, or with spans each bold span its own command in the label's colour (the
+// official client bolds names and never role-colours them), the text between laid left to right by measured
+// width. A label of one to three names collapses to "Multiple people are typing..." when its measured width
+// plus the dots' reserve exceeds the row, as the official client does.
 static __declspec(noinline) bool typing_output(const MessageComposerScene& composer, const UiLayoutNode& typing,
                                                Utf8View text, const Color& color, UiTextMeasureCache* measure,
                                                UiTextOutput* stream) noexcept {
     if (text.bytes == 0)
         return true;
+    // The label's line sits kUiTypingLabelDrop below the row's middle; its clip grows to match.
+    UiRect line = typing.content_rectangle;
+    line.top += kUiTypingLabelDrop;
+    line.bottom += kUiTypingLabelDrop;
+    UiRect clip = typing.clip_rectangle;
+    clip.bottom += kUiTypingLabelDrop;
     const u32 names = composer.typing_name_count > 3 ? 0u : composer.typing_name_count;
-    bool colored = false;
-    for (u32 i = 0; i < names; ++i)
-        colored = colored || composer.typing_names[i].color != 0;
-    if (!colored || !measure)
-        return append_command(composer.widgets, composer.typing_indicator, text, typing.content_rectangle,
-                              typing.clip_rectangle, color, stream, kLookSub);
-    UiRect rectangle = typing.content_rectangle;
-    u32 at = 0;
-    const auto emit = [&](u32 bytes, const Color& ink, const TextLook& look) noexcept {
-        if (bytes == 0)
-            return true;
-        const Utf8View part{text.data + at, bytes};
-        const TextStyleSpan style{0, bytes, look.style_flags};
-        UiTextMeasureValue measured{};
-        float width = static_cast<float>(bytes) * 7.0f;
-        if (ui_text_measure_cache_measure(
-                measure,
-                {{0x5459'5049'4E47ull, hash64_mix(hash64_bytes(kHash64Seed, part.data, bytes), look.style_flags), 0, 0,
-                  0},
-                 part,
-                 {&style, 1},
-                 {maximum(1.f, ui_rect_width(rectangle)), ui_rect_height(typing.content_rectangle)},
-                 true},
-                &measured)
-                .ok())
-            width = measured.size.width;
-        const bool pushed = append_command(composer.widgets, composer.typing_indicator, part, rectangle,
-                                           typing.clip_rectangle, ink, stream, look);
-        rectangle.left = minimum(rectangle.right, rectangle.left + width);
-        at += bytes;
-        return pushed;
+    if (names == 0 || !measure)
+        return append_command(composer.widgets, composer.typing_indicator, text, line, clip, color, stream,
+                              kLookSub);
+    float used = 0;
+    // Lays `label` out with its bold `spans`; a dry run only measures (into `used`).
+    const auto lay_out = [&](Utf8View label, const MessageTypingName* spans, u32 count, bool dry) noexcept {
+        UiRect rectangle = line;
+        u32 at = 0;
+        used = 0;
+        const auto emit = [&](u32 bytes, const TextLook& look) noexcept {
+            if (bytes == 0)
+                return true;
+            const Utf8View part{label.data + at, bytes};
+            const TextStyleSpan style{0, bytes, look.style_flags};
+            UiTextMeasureValue measured{};
+            float width = static_cast<float>(bytes) * 7.0f;
+            if (ui_text_measure_cache_measure(
+                    measure,
+                    {{0x5459'5049'4E47ull, hash64_mix(hash64_bytes(kHash64Seed, part.data, bytes), look.style_flags),
+                      0, 0, 0},
+                     part,
+                     {&style, 1},
+                     {maximum(1.f, ui_rect_width(rectangle)), ui_rect_height(typing.content_rectangle)},
+                     true},
+                    &measured)
+                    .ok())
+                width = measured.size.width;
+            used += width;
+            const bool pushed =
+                dry || append_command(composer.widgets, composer.typing_indicator, part, rectangle,
+                                      clip, color, stream, look);
+            rectangle.left = minimum(rectangle.right, rectangle.left + width);
+            at += bytes;
+            return pushed;
+        };
+        for (u32 i = 0; i < count; ++i) {
+            const MessageTypingName& name = spans[i];
+            if (name.offset < at || name.offset > label.bytes || name.bytes > label.bytes - name.offset)
+                continue;
+            if (!emit(name.offset - at, kLookSub) || !emit(name.bytes, kLookGroup))
+                return false;
+        }
+        return emit(label.bytes - at, kLookSub);
     };
-    for (u32 i = 0; i < names; ++i) {
-        const MessageComposerTypingName& name = composer.typing_names[i];
-        if (name.offset < at || name.offset > text.bytes || name.bytes > text.bytes - name.offset)
-            continue;
-        if (!emit(name.offset - at, color, kLookSub) ||
-            !emit(name.bytes, name.color ? ui_role_color(name.color) : color, kLookGroup))
-            return false;
-    }
-    return emit(text.bytes - at, color, kLookSub);
+    if (composer.typing_collapsible && lay_out(text, composer.typing_names, names, true) &&
+        used + kUiTypingOverflowReserve > ui_rect_width(typing.content_rectangle) + kUiTypingLabelInset)
+        return lay_out(kUiTypingCollapsedLabel, &kUiTypingCollapsedName, 1, false);
+    return lay_out(text, composer.typing_names, names, false);
 }
 
 bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateStore& state,
@@ -359,11 +382,42 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
         return reject(stream);
     }
     ui_text_output_reset(stream);
+    // The app-wide notice band: its line (bold runs as given) and the button label, clipped to the shown height.
+    if (const auto* root = scene.notice ? ui_scene_node(scene, UiSemantic::root) : nullptr) {
+        const auto& band = *scene.notice;
+        const auto g = ui_notice_band_geometry(band, root->rectangle, measure);
+        const Color ink = ui_notice_band_ink(band, theme);
+        const UiWidgetHandle owner = ui_scene_widget(scene, UiSemantic::root);
+        const UiTextCommand line{band.text, UiWidgetReference{&scene.widgets, owner}, g.text,
+                                 ui_rect_intersection(g.text, g.band), ink, kUiNoticeTextStyle,
+                                 UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap,
+                                 TextOverflow::ellipsis, UiTextFace::normal, no_effect,
+                                 {band.bold, minimum<u32>(band.bold_count, kUiNoticeBoldRuns)}};
+        if ((ui_rect_has_area(line.clip) && !ui_text_output_push(stream, line)) ||
+            !append_visible(scene.widgets, owner, band.action, g.action, g.band, ink, stream, kLookCenteredBold))
+            return reject(stream);
+    }
     const UiLayoutNode* title = ui_scene_node(scene, UiSemantic::title_bar);
     if (const auto* friends = ui_scene_node(scene, UiSemantic::friends_button)) {
+        UiRect label = ui_scene_content_rectangle(scene, UiSemantic::friends_button);
+        label.left += 32.f; // after the people glyph
         if (!append_command(scene.widgets, ui_scene_widget(scene, UiSemantic::friends_button), utf8_literal("Friends"),
-                            ui_scene_content_rectangle(scene, UiSemantic::friends_button),
-                            friends->rectangle, theme.text_primary, stream, kLookClipped))
+                            label, friends->rectangle, theme.text_primary, stream, kLookClipped))
+            return reject(stream);
+    }
+    if (const auto* search = ui_scene_node(scene, UiSemantic::private_search)) {
+        if (!append_command(scene.widgets, ui_scene_widget(scene, UiSemantic::private_search),
+                            utf8_literal("Find or start a conversation"),
+                            ui_scene_content_rectangle(scene, UiSemantic::private_search), search->rectangle,
+                            theme.text_secondary, stream, kLookSub))
+            return reject(stream);
+    }
+    if (const auto* heading = ui_scene_node(scene, UiSemantic::private_heading)) {
+        UiRect label = ui_scene_content_rectangle(scene, UiSemantic::private_heading);
+        label.right -= 28.f; // the + (Create DM)
+        if (!append_command(scene.widgets, ui_scene_widget(scene, UiSemantic::private_heading),
+                            utf8_literal("Direct Messages"), label, heading->rectangle, theme.text_secondary, stream,
+                            kLookGroup))
             return reject(stream);
     }
     const UiLayoutNode* title_label = ui_scene_node(scene, UiSemantic::title_label);
@@ -379,9 +433,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
     if (channel_header) {
         const GuildRecord* selected_guild =
             chat_state_store_find_guild(state, navigation.selected_guild_id);
-        if (selected_guild || state.home_selected) {
-            const Utf8View name = selected_guild ? chat_state_store_guild_name(state, *selected_guild)
-                                                 : utf8_literal("Direct messages");
+        if (selected_guild) {
+            const Utf8View name = chat_state_store_guild_name(state, *selected_guild);
             // A guild header draws the name on its dropdown button, the
             // chevron right after it (shell_guild_header_geometry).
             const UiLayoutNode* guild_menu = selected_guild ? ui_scene_node(scene, UiSemantic::guild_menu) : nullptr;
@@ -522,7 +575,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 const ChannelRecord* channel = chat_state_store_find_channel(state, row.id);
                 const Utf8View name = row.type == kNavigationEventsRowType
                                           ? Utf8View{navigation.events_label, navigation.events_label_bytes}
-                                      : row.type == kNavigationRequestsRowType ? utf8_literal("Message requests")
+                                      : row.type == kNavigationRequestsRowType ? utf8_literal("Message Requests")
                                       : !channel ? Utf8View{}
                                       : channel_is_private(channel->type)
                                           ? private_channel_title(state, users, *channel,
@@ -562,9 +615,16 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 }
                 if (channel && channel_is_private(channel->type)) {
                     const UiRect content = label_layout->content_rectangle;
-                    const float middle = (content.top + content.bottom) * 0.5f;
-                    name_rectangle = subtitle.bytes ? UiRect{content.left, middle - 19.0f, text_right, middle + 1.0f}
-                                                    : UiRect{content.left, middle - 10.0f, text_right, middle + 10.0f};
+                    name_rectangle = ui_private_row_name_rectangle(content, subtitle.bytes != 0, text_right);
+                    // A one-to-one row's chip (server tag, OFFICIAL) ends the name.
+                    UiPrivateRowChip chip{};
+                    if (channel->type == 1 && navigation.private_rows &&
+                        ui_private_row_chip(*navigation.private_rows, channel->id, row_widget.label, content,
+                                            text_right, subtitle.bytes != 0, &chip)) {
+                        name_rectangle = chip.name;
+                        if (!ui_badge_text_output(chip.badge, channel_scene.widgets, theme, stream))
+                            return reject(stream);
+                    }
                     // The activity glyph (ui_private_rows_overlay_paint) leads the line.
                     UiRect subtitle_rectangle = ui_private_row_subtitle_rectangle(content);
                     subtitle_rectangle.right = text_right;
@@ -572,17 +632,6 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     if (subtitle.bytes && ui_rect_has_area(subtitle_rectangle) &&
                         !append_command(channel_scene.widgets, row_widget.label, subtitle, subtitle_rectangle,
                                         visible_clip, ui_background_muted_text_color(theme), stream, kLookSub))
-                        return reject(stream);
-                }
-                // A voice session's elapsed time ends the name line.
-                char timer[kUiVoiceElapsedBytes];
-                if (const u32 timer_bytes = ui_voice_timer_label(row, navigation.voice_extras, timer, sizeof(timer))) {
-                    UiRect line = label_layout->content_rectangle;
-                    line.right = text_right;
-                    const UiRect box = ui_voice_elapsed_rectangle(line, timer_bytes, theme.scale.space_4, &text_right);
-                    name_rectangle.right = minimum(name_rectangle.right, text_right);
-                    if (!append_command(channel_scene.widgets, row_widget.label, {timer, timer_bytes}, box,
-                                        visible_clip, theme.tokens.text.positive, stream, kLookTimer))
                         return reject(stream);
                 }
                 if (name.bytes != 0) {
@@ -626,7 +675,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                                : nullptr) {
                     const float left = layout->rectangle.left + kShellChannelLabelLeft +
                                        static_cast<float>(row.depth) * kShellChannelIndent;
-                    const float top = layout->rectangle.top + kShellNavigationVoiceHeadHeight - 4.0f;
+                    const float top = layout->rectangle.top + shell_navigation_head_height() - 4.0f;
                     const UiRect topic{left, top, layout->rectangle.right - 10.0f,
                                        top + kShellNavigationStageTopicHeight};
                     if (!append_visible(channel_scene.widgets, row_widget.widget, stage_instance_topic(*instance),

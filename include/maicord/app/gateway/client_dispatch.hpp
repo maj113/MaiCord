@@ -268,8 +268,16 @@ struct GatewayGuildDetails {
     // The invite splash hash; empty for none.
     u8 splash_bytes;
     char splash[34];
+    // preferred_locale (en-US, es-419) and the content levels.
+    u8 preferred_locale_bytes;
+    u8 owner_configured_content_level;
+    u8 nsfw_level;
+    char preferred_locale[8];
+    // The Discovery banner hash; empty for none.
+    u8 discovery_splash_bytes;
+    char discovery_splash[34];
 };
-static_assert(sizeof(GatewayGuildDetails) == 120);
+static_assert(sizeof(GatewayGuildDetails) == 168);
 // False when the event carries no details record or it is malformed.
 bool gateway_client_event_guild_details(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                         GatewayGuildDetails* details, Utf8View* description,

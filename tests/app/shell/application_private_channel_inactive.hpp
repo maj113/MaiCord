@@ -13,4 +13,7 @@ bool application_private_channel_submit(u64, u64) noexcept {
 bool application_private_channel_response(const RestClientResponse&, Utf8View) noexcept {
     return false;
 }
+u64 application_private_channel_next_wake() noexcept {
+    return 0;
+}
 } // namespace maicord::app_detail

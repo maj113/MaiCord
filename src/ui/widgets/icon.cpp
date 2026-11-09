@@ -4,13 +4,13 @@
 namespace maicord {
 namespace {
 bool push_icon_quad(PaintStream* paint, UiIcon icon, const UiRect& box, const Color& color, bool solid,
-                    float weight) noexcept {
+                    float weight, float radians = 0) noexcept {
     const u32 before = paint->count;
     if (!paint_stream_push(paint, box, color))
         return false;
     if (paint->count != before) {
         auto& quad = paint->quads[before];
-        quad.border = {static_cast<float>(static_cast<u32>(icon)), solid ? 1.f : 0.f, weight, 0};
+        quad.border = {static_cast<float>(static_cast<u32>(icon)), solid ? 1.f : 0.f, weight, radians};
         quad.radius = 0;
         quad.border_width = kPaintIconMode;
         quad.reserved_x = -1;
@@ -18,20 +18,31 @@ bool push_icon_quad(PaintStream* paint, UiIcon icon, const UiRect& box, const Co
     }
     return true;
 }
+// The square the icon draws in: the largest centred in `bounds`.
+UiRect icon_box(const UiRect& bounds) noexcept {
+    const float extent = minimum(ui_rect_width(bounds), ui_rect_height(bounds));
+    const float x = (bounds.left + bounds.right - extent) * .5f, y = (bounds.top + bounds.bottom - extent) * .5f;
+    return {x, y, x + extent, y + extent};
+}
 } // namespace
 
 bool ui_icon_paint_styled(PaintStream* paint, UiIcon icon, const UiRect& bounds, const UiIconStyle& style) noexcept {
     if (!paint || icon >= UiIcon::count || !ui_rect_has_area(bounds) || !(style.weight >= 0 && style.weight <= 4))
         return false;
-    const float extent = minimum(ui_rect_width(bounds), ui_rect_height(bounds));
-    const float x = (bounds.left + bounds.right - extent) * .5f, y = (bounds.top + bounds.bottom - extent) * .5f;
-    const UiRect box{x, y, x + extent, y + extent};
+    const UiRect box = icon_box(bounds);
     return (style.fill.alpha <= 0 || push_icon_quad(paint, icon, box, style.fill, true, style.weight)) &&
            push_icon_quad(paint, icon, box, style.ink, false, style.weight);
 }
 
 bool ui_icon_paint(PaintStream* paint, UiIcon icon, const UiRect& bounds, const Color& color) noexcept {
     return ui_icon_paint_styled(paint, icon, bounds, {color, {}, 0});
+}
+
+bool ui_icon_paint_turned(PaintStream* paint, UiIcon icon, const UiRect& bounds, const Color& color,
+                          float radians) noexcept {
+    if (!paint || icon >= UiIcon::count || !ui_rect_has_area(bounds) || !(radians == radians))
+        return false;
+    return push_icon_quad(paint, icon, icon_box(bounds), color, false, 0, radians);
 }
 
 Color ui_icon_role_color(const Theme& theme, UiIconRole role) noexcept {

@@ -104,7 +104,7 @@ bool profile_write_valid(const GuildServerProfileWrite& p) noexcept {
     if ((f & ~guild_profile_write_all) || (!p.traits.data && p.traits.count) ||
         p.traits.count > kGuildAdminProfileTraits ||
         (!p.game_application_ids.data && p.game_application_ids.count) ||
-        p.game_application_ids.count > kGuildAdminProfileGames)
+        p.game_application_ids.count > kGuildAdminProfileGameMaximum)
         return false;
     if ((f & guild_profile_write_name) ? !text_valid(p.name, 2, kGuildAdminNameCodepoints, true) : p.name.bytes != 0)
         return false;
@@ -132,14 +132,24 @@ bool profile_write_valid(const GuildServerProfileWrite& p) noexcept {
     return true;
 }
 
+bool tag_write_valid(const GuildTagWrite& t) noexcept {
+    return (!t.tag.bytes || guild_tag_text_valid(t.tag)) && guild_tag_badge_settable(t.badge) &&
+           brand_color_valid(t.badge_color_primary) && brand_color_valid(t.badge_color_secondary);
+}
+
+// Game routes belong to no guild or channel.
+bool game_route(Op op) noexcept {
+    return op == Op::game_search || op == Op::games_list;
+}
+
 bool guild_major(Op op) noexcept {
     return op != Op::channel_update && op != Op::channel_delete && op != Op::overwrite_put &&
            op != Op::overwrite_delete && op != Op::invite_list_channel && op != Op::invite_create &&
-           op != Op::invite_delete;
+           op != Op::invite_delete && !game_route(op);
 }
 
 bool channel_major(Op op) noexcept {
-    return !guild_major(op) && op != Op::invite_delete;
+    return !guild_major(op) && op != Op::invite_delete && !game_route(op);
 }
 
 // A complete run of non-empty names whose count matches.
@@ -158,12 +168,22 @@ bool feature_names_valid(ConstSlice<u8> names, u16 count) noexcept {
     return seen == count;
 }
 
+// A locale code as the API names them: en-US, es-419.
+bool locale_valid(Utf8View locale) noexcept {
+    if (locale.bytes < 2 || locale.bytes > kGuildAdminLocaleBytes || !locale.data)
+        return false;
+    for (u32 i = 0; i < locale.bytes; ++i)
+        if (!ascii_is_alnum(locale.data[i]) && locale.data[i] != '-')
+            return false;
+    return true;
+}
+
 bool guild_patch_valid(const GuildSettingsPatch& patch) noexcept {
-    const u16 f = patch.fields;
-    constexpr u16 alone = guild_settings_patch_widget | guild_settings_patch_profile | guild_settings_patch_vanity;
+    const u32 f = patch.fields;
+    constexpr u32 alone = guild_settings_patch_widget | guild_settings_patch_profile | guild_settings_patch_vanity;
     // A banner or splash: an original file accompanies only a new image (a data URI); otherwise a data URI, a
     // stored hash or null.
-    const auto image_valid = [&](u16 field, Utf8View value, ConstSlice<u8> original) noexcept {
+    const auto image_valid = [&](u32 field, Utf8View value, ConstSlice<u8> original) noexcept {
         if (!(f & field))
             return !original.data && !original.count;
         return original.data ? original.count && data_uri_valid(value) : !original.count && image_value_valid(value);
@@ -183,7 +203,12 @@ bool guild_patch_valid(const GuildSettingsPatch& patch) noexcept {
             patch.afk_timeout_seconds == 3600) &&
            (!(f & guild_settings_patch_verification_level) || patch.verification_level <= 4) &&
            (!(f & guild_settings_patch_default_notifications) || patch.default_message_notifications <= 1) &&
-           (!(f & guild_settings_patch_explicit_content_filter) || patch.explicit_content_filter <= 2);
+           (!(f & guild_settings_patch_explicit_content_filter) || patch.explicit_content_filter <= 2) &&
+           (!(f & guild_settings_patch_discovery_splash) || image_value_valid(patch.discovery_splash)) &&
+           (!(f & guild_settings_patch_description) || !patch.description.bytes ||
+            text_valid(patch.description, 1, kGuildAdminProfileDescriptionCodepoints, false)) &&
+           (!(f & guild_settings_patch_preferred_locale) || locale_valid(patch.preferred_locale)) &&
+           (!(f & guild_settings_patch_content_level) || patch.owner_configured_content_level <= 3);
 }
 
 bool role_patch_valid(const RolePatch& patch, bool create) noexcept {
@@ -322,12 +347,14 @@ bool reason_valid(const GuildAdminRequest& request) noexcept {
 
 // Key order is fixed, whichever fields are set.
 void write_guild(JsonBody& b, const GuildSettingsPatch& p) noexcept {
-    const u16 f = p.fields;
+    const u32 f = p.fields;
     b.begin_object();
     b.member_if(f & guild_settings_patch_name, "name", json_text(p.name));
     b.member_if(f & guild_settings_patch_icon, "icon", nullable_json(p.icon));
     b.member_if(f & guild_settings_patch_splash, "splash", nullable_json(p.splash));
     b.member_if(f & guild_settings_patch_banner, "banner", nullable_json(p.banner));
+    b.member_if(f & guild_settings_patch_discovery_splash, "discovery_splash", nullable_json(p.discovery_splash));
+    b.member_if(f & guild_settings_patch_description, "description", nullable_json(p.description));
     if (f & guild_settings_patch_features) {
         b.begin_array("features");
         for (u32 cursor = 0; cursor < p.feature_names.count;) {
@@ -337,6 +364,15 @@ void write_guild(JsonBody& b, const GuildSettingsPatch& p) noexcept {
         }
         b.end_array();
     }
+    // The order Enable Community sends: features, then its two channels.
+    b.member_if(f & guild_settings_patch_rules_channel, "rules_channel_id", nullable_snowflake(p.rules_channel_id));
+    b.member_if(f & guild_settings_patch_public_updates_channel, "public_updates_channel_id",
+                nullable_snowflake(p.public_updates_channel_id));
+    b.member_if(f & guild_settings_patch_safety_alerts_channel, "safety_alerts_channel_id",
+                nullable_snowflake(p.safety_alerts_channel_id));
+    b.member_if(f & guild_settings_patch_preferred_locale, "preferred_locale", json_text(p.preferred_locale));
+    b.member_if(f & guild_settings_patch_content_level, "owner_configured_content_level",
+                p.owner_configured_content_level);
     b.member_if(f & guild_settings_patch_afk_channel, "afk_channel_id", nullable_snowflake(p.afk_channel_id));
     b.member_if(f & guild_settings_patch_afk_timeout, "afk_timeout", p.afk_timeout_seconds);
     b.member_if(f & guild_settings_patch_system_channel, "system_channel_id", nullable_snowflake(p.system_channel_id));
@@ -501,6 +537,22 @@ void write_body(const GuildAdminRequest& r, JsonBody& b) noexcept {
     case Op::profile_update:
         write_server_profile(b, *r.guild->profile);
         break;
+    case Op::tag_update: {
+        const auto& t = *r.guild->tag;
+        b.begin_object();
+        b.member("tag", nullable_json(t.tag));
+        b.member("badge", t.badge);
+        b.member("badge_color_primary", nullable_json(t.badge_color_primary));
+        b.member("badge_color_secondary", nullable_json(t.badge_color_secondary));
+        b.end_object();
+        break;
+    }
+    case Op::identity_adopt:
+        b.begin_object();
+        b.member("identity_guild_id", snowflake_text(r.guild_id));
+        b.member("identity_enabled", json_bool(true));
+        b.end_object();
+        break;
     case Op::vanity_update:
         b.begin_object();
         b.member("code", json_text(r.guild->vanity_code));
@@ -579,6 +631,7 @@ RestMethod guild_admin_method(GuildAdminOperation op) noexcept {
     case Op::widget_update:
     case Op::profile_update:
     case Op::vanity_update:
+    case Op::tag_update:
         return RestMethod::patch;
     case Op::role_create:
     case Op::channel_create:
@@ -587,6 +640,7 @@ RestMethod guild_admin_method(GuildAdminOperation op) noexcept {
     case Op::ban_add:
     case Op::overwrite_put:
     case Op::member_role_add:
+    case Op::identity_adopt:
         return RestMethod::put;
     case Op::role_delete:
     case Op::member_kick:
@@ -634,17 +688,23 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
     const bool positions = op == Op::role_reorder || op == Op::channel_reorder;
     if (positions ? !positions_valid(r.positions, op == Op::channel_reorder) : r.positions.count != 0)
         return false;
-    const bool guild_patch =
-        op == Op::guild_update || op == Op::widget_update || op == Op::profile_update || op == Op::vanity_update;
-    if (guild_patch != (r.guild != nullptr) || (r.guild && !guild_patch_valid(*r.guild)))
+    const bool guild_patch = op == Op::guild_update || op == Op::widget_update || op == Op::profile_update ||
+                             op == Op::vanity_update || op == Op::tag_update;
+    if (guild_patch != (r.guild != nullptr) || (r.guild && (op == Op::tag_update) != (r.guild->tag != nullptr)))
+        return false;
+    if (op == Op::tag_update) {
+        // The tag fields alone, without field bits.
+        if (r.guild->fields || r.guild->profile || r.guild->vanity_code.bytes || !tag_write_valid(*r.guild->tag))
+            return false;
+    } else if (r.guild && !guild_patch_valid(*r.guild))
         return false;
     if (r.guild) {
-        const u16 f = r.guild->fields;
-        const u16 own = op == Op::widget_update    ? guild_settings_patch_widget
+        const u32 f = r.guild->fields;
+        const u32 own = op == Op::widget_update    ? guild_settings_patch_widget
                         : op == Op::profile_update ? guild_settings_patch_profile
                         : op == Op::vanity_update  ? guild_settings_patch_vanity
                                                    : 0;
-        constexpr u16 alone =
+        constexpr u32 alone =
             guild_settings_patch_widget | guild_settings_patch_profile | guild_settings_patch_vanity;
         if (own ? f != own : (f & alone) != 0)
             return false;
@@ -671,6 +731,21 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
         return false;
     if (r.page && op != Op::ban_list && op != Op::audit_log)
         return false;
+    // The search sends its normalized query; the games list 1-25 nonzero ids.
+    if (op == Op::game_search) {
+        char query[kGuildAdminGameQueryCodepoints * 4];
+        if (!view_valid(r.game_query) || !guild_admin_game_query(r.game_query, {query, sizeof(query)}))
+            return false;
+    } else if (r.game_query.bytes)
+        return false;
+    if (op == Op::games_list) {
+        if (!r.game_ids.data || !r.game_ids.count || r.game_ids.count > kGuildAdminGamesListMaximum)
+            return false;
+        for (u32 i = 0; i < r.game_ids.count; ++i)
+            if (!r.game_ids[i])
+                return false;
+    } else if (r.game_ids.count)
+        return false;
     return page_valid(r.page, op == Op::audit_log);
 }
 
@@ -693,8 +768,20 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
     const Op op = r.operation;
     if (op == Op::guild_leave) {
         w.put("users/@me/guilds/", r.guild_id);
+    } else if (op == Op::identity_adopt) {
+        w.put("users/@me/clan");
     } else if (op == Op::invite_delete) {
         w.put("invites/", r.invite_code);
+    } else if (op == Op::game_search) {
+        char query[kGuildAdminGameQueryCodepoints * 4];
+        const Utf8View normalized{query, guild_admin_game_query(r.game_query, {query, sizeof(query)})};
+        w.put("games/autocomplete?q=");
+        w.ok = w.ok && protocol_writer_append_percent_encoded(&w.writer, normalized);
+        w.put("&filter_group=default");
+    } else if (op == Op::games_list) {
+        w.put("games");
+        for (u32 i = 0; i < r.game_ids.count; ++i)
+            w.put(i ? "&game_ids=" : "?game_ids=", r.game_ids[i]);
     } else if (channel_major(op)) {
         w.put("channels/", r.channel_id);
         if (op == Op::overwrite_put || op == Op::overwrite_delete) {
@@ -726,9 +813,11 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         case Op::widget_get:
         case Op::widget_update: w.put("/widget"); break;
         case Op::profile_get:
-        case Op::profile_update: w.put("/profile"); break;
+        case Op::profile_update:
+        case Op::tag_update: w.put("/profile"); break;
         case Op::vanity_get:
         case Op::vanity_update: w.put("/vanity-url"); break;
+        case Op::top_games: w.put("/top-games"); break;
         default: break;
         }
         // A kick's reason is a query parameter (encodeURIComponent), never
@@ -783,6 +872,15 @@ bool guild_admin_reason_header(const GuildAdminRequest& r) noexcept {
     return r.reason.data && r.operation != Op::member_kick;
 }
 
+bool guild_tag_text_valid(Utf8View tag) noexcept {
+    if (!text_valid(tag, 2, kGuildAdminTagCharacters, true) || utf8_utf16_units(tag) > kGuildAdminTagCharacters)
+        return false;
+    for (u32 i = 0; i < tag.bytes; ++i)
+        if (static_cast<u8>(tag.data[i]) < 0x80 && !ascii_is_alnum(tag.data[i]))
+            return false;
+    return true;
+}
+
 u32 guild_admin_image_bytes(const GuildAdminRequest& r) noexcept {
     u32 bytes = 0;
     if (r.member && (r.member->fields & member_patch_avatar))
@@ -797,6 +895,8 @@ u32 guild_admin_image_bytes(const GuildAdminRequest& r) noexcept {
             bytes += g.banner.bytes;
         if (g.fields & guild_settings_patch_splash)
             bytes += g.splash.bytes;
+        if (g.fields & guild_settings_patch_discovery_splash)
+            bytes += g.discovery_splash.bytes;
         if (g.profile)
             bytes += g.profile->icon.bytes + g.profile->custom_banner.bytes;
     }
@@ -918,6 +1018,35 @@ u32 guild_admin_member_roles_toggle(ConstSlice<u64> current, u64 role_id, bool a
         output[count++] = role_id;
     }
     return count;
+}
+
+u32 guild_admin_game_query(Utf8View typed, Slice<char> output) noexcept {
+    if (!view_valid(typed) || !output.data || !utf8_validate(typed).valid)
+        return 0;
+    u32 begin = 0, end = typed.bytes;
+    const auto space = [](char c) noexcept { return c == ' ' || (c >= '\t' && c <= '\r'); };
+    while (begin < end && space(typed.data[begin]))
+        ++begin;
+    while (end > begin && space(typed.data[end - 1]))
+        --end;
+    // slice(0, 100) of the UTF-16 string, never splitting a character.
+    u32 used = 0, units = 0;
+    for (u32 i = begin; i < end;) {
+        const u8 lead = static_cast<u8>(typed.data[i]);
+        const u32 length = lead < 0x80 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4;
+        const u32 width = length == 4 ? 2 : 1;
+        if (units + width > kGuildAdminGameQueryCodepoints || used + length > output.count)
+            break;
+        for (u32 k = 0; k < length; ++k) {
+            char c = typed.data[i + k];
+            if (length == 1)
+                c = c == '_' ? ' ' : ascii_lower(c);
+            output[used++] = c;
+        }
+        units += width;
+        i += length;
+    }
+    return used;
 }
 
 } // namespace maicord

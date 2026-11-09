@@ -91,7 +91,8 @@ void test_access() noexcept {
           "access: moderator fixture");
     access = guild_settings_access(model.state, kGuild);
     check(access.sections == (always | guild_settings_invites | guild_settings_members | guild_settings_bans |
-                              guild_settings_audit_log | guild_settings_safety) &&
+                              guild_settings_audit_log | guild_settings_safety | guild_settings_integrations |
+                              guild_settings_automod | guild_settings_server_tag) &&
               guild_settings_can_manage_guild(access) && guild_settings_can_unban(access) &&
               !access.manage_expressions && !guild_settings_can_delete(access) && !guild_settings_can_set_mfa(access),
           "access: Manage Server, Ban Members and View Audit Log open their sections; owner actions stay closed");
@@ -105,7 +106,7 @@ void test_access() noexcept {
           "access: Manage Expressions (bit 30) edits and deletes any expression");
     check(build(kSelf, 0), "access: owner fixture");
     access = guild_settings_access(model.state, kGuild);
-    check(access.owner && access.sections == 0x3ff && guild_settings_grantable(access) == kPermissionKnownMask &&
+    check(access.owner && access.sections == 0x1fff && guild_settings_grantable(access) == kPermissionKnownMask &&
               access.manage_expressions && guild_settings_can_delete(access) && guild_settings_can_set_mfa(access),
           "access: the owner sees every section, may grant every known permission, delete and set 2FA");
     check(build(kOwner, kPermissionManageRoles), "access: two-factor fixture");
@@ -123,7 +124,7 @@ void test_access() noexcept {
           "access: an owner without 2FA cannot delete a server that requires it");
     check(build(kOwner, kPermissionAdministrator), "access: administrator fixture");
     access = guild_settings_access(model.state, kGuild);
-    check(access.sections == 0x3ff && guild_settings_can_manage_guild(access) && !guild_settings_can_delete(access),
+    check(access.sections == 0x1fff && guild_settings_can_manage_guild(access) && !guild_settings_can_delete(access),
           "access: Administrator opens every section but not the owner actions");
 }
 
@@ -138,7 +139,8 @@ void test_section_matrix() noexcept {
         {kPermissionKickMembers, 0},
         {kPermissionModerateMembers | kPermissionKickMembers, 0},
         {kPermissionSendMessages | kPermissionManageChannels, 0},
-        {kPermissionManageGuild, p | guild_settings_invites | guild_settings_safety | guild_settings_members},
+        {kPermissionManageGuild, p | guild_settings_invites | guild_settings_safety | guild_settings_members |
+                                     guild_settings_integrations | guild_settings_automod | guild_settings_server_tag},
         {kPermissionManageRoles, p | guild_settings_members | guild_settings_roles},
         {kPermissionBanMembers, p | guild_settings_members | guild_settings_bans},
         {kPermissionViewAuditLog, p | guild_settings_audit_log | guild_settings_bans},
@@ -146,17 +148,17 @@ void test_section_matrix() noexcept {
         {kPermissionManageNicknames | kPermissionKickMembers, p | guild_settings_members},
         {kPermissionCreateExpressions, p | guild_settings_expressions},
         {kPermissionManageExpressions, p | guild_settings_expressions},
-        {kPermissionManageWebhooks, p},
+        {kPermissionManageWebhooks, p | guild_settings_integrations},
         {kPermissionViewGuildInsights, p},
-        {kPermissionAdministrator, 0x3ff},
-        {kPermissionAll, 0x3ff},
+        {kPermissionAdministrator, 0x1fff},
+        {kPermissionAll, 0x1fff},
     };
     u32 matched = 0;
     for (const auto& row : rows)
         matched += guild_settings_sections(row.permissions) == row.sections;
     check(matched == sizeof(rows) / sizeof(rows[0]),
-          "section matrix: the opening permissions, Members with Manage Server, Bans with View Audit Log, and "
-          "Kick or Timeout Members alone opening nothing");
+          "section matrix: the opening permissions, Members with Manage Server, Bans with View Audit Log, "
+          "Integrations with Manage Webhooks, and Kick or Timeout Members alone opening nothing");
 }
 
 void test_hierarchy() noexcept {
@@ -212,10 +214,11 @@ void test_reorder() noexcept {
 }
 
 // The profile PATCH body of a draft, exactly.
-bool profile_body(const GuildServerProfileDraft& draft, Utf8View icon_uri, const char* expected) noexcept {
+bool profile_body(const GuildServerProfileDraft& draft, Utf8View icon_uri, const char* expected,
+                  Utf8View custom_banner_uri = {}) noexcept {
     GuildServerProfileTraitWrite traits[kGuildAdminProfileTraits];
     GuildServerProfileWrite write{};
-    if (!guild_server_profile_write(draft, icon_uri, model.state, kGuild, {traits, 5}, &write))
+    if (!guild_server_profile_write(draft, icon_uri, custom_banner_uri, model.state, kGuild, {traits, 5}, &write))
         return false;
     GuildSettingsPatch patch{};
     patch.fields = guild_settings_patch_profile;
@@ -280,6 +283,24 @@ void test_server_profile() noexcept {
     guild_server_profile_set_private(&draft, base.profile, false);
     check(draft.profile.visibility == 3 && !guild_server_profile_private(draft),
           "server profile: turning privacy off restores the stored public-with-recruitment kind");
+    // A new custom banner (the Discoverable upload tile) travels as its data URI; a swatch removes it again.
+    draft = base;
+    guild_server_profile_set_custom_banner(&draft);
+    GuildServerProfileTraitWrite banner_traits[kGuildAdminProfileTraits];
+    GuildServerProfileWrite banner_write{};
+    const Utf8View banner_uri = utf8_literal("data:image/png;base64,iVBORw0KGgo=");
+    const bool uploaded =
+        guild_server_profile_banner_choice(draft) == ~0u && !guild_server_profile_equal(base, draft) &&
+        guild_server_profile_write(draft, {}, banner_uri, model.state, kGuild, {banner_traits, 5}, &banner_write) &&
+        (banner_write.fields & guild_profile_write_custom_banner) &&
+        bytes_equal(banner_write.custom_banner.data, banner_uri.data, banner_uri.bytes) &&
+        banner_write.custom_banner.bytes == banner_uri.bytes &&
+        !guild_server_profile_write(draft, {}, {}, model.state, kGuild, {banner_traits, 5}, &banner_write);
+    guild_server_profile_set_banner_choice(&draft, 8);
+    check(uploaded && draft.custom_banner == GuildProfileImageEdit::keep && guild_server_profile_banner_choice(draft) == 8 &&
+              guild_server_profile_write(draft, {}, {}, model.state, kGuild, {banner_traits, 5}, &banner_write) &&
+              (banner_write.fields & guild_profile_write_custom_banner) && !banner_write.custom_banner.bytes,
+          "server profile: an uploaded banner is sent as its data URI and a preset swatch sends it as null");
     draft = base;
     draft.profile.name_bytes = 1;
     check(!profile_body(draft, {}, ""), "server profile: one-character names are refused");
@@ -292,6 +313,37 @@ void test_server_profile() noexcept {
           "server profile: absent keys stay absent; description, colour, traits and games are always sent");
     check(!guild_admin_decode_profile(utf8_literal(R"({"name":"a","name":"b"})"), {scratch, 512}, &minimal).ok(),
           "server profile: duplicate keys are refused");
+    // The preview's counts, and traits and games as the page edits them.
+    check(profile.online_count == 4 && profile.member_count == 9 && profile.traits[0].emoji_animated &&
+              !profile.traits[1].emoji_animated,
+          "server profile: the read keeps the online and member counts and a trait emoji's animation");
+    draft = base;
+    // A label is cut at 24 characters; an emoji replaces the stored custom one; a cleared slot saves nothing.
+    const bool label = guild_server_profile_set_trait_label(&draft, 2, utf8_literal("abcdefghijklmnopqrstuvwxyz")) &&
+                       draft.profile.traits[2].label_bytes == 24;
+    const bool emoji = guild_server_profile_set_trait_emoji(&draft, 0, utf8_literal("video_game")) &&
+                       !draft.profile.traits[0].emoji_id && draft.profile.traits[0].emoji_name_bytes == 10;
+    guild_server_profile_clear_trait(&draft, 1);
+    check(label && emoji && !guild_server_profile_equal(base, draft) && !draft.profile.traits[1].label_bytes &&
+              !guild_server_profile_set_trait_label(&draft, 5, utf8_literal("x")) &&
+              profile_body(draft, {},
+                           R"({"name":"Guild","description":"","icon":"0123456789abcdef0123456789abcdef",)"
+                           R"("custom_banner":null,"visibility":3,"brand_color_primary":null,)"
+                           R"("traits":[{"label":"Gone","position":0,"emoji_name":"video_game"},)"
+                           R"({"label":"abcdefghijklmnopqrstuvwx","position":2}],"game_application_ids":["555","556"]})"),
+          "server profile: traits keep their slots, a cut label, a standard emoji by name and drop cleared ones");
+    draft = base;
+    // Games toggle in and out in the order chosen, at most 20.
+    const bool removed = guild_server_profile_toggle_game(&draft, 555) && draft.profile.game_count == 1 &&
+                         draft.profile.game_application_ids[0] == 556 && !guild_server_profile_has_game(draft, 555);
+    const bool added = guild_server_profile_toggle_game(&draft, 557) && guild_server_profile_has_game(draft, 557) &&
+                       draft.profile.game_application_ids[1] == 557;
+    for (u64 id = 600; draft.profile.game_count < kGuildAdminProfileGameMaximum; ++id)
+        guild_server_profile_toggle_game(&draft, id);
+    check(removed && added && !guild_server_profile_equal(base, draft) &&
+              !guild_server_profile_toggle_game(&draft, 999) && !guild_server_profile_toggle_game(&draft, 0) &&
+              draft.profile.game_count == kGuildAdminProfileGameMaximum,
+          "server profile: games toggle in order and stop at 20");
 }
 
 void test_boost_perks() noexcept {
@@ -393,9 +445,6 @@ void test_drafts() noexcept {
               !color_hex_parse_rgb24(utf8_literal("#3498d"), &color) &&
               !color_hex_parse_rgb24(utf8_literal("zz98db"), &color),
           "drafts: hex colours parse with or without '#' and reject malformed input");
-    char hex[8];
-    check(guild_role_color_format(0x0a0b0c, {hex, 8}) == 7 && bytes_equal(hex, "#0A0B0C", 7),
-          "drafts: colours format as #RRGGBB");
     role_draft.color = color;
     role_draft.hoist = true;
     RolePatch role_patch{};

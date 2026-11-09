@@ -334,8 +334,15 @@ bool application_friends_show() noexcept {
     friends_visible = chat_state_store_select_home(&ui->chat_state).ok();
     return friends_visible;
 }
+bool application_friends_show_requests() noexcept {
+    return application_friends_show();
+}
 ChannelMemoryEntry application_channel_memory_recall(u64) noexcept {
     return {};
+}
+// No game mention is clicked here (src/app/chat/game_profile.hpp).
+bool application_game_profile_open(u64) noexcept {
+    return false;
 }
 bool refresh_message_composer_ui() noexcept {
     return false;
@@ -405,6 +412,11 @@ bool scroll_to_resident_message(u64) noexcept {
 }
 bool application_request_frame() noexcept {
     return true;
+}
+// Category chevrons settle at once here (the shared scheduler is covered by the surface motion host test).
+float application_motion_tick(UiMotionTransition*, const UiMotionScope&, float target, u64,
+                              const UiMotionStyle&) noexcept {
+    return target;
 }
 } // namespace maicord::app_detail
 

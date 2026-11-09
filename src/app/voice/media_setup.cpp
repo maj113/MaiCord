@@ -26,6 +26,8 @@ VoiceMediaSetupError voice_media_ready(VoiceMediaSetup* setup, const VoiceReady&
     voice_media_clear(setup);
     setup->endpoint = endpoint;
     setup->ssrc = ready.ssrc;
+    setup->video_ssrc = ready.video_ssrc;
+    setup->video_rtx_ssrc = ready.video_rtx_ssrc;
     setup->offered_modes = ready.recognized_modes;
     setup->has_ready = true;
     return VoiceMediaSetupError::none;

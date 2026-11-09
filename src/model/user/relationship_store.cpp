@@ -19,7 +19,7 @@ bool valid(const RelationshipRecord& record) noexcept {
 bool equal(const RelationshipRecord& a, const RelationshipRecord& b) noexcept {
     return a.user_id == b.user_id && a.type == b.type && a.presence == b.presence && a.ignored == b.ignored &&
         a.spam == b.spam && a.stranger == b.stranger && a.stranger_known == b.stranger_known && a.nickname_bytes == b.nickname_bytes &&
-        bytes_equal(a.nickname, b.nickname, a.nickname_bytes);
+        a.since_ms == b.since_ms && bytes_equal(a.nickname, b.nickname, a.nickname_bytes);
 }
 u32 lower(const RelationshipStore& store, u64 id) noexcept {
     return sorted_lower_bound(store.count, [&](u32 at) noexcept { return store.records[at].user_id < id; });

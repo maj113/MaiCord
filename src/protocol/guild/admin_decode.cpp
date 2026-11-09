@@ -163,7 +163,9 @@ struct ProfileParse : ObjectParse {
 };
 constexpr const u8* kProfileFields = MemberNames<"visibility", "name", "description", "icon_hash", "custom_banner_hash",
                                                  "brand_color_primary", "traits", "game_application_ids",
-                                                 "features">::data.bytes;
+                                                 "features", "online_count", "member_count", "tag", "badge",
+                                                 "badge_color_primary", "badge_color_secondary",
+                                                 "badge_hash">::data.bytes;
 
 struct TraitParse : ObjectParse {
     GuildAdminProfileTrait trait;
@@ -185,8 +187,9 @@ bool visit_trait(void* opaque, JsonString name, JsonValue value) noexcept {
     case 2: valid = json_value_to_nullable_snowflake(value, &t.emoji_id); break;
     case 3: valid = decode_text(value, t.emoji_name, kGuildAdminProfileEmojiNameBytes, &t.emoji_name_bytes, true); break;
     case 4: {
-        bool animated = false; // Validated, not kept.
+        bool animated = false;
         valid = value.kind == JsonValueKind::null_value || json_value_to_bool(value, &animated);
+        t.emoji_animated = animated;
         break;
     }
     default: break;
@@ -279,9 +282,212 @@ bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
         valid = null || (value.kind == JsonValueKind::array &&
                          json_visit_indexed_array(*p.document, value, kDepth, visit_feature_item, &p).ok());
         break;
+    case 9: valid = null || decode_u32(value, &v.online_count); break;
+    case 10: valid = null || decode_u32(value, &v.member_count); break;
+    case 11:
+        valid = decode_text(value, v.tag, kGuildAdminTagBytes, &bytes, true);
+        v.tag_bytes = static_cast<u8>(bytes);
+        break;
+    case 12:
+        valid = null || decode_u32(value, &number, 255);
+        v.badge = static_cast<u8>(number);
+        v.badge_known = !null;
+        break;
+    case 13:
+        valid = decode_text(value, v.badge_color_primary, kGuildAdminBrandColorBytes, &bytes, true);
+        v.badge_color_primary_bytes = static_cast<u8>(bytes);
+        break;
+    case 14:
+        valid = decode_text(value, v.badge_color_secondary, kGuildAdminBrandColorBytes, &bytes, true);
+        v.badge_color_secondary_bytes = static_cast<u8>(bytes);
+        break;
+    case 15:
+        valid = decode_text(value, v.badge_hash, kGuildAdminHashBytes, &bytes, true);
+        v.badge_hash_bytes = static_cast<u8>(bytes);
+        break;
     default: break;
     }
     return valid || fail(&p.error);
+}
+
+template <typename Item> struct ArrayParse : CollectionParse {
+    Slice<Item> output;
+};
+
+// Games ---------------------------------------------------------------------
+
+struct GameParse : ObjectParse {
+    GuildAdminGame value;
+};
+constexpr const u8* kGameFields =
+    MemberNames<"id", "name", "icon_hash", "cover_image_hash", "media", "icon">::data.bytes;
+constexpr const u8* kGameMediaFields = MemberNames<"icon", "cover">::data.bytes;
+constexpr const u8* kGameAssetFields = MemberNames<"type", "value">::data.bytes;
+
+// An image of a game: a hash string, or {"type":"hash"|"url","value"}. One
+// that does not fit or has another type is left out, never an error.
+struct GameImage {
+    char* text;
+    u16* bytes;
+    bool* url;
+};
+struct GameAssetParse : ObjectParse {
+    GameImage image;
+    u32 type; // 0 none, 1 hash, 2 url, 3 other
+    bool value;
+};
+bool visit_game_asset(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<GameAssetParse*>(opaque);
+    const u32 field = p.fields.find(name);
+    if (field == ~0u)
+        return false;
+    if (field == 0) {
+        JsonString type{};
+        p.type = !json_value_as_string(value, &type)                  ? 3
+                 : json_string_equals_ascii(type, utf8_literal("hash")) ? 1
+                 : json_string_equals_ascii(type, utf8_literal("url"))  ? 2
+                                                                        : 3;
+    } else if (field == 1) {
+        u16 bytes = 0;
+        p.value = value.kind != JsonValueKind::null_value &&
+                  decode_text(value, p.image.text, kGuildAdminGameImageBytes, &bytes, false);
+        if (p.value)
+            *p.image.bytes = bytes;
+    }
+    return true;
+}
+void decode_game_image(const JsonIndexedDocument& document, JsonValue value, GameImage image) noexcept {
+    if (value.kind == JsonValueKind::string) {
+        u16 bytes = 0;
+        if (decode_text(value, image.text, kGuildAdminGameImageBytes, &bytes, false)) {
+            *image.bytes = bytes;
+            *image.url = false;
+        }
+        return;
+    }
+    if (value.kind != JsonValueKind::object)
+        return;
+    GameAssetParse p{};
+    p.document = &document;
+    char text[kGuildAdminGameImageBytes];
+    u16 bytes = 0;
+    p.image = {text, &bytes, nullptr};
+    if (visit_object(p, kGameAssetFields, value, visit_game_asset) != GuildAdminError::none || !p.value ||
+        !bytes || (p.type != 1 && p.type != 2))
+        return;
+    copy_bytes(image.text, text, bytes);
+    *image.bytes = bytes;
+    *image.url = p.type == 2;
+}
+struct GameMediaParse : ObjectParse {
+    GuildAdminGame* game;
+};
+bool visit_game_media(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<GameMediaParse*>(opaque);
+    const u32 field = p.fields.find(name);
+    if (field == ~0u)
+        return false;
+    auto& g = *p.game;
+    // The documented hashes win over the newer media.
+    if (field == 0 && !g.icon_bytes)
+        decode_game_image(*p.document, value, {g.icon, &g.icon_bytes, &g.icon_url});
+    else if (field == 1 && !g.cover_bytes)
+        decode_game_image(*p.document, value, {g.cover, &g.cover_bytes, &g.cover_url});
+    return true;
+}
+bool visit_game(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<GameParse*>(opaque);
+    auto& g = p.value;
+    const u32 field = p.fields.find(name);
+    if (field == ~0u)
+        return false;
+    switch (field) {
+    case 0:
+        return json_value_to_snowflake(value, &g.id) || json_value_to_u64(value, &g.id) || fail(&p.error);
+    case 1:
+        g.name_bytes = static_cast<u8>(copy_text_truncated<512>(value, g.name, kGuildAdminGameNameBytes));
+        break;
+    case 2:
+    case 5:
+        if (value.kind == JsonValueKind::string) {
+            g.icon_bytes = 0;
+            decode_game_image(*p.document, value, {g.icon, &g.icon_bytes, &g.icon_url});
+        } else if (field == 5 && !g.icon_bytes)
+            decode_game_image(*p.document, value, {g.icon, &g.icon_bytes, &g.icon_url});
+        break;
+    case 3:
+        if (value.kind == JsonValueKind::string) {
+            g.cover_bytes = 0;
+            decode_game_image(*p.document, value, {g.cover, &g.cover_bytes, &g.cover_url});
+        }
+        break;
+    case 4:
+        if (value.kind == JsonValueKind::object) {
+            GameMediaParse media{};
+            media.document = p.document;
+            media.game = &g;
+            visit_object(media, kGameMediaFields, value, visit_game_media);
+        }
+        break;
+    default: break;
+    }
+    return true;
+}
+bool visit_game_object(void* opaque, u32, JsonValue value) noexcept {
+    auto& p = *static_cast<ArrayParse<GuildAdminGame>*>(opaque);
+    if (value.kind != JsonValueKind::object)
+        return true;
+    GameParse game{};
+    game.document = p.document;
+    if (visit_object(game, kGameFields, value, visit_game) != GuildAdminError::none || !game.value.id)
+        return true;
+    if (p.count >= p.output.count)
+        return fail(&p.error, GuildAdminError::capacity);
+    p.output[p.count++] = game.value;
+    return true;
+}
+
+struct ActivityParse : ObjectParse {
+    GuildAdminGameActivity value;
+};
+constexpr const u8* kActivityFields =
+    MemberNames<"game_application_id", "activity_level", "activity_score">::data.bytes;
+bool visit_activity(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<ActivityParse*>(opaque);
+    const u32 field = p.fields.find(name);
+    if (field == ~0u)
+        return false;
+    const bool null = value.kind == JsonValueKind::null_value;
+    const bool valid = field == 0   ? json_value_to_snowflake(value, &p.value.application_id)
+                       : field == 1 ? null || decode_u32(value, &p.value.level)
+                       : field == 2 ? null || decode_u32(value, &p.value.score)
+                                    : true;
+    return valid || fail(&p.error);
+}
+bool visit_activity_item(void* opaque, u32, JsonValue value) noexcept {
+    auto& p = *static_cast<ArrayParse<GuildAdminGameActivity>*>(opaque);
+    if (value.kind != JsonValueKind::object)
+        return fail(&p.error);
+    ActivityParse item{};
+    item.document = p.document;
+    const auto result = visit_object(item, kActivityFields, value, visit_activity);
+    if (result != GuildAdminError::none)
+        return fail(&p.error, result);
+    if (!item.value.application_id)
+        return fail(&p.error, GuildAdminError::identity);
+    // The server's top 20; more than the caller holds keeps the first ones.
+    if (p.count < p.output.count)
+        p.output[p.count++] = item.value;
+    return true;
+}
+bool visit_top_games(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<ArrayParse<GuildAdminGameActivity>*>(opaque);
+    if (!name_is(name, "top_games"))
+        return true;
+    return value.kind == JsonValueKind::null_value ||
+           (value.kind == JsonValueKind::array &&
+            json_visit_indexed_array(*p.document, value, kDepth, visit_activity_item, &p).ok()) ||
+           fail(&p.error);
 }
 
 struct VanityParse : ObjectParse {
@@ -333,10 +539,6 @@ bool visit_role(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     return valid || fail(&p.error);
 }
-
-template <typename Item> struct ArrayParse : CollectionParse {
-    Slice<Item> output;
-};
 
 // Role member counts: {"<role id>": <count>, ...}
 bool visit_role_count(void* opaque, JsonString name, JsonValue value) noexcept {
@@ -695,5 +897,18 @@ GuildAdminResult guild_admin_decode_invite(const Utf8View& body, const Slice<u32
     if (result.ok())
         *output = p.value;
     return result;
+}
+
+GuildAdminResult guild_admin_decode_games(Utf8View body, Slice<u32> scratch, Slice<GuildAdminGame> output) noexcept {
+    return decode_array(body, scratch, output, visit_game_object);
+}
+
+GuildAdminResult guild_admin_decode_top_games(Utf8View body, Slice<u32> scratch,
+                                              Slice<GuildAdminGameActivity> output) noexcept {
+    if (!output.data && output.count)
+        return {0, 0, GuildAdminError::input};
+    ArrayParse<GuildAdminGameActivity> p{};
+    p.output = output;
+    return decode_collection(body, scratch, p, nullptr, visit_top_games);
 }
 } // namespace maicord

@@ -5,6 +5,7 @@ namespace maicord { struct GatewayClientEvent; }
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/chat/unread_banner_scene.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/media/core/asset_key.hpp"
 
 namespace maicord::app_detail {
 // Server Settings: a full-window layer over the shell with permission-gated
@@ -28,7 +29,7 @@ bool application_guild_settings_available(u64 guild_id) noexcept;
 bool application_guild_settings_open(u64 guild_id, u8 page = 0) noexcept;
 // The server menu's Server Settings submenu, in sidebar order: each permitted
 // page as a row with action = action_base + its page value.
-inline constexpr u32 kGuildSettingsPageCount = 12;
+inline constexpr u32 kGuildSettingsPageCount = 18;
 u32 application_guild_settings_page_items(u64 guild_id, u32 action_base, Slice<PopupItem> output) noexcept;
 bool application_guild_settings_active() noexcept;
 void application_guild_settings_close(bool restore_focus = true) noexcept;
@@ -44,10 +45,17 @@ void application_guild_settings_gateway(const GatewayClientEvent&, const Utf8Vie
 u64 application_guild_settings_next_wake() noexcept;
 u64 application_guild_settings_caret_wake() noexcept;
 void application_guild_settings_tick(u64 now) noexcept;
+// Test builds only: opens the page MAICORD_TEST_GUILD_SETTINGS names (its sidebar label) once the account is ready.
+void application_guild_settings_test_open() noexcept;
 // Signalled when an image file dialog completes; null while none is open.
 HANDLE application_guild_settings_notification() noexcept;
 // A bulk ban whose request failed: the Members page clears its selection.
 void application_guild_settings_bulk_ban_failed(u64 guild_id) noexcept;
+// The Server Profile preview card's pictures fetched by URL (its game icons
+// and a discoverable server's custom banner), from index 0; false after the
+// last. A key is current while the preview shows it.
+bool application_guild_settings_preview_media(u32 index, MediaAssetKey* key, Utf8View* url) noexcept;
+bool application_guild_settings_preview_key_current(const MediaAssetKey& key) noexcept;
 // Opens the name form for a new channel from the server or category menu.
 bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8 type) noexcept;
 // View Server as Role (chat_state_store_view_as_roles): start closes Server

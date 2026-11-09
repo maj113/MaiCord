@@ -40,7 +40,7 @@ bool g_plugin_notice{};
 constexpr u64 kPluginNoticeId = 0x504C4E4200000000ull;
 
 bool motion_allowed() noexcept {
-    return !g_app.preferences.reduced_motion && !g_app.renderer.reduced_motion && !g_app.renderer.live_resize &&
+    return !application_reduced_motion() && !g_app.renderer.live_resize &&
            g_app.window && application_window_shown();
 }
 // Covered or absent timelines publish an empty view so the bars retire.

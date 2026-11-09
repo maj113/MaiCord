@@ -2,6 +2,7 @@
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/ui/widgets/badge.hpp"
+#include "maicord/ui/widgets/activity_status.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild/member_store.hpp"
@@ -58,7 +59,7 @@ struct MemberFixture {
         return member_list_scene_initialize(&scene, {rows, 32}, {widgets, 32 * kMemberListWidgetsPerRow + 1},
                                             {nodes, 32 * kMemberListWidgetsPerRow + 1}) &&
                member_list_scene_update(&scene, &projection, &members, &users, &state, {0, 0, 240, 220},
-                                        20 * kMemberListRowHeight)
+                                        20 * member_list_row_height())
                    .ok();
     }
 };
@@ -217,9 +218,9 @@ u32 test_member_viewport_ranges_and_sparse_scene() noexcept {
     scene.viewport_context = &callbacks;
     scene.viewport_changed = [](void* context) noexcept { ++*static_cast<u32*>(context); };
     check(member_list_scene_update(&scene, &projection, &members, &users, &state,
-        {0, 0, 240, 220}, 5'000 * kMemberListRowHeight).ok());
+        {0, 0, 240, 220}, 5'000 * member_list_row_height()).ok());
     check(scene.source_count == 100'000 && scene.first == 4'998 && scene.count == 11 &&
-        scene.content_height == 100'000 * kMemberListRowHeight && callbacks == 1);
+        scene.content_height == 100'000 * member_list_row_height() && callbacks == 1);
     // The previous retained branch ran 64 layouts and 64 viewport callbacks
     // for this same publication. Neither operation is needed for typed edits
     // whose member viewport and authoritative source remain unchanged.
@@ -269,7 +270,7 @@ u32 test_member_viewport_ranges_and_sparse_scene() noexcept {
         !projection.awaiting_sync && projection.authoritative && projection.count == 10'000);
     check(member_list_scene_update(&scene, &projection, &members, &users, &state,
         {0, 0, 240, 220}, scene.scroll_dips).ok() && scene.scroll_dips < restored_scroll &&
-        scene.content_height == 10'000 * kMemberListRowHeight);
+        scene.content_height == 10'000 * member_list_row_height());
     member_list_subscription_refresh(&retry, 4'000);
     check(member_list_view_rebuild(&projection, members, users, state, 7, 70).ok() &&
         projection.count == 10'000 && !projection.awaiting_sync);
@@ -426,7 +427,7 @@ u32 test_member_media_cache_scroll() noexcept {
     check(cache.resolves == first_resolves);
     // Two rows of member list scroll: only users new to the list resolve.
     const u32 first_row = scene.first, first_count = scene.count;
-    check(member_list_scene_scroll(&scene, 2 * kMemberListRowHeight).ok() && scene.first > first_row);
+    check(member_list_scene_scroll(&scene, 2 * member_list_row_height()).ok() && scene.first > first_row);
     const u32 entered = scene.first + scene.count > first_row + first_count
                             ? scene.first + scene.count - (first_row + first_count)
                             : 0;
@@ -466,6 +467,22 @@ u32 test_member_media_cache_scroll() noexcept {
     check(tagged < scene.count && user_activity_upsert(&users.activities, playing));
     frame();
     check(tagged < scene.count && member_list_badge(scene, tagged).rectangle.top < centred.rectangle.top);
+    // A custom status's emoji follows the activity glyph, where the line's text starts after it.
+    UserAppearance custom{};
+    custom.user_id = playing.user_id;
+    custom.fields = appearance_activity | appearance_custom_status;
+    custom.status_emoji_id = 991;
+    copy_bytes(custom.activity.data, "Away", 4);
+    custom.activity.bytes = 4;
+    check(user_appearance_upsert(&users.appearance, custom));
+    frame();
+    ProfileMedia emoji{};
+    const auto* status_label = member_list_scene_layout_node(scene, scene.rows[tagged].label);
+    check(status_label && member_media_resolve(scene, tagged, MemberMedia::status_emoji, &emoji, false) &&
+          emoji.rectangle.left ==
+              ui_activity_glyph_text(member_list_row_status_line(status_label->content_rectangle),
+                                     UiActivityGlyph::game)
+                  .left);
     UserAppearance bot{};
     bot.user_id = playing.user_id;
     bot.fields = appearance_bot;

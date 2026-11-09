@@ -21,6 +21,12 @@
 #include "maicord/ui/guild/card_scene.hpp"
 #include "maicord/ui/guild/banner.hpp"
 #include "maicord/ui/account/profile_media.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/ui/chat/game_media.hpp"
+#include "maicord/ui/text/emoji_catalog.hpp"
+#include "maicord/model/chat/chat_state.hpp"
+#include "maicord/ui/chat/messages/rich_layout.hpp"
+#include "../chat/game_lookup.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/platform/window/key.hpp"
 
@@ -36,10 +42,19 @@ struct State {
     Phase phase;
     bool pressed;
     u8 media_logged; // media_failed bits: 1 icon, 2 badge, 4 banner
+    bool has_icon_color;
+    u32 icon_color; // the icon's dominant colour once read back (has_icon_color)
+    float saturation; // the accessibility saturation the last projection applied
+    bool animate_emoji; // "Play animated emoji" as the last projection read it
     MediaAssetKey icon_key, badge_key;
     char icon_url[192], badge_url[192];
     u32 icon_url_bytes, badge_url_bytes;
     UiGuildImageMedia banner;
+    // The known games' pictures (the first five, then the ones "+N"'s tooltip lists, the first dimmed under it), as
+    // of the game lookup's revision, and the names of the games after the fifth.
+    GameImageMedia games[kUiGuildCardGames + kUiGuildCardGamesMore];
+    u32 games_revision;
+    char games_more_names[384];
     u32 scratch[8192];
 };
 State* g_card;
@@ -92,10 +107,11 @@ void resolve_media() noexcept {
     auto& c = *g_card;
     c.icon_key = c.badge_key = {};
     c.icon_url_bytes = c.badge_url_bytes = 0;
+    c.has_icon_color = false;
     const auto& p = c.profile;
     // The profile's custom banner shows only on a discoverable server, from
     // the discovery-splash path (512 * dpr as on the official card, capped at
-    // the 512 px the JPEG decoder accepts); otherwise the default gradient.
+    // the 512 px the JPEG decoder accepts); otherwise the colour glow.
     ui_guild_card_banner_media(p.id, {p.banner, p.banner_bytes}, (p.features & guild_profile_discoverable) != 0,
                                g_app.renderer.dpi, &c.banner);
     if (p.icon_bytes) {
@@ -128,6 +144,56 @@ void resolve_media() noexcept {
         }
     }
 }
+// The profile's games the lookup knows, by activity score (the official card leaves unknown ones out): the first
+// five with their names, then the next ones' pictures and names for "+N" (the first dimmed under it) and its tooltip.
+void project_games(UiGuildCardContent* content) noexcept {
+    auto& c = *g_card;
+    c.games_revision = game_lookup_revision();
+    const u32 dpi = g_app.renderer.dpi ? g_app.renderer.dpi : 96u;
+    TextBank more{c.games_more_names, sizeof(c.games_more_names), 0};
+    u32 known = 0;
+    for (u32 i = 0; i < c.profile.game_count; ++i) {
+        const GameRecord* record = game_lookup_find(c.profile.games[i].id);
+        if (!record || record->state != GameState::known)
+            continue;
+        const auto& game = record->game;
+        if (known < kUiGuildCardGames + kUiGuildCardGamesMore && !game_icon_media(game, 24, dpi, &c.games[known]))
+            reset_value(&c.games[known]);
+        if (known < kUiGuildCardGames) {
+            content->games[known] = c.games[known].key;
+            content->game_names[known] = {game.name, game.name_bytes};
+            content->game_high[known] = c.profile.games[i].level == kGuildProfileActivityHigh;
+        } else if (known < kUiGuildCardGames + kUiGuildCardGamesMore) {
+            content->games_more_icons[known - kUiGuildCardGames] = c.games[known].key;
+            if (more.used)
+                more.add("\n");
+            more.add({game.name, game.name_bytes});
+        }
+        ++known;
+    }
+    for (u32 i = known; i < kUiGuildCardGames + kUiGuildCardGamesMore; ++i)
+        reset_value(&c.games[i]);
+    content->game_count = known;
+    content->games_more_names = more.view();
+}
+// A trait's emoji as the official card resolves it: a custom one from the server's emoji (known while a member),
+// else a Unicode one by name. An animated custom one plays while "Play animated emoji" is on, through the shared
+// animation timeline (reduced motion holds it on its frame).
+void project_trait_emoji(UiGuildCardContent* content) noexcept {
+    const auto& p = g_card->profile;
+    g_card->animate_emoji = message_rich_display().emoji == MessageMediaAnimation::always;
+    for (u32 i = 0; i < content->trait_count; ++i) {
+        const auto& trait = p.traits[i];
+        if (trait.emoji_id) {
+            const auto* emoji = chat_state_store_find_emoji(g_app.account_ui->chat_state, trait.emoji_id);
+            if (emoji && emoji->guild_id == p.id)
+                content->trait_emoji_media[i] =
+                    media_asset_custom_emoji(trait.emoji_id, trait.emoji_animated && g_card->animate_emoji);
+        } else if (trait.emoji_name_bytes) {
+            content->trait_emoji[i] = emoji_shortcode_glyph({trait.emoji_name, trait.emoji_name_bytes});
+        }
+    }
+}
 bool project() noexcept {
     auto& c = *g_card;
     if (c.phase == Phase::closed || !available())
@@ -148,8 +214,17 @@ bool project() noexcept {
             content.traits[i] = {p.traits[i].label, p.traits[i].label_bytes};
         content.online_count = p.online_count;
         content.member_count = p.member_count;
-        content.brand_color = p.brand_color;
-        content.has_brand_color = p.has_brand_color;
+        // The banner glows in the brand colour, else in the icon's colour once read back (under the accessibility
+        // saturation, as the official client tints it), else the theme's.
+        c.saturation = application_user_color_saturation();
+        content.has_banner_color = p.has_brand_color || c.has_icon_color;
+        content.banner_color = p.has_brand_color ? p.brand_color : ui_guild_card_desaturate(c.icon_color, c.saturation);
+        content.server = {(p.features & guild_profile_verified) != 0, (p.features & guild_profile_partnered) != 0,
+                          (p.features & guild_profile_community) != 0, (p.features & guild_profile_discoverable) != 0,
+                          (p.features & guild_profile_manual_approval) && (p.features & guild_profile_verification_gate),
+                          p.premium_tier, p.premium_subscription_count};
+        project_trait_emoji(&content);
+        project_games(&content);
         content.icon = c.icon_key;
         content.badge = c.badge_key;
         content.banner = c.banner.key;
@@ -437,6 +512,26 @@ void application_guild_card_synchronize(u64 now_ms) noexcept {
     }
     if (c.phase == Phase::ready && c.scene.action != action())
         project();
+    // The profile's games stay wanted while shown; their arrival re-projects the row.
+    if (c.phase == Phase::ready) {
+        for (u32 i = 0; i < c.profile.game_count; ++i)
+            game_lookup_want(c.profile.games[i].id);
+        if (c.profile.game_count && c.games_revision != game_lookup_revision())
+            project();
+    }
+    // Without a brand colour (or a banner picture) the banner takes the icon's colour once it is resident.
+    if (c.phase == Phase::ready && !c.profile.has_brand_color && !c.banner.url_bytes && c.icon_url_bytes &&
+        !c.has_icon_color && renderer_media_dominant_color(&g_app.renderer, c.icon_key, &c.icon_color)) {
+        c.has_icon_color = true;
+        project();
+    }
+    // The accessibility saturation changed under an icon-coloured banner.
+    if (c.phase == Phase::ready && c.has_icon_color && !c.profile.has_brand_color &&
+        c.saturation != application_user_color_saturation())
+        project();
+    // "Play animated emoji" changed under the traits' emoji.
+    if (c.phase == Phase::ready && c.animate_emoji != (message_rich_display().emoji == MessageMediaAnimation::always))
+        project();
     if (ui_guild_card_tick(&c.scene, now_ms, application_reduced_motion()) ||
         ui_guild_card_next_wake(c.scene, application_reduced_motion()))
         application_request_frame();
@@ -456,14 +551,32 @@ u32 application_guild_card_media(GuildCardMedia* output, u32 capacity) noexcept 
         output[count++] = {{g_card->badge_url, g_card->badge_url_bytes}, g_card->badge_key};
     if (count < capacity && g_card->banner.url_bytes)
         output[count++] = {g_card->banner.url_view(), g_card->banner.key};
+    for (const auto& game : g_card->games)
+        if (count < capacity && game.url_bytes)
+            output[count++] = {game.url_view(), game.key};
+    return count;
+}
+
+u32 application_guild_card_emoji_media(MediaAssetKey* output, u32 capacity) noexcept {
+    if (!output || !open_now() || g_card->phase != Phase::ready)
+        return 0;
+    const auto& s = g_card->scene;
+    u32 count = 0;
+    for (u32 i = 0; i < s.visible_traits && count < capacity; ++i)
+        if (media_asset_key_valid(s.trait_emoji_keys[i]))
+            output[count++] = s.trait_emoji_keys[i];
     return count;
 }
 
 bool application_guild_card_key_current(MediaAssetKey key) noexcept {
-    return open_now() && g_card->phase == Phase::ready &&
-           ((g_card->icon_url_bytes && media_asset_key_equal(key, g_card->icon_key)) ||
-            (g_card->badge_url_bytes && media_asset_key_equal(key, g_card->badge_key)) ||
-            (g_card->banner.url_bytes && media_asset_key_equal(key, g_card->banner.key)));
+    if (!open_now() || g_card->phase != Phase::ready)
+        return false;
+    for (const auto& game : g_card->games)
+        if (game.url_bytes && media_asset_key_equal(key, game.key))
+            return true;
+    return (g_card->icon_url_bytes && media_asset_key_equal(key, g_card->icon_key)) ||
+           (g_card->badge_url_bytes && media_asset_key_equal(key, g_card->badge_key)) ||
+           (g_card->banner.url_bytes && media_asset_key_equal(key, g_card->banner.key));
 }
 
 void application_guild_card_media_failed(MediaAssetKey key, const AccountMediaRequestResult& result) noexcept {

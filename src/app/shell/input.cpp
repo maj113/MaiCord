@@ -6,6 +6,7 @@
 #include "overlay_input.hpp"
 #include "../media/video.hpp"
 #include "../chat/private_channel.hpp"
+#include "quick_switcher.hpp"
 #include "../settings/settings.hpp"
 #include "../account/friends.hpp"
 #include "../account/profile.hpp"
@@ -140,8 +141,7 @@ bool select_client_cursor(i32 pixel_x, i32 pixel_y, UiCursor* out) noexcept {
     }
     if (g_app.profile && g_app.profile->scene.active) {
         const auto& profile = g_app.profile->scene;
-        cursor = profile.edit.active &&
-                         (g_app.profile->message_dragging || ui_rect_contains(profile.edit_rectangle, x, y))
+        cursor = profile.edit.active && (g_app.profile->message_dragging || profile_scene_over_edit(profile, x, y))
                      ? UiCursor::ibeam
                      : ui_widget_cursor(profile.widgets, profile_scene_hit_test(profile, x, y));
         return true;
@@ -306,6 +306,7 @@ bool handle_shell_hover(const WindowEvent& event) noexcept {
     const UiWidget* widget = ui_widget_manager_resolve(g_app.shell_scene.widgets, hit);
     if (widget && (widget->id == static_cast<u32>(UiSemantic::member_toggle) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::private_create) + 1u ||
+                   widget->id == static_cast<u32>(UiSemantic::private_search) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::private_add) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::private_call) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::pins_toggle) + 1u ||
@@ -385,6 +386,8 @@ bool handle_shell_click(const WindowEvent& event) noexcept {
                true;
     if (widget && widget->id == static_cast<u32>(UiSemantic::private_create) + 1u)
         return application_private_channel_picker(0);
+    if (widget && widget->id == static_cast<u32>(UiSemantic::private_search) + 1u)
+        return application_quick_switcher_open();
     if (widget && widget->id == static_cast<u32>(UiSemantic::private_add) + 1u && g_app.account_ui)
         return application_private_channel_picker(g_app.account_ui->chat_state.selected_channel_id);
     if (widget && widget->id == static_cast<u32>(UiSemantic::private_call) + 1u && g_app.account_ui)

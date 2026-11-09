@@ -68,9 +68,11 @@ inline UiRect tile_hover_button(const UiCallTile& tile) noexcept {
 // appear on hover; "Watch stream" and an ended tile's close stay visible.
 struct TileControls {
     UiRect fullscreen, watch, stop, volume, dismiss;
-    UiRect move; // Stage moderators: move this speaker to the audience.
+    UiRect move;       // Stage moderators: move this speaker to the audience.
+    UiRect viewers;    // Your own stream: the viewer count, which lists who watches.
     bool stop_compact; // Icon-only "Stop watching" on narrow tiles.
 };
+UiRect viewer_pill(const UiCallTile& tile, const UiCallParticipant& p) noexcept;
 TileControls tile_controls(const UiCallTile& tile, const UiCallParticipant& p, bool hovered) noexcept {
     TileControls c{};
     const auto r = tile.display;
@@ -95,7 +97,8 @@ TileControls tile_controls(const UiCallTile& tile, const UiCallParticipant& p, b
     const float stop = c.stop_compact ? kHoverButton : kStopWidth;
     const float bottom = r.bottom - kPillInset;
     c.stop = {r.right - kPillInset - stop, bottom - kHoverButton, r.right - kPillInset, bottom};
-    if (w >= 180)
+    // Your own stream has no volume: viewers hear it, you do not.
+    if (w >= 180 && !p.self)
         c.volume = {c.stop.left - 6 - kHoverButton, bottom - kHoverButton, c.stop.left - 6, bottom};
     return c;
 }
@@ -107,11 +110,15 @@ TileControls tile_controls(const UiCallScene& s, const UiCallTile& tile, const U
     if (s.stage_active && (s.stage_actions & stage_action_move_others) && hovered && !p.self && !stream_tile(p) &&
         ui_rect_has_area(c.fullscreen))
         c.move = {c.fullscreen.left - 6 - kHoverButton, c.fullscreen.top, c.fullscreen.left - 6, c.fullscreen.bottom};
+    if (p.self && stream_tile(p))
+        c.viewers = viewer_pill(tile, p);
     return c;
 }
 UiCallControl tile_control_at(const TileControls& c, float x, float y) noexcept {
     if (ui_rect_contains(c.move, x, y))
         return UiCallControl::stage_move;
+    if (ui_rect_contains(c.viewers, x, y))
+        return UiCallControl::stream_viewers;
     if (ui_rect_contains(c.watch, x, y))
         return UiCallControl::stream_watch;
     if (ui_rect_contains(c.dismiss, x, y))
@@ -185,7 +192,9 @@ Utf8View stream_status(const UiCallParticipant& p) noexcept {
     case UiCallStream::reconnecting:
         return utf8_literal("Reconnecting\xE2\x80\xA6");
     case UiCallStream::live:
-        return p.paused ? utf8_literal("Stream paused") : Utf8View{};
+        return !p.paused ? Utf8View{}
+               : p.self  ? utf8_literal("Stream paused. Swap to your application to resume.")
+                         : utf8_literal("Stream paused");
     case UiCallStream::ended:
         return ui_call_stream_notice_text(p.notice);
     default:
@@ -371,7 +380,7 @@ inline bool per_tile(UiCallControl control) noexcept {
     return control == UiCallControl::tile_fullscreen || control == UiCallControl::stream_watch ||
            control == UiCallControl::stream_stop || control == UiCallControl::stream_volume ||
            control == UiCallControl::stream_dismiss || control == UiCallControl::stage_move ||
-           control == UiCallControl::stage_invite;
+           control == UiCallControl::stage_invite || control == UiCallControl::stream_viewers;
 }
 // Stage buttons painted (with their labels) by call_stage, not the bar loop.
 inline bool stage_chrome(UiCallControl control) noexcept {
@@ -506,6 +515,7 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const Ui
     s->chat_open = content.chat_available && content.chat_open;
     s->soundboard_available = content.soundboard_available;
     s->soundboard_open = content.soundboard_available && content.soundboard_open;
+    s->share = content.share <= UiCallShare::live ? content.share : UiCallShare::unavailable;
     s->search_width = content.search_width > 0 && content.search_width < 4096 ? content.search_width : 0;
     s->gap = content.gap >= 0 && content.gap <= 48 ? content.gap : 8;
     s->viewport = viewport;
@@ -577,7 +587,8 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const Ui
     hash = hash64_mix(hash, (u64{s->fullscreen} << 0) | (u64{s->connected} << 1) | (u64{s->self_mute} << 2) |
                                 (u64{s->self_deaf} << 3) | (u64{s->server_mute} << 4) | (u64{s->server_deaf} << 5) |
                                 (u64{s->chat_available} << 6) | (u64{s->chat_open} << 7) |
-                                (u64{s->soundboard_available} << 8) | (u64{s->soundboard_open} << 9));
+                                (u64{s->soundboard_available} << 8) | (u64{s->soundboard_open} << 9) |
+                                (u64{static_cast<u8>(s->share)} << 10));
     hash = hash_rect(hash, s->search_field);
     hash = call_stage::hash(*s, hash);
     if (!s->active || hash != s->content_hash) {
@@ -746,9 +757,10 @@ Color ui_call_tile_tint(const Theme& theme, u64 user_id) noexcept {
                                 theme.appearance == ThemeAppearance::light ? .20f : .26f);
 }
 
-bool ui_call_control_enabled(const UiCallScene&, UiCallControl control) noexcept {
-    return control != UiCallControl::none && control != UiCallControl::camera &&
-           control != UiCallControl::screen_share && control < UiCallControl::count;
+bool ui_call_control_enabled(const UiCallScene& s, UiCallControl control) noexcept {
+    if (control == UiCallControl::screen_share)
+        return s.share == UiCallShare::available || s.share == UiCallShare::live;
+    return control != UiCallControl::none && control != UiCallControl::camera && control < UiCallControl::count;
 }
 
 bool ui_call_control_active(const UiCallScene& s, UiCallControl control) noexcept {
@@ -765,6 +777,8 @@ bool ui_call_control_active(const UiCallScene& s, UiCallControl control) noexcep
         return s.chat_open;
     case UiCallControl::soundboard:
         return s.soundboard_open;
+    case UiCallControl::screen_share:
+        return s.share == UiCallShare::live;
     default:
         return false;
     }
@@ -787,7 +801,10 @@ Utf8View ui_call_control_label(const UiCallScene& s, UiCallControl control) noex
     case UiCallControl::camera:
         return utf8_literal("Camera isn't available yet");
     case UiCallControl::screen_share:
-        return utf8_literal("Screen share isn't available yet");
+        return s.share == UiCallShare::live          ? utf8_literal("Stop Streaming")
+               : s.share == UiCallShare::available   ? utf8_literal("Share Your Screen")
+               : s.share == UiCallShare::not_allowed ? utf8_literal("You can\xE2\x80\x99t stream into this channel.")
+                                                     : utf8_literal("Screen Sharing Unavailable");
     case UiCallControl::disconnect:
         return utf8_literal("Disconnect");
     case UiCallControl::fullscreen:
@@ -805,6 +822,8 @@ Utf8View ui_call_control_label(const UiCallScene& s, UiCallControl control) noex
         return utf8_literal("Close");
     case UiCallControl::soundboard:
         return utf8_literal("Soundboard");
+    case UiCallControl::stream_viewers:
+        return utf8_literal("Viewers");
     default:
         return call_stage::label(s, control);
     }
@@ -850,6 +869,8 @@ UiRect ui_call_scene_tile_control(const UiCallScene& s, u64 user_id, UiCallContr
         return c.dismiss;
     case UiCallControl::stage_move:
         return c.move;
+    case UiCallControl::stream_viewers:
+        return c.viewers;
     default:
         return {};
     }
@@ -869,6 +890,13 @@ Utf8View ui_call_scene_tooltip(const UiCallScene& s, float x, float y, UiRect* a
             (hit.control == UiCallControl::stream_stop && !tile_controls(*tile, *p, true).stop_compact))
             return {};
         area = ui_call_scene_tile_control(s, hit.user_id, hit.control);
+        if (hit.control == UiCallControl::stream_stop && p->self) {
+            if (anchor)
+                *anchor = area;
+            if (identity)
+                *identity = static_cast<u32>(hit.control) * 16 + 1;
+            return utf8_literal("Stop Streaming");
+        }
     }
     if (anchor)
         *anchor = area;
@@ -1139,14 +1167,18 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
         } else {
             // Idle: the subtle plate; hover/press add the state overlay.
             // Active (muted, deafened): a danger tint with the red glyph; a
-            // raised hand the brand tint. Disabled: faded, no hover. Tints are
-            // overlays so gradient themes keep their plate material.
+            // raised hand the brand tint; streaming the success tint.
+            // Disabled: faded, no hover. Tints are overlays so gradient themes
+            // keep their plate material.
             Color fill = theme.surface_high, tint{};
             if (active) {
                 const bool brand = control == UiCallControl::stage_hand || control == UiCallControl::soundboard;
-                tint = brand ? theme.tokens.accent.brand : danger;
+                const bool live = control == UiCallControl::screen_share;
+                tint = live ? theme.tokens.accent.success : brand ? theme.tokens.accent.brand : danger;
                 tint.alpha = pressed ? .38f : hovered ? .30f : .22f;
-                ink = brand ? ui_icon_role_color(theme, UiIconRole::accent) : danger;
+                ink = live    ? ui_icon_role_color(theme, UiIconRole::success)
+                      : brand ? ui_icon_role_color(theme, UiIconRole::accent)
+                              : danger;
             } else if (hovered)
                 tint = pressed ? theme.tokens.state.pressed : theme.tokens.state.hover;
             if (!enabled) {
@@ -1233,12 +1265,16 @@ bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextO
                                                         {effect.left + 8, effect.top, effect.right - 8, effect.bottom},
                                                         light, text_style_subtext | text_style_bold, ui_text_center);
         const auto viewers = viewer_pill(tile, *who);
-        if (ui_rect_has_area(viewers)) {
+        if (ui_rect_has_area(viewers) && text.ok()) {
+            // The digits live on this frame's stack: the output keeps its own copy.
             char digits[12];
             const u32 bytes = decimal_write(digits, who->viewers);
-            text.in(ui_rect_intersection(clip, viewers))(owner, {digits, bytes},
-                                                         {viewers.left + 24, viewers.top, viewers.right - 4, viewers.bottom},
-                                                         light, text_style_subtext | text_style_bold);
+            const UiRect r{viewers.left + 24, viewers.top, viewers.right - 4, viewers.bottom};
+            if (!ui_text_output_push_owned(out, {{digits, bytes}, s.owner, r, ui_rect_intersection(clip, viewers), light,
+                                                 text_style_subtext | text_style_bold, UiTextAlignment::start,
+                                                 UiTextAlignment::center, TextWrapping::no_wrap,
+                                                 TextOverflow::ellipsis}))
+                text.fail();
         }
         if (ui_rect_has_area(controls.watch))
             text.in(ui_rect_intersection(clip, controls.watch))(owner, utf8_literal("Watch stream"), controls.watch,
@@ -1246,7 +1282,8 @@ bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextO
                                                                 text_style_subtext | text_style_bold, ui_text_center);
         if (ui_rect_has_area(controls.stop) && !controls.stop_compact) {
             const auto c = controls.stop;
-            text.in(ui_rect_intersection(clip, c))(owner, utf8_literal("Stop watching"),
+            text.in(ui_rect_intersection(clip, c))(owner, who->self ? utf8_literal("Stop Streaming")
+                                                                    : utf8_literal("Stop watching"),
                                                    {c.left + 30, c.top, c.right - 8, c.bottom},
                                                    theme.tokens.text.on_accent, text_style_subtext | text_style_bold);
         }

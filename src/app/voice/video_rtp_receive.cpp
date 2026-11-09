@@ -148,7 +148,7 @@ VideoRtpCodec codec_of(const VideoRtpReceiver& receiver, u8 type) noexcept {
     const auto* binding = media_codec(receiver, type);
     return binding ? binding->codec : VideoRtpCodec::none;
 }
-void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end) noexcept {
+void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end, bool early = false) noexcept {
     const auto& head = slot_at(stream, stream.base);
     const u8 type = head.payload_type;
     const u32 timestamp = head.timestamp;
@@ -172,6 +172,24 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end) noexce
     }
     const u32 bytes = rtp_video_assembly_finish(&assembly);
     intact = intact && !assembly.damaged && bytes;
+    const bool keyframe = intact && (codec == VideoRtpCodec::h264   ? rtp_h264_keyframe(assembly)
+                                     : codec == VideoRtpCodec::h265 ? rtp_h265_keyframe(assembly)
+                                                                    : rtp_av1_keyframe(assembly));
+    if (early) {
+        // Opened ahead of its turn (see assemble): the stream's state is untouched.
+        if (intact && receiver.sink) {
+            VideoRtpFrame frame{};
+            frame.user_id = stream.user_id;
+            frame.annex_b = {receiver.frame, bytes};
+            frame.ssrc = stream.ssrc;
+            frame.rtp_timestamp = timestamp;
+            frame.codec = codec;
+            frame.keyframe = keyframe;
+            frame.early = true;
+            receiver.sink(receiver.sink_context, frame);
+        }
+        return;
+    }
     stream.prev_known = true;
     stream.prev_timestamp = timestamp;
     stream.prev_marker = true; // Either the marker or a timestamp change ended the unit.
@@ -185,9 +203,6 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end) noexce
         lose(stream);
         return;
     }
-    const bool keyframe = codec == VideoRtpCodec::h264   ? rtp_h264_keyframe(assembly)
-                          : codec == VideoRtpCodec::h265 ? rtp_h265_keyframe(assembly)
-                                                         : rtp_av1_keyframe(assembly);
     if (keyframe) {
         stream.keyframe_needed = false;
         stream.references_lost = false;
@@ -229,15 +244,17 @@ void assemble(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 now_us) no
             ++stream.base;
             continue;
         }
-        if (starting(stream) && now_us < head.time_us + config.start_grace_us)
-            return;
         const ConstSlice<u8> payload{payload_at(stream, stream.base), head.bytes};
         const bool begins =
             stream.prev_known
                 ? stream.prev_marker || stream.prev_timestamp != head.timestamp
                 : (!stream.has_last_timestamp || stream.last_timestamp != head.timestamp) &&
                       starts_access_unit(codec_of(receiver, head.payload_type), payload);
+        // A new stream waits for packets reordered before its first.
+        const bool waiting = starting(stream) && now_us < head.time_us + config.start_grace_us;
         if (!begins) {
+            if (waiting)
+                return;
             // Tail of an access unit whose beginning was lost.
             stream.prev_known = true;
             stream.prev_timestamp = stream.last_timestamp = head.timestamp;
@@ -271,6 +288,17 @@ void assemble(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 now_us) no
                 }
             }
             ++sequence;
+        }
+        if (waiting) {
+            // A whole unit is opened by the sink now, so a sender's DAVE counters are consumed in arrival order
+            // (its audio is opened as it arrives); the sink holds the result and gets the unit again after the wait.
+            if (complete && !(stream.opened_early && stream.opened_base == stream.base && stream.opened_end == end)) {
+                stream.opened_early = true;
+                stream.opened_base = stream.base;
+                stream.opened_end = end;
+                deliver(receiver, stream, end, true);
+            }
+            return;
         }
         if (complete) {
             deliver(receiver, stream, end);

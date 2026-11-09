@@ -72,4 +72,12 @@ struct DaveSealResult {
 // Failure leaves the counter unchanged.
 DaveSealResult dave_frame_seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace,
                                ConstSlice<u8> plaintext, Slice<u8> output) noexcept;
+// A video frame from dave_frame_prepare: the clear ranges stay in place and
+// are the AAD, every other byte is encrypted where it stood, and the trailer
+// lists the ranges after the nonce (at most 255 supplemental bytes, else
+// invalid_input). scratch holds frame.count bytes and is wiped; output
+// (frame.count + 255 is always enough) overlaps neither.
+DaveSealResult dave_frame_seal_ranges(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, ConstSlice<u8> frame,
+                                      ConstSlice<DaveClearRange> ranges, Slice<u8> scratch,
+                                      Slice<u8> output) noexcept;
 } // namespace maicord

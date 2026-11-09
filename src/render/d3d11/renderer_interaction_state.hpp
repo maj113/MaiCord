@@ -10,6 +10,7 @@
 #include "maicord/ui/chat/search/scene.hpp"
 #include "maicord/ui/shell/shortcuts_scene.hpp"
 #include "maicord/ui/media/download_scene.hpp"
+#include "maicord/ui/voice/go_live_scene.hpp"
 #include "maicord/ui/chat/messages/forward_scene.hpp"
 #include "maicord/ui/chat/unread_banner_scene.hpp"
 #include "maicord/ui/widgets/toast.hpp"
@@ -21,6 +22,7 @@
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/media/picker.hpp"
 #include "maicord/ui/voice/stream_card_scene.hpp"
+#include "maicord/ui/chat/names_card.hpp"
 #include "maicord/ui/settings/theme_editor.hpp"
 #include "maicord/ui/guild/card_scene.hpp"
 #include "maicord/ui/media/expression_card_scene.hpp"
@@ -83,7 +85,11 @@ inline u32 d3d11_renderer_settings_overlay_revision(const D3D11Renderer& rendere
     const u32 b = dialog && dialog->active ? dialog->revision * 2u + 1u : 0;
     const auto* store = renderer.settings_store;
     const u32 c = store && store->active ? (store->revision + store->motion * 7u) * 2u + 1u : 0;
-    return a ^ (b * 0x9E3779B1u) ^ (c * 0x85EBCA6Bu);
+    const auto* guild = renderer.settings_guild_preview;
+    const u32 d = guild && guild->active ? guild->revision * 2u + 1u : 0;
+    // The Server Profile overlays also show the hovered option (the banner upload tile's shade).
+    const u32 e = renderer.settings_scene ? renderer.settings_scene->palette_hovered_index + 1u : 0;
+    return a ^ (b * 0x9E3779B1u) ^ (c * 0x85EBCA6Bu) ^ (d * 0xC2B2AE35u) ^ (e * 0x27D4EB2Fu);
 }
 
 // No page, viewer, menu or form sits above a modal dialog.
@@ -134,6 +140,13 @@ __declspec(noinline) inline bool d3d11_renderer_stream_card_visible(const D3D11R
            !d3d11_renderer_active(renderer.image_viewer) && !d3d11_renderer_active(renderer.popup_scene) &&
            !d3d11_renderer_form_active(renderer);
 }
+// The DM header's names popout (popup layer); menus and modal surfaces hide it.
+__declspec(noinline) inline bool d3d11_renderer_names_card_visible(const D3D11Renderer& renderer) noexcept {
+    return d3d11_renderer_active(renderer.names_card_scene) && !d3d11_renderer_page_open(renderer) &&
+           !d3d11_renderer_active(renderer.profile_scene) &&
+           !d3d11_renderer_active(renderer.image_viewer) && !d3d11_renderer_active(renderer.popup_scene) &&
+           !d3d11_renderer_form_active(renderer);
+}
 // Emoji and sticker popout (popup layer); menus and modal surfaces hide it.
 __declspec(noinline) inline bool d3d11_renderer_expression_card_visible(const D3D11Renderer& renderer) noexcept {
     return d3d11_renderer_active(renderer.expression_card_scene) && !d3d11_renderer_page_open(renderer) &&
@@ -150,7 +163,7 @@ __declspec(noinline) inline bool d3d11_renderer_message_forward_visible(const D3
 inline bool d3d11_renderer_message_modal_active(const D3D11Renderer& renderer) noexcept {
     return d3d11_renderer_active(renderer.quick_switcher_scene) ||
            d3d11_renderer_active(renderer.message_forward_scene) ||
-           d3d11_renderer_active(renderer.download_scene) ||
+           d3d11_renderer_active(renderer.download_scene) || d3d11_renderer_active(renderer.go_live_scene) ||
            d3d11_renderer_active(renderer.shortcuts_scene);
 }
 
@@ -163,6 +176,13 @@ __declspec(noinline) inline bool d3d11_renderer_shortcuts_visible(const D3D11Ren
 __declspec(noinline) inline bool d3d11_renderer_download_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.download_scene && ui_download_scene_current(*renderer.download_scene) &&
            d3d11_renderer_modal_uncovered(renderer);
+}
+
+// The dialog takes all input while open, so the only popup over it is its own options menu, drawn above it.
+__declspec(noinline) inline bool d3d11_renderer_go_live_visible(const D3D11Renderer& renderer) noexcept {
+    return d3d11_renderer_active(renderer.go_live_scene) && !d3d11_renderer_page_open(renderer) &&
+           !d3d11_renderer_active(renderer.profile_scene) && !d3d11_renderer_active(renderer.image_viewer) &&
+           !d3d11_renderer_active(renderer.reaction_viewer) && !d3d11_renderer_form_active(renderer);
 }
 
 __declspec(noinline) inline bool d3d11_renderer_media_picker_visible(const D3D11Renderer& renderer) noexcept {
@@ -207,6 +227,12 @@ __declspec(noinline) inline const UiWidgetManager* d3d11_renderer_visible_focus_
         return owner == &renderer.shortcuts_scene->widgets ? owner : nullptr;
     if (d3d11_renderer_download_visible(renderer))
         return owner == &renderer.download_scene->widgets ? owner : nullptr;
+    // The screen share dialog yields only to its own options menu (the popup layer above it).
+    if (d3d11_renderer_go_live_visible(renderer))
+        return owner == &renderer.go_live_scene->widgets ||
+                       (d3d11_renderer_active(renderer.popup_scene) && owner == &renderer.popup_scene->widgets)
+                   ? owner
+                   : nullptr;
     // Inline results never take focus: the composer (and its popup) keep it.
     if (d3d11_renderer_media_picker_visible(renderer) &&
         renderer.media_picker_scene->variant != UiMediaPickerVariant::inline_results) {
@@ -341,6 +367,7 @@ __declspec(noinline) inline bool d3d11_renderer_inline_scene_covered(const D3D11
            d3d11_renderer_active(renderer.profile_scene) || d3d11_renderer_active(renderer.image_viewer) ||
            d3d11_renderer_media_picker_visible(renderer) ||
            d3d11_renderer_quick_switcher_visible(renderer) || d3d11_renderer_download_visible(renderer) ||
+           d3d11_renderer_go_live_visible(renderer) ||
            d3d11_renderer_active(renderer.popup_scene) || d3d11_renderer_active(renderer.reaction_viewer) ||
            d3d11_renderer_form_active(renderer);
 }
@@ -473,7 +500,8 @@ __declspec(noinline) inline u32 d3d11_renderer_interaction_text_active_mask(cons
     if (d3d11_renderer_pinned_messages_visible(renderer))
         mask |= 1u << 14;
     if (d3d11_renderer_quick_switcher_visible(renderer) ||
-        d3d11_renderer_message_forward_visible(renderer) || d3d11_renderer_download_visible(renderer))
+        d3d11_renderer_message_forward_visible(renderer) || d3d11_renderer_download_visible(renderer) ||
+        d3d11_renderer_go_live_visible(renderer))
         mask |= 1u << 15;
     if (d3d11_renderer_tooltip_visible(renderer))
         mask |= 1u << 10;
@@ -485,6 +513,8 @@ __declspec(noinline) inline u32 d3d11_renderer_interaction_text_active_mask(cons
         mask |= 1u << 21;
     if (d3d11_renderer_stream_card_visible(renderer))
         mask |= 1u << 22;
+    if (d3d11_renderer_names_card_visible(renderer))
+        mask |= 1u << 26;
     if (d3d11_renderer_guild_card_visible(renderer))
         mask |= 1u << 23;
     if (d3d11_renderer_expression_card_visible(renderer))

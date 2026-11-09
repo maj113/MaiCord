@@ -39,7 +39,8 @@ maicord_compact_sources(
         src/app/media/account_media.cpp src/app/media/account_media_fetch.cpp src/app/media/account_media_requests.cpp
         src/app/media/account_media_local_preview.cpp src/app/media/account_media_worker.cpp
         src/app/media/account_media_worker_lanes.cpp src/app/media/regional_flag_assets.cpp
-        src/app/account/game_detection.cpp src/app/net/file_persistence.cpp src/core/log.cpp src/platform/window/win32/clipboard.cpp
+        src/app/account/game_detection.cpp src/app/account/game_detection_system.cpp src/app/net/file_persistence.cpp
+        src/app/account/detectable_list.cpp src/core/log.cpp src/platform/window/win32/clipboard.cpp
         src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp
         src/platform/net/file.cpp src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp
         src/platform/desktop/file_identity.cpp src/platform/desktop/timezone.cpp src/platform/crypto/secure_buffer.cpp
@@ -171,6 +172,7 @@ maicord_compact_sources(
         # One-shot REST request builders, OAuth and session metadata, an MP4 duration
         # probe, permission storage setup and rare Gateway account events.
         src/app/guild/account_guild_community.cpp src/app/guild/account_guild_moderation.cpp src/app/account/account_user_social.cpp
+        src/app/guild/account_guild_automation.cpp
         src/app/chat/messages/account_bulk_message_ack.cpp src/app/chat/messages/account_message_ack.cpp src/app/guild/account_permission_storage.cpp
         src/app/account/login/oauth_authorization.cpp src/app/account/login/oauth_account.cpp src/app/account/client_session_metadata.cpp
         src/app/media/attachment_media_probe.cpp src/app/gateway/guild_folders.cpp src/app/gateway/user_settings.cpp

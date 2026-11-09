@@ -437,11 +437,12 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
              !(view->show_hidden && chat_state_store_channel_hidden(state, channel)))) {
             continue;
         }
-        // Message requests stay out of the conversation list (and the list
-        // shows only them in requests mode); the open conversation stays.
-        if (channel_is_private(channel.type) && state.private_channels && channel.id != state.selected_channel_id) {
+        // Message requests stay out of the conversation list (their page lists them); an open one stays while it
+        // is the conversation shown.
+        if (channel_is_private(channel.type) && state.private_channels &&
+            (channel.id != state.selected_channel_id || view->friends_mode)) {
             const auto* metadata = private_channel_store_find(*state.private_channels, channel.id);
-            if ((metadata && private_channel_is_request(*metadata)) != view->requests_mode)
+            if (metadata && private_channel_is_request(*metadata))
                 continue;
         }
         // Archived and unlisted threads (kept in state for discovery) stay off

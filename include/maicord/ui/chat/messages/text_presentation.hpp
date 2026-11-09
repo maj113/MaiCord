@@ -9,6 +9,7 @@ namespace maicord {
 enum class UiTextFlowError : u8;
 struct ChatStateStore;
 
+struct GameStore;
 struct GuildMemberStore;
 struct NavigationView;
 struct UiTextMeasureCache;
@@ -61,10 +62,29 @@ struct MessageTextCommand {
     UiTextAlignment vertical_alignment;
     TextWrapping wrapping;
     TextOverflow overflow;
+    // The text sits in a fixed box of the interface (the unread divider's label): it keeps the interface's size.
+    bool interface_text;
     // Logical selector of the owning field; stable across rich-store compaction
     // (never a storage offset).
     u16 source_id;
 };
+
+// The face a message command is measured, drawn and hit-tested in. Message text is chat text, sized by Text size in
+// chat. Reactions, attachment labels, components, notices and the unread divider sit in fixed boxes (a 24-DIP
+// reaction pill with its 14-DIP count, buttons, file cards): they keep the interface's size.
+constexpr UiTextFace message_text_command_face(const MessageTextCommand& command) noexcept {
+    if (command.interface_text)
+        return UiTextFace::normal;
+    switch (command.measurement_kind) {
+    case MessageTextMeasurementKind::attachment:
+    case MessageTextMeasurementKind::component:
+    case MessageTextMeasurementKind::reaction:
+    case MessageTextMeasurementKind::notice:
+        return UiTextFace::normal;
+    default:
+        return ui_text_face_chat(UiTextFace::normal);
+    }
+}
 
 // A fenced code block is its own command, framed by a box drawn in the paint
 // pass: kMessageCodeBlockInset (1-DIP border plus padding) outside the text on
@@ -232,6 +252,8 @@ void message_markdown_cache_clear(MessageMarkdownCache* cache) noexcept;
 
 struct MessageTextPresentation {
     const GuildMemberStore* guild_members;
+    // Game mention names (<@$id>); null shows every game as unknown.
+    const GameStore* games;
     MessageMarkdownCache* markdown_cache;
     u64 markdown_entity_epoch;
     Slice<MessageTextCommand> commands;
@@ -277,6 +299,7 @@ struct MessageTextPresentation {
     bool has_hover;
     bool active;
     bool reveal_spoilers; // Chat setting: spoiler text renders revealed
+    bool underline_links; // Accessibility: every link renders underlined (from the scene's display)
     bool scroll_moving;   // The last move was a step of a continuing scroll
     // A presented row shows the animated status dots of a pending interaction
     // (a local command message or a deferred response); the dots clock runs.
@@ -300,6 +323,8 @@ bool message_text_presentation_initialize(MessageTextPresentation* presentation,
 bool message_text_presentation_bind_guild_members(
     MessageTextPresentation* presentation,
     const GuildMemberStore* members) noexcept;
+// Optional; game mentions resolve their names here.
+bool message_text_presentation_bind_games(MessageTextPresentation* presentation, const GameStore* games) noexcept;
 // Optional; without a cache every build parses every source.
 bool message_text_presentation_bind_markdown_cache(MessageTextPresentation* presentation,
                                                    MessageMarkdownCache* cache) noexcept;

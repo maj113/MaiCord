@@ -44,6 +44,8 @@ bool application_guild_settings_submit(u64 now) noexcept {
     GuildSettingsPatch guild_patch{};
     GuildServerProfileWrite profile_write{};
     GuildServerProfileTraitWrite profile_traits[kGuildAdminProfileTraits];
+    GuildTagWrite tag_write{};
+    GuildTagColorText tag_colors{};
     RolePatch role_patch{};
     GuildAdminPageQuery query{};
     GuildAssetRequest asset{};
@@ -52,6 +54,10 @@ bool application_guild_settings_submit(u64 now) noexcept {
     GuildModerationRequest moderation{};
     GuildMemberSearchQuery search_query{};
     bool moderation_op = false;
+    GuildAutomationRequest automation{};
+    bool automation_op = false;
+    GuildCommunityRequest community{};
+    bool community_op = false;
     bool assets = true;
     const auto image = [](const Picked& picked) noexcept {
         return picked.set ? ConstSlice<u8>{picked.data, picked.bytes} : ConstSlice<u8>{};
@@ -116,12 +122,22 @@ bool application_guild_settings_submit(u64 now) noexcept {
     } else if (p.request.op == Op::ban_search) {
         moderation_op = true;
         valid = g_app.account.api.guild_moderation && bans_search_request(&moderation);
+    } else if (p.request.op == Op::apps || p.request.op == Op::automod) {
+        automation_op = true;
+        valid = g_app.account.api.guild_automation &&
+                (p.request.op == Op::apps ? apps_request(&automation) : automod_request(&automation));
+    } else if (p.request.op == Op::server_access) {
+        valid = server_access_request(&request, &guild_patch, &role_patch, &community, &community_op) &&
+                (!community_op || g_app.account.api.guild_community);
     } else switch (p.request.op) {
     case Op::widget_get:
         request.operation = GuildAdminOperation::widget_get;
         break;
     case Op::profile_get:
         request.operation = GuildAdminOperation::profile_get;
+        break;
+    case Op::top_games:
+        valid = top_games_request(&request);
         break;
     case Op::engagement_update:
         request.operation = GuildAdminOperation::guild_update;
@@ -143,6 +159,14 @@ bool application_guild_settings_submit(u64 now) noexcept {
         request.operation = GuildAdminOperation::profile_update;
         valid = can_manage_guild() && profile_patch(&guild_patch, &profile_write, {profile_traits, kGuildAdminProfileTraits});
         request.guild = &guild_patch;
+        break;
+    case Op::tag_update:
+        request.operation = GuildAdminOperation::tag_update;
+        valid = can_manage_guild() && tag_patch(&guild_patch, &tag_write, &tag_colors);
+        request.guild = &guild_patch;
+        break;
+    case Op::tag_adopt:
+        request.operation = GuildAdminOperation::identity_adopt;
         break;
     case Op::vanity_get:
         request.operation = GuildAdminOperation::vanity_get;
@@ -219,6 +243,8 @@ bool application_guild_settings_submit(u64 now) noexcept {
     }
     if (!valid) {
         p.request.queued = false;
+        if (p.request.op == Op::server_access)
+            server_access_response(RestClientResponse{}, {});
         if (p.request.op == Op::role_reorder)
             p.order_dirty = false;
         // An image that could not be prepared fails the save visibly.
@@ -230,8 +256,10 @@ bool application_guild_settings_submit(u64 now) noexcept {
         return false;
     }
     const u64 id = application_next_request_id();
-    const auto submitted = assets         ? g_app.account.api.guild_assets(g_app.account.instance, &asset, id)
+    const auto submitted = assets          ? g_app.account.api.guild_assets(g_app.account.instance, &asset, id)
                            : moderation_op ? g_app.account.api.guild_moderation(g_app.account.instance, &moderation, id)
+                           : automation_op ? g_app.account.api.guild_automation(g_app.account.instance, &automation, id)
+                           : community_op  ? g_app.account.api.guild_community(g_app.account.instance, &community, id)
                                            : g_app.account.api.guild_admin(g_app.account.instance, &request, id);
     if (submit_busy(submitted, p.retry_at, now, 50))
         return false;
@@ -245,6 +273,11 @@ bool application_guild_settings_submit(u64 now) noexcept {
             guild_member_search_failed(&p.search);
             p.search_retry = false;
         }
+        // The page clears what it was waiting for; the status above stays.
+        if (automation_op)
+            (p.request.op == Op::apps ? apps_response : automod_response)(RestClientResponse{}, {});
+        if (p.request.op == Op::server_access)
+            server_access_response(RestClientResponse{}, {});
         repaint();
         return false;
     }
@@ -292,6 +325,24 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         repaint();
         return true;
     }
+    if (op == Op::apps || op == Op::automod || op == Op::server_access) {
+        const u64 retry_at = ok ? 0 : rest_rate_retry_deadline(response);
+        if (retry_at && read_op(op)) {
+            p.request.queued = true;
+            p.retry_at = retry_at;
+            return true;
+        }
+        if (!ok) {
+            p.failed = true;
+            p.status = failure_text(response, body);
+        }
+        if (op == Op::server_access)
+            server_access_response(response, body);
+        else
+            (op == Op::apps ? apps_response : automod_response)(response, body);
+        repaint();
+        return true;
+    }
     if (!ok) {
         const u64 retry_at = rest_rate_retry_deadline(response);
         if (retry_at && read_op(op)) {
@@ -299,8 +350,11 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
             p.retry_at = retry_at;
             return true;
         }
-        p.failed = op != Op::role_counts && op != Op::widget_get && op != Op::profile_get && op != Op::vanity_get;
+        p.failed = op != Op::role_counts && op != Op::widget_get && op != Op::profile_get && op != Op::vanity_get &&
+                   op != Op::top_games;
         p.status = failure_text(response, body);
+        if (op == Op::tag_update || op == Op::tag_adopt)
+            tag_failed(response, body);
         if (op == Op::ban_list)
             p.bans_failed = true;
         p.invites_failed = p.invites_failed || op == Op::invite_list;
@@ -308,6 +362,8 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         p.stickers_failed = p.stickers_failed || op == Op::sticker_list;
         if (op == Op::widget_get)
             engagement_widget_loaded(nullptr);
+        if (op == Op::top_games)
+            top_games_loaded(false, body);
         if (op == Op::profile_get)
             server_profile_loaded(nullptr);
         if (op == Op::vanity_get)
@@ -343,6 +399,10 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     case Op::profile_update:
         profile_saved(true, body);
         break;
+    case Op::tag_update:
+    case Op::tag_adopt:
+        tag_saved(op, true, body);
+        break;
     case Op::vanity_update:
     case Op::boost_update:
         boost_saved(op, true, body, now);
@@ -366,10 +426,14 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         ensure_page_data();
         break;
     }
+    case Op::top_games:
+        top_games_loaded(true, body);
+        break;
     case Op::profile_get: {
         GuildAdminProfile profile{};
         const bool decoded = guild_admin_decode_profile(body, {p.scratch, kScratchUnits}, &profile).ok();
         server_profile_loaded(decoded ? &profile : nullptr);
+        tag_profile_loaded();
         break;
     }
     case Op::role_icon:
@@ -535,6 +599,14 @@ void application_guild_settings_gateway(const GatewayClientEvent& event, const U
             ensure_page_data();
         return;
     }
+    if (event.dispatch_kind >= GatewayClientDispatchKind::automod_rule_create &&
+        event.dispatch_kind <= GatewayClientDispatchKind::command_permissions_update) {
+        if (event.dispatch_kind <= GatewayClientDispatchKind::automod_rule_delete)
+            automod_gateway(event, body);
+        else
+            apps_gateway(event, body);
+        return;
+    }
     if (event.dispatch_kind != GatewayClientDispatchKind::guild_ban_add &&
         event.dispatch_kind != GatewayClientDispatchKind::guild_ban_remove)
         return;
@@ -565,6 +637,7 @@ u64 application_guild_settings_caret_wake() noexcept {
 }
 
 void application_guild_settings_tick(u64 now) noexcept {
+    application_guild_settings_test_open();
     if (!owner)
         return;
     poll_picker();
@@ -580,6 +653,7 @@ void application_guild_settings_tick(u64 now) noexcept {
     }
     if (application_guild_settings_active()) {
         members_tick(now);
+        profile_tick(now);
         if (audit_load_visible())
             repaint();
         settings_layer_tick(&owner->layer, now);

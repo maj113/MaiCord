@@ -2,6 +2,7 @@
 
 #include "maicord/model/chat/typing_store.hpp"
 #include "maicord/model/user/store.hpp"
+#include "maicord/ui/chat/messages/typing_indicator.hpp"
 
 namespace maicord {
 
@@ -16,6 +17,7 @@ enum class MessageTypingPresentationError : u8 {
 struct MessageTypingPresentationResult {
     u32 bytes;
     u32 users;
+    u32 named; // Spans written to `names`.
     MessageTypingPresentationError error;
 
     constexpr bool ok() const noexcept {
@@ -23,13 +25,8 @@ struct MessageTypingPresentationResult {
     }
 };
 
-// One typed-out name inside the label: its byte span and its user id.
-struct MessageTypingName {
-    u64 user_id;
-    u16 offset, bytes;
-};
-// names, when given, receives one span per name (up to three); it is filled only when
-// the result's users <= 3 ("Several people are typing" names nobody).
+// names, when given, receives one bold span per name (up to three), or the one span of "Several people"
+// when users > 3. Only labels of one to three names collapse when they do not fit (users <= 3).
 MessageTypingPresentationResult message_typing_presentation_build(
     const TypingStore& typing, const UserStore& users,
     u64 channel_id, u64 self_user_id, Slice<char> output, MessageTypingName* names = nullptr) noexcept;

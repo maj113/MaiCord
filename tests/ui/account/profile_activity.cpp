@@ -8,6 +8,9 @@
 #include "maicord/model/user/activity.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/ui/account/profile_activity.hpp"
+#include "maicord/ui/account/activity_card.hpp"
+#include "maicord/model/chat/chat_state.hpp"
+#include "maicord/model/voice/state_store.hpp"
 #include "maicord/ui/widgets/activity_status.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
@@ -376,7 +379,7 @@ void test_layout() noexcept {
 
     // The full profile lists both cards in order, 8 apart, with 100 DIP art.
     s.presentation = ProfilePresentation::modal;
-    s.tab = 0;
+    s.section = ProfileTab::activity;
     ok = profile_scene_layout(&s, viewport, true) && profile_scene_tick(&s, now + 1'000'000);
     const auto first = rect(s, find(s, ProfileMediaKind::activity_card, 0));
     const auto second = rect(s, find(s, ProfileMediaKind::activity_card, 1));
@@ -414,7 +417,7 @@ void test_layout() noexcept {
     profile.mutual_friend_count = profile.mutual_friends_count = 1;
     profile.mutual_friends[0].id = 7;
     set_text(&profile.mutual_friends[0].icon, utf8_literal("abc123"));
-    s.tab = 1;
+    s.section = ProfileTab::friends;
     ok = profile_scene_layout(&s, viewport, true);
     check(ok && !s.activity_timed && !profile_scene_tick(&s, now + 2'000'000), "layout: hidden timers do not tick");
     const auto* friend_face = find(s, ProfileMediaKind::peer_avatar);
@@ -430,7 +433,7 @@ void test_layout() noexcept {
     decode(utf8_literal(R"({"activities":[{"type":0,"name":"Iconic","application_id":"77"}]})"), &plain);
     user_activity_upsert(&users.activities, plain);
     ++users.revision;
-    s.tab = 0;
+    s.section = ProfileTab::activity;
     ok = profile_scene_layout(&s, viewport, true);
     check(ok && s.missing_icon_count == 1 && s.missing_icons[0] == 77, "layout: a missing icon is reported");
     ProfileApplication apps[1]{};
@@ -712,6 +715,194 @@ void test_placeholders() noexcept {
           "placeholder: one glyph per activity type");
 }
 
+// Spotify's track and album pages, the Play on Spotify rule, and hang status
+// (no card or line of its own).
+void test_spotify() noexcept {
+    UserActivitySet set{};
+    const bool decoded = decode(utf8_literal(R"({"activities":[
+        {"type":2,"name":"Spotify","flags":48,"sync_id":"0123456789abcdefghijkl","session_id":"aaaa",
+         "party":{"id":"spotify:42"},"details":"Song","state":"Artist"},
+        {"type":2,"name":"Spotify","sync_id":"0123456789abcdefghijkl","party":{"id":"spotify:42"}},
+        {"type":2,"name":"Tunes","flags":48,"sync_id":"0123456789abcdefghijkl"}]})"),
+                                &set);
+    char url[128];
+    const auto page = [&](const UserActivity& a) noexcept {
+        return Utf8View{url, user_activity_spotify_url(a, {url, sizeof(url)})};
+    };
+    check(decoded && same(text(set.items[0], UserActivityField::sync), utf8_literal("0123456789abcdefghijkl")) &&
+              same(page(set.items[0]), utf8_literal("https://open.spotify.com/track/0123456789abcdefghijkl")) &&
+              !page(set.items[2]).bytes,
+          "spotify: sync_id opens the track's page, only for Spotify's own activity");
+    UserActivitySet unsafe{};
+    check(decode(utf8_literal(R"({"activities":[{"type":2,"name":"Spotify","flags":48,"sync_id":"../x",
+        "party":{"id":"spotify:1"}}]})"),
+                 &unsafe) &&
+              !page(unsafe.items[0]).bytes,
+          "spotify: a sync_id that is not a plain ID opens nothing");
+    ProfileActivityContent c{};
+    check(profile_activity_content(set.items[0], false, false, &c) && c.action == ProfileActivityAction::spotify &&
+              profile_activity_content(set.items[0], false, true, &c) && c.action == ProfileActivityAction::none &&
+              profile_activity_content(set.items[1], false, false, &c) && c.action == ProfileActivityAction::none,
+          "spotify: Play on Spotify needs its PLAY or SYNC flag, and never on one's own card");
+    const auto album = [&](Utf8View body) noexcept {
+        return Utf8View{url, user_activity_album_url(body, {scratch, 16384}, {url, sizeof(url)})};
+    };
+    check(same(album(utf8_literal(R"({"album_id":"4aawyAB9vmqN3uQ7FjRGTy","type":"track"})")),
+               utf8_literal("https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy")) &&
+              same(album(utf8_literal(R"({"album_id":"5CfCWKI5pZ28U0uOzXkDHe","type":"episode"})")),
+                   utf8_literal("https://open.spotify.com/show/5CfCWKI5pZ28U0uOzXkDHe")) &&
+              !album(utf8_literal(R"({"album_id":"a/b"})")).bytes && !album(utf8_literal(R"({})")).bytes,
+          "spotify: the metadata's album_id opens the album (a podcast's show)");
+    UserActivitySet hang{};
+    check(decode(utf8_literal(R"({"activities":[{"type":6,"name":"Hang Status","state":"custom",
+        "details":"Fixing bikes","emoji":{"name":"x"}},{"type":0,"name":"Mossrun"}]})"),
+                 &hang) &&
+              hang.count == 1 && hang.items[0].type == UserActivityType::playing,
+          "hang: a hang status shows as no card and no status line, like the official client's");
+}
+
+// The shared card's layout without a scene: the Active Now section and the
+// popout's Spotify buttons, ticks and hits.
+void test_shared_card() noexcept {
+    constexpr u64 now = 1'700'000'100'000ull;
+    UserActivitySet set{};
+    const bool decoded = decode(utf8_literal(R"({"activities":[
+        {"type":0,"name":"Mossrun","application_id":"500000000000000001","details":"Chapter 7","flags":2,
+         "created_at":"1700000000000","timestamps":{"start":1700000000000},"party":{"id":"p","size":[2,4]},
+         "assets":{"large_image":"500000000000000002","small_image":"500000000000000003"}},
+        {"type":2,"name":"Spotify","flags":48,"sync_id":"0123456789abcdefghijkl","session_id":"aaaa",
+         "party":{"id":"spotify:42"},"details":"Song","state":"A; B",
+         "timestamps":{"start":1700000013000,"end":1700000377000},
+         "assets":{"large_image":"spotify:ab67616d0000b273deadbeefdeadbeefdeadbeef"}}]})"),
+                                &set);
+    const auto find_item = [](const UiActivityCard& card, UiActivityCardRole role, u32 nth = 0) noexcept {
+        for (u32 i = 0; i < card.count; ++i)
+            if (card.items[i].role == role && nth-- == 0)
+                return &card.items[i];
+        return static_cast<const UiActivityCardItem*>(nullptr);
+    };
+    static UiActivityCard card;
+    UiActivityCardInput input{UiActivityCardSize::compact, 240, now, false, false, true, false, nullptr, nullptr};
+    bool ok = decoded && ui_activity_card_layout(set.items[0], input, &card);
+    const auto* art = find_item(card, UiActivityCardRole::art);
+    const auto* badge = find_item(card, UiActivityCardRole::badge);
+    const auto* join = find_item(card, UiActivityCardRole::button);
+    const auto* title = find_item(card, UiActivityCardRole::title);
+    check(ok && !find_item(card, UiActivityCardRole::heading) && art && ui_rect_equal(art->rect, {0, 0, 32, 32}) &&
+              badge && ui_rect_equal(badge->rect, {20, 20, 36, 36}) && title && title->rect.left == 44 &&
+              same(title->text, utf8_literal("Mossrun")),
+          "card: Active Now's section has no heading, 32 DIP art with its 16 DIP badge, text 12 after it");
+    check(join && join->action == UiActivityCardAction::join && join->disabled && join->rect.right == 240 &&
+              join->rect.top == 0 && same(join->hint, utf8_literal("Mossrun is not detected")) &&
+              title->rect.right <= join->rect.left - 12 &&
+              ui_activity_card_hit(card, join->rect.left + 1, 1) == static_cast<u8>(join - card.items),
+          "card: Ask to Join sits in its own column on the right, disabled with its reason");
+    const auto* clock = find_item(card, UiActivityCardRole::clock);
+    check(clock && same(clock->text, utf8_literal("1:40")) && ui_activity_card_timed(card) &&
+              ui_activity_card_tick(&card, set.items[0], now + 400) == UiActivityCardTick::unchanged &&
+              ui_activity_card_tick(&card, set.items[0], now + 1000) == UiActivityCardTick::changed &&
+              same(clock->text, utf8_literal("1:41")) &&
+              ui_activity_card_tick(&card, set.items[0], now + 500'000) == UiActivityCardTick::relayout,
+          "card: the timer rewrites itself each second and asks for a layout when its length changes");
+
+    input.size = UiActivityCardSize::popout;
+    input.width = 268;
+    ok = ui_activity_card_layout(set.items[1], input, &card);
+    const auto* play = find_item(card, UiActivityCardRole::button);
+    const auto* label = find_item(card, UiActivityCardRole::button_label);
+    const auto* glyph = find_item(card, UiActivityCardRole::button_glyph);
+    art = find_item(card, UiActivityCardRole::art);
+    title = find_item(card, UiActivityCardRole::title);
+    check(ok && play && label && glyph && same(label->text, utf8_literal("Play on Spotify")) &&
+              play->action == UiActivityCardAction::spotify_track && !play->disabled && glyph->icon == UiIcon::play &&
+              play->rect.left == 8 && play->rect.right == 260 && play->rect.top == art->rect.bottom + 12 &&
+              card.height == play->rect.bottom + 8,
+          "card: a playable Spotify card offers Play on Spotify full width under the popout's body");
+    check(title && title->action == UiActivityCardAction::spotify_track && art &&
+              art->action == UiActivityCardAction::spotify_album && find_item(card, UiActivityCardRole::bar) &&
+              !find_item(card, UiActivityCardRole::button, 1),
+          "card: Spotify's title opens the track and its art the album; Listen Along is not offered");
+    input.self = true;
+    ok = ui_activity_card_layout(set.items[1], input, &card);
+    check(ok && !find_item(card, UiActivityCardRole::button), "card: one's own Spotify card offers no button");
+}
+
+// The voice card: the user's channel, its members and Join, only where this
+// account can see the channel.
+void test_voice_card() noexcept {
+    static GuildRecord guilds[2];
+    static u16 guild_order[2];
+    static ChannelRecord channels[4];
+    static u16 channel_order[4];
+    static u8 names[1024];
+    static UserRecord user_records[8];
+    static u32 user_order[8];
+    static u8 user_names[512];
+    static VoiceState voice[8];
+    ChatStateStore state{};
+    UserStore users{};
+    VoiceStateStore states{};
+    ChannelInput lounge{};
+    lounge.id = 501;
+    lounge.guild_id = 10;
+    lounge.name = utf8_literal("Lounge");
+    lounge.type = 2;
+    bool ok = chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, 4}, {channel_order, 4},
+                                          {names, sizeof(names)}) &&
+              user_store_initialize(&users, {user_records, 8}, {user_order, 8}, {user_names, sizeof(user_names)}) &&
+              voice_state_store_initialize_sparse(&states, {voice, 8}) &&
+              chat_state_store_upsert_guild(&state, {10, utf8_literal("Workbench"), GuildMutationKind::create, 3})
+                  .ok() &&
+              chat_state_store_upsert_channel(&state, lounge).ok();
+    auto* channel = const_cast<ChannelRecord*>(chat_state_store_find_channel(state, 501));
+    ok = ok && channel;
+    if (channel) {
+        channel->permissions_resolved = true;
+        channel->actions = channel_action_view | channel_action_connect;
+    }
+    for (u64 user = 42; ok && user < 48; ++user)
+        ok = user_store_upsert(&users, user, user == 43 ? utf8_literal("Second") : utf8_literal("Member")).ok() &&
+             voice_state_store_apply(&states, 10, 501, user, 0) == VoiceStateResult::changed;
+    UserProfile profile{};
+    profile.user_id = 42;
+    set_text(&profile.username, utf8_literal("caller"));
+    ProfileScene s{};
+    s.voice_states = &states;
+    const UiRect viewport{0, 0, 1280, 720};
+    ok = ok && profile_scene_open(&s, &profile, &state, &users, 1, {300, 200, 340, 240}, viewport);
+    const auto* card = find(s, ProfileMediaKind::activity_card);
+    const auto* join = find_action(s, ProfileAction::voice_join);
+    const auto* server = find_action(s, ProfileAction::voice_guild);
+    const auto* more = find_text(s, utf8_literal("+3"));
+    check(ok && card && find_text(s, utf8_literal("In voice")) && find_text(s, utf8_literal("Lounge")) && server &&
+              same(server->text, utf8_literal("in Workbench")) && server->target == 10 && join &&
+              join->target == 501 && find_text(s, utf8_literal("Join Voice")),
+          "voice: the popout shows the channel, its server and Join Voice");
+    check(count(s, ProfileMediaKind::voice_avatar) == 3 && more &&
+              same(find(s, ProfileMediaKind::voice_avatar, 1)->hint, utf8_literal("Member")) &&
+              same(find(s, ProfileMediaKind::voice_avatar, 0)->hint, utf8_literal("Member")) &&
+              rect(s, find(s, ProfileMediaKind::voice_avatar, 0)).left == rect(s, card).left + 8 + 5,
+          "voice: six members fill three avatars of the collage and its +3");
+    ProfileMedia media{};
+    const auto* face = find(s, ProfileMediaKind::voice_avatar);
+    check(face && profile_media_resolve(s, static_cast<u32>(face - s.parts), &media) && media.circular &&
+              ui_rect_equal(media.mask, rect(s, face)),
+          "voice: members without an avatar show the default one, masked to its circle");
+    s.connected_channel = 501;
+    ok = profile_scene_layout(&s, viewport, true);
+    check(ok && find_text(s, utf8_literal("Open Voice")), "voice: in the same channel the button opens the call");
+    channel->actions = channel_action_view;
+    ++state.permission_mutations;
+    ok = profile_scene_layout(&s, viewport, true);
+    check(ok && find(s, ProfileMediaKind::activity_card) && !find_action(s, ProfileAction::voice_join),
+          "voice: without Connect the card shows no way in");
+    channel->actions = 0;
+    ++state.permission_mutations;
+    ok = profile_scene_layout(&s, viewport, true);
+    check(ok && !find(s, ProfileMediaKind::activity_card), "voice: a channel this account cannot see shows no card");
+    profile_scene_release(&s);
+}
+
 void run() noexcept {
     test_order();
     test_times();
@@ -724,6 +915,9 @@ void run() noexcept {
     test_wire();
     test_art_store();
     test_placeholders();
+    test_spotify();
+    test_shared_card();
+    test_voice_card();
 }
 } // namespace maicord::profile_activity_test
 

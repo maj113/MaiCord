@@ -18,6 +18,7 @@
 #include "../account/profile.hpp"
 #include "../shell/quick_switcher.hpp"
 #include "../chat/report.hpp"
+#include "../chat/game_profile.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/shortcuts.hpp"
 #include "../settings/theme_editor.hpp"
@@ -40,7 +41,8 @@ bool keybinds_blocked() noexcept {
            application_shortcuts_overlay_active() || application_message_forward_active() ||
            application_quick_switcher_active() || application_theme_editor_active() ||
            application_custom_status_active() || application_poll_create_active() ||
-           application_poll_voters_active() || application_report_active() || application_thread_browser_active() ||
+           application_poll_voters_active() || application_report_active() || application_game_profile_active() ||
+           application_thread_browser_active() ||
            application_guild_settings_active() || application_profile_editor_active() ||
            application_guild_lifecycle_active() || application_media_picker_active() ||
            application_friends_requests_active() || application_keybinds_settings_recording() ||

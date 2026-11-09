@@ -52,6 +52,9 @@ static constexpr ShortcutDefinition kDefinitions[]{
     {A::shortcuts_help, G::misc, S::global, {{key::slash, C}, {}}, utf8_literal("Show keyboard shortcuts")},
     {A::open_settings, G::misc, S::global, {{key::comma, C}, {}}, utf8_literal("Open user settings")},
     {A::downloads, G::misc, S::global, {{'J', C}, {}}, utf8_literal("Show downloads")},
+    {A::zoom_in, G::misc, S::global, {{key::equals, C}, {key::add, C}}, utf8_literal("Zoom in")},
+    {A::zoom_out, G::misc, S::global, {{key::minus, C}, {key::subtract, C}}, utf8_literal("Zoom out")},
+    {A::zoom_reset, G::misc, S::global, {{'0', C}, {}}, utf8_literal("Reset zoom")},
 };
 constexpr u32 kDefinitionCount = sizeof(kDefinitions) / sizeof(kDefinitions[0]);
 static_assert(kDefinitionCount == static_cast<u32>(ShortcutAction::count) - 1);
@@ -402,6 +405,7 @@ Utf8View custom_keybind_action_label(CustomKeybindAction action) noexcept {
     case CustomKeybindAction::push_to_talk: return utf8_literal("Push to talk");
     case CustomKeybindAction::toggle_mute: return utf8_literal("Toggle mute");
     case CustomKeybindAction::toggle_deafen: return utf8_literal("Toggle deafen");
+    case CustomKeybindAction::toggle_streamer_mode: return utf8_literal("Toggle Streamer Mode");
     default: return {};
     }
 }
@@ -419,7 +423,7 @@ Utf8View custom_keybind_error_text(CustomKeybindError error) noexcept {
     }
 }
 CustomKeybindError custom_keybind_check(const CustomKeybinds& keybinds, CustomKeybind keybind) noexcept {
-    if (keybind.action != CustomKeybindAction::toggle_mute && keybind.action != CustomKeybindAction::toggle_deafen)
+    if (keybind.action == CustomKeybindAction::push_to_talk || keybind.action >= CustomKeybindAction::count)
         return CustomKeybindError::invalid;
     const auto chord = keybind.chord;
     if (!chord.key || chord.key == 0xff || (chord.modifiers & ~shortcut_modifier_mask) ||

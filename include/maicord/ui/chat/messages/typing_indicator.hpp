@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/core/utf.hpp"
 #include "maicord/ui/core/paint.hpp"
 
 namespace maicord {
@@ -22,6 +23,25 @@ inline constexpr float kUiTypingDotSize = 7.f, kUiTypingDotPitch = 8.75f;
 inline constexpr float kUiTypingDotsInset = 8.f, kUiTypingDotsGap = 4.f;
 inline constexpr float kUiTypingDotsWidth = kUiTypingDotSize + (kUiTypingDotCount - 1) * kUiTypingDotPitch;
 inline constexpr float kUiTypingLabelInset = kUiTypingDotsInset + kUiTypingDotsWidth + kUiTypingDotsGap;
+// One name's byte span inside the typing label; the label draws it bold.
+struct MessageTypingName {
+    u16 offset, bytes;
+};
+// When one to three names do not fit the row the label collapses, as the official client does: its
+// "Multiple people" (the span) replaces the names. The names fit while their width plus this reserve for the
+// dots and margin stays within the width of the row from the dots on.
+inline constexpr Utf8View kUiTypingCollapsedLabel = utf8_literal("Multiple people are typing...");
+inline constexpr MessageTypingName kUiTypingCollapsedName{0, 15};
+inline constexpr float kUiTypingOverflowReserve = 56.f;
+// The fade that lets messages scrolled under the typing strip dissolve into the chat background (the official
+// client's chat gradient): `kUiTypingFadeIdle` DIPs at the list's bottom, or `kUiTypingFadeTyping` DIPs ending
+// where the strip begins (a solid band of the background follows it) while someone types; it stops
+// `kUiTypingFadeRightInset` short of the list's right edge, which keeps the scrollbar clear.
+inline constexpr float kUiTypingFadeIdle = 16.f, kUiTypingFadeTyping = 72.f, kUiTypingFadeRightInset = 16.f;
+// The label's line (and the dots) sit this far below the middle of the row: centred 12 DIP above the composer
+// like the official client's 24 DIP wrapper, and clear of the list's bottom edge the strip overlaps. The row's
+// own clip grows by it, into the gap below the row.
+inline constexpr float kUiTypingLabelDrop = 2.f;
 // Phase at now, or kUiTypingDotsRest when not animating.
 u16 ui_typing_dots_phase(u64 now_ms, bool animate) noexcept;
 // Dot `index` at `phase`: scale (of kUiTypingDotSize) and opacity.

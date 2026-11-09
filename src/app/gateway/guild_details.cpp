@@ -27,6 +27,9 @@ constexpr u16 kFields[] = {
     guild_detail_incidents,
     guild_detail_member_count,
     guild_detail_splash,
+    guild_detail_preferred_locale,
+    guild_detail_content_level,
+    guild_detail_discovery_splash,
 };
 
 bool is_null(JsonValue value) noexcept {
@@ -149,13 +152,20 @@ bool gateway_guild_detail_visit(GatewayGuildDetailValues* d, JsonString name, Js
     const u32 index = wide_member_index<"premium_tier", "premium_subscription_count", "system_channel_flags",
                                    "rules_channel_id", "public_updates_channel_id", "safety_alerts_channel_id",
                                    "premium_progress_bar_enabled", "description", "vanity_url_code",
-                                   "incidents_data", "member_count", "splash">(name);
-    if (index < 12) {
+                                   "incidents_data", "member_count", "splash", "preferred_locale",
+                                   "owner_configured_content_level", "discovery_splash", "nsfw_level">(name);
+    u64 number = 0;
+    if (index == 15) {
+        // Read beside the owner's level, and left to the content policy's own visitor.
+        if (json_value_to_u64(value, &number) && number <= 3)
+            d->nsfw_level = static_cast<u8>(number);
+        return false;
+    }
+    if (index < 15) {
         const u16 field = kFields[index];
         if (d->seen & field)
             return true;
         bool valid = true;
-        u64 number = 0;
         switch (field) {
         case guild_detail_premium_tier:
             valid = json_value_to_u64(value, &number) && number <= 255;
@@ -185,8 +195,18 @@ bool gateway_guild_detail_visit(GatewayGuildDetailValues* d, JsonString name, Js
             d->incidents_data = value;
             break;
         case guild_detail_splash:
+        case guild_detail_discovery_splash:
             valid = is_null(value) || value.kind == JsonValueKind::string;
-            d->splash = value;
+            (field == guild_detail_splash ? d->splash : d->discovery_splash) = value;
+            break;
+        case guild_detail_preferred_locale:
+            valid = value.kind == JsonValueKind::string;
+            d->preferred_locale = value;
+            break;
+        case guild_detail_content_level:
+            valid = json_value_to_u64(value, &number) && number <= 3;
+            if (valid)
+                d->owner_configured_content_level = static_cast<u8>(number);
             break;
         default: break;
         }
@@ -223,6 +243,14 @@ void gateway_guild_detail_merge(GatewayGuildDetailValues* to, const GatewayGuild
         to->incidents_data = from.incidents_data;
     if (take & guild_detail_splash)
         to->splash = from.splash;
+    if (take & guild_detail_discovery_splash)
+        to->discovery_splash = from.discovery_splash;
+    if (take & guild_detail_preferred_locale)
+        to->preferred_locale = from.preferred_locale;
+    if (take & guild_detail_content_level)
+        to->owner_configured_content_level = from.owner_configured_content_level;
+    if (!to->nsfw_level)
+        to->nsfw_level = from.nsfw_level;
     to->seen = static_cast<u16>(to->seen | take);
 }
 
@@ -239,9 +267,11 @@ bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue f
     };
     GatewayGuildDetails header{};
     constexpr u16 counts = guild_detail_boost_count | guild_detail_member_count;
-    header.known = static_cast<u16>((guild_detail_all & ~(counts | guild_detail_description | guild_detail_vanity |
-                                                          guild_detail_features)) |
-                                    (v.seen & counts));
+    // The locale and content levels only when the object carried them.
+    constexpr u16 optional = guild_detail_preferred_locale | guild_detail_content_level;
+    header.known = static_cast<u16>((guild_detail_all & ~(counts | optional | guild_detail_description |
+                                                          guild_detail_vanity | guild_detail_features)) |
+                                    (v.seen & (counts | guild_detail_content_level)));
     header.rules_channel_id = v.rules_channel_id;
     header.public_updates_channel_id = v.public_updates_channel_id;
     header.safety_alerts_channel_id = v.safety_alerts_channel_id;
@@ -250,6 +280,19 @@ bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue f
     header.member_count = v.member_count;
     header.premium_tier = v.premium_tier;
     header.premium_progress_bar_enabled = v.premium_progress_bar_enabled;
+    header.owner_configured_content_level = v.owner_configured_content_level;
+    header.nsfw_level = v.nsfw_level;
+    if (v.seen & guild_detail_preferred_locale) {
+        JsonString text{};
+        const Slice<char> locale{header.preferred_locale, sizeof(header.preferred_locale)};
+        const auto decoded = json_value_as_string(v.preferred_locale, &text)
+                                 ? json_string_decode_utf8(text, locale)
+                                 : JsonStringDecodeResult{0, JsonStringDecodeError::invalid_input};
+        if (decoded.ok() && decoded.bytes) {
+            header.preferred_locale_bytes = static_cast<u8>(decoded.bytes);
+            header.known = static_cast<u16>(header.known | guild_detail_preferred_locale);
+        }
+    }
     // A splash value that is not a short hash reads as unknown.
     if (v.seen & guild_detail_splash) {
         JsonString text{};
@@ -262,6 +305,17 @@ bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue f
             else
                 header.known = static_cast<u16>(header.known & ~guild_detail_splash);
         }
+    }
+    if ((v.seen & guild_detail_discovery_splash) && v.discovery_splash.kind != JsonValueKind::null_value) {
+        JsonString text{};
+        const Slice<char> hash{header.discovery_splash, sizeof(header.discovery_splash)};
+        const auto decoded = json_value_as_string(v.discovery_splash, &text)
+                                 ? json_string_decode_utf8(text, hash)
+                                 : JsonStringDecodeResult{0, JsonStringDecodeError::invalid_input};
+        if (decoded.ok())
+            header.discovery_splash_bytes = static_cast<u8>(decoded.bytes);
+        else
+            header.known = static_cast<u16>(header.known & ~guild_detail_discovery_splash);
     }
     if (!gateway_payload_append(writer, &header, sizeof(header)))
         return rollback(false);

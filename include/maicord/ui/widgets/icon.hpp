@@ -11,8 +11,11 @@ static_assert(static_cast<u32>(UiIcon::count) < 255);
 
 // Paint-quad encoding resolved by the renderer's icon atlas. The quad carries
 // the nominal DIP box; the renderer snaps it to whole pixels and writes the
-// atlas origin into reserved_x/y and the pixel scale into radius.
+// atlas origin into reserved_x/y and the pixel scale into radius. The border's
+// alpha turns the icon about its centre by that many radians (clockwise; zero
+// for the ordinary pixel-snapped icon, which the shader reads 1:1).
 inline constexpr float kPaintIconMode = -9.0f;
+inline constexpr float kUiQuarterTurn = 1.5707963f;
 struct UiIconQuadData {
     u32 icon;
     bool solid;
@@ -43,6 +46,10 @@ struct UiIconStyle {
 // Lucide-derived and original icons compiled into the MIPK pack.
 bool ui_icon_paint(PaintStream* paint, UiIcon icon, const UiRect& bounds, const Color& color) noexcept;
 bool ui_icon_paint_styled(PaintStream* paint, UiIcon icon, const UiRect& bounds, const UiIconStyle& style) noexcept;
+// The outline icon turned about its centre by `radians` (clockwise): a transition's in-between frames (the
+// category chevron); settled states paint the matching icon unturned.
+bool ui_icon_paint_turned(PaintStream* paint, UiIcon icon, const UiRect& bounds, const Color& color,
+                          float radians) noexcept;
 Color ui_icon_role_color(const Theme& theme, UiIconRole role) noexcept;
 float ui_icon_theme_weight(const Theme& theme) noexcept;
 // Largest standard extent (16, 20 or 24 DIP) that fits a control slot.

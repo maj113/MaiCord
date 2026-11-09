@@ -43,9 +43,12 @@ struct MessageHitTestCacheOwner {
     bool geometry; // storage holds the current command's hit geometry
 };
 
+// A command is laid out in the system its face asks for (message_text_command_face): message text in `chat_system`
+// (sized by Text size in chat), the commands in fixed boxes in `text_system`.
 MessagePositionHit message_position_hit_test(
     MessageHitTestCacheOwner* owner, const MessageTextPresentation& presentation,
-    const TextSystem& text_system, u32 dpi, i32 client_x_pixels, i32 client_y_pixels) noexcept;
+    const TextSystem& text_system, const TextSystem& chat_system, u32 dpi, i32 client_x_pixels,
+    i32 client_y_pixels) noexcept;
 void message_hit_test_cache_invalidate(MessageHitTestCacheOwner* owner) noexcept;
 void message_hit_test_cache_release(MessageHitTestCacheOwner* owner) noexcept;
 
@@ -73,7 +76,8 @@ struct MessageEmojiHit {
     MessageEmojiHitKind kind;
 };
 MessageEmojiHit message_emoji_hit_test(MessageHitTestCacheOwner* owner, const MessageTextPresentation& presentation,
-                                       const TextSystem& text_system, float x, float y) noexcept;
+                                       const TextSystem& text_system, const TextSystem& chat_system, float x,
+                                       float y) noexcept;
 
 static_assert(sizeof(MessagePositionHit) == 40);
 static_assert(sizeof(MessageHitTestCacheOwner) == 120);

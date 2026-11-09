@@ -613,13 +613,13 @@ bool ui_theme_typography_valid(const UiThemeTypography& value) noexcept {
            between(value.heading_2_ratio, 1, 2) && between(value.heading_3_ratio, 1, 1.75f) &&
            value.heading_1_ratio >= value.heading_2_ratio &&
            value.heading_2_ratio >= value.heading_3_ratio && between(value.subtext_ratio, .65f, 1) &&
-           between(value.mono_ratio, .7f, 1.25f) && value.body_face < UiTextFace::count &&
-           value.code_face < UiTextFace::count;
+           between(value.mono_ratio, .7f, 1.25f) && (value.chat_size == 0 || between(value.chat_size, 12, 24)) &&
+           value.body_face < UiTextFace::count && value.code_face < UiTextFace::count;
 }
 bool ui_theme_typography_equal(const UiThemeTypography& a, const UiThemeTypography& b) noexcept {
     return a.body_size == b.body_size && a.heading_1_ratio == b.heading_1_ratio &&
            a.heading_2_ratio == b.heading_2_ratio && a.heading_3_ratio == b.heading_3_ratio &&
-           a.subtext_ratio == b.subtext_ratio && a.mono_ratio == b.mono_ratio &&
+           a.subtext_ratio == b.subtext_ratio && a.mono_ratio == b.mono_ratio && a.chat_size == b.chat_size &&
            a.body_face == b.body_face && a.code_face == b.code_face;
 }
 bool ui_theme_metrics_valid(const UiThemeMetrics& value) noexcept {

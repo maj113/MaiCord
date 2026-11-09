@@ -1,5 +1,7 @@
 #include "settings/account_settings.hpp"
+#include "settings/catalog.hpp"
 #include "settings/settings.hpp"
+#include "settings/settings_internal.hpp"
 #include "shell/state.hpp"
 #include "maicord/protocol/auth/account_requirement.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
@@ -75,7 +77,7 @@ void test_application_account_settings_connection_runtime(void (*check)(bool, co
     check(application_account_settings_submit(9001, 0) && connection_requests == 1,
           "account settings connection: the page opened before READY requests its details once");
     const u32 settled = content->revision;
-    check(application_settings_synchronize() && content->revision == settled && !application_account_settings_connection_changed(),
+    check(application_settings_synchronize() && content->revision == settled && !application_account_settings_changed(),
           "account settings connection: an unchanged connection does not re-project");
 
     g_app.account.status.required_action = AccountRequirement::verify_email;
@@ -92,6 +94,43 @@ void test_application_account_settings_connection_runtime(void (*check)(bool, co
     g_app.account.status.failed = false;
     check(application_settings_synchronize() && shows("Loading…"),
           "account settings connection: recovery leaves Offline without reopening the page");
+
+    // Loaded, the page runs well past the shared bank's avatar rows; its Account card still binds the self avatar.
+    const auto saved_store = ui->user_store;
+    static UserRecord users[2];
+    static u32 order[2];
+    static u8 names[128];
+    const Utf8View avatar_hash = utf8_literal("0123456789abcdef0123456789abcdef");
+    constexpr char self[] = "{\"id\":\"42\",\"username\":\"ada\",\"global_name\":\"Ada\",\"email\":\"ada@example.com\"}";
+    RestClientResponse answer{};
+    answer.request_id = 9001;
+    answer.status_code = 200;
+    check(user_store_initialize(&ui->user_store, {users, 2}, {order, 2}, {names, sizeof(names)}) &&
+              user_store_upsert(&ui->user_store, 42, utf8_literal("Ada"), utf8_literal("ada")).ok() &&
+              user_store_set_avatar(&ui->user_store, 42, avatar_hash),
+          "account settings avatar: the self user and its avatar hash enter the user store");
+    check(application_account_settings_response(answer, {self, sizeof(self) - 1}) && application_settings_synchronize(),
+          "account settings avatar: the self user's details load into the page");
+    UiSettingsSchemaLocation card_location{};
+    const u64 card_id = settings_catalog_binding(SettingBinding::account_card, &card_location)
+                            ? settings_control_id(card_location.panel, card_location.node)
+                            : 0;
+    u32 card_rows = 0, media_rows = 0;
+    bool card_bound = false;
+    for (u32 i = 0; content->avatar_media && i < content->controls.count; ++i) {
+        const auto& media = content->avatar_media[i];
+        media_rows += media.hash_bytes ? 1u : 0u;
+        if (content->controls[i].id != card_id)
+            continue;
+        ++card_rows;
+        card_bound = (content->presentation[i].flags & ui_settings_presentation_avatar) &&
+                     media.key.kind == MediaAssetKind::user_avatar && media.key.id == 42 &&
+                     media.hash_bytes == avatar_hash.bytes && bytes_equal(media.hash, avatar_hash.data, avatar_hash.bytes);
+    }
+    check(content->controls.count > kSettingsAvatarRows, "account settings avatar: the loaded page is longer than the avatar rows");
+    check(card_rows == 1 && media_rows == 1 && card_bound,
+          "account settings avatar: the Account card's row alone binds the self user's avatar media");
+    ui->user_store = saved_store;
 
     // A stop releases the host while the shell keeps its cached self user.
     g_app.account = {};

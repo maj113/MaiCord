@@ -114,7 +114,10 @@ void test_custom(Check check) noexcept {
               rejects({K::toggle_mute, {'V', C}}, E::system) && rejects({K::toggle_mute, {key::f4, L}}, E::system) &&
               rejects({K::toggle_mute, {key::left, C | H}}, E::system) &&
               custom_keybind_check(keybinds, {K::toggle_mute, {key::left, C | L}}) == E::none &&
+              custom_keybind_check(keybinds, {K::toggle_streamer_mode, {'S', C | L}}) == E::none &&
+              utf8_equal(custom_keybind_action_label(K::toggle_streamer_mode), utf8_literal("Toggle Streamer Mode")) &&
               rejects({K::toggle_mute, {'Q', 0}}, E::needs_modifier) && rejects({K::push_to_talk, {'Q', C}}, E::invalid) &&
+              rejects({K::count, {'Q', C | L}}, E::invalid) &&
               rejects({K::toggle_mute, {key::shift, C}}, E::invalid) && rejects({K::toggle_mute, {}}, E::invalid) &&
               keybinds.count == 2,
           "custom keybinds: duplicates, built-in chords, typing keys and stored-elsewhere actions are refused");

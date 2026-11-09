@@ -38,6 +38,7 @@
 #include "application_startup_shell.hpp"
 #include "background.hpp"
 #include "../chat/threads/actions.hpp"
+#include "../chat/private_channel.hpp"
 #include "../chat/threads/browser.hpp"
 #include "../chat/threads/creation.hpp"
 #include "../chat/threads/forum_post.hpp"
@@ -53,6 +54,7 @@
 #include "../notifications/controls.hpp"
 #include "../account/custom_status.hpp"
 #include "../chat/inbox.hpp"
+#include "../chat/game_lookup.hpp"
 #include "frame_presentation.hpp"
 
 #include "../account/account_presentation.hpp"
@@ -106,6 +108,7 @@ u64 application_next_wake_at_ms() noexcept {
         add(application_member_moderation_next_wake());
         add(application_account_settings_next_wake());
         add(g_app.dm_profile_wake_ms);
+        add(application_game_lookup_next_wake());
     }
     add(application_media_picker_next_wake());
     add(application_gif_favorites_next_wake());
@@ -129,6 +132,9 @@ u64 application_next_wake_at_ms() noexcept {
     add(application_read_state_next_wake());
     add(application_scoped_read_next_wake());
     add(application_notifications_next_wake(&g_app));
+    // A queued DM action (accepting a message request, renaming a group) goes out on the details lane once free.
+    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
+        add(application_private_channel_next_wake());
     add(application_voice_next_wake());
     add(application_presence_next_wake());
     add(application_account_reconnect_next_wake());
@@ -234,7 +240,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
         limit_timeout(timeout, now_ms, application_tooltip_next_wake());
         limit_timeout(timeout, now_ms, application_toast_next_wake());
         limit_timeout(timeout, now_ms, application_guild_banner_next_wake());
-        limit_timeout(timeout, now_ms, application_voice_timer_next_wake());
+        limit_timeout(timeout, now_ms, application_voice_invite_next_wake());
         limit_timeout(timeout, now_ms, g_app.dm_profile_clock_ms);
         limit_timeout(timeout, now_ms, application_surface_motion_next_wake());
         limit_timeout(timeout, now_ms, application_loading_spinner_wake());
@@ -316,7 +322,7 @@ bool application_visual_frame_requested(u64 now_ms, u64 now_us) noexcept {
            deadline_due(now_ms, application_tooltip_next_wake()) ||
            deadline_due(now_ms, application_toast_next_wake()) ||
            deadline_due(now_ms, application_guild_banner_next_wake()) ||
-           deadline_due(now_ms, application_voice_timer_next_wake()) ||
+           deadline_due(now_ms, application_voice_invite_next_wake()) ||
            deadline_due(now_ms, g_app.dm_profile_clock_ms) ||
            deadline_due(now_ms, application_surface_motion_next_wake()) ||
            deadline_due(now_ms, application_search_edit_next_wake()) ||

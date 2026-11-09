@@ -1,6 +1,7 @@
 #include "renderer_layout_internal.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
+#include "maicord/ui/chat/game_media.hpp"
 #include "renderer_layout.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -156,6 +157,24 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
                     return false;
                 first = false;
             }
+        }
+        // A rows tooltip's pictures (a server's other games), fitted to their squares.
+        MediaAssetKey row_key{};
+        for (u32 row = 0; layer == static_cast<u32>(RendererInlineMediaLayer::form) &&
+                          d3d11_renderer_tooltip_visible(*renderer) && renderer->media_atlas &&
+                          renderer->media_gpu.texture_view && row < kUiTooltipMaximumRows;
+             ++row) {
+            if (!ui_tooltip_row_media(*renderer->tooltip_scene, row, &square, &row_key) ||
+                renderer->media_quad_count >= kRendererMediaQuadCapacity ||
+                renderer->media_batch_count >= kRendererMediaBatchCapacity)
+                continue;
+            const auto allocation = media_atlas_peek(renderer->media_atlas, row_key);
+            if (!allocation.ok() || !allocation.width || !allocation.height)
+                continue;
+            if (!queue_media_quad(renderer, allocation, fit_in(square, allocation.width, allocation.height, false),
+                                  renderer->tooltip_scene->viewport, false, first))
+                return false;
+            first = false;
         }
         if (layer == static_cast<u32>(RendererInlineMediaLayer::forum)) {
             renderer->forum_media_first_batch = renderer->media_batch_count;
@@ -577,11 +596,18 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
             if (!text_composer_emoji_rectangle(renderer->composer_layout, composer, i, &rectangle, &clip))
                 continue;
             const auto& span = composer.projection_spans[i];
+            GameImageMedia game{};
+            if (span.kind == MessageComposerProjectionKind::game &&
+                !game_chip_icon_media(renderer->game_store, span.target, &game))
+                continue;
             const auto allocation = media_atlas_peek(
-                renderer->media_atlas, span.kind == MessageComposerProjectionKind::regional_flag
+                renderer->media_atlas, span.kind == MessageComposerProjectionKind::game ? game.key
+                                       : span.kind == MessageComposerProjectionKind::regional_flag
                                            ? media_asset_regional_flag(static_cast<u16>(span.target))
                                            : media_asset_custom_emoji(span.target, span.animated));
-            if (allocation.ok() && !queue_media_quad(renderer, allocation, rectangle, clip))
+            MediaQuadStyle style = kPlainMediaQuad;
+            style.radius = span.kind == MessageComposerProjectionKind::game ? theme.scale.radius_sm : 0.f;
+            if (allocation.ok() && !queue_media_quad(renderer, allocation, rectangle, clip, false, false, style))
                 return layout_step_failed(__LINE__);
         }
     }
@@ -701,6 +727,27 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                                                       &renderer->paint_stream))
                 return layout_step_failed(__LINE__);
         }
+        // Show image descriptions: each "ALT" label's scrim pill (8 DIPs around its glyphs, 32 high), above its media;
+        // the text pass draws the label.
+        const RendererTextStorage* text = renderer->content_text;
+        for (u32 i = 0; text && renderer->message_scene && i < text->content_hit_region_count; ++i) {
+            const TextHitRegion& region = text->content_hit_regions[i];
+            if (region.semantic_index >= text->content_semantic_count ||
+                text->content_semantics[region.semantic_index].kind != MessageMarkdownSemanticKind::alt_text ||
+                (text->content_semantics[region.semantic_index].reserved & kRendererSearchSemanticFlag))
+                continue;
+            const float middle = (region.top + region.bottom) * .5f;
+            const UiRect pill{region.left - 8.0f, middle - 16.0f, region.right + 8.0f, middle + 16.0f};
+            const UiRect clip = ui_rect_intersection(renderer->message_scene->viewport, pill);
+            if (!ui_rect_has_area(clip))
+                continue;
+            const bool cut = !ui_rect_equal(clip, pill);
+            if ((cut && !paint_stream_push_clip(&renderer->paint_stream, clip)) ||
+                !paint_stream_push_rounded(&renderer->paint_stream, pill, theme.tokens.overlay.scrim_strong,
+                                           theme.scale.radius_sm) ||
+                (cut && !paint_stream_pop_clip(&renderer->paint_stream)))
+                return layout_step_failed(__LINE__);
+        }
     }
     if (!content_hidden && d3d11_renderer_active(renderer->message_composer_scene) &&
         !ui_composer_attachment_strip_paint_overlay(
@@ -723,7 +770,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
     // after the message text, above a hovered chip's accent pill.
     renderer->chip_media_first_batch = renderer->media_batch_count;
     if (messages_visible && !content_hidden &&
-        (!paint_chip_initial_plates(renderer, theme, false) || !queue_chip_guild_icons(renderer, false)))
+        (!paint_chip_initial_plates(renderer, theme, false) || !queue_chip_guild_icons(renderer, theme, false)))
         return layout_step_failed(__LINE__);
     renderer->chip_media_end_batch = renderer->media_batch_count;
     return true;
@@ -802,7 +849,7 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
                     first = false;
             }
         }
-        if (!paint_chip_initial_plates(renderer, theme, true) || !queue_chip_guild_icons(renderer, true))
+        if (!paint_chip_initial_plates(renderer, theme, true) || !queue_chip_guild_icons(renderer, theme, true))
             return layout_step_failed(__LINE__);
     }
     if (d3d11_renderer_search_visible(*renderer) &&
@@ -847,15 +894,20 @@ bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
             const auto allocation = media_atlas_peek(renderer->media_atlas, avatar.media->key);
             if (!allocation.ok())
                 continue;
-            const auto r = avatar.avatar;
+            // A banner upload tile's picture covers the tile, cropped to its rounded rectangle.
+            const auto r = avatar.cover && allocation.width && allocation.height
+                               ? ui_call_video_fit(avatar.avatar, allocation.width, allocation.height, true)
+                               : avatar.avatar;
             const u32 before = renderer->media_quad_count;
-            // Emoji and sticker previews keep their own shape.
+            // Emoji and sticker previews keep their own shape; grid tiles (game covers) round their corners.
             const auto kind = avatar.media->key.kind;
-            const bool round = kind != MediaAssetKind::custom_emoji && kind != MediaAssetKind::sticker;
-            if (!queue_media_quad(renderer, allocation, r, avatar.clip, round,
-                                  first))
+            const bool round = !avatar.tile && kind != MediaAssetKind::custom_emoji && kind != MediaAssetKind::sticker;
+            if (!queue_media_quad(renderer, allocation, r, avatar.clip, round, first,
+                                  avatar.cover  ? MediaQuadStyle{avatar.avatar, 1.f, 0.f, avatar.radius, 0.f, 0}
+                                  : avatar.tile ? MediaQuadStyle{{}, 1.f, avatar.radius, 0.f, 0.f, 0}
+                                                : kPlainMediaQuad))
                 return layout_step_failed(__LINE__);
-            reveal_media_underlay(*renderer, before, r, theme.avatar_placeholder);
+            reveal_media_underlay(*renderer, before, avatar.avatar, theme.avatar_placeholder);
             first = first && renderer->media_quad_count == before;
         }
     }

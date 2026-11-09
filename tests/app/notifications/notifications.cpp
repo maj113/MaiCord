@@ -9,6 +9,7 @@
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/gateway_message_scratch.hpp"
+#include "voice/voice.hpp"
 
 #if !defined(MAICORD_NOTIFICATION_FIXTURE)
 #error This integration fixture requires the nonemitting notification sink.
@@ -18,6 +19,10 @@ namespace maicord {
 namespace notification_application_probe {
 using namespace app_detail;
 u32 taskbar_flashes;
+// Text-to-speech: what was read aloud last, how often, and the switches the stubs below report.
+char spoken[2048];
+u32 spoken_bytes, speech_count;
+bool tts_command = true, deafened;
 struct Captured {
     DesktopNotificationActivation target;
     char title[256], body[1024];
@@ -775,6 +780,55 @@ void dm_regressions(void(*check)(bool,const char*) noexcept) noexcept {
         "dm: conversations still count and notify while other settings are incomplete");
     application_notifications_release(&g_app);
 }
+void speech_regressions(void(*check)(bool,const char*) noexcept) noexcept {
+    using namespace notification_application_probe;
+    using namespace app_detail;
+    auto& f=fixture;
+    const auto last=[](Utf8View expected) noexcept { return utf8_equal({spoken,spoken_bytes},expected); };
+    check(initialize()&&hydrate(),"speech: production READY initializes with channel 20 selected");
+    g_app.preferences.desktop_enabled=false;g_app.preferences.message_sounds_enabled=false;
+    speech_count=0;tts_command=true;deafened=false;
+    check(message(4000,30,20,utf8_literal("\"hello\""),2,utf8_literal(",\"tts\":true"))&&speech_count==1&&
+              last(utf8_literal("Peer said hello")),
+          "speech: a /tts message in the selected channel is read as \"{name} said {text}\"");
+    check(message(4001,31,21,utf8_literal("\"elsewhere\""),2,utf8_literal(",\"tts\":true"))&&speech_count==1,
+          "speech: a /tts message in another channel stays silent");
+    tts_command=false;
+    check(message(4002,32,20,utf8_literal("\"muted\""),2,utf8_literal(",\"tts\":true"))&&speech_count==1,
+          "speech: the /tts playback switch off keeps /tts messages silent");
+    tts_command=true;
+    check(message(4003,33,20,utf8_literal("\"plain\""))&&speech_count==1,
+          "speech: ordinary messages stay silent while Speak all messages out loud is Never");
+    g_app.preferences.speak_messages=client_speak_messages_all;
+    check(message(4004,34,21,utf8_literal("\"<@2> look\""))&&speech_count==2&&last(utf8_literal("Peer said @Peer look")) &&
+              message(4005,35,21,utf8_literal("\"mine\""),1,{},utf8_literal("self"))&&speech_count==2,
+          "speech: For all channels reads others' messages anywhere, mentions by name, never your own");
+    g_app.preferences.speak_messages=client_speak_messages_selected;
+    check(message(4006,36,21)&&speech_count==2&&message(4007,37,20)&&speech_count==3,
+          "speech: Only for currently selected channel reads that channel only");
+    // A 230-character message of 10-character words: the line ("Peer said " plus the text) stops at 200 characters,
+    // then at the space before them.
+    char words[400]; u32 used=0;
+    words[used++]='"';
+    for(u32 i=0;i<23;++i) { copy_bytes(words+used,"abcdefghi ",10); used+=10; }
+    words[used++]='"';
+    check(message(4011,41,20,utf8_literal("\"look ||the end|| at https://www.example.com/a?b=1 now\""))&&
+              speech_count==4&&last(utf8_literal("Peer said look Spoiler at example.com now"))&&
+              message(4012,42,20,{words,used})&&speech_count==5&&spoken_bytes==199&&spoken[198]=='i',
+          "speech: as Discord, a spoiler is read as \"Spoiler\", a link as its domain, and the line stops by 200 "
+          "characters at a space");
+    deafened=true;
+    check(message(4008,38,20)&&speech_count==5,"speech: nothing is read while deafened");
+    deafened=false;
+    f.relationship_flags=notification_gate_blocked;
+    check(message(4009,39,20)&&speech_count==5,"speech: a blocked user's messages are never read");
+    f.relationship_flags=0;
+    check(settings(utf8_literal(R"({"guild_id":"10","channel_overrides":[{"channel_id":"20","muted":true}]})"))&&
+              message(4010,40,20)&&speech_count==5,
+          "speech: a muted channel is never read");
+    g_app.preferences.speak_messages=client_speak_messages_never;
+    application_notifications_release(&g_app);
+}
 void test_application_notifications(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace notification_application_probe;
     using namespace app_detail;
@@ -1061,6 +1115,7 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     application_notifications_release(&g_app);
     check(!g_app.notifications, "notification application: release clears nonemitting owner");
     dm_regressions(check);
+    speech_regressions(check);
     sound_regressions(check);
     controls_regressions(check);
     pack_regressions(check);
@@ -1109,6 +1164,20 @@ bool application_friends_notification_gates(u64, u32* gates) noexcept {
 bool application_navigate_known_message(u64, u64) noexcept {
     ++notification_application_probe::fixture.navigation_calls;
     return false;
+}
+bool application_user_settings_tts_command() noexcept {
+    return notification_application_probe::tts_command;
+}
+bool application_user_actions_speak(Utf8View text) noexcept {
+    auto& probe = notification_application_probe::spoken;
+    notification_application_probe::spoken_bytes = utf8_copy_truncated(probe, text);
+    ++notification_application_probe::speech_count;
+    return true;
+}
+UiVoicePanelView application_voice_view() noexcept {
+    UiVoicePanelView view{};
+    view.self_deaf = notification_application_probe::deafened;
+    return view;
 }
 }
 

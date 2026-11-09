@@ -8,6 +8,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/permission_grid.hpp"
+#include "maicord/ui/widgets/color_picker.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
@@ -41,11 +42,8 @@ __declspec(noinline) void load_role_editor(const RoleRecord& r) noexcept {
     copy_value(&owner->editing_role, r.id);
     owner->role_draft = guild_role_draft_from(state(), r);
     copy_value(&owner->role_base, owner->role_draft);
-    owner->role_conflict = owner->role_echo = owner->role_missing = owner->hex_invalid = false;
+    owner->role_conflict = owner->role_echo = owner->role_missing = false;
     set_editor(editor_name, {owner->role_draft.name, owner->role_draft.name_bytes});
-    char hex[8];
-    const u32 bytes = owner->role_draft.color ? guild_role_color_format(owner->role_draft.color, {hex, 8}) : 0;
-    set_editor(editor_hex, {hex, bytes});
 }
 bool role_patch_pending() noexcept {
     RolePatch patch{};
@@ -218,9 +216,10 @@ void project_display(Bank& bank, const RoleRecord* r, bool writable) noexcept {
                  utf8_literal("Members use the colour of the highest role they have on the roles list."),
                  UiSettingsControlKind::swatches, writable, {color_names, kGuildRoleColorCount + 1}, selected, {},
                  {UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
-    push_editor(control_hex, utf8_literal("Custom colour"),
-                owner->hex_invalid ? utf8_literal("Use six hex digits, like #3498DB.") : Utf8View{},
-                UiSettingsControlKind::edit, writable, editor_hex, utf8_literal("#000000"));
+    // Any other colour through the colour picker; its swatch shows the role's colour.
+    static constexpr Utf8View kCustom[]{utf8_literal("Custom")};
+    push_choices(control_hex, utf8_literal("Custom colour"), {}, UiSettingsControlKind::colors, writable, {kCustom, 1},
+                 kUiSettingsNoChoice);
     push_row(control_hoist, utf8_literal("Show members separately"),
              utf8_literal("List members with this role in their own group in the member list."),
              UiSettingsControlKind::toggle, writable, d.hoist);
@@ -385,6 +384,56 @@ void project(Bank& bank) noexcept {
         project_role_list(bank);
 }
 
+// The colour picker (application_color_picker_open) on the role's colour, with the preset colours as quick picks.
+// It previews into the draft while open; closing without Apply restores the colour it started from.
+struct RoleColorPick {
+    bool active, applied;
+    u32 color;
+} g_role_pick;
+void role_color_preview(TextFormOwnerKey key, u32 rgb) noexcept {
+    if (form_valid(key) && owner->editing_role) {
+        owner->role_draft.color = rgb;
+        repaint();
+    }
+}
+bool role_color_save(TextFormOwnerKey key, u32 rgb) noexcept {
+    if (!form_valid(key) || !owner->editing_role)
+        return false;
+    owner->role_draft.color = rgb;
+    g_role_pick.applied = true;
+    repaint();
+    return true;
+}
+// The page projects as read-only while a form is open, so it repaints once the picker is gone, kept colour or not.
+void role_color_closed(TextFormOwnerKey key) noexcept {
+    const auto pick = g_role_pick;
+    reset_value(&g_role_pick);
+    if (!form_valid(key))
+        return;
+    if (pick.active && !pick.applied && owner->editing_role)
+        owner->role_draft.color = pick.color;
+    repaint();
+}
+void edit_role_color() noexcept {
+    g_role_pick = {true, false, owner->role_draft.color};
+    u32 suggested[kColorPickerSuggestedColors];
+    const u32 count = minimum(kColorPickerSuggestedColors, kGuildRoleColorCount);
+    for (u32 i = 0; i < count; ++i)
+        suggested[i] = kGuildRoleColors[i];
+    ApplicationColorPickerRequest request{};
+    request.title = utf8_literal("Role Colour");
+    request.label = request.title;
+    request.owner = form_key(form_role_color, owner->editing_role);
+    request.valid = form_valid;
+    request.rgb = owner->role_draft.color;
+    request.suggested = {suggested, count};
+    request.preview = role_color_preview;
+    request.save = role_color_save;
+    request.closed = role_color_closed;
+    if (!application_color_picker_open(request))
+        reset_value(&g_role_pick);
+}
+
 void activate(const SettingsLayerActivation& activation) noexcept {
     auto& p = *owner;
     const auto target = activation.value.target;
@@ -453,11 +502,11 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         d.hoist = activation.value.checked;
     else if (id == control_mentionable)
         d.mentionable = activation.value.checked;
-    else if (id == control_color && activation.value.selected_choice <= kGuildRoleColorCount) {
+    else if (id == control_color && activation.value.selected_choice <= kGuildRoleColorCount)
         d.color = activation.value.selected_choice ? kGuildRoleColors[activation.value.selected_choice - 1] : 0;
-        char hex[8];
-        set_editor(editor_hex, {hex, d.color ? guild_role_color_format(d.color, {hex, 8}) : 0});
-        p.hex_invalid = false;
+    else if (id == control_hex) {
+        edit_role_color();
+        return;
     } else if (id >= control_permission && id < control_permission + permission_grid_entries().count) {
         const auto& entry = permission_grid_entries()[static_cast<u32>(id - control_permission)];
         if (guild_role_permission_lock(state(), p.access, d, entry.bit) != GuildPermissionLock::none ||
@@ -476,7 +525,7 @@ bool dirty() noexcept {
 bool can_save() noexcept {
     if (!owner->editing_role)
         return owner->order_dirty;
-    return !owner->role_conflict && role_writable() && !owner->hex_invalid &&
+    return !owner->role_conflict && role_writable() &&
            (owner->editing_role == owner->guild_id ||
             guild_role_name_valid({owner->role_draft.name, owner->role_draft.name_bytes})) &&
            (role_patch_pending() || pending(owner->role_icon));

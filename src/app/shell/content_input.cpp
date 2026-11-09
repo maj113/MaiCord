@@ -1,5 +1,6 @@
 #include "../account/application_account_reconnect.hpp"
 #include "../chat/composer/commands.hpp"
+#include "../chat/game_profile.hpp"
 #include "overlay_input.hpp"
 #include "maicord/core/memory.hpp"
 #include "../chat/application_channel_memory.hpp"
@@ -386,6 +387,18 @@ bool insert_command_mention(const MessageTextHit& hit) noexcept {
     return application_commands_insert(0, command_id, {source.data + 2, separator - 3}) || true;
 }
 
+// The chevron of the category toggled last turns over 100 ms, linearly (the official client's "transition:
+// transform .1s linear"): 0 points down (expanded), 1 right (collapsed).
+constexpr UiMotionStyle kChevronMotion{100, UiMotionCurve::linear};
+UiMotionTransition g_chevron;
+u64 g_chevron_category, g_chevron_generation;
+void start_chevron_turn(u64 category, bool collapsed) noexcept {
+    // A toggle while it still turns reverses it from where it is.
+    const float from = category == g_chevron_category && g_chevron.active ? g_chevron.value : collapsed ? 0.f : 1.f;
+    g_chevron_category = category;
+    ui_motion_transition_reset(&g_chevron, {category, ++g_chevron_generation}, from);
+}
+
 // Home reopens what it showed when a server was last opened from it: Friends
 // or its last conversation.
 bool home_shows_friends = true;
@@ -399,16 +412,15 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
         return application_friends_show();
     if (!guild && navigation_events_row(id))
         return application_guild_community_open_events(g_app.account_ui->chat_state.selected_guild_id) || true;
-    if (!guild && navigation_requests_row(id)) {
-        application_private_channel_set_requests_mode(!application_private_channel_requests_mode());
-        return true;
-    }
+    if (!guild && navigation_requests_row(id))
+        return application_friends_show_requests() || true;
     const bool was_friends = application_friends_active();
     auto& state = g_app.account_ui->chat_state;
     const auto* category = !home && !guild ? chat_state_store_find_channel(state, id) : nullptr;
     if (category && category->type == 4) {
         auto& mutable_category = state.channels[category - state.channels];
         mutable_category.collapsed = !mutable_category.collapsed;
+        start_chevron_turn(id, mutable_category.collapsed);
         saturating_increment(mutable_category.revision);
         saturating_increment(state.channel_mutations);
         if (!synchronize_navigation_view() || !synchronize_shell_layout() || !refresh_account_text(true))
@@ -598,8 +610,7 @@ bool activate_navigation_press(const WindowEvent& event) noexcept {
     }
     if (g_app.account_ui && hit.kind == RendererNavigationHitKind::channel && navigation_requests_row(hit.id)) {
         shell_navigation_scene_focus_channel(&g_app.shell_navigation_scene, hit.id);
-        application_private_channel_set_requests_mode(!application_private_channel_requests_mode());
-        return true;
+        return application_friends_show_requests() || true;
     }
     // A locked channel's row (Show hidden channels) only explains itself: it is never selected or joined.
     if (g_app.account_ui && !hit.selectable && hit.kind == RendererNavigationHitKind::channel &&
@@ -1100,6 +1111,8 @@ bool handle_content_click(const WindowEvent& event) noexcept {
         return open_content_link(hit);
     case MessageMarkdownSemanticKind::command_mention:
         return insert_command_mention(hit);
+    case MessageMarkdownSemanticKind::game_mention:
+        return application_game_profile_open(hit.target);
     case MessageMarkdownSemanticKind::custom_emoji:
     case MessageMarkdownSemanticKind::regional_flag:
         // A press on an emoji may start a text selection (emoji images are not
@@ -1193,6 +1206,25 @@ bool handle_content_hover(const WindowEvent& event) noexcept {
         application_request_frame();
     }
     return true;
+}
+
+void application_navigation_chevron_synchronize(u64 now_ms) noexcept {
+    auto& scene = g_app.shell_navigation_scene;
+    const auto* category = g_chevron_category && g_app.account_ui
+                               ? chat_state_store_find_channel(g_app.account_ui->chat_state, g_chevron_category)
+                               : nullptr;
+    float turn = 0;
+    if (category)
+        turn = application_motion_tick(&g_chevron, g_chevron.scope, category->collapsed ? 1.f : 0.f, now_ms,
+                                       kChevronMotion);
+    if (!category || !g_chevron.active) {
+        // Settled (or gone): the row paints its resting icon.
+        g_chevron_category = 0;
+        ui_motion_transition_cancel(&g_chevron);
+        turn = 0;
+    }
+    scene.chevron_category = g_chevron_category;
+    scene.chevron_turn = turn;
 }
 
 } // namespace maicord::app_detail

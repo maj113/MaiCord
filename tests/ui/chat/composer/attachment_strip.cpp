@@ -195,10 +195,10 @@ void test_composer_attachment_strip(void (*check)(bool, const char*) noexcept) n
     if (ready) {
         message_composer_reset(&model, 42, false);
         const float width = 740;
-        const float height = message_composer_scene_preferred_height(model, width, false, false,
+        const float height = message_composer_scene_preferred_height(model, width, false,
                                                                      message_composer_attachment_row_strip);
         const float label_height =
-            message_composer_scene_preferred_height(model, width, false, false, message_composer_attachment_row_label);
+            message_composer_scene_preferred_height(model, width, false, message_composer_attachment_row_label);
         const UiRect viewport{0, 300, width, 300 + height};
         MessageComposerAttachmentInput input{utf8_literal("4 attachments - uploading 10%"), false, true};
         input.tiles = all;

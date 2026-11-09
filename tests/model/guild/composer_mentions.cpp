@@ -13,6 +13,7 @@
 #include "maicord/ui/chat/messages/markdown.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "maicord/model/chat/message_composer.hpp"
+#include "maicord/model/chat/game_store.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/time.hpp"
 
@@ -118,6 +119,38 @@ void test_autocomplete_roles(Check check) noexcept {
           "composer mentions: role queries use subsequence matching and rank substring above scattered hits");
     check(f.build(8, utf8_literal("@e")) && f.autocomplete.count == 0,
           "composer mentions: private channels never offer roles or globals");
+    composer_autocomplete_release(&f.autocomplete);
+}
+
+// "@game" (Mention a game) with the setting on: after @everyone/@here, before the roles, in DMs too; picking it
+// inserts the empty game search token.
+void test_autocomplete_game(Check check) noexcept {
+    MentionFixture f{};
+    check(f.initialize(), "composer mentions: game fixture initializes");
+    const auto& s = f.autocomplete.suggestions;
+    const auto build = [&](u64 channel, Utf8View draft) noexcept {
+        return message_composer_restore(&f.composer, channel, draft, draft.bytes, draft.bytes) &&
+               composer_autocomplete_build(&f.autocomplete, f.composer, f.members, f.users, f.navigation, f.state,
+                                           nullptr, nullptr, nullptr, true);
+    };
+    char token[kGameTokenHeadBytes + kGameTokenEndBytes];
+    copy_bytes(token, kGameTokenHead, kGameTokenHeadBytes);
+    copy_bytes(token + kGameTokenHeadBytes, kGameTokenEnd, kGameTokenEndBytes);
+    f.channels[0].actions = channel_action_mention_everyone;
+    check(build(7, utf8_literal("@")) && f.autocomplete.count == 6 &&
+              s[1].item_kind == ComposerAutocompleteKind::global_mention &&
+              s[2].item_kind == ComposerAutocompleteKind::game_input && utf8_equal(s[2].label, utf8_literal("@game")) &&
+              utf8_equal(s[2].description, utf8_literal("Mention a game")) &&
+              utf8_equal(insertion(s[2]), {token, sizeof(token)}) && s[3].role_id == 502,
+          "composer mentions: @game follows the globals and leads the roles");
+    check(build(7, utf8_literal("@gam")) && f.autocomplete.count == 1 &&
+              s[0].item_kind == ComposerAutocompleteKind::game_input,
+          "composer mentions: @game matches its name like the globals");
+    check(build(8, utf8_literal("@ga")) && f.autocomplete.count == 1 &&
+              s[0].item_kind == ComposerAutocompleteKind::game_input,
+          "composer mentions: private channels offer @game");
+    check(f.build(7, utf8_literal("@gam")) && f.autocomplete.count == 0,
+          "composer mentions: without the setting no @game row");
     composer_autocomplete_release(&f.autocomplete);
 }
 
@@ -562,6 +595,7 @@ void test_command_mentions(Check check) noexcept {
 
 void test_composer_mentions(void (*check)(bool, const char*) noexcept) noexcept {
     test_autocomplete_roles(check);
+    test_autocomplete_game(check);
     test_autocomplete_members(check);
     test_member_query(check);
     test_mention_warning(check);

@@ -16,6 +16,7 @@
 //   inbox rows            source index + 1
 //   media picker cells    source index + 1
 //   call tiles            participant user id (stream tiles: stream tile id)
+//   screen share sources  source index + 1
 
 namespace maicord {
 
@@ -29,6 +30,7 @@ struct ForumPostScene;
 struct TextFormScene;
 struct UiImageViewer;
 struct UiMediaPickerScene;
+struct UiGoLiveScene;
 
 u32 ui_access_add_quick_switcher(UiAccessTree* tree, u32 parent, const UiQuickSwitcherScene& scene,
                                  u8 surface) noexcept;
@@ -44,6 +46,7 @@ u32 ui_access_add_text_form(UiAccessTree* tree, u32 parent, const TextFormScene&
 u32 ui_access_add_image_viewer(UiAccessTree* tree, u32 parent, const UiImageViewer& viewer, u8 surface) noexcept;
 u32 ui_access_add_media_picker(UiAccessTree* tree, u32 parent, const UiMediaPickerScene& scene,
                                u8 surface) noexcept;
+u32 ui_access_add_go_live(UiAccessTree* tree, u32 parent, const UiGoLiveScene& scene, u8 surface) noexcept;
 
 // Result count line ("12 results", "No matches", "Searching…") for status
 // announcements; false when the scene has nothing to report.

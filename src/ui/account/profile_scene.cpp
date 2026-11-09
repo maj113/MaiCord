@@ -11,12 +11,18 @@
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user/store.hpp"
+#include "maicord/model/voice/state_store.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/sys/crt.hpp"
 #include "profile_scene_internal.hpp"
 namespace maicord {
 using namespace profile_scene_detail;
+Color profile_scene_banner_color(const ProfileScene& s, const Theme& theme) noexcept {
+    if (s.has_banner_color)
+        return color_from_rgb24(s.banner_color);
+    return s.has_avatar_color ? color_from_rgb24(s.avatar_color) : theme.tokens.profile.banner;
+}
 namespace {
 Color over(const Color& top, const Color& bottom) noexcept {
     const float a = top.alpha;
@@ -36,6 +42,7 @@ struct Palette : TextPalette {
     Color primary, secondary, overlay, surface, banner, modal;
     Color hover, card, card_hover, input, button, button_hover;
     Color accent, accent_hover, bubble, bubble_border, control, control_border, control_icon;
+    Color badge_box, badge_box_hover, badge_box_border, game_plate, count_veil, connection_tile;
 };
 Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     Palette c{};
@@ -43,7 +50,9 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     c.control = own.control;
     c.control_border = own.control_border;
     c.control_icon = own.control_icon;
-    c.banner = s.has_banner_color ? color_from_rgb24(s.banner_color) : own.banner;
+    c.count_veil = own.count_veil;
+    c.connection_tile = own.connection_tile;
+    c.banner = profile_scene_banner_color(s, theme);
     if (!s.themed) {
         c.surface = c.primary = c.secondary = own.surface;
         c.modal = own.modal;
@@ -62,12 +71,17 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
         c.on_accent = theme.tokens.emphasis.text;
         c.bubble = theme.surface;
         c.bubble_border = theme.tokens.border.subtle;
+        c.badge_box = theme.tokens.state.row_hover;
+        c.badge_box_hover = theme.tokens.state.row_selected;
+        c.badge_box_border = theme.tokens.border.muted;
+        c.game_plate = theme.tokens.state.row_selected;
         return c;
     }
     // The profile's own theme column: the application theme when it has
     // the same appearance, else the built-in theme of that appearance.
     const bool app_dark = theme.appearance == ThemeAppearance::dark;
-    const auto& tokens = (app_dark == s.theme_dark ? theme : s.theme_dark ? kDefaultTheme : kLightTheme).tokens.profile;
+    const auto& column = app_dark == s.theme_dark ? theme : s.theme_dark ? kDefaultTheme : kLightTheme;
+    const auto& tokens = column.tokens.profile;
     c.primary = color_from_rgb24(s.theme_primary);
     c.secondary = color_from_rgb24(s.theme_secondary);
     c.overlay = tokens.overlay;
@@ -90,6 +104,10 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     c.on_accent = theme.tokens.text.on_accent;
     c.bubble = over(tokens.card, c.surface);
     c.bubble_border = s.theme_dark ? theme.tokens.border.strong : tokens.border;
+    c.badge_box = tokens.badge_box;
+    c.badge_box_hover = tokens.badge_box_hover;
+    c.badge_box_border = column.tokens.border.muted;
+    c.game_plate = tokens.game_plate;
     return c;
 }
 // Only the colors consumed by tone_color and card_theme during text output.
@@ -148,6 +166,8 @@ Color tone_color(const TextPalette& c, const Theme& theme, const ProfilePart& p)
         return c.muted;
     case ProfileTone::positive:
         return theme.tokens.text.positive;
+    case ProfileTone::danger:
+        return theme.tokens.text.danger;
     case ProfileTone::link:
         return theme.tokens.text.link;
     case ProfileTone::on_accent:
@@ -219,27 +239,33 @@ bool profile_scene_open(ProfileScene* s, const UserProfile* p, const ChatStateSt
     s->secondary_scroll = 0;
     s->name_started_ms = clock_monotonic_milliseconds();
     s->tab = 0;
+    s->section = ProfileTab::widgets;
+    s->widgets_expanded = 0;
     return profile_scene_layout(s, viewport, true);
 }
 bool profile_scene_layout(ProfileScene* s, const UiRect& viewport_view, bool force) noexcept {
     const UiRect viewport = viewport_view; // the scene is written below
     if (!s || !s->active || !s->profile || !ui_rect_has_area(viewport))
         return false;
-    // Guild presences that skip users->revision still move activities.
+    // Guild presences that skip users->revision still move activities; voice
+    // states move the voice card.
+    const u32 voice_revision = s->voice_states ? s->voice_states->revision : 0;
     if (!force && ui_rect_equal(s->viewport, viewport) && s->users_revision == (s->users ? s->users->revision : 0) &&
         s->activity_revision == (s->users ? s->users->activities.revision : 0) &&
-        s->permission_revision == (s->state ? s->state->permission_mutations : 0))
+        s->permission_revision == (s->state ? s->state->permission_mutations : 0) &&
+        s->voice_revision == voice_revision)
         return true;
     s->users_revision = s->users ? s->users->revision : 0;
     s->activity_revision = s->users ? s->users->activities.revision : 0;
     s->permission_revision = s->state ? s->state->permission_mutations : 0;
+    s->voice_revision = voice_revision;
     s->viewport = viewport;
     s->part_count = 0;
     labels(s).failed = false;
     labels(s).badge_count = 0;
     s->text_hit_count = 0;
     ui_widget_manager_reset(&s->widgets);
-    s->bio_widget = s->name_widget = s->message_field = s->note_field = ui_widget_invalid_handle();
+    s->bio_widget = s->name_widget = s->row_name_widget = s->message_field = s->note_field = ui_widget_invalid_handle();
     reset_value(&s->secondary_viewport);
     s->secondary_height = 0;
     s->activity_timed = false;
@@ -289,47 +315,22 @@ bool profile_scene_tick(ProfileScene* s, u64 now) noexcept {
         return false;
     s->activity_clock_s = now / 1000;
     auto& l = labels(s);
+    // Same-length text is rewritten in place (the parts borrow the card's
+    // text); a new length or a timer that ends lays the card out again.
     bool relayout = false, changed = false;
-    // Same-length text is rewritten in place (time digits keep their width);
-    // a new length or a timer that ends lays the card out again.
-    const auto rewrite = [&](u16 part, ProfileString<16>* stored, Utf8View text) noexcept {
-        if (part >= s->part_count || text.bytes != stored->bytes) {
-            relayout = true;
-            return;
-        }
-        if (!bytes_equal(stored->data, text.data, text.bytes)) {
-            copy_bytes(stored->data, text.data, text.bytes);
-            changed = true;
-        }
-    };
     for (u32 i = 0; i < l.timer_count && !relayout; ++i) {
         const auto& t = l.timers[i];
-        const auto& a = l.activity_set.items[t.item];
-        char text[16];
-        if (t.clock != kNoPart) {
-            const auto clock = profile_activity_clock(a, now);
-            if (clock.timer == ProfileActivityTimer::none || t.glyph >= s->part_count) {
-                relayout = true;
-                break;
-            }
-            const auto glyph = profile_activity_glyph_icon(clock.timer == ProfileActivityTimer::countdown
-                                                               ? ProfileActivityGlyph::timer
-                                                               : l.activity_content[t.card].clock_glyph);
-            if (s->parts[t.glyph].icon != static_cast<u16>(glyph)) {
-                s->parts[t.glyph].icon = static_cast<u16>(glyph);
-                changed = true;
-            }
-            rewrite(t.clock, &l.activity_time[t.card][0],
-                    {text, profile_activity_clock_text(clock.seconds, {text, sizeof(text)})});
-        }
-        ProfileActivityProgress progress{};
-        if (t.bar != kNoPart && t.bar < s->part_count && profile_activity_progress(a, now, &progress)) {
-            rewrite(t.elapsed, &l.activity_time[t.card][1],
-                    {text, profile_activity_track_text(progress.elapsed, {text, sizeof(text)})});
-            auto& bar = s->parts[t.bar].color.red;
-            changed |= bar != progress.fraction;
-            bar = progress.fraction;
-        }
+        auto& card = l.activity_card[t.card];
+        const auto tick = ui_activity_card_tick(&card, l.activity_set.items[t.item], now);
+        relayout = tick == UiActivityCardTick::relayout || (t.glyph != kNoPart && t.glyph >= s->part_count) ||
+                   (t.bar != kNoPart && t.bar >= s->part_count);
+        if (relayout || tick == UiActivityCardTick::unchanged)
+            continue;
+        changed = true;
+        if (t.glyph != kNoPart)
+            s->parts[t.glyph].icon = static_cast<u16>(card.items[card.clock_glyph].icon);
+        if (t.bar != kNoPart)
+            s->parts[t.bar].color.red = card.fraction;
     }
     if (relayout) {
         l.tick_ms = now;
@@ -440,6 +441,10 @@ ProfileAction profile_scene_action(const ProfileScene& s, UiWidgetHandle widget)
     const auto* part = profile_scene_part(s, widget);
     return part ? part->action : ProfileAction::none;
 }
+bool profile_scene_over_edit(const ProfileScene& s, float x, float y) noexcept {
+    return s.edit.active && ui_rect_contains(s.edit_rectangle, x, y) &&
+           profile_scene_action(s, profile_scene_hit_test(s, x, y)) != ProfileAction::emoji;
+}
 namespace {
 bool hovered(const ProfileScene& s, const ProfilePart& p) noexcept {
     return p.action != ProfileAction::none && ui_widget_handle_equal(s.widgets.hovered, p.widget);
@@ -451,7 +456,8 @@ bool card_hot(const ProfileScene& s, const ProfilePart& card) noexcept {
     const auto* part = card.action == ProfileAction::card ? profile_scene_part(s, s.widgets.hovered) : nullptr;
     return part && part->source == card.source &&
            (part->media == ProfileMediaKind::activity_large || part->media == ProfileMediaKind::activity_small ||
-            part->media == ProfileMediaKind::activity_text || part->media == ProfileMediaKind::activity_action);
+            part->media == ProfileMediaKind::activity_text || part->media == ProfileMediaKind::activity_action ||
+            part->media == ProfileMediaKind::voice_avatar);
 }
 // The opaque colour under an activity card at y: its fill over the popout's
 // surface (a Nitro theme's gradient) or the full profile's background.
@@ -598,8 +604,8 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
         return false;
     if (!paint_stream_push_clip(paint, s.rectangle))
         return false;
-    // Banner colour (the first theme colour, else the accent) under its image, and the
-    // avatar's cut-out disc in the card colour.
+    // Banner colour (the first theme colour, else the accent, else the avatar's) under
+    // its image, and the avatar's cut-out disc in the card colour.
     bool ok = paint_stream_push_clip(paint, s.card) &&
               banner_fill(paint, s.banner, profile_scene_card_mask(s, theme).radius, c.banner);
     const float ring = s.avatar_stroke, half = ui_rect_width(s.avatar) * .5f + ring;
@@ -612,6 +618,7 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
     const float activity_radius = large ? theme.scale.radius_xl : theme.scale.radius_lg;
     const float inner_radius = maximum(0.f, activity_radius - card_metrics(large).pad);
     s.activity_art_radius = inner_radius;
+    s.game_icon_radius = theme.scale.radius_sm;
     for (u32 i = 0; ok && i < s.part_count; ++i) {
         const auto& p = s.parts[i];
         const auto* badge = profile_scene_badge(s, p);
@@ -637,8 +644,13 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
         switch (p.look) {
         case ProfileLook::card: {
             const bool activity = p.media == ProfileMediaKind::activity_card;
-            ok = paint_stream_push_rounded(paint, r,
-                                           (activity ? card_hot(s, p) : hot) ? c.card_hover : c.card,
+            // A card lights up under any of its parts that share its click (the Game Collection's icons).
+            bool lit = activity ? card_hot(s, p) : hot;
+            if (!lit && p.action != ProfileAction::none)
+                if (const auto* h = profile_scene_part(s, s.widgets.hovered); h && h->action == p.action)
+                    if (const auto* hn = ui_widget_manager_layout_node(s.widgets, h->widget))
+                        lit = ui_rect_intersects(hn->rectangle, r);
+            ok = paint_stream_push_rounded(paint, r, lit ? c.card_hover : c.card,
                                            activity ? activity_radius : card_radius);
             break;
         }
@@ -702,6 +714,25 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
         case ProfileLook::box:
             ok = paint_stream_push_rounded_border(paint, r, c.card, c.border,
                                                   theme.scale.radius_md, 1);
+            break;
+        case ProfileLook::badge_box: {
+            const auto* hover = profile_scene_part(s, s.widgets.hovered);
+            const auto* node = hover && hover->media == ProfileMediaKind::badge
+                                   ? ui_widget_manager_layout_node(s.widgets, hover->widget)
+                                   : nullptr;
+            const bool lit = node && ui_rect_intersects(node->rectangle, r);
+            ok = paint_stream_push_rounded_border(paint, r, lit ? c.badge_box_hover : c.badge_box, c.badge_box_border,
+                                                  theme.scale.radius_md, 1);
+            break;
+        }
+        case ProfileLook::game_plate:
+            ok = paint_stream_push_rounded(paint, r, c.game_plate, theme.scale.radius_sm);
+            break;
+        case ProfileLook::avatar_plate:
+            ok = paint_stream_push_rounded(paint, r, c.card_hover, ui_rect_width(r) * .5f);
+            break;
+        case ProfileLook::connection_tile:
+            ok = paint_stream_push_rounded(paint, r, c.connection_tile, theme.scale.radius_md);
             break;
         default:
             break;
@@ -767,6 +798,16 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
         if (p.media == ProfileMediaKind::avatar && hovered(s, p))
             ok = paint_stream_push_rounded(paint, s.avatar,
                                            theme.tokens.overlay.shadow, ui_rect_width(s.avatar) * .5f);
+    }
+    // The Game Collection's "+N" veil, over its dimmed icon.
+    for (u32 i = 0; ok && i < s.part_count; ++i) {
+        const auto* n = s.parts[i].look == ProfileLook::count_veil
+                            ? ui_widget_manager_layout_node(s.widgets, s.parts[i].widget)
+                            : nullptr;
+        if (n && ui_rect_intersects(n->rectangle, n->clip_rectangle))
+            ok = paint_stream_push_clip(paint, ui_rect_intersection(n->clip_rectangle, s.rectangle)) &&
+                 paint_stream_push_rounded(paint, n->rectangle, c.count_veil, theme.scale.radius_sm) &&
+                 paint_stream_pop_clip(paint);
     }
     // Status: the cut-out (a phone shape when mobile), then the dot.
     if (ok && ui_rect_has_area(s.status)) {
@@ -875,8 +916,9 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
         const auto clip = ui_rect_intersection(s.rectangle, n->clip_rectangle);
         if (!ui_rect_intersects(r, clip))
             continue;
-        const bool name = ui_widget_handle_equal(p.widget, s.name_widget);
-        const auto* style = name ? appearance(s, appearance_name) : nullptr;
+        const bool name =
+            ui_widget_handle_equal(p.widget, s.name_widget) || ui_widget_handle_equal(p.widget, s.row_name_widget);
+        const auto* style = name ? name_style(s) : nullptr;
         // Activity lines share the card's click and only carry hints.
         const bool underline = p.look == ProfileLook::plain && hovered(s, p) && p.action != ProfileAction::card &&
                                p.action != ProfileAction::hint;
@@ -894,9 +936,9 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
                        p.wrap ? UiTextAlignment::start : UiTextAlignment::center,
                        p.wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
                        TextOverflow::ellipsis,
-                       style ? profile_name_face(style->name.font_id) : UiTextFace::normal,
+                       style ? profile_name_face(style->font_id) : UiTextFace::normal,
                        // The always-shown panel animates its name only under the pointer.
-                       style ? profile_name_effect(style->name, !panel(s) || s.hovered,
+                       style ? profile_name_effect(*style, !panel(s) || s.hovered,
                                                    panel(s) ? s.hover_changed_ms : s.name_started_ms)
                              : UiTextEffect{},
                        bio ? ConstSlice<TextStyleSpan>{s.bio_styles, s.bio_style_count} : ConstSlice<TextStyleSpan>{}}))
@@ -914,9 +956,36 @@ void describe_access(void* context, const UiWidgetManager&, UiWidgetHandle handl
         return;
     }
     const auto* part = profile_scene_part(s, handle);
-    if (!part || !part->hint.bytes)
+    if (!part)
+        return;
+    // A full profile tab is a selectable tab named by its label (the next part), which then reads once.
+    const u32 index = static_cast<u32>(part - s.parts);
+    if (part->look == ProfileLook::tab) {
+        info->role = UiAccessRole::tab;
+        info->name = index + 1 < s.part_count ? s.parts[index + 1].text : Utf8View{};
+        info->state = static_cast<u16>(info->state | ui_access_selectable |
+                                       (part->source == s.tab ? ui_access_selected : 0u));
+        info->actions = ui_access_default_actions(info->role);
+        return;
+    }
+    if (index && s.parts[index - 1].look == ProfileLook::tab) {
+        info->skip = true;
+        return;
+    }
+    // A connected account's name reads as its link, whatever the service's account is called.
+    if (part->action == ProfileAction::connection && part->source < kConnectionMaximum) {
+        info->name = labels(s).connection[part->source].access.view();
+        info->role = UiAccessRole::link;
+        info->actions = ui_access_default_actions(info->role);
+        return;
+    }
+    if (!part->hint.bytes)
         return;
     info->name = part->hint;
+    if (part->media == ProfileMediaKind::connection_logo || part->media == ProfileMediaKind::connection_chip) {
+        info->role = UiAccessRole::image;
+        return;
+    }
     if (part->media != ProfileMediaKind::badge)
         return;
     const bool link = s.profile && part->source < s.profile->badge_count && s.profile->badges[part->source].link.bytes;

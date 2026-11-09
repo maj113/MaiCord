@@ -46,8 +46,8 @@ struct ClientPreferences {
     bool game_detection = false;
     // The recipient's profile beside a one-to-one DM.
     bool dm_profile_visible = true;
-    // Built-in extras. Role colours also on mentions, voice participants and
-    // typing names; the replied-to message's time in a reply preview; folders
+    // Built-in extras. Role colours also on mentions and voice participants;
+    // the replied-to message's time in a reply preview; folders
     // as an accordion, closed by Home, or following the selected server; channels
     // the account cannot view listed locked.
     // On by default: client_preferences_defaults() sets it (no nonzero member initializers
@@ -77,12 +77,66 @@ struct ClientPreferences {
     // The last built-in theme chosen, kept while a custom or catalog theme is active: leaving the custom
     // theme (Use built-in, removing it) restores this one.
     ClientTheme builtin_theme = ClientTheme::dark;
+    // Accessibility. Chat text size in px (12..24; 0 keeps the theme's body size); how far interface colours are
+    // desaturated (100 minus the Saturation slider's percent, so zero is full colour) and the zoom in percent; the
+    // text-to-speech rate as an index of the rates 0, 0.25 .. 10 (x1 at 4); reduced motion following the system
+    // setting; the saturation also applied to user colours (role colours, banners); links always underlined; how role
+    // colours show (ClientRoleStyle). Nonzero defaults come from client_preferences_defaults().
+    u8 chat_font_size = 0;
+    u8 desaturation = 0;
+    u8 zoom;
+    u8 speech_rate;
+    bool reduced_motion_sync;
+    bool desaturate_user_colors = false;
+    bool underline_links = false;
+    u8 role_style = 0;
+    // Streamer Mode: on, turned on while a streaming tool runs, and what it hides or silences.
+    bool streamer_mode = false;
+    bool streamer_auto;
+    bool streamer_hide_personal;
+    bool streamer_hide_invites;
+    bool streamer_disable_sounds;
+    bool streamer_disable_notifications;
+    bool streamer_hide_window = false;
+    // Notifications > "Speak all messages out loud" (ClientSpeakMessages; never by default).
+    u8 speak_messages = 0;
+    // Developer > Application Test Mode: the application in test mode (0 for none), kept across restarts.
+    u64 test_mode_application = 0;
 };
+// Role colours on names (the default), as a dot next to names, or not at all.
+enum ClientRoleStyle : u8 { client_role_style_names, client_role_style_dot, client_role_style_hidden };
+// Which messages are read aloud besides /tts ones: none, those of the selected channel, or all.
+enum ClientSpeakMessages : u8 { client_speak_messages_never, client_speak_messages_selected, client_speak_messages_all };
+inline constexpr u8 kClientPreferencesSpeechRateCount = 41, kClientPreferencesSpeechRateDefault = 4;
+inline constexpr u8 kClientPreferencesZoomMinimum = 50, kClientPreferencesZoomMaximum = 200;
+// Zoom level's marks (percent), which the slider and Ctrl +/- step through, and Text size in chat's (px).
+inline constexpr u8 kClientPreferencesZoomScales[]{50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200};
+inline constexpr u8 kClientPreferencesFontSizes[]{12, 14, 15, 16, 18, 20, 24};
+// The index of the mark nearest `value` (the first of two equally near).
+template <u32 Count>
+constexpr u32 client_preferences_nearest_mark(const u8 (&marks)[Count], float value) noexcept {
+    u32 best = 0;
+    for (u32 i = 1; i < Count; ++i)
+        if ((marks[i] > value ? marks[i] - value : value - marks[i]) <
+            (marks[best] > value ? marks[best] - value : value - marks[best]))
+            best = i;
+    return best;
+}
+// The speech rate (speech.hpp's -10..10, 0 the system's own) of a Text-to-Speech rate index x(index / 4): 10 log3 of
+// the factor, as SAPI steps; SAPI tops out at three times as fast.
+constexpr i32 client_preferences_speech_rate(u8 index) noexcept {
+    constexpr i16 rates[]{-10, -10, -6, -3, 0, 2, 4, 5, 6, 7, 8, 9};
+    return index < sizeof(rates) / sizeof(rates[0]) ? rates[index] : 10;
+}
+// Reduced motion as chosen: the user's switch, or while it follows the computer's setting, that setting.
+constexpr bool client_preferences_reduced_motion(const ClientPreferences& preferences, bool system_reduced) noexcept {
+    return preferences.reduced_motion || (preferences.reduced_motion_sync && system_reduced);
+}
 inline constexpr u8 kClientPreferencesGroupSpacingCount = 6;
 inline constexpr u16 kClientPreferencesPaneWidthMinimum = 120;
 inline constexpr u16 kClientPreferencesPaneWidthMaximum = 1024;
-inline constexpr u32 kClientPreferencesVersion = 9;
-inline constexpr u32 kClientPreferencesRecordBytes = 80;
+inline constexpr u32 kClientPreferencesVersion = 10;
+inline constexpr u32 kClientPreferencesRecordBytes = 96;
 
 enum class ClientPreferencesError : u8 {
     none,
@@ -116,6 +170,11 @@ constexpr ClientPreferences client_preferences_defaults() noexcept {
     preferences.image_zoom = true;
     preferences.image_zoom_factor = kClientPreferencesDefaultZoomFactor;
     preferences.image_zoom_size = kClientPreferencesDefaultZoomSize;
+    preferences.zoom = 100;
+    preferences.speech_rate = kClientPreferencesSpeechRateDefault;
+    preferences.reduced_motion_sync = true;
+    preferences.streamer_auto = preferences.streamer_hide_personal = preferences.streamer_hide_invites = true;
+    preferences.streamer_disable_sounds = preferences.streamer_disable_notifications = true;
     return preferences;
 }
 bool client_preferences_valid(const ClientPreferences& preferences) noexcept;
@@ -137,9 +196,16 @@ bool client_preferences_equal(const ClientPreferences& a, const ClientPreference
 // A stored effect id outside the catalog restores "none" with its default
 // tuning. Bytes 68..71 hold the two pane widths (little-endian u16; zero in
 // records written before they existed, which restores the theme defaults).
-// Exactly 80 bytes; portable byte encoding, zero reserved fields, accidental
-// corruption checksum at 72..79. Only the current version decodes; any other
-// version fails with `version` and callers treat it like a missing file.
+// Bytes 72..77: chat text size, desaturation, zoom, speech rate, then flags:
+// byte 76 bits 0 reduced motion follows the system, 1 saturation applies to user
+// colours, 2 links underlined, 3..4 role style; byte 77 bits 0 Streamer Mode, 1
+// automatic, 2 hide personal information, 3 hide invite links, 4 disable sounds,
+// 5 disable notifications, 6 hide the window from capture. Byte 78 is Speak all messages out loud
+// (ClientSpeakMessages), 79 is zero, and 80..87 hold the test mode application id (little-endian u64).
+// Exactly 96 bytes; portable byte encoding, zero reserved fields, accidental
+// corruption checksum at 88..95. A version 9 record (80 bytes, checksum at
+// 72..79) decodes with the newer fields at their defaults; any other version
+// fails with `version` and callers treat it like a missing file.
 // No heap allocation.
 // Decode preserves output on failure.
 ClientPreferencesResult client_preferences_encode(const ClientPreferences& preferences,

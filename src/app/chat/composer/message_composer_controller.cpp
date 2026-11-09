@@ -337,7 +337,7 @@ MessageComposerControllerResult queue_send(
     u64 now_monotonic_ms, u64 reply_message_id, ConstSlice<UploadedAttachment> attachments,
     const ConstSlice<u64>& attachment_sizes, MessageComposer* source, ConstSlice<u64> sticker_ids,
     bool mention_reply_author, const MessageComposerReplySnapshot* reply_snapshot, bool detached,
-    bool silent, bool suppress_embeds) noexcept {
+    bool silent, bool suppress_embeds, bool tts = false) noexcept {
     auto* composer = source ? source : controller ? controller->composer : nullptr;
     if (!controller_valid(controller) || !composer || (source && attachments.count) || author_id == 0 || now_unix_ms == 0 || now_monotonic_ms == 0 ||
         (attachment_sizes.count && (!attachment_sizes.data || attachment_sizes.count != attachments.count)) ||
@@ -440,10 +440,11 @@ MessageComposerControllerResult queue_send(
         author_id,
         now_unix_ms,
     };
-    request->sticker_count = sticker_ids.count;
+    request->sticker_count = static_cast<u8>(sticker_ids.count);
     request->mention_reply_author = reply_message_id != 0 && mention_reply_author;
     request->suppress_notifications = suppress_notifications;
     request->suppress_embeds = suppress_embeds;
+    request->tts = tts;
     for (u32 i = 0; i < sticker_ids.count; ++i) request->sticker_ids[i] = retained_stickers[i];
     copy_bytes(controller->request_text + controller->request_text_used,
                reinterpret_cast<const u8*>(content.data), content.bytes);
@@ -480,10 +481,11 @@ MessageComposerControllerResult message_composer_controller_queue_send(
     MessageComposerController* controller, bool channel_allows_send, u64 author_id, u64 now_unix_ms,
     u64 now_monotonic_ms, u64 reply_message_id, const ConstSlice<UploadedAttachment>& attachments,
     const ConstSlice<u64>& attachment_sizes, MessageComposer* source, const ConstSlice<u64>& sticker_ids,
-    bool mention_reply_author, const MessageComposerReplySnapshot* reply_snapshot, bool suppress_embeds) noexcept {
+    bool mention_reply_author, const MessageComposerReplySnapshot* reply_snapshot, bool suppress_embeds,
+    bool tts) noexcept {
     return queue_send(controller, channel_allows_send, author_id, now_unix_ms, now_monotonic_ms, reply_message_id,
                       attachments, attachment_sizes, source, sticker_ids, mention_reply_author, reply_snapshot, false,
-                      false, suppress_embeds);
+                      false, suppress_embeds, tts);
 }
 
 MessageComposerControllerResult message_composer_controller_queue_text(
@@ -658,6 +660,7 @@ MessageComposerControllerResult message_composer_controller_prepare_submit(
         submit->mention_reply_author = false;
         submit->suppress_notifications = false;
         submit->suppress_embeds = false;
+        submit->tts = false;
         reset_value(&submit->forward_reference);
     };
     if (submit)
@@ -701,6 +704,7 @@ MessageComposerControllerResult message_composer_controller_prepare_submit(
     submit->mention_reply_author = selected->reply_message_id != 0 && selected->mention_reply_author;
     submit->suppress_notifications = selected->suppress_notifications;
     submit->suppress_embeds = selected->suppress_embeds;
+    submit->tts = selected->tts;
     submit->sticker_count = selected->sticker_count;
     for (u32 i = 0; i < selected->sticker_count; ++i) submit->sticker_ids[i] = selected->sticker_ids[i];
     if (selected->attachment_bytes && !message_attachment_storage_read(

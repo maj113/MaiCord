@@ -8,6 +8,7 @@
 //   MAICORD_UI_SHOWCASE_PROBE  website screenshots (label showcase, opt-in).
 //   MAICORD_REGIONAL_FLAG_SURFACES_PROBE  the bundled flags on message, composer and reaction surfaces.
 #include "ui_probe_internal.hpp"
+#include "maicord/ui/shell/notice_band.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/application_downloads_inactive.hpp"
 #include "../support/warp_device.hpp"
@@ -349,16 +350,23 @@ bool synchronize_probe_shell_layout(Utf8View typing_label,
     }
     metrics.composer_height =
         friends ? 0.f
-        : typing_label.bytes != 0 || attachments.label.bytes != 0
+        : attachments.label.bytes != 0
             ? message_composer_scene_preferred_height(g_probe.message_composer,
                                                       ui_scene_composer_width(metrics, width_dip), false,
-                                                      typing_label.bytes != 0, message_composer_attachment_row(attachments))
+                                                      message_composer_attachment_row(attachments))
             : metrics.composer_height +
-                  message_composer_scene_toolbar_height(ui_scene_composer_width(metrics, width_dip));
+                  message_composer_scene_toolbar_height(ui_scene_composer_width(metrics, width_dip)) +
+                  message_composer_scene_chrome_height(false, 0);
+    // The typing strip draws over the list's bottom space, as in the application.
+    metrics.composer_overlap = friends ? 0.f : message_composer_scene_chrome_height(false, 0);
     if (!friends && (metrics.composer_height != kGuildChannelShellLayoutMetrics.composer_height ||
-                     typing_label.bytes != 0 || attachments.label.bytes != 0))
+                     attachments.label.bytes != 0))
         metrics.revision += 10'000u + ui_extent_units(metrics.composer_height);
     metrics.revision += static_cast<u32>(metrics.flags) * 7u;
+    if (g_probe.shell_scene.notice) {
+        metrics.notice_height = g_probe.shell_scene.notice->height;
+        metrics.revision += 300'000u + ui_extent_units(metrics.notice_height);
+    }
     if (!ui_scene_layout_with_metrics(&g_probe.shell_scene,
                                       friends                         ? UiShellView::friends
                                       : g_probe.chat_state.home_selected ? UiShellView::private_channels
@@ -625,7 +633,7 @@ bool probe_caption_login(bool visible) noexcept {
     constexpr Utf8View payload =
         utf8_literal("https://chat_state.com/ra/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     static QrCode qr{};
-    if (!qr_code_encode_v5_m(ConstSlice<u8>{reinterpret_cast<const u8*>(payload.data), payload.bytes}, &qr))
+    if (!qr_code_encode_m(ConstSlice<u8>{reinterpret_cast<const u8*>(payload.data), payload.bytes}, 5, &qr))
         return false;
     const RendererLoginView view{{},    {},    {},    0,     0,     false, LoginControl::qr,
                                  RendererLoginStatus::remote_qr_ready, login_mfa_capability_none,
@@ -974,10 +982,13 @@ bool initialize_fixture(bool focused_text = false) noexcept {
             const UiRect visible = ui_rect_intersection(bounds, batch.clip);
             if (!ui_rect_has_area(ui_rect_intersection(visible, typing->rectangle)))
                 continue;
-            if (!ui_rect_equal(ui_rect_intersection(visible, typing->clip_rectangle), visible))
+            // The label's line sits kUiTypingLabelDrop below the row's middle; its clip grows by it.
+            UiRect text_clip = typing->clip_rectangle;
+            text_clip.bottom += kUiTypingLabelDrop;
+            if (!ui_rect_equal(ui_rect_intersection(visible, text_clip), visible))
                 return false;
             const Color expected = kDefaultTheme.text_primary;
-            if (quad.top < typing->rectangle.top || quad.bottom > typing->rectangle.bottom ||
+            if (quad.top < typing->rectangle.top || quad.bottom > typing->rectangle.bottom + kUiTypingLabelDrop ||
                 quad.color.red != expected.red || quad.color.green != expected.green ||
                 quad.color.blue != expected.blue || quad.color.alpha != expected.alpha)
                 return false;
@@ -994,8 +1005,8 @@ bool initialize_fixture(bool focused_text = false) noexcept {
         return false;
     log_write(LogLevel::info, "probe", "composer_typing_separate_surface_glyphs_pass");
     // Reproduce a child refresh consuming the typing change before the parent
-    // checks its allocation. The label is gone but its 24 DIP still belong to
-    // the shell; it must shrink even though the label now agrees with the store.
+    // checks its allocation. The label is gone but its 24 DIP strip stays
+    // reserved: the composer keeps its height, so nothing above it moves.
     const float typing_surface_height = ui_rect_height(composer_surface->rectangle);
     const float composer_bottom = composer_surface->rectangle.bottom;
     auto& typing_scene = g_probe.message_composer_scene;
@@ -1008,8 +1019,8 @@ bool initialize_fixture(bool focused_text = false) noexcept {
                  .ok() ||
             typing_scene.typing_label_bytes)
             return false;
-        const float required = message_composer_scene_cached_height(typing_scene, false, false, false);
-        if (ui_rect_height(typing_scene.viewport) != required + 24 || !synchronize_probe_shell_layout() ||
+        const float required = message_composer_scene_cached_height(typing_scene, false, 0);
+        if (ui_rect_height(typing_scene.viewport) != required || !synchronize_probe_shell_layout() ||
             !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
             !probe_present(&g_probe.renderer, kDefaultTheme))
             return false;
@@ -2165,8 +2176,7 @@ int run_probe() noexcept {
             const float height = renderer.height * 96.f / maximum(renderer.dpi, 1u);
             auto metrics = kGuildChannelShellLayoutMetrics;
             metrics.composer_height = message_composer_scene_preferred_height(
-                g_probe.message_composer, ui_scene_composer_width(metrics, width), state.reply.bytes != 0,
-                state.status.bytes != 0);
+                g_probe.message_composer, ui_scene_composer_width(metrics, width), state.reply.bytes != 0);
             metrics.revision = 200'000u + ui_extent_units(metrics.composer_height);
             if (!ui_scene_layout_with_metrics(&g_probe.shell_scene, UiShellView::guild_channel, metrics,
                                               width, height))
@@ -2226,9 +2236,12 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : static_cast<int>(g_probe.failure_stage ? g_probe.failure_stage : 742);
     }
-    if (probe_option_enabled(L"MAICORD_PROFILE_BRAILLE_UI_PROBE"))
-        return finish_gate(initialize_fixture(true) && probe_braille_profile() && probe_profile_member_modal(),
-                           "braille_profile_native_ui_passed", "braille_profile_native_ui_failed", 270);
+    if (probe_option_enabled(L"MAICORD_PROFILE_BRAILLE_UI_PROBE")) {
+        const bool valid = initialize_fixture(true) && probe_braille_profile() && probe_profile_member_modal();
+        if (!valid)
+            log_u64(LogLevel::error, "probe", "braille_profile_failure_stage", g_probe.failure_stage);
+        return finish_gate(valid, "braille_profile_native_ui_passed", "braille_profile_native_ui_failed", 270);
+    }
     if (probe_option_enabled(L"MAICORD_ANIMATION_HANDOFF_UI_PROBE")) {
         bool valid = initialize_fixture(true);
         valid = valid && application_media_animation_ui_probe(g_probe.renderer, probe_capture_frame);
@@ -2272,6 +2285,22 @@ int run_probe() noexcept {
         valid = valid && poll_scene_ui_probe(g_probe.renderer, probe_capture_frame);
         valid = valid && navigation_gaps_ui_probe(g_probe.renderer, &g_probe.navigation, g_probe.chat_state,
                                                   probe_sync_shell_and_text, probe_capture_frame);
+        // The app-wide notice band (Application Test Mode's) over the shell, which lays out below it.
+        if (valid) {
+            static constexpr Utf8View kNoticeText = utf8_literal(
+                "Test mode is currently active for Starfall Tactics Dev. Unpublished SKUs will appear and you will "
+                "not be charged for any related payments.");
+            static UiNoticeBand notice{};
+            notice = {kNoticeText, {}, {{34, 20, text_style_bold}}, 1, UiNoticeKind::warning, true,
+                      kUiNoticeBandHeight};
+            g_probe.shell_scene.notice = &notice;
+            const bool shown = probe_sync_shell_and_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
+                               probe_capture_frame(L"notice-band-test-mode.bmp");
+            const auto* rail = ui_scene_node(g_probe.shell_scene, UiSemantic::guild_rail);
+            log_u64(LogLevel::info, "probe", "notice_band_rail_top", rail ? static_cast<u64>(rail->rectangle.top) : 0);
+            g_probe.shell_scene.notice = nullptr;
+            valid = shown && rail && rail->rectangle.top >= kUiNoticeBandHeight && probe_sync_shell_and_text();
+        }
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "video_controls_injected_ui_passed" : "video_controls_injected_ui_failed");
         return finish_probe(valid ? 0 : 250);
@@ -2326,8 +2355,8 @@ int run_probe() noexcept {
     constexpr Utf8View qr_payload =
         utf8_literal("https://chat_state.com/ra/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     QrCode login_qr{};
-    if (!qr_code_encode_v5_m(ConstSlice<u8>{reinterpret_cast<const u8*>(qr_payload.data), qr_payload.bytes},
-                             &login_qr)) {
+    if (!qr_code_encode_m(ConstSlice<u8>{reinterpret_cast<const u8*>(qr_payload.data), qr_payload.bytes}, 5,
+                          &login_qr)) {
         return finish_probe(8);
     }
     const RendererLoginView login_view{utf8_literal("native.user@example.test"),
@@ -3723,7 +3752,7 @@ int run_probe() noexcept {
             !ui_scene_node(g_probe.shell_scene, UiSemantic::private_add) ||
             !ui_scene_node(g_probe.shell_scene, UiSemantic::private_call) ||
             !ui_scene_node(g_probe.shell_scene, UiSemantic::private_create) ||
-            !utf8_equal(members, utf8_literal("4 members")) ||
+            !utf8_equal(members, utf8_literal("4 Members")) ||
             ui_private_row_status(private_rows, 9998) != UiPrivateRowStatus::online)
             return 15;
         log_write(LogLevel::info, "probe", "group_conversation_icon_members_presence_and_actions_passed");

@@ -23,37 +23,12 @@ UiRect ui_voice_disconnect_rectangle(UiRect footer) noexcept;
 
 // Voice channel extras the channel list borrows (navigation_view.voice_extras).
 struct UiVoiceChannelExtras {
-    const struct VoiceChannelInfoStore* info; // Statuses and session start times.
+    const struct VoiceChannelInfoStore* info; // Statuses.
     u64 status_channel_id; // The connected channel offering "Set a channel status".
     u64 invite_channel_id; // The connected channel showing "Invite to Voice".
-    u64 clock_s;           // Unix second the timers show; 0 hides them.
     u32 revision;          // Bumped when info, status_channel_id or invite_channel_id change.
     bool status_hovered, invite_hovered, invite_close_hovered;
 };
-
-// Session timers of voice channels with a start time. One wall clock in whole
-// seconds drives every visible timer: a label change once per displayed second
-// while focused, every 15 s otherwise, and none while no timer row is visible.
-inline constexpr u32 kUiVoiceElapsedBytes = 16;
-inline constexpr u64 kUiVoiceTimerSlowSeconds = 15;
-struct UiVoiceTimerClock {
-    u64 shown_s; // Unix second the labels show.
-    u64 wake_ms; // Monotonic time of the next label change while visible.
-    bool visible;
-};
-// "m:ss" under an hour, then "h:mm:ss"; hours keep growing. Returns the bytes
-// written (capacity kUiVoiceElapsedBytes suffices).
-u32 ui_voice_elapsed_format(u64 elapsed_ms, char* output, u32 capacity) noexcept;
-// visible: a timer row is on screen in a shown window. True when visible
-// labels changed (one repaint per change).
-bool ui_voice_timer_tick(UiVoiceTimerClock* clock, u64 now_ms, u64 unix_ms, bool visible, bool focused) noexcept;
-constexpr u64 ui_voice_timer_next_wake(const UiVoiceTimerClock& clock) noexcept {
-    return clock.visible ? clock.wake_ms : 0;
-}
-// The row's timer: a GUILD_VOICE channel with a start time and no mention
-// badge (the badge takes the spot). Writes the label; 0 when none shows.
-u32 ui_voice_timer_label(const ChannelViewRow& row, const UiVoiceChannelExtras* extras, char* output,
-                         u32 capacity) noexcept;
 
 // "Invite to Voice" under the connected channel's users: shown on each new
 // connection and dismissed after 10 s of being on screen without the pointer
@@ -77,6 +52,11 @@ constexpr u64 ui_voice_invite_channel(const UiVoiceInviteCountdown& countdown) n
     return countdown.dismissed ? 0 : countdown.channel_id;
 }
 
+// A voice session's length as read aloud: "1 hour, 2 minutes, 3 seconds" (zero parts left out, "0 seconds" for none).
+// Returns the bytes written; 0 for a buffer under kUiVoiceDurationBytes.
+inline constexpr u32 kUiVoiceDurationBytes = 64;
+u32 ui_voice_duration_text(u64 elapsed_s, char* output, u32 capacity) noexcept;
+
 // Status line under a voice channel's name (stage topic geometry) and the
 // invite row after its users; row_rectangle is the channel row's layout box.
 UiRect ui_voice_status_rectangle(const ChannelViewRow& row, UiRect row_rectangle) noexcept;
@@ -84,8 +64,4 @@ struct UiVoiceInviteRow {
     UiRect row, icon, label, close;
 };
 bool ui_voice_invite_row(const ChannelViewRow& row, const UiRect& row_rectangle, UiVoiceInviteRow* output) noexcept;
-// Timer text box at the right end of a voice row head, from the row's label
-// content box; *name_right receives where the channel name must end.
-// Subtext digits are tabular, so the box only grows with the digit count.
-UiRect ui_voice_elapsed_rectangle(UiRect label, u32 bytes, float gap, float* name_right) noexcept;
 } // namespace maicord

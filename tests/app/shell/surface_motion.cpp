@@ -59,7 +59,7 @@ void run() noexcept {
     const auto* initial_bytes = reinterpret_cast<const u8*>(&zero_default_owner);
     for (u32 i = 0; i < sizeof(zero_default_owner); ++i)
         zero_default = zero_default && initial_bytes[i] == 0;
-    check(zero_default && sizeof(zero_default_owner) == 592,
+    check(zero_default && sizeof(zero_default_owner) == 648,
           "surface motion: whole static owner has a zero-filled default representation and bounded size");
     FakeHost host{};
     host.synchronize(0);

@@ -5,6 +5,7 @@
 
 namespace maicord {
 
+struct UiNoticeBand;
 inline constexpr u32 kMaximumUiNodes = 32;
 // The guild header dropdown: a chevron (X while open) at the trailing edge of
 // the 32-DIP button, with 8-DIP rounded corners.
@@ -43,6 +44,8 @@ enum class UiSemantic : u8 {
     private_create,
     private_add,
     private_call,
+    // A one-to-one DM's header identity (avatar and name): opens the full profile, shows the other names.
+    private_identity,
     inbox_toggle,
     // The server name and chevron above the channel list (guild views only):
     // opens the server header popout.
@@ -50,6 +53,10 @@ enum class UiSemantic : u8 {
     // Invite People at the end of the server header (with the
     // ui_shell_layout_guild_invite flag).
     guild_invite,
+    // Home's header: the "Find or start a conversation" bar, opening the quick switcher.
+    private_search,
+    // Home's "Direct Messages" heading above the conversations, holding private_create.
+    private_heading,
     count,
 };
 
@@ -94,6 +101,15 @@ struct UiShellLayoutMetrics {
     // Space kept free above the account panel (voice connection card). The
     // panel spans the server rail and the channel list, which both end above it.
     float navigation_footer_reserve;
+    // The app-wide notice band's shown height (ui/shell/notice_band.hpp), 0 without one: the whole shell lays out
+    // below it, so its panes and their hit-tests shift down by it.
+    float notice_height;
+    // The top part of composer_height (its typing strip) that draws over the bottom of the message list: the
+    // list reaches that far below the composer's top, so the strip takes none of the list's bottom spacing.
+    float composer_overlap;
+    // A one-to-one DM header's identity (avatar and name) as one focusable button of this width, 0 without one
+    // (UiSemantic::private_identity; ui_private_header_identity).
+    float private_identity_width;
 };
 
 inline constexpr UiShellLayoutMetrics kGuildChannelShellLayoutMetrics{
@@ -159,6 +175,9 @@ struct UiScene {
     // Host state: the member toggle switches the DM profile (a one-to-one DM),
     // which the window is too narrow for while unavailable.
     bool side_panel_profile, side_panel_unavailable;
+    // Host state: the app-wide notice band (ui/shell/notice_band.hpp) drawn over the root's top inset
+    // (UiShellLayoutMetrics::notice_height); null without one.
+    const UiNoticeBand* notice;
 };
 
 struct UiVirtualRange {

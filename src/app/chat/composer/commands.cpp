@@ -242,6 +242,12 @@ bool application_commands_activate(u32 action) noexcept {
                ? composer_apply_result(edit_result, text_revision != g_app.message_composer.text_revision)
                : refresh_message_composer_ui();
 }
+bool application_commands_take_tts() noexcept {
+    if (!commands || !commands->builtin_tts)
+        return false;
+    commands->builtin_tts = false;
+    return commands->builtin_text_revision == g_app.message_composer.text_revision;
+}
 bool application_commands_send(bool* handled) noexcept {
     const auto input = message_composer_text(g_app.message_composer);
     // A built-in text command's message, rewritten in place, sends as typed.
@@ -308,6 +314,8 @@ bool application_commands_send(bool* handled) noexcept {
         }
         // A built-in's use is recorded as it runs (a plugin's is not: its ids are not Discord's).
         frecency_track(*c.selected.command, c.guild);
+        const bool speaks = run == BuiltinCommandRun::text && !plugin_command_application(c.selected.command->application_id) &&
+                            builtin_command_speaks(*c.selected.command);
         builtin_command_results(nullptr, {}, {});
         command_autocomplete_cancel(&c.autocomplete);
         reset_value(&c.error);
@@ -322,6 +330,7 @@ bool application_commands_send(bool* handled) noexcept {
             return true;
         if (run == BuiltinCommandRun::text) {
             c.builtin_text = true;
+            c.builtin_tts = speaks;
             c.builtin_text_revision = g_app.message_composer.text_revision;
             *handled = false;
         }

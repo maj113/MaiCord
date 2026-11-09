@@ -37,6 +37,8 @@ struct HttpsExchangeOptions {
     ConstSlice<HttpsHeader> headers{};
     ConstSlice<u8> body{}; // At most 4096 bytes; a nonempty body selects POST.
     bool read_error_body{}; // OAuth errors have structured 4xx responses.
+    // Asks for Content-Encoding: gzip; the body then streams as sent (response.gzip) and the caller inflates it.
+    bool accept_gzip{};
 };
 // Shared native Schannel exchange for bounded provider metadata and OAuth.
 // No redirects, cookie jar or credential forwarding. The caller owns origin

@@ -11,6 +11,8 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/media/avatar_media.hpp"
 #include "../chat/channel_authority.hpp"
+#include "../chat/game_lookup.hpp"
+#include "maicord/ui/chat/game_media.hpp"
 
 namespace maicord::app_detail {
 
@@ -847,11 +849,40 @@ bool ApplicationMediaPump::request_chip_guild_icons(bool search, bool* stop_scan
             continue;
         const auto& semantic = text->content_semantics[region.semantic_index];
         const UiRect cell{region.left, region.top, region.right, region.bottom};
-        if (semantic.kind != MessageMarkdownSemanticKind::guild_icon || (semantic.reserved & 2u) ||
+        const bool game = semantic.kind == MessageMarkdownSemanticKind::game_icon;
+        const bool author = semantic.kind == MessageMarkdownSemanticKind::author_avatar;
+        if ((!game && !author && semantic.kind != MessageMarkdownSemanticKind::guild_icon) || (semantic.reserved & 2u) ||
             ((semantic.reserved & kRendererSearchSemanticFlag) != 0) != search ||
             !ui_rect_has_area(search ? ui_search_scene_content_clip(*application.renderer.search_scene, cell)
                                      : ui_rect_intersection(application.message_scene.viewport, cell)))
             continue;
+        // A shown game mention asks for its game, then for its icon (32 px).
+        if (game) {
+            game_lookup_want(semantic.target);
+            GameImageMedia icon;
+            if (!game_chip_icon_media(application_games(), semantic.target, &icon))
+                continue;
+            ProfileMedia media{};
+            media.key = icon.key;
+            media.url.bytes = static_cast<u16>(icon.url_bytes);
+            copy_bytes(media.url.data, icon.url, icon.url_bytes);
+            if (!request_profile_media(media, stop_scan))
+                return false;
+            if (*stop_scan)
+                return true;
+            continue;
+        }
+        // A compact row's author avatar, as the row's own avatar would ask for it.
+        if (author) {
+            const UserRecord* user = application.account_ui
+                                         ? user_store_find(application.account_ui->user_store, semantic.target)
+                                         : nullptr;
+            if (user && !request_visible_user_avatar(*user, stop_scan, false))
+                return false;
+            if (*stop_scan)
+                return true;
+            continue;
+        }
         const GuildRecord* guild = chat_state_store_find_guild(*state, semantic.target);
         if (!guild || !request_visible_guild_icon(*guild, stop_scan, false,
                                                   false))

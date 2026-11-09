@@ -82,7 +82,7 @@ inline bool reply_draft_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& me
             metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
             metrics.member_sidebar_width = 0;
             metrics.composer_height = message_composer_scene_cached_height(
-                *composer, reply_visible, false, false,
+                *composer, reply_visible, false,
                 ui_scene_composer_width(metrics, renderer.width * 96.f / renderer.dpi));
             if (!state || !users || !model || !navigation_view_rebuild(&navigation, *state).ok())
                 return false;
@@ -116,7 +116,7 @@ inline bool reply_draft_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& me
                 if (!renderer_measure_message_composer(&renderer, &measured))
                     return false;
                 composer->measured_row_height =
-                    measured - message_composer_scene_chrome_height(reply_visible, false, false) -
+                    measured - message_composer_scene_chrome_height(reply_visible, false) -
                     message_composer_scene_toolbar_height(ui_rect_width(composer->viewport));
                 if (measured == metrics.composer_height) {
                     settled = true;

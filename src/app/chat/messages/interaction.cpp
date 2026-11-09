@@ -4,6 +4,7 @@
 #include "../../guild/lifecycle.hpp"
 #include "../../guild/menu.hpp"
 #include "../../voice/stream.hpp"
+#include "../../voice/go_live.hpp"
 #include "../../voice/soundboard.hpp"
 #include "../../account/friends.hpp"
 #include "../../guild/member_moderation.hpp"
@@ -16,6 +17,8 @@
 #include "maicord/platform/window/key.hpp"
 #include "../../account/profile.hpp"
 #include "../composer/commands.hpp"
+#include "../composer/game_search.hpp"
+#include "maicord/model/chat/game_store.hpp"
 
 namespace maicord::app_detail {
 
@@ -24,6 +27,8 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
         return application_profile_menu_activate(action);
     if (application_voice_menu_action(action))
         return application_voice_menu_activate(action);
+    if (application_go_live_menu_action(action))
+        return application_go_live_menu_activate(action);
     if (application_stream_menu_action(action))
         return application_stream_menu_activate(action);
     if (application_soundboard_menu_action(action))
@@ -125,8 +130,11 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
             return true;
         return application_pinned_messages_action(owner_id, pin, !shift_pressed);
     }
+    if (g_app.popup_owner_kind == PopupOwnerKind::autocomplete && action >= popup_action_game_first &&
+        action < popup_action_game_first + kGameSearchResultMaximum)
+        return application_game_search_pick(action - popup_action_game_first);
     if (g_app.popup_owner_kind == PopupOwnerKind::autocomplete &&
-        action >= popup_action_autocomplete_first) {
+        action >= popup_action_autocomplete_first && action < popup_action_game_first) {
         const u32 suggestion_index = action - popup_action_autocomplete_first;
         if (suggestion_index >= g_app.popup_scene.item_count || suggestion_index >= kPopupItemCapacity) {
             return false;
@@ -139,10 +147,12 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
         set_popup_owner(PopupOwnerKind::none);
         g_app.composer_autocomplete.count = 0;
         g_app.composer_autocomplete.kind = ComposerAutocompleteKind::none;
+        const bool game = suggestion.item_kind == ComposerAutocompleteKind::game_input;
         return composer_apply_result(
-            message_composer_replace_range(&g_app.message_composer, begin, end,
-                                           Utf8View{suggestion.insertion, suggestion.insertion_bytes}),
-            true);
+                   message_composer_replace_range(&g_app.message_composer, begin, end,
+                                                  Utf8View{suggestion.insertion, suggestion.insertion_bytes}),
+                   true) &&
+               (!game || application_game_search_started());
     }
     bool applied = false;
     if (application_private_channel_menu_action(action, owner_id, shift_pressed, &applied)) {

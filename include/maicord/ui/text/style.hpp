@@ -28,6 +28,20 @@ enum class UiTextFace : u8 {
     count
 };
 
+// Chat text (message content, author lines, the composer) is sized by Accessibility's Text size in chat, not by the
+// interface's body size. The bit rides on the face, so commands, measure requests and measure caches carry it
+// unchanged; the face itself is the low bits.
+inline constexpr u8 kUiTextFaceChatBit = 0x80;
+constexpr UiTextFace ui_text_face_chat(UiTextFace face) noexcept {
+    return static_cast<UiTextFace>(static_cast<u8>(face) | kUiTextFaceChatBit);
+}
+constexpr bool ui_text_face_is_chat(UiTextFace face) noexcept {
+    return (static_cast<u8>(face) & kUiTextFaceChatBit) != 0;
+}
+constexpr UiTextFace ui_text_face_base(UiTextFace face) noexcept {
+    return static_cast<UiTextFace>(static_cast<u8>(face) & ~kUiTextFaceChatBit);
+}
+
 enum class TextWrapping : u8 {
     wrap,
     no_wrap,

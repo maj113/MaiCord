@@ -71,7 +71,7 @@ bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, c
                   const Color& placeholder, bool first = false) noexcept;
 bool queue_header_tag_icon(D3D11Renderer* renderer, const MessageScene& scene, const MessageTextCommand& command,
                            const UserAppearanceRecord& appearance, const UiBadgeWidget& tag) noexcept;
-bool queue_chip_guild_icons(D3D11Renderer* renderer, bool search) noexcept;
+bool queue_chip_guild_icons(D3D11Renderer* renderer, const Theme& theme, bool search) noexcept;
 bool paint_chip_initial_plates(D3D11Renderer* renderer, const Theme& theme, bool search) noexcept;
 bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, const Theme& theme,
                          u32* effect_first_batch) noexcept;

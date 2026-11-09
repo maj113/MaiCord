@@ -65,6 +65,7 @@ struct GuildAssetRequest;
 struct GuildCommunityRequest;
 struct GuildInviteRequest;
 struct GuildModerationRequest;
+struct GuildAutomationRequest;
 enum class JsonReadError : u8;
 enum class JsonScanError : u8;
 struct MediaAssetKey;
@@ -117,6 +118,8 @@ enum class UserAuthTransitionError : u8;
 struct UserGuildSettingsPatch;
 struct UserSocialRequest;
 struct VideoStreamFrame;
+struct GoLiveCommand;
+struct GoLiveSnapshot;
 struct VoiceAudioSettings;
 struct VoiceAudioStatus;
 struct VoiceMessageCommand;
@@ -386,11 +389,11 @@ using AccountModuleLoginCopyWebAuthnChallengeFunction =
 using AccountModuleLoginNotificationHandleFunction = HANDLE(WINAPI*)(void* instance) noexcept;
 using AccountModuleLoginStopFunction = AccountLoginStatus(WINAPI*)(void** instance,
                                                                    u32 timeout_ms) noexcept;
-
 // Operations: 0 GET a profile (guild: its server); 1-3 PATCH the bio, pronouns
 // or global name (value); 4 GET collectibles product `user`; 5 GET public
 // applications (value: comma-separated IDs); 6 GET activity metadata (value:
-// the session, guild: its application or 0). Older modules reject 5 and 6.
+// the session, guild: its application or 0); 7 GET /activities/{user}/test-mode
+// (Application Test Mode's access check, `user` the application). Older modules reject 5 to 7.
 using AccountModuleProfileFunction = RestClientSubmitResult(WINAPI*)(void* instance, u64 user,
                                                                      u64 guild, u64 request_id,
                                                                      u8 operation,
@@ -668,6 +671,20 @@ struct AccountModuleApi {
     // v146: lossy WebP (stills and animation frames) decodes on the CPU into RGBA8 while on_cpu: the renderer's GPU
     // has no VP8 path (renderer_vp8_gpu). Lanes take it at their next decode; the default is the GPU path.
     void(WINAPI* media_vp8_cpu)(void*, bool on_cpu) noexcept;
+    // v147: Server Settings apps, webhooks, application command permissions and AutoMod rules on DETAILS
+    // (protocol/guild/automation.hpp builds bodies). A null request cancels only this ID.
+    RestClientSubmitResult(WINAPI* guild_automation)(void*, const GuildAutomationRequest*,
+                                                     u64 request_id) noexcept;
+    // v148: account_settings requests carry text arguments and an MFA token (protocol/user/account_settings.hpp),
+    // and a token a REST response handed out (password change, MFA on or off) replaces the session's: REST
+    // switches at once, the Gateway from its next IDENTIFY or RESUME, and the saved profile keeps it.
+    bool(WINAPI* credential_replace)(void*, const u8* token, u32 bytes) noexcept;
+    // v150: Go Live sending (app/voice/go_live_session.hpp): commands (start, stop, settings, source, pause), the
+    // stream's snapshot and its self-preview picture (voice_video_frame's contract; voice_video_notification is set on
+    // a new one).
+    bool(WINAPI* go_live)(void*, const GoLiveCommand*) noexcept;
+    bool(WINAPI* go_live_snapshot)(void*, GoLiveSnapshot*) noexcept;
+    bool(WINAPI* go_live_preview)(void*, VideoStreamFrame*) noexcept;
 };
 
 // The account module's boundary, linked into MaiCord.exe (and a DLL only for
@@ -682,7 +699,12 @@ struct AccountModuleApi {
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 120);
-static_assert(sizeof(AccountModuleApi) == 1008);
+static_assert(sizeof(AccountModuleApi) == 1048);
+static_assert(offsetof(AccountModuleApi, go_live_preview) == 1040);
+static_assert(offsetof(AccountModuleApi, go_live_snapshot) == 1032);
+static_assert(offsetof(AccountModuleApi, go_live) == 1024);
+static_assert(offsetof(AccountModuleApi, credential_replace) == 1016);
+static_assert(offsetof(AccountModuleApi, guild_automation) == 1008);
 static_assert(offsetof(AccountModuleApi, media_vp8_cpu) == 1000);
 static_assert(offsetof(AccountModuleApi, voice_video_notification) == 992);
 static_assert(offsetof(AccountModuleApi, client_focus) == 984);

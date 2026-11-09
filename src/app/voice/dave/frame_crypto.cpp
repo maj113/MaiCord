@@ -81,17 +81,34 @@ __declspec(noinline) DaveSealError rotate_key(DaveFrameSealer& sealer, KdfSha256
     return imported.ok() ? DaveSealError::none : DaveSealError::crypto_failure;
 }
 } // namespace
-DaveSealResult dave_frame_seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace,
-                               ConstSlice<u8> plaintext, Slice<u8> output) noexcept {
+namespace {
+u32 uleb_bytes(u32 value) noexcept {
+    u32 bytes = 1;
+    for (value >>= 7; value; value >>= 7)
+        ++bytes;
+    return bytes;
+}
+u8* uleb_write(u8* output, u32 value) noexcept {
+    for (; value >= 0x80; value >>= 7)
+        *output++ = static_cast<u8>(value | 0x80);
+    *output++ = static_cast<u8>(value);
+    return output;
+}
+// Without ranges the whole frame is encrypted (output may equal it exactly);
+// with ranges the clear bytes are the AAD and scratch stages the gather.
+DaveSealResult seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, ConstSlice<u8> frame,
+                    ConstSlice<DaveClearRange> ranges, u8* scratch, Slice<u8> output) noexcept {
     if (sealer.truncated_nonce == ~u32{0})
         return {0, 0, 0, DaveSealError::exhausted};
     const u32 nonce = sealer.truncated_nonce + 1, generation = nonce >> 24;
-    // The nonce's ULEB128 length: seven bits per byte, one to five bytes.
-    u32 nonce_bytes = 1;
-    for (u32 rest = nonce >> 7; rest; rest >>= 7)
-        ++nonce_bytes;
-    const u32 supplemental = kDaveFrameTagBytes + nonce_bytes + 3;
-    if (output.count < supplemental || output.count - supplemental < plaintext.count)
+    u32 supplemental = kDaveFrameTagBytes + uleb_bytes(nonce) + 3, clear = 0;
+    for (u32 i = 0; i != ranges.count; ++i) {
+        supplemental += uleb_bytes(ranges[i].offset) + uleb_bytes(ranges[i].bytes);
+        clear += ranges[i].bytes;
+    }
+    if (supplemental > 255)
+        return {0, 0, 0, DaveSealError::invalid_input};
+    if (output.count < supplemental || output.count - supplemental < frame.count)
         return {0, 0, 0, DaveSealError::output_capacity};
     if (!sealer.key_ready || sealer.next_generation != generation + 1)
         if (const auto error = rotate_key(sealer, workspace, generation); error != DaveSealError::none)
@@ -99,20 +116,49 @@ DaveSealResult dave_frame_seal(DaveFrameSealer& sealer, KdfSha256Workspace& work
     u8 iv[12]{};
     for (u32 i = 0; i != 4; ++i)
         iv[8 + i] = static_cast<u8>(nonce >> (8 * i));
-    const auto sealed =
-        aes_gcm64_encrypt(sealer.key, {iv, 12}, {}, plaintext, {output.data, plaintext.count},
-                          {output.data + plaintext.count, kDaveFrameTagBytes});
-    if (!sealed.ok())
+    const Slice<u8> tag{output.data + frame.count, kDaveFrameTagBytes};
+    bool sealed = false;
+    if (!ranges.count)
+        sealed = aes_gcm64_encrypt(sealer.key, {iv, 12}, {}, frame, {output.data, frame.count}, tag).ok();
+    else {
+        const DaveFrameView view{frame, ranges, frame.count, clear, nonce};
+        dave_frame_gather(view, scratch, scratch + clear);
+        const u32 cipher = frame.count - clear;
+        sealed = aes_gcm64_encrypt(sealer.key, {iv, 12}, {scratch, clear}, {scratch + clear, cipher},
+                                   {scratch + clear, cipher}, tag)
+                     .ok();
+        if (sealed)
+            dave_frame_reconstruct(view, scratch + clear, output.data);
+        secure_clear_bytes(scratch, frame.count);
+    }
+    if (!sealed)
         return {0, 0, 0, DaveSealError::crypto_failure};
-    u8* suffix = output.data + plaintext.count + kDaveFrameTagBytes;
-    u32 value = nonce;
-    for (u32 i = 1; i != nonce_bytes; ++i, value >>= 7)
-        *suffix++ = static_cast<u8>(value | 0x80);
-    *suffix++ = static_cast<u8>(value);
+    u8* suffix = uleb_write(output.data + frame.count + kDaveFrameTagBytes, nonce);
+    for (u32 i = 0; i != ranges.count; ++i)
+        suffix = uleb_write(uleb_write(suffix, ranges[i].offset), ranges[i].bytes);
     *suffix++ = static_cast<u8>(supplemental);
     *suffix++ = 0xfa;
     *suffix = 0xfa;
     sealer.truncated_nonce = nonce;
-    return {plaintext.count + supplemental, generation, nonce, DaveSealError::none};
+    return {frame.count + supplemental, generation, nonce, DaveSealError::none};
+}
+} // namespace
+DaveSealResult dave_frame_seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace,
+                               ConstSlice<u8> plaintext, Slice<u8> output) noexcept {
+    return seal(sealer, workspace, plaintext, {}, nullptr, output);
+}
+DaveSealResult dave_frame_seal_ranges(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, ConstSlice<u8> frame,
+                                      ConstSlice<DaveClearRange> ranges, Slice<u8> scratch,
+                                      Slice<u8> output) noexcept {
+    u32 end = 0;
+    for (u32 i = 0; i != ranges.count; ++i) {
+        if (!ranges[i].bytes || ranges[i].offset < end || ranges[i].offset > frame.count ||
+            ranges[i].bytes > frame.count - ranges[i].offset)
+            return {0, 0, 0, DaveSealError::invalid_input};
+        end = ranges[i].offset + ranges[i].bytes;
+    }
+    if (!frame.data || !frame.count || scratch.count < frame.count || output.data == frame.data)
+        return {0, 0, 0, DaveSealError::invalid_input};
+    return seal(sealer, workspace, frame, ranges, scratch.data, output);
 }
 } // namespace maicord

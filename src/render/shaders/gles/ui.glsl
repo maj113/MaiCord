@@ -1,4 +1,4 @@
-// twin: src/render/shaders/ui.hlsl 080c18c46079f203
+// twin: src/render/shaders/ui.hlsl c2fe826b30362263
 // Rectangles, borders, gradients, lines and icons of the UI pass: ui_vertex (STAGE_VS) and ui_pixel (STAGE_PS).
 
 // xy: offset from the rectangle centre, zw: position in DIPs; parameters: x radius, y kind, zw per kind.
@@ -35,7 +35,14 @@ void main() {
     gl_Position = vec4(clip.x, -clip.y, -1.0, 1.0);
     v_fill = vec4(fill.rgb * premultiply.x, alpha.x);
     v_border = vec4(border.rgb * premultiply.y, alpha.y);
-    v_local_dip = vec4(mix(-half_size, half_size, corner), position);
+    vec2 local = mix(-half_size, half_size, corner);
+    // A turned icon (kind -9, border.a radians clockwise; see ui_icon_paint_turned) samples its square cell
+    // along the reverse turn. Unturned icons keep the exact 1:1 pixel-snapped read.
+    if (kind == -9.0 && border.a != 0.0) {
+        float s = sin(border.a), c = cos(border.a);
+        local = vec2(c * local.x + s * local.y, c * local.y - s * local.x);
+    }
+    v_local_dip = vec4(local, position);
     v_params = params;
     v_half = half_size;
 }
@@ -172,6 +179,15 @@ vec4 shade() {
                          clamp((position - v_fill.a) / max(v_border.a - v_fill.a, 0.0001), 0.0, 1.0));
         float alpha = frame.group_opacity * clamp(0.5 - dist / aa, 0.0, 1.0);
         return vec4(color * alpha, alpha);
+    }
+    if (kind == -11.0) {
+        // Server profile banner: radial-gradient(105.43% 127.05% at 50.1% 127.05%, border 20.65%, fill 85.16%)
+        // over the quad's width and its top v_params.z DIPs.
+        float width = half_size.x * 2.0, height = v_params.z;
+        vec2 offset = local + half_size - vec2(width * 0.501, height * 1.2705);
+        float t = length(offset / max(vec2(width * 1.0543, height * 1.2705), vec2(0.0001)));
+        vec4 color = mix(v_border, v_fill, clamp((t - 0.2065) / (0.8516 - 0.2065), 0.0, 1.0));
+        return vec4(color.rgb * color.a, color.a) * clamp(0.5 - dist / aa, 0.0, 1.0);
     }
     // -2: vertical two-colour gradient.
     vec4 gradient = mix(v_fill, v_border, clamp((local.y + half_size.y) / max(half_size.y * 2.0, 0.0001), 0.0, 1.0));

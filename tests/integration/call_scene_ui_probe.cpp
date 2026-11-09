@@ -4,6 +4,7 @@
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/model/voice/stage_policy.hpp"
 #include "maicord/ui/voice/stream_card_scene.hpp"
+#include "maicord/ui/voice/go_live_scene.hpp"
 #include "../../src/render/d3d11/renderer_draw.hpp"
 #include "nv12_test_picture.hpp"
 
@@ -462,6 +463,87 @@ bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*
         u8 rgb[3]{};
         valid = valid && sample(renderer, theme, center(card_media.rectangle).x, center(card_media.rectangle).y, rgb) &&
                 rgb[1] > rgb[0] + 40;
+    }
+    renderer.stream_card_scene = nullptr;
+    // Go Live: the screen share dialog with a live thumbnail (a green picture, letterboxed in its tile), then your own
+    // stream's tile with its self-preview (the red picture) under the LIVE badge and the viewer count.
+    static UiGoLiveScene dialog;
+    struct DialogRestore {
+        D3D11Renderer& renderer;
+        const UiGoLiveScene* previous;
+        ~DialogRestore() noexcept {
+            renderer.go_live_scene = previous;
+            ui_go_live_scene_release(&dialog);
+        }
+    } dialog_restore{renderer, renderer.go_live_scene};
+    static u8 green[160 * 90 * 4];
+    for (u32 i = 0; i < 160 * 90; ++i) {
+        green[i * 4] = 30;
+        green[i * 4 + 1] = 200;
+        green[i * 4 + 2] = 60;
+        green[i * 4 + 3] = 255;
+    }
+    const MediaAssetKey thumbnail = media_asset_local_draft_preview(0x474c'4956'0000'0001ull, 1, MediaAttachmentFormat::png);
+    stage = valid ? __LINE__ : stage;
+    valid = valid && renderer_upload_media_straight_rgba8(&renderer, thumbnail, 160, 90, 160 * 4, {green, sizeof(green)}).ok();
+    UiGoLiveSource sources[3]{{1, utf8_literal("Notes - Untitled"), thumbnail, 160, 90, false},
+                              {2, utf8_literal("Browser"), {}, 0, 0, false},
+                              {3, utf8_literal("Terminal"), {}, 0, 0, false}};
+    UiGoLiveContent dialog_content{};
+    dialog_content.title = utf8_literal("Share a screen, window, or app");
+    dialog_content.summary = utf8_literal("Gaming");
+    dialog_content.detail = utf8_literal("Smoother video \xE2\x80\xA2 720p 30fps");
+    dialog_content.sources = {sources, 3};
+    dialog_content.mode = UiGoLiveMode::picker;
+    dialog_content.nitro = true;
+    for (u32 pass = 0; valid && pass < 2; ++pass) {
+        theme = pass ? kLightTheme : kDefaultTheme;
+        dialog_content.revision = pass + 1;
+        stage = valid ? __LINE__ : stage;
+        valid = ui_go_live_scene_update(&dialog, dialog_content, window);
+        renderer.go_live_scene = &dialog;
+        renderer.retained_presentation.valid = false;
+        UiRect picture{}, clip{};
+        bool dim = false;
+        stage = valid ? __LINE__ : stage;
+        valid = valid && renderer_rebuild_content_text(&renderer, theme) && probe_present(&renderer, theme) &&
+                (!capture || capture(pass ? L"go-live-dialog-light.bmp" : L"go-live-dialog.bmp", theme)) &&
+                ui_go_live_scene_thumbnail(dialog, 0, &picture, &clip, &dim) && !dim;
+        u8 rgb[3]{};
+        stage = valid ? __LINE__ : stage;
+        valid = valid && sample(renderer, theme, center(picture).x, center(picture).y, rgb) && rgb[1] > rgb[0] + 80 &&
+                rgb[1] > rgb[2] + 60;
+    }
+    renderer.go_live_scene = nullptr;
+    theme = kDefaultTheme;
+    {
+        UiCallParticipant own = person(0x8000'0000'0000'0011ull, utf8_literal("Ana"));
+        own.self = true;
+        own.stream = UiCallStream::live;
+        own.viewers = 2;
+        own.video_ssrc = 0x7fff'fff1u;
+        own.video_width = 1280;
+        own.video_height = 720;
+        UiCallParticipant own_people[2]{own, person(12, utf8_literal("Bo Lindqvist"))};
+        UiCallContent own_content{};
+        own_content.title = utf8_literal("Lounge");
+        own_content.participants = {own_people, 2};
+        own_content.connected = true;
+        own_content.share = UiCallShare::live;
+        own_content.gap = theme.scale.space_4;
+        stage = valid ? __LINE__ : stage;
+        valid = valid && present_frame(renderer, restore.textures[0], own.user_id, own.video_ssrc, 200) &&
+                ui_call_scene_update(&scene, own_content, docked, 0, true) && show(L"go-live-own-stream.bmp");
+        const auto* tile = ui_call_scene_find_tile(scene, own.user_id);
+        UiCallTileMedia media{};
+        u8 rgb[3]{};
+        stage = valid ? __LINE__ : stage;
+        valid = valid && tile && ui_call_scene_tile_media(scene, static_cast<u32>(tile - scene.tiles), &media) &&
+                media.video_ssrc == own.video_ssrc && sample(renderer, theme, center(media.video).x,
+                                                             center(media.video).y, rgb) &&
+                rgb[0] > rgb[2] + 40 &&
+                ui_rect_has_area(ui_call_scene_tile_control(scene, own.user_id, UiCallControl::stream_viewers)) &&
+                ui_call_control_active(scene, UiCallControl::screen_share);
     }
     if (!valid)
         log_u64(LogLevel::error, "probe", "call_scene_probe_failure_line", stage);

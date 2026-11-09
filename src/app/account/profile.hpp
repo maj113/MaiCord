@@ -103,14 +103,15 @@ struct ApplicationProfile {
     char note_display[kUserNoteMaximumBytes];
     // A bot's Commands in the popout and the full profile.
     ProfileCommandSet commands;
+    // The game cache's revision the card's games were last laid out with.
+    u32 games_revision;
 };
 bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind = ProfileAnchor::point) noexcept;
 // Edit Profile for the signed-in user: the profile editor's Main Profile.
 bool application_profile_open_edit(u64 user) noexcept;
-// The open popout for user becomes the full profile on a tab (0 About Me,
-// then the mutual lists: 1 Mutual Friends and 2 Mutual Servers, a bot's
-// Mutual Servers 1); false when not shown.
-bool application_profile_expand(u64 user, u8 tab = 0) noexcept;
+// The open popout for user becomes the full profile on a tab (the first
+// shown, the Board else Activity, by default); false when not shown.
+bool application_profile_expand(u64 user, ProfileTab tab = ProfileTab::widgets) noexcept;
 // View Full Profile from a profile card's menu: the card showing user becomes
 // their full profile (a card for someone else, the DM panel's, opens theirs
 // first); it never reopens the popout. False when it cannot be shown.
@@ -137,6 +138,8 @@ u64 application_profile_next_wake() noexcept;
 // else the message field.
 MessageComposer* application_profile_edit_model() noexcept;
 bool application_profile_edit_focused() noexcept;
+// Replaces the popout message field's selection with text (the emoji picker's choice) and focuses the field.
+bool application_profile_insert_message_text(Utf8View text) noexcept;
 // A note load, save or USER_NOTE_UPDATE for the shown user.
 void application_profile_note_changed() noexcept;
 } // namespace maicord::app_detail

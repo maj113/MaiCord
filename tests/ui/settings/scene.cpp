@@ -1187,6 +1187,8 @@ void test_segment_hover(Check check) noexcept {
                     for (u32 j = 0; j < counts[rr]; ++j) {
                         const UiSettingsTarget other{UiSettingsTargetKind::control, page, rr + 1u};
                         if (ui_settings_scene_choice_rectangle(scene, other, j, &others) &&
+                            ((others.left += j ? tokens.metric.segment_padding * .5f : 0.f),
+                             (others.right -= j + 1 < counts[rr] ? tokens.metric.segment_padding * .5f : 0.f), true) &&
                             close_to(quad.left, others.left) && close_to(quad.top, others.top) &&
                             close_to(quad.right, others.right) && close_to(quad.bottom, others.bottom)) {
                             if (rr == r && j == i)
@@ -1210,6 +1212,139 @@ void test_segment_hover(Check check) noexcept {
     check(stale && scene.palette_hovered_index == ~u32{0}, "settings segments: moving off the segments clears the hovered option");
     paint_stream_release(&paint);
     ui_settings_scene_release(&scene);
+}
+// A segments row whose selection changes slides its plate from the option it left to the new one while the labels
+// cross-fade, settles exactly on the target and then asks for no frame; reduced motion jumps.
+void test_segment_motion(Check check) noexcept {
+    static const Utf8View labels[3]{utf8_literal("Show"), utf8_literal("Blur"), utf8_literal("Block")};
+    static UiSettingsControl controls[1];
+    static UiSettingsPageContent content{};
+    static UiPage pages[1];
+    UiPageRegistry registry{};
+    UiSettingsScene scene{};
+    controls[0] = {1, utf8_literal("Row"), {}, UiSettingsControlKind::segments, true, false, {labels, 3}, 0};
+    content = {utf8_literal("Segments"), {}, {controls, 1}, 1};
+    const UiPageKey page{1, 1};
+    const UiSettingsTarget target{UiSettingsTargetKind::control, page, 1};
+    const UiRect viewport{0, 0, 1440, 900};
+    PaintStream paint{};
+    UiTextCommand commands[96]{};
+    UiTextCommandStream stream{};
+    UiTextOutput output{&stream, nullptr};
+    UiRect first{}, last{};
+    const bool built = ui_page_registry_initialize(&registry, {pages, 1}) &&
+                       ui_page_registry_register(&registry, {page, utf8_literal("Segments"), &content}).ok() &&
+                       ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
+                       ui_settings_scene_update(&scene, &registry, viewport) && paint_stream_initialize(&paint) &&
+                       ui_settings_scene_choice_rectangle(scene, target, 0, &first) &&
+                       ui_settings_scene_choice_rectangle(scene, target, 2, &last);
+    check(built, "settings segment motion: a three-segment row builds");
+    if (!built)
+        return;
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
+    // The plates sit inside the options, a track padding from their neighbours (the outer edges stay).
+    first.right -= tokens.metric.segment_padding * .5f;
+    last.left += tokens.metric.segment_padding * .5f;
+    const auto plate = [&](UiRect* out) noexcept {
+        if (!paint_stream_reset(&paint, viewport.right, viewport.bottom) ||
+            !ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr))
+            return false;
+        for (u32 q = 0; q < paint.count; ++q) {
+            const auto& quad = paint.quads[q];
+            if (bytes_equal(&quad.fill, &tokens.color.mod_strong, sizeof(Color)) && close_to(quad.top, first.top) &&
+                quad.left >= first.left - .01f && quad.right <= last.right + .01f) {
+                *out = {quad.left, quad.top, quad.right, quad.bottom};
+                return true;
+            }
+        }
+        return false;
+    };
+    // The colour and style word of the label `text`.
+    const auto label = [&](const Utf8View& text, Color* color, u32* style) noexcept {
+        if (!ui_text_command_stream_initialize(&stream, {commands, 96}) ||
+            !ui_settings_scene_text_output(scene, kDefaultTheme, &output))
+            return false;
+        for (u32 i = 0; i < stream.count; ++i)
+            if (utf8_equal(commands[i].text, text)) {
+                *color = commands[i].color;
+                *style = commands[i].style_flags;
+                return true;
+            }
+        return false;
+    };
+    const auto select = [&](u32 choice) noexcept {
+        controls[0].selected_choice = choice;
+        ++content.revision;
+        return ui_settings_scene_update(&scene, &registry, viewport);
+    };
+    UiRect now{};
+    Color show{}, block{};
+    u32 show_style = 0, block_style = 0;
+    check(plate(&now) && ui_rect_equal(now, first) && !ui_settings_scene_animating(scene) &&
+              label(utf8_literal("Show"), &show, &show_style) && label(utf8_literal("Block"), &block, &block_style) &&
+              bytes_equal(&show, &tokens.color.text_strong, sizeof(Color)) &&
+              bytes_equal(&block, &tokens.color.text_default, sizeof(Color)) && show_style != block_style,
+          "settings segment motion: at rest the plate and the bold, brighter label sit on the selected option");
+    const u32 regular_style = block_style;
+
+    // What the renderer holds: the text commands, rebuilt only when the scene's revision changed.
+    u32 seen = scene.revision, rebuilds = 0, cached_show = 0, cached_block = 0;
+    const auto present = [&]() noexcept {
+        if (scene.revision == seen)
+            return true;
+        seen = scene.revision;
+        ++rebuilds;
+        Color ink{};
+        return label(utf8_literal("Show"), &ink, &cached_show) && label(utf8_literal("Block"), &ink, &cached_block);
+    };
+    check(select(2) && present() && ((rebuilds = 0), true) && ui_settings_scene_animating(scene) &&
+              ui_settings_scene_tick(&scene, 1000, false) && present() && rebuilds == 0 && plate(&now) &&
+              ui_rect_equal(now, first),
+          "settings segment motion: a changed selection starts the plate on the option it left");
+    Color mid_show{}, mid_block{};
+    u32 mid_show_style = 0, mid_block_style = 0;
+    const float travel = last.left - first.left;
+    bool mid = ui_settings_scene_tick(&scene, 1020, false) && present() && rebuilds == 0 &&
+               ui_settings_scene_tick(&scene, 1085, false) && present() && rebuilds == 1 && plate(&now);
+    const float fraction = (now.left - first.left) / travel;
+    mid = mid && fraction > .05f && fraction < .95f && close_to(now.right - first.right, now.left - first.left) &&
+          close_to(now.top, first.top) && close_to(now.bottom, first.bottom) && ui_settings_scene_animating(scene);
+    check(mid, "settings segment motion: mid-transition the plate is between the two options at their width");
+    check(label(utf8_literal("Show"), &mid_show, &mid_show_style) &&
+              label(utf8_literal("Block"), &mid_block, &mid_block_style) &&
+              !bytes_equal(&mid_show, &tokens.color.text_strong, sizeof(Color)) &&
+              !bytes_equal(&mid_show, &tokens.color.text_default, sizeof(Color)) &&
+              !bytes_equal(&mid_block, &tokens.color.text_strong, sizeof(Color)) &&
+              !bytes_equal(&mid_block, &tokens.color.text_default, sizeof(Color)),
+          "settings segment motion: mid-transition the labels' colours are between the idle and selected ones");
+
+    check(ui_settings_scene_tick(&scene, 1120, false) && present() && rebuilds == 1 &&
+              !ui_settings_scene_tick(&scene, 1190, false) && present() && !ui_settings_scene_animating(scene) &&
+              plate(&now) && ui_rect_equal(now, last) && label(utf8_literal("Block"), &block, &block_style) &&
+              bytes_equal(&block, &tokens.color.text_strong, sizeof(Color)) && block_style == show_style,
+          "settings segment motion: the plate settles exactly on the target and the labels on their rest looks");
+    // With no further input the renderer's text shows the new option bold and the old one regular: the text was
+    // rebuilt exactly twice (the weight swap at the halfway point, the settle), not on the frames between.
+    check(rebuilds == 2 && cached_block == show_style && cached_show == regular_style && cached_show != cached_block,
+          "settings segment motion: the text rebuilds at the halfway point and at the settle only");
+    const u32 motion = scene.motion_revision;
+    check(!ui_settings_scene_tick(&scene, 1300, false) && !ui_settings_scene_tick(&scene, 1600, false) &&
+              scene.motion_revision == motion && !ui_settings_scene_animating(scene),
+          "settings segment motion: a settled row asks for no frame and no repaint");
+
+    // Reduced motion: no slide, whether it was known before the change or arrives mid-slide.
+    check(!ui_settings_scene_tick(&scene, 1700, true) && select(0) && !ui_settings_scene_animating(scene) &&
+              plate(&now) && ui_rect_equal(now, first),
+          "settings segment motion: reduced motion jumps the plate to the new option");
+    check(!ui_settings_scene_tick(&scene, 1800, false) && select(2) && ui_settings_scene_tick(&scene, 1800, false) &&
+              !ui_settings_scene_tick(&scene, 1850, true) && !ui_settings_scene_animating(scene) && plate(&now) &&
+              ui_rect_equal(now, last),
+          "settings segment motion: reduced motion arriving mid-slide settles the plate at once");
+    check(!ui_settings_scene_tick(&scene, 1900, false) && select(1) && ui_settings_scene_animating(scene),
+          "settings segment motion: a change after settling starts a slide again");
+    ui_settings_scene_release(&scene);
+    check(!ui_settings_scene_animating(scene), "settings segment motion: releasing the scene retires its motion");
+    paint_stream_release(&paint);
 }
 // A status meta line wraps between its parts only: a break drops its separator (no line ends with a dot or starts
 // with one), every line starts at the title's left edge, and the identity stays bold and brighter than the rest.
@@ -1295,6 +1430,135 @@ void test_status_meta_wrap(Check check) noexcept {
     check(wrapped && whole, "settings status meta: the line fits at the wide card and wraps part by part at the narrow ones");
     ui_settings_scene_release(&scene);
 }
+
+// Accessibility's preview row: the page's sample draws as two example messages (name in the role colour, the link
+// underlined on request) above an example button; it is not a focus stop, and a page without a sample is refused.
+void test_preview_row(Check check) noexcept {
+    static constexpr Utf8View texts[]{utf8_literal("what happened to all the beans"), utf8_literal("here's a link "),
+                                      utf8_literal("https://discord.com/accessibility")};
+    static UiSettingsControl controls[2];
+    static UiSettingsControlPresentation looks[2];
+    static UiSettingsPageContent content{};
+    static UiSettingsPreview sample{};
+    static UiPage pages[1];
+    controls[0] = {1, utf8_literal("Preview"), {}, UiSettingsControlKind::preview, false, false, {texts, 3}, 0,
+                   utf8_literal("Example Button")};
+    controls[1] = {2, utf8_literal("Reduced Motion"), {}, UiSettingsControlKind::toggle, true, false};
+    for (auto& look : looks)
+        look = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    content = {utf8_literal("Accessibility"), {}, {controls, 2}, 1};
+    content.presentation = looks;
+    UiPageRegistry registry{};
+    UiSettingsScene scene{};
+    const UiPageKey page{1, 1};
+    const UiRect viewport{0, 0, 1440, 900};
+    const bool registered = ui_page_registry_initialize(&registry, {pages, 1}) &&
+                            ui_page_registry_register(&registry, {page, utf8_literal("Accessibility"), &content}).ok() &&
+                            ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal);
+    check(registered && !ui_settings_scene_update(&scene, &registry, viewport),
+          "settings preview: a preview row without the page's sample is refused");
+    sample = {utf8_literal("Wumpus"), utf8_literal("4:20 PM"), 0xdd80f4, 0, false, true, true, 16};
+    content.preview = &sample;
+    ++content.revision;
+    const auto target = [&](u64 id) noexcept { return UiSettingsTarget{UiSettingsTargetKind::control, page, id}; };
+    UiSettingsControlGeometry preview{}, toggle{};
+    check(ui_settings_scene_update(&scene, &registry, viewport) && scene.active &&
+              ui_settings_scene_control_geometry(scene, target(1), &preview) &&
+              ui_settings_scene_control_geometry(scene, target(2), &toggle) && preview.control.bottom <= toggle.control.top &&
+              ui_rect_height(preview.control) > 120 && !ui_settings_scene_focus(&scene, target(1)) &&
+              ui_settings_scene_focus(&scene, target(2)),
+          "settings preview: the card leads the page, tall enough for two messages, and is not a focus stop");
+    const auto texts_of = [&](bool* name, bool* link, bool* button, bool* time_first) noexcept {
+        UiTextCommand commands[160]{};
+        UiTextCommandStream stream{};
+        UiTextOutput output{&stream, nullptr};
+        if (!ui_text_command_stream_initialize(&stream, {commands, 160}) ||
+            !ui_settings_scene_text_output(scene, kDefaultTheme, &output))
+            return false;
+        float time_left = -1, name_left = -1;
+        for (u32 i = 0; i < stream.count; ++i) {
+            const auto& c = commands[i];
+            if (utf8_equal(c.text, utf8_literal("Wumpus"))) {
+                const Color role = color_from_rgb24(0xdd80f4);
+                *name = *name || (close_to(c.color.red, role.red) && close_to(c.color.green, role.green) &&
+                                  close_to(c.color.blue, role.blue));
+                if (name_left < 0)
+                    name_left = c.rectangle.left;
+            }
+            if (utf8_equal(c.text, utf8_literal("4:20 PM")) && time_left < 0)
+                time_left = c.rectangle.left;
+            *link = *link || (utf8_equal(c.text, texts[2]) && (c.style_flags & text_style_underline));
+            *button = *button || utf8_equal(c.text, utf8_literal("Example Button"));
+        }
+        *time_first = time_left >= 0 && name_left >= 0 && time_left < name_left;
+        return true;
+    };
+    bool name = false, link = false, button = false, time_first = false;
+    check(texts_of(&name, &link, &button, &time_first) && name && link && button && !time_first,
+          "settings preview: cozy, the role-coloured name heads the messages, the link is underlined, the button shows");
+    sample.compact = true;
+    sample.underline = false;
+    ++content.revision;
+    name = link = button = time_first = false;
+    check(ui_settings_scene_update(&scene, &registry, viewport) && texts_of(&name, &link, &button, &time_first) && name &&
+              !link && time_first,
+          "settings preview: compact, the time leads each line and the link follows Underline Links");
+    // Text size in chat reaches the sample alone: at each size its lines hold their text in the chat face, inside the
+    // card, and the rest of the page (the toggle's label, the example button) keeps the interface's size.
+    struct SampleAtSize {
+        u32 chat_commands;
+        bool lines_fit, inside_card, others_interface;
+        float toggle_label, button, card_height;
+    };
+    const auto at_size = [&](float size, SampleAtSize* out) noexcept {
+        sample.compact = false;
+        sample.text_size = size;
+        ++content.revision;
+        UiSettingsControlGeometry card{};
+        UiTextCommand commands[160]{};
+        UiTextCommandStream stream{};
+        UiTextOutput output{&stream, nullptr};
+        *out = {};
+        if (!ui_settings_scene_update(&scene, &registry, viewport) ||
+            !ui_settings_scene_control_geometry(scene, target(1), &card) ||
+            !ui_text_command_stream_initialize(&stream, {commands, 160}) ||
+            !ui_settings_scene_text_output(scene, kDefaultTheme, &output))
+            return false;
+        out->lines_fit = out->inside_card = out->others_interface = true;
+        out->card_height = ui_rect_height(card.control);
+        for (u32 i = 0; i < stream.count; ++i) {
+            const auto& c = commands[i];
+            const bool sample_text = utf8_equal(c.text, utf8_literal("Wumpus")) ||
+                                     utf8_equal(c.text, utf8_literal("4:20 PM")) || utf8_equal(c.text, texts[0]) ||
+                                     utf8_equal(c.text, texts[1]) || utf8_equal(c.text, texts[2]);
+            if (ui_text_face_is_chat(c.face)) {
+                ++out->chat_commands;
+                out->lines_fit = out->lines_fit && sample_text && ui_rect_height(c.rectangle) >= size * 1.3f;
+                out->inside_card = out->inside_card && c.rectangle.left >= card.control.left &&
+                                   c.rectangle.right <= card.control.right && c.rectangle.top >= card.control.top &&
+                                   c.rectangle.bottom <= card.control.bottom;
+            } else {
+                out->others_interface = out->others_interface && c.face == UiTextFace::normal && !sample_text;
+                if (utf8_equal(c.text, utf8_literal("Reduced Motion")))
+                    out->toggle_label = ui_rect_height(c.rectangle);
+                if (utf8_equal(c.text, utf8_literal("Example Button")))
+                    out->button = ui_rect_height(c.rectangle);
+            }
+        }
+        return true;
+    };
+    SampleAtSize at12{}, at16{}, at24{};
+    check(at_size(12, &at12) && at_size(16, &at16) && at_size(24, &at24) && at12.chat_commands >= 5 &&
+              at16.chat_commands == at12.chat_commands && at24.chat_commands == at12.chat_commands &&
+              at12.lines_fit && at16.lines_fit && at24.lines_fit && at12.inside_card && at16.inside_card &&
+              at24.inside_card && at12.card_height < at16.card_height && at16.card_height < at24.card_height,
+          "settings preview: at 12, 16 and 24 the sample's lines hold their text in the chat face, inside the card");
+    check(at12.others_interface && at16.others_interface && at24.others_interface && at24.toggle_label > 0 &&
+              close_to(at12.toggle_label, at24.toggle_label) && at24.button > 0 &&
+              close_to(at12.button, at24.button),
+          "settings preview: Text size in chat leaves every other text on the page at the interface's size");
+    ui_settings_scene_release(&scene);
+}
 } // namespace
 void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_controls(check);
@@ -1305,7 +1569,9 @@ void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_dialog_scene(check);
     test_focus_recovery(check);
     test_segment_hover(check);
+    test_segment_motion(check);
     test_status_meta_wrap(check);
     test_sidebar_follows_selection(check);
+    test_preview_row(check);
 }
 } // namespace maicord

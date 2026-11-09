@@ -8,14 +8,23 @@ made up; the server answers from it instead of its built-in QA guild. world.json
     me                  key of the signed-in account in users
     users               key -> {id, username, global_name, avatar, banner, accent_color, bio, pronouns, theme_colors, bot,
                           display_name_styles: {font_id, effect_id, colors}, primary_guild: {identity_guild_id,
-                          identity_enabled, tag, badge} (the badge under cdn/clan-badges/<guild>/<badge>.png),
+                          identity_enabled, tag, badge} (the badge under cdn/clan-badges/<guild>/<badge>.png), system (the
+                          official Discord account), nameplate: {sku_id, asset, palette} (its collectibles.nameplate),
                           webhook (a webhook author: bot, discriminator 0000, its messages carry webhook_id, and like
                           any ID that is not a user its profile answers 404 Unknown User), profile_status (403 or 404:
-                          the profile GET fails that way)}
+                          the profile GET fails that way), widgets: [{type (favorite_games, played_games, current_games,
+                          want_to_play_games), games: [{id, comment, tags}]}] (the profile's Board), connections:
+                          [{type, id, name, verified, metadata}] (its connected accounts; the logos are served from
+                          cdn/assets/<hash>.png under discord.com/assets/<hash>.png)}
     guilds              [{id, name, icon, description, owner, roles: [{id, name, color, hoist, position}],
                           channels: [{id, type, name, parent, topic}], members: [{user, roles, nick}],
                           emojis: [{id, name}], voice: [{user, channel, self_mute, self_video}],
-                          member_count (what a large server reports; default: the members listed)}]
+                          member_count (what a large server reports; default: the members listed),
+                          profile: {tag, badge (the hash under cdn/clan-badges/<guild>/<badge>.png), brand_color_primary,
+                          badge_color_primary, badge_color_secondary, traits: [label or {label, emoji (a Unicode
+                          emoji's name)}], games: [{id, level, score}], features, premium_tier,
+                          premium_subscription_count, custom_banner_hash} (GET /guilds/<id>/profile, the server tag
+                          popout; a guild without one answers 50001 Missing Access, a private profile)}]
     presences           user key -> {status, activities: [{type, name, details, state, emoji, started_ago (ms)}]}
     dms                 [{id, type (1 or 3), users: [keys], name}]
     friends             [user keys]
@@ -108,9 +117,12 @@ class World:
                 "global_name": u["global_name"], "avatar": u["avatar"], "avatar_decoration_data": None,
                 "banner": u.get("banner"), "accent_color": u.get("accent_color"),
                 "bot": bool(u.get("bot") or u.get("webhook")),
-                "system": False, "flags": 0, "public_flags": 0, "premium_type": 2 if u.get("theme_colors") else 0,
+                "system": bool(u.get("system")), "flags": 0, "public_flags": 0, "premium_type": 2 if u.get("theme_colors") else 0,
                 "clan": u.get("primary_guild"), "primary_guild": u.get("primary_guild"),
-                **({"display_name_styles": u["display_name_styles"]} if u.get("display_name_styles") else {})}
+                **({"display_name_styles": u["display_name_styles"]} if u.get("display_name_styles") else {}),
+                **({"collectibles": {"nameplate": {"sku_id": u["nameplate"]["sku_id"], "asset": u["nameplate"].get("asset", "nameplates/n/"),
+                                                   "label": "", "palette": u["nameplate"].get("palette", "crimson")}}}
+                   if u.get("nameplate") else {})}
 
     def text(self, content: str) -> str:
         emoji = self.data.get("emoji", {})
@@ -414,6 +426,9 @@ class World:
         match = re.fullmatch(r"/users/(\d+)/profile", path)
         if match and method == "GET":
             return self.profile(int(match.group(1)), int(query["guild_id"]) if query.get("guild_id") else None)
+        match = re.fullmatch(r"/guilds/(\d+)/profile", path)
+        if match and method == "GET":
+            return self.guild_profile(self.guild(match.group(1)))
         # A note on a user: Discord answers 404 Unknown User when there is none (and for an ID that is not a user).
         match = re.fullmatch(r"/users/@me/notes/(\d+)", path)
         if match and method == "GET":
@@ -436,6 +451,34 @@ class World:
             return 200, {"ok": True}
         return None
 
+    def guild_profile(self, g):
+        """The server tag popout's profile (Userdoccers' guild profile structure) from the guild's profile entry."""
+        p = (g or {}).get("profile")
+        if p is None:
+            return 403, {"message": "Missing Access", "code": 50001}
+        offline = sum(1 for m in g["members"] if m["user"] != self.data["me"] and
+                      self.data.get("presences", {}).get(m["user"], {}).get("status", "offline") == "offline")
+        return 200, rest({"id": g["id"], "name": g["name"], "icon_hash": g["icon"],
+                          "description": g.get("description") or "",
+                          "member_count": g.get("member_count", len(g["members"])),
+                          "online_count": len(g["members"]) - offline,
+                          "brand_color_primary": p.get("brand_color_primary"), "banner_hash": None,
+                          "game_application_ids": [str(game["id"]) for game in p.get("games", [])],
+                          "game_activity": {str(game["id"]): {"activity_level": game.get("level", 1),
+                                                              "activity_score": game.get("score", 0)}
+                                            for game in p.get("games", [])},
+                          "tag": p.get("tag"),
+                          "badge": 7, "badge_color_primary": p.get("badge_color_primary"),
+                          "badge_color_secondary": p.get("badge_color_secondary"), "badge_hash": p.get("badge"),
+                          "traits": [{"emoji_id": None, "emoji_name": trait.get("emoji") if isinstance(trait, dict)
+                                      else None, "emoji_animated": False,
+                                      "label": trait["label"] if isinstance(trait, dict) else trait, "position": i}
+                                     for i, trait in enumerate(p.get("traits", []))],
+                          "features": p.get("features", ["GUILD_TAGS"]), "visibility": 1,
+                          "custom_banner_hash": p.get("custom_banner_hash"),
+                          "premium_subscription_count": p.get("premium_subscription_count", 0),
+                          "premium_tier": p.get("premium_tier", 0)})
+
     def profile(self, user_id: int, guild_id):
         u = self.users.get(self.by_id.get(user_id), {})
         if user_id not in self.by_id or u.get("webhook") or u.get("profile_status") == 404:
@@ -450,10 +493,18 @@ class World:
                    "accent_color": u.get("accent_color"), "theme_colors": u.get("theme_colors"), "profile_effect": None,
                    "emoji": None, "popout_animation_particle_type": None}
         mutual = [g for g in self.guilds if any(m["user"] == key for m in g["members"])]
-        result = {"user": user, "user_profile": profile, "badges": [], "guild_badges": [], "connected_accounts": [],
+        result = {"user": user, "user_profile": profile, "badges": [], "guild_badges": [],
+                  "connected_accounts": u.get("connections", []),
                   "premium_type": 2 if u.get("theme_colors") else 0, "premium_since": iso(NOW - 86400000 * 400)
                   if u.get("theme_colors") else None, "premium_guild_since": None, "legacy_username": None,
-                  "mutual_guilds": [{"id": g["id"], "nick": None} for g in mutual if key != self.data["me"]],
+                  "mutual_guilds": [{"id": g["id"], "nick": next((m.get("nick") for m in g["members"] if m["user"] == key),
+                                                                 None)} for g in mutual if key != self.data["me"]],
+                  "widgets": [{"id": str(int(u["id"]) * 10 + i), "updated_at": iso(NOW),
+                               "data": {"type": w["type"], "games": [{"game_id": str(game["id"]),
+                                                                      "comment": game.get("comment"),
+                                                                      "tags": game.get("tags", [])}
+                                                                     for game in w.get("games", [])]}}
+                              for i, w in enumerate(u.get("widgets", []))],
                   "mutual_friends": [self.user(f) for f in self.data.get("friends", [])[:3]
                                      if f != key and key != self.data["me"]],
                   "mutual_friends_count": 0 if key == self.data["me"] else min(3, len(self.data.get("friends", [])))}

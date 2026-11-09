@@ -5,13 +5,23 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/media/video/stream_quality.hpp"
 
 namespace maicord {
 namespace {
 constexpr u8 kMagic[8]{'M', 'A', 'I', 'V', 'O', 'I', 'C', 'E'};
 constexpr u32 kHeaderBytes = 40, kChecksumOffset = 32, kUserBytes = 11;
-constexpr u8 kAutomatic = 1, kProcessing = 2, kSelfMute = 4, kSelfDeaf = 8, kSoundboardMuted = 16;
-constexpr u8 kKnownFlags = 31;
+constexpr u8 kAutomatic = 1, kProcessing = 2, kSelfMute = 4, kSelfDeaf = 8, kSoundboardMuted = 16, kStreamMuted = 32,
+             kStreamHidePreview = 64;
+constexpr u8 kKnownFlags = 127, kVersion2Flags = 31;
+// Byte 27 (v3): the stream preset in bits 0-1, the resolution's index in kStreamResolutions in bits 2-4 and the frame
+// rate's index in kStreamFrameRates in bits 5-6.
+template <class T, usize N> u32 index_of(const T (&values)[N], T value) noexcept {
+    for (u32 i = 0; i < N; ++i)
+        if (values[i] == value)
+            return i;
+    return N;
+}
 
 u32 id_length(const wchar_t* id) noexcept {
     u32 length = 0;
@@ -32,6 +42,9 @@ VoicePreferences voice_preferences_defaults() noexcept {
     VoicePreferences preferences{};
     preferences.audio = voice_audio_settings_defaults();
     preferences.soundboard_volume = 100;
+    preferences.stream_preset = 1;
+    preferences.stream_fps = 30;
+    preferences.stream_resolution = 720;
     return preferences;
 }
 
@@ -40,7 +53,9 @@ bool voice_preferences_valid(const VoicePreferences& p) noexcept {
     if (a.input_gain_percent > 200 || a.output_gain_percent > 200 ||
         a.push_to_talk_release_ms > kVoiceMaximumPushToTalkReleaseMs ||
         static_cast<u8>(a.mode) > static_cast<u8>(VoiceInputMode::push_to_talk) || a.sensitivity > kVoiceLevelMaximum ||
-        p.user_count > kVoicePreferenceUsers || p.soundboard_volume > 100 ||
+        p.user_count > kVoicePreferenceUsers || p.soundboard_volume > 100 || p.stream_preset < 1 ||
+        p.stream_preset > 3 || index_of(kStreamResolutions, p.stream_resolution) == 5 ||
+        index_of(kStreamFrameRates, p.stream_fps) == 3 ||
         a.input_device[kVoiceDeviceIdCharacters - 1] ||
         a.output_device[kVoiceDeviceIdCharacters - 1])
         return false;
@@ -101,8 +116,11 @@ u32 voice_preferences_encode(const VoicePreferences& p, Slice<u8> output) noexce
     r[24] = a.push_to_talk_key;
     r[25] = static_cast<u8>((a.auto_sensitivity ? kAutomatic : 0) | (a.voice_processing ? kProcessing : 0) |
                             (p.self_mute ? kSelfMute : 0) | (p.self_deaf ? kSelfDeaf : 0) |
-                            (p.soundboard_muted ? kSoundboardMuted : 0));
+                            (p.soundboard_muted ? kSoundboardMuted : 0) | (p.stream_muted ? kStreamMuted : 0) |
+                            (p.stream_hide_preview ? kStreamHidePreview : 0));
     r[26] = p.soundboard_volume;
+    r[27] = static_cast<u8>(p.stream_preset | (index_of(kStreamResolutions, p.stream_resolution) << 2) |
+                            (index_of(kStreamFrameRates, p.stream_fps) << 5));
     byte_store_le16(r + 28, static_cast<u16>(input));
     byte_store_le16(r + 30, static_cast<u16>(speaker));
     u32 at = kHeaderBytes;
@@ -125,8 +143,11 @@ bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferenc
     const u8* r = record.data;
     if (!preferences || !r || record.count < kHeaderBytes + 2 || !bytes_equal(r, kMagic, 8))
         return false;
-    if (byte_load_le32(r + 8) != kVoicePreferencesVersion || byte_load_le32(r + 12) != record.count ||
-        byte_load_le64(r + kChecksumOffset) != checksum(record) || (r[25] & ~kKnownFlags) || r[27] || r[26] > 100)
+    const u32 version = byte_load_le32(r + 8);
+    if ((version != 2 && version != kVoicePreferencesVersion) || byte_load_le32(r + 12) != record.count ||
+        byte_load_le64(r + kChecksumOffset) != checksum(record) ||
+        (r[25] & ~(version == 2 ? kVersion2Flags : kKnownFlags)) || (version == 2 && r[27]) || r[26] > 100 ||
+        (r[27] & 0x80))
         return false;
     const u32 input = byte_load_le16(r + 28), speaker = byte_load_le16(r + 30);
     if (input >= kVoiceDeviceIdCharacters || speaker >= kVoiceDeviceIdCharacters ||
@@ -146,6 +167,16 @@ bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferenc
     decoded.self_deaf = (r[25] & kSelfDeaf) != 0;
     decoded.soundboard_muted = (r[25] & kSoundboardMuted) != 0;
     decoded.soundboard_volume = r[26];
+    if (version != 2) {
+        const u32 resolution = (r[27] >> 2) & 7, fps = (r[27] >> 5) & 3;
+        if (resolution >= 5 || fps >= 3)
+            return false;
+        decoded.stream_preset = static_cast<u8>(r[27] & 3);
+        decoded.stream_resolution = kStreamResolutions[resolution];
+        decoded.stream_fps = kStreamFrameRates[fps];
+        decoded.stream_muted = (r[25] & kStreamMuted) != 0;
+        decoded.stream_hide_preview = (r[25] & kStreamHidePreview) != 0;
+    }
     u32 at = kHeaderBytes;
     for (u32 i = 0; i < input; ++i, at += 2)
         a.input_device[i] = static_cast<wchar_t>(byte_load_le16(r + at));

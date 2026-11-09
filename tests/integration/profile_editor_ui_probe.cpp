@@ -3,11 +3,14 @@
 #include "probe_present.hpp"
 #include "../../src/app/account/profile_editor.hpp"
 #include "maicord/app/media/local_draft_preview.hpp"
+#include "maicord/media/image/dominant_color.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/model/user/profile.hpp"
 #include "maicord/ui/guild/card_scene.hpp"
+#include "maicord/ui/widgets/tooltip.hpp"
+#include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/account/profile_dialog_scene.hpp"
@@ -290,6 +293,31 @@ bool profile_editor_pages(D3D11Renderer& renderer, UiTextMeasureCache* measure, 
                                probe_present(&renderer, kDefaultTheme) && capture(L"profile-editor-pending.bmp"),
                            8);
     }
+    // A Nitro preview without theme colours themes from the picked avatar as cropped: the crop palette of a picture
+    // uploaded at half its source size (a 240x180 source; green left half, red right half) reads only the cropped
+    // half, sampled at the drawn size, turned or not.
+    {
+        constexpr u32 hw = 120, hh = 90;
+        static u8 halves[hw * hh * 4];
+        for (u32 i = 0; i < hw * hh; ++i) {
+            const bool left = i % hw < hw / 2;
+            halves[i * 4] = left ? 0x08 : 0xC8;
+            halves[i * 4 + 1] = left ? 0x89 : 0x28;
+            halves[i * 4 + 2] = left ? 0x59 : 0x1E;
+            halves[i * 4 + 3] = 255;
+        }
+        const auto picked = media_asset_local_draft_preview(0x5052000000000002ull, 1u | kLocalDraftPreviewThumbnailVariant,
+                                                            MediaAttachmentFormat::png);
+        u32 left[kImagePaletteColors]{}, right[kImagePaletteColors]{};
+        ok = ok && require(renderer_upload_media_straight_rgba8(&renderer, picked, hw, hh, hw * 4,
+                                                                {halves, sizeof(halves)})
+                                   .ok() &&
+                               renderer_media_crop_palette(&renderer, picked, {10, 10, 80, 80, 240, 80, 0}, left) &&
+                               left[0] == 0x0C8C5C &&
+                               renderer_media_crop_palette(&renderer, picked, {150, 90, 80, 80, 240, 80, 90}, right) &&
+                               right[0] == 0xCC2C1C,
+                           97);
+    }
     const auto crop_frame = [&](ImageCropState state, const wchar_t* name) noexcept {
         UiProfileDialogContent content{};
         content.kind = UiProfileDialogKind::crop;
@@ -468,8 +496,10 @@ bool member_overlay_capacity_probe(D3D11Renderer& renderer, UiTextMeasureCache* 
 }
 
 // The server tag popout over the shell: loading, a ready profile whose icon
-// and tag badge are resident (drawn over their plates) with Join, and the
-// private card. Every frame presents without paint stream rejections.
+// and tag badge are resident (drawn over their plates) with Join, a member's
+// tag card (boost badge and tag chip on the name line, its banner in the
+// icon's colour read back from the atlas, two lines of traits then "+ 2 more"),
+// and the private card. Every frame presents without paint stream rejections.
 bool guild_card_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache* measure,
                          bool (*capture)(const wchar_t*) noexcept) noexcept {
     static UiGuildCardScene card{};
@@ -525,8 +555,8 @@ bool guild_card_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache* measure,
     content.trait_count = 3;
     content.online_count = 1234;
     content.member_count = 56789;
-    content.brand_color = 0x5865F2;
-    content.has_brand_color = true;
+    content.banner_color = 0x5865F2;
+    content.has_banner_color = true;
     content.action = UiGuildCardAction::join;
     if (!present(32, nullptr))
         return false;
@@ -536,6 +566,147 @@ bool guild_card_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache* measure,
     content.badge = badge;
     if (!present(33, L"guild-card-ready.bmp") || !require(renderer.media_quad_count == media_without + 2, 33))
         return false;
+    // A member's tag card without a brand colour: the banner glows in the icon's dominant colour, read back from the
+    // atlas (the quantizer's cell centre: 161,108,171 reads 164,108,172).
+    for (u32 i = 0; i < w * h; ++i) {
+        rgba[i * 4] = 161;
+        rgba[i * 4 + 1] = 108;
+        rgba[i * 4 + 2] = 171;
+    }
+    auto flat_icon = icon;
+    flat_icon.id = 0x4743000000000003ull;
+    u32 icon_color = 0;
+    if (!require(renderer_upload_media_straight_rgba8(&renderer, flat_icon, w, h, w * 4, {rgba, sizeof(rgba)}).ok() &&
+                     renderer_media_dominant_color(&renderer, flat_icon, &icon_color) && icon_color == 0xA46CAC,
+                 35))
+        return false;
+    content.name = utf8_literal("YURI!!!!");
+    content.description = {};
+    content.tag = utf8_literal("YURI");
+    content.icon = flat_icon;
+    content.server = {false, false, false, false, false, 2, 14};
+    content.traits[0] = utf8_literal("YURI!!!!!!!!!!!!!!!!!!");
+    content.traits[1] = utf8_literal("!!!!!!!!!!!!!!!!!!!!!!");
+    content.traits[2] = utf8_literal("!!!!!!!!!!!!!!!!!!!!!!");
+    content.traits[3] = utf8_literal("!!!!!!!!!!!!!!!!!!!!!!");
+    content.traits[4] = utf8_literal("YURI!!!!!!!!!!!!!!!!!!");
+    content.trait_count = 5;
+    content.online_count = 4414;
+    content.member_count = 12518;
+    content.banner_color = icon_color;
+    content.action = UiGuildCardAction::none;
+    if (!present(36, L"guild-card-tag.bmp"))
+        return false;
+    u32 glows = 0;
+    for (u32 i = 0; i < renderer.paint_stream.count; ++i)
+        glows += renderer.paint_stream.quads[i].border_width == kPaintBannerGlowMode;
+    if (!require(glows == 1 && card.server_badge_kind == UiGuildCardBadge::boost && card.visible_traits < 5 &&
+                     card.overflow_bytes && card.overflow.top <= card.traits[0].bottom + 4 + 1,
+                 37))
+        return false;
+    // The "+ N more" tooltip shows the folded traits as chips; the boost badge's names its level and boosts.
+    static UiTooltipScene tip{};
+    static UiWidgetManager overlay{};
+    static UiWidget overlay_root[1];
+    static UiLayoutNode overlay_nodes[1];
+    struct TooltipRestore {
+        D3D11Renderer& renderer;
+        const UiTooltipScene* previous;
+        ~TooltipRestore() noexcept {
+            ui_tooltip_clear(&tip);
+            renderer.tooltip_scene = previous;
+        }
+    } tip_restore{renderer, renderer.tooltip_scene};
+    auto root_style = ui_layout_style();
+    root_style.width = ui_layout_fill();
+    root_style.height = ui_layout_fill();
+    if (!require(ui_widget_manager_initialize(&overlay, {overlay_root, 1}, {overlay_nodes, 1}), 38))
+        return false;
+    const auto root = ui_widget_manager_add(
+        &overlay, ui_widget_invalid_handle(),
+        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Tooltip Overlay"), root_style}});
+    if (!require(root.ok() && ui_widget_manager_layout_rectangle(&overlay, viewport).ok() &&
+                     ui_tooltip_bind_text_owner(&tip, {&overlay, root.handle}),
+                 38))
+        return false;
+    renderer.tooltip_scene = &tip;
+    const auto show_hint = [&](const UiRect& source, u32 stage, const wchar_t* name) noexcept {
+        UiGuildCardHint hint{};
+        if (!ui_guild_card_hint(card, card.panel.left + (source.left + source.right) * .5f,
+                                card.panel.top + (source.top + source.bottom) * .5f, &hint))
+            return require(false, stage);
+        UiTooltipTarget target{
+            {card.owner, 1, card.identity, card.revision, 0x4743'0000u | static_cast<u32>(hint.kind) << 8},
+            hint.anchor,
+            hint.text};
+        target.layout = hint.kind == UiGuildCardHintKind::traits         ? UiTooltipLayout::chips
+                        : hint.kind == UiGuildCardHintKind::server_badge ? UiTooltipLayout::card
+                        : hint.kind == UiGuildCardHintKind::games        ? UiTooltipLayout::rows
+                                                                         : UiTooltipLayout::label;
+        target.row_media = hint.media;
+        target.placement =
+            hint.kind == UiGuildCardHintKind::traits ? UiTooltipPlacement::above : UiTooltipPlacement::below;
+        UiTooltipStyle style{};
+        style.maximum_height = 240;
+        renderer.retained_presentation.valid = false;
+        return require(ui_tooltip_offer(&tip, target, viewport, UiTooltipTrigger::pointer, 2000, style) &&
+                           ui_tooltip_tick(&tip, 3000, measure) && ui_tooltip_visible(tip) &&
+                           renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+                           probe_present(&renderer, kDefaultTheme) && !renderer.paint_stream.rejected && capture(name),
+                       stage);
+    };
+    if (!show_hint(card.overflow, 39, L"guild-card-traits-tooltip.bmp") ||
+        !require(tip.layout == UiTooltipLayout::chips && tip.chip_count == 2, 40) ||
+        !show_hint(card.server_badge, 41, L"guild-card-badge-tooltip.bmp") ||
+        !require(tip.layout == UiTooltipLayout::card && tip.detail_size.height > 0, 41))
+        return false;
+    ui_tooltip_clear(&tip);
+    // A server with games and trait emoji: five game pictures, the sixth's dimmed under "+2", a Unicode emoji
+    // leading a trait.
+    MediaAssetKey games[kUiGuildCardGames + 1];
+    for (u32 g = 0; g <= kUiGuildCardGames; ++g) {
+        for (u32 i = 0; i < w * h; ++i) {
+            rgba[i * 4] = static_cast<u8>(60 + g * 30);
+            rgba[i * 4 + 1] = static_cast<u8>(200 - g * 25);
+            rgba[i * 4 + 2] = static_cast<u8>(90 + (i % w));
+        }
+        games[g] = icon;
+        games[g].id = 0x4743000000000010ull + g;
+        if (!require(renderer_upload_media_straight_rgba8(&renderer, games[g], w, h, w * 4, {rgba, sizeof(rgba)}).ok(),
+                     42))
+            return false;
+    }
+    constexpr Utf8View names[]{utf8_literal("Doki Doki Literature Club"), utf8_literal("Minecraft"),
+                               utf8_literal("Terraria"), utf8_literal("Stardew Valley"), utf8_literal("Celeste")};
+    for (u32 g = 0; g < kUiGuildCardGames; ++g) {
+        content.games[g] = games[g];
+        content.game_names[g] = names[g];
+    }
+    content.games_more_icons[0] = games[kUiGuildCardGames];
+    content.games_more_icons[1] = games[0];
+    content.games_more_names = utf8_literal("Hollow Knight\nPortal 2");
+    content.game_count = 7;
+    content.game_high[1] = true;
+    content.trait_emoji[0] = utf8_literal("\xF0\x9F\x92\x9C");
+    content.description = utf8_literal("A cozy server for yuri fans.");
+    const u32 media_before_games = renderer.media_quad_count;
+    if (!present(43, L"guild-card-games.bmp") ||
+        !require(card.shown_games == 5 && card.games_more_bytes && renderer.media_quad_count >= media_before_games + 6,
+                 43))
+        return false;
+    // "+N"'s tooltip: each other game beside its picture.
+    const u32 media_before_rows = renderer.media_quad_count;
+    if (!show_hint(card.games_more, 44, L"guild-card-games-tooltip.bmp") ||
+        !require(tip.layout == UiTooltipLayout::rows && tip.row_count == 2 &&
+                     renderer.media_quad_count >= media_before_rows + 2,
+                 44))
+        return false;
+    ui_tooltip_clear(&tip);
+    renderer.tooltip_scene = tip_restore.previous;
+    content.games[0] = {};
+    content.game_count = 0;
+    content.trait_emoji[0] = {};
+    content.description = {};
     content.phase = UiGuildCardPhase::private_profile;
     return present(34, L"guild-card-private.bmp");
 }

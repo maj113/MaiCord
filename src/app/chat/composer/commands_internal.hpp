@@ -138,8 +138,8 @@ struct Commands {
     // A context menu wants the index loaded.
     bool context_wanted;
     // A built-in text command rewrote the draft at this revision; it sends as
-    // an ordinary message.
-    bool builtin_text;
+    // an ordinary message (with "tts" for /tts while the draft is unchanged).
+    bool builtin_text, builtin_tts;
     u32 builtin_text_revision;
     Echo echoes[echo_slots];
     u32 echo_next;

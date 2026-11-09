@@ -1,13 +1,15 @@
 #pragma once
+#include "maicord/ui/widgets/badge.hpp"
 #include "maicord/model/chat/typing_store.hpp"
 #include "maicord/ui/core/geometry.hpp"
+#include "maicord/ui/layout/density.hpp"
 
 namespace maicord {
 struct ChatStateStore;
 struct PaintStream;
 struct RelationshipStore;
-struct Theme;
 struct UserStore;
+struct PopupScene;
 struct UiTextMeasureCache;
 // Borrowed by the navigation view for DM and group DM rows and the DM header.
 struct UiPrivateRowSource {
@@ -17,11 +19,15 @@ struct UiPrivateRowSource {
     const TypingStore* typing;
     // Measures the DM header's name for the activity after it (none: no line).
     UiTextMeasureCache* measure;
+    // The popup scene: a conversation whose context menu is open keeps its nameplate (none: no menus).
+    const PopupScene* menu;
 };
 enum class UiPrivateRowStatus : u8 { none, online, idle, dnd, offline };
 enum class UiActivityGlyph : u8;
-// 42-DIP conversation rows with 32-DIP avatars.
-inline constexpr float kUiPrivateRowHeight = 42.f;
+// Conversation rows of 38, 42 or 48 DIPs (UI Density) with 32-DIP avatars.
+inline float ui_private_row_height() noexcept {
+    return ui_density_list_item(g_ui_density);
+}
 inline constexpr float kUiPrivateRowAvatar = 32.f;
 inline constexpr float kUiPrivateHeaderAvatar = 24.f;
 enum class UiPresence : u8;
@@ -62,6 +68,16 @@ bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, const UiRe
 UiRect ui_private_header_avatar(const UiScene& scene) noexcept;
 bool ui_private_header_overlay_paint(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
                                      const Theme& theme, PaintStream* stream) noexcept;
+// A one-to-one DM header's identity, what a click opens the full profile of and a hover shows the other names
+// of: the avatar and the name after it (measured; false without a measure cache or room for the name).
+struct UiPrivateHeaderIdentity {
+    u64 user;
+    UiRect avatar, name;
+};
+bool ui_private_header_identity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
+                                UiPrivateHeaderIdentity* output) noexcept;
+// The width of a one-to-one DM header's identity button (avatar, gap, the whole name), 0 without a measured name.
+float ui_private_header_identity_width(const UiPrivateRowSource& source, u64 channel_id) noexcept;
 // A one-to-one DM header's activity, 8 DIPs after the name (text-sm): the
 // glyph, 4 DIPs, then the line, cut off at the header's end. False without an
 // activity, a measured name or room for it.
@@ -73,6 +89,41 @@ struct UiPrivateHeaderActivity {
 inline constexpr float kUiPrivateHeaderActivityGap = 8.f, kUiPrivateHeaderActivityMinimum = 24.f;
 bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
                                 const Slice<char>& storage, UiPrivateHeaderActivity* output) noexcept;
+struct ProfileMedia;
+// The chip after a one-to-one row's name: the peer's server tag (its badge leads), or OFFICIAL with a check for
+// Discord's system account. The name keeps the room before it, 8 DIPs apart; the chip is never cut short by it.
+enum class UiPrivateRowChipKind : u8 { none, server_tag, official };
+struct UiPrivateRowChip {
+    UiPrivateRowChipKind kind;
+    UiBadgeWidget badge;
+    UiRect name;
+    u64 guild_id;
+};
+inline constexpr float kUiPrivateRowChipGap = 8.f;
+// The name line of a conversation row's label (its content rectangle), up to `right`; a subtitle lifts it.
+UiRect ui_private_row_name_rectangle(const UiRect& content, bool subtitle, float right) noexcept;
+// Lays the chip out on the row's name line (owner: the row's label widget; right: where its text ends). False
+// without one, with the name's rectangle set either way.
+bool ui_private_row_chip(const UiPrivateRowSource& source, u64 channel_id, UiWidgetHandle owner, const UiRect& content,
+                         float right, bool subtitle, UiPrivateRowChip* output) noexcept;
+// When a conversation row shows its peer's nameplate: while hovered, selected or with its context menu open
+// (never at rest), animated only under the pointer and while motion is allowed; its still is drawn behind the
+// animation until that is resident.
+struct UiPrivateRowPlate {
+    bool shown, animated;
+};
+constexpr UiPrivateRowPlate ui_private_row_plate(bool selected, bool hovered, bool animate, bool menu = false) noexcept {
+    return {selected || hovered || menu, hovered && animate};
+}
+// The conversation whose context menu is open (the source's popup), else zero.
+u64 ui_private_row_menu_channel(const UiPrivateRowSource& source) noexcept;
+// Where a hovered or selected row shows its peer's nameplate: the row's highlight.
+UiRect ui_private_row_highlight(const UiRect& row, const UiRect& avatar) noexcept;
+// A one-to-one row's pictures: the peer's nameplate while the row is hovered or selected (animated under the
+// pointer when `animate`, with the still behind it, as the member list) and the server tag's badge.
+enum class UiPrivateRowMedia : u8 { nameplate, nameplate_still, tag };
+bool ui_private_row_media(const ShellNavigationScene& scene, u32 index, const UiPrivateRowSource& source,
+                          u64 selected_channel_id, bool animate, UiPrivateRowMedia layer, ProfileMedia* output) noexcept;
 struct MemberListScene;
 // Crown on the group owner's row of a group DM member list.
 bool ui_private_member_owner_paint(const MemberListScene& scene, const ChatStateStore& state, const Theme& theme,

@@ -12,6 +12,7 @@
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/core/scene.hpp"
+#include "maicord/ui/core/transition.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/gpu/api.hpp"
 
@@ -21,26 +22,36 @@ namespace {
 struct LayerBatchRange {
     u32 first, end;
     float opacity;
-    // Optional uniform scale about a DIP origin; nested opacities multiply.
-    float scale = 1, origin_x = 0, origin_y = 0;
+    // Optional uniform scale about a DIP origin, then a DIP shift; nested opacities multiply.
+    float scale = 1, origin_x = 0, origin_y = 0, shift_x = 0, shift_y = 0;
 };
+// A surface's batch range under its opacity and its entrance/exit pose.
+LayerBatchRange surface_range(const D3D11Renderer& renderer, RendererLayerSurface surface, u32 first, u32 end,
+                              float opacity, bool current) noexcept {
+    if (!current)
+        return {first, end, opacity};
+    const RendererLayerTransform& t = renderer.layer_transform[static_cast<u32>(surface)];
+    return {first, end, opacity, t.scale, t.origin_x, t.origin_y, t.shift_x, t.shift_y};
+}
 
 // Binds one layer transform unless it is already bound.
-bool bind_layer(D3D11Renderer* renderer, float& current_opacity, float opacity, float scale, float origin_x,
-                float origin_y) noexcept {
-    if (opacity == current_opacity && scale == renderer->draw_layer_scale &&
-        origin_x == renderer->draw_layer_origin_x && origin_y == renderer->draw_layer_origin_y)
+bool bind_layer(D3D11Renderer* renderer, float& current_opacity, const LayerBatchRange& layer) noexcept {
+    if (layer.opacity == current_opacity && layer.scale == renderer->draw_layer_scale &&
+        layer.origin_x == renderer->draw_layer_origin_x && layer.origin_y == renderer->draw_layer_origin_y &&
+        layer.shift_x == renderer->draw_layer_shift_x && layer.shift_y == renderer->draw_layer_shift_y)
         return true;
     if (!d3d11_draw_pipeline_update_layer(renderer->pipeline, renderer->graphics.context, renderer->width,
-                                          renderer->height, renderer->dpi, opacity, scale, origin_x,
-                                          origin_y))
+                                          renderer->height, renderer->dpi, layer.opacity, layer.scale,
+                                          layer.origin_x, layer.origin_y, layer.shift_x, layer.shift_y))
         return false;
-    current_opacity = opacity;
-    renderer->background_fx.layer_opacity = opacity;
-    renderer->effect.layer_opacity = opacity;
-    renderer->draw_layer_scale = scale;
-    renderer->draw_layer_origin_x = origin_x;
-    renderer->draw_layer_origin_y = origin_y;
+    current_opacity = layer.opacity;
+    renderer->background_fx.layer_opacity = layer.opacity;
+    renderer->effect.layer_opacity = layer.opacity;
+    renderer->draw_layer_scale = layer.scale;
+    renderer->draw_layer_origin_x = layer.origin_x;
+    renderer->draw_layer_origin_y = layer.origin_y;
+    renderer->draw_layer_shift_x = layer.shift_x;
+    renderer->draw_layer_shift_y = layer.shift_y;
     return true;
 }
 // A batch-range draw callback: a context pointer and the function that draws
@@ -67,37 +78,40 @@ bool draw_opacity_batches(D3D11Renderer* renderer, u32 first, u32 end, const Lay
         return draw.call(draw.context, first, end);
     while (first < end) {
         u32 next = end;
-        float opacity = 1, scale = 1, origin_x = 0, origin_y = 0;
+        LayerBatchRange bound{first, end, 1};
         for (u32 index = 0; index < layer_count; ++index) {
             const LayerBatchRange& layer = layers[index];
             const float value = layer.opacity >= 0 && layer.opacity <= 1 ? layer.opacity : 1;
             const float factor = layer.scale > 0 && layer.scale <= 2 ? layer.scale : 1;
-            if ((value == 1 && factor == 1) || layer.first >= layer.end)
+            const bool shifted = layer.shift_x != 0 || layer.shift_y != 0;
+            if ((value == 1 && factor == 1 && !shifted) || layer.first >= layer.end)
                 continue;
             if (first >= layer.first && first < layer.end) {
-                opacity *= value;
+                bound.opacity *= value;
                 if (factor != 1)
-                    scale = factor, origin_x = layer.origin_x, origin_y = layer.origin_y;
+                    bound.scale = factor, bound.origin_x = layer.origin_x, bound.origin_y = layer.origin_y;
+                if (shifted)
+                    bound.shift_x = layer.shift_x, bound.shift_y = layer.shift_y;
                 next = minimum(next, layer.end);
             } else if (first < layer.first) {
                 next = minimum(next, layer.first);
             }
         }
-        if (!bind_layer(renderer, current_opacity, opacity, scale, origin_x, origin_y) ||
-            !draw.call(draw.context, first, next))
+        if (!bind_layer(renderer, current_opacity, bound) || !draw.call(draw.context, first, next))
             return false;
         first = next;
     }
     return true;
 }
 
-// Scissors of a scaled layer follow its geometry.
+// Scissors of a scaled or shifted layer follow its geometry.
 UiRect layer_clip(const D3D11Renderer& renderer, const UiRect& rect) noexcept {
-    const float s = renderer.draw_layer_scale;
-    if (s == 1)
+    const float s = renderer.draw_layer_scale, dx = renderer.draw_layer_shift_x, dy = renderer.draw_layer_shift_y;
+    if (s == 1 && dx == 0 && dy == 0)
         return rect;
     const float x = renderer.draw_layer_origin_x, y = renderer.draw_layer_origin_y;
-    return {x + (rect.left - x) * s, y + (rect.top - y) * s, x + (rect.right - x) * s, y + (rect.bottom - y) * s};
+    return {x + (rect.left - x) * s + dx, y + (rect.top - y) * s + dy, x + (rect.right - x) * s + dx,
+            y + (rect.bottom - y) * s + dy};
 }
 
 bool intersect_scissor(RECT* rectangle, const RECT* damage) noexcept {
@@ -222,7 +236,7 @@ bool batch_scissor(const D3D11Renderer& renderer, const UiRect& clip, float pixe
 void widen_scissor(const D3D11Renderer& renderer, const RECT* damage, const void* quads, u32 stride, u32 count,
                    const RasterClipRect& pixels, float pixel_scale, u32 sign_offset,
                    RasterClipRect* scissor) noexcept {
-    if (renderer.draw_layer_scale != 1 ||
+    if (renderer.draw_layer_scale != 1 || renderer.draw_layer_shift_x != 0 || renderer.draw_layer_shift_y != 0 ||
         !draw_quads_within(quads, stride, count, pixels, pixel_scale, renderer.width, renderer.height, sign_offset))
         return;
     RECT whole{0, 0, static_cast<LONG>(renderer.width), static_cast<LONG>(renderer.height)};
@@ -1143,8 +1157,10 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
           d3d11_renderer_pinned_messages_visible(*renderer) ||
           d3d11_renderer_quick_switcher_visible(*renderer) || d3d11_renderer_inbox_visible(*renderer) ||
           d3d11_renderer_message_forward_visible(*renderer) || d3d11_renderer_download_visible(*renderer) ||
+          d3d11_renderer_go_live_visible(*renderer) ||
           d3d11_renderer_shortcuts_visible(*renderer) || d3d11_renderer_media_picker_visible(*renderer) ||
           d3d11_renderer_call_visible(*renderer) || d3d11_renderer_stream_card_visible(*renderer) ||
+          d3d11_renderer_names_card_visible(*renderer) ||
           d3d11_renderer_guild_card_visible(*renderer) || d3d11_renderer_expression_card_visible(*renderer) ||
           d3d11_renderer_active(renderer->message_action_bar) ||
           d3d11_renderer_active(renderer->popup_scene) ||
@@ -1268,18 +1284,15 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                                d3d11_renderer_inbox_visible(*renderer) ||
                                d3d11_renderer_message_forward_visible(*renderer) ||
                                d3d11_renderer_download_visible(*renderer) ||
+                               d3d11_renderer_go_live_visible(*renderer) ||
                                d3d11_renderer_shortcuts_visible(*renderer) ||
                                (d3d11_renderer_active(renderer->popup_scene) &&
                                 !renderer->login_visible && !settings_active);
     const bool choice_current = settings_active && d3d11_renderer_settings_popup(*renderer);
     const float popup_opacity = popup_current ? renderer->layer_opacity.popup : 1;
-    // Scale popouts (the server header menu) grow from their anchor edge.
-    const float popup_scale = popup_current ? renderer->popup_layer_scale : 1;
-    const float popup_x = renderer->popup_layer_origin_x, popup_y = renderer->popup_layer_origin_y;
-    const float profile_opacity = d3d11_renderer_active(renderer->profile_scene) &&
-                                          !renderer->login_visible && !settings_active
-                                      ? renderer->layer_opacity.profile
-                                      : 1;
+    const bool profile_current =
+        d3d11_renderer_active(renderer->profile_scene) && !renderer->login_visible && !settings_active;
+    const float profile_opacity = profile_current ? renderer->layer_opacity.profile : 1;
     const float choice_opacity = choice_current ? renderer->layer_opacity.settings_choice : 1;
     const float gallery_opacity = gallery_current ? renderer->layer_opacity.gallery : 1;
     // Dialog entrance: the scrim fades in while the dialog fades and grows
@@ -1328,78 +1341,111 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                             renderer->guild_card_banner_media_end_batch <= ordinary_media_end;
     const u32 card_paint = card_split ? renderer->guild_card_foreground_first_batch : editor_paint_first;
     const u32 card_media = card_split ? renderer->guild_card_banner_media_end_batch : menu_media;
-    const LayerBatchRange paint_layers[9]{
+    // Its overlay (busy-game markers) draws over the popup media.
+    const u32 overlay_paint =
+        card_split ? maximum(card_paint, minimum(renderer->popup_overlay_paint_first_batch, editor_paint_first))
+                   : editor_paint_first;
+    // Each surface's ranges carry its opacity and its entrance/exit pose (scale popouts grow from their anchor edge,
+    // popouts slide toward it, the profile modal scales about its centre).
+    const bool editor_current = renderer_theme_editor_visible(*renderer);
+    const auto popup = [&, renderer](u32 first, u32 end) noexcept {
+        return surface_range(*renderer, RendererLayerSurface::popup, first, end, popup_opacity, popup_current);
+    };
+    const auto profile = [&, renderer](u32 first, u32 end) noexcept {
+        return surface_range(*renderer, RendererLayerSurface::profile, first, end, profile_opacity, profile_current);
+    };
+    const auto gallery = [&, renderer](u32 first, u32 end) noexcept {
+        return surface_range(*renderer, RendererLayerSurface::gallery, first, end, gallery_opacity, gallery_current);
+    };
+    const auto choice = [&, renderer](u32 first, u32 end) noexcept {
+        return surface_range(*renderer, RendererLayerSurface::settings_choice, first, end, choice_opacity,
+                             choice_current);
+    };
+    const auto editor = [&, renderer](u32 first, u32 end) noexcept {
+        return surface_range(*renderer, RendererLayerSurface::theme_editor, first, end, editor_opacity,
+                             editor_current);
+    };
+    const auto forum = [&, renderer](u32 first, u32 end) noexcept {
+        return surface_range(*renderer, RendererLayerSurface::forum_form, first, end, forum_opacity, forum_current);
+    };
+    // The first and end batch of a text-inline media layer.
+    const auto first_of = [renderer](RendererInlineMediaLayer layer) noexcept {
+        return renderer->inline_media_layer_first[static_cast<u32>(layer)];
+    };
+    const auto end_of = [renderer](RendererInlineMediaLayer layer) noexcept {
+        return renderer->inline_media_layer_end[static_cast<u32>(layer)];
+    };
+    // The tooltip (the form layer's only content while it shows) pops in: opacity and scale about its centre.
+    const float tooltip_remaining =
+        d3d11_renderer_tooltip_visible(*renderer) ? renderer->tooltip_entrance_remaining : 0;
+    const bool tooltip_entering = tooltip_remaining > 0 && tooltip_remaining <= 1;
+    const UiRect tooltip_rect = tooltip_entering ? renderer->tooltip_scene->rectangle : UiRect{};
+    const LayerBatchRange tooltip_layer{0, 0, 1 - tooltip_remaining,
+                                        1 - (1 - kUiMotionTooltipScale) * tooltip_remaining,
+                                        (tooltip_rect.left + tooltip_rect.right) * .5f,
+                                        (tooltip_rect.top + tooltip_rect.bottom) * .5f};
+    const auto tooltip = [&](u32 first, u32 end) noexcept {
+        LayerBatchRange range = tooltip_layer;
+        range.first = tooltip_entering ? first : end;
+        range.end = end;
+        return range;
+    };
+    const LayerBatchRange paint_layers[10]{
         {0, modal_paint_first, modal_progress},
         {modal_paint_first, modal_paint_end, modal_opacity, modal_scale, modal_x, modal_y},
-        {renderer->profile_paint_first_batch, renderer->profile_paint_end_batch, profile_opacity},
-        {gallery_paint_first, gallery_paint_end, gallery_opacity},
-        {renderer->popup_paint_first_batch, renderer->popup_paint_end_batch, popup_opacity, popup_scale, popup_x,
-         popup_y},
-        {renderer->settings_choice_paint_first_batch, renderer->settings_choice_paint_end_batch,
-         choice_opacity},
-        {renderer->theme_editor_paint_first_batch, renderer->theme_editor_paint_end_batch, editor_opacity},
-        {renderer->quick_switcher_status_first_batch, renderer->quick_switcher_status_end_batch, popup_opacity,
-         popup_scale, popup_x, popup_y},
-        {forum_current ? form_paint : paint_batch_count,
-         forum_current ? renderer->forum_paint_end_batch : paint_batch_count, forum_opacity}};
-    const LayerBatchRange text_layers[7]{
+        profile(renderer->profile_paint_first_batch, renderer->profile_paint_end_batch),
+        gallery(gallery_paint_first, gallery_paint_end),
+        popup(renderer->popup_paint_first_batch, renderer->popup_paint_end_batch),
+        choice(renderer->settings_choice_paint_first_batch, renderer->settings_choice_paint_end_batch),
+        editor(renderer->theme_editor_paint_first_batch, renderer->theme_editor_paint_end_batch),
+        popup(renderer->quick_switcher_status_first_batch, renderer->quick_switcher_status_end_batch),
+        forum(forum_current ? form_paint : paint_batch_count,
+              forum_current ? renderer->forum_paint_end_batch : paint_batch_count),
+        tooltip(form_paint, paint_batch_count)};
+    const LayerBatchRange text_layers[8]{
         {0, modal_text_end, modal_opacity, modal_scale, modal_x, modal_y},
-        {renderer->profile_text_first_batch, renderer->profile_text_end_batch, profile_opacity},
-        {gallery_text_first, gallery_text_end, gallery_opacity},
-        {renderer->popup_text_first_batch, renderer->popup_text_end_batch, popup_opacity, popup_scale, popup_x,
-         popup_y},
-        {renderer->settings_choice_text_first_batch, renderer->settings_choice_text_end_batch,
-         choice_opacity},
-        {renderer->theme_editor_text_first_batch, renderer->theme_editor_text_end_batch, editor_opacity},
-        {forum_current ? form_text : visible_text_end,
-         forum_current ? renderer->forum_text_end_batch : visible_text_end, forum_opacity}};
+        profile(renderer->profile_text_first_batch, renderer->profile_text_end_batch),
+        gallery(gallery_text_first, gallery_text_end),
+        popup(renderer->popup_text_first_batch, renderer->popup_text_end_batch),
+        choice(renderer->settings_choice_text_first_batch, renderer->settings_choice_text_end_batch),
+        editor(renderer->theme_editor_text_first_batch, renderer->theme_editor_text_end_batch),
+        forum(forum_current ? form_text : visible_text_end,
+              forum_current ? renderer->forum_text_end_batch : visible_text_end),
+        tooltip(form_text, visible_text_end)};
     const LayerBatchRange media_layers[14]{
         // Settings media move and fade with the modal: avatars, host page pictures, the choice popup's and the
         // dialogs' media, and the inline media of their text.
         {renderer->settings_page_media_first_batch, modal_media_end, modal_opacity, modal_scale, modal_x, modal_y},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::settings_page)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::settings_page)], modal_opacity,
-         modal_scale, modal_x, modal_y},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::settings_choice)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::settings_choice)],
+        {first_of(RendererInlineMediaLayer::settings_page), end_of(RendererInlineMediaLayer::settings_page),
          modal_opacity, modal_scale, modal_x, modal_y},
-        {renderer->profile_media_first_batch, renderer->profile_media_end_batch, profile_opacity},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::profile)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::profile)],
-         profile_opacity},
-        {gallery_media_first, gallery_media_end, gallery_opacity},
-        {renderer->popup_scene_media_first_batch, renderer->popup_scene_media_end_batch, popup_opacity, popup_scale,
-         popup_x, popup_y},
-        {renderer->settings_choice_media_first_batch, renderer->settings_choice_media_end_batch,
-         choice_opacity},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::gallery)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::gallery)],
-         gallery_opacity},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::popup)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::popup)],
-         popup_opacity, popup_scale, popup_x, popup_y},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::settings_choice)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::settings_choice)],
-         choice_opacity},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::theme_editor)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::theme_editor)],
-         editor_opacity},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::forum)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::forum)],
-         forum_opacity},
-        {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::form)],
-         renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::form)], 1}};
+        {first_of(RendererInlineMediaLayer::settings_choice), end_of(RendererInlineMediaLayer::settings_choice),
+         modal_opacity, modal_scale, modal_x, modal_y},
+        profile(renderer->profile_media_first_batch, renderer->profile_media_end_batch),
+        profile(first_of(RendererInlineMediaLayer::profile), end_of(RendererInlineMediaLayer::profile)),
+        gallery(gallery_media_first, gallery_media_end),
+        popup(renderer->popup_scene_media_first_batch, renderer->popup_scene_media_end_batch),
+        choice(renderer->settings_choice_media_first_batch, renderer->settings_choice_media_end_batch),
+        gallery(first_of(RendererInlineMediaLayer::gallery), end_of(RendererInlineMediaLayer::gallery)),
+        popup(first_of(RendererInlineMediaLayer::popup), end_of(RendererInlineMediaLayer::popup)),
+        choice(first_of(RendererInlineMediaLayer::settings_choice), end_of(RendererInlineMediaLayer::settings_choice)),
+        editor(first_of(RendererInlineMediaLayer::theme_editor), end_of(RendererInlineMediaLayer::theme_editor)),
+        forum(first_of(RendererInlineMediaLayer::forum), end_of(RendererInlineMediaLayer::forum)),
+        // The form layer's media under a shown tooltip are its emoji: they pop in with the box.
+        tooltip(first_of(RendererInlineMediaLayer::form), end_of(RendererInlineMediaLayer::form))};
     float current_opacity = 1;
     // Restores the identity layer and releases the stream's bindings; a failed
     // surface draw must not leave its factor bound for the next frame. The
     // caption pass draws the background effect after the stream: a fading
     // layer's factor left on the effects would leave its band translucent.
     const auto finish = [&, renderer](bool drawn) noexcept {
-        if ((current_opacity != 1 || renderer->draw_layer_scale != 1) &&
+        const bool transformed = renderer->draw_layer_scale != 1 || renderer->draw_layer_shift_x != 0 ||
+                                 renderer->draw_layer_shift_y != 0;
+        if ((current_opacity != 1 || transformed) &&
             !d3d11_draw_pipeline_update_layer(renderer->pipeline, renderer->graphics.context, renderer->width,
                                               renderer->height, renderer->dpi, 1, 1, 0, 0))
             drawn = false;
         renderer->draw_layer_scale = 1;
+        renderer->draw_layer_shift_x = renderer->draw_layer_shift_y = 0;
         renderer->background_fx.layer_opacity = renderer->effect.layer_opacity = 1;
         release_stream_views(renderer, submission);
         if (drawn)
@@ -1410,6 +1456,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     // Counts what each draw submits under the modal's transform or another one (see the renderer fields).
     const auto tally = [&, renderer](u32 instances) noexcept {
         const bool modal = current_opacity == modal_opacity && renderer->draw_layer_scale == modal_scale &&
+                           renderer->draw_layer_shift_x == 0 && renderer->draw_layer_shift_y == 0 &&
                            (modal_scale == 1 || (renderer->draw_layer_origin_x == modal_x &&
                                                  renderer->draw_layer_origin_y == modal_y));
         saturating_accumulate(modal ? renderer->modal_layer_instances_last_frame
@@ -1422,7 +1469,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                 tally(renderer->paint_stream.batches[i].quad_count);
             return draw_paint_batches(renderer, &submission, begin, limit, pixel_scale, damage);
         };
-        return draw_opacity_batches(renderer, first, end, paint_layers, 9, current_opacity, batch_draw(&draw));
+        return draw_opacity_batches(renderer, first, end, paint_layers, 10, current_opacity, batch_draw(&draw));
     };
     const auto text = [&, renderer](u32 first, u32 end, bool upload) noexcept {
         auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
@@ -1430,7 +1477,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                 tally(renderer->content_text->batches[i].quad_count);
             return draw_gpu_text(renderer, &submission, theme, begin, limit, upload, damage);
         };
-        return draw_opacity_batches(renderer, first, end, text_layers, 7, current_opacity, batch_draw(&draw));
+        return draw_opacity_batches(renderer, first, end, text_layers, 8, current_opacity, batch_draw(&draw));
     };
     const auto media = [&, renderer](u32 first, u32 end, bool upload) noexcept {
         auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
@@ -1553,7 +1600,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                !media(profile_effect_media, menu_media, false) ||
                !paint(minimum(profile_controls, menu_paint), menu_paint) ||
                !paint(menu_paint, card_paint) || !media(menu_media, card_media, false) ||
-               !paint(card_paint, editor_paint_first) || !media(card_media, ordinary_media_end, false) ||
+               !paint(card_paint, overlay_paint) || !media(card_media, ordinary_media_end, false) ||
+               !paint(overlay_paint, editor_paint_first) ||
                !inline_media(RendererInlineMediaLayer::popup) ||
                !text(menu_text, editor_text_first, false) ||
                !paint(editor_paint_first, editor_paint_end) ||
@@ -1564,7 +1612,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     }
     if (toast) {
         // renderer_set_toast_opacity keeps it within [0, 1].
-        if (!bind_layer(renderer, current_opacity, renderer->toast_opacity, 1, 0, 0) ||
+        const LayerBatchRange toast_layer{0, 0, renderer->toast_opacity};
+        if (!bind_layer(renderer, current_opacity, toast_layer) ||
             !draw_paint_batches(renderer, &submission, paint_batch_count, stream_paint_batches, pixel_scale,
                                 damage) ||
             !draw_gpu_text(renderer, &submission, theme, visible_text_end, stream_text_end, false, damage))

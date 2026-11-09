@@ -230,7 +230,8 @@ bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface,
     renderer->layer_opacity = {1, 1, 1, 1, 1, 1};
     renderer->settings_modal_progress = 1;
     renderer->draw_layer_scale = 1;
-    renderer->popup_layer_scale = 1;
+    for (auto& transform : renderer->layer_transform)
+        transform.scale = 1;
     presentation_damage_reset(&renderer->presentation_damage);
     reset_value(&renderer->present_dirty_rect);
     reset_value(&renderer->previous_buffer_damage_rect);
@@ -764,9 +765,11 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     renderer->inbox_scene = nullptr;
     renderer->message_forward_scene = nullptr;
     renderer->download_scene = nullptr;
+    renderer->go_live_scene = nullptr;
     renderer->shortcuts_scene = nullptr;
     renderer->call_scene = nullptr;
     renderer->stream_card_scene = nullptr;
+    renderer->names_card_scene = nullptr;
     renderer->guild_card_scene = nullptr;
     renderer->expression_card_scene = nullptr;
     renderer->guild_banner = nullptr;

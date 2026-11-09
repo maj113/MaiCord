@@ -10,6 +10,7 @@
 #include "maicord/ui/chat/messages/media_policy.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
 #include "maicord/ui/plugins/render.hpp"
+#include "maicord/ui/theme/theme.hpp"
 
 namespace maicord {
 enum class UiListMove : u8;
@@ -187,6 +188,8 @@ enum class MessageSceneClock : u8 {
     short_time, // "13:05": 2.25em
     wide,       // longer locale text, e.g. a day-period prefix: 4.25em
 };
+// Role colours on author names (the default), as a dot after the name, or not at all (Accessibility's Role Colors).
+inline constexpr u8 kMessageRoleColorsOnNames = 0, kMessageRoleColorsDot = 1, kMessageRoleColorsHidden = 2;
 struct MessageSceneDisplay {
     u8 group_spacing;
     bool compact;
@@ -195,7 +198,23 @@ struct MessageSceneDisplay {
     // and role colours on mentions. No nonzero initializers: the scene lives in a global.
     bool reply_timestamps;
     bool role_colors;
+    // Accessibility: how role colours show, how far user colours (role colours) are desaturated (percent, 0 full
+    // colour) and whether links are always underlined. Compact rows show the author's avatar before the name
+    // (Appearance's "Show avatars in Compact mode").
+    u8 role_style;
+    u8 user_color_desaturation;
+    bool underline_links;
+    bool compact_avatars;
 };
+// A user colour (a role colour) at Accessibility's saturation: moved toward its luma by `desaturation` percent.
+inline Color message_user_color(Color color, u8 desaturation) noexcept {
+    if (!desaturation)
+        return color;
+    const float luma = .2126f * color.red + .7152f * color.green + .0722f * color.blue,
+                keep = 1.f - static_cast<float>(desaturation) / 100.f;
+    return {luma + (color.red - luma) * keep, luma + (color.green - luma) * keep, luma + (color.blue - luma) * keep,
+            color.alpha};
+}
 constexpr float message_scene_compact_clock_em(MessageSceneClock clock) noexcept {
     return clock == MessageSceneClock::short_time ? 2.25f : clock == MessageSceneClock::wide ? 4.25f : 3.1f;
 }
@@ -410,6 +429,8 @@ bool message_scene_set_display(MessageScene*, MessageSceneDisplay) noexcept;
 // Compact rows: how far a quoted line is indented right of the body column;
 // zero in the cozy display.
 float message_scene_reply_indent(const MessageScene&) noexcept;
+// The box of one quoted line: the glyph box of the chat size's text (1.3125 em), as high as an author line.
+float message_scene_reply_line_height(const MessageScene&) noexcept;
 // Remeasures every row, e.g. after message_rich_set_display changed geometry.
 void message_scene_invalidate_geometry(MessageScene*) noexcept;
 constexpr bool message_scene_avatar_visible(const MessageScene& scene, const MessageSceneRowWidget& row) noexcept {

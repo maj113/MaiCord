@@ -1,4 +1,5 @@
 #include "store_internal.hpp"
+#include "maicord/ui/core/transition.hpp"
 
 namespace maicord {
 using namespace store_detail;
@@ -56,10 +57,18 @@ bool set_focus(UiStoreScene* s, u16 index, bool visible_ring) noexcept {
     return changed;
 }
 
-bool fill_event(const UiStoreScene& s, u16 index, UiStoreEventKind kind, u32 value, UiStoreEvent* event) noexcept {
+bool fill_event(UiStoreScene& s, u16 index, UiStoreEventKind kind, u32 value, UiStoreEvent* event) noexcept {
     if (!event)
         return true;
-    *event = {kind, s.nodes[index].action, value, screen_rect(s, index)};
+    const auto& n = s.nodes[index];
+    *event = {kind, n.action, value, screen_rect(s, index)};
+    // An activated switch turns to the other state: remember it for its slide.
+    if (kind == UiStoreEventKind::activate && n.kind == UiStoreKind::toggle) {
+        s.toggle_action = n.action;
+        s.toggle_to = n.value == 0;
+        s.toggle_started_ms = 0;
+        ++s.motion;
+    }
     return true;
 }
 
@@ -382,12 +391,24 @@ bool ui_store_scene_key(UiStoreScene* s, UiStoreKey key, UiStoreEvent* event) no
     return true;
 }
 
-bool ui_store_scene_tick(UiStoreScene* s, u64 now_ms, bool reduced_motion) noexcept {
+bool ui_store_scene_tick(UiStoreScene* s, u64 now_ms, bool reduced_motion, u32 switch_ms) noexcept {
     if (!s)
         return false;
     s->reduced_motion = reduced_motion;
-    // A frame is needed only while a skeleton is on screen. A second tick in the same millisecond (the host
-    // synchronizes more than once per frame) still reports it, so the frame chain never drops.
+    s->toggle_ms = switch_ms;
+    // The last switch's slide starts at its first tick and ends a frame after its duration, so the last frame paints
+    // it settled.
+    if (s->toggle_action) {
+        if (!s->toggle_started_ms)
+            s->toggle_started_ms = now_ms ? now_ms : 1;
+        if (now_ms >= s->toggle_started_ms + switch_ms + kUiTransitionFrameMs) {
+            s->toggle_action = 0;
+            s->toggle_started_ms = 0;
+            ++s->motion;
+        }
+    }
+    // A frame is needed only while a skeleton is on screen or a switch slides. A second tick in the same millisecond
+    // (the host synchronizes more than once per frame) still reports it, so the frame chain never drops.
     if (!ui_store_scene_animating(*s))
         return false;
     if (s->clock_ms != now_ms) {
@@ -410,7 +431,8 @@ bool any_visible(const UiStoreScene& s, bool (*match)(const UiStoreNode&) noexce
 } // namespace
 
 bool ui_store_scene_animating(const UiStoreScene& s) noexcept {
-    return !s.reduced_motion && any_visible(s, [](const UiStoreNode& n) noexcept { return n.kind == UiStoreKind::bar; });
+    return s.toggle_action != 0 ||
+           (!s.reduced_motion && any_visible(s, [](const UiStoreNode& n) noexcept { return n.kind == UiStoreKind::bar; }));
 }
 
 bool ui_store_scene_spinner_visible(const UiStoreScene& s) noexcept {

@@ -39,7 +39,10 @@
       "success": [0.14, 0.65, 0.38, 1],
       "warning": [0.94, 0.69, 0.2, 1],
       "danger": "{colors.notification}",
-      "app_badge": "#5865f2"
+      "app_badge": "#5865f2",
+      "boost": "#ff73fa",
+      "boost_badge": "#96979e",
+      "game_activity": "#fa9746"
     },
     "text": {
       "normal": "{colors.text_primary}",
@@ -53,7 +56,9 @@
     "border": {
       "subtle": [1, 1, 1, 0.08],
       "strong": [1, 1, 1, 0.12],
-      "focus": "{colors.accent}"
+      "muted": [0.592, 0.592, 0.624, 0.04],
+      "focus": "{colors.accent}",
+      "outline": [0.592, 0.592, 0.624, 0.12]
     },
     "state": {
       "hover": [1, 1, 1, 0.1],
@@ -81,7 +86,7 @@
       "online": "{semantic.accent.success}",
       "idle": "{semantic.accent.warning}",
       "dnd": "{semantic.accent.danger}",
-      "offline": "{colors.interactive}"
+      "offline": "#9d9ea5"
     },
     "mention": {
       "background": "{colors.accent}@0.12",
@@ -137,10 +142,16 @@
       "input": [1, 1, 1, 0.12],
       "button": [1, 1, 1, 0.08],
       "button_hover": [1, 1, 1, 0.16],
+      "badge_box": [0.592, 0.592, 0.624, 0.12],
+      "badge_box_hover": [0.592, 0.592, 0.624, 0.2],
+      "game_plate": [1, 1, 1, 0.24],
+      "count_veil": "#00000099",
+      "connection_tile": "#ffffff",
       "banner": [0.067, 0.071, 0.078, 1],
       "control": [0, 0, 0, 0.56],
       "control_border": [1, 1, 1, 0.08],
-      "control_icon": "#ffffff"
+      "control_icon": "#ffffff",
+      "server_banner": "#121214"
     },
     "caption": {
       "background": "{colors.base_lowest}",

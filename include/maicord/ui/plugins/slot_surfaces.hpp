@@ -29,7 +29,7 @@ inline bool shell_navigation_plugin_badge(const ShellNavigationScene& scene, u32
     const float center = channel_is_private(row.view.type)
                              ? (content.top + content.bottom) * .5f
                              : layout->rectangle.top +
-                                   minimum(ui_rect_height(layout->rectangle), kShellNavigationVoiceHeadHeight) * .5f;
+                                   minimum(ui_rect_height(layout->rectangle), shell_navigation_head_height()) * .5f;
     return ui_plugin_slot_row_badge(kUiPluginSlotChannelRow, row.view.id, row.label, content, center,
                                     kUiPluginSlotRowNameKeep, out);
 }

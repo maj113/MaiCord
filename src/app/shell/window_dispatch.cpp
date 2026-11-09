@@ -11,6 +11,8 @@
 #include "shortcuts.hpp"
 #include "../voice/call.hpp"
 #include "../voice/stream.hpp"
+#include "../chat/private_header.hpp"
+#include "../voice/go_live.hpp"
 #include "../guild/card.hpp"
 #include "../media/expression_card.hpp"
 #include "../guild/banner.hpp"
@@ -52,6 +54,8 @@
 #include "../chat/composer/text_input.hpp"
 #include "button_input.hpp"
 #include "../settings/settings.hpp"
+#include "../settings/modal.hpp"
+#include "../settings/account_settings.hpp"
 #include "../settings/theme_editor.hpp"
 #include "../account/friends.hpp"
 #include "../plugins/plugins.hpp"
@@ -59,6 +63,7 @@
 #include "../notifications/notifications.hpp"
 #include "../media/video.hpp"
 #include "tooltip.hpp"
+#include "notice.hpp"
 #include "../chat/search/search.hpp"
 #include "../chat/messages/pinned_messages.hpp"
 #include "../chat/threads/browser.hpp"
@@ -76,18 +81,29 @@
 
 namespace maicord::app_detail {
 namespace {
+// Input never lands on a closing surface: its exit (a modal layer's or a settings dialog's) ends first.
+void finish_exits() noexcept {
+    application_surface_motion_finish_exits();
+    settings_modal_finish_exit();
+}
 // The sink is the only place window state changes are observed: position changes carry every
 // show/hide/minimize/restore/resize; activation, focus and scale have their own events. It runs first, before any
 // handler reads the flags.
 void observe_window_state(const WindowEvent& event) noexcept {
     switch (event.type) {
+    case EventType::context_menu:
+        finish_exits();
+        break;
     case EventType::key_down:
+    case EventType::pointer_down:
+    case EventType::wheel:
+        finish_exits();
+        application_effects_note_input();
+        break;
     case EventType::key_up:
     case EventType::character:
     case EventType::pointer_move:
-    case EventType::pointer_down:
     case EventType::pointer_up:
-    case EventType::wheel:
         application_effects_note_input();
         break;
     case EventType::state_changed:
@@ -305,6 +321,8 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
             return consumed();
         if (application_downloads_window_event(content))
             return consumed();
+        if (application_go_live_modal_window_event(content))
+            return consumed();
         if (application_image_viewer_event(content))
             return consumed();
         if (application_message_forward_window_event(content))
@@ -321,6 +339,9 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
             return consumed();
         // Go Live preview card over voice channel rows (and LIVE badge clicks).
         if (application_stream_window_event(content))
+            return consumed();
+        // The DM header's avatar and name: click for the full profile, hover for the names popout.
+        if (application_private_header_window_event(content))
             return consumed();
         // The call view covers the content column (and friends) when shown.
         if (application_call_window_event(content))
@@ -373,6 +394,9 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
 #if !defined(_WIN32)
             // The ceremony's worker wakes the loop with b = 1 (the key wants a PIN) or 2 (it ended): the same cause as the begin.
             if (event.wake.b != 0) {
+                // A ceremony of the account settings (a key being registered or verified) carries its own token.
+                if (application_account_settings_webauthn_progress(event.wake.a, event.wake.b))
+                    return true;
                 if (!application_login_webauthn_progress(event.wake.a, event.wake.b))
                     log_write(LogLevel::error, "auth", "webauthn_progress_failed");
                 return true;
@@ -408,7 +432,7 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
         if (!logout_blocked)
             application_plugins_menu_dismissed();
         g_app.popup_owner_kind = PopupOwnerKind::none;
-        renderer_set_dpi(&g_app.renderer, input_dpi(event));
+        renderer_set_dpi(&g_app.renderer, application_zoomed_dpi(input_dpi(event)));
         return true;
     case EventType::paint: {
         if (g_app.frame_loop_active && !g_app.renderer.live_resize) {
@@ -519,6 +543,7 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
                 break;
             if (handle_popup_click(content) || handle_message_action_bar_click(content) ||
                 application_login_handle_click(content) ||
+                application_notice_click(client_dip_x(content), client_dip_y(content)) ||
                 handle_scrollbar_begin(client_dip_x(content), client_dip_y(content))) {
                 application_focus_window();
                 return true;
@@ -530,7 +555,9 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
                 return true;
             }
             application_expression_card_pointer_down({client_dip_x(content), client_dip_y(content)});
-            if (application_gif_favorite_star_press(client_dip_x(content), client_dip_y(content)) ||
+            // An attachment's ALT badge opens its description's popout instead of the media under it.
+            if (application_alt_text_toggle(client_dip_x(content), client_dip_y(content)) ||
+                application_gif_favorite_star_press(client_dip_x(content), client_dip_y(content)) ||
                 application_message_media_reveal_at(client_dip_x(content), client_dip_y(content)) ||
                 application_image_viewer_open_at(client_dip_x(content), client_dip_y(content)) ||
                 application_dm_profile_click({client_dip_x(content), client_dip_y(content)}) ||

@@ -109,7 +109,7 @@ UiRect edit_bounds() noexcept {
     if (profile_edit())
         return g_app.profile->scene.edit_content;
     if (friends_edit() && g_app.renderer.friends_scene)
-        return ui_friends_scene_search_geometry(*g_app.renderer.friends_scene).text;
+        return ui_friends_scene_edit_field(*g_app.renderer.friends_scene).text;
     if (gallery_edit())
         return application_media_picker_edit_bounds();
     if (search_edit())
@@ -168,7 +168,10 @@ bool current_owner(const ApplicationComposerTextInput* input) noexcept {
 }
 bool current_layout() noexcept {
     const auto& layout = edit_layout();
-    if (!text_edit_layout_current_font(layout, g_app.renderer.glyph_text.system))
+    // The message draft is chat text; the other fields are the interface's.
+    const auto system = plain_edit() ? g_app.renderer.glyph_text.system
+                                     : renderer_text_system(&g_app.renderer, ui_text_face_chat(UiTextFace::normal));
+    if (!text_edit_layout_current_font(layout, system))
         return false;
     if (plain_edit()) {
         const auto text = message_composer_text(edit_model());
@@ -189,8 +192,7 @@ bool current_layout() noexcept {
         return true;
     }
     return g_app.message_composer_scene.model == &edit_model() &&
-           text_composer_layout_current(layout, g_app.message_composer_scene,
-                                          g_app.renderer.glyph_text.system);
+           text_composer_layout_current(layout, g_app.message_composer_scene, system);
 }
 void project(ApplicationComposerTextInput* input) noexcept {
     secure_text_store_composition(input->store, &input->composition);

@@ -426,7 +426,7 @@ void application_custom_status_close(bool restore_focus) noexcept {
     if (!application_custom_status_active())
         return;
     settings_modal_suspend(*form);
-    settings_modal_leave(*form, restore_focus && g_app.account_ui && !g_app.login.visible);
+    settings_modal_close(*form, restore_focus && g_app.account_ui && !g_app.login.visible);
 }
 
 void application_custom_status_release() noexcept {

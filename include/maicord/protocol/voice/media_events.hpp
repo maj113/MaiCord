@@ -9,6 +9,10 @@ enum VoiceTransportModes : u32 {
 struct VoiceReady {
     JsonString ip;
     u32 ssrc, recognized_modes;
+    // The highest-quality stream the server assigned for our Identify streams
+    // (zero without one): local video send SSRC and its RTX SSRC (ssrc + 1
+    // when the server omits it).
+    u32 video_ssrc, video_rtx_ssrc;
     u16 port;
 };
 struct VoiceSessionDescription {

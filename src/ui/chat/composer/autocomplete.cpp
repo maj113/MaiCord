@@ -9,6 +9,7 @@
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/model/chat/message_composer.hpp"
+#include "maicord/model/chat/game_store.hpp"
 #include "maicord/model/chat/message_store.hpp"
 #include "maicord/model/chat/reaction_preferences.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
@@ -682,13 +683,64 @@ void append_emoji_suggestions(ComposerAutocomplete* autocomplete, const ChatStat
     }
 }
 
+// Moves a suggestion to another slot; its views follow its own storage.
+void move_suggestion(ComposerAutocompleteSuggestion* to, const ComposerAutocompleteSuggestion& from) noexcept {
+    *to = from;
+    to->label.data = to->label_storage;
+    if (to->username.bytes)
+        to->username.data = to->username_storage;
+}
+
+// The official client's "@game" global: listed when "game" holds the query's
+// letters in order while a row is free (or the query is empty), or for "game"
+// itself; at the cap it takes the last role's row, else the last user's. It
+// sits after the other globals, before the roles.
+void append_game_global(ComposerAutocomplete* autocomplete, Utf8View query) noexcept {
+    const Utf8View test = utf8_literal("game");
+    const bool exact = utf8_equal(query, test);
+    const bool room = autocomplete->count < kMentionAutocompleteLimit;
+    if (!exact && !((room || !query.bytes) && subsequence_folded_ascii(test, query)))
+        return;
+    auto* s = autocomplete->suggestions;
+    u32 at = autocomplete->count;
+    while (at && s[at - 1].item_kind == ComposerAutocompleteKind::role)
+        --at;
+    if (!room) {
+        // The last role goes, else the last user (the globals stay).
+        u32 drop = autocomplete->count - 1;
+        if (s[drop].item_kind != ComposerAutocompleteKind::role) {
+            drop = at;
+            while (drop && s[drop - 1].item_kind != ComposerAutocompleteKind::member)
+                --drop;
+            if (!drop)
+                return;
+            --drop;
+            --at;
+        }
+        for (u32 i = drop; i + 1 < autocomplete->count; ++i)
+            move_suggestion(&s[i], s[i + 1]);
+        --autocomplete->count;
+    }
+    if (!append_global(autocomplete, utf8_literal("@game"), utf8_literal("Mention a game")))
+        return;
+    const ComposerAutocompleteSuggestion game = s[autocomplete->count - 1];
+    for (u32 i = autocomplete->count - 1; i > at; --i)
+        move_suggestion(&s[i], s[i - 1]);
+    move_suggestion(&s[at], game);
+    s[at].item_kind = ComposerAutocompleteKind::game_input;
+    copy_bytes(s[at].insertion, kGameTokenHead, kGameTokenHeadBytes);
+    copy_bytes(s[at].insertion + kGameTokenHeadBytes, kGameTokenEnd, kGameTokenEndBytes);
+    s[at].insertion_bytes = static_cast<u16>(kGameTokenHeadBytes + kGameTokenEndBytes);
+}
+
 } // namespace
 
 bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const MessageComposer& composer,
                                  const MemberListView& members, const UserStore& users,
                                  const NavigationView& navigation,
                                  const ChatStateStore& state, const GuildMemberStore* member_store,
-                                 const MessageStore* messages, const ReactionPreferenceStore* preferences) noexcept {
+                                 const MessageStore* messages, const ReactionPreferenceStore* preferences,
+                                 bool game_mentions) noexcept {
     if (!autocomplete) {
         return false;
     }
@@ -716,6 +768,8 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
         autocomplete->kind = ComposerAutocompleteKind::member;
         append_mention_users(autocomplete, composer, members, users, state, member_store, messages, query);
         append_mention_extras(autocomplete, composer, state, query);
+        if (game_mentions)
+            append_game_global(autocomplete, query);
     } else if (marker == '#') {
         if (!ensure_suggestion_storage(autocomplete)) {
             return false;

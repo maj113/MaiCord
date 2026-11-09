@@ -6,6 +6,7 @@
 #include "../../support/test_output.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "../../../src/app/chat/threads/actions.hpp"
+#include "../../../src/app/chat/game_lookup.hpp"
 #include "maicord/model/notifications/message_notifications.hpp"
 #include "maicord/protocol/gateway/reaction_events.hpp"
 
@@ -39,6 +40,10 @@ bool application_account_logout_blocked() noexcept {
 }
 u64 application_account_logout_next_wake() noexcept {
     return fixture_logout_wake;
+}
+// No game is ever asked for here (src/app/chat/game_lookup.hpp).
+u64 application_game_lookup_next_wake() noexcept {
+    return 0;
 }
 ApplicationThreadActionView application_thread_actions_view(u64) noexcept {
     return {};

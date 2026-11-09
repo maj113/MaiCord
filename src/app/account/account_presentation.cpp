@@ -1,4 +1,5 @@
 #include "../guild/community.hpp"
+#include "maicord/ui/shell/notice_band.hpp"
 #include "../guild/banner.hpp"
 #include "../voice/call.hpp"
 #include "../chat/threads/starter.hpp"
@@ -293,10 +294,12 @@ bool synchronize_shell_widget_scenes() noexcept {
         g_app.account_ui ? &g_app.account_ui->chat_state : nullptr,
         g_app.account_ui ? g_app.account_ui->chat_state.selected_guild_id : 0, community_notice};
     application_commands_composer(&composer_projection);
+    composer_projection.games = g_app.renderer.game_store;
     char typing_label_storage[kMessageTypingLabelMaximumBytes];
     Utf8View typing_label{};
     MessageTypingName typing_names[3]{};
     u32 typing_named = 0;
+    bool typing_collapsible = false;
     if (!friends && g_app.account_ui && g_app.account_ui->active_channel_id != 0) {
         const MessageTypingPresentationResult built = message_typing_presentation_build(
             g_app.account_ui->typing_store, g_app.account_ui->user_store,
@@ -306,7 +309,8 @@ bool synchronize_shell_widget_scenes() noexcept {
             log_u64(LogLevel::warning, "ui", "typing_label_error", static_cast<u64>(built.error));
         } else {
             typing_label = Utf8View{typing_label_storage, built.bytes};
-            typing_named = built.users <= 3 ? built.users : 0;
+            typing_named = built.named;
+            typing_collapsible = built.users <= 3;
         }
     }
     bool voice_notice_error = false;
@@ -377,19 +381,12 @@ bool synchronize_shell_widget_scenes() noexcept {
                 .ok());
         // Someone typing animates the dots; a notice in that row does not.
         g_app.message_composer_scene.typing_dots = typing_label.bytes && typing_label.data == typing_label_storage;
-        // "Role colors everywhere": each typing name takes its member's colour role.
+        // The typing names draw bold; only the dots row names anyone.
         auto& typing_scene = g_app.message_composer_scene;
-        typing_scene.typing_name_count = 0;
-        if (typing_scene.typing_dots && typing_named && g_app.preferences.role_colors_everywhere) {
-            const AccountUiRuntime& ui = *g_app.account_ui;
-            const ChannelRecord* typing_channel = chat_state_store_find_channel(ui.chat_state, ui.active_channel_id);
-            for (u32 i = 0; typing_channel && typing_channel->guild_id && i < typing_named; ++i) {
-                const GuildMemberRecord* member =
-                    guild_member_store_find(ui.guild_member_store, typing_channel->guild_id, typing_names[i].user_id);
-                typing_scene.typing_names[typing_scene.typing_name_count++] = {
-                    typing_names[i].offset, typing_names[i].bytes, member ? member->role_color & 0xFFFFFFu : 0u};
-            }
-        }
+        typing_scene.typing_name_count = static_cast<u8>(typing_scene.typing_dots ? typing_named : 0);
+        typing_scene.typing_collapsible = typing_scene.typing_dots && typing_collapsible;
+        for (u32 i = 0; i < typing_scene.typing_name_count; ++i)
+            typing_scene.typing_names[i] = typing_names[i];
         if (g_app.message_composer_pointer_selection &&
             !g_app.message_composer_scene.widgets.captured.generation) {
             end_message_composer_pointer_selection();
@@ -446,6 +443,8 @@ bool synchronize_shell_layout() noexcept {
     metrics.title_bar_height = theme_metrics.shell_header_height;
     metrics.navigation_header_height = theme_metrics.shell_header_height;
     metrics.navigation_footer_reserve = application_voice_panel_reserve();
+    // The app-wide notice band (shell/notice.cpp) takes the top of the window.
+    metrics.notice_height = g_app.shell_scene.notice ? g_app.shell_scene.notice->height : 0.f;
     if (metrics.member_sidebar_top != 0.f)
         metrics.member_sidebar_top = theme_metrics.shell_header_height;
     metrics.navigation_gutter_before = theme_metrics.shell_gutter;
@@ -463,6 +462,10 @@ bool synchronize_shell_layout() noexcept {
             : nullptr;
     const bool group_dm = home && selected && selected->type == 3;
     const bool empty_home = home && !g_app.account_ui->chat_state.selected_channel_id;
+    // A one-to-one DM's header identity is a focusable button as wide as the avatar and the name.
+    if (home && !friends && selected && selected->type == 1)
+        if (const auto* rows = application_private_channel_rows())
+            metrics.private_identity_width = ui_private_header_identity_width(*rows, selected->id);
     metrics.navigation_width =
         g_app.channel_pane_width > 0.0f ? g_app.channel_pane_width : metrics.navigation_width;
     metrics.member_sidebar_width =
@@ -502,26 +505,21 @@ bool synchronize_shell_layout() noexcept {
             metrics.flags = static_cast<u16>(metrics.flags & ~static_cast<u16>(ui_shell_layout_members));
         }
     }
-    const bool typing_visible =
-        !friends &&
-        (application_account_notice().bytes != 0 ||
-         (g_app.account_ui && typing_store_channel_count(
-                                  g_app.account_ui->typing_store, g_app.account_ui->active_channel_id,
-                                  g_app.account_ui->chat_state.self_user_id) != 0));
     const bool command_bar = !friends && application_commands_bar_visible();
     const float composer_chrome =
         friends ? 0.f
                 : message_composer_scene_chrome_height(
                       application_reply_draft().message_id != 0 || g_app.message_edit.editor_active,
-                      typing_visible, message_composer_attachment_row(application_attachment_input()), styles,
-                      command_bar);
+                      message_composer_attachment_row(application_attachment_input()), styles, command_bar);
     metrics.composer_height =
         friends ? 0.f
                 : message_composer_scene_cached_height(
                       g_app.message_composer_scene,
                       application_reply_draft().message_id != 0 || g_app.message_edit.editor_active,
-                      typing_visible, message_composer_attachment_row(application_attachment_input()),
+                      message_composer_attachment_row(application_attachment_input()),
                       ui_scene_composer_width(metrics, width_dip), command_bar);
+    // The typing strip is the composer's top row: it draws over the list's bottom space (see composer_overlap).
+    metrics.composer_overlap = friends ? 0.f : message_composer_scene_chrome_height(false, 0, styles);
     const auto update_metrics_revision = [&]() noexcept {
         metrics.revision = 1'000u + ui_extent_units(metrics.composer_height) * 31u +
                            ui_extent_units(metrics.navigation_width) * 131u +
@@ -534,7 +532,9 @@ bool synchronize_shell_layout() noexcept {
                            ui_extent_units(metrics.content_gutter_before) * 32'771u +
                            (styles && styles->ready ? styles->geometry_revision : 0u) * 65'537u +
                            static_cast<u32>(metrics.flags) * 7u + (g_app.member_pane_visible ? 1u : 0u) +
-                           ui_extent_units(metrics.navigation_footer_reserve) * 3u;
+                           ui_extent_units(metrics.navigation_footer_reserve) * 3u +
+                           ui_extent_units(metrics.notice_height) * 524'287u +
+                           ui_extent_units(metrics.private_identity_width) * 1'048'583u;
     };
     update_metrics_revision();
     u64 stage = 1;
@@ -796,15 +796,10 @@ bool refresh_shell_text(bool force) noexcept {
     if (ui.text_rebuild_retry_at_ms != 0 && now_ms < ui.text_rebuild_retry_at_ms) {
         return true;
     }
-    const bool typing_visible = application_account_notice().bytes != 0 ||
-                                typing_store_channel_count(ui.typing_store, ui.active_channel_id,
-                                                                   ui.chat_state.self_user_id) != 0;
-    // A preceding child-scene refresh may already have removed the label while
-    // retaining the old shell allocation. Compare the allocated height, not
-    // that mutable label, so the editor cannot inherit the vacated typing row.
+    // The composer's height never depends on who is typing: the strip above it is always reserved.
     const float required_composer_height = message_composer_scene_cached_height(
         g_app.message_composer_scene,
-        application_reply_draft().message_id != 0 || g_app.message_edit.editor_active, typing_visible,
+        application_reply_draft().message_id != 0 || g_app.message_edit.editor_active,
         message_composer_attachment_row(application_attachment_input()), 0.f, application_commands_bar_visible());
     const bool composer_height_changed =
         g_app.message_composer_scene.active &&

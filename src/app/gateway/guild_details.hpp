@@ -13,6 +13,8 @@ struct GatewayGuildDetailValues {
     JsonValue vanity_url_code;
     JsonValue incidents_data;
     JsonValue splash;
+    JsonValue preferred_locale;
+    JsonValue discovery_splash;
     u64 rules_channel_id;
     u64 public_updates_channel_id;
     u64 safety_alerts_channel_id;
@@ -23,6 +25,8 @@ struct GatewayGuildDetailValues {
     u16 seen;
     u8 premium_tier;
     bool premium_progress_bar_enabled;
+    u8 owner_configured_content_level;
+    u8 nsfw_level;
 };
 
 // True when `name` is a detail key. Details are advisory: a malformed value

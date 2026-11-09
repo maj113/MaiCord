@@ -145,7 +145,7 @@ void project_card(u64 now) noexcept {
     const u32 revision = stream.card.revision;
     const u64 identity = gateway_stream_video_user(stream.card_key.owner_id) ^ stream.card_key.channel_id;
     if (!ui_stream_card_show(&stream.card, identity, content, stream.hover_anchor, application_viewport_dips(), now,
-                             g_app.preferences.reduced_motion)) {
+                             application_reduced_motion())) {
         close_card();
         return;
     }
@@ -170,7 +170,7 @@ void card_pump(u64 now) noexcept {
     }
     if (valid(stream.card_key))
         project_card(now);
-    if (stream.card.active && ui_stream_card_tick(&stream.card, now, g_app.preferences.reduced_motion))
+    if (stream.card.active && ui_stream_card_tick(&stream.card, now, application_reduced_motion()))
         application_repaint();
 }
 bool menu_open() noexcept {
@@ -378,7 +378,7 @@ u64 application_stream_next_wake() noexcept {
     if (stream.card.active && stream.leave_ms)
         earliest(stream.leave_ms + kHoverCloseMs);
     if (stream.card.active)
-        earliest(ui_stream_card_next_wake(stream.card, g_app.preferences.reduced_motion));
+        earliest(ui_stream_card_next_wake(stream.card, application_reduced_motion()));
     if (stream.ended_ms && stream.view.notice == StreamWatchNotice::ended)
         earliest(stream.ended_ms + kEndedLingerMs);
     if (valid(stream.pending))

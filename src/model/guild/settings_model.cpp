@@ -76,7 +76,9 @@ u32 guild_settings_sections(PermissionSet p) noexcept {
         return 0;
     u32 sections = guild_settings_profile | guild_settings_engagement | guild_settings_boost_perks;
     if (permission_has(p, kPermissionManageGuild))
-        sections |= guild_settings_invites | guild_settings_safety;
+        sections |= guild_settings_invites | guild_settings_safety | guild_settings_automod | guild_settings_server_tag;
+    if (permission_has(p, kPermissionManageGuild) || permission_has(p, kPermissionManageWebhooks))
+        sections |= guild_settings_integrations;
     if (permission_has(p, kPermissionManageExpressions) || permission_has(p, kPermissionCreateExpressions))
         sections |= guild_settings_expressions;
     if (p & kGuildSettingsMemberPermissions)
@@ -339,6 +341,18 @@ const Utf8View kGuildProfileBannerNames[kGuildProfileBannerColorCount]{
 
 namespace {
 constexpr u8 kVisibilityPublic = 1, kVisibilityRestricted = 2, kVisibilityPublicWithRecruitment = 3;
+
+// Labels and emoji by slot; a custom emoji compares by id.
+bool traits_equal(const GuildAdminProfile& x, const GuildAdminProfile& y) noexcept {
+    for (u32 i = 0; i < kGuildAdminProfileTraits; ++i) {
+        const auto& a = x.traits[i];
+        const auto& b = y.traits[i];
+        if (!same_bytes(a.label, a.label_bytes, b.label, b.label_bytes) || a.emoji_id != b.emoji_id ||
+            (!a.emoji_id && !same_bytes(a.emoji_name, a.emoji_name_bytes, b.emoji_name, b.emoji_name_bytes)))
+            return false;
+    }
+    return true;
+}
 } // namespace
 
 GuildServerProfileDraft guild_server_profile_draft(const GuildAdminProfile& profile) noexcept {
@@ -351,12 +365,15 @@ GuildServerProfileDraft guild_server_profile_draft(const GuildAdminProfile& prof
 bool guild_server_profile_equal(const GuildServerProfileDraft& a, const GuildServerProfileDraft& b) noexcept {
     const auto& x = a.profile;
     const auto& y = b.profile;
-    return a.icon == b.icon && x.name_known == y.name_known && same_bytes(x.name, x.name_bytes, y.name, y.name_bytes) &&
+    return a.icon == b.icon && a.custom_banner == b.custom_banner && x.name_known == y.name_known &&
+           same_bytes(x.name, x.name_bytes, y.name, y.name_bytes) &&
            same_bytes(x.description, x.description_bytes, y.description, y.description_bytes) &&
            x.visibility_known == y.visibility_known && x.visibility == y.visibility &&
            same_bytes(x.brand_color, x.brand_color_bytes, y.brand_color, y.brand_color_bytes) &&
            x.custom_banner_known == y.custom_banner_known &&
-           same_bytes(x.custom_banner, x.custom_banner_bytes, y.custom_banner, y.custom_banner_bytes);
+           same_bytes(x.custom_banner, x.custom_banner_bytes, y.custom_banner, y.custom_banner_bytes) &&
+           traits_equal(x, y) && x.game_count == y.game_count &&
+           bytes_equal(x.game_application_ids, y.game_application_ids, x.game_count * sizeof(u64));
 }
 
 bool guild_server_name_valid(Utf8View text) noexcept {
@@ -387,7 +404,7 @@ void guild_server_profile_set_private(GuildServerProfileDraft* draft, const Guil
 
 u32 guild_server_profile_banner_choice(const GuildServerProfileDraft& draft) noexcept {
     const auto& p = draft.profile;
-    if (p.custom_banner_bytes)
+    if (p.custom_banner_bytes || draft.custom_banner == GuildProfileImageEdit::replace)
         return ~0u;
     if (!p.brand_color_bytes)
         return 0;
@@ -406,14 +423,83 @@ void guild_server_profile_set_banner_choice(GuildServerProfileDraft* draft, u32 
     p.brand_color_bytes = static_cast<u8>(color.bytes);
     p.custom_banner_bytes = 0;
     p.custom_banner_known = true;
+    draft->custom_banner = GuildProfileImageEdit::keep;
 }
 
-bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View icon_uri, const ChatStateStore& state,
-                                u64 guild_id, Slice<GuildServerProfileTraitWrite> traits,
+void guild_server_profile_set_custom_banner(GuildServerProfileDraft* draft) noexcept {
+    if (!draft)
+        return;
+    draft->custom_banner = GuildProfileImageEdit::replace;
+    draft->profile.custom_banner_bytes = 0;
+    draft->profile.custom_banner_known = true;
+}
+
+bool guild_server_profile_set_trait_label(GuildServerProfileDraft* draft, u32 slot, Utf8View label) noexcept {
+    if (!draft || slot >= kGuildAdminProfileTraits || !utf8_validate(label).valid)
+        return false;
+    auto& t = draft->profile.traits[slot];
+    u32 bytes = 0, codepoints = 0;
+    while (bytes < label.bytes && codepoints < kGuildAdminProfileTraitCodepoints) {
+        const auto scalar = utf8_decode_one(label.data + bytes, label.bytes - bytes);
+        if (!scalar.valid || bytes + scalar.width > kGuildAdminProfileTraitBytes)
+            break;
+        bytes += scalar.width;
+        ++codepoints;
+    }
+    copy_bytes(t.label, label.data, bytes);
+    t.label_bytes = static_cast<u8>(bytes);
+    return true;
+}
+
+bool guild_server_profile_set_trait_emoji(GuildServerProfileDraft* draft, u32 slot, Utf8View name) noexcept {
+    if (!draft || slot >= kGuildAdminProfileTraits || name.bytes > kGuildAdminProfileEmojiNameBytes ||
+        !utf8_validate(name).valid)
+        return false;
+    auto& t = draft->profile.traits[slot];
+    copy_bytes(t.emoji_name, name.data, name.bytes);
+    t.emoji_name_bytes = static_cast<u8>(name.bytes);
+    t.emoji_id = 0;
+    t.emoji_animated = false;
+    return true;
+}
+
+void guild_server_profile_clear_trait(GuildServerProfileDraft* draft, u32 slot) noexcept {
+    if (draft && slot < kGuildAdminProfileTraits)
+        reset_value(&draft->profile.traits[slot]);
+}
+
+bool guild_server_profile_has_game(const GuildServerProfileDraft& draft, u64 application_id) noexcept {
+    for (u32 i = 0; i < draft.profile.game_count; ++i)
+        if (draft.profile.game_application_ids[i] == application_id)
+            return true;
+    return false;
+}
+
+bool guild_server_profile_toggle_game(GuildServerProfileDraft* draft, u64 application_id) noexcept {
+    if (!draft || !application_id)
+        return false;
+    auto& p = draft->profile;
+    for (u32 i = 0; i < p.game_count; ++i) {
+        if (p.game_application_ids[i] != application_id)
+            continue;
+        for (u32 j = i + 1; j < p.game_count; ++j)
+            p.game_application_ids[j - 1] = p.game_application_ids[j];
+        --p.game_count;
+        return true;
+    }
+    if (p.game_count >= kGuildAdminProfileGameMaximum)
+        return false;
+    p.game_application_ids[p.game_count++] = application_id;
+    return true;
+}
+
+bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View icon_uri, Utf8View custom_banner_uri,
+                                const ChatStateStore& state, u64 guild_id, Slice<GuildServerProfileTraitWrite> traits,
                                 GuildServerProfileWrite* write) noexcept {
     const auto& p = draft.profile;
     if (!write || !traits.data || traits.count < kGuildAdminProfileTraits ||
         (draft.icon == GuildProfileImageEdit::replace && !icon_uri.bytes) ||
+        (draft.custom_banner == GuildProfileImageEdit::replace && !custom_banner_uri.bytes) ||
         (p.name_known && !guild_server_name_valid({p.name, p.name_bytes})) ||
         !guild_server_description_valid({p.description, p.description_bytes}))
         return false;
@@ -429,9 +515,11 @@ bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View i
                      : draft.icon == GuildProfileImageEdit::remove ? Utf8View{}
                                                                    : Utf8View{p.icon, p.icon_bytes};
     }
-    if (p.custom_banner_known) {
+    if (draft.custom_banner == GuildProfileImageEdit::replace || p.custom_banner_known) {
         value.fields |= guild_profile_write_custom_banner;
-        value.custom_banner = {p.custom_banner, p.custom_banner_bytes};
+        value.custom_banner = draft.custom_banner == GuildProfileImageEdit::replace
+                                  ? custom_banner_uri
+                                  : Utf8View{p.custom_banner, p.custom_banner_bytes};
     }
     if (p.visibility_known) {
         value.fields |= guild_profile_write_visibility;
@@ -789,10 +877,6 @@ bool guild_settings_order_changed(const ChatStateStore& store, u64 guild_id, Con
         ++seen;
     }
     return seen != count;
-}
-
-u32 guild_role_color_format(u32 color, Slice<char> output) noexcept {
-    return color_hex_format(color << 8 | 0xFFu, false, output);
 }
 
 u32 guild_role_color_rgba(u32 color) noexcept {

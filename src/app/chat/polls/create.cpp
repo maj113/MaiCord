@@ -356,7 +356,7 @@ void application_poll_create_close(bool restore_focus) noexcept {
     settings_modal_suspend(*owner);
     // A queued poll is dropped; one in flight finishes and is discarded.
     owner->queued = false;
-    settings_modal_leave(*owner, restore_focus && application_account_available());
+    settings_modal_close(*owner, restore_focus && application_account_available());
 }
 
 void application_poll_create_release() noexcept {

@@ -9,8 +9,11 @@ namespace maicord::app_detail {
 namespace {
 constexpr u32 kDefaultRows = kKeybindsSettingsBankCapacity, kChipBytes = 40;
 constexpr Utf8View kActionChoices[]{utf8_literal("Push to talk"), utf8_literal("Toggle mute"),
-                                    utf8_literal("Toggle deafen")};
+                                    utf8_literal("Toggle deafen"), utf8_literal("Toggle Streamer Mode")};
 static_assert(sizeof(kActionChoices) / sizeof(kActionChoices[0]) == static_cast<u32>(CustomKeybindAction::count));
+// A set keybind's buttons: change its action or keys, or remove it.
+constexpr Utf8View kKeybindButtons[]{utf8_literal("Edit"), utf8_literal("Delete")};
+constexpr u32 kKeybindEdit = 0, kKeybindDelete = 1, kNotEditing = ~0u;
 
 struct Chips {
     char text[2][kChipBytes];
@@ -21,10 +24,13 @@ struct KeybindsUi {
     u32 revision;
     bool loaded, visible, drafting;
     CustomKeybindAction draft_action;
+    // The keybind the draft replaces (an index, kKeybindsPushToTalkRow, or kNotEditing for a new one).
+    u32 editing;
     CustomKeybindError error;
     ShortcutRecorder recorder;
     // Borrowed by projected rows until the next projection.
     Chips custom[kCustomKeybindMaximum], push_to_talk;
+    char push_to_talk_text[kChipBytes + 64];
     Chips defaults[kDefaultRows];
     ShortcutListingRow listing[kDefaultRows];
     UiSettingsControl bank[kKeybindsSettingsBankCapacity];
@@ -63,6 +69,14 @@ void stop_draft() noexcept {
     ui.drafting = false;
     ui.recorder.active = false;
     ui.error = CustomKeybindError::none;
+    ui.editing = kNotEditing;
+}
+void start_draft(CustomKeybindAction action, u32 editing) noexcept {
+    ui.drafting = true;
+    ui.draft_action = action;
+    ui.editing = editing;
+    ui.error = CustomKeybindError::none;
+    ui.recorder.active = false;
 }
 u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresentation> presentation) noexcept {
     ensure_loaded();
@@ -74,20 +88,27 @@ u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresen
         presentation[count++] = {variant, 0, kUiSettingsNoDefault};
     };
     const auto& audio = application_voice_preferences().audio;
+    // Each set keybind: its action, its keys, and Edit and Delete.
     if (audio.push_to_talk_key) {
-        key_chip(ui.push_to_talk, audio.push_to_talk_key);
-        emit(row(kKeybindsPushToTalkRow, kActionChoices[0],
-                 audio.mode == VoiceInputMode::push_to_talk ? Utf8View{}
-                                                            : utf8_literal("Used when your input mode is push to talk."),
-                 UiSettingsControlKind::action, {ui.push_to_talk.views, 1}, 0, utf8_literal("Delete")),
-             UiSettingsVariant::critical);
+        // The key, and while the input mode is voice activity, when it applies.
+        const Utf8View key = key_chip(ui.push_to_talk, audio.push_to_talk_key);
+        Utf8View text = key;
+        if (audio.mode != VoiceInputMode::push_to_talk) {
+            constexpr Utf8View note = utf8_literal(" \xC2\xB7 Used when your input mode is push to talk.");
+            copy_bytes(ui.push_to_talk_text, key.data, key.bytes);
+            text = {ui.push_to_talk_text,
+                    key.bytes + utf8_copy_truncated(ui.push_to_talk_text + key.bytes,
+                                                    sizeof(ui.push_to_talk_text) - key.bytes, note)};
+        }
+        emit(row(kKeybindsPushToTalkRow, kActionChoices[0], text, UiSettingsControlKind::buttons,
+                 {kKeybindButtons, 2}, 0, {}),
+             UiSettingsVariant::standard);
     }
     for (u32 i = 0; i < ui.keybinds.count; ++i) {
         const auto& keybind = ui.keybinds.items[i];
-        chord_chip(ui.custom[i], 0, keybind.chord);
-        emit(row(i, custom_keybind_action_label(keybind.action), {}, UiSettingsControlKind::action,
-                 {ui.custom[i].views, 1}, 0, utf8_literal("Delete")),
-             UiSettingsVariant::critical);
+        emit(row(i, custom_keybind_action_label(keybind.action), chord_chip(ui.custom[i], 0, keybind.chord),
+                 UiSettingsControlKind::buttons, {kKeybindButtons, 2}, 0, {}),
+             UiSettingsVariant::standard);
     }
     if (!ui.drafting)
         return count;
@@ -104,8 +125,9 @@ u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresen
     emit(row(kKeybindsDraftRecordRow, utf8_literal("Keys"), hint, UiSettingsControlKind::action, {}, 0,
              ui.recorder.active ? utf8_literal("Press keys\xE2\x80\xA6") : utf8_literal("Record keybind")),
          ui.recorder.active ? UiSettingsVariant::standard : UiSettingsVariant::primary);
-    emit(row(kKeybindsDraftCancelRow, utf8_literal("New keybind"), utf8_literal("Nothing is saved until you record keys."),
-             UiSettingsControlKind::action, {}, 0, utf8_literal("Cancel")),
+    emit(row(kKeybindsDraftCancelRow, ui.editing == kNotEditing ? utf8_literal("New keybind") : utf8_literal("Edit keybind"),
+             utf8_literal("Nothing is saved until you record keys."), UiSettingsControlKind::action, {}, 0,
+             utf8_literal("Cancel")),
          UiSettingsVariant::standard);
     return count;
 }
@@ -130,19 +152,29 @@ u32 default_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPrese
     return count;
 }
 void commit(ShortcutChord chord) noexcept {
+    auto next = ui.keybinds;
+    if (ui.editing < next.count)
+        custom_keybinds_remove(&next, ui.editing);
+    auto& preferences = application_voice_preferences();
     if (ui.draft_action == CustomKeybindAction::push_to_talk) {
-        auto& preferences = application_voice_preferences();
+        // Push to talk is the one key the voice preferences hold.
         preferences.audio.push_to_talk_key = chord.key;
+    } else {
+        CustomKeybindError error{};
+        if (!custom_keybinds_add(&next, {ui.draft_action, chord}, &error)) {
+            ui.error = error;
+            return;
+        }
+        // Push to talk moved to another action.
+        if (ui.editing == kKeybindsPushToTalkRow)
+            preferences.audio.push_to_talk_key = 0;
+    }
+    if (ui.draft_action == CustomKeybindAction::push_to_talk || ui.editing == kKeybindsPushToTalkRow)
         application_voice_settings_changed(true);
-        stop_draft();
-        return;
+    if (ui.editing < ui.keybinds.count || ui.draft_action != CustomKeybindAction::push_to_talk) {
+        ui.keybinds = next;
+        save();
     }
-    CustomKeybindError error{};
-    if (!custom_keybinds_add(&ui.keybinds, {ui.draft_action, chord}, &error)) {
-        ui.error = error;
-        return;
-    }
-    save();
     stop_draft();
 }
 } // namespace
@@ -196,8 +228,7 @@ bool application_keybinds_settings_activate(SettingBinding binding) noexcept {
     ensure_loaded();
     if (binding != SettingBinding::keybinds_add || ui.drafting || ui.keybinds.count >= kCustomKeybindMaximum)
         return false;
-    ui.drafting = true;
-    ui.draft_action = CustomKeybindAction::toggle_mute;
+    start_draft(CustomKeybindAction::toggle_mute, kNotEditing);
     return true;
 }
 
@@ -216,13 +247,27 @@ bool application_keybinds_settings_activate_row(u64 control_id, u32 choice) noex
         return false; // Default shortcuts are read-only.
     const u32 index = settings_list_index(control_id);
     if (index < kCustomKeybindMaximum) {
-        if (!custom_keybinds_remove(&ui.keybinds, index))
+        if (index >= ui.keybinds.count)
             return false;
+        if (choice == kKeybindEdit) {
+            start_draft(ui.keybinds.items[index].action, index);
+            return true;
+        }
+        if (choice != kKeybindDelete || !custom_keybinds_remove(&ui.keybinds, index))
+            return false;
+        stop_draft();
         save();
         return true;
     }
     switch (index) {
     case kKeybindsPushToTalkRow:
+        if (choice == kKeybindEdit) {
+            start_draft(CustomKeybindAction::push_to_talk, kKeybindsPushToTalkRow);
+            return true;
+        }
+        if (choice != kKeybindDelete)
+            return false;
+        stop_draft();
         application_voice_preferences().audio.push_to_talk_key = 0;
         application_voice_settings_changed(true);
         return true;

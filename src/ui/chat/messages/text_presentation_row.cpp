@@ -25,10 +25,12 @@ constexpr CommandLook kLookMiddleSecond{.vertical = UiTextAlignment::center,
                                         .slot = 1,
                                         .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookMiddleClipped{.vertical = UiTextAlignment::center, .wrapping = TextWrapping::no_wrap};
-constexpr CommandLook kLookEnd{.horizontal = UiTextAlignment::end,
-                               .vertical = UiTextAlignment::center,
-                               .wrapping = TextWrapping::no_wrap,
-                               .overflow = TextOverflow::ellipsis};
+// The unread divider's label sits in a fixed 24-DIP band with a fixed width: the interface's size.
+constexpr CommandLook kLookDividerLabel{.horizontal = UiTextAlignment::end,
+                                        .vertical = UiTextAlignment::center,
+                                        .wrapping = TextWrapping::no_wrap,
+                                        .overflow = TextOverflow::ellipsis,
+                                        .interface_text = true};
 bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTextFlowLayout* flow,
                       const Color& color, const UiWidgetReference& owner, const MessageRecord& record,
                       u16 measurement_index, MessageTextMeasurementKind measurement_kind) noexcept {
@@ -50,14 +52,24 @@ bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTe
     return commit_last_command(presentation, flow);
 }
 
-Color member_role_color(const MessageTextPresentation& presentation, const ChatStateStore& state,
-                        u64 channel_id, u64 user_id, const Color& fallback) noexcept {
+// The member's role colour (0 when the author has none or is not a server member).
+u32 member_role_rgb(const MessageTextPresentation& presentation, const ChatStateStore& state, u64 channel_id,
+                    u64 user_id) noexcept {
     const ChannelRecord* channel = chat_state_store_find_channel(state, channel_id);
     const GuildMemberRecord* member =
         presentation.guild_members && channel && channel->guild_id != 0 && user_id != 0
             ? guild_member_store_find(*presentation.guild_members, channel->guild_id, user_id)
             : nullptr;
-    return member && member->role_color != 0 ? color_from_rgb24(member->role_color) : fallback;
+    return member ? member->role_color : 0;
+}
+// The name colour as Accessibility's Role Colors shows it: the role colour (at the user-colour saturation) on names,
+// else the fallback (the role colour is a dot before the name, or not shown).
+Color member_role_color(const MessageTextPresentation& presentation, const MessageSceneDisplay& display,
+                        const ChatStateStore& state, u64 channel_id, u64 user_id, const Color& fallback) noexcept {
+    const u32 rgb = display.role_style == kMessageRoleColorsOnNames
+                        ? member_role_rgb(presentation, state, channel_id, user_id)
+                        : 0;
+    return rgb ? message_user_color(color_from_rgb24(rgb), display.user_color_desaturation) : fallback;
 }
 
 struct RetainedAuthorHeader {
@@ -224,7 +236,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         if (!append_command(presentation, kUiUnreadDividerLabel, kNoStyles, kNoSemantics,
                             UiWidgetReference{&scene.widgets, row.widget}, geometry.label, row_clip,
                             ui_unread_divider_text_color(theme), nullptr, kInvalidMessageTextMeasurement,
-                            kLookEnd))
+                            kLookDividerLabel))
             return false;
     }
 
@@ -387,7 +399,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         // Role colours are server data and pass through every theme unchanged.
         // The quoted author's name is muted; the
         // interaction header mutes its name when it lays the line out.
-        const Color reply_author_color = member_role_color(*presentation, state, record->channel_id,
+        const Color reply_author_color = member_role_color(*presentation, scene.display, state, record->channel_id,
                                                            message_rich_header_user(*rich), theme.text_primary);
         const Color reply_name_color =
             interaction_header ? reply_author_color
@@ -400,7 +412,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                                                     : 0.0f,
                                message_reply_leading_small(leading) ? kMessageReplyLeadingIconInset
                                                                     : kMessageReplyTextInset,
-                               summary.semantics)) {
+                               summary.semantics, message_scene_reply_line_height(scene))) {
             return false;
         }
         if (presentation->command_count == reply_begin) {
@@ -419,9 +431,12 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         saturating_accumulate(presentation->rich.replies);
     }
 
-    // Compact rows: timestamp in the hanging-indent gutter, name inline.
+    // Compact rows: timestamp in the hanging-indent gutter, then the author's avatar (Show user avatars), the role
+    // dot ("Next to names") and the name inline.
     Utf8View compact_name{};
     Color compact_color{};
+    u64 compact_avatar = 0;
+    u32 compact_dot = 0;
     if (!forwarded && (!row.grouped || scene.display.compact) && users && record->author_id != 0) {
         set_failure_context(presentation, MessageTextPresentationStage::author,
                             MessageTextPresentationOperation::append_command);
@@ -439,12 +454,20 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         author_color = ui_foreground_color(theme, author_color);
         // Role colours are server data and pass through every theme unchanged.
         if (record->delivery == MessageDeliveryState::authoritative) {
-            author_color = member_role_color(*presentation, state, record->channel_id, record->author_id,
-                                             author_color);
+            author_color = member_role_color(*presentation, scene.display, state, record->channel_id,
+                                             record->author_id, author_color);
         }
+        // "Next to names": the role colour rides on the header as its inline role colour (a compact row's as a dot
+        // cell); either way the dot comes before the name.
+        const u32 dot_rgb = scene.display.role_style == kMessageRoleColorsDot &&
+                                    record->delivery == MessageDeliveryState::authoritative
+                                ? member_role_rgb(*presentation, state, record->channel_id, record->author_id)
+                                : 0;
         if (scene.display.compact) {
             compact_name = name;
             compact_color = author_color;
+            compact_avatar = scene.display.compact_avatars ? record->author_id : 0;
+            compact_dot = dot_rgb;
             if (!append_compact_timestamp(presentation, scene, row, row_clip, theme, *record, now_unix_seconds))
                 return false;
         }
@@ -464,7 +487,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                              UiWidgetReference{&scene.widgets, row.author}, author->content_rectangle,
                              row_clip, author_color, record,
                              kInvalidMessageTextMeasurement,
-                             kLookStartThemed))) {
+                             kLookStartThemed,
+                             dot_rgb ? message_user_color(color_from_rgb24(dot_rgb), scene.display.user_color_desaturation)
+                                     : kNoRoleColor))) {
             return false;
         }
     }
@@ -542,7 +567,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         row_measurement.content_present = true;
     } else if (compact_name.bytes) {
         if (!compact_content(presentation, &context, compact_name, parse ? content : Utf8View{}, &display_content,
-                             &styles, &semantics, decoration))
+                             &styles, &semantics, decoration, compact_avatar, compact_dot))
             return false;
     } else if (parse && !parse_content(presentation, &context, content, &display_content, &styles, &semantics)) {
         return false;

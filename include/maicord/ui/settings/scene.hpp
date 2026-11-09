@@ -3,6 +3,7 @@
 #include "maicord/ui/shell/page_registry.hpp"
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/core/paint.hpp"
+#include "maicord/ui/core/transition.hpp"
 #include "maicord/ui/text/edit_field.hpp"
 #include "maicord/ui/widgets/kit_markdown.hpp"
 #include "maicord/media/core/asset_key.hpp"
@@ -50,7 +51,10 @@ enum class UiSettingsControlKind : u8 {
     // checked = shown in full, else clipped with the detail text as the link that shows it.
     markdown,
     // An info line under a card; action_label is an optional link at its end.
-    footnote
+    footnote,
+    // Accessibility's preview card (UiSettingsControl::preview): two example messages of yours, then example
+    // avatars and a button, drawn with the current accessibility choices. Not focusable; label is "Preview".
+    preview
 };
 // Selection sentinel for palette and radio controls showing no current value.
 inline constexpr u32 kUiSettingsNoChoice = ~0u;
@@ -96,6 +100,19 @@ inline constexpr float kUiSettingsFooterInset = 12;
 // Category rows head the controls that follow; notice rows show status text
 // with an optional action button. A single-line edit row's action_label is a
 // primary button beside its field (a list search with its create button).
+// The preview row's sample (kind preview): the author, the role colour and how it shows, the display mode and the
+// accessibility choices the sample follows. The sample is chat text, set in the chat face at text_size; the rest of
+// the page keeps the interface's size. Zoom and interface saturation reach it through the theme.
+struct UiSettingsPreview {
+    Utf8View author, time;
+    u32 role_rgb;    // 0xRRGGBB at the user-colour saturation; 0 for none
+    u8 role_style;   // 0 on names, 1 a dot before names, 2 not shown
+    bool compact;    // Chat Message Display: Compact
+    bool reactions;  // Show emoji reactions
+    bool underline;  // Always underline links
+    float group_gap; // Space Between Message Groups, DIPs
+    float text_size; // Text size in chat, DIPs (the chat em); 0 is 16
+};
 struct UiSettingsControl {
     u64 id;
     Utf8View label, description;
@@ -160,6 +177,25 @@ enum UiSettingsPresentationMore : u8 {
     // A status row's meta line is " · "-separated parts, the first one (the identity) bold and bright. The scene
     // flows whole parts left to right and wraps between them, drawing a separator only between parts on one line.
     ui_settings_more_meta_parts = 1u << 2,
+    // One cell of a grid: consecutive cell rows flow into lines of default_choice columns (at least one), cells of
+    // a line sharing its height. An edit cell (a Server Profile trait) has a leading button showing its detail text
+    // (an emoji; empty shows a placeholder glyph) and, when action_label is set, a trailing clear button inside its
+    // field: pointer activations report the clear button as choice 0 and the leading one as choice 1. An action cell
+    // (a game tile) is a cover (its avatar media, drawn square) with the label under it and, when checked, a check.
+    ui_settings_more_cell = 1u << 3,
+    // Swatches drawn as profile-banner tiles: five to a line, each the radial banner gradient of its colour.
+    ui_settings_more_banner_tiles = 1u << 4,
+    // Swatches drawn as glyph tiles (UiSettingsPageContent::glyph_tiles from default_choice on, one per choice):
+    // each the tile's icon outlined in its ink over its fill, with an optional corner mark (a lock on a badge the
+    // server has not unlocked). A disabled row dims its tiles.
+    ui_settings_more_glyphs = 1u << 5,
+    // An avatar action row that previews a name in chat: never focusable and never highlighted, its label (the
+    // name, in the accent colour) followed by a server tag chip: the detail text led by the glyph tile at
+    // default_choice; the description is the message under it.
+    ui_settings_more_name_tag = 1u << 6,
+    // With banner tiles: the last tile uploads a picture (a Discoverable server's custom banner). The row's avatar
+    // media, when set, covers it, else an image glyph shows; a pencil sits over it either way.
+    ui_settings_more_upload_tile = 1u << 7,
 };
 // Action rows' choices become chips under the text.
 struct UiSettingsControlPresentation {
@@ -175,12 +211,15 @@ struct UiSettingsControlPresentation {
 
 // Real image for an avatar row. An invalid key keeps the initials placeholder.
 // The hash (CDN asset hash, e.g. "a_" + 32 hex) is copied so the host's
-// user cache may change while the page borrows this record.
+// user cache may change while the page borrows this record. A profile_image
+// key may instead name its picture by a full URL (url, borrowed like the
+// page's labels): a game's cover from the CDN.
 inline constexpr u32 kUiSettingsAvatarHashBytes = 34;
 struct UiSettingsAvatarMedia {
     MediaAssetKey key;
     u8 hash_bytes;
     char hash[kUiSettingsAvatarHashBytes];
+    Utf8View url;
 };
 
 // Administration list rows (UiSettingsPageContent::list_items), by style:
@@ -209,6 +248,14 @@ struct UiSettingsListItem {
     UiIcon lead, count_icon;
     UiIcon actions[kUiSettingsListActions];
     bool locked;
+};
+
+// One glyph tile (ui_settings_more_glyphs, the name tag chip's badge): an icon
+// stroked in ink (0xRRGGBB) over closed shapes filled with fill, and a mark
+// (UiIcon::count for none) in the tile's top end corner.
+struct UiSettingsGlyphTile {
+    u32 ink, fill;
+    UiIcon icon, mark;
 };
 
 inline constexpr u32 kUiSettingsPageFormat = 0x53544731u;
@@ -259,6 +306,11 @@ struct UiSettingsPageContent {
     // the close button, at most kUiSettingsWideMaximum.
     bool host = false;
     bool wide = false;
+    // Null, or the glyph tiles the rows index (ui_settings_more_glyphs, ui_settings_more_name_tag).
+    const UiSettingsGlyphTile* glyph_tiles = nullptr;
+    u32 glyph_tile_count = 0;
+    // The sample of the page's preview row (kind preview); null on pages without one.
+    const UiSettingsPreview* preview = nullptr;
 };
 
 enum class UiSettingsTargetKind : u8 {
@@ -350,6 +402,8 @@ struct UiSettingsNavEntry {
     // Pinned entries sit in the sidebar's foot under a hairline and do not scroll with the others.
     bool pinned = false;
     u16 badge = 0;
+    // A page entry also shows selected while this page (one of its subpages) is the one shown.
+    UiPageKey subpage{};
 };
 inline constexpr u32 kUiSettingsNavigationMaximum = 48;
 
@@ -373,6 +427,19 @@ void ui_settings_dialog_fit(UiSettingsModalLayout*, const UiRect& viewport, floa
 struct UiSettingsAnimation {
     u64 control_id, started_ms;
     bool checked;
+};
+
+// The selection plate of one segments row sliding from the option it left (paint only; one row at a time).
+// control_id 0 is idle. `memory` holds what the scene last showed selected in the page's segments rows, so a
+// projection that changes one starts the slide without the host saying so.
+inline constexpr u32 kUiSettingsSegmentMemory = 16;
+struct UiSettingsSegmentMotion {
+    UiMotionTransition transition;
+    u64 control_id;
+    u32 from;
+    u64 memory_ids[kUiSettingsSegmentMemory];
+    u8 memory_choices[kUiSettingsSegmentMemory];
+    u8 memory_count;
 };
 
 struct UiResolvedThemeStyles;
@@ -416,6 +483,9 @@ struct UiSettingsScene {
     u64 flash_control{}, clock_ms{};
     float flash{};
     UiSettingsAnimation animation{};
+    UiSettingsSegmentMotion segment{};
+    // Button hover colour fades (kUiMotionHover), keyed by widget handle; ticked with the scene clock.
+    UiMotionHover hover_motion{};
     // Counts activations of an inactive scene; retained across release.
     u64 opens{};
     // Paint-only changes (toggle motion, flash) that need no text or layout.
@@ -431,7 +501,12 @@ struct UiSettingsScene {
     u32 rows_first{};
     // Retained markdown blocks of the page's markdown rows (allocated on first use); freed when the scene releases.
     mutable UiMarkdownBank* markdown{};
+    // The modal sidebar's last lines, under its pinned rows (the build and system, as the official client's version
+    // info): borrowed, at most kUiSettingsNavigationNoteLines '\n'-separated lines.
+    Utf8View navigation_note{};
 };
+inline constexpr u32 kUiSettingsNavigationNoteLines = 3;
+bool ui_settings_scene_set_navigation_note(UiSettingsScene*, Utf8View note) noexcept;
 // True while the page shows a loading notice, whose spinner needs the clock.
 bool ui_settings_scene_spinner_visible(const UiSettingsScene&) noexcept;
 
@@ -552,8 +627,15 @@ struct UiSettingsAvatarGeometry {
     const UiSettingsAvatarMedia* media;
     UiWidgetReference owner;
     UiRect avatar, clip;
+    // A cell's cover: a rounded rectangle (radius) instead of a circle; cover: the picture fills the rectangle
+    // keeping its aspect, cropped to it (a banner upload tile).
+    bool tile, cover;
+    float radius;
 };
 bool ui_settings_scene_next_avatar(const UiSettingsScene&, u32* cursor, UiSettingsAvatarGeometry*) noexcept;
+// What sits over the avatar media of grid cells and an upload tile (drawn after it): a game tile's hover outline or
+// focus ring and the check of a chosen one; the upload tile's shade and pencil.
+bool ui_settings_scene_paint_cell_marks(const UiSettingsScene& scene, const Theme& theme, PaintStream* paint) noexcept;
 bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, PaintStream* paint,
                              u32 dpi = 96, UiSettingsPaintRanges* ranges = nullptr) noexcept;
 bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& theme,

@@ -31,8 +31,10 @@
 #include "maicord/render/d3d11/renderer_settings_visibility.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
+#include "maicord/ui/guild/card_scene.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "../account/account_ui_runtime.hpp"
+#include "maicord/model/chat/game_store.hpp"
 
 #include "maicord/platform/window/key.hpp"
 #include "maicord/media/core/asset.hpp"
@@ -56,9 +58,14 @@ struct ApplicationTooltip {
     u64 badge_warm_until_ms;
     bool pointer_valid, keyboard, pressed;
     bool viewport_failed;
+    // The shown tooltip's entrance (kUiMotionTooltip), restarted for each newly shown target.
+    UiMotionTransition entrance;
+    UiTooltipKey entrance_key;
+    u64 entrance_generation;
 };
 static_assert(sizeof(ApplicationTooltip) <= 4096);
 namespace {
+constexpr u64 kTooltipMotionOwner = 0x544f'4f4c'5449'5031ull; // "TOOLTIP1"
 bool content_available() noexcept {
     return g_app.renderer_ready && g_app.account_ui && !g_app.login.visible &&
            !(g_app.renderer.forum_form && g_app.renderer.forum_form->scene && g_app.renderer.forum_form->scene->active) &&
@@ -360,6 +367,114 @@ bool edited_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept {
                {g_edited_label, formatted.bytes}};
     return true;
 }
+// A known game's mention chip: "@game <name>" after 750 ms, as the official
+// client's (an unknown game has none).
+char g_game_label[6 + kGuildAdminGameNameBytes];
+bool game_mention_target(UiPoint point, u64 scope, UiTooltipTarget* target, UiTooltipStyle* style) noexcept {
+    const auto* text = g_app.renderer.content_text;
+    if (application_friends_active() || !g_app.account_ui || !text || !g_app.renderer.game_store)
+        return false;
+    for (u32 i = text->content_hit_region_count; i; --i) {
+        const TextHitRegion& region = text->content_hit_regions[i - 1];
+        if (point.x < region.left || point.x >= region.right || point.y < region.top || point.y >= region.bottom ||
+            region.semantic_index >= text->content_semantic_count)
+            continue;
+        const auto& semantic = text->content_semantics[region.semantic_index];
+        if (semantic.kind != MessageMarkdownSemanticKind::game_mention ||
+            (semantic.reserved & kRendererSearchSemanticFlag))
+            continue;
+        const Utf8View name = game_store_name(*g_app.renderer.game_store, semantic.target);
+        if (!name.bytes)
+            return false;
+        copy_bytes(g_game_label, "@game ", 6);
+        copy_bytes(g_game_label + 6, name.data, name.bytes);
+        *target = {{{&g_app.message_scene.widgets, g_app.message_scene.root}, scope, semantic.message_id,
+                    semantic.message_revision, 0x5b00u ^ static_cast<u32>(semantic.target)},
+                   {region.left, region.top, region.right, region.bottom},
+                   {g_game_label, 6 + name.bytes}};
+        style->pointer_delay_ms = 750;
+        return true;
+    }
+    return false;
+}
+// An attachment's "ALT" badge: clicking it pins its description under "Image Description (Alt Text)", as the official
+// client's popout; any press (another click on the badge included) or Escape closes it.
+struct AltCard {
+    bool open;
+    u64 message_id, target, closed_by_press;
+    u32 revision;
+};
+AltCard g_alt;
+char g_alt_label[32 + 2048];
+// The badge's hit region under `point` (8 DIPs of slack, the pill around the label), or the open card's badge when
+// `point` is null.
+const TextHitRegion* alt_region(const UiPoint* point, const MessageTextSemantic** found) noexcept {
+    const auto* text = g_app.renderer.content_text;
+    if (application_friends_active() || !g_app.account_ui || !text)
+        return nullptr;
+    for (u32 i = text->content_hit_region_count; i; --i) {
+        const TextHitRegion& region = text->content_hit_regions[i - 1];
+        if (region.semantic_index >= text->content_semantic_count)
+            continue;
+        const auto& semantic = text->content_semantics[region.semantic_index];
+        if (semantic.kind != MessageMarkdownSemanticKind::alt_text || (semantic.reserved & kRendererSearchSemanticFlag))
+            continue;
+        if (point ? point->x < region.left - 8 || point->x >= region.right + 8 || point->y < region.top - 8 ||
+                        point->y >= region.bottom + 8
+                  : semantic.message_id != g_alt.message_id || semantic.target != g_alt.target)
+            continue;
+        *found = &semantic;
+        return &region;
+    }
+    return nullptr;
+}
+// The open card's text: false when its attachment or description is gone.
+bool alt_text(const MessageTextSemantic& semantic, Utf8View* label) noexcept {
+    const auto& store = g_app.account_ui->message_rich_store;
+    const bool snapshot = (semantic.target & kMessageAltSnapshot) != 0;
+    const u64 index = semantic.target & ~kMessageAltSnapshot;
+    const auto* rich = snapshot ? message_rich_store_snapshot(store, semantic.message_id)
+                                : message_rich_store_find(store, semantic.message_id);
+    if (!rich || rich->message_revision != semantic.message_revision || index >= rich->attachment_count)
+        return false;
+    const Utf8View description = message_rich_store_string(store, rich->attachments[index].description);
+    constexpr Utf8View title = utf8_literal("Image Description (Alt Text)\n");
+    if (!description.bytes)
+        return false;
+    copy_bytes(g_alt_label, title.data, title.bytes);
+    *label = {g_alt_label, title.bytes + utf8_copy_truncated(g_alt_label + title.bytes, sizeof(g_alt_label) - title.bytes,
+                                                            description)};
+    return true;
+}
+void alt_close() noexcept {
+    if (!g_alt.open)
+        return;
+    g_alt.open = false;
+    application_request_frame();
+}
+bool alt_card_target(u64 scope, UiTooltipTarget* target, UiTooltipStyle* style) noexcept {
+    if (!g_alt.open)
+        return false;
+    const MessageTextSemantic* semantic = nullptr;
+    const auto* region = alt_region(nullptr, &semantic);
+    Utf8View label{};
+    if (!region || !alt_text(*semantic, &label)) {
+        alt_close();
+        return false;
+    }
+    *target = {{{&g_app.message_scene.widgets, g_app.message_scene.root}, scope, semantic->message_id,
+                g_alt.revision, 0x5c00u},
+               {region->left - 8, region->top - 8, region->right + 8, region->bottom + 8},
+               label,
+               UiTooltipPlacement::above};
+    const auto& scale = application_theme().scale;
+    style->pointer_delay_ms = 0;
+    style->padding_x = scale.space_4 + scale.space_2;
+    style->padding_y = scale.space_4;
+    style->maximum_width = 360;
+    style->maximum_height = 240;
+    return true;
+}
 // The same check on a member row's APP tag.
 bool member_app_check_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept {
     const auto& s = g_app.member_list_scene;
@@ -651,6 +766,27 @@ bool settings_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* t
            widget_target(scene->widgets, scene->close, scope, 1, scene->revision, 0x5900u,
                          utf8_literal("Close \xC2\xB7 Esc"), target);
 }
+// The server tag popout's tooltips: the server badge's card (its kind in bold, then who can join and its boosts),
+// "+ N more" (the folded traits as chips), a game icon's name and "+N"'s other games beside their pictures, below
+// their sources but the chips.
+bool guild_card_target(UiPoint point, u64 scope, UiTooltipTarget* target, UiTooltipStyle* style) noexcept {
+    const auto* card = g_app.renderer.guild_card_scene;
+    UiGuildCardHint hint{};
+    if (!card || !ui_guild_card_hint(*card, point.x, point.y, &hint))
+        return false;
+    const u32 action = 0x4743'0000u | static_cast<u32>(hint.kind) << 8 | hint.index;
+    *target = {{card->owner, scope, card->identity, card->revision, action}, hint.anchor, hint.text};
+    target->placement =
+        hint.kind == UiGuildCardHintKind::traits ? UiTooltipPlacement::above : UiTooltipPlacement::below;
+    target->layout = hint.kind == UiGuildCardHintKind::traits         ? UiTooltipLayout::chips
+                     : hint.kind == UiGuildCardHintKind::server_badge ? UiTooltipLayout::card
+                     : hint.kind == UiGuildCardHintKind::games        ? UiTooltipLayout::rows
+                                                                      : UiTooltipLayout::label;
+    target->row_media = hint.media;
+    // A card's lines, rows of chips or of games.
+    style->maximum_height = 240;
+    return true;
+}
 // The resolver chooses the style; reactions also report themselves so their
 // reactor fetch keeps its interest.
 bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiTooltipStyle* style,
@@ -707,6 +843,8 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
             return composer_target(point, true, scope, target);
         return false;
     }
+    if (const auto* card = g_app.renderer.guild_card_scene; card && ui_guild_card_contains(*card, point.x, point.y))
+        return guild_card_target(point, scope, target, style);
     if (g_app.renderer.media_picker_scene &&
         ui_rect_contains(g_app.renderer.media_picker_scene->panel, point.x, point.y))
         return gallery_target(point, false, scope, target);
@@ -730,7 +868,7 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
     if (!application_thread_browser_read_blocked()) {
         if (application_video_tooltip_target(point, false, scope, target) || message_target(point, scope, target) ||
             app_check_target(point, scope, target) || member_app_check_target(point, scope, target) ||
-            edited_target(point, scope, target))
+            edited_target(point, scope, target) || game_mention_target(point, scope, target, style))
             return true;
         if (!application_friends_active() && application_reaction_tooltip_target(point, scope, target)) {
             // Reaction pills lead with their emoji; their names wrap beside it.
@@ -796,8 +934,10 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
     UiTooltipTarget target{};
     UiTooltipStyle style{};
     bool reaction = false;
-    // The command card is pinned: it stays up while the pointer moves away.
-    const bool pinned = content_available() && application_interaction_card_target(application_account_scope(), &target, &style);
+    // The command card and the ALT popout are pinned: they stay up while the pointer moves away.
+    const bool pinned = content_available() &&
+                        (application_interaction_card_target(application_account_scope(), &target, &style) ||
+                         alt_card_target(application_account_scope(), &target, &style));
     const bool resolved = pinned || (!owner.pressed && (owner.keyboard || owner.pointer_valid) &&
                                      resolve_target(owner.point, owner.keyboard, &target, &style, &reaction));
     const bool badge_shown = owner.scene.visible && owner.scene.key.action == kProfileBadgeTooltip;
@@ -840,6 +980,19 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
         }
         application_request_frame();
     }
+    // A newly shown tooltip pops in on its spring: opacity and scale(.95) drawn by the renderer's form layer.
+    if (owner.scene.visible) {
+        if (!old_visible || !ui_tooltip_key_equal(owner.entrance_key, owner.scene.key)) {
+            owner.entrance_key = owner.scene.key;
+            ui_motion_transition_reset(&owner.entrance, {kTooltipMotionOwner, ++owner.entrance_generation}, 0);
+        }
+        const float shown =
+            application_motion_tick(&owner.entrance, owner.entrance.scope, 1, now_ms, kUiMotionTooltip);
+        if (renderer_set_tooltip_entrance(&g_app.renderer, 1 - shown))
+            application_request_frame();
+    } else {
+        renderer_set_tooltip_entrance(&g_app.renderer, 0);
+    }
     if (badge_shown && !(owner.scene.visible && owner.scene.key.action == kProfileBadgeTooltip))
         owner.badge_warm_until_ms = now_ms + kProfileBadgeDelayMs;
     owner.published_visible = owner.scene.visible;
@@ -848,6 +1001,22 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
     return true;
 }
 } // namespace
+bool application_alt_text_toggle(float x, float y) noexcept {
+    const UiPoint point{x, y};
+    const MessageTextSemantic* semantic = nullptr;
+    if (!alt_region(&point, &semantic))
+        return false;
+    // The press of this very click closed this badge's popout.
+    const bool same = g_alt.closed_by_press == semantic->message_id && g_alt.target == semantic->target;
+    g_alt.closed_by_press = 0;
+    Utf8View label{};
+    if (same || !alt_text(*semantic, &label))
+        return true;
+    g_alt = {true, semantic->message_id, semantic->target, 0, g_alt.revision + 1};
+    if (ensure())
+        application_request_frame();
+    return true;
+}
 void application_tooltip_clear() noexcept {
     application_reaction_tooltip_leave();
     if (!g_app.tooltip)
@@ -911,6 +1080,8 @@ void application_tooltip_input(const WindowEvent& event) noexcept {
     if (press) {
         application_reaction_tooltip_leave();
         application_interaction_card_press();
+        g_alt.closed_by_press = g_alt.open ? g_alt.message_id : 0;
+        alt_close();
         if (g_app.tooltip) {
             g_app.tooltip->pressed = true;
             ui_tooltip_clear(&g_app.tooltip->scene);
@@ -951,6 +1122,8 @@ void application_tooltip_input(const WindowEvent& event) noexcept {
         application_reaction_tooltip_leave();
         if (code == key::escape)
             application_interaction_card_close();
+        if (code == key::escape)
+            alt_close();
         owner->dismissed = owner->scene.key;
         ui_tooltip_clear(&owner->scene);
         application_request_frame();

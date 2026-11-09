@@ -173,6 +173,16 @@ float pulse_mix(const UiStoreScene& s) noexcept {
     const float tri = phase < .5f ? phase * 2 : 2 - phase * 2;
     return tri * tri * (3 - 2 * tri);
 }
+// How far the last activated switch has slid toward its new state (1 for every other switch, and while it has not
+// reached that state).
+float toggle_motion(const UiStoreScene& s, const UiStoreNode& n) noexcept {
+    if (!s.toggle_action || n.action != s.toggle_action || (n.value != 0) != s.toggle_to)
+        return 1.f;
+    if (!s.toggle_started_ms)
+        return 0.f;
+    const float elapsed = s.clock_ms > s.toggle_started_ms ? static_cast<float>(s.clock_ms - s.toggle_started_ms) : 0.f;
+    return s.toggle_ms ? minimum(1.f, elapsed / static_cast<float>(s.toggle_ms)) : 1.f;
+}
 
 void paint_icon(UiPaint& p, u8 icon, const UiRect& box, const Color& color) noexcept {
     if (icon != kNoIcon)
@@ -340,7 +350,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
         break;
     }
     case UiStoreKind::toggle:
-        p.use<ui_switch_paint>(t, r, n.value != 0, 1.f, k.s.reduced_motion, state);
+        p.use<ui_switch_paint>(t, r, n.value != 0, toggle_motion(k.s, n), k.s.reduced_motion, state);
         break;
     case UiStoreKind::check: {
         const UiRect box{r.left, r.top + 4, r.left + 16, r.top + 20};

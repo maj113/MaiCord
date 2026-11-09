@@ -14,4 +14,7 @@ void application_tooltip_clear() noexcept;
 // even before the pointer has hovered anything.
 void application_tooltip_wake() noexcept;
 void application_tooltip_release() noexcept;
+// A click at (x, y) DIPs on an attachment's "ALT" badge: opens its description's popout (a click on the badge whose
+// popout that press closed leaves it closed). False when no badge is there.
+bool application_alt_text_toggle(float x, float y) noexcept;
 } // namespace maicord::app_detail

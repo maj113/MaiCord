@@ -20,7 +20,7 @@ constexpr Utf8View kFilterChoices[]{utf8_literal("Don't scan any media"),
                                     utf8_literal("Scan media from all members")};
 static_assert(sizeof(kFilterChoices) / sizeof(kFilterChoices[0]) == kGuildContentFilterLevels);
 
-void project_safety(Bank&) noexcept {
+void project_safety(Bank& bank) noexcept {
     auto& p = *owner;
     const bool edit = editable() && page_allowed(Page::safety);
     auto& d = p.safety_draft;
@@ -33,6 +33,8 @@ void project_safety(Bank&) noexcept {
                   utf8_literal("Automatically scan and delete explicit images and embeds."));
     push_choices(control_content_filter, utf8_literal("Explicit image filter"), {}, UiSettingsControlKind::radio, edit,
                  {kFilterChoices, kGuildContentFilterLevels}, d.explicit_content_filter);
+    // Community servers set up AutoMod here (the official client routes it into Safety Setup).
+    automod_safety_entry(bank);
     push_category(control_delete_category, utf8_literal("Moderation"));
     const bool can_mfa = guild_settings_can_set_mfa(p.access);
     const bool self_mfa = state().self_mfa != SelfMfaState::disabled;
@@ -53,6 +55,8 @@ void load() noexcept {
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {
+    if (automod_safety_activate(activation))
+        return;
     auto& p = *owner;
     const auto target = activation.value.target;
     const u64 id = target.control_id;

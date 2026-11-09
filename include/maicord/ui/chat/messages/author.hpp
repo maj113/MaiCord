@@ -16,6 +16,8 @@ struct MessageAuthorLayout {
     // Plugin decorations (message decorations): muted text around the name and up
     // to four badges after the accessory, read from the host cache.
     UiTextCommand name_prefix, name_suffix;
+    // Accessibility's Role Colors "Next to names": a dot in the role colour before the name (empty otherwise).
+    UiTextCommand role_dot;
     UiPluginSlotBadge decorations[kUiPluginRenderBadges];
     u32 decoration_count;
 };

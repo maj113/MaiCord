@@ -36,8 +36,9 @@ void end(void* context, u32 ssrc) noexcept {
 }
 struct Dave {
     u64 user_id;
-    u32 ssrc, calls;
+    u32 ssrc, calls, replays;
     bool reject;
+    bool audio_seen, video_opened; // Counters follow arrival order: audio opened first makes a video open a replay.
 };
 DaveMediaResult open(void* context, u64 user_id, u32 ssrc, ConstSlice<u8> frame, Slice<u8>,
                      Slice<u8> output) noexcept {
@@ -46,10 +47,16 @@ DaveMediaResult open(void* context, u64 user_id, u32 ssrc, ConstSlice<u8> frame,
     dave.user_id = user_id;
     dave.ssrc = ssrc;
     DaveMediaResult result{};
+    if (dave.audio_seen && !dave.video_opened) {
+        ++dave.replays;
+        result.error = DaveMediaError::rejected;
+        return result;
+    }
     if (dave.reject || output.count < frame.count) {
         result.error = DaveMediaError::rejected;
         return result;
     }
+    dave.video_opened = true;
     copy_bytes(output.data, frame.data, frame.count);
     result.bytes = frame.count;
     return result;
@@ -364,10 +371,56 @@ void dave_frames(Check check) noexcept {
     dave_session_release(&connection.dave_session);
     voice_participants_release(&connection.participants);
 }
+// The stream's first unit completes inside its start wait and the sender's audio for the same key arrives before the
+// wait ends: the unit is DAVE-opened when it completes (so its counter precedes the audio's), held, and emitted
+// once after the wait without a second open (which a replay window would refuse).
+void start_with_audio(Check check) noexcept {
+    static VoiceConnection connection;
+    static VoiceReceive receive;
+    static Decoder decoder;
+    static Dave dave;
+    connection = {};
+    clear_bytes(&receive, sizeof(receive));
+    decoder = {};
+    dave = {};
+    check(announce(connection, 11, utf8_literal(R"({"user_ids":["2"]})")) &&
+              announce(connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
+                  {"type":"video","rid":"100","ssrc":20,"rtx_ssrc":21,"active":true,"quality":100}]})")),
+          "Video sink start: the sender announces a camera");
+    receive.video.decrypt = open;
+    receive.video.decrypt_context = &dave;
+    receive.video.frames = {&decoder, push, end};
+    receive.video.wake = wake;
+    connection.media.has_description = true;
+    connection.media.video_offer = voice_video_codec_bit(VoiceVideoCodec::h264);
+    connection.media.ssrc = 7;
+    voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
+    const u64 buffers = 2 * u64{kVideoRtpFrameBytes};
+    check(!voice_video_sink_committed_bytes(receive.video), "Video sink start: an idle sink commits no frame memory");
+    send_keyframe(receive, connection, 100, 9000, 1'000'000);
+    check(dave.calls == 1 && !decoder.frames && !dave.replays,
+          "Video sink start: a whole first unit is DAVE-opened as it completes and held through the start wait");
+    check(voice_video_sink_committed_bytes(receive.video) == buffers + 4096,
+          "Video sink start: a held unit commits only the pages it needs (one page here) beyond the two buffers");
+    dave.audio_seen = true; // The sender's audio for this key is opened as it arrives, inside the wait.
+    voice_video_sink_drive(&receive.video, &connection, false, 1010, 1'010'000);
+    check(!decoder.frames, "Video sink start: the held unit stays back until the start wait is over");
+    voice_video_sink_drive(&receive.video, &connection, false, 1030, 1'030'000);
+    check(decoder.frames == 1 && decoder.keyframe && decoder.intact && decoder.bytes == sizeof(kAnnexB) &&
+              bytes_equal(decoder.frame, kAnnexB, sizeof(kAnnexB)) && dave.calls == 1 && !dave.replays,
+          "Video sink start: audio arriving during the wait causes no decrypt failure and the unit is emitted once");
+    check(voice_video_sink_committed_bytes(receive.video) == buffers,
+          "Video sink start: the held unit's pages are decommitted once it is emitted");
+    voice_receive_stop(&receive);
+    check(!voice_video_sink_committed_bytes(receive.video) && !receive.video.held,
+          "Video sink start: stopping frees the buffers and the reservation");
+    voice_participants_release(&connection.participants);
+}
 } // namespace
 
 void test_voice_video_sink(Check check) noexcept {
     routing(check);
+    start_with_audio(check);
     codec_binding(check);
     av1_binding(check);
     dave_frames(check);

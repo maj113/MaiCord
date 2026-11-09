@@ -38,6 +38,14 @@ bool gateway_stream_key_parse(Utf8View text, GatewayStreamKey* output) noexcept;
 GatewayCommandWriteResult gateway_write_stream_delete(const GatewayStreamKey& key, Slice<u8> output) noexcept;
 GatewayCommandWriteResult gateway_write_stream_watch(const GatewayStreamKey& key, Slice<u8> output) noexcept;
 GatewayCommandWriteResult gateway_write_stream_ping(const GatewayStreamKey& key, Slice<u8> output) noexcept;
+// 18 STREAM_CREATE for key's channel (the owner is the sender):
+// {"op":18,"d":{"type":"guild"|"call","guild_id":"G"|null,"channel_id":"C","preferred_region":null}}.
+GatewayCommandWriteResult gateway_write_stream_create(const GatewayStreamKey& key, Slice<u8> output) noexcept;
+// 22 STREAM_SET_PAUSED: {"op":22,"d":{"stream_key":"...","paused":true|false}}.
+GatewayCommandWriteResult gateway_write_stream_set_paused(const GatewayStreamKey& key, bool paused,
+                                                          Slice<u8> output) noexcept;
+// Viewer IDs kept from STREAM_CREATE/STREAM_UPDATE; viewer_count counts them all.
+inline constexpr u32 kGatewayStreamViewerIds = 32;
 
 enum class GatewayStreamDeleteReason : u8 {
     none, // Absent or null.
@@ -55,6 +63,7 @@ struct GatewayStreamCreate {
     u64 rtc_channel_id; // Zero when absent/null (the voice server uses rtc_server_id - 1).
     JsonString region;
     u32 viewer_count;
+    u64 viewer_ids[kGatewayStreamViewerIds]; // The first min(viewer_count, 32).
     bool paused;
 };
 struct GatewayStreamServer {
@@ -66,6 +75,7 @@ struct GatewayStreamUpdate {
     GatewayStreamKey key;
     JsonString region;
     u32 viewer_count;
+    u64 viewer_ids[kGatewayStreamViewerIds];
     bool paused;
     bool has_viewers, has_paused;
 };

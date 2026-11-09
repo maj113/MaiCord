@@ -34,7 +34,7 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
     const auto* guild =
         channel ? user_appearance_find(users.appearance, record->author_id, channel->guild_id) : nullptr;
     const auto* styled = guild && (guild->name.font_id || guild->name.effect_id) ? guild : global;
-    const auto face = styled ? profile_name_face(styled->name.font_id) : UiTextFace::normal;
+    const auto face = ui_text_face_chat(styled ? profile_name_face(styled->name.font_id) : UiTextFace::normal);
     const Utf8View name{command.text.data, minimum(command.text.bytes, command.styles[0].byte_count)};
     if (!name.bytes)
         return false;
@@ -53,7 +53,8 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
                           text,
                           {&span, 1},
                           {maximum(1.f, ui_rect_width(command.rectangle)), 64},
-                          true},
+                          true,
+                          ui_text_face_chat(UiTextFace::normal)},
                          &value)
                          .ok();
         return minimum(ui_rect_width(command.rectangle) * 0.25f, (measured ? value.size.width : text.bytes * 7.f) + 2);
@@ -72,8 +73,11 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
     }
     const float badge_width =
         badge.label.bytes ? ui_rect_width(ui_badge_widget_layout(cache, badge, command.rectangle).outer) : 0;
-    const float name_limit =
-        maximum(1.f, ui_rect_width(command.rectangle) - (badge_width ? badge_width + 6 : 0) - decoration_space);
+    // Accessibility's Role Colors "Next to names": an 8-DIP dot in the role colour 4 DIPs before the name, as the
+    // official client's username shows it; carried as the header's inline role colour (text_presentation_row.cpp).
+    const float dot_space = command.inline_role_color.alpha > 0 ? 12.f : 0.f;
+    const float name_limit = maximum(1.f, ui_rect_width(command.rectangle) - (badge_width ? badge_width + 6 : 0) -
+                                              decoration_space - dot_space);
     UiTextMeasureValue measured{};
     const TextStyleSpan bold{0, name.bytes, text_style_bold};
     const bool have_measure =
@@ -96,6 +100,13 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
                             TextWrapping::no_wrap, TextOverflow::ellipsis};
         bounds.left += prefix_width + 4;
     }
+    if (dot_space) {
+        out->role_dot = {utf8_literal("\xE2\x97\x8F"), command.owner,
+                         {bounds.left, bounds.top, bounds.left + 10, bounds.bottom}, command.clip,
+                         command.inline_role_color, text_style_subtext, UiTextAlignment::start,
+                         UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::clip};
+        bounds.left += dot_space;
+    }
     bounds.right =
         bounds.left + minimum(name_limit, have_measure ? measured.size.width + 2 : name.bytes * 8.f);
     const auto* hovered = message_scene_resolve(scene, scene.widgets.hovered);
@@ -116,6 +127,7 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
     // Enhanced role styles paint the author's gradient or holographic name
     // unless a hovered display-name effect already owns it.
     if (!out->name.effect.kind && members && channel && channel->guild_id &&
+        scene.display.role_style == kMessageRoleColorsOnNames &&
         record->delivery == MessageDeliveryState::authoritative) {
         const auto* member = guild_member_store_find(*members, channel->guild_id, record->author_id);
         const auto* role = member && member->color_role_id
@@ -200,18 +212,17 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
 MessageProfileHit message_author_compact_hit(const MessageScene& scene, const MessageTextCommand& command,
                                              UiTextMeasureCache* cache, float x, float y) noexcept {
     const auto* row = message_scene_resolve(scene, command.owner.handle);
-    // A plugin name prefix is a leading non-bold span before the name.
-    const u32 name_span = command.styles.count > 1 && !command.styles[0].byte_offset &&
-                                  !(command.styles[0].flags & text_style_bold) &&
-                                  (command.styles[1].flags & text_style_bold)
-                              ? 1u
-                              : 0u;
+    // The name is the first bold span: a plugin name prefix (a non-bold span), the author's avatar cell and the role
+    // dot's cell (compact_content) may precede it.
+    u32 name_span = 0;
+    while (name_span + 1 < command.styles.count && name_span < 1 && !(command.styles[name_span].flags & text_style_bold))
+        ++name_span;
     if (!row || (row->grouped && !scene.display.compact) || command.owner.manager != &scene.widgets ||
         (command.source_id && !ui_plugin_render_source(command.source_id)) ||
         command.owner.handle.slot != row->content.slot ||
         command.owner.handle.generation != row->content.generation || command.message_id != row->message_id ||
         command.message_revision != row->message_revision || !command.styles.count ||
-        (!name_span && command.styles[0].byte_offset) ||
+        (!(command.styles[name_span].flags & text_style_bold)) ||
         !(command.styles[name_span].flags & text_style_inline_role_color) ||
         command.styles[name_span].byte_offset > command.text.bytes ||
         command.styles[name_span].byte_count > command.text.bytes - command.styles[name_span].byte_offset)
@@ -228,22 +239,39 @@ MessageProfileHit message_author_compact_hit(const MessageScene& scene, const Me
                              text,
                              {&span, 1},
                              {maximum(1.f, ui_rect_width(command.rectangle)), 64},
-                             true},
+                             true,
+                             ui_text_face_chat(UiTextFace::normal)},
                             value)
                             .ok();
     };
     auto bounds = command.rectangle;
-    if (name_span) {
-        // The prefix and its separating space shift the name right.
+    // A leading avatar cell (hair space, em space) is part of the click target, as the client's compact avatar opens
+    // the profile too.
+    const bool avatar = command.text.bytes >= 6 && bytes_equal(command.text.data, "\xE2\x80\x8A\xE2\x80\x83", 6);
+    const u32 lead_bytes = command.styles[name_span].byte_offset;
+    float name_left = bounds.left;
+    if (lead_bytes) {
+        // The avatar and dot cells, the prefix and its separating space shift the name right.
         UiTextMeasureValue prefix{};
-        const Utf8View lead{command.text.data, command.styles[1].byte_offset};
-        bounds.left = minimum(bounds.right,
-                              bounds.left + (width(lead, command.styles[0].flags, 0x4851, &prefix) ? prefix.size.width
-                                                                                                   : lead.bytes * 7.f));
+        const Utf8View lead{command.text.data, lead_bytes};
+        const bool measured_lead =
+            cache && ui_text_measure_cache_measure(
+                         cache,
+                         {{record->author_id, hash64_bytes(kHash64Seed, lead.data, lead.bytes), 0, 0x4851, 0},
+                          lead,
+                          {command.styles.data, name_span},
+                          {maximum(1.f, ui_rect_width(command.rectangle)), 64},
+                          true,
+                          ui_text_face_chat(UiTextFace::normal)},
+                         &prefix)
+                         .ok();
+        name_left = minimum(bounds.right, bounds.left + (measured_lead ? prefix.size.width : lead.bytes * 7.f));
     }
+    if (!avatar)
+        bounds.left = name_left;
     UiTextMeasureValue measured{};
     const bool have_measure = width(name, text_style_bold, 0x4843, &measured);
-    bounds.right = minimum(bounds.right, bounds.left + (have_measure ? measured.size.width + 2 : name.bytes * 8.f));
+    bounds.right = minimum(bounds.right, name_left + (have_measure ? measured.size.width + 2 : name.bytes * 8.f));
     bounds.bottom = minimum(bounds.bottom, bounds.top + (have_measure ? measured.size.height : 20.f));
     if (!ui_rect_contains(ui_rect_intersection(bounds, command.clip), x, y))
         return {};

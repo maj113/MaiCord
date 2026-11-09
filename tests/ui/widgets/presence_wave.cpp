@@ -1,7 +1,7 @@
 // Rich presence decoding and transport, automatic idle, opcode 3 bodies,
-// "Share my activity", game detection matching, message requests and DM
-// safety warnings (decode, request bodies, controller flows, notice card).
-#include "maicord/app/account/game_detection.hpp"
+// "Share my activity", message requests and DM safety warnings (decode,
+// request bodies, controller flows, notice card). Game detection is
+// tests/app/account/game_detection.cpp.
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
@@ -594,47 +594,6 @@ void opcode3() noexcept {
           "share: turning sharing on replaces the old value");
 }
 
-namespace game_reference {
-#include "../../../src/app/account/game_data.inc"
-}
-
-void detection() noexcept {
-    const Utf8View running[] = {utf8_literal("explorer.exe"), utf8_literal("terraria.exe"),
-                                utf8_literal("league of legends.exe")};
-    RegisteredGames games{};
-    // The shipped table is a deflate stream; src/app/account/game_data.inc is the text it is packed from.
-    const auto builtin = game_detection_builtin();
-    bool packed_same = builtin.count == sizeof(game_reference::kBuiltin) / sizeof(game_reference::kBuiltin[0]);
-    for (u32 i = 0; packed_same && i < builtin.count; ++i)
-        packed_same = same(builtin[i].name, game_reference::kBuiltin[i].name) &&
-                      same(builtin[i].executables, game_reference::kBuiltin[i].executables);
-    check(packed_same, "detection: the packed built-in table matches its data file");
-    auto match = game_detection_match(games, game_detection_builtin(), {running, 3});
-    check(match.found && !match.custom && same(match.name, utf8_literal("League of Legends")),
-          "detection: the first built-in game in table order matches a running process");
-    check(registered_games_add(&games, utf8_literal("Terraria Modded"), utf8_literal("Terraria.EXE")) &&
-              !registered_games_add(&games, utf8_literal("Again"), utf8_literal("terraria.exe")) &&
-              !registered_games_add(&games, utf8_literal("Path"), utf8_literal("C:\\x.exe")),
-          "detection: added games normalize, reject duplicates and paths");
-    match = game_detection_match(games, game_detection_builtin(), {running, 3});
-    check(match.found && match.custom && same(match.name, utf8_literal("Terraria Modded")),
-          "detection: added games win over the built-in table");
-    const Utf8View idle_list[] = {utf8_literal("explorer.exe"), utf8_literal("svchost.exe")};
-    check(!game_detection_match(games, game_detection_builtin(), {idle_list, 2}).found,
-          "detection: no game without a matching process");
-    char name[64];
-    check(same({name, game_detection_display_name(utf8_literal("stardew valley.exe"), {name, 64})},
-               utf8_literal("Stardew valley")),
-          "detection: display names drop .exe and capitalize");
-    u8 record[1024];
-    RegisteredGames back{};
-    const u32 bytes = registered_games_encode(games, {record, sizeof(record)});
-    check(bytes && registered_games_decode({record, bytes}, &back) && back.count == 1 &&
-              !registered_games_decode({record, bytes - 1}, &back) && registered_games_remove(&games, 0) &&
-              !games.count,
-          "detection: added games persist with a validated record");
-}
-
 struct Fixture {
     ChatStateStore state{};
     GuildRecord guilds[2]{};
@@ -820,7 +779,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_presence_wave_entry() noexce
     guild_presences();
     idle();
     opcode3();
-    detection();
     requests();
     ExitProcess(failures ? 1 : 0);
 }

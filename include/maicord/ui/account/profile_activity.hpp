@@ -61,7 +61,10 @@ enum class ProfileActivityAction : u8 {
     watch,
     // "Ask to Join": the game must run here, which this client cannot check,
     // so the button shows disabled with the official "<name> is not detected".
-    join
+    join,
+    // "Play on Spotify": a Spotify activity that can be played (its PLAY or
+    // SYNC flag and a track ID) opens the track's page.
+    spotify
 };
 struct ProfileActivityContent {
     ProfileString<96> heading;

@@ -43,9 +43,11 @@ else()
         src/app/chat/search/account_message_search.cpp
         src/app/media/account_media_catalog.cpp src/app/guild/account_guild_assets.cpp src/app/media/guild_image.cpp
         src/app/media/profile_image.cpp src/app/account/account_profile_edit.cpp
+        # Go Live producers: capture, stream audio and the GPU encoder on the renderer's device.
+        src/app/gateway/go_live_devices.cpp
         LIBS maicord_core maicord_platform maicord_protocol
         maicord_app_core maicord_model maicord_account_media maicord_media_core
-        maicord_media_codec maicord_cdn_media
+        maicord_media_codec maicord_cdn_media maicord_capture maicord_video_encode
         kernel32 ${maicord_tls_libs} maicord_voice_encoder)
 
     # The icon and notification sounds resource objects (linked into MaiCord below,
@@ -59,6 +61,7 @@ else()
         src/app/shell/state.cpp src/app/settings/settings.cpp src/app/settings/settings_projection.cpp
         src/app/settings/settings_activation.cpp src/app/settings/settings_input.cpp
         src/app/settings/catalog.cpp src/app/settings/user_settings.cpp src/app/settings/account_settings.cpp
+        src/app/settings/test_mode.cpp
         src/app/settings/theme_editor.cpp src/app/settings/custom_theme.cpp
         src/app/settings/theme_publication.cpp src/app/account/friends.cpp
         src/app/account/friends_search.cpp src/app/account/friends_storage.cpp
@@ -101,7 +104,7 @@ else()
         src/app/shell/tooltip.cpp src/app/chat/messages/reaction_tooltip.cpp
         src/app/media/emoji_tooltip.cpp src/app/media/expression_card.cpp
         src/app/chat/composer/interaction_card.cpp
-        src/app/shell/toast.cpp
+        src/app/shell/toast.cpp src/app/shell/notice.cpp
         src/app/account/account_menu.cpp
         src/app/account/application_account_switch.cpp src/app/chat/search/search.cpp src/app/chat/search/search_results.cpp
         src/app/chat/search/search_filters.cpp src/app/chat/search/search_actions.cpp src/app/chat/search/search_input.cpp
@@ -127,12 +130,16 @@ else()
         src/app/guild/settings/members.cpp src/app/guild/settings/roles.cpp
         src/app/guild/settings/invites.cpp src/app/guild/settings/safety.cpp
         src/app/guild/settings/audit_log.cpp src/app/guild/settings/bans.cpp
-        src/app/guild/settings/boost.cpp
+        src/app/guild/settings/boost.cpp src/app/guild/settings/server_tag.cpp
+        src/app/guild/settings/integrations.cpp src/app/guild/settings/automod.cpp
+        src/app/guild/settings/server_access.cpp src/app/guild/settings/access.cpp
+        src/app/guild/settings/community_setup.cpp src/app/guild/settings/server_template.cpp
         src/app/chat/polls/create.cpp
         src/app/account/self_status.cpp src/app/account/login/browser_auth.cpp
         src/app/account/login/captcha_auth.cpp src/app/media/animation.cpp
         src/app/media/requests.cpp src/app/media/requests_message.cpp src/app/chat/messages/delete.cpp
         src/app/chat/application_private_conversation.cpp src/app/chat/private_channel.cpp
+        src/app/chat/private_header.cpp
         src/app/chat/messages/edit.cpp src/app/chat/messages/mutation_notice.cpp
         src/app/account/profile.cpp src/app/account/dm_profile.cpp src/app/guild/member_moderation.cpp
         src/app/chat/messages/reaction.cpp src/app/chat/messages/send.cpp
@@ -140,7 +147,9 @@ else()
         src/app/chat/read_state.cpp src/app/chat/scoped_read.cpp
         src/app/chat/scoped_read_menu.cpp src/app/notifications/notifications.cpp
         src/app/notifications/controls.cpp src/app/account/custom_status.cpp
-        src/app/account/activity.cpp src/app/account/game_detection.cpp src/app/chat/inbox.cpp
+        src/app/account/activity.cpp src/app/account/game_detection.cpp src/app/account/game_detection_system.cpp
+        src/app/account/detectable_list.cpp src/app/chat/inbox.cpp
+        src/app/chat/game_lookup.cpp src/app/chat/game_profile.cpp src/app/chat/composer/game_search.cpp
         src/app/chat/messages/interaction.cpp src/app/chat/messages/interaction_popups.cpp src/app/account/user_actions.cpp
         src/app/chat/report.cpp src/app/shell/scheduler.cpp src/app/shell/shutdown_metrics.cpp
         src/app/shell/scrolling.cpp src/app/shell/scroll_host.cpp src/app/shell/input.cpp
@@ -160,13 +169,13 @@ else()
         src/app/voice/stage.cpp src/app/voice/channels.cpp src/app/chat/messages/components.cpp
         src/app/chat/application_channel_memory.cpp src/app/shell/startup_history.cpp
         src/app/shell/application_startup_shell.cpp
-        src/app/guild/invite_cards.cpp src/app/voice/stream.cpp
+        src/app/guild/invite_cards.cpp src/app/voice/stream.cpp src/app/voice/go_live.cpp
         LIBS maicord_compile_contract
         maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences maicord_packages
         maicord_notification_sound_assets maicord_plugin_catalog
         maicord_plugin_runtime maicord_ui_input
         maicord_message_runtime maicord_message_media maicord_account_paths maicord_account_host
-        maicord_render_core maicord_atlas_gpu maicord_renderer maicord_media_core maicord_webauthn
+        maicord_render_core maicord_atlas_gpu maicord_renderer maicord_media_core maicord_webauthn maicord_capture
         kernel32 user32 shell32 d3d11 dxgi dcomp maicord_uia maicord_app_core ws2_32 maicord_sspicli bcrypt
         INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
         PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")

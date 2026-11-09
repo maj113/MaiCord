@@ -14,6 +14,13 @@ inline constexpr u32 kUiTooltipMaximumTextBytes = 384;
 inline constexpr u32 kUiTooltipMaximumBold = 3;
 inline constexpr u32 kUiTooltipMaximumEmojiBytes = 48;
 inline constexpr u32 kUiTooltipMaximumDetailBytes = 48;
+// Chips layout: at most this many outlined chips, 28 DIPs tall with a 1 DIP outline and 8 DIPs of padding beside
+// the label, 4 apart, wrapping like a row of tags.
+inline constexpr u32 kUiTooltipMaximumChips = 8;
+inline constexpr float kUiTooltipChipHeight = 28, kUiTooltipChipInset = 9, kUiTooltipChipGap = 4;
+// Rows layout: at most this many rows of a 24 DIP picture and its line, 8 DIPs apart side to side and 4 between rows.
+inline constexpr u32 kUiTooltipMaximumRows = 8;
+inline constexpr float kUiTooltipRowPicture = 24, kUiTooltipRowGap = 4, kUiTooltipRowPictureGap = 8;
 inline constexpr u64 kUiTooltipPointerDelayMs = 500;
 inline constexpr u64 kUiTooltipKeyboardDelayMs = 350;
 
@@ -27,6 +34,10 @@ enum class UiTooltipPlacement : u8 {
     left,
     right
 };
+// How the label lays out. label: text (with bold runs, an emoji, a detail line); chips: one outlined chip per line;
+// card: the first line bold, the following lines in the muted colour below it, left-aligned (a badge's title and
+// its subtitles); rows: one line per row beside the host's picture for it (row_media).
+enum class UiTooltipLayout : u8 { label, chips, card, rows };
 struct UiTooltipStyle {
     u32 pointer_delay_ms = static_cast<u32>(kUiTooltipPointerDelayMs);
     u32 keyboard_delay_ms = static_cast<u32>(kUiTooltipKeyboardDelayMs);
@@ -70,6 +81,11 @@ struct UiTooltipTarget {
     // With one, the label keeps to one line; an icon
     // then leads the label on its line and both lines centre.
     Utf8View detail;
+    // Any layout but label lists its parts one per line ('\n' between); it takes no bold, emoji or detail (a card's
+    // title is bold by itself).
+    UiTooltipLayout layout;
+    // Rows: each row's picture (an invalid key leaves its square empty).
+    ConstSlice<MediaAssetKey> row_media;
 };
 struct UiTooltipScene {
     UiTooltipKey key;
@@ -91,11 +107,17 @@ struct UiTooltipScene {
     u8 emoji_icon; // UiIcon + 1; zero without one
     u8 detail_bytes;
     char detail[kUiTooltipMaximumDetailBytes];
+    // Chips: their count and measured widths (DIPs, outline included). Card: label_size is the title's,
+    // detail_size the subtitles'. Rows: their count, label_size the widest line, and the rows' pictures.
+    u8 chip_count, row_count;
+    UiTooltipLayout layout;
+    u16 chip_widths[kUiTooltipMaximumChips];
+    MediaAssetKey row_media[kUiTooltipMaximumRows];
     UiTooltipPlacement placement, preferred;
     UiTooltipTrigger trigger;
     bool pending, visible;
 };
-static_assert(sizeof(UiTooltipScene) <= 832);
+static_assert(sizeof(UiTooltipScene) <= 1024);
 
 // Offers never capture input or allocate. Repeated identical offers retain
 // their deadline; changing source or modality requires a fresh delay. New
@@ -114,6 +136,9 @@ bool ui_tooltip_paint(const UiTooltipScene&, const Theme&, PaintStream*) noexcep
 bool ui_tooltip_text_output(const UiTooltipScene&, const Theme&, UiTextOutput*) noexcept;
 // The leading emoji's square while visible; false without one.
 bool ui_tooltip_emoji(const UiTooltipScene&, UiRect* square) noexcept;
+// The index-th row's picture and its square while a rows tooltip is visible; false past the last row or for a row
+// without a picture.
+bool ui_tooltip_row_media(const UiTooltipScene&, u32 index, UiRect* square, MediaAssetKey* key) noexcept;
 // A plain label's box for hosts that place, shape and draw the label
 // themselves (the window caption): painted as above, without a text owner.
 bool ui_tooltip_paint_box(PaintStream* paint, const Theme& theme, UiRect rectangle, UiRect anchor,

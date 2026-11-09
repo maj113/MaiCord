@@ -1138,6 +1138,8 @@ Utf8View cdn_host_name(CdnHost host) noexcept {
         return utf8_literal("media.giphy.com");
     case CdnHost::activity_art:
         return utf8_literal(kActivityArtHost);
+    case CdnHost::web_asset:
+        return utf8_literal(kWebAssetHost);
     default:
         return Utf8View{};
     }

@@ -1,7 +1,14 @@
 #include "accessibility_internal.hpp"
+#include "../chat/private_header.hpp"
 #include "../shell/caption.hpp"
+#include "../shell/notice.hpp"
 #include "../account/friends.hpp"
 #include "../guild/folders.hpp"
+#include "../voice/channels.hpp"
+#include "../voice/voice.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/model/voice/channel_info_store.hpp"
+#include "maicord/model/chat/game_store.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/store/store_scene.hpp"
@@ -167,6 +174,18 @@ void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
         g_name.add(", ").add(kind);
     if (view.voice_count)
         g_name.add(", ").number(view.voice_count).add(" connected");
+    // A voice channel with a session reads how long it has run, as the official client's row does.
+    if (view.type == 2) {
+        const auto& extras = application_voice_channels_extras();
+        const auto* info = extras.info ? voice_channel_info_store_find(*extras.info, view.id) : nullptr;
+        const u64 now_s = clock_unix_milliseconds() / 1'000;
+        char duration[kUiVoiceDurationBytes];
+        if (const u32 bytes = info && info->start_s
+                                  ? ui_voice_duration_text(now_s > info->start_s ? now_s - info->start_s : 0, duration,
+                                                           sizeof(duration))
+                                  : 0)
+            g_name.add(", call duration ").add(Utf8View{duration, bytes});
+    }
     if (view.locked)
         g_name.add(", locked");
     if (view.muted)
@@ -430,6 +449,22 @@ void mount_members(void*, UiAccessTree* tree, u32 node) noexcept {
         add_scene(tree, node, g_app.member_list_scene.widgets, describe_member, surface_members);
 }
 
+// The voice card above the account panel: Show call, the screen share button and Disconnect.
+void mount_voice_card(void*, UiAccessTree* tree, u32 node) noexcept {
+    VoiceCardControl controls[3];
+    const u32 count = application_voice_card_controls(controls, 3);
+    for (u32 i = 0; i < count; ++i) {
+        UiAccessNodeDesc description{};
+        description.key = ui_access_key(surface_voice_card, 0x564f4943u + controls[i].control);
+        description.rectangle = description.visible = controls[i].rectangle;
+        description.role = UiAccessRole::button;
+        description.name = controls[i].name;
+        description.state = static_cast<u16>(ui_access_focusable | (controls[i].enabled ? 0 : ui_access_disabled));
+        description.actions = ui_access_action_invoke;
+        description.surface = surface_voice_card;
+        ui_access_add(tree, node, description);
+    }
+}
 void describe_shell(void*, const UiWidgetManager&, UiWidgetHandle, const UiWidget& widget, const UiLayoutNode&,
                     UiAccessWidgetInfo* info) noexcept {
     if (widget.id == 0 || widget.id > static_cast<u32>(UiSemantic::count))
@@ -484,6 +519,7 @@ void describe_shell(void*, const UiWidgetManager&, UiWidgetHandle, const UiWidge
     case UiSemantic::channel_footer:
         info->role = UiAccessRole::button;
         info->help = utf8_literal("Account and status");
+        info->mount = mount_voice_card;
         break;
     case UiSemantic::title_bar:
         info->role = UiAccessRole::group;
@@ -530,6 +566,13 @@ void describe_shell(void*, const UiWidgetManager&, UiWidgetHandle, const UiWidge
         info->name = utf8_literal("Create direct message");
         info->leaf = true;
         break;
+    case UiSemantic::private_search:
+        info->name = utf8_literal("Find or start a conversation");
+        info->leaf = true;
+        break;
+    case UiSemantic::private_heading:
+        info->name = utf8_literal("Direct Messages");
+        break;
     case UiSemantic::private_add:
         info->name = utf8_literal("Add people");
         info->leaf = true;
@@ -537,6 +580,9 @@ void describe_shell(void*, const UiWidgetManager&, UiWidgetHandle, const UiWidge
     case UiSemantic::private_call:
         info->name = utf8_literal("Start call");
         info->leaf = true;
+        break;
+    case UiSemantic::private_identity:
+        application_private_header_access(info);
         break;
     case UiSemantic::message_view:
         info->transparent = true;
@@ -672,6 +718,16 @@ void describe_settings(void*, const UiWidgetManager&, UiWidgetHandle handle, con
             info->actions = ui_access_action_invoke;
             if (!control->label.bytes)
                 info->name = control->action_label;
+            // A grid tile (a Server Profile game) toggles: chosen when checked.
+            if (control->kind == UiSettingsControlKind::action && scene->content.presentation) {
+                u32 index = 0;
+                if (ui_settings_scene_control(*scene, target, &index) &&
+                    (scene->content.presentation[index].more & ui_settings_more_cell)) {
+                    info->role = UiAccessRole::check_box;
+                    info->actions = ui_access_action_toggle;
+                    info->state |= ui_access_toggleable | (control->checked ? ui_access_checked : 0);
+                }
+            }
             break;
         case UiSettingsControlKind::edit:
         case UiSettingsControlKind::multiline:
@@ -871,14 +927,40 @@ void describe_login(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
     }
 }
 
+// A known game's mention reads as the official client labels it, "@game
+// <name>": its icon cell (an em, a 3 px gap and the glue) reads "@game ".
+Utf8View accessible_body(const MessageTextCommand& command, char* buffer, u32 capacity) noexcept {
+    u32 used = 0, from = 0;
+    const GameStore* games = g_app.renderer.game_store;
+    for (u32 i = 0; games && i < command.semantics.count; ++i) {
+        const auto& semantic = command.semantics[i];
+        if (semantic.kind != MessageMarkdownSemanticKind::game_icon || !game_store_name(*games, semantic.target).bytes)
+            continue;
+        const u32 cell = semantic.byte_offset, after = cell + 9; // U+2003 U+2006 U+200D
+        if (cell < from || after > command.text.bytes || used + (cell - from) + 6 > capacity)
+            return command.text;
+        copy_bytes(buffer + used, command.text.data + from, cell - from);
+        used += cell - from;
+        copy_bytes(buffer + used, "@game ", 6);
+        used += 6;
+        from = after;
+    }
+    if (!from || used + command.text.bytes - from > capacity)
+        return command.text;
+    copy_bytes(buffer + used, command.text.data + from, command.text.bytes - from);
+    return {buffer, used + command.text.bytes - from};
+}
+
 void attribute_message_bodies(UiAccessTree* tree) noexcept {
     const auto* presentation = g_app.renderer.message_text;
     if (!presentation)
         return;
+    char body[4096];
     for (u32 index = 0; index < presentation->command_count && index < presentation->commands.count; ++index) {
         const auto& command = presentation->commands[index];
         if (command.owner.manager)
-            ui_access_attribute_text(tree, command.owner, command.text, command.rectangle);
+            ui_access_attribute_text(tree, command.owner, accessible_body(command, body, sizeof(body)),
+                                     command.rectangle);
     }
 }
 
@@ -954,6 +1036,8 @@ void build_overlays(UiAccessTree* tree, bool settings) noexcept {
             ui_access_add_media_picker(tree, 0, *renderer.media_picker_scene, surface_picker);
         if (renderer.quick_switcher_scene && d3d11_renderer_quick_switcher_visible(renderer))
             ui_access_add_quick_switcher(tree, 0, *renderer.quick_switcher_scene, surface_quick);
+        if (renderer.go_live_scene && d3d11_renderer_go_live_visible(renderer))
+            ui_access_add_go_live(tree, 0, *renderer.go_live_scene, surface_go_live);
         if (g_app.image_viewer.scene.active)
             ui_access_add_image_viewer(tree, 0, g_app.image_viewer.scene, surface_viewer);
     }
@@ -1019,6 +1103,39 @@ void build_caption(UiAccessTree* tree) noexcept {
     }
 }
 
+// The app-wide notice band: a status line named by its text, with its button and its X.
+void build_notice(UiAccessTree* tree) noexcept {
+    const auto* band = application_notice_band();
+    const auto* root = band ? ui_scene_node(g_app.shell_scene, UiSemantic::root) : nullptr;
+    if (!root)
+        return;
+    const auto g = ui_notice_band_geometry(*band, root->rectangle, &g_app.account_ui->text_measure_cache);
+    UiAccessNodeDesc line{};
+    line.key = ui_access_key(surface_notice, 0);
+    line.rectangle = g.band;
+    line.name = band->text;
+    line.role = UiAccessRole::status;
+    line.surface = surface_notice;
+    const u32 parent = ui_access_add(tree, 0, line);
+    if (parent == kUiAccessNone)
+        return;
+    const auto button = [&](UiNoticeBandPart part, const UiRect& rectangle, Utf8View name) noexcept {
+        if (!ui_rect_has_area(rectangle) || !name.bytes)
+            return;
+        UiAccessNodeDesc node{};
+        node.key = ui_access_key(surface_notice, static_cast<u64>(part));
+        node.item = static_cast<u64>(part);
+        node.rectangle = rectangle;
+        node.name = name;
+        node.role = UiAccessRole::button;
+        node.actions = ui_access_action_invoke;
+        node.surface = surface_notice;
+        ui_access_add(tree, parent, node);
+    };
+    button(UiNoticeBandPart::action, g.action, band->action);
+    button(UiNoticeBandPart::dismiss, g.dismiss, utf8_literal("Dismiss"));
+}
+
 } // namespace
 namespace accessibility_detail {
 
@@ -1036,8 +1153,10 @@ void build_snapshot() noexcept {
     if (g_app.renderer_ready) {
         if (g_app.login.visible)
             build_login(&tree);
-        else if (g_app.account_ui)
+        else if (g_app.account_ui) {
+            build_notice(&tree);
             build_account(&tree);
+        }
     }
     if (!ui_access_tree_finish(&tree))
         log_write(LogLevel::warning, "accessibility", "snapshot_rejected");

@@ -241,6 +241,7 @@ inline constexpr u32 ui_text_center = 1u << 2;
 inline constexpr u32 ui_text_end = 2u << 2;
 inline constexpr u32 ui_text_middle = 1u << 4;
 inline constexpr u32 ui_text_clip = 1u << 5; // overflow clips instead of ellipsizing
+inline constexpr u32 ui_text_chat = 1u << 6; // sized by Text size in chat (the chat face)
 
 // How a region clips a label (a UiTextPen template argument):
 //   intersect: the clip is rectangle ∩ region; nothing when that is empty.

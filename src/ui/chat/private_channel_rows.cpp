@@ -16,6 +16,10 @@
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
+#include "maicord/ui/account/profile_appearance.hpp"
+#include "maicord/ui/account/profile_media.hpp"
+#include "maicord/ui/plugins/slot_surfaces.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 
 namespace maicord {
 namespace {
@@ -37,6 +41,11 @@ u64 private_row_peer(const UiPrivateRowSource& source, u64 channel_id) noexcept 
 bool mobile_peer(const UiPrivateRowSource& source, u64 channel_id) noexcept {
     return source.users &&
            client_status_mobile_online(user_store_client_status(*source.users, private_row_peer(source, channel_id)));
+}
+// Where a conversation row's text ends: before its plugin badge, else its label's end (shell_text_presentation).
+float row_text_right(const ShellNavigationScene& scene, u32 index, const UiRect& content) noexcept {
+    UiPluginSlotBadge plugin{};
+    return shell_navigation_plugin_badge(scene, index, &plugin) ? plugin.badge.rectangle.left - 6.0f : content.right;
 }
 } // namespace
 
@@ -115,12 +124,17 @@ Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_i
         return utf8_literal("Typing…");
     if (metadata->request_flags & private_request_spam) return utf8_literal("Possible spam");
     if (metadata->request_flags & private_request_pending) return utf8_literal("Message request");
-    if (channel->type == 1) return ui_private_peer_activity(source, channel_id, storage, glyph);
+    if (channel->type == 1) {
+        const u64 peer = private_row_peer(source, channel_id);
+        const auto* peer_appearance = peer && source.users ? user_appearance_find(source.users->appearance, peer) : nullptr;
+        if (peer_appearance && peer_appearance->system) return utf8_literal("Official Discord Message");
+        return ui_private_peer_activity(source, channel_id, storage, glyph);
+    }
     if (channel->type != 3 || !storage.data) return {};
     const auto recipients = private_channel_store_recipients(*source.state->private_channels, *metadata);
     u64 members = 1;
     for (u32 i = 0; i < recipients.count; ++i) members += recipients[i] != source.state->self_user_id;
-    const Utf8View suffix = members == 1 ? utf8_literal(" member") : utf8_literal(" members");
+    const Utf8View suffix = members == 1 ? utf8_literal(" Member") : utf8_literal(" Members");
     char digits[20];
     const u32 digit_count = decimal_write(digits, members);
     if (storage.count < digit_count + suffix.bytes) return {};
@@ -149,6 +163,100 @@ UiRect ui_private_row_status_rectangle(const UiRect& avatar) noexcept {
 UiRect ui_private_row_close_rectangle(const UiRect& row) noexcept {
     const float middle = (row.top + row.bottom) * .5f;
     return {row.right - 34.f, middle - 8.f, row.right - 18.f, middle + 8.f};
+}
+UiRect ui_private_row_name_rectangle(const UiRect& content, bool subtitle, float right) noexcept {
+    const float middle = (content.top + content.bottom) * .5f;
+    return subtitle ? UiRect{content.left, middle - 19.f, right, middle + 1.f}
+                    : UiRect{content.left, middle - 10.f, right, middle + 10.f};
+}
+bool ui_private_row_chip(const UiPrivateRowSource& source, u64 channel_id, UiWidgetHandle owner, const UiRect& content,
+                         float right, bool subtitle, UiPrivateRowChip* output) noexcept {
+    reset_value(output);
+    output->name = ui_private_row_name_rectangle(content, subtitle, right);
+    const u64 peer = private_row_peer(source, channel_id);
+    const auto* appearance = peer && source.users ? user_appearance_find(source.users->appearance, peer) : nullptr;
+    if (!appearance) return false;
+    auto& badge = output->badge;
+    badge.owner = owner;
+    badge.style = text_style_subtext | text_style_bold;
+    if (appearance->system) {
+        badge.label = utf8_literal("OFFICIAL");
+        badge.leading = badge.accent = badge.compact = true;
+        output->kind = UiPrivateRowChipKind::official;
+    } else if (!appearance->bot && appearance->primary_enabled && appearance->primary_tag.bytes) {
+        badge.label = appearance->primary_tag.view();
+        badge.leading = true;
+        output->kind = UiPrivateRowChipKind::server_tag;
+        output->guild_id = appearance->primary_guild_id;
+    } else {
+        return false;
+    }
+    // The name as the row draws it (shell_text_presentation), in the peer's display-name face.
+    const auto* channel = chat_state_store_find_channel(*source.state, channel_id);
+    char title[256];
+    const Utf8View name = channel ? private_channel_title(*source.state, source.users, *channel, {title, sizeof(title)})
+                                  : Utf8View{};
+    const float width = ui_rect_width(output->name);
+    float name_width = static_cast<float>(name.bytes) * 8.f;
+    UiTextMeasureValue measured{};
+    if (source.measure && name.bytes &&
+        ui_text_measure_cache_measure(source.measure,
+                                      {{peer, hash64_bytes(kHash64Seed, name.data, name.bytes),
+                                        appearance->name.font_id, 0x5052, 0},
+                                       name,
+                                       {},
+                                       {maximum(1.f, width), 64},
+                                       true,
+                                       profile_name_face(appearance->name.font_id)},
+                                      &measured)
+            .ok())
+        name_width = measured.size.width + 2.f;
+    const UiRect wide{0.f, output->name.top, 4096.f, output->name.bottom};
+    const float chip_width = ui_rect_width(ui_badge_widget_layout(source.measure, badge, wide).outer);
+    output->name.right = output->name.left + minimum(name_width, maximum(0.f, width - chip_width - kUiPrivateRowChipGap));
+    UiRect line = output->name;
+    line.left = output->name.right + kUiPrivateRowChipGap;
+    line.right = minimum(right, line.left + chip_width);
+    badge.rectangle = ui_badge_widget_layout(source.measure, badge, line).outer;
+    return true;
+}
+u64 ui_private_row_menu_channel(const UiPrivateRowSource& source) noexcept {
+    return source.menu && source.menu->active && source.menu->kind == PopupKind::context_menu ? source.menu->owner_id : 0;
+}
+UiRect ui_private_row_highlight(const UiRect& row, const UiRect& avatar) noexcept {
+    // As the navigation chrome paints a conversation's hover and selection (shell_presentation_build_chrome).
+    const float right = row.right - kShellChannelHighlightRight;
+    return {minimum(right - 1.f, maximum(row.left + 8.f, avatar.left - 8.f)), row.top + 1.f, right, row.bottom - 1.f};
+}
+bool ui_private_row_media(const ShellNavigationScene& scene, u32 index, const UiPrivateRowSource& source,
+                          u64 selected_channel_id, bool animate, UiPrivateRowMedia layer, ProfileMedia* output) noexcept {
+    if (!output || !scene.active || !source.users || index >= scene.count) return false;
+    const auto& row = scene.rows[index];
+    const u64 peer = row.view.type == 1 ? private_row_peer(source, row.view.id) : 0;
+    const auto* appearance = peer ? user_appearance_find(source.users->appearance, peer) : nullptr;
+    const auto* layout = shell_navigation_scene_layout_node(scene, row);
+    const auto* icon = ui_widget_manager_layout_node(scene.widgets, row.icon);
+    const auto* label = ui_widget_manager_layout_node(scene.widgets, row.label);
+    if (!appearance || !layout || !icon || !label) return false;
+    if (layer == UiPrivateRowMedia::tag) {
+        char subtitle[192];
+        UiPrivateRowChip chip{};
+        return ui_private_row_chip(source, row.view.id, row.label, label->content_rectangle,
+                                   row_text_right(scene, index, label->content_rectangle),
+                                   ui_private_row_subtitle(source, row.view.id, {subtitle, sizeof(subtitle)}).bytes != 0,
+                                   &chip) &&
+               chip.kind == UiPrivateRowChipKind::server_tag &&
+               user_guild_badge_media(*appearance, ui_badge_geometry(chip.badge, scene.widgets).icon, scene.viewport,
+                                      output);
+    }
+    const bool selected = selected_channel_id ? row.view.id == selected_channel_id : row.view.selected;
+    const bool hovered = shell_navigation_scene_resolve(scene, scene.widgets.hovered) == &row;
+    const auto plate = ui_private_row_plate(selected, hovered, animate,
+                                            ui_private_row_menu_channel(source) == row.view.id);
+    if (!plate.shown || (layer == UiPrivateRowMedia::nameplate_still && !plate.animated)) return false;
+    const bool animated = plate.animated && layer == UiPrivateRowMedia::nameplate;
+    return user_nameplate_media(*appearance, animated, ui_private_row_highlight(layout->rectangle, icon->rectangle),
+                                scene.viewport, output);
 }
 UiRect ui_private_row_group_avatar(const UiRect& avatar, u32 index) noexcept {
     const float size = ui_rect_width(avatar) * .625f;
@@ -228,19 +336,32 @@ bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, const UiRe
         const bool over = hovered == &row;
         const Color highlight = ui_background_hover_color(theme, selected ? theme.interactive : theme.surface_high,
                                                           selected ? .28f : .20f);
+        // A nameplate replaces the highlight, so the status dot's ring is cut from the plate instead.
+        const auto* appearance = row.view.type == 1 && source.users
+                                     ? user_appearance_find(source.users->appearance, private_row_peer(source, row.view.id))
+                                     : nullptr;
+        const bool plate = appearance && appearance->nameplate_sku &&
+                           ui_private_row_plate(selected, over, false, ui_private_row_menu_channel(source) == row.view.id).shown;
         ok = decorations(stream, source, row.view.id, ui_private_avatar_shape(source.state, row.view.id, row.view.type),
                          icon->rectangle, theme.base_lower,
-                         selected || over ? &highlight : nullptr, theme, true);
-        // The activity glyph leads the subtitle line (shell_text_presentation).
+                         (selected || over) && !plate ? &highlight : nullptr, theme, true);
+        // The activity glyph leads the subtitle line and the chip ends the name (shell_text_presentation).
         UiActivityGlyph glyph = UiActivityGlyph::none;
         char subtitle[192];
         const auto* label = ui_widget_manager_layout_node(scene.widgets, row.label);
-        if (ok && label && row.view.type == 1 &&
-            ui_private_row_subtitle(source, row.view.id, {subtitle, sizeof(subtitle)}, &glyph).bytes &&
-            glyph != UiActivityGlyph::none)
+        const Utf8View line = label && row.view.type == 1
+                                  ? ui_private_row_subtitle(source, row.view.id, {subtitle, sizeof(subtitle)}, &glyph)
+                                  : Utf8View{};
+        if (ok && line.bytes && glyph != UiActivityGlyph::none)
             ok = ui_icon_paint(stream, ui_activity_glyph_icon(glyph),
                                ui_activity_glyph_rectangle(ui_private_row_subtitle_rectangle(label->content_rectangle)),
                                theme.tokens.status.online);
+        UiPrivateRowChip chip{};
+        if (ok && label && row.view.type == 1 &&
+            ui_private_row_chip(source, row.view.id, row.label, label->content_rectangle,
+                                row_text_right(scene, i, label->content_rectangle), line.bytes != 0, &chip) &&
+            chip.kind != UiPrivateRowChipKind::none)
+            ok = ui_badge_paint(chip.badge, scene.widgets, theme, stream);
         if (ok && over && !row.view.mention_count)
             ok = ui_icon_paint(stream, UiIcon::close, ui_private_row_close_rectangle(layout->rectangle),
                                theme.text_secondary);
@@ -314,34 +435,64 @@ Utf8View header_line(const UiPrivateRowSource& source, u64 channel_id, const Sli
     return {storage.data, used};
 }
 } // namespace
-bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
-                                const Slice<char>& storage, UiPrivateHeaderActivity* output) noexcept {
-    reset_value(output);
-    const auto* title = ui_scene_node(scene, UiSemantic::title_bar);
-    const auto* label = ui_scene_node(scene, UiSemantic::title_label);
+// The header name's measured width in `room` DIPs on one line (the peer's display-name face), with the peer.
+static bool header_name_width(const UiPrivateRowSource& source, u64 channel_id, float room, float* width,
+                              u64* peer_out) noexcept {
     const auto* channel = source.state ? chat_state_store_find_channel(*source.state, channel_id) : nullptr;
-    if (!title || !label || !channel || channel->type != 1 || !source.measure || scene.view != UiShellView::private_channels)
+    u64 peer[2]{};
+    if (!channel || channel->type != 1 || !source.measure || !source.users || room <= 0 ||
+        !ui_private_row_group_members(*source.state, channel_id, peer))
         return false;
-    output->line = header_line(source, channel_id, storage, &output->glyph);
-    if (!output->line.bytes) return false;
     // The name as the header shows it (shell_text_presentation): after the avatar, one line.
     char name_storage[512];
     const Utf8View name = private_channel_title(*source.state, source.users, *channel, {name_storage, sizeof(name_storage)});
-    const float left = label->rectangle.left + kUiPrivateHeaderAvatar + 8.f;
-    const float room = label->rectangle.right - left;
+    const auto* appearance = user_appearance_find(source.users->appearance, peer[0]);
+    const u16 font = appearance ? appearance->name.font_id : 0;
     UiTextMeasureValue measured{};
-    if (!name.bytes || room <= 0 ||
+    if (!name.bytes ||
         !ui_text_measure_cache_measure(source.measure,
-                                       {{0x484E414D, hash64_bytes(kHash64Seed, name.data, name.bytes), 0, 0, 0},
+                                       {{0x484E414D, hash64_bytes(kHash64Seed, name.data, name.bytes), 0, font, 0},
                                         name,
                                         {},
                                         {room, 64},
                                         true,
-                                        UiTextFace::normal},
+                                        profile_name_face(font)},
                                        &measured)
              .ok())
         return false;
-    const float start = left + minimum(room, measured.size.width) + kUiPrivateHeaderActivityGap;
+    *width = measured.size.width;
+    *peer_out = peer[0];
+    return true;
+}
+float ui_private_header_identity_width(const UiPrivateRowSource& source, u64 channel_id) noexcept {
+    float width = 0;
+    u64 peer = 0;
+    return header_name_width(source, channel_id, 4096.f, &width, &peer) ? kUiPrivateHeaderAvatar + 8.f + width : 0.f;
+}
+bool ui_private_header_identity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
+                                UiPrivateHeaderIdentity* output) noexcept {
+    reset_value(output);
+    const auto* title = ui_scene_node(scene, UiSemantic::title_bar);
+    const auto* label = ui_scene_node(scene, UiSemantic::title_label);
+    if (!title || !label || scene.view != UiShellView::private_channels) return false;
+    const float left = label->rectangle.left + kUiPrivateHeaderAvatar + 8.f;
+    const float room = label->rectangle.right - left;
+    float width = 0;
+    if (!header_name_width(source, channel_id, room, &width, &output->user)) return false;
+    output->avatar = ui_private_header_avatar(scene);
+    output->name = {left, title->rectangle.top, left + minimum(room, width), title->rectangle.bottom};
+    return true;
+}
+bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
+                                const Slice<char>& storage, UiPrivateHeaderActivity* output) noexcept {
+    reset_value(output);
+    UiPrivateHeaderIdentity identity{};
+    if (!ui_private_header_identity(scene, source, channel_id, &identity)) return false;
+    const auto* title = ui_scene_node(scene, UiSemantic::title_bar);
+    const auto* label = ui_scene_node(scene, UiSemantic::title_label);
+    output->line = header_line(source, channel_id, storage, &output->glyph);
+    if (!output->line.bytes) return false;
+    const float start = identity.name.right + kUiPrivateHeaderActivityGap;
     if (label->rectangle.right - start < kUiPrivateHeaderActivityMinimum) return false;
     const UiRect line{start, title->rectangle.top, label->rectangle.right, title->rectangle.bottom};
     output->icon = output->glyph != UiActivityGlyph::none ? ui_activity_glyph_rectangle(line) : UiRect{};

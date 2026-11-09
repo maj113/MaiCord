@@ -460,7 +460,7 @@ void application_report_close(bool restore_focus) noexcept {
     settings_modal_suspend(*owner);
     // A queued request is dropped; one in flight finishes and is discarded.
     owner->queued = false;
-    settings_modal_leave(*owner, restore_focus && application_account_available());
+    settings_modal_close(*owner, restore_focus && application_account_available());
 }
 
 void application_report_release() noexcept {

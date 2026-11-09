@@ -8,14 +8,20 @@
 #include "maicord/core/text_bank.hpp"
 #include "maicord/model/guild/ban_store.hpp"
 #include "maicord/model/guild/settings_model.hpp"
+#include "maicord/model/guild/server_tag.hpp"
 #include "maicord/model/guild/member_search.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
 #include "maicord/app/media/profile_image.hpp"
 #include "maicord/protocol/guild/assets.hpp"
+#include "maicord/protocol/guild/community.hpp"
+#include "maicord/protocol/guild/automation.hpp"
 #include "../../voice/soundboard.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/model/guild/detail_store.hpp"
 #include "maicord/core/stable_storage.hpp"
+#include "maicord/ui/chat/game_media.hpp"
+#include "maicord/ui/guild/banner.hpp"
+#include "maicord/ui/guild/card_scene.hpp"
 
 namespace maicord::app_detail::server_settings {
 
@@ -25,6 +31,7 @@ constexpr u64 kPageOwner = 0x4D41494753455454ull;
 enum class Page : u8 {
     none,
     profile,
+    server_tag,
     engagement,
     boost_perks,
     emoji,
@@ -33,9 +40,14 @@ enum class Page : u8 {
     members,
     roles,
     invites,
+    access,
+    integrations,
     safety,
     audit_log,
     bans,
+    automod,
+    community,
+    guild_template,
     count
 };
 constexpr u32 kPageCount = static_cast<u32>(Page::count) - 1;
@@ -62,18 +74,34 @@ constexpr u32 kStickerCapacity = 120;
 // The edited features list of an Engagement save.
 constexpr u32 kFeatureNameBytes = 16 * 1024;
 constexpr u64 kDeleteServerAction = 0x44454C5345525645ull;
+// The App Directory sidebar link (open_app_directory).
+constexpr u64 kAppDirectoryAction = 0x4150504449524543ull;
 constexpr u32 kMenuChoiceBase = 1'000;
 
-// Inline editors: server or role name, role colour hex, list search, the
-// server description and the custom invite link.
+// Inline editors: server or role name, list search, the
+// server description and the custom invite link; AutoMod's word lists:
+// blocked words, regex patterns (one per line) and allowed words.
 enum Editor : u32 {
     editor_name,
-    editor_hex,
     editor_search,
     editor_description,
     editor_vanity,
+    editor_words,
+    editor_patterns,
+    editor_allowed,
+    // Server Tag: the tag text.
+    editor_tag,
+    // Server Profile: the five trait labels (editor_trait + slot) and the game search.
+    editor_trait,
+    editor_trait_last = editor_trait + kGuildAdminProfileTraits - 1,
+    editor_game_search,
     editor_count
 };
+// AutoMod's word boxes: 1,000 words of up to 60 characters with their separators.
+constexpr u32 kWordsCodepoints = 62'000;
+constexpr u32 kWordsBytes = 64 * 1024;
+constexpr u32 kPatternsCodepoints = kAutoModRegexMaximum * (kAutoModRegexCodepoints + 1);
+constexpr u32 kPatternsBytes = kPatternsCodepoints * 4;
 // Control ids of the fixed rows; list rows start at kRowBase.
 enum Control : u64 {
     control_header = 1,
@@ -147,6 +175,37 @@ enum Control : u64 {
     control_everyone,
     control_permission_category = 100,
     control_permission = 200,
+    // Integrations and AutoMod: their own fixed rows from here (below kRowBase).
+    control_automation = 600,
+    control_words = control_automation,
+    control_patterns,
+    control_allowed,
+    // Server Tag: its fixed rows (700-799; the preview's sample lines follow control_tag_preview).
+    control_tag_intro = 700,
+    control_tag_private,
+    control_tag_locked,
+    control_tag_enable,
+    control_tag_text,
+    control_tag_text_error,
+    control_tag_name_category,
+    control_tag_badges,
+    control_tag_show_locked,
+    control_tag_locked_badges,
+    control_tag_colors,
+    control_tag_custom,
+    control_tag_adopt_category,
+    control_tag_adopt,
+    control_tag_preview_category,
+    control_tag_preview,
+    // Access, Community and Server Template: their own fixed rows from here (server_access.hpp).
+    control_server_access = 800,
+    // Server Profile: its fixed rows (900-999); game tiles use their application id as control id.
+    control_icon_buttons = 900,
+    control_traits_category,
+    control_games_search,
+    control_games_suggested,
+    control_private_access,
+    control_trait = 910,
 };
 enum class Op : u8 {
     none,
@@ -181,6 +240,16 @@ enum class Op : u8 {
     safety_update,
     mfa,
     guild_delete,
+    // The Integrations and AutoMod pages' requests (apps_request, automod_request).
+    apps,
+    automod,
+    // The Access, Community and Server Template pages' requests (server_access_request).
+    server_access,
+    // Server Tag: the tag fields of the profile, and adopting the tag.
+    tag_update,
+    tag_adopt,
+    // Server Profile: the server's most played games (the "Your Members Play" suggestions).
+    top_games,
 };
 // Image picks waiting for the file dialog.
 enum class Pick : u8 {
@@ -192,6 +261,11 @@ enum class Pick : u8 {
     sticker,
     sound,
     splash,
+    webhook_avatar,
+    // Access: the Discovery banner (the guild's discovery_splash), held in Settings::splash.
+    discovery_splash,
+    // Server Profile: a Discoverable server's custom banner, held in Settings::custom_banner.
+    custom_banner,
 };
 // Popup menus owned by this layer; actions are offset by kind.
 enum class Menu : u8 {
@@ -214,6 +288,13 @@ enum class Menu : u8 {
     member_roles,
     signals,
     sort,
+    // The Integrations and AutoMod pages' menus (their own kinds).
+    automation,
+    // The Access and Community pages' menus (their own kinds).
+    server_access,
+    // Server Profile: a trait's emoji picker and the game search results.
+    trait_emoji,
+    game_search,
 };
 enum ExpressionAction : u32 {
     expression_rename = 1,
@@ -246,6 +327,10 @@ enum FormKind : u64 {
     form_sound_emoji_edit,
     form_sound_volume,
     form_sound_delete,
+    // Server Tag: the colour picker on the badge's colours (item: 0 primary, 1 secondary).
+    form_tag_color,
+    // Roles: the colour picker on the edited role's colour (item: the role).
+    form_role_color,
 };
 
 struct Request {
@@ -268,7 +353,7 @@ struct Picked {
 struct Settings : SettingsModal {
     UiPage pages[kPageCount];
     UiSettingsPageContent content[kPageCount];
-    UiSettingsNavEntry nav[24];
+    UiSettingsNavEntry nav[40];
     u32 nav_count, nav_revision;
     UiSettingsControl controls[kControlCapacity];
     UiSettingsControlPresentation presentation[kControlCapacity];
@@ -279,7 +364,7 @@ struct Settings : SettingsModal {
     UiSettingsFooter footer;
     MessageComposer models[editor_count];
     BoundedEdit bindings[editor_count];
-    char name_text[kGuildAdminNameBytes], hex_text[16], search_text[kSearchBytes],
+    char name_text[kGuildAdminNameBytes], search_text[kSearchBytes],
         description_text[kGuildAdminProfileDescriptionBytes], vanity_text[kGuildAdminVanityCodeBytes];
     u64 lifetime, guild_id, account_scope, profile_id, self_user_id;
     u16 guild_generation;
@@ -293,6 +378,28 @@ struct Settings : SettingsModal {
     ProfileImageInfo icon_info;
     u8* icon_uri;
     u32 icon_uri_bytes;
+    // A new custom banner (the Discoverable upload tile): the file, sent as its own data URI as the official
+    // image input does.
+    Picked custom_banner;
+    u8* custom_banner_uri;
+    u32 custom_banner_uri_bytes;
+    // Server Profile: the trait labels and game search as typed, the server's most played games (the "Your
+    // Members Play" tiles; top-games, read once a visit), the trait an emoji pick goes to, the covers of the
+    // game tiles on screen, and the live preview card with its game icons and banner.
+    char trait_text[kGuildAdminProfileTraits][kGuildAdminProfileTraitBytes];
+    char game_search_text[kGuildAdminGameQueryCodepoints * 4];
+    GuildAdminGameActivity top_games[kGuildAdminProfileGameMaximum];
+    u32 top_game_count, emoji_slot, game_search_revision;
+    bool top_games_requested, top_games_failed;
+    GameImageMedia covers[kGuildAdminProfileGames + kGuildAdminProfileGameMaximum];
+    GameImageMedia preview_games[kUiGuildCardGames];
+    // The custom banner on the card and on the Banner row's upload tile.
+    UiGuildImageMedia preview_banner, banner_tile;
+    UiGuildCardScene preview;
+    float preview_height;
+    u32 icon_color;
+    bool has_icon_color;
+    u32 lookup_revision;
     // Boost Perks: the guild PATCH draft, the picked splash, the data URIs of
     // new images (made when the save starts) and the custom invite link.
     GuildBoostDraft boost_base, boost_draft;
@@ -313,6 +420,19 @@ struct Settings : SettingsModal {
     bool widget_requested, widget_loaded, widget_failed;
     // The server profile read of the current page visit.
     bool profile_requested;
+    // Server Tag: the draft over the profile's tag fields, whether the
+    // custom colour rows and the locked badges show, and whether the tag
+    // was adopted this visit. The glyph tiles back its badge grids and name
+    // previews (UiSettingsPageContent::glyph_tiles); the badge grids list
+    // badge types by choice.
+    GuildTagDraft tag_base, tag_draft;
+    bool tag_loaded, tag_custom_open, tag_show_locked, tag_adopted;
+    char tag_text[kGuildAdminTagBytes], tag_error[192];
+    UiSettingsGlyphTile glyph_tiles[96];
+    u32 glyph_tile_count;
+    u8 tag_unlocked[kGuildTagBadgeCount], tag_locked[kGuildTagBadgeCount];
+    Utf8View tag_unlocked_names[kGuildTagBadgeCount], tag_locked_names[kGuildTagBadgeCount],
+        tag_palette_names[kGuildTagPaletteCount + 2];
     u64 engagement_echo_until;
     // Roles.
     u64 order[kGuildRoleMaximum];
@@ -327,7 +447,7 @@ struct Settings : SettingsModal {
     // The role editor's tab (Display, Permissions).
     u8 role_tab;
     GuildRoleDraft role_base, role_draft;
-    bool role_conflict, role_echo, role_missing, hex_invalid;
+    bool role_conflict, role_echo, role_missing;
     u64 role_echo_until;
     // Members: the chunked search (its bank is reserved on the first visit
     // and committed as replies add members), the filters, the debounced
@@ -441,6 +561,13 @@ struct Settings : SettingsModal {
     u32 scratch[kScratchUnits];
     GuildAdminRoleCount role_counts[kGuildRoleMaximum];
     GuildBanRecord ban_records[kBanCapacity];
+    // AutoMod's word boxes (editor_words, editor_patterns, editor_allowed).
+    char words_text[kWordsBytes], patterns_text[kPatternsBytes], allowed_text[kWordsBytes];
+    // The Integrations and AutoMod pages' state, made on their first visit.
+    struct AppsState* apps;
+    struct AutoModState* automod;
+    // The Access, Community and Server Template pages' state, made on their first visit.
+    struct ServerAccessState* server_access;
 };
 
 extern Settings* owner;
@@ -472,8 +599,12 @@ struct PageOps {
     void (*context)(const SettingsLayerActivation&) noexcept;
 };
 
-extern const PageOps kProfilePage, kEngagementPage, kBoostPage, kExpressionPage, kMembersPage, kRolesPage,
-    kInvitesPage, kSafetyPage, kAuditLogPage, kBansPage;
+extern const PageOps kProfilePage, kServerTagPage, kEngagementPage, kBoostPage, kExpressionPage, kMembersPage,
+    kRolesPage, kInvitesPage, kAccessPage, kIntegrationsPage, kSafetyPage, kAuditLogPage, kBansPage, kAutoModPage,
+    kCommunityPage, kTemplatePage;
+// The Community entry: "Enable Community", or "Community Overview" once the
+// guild has the COMMUNITY feature.
+Utf8View community_page_label(u64 guild_id) noexcept;
 
 // Identity and transport.
 const ChatStateStore& state() noexcept;
@@ -563,6 +694,31 @@ void server_profile_loaded(const GuildAdminProfile* profile) noexcept;
 bool profile_patch(GuildSettingsPatch* patch, GuildServerProfileWrite* write,
                    Slice<GuildServerProfileTraitWrite> traits) noexcept;
 void profile_saved(bool ok, const Utf8View& body) noexcept;
+// Server Profile: an edit of a trait label or the game search, the top-games
+// read and its reply, the per-tick work (game search, the icon's colour), the
+// page's content (sections beside the preview), the preview card placed at the
+// aside (true when its height changed) and closed, and the first banner tile's
+// colour (the icon's dominant one, 0xRRGGBB; 0 until read back).
+void profile_edited(Editor editor, Utf8View text) noexcept;
+bool top_games_request(GuildAdminRequest* request) noexcept;
+void top_games_loaded(bool ok, const Utf8View& body) noexcept;
+void profile_tick(u64 now) noexcept;
+void profile_page_content(UiSettingsPageContent* content) noexcept;
+bool profile_place_preview() noexcept;
+void profile_close_preview() noexcept;
+u32 profile_icon_color() noexcept;
+// Server Tag: the save's body and the adoption, their outcomes, and the edits
+// of the tag text.
+bool tag_patch(GuildSettingsPatch* patch, GuildTagWrite* write, GuildTagColorText* colors) noexcept;
+void tag_saved(Op op, bool ok, const Utf8View& body) noexcept;
+// A refused save or adoption: Discord's own reason (a field error, the rate
+// limit's wording) as the status.
+void tag_failed(const RestClientResponse& response, const Utf8View& body) noexcept;
+// A server profile read finished: the Server Tag page takes it unless it holds unsaved edits.
+void tag_profile_loaded() noexcept;
+void tag_edited(const Utf8View& text) noexcept;
+// Host colours of the page's swatches: the sample names' and the custom colour pair's.
+bool tag_color(u64 id, u32 choice, u32* rgb) noexcept;
 // Boost Perks: the vanity read, the save's two requests and their outcomes.
 void boost_vanity_loaded(const GuildAdminVanity* vanity) noexcept;
 bool boost_vanity_patch(GuildSettingsPatch* patch) noexcept;
@@ -584,6 +740,41 @@ bool audit_load_visible() noexcept;
 void bans_editor_enter() noexcept;
 bool bans_search_request(GuildModerationRequest* request) noexcept;
 void bans_search_loaded(bool ok, const Utf8View& body) noexcept;
+// Integrations (integrations.cpp) and AutoMod (automod.cpp): the request of
+// their queued Op::apps or Op::automod, built as it is sent (false: nothing
+// to send); whether it only reads; its reply. Their state is released with
+// the layer.
+bool apps_request(GuildAutomationRequest* request) noexcept;
+bool apps_reading() noexcept;
+void apps_response(const RestClientResponse& response, const Utf8View& body) noexcept;
+void apps_release() noexcept;
+bool automod_request(GuildAutomationRequest* request) noexcept;
+bool automod_reading() noexcept;
+void automod_response(const RestClientResponse& response, const Utf8View& body) noexcept;
+void automod_release() noexcept;
+// Their Gateway events (AutoMod rules; webhooks, integrations and command
+// permissions): the open page reads its lists again.
+void apps_gateway(const GatewayClientEvent& event, const Utf8View& body) noexcept;
+void automod_gateway(const GatewayClientEvent& event, const Utf8View& body) noexcept;
+// Safety Setup in community servers holds AutoMod (as the official client
+// routes it): its entry row, and that row's activation (true when handled).
+void automod_safety_entry(Bank& bank) noexcept;
+bool automod_safety_activate(const SettingsLayerActivation& activation) noexcept;
+// The App Directory sidebar link: Discord's app directory in the browser.
+void open_app_directory() noexcept;
+// Access, Community and Server Template (server_access.cpp): the queued
+// Op::server_access request, built as it is sent on the community lane
+// (*community_lane) or the guild admin one (false: nothing to send); whether
+// it only reads; its reply. Their state is released with the layer.
+bool server_access_request(GuildAdminRequest* admin, GuildSettingsPatch* patch, RolePatch* role,
+                           GuildCommunityRequest* community, bool* community_lane) noexcept;
+bool server_access_reading() noexcept;
+void server_access_response(const RestClientResponse& response, const Utf8View& body) noexcept;
+void server_access_release() noexcept;
+// The Server Template sidebar entry's dot: kUiSettingsNavDot while the template has unsynced changes.
+u16 server_template_nav_badge(Page page) noexcept;
+// Reads the template once per visit to show that dot; false when nothing was queued.
+bool server_template_ensure_status() noexcept;
 
 // Text forms.
 TextFormOwnerKey form_key(u64 kind, u64 item) noexcept;

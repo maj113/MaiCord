@@ -2,20 +2,25 @@
 #include "maicord/core/memory.hpp"
 namespace maicord::app_detail {
 bool friends_search_documents_initialize(FriendsSearchDocuments* documents) noexcept {
-    for (u32 i = 0; i < 4; ++i) {
+    for (u32 i = 0; i < kFriendsSearchDocuments; ++i) {
         if (!message_composer_initialize(&documents->models[i], {documents->text[i], kFriendsSearchBytes})) {
             friends_search_documents_release(documents);
             return false;
         }
+    }
+    if (!message_composer_initialize(&documents->note, {documents->note_text, kRelationshipNoteMaximumBytes})) {
+        friends_search_documents_release(documents);
+        return false;
     }
     return true;
 }
 void friends_search_documents_release(FriendsSearchDocuments* documents) noexcept {
     for (auto& model : documents->models)
         message_composer_release(&model);
+    message_composer_release(&documents->note);
     reset_value(documents);
 }
 MessageComposer* friends_search_document(FriendsSearchDocuments* documents, UiFriendsTab tab) noexcept {
-    return tab < UiFriendsTab::add_friend ? &documents->models[static_cast<u32>(tab)] : nullptr;
+    return tab <= UiFriendsTab::add_friend ? &documents->models[static_cast<u32>(tab)] : nullptr;
 }
 } // namespace maicord::app_detail

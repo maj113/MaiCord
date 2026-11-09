@@ -77,6 +77,11 @@ ProfileEditorGate gate() noexcept {
     return profile_editor_gate(owner->tab, owner->loaded ? owner->saved.premium_type : state().self_premium_type,
                                can_change_nickname());
 }
+ProfileEditorGate shown_gate() noexcept {
+    if (!owner->trying)
+        return gate();
+    return profile_editor_gate(owner->tab, kProfileEditorNitroPremiumType, can_change_nickname());
+}
 
 } // namespace profile_editor_detail
 namespace {
@@ -87,10 +92,6 @@ u64 current_sku(bool decoration) noexcept {
     const auto& b = owner->base;
     return decoration ? (d.decoration_set ? d.decoration_sku : b.decoration_sku)
                       : (d.effect_set ? d.effect_sku : b.effect_sku);
-}
-
-template <u32 N> void assign(ProfileString<N>* to, const Utf8View& from) noexcept {
-    to->bytes = static_cast<u16>(utf8_copy_truncated(to->data, from));
 }
 
 } // namespace
@@ -227,6 +228,8 @@ void build_base() noexcept {
     b.theme[1] = guild ? s.member_theme_colors[1] : s.theme_colors[1];
     b.has_accent = !guild && s.has_accent;
     b.accent = guild ? 0 : s.accent_color;
+    b.name_style = guild ? s.member_name_style : s.name_style;
+    b.nameplate_sku = guild ? s.member_nameplate_sku : s.nameplate_sku;
 }
 
 } // namespace
@@ -265,9 +268,12 @@ void discard() noexcept {
     p.draft.accent = p.base.accent;
     p.draft.decoration_sku = p.base.decoration_sku;
     p.draft.effect_sku = p.base.effect_sku;
+    p.draft.name_style = p.base.name_style;
+    p.draft.nameplate_sku = p.base.nameplate_sku;
     const bool guild = p.tab == ProfileEditorTab::guild;
     assign(&p.decoration_asset, guild && p.saved.member_decoration_asset.bytes ? p.saved.member_decoration_asset.view()
                                                                                : p.saved.decoration_asset.view());
+    assign(&p.nameplate_asset, guild ? p.saved.member_nameplate_asset.view() : p.saved.nameplate_asset.view());
     reset_value(&p.errors);
     p.failed = false;
     reset_value(&p.status);
@@ -339,10 +345,14 @@ void compose_preview() noexcept {
         v.has_guild_theme = theme;
         v.guild_theme_colors[0] = colors[0];
         v.guild_theme_colors[1] = colors[1];
+        // A drafted theme, or a drafted reset (the user's own theme shows), replaces a saved reset.
+        if (d.theme_set)
+            v.guild_theme_reset = false;
     } else {
         v.has_theme = theme;
         v.theme_colors[0] = colors[0];
         v.theme_colors[1] = colors[1];
+        v.has_accent = d.accent_set || p.base.has_accent;
         v.accent_color = d.accent_set ? d.accent : p.base.accent;
     }
     // The drafted decoration (asset of an owned item, or none).
@@ -351,6 +361,26 @@ void compose_preview() noexcept {
     appearance.decoration = decorated ? p.decoration_asset : ProfileString<64>{};
     if (decorated)
         appearance.fields |= appearance_decoration;
+    // The drafted display name style: the card draws the name in its font and effect at once.
+    const auto& style = d.name_style;
+    reset_value(&appearance.name);
+    appearance.fields &= ~static_cast<u32>(appearance_name);
+    if (profile_name_style_set(style)) {
+        appearance.name.font_id = style.font;
+        appearance.name.effect_id = style.effect;
+        appearance.name.color_count = style.color_count;
+        for (u32 i = 0; i < style.color_count; ++i)
+            appearance.name.colors[i] = style.colors[i];
+        appearance.fields |= appearance_name;
+    }
+    // The drafted nameplate (asset of an owned item, or none).
+    const bool nameplated = d.nameplate_sku && p.nameplate_asset.bytes;
+    appearance.nameplate = nameplated ? p.nameplate_asset : ProfileString<128>{};
+    appearance.nameplate_sku = nameplated ? d.nameplate_sku : 0;
+    if (nameplated)
+        appearance.fields |= appearance_nameplate;
+    else
+        appearance.fields &= ~static_cast<u32>(appearance_nameplate);
     const u64 effect = current_sku(false);
     if (guild)
         v.guild_effect_sku_id = effect;
@@ -509,8 +539,9 @@ void build_items(Dialog kind) noexcept {
     auto& none = p.items[p.item_count++];
     reset_value(&none);
     const auto type = kind == Dialog::decoration ? ProfileCollectibleType::avatar_decoration
-                                                 : ProfileCollectibleType::profile_effect;
-    const u64 current = current_sku(kind == Dialog::decoration);
+                      : kind == Dialog::nameplate ? ProfileCollectibleType::nameplate
+                                                  : ProfileCollectibleType::profile_effect;
+    const u64 current = kind == Dialog::nameplate ? owner->draft.nameplate_sku : current_sku(kind == Dialog::decoration);
     for (u32 i = 0; i < p.owned_count && p.item_count < kUiProfileDialogItemCapacity; ++i) {
         const auto& owned = p.owned[i];
         if (owned.type != type)
@@ -526,6 +557,14 @@ void build_items(Dialog kind) noexcept {
             if (!bytes)
                 continue;
             item_media(&item, {url, bytes}, true);
+        } else if (type == ProfileCollectibleType::nameplate) {
+            // The nameplate's still, as member lists draw it at rest.
+            char url[128];
+            ProtocolWriter w{{reinterpret_cast<u8*>(url), sizeof(url)}, 0};
+            if (!protocol_writer_append_literal(&w, "https://cdn.discordapp.com/media/v1/collectibles-shop/") ||
+                !protocol_writer_append_u64(&w, owned.sku) || !protocol_writer_append_literal(&w, "/static"))
+                continue;
+            item_media(&item, {url, w.used}, true);
         } else if (owned.asset.bytes)
             item_media(&item, owned.asset.view(), false);
         if (owned.sku == current)
@@ -566,6 +605,8 @@ Utf8View footer_status() noexcept {
                : p.tab == ProfileEditorTab::main
                    ? utf8_literal("There was a problem updating your profile")
                    : utf8_literal("There was a problem updating your per-server profile...");
+    if (p.trying && !profile_editor_changes_allowed(p.tab, p.base, current_draft(), gate()))
+        return utf8_literal("Stop trying Nitro features to save.");
     return utf8_literal("Careful \xE2\x80\x94 you have unsaved changes!");
 }
 
@@ -584,6 +625,8 @@ bool palette_resolve(void*, u64 control, u32 choice, BackgroundTheme* out) noexc
             rgb = 0x41434A;
     } else if (control == control_accent)
         rgb = owner->draft.accent_set ? owner->draft.accent : owner->base.has_accent ? owner->base.accent : 0x41434A;
+    else if (control == control_name_colors && choice < owner->draft.name_style.color_count)
+        rgb = owner->draft.name_style.colors[choice];
     else
         return false;
     reset_value(out);
@@ -598,7 +641,7 @@ namespace {
 void project_controls(TextBank& bank) noexcept {
     auto& p = *owner;
     p.control_count = 0;
-    const auto g = gate();
+    const auto g = shown_gate();
     const bool edit = editable() && connected();
     const bool guild = p.tab == ProfileEditorTab::guild;
     const bool known = p.loaded && !p.load_failed;
@@ -631,6 +674,19 @@ void project_controls(TextBank& bank) noexcept {
              {p.load_failed ? UiSettingsVariant::critical : UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
         return;
     }
+    // Try It Out (no Nitro): the Nitro fields open for the preview; nothing that needs Nitro is saved. While trying,
+    // Shuffle previews a random theme and name style, as the official client's does.
+    if (!nitro() && !p.trying)
+        push({control_try, utf8_literal("Try out Nitro"),
+              utf8_literal("Preview banners, themes and name styles."),
+              UiSettingsControlKind::notice, edit, false, {}, 0, utf8_literal("Try It Out"), nullptr});
+    else if (!nitro()) {
+        p.try_buttons[0] = utf8_literal("Shuffle");
+        p.try_buttons[1] = utf8_literal("Stop Trying");
+        push({control_try, utf8_literal("Trying Nitro features"),
+              utf8_literal("Changes that need Nitro show in the preview only and can't be saved."),
+              UiSettingsControlKind::buttons, edit, false, {p.try_buttons, 2}, kUiSettingsNoChoice, {}, nullptr});
+    }
     // Display Name / Server Nickname.
     const bool name_allowed = (g.enabled & profile_editor_name) != 0;
     const auto& s = p.saved;
@@ -640,6 +696,37 @@ void project_controls(TextBank& bank) noexcept {
           false, {}, 0, {},
           Editors::view(editor_name, control_name, guild ? account_name : s.username.view(), edit && name_allowed)});
     push_error(control_name_error, guild ? ProfileEditErrorField::nick : ProfileEditErrorField::global_name);
+    // Display Name Style (Nitro): the font and the effect (each a dropdown) and the effect's colours, which open
+    // the colour picker. Choosing either starts a style; Remove Style returns the plain name.
+    const bool style_allowed = (g.enabled & profile_editor_name_style) != 0;
+    const auto& style = p.draft.name_style;
+    const bool styled = profile_name_style_set(style);
+    for (u32 i = 0; i < kProfileNameFontCount; ++i)
+        p.font_choices[i] = kProfileNameFonts[i].name;
+    for (u32 i = 0; i < kProfileNameEffectCount; ++i)
+        p.effect_choices[i] = kProfileNameEffects[i].name;
+    const u32 font = styled ? profile_name_font_index(style.font) : ~0u;
+    const u32 name_effect = styled ? profile_name_effect_index(style.effect) : ~0u;
+    push({control_name_style, utf8_literal("Display Name Font"),
+          profile_editor_gate_reason(p.tab, g, profile_editor_name_style), UiSettingsControlKind::choice,
+          edit && style_allowed, false, {p.font_choices, kProfileNameFontCount},
+          font == ~0u ? kUiSettingsNoChoice : font, {}, nullptr});
+    push({control_name_effect, utf8_literal("Display Name Effect"), {}, UiSettingsControlKind::choice,
+          edit && style_allowed, false, {p.effect_choices, kProfileNameEffectCount},
+          name_effect == ~0u ? kUiSettingsNoChoice : name_effect, {}, nullptr});
+    if (styled) {
+        // One colour, a gradient's start and end, or a palette's five (Gummy, Prism).
+        static constexpr Utf8View kPalette[]{utf8_literal("1"), utf8_literal("2"), utf8_literal("3"), utf8_literal("4"),
+                                             utf8_literal("5")};
+        for (u32 i = 0; i < style.color_count && i < kProfileNameStyleColors; ++i)
+            p.name_color_choices[i] = style.color_count == 1   ? utf8_literal("Color")
+                                      : style.color_count == 2 ? (i ? utf8_literal("End") : utf8_literal("Start"))
+                                                               : kPalette[i];
+        push({control_name_colors, utf8_literal("Display Name Color"), {}, UiSettingsControlKind::colors,
+              edit && (style_allowed || guild), false, {p.name_color_choices, style.color_count}, kUiSettingsNoChoice,
+              guild ? utf8_literal("Use Default") : utf8_literal("Remove Style"), nullptr});
+    }
+    push_error(control_name_style_error, ProfileEditErrorField::name_style);
     // Pronouns: open to everyone.
     const Utf8View account_pronouns = s.pronouns.view();
     push({control_pronouns, utf8_literal("Pronouns"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
@@ -677,6 +764,14 @@ void project_controls(TextBank& bank) noexcept {
     push({control_effect, utf8_literal("Profile Effect"), profile_editor_gate_reason(p.tab, g, profile_editor_effect),
           UiSettingsControlKind::buttons, edit && effect_allowed, false, {p.effect_buttons, effect ? 2u : 1u},
           kUiSettingsNoChoice, {}, nullptr});
+    // Nameplate: an owned collectible shown behind the name in member lists.
+    const bool nameplate_allowed = (g.enabled & profile_editor_nameplate) != 0;
+    p.nameplate_buttons[0] = utf8_literal("Change Nameplate");
+    p.nameplate_buttons[1] = guild ? utf8_literal("Use Default") : utf8_literal("Remove Nameplate");
+    push({control_nameplate, utf8_literal("Nameplate"), profile_editor_gate_reason(p.tab, g, profile_editor_nameplate),
+          UiSettingsControlKind::buttons, edit && nameplate_allowed, false,
+          {p.nameplate_buttons, p.draft.nameplate_sku ? 2u : 1u}, kUiSettingsNoChoice, {}, nullptr});
+    push_error(control_nameplate_error, ProfileEditErrorField::nameplate);
     // Main profile without Nitro: the free Banner Color.
     if (!guild && !nitro()) {
         p.accent_choices[0] = utf8_literal("Banner Color");
@@ -704,7 +799,7 @@ void project_controls(TextBank& bank) noexcept {
     const bool themed = effective_theme(colors) == 2;
     push({control_theme, utf8_literal("Profile Theme"), profile_editor_gate_reason(p.tab, g, profile_editor_theme),
           UiSettingsControlKind::colors, edit && theme_allowed, false, {p.theme_choices, 2}, kUiSettingsNoChoice,
-          guild && themed ? utf8_literal("Reset Theme") : Utf8View{}, nullptr});
+          themed ? utf8_literal("Reset Theme") : Utf8View{}, nullptr});
     // Bio: markdown, the remaining-characters counter inside the field.
     const bool bio_allowed = (g.enabled & profile_editor_bio) != 0;
     const auto bio = editor_text(editor_bio);
@@ -809,12 +904,17 @@ bool dialog_update() noexcept {
         content.can_reset = image_crop_edited(p.crop);
     } else {
         const bool decoration = p.dialog_kind == Dialog::decoration;
-        content.kind = decoration ? UiProfileDialogKind::decoration : UiProfileDialogKind::effect;
-        content.title = decoration ? utf8_literal("Change Avatar Decoration") : utf8_literal("Change Profile Effect");
+        const bool nameplate = p.dialog_kind == Dialog::nameplate;
+        content.kind = decoration  ? UiProfileDialogKind::decoration
+                       : nameplate ? UiProfileDialogKind::nameplate
+                                   : UiProfileDialogKind::effect;
+        content.title = decoration  ? utf8_literal("Change Avatar Decoration")
+                        : nameplate ? utf8_literal("Change Nameplate")
+                                    : utf8_literal("Change Profile Effect");
         content.apply_label = utf8_literal("Apply");
         content.items = {p.items, p.item_count};
         content.selected = p.item_selected;
-        const u64 current = current_sku(decoration);
+        const u64 current = nameplate ? p.draft.nameplate_sku : current_sku(decoration);
         const u64 chosen = p.item_selected < p.item_count ? p.items[p.item_selected].sku : 0;
         content.can_apply = chosen != current;
         content.preview_label = p.item_selected < p.item_count && p.items[p.item_selected].sku
@@ -823,8 +923,9 @@ bool dialog_update() noexcept {
         content.status = p.collectibles_failed ? utf8_literal("Couldn't load your collectibles.")
                          : !p.collectibles_loaded ? utf8_literal("Loading\xE2\x80\xA6")
                          : p.item_count <= 1
-                             ? (decoration ? utf8_literal("You don't own any avatar decorations yet.")
-                                           : utf8_literal("You don't own any profile effects yet."))
+                             ? (decoration  ? utf8_literal("You don't own any avatar decorations yet.")
+                                : nameplate ? utf8_literal("You don't own any nameplates yet.")
+                                            : utf8_literal("You don't own any profile effects yet."))
                              : Utf8View{};
         content.failed = p.collectibles_failed;
         // The avatar the decoration previews on.
@@ -869,9 +970,11 @@ void open_picker_dialog(Dialog kind) noexcept {
 void apply_dialog() noexcept {
     auto& p = *owner;
     if (p.dialog_kind == Dialog::crop) {
-        // A GIF avatar needs Nitro; the pick is not applied.
-        const bool gif = p.staged.info.kind == GuildImageKind::gif && p.staged.info.animated;
-        if (p.staged_use == Pick::avatar && gif && !nitro()) {
+        // An animated avatar (GIF or WebP) needs Nitro; the pick is not applied.
+        const auto kind = p.staged.info.kind;
+        const bool animated =
+            (kind == GuildImageKind::gif || kind == GuildImageKind::webp) && p.staged.info.animated;
+        if (p.staged_use == Pick::avatar && animated && !nitro()) {
             p.status = utf8_literal("Upload GIFs to animate your avatars! Only with Nitro.");
             close_dialog();
             return;
@@ -895,6 +998,11 @@ void apply_dialog() noexcept {
         p.draft.decoration_sku = item.sku;
         const auto* owned = owned_item(item.sku, ProfileCollectibleType::avatar_decoration);
         assign(&p.decoration_asset, owned ? owned->asset.view() : Utf8View{});
+    } else if (p.dialog_kind == Dialog::nameplate) {
+        p.draft.nameplate_set = true;
+        p.draft.nameplate_sku = item.sku;
+        const auto* owned = owned_item(item.sku, ProfileCollectibleType::nameplate);
+        assign(&p.nameplate_asset, owned ? owned->asset.view() : Utf8View{});
     } else {
         p.draft.effect_set = true;
         p.draft.effect_sku = item.sku;

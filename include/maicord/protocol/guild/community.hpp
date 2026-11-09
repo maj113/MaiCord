@@ -21,6 +21,16 @@ inline constexpr u64 kGuildEventInterestRouteId = 0x4556454E54525356ull;
 inline constexpr u64 kGuildEventRsvpsRouteId = 0x4556454E54534D45ull;
 inline constexpr u64 kGuildProfileGetRouteId = 0x4750524F46474554ull;
 inline constexpr u64 kGuildJoinRouteId = 0x474A4F494E4D4521ull;
+// Server Settings: Access (membership screening and discovery), Server Template.
+inline constexpr u64 kGuildVerificationUpdateRouteId = 0x4D56455246504154ull;
+inline constexpr u64 kGuildTemplatesRouteId = 0x47544D504C495354ull;
+inline constexpr u64 kGuildTemplateRouteId = 0x47544D50434F4445ull;
+inline constexpr u64 kGuildDiscoveryRequirementsRouteId = 0x4449534352455153ull;
+inline constexpr u64 kGuildDiscoveryMetadataRouteId = 0x444953434D455441ull;
+inline constexpr u64 kDiscoveryCategoriesRouteId = 0x4449534343415453ull;
+inline constexpr u64 kGuildDiscoverySubcategoryRouteId = 0x4449534353554243ull;
+inline constexpr u64 kGuildProfileVisibilityRouteId = 0x4750524F46564953ull;
+inline constexpr u64 kGuildJoinRequestsRouteId = 0x4A4F494E52455153ull;
 
 inline constexpr u32 kGuildCommunityMaximumTargetBytes = 160;
 inline constexpr u32 kGuildCommunityMaximumBodyBytes = 48 * 1024;
@@ -40,6 +50,24 @@ enum class GuildCommunityOperation : u8 {
     onboarding_update,   // PUT    /guilds/{g}/onboarding-responses    (Channels & Roles)
     guild_profile_get,   // GET    /guilds/{g}/profile                 (server tag popout)
     guild_join,          // PUT    /guilds/{g}/members/@me?lurker=true&session_id={s}  {}
+    // Server Settings (Manage Server). Template operations name the template by `code`.
+    verification_update,       // PATCH  /guilds/{g}/member-verification  {form_fields, enabled[, bulk_action]}
+    templates_list,            // GET    /guilds/{g}/templates
+    template_create,           // POST   /guilds/{g}/templates            {name, description}
+    template_sync,             // PUT    /guilds/{g}/templates/{code}
+    template_update,           // PATCH  /guilds/{g}/templates/{code}     {name, description}
+    template_delete,           // DELETE /guilds/{g}/templates/{code}
+    discovery_requirements,    // GET    /guilds/{g}/discovery-requirements
+    discovery_metadata_get,    // GET    /guilds/{g}/discovery-metadata
+    discovery_metadata_update, // PATCH  /guilds/{g}/discovery-metadata   (the read echoed, three keys replaced)
+    discovery_categories,      // GET    /discovery/categories?locale=en-US&primary_only=false
+    // A discovery subcategory, its id in `event_id` (0 is a valid one).
+    discovery_subcategory_add,    // PUT    /guilds/{g}/discovery-categories/{id}
+    discovery_subcategory_remove, // DELETE /guilds/{g}/discovery-categories/{id}
+    // Apply from Profile: the server profile's visibility alone.
+    guild_profile_visibility, // PATCH  /guilds/{g}/profile               {"visibility":n}
+    // The submitted applications, read for their total (the official client's fetch, first page of 25).
+    join_requests_submitted, // GET    /guilds/{g}/requests?status=SUBMITTED&limit=25
     count,
 };
 
@@ -51,8 +79,14 @@ struct GuildCommunityRequest {
     u32 body_bytes;
     GuildCommunityOperation operation;
     u8 reserved[3];
+    // A template operation's code (letters and digits); empty for the others.
+    Utf8View code;
 };
-static_assert(sizeof(GuildCommunityRequest) == 32);
+static_assert(sizeof(GuildCommunityRequest) == 48);
+// Template replies carry the whole serialized server: the list and a new template's reply take the large response
+// path (GET and JSON POST only there).
+inline constexpr u32 kGuildTemplateMaximumResponseBytes = 2 * 1024 * 1024;
+bool guild_community_operation_large_reply(GuildCommunityOperation) noexcept;
 
 bool guild_community_request_valid(const GuildCommunityRequest&) noexcept;
 bool guild_community_operation_has_body(GuildCommunityOperation) noexcept;
@@ -266,23 +300,44 @@ inline constexpr u32 kGuildProfileHashBytes = 64;
 inline constexpr u32 kGuildProfileTagBytes = 32;
 inline constexpr u32 kGuildProfileTraits = 5;
 inline constexpr u32 kGuildProfileTraitBytes = 96;
+inline constexpr u32 kGuildProfileEmojiNameBytes = 32;
+// game_application_ids holds at most 20.
+inline constexpr u32 kGuildProfileGames = 20;
 // The API error code for a profile the server limits ("Private Server").
 inline constexpr u64 kGuildProfilePrivateErrorCode = 50001;
 
+// The profile's features list holds only the community ones.
 enum GuildProfileFeature : u32 {
     guild_profile_discoverable = 1u << 0,      // DISCOVERABLE: joinable without an invite
     guild_profile_tags = 1u << 1,              // GUILD_TAGS
+    guild_profile_community = 1u << 2,         // COMMUNITY
+    guild_profile_verified = 1u << 3,          // VERIFIED
+    guild_profile_partnered = 1u << 4,         // PARTNERED
+    guild_profile_verification_gate = 1u << 5, // MEMBER_VERIFICATION_GATE_ENABLED
+    guild_profile_manual_approval = 1u << 6,   // MEMBER_VERIFICATION_MANUAL_APPROVAL
 };
 struct GuildProfileTrait {
-    u8 label_bytes;
+    u64 emoji_id; // a custom emoji, else emoji_name names a Unicode one
+    u8 label_bytes, emoji_name_bytes;
+    bool emoji_animated;
     char label[kGuildProfileTraitBytes];
+    char emoji_name[kGuildProfileEmojiNameBytes];
+};
+// A game the server plays: activity_level 2 is high (the official card marks it).
+inline constexpr u8 kGuildProfileActivityHigh = 2;
+struct GuildProfileGame {
+    u64 id;
+    u32 score; // activity_score
+    u8 level;  // activity_level
 };
 struct GuildProfile {
     u64 id;
     u32 online_count, member_count;
+    u32 premium_subscription_count; // boosts
     u32 brand_color; // 0xRRGGBB when has_brand_color
     u32 features;    // GuildProfileFeature
     bool has_brand_color;
+    u8 premium_tier; // boost level 0-3
     u8 icon_bytes, banner_bytes, badge_bytes, tag_bytes, trait_count;
     u16 name_bytes, description_bytes;
     char name[kGuildProfileNameBytes];
@@ -292,6 +347,9 @@ struct GuildProfile {
     char badge[kGuildProfileHashBytes];  // badge_hash (the tag's badge image)
     char tag[kGuildProfileTagBytes];
     GuildProfileTrait traits[kGuildProfileTraits]; // in position order, empty slots skipped
+    // game_application_ids by activity score, highest first (ties keep their order).
+    GuildProfileGame games[kGuildProfileGames];
+    u8 game_count;
 };
 // Decodes GET /guilds/{g}/profile. False without an id or name, or for a body
 // that is not an object; unknown members are ignored and long text truncates.

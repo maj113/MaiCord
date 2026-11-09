@@ -4,6 +4,7 @@
 #include "maicord/ui/core/widget_manager.hpp"
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/layout/list_navigation.hpp"
+#include "maicord/ui/layout/density.hpp"
 
 namespace maicord {
 struct UiTextMeasureCache;
@@ -15,7 +16,10 @@ struct UiActivityStatus;
 struct UiPluginSlotBadge;
 
 inline constexpr u32 kMemberListSceneOverscanRows = 2;
-inline constexpr float kMemberListRowHeight = 44.0f;
+// A member row: UI Density's list item (38, 42 or 48 DIPs) with a 1-DIP gap above and below.
+inline float member_list_row_height() noexcept {
+    return ui_density_list_item(g_ui_density) + 2.0f;
+}
 inline constexpr u32 kMemberListWidgetsPerRow = 4;
 
 enum class MemberListSceneError : u8 {

@@ -263,7 +263,7 @@ maicord_library(maicord_app_client ${MAICORD_APP_CLIENT_SOURCES}
     src/model/chat/message_reconcile.cpp
     LIBS maicord_app_net maicord_app_update maicord_app_packages maicord_app_catalog_index maicord_ui maicord_core maicord_model
         maicord_protocol maicord_media_core maicord_media_codec maicord_compression maicord_crypto
-        maicord_desktop_system maicord_dbus maicord_atspi
+        maicord_desktop_system maicord_dbus maicord_atspi maicord_capture maicord_video_encode
     INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}")
 target_compile_options(maicord_app_client PRIVATE -Wno-c23-extensions)
 

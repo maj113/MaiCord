@@ -43,6 +43,15 @@ enum class GuildAdminOperation : u8 {
     vanity_update,       // PATCH  /guilds/{g}/vanity-url       {"code"}
     member_role_add,     // PUT    /guilds/{g}/members/{u}/roles/{r} (no body)
     member_role_remove,  // DELETE /guilds/{g}/members/{u}/roles/{r} (no body)
+    // Server Profile games: the server's most played (Manage Server), the
+    // game search the official client's picker runs, and game details.
+    top_games,           // GET    /guilds/{g}/top-games
+    game_search,         // GET    /games/autocomplete?q=&filter_group=default
+    games_list,          // GET    /games?game_ids=..&game_ids=.. (1-25 ids)
+    // Server Tag: the tag fields of the profile (GUILD_TAGS) and adopting a
+    // server's tag as one's own.
+    tag_update,          // PATCH  /guilds/{g}/profile          (GuildTagWrite)
+    identity_adopt,      // PUT    /users/@me/clan              {"identity_guild_id":g,"identity_enabled":true}
     count,
 };
 
@@ -69,7 +78,7 @@ inline constexpr u32 kGuildAdminBanDeleteMaximumSeconds = 604'800;
 inline constexpr u32 kGuildAdminPageMaximum = 1'000;
 inline constexpr u32 kGuildAdminAuditPageMaximum = 100;
 
-enum GuildSettingsPatchField : u16 {
+enum GuildSettingsPatchField : u32 {
     guild_settings_patch_name = 1u << 0,
     guild_settings_patch_icon = 1u << 1,
     guild_settings_patch_banner = 1u << 2,
@@ -89,7 +98,21 @@ enum GuildSettingsPatchField : u16 {
     guild_settings_patch_profile = 1u << 14,
     // vanity_update only, and alone: the code.
     guild_settings_patch_vanity = 1u << 15,
+    // Community and Access: the rules, Community Updates and Safety
+    // Notifications channels (1 asks for a new rules or updates channel),
+    // the description (empty sends null), the primary language and the
+    // owner's content level (0 default, 3 age-restricted).
+    guild_settings_patch_rules_channel = 1u << 16,
+    guild_settings_patch_public_updates_channel = 1u << 17,
+    guild_settings_patch_safety_alerts_channel = 1u << 18,
+    guild_settings_patch_description = 1u << 19,
+    guild_settings_patch_preferred_locale = 1u << 20,
+    guild_settings_patch_content_level = 1u << 21,
+    // Access: the Discovery banner (a data URI, or empty for null).
+    guild_settings_patch_discovery_splash = 1u << 22,
 };
+// The longest locale code the API names (es-419, zh-TW).
+inline constexpr u32 kGuildAdminLocaleBytes = 8;
 
 inline constexpr u32 kGuildAdminProfileDescriptionCodepoints = 300;
 inline constexpr u32 kGuildAdminProfileDescriptionBytes = kGuildAdminProfileDescriptionCodepoints * 4;
@@ -98,9 +121,27 @@ inline constexpr u32 kGuildAdminProfileTraitCodepoints = 24;
 inline constexpr u32 kGuildAdminProfileTraitBytes = kGuildAdminProfileTraitCodepoints * 4;
 inline constexpr u32 kGuildAdminProfileEmojiNameBytes = 64;
 inline constexpr u32 kGuildAdminProfileGames = 32;
+// game_application_ids a profile save may send.
+inline constexpr u32 kGuildAdminProfileGameMaximum = 20;
+// Ids one games_list request asks for (Userdoccers: 1-25).
+inline constexpr u32 kGuildAdminGamesListMaximum = 25;
+// A game search query: trimmed, lowercased, '_' as ' ', at most 100 characters.
+inline constexpr u32 kGuildAdminGameQueryCodepoints = 100;
 inline constexpr u32 kGuildAdminBrandColorBytes = 16;
 inline constexpr u32 kGuildAdminVanityCodeCharacters = 25;
 inline constexpr u32 kGuildAdminVanityCodeBytes = kGuildAdminVanityCodeCharacters * 4;
+// A server tag: 2-4 characters (UTF-16 units, as the official field's
+// maxLength counts them); decoding keeps room for a longer one.
+inline constexpr u32 kGuildAdminTagCharacters = 4;
+inline constexpr u32 kGuildAdminTagBytes = 32;
+// A tag the API takes: 2-4 characters on one line, letters and digits (ASCII
+// punctuation, spaces and controls are refused; other scripts are left to
+// the server, which answers a refused tag with a field error).
+bool guild_tag_text_valid(Utf8View tag) noexcept;
+// Badge types that may still be set: 0-9 and the packs' 21-40.
+constexpr bool guild_tag_badge_settable(u32 badge) noexcept {
+    return badge <= 9 || (badge >= 21 && badge <= 40);
+}
 
 // One trait of the server profile. An empty label drops the trait; emoji
 // keys are sent only when set (a zero id or an empty name leaves it out).
@@ -138,6 +179,18 @@ struct GuildServerProfileWrite {
     u8 fields;
 };
 
+// PATCH /guilds/{g}/profile from the Server Tag page: tag, badge,
+// badge_color_primary, badge_color_secondary, in that order, all four every
+// time. An empty tag sends null (the tag is off); empty colours send null
+// (the badge's own colours). Colours are "#RRGGBB"; the badge is a type the
+// API still accepts (0-9, 21-40).
+struct GuildTagWrite {
+    Utf8View tag;
+    Utf8View badge_color_primary;
+    Utf8View badge_color_secondary;
+    u8 badge;
+};
+
 // Image fields carry a data URI or the stored image hash; an empty view with
 // the field set clears the image. Channel IDs of zero serialize as null. The
 // guild PATCH writes keys in one fixed order whatever the set fields.
@@ -150,7 +203,7 @@ struct GuildSettingsPatch {
     u64 system_channel_id;
     u64 afk_channel_id;
     u32 afk_timeout_seconds;
-    u16 fields;
+    u32 fields;
     u8 verification_level;
     u8 default_message_notifications;
     u8 explicit_content_filter;
@@ -168,6 +221,15 @@ struct GuildSettingsPatch {
     const GuildServerProfileWrite* profile;
     // vanity_update: the code; empty clears it ("").
     Utf8View vanity_code;
+    // tag_update only (no field bits): the tag fields.
+    const GuildTagWrite* tag;
+    u64 rules_channel_id;
+    u64 public_updates_channel_id;
+    u64 safety_alerts_channel_id;
+    Utf8View description;
+    Utf8View preferred_locale;
+    u8 owner_configured_content_level;
+    Utf8View discovery_splash;
 };
 
 enum RolePatchField : u8 {
@@ -332,6 +394,10 @@ struct GuildAdminRequest {
     ConstSlice<GuildAdminPosition> positions;
     u32 delete_message_seconds;
     const GuildProfilePatch* profile;
+    // game_search: the query as typed (normalized by the target writer);
+    // games_list: the application ids.
+    Utf8View game_query;
+    ConstSlice<u64> game_ids;
 };
 
 enum class GuildAdminError : u8 {
@@ -476,12 +542,15 @@ struct GuildAdminProfileTrait {
     u64 emoji_id;
     u8 label_bytes;
     u8 emoji_name_bytes;
+    bool emoji_animated;
     char label[kGuildAdminProfileTraitBytes];
     char emoji_name[kGuildAdminProfileEmojiNameBytes];
 };
 struct GuildAdminProfile {
     u64 game_application_ids[kGuildAdminProfileGames];
     GuildAdminProfileTrait traits[kGuildAdminProfileTraits];
+    // Approximate counts (the preview card's "Online" and "Members").
+    u32 online_count, member_count;
     u16 name_bytes;
     u16 description_bytes;
     u8 icon_bytes;
@@ -501,6 +570,16 @@ struct GuildAdminProfile {
     char icon[kGuildAdminHashBytes];
     char custom_banner[kGuildAdminHashBytes];
     char brand_color[kGuildAdminBrandColorBytes];
+    // Server Tag: the tag (empty when null: no tag), the badge type (known
+    // once the key held a number), its two colours ("#rrggbb"; empty when
+    // null: the badge's own) and the badge image the CDN serves
+    // (clan-badges/{g}/{badge_hash}.png).
+    u8 tag_bytes, badge, badge_color_primary_bytes, badge_color_secondary_bytes, badge_hash_bytes;
+    bool badge_known;
+    char tag[kGuildAdminTagBytes];
+    char badge_color_primary[kGuildAdminBrandColorBytes];
+    char badge_color_secondary[kGuildAdminBrandColorBytes];
+    char badge_hash[kGuildAdminHashBytes];
 };
 GuildAdminResult guild_admin_decode_profile(const Utf8View& body, const Slice<u32>& scratch,
                                             GuildAdminProfile* output) noexcept;
@@ -524,6 +603,36 @@ GuildAdminResult guild_admin_decode_invites(Utf8View body, Slice<u32> scratch,
 GuildAdminResult guild_admin_decode_invite(const Utf8View& body, const Slice<u32>& scratch,
                                            GuildAdminInvite* output) noexcept;
 
-static_assert(sizeof(GuildAdminRequest) == 152);
+// A game of the Server Profile picker. icon and cover are a CDN asset hash
+// (cdn.discordapp.com/app-icons/{id}/{hash}.png), or an image URL when the
+// *_url flag is set (the newer game data's {"type":"url"} media).
+inline constexpr u32 kGuildAdminGameNameBytes = 128;
+inline constexpr u32 kGuildAdminGameImageBytes = 256;
+struct GuildAdminGame {
+    u64 id;
+    u16 icon_bytes, cover_bytes;
+    u8 name_bytes;
+    bool icon_url, cover_url;
+    char name[kGuildAdminGameNameBytes];
+    char icon[kGuildAdminGameImageBytes];
+    char cover[kGuildAdminGameImageBytes];
+};
+// GET /games?game_ids= (the documented game object: id, name, icon_hash and
+// cover_image_hash, else media.icon/media.cover) and GET /games/autocomplete
+// (id, name and icon). Items without an id are skipped; long text truncates.
+GuildAdminResult guild_admin_decode_games(Utf8View body, Slice<u32> scratch, Slice<GuildAdminGame> output) noexcept;
+// GET /guilds/{g}/top-games: {"top_games":[{"game_application_id",
+// "activity_level","activity_score"}]}.
+struct GuildAdminGameActivity {
+    u64 application_id;
+    u32 level, score;
+};
+GuildAdminResult guild_admin_decode_top_games(Utf8View body, Slice<u32> scratch,
+                                              Slice<GuildAdminGameActivity> output) noexcept;
+// The official picker's query: trimmed, ASCII-lowercased, '_' as ' ', at
+// most kGuildAdminGameQueryCodepoints. Returns the bytes written; 0 for none.
+u32 guild_admin_game_query(Utf8View typed, Slice<char> output) noexcept;
+
+static_assert(sizeof(GuildAdminRequest) == 184);
 
 } // namespace maicord

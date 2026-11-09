@@ -1,12 +1,18 @@
 #include "internal.hpp"
 #include "../../shell/toast.hpp"
 #include "maicord/core/time.hpp"
+#include "../../settings/streamer_mode.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
 // Each row: Copy Link for everyone, Revoke for managers.
 constexpr Utf8View kInviteActions[]{utf8_literal("Copy Link"), utf8_literal("Revoke")};
 constexpr u32 kInviteCopy = 0, kInviteRevoke = 1;
+// The code, or its mask while Streamer Mode hides invite links (Copy Link still copies it).
+Utf8View invite_code(const GuildAdminInvite& invite) noexcept {
+    return application_streamer_hide_invites() ? utf8_literal("\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2")
+                                               : Utf8View{invite.code, invite.code_bytes};
+}
 
 void project_invites(Bank& bank) noexcept {
     auto& p = *owner;
@@ -22,7 +28,7 @@ void project_invites(Bank& bank) noexcept {
     const u64 now = clock_unix_milliseconds();
     for (u32 i = 0; i < p.invite_count; ++i) {
         const auto& invite = p.invites[i];
-        const auto code = bank.add({invite.code, invite.code_bytes});
+        const auto code = bank.add(invite_code(invite));
         const u32 start = bank.used;
         if (const auto* channel = chat_state_store_find_channel(state(), invite.channel_id)) {
             bank.add(channel->type == 2 ? utf8_literal("") : utf8_literal("#"));
@@ -59,7 +65,7 @@ void confirm_revoke_invite(u32 index) noexcept {
     static char title[96];
     Bank bank{title, sizeof(title), 0};
     bank.add("Revoke invite ");
-    bank.add({owner->invites[index].code, owner->invites[index].code_bytes});
+    bank.add(invite_code(owner->invites[index]));
     bank.add("?");
     // A plain confirmation: revoking sends no reason.
     ApplicationTextFormRequest request{};

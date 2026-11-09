@@ -18,6 +18,11 @@ bool renderer_set_settings_modal_progress(D3D11Renderer*, float) noexcept {
 } // namespace maicord
 
 namespace maicord::app_detail {
+// Dialog exits are covered by the surface motion host test; these closes run at once.
+float application_motion_tick(UiMotionTransition*, const UiMotionScope&, float target, u64,
+                              const UiMotionStyle&) noexcept {
+    return target;
+}
 bool dismiss_popup() noexcept {
     popup_scene_close(&g_app.popup_scene);
     g_app.popup_owner_kind = PopupOwnerKind::none;

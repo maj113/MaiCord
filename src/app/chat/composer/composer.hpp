@@ -12,6 +12,10 @@ enum class PopupOwnerKind : u8;
 void set_popup_owner(PopupOwnerKind owner) noexcept;
 bool refresh_message_composer_ui() noexcept;
 bool refresh_active_autocomplete() noexcept;
+// The ':' emoji query whose sticker suggestions show (Show stickers in autocomplete results) is still the draft's.
+bool application_composer_emoji_query_active() noexcept;
+// Replaces that query with nothing (a sticker from its suggestions was sent).
+bool application_composer_emoji_query_clear() noexcept;
 bool focus_message_composer_control(MessageComposerControl control) noexcept;
 // Replaces the active draft with "/<name> " (a clicked command mention) and
 // focuses it through one undoable edit. True unless an internal failure.

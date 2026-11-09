@@ -5,6 +5,8 @@
 #include "maicord/ui/core/cursor.hpp"
 #include "../../support/settings_schema_validation.hpp"
 #include "settings/settings.hpp"
+#include "settings/streamer_mode.hpp"
+#include "maicord/platform/window/null.hpp"
 #include "account/friends.hpp"
 #include "../../support/plugin_ui_fixture_runtime.hpp"
 #include "chat/messages/interaction.hpp"
@@ -136,12 +138,11 @@ void test_native_projection_bank() noexcept {
     const u32 appearance_revision = appearance->revision;
     check(ui_page_registry_select(pages, kNotificationsPage).ok() && application_settings_synchronize() &&
               current->selected_page.page_id == 1 && notifications->controls.data == shared &&
-              notifications->controls.count == 11 && !appearance->controls.data &&
+              notifications->controls.count >= 19 && !appearance->controls.data &&
               !appearance->controls.count && appearance->revision > appearance_revision &&
               !plugins->controls.data && !plugins->controls.count &&
               utf8_equal(notifications->controls[0].label, utf8_literal("Overview")) &&
-              utf8_equal(notifications->controls[8].label, utf8_literal("Sound volume")) &&
-              notifications->controls[8].choices.count == 201 &&
+              labelled(*notifications, cid("notifications.volume"), utf8_literal("Sound volume")) &&
               observed.notifications_refreshes == refreshes + 1 &&
               ui_settings_scene_focus(current, {UiSettingsTargetKind::control, kNotificationsPage, cid("notifications.volume")}),
           "settings shared bank: external Notifications selection projects and refreshes before its first "
@@ -177,7 +178,7 @@ void test_native_projection_bank() noexcept {
           "settings shared bank: 1 to 2 replaces descriptors without polling inactive Notifications");
     const u32 accessibility_revision = accessibility->revision;
     check(ui_page_registry_select(pages, kNotificationsPage).ok() && application_settings_synchronize() &&
-              notifications->controls.data == shared && notifications->controls.count == 11 &&
+              notifications->controls.data == shared && notifications->controls.count >= 19 &&
               !accessibility->controls.data && !accessibility->controls.count &&
               accessibility->revision > accessibility_revision &&
               utf8_equal(notifications->controls[0].label, utf8_literal("Overview")) &&
@@ -1267,6 +1268,7 @@ void test_controller() noexcept {
     u32 swatch = 0;
     check(old_hex.valid && old_hex.save && !old_hex.save(old_hex.owner, utf8_literal("#12345")) &&
               !old_hex.save(old_hex.owner, utf8_literal("112233,445566")) && old_hex.check && old_hex.swatch &&
+              old_hex.picker && old_hex.suggested_colors.count == g_app.preferences.gradient.color_count &&
               !old_hex.check(old_hex.owner, utf8_literal("#12345"), &swatch) &&
               old_hex.check(old_hex.owner, utf8_literal("1a2"), &swatch) && swatch == 0x11AA22FFu &&
               client_preferences_equal(before_hex, g_app.preferences),
@@ -1432,12 +1434,91 @@ void test_controller() noexcept {
           "settings: enabling smooth scrolling restores animated scroll policy");
     check(observed.layout_updates == motion_layouts && observed.account_text_updates == motion_account_text,
           "settings: motion and scrolling-only changes never rebuild hidden shell or account text");
+    // Sync with computer setting: the computer's reduced motion applies while it is followed; choosing a value stops
+    // following it, and following it again takes the computer's choice.
+    // The switches above stopped following it: follow it again, as a fresh profile does, with the computer reducing
+    // motion, and project the page again so the switch shows what applies.
+    const auto saved_motion = g_app.surface_motion;
+    const auto motion_preferences = g_app.preferences;
+    g_app.preferences.reduced_motion_sync = true;
+    g_app.surface_motion.system_preference_cached = true;
+    g_app.surface_motion.client_area_animation = false;
+    application_settings_refresh_pages();
+    const bool followed = g_app.preferences.reduced_motion_sync && !g_app.preferences.reduced_motion &&
+                          application_reduced_motion();
+    check(followed && activate_control(kAccessibilityPage, cid("accessibility.reduced_motion")) &&
+              !g_app.preferences.reduced_motion && !g_app.preferences.reduced_motion_sync &&
+              !application_reduced_motion() && await_save() &&
+              activate_control(kAccessibilityPage, cid("accessibility.reduced_motion_sync")) &&
+              g_app.preferences.reduced_motion_sync && !g_app.preferences.reduced_motion && application_reduced_motion() &&
+              await_save(),
+          "settings: reduced motion follows the computer's setting until a choice is made, and again when synced");
+    // Back to the earlier choices, so the checks below start from the state they expect.
+    g_app.surface_motion = saved_motion;
+    g_app.preferences.reduced_motion = motion_preferences.reduced_motion;
+    g_app.preferences.reduced_motion_sync = motion_preferences.reduced_motion_sync;
+    g_app.renderer.reduced_motion = motion_preferences.reduced_motion;
+    application_settings_refresh_pages();
+    // Text size in chat and Saturation republish the theme; Role Colors and link underlines reach the timeline.
+    const u32 theme_refreshes = observed.theme_refreshes;
+    check(activate_control(kAccessibilityPage, cid("accessibility.chat_font_size"), key::right) &&
+              g_app.preferences.chat_font_size == 18 &&
+              activate_control(kAccessibilityPage, cid("accessibility.saturation"), key::left) &&
+              g_app.preferences.desaturation == 1 && observed.theme_refreshes == theme_refreshes + 2 && await_save(),
+          "settings: Text size in chat steps to the next mark and Saturation down a percent, each republishing the "
+          "theme");
+    check(activate_control(kAccessibilityPage, cid("accessibility.role_style")) &&
+              g_app.preferences.role_style == client_role_style_dot &&
+              g_app.message_scene.display.role_style == kMessageRoleColorsDot &&
+              activate_control(kAccessibilityPage, cid("accessibility.desaturate_user_colors")) &&
+              g_app.message_scene.display.user_color_desaturation == 1 &&
+              activate_control(kAccessibilityPage, cid("accessibility.underline_links")) &&
+              g_app.message_scene.display.underline_links && await_save(),
+          "settings: Role Colors, user colour saturation and link underlines reach the message display");
+    const u32 speeches = observed.speeches;
+    check(activate_control(kAccessibilityPage, cid("accessibility.speech_rate"), key::right) &&
+              g_app.preferences.speech_rate == 5 && client_preferences_speech_rate(5) == 2 &&
+              activate_control(kAccessibilityPage, cid("accessibility.speech_preview")) &&
+              observed.speeches == speeches + 1 && await_save(),
+          "settings: Text-to-Speech rate steps a quarter and Preview speaks at it");
+    check(application_zoom_shortcut({key::equals, shortcut_ctrl}) && g_app.preferences.zoom == 110 &&
+              application_zoom_shortcut({key::subtract, shortcut_ctrl}) &&
+              application_zoom_shortcut({key::subtract, shortcut_ctrl}) && g_app.preferences.zoom == 90 &&
+              application_zoom_shortcut({'0', shortcut_ctrl}) && g_app.preferences.zoom == 100 &&
+              !application_zoom_shortcut({'0', 0}) && await_save(),
+          "settings: Ctrl +/- step the Zoom level a mark and Ctrl+0 resets it");
+    // Streamer Mode: its options apply while it is on; hiding the window keeps it out of captures.
+    const auto saved_window = g_app.window;
+    g_app.window = reinterpret_cast<Window>(&g_app);
+    check(!application_streamer_mode_active() &&
+              activate_control(kAppearancePage, cid("appearance.streamer_hide_window")) &&
+              !null_window_probe().capture_excluded &&
+              activate_control(kAppearancePage, cid("appearance.streamer_mode")) && application_streamer_mode_active() &&
+              application_streamer_hide_invites() && application_streamer_disable_notifications() &&
+              application_streamer_disable_sounds() && null_window_probe().capture_excluded &&
+              activate_control(kAppearancePage, cid("appearance.streamer_mode")) && !application_streamer_mode_active() &&
+              !null_window_probe().capture_excluded && await_save(),
+          "settings: Streamer Mode turns its options on and keeps the window out of screen captures");
+    g_app.window = saved_window;
+    g_app.preferences.chat_font_size = 0;
+    g_app.preferences.desaturation = 0;
+    g_app.preferences.role_style = client_role_style_names;
+    g_app.preferences.desaturate_user_colors = g_app.preferences.underline_links = false;
+    g_app.preferences.speech_rate = kClientPreferencesSpeechRateDefault;
+    g_app.preferences.streamer_hide_window = false;
+    application_preferences_apply();
     const auto before_notifications = g_app.preferences;
     const u32 setup_before = observed.notifications_setups;
     const u32 refresh_before = observed.notifications_refreshes;
     check(ui_settings_scene_select(scene(), kNotificationsPage) && application_settings_synchronize() &&
               ui_page_registry_find(*application_settings_pages(), kNotificationsPage) &&
-              scene()->content.controls.count == 11 &&
+              // Overview, Notify me when... (synced, with its notice until the settings load), Sounds, Badges,
+              // Advanced.
+              scene()->content.controls.count >= 19 &&
+              ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kNotificationsPage,
+                                                   cid("notifications.friend_online")}) &&
+              ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kNotificationsPage,
+                                                   cid("notifications.mobile_delay")}) &&
               utf8_equal(scene()->content.title, utf8_literal("Notifications")) &&
               observed.notifications_refreshes == refresh_before + 1 &&
               observed.notifications_setups == setup_before &&
@@ -1939,7 +2020,8 @@ void test_settings_catalog() noexcept {
     u32 panel_pages = 0;
     for (u32 i = 0; i < navigation.count; ++i)
         if (navigation[i].kind == UiSettingsNavKind::page) {
-            ++panel_pages;
+            // A page nested under another (Devices under Account) is listed once, by its parent's entry.
+            panel_pages += navigation[i].subpage.page_id != 0 ? 2 : 1;
             pages = pages && navigation[i].page.owner_id == kSettingsNativeOwner &&
                     navigation[i].page.page_id >= 1 && navigation[i].page.page_id <= kSettingsPanelCount;
         }

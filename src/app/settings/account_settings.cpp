@@ -5,23 +5,102 @@
 #include "settings.hpp"
 #include "../shell/state.hpp"
 #include "../chat/composer/text_form.hpp"
+#include "../chat/composer/text_form_state.hpp"
 #include "user_settings.hpp"
+#include "streamer_mode.hpp"
+#include "../account/friends.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/platform/crypto/random.hpp"
 #include "maicord/protocol/auth/account_requirement.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 
 #include "maicord/protocol/user/account_settings.hpp"
 #include "../account/account_ui_runtime.hpp"
+#include "maicord/platform/desktop/webauthn.hpp"
+#include "maicord/platform/window/event.hpp"
+#if defined(MAICORD_TEST_HOOKS)
+#include "maicord/core/test_hook.hpp"
+#endif
 
 namespace maicord::app_detail {
 namespace {
-enum Load : u8 { load_self = 1, load_profile = 2, load_sessions = 4, load_tokens = 8 };
-enum class Mutation : u8 { none, session_logout, token_revoke, display_name, pronouns, bio };
-constexpr u32 kRows = kAccountSessionMaximum + kAccountAuthorizedAppMaximum;
-constexpr u64 kTwoFactorRequired = 60003;
+using Op = AccountSettingsOperation;
+enum Load : u16 {
+    load_self = 1,
+    load_profile = 2,
+    load_sessions = 4,
+    load_tokens = 8,
+    load_keys = 16,
+    load_connections = 32,
+    load_consents = 64,
+    load_harvest = 128,
+};
+constexpr u64 kMfaRequired = 60003;
+// A data request may be made once every 30 days (the official client's cooldown).
+constexpr u64 kHarvestCooldownMs = 30ull * 24 * 60 * 60 * 1000;
+// Messaging Permissions lists up to this many blocked and as many ignored accounts (then says how many more).
+constexpr u32 kRelationRows = 72;
+constexpr u32 kRelationFirstRow = kAccountSessionMaximum + kAccountAuthorizedAppMaximum + kAccountSecurityKeyMaximum;
+constexpr u32 kRows = kRelationFirstRow + 2 * (kRelationRows + 1);
+// Both lists and their more lines fit the bank with the page's own rows.
+static_assert(2 * (kRelationRows + 1) + 40 <= kAccountSettingsBankRows);
+// A password or code field's longest text (Discord passwords are at most 72 characters).
+constexpr u32 kSecretCodepoints = 72;
+constexpr u32 kSecretBytes = 4 * kSecretCodepoints;
+static_assert(kSecretCodepoints <= kApplicationTextFormSecretCodepoints);
+
+// The dialogs of the account flows, in the order a flow opens them. Each saves into a field and either opens the
+// next one or sends its request; the request's answer opens the one after it.
+enum class Form : u8 {
+    none,
+    display_name,
+    pronouns,
+    bio,
+    username,
+    username_password,
+    password_current,
+    password_new,
+    password_confirm,
+    email_send,
+    email_code,
+    email_new,
+    email_password,
+    phone_number,
+    phone_code,
+    phone_password,
+    phone_remove,
+    totp_setup,
+    totp_remove,
+    new_codes,
+    sms_enable,
+    sms_disable,
+    backup_password,
+    backup_key,
+    backup_list,
+    key_rename,
+    key_delete,
+    account_disable,
+    account_delete,
+    session_logout,
+    logout_all,
+    token_revoke,
+    connection_remove,
+    consent_off,
+    key_register,
+    key_pin,
+    key_name,
+    mfa_password,
+    mfa_code,
+};
+// The texts a flow keeps between its dialogs. Secrets are wiped when the flow ends.
+enum Field : u8 { field_text, field_password, field_extra, field_token, field_token2, field_mfa, field_count };
+// A security key's credential JSON is the longest text a flow keeps.
+constexpr u32 kFieldBytes = kAccountSettingsTextBytes;
+
 struct Row {
     char label[112], description[176];
     u8 label_bytes, description_bytes;
@@ -31,22 +110,67 @@ struct Bank {
     AccountProfileText profile;
     AccountSession sessions[kAccountSessionMaximum];
     AccountAuthorizedApp apps[kAccountAuthorizedAppMaximum];
+    AccountSecurityKey keys[kAccountSecurityKeyMaximum];
+    AccountConnection connections[kAccountConnectionMaximum];
+    AccountBackupCode codes[kAccountBackupCodeMaximum];
+    AccountConsents consents;
+    AccountHarvest harvest;
+    AccountMfaChallenge mfa;
+    // The authenticator setup's link as a QR code (it holds the key: cleared with the flow).
+    QrCodeLarge totp_qr;
     Row rows[kRows];
+    // The accounts the blocked and ignored rows stand for, as last listed.
+    u64 relation_ids[2][kRelationRows];
     char email_mask[128], phone_mask[32];
     u8 email_mask_bytes, phone_mask_bytes;
-    char text[kAccountSettingsBioBytes];
-    u16 text_bytes;
-    char hash[kAccountSettingsHashBytes];
-    u8 hash_bytes;
+    char fields[field_count][kFieldBytes];
+    u16 field_bytes[field_count];
+    // The open dialog's composed texts: its context and its read-only detail.
+    char context[768], detail[512];
+    u16 context_bytes, detail_bytes;
+    // The last answer's error message, or a flow's own status line.
+    char message[512];
+    u16 message_bytes;
+    char date[64];
+    u8 date_bytes;
+    char webauthn[4096];
+    u32 webauthn_bytes;
+    // Connected Apps' rows (connections and their display options, then authorized apps).
+    UiSettingsControl controls[kAccountSettingsBankRows];
+    UiSettingsControlPresentation presentation[kAccountSettingsBankRows];
     u32 structurals[8192];
 };
 struct Owner {
     Bank* bank;
-    u64 profile_id, self_user_id, request_id, lifetime, target_id;
-    u32 session_count, app_count;
-    u8 loaded, failed, wanted, inflight_load;
-    Mutation queued, inflight;
+    u64 profile_id, self_user_id, request_id, lifetime, form_serial, form_revision;
+    u32 session_count, app_count, key_count, connection_count, code_count;
+    u16 loaded, failed, wanted, inflight_load;
+    // The flow's request: queued, then in flight; the one MFA verification interrupted is retried with the token.
+    Op op, retry, inflight;
+    bool queued, action_inflight, verified;
+    // A security-key ceremony of Linux in flight (1 a verification, 2 a registration) and the token its wakes carry (its
+    // top bit tells them from the sign-in's); and what the next dialog opens saying.
+    u8 key_ceremony;
+    u32 key_serial;
+    u64 key_token;
+    Utf8View carry;
+    bool carry_error;
+    u64 op_id;
+    u8 op_option;
+    // The connection, security key or session a flow acts on.
+    u32 target;
+    Form form;
+    SettingsPanel flow_panel;
+    // The open dialog: whether closing it opens `form`, whether its request runs, and its status line.
+    bool form_shown, advance, busy, form_error, sms_sent;
+    Utf8View form_status;
+    // The verification's method as /mfa/finish names it ("totp", "password", …).
+    Utf8View mfa_type;
+    u8 harvest_types;
     bool reveal_email, reveal_phone, status_error;
+    // Messaging Permissions is open: its blocked and ignored lists follow the relationship store (its revision + 1).
+    bool social;
+    u32 relationship_revision;
     Utf8View status;
     SettingsPanel status_panel;
 };
@@ -57,14 +181,23 @@ u8 g_connection = 0xFF;
 bool online() noexcept {
     return application_account_settings_connection() == AccountSettingsConnection::ready;
 }
-bool mutation_pending() noexcept {
-    return g_owner.queued != Mutation::none || g_owner.inflight != Mutation::none;
+bool action_pending() noexcept {
+    return g_owner.queued || g_owner.action_inflight;
 }
 void release_bank() noexcept {
     owner_release(g_owner.bank);
 }
 Bank* bank() noexcept {
     return owner_ensure(g_owner.bank);
+}
+// A security-key ceremony of Linux (a worker thread) ends with the flow that started it: cancelled and joined.
+void end_ceremony() noexcept {
+#if !defined(_WIN32)
+    if (g_owner.key_ceremony) {
+        webauthn_ceremony_release();
+        g_owner.key_ceremony = 0;
+    }
+#endif
 }
 void scope() noexcept {
     const u64 profile = g_app.account.status.profile_id;
@@ -75,7 +208,8 @@ void scope() noexcept {
     release_bank();
     const u64 lifetime = g_owner.lifetime + 1;
     // The open page stays wanted: a page opened before READY loads once it lands.
-    const u8 wanted = g_owner.wanted;
+    const u16 wanted = g_owner.wanted;
+    end_ceremony();
     reset_value(&g_owner);
     g_owner.lifetime = lifetime;
     g_owner.wanted = wanted;
@@ -89,6 +223,28 @@ void set_status(SettingsPanel panel, const Utf8View& text, bool error) noexcept 
 }
 Utf8View view(const char* data, u32 bytes) noexcept {
     return {data, bytes};
+}
+Utf8View field(Field f) noexcept {
+    return g_owner.bank ? view(g_owner.bank->fields[f], g_owner.bank->field_bytes[f]) : Utf8View{};
+}
+bool set_field(Field f, Utf8View text) noexcept {
+    auto& b = *g_owner.bank;
+    if (text.bytes > kFieldBytes)
+        return false;
+    secure_clear_bytes(b.fields[f], b.field_bytes[f]);
+    copy_bytes(b.fields[f], text.data, text.bytes);
+    b.field_bytes[f] = static_cast<u16>(text.bytes);
+    return true;
+}
+// Appends to one of the bank's composed texts; the result is the whole text so far.
+template <u32 Capacity, typename Size> Utf8View append(char (&buffer)[Capacity], Size& used, Utf8View text) noexcept {
+    used = static_cast<Size>(used + utf8_copy_truncated(buffer + used, Capacity - used, text));
+    return {buffer, used};
+}
+Utf8View message(Utf8View text) noexcept {
+    auto& b = *g_owner.bank;
+    b.message_bytes = 0;
+    return append(b.message, b.message_bytes, text);
 }
 // Cached self user from READY until GET /users/@me answers.
 Utf8View self_name(bool username) noexcept {
@@ -105,145 +261,1039 @@ Utf8View self_name(bool username) noexcept {
     const auto* user = user_store_find(users, g_app.account_ui->chat_state.self_user_id);
     return user ? user_store_name(users, *user) : Utf8View{};
 }
-// The service's own pages are trusted hosts; they still leave through the link flow.
-bool open_browser(const Utf8View& url) noexcept {
-    return application_link_open(url, true);
+bool self_loaded() noexcept {
+    return g_owner.bank && (g_owner.loaded & load_self);
 }
-Utf8View failure_text(Mutation mutation) noexcept {
-    switch (mutation) {
-    case Mutation::session_logout:
-        return utf8_literal("Couldn't log out that device. Try again.");
-    case Mutation::token_revoke:
+bool totp_enabled() noexcept {
+    return self_loaded() && g_owner.bank->self.mfa_enabled &&
+           (g_owner.bank->self.authenticators & kAccountAuthenticatorTotp);
+}
+bool sms_enabled() noexcept {
+    return self_loaded() && (g_owner.bank->self.authenticators & kAccountAuthenticatorSms);
+}
+Utf8View failure_text(Op op) noexcept {
+    switch (op) {
+    case Op::session_logout:
+        return utf8_literal("Couldn't log out of that device. Try again.");
+    case Op::token_revoke:
         return utf8_literal("Couldn't deauthorize that app. Try again.");
+    case Op::connection_patch:
+    case Op::connection_delete:
+        return utf8_literal("Couldn't change that connection. Try again.");
+    case Op::consent_patch:
+    case Op::harvest_create:
+        return utf8_literal("Oops, something went wrong... Please try again.");
     default:
-        return utf8_literal("Couldn't save your profile. Try again.");
+        return utf8_literal("Something went wrong. Try again.");
     }
 }
-SettingsPanel mutation_panel(Mutation mutation) noexcept {
-    return mutation == Mutation::session_logout ? SettingsPanel::devices
-           : mutation == Mutation::token_revoke ? SettingsPanel::authorized_apps
-           : mutation == Mutation::display_name ? SettingsPanel::account
-                                                : SettingsPanel::profiles;
-}
 
-// Confirmation and edit dialogs. The key binds the dialog to this owner.
-TextFormOwnerKey form_key(u64 collection, u64 item) noexcept {
-    return {g_owner.lifetime, collection, item};
+// ---- Dialogs ----------------------------------------------------------------------------------------------------
+
+void clear_flow() noexcept {
+    if (auto* b = g_owner.bank) {
+        secure_clear_bytes(b->fields, sizeof(b->fields));
+        reset_value(&b->field_bytes);
+        secure_clear_bytes(&b->mfa, sizeof(b->mfa));
+        secure_clear_bytes(b->codes, sizeof(b->codes));
+        secure_clear_bytes(&b->totp_qr, sizeof(b->totp_qr));
+        secure_clear_bytes(b->webauthn, b->webauthn_bytes);
+        b->webauthn_bytes = 0;
+        b->detail_bytes = b->context_bytes = 0;
+    }
+    g_owner.code_count = 0;
+    g_owner.verified = g_owner.sms_sent = false;
+    end_ceremony();
+    g_owner.form = Form::none;
+}
+TextFormOwnerKey form_key() noexcept {
+    return {g_owner.lifetime, static_cast<u64>(g_owner.form), g_owner.form_serial};
 }
 bool form_valid(TextFormOwnerKey key) noexcept {
-    return key.scope == g_owner.lifetime && g_owner.bank && online();
+    return key.scope == g_owner.lifetime && key.collection == static_cast<u64>(g_owner.form) &&
+           key.item == g_owner.form_serial && g_owner.bank && online();
 }
+ApplicationTextFormProgress form_progress(TextFormOwnerKey) noexcept {
+    ApplicationTextFormProgress progress{};
+    progress.status = g_owner.form_status;
+    progress.revision = g_owner.form_revision;
+    progress.editable = progress.can_accept = !g_owner.busy;
+    // A security key's ceremony on Linux waits on the dialog: closing it cancels the ceremony.
+    progress.dismissible = !g_owner.busy || g_owner.key_ceremony != 0;
+    return progress;
+}
+void form_status(Utf8View text, bool error) noexcept {
+    g_owner.form_status = text;
+    g_owner.form_error = error;
+    ++g_owner.form_revision;
+}
+void open_form(Form form) noexcept;
+// Closing the dialog the user dismissed ends its flow (a request in flight still settles on the page); closing it to
+// advance opens the next one.
+void form_closed(TextFormOwnerKey) noexcept {
+    g_owner.form_shown = false;
+    if (g_owner.advance) {
+        g_owner.advance = false;
+        if (g_owner.form != Form::none) {
+            open_form(g_owner.form);
+            return;
+        }
+    }
+    if (!action_pending())
+        clear_flow();
+}
+// Opens `form` once the dialog showing closes, or now when none shows.
+void transition(Form form) noexcept {
+    g_owner.form = form;
+    g_owner.busy = false;
+    if (g_owner.form_shown) {
+        g_owner.advance = true;
+        application_text_form_close(false, false);
+    } else if (form != Form::none)
+        open_form(form);
+}
+// The end of a flow: its result on the page.
+void finish(Utf8View text, bool error) noexcept {
+    set_status(g_owner.flow_panel, text, error);
+    transition(Form::none);
+    clear_flow();
+    application_settings_refresh_pages();
+}
+void queue(Op op, u64 id = 0, u8 option = 0) noexcept {
+    g_owner.op = op;
+    g_owner.op_id = id;
+    g_owner.op_option = option;
+    g_owner.queued = true;
+    g_owner.busy = true;
+    form_status({}, false);
+    set_status(g_owner.flow_panel, {}, false);
+    application_settings_refresh_pages();
+}
+void begin(Form form, SettingsPanel panel) noexcept {
+    clear_flow();
+    g_owner.flow_panel = panel;
+    set_status(panel, {}, false);
+    transition(form);
+}
+
+// Appends the key to `detail` grouped in fours, lowercase, as the official client shows a TOTP key.
+Utf8View grouped_secret() noexcept {
+    auto& b = *g_owner.bank;
+    const Utf8View secret = field(field_extra);
+    u32 at = 0;
+    char grouped[48];
+    for (u32 i = 0; i < secret.bytes && at + 2 < sizeof(grouped); ++i) {
+        if (i && !(i % 4))
+            grouped[at++] = ' ';
+        const char c = secret.data[i];
+        grouped[at++] = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    }
+    return append(b.detail, b.detail_bytes, {grouped, at});
+}
+// 20 random bytes as the 32 base32 characters /users/@me/mfa/totp/enable takes.
+bool generate_secret() noexcept {
+    u8 random[20];
+    if (!secure_random_fill({random, sizeof(random)}).ok())
+        return false;
+    constexpr char kAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    char secret[32];
+    for (u32 i = 0; i < 32; ++i) {
+        const u32 bit = i * 5, byte = bit / 8, shift = bit % 8;
+        const u32 window = (static_cast<u32>(random[byte]) << 8) | (byte + 1 < 20 ? random[byte + 1] : 0);
+        secret[i] = kAlphabet[(window >> (11 - shift)) & 31];
+    }
+    const bool stored = set_field(field_extra, {secret, 32});
+    secure_clear_bytes(random, sizeof(random));
+    secure_clear_bytes(secret, sizeof(secret));
+    return stored;
+}
+// The official client's authenticator link: otpauth://totp/Discord:<email>?secret=<key>&issuer=Discord, the email
+// escaped as encodeURI escapes it. 0 when it does not fit `output`.
+u32 totp_uri(Utf8View email, Utf8View key, Slice<char> output) noexcept {
+    u32 at = 0;
+    bool fits = true;
+    const auto put = [&](Utf8View text) noexcept {
+        fits = fits && at + text.bytes <= output.count;
+        if (fits) {
+            copy_bytes(output.data + at, text.data, text.bytes);
+            at += text.bytes;
+        }
+    };
+    put(utf8_literal("otpauth://totp/Discord:"));
+    constexpr char kHex[] = "0123456789ABCDEF";
+    for (u32 i = 0; i < email.bytes; ++i) {
+        const u8 c = static_cast<u8>(email.data[i]);
+        const bool kept = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                          (c < 0x80 && c != '%' && c != '"' && c != '<' && c != '>' && c != '\\' && c != '^' &&
+                           c != '`' && c != '{' && c != '|' && c != '}' && c > ' ' && c != 0x7f);
+        const char escaped[3]{'%', kHex[c >> 4], kHex[c & 15]};
+        put(kept ? Utf8View{email.data + i, 1} : Utf8View{escaped, 3});
+    }
+    put(utf8_literal("?secret="));
+    put(key);
+    put(utf8_literal("&issuer=Discord"));
+    return fits ? at : 0;
+}
+// The backup codes as the official client lists them: "abcd-efgh", used ones marked.
+Utf8View codes_detail() noexcept {
+    auto& b = *g_owner.bank;
+    b.detail_bytes = 0;
+    for (u32 i = 0; i < g_owner.code_count; ++i) {
+        const auto& code = b.codes[i];
+        if (i)
+            append(b.detail, b.detail_bytes, utf8_literal("\n"));
+        const u32 half = code.code_bytes / 2;
+        append(b.detail, b.detail_bytes, view(code.code, half));
+        append(b.detail, b.detail_bytes, utf8_literal("-"));
+        append(b.detail, b.detail_bytes, view(code.code + half, code.code_bytes - half));
+        if (code.consumed)
+            append(b.detail, b.detail_bytes, utf8_literal(" (used)"));
+    }
+    return view(b.detail, b.detail_bytes);
+}
+
+// The MFA methods a verification offers, as its radio group shows them.
+constexpr Utf8View kMfaChoiceLabels[]{utf8_literal("Authenticator app"), utf8_literal("SMS code"),
+                                      utf8_literal("Backup code"), utf8_literal("Security key")};
+constexpr u8 kMfaChoiceMethods[]{kAccountAuthenticatorTotp, kAccountAuthenticatorSms, kAccountMfaMethodBackup,
+                                 kAccountAuthenticatorWebauthn};
+constexpr const char* kMfaChoiceTypes[]{"totp", "sms", "backup", "webauthn"};
+Utf8View g_mfa_choices[4];
+u8 g_mfa_choice_methods[4];
+u32 mfa_choices() noexcept {
+    u32 count = 0;
+    const u8 methods = g_owner.bank->mfa.methods;
+    for (u32 i = 0; i < 4; ++i) {
+        // A security key needs libfido2 on Linux: without it the choice is not offered.
+        if (kMfaChoiceMethods[i] == kAccountAuthenticatorWebauthn && !webauthn_platform_available())
+            continue;
+        if (methods & kMfaChoiceMethods[i]) {
+            g_mfa_choices[count] = kMfaChoiceLabels[i];
+            g_mfa_choice_methods[count++] = static_cast<u8>(i);
+        }
+    }
+    return count;
+}
+
+bool form_save(TextFormOwnerKey key, Utf8View text) noexcept;
+bool form_save_option(TextFormOwnerKey key, bool checked) noexcept;
+bool form_save_choices(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 select) noexcept;
+
+void open_form(Form form) noexcept {
+    auto& b = *g_owner.bank;
+    g_owner.form = form;
+    ++g_owner.form_serial;
+    g_owner.busy = false;
+    // What an earlier step left to say (a refused PIN, a failed ceremony) opens with the dialog.
+    form_status(g_owner.carry, g_owner.carry_error);
+    g_owner.carry = {};
+    ApplicationTextFormRequest r{};
+    r.owner = form_key();
+    r.valid = form_valid;
+    r.save = form_save;
+    r.progress = form_progress;
+    r.closed = form_closed;
+    r.single_line = true;
+    r.accept = utf8_literal("Done");
+    const auto editor = [&](Utf8View title, Utf8View context, Utf8View label, u32 codepoints) noexcept {
+        r.title = title;
+        r.context = context;
+        r.label = label;
+        r.maximum_codepoints = codepoints;
+        r.maximum_bytes = 4 * codepoints;
+    };
+    const auto secret = [&](Utf8View title, Utf8View context, Utf8View label) noexcept {
+        editor(title, context, label, kSecretCodepoints);
+        r.maximum_bytes = kSecretBytes;
+        r.secret = true;
+    };
+    const auto confirm = [&](Utf8View title, Utf8View context, Utf8View accept, bool danger) noexcept {
+        r.title = title;
+        r.context = context;
+        r.accept = accept;
+        r.confirmation_only = true;
+        r.danger = danger;
+        r.accept_focused = !danger;
+    };
+    const Utf8View password = utf8_literal("Current Password");
+    b.context_bytes = 0;
+    switch (form) {
+    case Form::display_name:
+        editor(utf8_literal("Change your display name"), {}, utf8_literal("Display name"), 32);
+        r.initial = view(b.self.global_name, b.self.global_name_bytes);
+        r.maximum_bytes = kAccountSettingsDisplayNameBytes;
+        r.accept = utf8_literal("Save");
+        break;
+    case Form::pronouns:
+    case Form::bio: {
+        const bool pronouns = form == Form::pronouns;
+        editor(pronouns ? utf8_literal("Change your pronouns") : utf8_literal("Edit about me"), {},
+               pronouns ? utf8_literal("Pronouns") : utf8_literal("About me"), pronouns ? 40u : 190u);
+        r.initial = pronouns ? view(b.profile.pronouns, b.profile.pronouns_bytes) : view(b.profile.bio, b.profile.bio_bytes);
+        r.maximum_bytes = pronouns ? kAccountSettingsPronounsBytes : kAccountSettingsBioBytes;
+        r.single_line = pronouns;
+        r.accept = utf8_literal("Save");
+        break;
+    }
+    case Form::username:
+        editor(utf8_literal("Change your username"), utf8_literal("Enter a new username and your existing password."),
+               utf8_literal("Username"), 32);
+        r.initial = view(b.self.username, b.self.username_bytes);
+        r.accept = utf8_literal("Next");
+        break;
+    case Form::username_password:
+        secret(utf8_literal("Change your username"), utf8_literal("Enter a new username and your existing password."),
+               password);
+        break;
+    case Form::password_current:
+        secret(utf8_literal("Change your password"), utf8_literal("Enter your current password and a new password."),
+               password);
+        r.accept = utf8_literal("Next");
+        break;
+    case Form::password_new:
+        secret(utf8_literal("Change your password"), utf8_literal("Enter your current password and a new password."),
+               utf8_literal("New Password"));
+        r.accept = utf8_literal("Next");
+        break;
+    case Form::password_confirm:
+        secret(utf8_literal("Change your password"), utf8_literal("Enter your current password and a new password."),
+               utf8_literal("Confirm New Password"));
+        break;
+    case Form::email_send:
+        append(b.context, b.context_bytes, utf8_literal("We'll need to verify your old email address, "));
+        append(b.context, b.context_bytes, view(b.email_mask, b.email_mask_bytes));
+        append(b.context, b.context_bytes, utf8_literal(", in order to change it."));
+        confirm(utf8_literal("Verify email address"), view(b.context, b.context_bytes),
+                utf8_literal("Send Verification Code"), false);
+        break;
+    case Form::email_code:
+        editor(utf8_literal("Enter code"), utf8_literal("Check your email: we sent you a verification code."),
+               utf8_literal("Verification code"), 16);
+        r.accept = utf8_literal("Next");
+        break;
+    case Form::email_new:
+        editor(utf8_literal("Enter an email address"), utf8_literal("Enter a new email address and your existing password."),
+               utf8_literal("Email"), 128);
+        r.accept = utf8_literal("Next");
+        break;
+    case Form::email_password:
+        secret(utf8_literal("Enter an email address"),
+               utf8_literal("Enter a new email address and your existing password."), password);
+        break;
+    case Form::phone_number:
+        editor(utf8_literal("Enter a phone number"), utf8_literal("You will receive a text message with a verification code."),
+               utf8_literal("Phone Number"), 24);
+        r.placeholder = utf8_literal("+1 555 123 4567");
+        r.accept = utf8_literal("Send");
+        break;
+    case Form::phone_code:
+        append(b.context, b.context_bytes, utf8_literal("We sent a code to "));
+        append(b.context, b.context_bytes, field(field_extra));
+        append(b.context, b.context_bytes, utf8_literal(". Enter it to verify your phone number."));
+        editor(utf8_literal("Verify your phone number"), view(b.context, b.context_bytes),
+               utf8_literal("Verification code"), 16);
+        r.accept = utf8_literal("Next");
+        break;
+    case Form::phone_password:
+        secret(utf8_literal("Verify your phone number"), utf8_literal("Enter your password to finish."), password);
+        break;
+    case Form::phone_remove:
+        secret(utf8_literal("Remove phone number"),
+               utf8_literal("Enter your password to remove the phone number from your account."), password);
+        r.accept = utf8_literal("Remove");
+        r.danger = true;
+        break;
+    case Form::totp_setup: {
+        // As the official client: the steps, the QR of the otpauth:// link (Discord:<email>, the key, issuer Discord),
+        // the key for manual entry under it, then the code field.
+        append(b.context, b.context_bytes,
+               utf8_literal("Make your account safer in 3 easy steps:\n1. Download an authenticator app.\n2. Scan the "
+                            "QR code with it, or enter the key under it.\n3. Enter the 6-digit code it shows."));
+        b.detail_bytes = 0;
+        append(b.detail, b.detail_bytes, utf8_literal("2FA Key (Manual entry)\n"));
+        r.qr_caption = grouped_secret();
+        char uri[kQrCodeLargeMaximumPayloadBytes + 1];
+        const u32 uri_bytes = totp_uri(view(b.self.email, b.self.email_bytes), field(field_extra), {uri, sizeof(uri)});
+        if (uri_bytes && qr_code_encode_m(ConstSlice<u8>{reinterpret_cast<const u8*>(uri), uri_bytes}, 1, &b.totp_qr))
+            r.qr = qr_code_modules(b.totp_qr);
+        secure_clear_bytes(uri, sizeof(uri));
+        editor(utf8_literal("Enable Authenticator App"), view(b.context, b.context_bytes),
+               utf8_literal("6-digit authentication code"), 10);
+        r.accept = utf8_literal("Activate");
+        break;
+    }
+    case Form::totp_remove:
+        confirm(utf8_literal("Remove Authenticator App"),
+                utf8_literal("Are you sure you want to remove your Authenticator App?"), utf8_literal("Remove"), true);
+        break;
+    case Form::new_codes:
+    case Form::backup_list:
+        confirm(utf8_literal("Backup Codes"),
+                utf8_literal("These codes will allow you to enter your account if you lose your authenticator app. "
+                             "Each code can only be used once."),
+                utf8_literal("Done"), false);
+        r.label = utf8_literal("Your backup codes");
+        r.detail = codes_detail();
+        r.cancel = utf8_literal("Close");
+        if (form == Form::backup_list && field(field_token2).bytes) {
+            r.option = utf8_literal("Generate New Backup Codes");
+            r.save_option = form_save_option;
+        }
+        break;
+    case Form::sms_enable:
+        confirm(utf8_literal("Enable SMS Authentication"),
+                utf8_literal("Your phone number becomes a backup way to sign in: Discord can text it a code."),
+                utf8_literal("Enable"), false);
+        break;
+    case Form::sms_disable:
+        secret(utf8_literal("Remove SMS Authentication"),
+               utf8_literal("Enter your password to stop using your phone for authentication."), password);
+        r.accept = utf8_literal("Remove");
+        r.danger = true;
+        break;
+    case Form::backup_password:
+        secret(utf8_literal("Show Backup Codes"),
+               utf8_literal("Enter your password. Discord emails you a verification key to view your backup codes."),
+               password);
+        r.accept = utf8_literal("Send Key");
+        break;
+    case Form::backup_key:
+        editor(utf8_literal("Show Backup Codes"),
+               utf8_literal("Check your email: enter the verification key Discord sent you."),
+               utf8_literal("Verification key"), 32);
+        r.accept = utf8_literal("Show Codes");
+        break;
+    case Form::key_rename: {
+        const auto& key = b.keys[g_owner.target];
+        editor(utf8_literal("Rename security key"), {}, utf8_literal("Name"), 32);
+        r.initial = view(key.name, key.name_bytes);
+        r.accept = utf8_literal("Save");
+        break;
+    }
+    case Form::key_register:
+        confirm(utf8_literal("Register a Security Key"),
+                utf8_literal("When you are ready to authenticate, press the button below."),
+                utf8_literal("Let\xE2\x80\x99s go"), false);
+        break;
+    case Form::key_pin:
+        secret(utf8_literal("Security Key PIN"), utf8_literal("Enter the PIN of your security key."),
+               utf8_literal("PIN"));
+        r.accept = utf8_literal("Confirm");
+        break;
+    case Form::key_name:
+        editor(utf8_literal("Name your security key"), utf8_literal("Choose a name for your new key."),
+               utf8_literal("Name"), 32);
+        r.initial = utf8_literal("My Key");
+        r.accept = utf8_literal("Save");
+        break;
+    case Form::key_delete:
+        confirm(utf8_literal("Remove security key"),
+                utf8_literal("You won't be able to use this key to sign in anymore."), utf8_literal("Remove"), true);
+        break;
+    case Form::account_disable:
+    case Form::account_delete: {
+        const bool disable = form == Form::account_disable;
+        secret(disable ? utf8_literal("Disable Account") : utf8_literal("Delete Account"),
+               disable ? utf8_literal("Are you sure that you want to disable your account? This will immediately log "
+                                      "you out and make your account inaccessible to anyone.")
+                       : utf8_literal("Are you sure that you want to delete your account? This will immediately log "
+                                      "you out of your account and you will not be able to log in again."),
+               utf8_literal("Password"));
+        r.accept = disable ? utf8_literal("Disable Account") : utf8_literal("Delete Account");
+        r.danger = true;
+        break;
+    }
+    case Form::session_logout:
+        confirm(utf8_literal("Log out this device?"), utf8_literal("It will need to sign in again to use your account."),
+                utf8_literal("Log Out"), true);
+        break;
+    case Form::logout_all:
+        confirm(utf8_literal("Log out of all known devices?"),
+                utf8_literal("You'll have to log back in on all logged out devices."),
+                utf8_literal("Log Out All Known Devices"), true);
+        break;
+    case Form::token_revoke: {
+        const auto& app = b.apps[g_owner.target];
+        append(b.context, b.context_bytes, utf8_literal("Deauthorize "));
+        append(b.context, b.context_bytes, app.name_bytes ? view(app.name, app.name_bytes) : utf8_literal("this app"));
+        append(b.context, b.context_bytes, utf8_literal("?"));
+        confirm(view(b.context, b.context_bytes),
+                utf8_literal("It loses access to your account until you authorize it again."),
+                utf8_literal("Deauthorize"), true);
+        break;
+    }
+    case Form::connection_remove: {
+        const auto& connection = b.connections[g_owner.target];
+        append(b.context, b.context_bytes, utf8_literal("Disconnect "));
+        append(b.context, b.context_bytes, view(connection.name, connection.name_bytes));
+        append(b.context, b.context_bytes, utf8_literal("?"));
+        confirm(view(b.context, b.context_bytes),
+                utf8_literal("Disconnecting removes this account from your profile and leaves any server you joined "
+                             "through it."),
+                utf8_literal("Disconnect"), true);
+        break;
+    }
+    case Form::consent_off:
+        confirm(utf8_literal("Turn off use data to improve Discord?"),
+                utf8_literal("If you turn this off, we'll stop processing new data for analytics. You will lose access "
+                             "to new experimental features and usage-based improvements to features like voice chat."),
+                utf8_literal("Yes, I'm sure"), true);
+        r.cancel = utf8_literal("No, take me back!");
+        break;
+    case Form::mfa_password:
+        secret(utf8_literal("Confirm Password"), utf8_literal("For your security, confirm your password to continue."),
+               utf8_literal("Password"));
+        r.accept = utf8_literal("Confirm");
+        break;
+    case Form::mfa_code: {
+        const u32 choices = mfa_choices();
+        editor(utf8_literal("Multi-Factor Authentication"),
+               utf8_literal("Confirm it's you: choose a method and enter its code."), {}, 16);
+        r.choices_label = utf8_literal("Verify with");
+        r.choices = {g_mfa_choices, choices};
+        r.save = nullptr;
+        r.save_choices = form_save_choices;
+        r.placeholder = utf8_literal("Code");
+        r.accept = utf8_literal("Confirm");
+        break;
+    }
+    case Form::none:
+        return;
+    }
+    g_owner.form_shown = application_text_form_open(r);
+    if (!g_owner.form_shown) {
+        log_u64(LogLevel::warning, "account_settings", "form_open_failed", static_cast<u64>(form));
+        set_status(g_owner.flow_panel, utf8_literal("Couldn't open that dialog. Try again."), true);
+        clear_flow();
+        application_settings_refresh_pages();
+    }
+}
+
+// Digits, letters and nothing else: a code typed with spaces or dashes.
+Utf8View compact_code(Utf8View text, char (&output)[64]) noexcept {
+    u32 at = 0;
+    for (u32 i = 0; i < text.bytes && at < sizeof(output); ++i) {
+        const char c = text.data[i];
+        if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+            output[at++] = c;
+    }
+    return {output, at};
+}
+// An E.164 number: '+' and 8 to 15 digits, typed with any spacing.
+bool phone_number(Utf8View text, char (&output)[24], u32* bytes) noexcept {
+    u32 at = 0;
+    bool plus = false;
+    for (u32 i = 0; i < text.bytes; ++i) {
+        const char c = text.data[i];
+        if (c == '+' && !at && !plus) {
+            plus = true;
+            output[at++] = c;
+        } else if (c >= '0' && c <= '9') {
+            if (at + 1 >= sizeof(output))
+                return false;
+            output[at++] = c;
+        } else if (c != ' ' && c != '-' && c != '(' && c != ')' && c != '.')
+            return false;
+    }
+    *bytes = at;
+    return plus && at >= 9 && at <= 16;
+}
+bool reject(Utf8View text) noexcept {
+    form_status(text, true);
+    return false;
+}
+
+// What went wrong with a security key, as the dialog says it.
+enum class KeyFailure : u8 {
+    generic,
+    unavailable,
+    cancelled,
+    timed_out,
+    excluded,
+    unsupported,
+    no_device,
+    cannot_open,
+    pin_blocked,
+    pin_not_set,
+    key_full,
+};
+Utf8View key_failure_text(KeyFailure failure, bool registering) noexcept {
+    switch (failure) {
+    case KeyFailure::unavailable:
+        return utf8_literal("Security keys need libfido2, which isn't installed.");
+    case KeyFailure::cancelled:
+        return registering ? utf8_literal("Registration was cancelled.") : utf8_literal("Verification was cancelled.");
+    case KeyFailure::timed_out:
+        return utf8_literal("Your security key wasn't touched in time. Try again.");
+    case KeyFailure::excluded:
+        return utf8_literal("This security key is already registered to your account.");
+    case KeyFailure::unsupported:
+        return utf8_literal("This security key isn't supported.");
+    case KeyFailure::no_device:
+        return utf8_literal("No security key was found. Plug it in and try again.");
+    case KeyFailure::cannot_open:
+        return utf8_literal("Couldn't reach your security key. Check that you may access it.");
+    case KeyFailure::pin_blocked:
+        return utf8_literal("Your security key's PIN is blocked.");
+    case KeyFailure::pin_not_set:
+        return utf8_literal("Set a PIN on your security key first.");
+    case KeyFailure::key_full:
+        return utf8_literal("Your security key has no room for another credential.");
+    default:
+        return registering ? utf8_literal("Couldn't register your security key. Try again.")
+                           : utf8_literal("Your security key wasn't verified. Try again or choose another method.");
+    }
+}
+
+#if defined(_WIN32)
+// Registers a key through Windows (the OS prompt the loop waits in): the credential JSON for the second request goes
+// into field_token2.
+bool register_key_windows(KeyFailure* failure) noexcept {
+    auto& b = *g_owner.bank;
+    *failure = KeyFailure::generic;
+    auto* creation = static_cast<WebAuthnMfaCreationOptions*>(pages_allocate(sizeof(WebAuthnMfaCreationOptions)));
+    if (!creation)
+        return false;
+    SecureBuffer credential{};
+    bool ok = webauthn_mfa_decode_creation(view(b.webauthn, b.webauthn_bytes), {b.structurals, 8192}, 16, creation).ok() &&
+              secure_buffer_initialize(&credential, kAccountSettingsTextBytes).ok();
+    if (ok) {
+        const WindowsWebAuthnResult made = windows_webauthn_register(g_app.window, *creation, &credential);
+        ok = made.ok() && set_field(field_token2, {reinterpret_cast<const char*>(credential.data), credential.bytes});
+        switch (made.error) {
+        case WindowsWebAuthnError::cancelled:
+            *failure = KeyFailure::cancelled;
+            break;
+        case WindowsWebAuthnError::timed_out:
+            *failure = KeyFailure::timed_out;
+            break;
+        case WindowsWebAuthnError::excluded:
+            *failure = KeyFailure::excluded;
+            break;
+        case WindowsWebAuthnError::unsupported:
+            *failure = KeyFailure::unsupported;
+            break;
+        default:
+            break;
+        }
+    }
+    secure_buffer_release(&credential);
+    secure_clear_bytes(creation, sizeof(*creation));
+    pages_release(creation);
+    return ok;
+}
+#else
+// Starts the Linux ceremony (platform/desktop/webauthn.hpp) for the challenge the flow holds: a registration (true) or
+// a verification (false). Its wakes carry a token with the top bit set, which application_account_settings_webauthn_progress
+// answers.
+bool start_ceremony(bool registering) noexcept {
+    auto& b = *g_owner.bank;
+    auto* options = static_cast<WebAuthnMfaCreationOptions*>(pages_allocate(sizeof(WebAuthnMfaCreationOptions)));
+    if (!options)
+        return false;
+    const Waker waker{window_surface_native(g_app.window), wake_begin_webauthn};
+    const u64 token = (u64{1} << 63) | ++g_owner.key_serial;
+    const Utf8View challenge = view(b.webauthn, b.webauthn_bytes);
+    bool started = false;
+    if (registering) {
+        started = webauthn_mfa_decode_creation(challenge, {b.structurals, 8192}, 16, options).ok() &&
+                  webauthn_ceremony_start_creation(*options, waker, token);
+    } else {
+        // A verification's options are the request's: the storage holds them as the creation's first member.
+        WebAuthnMfaRequestOptions* request = &options->request;
+        started = webauthn_mfa_decode_request(challenge, {b.structurals, 8192}, 16, request).ok() &&
+                  webauthn_ceremony_start(*request, waker, token);
+    }
+    secure_clear_bytes(options, sizeof(*options));
+    pages_release(options);
+    if (started) {
+        g_owner.key_ceremony = registering ? 2 : 1;
+        g_owner.key_token = token;
+    }
+    return started;
+}
+
+KeyFailure failure_of(WebAuthnCeremonyError error) noexcept {
+    switch (error) {
+    case WebAuthnCeremonyError::unavailable:
+        return KeyFailure::unavailable;
+    case WebAuthnCeremonyError::cancelled:
+        return KeyFailure::cancelled;
+    case WebAuthnCeremonyError::timed_out:
+        return KeyFailure::timed_out;
+    case WebAuthnCeremonyError::excluded:
+        return KeyFailure::excluded;
+    case WebAuthnCeremonyError::unsupported:
+        return KeyFailure::unsupported;
+    case WebAuthnCeremonyError::no_device:
+        return KeyFailure::no_device;
+    case WebAuthnCeremonyError::cannot_open:
+        return KeyFailure::cannot_open;
+    case WebAuthnCeremonyError::pin_blocked:
+        return KeyFailure::pin_blocked;
+    case WebAuthnCeremonyError::pin_not_set:
+        return KeyFailure::pin_not_set;
+    case WebAuthnCeremonyError::key_full:
+        return KeyFailure::key_full;
+    default:
+        return KeyFailure::generic;
+    }
+}
+
+// The key wants its PIN: the PIN dialog, saying so when the last one was refused.
+void ceremony_pin() noexcept {
+    auto& b = *g_owner.bank;
+    const WebAuthnPinPrompt prompt = webauthn_ceremony_pin_prompt();
+    Utf8View status{};
+    if (prompt.wrong) {
+        message(utf8_literal("Wrong PIN."));
+        if (prompt.retries >= 0) {
+            char count[16];
+            append(b.message, b.message_bytes, utf8_literal(" "));
+            append(b.message, b.message_bytes, {count, decimal_write(count, static_cast<u64>(prompt.retries))});
+            append(b.message, b.message_bytes, prompt.retries == 1 ? utf8_literal(" attempt left.")
+                                                                   : utf8_literal(" attempts left."));
+        }
+        status = view(b.message, b.message_bytes);
+    }
+    if (g_owner.form == Form::key_pin && g_owner.form_shown) {
+        g_owner.busy = false;
+        form_status(status, prompt.wrong);
+        return;
+    }
+    g_owner.carry = status;
+    g_owner.carry_error = prompt.wrong;
+    transition(Form::key_pin);
+}
+
+// The ceremony ended: its credential goes on with the flow (the name to give a new key, or the verification's
+// request); a failure is told on the dialog the flow came from.
+void ceremony_done() noexcept {
+    const bool registering = g_owner.key_ceremony == 2;
+    SecureBuffer credential{};
+    WebAuthnCeremonyResult ended{WebAuthnCeremonyError::failed, 0};
+    bool stored = false;
+    if (secure_buffer_initialize(&credential, kAccountSettingsTextBytes).ok()) {
+        ended = webauthn_ceremony_finish(&credential);
+        stored = ended.ok() &&
+                 set_field(registering ? field_token2 : field_mfa,
+                           {reinterpret_cast<const char*>(credential.data), credential.bytes});
+    } else {
+        webauthn_ceremony_release();
+    }
+    secure_buffer_release(&credential);
+    g_owner.key_ceremony = 0;
+    if (stored) {
+        if (registering)
+            transition(Form::key_name);
+        else
+            queue(Op::mfa_finish);
+        return;
+    }
+    const Utf8View text = key_failure_text(ended.ok() ? KeyFailure::generic : failure_of(ended.error), registering);
+    const Form back = registering ? Form::key_register : Form::mfa_code;
+    if (g_owner.form == back && g_owner.form_shown) {
+        g_owner.busy = false;
+        form_status(text, true);
+        return;
+    }
+    g_owner.carry = text;
+    g_owner.carry_error = true;
+    transition(back);
+}
+#endif
+
 bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
-    if (!form_valid(key) || mutation_pending())
+    if (!form_valid(key) || g_owner.busy || action_pending())
         return false;
     auto& b = *g_owner.bank;
-    const auto mutation = static_cast<Mutation>(key.collection);
-    switch (mutation) {
-    case Mutation::session_logout: {
-        if (key.item >= g_owner.session_count)
+    char code[64];
+    switch (g_owner.form) {
+    case Form::display_name:
+    case Form::pronouns:
+    case Form::bio:
+        if (!set_field(field_text, text))
             return false;
-        const auto& session = b.sessions[key.item];
-        copy_bytes(b.hash, session.id_hash, session.id_hash_bytes);
-        b.hash_bytes = session.id_hash_bytes;
-        break;
+        queue(g_owner.form == Form::display_name ? Op::display_name : Op::profile_patch, 0,
+              g_owner.form == Form::bio ? 1 : 0);
+        return false;
+    case Form::username:
+        if (text.bytes < 2)
+            return reject(utf8_literal("Must be between 2 and 32 in length."));
+        set_field(field_text, text);
+        g_owner.form = Form::username_password;
+        g_owner.advance = true;
+        return true;
+    case Form::username_password:
+        set_field(field_password, text);
+        queue(Op::username);
+        return false;
+    case Form::password_current:
+        set_field(field_password, text);
+        g_owner.form = Form::password_new;
+        g_owner.advance = true;
+        return true;
+    case Form::password_new:
+        if (utf8_validate(text).codepoints < 8)
+            return reject(utf8_literal("Must be between 8 and 72 in length."));
+        set_field(field_extra, text);
+        g_owner.form = Form::password_confirm;
+        g_owner.advance = true;
+        return true;
+    case Form::password_confirm:
+        if (!utf8_equal(text, field(field_extra)))
+            return reject(utf8_literal("Passwords do not match!"));
+        queue(Op::password);
+        return false;
+    case Form::email_code:
+    case Form::phone_code:
+    case Form::backup_key: {
+        const Utf8View compact = compact_code(text, code);
+        if (!compact.bytes)
+            return reject(utf8_literal("Enter the code."));
+        set_field(field_text, compact);
+        secure_clear_bytes(code, sizeof(code));
+        queue(g_owner.form == Form::email_code   ? Op::email_verify_code
+              : g_owner.form == Form::phone_code ? Op::phone_verify
+                                                 : Op::backup_codes);
+        return false;
     }
-    case Mutation::token_revoke:
-        if (!key.item)
-            return false;
-        g_owner.target_id = key.item;
-        break;
-    case Mutation::display_name:
-    case Mutation::pronouns:
-    case Mutation::bio: {
-        const u32 limit = mutation == Mutation::display_name ? kAccountSettingsDisplayNameBytes
-                          : mutation == Mutation::pronouns   ? kAccountSettingsPronounsBytes
-                                                             : kAccountSettingsBioBytes;
-        if (text.bytes > limit)
-            return false;
-        copy_bytes(b.text, text.data, text.bytes);
-        b.text_bytes = static_cast<u16>(text.bytes);
-        break;
+    case Form::email_new: {
+        u32 at = 0;
+        for (u32 i = 0; i < text.bytes; ++i)
+            at += text.data[i] == '@';
+        if (at != 1 || text.bytes < 3)
+            return reject(utf8_literal("Not a well formed email address."));
+        set_field(field_extra, text);
+        g_owner.form = Form::email_password;
+        g_owner.advance = true;
+        return true;
     }
+    case Form::email_password:
+        set_field(field_password, text);
+        queue(Op::email);
+        return false;
+    case Form::phone_number: {
+        char number[24];
+        u32 bytes = 0;
+        if (!phone_number(text, number, &bytes))
+            return reject(utf8_literal("Enter the number with its country code, starting with +."));
+        set_field(field_extra, {number, bytes});
+        queue(Op::phone_code);
+        return false;
+    }
+    case Form::phone_password:
+    case Form::phone_remove:
+    case Form::sms_disable:
+    case Form::backup_password:
+    case Form::account_disable:
+    case Form::account_delete:
+        if (!text.bytes)
+            return reject(utf8_literal("Enter your password."));
+        set_field(field_password, text);
+        queue(g_owner.form == Form::phone_password    ? Op::phone_add
+              : g_owner.form == Form::phone_remove    ? Op::phone_remove
+              : g_owner.form == Form::sms_disable     ? Op::sms_disable
+              : g_owner.form == Form::backup_password ? Op::backup_challenge
+              : g_owner.form == Form::account_disable ? Op::account_disable
+                                                      : Op::account_delete);
+        return false;
+    case Form::totp_setup: {
+        const Utf8View compact = compact_code(text, code);
+        if (compact.bytes != 6)
+            return reject(utf8_literal("Invalid two-factor code"));
+        set_field(field_text, compact);
+        secure_clear_bytes(code, sizeof(code));
+        queue(Op::totp_enable);
+        return false;
+    }
+    case Form::totp_remove:
+        queue(Op::totp_disable);
+        return false;
+    case Form::sms_enable:
+        queue(Op::sms_enable);
+        return false;
+    case Form::new_codes:
+    case Form::backup_list:
+        g_owner.form = Form::none;
+        return true;
+    case Form::key_rename:
+        if (!text.bytes)
+            return reject(utf8_literal("Enter a name."));
+        set_field(field_text, text);
+        queue(Op::security_key_rename, b.keys[g_owner.target].id);
+        return false;
+    case Form::key_register: {
+        // Starts the key's ceremony: one OS prompt the loop waits in on Windows, a worker the dialog waits on elsewhere.
+#if defined(_WIN32)
+        KeyFailure failure{};
+        if (!register_key_windows(&failure))
+            return reject(key_failure_text(failure, true));
+        g_owner.form = Form::key_name;
+        g_owner.advance = true;
+        return true;
+#else
+        if (!start_ceremony(true))
+            return reject(key_failure_text(webauthn_platform_available() ? KeyFailure::generic : KeyFailure::unavailable,
+                                           true));
+        g_owner.busy = true;
+        form_status(utf8_literal("Interact with your security key. You may need to tap your device or confirm a prompt."),
+                    false);
+        return false;
+#endif
+    }
+    case Form::key_pin:
+#if !defined(_WIN32)
+        if (!webauthn_ceremony_submit_pin({reinterpret_cast<const u8*>(text.data), text.bytes}))
+            return reject(utf8_literal("Enter your security key's PIN: 4 to 63 characters."));
+        g_owner.busy = true;
+        form_status(utf8_literal("Interact with your security key."), false);
+#endif
+        return false;
+    case Form::key_name:
+        if (!text.bytes)
+            return reject(utf8_literal("Enter a name."));
+        set_field(field_text, text);
+        queue(Op::security_key_create);
+        return false;
+    case Form::key_delete:
+        queue(Op::security_key_delete, b.keys[g_owner.target].id);
+        return false;
+    case Form::session_logout:
+    case Form::logout_all:
+        queue(Op::session_logout);
+        return false;
+    case Form::token_revoke:
+        queue(Op::token_revoke, b.apps[g_owner.target].token_id);
+        return false;
+    case Form::connection_remove:
+        queue(Op::connection_delete);
+        return false;
+    case Form::consent_off:
+        queue(Op::consent_patch, 0, static_cast<u8>(AccountConsent::usage_statistics));
+        return false;
+    case Form::mfa_password:
+        if (!text.bytes)
+            return reject(utf8_literal("Enter your password."));
+        set_field(field_mfa, text);
+        g_owner.mfa_type = utf8_literal("password");
+        queue(Op::mfa_finish);
+        return false;
     default:
         return false;
     }
-    application_text_form_close(false, false);
-    g_owner.queued = mutation;
-    set_status(mutation_panel(mutation), {}, false);
-    application_settings_refresh_pages();
-    return true;
 }
-void open_confirmation(Mutation mutation, u64 item, Utf8View title, Utf8View context, Utf8View accept) noexcept {
-    ApplicationTextFormRequest request{};
-    request.title = title;
-    request.context = context;
-    request.accept = accept;
-    request.owner = form_key(static_cast<u64>(mutation), item);
-    request.valid = form_valid;
-    request.save = form_save;
-    request.confirmation_only = true;
-    application_text_form_open(request);
+// The backup codes dialog's "Generate New Backup Codes": the regenerate nonce with the emailed key.
+bool form_save_option(TextFormOwnerKey key, bool checked) noexcept {
+    if (!form_valid(key) || g_owner.busy || action_pending())
+        return false;
+    if (!checked) {
+        g_owner.form = Form::none;
+        return true;
+    }
+    queue(Op::backup_codes, 0, 1);
+    return false;
 }
-void open_editor(Mutation mutation, Utf8View title, Utf8View label, Utf8View initial, u32 codepoints, u32 bytes,
-                 bool single_line) noexcept {
-    ApplicationTextFormRequest request{};
-    request.title = title;
-    request.label = label;
-    request.accept = utf8_literal("Save");
-    request.initial = initial;
-    request.owner = form_key(static_cast<u64>(mutation), 0);
-    request.valid = form_valid;
-    request.save = form_save;
-    request.maximum_codepoints = codepoints;
-    request.maximum_bytes = bytes;
-    request.single_line = single_line;
-    application_text_form_open(request);
+#if defined(_WIN32)
+// Runs the security-key ceremony for the verification's WebAuthn challenge (the OS prompt the loop waits in) and keeps
+// the credential JSON for /mfa/finish.
+bool security_key_assertion() noexcept {
+    auto& b = *g_owner.bank;
+    auto* request = static_cast<WebAuthnMfaRequestOptions*>(pages_allocate(sizeof(WebAuthnMfaRequestOptions)));
+    if (!request)
+        return false;
+    bool ok = webauthn_mfa_decode_request(view(b.webauthn, b.webauthn_bytes), {b.structurals, 8192}, 16, request).ok();
+    SecureBuffer credential{};
+    if (ok) {
+        ok = secure_buffer_initialize(&credential, kAccountSettingsTextBytes).ok() &&
+             windows_webauthn_authenticate(g_app.window, *request, &credential).ok() &&
+             set_field(field_mfa, {reinterpret_cast<const char*>(credential.data), credential.bytes});
+    }
+    secure_buffer_release(&credential);
+    secure_clear_bytes(request, sizeof(*request));
+    pages_release(request);
+    return ok;
+}
+#endif
+bool form_save_choices(TextFormOwnerKey key, Utf8View text, bool, u32 choice, u32) noexcept {
+    if (!form_valid(key) || g_owner.busy || action_pending() || g_owner.form != Form::mfa_code)
+        return false;
+    if (choice >= 4 || !g_mfa_choices[choice].bytes)
+        return reject(utf8_literal("Choose how to verify."));
+    const u32 method = g_mfa_choice_methods[choice];
+    g_owner.mfa_type = view(kMfaChoiceTypes[method], c_string_length(kMfaChoiceTypes[method]));
+    if (kMfaChoiceMethods[method] == kAccountAuthenticatorWebauthn) {
+#if defined(_WIN32)
+        if (!security_key_assertion())
+            return reject(utf8_literal("Your security key wasn't verified. Try again or choose another method."));
+        queue(Op::mfa_finish);
+#else
+        if (!start_ceremony(false))
+            return reject(key_failure_text(KeyFailure::generic, false));
+        g_owner.busy = true;
+        form_status(utf8_literal("Interact with your security key. You may need to tap your device or confirm a prompt."),
+                    false);
+#endif
+        return false;
+    }
+    char code[64];
+    const Utf8View compact = compact_code(text, code);
+    if (kMfaChoiceMethods[method] == kAccountAuthenticatorSms && !compact.bytes) {
+        queue(Op::mfa_sms_send);
+        return false;
+    }
+    if (!compact.bytes)
+        return reject(utf8_literal("Enter the code."));
+    set_field(field_mfa, compact);
+    secure_clear_bytes(code, sizeof(code));
+    queue(Op::mfa_finish);
+    return false;
 }
 
-void append(Row& row, bool description, const Utf8View& text) noexcept {
-    char* data = description ? row.description : row.label;
-    u8& used = description ? row.description_bytes : row.label_bytes;
-    const u32 capacity = description ? sizeof(row.description) : sizeof(row.label);
-    used = static_cast<u8>(used + utf8_copy_truncated(data + used, capacity - used, text));
+// ---- Rows ---------------------------------------------------------------------------------------------------------
+
+void append_row(Row& row, bool description, const Utf8View& text) noexcept {
+    if (description)
+        append(row.description, row.description_bytes, text);
+    else
+        append(row.label, row.label_bytes, text);
 }
 bool current_session(const AccountSession& session) noexcept {
     const Utf8View hash = application_user_settings_session_hash();
     return hash.bytes && hash.bytes == session.id_hash_bytes && bytes_equal(hash.data, session.id_hash, hash.bytes);
 }
+Utf8View relative_time(u64 unix_ms, char (&output)[64]) noexcept {
+    const auto formatted = format_timestamp_local(unix_ms / 1000, 'R', clock_unix_milliseconds() / 1000, {output, 64});
+    return formatted.ok ? Utf8View{output, formatted.bytes} : Utf8View{};
+}
 void build_session_row(Row& row, const AccountSession& session, bool current) noexcept {
     reset_value(&row);
-    append(row, false, session.os_bytes ? view(session.os, session.os_bytes) : utf8_literal("Unknown device"));
+    append_row(row, false, session.os_bytes ? view(session.os, session.os_bytes) : utf8_literal("Unknown device"));
     if (session.platform_bytes) {
-        append(row, false, utf8_literal(" · "));
-        append(row, false, view(session.platform, session.platform_bytes));
+        append_row(row, false, utf8_literal(" · "));
+        append_row(row, false, view(session.platform, session.platform_bytes));
     }
     if (current)
-        append(row, true, utf8_literal("This device"));
+        append_row(row, true, utf8_literal("This device"));
     if (session.location_bytes) {
         if (row.description_bytes)
-            append(row, true, utf8_literal(" · "));
-        append(row, true, view(session.location, session.location_bytes));
+            append_row(row, true, utf8_literal(" · "));
+        append_row(row, true, view(session.location, session.location_bytes));
     }
-    if (!current && session.last_used_ms) {
-        char relative[64];
-        const auto formatted = format_timestamp_local(session.last_used_ms / 1000, 'R',
-                                                              clock_unix_milliseconds() / 1000, {relative, 64});
-        if (formatted.ok) {
-            if (row.description_bytes)
-                append(row, true, utf8_literal(" · "));
-            append(row, true, utf8_literal("Active "));
-            append(row, true, view(relative, formatted.bytes));
-        }
+    char relative[64];
+    if (const Utf8View when = !current && session.last_used_ms ? relative_time(session.last_used_ms, relative) : Utf8View{};
+        when.bytes) {
+        if (row.description_bytes)
+            append_row(row, true, utf8_literal(" · "));
+        append_row(row, true, utf8_literal("Active "));
+        append_row(row, true, when);
     }
 }
-// The notice row for one page: loading, failure or the last mutation result.
-bool project_notice(SettingsPanel panel, u8 loads, UiSettingsControl* control,
+// The notice row for one page: working, the last result, loading, failure.
+bool project_notice(SettingsPanel panel, u16 loads, UiSettingsControl* control,
                     UiSettingsControlPresentation* presentation) noexcept {
     reset_value(&control->action_label);
-    if (mutation_pending()) {
-        const Mutation pending = g_owner.inflight != Mutation::none ? g_owner.inflight : g_owner.queued;
-        if (mutation_panel(pending) != panel)
-            return false;
+    if (action_pending() && g_owner.flow_panel == panel && !g_owner.form_shown) {
         control->label = utf8_literal("Working…");
         reset_value(&control->description);
         return true;
@@ -292,14 +1342,167 @@ void update_masks() noexcept {
     b.phone_mask_bytes = static_cast<u8>(account_settings_mask_phone(view(b.self.phone, b.self.phone_bytes),
                                                                      {b.phone_mask, sizeof(b.phone_mask)}));
 }
+
+// Connected accounts: the platform's name, and which display options it has (Userdoccers' connection types; the
+// official client offers the status option for platforms that report activity and the details option for platforms
+// with profile metadata).
+struct Platform {
+    const char* type;
+    const char* name;
+    bool activity, metadata;
+};
+constexpr Platform kPlatforms[]{
+    {"amazon-music", "Amazon Music", true, false}, {"battlenet", "Battle.net", true, false},
+    {"bluesky", "Bluesky", false, false},          {"bungie", "Bungie.net", false, false},
+    {"crunchyroll", "Crunchyroll", true, false},   {"domain", "Domain", false, false},
+    {"ebay", "eBay", false, true},                 {"epicgames", "Epic Games", true, false},
+    {"facebook", "Facebook", false, false},        {"github", "GitHub", false, false},
+    {"instagram", "Instagram", false, false},      {"leagueoflegends", "League of Legends", true, false},
+    {"mastodon", "Mastodon", false, false},        {"paypal", "PayPal", false, true},
+    {"playstation", "PlayStation Network", true, false}, {"reddit", "Reddit", false, true},
+    {"riotgames", "Riot Games", true, false},      {"roblox", "Roblox", true, false},
+    {"soundcloud", "SoundCloud", false, false},    {"spotify", "Spotify", true, false},
+    {"steam", "Steam", true, true},                {"tiktok", "TikTok", false, true},
+    {"twitch", "Twitch", true, false},             {"twitter", "X", false, true},
+    {"xbox", "Xbox", true, false},                 {"youtube", "YouTube", true, false},
+};
+bool& connection_option(AccountConnection& connection, AccountConnectionField field) noexcept {
+    return field == AccountConnectionField::visibility            ? connection.visible
+           : field == AccountConnectionField::metadata_visibility ? connection.metadata_visible
+                                                                  : connection.show_activity;
+}
+const Platform* platform(const AccountConnection& connection) noexcept {
+    for (const auto& p : kPlatforms)
+        if (utf8_equal(view(connection.type, connection.type_bytes), view(p.type, c_string_length(p.type))))
+            return &p;
+    return nullptr;
+}
+// A connection's rows: the account (Disconnect), then its display options.
+enum ConnectionPart : u32 { part_account, part_visible, part_metadata, part_activity, kConnectionParts };
+Utf8View g_activity_labels[kAccountConnectionMaximum];
+char g_activity_text[kAccountConnectionMaximum][48];
+
+u32 connection_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
+                    Slice<UiSettingsControlPresentation> presentation) noexcept {
+    auto& b = *g_owner.bank;
+    const bool idle = online() && !action_pending();
+    u32 count = 0;
+    for (u32 i = 0; i < g_owner.connection_count && count + kConnectionParts <= controls.count; ++i) {
+        const auto& connection = b.connections[i];
+        const auto* p = platform(connection);
+        const Utf8View name = p ? view(p->name, c_string_length(p->name)) : view(connection.type, connection.type_bytes);
+        const auto row = [&](u32 part, Utf8View label, Utf8View description, UiSettingsControlKind kind, bool checked,
+                             Utf8View action) noexcept {
+            controls[count] = {settings_list_control_id(binding, i * kConnectionParts + part), label, description, kind,
+                               idle, checked, {}, 0, action, nullptr};
+            presentation[count++] = {part == part_account && action.bytes ? UiSettingsVariant::critical
+                                                                           : UiSettingsVariant::standard,
+                                     0, kUiSettingsNoDefault};
+        };
+        // Streamer Mode keeps connected accounts' names off screen.
+        row(part_account, application_streamer_hide_personal() ? name : view(connection.name, connection.name_bytes),
+            connection.revoked ? utf8_literal("This connection was revoked. Disconnect it and connect again.") : name,
+            UiSettingsControlKind::action, false, utf8_literal("Disconnect"));
+        if (connection.revoked)
+            continue;
+        row(part_visible, utf8_literal("Display on profile"), {}, UiSettingsControlKind::toggle, connection.visible, {});
+        if (p && p->metadata)
+            row(part_metadata, utf8_literal("Display details on profile"), {}, UiSettingsControlKind::toggle,
+                connection.metadata_visible, {});
+        if (p && p->activity) {
+            u8 used = 0;
+            append(g_activity_text[i], used, utf8_literal("Display "));
+            append(g_activity_text[i], used, name);
+            g_activity_labels[i] = append(g_activity_text[i], used, utf8_literal(" as your status"));
+            row(part_activity, g_activity_labels[i], {}, UiSettingsControlKind::toggle, connection.show_activity, {});
+        }
+    }
+    return count;
+}
+
+// Whether a data request may be made, and the page's line about it.
+bool harvest_allowed(Utf8View* reason) noexcept {
+    auto& b = *g_owner.bank;
+    if (!b.self.verified) {
+        *reason = utf8_literal("You must verify your email to request your data. Verify it in your account settings.");
+        return false;
+    }
+    const u64 next = b.harvest.created_ms ? b.harvest.created_ms + kHarvestCooldownMs : 0;
+    if (next > clock_unix_milliseconds()) {
+        const auto formatted = format_timestamp_local(next / 1000, 'D', clock_unix_milliseconds() / 1000,
+                                                      {b.date, sizeof(b.date)});
+        b.message_bytes = 0;
+        append(b.message, b.message_bytes, utf8_literal("You recently requested a copy of your data. You can request again on "));
+        append(b.message, b.message_bytes, formatted.ok ? view(b.date, formatted.bytes) : utf8_literal("a later date"));
+        *reason = append(b.message, b.message_bytes, utf8_literal("."));
+        return false;
+    }
+    *reason = utf8_literal("If you need a copy of your personal data from your account's entire history, you can get it "
+                           "here. Choose what to include below.");
+    return true;
+}
+constexpr SettingBinding first_harvest = SettingBinding::harvest_account;
+u32 harvest_bit(SettingBinding binding) noexcept {
+    return static_cast<u32>(binding) - static_cast<u32>(first_harvest);
+}
+bool harvest_binding(SettingBinding binding) noexcept {
+    return harvest_bit(binding) < 7;
+}
+
+// Messaging Permissions' blocked (list 0) or ignored (list 1) accounts, each with its Unblock or Unignore button; then
+// how many more there are, or a line saying there are none.
+u32 relation_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
+                  Slice<UiSettingsControlPresentation> presentation) noexcept {
+    auto& b = *g_owner.bank;
+    const u32 list = binding == SettingBinding::ignored_list ? 1 : 0;
+    const auto* store = g_app.account_ui ? application_friends_relationships() : nullptr;
+    const bool idle = online();
+    Row* rows = b.rows + kRelationFirstRow + list * (kRelationRows + 1);
+    u32 count = 0, more = 0;
+    for (u32 i = 0; store && i < store->count; ++i) {
+        const auto& record = store->records[i];
+        if (list ? !record.ignored : record.type != RelationshipType::blocked)
+            continue;
+        if (count == kRelationRows || count == controls.count) {
+            ++more;
+            continue;
+        }
+        Row& row = rows[count];
+        reset_value(&row);
+        const Utf8View name = relationship_display_name(record, g_app.account_ui->user_store);
+        append_row(row, false, name.bytes ? name : utf8_literal("Unknown user"));
+        b.relation_ids[list][count] = record.user_id;
+        controls[count] = {settings_list_control_id(binding, count), view(row.label, row.label_bytes), {},
+                           UiSettingsControlKind::action, idle, false, {}, 0,
+                           list ? utf8_literal("Unignore") : utf8_literal("Unblock"), nullptr};
+        presentation[count++] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    }
+    if (count >= controls.count || (count && !more))
+        return count;
+    Row& note = rows[kRelationRows];
+    reset_value(&note);
+    if (more) {
+        char text[32];
+        copy_bytes(text, "And ", 4);
+        u32 at = 4 + decimal_write(text + 4, more);
+        copy_bytes(text + at, " more", 5);
+        append_row(note, false, {text, at + 5});
+    } else
+        append_row(note, false, list ? utf8_literal("You haven't ignored anyone.") : utf8_literal("You haven't blocked anyone."));
+    controls[count] = {settings_list_control_id(binding, 0xFF), view(note.label, note.label_bytes), {},
+                       UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr};
+    presentation[count++] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    return count;
+}
 } // namespace
 
 void application_account_settings_visible(SettingsPanel panel) noexcept {
     scope();
-    u8 wanted = 0;
+    u16 wanted = 0;
+    g_owner.social = panel == SettingsPanel::content_social;
     switch (panel) {
     case SettingsPanel::account:
-        wanted = load_self;
+        wanted = load_self | load_keys;
         break;
     case SettingsPanel::profiles:
         wanted = load_self | load_profile;
@@ -308,17 +1511,22 @@ void application_account_settings_visible(SettingsPanel panel) noexcept {
         wanted = load_sessions;
         break;
     case SettingsPanel::authorized_apps:
-        wanted = load_tokens;
+        wanted = load_tokens | load_connections;
+        break;
+    case SettingsPanel::data_privacy:
+        wanted = load_self | load_consents | load_harvest;
         break;
     default:
         g_owner.reveal_email = g_owner.reveal_phone = false;
+        g_owner.wanted = 0;
         return;
     }
-    // Device and app lists are refreshed every time their page opens.
-    const u8 fresh = wanted & (load_sessions | load_tokens);
+    // Lists are refreshed every time their page opens.
+    const u16 fresh = wanted & (load_sessions | load_tokens | load_keys | load_connections | load_harvest);
     g_owner.loaded &= ~fresh;
     g_owner.failed &= ~wanted;
-    g_owner.wanted |= wanted;
+    // Only the open page loads: a list another page wanted is not fetched after it closes.
+    g_owner.wanted = wanted;
     if (g_owner.status_panel != panel)
         reset_value(&g_owner.status);
     // No refresh: this runs while the settings host projects, and it re-projects by itself.
@@ -328,10 +1536,17 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
                                           UiSettingsControlPresentation* presentation) noexcept {
     scope();
     const auto* b = g_owner.bank;
-    const bool self = b && (g_owner.loaded & load_self);
+    const bool self = self_loaded();
     const bool profile = b && (g_owner.loaded & load_profile);
-    const bool idle = online() && !mutation_pending();
+    const bool idle = online() && !action_pending();
+    static constexpr Utf8View kEdit[]{utf8_literal("Edit"), utf8_literal("Reveal")};
+    static constexpr Utf8View kEditHide[]{utf8_literal("Edit"), utf8_literal("Hide")};
+    static constexpr Utf8View kPhone[]{utf8_literal("Edit"), utf8_literal("Remove"), utf8_literal("Reveal")};
+    static constexpr Utf8View kPhoneHide[]{utf8_literal("Edit"), utf8_literal("Remove"), utf8_literal("Hide")};
+    static constexpr Utf8View kAdd[]{utf8_literal("Add")};
     switch (binding) {
+    case SettingBinding::account_devices:
+        return true;
     case SettingBinding::account_card:
         control->label = self_name(false);
         control->description = self_name(true);
@@ -344,7 +1559,10 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
     case SettingBinding::devices_notice:
         return project_notice(SettingsPanel::devices, load_sessions, control, presentation);
     case SettingBinding::apps_notice:
-        return project_notice(SettingsPanel::authorized_apps, load_tokens, control, presentation);
+        return project_notice(SettingsPanel::authorized_apps, load_tokens | load_connections, control, presentation);
+    case SettingBinding::data_notice:
+        return project_notice(SettingsPanel::data_privacy, load_self | load_consents | load_harvest, control,
+                              presentation);
     case SettingBinding::account_display_name:
     case SettingBinding::profile_display_name: {
         const Utf8View name = self ? view(b->self.global_name, b->self.global_name_bytes) : Utf8View{};
@@ -354,30 +1572,40 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
     }
     case SettingBinding::account_username:
         control->description = self_name(true);
-        control->action_label = utf8_literal("Edit in browser");
+        control->enabled = self && idle;
         return true;
     case SettingBinding::account_email:
     case SettingBinding::account_phone: {
         const bool email = binding == SettingBinding::account_email;
-        const bool revealed = email ? g_owner.reveal_email : g_owner.reveal_phone;
         if (!self) {
+            // A buttons row needs its buttons: the first one shows, disabled, until the account loads.
             control->description = utf8_literal("Loading…");
+            control->choices = {email ? kEdit : kPhone, 1};
             control->enabled = false;
             return true;
         }
         const Utf8View value = email ? view(b->self.email, b->self.email_bytes) : view(b->self.phone, b->self.phone_bytes);
-        const Utf8View masked =
-            email ? view(b->email_mask, b->email_mask_bytes) : view(b->phone_mask, b->phone_mask_bytes);
+        // Streamer Mode keeps the address masked and offers no Reveal.
+        const bool hidden = application_streamer_hide_personal();
+        const bool revealed = !hidden && (email ? g_owner.reveal_email : g_owner.reveal_phone);
+        control->enabled = idle;
         if (!value.bytes) {
-            control->description = utf8_literal("Not added");
-            control->action_label = utf8_literal("Add in browser");
+            control->description = email ? utf8_literal("You haven't added an email address yet.")
+                                         : utf8_literal("You haven't added a phone number yet.");
+            control->choices = {kAdd, 1};
             return true;
         }
-        control->description = revealed ? value : masked;
-        control->action_label = revealed ? utf8_literal("Hide") : utf8_literal("Reveal");
+        control->description = revealed ? value
+                               : email  ? view(b->email_mask, b->email_mask_bytes)
+                                        : view(b->phone_mask, b->phone_mask_bytes);
+        if (email)
+            control->choices = {revealed ? kEditHide : kEdit, hidden ? 1u : 2u};
+        else
+            control->choices = {revealed ? kPhoneHide : kPhone, hidden ? 2u : 3u};
         return true;
     }
     case SettingBinding::account_password:
+        control->enabled = self && idle;
         return true;
     case SettingBinding::account_mfa:
         if (!self)
@@ -385,9 +1613,87 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
         control->label = b->self.mfa_enabled ? utf8_literal("Multi-Factor Authentication is on")
                                              : utf8_literal("Multi-Factor Authentication is off");
         control->description = b->self.mfa_enabled
-                                   ? utf8_literal("Your account asks for a code when you sign in.")
-                                   : utf8_literal("Turn it on in Discord to protect your account.");
+                                   ? utf8_literal("Your account asks for a second step when you sign in.")
+                                   : utf8_literal("Protect your account with an authenticator app or a security key.");
         presentation->variant = b->self.mfa_enabled ? UiSettingsVariant::positive : UiSettingsVariant::standard;
+        return true;
+    case SettingBinding::account_totp:
+        if (!self)
+            return false;
+        control->enabled = idle;
+        if (totp_enabled()) {
+            control->description = utf8_literal("Enabled");
+            control->action_label = utf8_literal("Remove");
+            presentation->variant = UiSettingsVariant::critical;
+        } else {
+            control->action_label = utf8_literal("Enable Authenticator App");
+            presentation->variant = UiSettingsVariant::primary;
+        }
+        return true;
+    case SettingBinding::account_sms:
+        // SMS is a backup method: offered once an authenticator app is on (as the official client).
+        if (!totp_enabled())
+            return false;
+        control->enabled = idle;
+        if (sms_enabled()) {
+            static char ending[48];
+            u8 used = 0;
+            append(ending, used, utf8_literal("Phone number ending in ****"));
+            const Utf8View phone = view(b->self.phone, b->self.phone_bytes);
+            control->description =
+                append(ending, used, phone.bytes >= 4 ? view(phone.data + phone.bytes - 4, 4) : phone);
+            control->action_label = utf8_literal("Remove");
+            presentation->variant = UiSettingsVariant::critical;
+        } else {
+            control->description = b->self.phone_bytes
+                                       ? utf8_literal("Use your phone as a backup way to sign in.")
+                                       : utf8_literal("Add a phone number to your account to use SMS authentication.");
+            control->enabled = idle && b->self.phone_bytes;
+            control->action_label = utf8_literal("Enable SMS Authentication");
+        }
+        return true;
+    case SettingBinding::account_key_add:
+        if (!self)
+            return false;
+        control->enabled = idle && webauthn_platform_available();
+        if (!webauthn_platform_available())
+            control->description = utf8_literal("Security keys need libfido2, which isn't installed.");
+        return true;
+    case SettingBinding::account_backup_codes:
+        if (!self || !b->self.mfa_enabled)
+            return false;
+        control->enabled = idle;
+        return true;
+    case SettingBinding::account_disable:
+    case SettingBinding::account_delete:
+        control->enabled = self && idle;
+        return true;
+    case SettingBinding::devices_logout_all: {
+        if (!b || !(g_owner.loaded & load_sessions))
+            return false;
+        bool others = false;
+        for (u32 i = 0; i < g_owner.session_count; ++i)
+            others = others || !current_session(b->sessions[i]);
+        control->enabled = idle;
+        return others;
+    }
+    case SettingBinding::data_usage_statistics:
+        if (!b || !(g_owner.loaded & load_consents))
+            return false;
+        control->checked = b->consents.usage_statistics;
+        control->enabled = idle;
+        return true;
+    case SettingBinding::data_request: {
+        if (!self || !(g_owner.loaded & load_harvest))
+            return false;
+        Utf8View reason{};
+        const bool allowed = harvest_allowed(&reason);
+        control->description = reason;
+        control->enabled = idle && allowed && g_owner.harvest_types;
+        presentation->variant = UiSettingsVariant::primary;
+        return true;
+    }
+    case SettingBinding::data_activity_link:
         return true;
     case SettingBinding::profile_pronouns:
     case SettingBinding::profile_bio: {
@@ -401,8 +1707,20 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
     }
     case SettingBinding::devices_list:
     case SettingBinding::apps_list:
+    case SettingBinding::connections_list:
+    case SettingBinding::security_keys_list:
+    case SettingBinding::blocked_list:
+    case SettingBinding::ignored_list:
         return true;
     default:
+        if (harvest_binding(binding)) {
+            Utf8View reason{};
+            if (!self || !(g_owner.loaded & load_harvest) || !harvest_allowed(&reason))
+                return false;
+            control->checked = (g_owner.harvest_types >> harvest_bit(binding)) & 1;
+            control->enabled = idle;
+            return true;
+        }
         return false;
     }
 }
@@ -410,12 +1728,39 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
 u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsControl> controls,
                                       Slice<UiSettingsControlPresentation> presentation) noexcept {
     auto* b = g_owner.bank;
-    const bool devices = binding == SettingBinding::devices_list;
-    const u8 load = devices ? load_sessions : load_tokens;
-    if (!b || !(g_owner.loaded & load))
+    if (binding == SettingBinding::blocked_list || binding == SettingBinding::ignored_list)
+        return b ? relation_rows(binding, controls, presentation) : 0;
+    const u16 load = binding == SettingBinding::devices_list         ? load_sessions
+                    : binding == SettingBinding::apps_list          ? load_tokens
+                    : binding == SettingBinding::connections_list   ? load_connections
+                    : binding == SettingBinding::security_keys_list ? load_keys
+                                                                    : 0;
+    if (!b || !load || !(g_owner.loaded & load))
         return 0;
-    const bool idle = online() && !mutation_pending();
+    if (binding == SettingBinding::connections_list) {
+        const u32 count = connection_rows(binding, controls, presentation);
+        if (count || !controls.count)
+            return count;
+        controls[0] = {settings_list_control_id(binding, 0xFF), utf8_literal("No connections"),
+                       utf8_literal("Accounts you connect to Discord show here."), UiSettingsControlKind::notice, true,
+                       false, {}, 0, {}, nullptr};
+        presentation[0] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+        return 1;
+    }
+    const bool idle = online() && !action_pending();
     u32 count = 0;
+    if (binding == SettingBinding::security_keys_list) {
+        static constexpr Utf8View kKeyActions[]{utf8_literal("Rename"), utf8_literal("Remove")};
+        for (u32 i = 0; i < g_owner.key_count && count < controls.count; ++i) {
+            const auto& key = b->keys[i];
+            controls[count] = {settings_list_control_id(binding, i), view(key.name, key.name_bytes),
+                               utf8_literal("Security key"), UiSettingsControlKind::buttons, idle, false,
+                               {kKeyActions, 2}, 0, {}, nullptr};
+            presentation[count++] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+        }
+        return count;
+    }
+    const bool devices = binding == SettingBinding::devices_list;
     const u32 total = devices ? g_owner.session_count : g_owner.app_count;
     const u32 row_base = devices ? 0 : kAccountSessionMaximum;
     // The current device leads the list, as in the official client.
@@ -440,8 +1785,8 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
             } else {
                 const auto& app = b->apps[i];
                 reset_value(&row);
-                append(row, false, app.name_bytes ? view(app.name, app.name_bytes) : utf8_literal("Unknown app"));
-                append(row, true, view(app.scopes, app.scopes_bytes));
+                append_row(row, false, app.name_bytes ? view(app.name, app.name_bytes) : utf8_literal("Unknown app"));
+                append_row(row, true, view(app.scopes, app.scopes_bytes));
                 c = {settings_list_control_id(binding, i), view(row.label, row.label_bytes),
                      view(row.description, row.description_bytes), UiSettingsControlKind::action, idle, false, {}, 0,
                      utf8_literal("Deauthorize"), nullptr};
@@ -458,89 +1803,201 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
     return count;
 }
 
-bool application_account_settings_activate(SettingBinding binding) noexcept {
+bool application_account_settings_bank(UiSettingsControl** controls,
+                                       UiSettingsControlPresentation** presentation) noexcept {
+    scope();
+    if (!bank())
+        return false;
+    *controls = g_owner.bank->controls;
+    if (presentation)
+        *presentation = g_owner.bank->presentation;
+    return true;
+}
+
+bool application_account_settings_activate(SettingBinding binding, bool checked, u32 choice) noexcept {
     scope();
     auto* b = g_owner.bank;
-    const bool self = b && (g_owner.loaded & load_self);
-    switch (binding) {
-    case SettingBinding::account_card:
-        return application_settings_open_key(utf8_literal("profiles"));
-    case SettingBinding::account_notice:
-    case SettingBinding::profile_notice:
-    case SettingBinding::devices_notice:
-    case SettingBinding::apps_notice:
+    const bool self = self_loaded();
+    if (binding == SettingBinding::account_notice || binding == SettingBinding::profile_notice ||
+        binding == SettingBinding::devices_notice || binding == SettingBinding::apps_notice ||
+        binding == SettingBinding::data_notice) {
         g_owner.failed = 0;
+        reset_value(&g_owner.status);
         application_settings_refresh_pages();
         return true;
+    }
+    if (binding == SettingBinding::account_card)
+        return application_settings_open_key(utf8_literal("profiles"));
+    if (binding == SettingBinding::data_activity_link)
+        return application_settings_open_key(utf8_literal("activity_privacy"));
+    if (binding == SettingBinding::account_devices)
+        return application_settings_open_key(utf8_literal("devices"));
+    if (!b || !online() || action_pending() || g_owner.form_shown)
+        return false;
+    if (harvest_binding(binding)) {
+        g_owner.harvest_types = static_cast<u8>(checked ? g_owner.harvest_types | (1u << harvest_bit(binding))
+                                                        : g_owner.harvest_types & ~(1u << harvest_bit(binding)));
+        application_settings_refresh_pages();
+        return true;
+    }
+    switch (binding) {
     case SettingBinding::account_display_name:
     case SettingBinding::profile_display_name:
         if (!self)
             return false;
-        open_editor(Mutation::display_name, utf8_literal("Change your display name"),
-                    utf8_literal("Display name"), view(b->self.global_name, b->self.global_name_bytes), 32,
-                    kAccountSettingsDisplayNameBytes, true);
+        begin(Form::display_name, binding == SettingBinding::account_display_name ? SettingsPanel::account
+                                                                                 : SettingsPanel::profiles);
         return true;
     case SettingBinding::profile_pronouns:
-    case SettingBinding::profile_bio: {
-        if (!b || !(g_owner.loaded & load_profile))
+    case SettingBinding::profile_bio:
+        if (!(g_owner.loaded & load_profile))
             return false;
-        const bool pronouns = binding == SettingBinding::profile_pronouns;
-        open_editor(pronouns ? Mutation::pronouns : Mutation::bio,
-                    pronouns ? utf8_literal("Change your pronouns") : utf8_literal("Edit about me"),
-                    pronouns ? utf8_literal("Pronouns") : utf8_literal("About me"),
-                    pronouns ? view(b->profile.pronouns, b->profile.pronouns_bytes) : view(b->profile.bio, b->profile.bio_bytes),
-                    pronouns ? 40u : 190u, pronouns ? kAccountSettingsPronounsBytes : kAccountSettingsBioBytes, pronouns);
+        begin(binding == SettingBinding::profile_pronouns ? Form::pronouns : Form::bio, SettingsPanel::profiles);
         return true;
-    }
-    case SettingBinding::account_email:
-    case SettingBinding::account_phone: {
-        const bool email = binding == SettingBinding::account_email;
+    case SettingBinding::account_username:
         if (!self)
             return false;
-        if (!(email ? b->self.email_bytes : b->self.phone_bytes))
-            return open_browser(utf8_literal("https://discord.com/settings/account"));
-        bool& revealed = email ? g_owner.reveal_email : g_owner.reveal_phone;
-        revealed = !revealed;
-        application_settings_refresh_pages();
+        begin(Form::username, SettingsPanel::account);
+        return true;
+    case SettingBinding::account_password:
+        if (!self)
+            return false;
+        begin(Form::password_current, SettingsPanel::account);
+        return true;
+    case SettingBinding::account_email:
+    case SettingBinding::account_phone: {
+        if (!self)
+            return false;
+        const bool email = binding == SettingBinding::account_email;
+        const bool present = email ? b->self.email_bytes : b->self.phone_bytes;
+        const u32 reveal = email ? 1 : 2;
+        if (present && choice == reveal) {
+            bool& revealed = email ? g_owner.reveal_email : g_owner.reveal_phone;
+            revealed = !revealed;
+            application_settings_refresh_pages();
+            return true;
+        }
+        if (!email && present && choice == 1) {
+            begin(Form::phone_remove, SettingsPanel::account);
+            return true;
+        }
+        // A verified address proves itself with a code first (Userdoccers: email-verification).
+        begin(email ? (present && b->self.verified ? Form::email_send : Form::email_new) : Form::phone_number,
+              SettingsPanel::account);
         return true;
     }
-    case SettingBinding::account_username:
-    case SettingBinding::account_password:
-        return open_browser(utf8_literal("https://discord.com/settings/account"));
+    case SettingBinding::account_totp:
+        if (!self)
+            return false;
+        if (totp_enabled()) {
+            begin(Form::totp_remove, SettingsPanel::account);
+            return true;
+        }
+        clear_flow();
+        if (!generate_secret()) {
+            set_status(SettingsPanel::account, utf8_literal("Couldn't start the setup. Try again."), true);
+            application_settings_refresh_pages();
+            return false;
+        }
+        g_owner.flow_panel = SettingsPanel::account;
+        set_status(SettingsPanel::account, {}, false);
+        transition(Form::totp_setup);
+        return true;
+    case SettingBinding::account_sms:
+        if (!totp_enabled())
+            return false;
+        begin(sms_enabled() ? Form::sms_disable : Form::sms_enable, SettingsPanel::account);
+        return true;
+    case SettingBinding::account_key_add:
+        if (!self || !webauthn_platform_available())
+            return false;
+        clear_flow();
+        g_owner.flow_panel = SettingsPanel::account;
+        queue(Op::security_key_create);
+        return true;
+    case SettingBinding::account_backup_codes:
+        begin(Form::backup_password, SettingsPanel::account);
+        return true;
+    case SettingBinding::account_disable:
+    case SettingBinding::account_delete:
+        begin(binding == SettingBinding::account_disable ? Form::account_disable : Form::account_delete,
+              SettingsPanel::account);
+        return true;
+    case SettingBinding::devices_logout_all:
+        begin(Form::logout_all, SettingsPanel::devices);
+        return true;
+    case SettingBinding::data_usage_statistics:
+        if (!(g_owner.loaded & load_consents))
+            return false;
+        if (!checked) {
+            // Turning it off asks first: the switch stays on until the answer.
+            begin(Form::consent_off, SettingsPanel::data_privacy);
+            return false;
+        }
+        clear_flow();
+        g_owner.flow_panel = SettingsPanel::data_privacy;
+        g_owner.bank->consents.usage_statistics = true;
+        queue(Op::consent_patch, 1, static_cast<u8>(AccountConsent::usage_statistics));
+        return true;
+    case SettingBinding::data_request: {
+        Utf8View reason{};
+        if (!harvest_allowed(&reason) || !g_owner.harvest_types)
+            return false;
+        clear_flow();
+        g_owner.flow_panel = SettingsPanel::data_privacy;
+        queue(Op::harvest_create, 0, g_owner.harvest_types);
+        return true;
+    }
     default:
         return false;
     }
 }
 
-bool application_account_settings_activate_row(u64 id) noexcept {
+bool application_account_settings_activate_row(u64 id, bool checked, u32 choice) noexcept {
     scope();
     const auto* b = g_owner.bank;
-    if (!b || id < kSettingsListFirst || !online())
+    if (!b || id < kSettingsListFirst || !online() || action_pending() || g_owner.form_shown)
         return false;
     const auto binding = settings_list_binding(id);
     const u32 index = settings_list_index(id);
-    static char title[160];
     if (binding == SettingBinding::devices_list && index < g_owner.session_count &&
         !current_session(b->sessions[index])) {
-        open_confirmation(Mutation::session_logout, index, utf8_literal("Log out this device?"),
-                          utf8_literal("It will need to sign in again to use your account."),
-                          utf8_literal("Log out"));
+        g_owner.target = index;
+        begin(Form::session_logout, SettingsPanel::devices);
         return true;
     }
     if (binding == SettingBinding::apps_list && index < g_owner.app_count) {
-        const auto& app = b->apps[index];
-        u32 used = 0;
-        const auto add = [&](Utf8View text) noexcept {
-            const u32 bytes = minimum(text.bytes, static_cast<u32>(sizeof(title)) - used);
-            copy_bytes(title + used, text.data, bytes);
-            used += bytes;
-        };
-        add(utf8_literal("Deauthorize "));
-        add(app.name_bytes ? view(app.name, app.name_bytes) : utf8_literal("this app"));
-        add(utf8_literal("?"));
-        open_confirmation(Mutation::token_revoke, app.token_id, {title, used},
-                          utf8_literal("It loses access to your account until you authorize it again."),
-                          utf8_literal("Deauthorize"));
+        g_owner.target = index;
+        begin(Form::token_revoke, SettingsPanel::authorized_apps);
+        return true;
+    }
+    if ((binding == SettingBinding::blocked_list || binding == SettingBinding::ignored_list) && index < kRelationRows) {
+        // Unblocking and unignoring run at once, as in the official client; the list follows the store.
+        const bool ignored = binding == SettingBinding::ignored_list;
+        return application_friends_user_action(b->relation_ids[ignored ? 1 : 0][index],
+                                               ignored ? ApplicationFriendsUserAction::unignore
+                                                       : ApplicationFriendsUserAction::unblock);
+    }
+    if (binding == SettingBinding::security_keys_list && index < g_owner.key_count && choice <= 1) {
+        g_owner.target = index;
+        begin(choice ? Form::key_delete : Form::key_rename, SettingsPanel::account);
+        return true;
+    }
+    if (binding == SettingBinding::connections_list && index / kConnectionParts < g_owner.connection_count) {
+        g_owner.target = index / kConnectionParts;
+        const u32 part = index % kConnectionParts;
+        if (part == part_account) {
+            begin(Form::connection_remove, SettingsPanel::authorized_apps);
+            return true;
+        }
+        clear_flow();
+        g_owner.flow_panel = SettingsPanel::authorized_apps;
+        const auto field = part == part_visible    ? AccountConnectionField::visibility
+                           : part == part_metadata ? AccountConnectionField::metadata_visibility
+                                                   : AccountConnectionField::show_activity;
+        // The switch shows the change at once; a refused one switches back.
+        connection_option(g_owner.bank->connections[g_owner.target], field) = checked;
+        queue(Op::connection_patch, checked ? 1 : 0, static_cast<u8>(field));
         return true;
     }
     return false;
@@ -549,7 +2006,7 @@ bool application_account_settings_activate_row(u64 id) noexcept {
 bool application_account_settings_pending(u64) noexcept {
     scope();
     return online() && !g_owner.request_id &&
-           (g_owner.queued != Mutation::none || (g_owner.wanted & ~g_owner.loaded & ~g_owner.failed));
+           (g_owner.queued || (g_owner.wanted & ~g_owner.loaded & ~g_owner.failed));
 }
 
 u64 application_account_settings_next_wake() noexcept {
@@ -561,100 +2018,396 @@ bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept {
         return false;
     auto& b = *g_owner.bank;
     AccountSettingsRequest request{};
-    u8 load = 0;
-    switch (g_owner.queued) {
-    case Mutation::session_logout:
-        request.operation = AccountSettingsOperation::session_logout;
-        request.payload = {reinterpret_cast<const u8*>(b.hash), b.hash_bytes};
-        break;
-    case Mutation::token_revoke:
-        request.operation = AccountSettingsOperation::token_revoke;
-        request.id = g_owner.target_id;
-        break;
-    case Mutation::display_name:
-    case Mutation::pronouns:
-    case Mutation::bio:
-        request.operation = g_owner.queued == Mutation::display_name ? AccountSettingsOperation::display_name
-                                                                     : AccountSettingsOperation::profile_patch;
-        request.field = g_owner.queued == Mutation::bio ? AccountProfileField::bio : AccountProfileField::pronouns;
-        request.payload = {reinterpret_cast<const u8*>(b.text), b.text_bytes};
-        break;
-    case Mutation::none: {
-        const u8 missing = g_owner.wanted & ~g_owner.loaded & ~g_owner.failed;
-        load = missing & load_self       ? load_self
-               : missing & load_profile  ? load_profile
-               : missing & load_sessions ? load_sessions
-                                         : load_tokens;
-        request.operation = load == load_self       ? AccountSettingsOperation::self_user
-                            : load == load_profile  ? AccountSettingsOperation::profile
-                            : load == load_sessions ? AccountSettingsOperation::sessions
-                                                    : AccountSettingsOperation::tokens;
+    Utf8View texts[3]{};
+    u32 text_count = 0;
+    const auto text = [&](Utf8View value) noexcept { texts[text_count++] = value; };
+    char hashes[kAccountSessionMaximum * (kAccountSettingsHashBytes + 1)];
+    u16 load = 0;
+    if (g_owner.queued) {
+        request.operation = g_owner.op;
+        request.id = g_owner.op_id;
+        request.option = g_owner.op_option;
+        if (g_owner.verified)
+            request.mfa = field(field_mfa);
+        switch (g_owner.op) {
+        case Op::session_logout: {
+            // One device, or every device but this one.
+            u32 at = 0;
+            for (u32 i = 0; i < g_owner.session_count; ++i) {
+                const auto& session = b.sessions[i];
+                if (current_session(session) || (g_owner.form == Form::session_logout && i != g_owner.target))
+                    continue;
+                if (at)
+                    hashes[at++] = ',';
+                copy_bytes(hashes + at, session.id_hash, session.id_hash_bytes);
+                at += session.id_hash_bytes;
+            }
+            request.payload = {reinterpret_cast<const u8*>(hashes), at};
+            break;
+        }
+        case Op::display_name:
+        case Op::profile_patch:
+            request.payload = {reinterpret_cast<const u8*>(b.fields[field_text]), b.field_bytes[field_text]};
+            request.field = g_owner.op_option ? AccountProfileField::bio : AccountProfileField::pronouns;
+            request.option = 0;
+            break;
+        case Op::username:
+            text(field(field_text));
+            text(field(field_password));
+            break;
+        case Op::password:
+            text(field(field_password));
+            text(field(field_extra));
+            break;
+        case Op::email_verify_code:
+            text(field(field_text));
+            break;
+        case Op::email:
+            text(field(field_extra));
+            text(field(field_token));
+            text(field(field_password));
+            break;
+        case Op::phone_code:
+            text(field(field_extra));
+            break;
+        case Op::phone_verify:
+            text(field(field_extra));
+            text(field(field_text));
+            break;
+        case Op::phone_add:
+            text(field(field_token));
+            text(field(field_password));
+            break;
+        case Op::totp_enable:
+            text(field(field_text));
+            text(field(field_extra));
+            break;
+        case Op::phone_remove:
+        case Op::sms_disable:
+        case Op::backup_challenge:
+        case Op::account_disable:
+        case Op::account_delete:
+            text(field(field_password));
+            break;
+        case Op::backup_codes:
+            text(field(field_text));
+            text(field(g_owner.op_option ? field_token2 : field_token));
+            break;
+        case Op::security_key_create:
+            // The first request asks for a ticket and a challenge (no texts); the second names the key and sends the
+            // credential the key made.
+            if (field(field_token2).bytes) {
+                text(field(field_text));
+                text(field(field_token));
+                text(field(field_token2));
+            }
+            break;
+        case Op::security_key_rename:
+            text(field(field_text));
+            break;
+        case Op::mfa_finish:
+            text(view(b.mfa.ticket, b.mfa.ticket_bytes));
+            text(g_owner.mfa_type);
+            text(field(field_mfa));
+            break;
+        case Op::mfa_sms_send:
+            text(view(b.mfa.ticket, b.mfa.ticket_bytes));
+            break;
+        case Op::connection_patch:
+        case Op::connection_delete: {
+            const auto& connection = b.connections[g_owner.target];
+            text(view(connection.type, connection.type_bytes));
+            text(view(connection.id, connection.id_bytes));
+            break;
+        }
+        default:
+            break;
+        }
+        request.texts = {texts, text_count};
+    } else {
+        const u16 missing = g_owner.wanted & ~g_owner.loaded & ~g_owner.failed;
+        load = static_cast<u16>(missing & -missing);
+        // Each load bit's GET, in bit order.
+        constexpr Op kLoads[]{Op::self_user,   Op::profile,  Op::sessions,      Op::tokens,
+                              Op::security_keys, Op::connections, Op::consents, Op::harvest};
+        u32 bit = 0;
+        while (bit + 1 < sizeof(kLoads) / sizeof(kLoads[0]) && !(load >> bit & 1))
+            ++bit;
+        request.operation = kLoads[bit];
         if (load == load_profile)
             request.id = g_owner.self_user_id;
-        break;
-    }
     }
     const auto admitted = g_app.account.api.account_settings(g_app.account.instance, &request, request_id);
+    secure_clear_bytes(hashes, sizeof(hashes));
     if (!admitted.ok()) {
         if (admitted.error != RestClientSubmitError::busy) {
-            if (g_owner.queued != Mutation::none)
-                set_status(mutation_panel(g_owner.queued), failure_text(g_owner.queued), true);
-            else
+            log_u64(LogLevel::warning, "account_settings", "submit_refused", static_cast<u64>(admitted.error));
+            if (g_owner.queued) {
+                g_owner.queued = false;
+                if (g_owner.form_shown) {
+                    g_owner.busy = false;
+                    form_status(failure_text(g_owner.op), true);
+                } else
+                    finish(failure_text(g_owner.op), true);
+            } else
                 g_owner.failed |= load;
-            g_owner.queued = Mutation::none;
             application_settings_refresh_pages();
         }
         return false;
     }
     g_owner.request_id = request_id;
-    g_owner.inflight = g_owner.queued;
+    g_owner.action_inflight = g_owner.queued;
+    g_owner.inflight = g_owner.queued ? g_owner.op : request.operation;
     g_owner.inflight_load = load;
-    g_owner.queued = Mutation::none;
+    g_owner.queued = false;
     application_settings_refresh_pages();
     return true;
 }
+
+namespace {
+// A token the answer carries replaces the session's: the old one stops working (password and MFA changes).
+void adopt_token(Utf8View body, Slice<u32> structurals) noexcept {
+    char token[256];
+    const u32 bytes = account_settings_decode_member(body, structurals, utf8_literal("token"), {token, sizeof(token)});
+    if (bytes != ~0u && bytes && g_app.account.api.credential_replace &&
+        !g_app.account.api.credential_replace(g_app.account.instance, reinterpret_cast<const u8*>(token), bytes))
+        log_write(LogLevel::warning, "account_settings", "credential_replace_failed");
+    secure_clear_bytes(token, sizeof(token));
+}
+bool keep_member(Utf8View body, Slice<u32> structurals, Utf8View name, Field f) noexcept {
+    auto& b = *g_owner.bank;
+    secure_clear_bytes(b.fields[f], b.field_bytes[f]);
+    const u32 bytes = account_settings_decode_member(body, structurals, name, {b.fields[f], kFieldBytes});
+    b.field_bytes[f] = static_cast<u16>(bytes == ~0u ? 0 : bytes);
+    return bytes != ~0u && bytes;
+}
+// A successful answer to the flow's request: the next dialog, or the flow's result.
+void action_succeeded(Op op, Utf8View body, Slice<u32> structurals) noexcept {
+    auto& b = *g_owner.bank;
+    switch (op) {
+    case Op::mfa_finish:
+        if (!keep_member(body, structurals, utf8_literal("token"), field_mfa)) {
+            finish(utf8_literal("Discord didn't confirm it's you. Try again."), true);
+            return;
+        }
+        g_owner.verified = true;
+        queue(g_owner.retry);
+        return;
+    case Op::mfa_sms_send: {
+        char phone[32];
+        const u32 bytes = account_settings_decode_member(body, structurals, utf8_literal("phone"), {phone, sizeof(phone)});
+        g_owner.sms_sent = true;
+        g_owner.busy = false;
+        message(utf8_literal("We've sent a message to "));
+        append(b.message, b.message_bytes, bytes != ~0u ? view(phone, bytes) : utf8_literal("your phone"));
+        form_status(append(b.message, b.message_bytes, utf8_literal(". Please enter the code you received.")), false);
+        return;
+    }
+    case Op::email_challenge:
+        transition(Form::email_code);
+        return;
+    case Op::email_verify_code:
+        if (!keep_member(body, structurals, utf8_literal("token"), field_token)) {
+            finish(failure_text(op), true);
+            return;
+        }
+        transition(Form::email_new);
+        return;
+    case Op::phone_code:
+        transition(Form::phone_code);
+        return;
+    case Op::phone_verify:
+        if (!keep_member(body, structurals, utf8_literal("token"), field_token)) {
+            finish(failure_text(op), true);
+            return;
+        }
+        transition(Form::phone_password);
+        return;
+    case Op::backup_challenge:
+        if (!keep_member(body, structurals, utf8_literal("nonce"), field_token)) {
+            finish(failure_text(op), true);
+            return;
+        }
+        keep_member(body, structurals, utf8_literal("regenerate_nonce"), field_token2);
+        transition(Form::backup_key);
+        return;
+    case Op::backup_codes: {
+        const u32 count = account_settings_decode_backup_codes(body, structurals, {b.codes, kAccountBackupCodeMaximum});
+        g_owner.code_count = count == ~0u ? 0 : count;
+        // A nonce works once: regenerating spends the second.
+        if (g_owner.op_option) {
+            secure_clear_bytes(b.fields[field_token2], b.field_bytes[field_token2]);
+            b.field_bytes[field_token2] = 0;
+        }
+        transition(Form::backup_list);
+        return;
+    }
+    case Op::totp_enable: {
+        adopt_token(body, structurals);
+        const u32 count = account_settings_decode_backup_codes(body, structurals, {b.codes, kAccountBackupCodeMaximum});
+        g_owner.code_count = count == ~0u ? 0 : count;
+        g_owner.loaded &= ~load_self;
+        set_status(SettingsPanel::account, utf8_literal("Your authenticator app is on. Save your backup codes."), false);
+        transition(g_owner.code_count ? Form::new_codes : Form::none);
+        if (!g_owner.code_count)
+            clear_flow();
+        return;
+    }
+    case Op::password:
+    case Op::totp_disable:
+        adopt_token(body, structurals);
+        g_owner.loaded &= ~load_self;
+        finish(op == Op::password ? utf8_literal("Your password was changed.")
+                                  : utf8_literal("Your authenticator app was removed."),
+               false);
+        return;
+    case Op::username:
+    case Op::email:
+    case Op::phone_add:
+    case Op::phone_remove:
+    case Op::sms_enable:
+    case Op::sms_disable:
+    case Op::display_name:
+        g_owner.loaded &= ~load_self;
+        finish(op == Op::username      ? utf8_literal("Your username was changed.")
+               : op == Op::email       ? utf8_literal("Check your inbox to verify your new email address.")
+               : op == Op::phone_add   ? utf8_literal("Your phone number was updated.")
+               : op == Op::phone_remove ? utf8_literal("Your phone number was removed.")
+               : op == Op::sms_enable  ? utf8_literal("SMS authentication is on.")
+               : op == Op::sms_disable ? utf8_literal("SMS authentication was removed.")
+                                       : utf8_literal("Your changes were saved."),
+               false);
+        return;
+    case Op::profile_patch:
+        g_owner.loaded &= ~load_profile;
+        finish(utf8_literal("Your changes were saved."), false);
+        return;
+    case Op::security_key_create:
+        if (!field(field_token2).bytes) {
+            // The first answer: the ticket and the challenge to answer with the key.
+            const u32 challenge =
+                account_settings_decode_member(body, structurals, utf8_literal("challenge"), {b.webauthn, sizeof(b.webauthn)});
+            b.webauthn_bytes = challenge == ~0u ? 0 : challenge;
+            if (!keep_member(body, structurals, utf8_literal("ticket"), field_token) || !b.webauthn_bytes) {
+                finish(utf8_literal("Couldn't start the registration. Try again."), true);
+                return;
+            }
+            transition(Form::key_register);
+            return;
+        }
+        // The second: the new key, and the backup codes when it is the account's first way to verify.
+        adopt_token(body, structurals);
+        {
+            const u32 count = account_settings_decode_backup_codes(body, structurals, {b.codes, kAccountBackupCodeMaximum});
+            g_owner.code_count = count == ~0u ? 0 : count;
+        }
+        g_owner.loaded &= ~(load_keys | load_self);
+        set_status(SettingsPanel::account,
+                   g_owner.code_count ? utf8_literal("Your security key was added. Save your backup codes.")
+                                      : utf8_literal("Your security key was added."),
+                   false);
+        transition(g_owner.code_count ? Form::new_codes : Form::none);
+        if (!g_owner.code_count)
+            clear_flow();
+        return;
+    case Op::security_key_rename:
+    case Op::security_key_delete:
+        g_owner.loaded &= ~(load_keys | load_self);
+        finish(op == Op::security_key_rename ? utf8_literal("The security key was renamed.")
+                                             : utf8_literal("The security key was removed."),
+               false);
+        return;
+    case Op::account_disable:
+    case Op::account_delete:
+        // Discord ends every session of the account: this one signs out when its connection closes.
+        finish(op == Op::account_disable ? utf8_literal("Your account was disabled.")
+                                         : utf8_literal("Your account is scheduled for deletion."),
+               false);
+        return;
+    case Op::session_logout:
+        g_owner.loaded &= ~load_sessions;
+        finish(g_owner.form == Form::logout_all ? utf8_literal("All known devices were logged out.")
+                                                : utf8_literal("The device was logged out."),
+               false);
+        return;
+    case Op::token_revoke:
+        g_owner.loaded &= ~load_tokens;
+        finish(utf8_literal("The app was deauthorized."), false);
+        return;
+    case Op::connection_delete:
+        g_owner.loaded &= ~load_connections;
+        finish(utf8_literal("The account was disconnected."), false);
+        return;
+    case Op::connection_patch:
+        // The switch already shows the new state.
+        finish({}, false);
+        return;
+    case Op::consent_patch:
+        // The answer leaves usage_statistics out (Userdoccers: user-settings#consents-object).
+        b.consents.usage_statistics = g_owner.op_id != 0;
+        finish({}, false);
+        return;
+    case Op::harvest_create:
+        if (!account_settings_decode_harvest(body, structurals, &b.harvest))
+            b.harvest.created_ms = clock_unix_milliseconds();
+        g_owner.harvest_types = 0;
+        finish(utf8_literal("Request received. Our privacy farmers have begun harvesting your data. This can take up to "
+                            "30 days, but we'll email you when it's done."),
+               false);
+        return;
+    default:
+        finish({}, false);
+        return;
+    }
+}
+} // namespace
 
 bool application_account_settings_response(const RestClientResponse& response, Utf8View body) noexcept {
     if (!g_owner.request_id || response.request_id != g_owner.request_id)
         return false;
     g_owner.request_id = 0;
-    const Mutation mutation = g_owner.inflight;
-    const u8 load = g_owner.inflight_load;
-    g_owner.inflight = Mutation::none;
+    const bool action = g_owner.action_inflight;
+    const Op op = g_owner.inflight;
+    const u16 load = g_owner.inflight_load;
+    g_owner.action_inflight = false;
     g_owner.inflight_load = 0;
     auto* b = g_owner.bank;
     if (!b)
         return true;
     const bool ok = response.succeeded();
     const Slice<u32> structurals{b->structurals, sizeof(b->structurals) / sizeof(u32)};
-    if (mutation != Mutation::none) {
-        if (ok) {
-            switch (mutation) {
-            case Mutation::session_logout:
-                g_owner.loaded &= ~load_sessions;
-                set_status(SettingsPanel::devices, utf8_literal("The device was logged out."), false);
-                break;
-            case Mutation::token_revoke:
-                g_owner.loaded &= ~load_tokens;
-                set_status(SettingsPanel::authorized_apps, utf8_literal("The app was deauthorized."), false);
-                break;
-            default:
-                g_owner.loaded &= ~(mutation == Mutation::display_name ? load_self : load_profile);
-                set_status(mutation_panel(mutation), utf8_literal("Your changes were saved."), false);
-                break;
-            }
-        } else {
+    if (action) {
+        if (ok)
+            action_succeeded(op, body, structurals);
+        else {
             const u64 code = response.transport_ok() ? account_settings_error_code(body, structurals) : 0;
-            set_status(mutation_panel(mutation),
-                       code == kTwoFactorRequired
-                           ? utf8_literal("Discord needs your two-factor code for this. Use Discord in your browser.")
-                       : response.status_code == 400 ? utf8_literal("Discord didn't accept that change.")
-                                                     : failure_text(mutation),
-                       true);
+            // Discord asks for MFA (or the password) first: verify, then send the same request with the token.
+            if (code == kMfaRequired && op != Op::mfa_finish && !g_owner.verified &&
+                account_settings_decode_mfa_challenge(body, structurals, &b->mfa, {b->webauthn, sizeof(b->webauthn)},
+                                                      &b->webauthn_bytes)) {
+                g_owner.retry = op;
+                g_owner.sms_sent = false;
+                transition(b->mfa.methods == kAccountMfaMethodPassword ? Form::mfa_password : Form::mfa_code);
+            } else {
+                b->message_bytes = 0;
+                const u32 bytes = response.transport_ok()
+                                      ? account_settings_error_message(body, structurals, {b->message, sizeof(b->message)})
+                                      : 0;
+                b->message_bytes = static_cast<u16>(bytes);
+                const Utf8View reason = bytes ? view(b->message, bytes) : failure_text(op);
+                if (op == Op::connection_patch && g_owner.target < g_owner.connection_count)
+                    connection_option(b->connections[g_owner.target],
+                                      static_cast<AccountConnectionField>(g_owner.op_option)) = !g_owner.op_id;
+                if (op == Op::consent_patch)
+                    b->consents.usage_statistics = !g_owner.op_id;
+                // A failure after verifying cannot reuse the spent ticket: the flow ends with it.
+                if (g_owner.form_shown && !g_owner.verified) {
+                    g_owner.busy = false;
+                    form_status(reason, true);
+                } else
+                    finish(reason, true);
+            }
         }
-        b->text_bytes = 0;
-        b->hash_bytes = 0;
-        secure_clear_bytes(b->text, sizeof(b->text));
         application_settings_refresh_pages();
         return true;
     }
@@ -681,6 +2434,26 @@ bool application_account_settings_response(const RestClientResponse& response, U
             g_owner.app_count = decoded ? count : 0;
             break;
         }
+        case load_keys: {
+            const u32 count = account_settings_decode_security_keys(body, structurals, {b->keys, kAccountSecurityKeyMaximum});
+            decoded = count != ~0u;
+            g_owner.key_count = decoded ? count : 0;
+            break;
+        }
+        case load_connections: {
+            const u32 count = account_settings_decode_connections(body, structurals, {b->connections, kAccountConnectionMaximum});
+            decoded = count != ~0u;
+            g_owner.connection_count = decoded ? count : 0;
+            break;
+        }
+        case load_consents:
+            decoded = account_settings_decode_consents(body, structurals, &b->consents);
+            break;
+        case load_harvest:
+            // 204: no request was ever made.
+            reset_value(&b->harvest);
+            decoded = !body.bytes || account_settings_decode_harvest(body, structurals, &b->harvest);
+            break;
         default:
             break;
         }
@@ -688,14 +2461,37 @@ bool application_account_settings_response(const RestClientResponse& response, U
     if (decoded)
         g_owner.loaded |= load;
     else {
-        g_owner.failed |= load;
+        // An account without security keys may refuse to list them; the page shows none.
+        if (load == load_keys) {
+            g_owner.key_count = 0;
+            g_owner.loaded |= load;
+        } else
+            g_owner.failed |= load;
         log_u64(LogLevel::warning, "account_settings", "load_failed", response.status_code);
     }
     application_settings_refresh_pages();
     return true;
 }
 
+#if !defined(_WIN32)
+bool application_account_settings_webauthn_progress(u64 token, u64 kind) noexcept {
+    if (!g_owner.key_ceremony || token != g_owner.key_token || !g_owner.bank)
+        return false;
+    if (kind == kWebAuthnWakePin) {
+        if (webauthn_ceremony_state() == WebAuthnCeremonyState::need_pin)
+            ceremony_pin();
+    } else if (kind == kWebAuthnWakeDone && webauthn_ceremony_state() == WebAuthnCeremonyState::done) {
+        ceremony_done();
+    }
+    application_settings_refresh_pages();
+    return true;
+}
+#endif
+
 void application_account_settings_release() noexcept {
+    if (g_owner.form_shown)
+        application_text_form_cancel_owner(form_valid);
+    application_settings_drop_borrowed();
     release_bank();
     const u64 lifetime = g_owner.lifetime + 1;
     reset_value(&g_owner);
@@ -715,11 +2511,25 @@ AccountSettingsConnection application_account_settings_connection() noexcept {
     return AccountSettingsConnection::ready;
 }
 
-bool application_account_settings_connection_changed() noexcept {
+bool application_account_settings_changed() noexcept {
     const u8 connection = static_cast<u8>(application_account_settings_connection());
+    const auto* relationships = application_friends_relationships();
+    const u32 revision = relationships ? relationships->revision + 1 : 0;
+    const bool social = g_owner.social && revision != g_owner.relationship_revision;
+    g_owner.relationship_revision = revision;
     if (connection == g_connection)
-        return false;
+        return social;
     g_connection = connection;
     return true;
+}
+
+void application_account_settings_test_open() noexcept {
+#if defined(MAICORD_TEST_HOOKS) && !defined(_WIN32)
+    static bool opened;
+    const char* key = test_hook("MAICORD_TEST_USER_SETTINGS");
+    if (opened || !key || !g_app.renderer_ready || application_account_settings_connection() != AccountSettingsConnection::ready)
+        return;
+    opened = application_settings_open_key({key, c_string_length(key)});
+#endif
 }
 } // namespace maicord::app_detail

@@ -397,7 +397,10 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
                                                          : MessageMarkdownSemanticKind::none;
             const bool flag_cell = kind == MessageMarkdownSemanticKind::regional_flag ||
                                    kind == MessageMarkdownSemanticKind::chip_icon ||
-                                   kind == MessageMarkdownSemanticKind::guild_icon;
+                                   kind == MessageMarkdownSemanticKind::guild_icon ||
+                                   kind == MessageMarkdownSemanticKind::game_icon ||
+                                   kind == MessageMarkdownSemanticKind::author_avatar ||
+                                   kind == MessageMarkdownSemanticKind::role_dot;
             // Flag and chip icon ranges keep the full cell so the viewport
             // scissor clips the artwork without shrinking or recentering it;
             // other hit rectangles are clipped here.
@@ -450,6 +453,11 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
     const bool composer_edit = composer && composer->model && composer->model->bytes &&
                                command.owner.manager == &composer->widgets &&
                                command.owner.handle.slot == composer->edit.slot;
+    // The draft, and the placeholder that stands for it, are chat text.
+    const UiTextFace face = composer && command.owner.manager == &composer->widgets &&
+                                    command.owner.handle.slot == composer->edit.slot
+                                ? ui_text_face_chat(command.face)
+                                : command.face;
     const ConstSlice<TextStyleSpan> styles =
         composer_edit ? ConstSlice<TextStyleSpan>{composer->display_styles, composer->display_style_count}
         : command.styles.count                   ? command.styles
@@ -492,7 +500,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         composer_edit || bio || command.effect.themed_styles ? &theme : nullptr, nullptr, bio_semantics, command.owner, 0, 0,
         composer_edit ? composer->display_anchor : 0, composer_edit ? composer->display_caret : 0,
         command.horizontal_alignment, command.vertical_alignment, command.wrapping, command.overflow,
-        command.face, force_new_batch,
+        face, force_new_batch,
         composer_edit && composer->model->focused && composer->display_anchor != composer->display_caret,
         command.effect.kind == 8,
         !composer_edit && !bio &&
@@ -556,7 +564,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
             command.effect.kind != 1 && command.effect.kind != 2 && command.effect.kind != 6)
             material.animate = 1.f;
         material.reserved[0] = static_cast<float>(command.effect.started_ms % 60000) / 1000.f;
-        material.reserved[1] = text_system_font_size(renderer->glyph_text.system, command.style_flags);
+        material.reserved[1] = text_system_font_size(command_text_system(renderer, face), command.style_flags);
         material.reserved[2] = command.rectangle.top;
         renderer->text_effect_animated |= material.animate != 0 && command.effect.kind != 1;
         // Covers the neon halo (4 + .12 em), pop offset (.13 em), gummy scale
@@ -577,7 +585,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
             material.colors[6] = profile_tone(base, 1, 0, 1.2f, .1f, .6f);
         }
         if (command.effect.kind == 7) {
-            auto system = command_text_system(renderer, command.face);
+            auto system = command_text_system(renderer, face);
             const TextStyleSpan zero_style{0, 1, command.style_flags};
             const auto zero =
                 text_measure_utf8(&system, {utf8_literal("0"), {&zero_style, 1}, 256, 64, TextWrapping::no_wrap});
@@ -619,7 +627,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
             for (u32 i = count; i > 0; --i)
                 storage->quads[first_quad + extra + i - 1] = storage->quads[first_quad + i - 1];
             const float dx[4] = {-1, 1, 0, 0}, dy[4] = {0, 0, -1, 1};
-            const float em = text_system_font_size(renderer->glyph_text.system, command.style_flags);
+            const float em = text_system_font_size(command_text_system(renderer, face), command.style_flags);
             const float outline_offset = (command.effect.kind == 5 ? .6f : .8f) + .02f * em;
             for (u32 pass = 0; pass < passes; ++pass) {
                 const bool shadow = command.effect.kind == 5 && pass == 0;
@@ -666,6 +674,12 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
     const auto* users = search_result ? renderer->search_message_users : renderer->user_store;
     auto* cache = search_result ? renderer->search_message_measure_cache : renderer->message_measure_cache;
     const UiRect* batch_clip = scene ? &scene->viewport : nullptr;
+    // Everything a message row shows is chat text: sized by Text size in chat.
+    const auto append_chat = [&](const UiTextCommand& part, bool first) noexcept {
+        UiTextCommand chat = part;
+        chat.face = ui_text_face_chat(chat.face);
+        return append_content_text_command(renderer, chat, theme, atlas_invalidated, first, batch_clip);
+    };
     MessageInteractionLayout interaction{};
     if (scene && users && message_interaction_layout(*scene, command, *users, cache, theme, &interaction)) {
         // "<user> used <command>" is laid out piece by piece: the name and
@@ -673,8 +687,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         const UiTextCommand* parts[]{&interaction.name, &interaction.used, &interaction.command};
         bool first = force_new_batch;
         for (const auto* part : parts) {
-            if (part->text.bytes && !append_content_text_command(renderer, *part, theme, atlas_invalidated, first,
-                                                                 batch_clip))
+            if (part->text.bytes && !append_chat(*part, first))
                 return false;
             first = false;
         }
@@ -690,15 +703,16 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
     if (scene && renderer->chat_state && users &&
         message_author_layout(*scene, command, *renderer->chat_state, *users, cache, theme, &header,
                               presentation->guild_members)) {
-        if (!append_content_text_command(renderer, header.name, theme, atlas_invalidated,
-                                          force_new_batch, batch_clip))
+        if (!append_chat(header.name, force_new_batch))
             return false;
         const UiTextCommand* decorations[]{&header.name_prefix, &header.name_suffix};
         for (const auto* decoration : decorations)
-            if (decoration->text.bytes &&
-                !append_content_text_command(renderer, *decoration, theme, atlas_invalidated,
-                                              false, batch_clip))
+            if (decoration->text.bytes && !append_chat(*decoration, false))
                 return false;
+        // The role dot and the chips (APP tag, plugin badges) sit in fixed boxes: they keep the interface's size.
+        if (header.role_dot.text.bytes &&
+            !append_content_text_command(renderer, header.role_dot, theme, atlas_invalidated, false, batch_clip))
+            return false;
         const UiBadgeWidget* badges[2 + kUiPluginRenderBadges]{&header.badge, &header.plugin.badge};
         for (u32 d = 0; d < header.decoration_count; ++d)
             badges[2 + d] = &header.decorations[d].badge;
@@ -709,13 +723,11 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
             UiTextCommandStream stream{};
             if (!ui_text_command_stream_initialize(&stream, {&badge_command, 1}) ||
                 !ui_badge_text(*badge, scene->widgets, theme, &stream) ||
-                !append_content_text_command(renderer, badge_command, theme, atlas_invalidated,
-                                              false, batch_clip))
+                !append_content_text_command(renderer, badge_command, theme, atlas_invalidated, false, batch_clip))
                 return false;
         }
         return !header.timestamp.text.bytes ||
-               append_content_text_command(renderer, header.timestamp, theme, atlas_invalidated,
-                                            false, batch_clip);
+               append_chat(header.timestamp, false);
     }
     float shaped_height = 0.0f;
     const bool selected =
@@ -732,7 +744,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         command.semantics, command.owner, command.message_id, command.message_revision,
         renderer->message_text_selection_anchor, renderer->message_text_selection_caret,
         command.horizontal_alignment, command.vertical_alignment, command.wrapping, command.overflow,
-        UiTextFace::normal, force_new_batch, selected, false, false, true};
+        message_text_command_face(command), force_new_batch, selected, false, false, true};
     if (!append_content_text(renderer, request, &shaped_height, atlas_invalidated)) {
         return false;
     }
@@ -785,7 +797,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         initials.horizontal_alignment = initials.vertical_alignment = UiTextAlignment::center;
         initials.wrapping = TextWrapping::no_wrap;
         if (initials.text.bytes && ui_rect_has_area(initials.clip) &&
-            !append_content_text_command(renderer, initials, theme, atlas_invalidated, false, batch_clip))
+            !append_chat(initials, false))
             return false;
     }
     return true;

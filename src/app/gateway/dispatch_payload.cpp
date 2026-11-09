@@ -321,9 +321,10 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, const Cons
     message->fields = event.message.fields;
     if (event.message.forwarding_features &
         ~(gateway_message_forwarding_poll | gateway_message_forwarding_call |
-          gateway_message_forwarding_activity))
+          gateway_message_forwarding_activity | kGatewayClientMessageTts))
         return false;
     message->forwarding_features = static_cast<u8>(event.message.forwarding_features);
+    message->tts = (event.message.forwarding_features & kGatewayClientMessageTts) != 0;
     message->mention_everyone =
         (event.message.mention_flags & gateway_client_message_mention_everyone) != 0;
     message->mentions_current_user =

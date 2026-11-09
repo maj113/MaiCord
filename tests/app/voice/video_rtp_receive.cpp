@@ -368,6 +368,8 @@ struct Collector {
 };
 void collect(void* context, const VideoRtpFrame& frame) noexcept {
     auto& c = *static_cast<Collector*>(context);
+    if (frame.early)
+        return; // Only the unit's turn counts.
     if (c.count < 64)
         c.sizes[c.count] = frame.annex_b.count;
     if (frame.keyframe)

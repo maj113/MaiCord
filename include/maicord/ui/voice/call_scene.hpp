@@ -54,12 +54,12 @@ enum class UiCallControl : u8 {
     mute,
     deafen,
     camera,       // Disabled: camera send is not implemented.
-    screen_share, // Disabled: Go Live send is not implemented.
+    screen_share, // Go Live: the screen share picker, or the stream menu while live (UiCallShare).
     disconnect,
     fullscreen,      // Control bar: toggles borderless fullscreen.
     tile_fullscreen, // Hover button on a tile: focus it and enter fullscreen.
     stream_watch,    // "Watch stream" on an unwatched stream tile.
-    stream_stop,     // "Stop watching" on the watched stream's hover bar.
+    stream_stop,     // "Stop watching" (your own stream: "Stop Streaming") on the stream's hover bar.
     stream_volume,   // Stream volume (opens the volume menu) on the hover bar.
     stream_dismiss,  // Close an ended stream's tile.
     // Stage channels (UiCallStage).
@@ -75,7 +75,15 @@ enum class UiCallControl : u8 {
     stage_move,     // Speaker tile: move that user to the audience (user_id).
     chat,           // Header: show or hide the channel's text chat beside the call.
     soundboard,     // Control bar: opens the soundboard picker.
+    stream_viewers, // Your own stream tile's viewer count: lists who is watching.
     count
+};
+// What the screen-share button offers in this call.
+enum class UiCallShare : u8 {
+    unavailable, // Disabled: this computer cannot stream ("Screen Sharing Unavailable").
+    not_allowed, // Disabled: no Video permission in the channel.
+    available,   // "Share Your Screen".
+    live,        // Streaming: "Stop Streaming" (opens the stream menu), drawn active.
 };
 enum class UiCallStream : u8 {
     none,         // A participant (camera or avatar) tile.
@@ -156,6 +164,8 @@ struct UiCallContent {
     // Width of the host's channel search field drawn in this header (zero:
     // none). The header reserves it a slot between the chat toggle and close.
     float search_width;
+    // The bar's screen-share button.
+    UiCallShare share;
 };
 struct UiCallTile {
     u64 user_id;
@@ -206,6 +216,7 @@ struct UiCallScene {
     bool active, keyboard_focus;
     bool chat_available, chat_open;
     bool soundboard_available, soundboard_open;
+    UiCallShare share;
     // Stage (content.stage) copy and geometry; empty rectangles when hidden.
     bool stage_active, stage_live, stage_hand;
     u64 stage_hovered; // Hand-raise row under the pointer (user ID).

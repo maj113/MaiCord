@@ -7,11 +7,13 @@
 #include "maicord/ui/text/composition.hpp"
 #include "maicord/ui/text/style.hpp"
 #include "maicord/media/core/asset_key.hpp"
+#include "maicord/ui/chat/messages/typing_indicator.hpp"
 
 namespace maicord {
 enum class UiComposerVoiceMode : u8;
 struct UiComposerVoiceView;
 struct UserStore;
+struct GameStore;
 
 struct ChatStateStore;
 
@@ -40,6 +42,9 @@ enum class MessageComposerProjectionKind : u8 {
     // The end marker of an option's value (kCommandOptionEnd): the chip's end
     // padding; text after it is outside the chip.
     command_option_end,
+    // A game mention (<@$id>): a known game's icon cell (target: the game)
+    // and name, or "@unknown-game" as plain text.
+    game,
 };
 
 // One typed option of the selected command, in source bytes: the head's start
@@ -82,6 +87,8 @@ struct MessageComposerProjectionContext {
     // error), else "/command" and its description. Empty name: no bar.
     Utf8View command_bar_name{}, command_bar_detail{};
     bool command_bar_error{};
+    // Game mention names (<@$id>); null shows every game as unknown.
+    const GameStore* games{};
 };
 
 struct MessageComposerProjectionSpan {
@@ -180,10 +187,6 @@ struct MessageComposerAttachmentStrip {
     UiComposerAttachmentPart hovered_part;
 };
 
-struct MessageComposerTypingName {
-    u16 offset, bytes; // The name's span in the typing label.
-    u32 color;         // 0xRRGGBB; zero keeps the label's colour.
-};
 struct MessageComposerScene {
     MessageComposerCommand command;
     MessageComposerAtomicSpan* atomic_spans;
@@ -272,10 +275,12 @@ struct MessageComposerScene {
     // typing_phase (typing_indicator.hpp), which the host's frame clock sets.
     bool typing_dots;
     u16 typing_phase;
-    // The typing label's names with their role colours ("Role colors everywhere"): the host
-    // fills them after each update; a name with a colour draws bold in it.
-    MessageComposerTypingName typing_names[3];
+    // The typing label's bold spans (names, or "Several people"); the host fills them after each update.
+    // typing_collapsible: the label names one to three people and collapses to "Multiple people are
+    // typing..." when the names do not fit the row.
+    MessageTypingName typing_names[3];
     u8 typing_name_count;
+    bool typing_collapsible;
     bool geometry_dirty;
     // Visible plugin_slots, from the composer toolbar plugin query.
     u8 plugin_count;
@@ -308,19 +313,19 @@ bool message_composer_scene_control_visible(const MessageComposerScene&, Message
 u32 message_composer_scene_focused_plugin_slot(const MessageComposerScene&) noexcept;
 float message_composer_scene_toolbar_height(float composer_width,
                                             const UiResolvedThemeStyles* styles = nullptr) noexcept;
-// attachments is a MessageComposerAttachmentRow; true selects the label row.
+// attachments is a MessageComposerAttachmentRow; true selects the label row. The
+// typing strip above the surface is always part of the height, so showing or
+// hiding the indicator never moves the message list.
 float message_composer_scene_preferred_height(const MessageComposer& model, float composer_width,
-                                              bool reply_visible, bool typing_visible,
-                                              u8 attachments_visible = 0,
+                                              bool reply_visible, u8 attachments_visible = 0,
                                               const UiResolvedThemeStyles* styles = nullptr) noexcept;
 float message_composer_scene_measured_height(const MessageComposerScene& scene, float text_height) noexcept;
 // command_bar: the selected slash command's option bar (stacked first).
 float message_composer_scene_chrome_height(
-    bool reply, bool typing, u8 attachments, const UiResolvedThemeStyles* styles = nullptr,
+    bool reply, u8 attachments, const UiResolvedThemeStyles* styles = nullptr,
     bool command_bar = false) noexcept;
-float message_composer_scene_cached_height(const MessageComposerScene& scene, bool reply, bool typing,
-                                           u8 attachments, float composer_width = 0.f,
-                                           bool command_bar = false) noexcept;
+float message_composer_scene_cached_height(const MessageComposerScene& scene, bool reply, u8 attachments,
+                                           float composer_width = 0.f, bool command_bar = false) noexcept;
 // The option bar's name, its detail, and where both are drawn (empty without a bar).
 Utf8View message_composer_scene_command_bar_name(const MessageComposerScene& scene) noexcept;
 Utf8View message_composer_scene_command_bar_detail(const MessageComposerScene& scene) noexcept;

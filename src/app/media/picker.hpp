@@ -28,7 +28,10 @@ bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept;
 // /gifs/search (animated WebP, 20 results; a query answered this session
 // shows again without a request), or the eight best sendable stickers. An
 // empty query hides them; the open expression picker suppresses them.
-bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor) noexcept;
+// autocomplete: the sticker list of the composer's ':' emoji query instead, which lasts while that query does
+// (application_media_picker_autocomplete_active); sending a sticker from it clears the query.
+bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor,
+                                     bool autocomplete = false) noexcept;
 void application_media_picker_inline_close() noexcept;
 // While inline results show: Up/Down step the selection (wrapping) and Tab
 // inserts a GIF's link (sends a sticker). Enter sends the keyboard-selected
@@ -46,6 +49,12 @@ u64 application_media_picker_sticker_server(u64 sticker_id) noexcept;
 // selector, beside the anchor, adding the chosen emoji as a reaction to the
 // message (Shift keeps it open). Opening on the open message toggles it shut.
 bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexcept;
+// The profile popout's message field emoji button: the Emoji tab alone beside the anchor (as the reaction popout),
+// putting the chosen emoji into the field (application_profile_insert_message_text) and closing; owner is the
+// profile's user. Opening it again toggles it shut.
+bool application_media_picker_open_field(UiRect anchor, u64 owner) noexcept;
+// Closes the field popout (its profile popout closed); other pickers stay.
+void application_media_picker_close_field() noexcept;
 // Reaction admission/status changed; refreshes an open reaction popout.
 void application_media_picker_reaction_changed() noexcept;
 void application_media_picker_close() noexcept;

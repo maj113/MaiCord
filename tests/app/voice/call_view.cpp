@@ -229,7 +229,7 @@ void control_cases(Check check) noexcept {
     check(ui_call_control_enabled(scene, UiCallControl::mute) && ui_call_control_enabled(scene, UiCallControl::disconnect) &&
               !ui_call_control_enabled(scene, UiCallControl::camera) &&
               !ui_call_control_enabled(scene, UiCallControl::screen_share),
-          "call controls: camera and screen share stay disabled until sending exists");
+          "call controls: camera stays disabled; screen share is disabled while this computer cannot stream");
     const auto label = [&](UiCallControl control, Utf8View expected) noexcept {
         const Utf8View value = ui_call_control_label(scene, control);
         return value.bytes == expected.bytes && bytes_equal(value.data, expected.data, value.bytes);
@@ -263,12 +263,81 @@ void control_cases(Check check) noexcept {
               !ui_call_scene_set_hover(&scene, d.x, d.y) && ui_call_scene_set_hover(&scene, -10, -10) &&
               scene.hovered == UiCallControl::none,
           "call controls: hover changes only when the target changes");
+    {
+        // Go Live: the screen share button follows what the call allows, as the official client's.
+        const auto share_label = [&](UiCallShare share, Utf8View expected) noexcept {
+            content.share = share;
+            return ui_call_scene_update(&scene, content, viewport, 0, true) &&
+                   label(UiCallControl::screen_share, expected);
+        };
+        check(share_label(UiCallShare::unavailable, utf8_literal("Screen Sharing Unavailable")) &&
+                  !ui_call_control_enabled(scene, UiCallControl::screen_share) &&
+                  share_label(UiCallShare::not_allowed, utf8_literal("You can\xE2\x80\x99t stream into this channel.")) &&
+                  !ui_call_control_enabled(scene, UiCallControl::screen_share) &&
+                  share_label(UiCallShare::available, utf8_literal("Share Your Screen")) &&
+                  ui_call_control_enabled(scene, UiCallControl::screen_share) &&
+                  !ui_call_control_active(scene, UiCallControl::screen_share) &&
+                  share_label(UiCallShare::live, utf8_literal("Stop Streaming")) &&
+                  ui_call_control_enabled(scene, UiCallControl::screen_share) &&
+                  ui_call_control_active(scene, UiCallControl::screen_share),
+              "call controls: Share Your Screen, Stop Streaming while live, and why it is unavailable");
+        content.share = UiCallShare::unavailable;
+    }
     // Hovering a large tile reveals its fullscreen button.
     const auto& tile = scene.tiles[0];
     const float bx = tile.display.right - 22, by = tile.display.top + 22;
     check(ui_call_scene_set_hover(&scene, bx, by) && scene.hovered == UiCallControl::tile_fullscreen &&
               scene.hovered_user == 7 && ui_call_scene_hit_test(scene, bx, by).control == UiCallControl::tile_fullscreen,
           "call controls: a hovered tile offers fullscreen");
+    ui_call_scene_release(&scene);
+}
+
+// Your own stream's tile: LIVE with the viewer count, which lists the viewers; its hover bar stops the stream and has
+// no volume (you never hear your own stream); paused, it says how to resume.
+void own_stream_cases(Check check) noexcept {
+    static UiCallScene scene;
+    UiCallParticipant own = person(0x8000'0000'0000'0007ull, "Me");
+    own.self = true;
+    own.stream = UiCallStream::live;
+    own.viewers = 3;
+    UiCallContent content{};
+    content.title = utf8_literal("Call");
+    content.participants = {&own, 1};
+    content.share = UiCallShare::live;
+    const UiRect viewport{0, 0, 1000, 700};
+    check(ui_call_scene_update(&scene, content, viewport, 0, true), "own stream: lay out");
+    const auto& tile = scene.tiles[0];
+    const UiRect viewers = ui_call_scene_tile_control(scene, own.user_id, UiCallControl::stream_viewers);
+    const float vx = (viewers.left + viewers.right) * .5f, vy = (viewers.top + viewers.bottom) * .5f;
+    check(ui_rect_has_area(viewers) && ui_call_scene_hit_test(scene, vx, vy).control == UiCallControl::stream_viewers &&
+              ui_call_scene_hit_test(scene, vx, vy).user_id == own.user_id,
+          "own stream: the viewer count is a control that lists the viewers");
+    const float hx = (tile.display.left + tile.display.right) * .5f, hy = (tile.display.top + tile.display.bottom) * .5f;
+    ui_call_scene_set_hover(&scene, hx, hy);
+    const UiRect stop = ui_call_scene_tile_control(scene, own.user_id, UiCallControl::stream_stop);
+    check(ui_rect_has_area(stop) &&
+              !ui_rect_has_area(ui_call_scene_tile_control(scene, own.user_id, UiCallControl::stream_volume)),
+          "own stream: the hover bar stops the stream and has no volume");
+    static UiTextCommand commands[256];
+    static char owned[8192];
+    UiTextCommandStream stream{};
+    UiTextOutput output{&stream};
+    const auto shows = [&](Utf8View text) noexcept {
+        bool found = false;
+        if (ui_text_command_stream_initialize(&stream, {commands, 256}, {owned, sizeof(owned)}) &&
+            ui_call_scene_text_output(scene, kDefaultTheme, &output))
+            for (u32 i = 0; i < stream.count; ++i)
+                found = found || (stream.storage[i].text.bytes == text.bytes &&
+                                  bytes_equal(stream.storage[i].text.data, text.data, text.bytes));
+        return found;
+    };
+    check(shows(utf8_literal("Stop Streaming")) && !shows(utf8_literal("Stop watching")),
+          "own stream: its hover bar reads \"Stop Streaming\"");
+    check(shows(utf8_literal("3")), "own stream: the viewer count is drawn");
+    own.paused = true;
+    check(ui_call_scene_update(&scene, content, viewport, 0, true) &&
+              shows(utf8_literal("Stream paused. Swap to your application to resume.")),
+          "own stream: a paused stream tells the streamer how to resume");
     ui_call_scene_release(&scene);
 }
 
@@ -477,6 +546,7 @@ void test_call_view(Check check) noexcept {
     fit_cases(check);
     scene_cases(check);
     control_cases(check);
+    own_stream_cases(check);
     presenter_cases(check);
     roster_cases(check);
     lifecycle_cases(check);

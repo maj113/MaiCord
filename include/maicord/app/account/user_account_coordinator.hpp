@@ -63,6 +63,9 @@ struct UserAccountCoordinator {
     GatewayClient gateway;
     AccountProfileMetadata metadata;
     UserAccountCoordinatorResult state;
+    // A REST response replaced the token: the Gateway's close 4004 for the old one restarts it instead of
+    // ending the session.
+    bool credential_replaced;
 };
 
 // Starts the REST lanes and a fresh IDENTIFY Gateway session for `profile`.
@@ -95,6 +98,11 @@ bool user_account_coordinator_snapshot_session(const UserAccountCoordinator* coo
 // saved profile. False when none is waiting.
 bool user_account_coordinator_take_refreshed_credential(UserAccountCoordinator* coordinator,
                                                         SecureBuffer* output) noexcept;
+// A token a REST response handed out (password change, MFA on or off): both REST
+// clients switch to it before this returns, the Gateway sends it from its next
+// IDENTIFY or RESUME, and the next pump's refreshed credential saves it.
+bool user_account_coordinator_replace_credential(UserAccountCoordinator* coordinator,
+                                                 ConstSlice<u8> token) noexcept;
 UserAccountCoordinatorResult user_account_coordinator_stop(UserAccountCoordinator* coordinator,
                                                            u32 timeout_ms,
                                                            GatewayUserSessionSnapshot* snapshot) noexcept;

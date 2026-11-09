@@ -43,11 +43,18 @@ struct StreamDecode {
 constexpr u32 f_key = 1, f_server = 2, f_channel = 4, f_region = 8, f_viewers = 16, f_paused = 32, f_token = 64,
               f_endpoint = 128, f_reason = 256, f_unavailable = 512;
 
+struct Viewers {
+    u64* ids;
+    u32 count;
+};
 bool count_viewer(void* context, u32, JsonValue value) noexcept {
+    auto& viewers = *static_cast<Viewers*>(context);
     u64 id = 0;
     if (!json_value_to_snowflake(value, &id))
         return false;
-    ++*static_cast<u32*>(context);
+    if (viewers.count < kGatewayStreamViewerIds)
+        viewers.ids[viewers.count] = id;
+    ++viewers.count;
     return true;
 }
 bool nullable_string(JsonValue value, JsonString* output) noexcept {
@@ -126,13 +133,13 @@ bool visit_stream(void* opaque, JsonString name, JsonValue value) noexcept {
         valid = nullable_string(value, d.kind == 0 ? &d.create.region : &d.update.region);
         break;
     case f_viewers: {
-        u32 count = 0;
+        Viewers viewers{d.kind == 0 ? d.create.viewer_ids : d.update.viewer_ids, 0};
         if (value.kind == JsonValueKind::null_value)
             valid = true;
         else
             valid = value.kind == JsonValueKind::array &&
-                    json_visit_indexed_array(d.document, value, 4, count_viewer, &count).ok();
-        (d.kind == 0 ? d.create.viewer_count : d.update.viewer_count) = count;
+                    json_visit_indexed_array(d.document, value, 4, count_viewer, &viewers).ok();
+        (d.kind == 0 ? d.create.viewer_count : d.update.viewer_count) = viewers.count;
         d.update.has_viewers = d.kind == 2 && value.kind != JsonValueKind::null_value;
         break;
     }
@@ -273,6 +280,28 @@ GatewayCommandWriteResult gateway_write_stream_ping(const GatewayStreamKey& key,
     return keyed("{\"op\":21,\"d\":{\"stream_key\":", key, output);
 }
 
+GatewayCommandWriteResult gateway_write_stream_create(const GatewayStreamKey& key, Slice<u8> output) noexcept {
+    u8 built[kCommandBytes];
+    ProtocolWriter writer{{built, sizeof(built)}, 0};
+    bool valid = gateway_stream_key_valid(key);
+    if (valid && key.type == GatewayStreamType::guild)
+        valid = protocol_write(&writer, "{\"op\":18,\"d\":{\"type\":\"guild\",\"guild_id\":\"", key.guild_id, "\"");
+    else if (valid)
+        valid = protocol_write(&writer, "{\"op\":18,\"d\":{\"type\":\"call\",\"guild_id\":null");
+    valid = valid && protocol_write(&writer, ",\"channel_id\":\"", key.channel_id, "\",\"preferred_region\":null}}");
+    return finish(built, writer.used, valid, output);
+}
+GatewayCommandWriteResult gateway_write_stream_set_paused(const GatewayStreamKey& key, bool paused,
+                                                          Slice<u8> output) noexcept {
+    char text[kGatewayStreamKeyMaximumBytes];
+    const u32 key_bytes = gateway_stream_key_write(key, {text, sizeof(text)});
+    u8 built[kCommandBytes];
+    ProtocolWriter writer{{built, sizeof(built)}, 0};
+    const bool valid = key_bytes && protocol_write(&writer, "{\"op\":22,\"d\":{\"stream_key\":",
+                                                   json_text({text, key_bytes}),
+                                                   paused ? ",\"paused\":true}}" : ",\"paused\":false}}");
+    return finish(built, writer.used, valid, output);
+}
 GatewayEventDecodeResult gateway_decode_stream_create(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamCreate* output) noexcept {
     return decode_as(0, &StreamDecode::create, data, scratch, depth, output);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/ui/shell/navigation_view.hpp"
+#include "maicord/ui/layout/density.hpp"
 #include "maicord/ui/shell/navigation_drag.hpp"
 #include "maicord/ui/core/widget_manager.hpp"
 
@@ -9,11 +10,12 @@ namespace maicord {
 struct UiVirtualRowStorageOwner;
 
 inline constexpr u32 kShellNavigationOverscanRows = 2;
-// Guild channel rows (the official client's compact density): a 30-DIP head
-// whose 28-DIP highlight runs from 6 DIPs in to 8 DIPs before the edge, a
-// 20-DIP glyph 6 DIPs inside the highlight and the name 6 DIPs after it; each
-// depth indents 12 DIPs. Voice channels grow by a 32-DIP row per connected user.
-inline constexpr float kShellNavigationVoiceHeadHeight = 30.0f;
+// Guild channel rows: a head of 30, 34 or 38 DIPs (UI Density's Compact, Default and Spacious), whose highlight,
+// 2 DIPs shorter, runs from 6 DIPs in to 8 DIPs before the edge, a 20-DIP glyph 6 DIPs inside the highlight and the
+// name 6 DIPs after it; each depth indents 12 DIPs. Voice channels grow by a 32-DIP row per connected user.
+inline float shell_navigation_head_height() noexcept {
+    return ui_density_channel_head(g_ui_density);
+}
 inline constexpr float kShellNavigationVoiceUserHeight = 32.0f;
 inline constexpr float kShellChannelHighlightLeft = 6.0f, kShellChannelHighlightRight = 8.0f;
 inline constexpr float kShellChannelIcon = 20.0f, kShellChannelIconLeft = 12.0f;
@@ -33,8 +35,8 @@ inline constexpr float kShellNavigationDividerBand = 9.0f;
 // head; "Invite to Voice" follows the connected channel's users.
 inline constexpr float kShellNavigationStageTopicHeight = 20.0f;
 inline constexpr float kShellNavigationVoiceInviteHeight = 32.0f;
-constexpr float shell_navigation_voice_top(const ChannelViewRow& row) noexcept {
-    return kShellNavigationVoiceHeadHeight +
+inline float shell_navigation_voice_top(const ChannelViewRow& row) noexcept {
+    return shell_navigation_head_height() +
            (row.stage_live || row.voice_subtitle ? kShellNavigationStageTopicHeight : 0.0f);
 }
 
@@ -117,6 +119,10 @@ struct ShellNavigationScene {
     float banner_inset;
     bool banner_header_hovered;
     u32 banner_revision;
+    // Host-set: the category whose chevron is turning after a collapse toggle (0: none; its row draws the
+    // chevron pointing down, turned by -90 degrees times chevron_turn in [0, 1]) and the turn now.
+    u64 chevron_category;
+    float chevron_turn;
 };
 
 float shell_navigation_row_height(const ChannelViewRow& row) noexcept;

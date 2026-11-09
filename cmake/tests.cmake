@@ -199,3 +199,7 @@ foreach(maicord_registered_test IN LISTS maicord_registered_tests)
         endif()
     endif()
 endforeach()
+# The pacing probe holds every GPU chain (nothing else of them draws while it measures a window's frame pacing): it
+# starts first, so that it neither waits for the chains to drain, which makes it the tail of the suite, nor holds them
+# up for more than its own 0.5 s.
+set_property(TEST maicord_post_resize_pacing_probe PROPERTY COST 62)

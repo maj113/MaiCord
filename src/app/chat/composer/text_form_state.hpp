@@ -7,6 +7,8 @@
 namespace maicord::app_detail {
 inline constexpr u32 kApplicationTextFormBytes = 4096;
 inline constexpr u32 kApplicationTextFormDetailBytes = 2048;
+// A secret field's longest text, and its bullets (U+2022, three bytes each) as the scene shows them.
+inline constexpr u32 kApplicationTextFormSecretCodepoints = 128;
 struct ApplicationTextForm {
     TextFormScene scene;
     TextFormSurface surface;
@@ -44,7 +46,15 @@ struct ApplicationTextForm {
     u32 swatch_rgba;
     u8 accepted_bytes;
     char accepted[64];
+    char mask[3 * kApplicationTextFormSecretCodepoints];
     char labels[2048];
     char detail[kApplicationTextFormDetailBytes];
+    // A colour picker's state: the colour as HSV, its suggested swatches, the part a pointer drag moves (the square
+    // or the hue bar; count when none), and whether the picker itself wrote the field (so the check does not
+    // recompute the hue from the text) or the eyedropper is picking.
+    TextFormColorPicker color;
+    u32 suggested[kColorPickerSuggestedColors];
+    TextFormElement color_drag;
+    bool color_writing, color_picking;
 };
 } // namespace maicord::app_detail

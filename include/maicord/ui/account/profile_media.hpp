@@ -24,9 +24,16 @@ struct ProfileMedia {
 };
 // On success, initializes every output field; callers may reuse uncleared storage.
 bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* output) noexcept;
+// A still picture of the card's saved avatar (the member's in a server, else the user's, else the default one),
+// `dips` wide on the card's display: an animated one's first frame, never a picked, unsaved one. Not drawn: the
+// host reads its colours (ProfileScene::avatar_color, avatar_theme). Only url and key are set.
+bool profile_avatar_still_media(const ProfileScene& scene, float dips, ProfileMedia* output) noexcept;
 bool user_guild_badge_media(const UserAppearance&, const UiRect& rectangle, const UiRect& clip, ProfileMedia*) noexcept;
 bool user_guild_badge_media(const UserAppearanceRecord&, const UiRect& rectangle, const UiRect& clip,
                             ProfileMedia*) noexcept;
+// The nameplate behind a conversation row (collectibles-shop /animated or /static: the member list's identity).
+bool user_nameplate_media(const UserAppearanceRecord&, bool animated, const UiRect& rectangle, const UiRect& clip,
+                          ProfileMedia*) noexcept;
 // One-way switch of an animated banner to its GIF representation after a WebP
 // failure; false when already switched. Only the media URL changes, so retained
 // text and widget handles stay valid.

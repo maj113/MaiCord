@@ -93,11 +93,11 @@ constexpr u8 header(u32 section) noexcept {
 constexpr u8 page(SettingsPanel panel, bool pinned = false) noexcept {
     return static_cast<u8>(static_cast<u32>(panel) | (pinned ? kNavigationPinned : 0));
 }
+// The official client's order: the profile entry and the account pages under no title, then titled groups.
 constexpr u8 kNavigation[]{
-    header(0),
     page(SettingsPanel::profiles),
     page(SettingsPanel::account),
-    page(SettingsPanel::devices),
+    // Devices is nested in My Account, as in the official client: Account's entry stays selected on it.
     page(SettingsPanel::data_privacy),
     page(SettingsPanel::content_social),
     page(SettingsPanel::notifications),
@@ -173,6 +173,8 @@ void build_navigation(UiSettingsNavEntry* out, const u8* steps, u32 count) noexc
                       {kSettingsNativeOwner, static_cast<u64>(panel) + 1},
                       0,
                       (step & kNavigationPinned) != 0};
+            if (panel == static_cast<u32>(SettingsPanel::account))
+                out[i].subpage = {kSettingsNativeOwner, static_cast<u64>(SettingsPanel::devices) + 1};
         }
     }
 }
@@ -331,6 +333,16 @@ constexpr LocalToggle toggles[]{
     {SettingBinding::image_zoom, &ClientPreferences::image_zoom},
     {SettingBinding::image_zoom_square, &ClientPreferences::image_zoom_square},
     {SettingBinding::game_detection, &ClientPreferences::game_detection},
+    {SettingBinding::underline_links, &ClientPreferences::underline_links},
+    {SettingBinding::desaturate_user_colors, &ClientPreferences::desaturate_user_colors},
+    {SettingBinding::reduced_motion_sync, &ClientPreferences::reduced_motion_sync},
+    {SettingBinding::streamer_mode, &ClientPreferences::streamer_mode},
+    {SettingBinding::streamer_auto, &ClientPreferences::streamer_auto},
+    {SettingBinding::streamer_hide_personal, &ClientPreferences::streamer_hide_personal},
+    {SettingBinding::streamer_hide_invites, &ClientPreferences::streamer_hide_invites},
+    {SettingBinding::streamer_disable_sounds, &ClientPreferences::streamer_disable_sounds},
+    {SettingBinding::streamer_disable_notifications, &ClientPreferences::streamer_disable_notifications},
+    {SettingBinding::streamer_hide_window, &ClientPreferences::streamer_hide_window},
 };
 bool ClientPreferences::* toggle_field(SettingBinding binding) noexcept {
     for (const auto& toggle : toggles)
@@ -379,6 +391,22 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
     case SettingBinding::image_zoom_factor:
     case SettingBinding::image_zoom_size:
     case SettingBinding::game_detection:
+    case SettingBinding::chat_font_size:
+    case SettingBinding::underline_links:
+    case SettingBinding::zoom:
+    case SettingBinding::saturation:
+    case SettingBinding::desaturate_user_colors:
+    case SettingBinding::role_style:
+    case SettingBinding::reduced_motion_sync:
+    case SettingBinding::speech_rate:
+    case SettingBinding::streamer_mode:
+    case SettingBinding::streamer_auto:
+    case SettingBinding::streamer_hide_personal:
+    case SettingBinding::streamer_hide_invites:
+    case SettingBinding::streamer_disable_sounds:
+    case SettingBinding::streamer_disable_notifications:
+    case SettingBinding::streamer_hide_window:
+    case SettingBinding::speak_messages:
         return SettingBackend::local;
     case SettingBinding::open_on_startup:
     case SettingBinding::protocol_handler:
@@ -421,8 +449,23 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
     case SettingBinding::join_voice:
     case SettingBinding::activity_notice:
     case SettingBinding::accessibility_notice:
+    case SettingBinding::language:
+    case SettingBinding::notifications_notice:
+    case SettingBinding::notify_go_live:
+    case SettingBinding::notify_friend_online:
+    case SettingBinding::notify_profile_updates:
+    case SettingBinding::notify_anniversaries:
+    case SettingBinding::notify_reactions:
+    case SettingBinding::mobile_push_delay:
+    case SettingBinding::game_mentions_autocomplete:
+    case SettingBinding::ui_density:
+    case SettingBinding::compact_avatars:
+    case SettingBinding::image_descriptions:
+    case SettingBinding::sticker_autocomplete:
+    case SettingBinding::tts_command:
         return SettingBackend::proto1;
     case SettingBinding::account_card:
+    case SettingBinding::account_devices:
     case SettingBinding::account_display_name:
     case SettingBinding::account_username:
     case SettingBinding::account_email:
@@ -438,6 +481,28 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
     case SettingBinding::profile_bio:
     case SettingBinding::devices_list:
     case SettingBinding::apps_list:
+    case SettingBinding::account_totp:
+    case SettingBinding::account_sms:
+    case SettingBinding::account_backup_codes:
+    case SettingBinding::security_keys_list:
+    case SettingBinding::account_key_add:
+    case SettingBinding::account_disable:
+    case SettingBinding::account_delete:
+    case SettingBinding::devices_logout_all:
+    case SettingBinding::connections_list:
+    case SettingBinding::data_notice:
+    case SettingBinding::data_usage_statistics:
+    case SettingBinding::data_activity_link:
+    case SettingBinding::data_request:
+    case SettingBinding::harvest_account:
+    case SettingBinding::harvest_analytics:
+    case SettingBinding::harvest_activities:
+    case SettingBinding::harvest_ads:
+    case SettingBinding::harvest_messages:
+    case SettingBinding::harvest_servers:
+    case SettingBinding::harvest_zendesk:
+    case SettingBinding::blocked_list:
+    case SettingBinding::ignored_list:
         return SettingBackend::account;
     case SettingBinding::voice_input_device:
     case SettingBinding::voice_output_device:
@@ -463,7 +528,8 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
 
 #if !defined(_WIN32)
 bool settings_binding_unavailable(SettingBinding binding) noexcept {
-    return binding == SettingBinding::windows_notification_settings || binding == SettingBinding::voice_processing;
+    return binding == SettingBinding::windows_notification_settings || binding == SettingBinding::voice_processing ||
+           binding == SettingBinding::streamer_hide_window;
 }
 #endif
 
@@ -588,6 +654,27 @@ bool settings_store_read(const ClientPreferences& p, SettingBinding binding, Set
     case SettingBinding::image_zoom_size:
         value->choice = p.image_zoom_size - 5u;
         return true;
+    case SettingBinding::chat_font_size:
+        // Unset follows the theme's body size; the projection marks the nearest size.
+        value->choice = p.chat_font_size ? client_preferences_nearest_mark(kClientPreferencesFontSizes, p.chat_font_size)
+                                         : none;
+        return true;
+    case SettingBinding::zoom:
+        value->choice = client_preferences_nearest_mark(kClientPreferencesZoomScales, p.zoom);
+        return true;
+    case SettingBinding::saturation:
+        value->choice = 100u - p.desaturation;
+        return true;
+    case SettingBinding::role_style:
+        value->choice = p.role_style;
+        return true;
+    case SettingBinding::speech_rate:
+        value->choice = p.speech_rate;
+        return true;
+    case SettingBinding::speak_messages:
+        // Choices in the official order: all channels, the selected channel, never.
+        value->choice = client_speak_messages_all - u32{p.speak_messages};
+        return true;
     default:
         return false;
     }
@@ -657,6 +744,33 @@ bool settings_store_write(ClientPreferences* p, SettingBinding binding, SettingV
         if (value.choice > 95)
             return false;
         p->image_zoom_size = static_cast<u8>(value.choice + 5);
+        return true;
+    case SettingBinding::chat_font_size:
+        if (value.choice >= sizeof(kClientPreferencesFontSizes))
+            return false;
+        p->chat_font_size = kClientPreferencesFontSizes[value.choice];
+        return true;
+    case SettingBinding::zoom:
+        if (value.choice >= sizeof(kClientPreferencesZoomScales))
+            return false;
+        p->zoom = kClientPreferencesZoomScales[value.choice];
+        return true;
+    case SettingBinding::saturation:
+        if (value.choice > 100)
+            return false;
+        p->desaturation = static_cast<u8>(100 - value.choice);
+        return true;
+    case SettingBinding::role_style:
+    case SettingBinding::speech_rate:
+        if (value.choice > (binding == SettingBinding::role_style ? u32{client_role_style_hidden}
+                                                                  : kClientPreferencesSpeechRateCount - 1u))
+            return false;
+        (binding == SettingBinding::role_style ? p->role_style : p->speech_rate) = static_cast<u8>(value.choice);
+        return true;
+    case SettingBinding::speak_messages:
+        if (value.choice > client_speak_messages_all)
+            return false;
+        p->speak_messages = static_cast<u8>(client_speak_messages_all - value.choice);
         return true;
     default:
         return false;

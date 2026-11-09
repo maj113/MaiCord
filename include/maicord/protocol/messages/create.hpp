@@ -44,6 +44,8 @@ inline constexpr u32 kMessageFlagSuppressNotifications = 1u << 12;
 // IS_VOICE_MESSAGE: exactly one voice attachment (waveform and duration) and
 // no content or stickers.
 inline constexpr u32 kMessageFlagVoiceMessage = 1u << 13;
+// Not a message flag: asks write_message_create_body for "tts": true (the /tts command); never sent in "flags".
+inline constexpr u32 kMessageCreateTts = 1u << 31;
 // The leading "@silent" prefix (^@silent(\s|$)). On a match the
 // remainder after the prefix, trimmed of surrounding whitespace, is returned.
 bool message_silent_prefix(Utf8View content, Utf8View* remainder) noexcept;

@@ -9,6 +9,7 @@
 #include "renderer_interaction_state.hpp"
 #include "renderer_edit.hpp"
 #include "renderer_login_form.hpp"
+#include "maicord/ui/core/transition.hpp"
 #include <stddef.h>
 
 #include "maicord/core/time.hpp"
@@ -145,6 +146,11 @@ StampWriter& StampWriter::widgets(const UiWidgetManager& widgets) noexcept {
         .push(presentation_handle(widgets.captured));
 }
 
+// A profile card's banner fill changes after its layout when its avatar's colour arrives.
+u64 avatar_color_token(const ProfileScene* scene) noexcept {
+    return scene && scene->has_avatar_color ? (u64{1} << 32) | scene->avatar_color : 0;
+}
+
 } // namespace
 
 RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Renderer& renderer,
@@ -236,7 +242,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(renderer.interaction_text_popup_revision)
             .pointer(popup)
             .bytes(&renderer.scrollbar_hot.track, sizeof(renderer.scrollbar_hot.track))
-            .push(static_cast<u64>(renderer.scrollbar_hot.state));
+            .push(static_cast<u64>(renderer.scrollbar_hot.state))
+            .push(avatar_color_token(renderer.settings_profile_preview));
         if (popup)
             s.push(popup->revision).widgets(popup->widgets).bytes(&popup->rectangle, sizeof(UiRect));
         if (renderer.content_text)
@@ -370,6 +377,11 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(stamp.structural ? 0 : renderer.stream_card_scene->spinner_phase)
             .push(renderer.interaction_text_stream_card_revision)
             .bytes(&renderer.stream_card_scene->panel, sizeof(renderer.stream_card_scene->panel));
+    if (d3d11_renderer_names_card_visible(renderer))
+        s.pointer(renderer.names_card_scene)
+            .push(renderer.names_card_scene->revision)
+            .push(renderer.interaction_text_names_card_revision)
+            .bytes(&renderer.names_card_scene->panel, sizeof(renderer.names_card_scene->panel));
     if (d3d11_renderer_guild_card_visible(renderer))
         s.pointer(renderer.guild_card_scene)
             .push(renderer.guild_card_scene->revision)
@@ -401,6 +413,16 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .widgets(downloads.widgets)
             .bytes(&downloads.panel, sizeof(downloads.panel))
             .bytes(&downloads.viewport, sizeof(downloads.viewport));
+    }
+    if (d3d11_renderer_go_live_visible(renderer)) {
+        const auto& go_live = *renderer.go_live_scene;
+        s.pointer(renderer.go_live_scene)
+            .push(go_live.revision)
+            .push(go_live.content_revision)
+            .push(renderer.interaction_text_go_live_revision)
+            .widgets(go_live.widgets)
+            .bytes(&go_live.panel, sizeof(go_live.panel))
+            .bytes(&go_live.scroll, sizeof(go_live.scroll));
     }
     if (d3d11_renderer_unread_banner_visible(renderer))
         s.pointer(renderer.unread_banner_scene).push(renderer.unread_banner_scene->revision);
@@ -437,6 +459,9 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .bytes(&friends->viewport, sizeof(friends->viewport));
         if (friends->source)
             s.push(friends->source->revision).push(friends->source->count);
+        // The rows' hover fade is paint-only state, outside the scene revision.
+        if (friends->row_hover)
+            s.bytes(friends->row_hover, sizeof(*friends->row_hover));
     }
     s.push(renderer.reduced_motion).pointer(renderer.settings_scene);
     if (renderer.settings_scene)
@@ -454,7 +479,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         s.push(renderer.profile_scene->revision)
             .caret(renderer.profile_scene->edit.caret_visible)
             .push(renderer.profile_scene->active)
-            .widgets(renderer.profile_scene->widgets);
+            .widgets(renderer.profile_scene->widgets)
+            .push(avatar_color_token(renderer.profile_scene));
     s.bytes(&renderer.scrollbar_viewport, sizeof(renderer.scrollbar_viewport))
         .bytes(&renderer.scrollbar_hot.track, sizeof(renderer.scrollbar_hot.track))
         .push(static_cast<u64>(renderer.scrollbar_hot.state));
@@ -575,6 +601,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(scene.focused_channel_id)
             .bytes(&scene.scroll_dips, sizeof(scene.scroll_dips))
             .push(scene.banner_revision)
+            .push(scene.chevron_category)
+            .bytes(&scene.chevron_turn, sizeof(scene.chevron_turn))
             .widgets(scene.widgets);
     }
     s.pointer(renderer.message_scene);
@@ -640,9 +668,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(scene.reply_label_bytes)
             .push(scene.typing_label_bytes)
             .push(scene.typing_name_count)
-            .push(scene.typing_names[0].color)
-            .push(scene.typing_names[1].color)
-            .push(scene.typing_names[2].color)
+            .push(scene.typing_collapsible)
             .push(scene.layout_passes)
             .push(scene.channel_allows_send)
             .caret(scene.caret_visible)
@@ -655,7 +681,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (!content_hidden && renderer.dm_profile_panel)
         s.push(renderer.dm_profile_panel->active)
             .push(renderer.dm_profile_panel->revision)
-            .widgets(renderer.dm_profile_panel->widgets);
+            .widgets(renderer.dm_profile_panel->widgets)
+            .push(avatar_color_token(renderer.dm_profile_panel));
     s.pointer(renderer.member_list_scene);
     if (!content_hidden && renderer.member_list_scene) {
         const MemberListScene& scene = *renderer.member_list_scene;
@@ -699,6 +726,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             s.push(rows->relationships->revision);
         if (rows->typing)
             s.push(rows->typing->revision);
+        // A conversation with its context menu open shows its nameplate.
+        s.push(ui_private_row_menu_channel(*rows));
     }
     if (renderer.chat_state)
         s.push(renderer.chat_state->guild_mutations)

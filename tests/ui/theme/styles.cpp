@@ -66,6 +66,30 @@ void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
     check(!ui_theme_typography_valid(selected), "Theme body text below12DIP is rejected");
     selected.body_size = 24.01f;
     check(!ui_theme_typography_valid(selected), "Theme body text above24DIP is rejected");
+    // Text size in chat is the em of chat text alone: it follows the body size while zero, takes 12..24, and leaves
+    // the body size (the interface's) as it was.
+    selected = typography;
+    selected.chat_size = 11.99f;
+    const bool chat_below = !ui_theme_typography_valid(selected);
+    selected.chat_size = 24.01f;
+    const bool chat_above = !ui_theme_typography_valid(selected);
+    selected.chat_size = 12.f;
+    const bool chat_low = ui_theme_typography_valid(selected);
+    selected.chat_size = 24.f;
+    UiResolvedThemeStyles chat_bank{};
+    const auto chat_result = ui_theme_styles_apply(&chat_bank, selected, UiThemeMetrics{});
+    UiThemeTypography followed = typography;
+    followed.body_size = 18.f;
+    check(chat_below && chat_above && chat_low && ui_theme_typography_valid(selected) &&
+              chat_result.ok() && chat_result.changed() && chat_bank.typography.body_size == 16.f &&
+              ui_theme_chat_size(chat_bank.typography) == 24.f && ui_theme_chat_size(followed) == 18.f &&
+              !ui_theme_typography_equal(typography, selected) &&
+              ui_theme_text_size(chat_bank.typography, ui_theme_chat_size(chat_bank.typography), text_style_subtext) ==
+                  24.f * chat_bank.typography.subtext_ratio &&
+              ui_theme_text_size(chat_bank.typography, chat_bank.typography.body_size, text_style_subtext) ==
+                  16.f * chat_bank.typography.subtext_ratio,
+          "Theme chat size is 12..24 apart from the body size: chat text takes the ratios of its own em, the "
+          "interface keeps the body em");
     selected = typography;
     selected.heading_2_ratio = 1.6f;
     check(!ui_theme_typography_valid(selected), "Theme heading hierarchy rejects inverted ratios");

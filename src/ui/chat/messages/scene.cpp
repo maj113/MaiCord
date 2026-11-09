@@ -23,6 +23,7 @@ void invalidate_geometry(MessageScene* scene) noexcept {
     scene->prepared_signature = 0;
     scene->dirty = true;
     message_scene_detail::clear_measurements(scene);
+    scene->intro_measured_width = 0.0f;
     for (u32 index = 0; index < scene->count; ++index) {
         auto& row = scene->rows[index];
         row.text_measured = false;
@@ -189,7 +190,10 @@ bool message_scene_set_display(MessageScene* scene, MessageSceneDisplay value) n
     if (!scene || value.group_spacing >= 6 ||
         (scene->display.compact == value.compact && scene->display.group_spacing == value.group_spacing &&
          scene->display.clock == value.clock && scene->display.reply_timestamps == value.reply_timestamps &&
-         scene->display.role_colors == value.role_colors))
+         scene->display.role_colors == value.role_colors && scene->display.role_style == value.role_style &&
+         scene->display.user_color_desaturation == value.user_color_desaturation &&
+         scene->display.underline_links == value.underline_links &&
+         scene->display.compact_avatars == value.compact_avatars))
         return false;
     scene->display = value;
     invalidate_geometry(scene);
@@ -198,6 +202,10 @@ bool message_scene_set_display(MessageScene* scene, MessageSceneDisplay value) n
 
 float message_scene_reply_indent(const MessageScene& scene) noexcept {
     return scene.display.compact ? message_em(scene) * kMessageSceneCompactReplyIndentEm : 0.0f;
+}
+
+float message_scene_reply_line_height(const MessageScene& scene) noexcept {
+    return message_em(scene) * 1.3125f;
 }
 
 bool message_scene_bind_poll_source(MessageScene* scene, const MessageScenePollBinding* binding) noexcept {
@@ -429,7 +437,8 @@ float intro_measure_text(MessageScene* scene, u16 item, const Utf8View& text, co
                                            text,
                                            styles,
                                            {width, kMaximumUiCoordinate},
-                                           false},
+                                           false,
+                                           ui_text_face_chat(UiTextFace::normal)},
                                           &value)
                 .ok() &&
             (value.line_count || value.size.height > 0.0f))
@@ -454,13 +463,15 @@ void refresh_intro_measurement(MessageScene* scene, float viewport_width) noexce
     const Utf8View header = message_scene_intro_header(intro);
     const Utf8View subtitle = message_scene_intro_subtitle(intro);
     const Utf8View description = message_scene_intro_description(intro);
+    // The intro's lines are set for 16: they follow the chat size with the text.
+    const float scale = message_em(*scene) / 16.0f;
     scene->intro_header_height = intro_measure_text(scene, 1, header, {&scene->intro_header_style, 1}, width,
-                                                    kMessageSceneIntroHeaderLine, 32.0f);
+                                                    kMessageSceneIntroHeaderLine * scale, 32.0f * scale);
     scene->intro_subtitle_height = intro_measure_text(scene, 2, subtitle, {&scene->intro_subtitle_style, 1},
-                                                      width, kMessageSceneIntroSubtitleLine, 20.0f);
+                                                      width, kMessageSceneIntroSubtitleLine * scale, 20.0f * scale);
     scene->intro_description_height =
         intro_measure_text(scene, 3, description, {intro.description_spans, intro.description_span_count}, width,
-                           kMessageSceneIntroDescriptionLine, 16.0f);
+                           kMessageSceneIntroDescriptionLine * scale, 16.0f * scale);
     float height = 2.0f * kMessageSceneIntroMargin + intro_icon_margin(intro.kind) + intro_icon_extent(intro.kind) +
                    scene->intro_subtitle_height + scene->intro_description_height;
     if (header.bytes)

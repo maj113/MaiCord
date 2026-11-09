@@ -292,7 +292,7 @@ bool command_under(const MessageTextCommand& command, float x, float y) noexcept
 
 MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
                                              const MessageTextPresentation& presentation,
-                                             const TextSystem& text_system, u32 dpi,
+                                             const TextSystem& text_system, const TextSystem& chat_system, u32 dpi,
                                              i32 client_x_pixels, i32 client_y_pixels) noexcept {
     if (!owner || !presentation.active || dpi == 0 ||
         client_x_pixels < 0 || client_y_pixels < 0 ||
@@ -306,7 +306,8 @@ MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
         const MessageTextCommand& command = presentation.commands[command_index];
         if (command.measurement_kind == MessageTextMeasurementKind::reaction || !command_under(command, x, y))
             continue;
-        if (!acquire_layout(owner, command, text_system, command_index)) {
+        if (!acquire_layout(owner, command, ui_text_face_is_chat(message_text_command_face(command)) ? chat_system : text_system,
+                            command_index)) {
             continue;
         }
         // The nearest cluster for trailing whitespace and the unused part of a
@@ -325,7 +326,8 @@ MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
 }
 
 MessageEmojiHit message_emoji_hit_test(MessageHitTestCacheOwner* owner, const MessageTextPresentation& presentation,
-                                       const TextSystem& text_system, float x, float y) noexcept {
+                                       const TextSystem& text_system, const TextSystem& chat_system, float x,
+                                       float y) noexcept {
     if (!owner || !presentation.active || presentation.command_count > presentation.commands.count ||
         !ui_coordinate_valid(x) || !ui_coordinate_valid(y))
         return {};
@@ -335,7 +337,9 @@ MessageEmojiHit message_emoji_hit_test(MessageHitTestCacheOwner* owner, const Me
         if (!emoji_text(command) || !command_under(command, x, y))
             continue;
         // Body text commands do not overlap: the one under the point decides.
-        return command_emoji(owner, command, text_system, command_index, x, y);
+        return command_emoji(owner, command,
+                             ui_text_face_is_chat(message_text_command_face(command)) ? chat_system : text_system,
+                             command_index, x, y);
     }
     return {};
 }

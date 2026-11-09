@@ -15,14 +15,17 @@ struct RelationshipRecord {
     bool ignored, spam, stranger, stranger_known;
     u16 nickname_bytes;
     char nickname[kRelationshipNicknameMaximumBytes];
+    // When the relationship began (`since`), Unix ms; 0 when unknown.
+    u64 since_ms;
 };
-static_assert(sizeof(RelationshipRecord) == 144);
+static_assert(sizeof(RelationshipRecord) == 152);
 static_assert(offsetof(RelationshipRecord, ignored) == 10);
 static_assert(offsetof(RelationshipRecord, spam) == 11);
 static_assert(offsetof(RelationshipRecord, stranger) == 12);
 static_assert(offsetof(RelationshipRecord, stranger_known) == 13);
 static_assert(offsetof(RelationshipRecord, nickname_bytes) == 14);
 static_assert(offsetof(RelationshipRecord, nickname) == 16);
+static_assert(offsetof(RelationshipRecord, since_ms) == 144);
 struct RelationshipStore {
     Slice<RelationshipRecord> records;
     u32 count, revision;

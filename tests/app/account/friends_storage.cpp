@@ -64,7 +64,8 @@ void test_banks() noexcept {
         !friends_relationship_storage_indices(&storage, kFriendsRelationshipCapacity + 1) &&
         storage.candidate.arena.commit_count == full_commits,
         "friends storage: over-bound admission cannot extend any bank");
-    check(storage.active.arena.committed == 589824 && storage.candidate.arena.committed == 589824 &&
+    constexpr usize bank = (kFriendsRelationshipCapacity * sizeof(RelationshipRecord) + 4095) & ~usize{4095};
+    check(storage.active.arena.committed == bank && storage.candidate.arena.committed == bank &&
         storage.indices.arena.committed == 16384, "friends storage: full bank commitment remains bounded by the original payload sizes");
     friends_relationship_storage_release(&storage);
     check(!storage.active.arena.base && !storage.candidate.arena.base && !storage.indices.arena.base &&

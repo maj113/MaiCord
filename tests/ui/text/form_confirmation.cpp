@@ -20,7 +20,7 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
     content.status=utf8_literal("This action needs your confirmation.");content.cancel=utf8_literal("Cancel");content.accept=utf8_literal("Remove");
     content.can_accept=true;content.focus_visible=true;content.confirmation_only=true;
     const UiRect viewport{0,0,320,400};
-    check(text_form_update(&scene,content,viewport,&cache)&&scene.active&&scene.widgets.count==kTextFormElements-4-kTextFormChoiceElements&&!text_form_node(scene,TextFormElement::option)&&
+    check(text_form_update(&scene,content,viewport,&cache)&&scene.active&&scene.widgets.count==kTextFormElements-4-kTextFormChoiceElements-kTextFormColorElements-kTextFormQrElements&&!text_form_node(scene,TextFormElement::option)&&
         !text_form_node(scene,TextFormElement::edit)&&!text_form_node(scene,TextFormElement::label)&&
         !text_form_node(scene,TextFormElement::detail)&&text_form_focused(scene)==TextFormElement::cancel,
         "confirmation_has_no_edit_or_label_and_initial_cancel_focus");
@@ -73,7 +73,7 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
     // The "Leaving Discord" option row: a checkbox square left of a wrapped
     // label, focusable before the buttons, and painted checked on demand.
     TextFormContent option=content;option.option=utf8_literal("Trust example.com links from now on");
-    check(text_form_update(&scene,option,viewport,&cache)&&scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements&&
+    check(text_form_update(&scene,option,viewport,&cache)&&scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements-kTextFormColorElements-kTextFormQrElements&&
         text_form_node(scene,TextFormElement::option)&&text_form_focused(scene)==TextFormElement::cancel,
         "confirmation_option_row_builds_and_keeps_cancel_focus");
     const auto* row=text_form_node(scene,TextFormElement::option);const UiRect box=text_form_option_box(scene);
@@ -101,14 +101,14 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
         paint_stream_release(&option_paint);}
     check(painted[1]==painted[0]+2,"confirmation_checked_option_adds_the_check_mark");
     check(text_form_update(&scene,content,viewport,&cache)&&!text_form_node(scene,TextFormElement::option)&&
-        scene.widgets.count==kTextFormElements-4-kTextFormChoiceElements,"confirmation_option_row_is_removed_with_its_label");
+        scene.widgets.count==kTextFormElements-4-kTextFormChoiceElements-kTextFormColorElements-kTextFormQrElements,"confirmation_option_row_is_removed_with_its_label");
     // An information dialog: read-only text under its label and one button. The text is static: no editor,
     // caret, field border or background, it never takes focus, and Close is the only tab stop.
     TextFormContent info{};info.title=utf8_literal("Permissions");info.context=utf8_literal("Someone in Somewhere");
     info.label=utf8_literal("Granted");info.detail=utf8_literal("Administrator: every permission, in every channel");
     info.accept=utf8_literal("Close");info.can_accept=true;info.caret_visible=true;info.focus_visible=true;
     info.confirmation_only=true;info.single_action=true;
-    check(text_form_update(&scene,info,viewport,&cache)&&scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements&&
+    check(text_form_update(&scene,info,viewport,&cache)&&scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements-kTextFormColorElements-kTextFormQrElements&&
         text_form_node(scene,TextFormElement::label)&&text_form_node(scene,TextFormElement::detail)&&
         !text_form_node(scene,TextFormElement::edit)&&!text_form_node(scene,TextFormElement::cancel)&&
         text_form_node(scene,TextFormElement::accept)&&text_form_focused(scene)==TextFormElement::accept,

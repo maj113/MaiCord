@@ -4,6 +4,7 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/core/visit_ref.hpp"
+#include "maicord/ui/widgets/kit.hpp"
 #include "maicord/ui/widgets/kit_markdown.hpp"
 
 namespace maicord::settings_scene_detail {
@@ -27,7 +28,9 @@ struct Entry {
 constexpr float kTabBarHeight = 37, kTabBarMargin = 16, kTabGap = 32;
 constexpr float kSectionGap = 24;
 constexpr float kColorSwatchWidth = 69, kColorSwatchHeight = 50, kColorSwatchGap = 16, kColorCaption = 20;
-constexpr float kAsideGap = 36, kAsideFormMinimum = 280, kAsideHeadingGap = 8;
+// kAsideFormMaximum: a form beside its aside stops this wide (the official Server Profile form), the aside following
+// it at kAsideGap; only a wide page has room past it.
+constexpr float kAsideGap = 36, kAsideFormMinimum = 280, kAsideFormMaximum = 525, kAsideHeadingGap = 8;
 // The scene's layout tokens, computed in place (a by-value return would be copied).
 struct SceneTokens : UiSettingsLayoutTokens {
     explicit SceneTokens(const UiSettingsScene& scene) noexcept {
@@ -70,9 +73,15 @@ struct NavRow {
     Utf8View label;
     UiSettingsTarget target;
     u16 badge;
+    UiPageKey subpage{};
 };
+// Whether a sidebar row shows as the selected one: its page, or its subpage, is shown.
+bool nav_selected(const UiSettingsScene& scene, const NavRow& row) noexcept;
+// A line of the sidebar note (12/16).
+inline constexpr float kNavNoteLine = 16;
 struct Frame {
-    UiRect nav, nav_foot, nav_rule, body, title, description, footer, rule;
+    // nav_note: the sidebar's note lines, the last of its foot.
+    UiRect nav, nav_foot, nav_rule, nav_note, body, title, description, footer, rule;
 };
 // The host aside: beside rows from aside_row on when the column fits both,
 // else a block above that row. block includes the heading line.
@@ -118,6 +127,31 @@ ListParts list_parts(const UiSettingsLayoutTokens& t, const UiSettingsPageConten
                      const UiRect& row) noexcept;
 // True when the row's presentation `more` byte has `flag` (UiSettingsPresentationMore).
 bool more(const UiSettingsPageContent& content, u32 index, u8 flag) noexcept;
+// Grid cells (ui_settings_more_cell): the run of consecutive cells a row belongs to, the line of that run it is on
+// (rows [line_first, line_end)), its column and the run's column count; cell is false for any other row.
+struct CellPlace {
+    bool cell;
+    u32 run_first, run_end, line_first, line_end, column, columns;
+};
+CellPlace cell_place(const UiSettingsPageContent& content, u32 index) noexcept;
+// The width of one cell of a `columns`-wide line `width` wide; cells and lines are lead_gap apart.
+float cell_width(const UiSettingsLayoutTokens& t, float width, u32 columns) noexcept;
+// Banner tiles (ui_settings_more_banner_tiles): five a line, 3:5 tall, lead_gap apart.
+inline constexpr u32 kBannerTileColumns = 5;
+UiRect banner_tile_rect(const UiSettingsLayoutTokens& t, const UiRect& field, u32 index) noexcept;
+float banner_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept;
+u32 banner_tile_hit(const UiSettingsLayoutTokens& t, const UiRect& field, u32 count, float x, float y) noexcept;
+// Glyph tiles (ui_settings_more_glyphs): kGlyphTile squares lead_gap apart, as many to a line as fit, the icon
+// kGlyphTileIcon wide in the middle.
+inline constexpr float kGlyphTile = 40, kGlyphTileIcon = 28;
+UiRect glyph_tile_rect(const UiSettingsLayoutTokens& t, const UiRect& field, u32 index) noexcept;
+float glyph_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept;
+u32 glyph_tile_hit(const UiSettingsLayoutTokens& t, const UiRect& field, u32 count, float x, float y) noexcept;
+// The glyph tile a row names at default_choice + offset, or null.
+const UiSettingsGlyphTile* glyph_tile(const UiSettingsPageContent& content, u32 index, u32 offset) noexcept;
+// An edit cell's leading (emoji) button and trailing clear button inside its field.
+UiRect cell_lead_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept;
+UiRect cell_clear_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept;
 // The layout context of a scene: its measuring hooks and markdown bank, and whether it groups rows into cards.
 RowContext row_context(const UiSettingsScene& scene) noexcept;
 // CardEdge bits of a row: member of a card, and the first and last row of its card.
@@ -167,8 +201,16 @@ bool after_parked_focus(const UiSettingsScene& scene, const UiSettingsTarget& ta
 UiControlState hover_option(const UiSettingsScene& scene, UiControlState state, u32 index) noexcept;
 UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle, const UiSettingsTarget& target,
                             bool enabled) noexcept;
+// A widget's identity in the scene's hover fade (0 for none).
+constexpr u64 hover_motion_id(UiWidgetHandle handle) noexcept {
+    return handle.generation ? static_cast<u64>(handle.generation) << 16 | handle.slot : 0;
+}
 float toggle_motion(const UiSettingsScene& scene, const UiSettingsTarget& target, const UiSettingsLayoutTokens& t,
                     bool checked) noexcept;
+// The plate slide of a segments row while its selection moves (at rest otherwise), and how far option `option`
+// shows as the selected one (0..1): the labels cross-fade with the plate.
+UiSegmentedMotion segment_motion(const UiSettingsScene& scene, const UiSettingsControl& control) noexcept;
+float segment_selection(const UiSegmentedMotion& motion, u32 selected, u32 option) noexcept;
 void reveal_range(UiSettingsScene* scene, bool sidebar, float first, float last, const UiSettingsMetrics& m) noexcept;
 float nav_offset_of(const UiSettingsScene& scene, const UiSettingsMetrics& m, const UiSettingsTarget& target,
                     float* height) noexcept;

@@ -232,9 +232,9 @@ bool application_private_channel_leave(u64 channel_id, bool silent) noexcept {
     if (silent) protocol_writer_append_c_string(&context, " Other members won't be notified.");
     g_private.form_silent = silent;
     ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Leave group");
+    request.title = utf8_literal("Leave Group");
     request.context = {g_private.form_context, context.used};
-    request.accept = utf8_literal("Leave group");
+    request.accept = utf8_literal("Leave Group");
     request.owner = next_form_key(channel_id);
     request.valid = form_valid;
     request.save = leave_save;
@@ -269,7 +269,7 @@ u32 application_private_channel_menu_items(u64 channel_id, Slice<PopupItem> outp
         popup_item_set(&rename, utf8_literal("Rename group"), popup_action_private_rename, popup_item_enabled);
         rename.presentation = ui_menu_row_presentation(UiIcon::edit);
         auto& leave = output[used++];
-        popup_item_set(&leave, utf8_literal("Leave group"), popup_action_private_leave,
+        popup_item_set(&leave, utf8_literal("Leave Group"), popup_action_private_leave,
                        static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before));
         leave.presentation = ui_menu_row_presentation(UiIcon::log_out);
     }
@@ -336,7 +336,7 @@ const UiPrivateRowSource* application_private_channel_rows() noexcept {
     static UiPrivateRowSource source{};
     if (!g_app.account_ui) return nullptr;
     source = {&g_app.account_ui->chat_state, &g_app.account_ui->user_store, application_friends_relationships(),
-              &g_app.account_ui->typing_store, &g_app.account_ui->text_measure_cache};
+              &g_app.account_ui->typing_store, &g_app.account_ui->text_measure_cache, &g_app.popup_scene};
     return &source;
 }
 bool application_private_channel_row_close(u64 channel_id, float x, float y) noexcept {
@@ -390,11 +390,17 @@ void application_private_channel_navigation(NavigationView* view) noexcept {
 bool application_private_channel_requests_mode() noexcept {
     return scope_current() && g_private.requests_mode;
 }
+// Marks the sidebar's Message Requests row while its page shows; the caller synchronizes the navigation.
 void application_private_channel_set_requests_mode(bool requests) noexcept {
-    if (!scope_current() || g_private.requests_mode == requests)
-        return;
-    g_private.requests_mode = requests;
-    private_navigation_changed();
+    if (scope_current())
+        g_private.requests_mode = requests;
+}
+u64 application_private_channel_next_wake() noexcept {
+    if (!scope_current()) return 0;
+    const auto& c = g_private.controller;
+    return c.phase == PrivateChannelActionPhase::queued ? 1
+           : c.phase == PrivateChannelActionPhase::retry_wait ? c.retry_at_ms
+                                                               : 0;
 }
 u32 application_private_channel_request_count() noexcept {
     if (!g_app.account_ui || !state().private_channels)

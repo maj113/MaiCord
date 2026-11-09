@@ -314,7 +314,7 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
               "store scene: a stretched busy button centres the spinner and the label without overlap");
         paint_stream_release(&paint);
         // The busy spinners are the host's shared spinner clock's to drive; the pulse tick never spins for them.
-        check(ui_store_scene_spinner_visible(g_scene) && !ui_store_scene_tick(&g_scene, 1000, false),
+        check(ui_store_scene_spinner_visible(g_scene) && !ui_store_scene_tick(&g_scene, 1000, false, 300),
               "store scene: a busy button is a visible spinner and needs no pulse frames");
         g_scene.active = false;
         check(!ui_store_scene_spinner_visible(g_scene), "store scene: an inactive page has no visible spinner");
@@ -326,9 +326,73 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
         UiStoreBuilder skeleton(&g_scene);
         skeleton.leaf(UiStoreKind::bar).rw = 200;
         ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 30, 832, 700}, {0, 0, 900, 700});
-        check(ui_store_scene_tick(&g_scene, 2000, false) && ui_store_scene_tick(&g_scene, 2000, false) &&
-                  !ui_store_scene_tick(&g_scene, 2001, true),
+        check(ui_store_scene_tick(&g_scene, 2000, false, 300) && ui_store_scene_tick(&g_scene, 2000, false, 300) &&
+                  !ui_store_scene_tick(&g_scene, 2001, true, 200),
               "store scene: a skeleton keeps asking for frames, also on a repeated tick, and not under reduced motion");
+        // The switch last activated slides: the rebuilt switch starts on its old look, is between the two states
+        // midway, settles exactly on the new one and then asks for no frame; reduced motion keeps the shorter slide.
+        constexpr u32 kToggle = 0x50000;
+        const auto build_toggle = [&](u32 value) noexcept {
+            ui_store_scene_begin(&g_scene);
+            UiStoreBuilder sw(&g_scene);
+            auto& node = sw.leaf(UiStoreKind::toggle);
+            node.action = kToggle;
+            node.value = value;
+            return ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 30, 832, 700}, {0, 0, 900, 700});
+        };
+        // The switch's track fill and its thumb: the first two quads inside its rectangle.
+        const auto look = [&](Color* track, UiRect* thumb) noexcept {
+            UiRect rect{};
+            PaintStream paint{};
+            bool ok = ui_store_scene_rect(g_scene, kToggle, &rect) && paint_stream_initialize(&paint) &&
+                      paint_stream_reset(&paint, 900, 700) && ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0);
+            u32 found = 0;
+            for (u32 i = 0; ok && i < paint.count && found < 2; ++i) {
+                const auto& q = paint.quads[i];
+                if (q.left < rect.left - .5f || q.top < rect.top - .5f || q.right > rect.right + .5f ||
+                    q.bottom > rect.bottom + .5f)
+                    continue;
+                if (!found++)
+                    *track = q.fill;
+                else
+                    *thumb = {q.left, q.top, q.right, q.bottom};
+            }
+            paint_stream_release(&paint);
+            return ok && found == 2;
+        };
+        const auto near_rect = [](const UiRect& a, const UiRect& b) noexcept {
+            return ui_rect_width(a) - ui_rect_width(b) < .01f && ui_rect_width(b) - ui_rect_width(a) < .01f &&
+                   a.left - b.left < .01f && b.left - a.left < .01f && a.top - b.top < .01f && b.top - a.top < .01f;
+        };
+        UiStoreEvent event{};
+        Color off_track{}, on_track{}, mid_track{};
+        UiRect off_thumb{}, on_thumb{}, mid_thumb{}, start_thumb{};
+        g_scene.active = true;
+        check(build_toggle(0) && look(&off_track, &off_thumb) && !ui_store_scene_animating(g_scene) &&
+                  ui_store_scene_focus(&g_scene, kToggle, true) &&
+                  ui_store_scene_key(&g_scene, UiStoreKey::space, &event) && event.kind == UiStoreEventKind::activate &&
+                  event.action == kToggle && ui_store_scene_animating(g_scene) && build_toggle(1) &&
+                  ui_store_scene_tick(&g_scene, 3000, false, 300) && look(&mid_track, &start_thumb) &&
+                  near_rect(start_thumb, off_thumb),
+              "store scene: an activated switch starts its slide on its old look");
+        const bool midway = ui_store_scene_tick(&g_scene, 3150, false, 300) && look(&mid_track, &mid_thumb);
+        const bool settled = !ui_store_scene_tick(&g_scene, 3400, false, 300) && !ui_store_scene_animating(g_scene) &&
+                             look(&on_track, &on_thumb);
+        check(midway && settled && mid_thumb.left > off_thumb.left + .5f && mid_thumb.left < on_thumb.left - .5f &&
+                  !bytes_equal(&mid_track, &off_track, sizeof(Color)) && !bytes_equal(&mid_track, &on_track, sizeof(Color)),
+              "store scene: midway the switch's thumb and track are between the off and on looks, then it settles");
+        const u32 motion = g_scene.motion;
+        check(!ui_store_scene_tick(&g_scene, 3500, false, 300) && g_scene.motion == motion &&
+                  !bytes_equal(&on_track, &off_track, sizeof(Color)),
+              "store scene: a settled switch asks for no frame and no repaint");
+        UiRect reduced_thumb{};
+        Color reduced_track{};
+        check(ui_store_scene_key(&g_scene, UiStoreKey::space, &event) && build_toggle(0) &&
+                  ui_store_scene_tick(&g_scene, 4000, true, 200) && ui_store_scene_tick(&g_scene, 4100, true, 200) &&
+                  look(&reduced_track, &reduced_thumb) && reduced_thumb.left > off_thumb.left + .5f &&
+                  reduced_thumb.left < on_thumb.left - .5f && !ui_store_scene_tick(&g_scene, 4300, true, 200) &&
+                  look(&reduced_track, &reduced_thumb) && near_rect(reduced_thumb, off_thumb),
+              "store scene: under reduced motion the switch slides over the shorter duration and settles on the new state");
     }
     {
         // The live preview's pill (the effect page's tile): its label holds 4.5:1 or better on its plate whether a

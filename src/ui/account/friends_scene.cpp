@@ -6,11 +6,23 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/text/style.hpp"
+#include "maicord/ui/chat/messages/mention_badge.hpp"
+#include "maicord/ui/widgets/activity_status.hpp"
+#include "maicord/ui/widgets/icon.hpp"
+#include "maicord/model/user/profile.hpp"
+#include "maicord/ui/account/activity_card.hpp"
+#include "maicord/ui/core/transition.hpp"
 
 namespace maicord {
 namespace {
 constexpr float row_height = 56, header_height = 76, status_height = 32, search_height = 48;
 constexpr float section_height = 32;
+// Add Friend: the title and hint above the username field, and the field's Send button.
+constexpr float intro_height = 64, send_width = 152;
+// Add Friend's request note field, and the width of its characters-left counter.
+constexpr float note_height = 48, note_counter_width = 36;
+// The toolbar: the people glyph and its gap, the title, then a divider before the tabs.
+constexpr float toolbar_glyph = 32, toolbar_title = 64, toolbar_requests_title = 156, toolbar_divider = 17;
 // Friend row actions: 36-DIP round icon buttons, 10 DIP apart. Text actions
 // keep their 48-DIP pill with a 2-DIP gap.
 constexpr float icon_action_extent = 36, icon_action_glyph = 20, icon_action_gap = 10;
@@ -18,7 +30,8 @@ constexpr float text_action_width = 48, text_action_gap = 2;
 constexpr u32 maximum_visible = kUiFriendsMaximumVisibleRows;
 // Active Now column layout (DIPs).
 constexpr float active_padding = 16, active_heading = 56, active_card_height = 96, active_card_gap = 12;
-constexpr float active_avatar = 32, active_avatar_step = 24, active_toggle_extent = 28;
+constexpr float active_avatar = 32, active_avatar_step = 24, active_toggle_extent = 28, active_detail_gap = 12;
+constexpr float active_solo_height = 60;
 struct Entry {
     UiFriendsTarget target;
     UiFriendsRow row;
@@ -51,19 +64,39 @@ UiRect active_toggle_rect(const UiFriendsScene& s) noexcept {
                                           : r.right - active_padding - active_toggle_extent;
     return {left, top, left + active_toggle_extent, top + active_toggle_extent};
 }
+// One friend's card heads with their avatar beside their name; a shared one lists its members above its title.
+bool active_solo(const UiFriendsActiveCard& card) noexcept {
+    return card.total == 1 && card.member_count == 1;
+}
+float active_head(const UiFriendsActiveCard& card) noexcept {
+    return active_solo(card) ? active_solo_height : active_card_height;
+}
+// A card's height: the members and title, then its activity's details.
+float active_card_extent(const UiFriendsActiveCard& card) noexcept {
+    return active_head(card) + (card.activity ? card.activity->height + active_detail_gap : 0.f);
+}
 u32 active_card_count(const UiFriendsScene& s) noexcept {
     if (!s.active_visible || s.active_collapsed || !s.active_now)
         return 0;
     const float room = ui_rect_height(s.active_rect) - active_heading - active_padding;
-    const u32 fit = room > active_card_height
-                        ? static_cast<u32>((room + active_card_gap) / (active_card_height + active_card_gap))
-                        : 0;
-    return minimum(minimum(s.active_now->count, kUiFriendsActiveNowCards), fit);
+    const u32 count = minimum(s.active_now->count, kUiFriendsActiveNowCards);
+    float used = 0;
+    u32 fit = 0;
+    while (fit < count && used + active_card_extent(s.active_now->cards[fit]) <= room)
+        used += active_card_extent(s.active_now->cards[fit++]) + active_card_gap;
+    return fit;
 }
 UiRect active_card_rect(const UiFriendsScene& s, u32 index) noexcept {
     const auto& r = s.active_rect;
-    const float top = r.top + active_heading + index * (active_card_height + active_card_gap);
-    return {r.left + active_padding, top, r.right - active_padding, top + active_card_height};
+    float top = r.top + active_heading;
+    for (u32 i = 0; i < index; ++i)
+        top += active_card_extent(s.active_now->cards[i]) + active_card_gap;
+    return {r.left + active_padding, top, r.right - active_padding,
+            top + active_card_extent(s.active_now->cards[index])};
+}
+// Where a card's activity details start (UiActivityCardSize::compact, no padding of its own).
+UiPoint active_detail_origin(const UiRect& card, const UiFriendsActiveCard& data) noexcept {
+    return {card.left + 14, card.top + active_head(data)};
 }
 UiRect active_avatar_rect(const UiRect& card, u32 slot) noexcept {
     const float left = card.left + 14 + slot * active_avatar_step, top = card.top + 14;
@@ -72,15 +105,36 @@ UiRect active_avatar_rect(const UiRect& card, u32 slot) noexcept {
 bool searching(const UiFriendsScene& s) noexcept {
     return s.search_active;
 }
+bool adding(const UiFriendsScene& s) noexcept {
+    return s.tab == UiFriendsTab::add_friend;
+}
 bool hidden(const UiFriendsScene& s) noexcept {
     return s.sections && s.sections->hidden_view;
 }
 bool sectioned(const UiFriendsScene& s) noexcept {
     return s.sections && !hidden(s);
 }
+// A loaded list tab without rows shows its empty state instead of headings.
+bool empty_state(const UiFriendsScene& s) noexcept {
+    return s.phase == UiFriendsPhase::ready && !adding(s) && !hidden(s) && !s.source_count;
+}
+bool in_toolbar(const UiFriendsScene& s) noexcept {
+    return ui_rect_has_area(s.toolbar);
+}
+// The title and tabs: in the toolbar, or atop the page (taller for the requests dialog's explanation).
+float top_height(const UiFriendsScene& s) noexcept {
+    return hidden(s) ? 96 : in_toolbar(s) ? ui_rect_height(s.toolbar) : header_height;
+}
+// What the page draws in: its viewport and the toolbar above it.
+UiRect bounds(const UiFriendsScene& s) noexcept {
+    return in_toolbar(s) ? UiRect{minimum(s.viewport.left, s.toolbar.left), s.toolbar.top,
+                                  maximum(s.viewport.right, s.toolbar.right), s.viewport.bottom}
+                         : s.viewport;
+}
 float height(const UiFriendsScene& s) noexcept {
-    return maximum(1.f, ui_rect_height(s.surface) - (hidden(s) ? 96 : header_height) - status_height -
-                            (searching(s) ? search_height : 0));
+    return maximum(1.f, ui_rect_height(s.surface) - top_height(s) - status_height -
+                            (searching(s) ? search_height + (adding(s) ? note_height : 0) : 0) -
+                            (adding(s) ? intro_height : 0));
 }
 UiRect surface(const UiRect& viewport, bool modal) noexcept {
     if (!modal)
@@ -105,7 +159,7 @@ const UiFriendsSection* section_at(const UiFriendsScene& s, u32 index) noexcept 
     return nullptr;
 }
 float extent(const UiFriendsScene& s) noexcept {
-    if (!sectioned(s) || s.phase != UiFriendsPhase::ready)
+    if (!sectioned(s) || s.phase != UiFriendsPhase::ready || empty_state(s))
         return static_cast<float>(logical_count(s)) * row_height;
     float value = 0;
     for (u32 i = 0; i < s.sections->count; ++i) {
@@ -195,7 +249,7 @@ Window window(const UiFriendsScene& s, float scroll) noexcept {
         result.rows = count;
         return result;
     }
-    if (s.phase != UiFriendsPhase::ready)
+    if (s.phase != UiFriendsPhase::ready || empty_state(s))
         return result;
     float top = 0;
     const float end = scroll + height(s) + row_height;
@@ -274,17 +328,23 @@ Utf8View tab_label(UiFriendsTab t) noexcept {
         return utf8_literal("All");
     case UiFriendsTab::pending:
         return utf8_literal("Pending");
-    case UiFriendsTab::blocked:
-        return utf8_literal("Blocked");
     case UiFriendsTab::add_friend:
-        return utf8_literal("Add friend");
+        return utf8_literal("Add Friend");
+    case UiFriendsTab::requests:
+        return utf8_literal("Requests");
+    case UiFriendsTab::spam:
+        return utf8_literal("Spam");
     }
     return {};
 }
 Utf8View action_label(UiFriendsAction a) noexcept {
     switch (a) {
     case UiFriendsAction::open_dm:
-        return utf8_literal("Chat");
+        return utf8_literal("Message");
+    case UiFriendsAction::accept_dm:
+        return utf8_literal("Accept DM");
+    case UiFriendsAction::ignore_dm:
+        return utf8_literal("Ignore");
     case UiFriendsAction::profile:
         return utf8_literal("Profile");
     case UiFriendsAction::accept:
@@ -297,20 +357,20 @@ Utf8View action_label(UiFriendsAction a) noexcept {
         return utf8_literal("Remove");
     case UiFriendsAction::block:
         return utf8_literal("Block");
-    case UiFriendsAction::unblock:
-        return utf8_literal("Unblock");
     case UiFriendsAction::add_friend:
-        return utf8_literal("Add friend");
+        return utf8_literal("Add Friend");
     case UiFriendsAction::retry:
         return utf8_literal("Retry");
     case UiFriendsAction::more:
         return utf8_literal("More");
     case UiFriendsAction::decline:
-        return utf8_literal("X");
+        return utf8_literal("Ignore");
     case UiFriendsAction::clear_incoming:
-        return utf8_literal("Clear");
+        return utf8_literal("Clear all");
     case UiFriendsAction::clear_search:
         return utf8_literal("X");
+    case UiFriendsAction::note:
+        return utf8_literal("Personalize your request (Optional)");
     default:
         return {};
     }
@@ -322,34 +382,60 @@ Utf8View status_label(const UiFriendsScene& s) noexcept {
         return utf8_literal("Loading friends…");
     if (s.phase == UiFriendsPhase::error)
         return utf8_literal("Friends could not be loaded. Try again.");
-    if (s.tab == UiFriendsTab::add_friend)
-        return utf8_literal("Add a friend using their exact username.");
-    if (searching(s) && s.content->search.text.bytes && !logical_count(s))
-        return utf8_literal("No matching friends.");
-    if (!logical_count(s)) {
-        switch (s.tab) {
-        case UiFriendsTab::online:
-            return utf8_literal("No friends are online right now.");
-        case UiFriendsTab::pending:
-            return utf8_literal("No pending friend requests.");
-        case UiFriendsTab::blocked:
-            return utf8_literal("You have not blocked anyone.");
-        default:
-            return utf8_literal("Your friends will appear here.");
-        }
+    // Add Friend explains where its note shows up until a result replaces it.
+    if (adding(s))
+        return utf8_literal("What you write here will also show up in your DM if you become friends.");
+    return {s.count_heading, s.count_heading_bytes};
+}
+// The centred message of a list tab without rows.
+Utf8View empty_label(const UiFriendsScene& s) noexcept {
+    if (searching(s) && s.content->search.text.bytes)
+        return utf8_literal("No results found");
+    switch (s.tab) {
+    case UiFriendsTab::online:
+        return utf8_literal("There are no friends online at this time. Check back later!");
+    case UiFriendsTab::pending:
+        return utf8_literal("There are no pending friend requests. Click \xE2\x80\x9C" "Add Friend\xE2\x80\x9D to send "
+                            "friend requests.");
+    case UiFriendsTab::requests:
+        return utf8_literal("There are no pending message requests.");
+    case UiFriendsTab::spam:
+        return utf8_literal("There are no spam requests.");
+    default:
+        return utf8_literal("There are no current friends. Click \xE2\x80\x9C" "Add Friend\xE2\x80\x9D to send friend "
+                            "requests.");
     }
-    return tab_label(s.tab);
+}
+// Online and All without rows offer the Add Friend tab.
+bool empty_offers_add(const UiFriendsScene& s) noexcept {
+    return empty_state(s) && (s.tab == UiFriendsTab::online || s.tab == UiFriendsTab::all) &&
+           !(searching(s) && s.content->search.text.bytes);
+}
+// An online friend's activity line (custom status, else "Playing X") in place
+// of the presence label; without storage only the glyph resolves.
+bool activity_line(const UiFriendsScene& s, const UiFriendsRow& row, const Slice<char>& storage,
+                   UiActivityStatus* out) noexcept {
+    if (row.kind != UiFriendsKind::friend_user || !s.content || !s.content->users ||
+        row.presence == UiPresence::offline || row.presence == UiPresence::unknown)
+        return false;
+    const auto& users = *s.content->users;
+    return ui_user_activity_status(users, row.user_id, user_appearance_find_activity(users.appearance, row.user_id),
+                                   storage, out);
+}
+// The row's second line, after the 44-DIP avatar column.
+UiRect status_line(const UiRect& content, float actions_width) noexcept {
+    return {content.left + 44, content.top + 23, maximum(content.left + 44, content.right - actions_width - 8),
+            content.bottom};
 }
 bool valid_row(const UiFriendsRow& r, UiFriendsTab tab) noexcept {
-    if (!r.user_id || r.kind > UiFriendsKind::blocked || r.presence > UiPresence::offline ||
-        (!r.display_name.bytes && !r.username.bytes) || r.display_name.bytes > 256 ||
-        r.username.bytes > 256 || r.status.bytes > 512 || !utf8_validate(r.display_name).valid ||
-        !utf8_validate(r.username).valid || !utf8_validate(r.status).valid)
+    if (!r.user_id || r.kind == UiFriendsKind::blocked || r.kind > UiFriendsKind::message_request ||
+        r.presence > UiPresence::offline || (!r.display_name.bytes && !r.username.bytes) ||
+        r.display_name.bytes > 256 || r.username.bytes > 256 || r.status.bytes > 512 ||
+        !utf8_validate(r.display_name).valid || !utf8_validate(r.username).valid || !utf8_validate(r.status).valid)
         return false;
-    return tab == UiFriendsTab::pending
+    return ui_friends_tab_requests(tab) ? r.kind == UiFriendsKind::message_request
+           : tab == UiFriendsTab::pending
                ? (r.kind == UiFriendsKind::incoming || r.kind == UiFriendsKind::outgoing)
-           : tab == UiFriendsTab::blocked
-               ? r.kind == UiFriendsKind::blocked
                : r.kind == UiFriendsKind::friend_user &&
                      (tab != UiFriendsTab::online || r.presence == UiPresence::online ||
                       r.presence == UiPresence::idle || r.presence == UiPresence::busy);
@@ -367,44 +453,61 @@ bool resolve(const UiFriendsScene& s, u32 index, UiFriendsRow* out) noexcept {
                             : out->kind == UiFriendsKind::incoming && !out->spam && !out->ignored));
 }
 UiIcon action_icon(UiFriendsAction a) noexcept {
-    return a == UiFriendsAction::open_dm ? UiIcon::direct_message
-           : a == UiFriendsAction::more  ? UiIcon::ellipsis_vertical
-                                         : UiIcon::count;
+    switch (a) {
+    case UiFriendsAction::open_dm: return UiIcon::direct_message;
+    case UiFriendsAction::more: return UiIcon::ellipsis_vertical;
+    case UiFriendsAction::accept: return UiIcon::check;
+    case UiFriendsAction::decline:
+    case UiFriendsAction::cancel: return UiIcon::close;
+    default: return UiIcon::count;
+    }
 }
+// A message request's buttons are text pills sized to their labels.
 float action_width(UiFriendsAction a) noexcept {
-    return action_icon(a) != UiIcon::count ? icon_action_extent : text_action_width;
+    return action_icon(a) != UiIcon::count   ? icon_action_extent
+           : a == UiFriendsAction::accept_dm ? 88
+           : a == UiFriendsAction::ignore_dm ? 64
+                                             : text_action_width;
 }
 float action_step(UiFriendsAction a) noexcept {
-    return action_width(a) + (action_icon(a) != UiIcon::count ? icon_action_gap : text_action_gap);
+    return action_width(a) + (action_icon(a) != UiIcon::count ? icon_action_gap
+                              : a == UiFriendsAction::accept_dm || a == UiFriendsAction::ignore_dm ? 8
+                                                                                                  : text_action_gap);
 }
 UiFriendsAction primary(const UiFriendsRow& r) noexcept {
-    return r.kind == UiFriendsKind::friend_user ? UiFriendsAction::open_dm : UiFriendsAction::profile;
+    return r.kind == UiFriendsKind::friend_user || r.kind == UiFriendsKind::message_request ? UiFriendsAction::open_dm
+                                                                                            : UiFriendsAction::profile;
 }
 u32 actions(const UiFriendsRow& r, UiFriendsAction* out, bool hidden_view = false) noexcept {
     u32 n = 0;
+    if (r.kind == UiFriendsKind::message_request) {
+        // Ignore, then Accept DM, as the official client orders them.
+        out[n++] = UiFriendsAction::ignore_dm;
+        out[n++] = UiFriendsAction::accept_dm;
+        return n;
+    }
     if (r.kind == UiFriendsKind::friend_user)
         out[n++] = UiFriendsAction::open_dm;
     else if (r.kind == UiFriendsKind::incoming) {
         out[n++] = UiFriendsAction::accept;
         out[n++] = UiFriendsAction::decline;
-    } else if (r.kind == UiFriendsKind::outgoing)
+    } else
         out[n++] = UiFriendsAction::cancel;
-    else
-        out[n++] = UiFriendsAction::unblock;
     if (!hidden_view)
         out[n++] = UiFriendsAction::more;
     return n;
 }
 bool allowed(const UiFriendsRow& r, UiFriendsAction a) noexcept {
-    if (a == UiFriendsAction::more || a == UiFriendsAction::profile)
+    if ((a == UiFriendsAction::more && r.kind != UiFriendsKind::message_request) || a == UiFriendsAction::profile ||
+        (a == UiFriendsAction::open_dm && r.kind == UiFriendsKind::message_request))
         return true;
     if (r.busy && a != UiFriendsAction::open_dm)
         return false;
     if (a == UiFriendsAction::ignore || a == UiFriendsAction::unignore)
-        return r.kind != UiFriendsKind::blocked &&
-               (a == UiFriendsAction::unignore ? r.ignored : !r.ignored);
+        return a == UiFriendsAction::unignore ? r.ignored : !r.ignored;
     if (r.kind == UiFriendsKind::friend_user &&
-        (a == UiFriendsAction::remove || a == UiFriendsAction::block))
+        (a == UiFriendsAction::remove || a == UiFriendsAction::block || a == UiFriendsAction::nickname ||
+         a == UiFriendsAction::voice_call))
         return true;
     if ((r.kind == UiFriendsKind::incoming || r.kind == UiFriendsKind::outgoing) &&
         a == UiFriendsAction::block)
@@ -416,25 +519,18 @@ bool allowed(const UiFriendsRow& r, UiFriendsAction a) noexcept {
             return true;
     return false;
 }
+// "Online — 3", "All friends — 12": the list's heading. Pending heads its
+// Received and Sent sections instead; an empty tab has none.
 void count_heading(UiFriendsScene& s) noexcept {
-    u32 used = 0;
-    const auto append_number = [&](u32 value) noexcept {
-        char digits[10];
-        const u32 count = decimal_write(digits, value);
-        for (u32 i = 0; i < count && used < sizeof(s.count_heading); ++i)
-            s.count_heading[used++] = digits[i];
-    };
-    const u32 count = logical_count(s);
-    append_number(count);
-    const u32 total = s.content && s.content->total_count ? s.content->total_count : count;
-    const auto suffix = total != count ? utf8_literal(" / ")
-                        : count == 1   ? utf8_literal(" result")
-                                       : utf8_literal(" results");
-    for (u32 i = 0; i < suffix.bytes && used < sizeof(s.count_heading); ++i)
-        s.count_heading[used++] = suffix.data[i];
-    if (total != count)
-        append_number(total);
-    s.count_heading_bytes = static_cast<u8>(used);
+    s.count_heading_bytes = 0;
+    if (adding(s) || hidden(s) || sectioned(s) || empty_state(s))
+        return;
+    const auto label = s.tab == UiFriendsTab::online     ? utf8_literal("Online \xE2\x80\x94 ")
+                       : s.tab == UiFriendsTab::requests ? utf8_literal("Pending Requests \xE2\x80\x94 ")
+                       : s.tab == UiFriendsTab::spam     ? utf8_literal("Spam \xE2\x80\x94 ")
+                                                         : utf8_literal("All friends \xE2\x80\x94 ");
+    copy_bytes(s.count_heading, label.data, label.bytes);
+    s.count_heading_bytes = static_cast<u8>(label.bytes + decimal_write(s.count_heading + label.bytes, logical_count(s)));
 }
 bool find(const UiFriendsScene& s, u64 id, u32* index, UiFriendsRow* row) noexcept {
     if (!id || !current(s) || !s.source || !logical_count(s))
@@ -465,11 +561,11 @@ struct Box {
     UiLayoutFlow flow;
     u8 pad_y, gap, bits, margin_right;
 };
-constexpr u8 box_end = 1, box_center = 2, box_scroll = 4;
+constexpr u8 box_end = 1, box_center = 2, box_scroll = 4, box_middle = 8;
 constexpr UiFriendsRow empty_row{};
 UiWidgetHandle emit(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind, const Box& box,
                     const UiFriendsTarget& target, const UiFriendsRow& row, bool row_label,
-                    bool enabled) noexcept {
+                    bool enabled, Utf8View label = {}) noexcept {
     auto st = ui_layout_style();
     st.width = box.width < 0 ? ui_layout_fill() : ui_layout_fixed(box.width);
     st.height = box.height < 0 ? ui_layout_fill() : ui_layout_fixed(box.height);
@@ -481,12 +577,17 @@ UiWidgetHandle emit(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind,
     st.gap = box.gap;
     if (box.bits & box_end)
         st.horizontal_alignment = UiLayoutAlignment::end;
+    if (box.bits & box_middle)
+        st.horizontal_alignment = UiLayoutAlignment::center;
     if (box.bits & box_center)
         st.vertical_alignment = UiLayoutAlignment::center;
     st.margin.right = box.margin_right;
-    const auto name = row_label ? (row.display_name.bytes ? row.display_name : row.username)
+    const auto name = label.bytes ? label
+                      : row_label ? (row.display_name.bytes ? row.display_name : row.username)
                       : target.action == UiFriendsAction::select_tab ? tab_label(target.tab)
-                      : target.action == UiFriendsAction::search     ? utf8_literal("Search friends")
+                      : target.action == UiFriendsAction::search
+                          ? (adding(s) ? utf8_literal("Enter a username") : utf8_literal("Search friends"))
+                      : target.action == UiFriendsAction::add_friend && adding(s) ? utf8_literal("Send Friend Request")
                       : target.action == UiFriendsAction::none       ? utf8_literal("Friends")
                                                                      : action_label(target.action);
     const u32 id = s.widgets.count + 1;
@@ -540,7 +641,7 @@ bool rebuild(UiFriendsScene& s) noexcept {
     const u32 first = visible_window.first, count = visible_window.rows;
     if (count > maximum_visible)
         return false;
-    const u32 required = 24 + 4 * count;
+    const u32 required = 28 + 4 * count;
     if (s.capacity < required) {
         ui_fixed_widget_storage_release(&s.storage);
         reset_value(&s.widgets);
@@ -553,25 +654,77 @@ bool rebuild(UiFriendsScene& s) noexcept {
         ui_widget_manager_reset(&s.widgets);
     s.build_failed = false;
     const auto root = add(s, ui_widget_invalid_handle(), UiWidgetKind::container, {-1, -1, UiLayoutFlow::vertical});
+    // In the toolbar: the glyph (from the toolbar's left edge), "Friends", a divider, then the tabs; atop the page:
+    // the heading over the tabs.
+    const bool bar = in_toolbar(s);
+    const float lead = bar ? maximum(0.f, s.toolbar.left - s.surface.left) + toolbar_glyph : 0;
     const auto header = add(s, root, UiWidgetKind::container,
-                            {-1, hidden(s) ? 96.f : header_height, UiLayoutFlow::vertical, 8, 4});
-    s.heading = add(s, header, UiWidgetKind::text, {-1, 24});
+                            bar ? Box{-1, top_height(s), UiLayoutFlow::horizontal}
+                                : Box{-1, top_height(s), UiLayoutFlow::vertical, 8, 4});
+    if (bar)
+        add(s, header, UiWidgetKind::container, {lead, -1});
+    s.heading = add(s, header, UiWidgetKind::text,
+                    bar ? Box{ui_friends_tab_requests(s.tab) ? toolbar_requests_title : toolbar_title, -1} : Box{-1, 24});
+    if (bar)
+        add(s, header, UiWidgetKind::container, {toolbar_divider, -1});
     if (hidden(s))
         s.status_widget = add(s, header, UiWidgetKind::text, {-1, 48});
     if (!hidden(s)) {
-        const auto tabs = add(s, header, UiWidgetKind::container, {-1, 32, UiLayoutFlow::horizontal, 0, 4});
-        const float widths[]{54, 32, 68, 68, 84};
-        const float tab_scale = minimum(1.f, maximum(1.f, ui_rect_width(s.viewport) - 40) / 306.f);
-        for (u32 i = 0; i < 5; ++i)
-            add(s, tabs, UiWidgetKind::button, {widths[i] * tab_scale, 32}, UiFriendsAction::select_tab,
-                static_cast<UiFriendsTab>(i));
+        const auto tabs = add(s, header, UiWidgetKind::container,
+                              {-1, 32, UiLayoutFlow::horizontal, 0, 4, static_cast<u8>(bar ? box_center : 0)});
+        // Friends: Pending grows by its badge of incoming requests. Message Requests: Requests and Spam, which
+        // counts its spam ("Spam (2)").
+        const bool requests = ui_friends_tab_requests(s.tab);
+        s.badge = s.content ? requests ? s.content->spam_count : s.content->incoming_count : 0;
+        s.spam_label_bytes = 0;
+        if (requests) {
+            const auto spam = utf8_literal("Spam");
+            copy_bytes(s.spam_label, spam.data, spam.bytes);
+            u32 used = spam.bytes;
+            if (s.badge) {
+                s.spam_label[used++] = ' ';
+                s.spam_label[used++] = '(';
+                used += decimal_write(s.spam_label + used, minimum(s.badge, 9999u));
+                s.spam_label[used++] = ')';
+            }
+            s.spam_label_bytes = static_cast<u8>(used);
+        }
+        const float widths[]{54, 32, 68 + (s.badge ? ui_mention_badge_width(s.badge) + 8 : 0.f), 92};
+        const float request_widths[]{84, s.badge ? 92.f : 60.f};
+        const float* sizes = requests ? request_widths : widths;
+        const u32 first = requests ? static_cast<u32>(UiFriendsTab::requests) : 0, count = requests ? 2 : 4;
+        float total = 4.f * (count - 1);
+        for (u32 i = 0; i < count; ++i) total += sizes[i];
+        const float room = bar ? s.toolbar.right - s.surface.left - lead -
+                                     (requests ? toolbar_requests_title : toolbar_title) - toolbar_divider
+                               : ui_rect_width(s.viewport) - 40;
+        const float tab_scale = minimum(1.f, maximum(1.f, room) / total);
+        for (u32 i = 0; i < count; ++i)
+            add(s, tabs, UiWidgetKind::button, {sizes[i] * tab_scale, 32}, UiFriendsAction::select_tab,
+                static_cast<UiFriendsTab>(first + i));
     }
-    s.search_field = s.clear_search = ui_widget_invalid_handle();
+    // Add Friend: the title and hint, then the username field with its Send button.
+    s.intro = s.empty = ui_widget_invalid_handle();
+    if (adding(s))
+        s.intro = emit(s, root, UiWidgetKind::text, {-1, intro_height, UiLayoutFlow::vertical, 8}, {}, empty_row,
+                       false, true, utf8_literal("You can add friends with their Discord username."));
+    s.search_field = s.clear_search = s.note_field = ui_widget_invalid_handle();
     if (searching(s)) {
         const auto search_row = add(s, root, UiWidgetKind::container, {-1, search_height, UiLayoutFlow::overlay, 6});
         s.search_field = add(s, search_row, UiWidgetKind::text_field, {-1, -1}, UiFriendsAction::search, s.tab);
-        s.clear_search = add(s, s.search_field, UiWidgetKind::button, {28, 28, UiLayoutFlow::overlay, 0, 0, box_end | box_center, 4},
-                             UiFriendsAction::clear_search, s.tab, s.content->search.text.bytes != 0);
+        s.clear_search = adding(s)
+                             ? add(s, s.search_field, UiWidgetKind::button,
+                                   {send_width, 28, UiLayoutFlow::overlay, 0, 0, box_end | box_center, 4},
+                                   UiFriendsAction::add_friend, s.tab,
+                                   s.content->search.text.bytes != 0 && s.phase == UiFriendsPhase::ready)
+                             : add(s, s.search_field, UiWidgetKind::button,
+                                   {28, 28, UiLayoutFlow::overlay, 0, 0, box_end | box_center, 4},
+                                   UiFriendsAction::clear_search, s.tab, s.content->search.text.bytes != 0);
+        // Add Friend's optional note under the username, as the official client asks for it.
+        if (adding(s)) {
+            const auto note_row = add(s, root, UiWidgetKind::container, {-1, note_height, UiLayoutFlow::overlay, 6});
+            s.note_field = add(s, note_row, UiWidgetKind::text_field, {-1, -1}, UiFriendsAction::note, s.tab);
+        }
     }
     const auto status_row = add(s, root, UiWidgetKind::container, {-1, status_height, UiLayoutFlow::horizontal, 2, 8});
     if (!hidden(s))
@@ -581,7 +734,6 @@ bool rebuild(UiFriendsScene& s) noexcept {
     }
     if (hidden(s) && s.sections->hidden_count > 1)
         add(s, status_row, UiWidgetKind::button, {64, -1}, UiFriendsAction::clear_hidden, s.tab);
-    s.count_widget = add(s, status_row, UiWidgetKind::text, {hidden(s) ? 64.f : 112.f, -1});
     count_heading(s);
     s.body = add(s, root, UiWidgetKind::scroll_view, {-1, -1, UiLayoutFlow::vertical, 0, 0, box_scroll});
     float cursor = 0;
@@ -632,8 +784,13 @@ bool rebuild(UiFriendsScene& s) noexcept {
         cursor = item.top + row_height;
     }
     add(s, s.body, UiWidgetKind::container, {-1, maximum(0.f, extent(s) - cursor)});
-    if (s.tab == UiFriendsTab::add_friend && s.phase == UiFriendsPhase::ready)
-        add(s, s.body, UiWidgetKind::button, {136, 36}, UiFriendsAction::add_friend, s.tab);
+    if (empty_state(s)) {
+        add(s, s.body, UiWidgetKind::container, {-1, 48});
+        s.empty = emit(s, s.body, UiWidgetKind::text, {-1, 48}, {}, empty_row, false, true, empty_label(s));
+        if (empty_offers_add(s))
+            add(s, s.body, UiWidgetKind::button, {120, 36, UiLayoutFlow::overlay, 0, 0, box_middle},
+                UiFriendsAction::add_friend, s.tab);
+    }
     if (s.phase == UiFriendsPhase::error)
         add(s, s.body, UiWidgetKind::button, {96, 36}, UiFriendsAction::retry, s.tab);
     // The scroll offset indexes the body's slot, so a failed add stops here.
@@ -648,33 +805,37 @@ bool rebuild(UiFriendsScene& s) noexcept {
     s.count = count;
     s.section_mask = visible_window.mask;
     ++s.revision;
+    ++s.layout_revision;
     return true;
 }
 } // namespace
 bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* source, UiFriendsTab tab,
                              UiFriendsPhase phase, const Utf8View& status, const UiRect& viewport,
                              const UiFriendsContent* content, const UiFriendsSections* sections,
-                             const UiFriendsActiveNow* active_now) noexcept {
-    if (!scene || tab > UiFriendsTab::add_friend || phase > UiFriendsPhase::error ||
+                             const UiFriendsActiveNow* active_now, const UiRect& toolbar) noexcept {
+    if (!scene || tab > UiFriendsTab::spam || phase > UiFriendsPhase::error ||
         !ui_rect_valid(viewport) || ui_rect_width(viewport) < 320 || ui_rect_height(viewport) < 200 ||
         ui_rect_height(viewport) > 8192 || status.bytes > 512 || !utf8_validate(status).valid ||
         (source && (source->count > 16384 || (source->count && !source->resolve))) ||
         (content && (content->total_count > 16384 || content->search.text.bytes > 256 ||
                      !utf8_validate(content->search.text).valid ||
                      content->search.anchor > content->search.text.bytes ||
-                     content->search.caret > content->search.text.bytes)) ||
+                     content->search.caret > content->search.text.bytes || content->note.text.bytes > 480 ||
+                     !utf8_validate(content->note.text).valid || content->note.anchor > content->note.text.bytes ||
+                     content->note.caret > content->note.text.bytes)) ||
         !valid_sections(sections, source, tab) ||
         (sections && sections->hidden_view && content && content->search.active) ||
         (active_now && active_now->count && !active_now->cards))
         return false;
     const bool modal = sections && sections->hidden_view;
+    const UiRect bar = !modal && ui_rect_valid(toolbar) && ui_rect_has_area(toolbar) ? toolbar : UiRect{};
     const bool active_visible = active_fits(active_now, viewport, modal);
     const bool active_collapsed = active_visible && active_now->collapsed;
     const bool same_column = scene->active_visible == active_visible && scene->active_collapsed == active_collapsed;
     if (current(*scene) && scene->source == source && scene->tab == tab && scene->phase == phase &&
-        ui_rect_equal(scene->viewport, viewport) && scene->status.bytes == status.bytes &&
-        scene->status.data == status.data && scene->content == content && scene->sections == sections &&
-        scene->active_now == active_now && same_column)
+        ui_rect_equal(scene->viewport, viewport) && ui_rect_equal(scene->toolbar, bar) &&
+        scene->status.bytes == status.bytes && scene->status.data == status.data && scene->content == content &&
+        scene->sections == sections && scene->active_now == active_now && same_column)
         return true;
     // Cards are painted from the borrowed projection: a new projection needs
     // no list rebuild unless the column appears, disappears or changes width.
@@ -684,9 +845,10 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
         scene->active && scene->source == source &&
         scene->source_revision == (source ? source->revision : 0) &&
         scene->source_count == (source ? source->count : 0) && scene->tab == tab && scene->phase == phase &&
-        ui_rect_equal(scene->viewport, viewport) && scene->status.bytes == status.bytes &&
+        ui_rect_equal(scene->viewport, viewport) && ui_rect_equal(scene->toolbar, bar) && scene->status.bytes == status.bytes &&
         scene->status.data == status.data && scene->search_active == (content && content->search.active) &&
         scene->sections == sections && scene->sections_revision == (sections ? sections->revision : 0) &&
+        scene->badge == (content ? ui_friends_tab_requests(tab) ? content->spam_count : content->incoming_count : 0) &&
         same_column;
     if (same_rows) {
         scene->content = content;
@@ -697,7 +859,8 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
             clear.flags = static_cast<u16>(
                 content->search.text.bytes ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
                                            : ui_widget_none);
-            if (!content->search.text.bytes && scene->focus.action == UiFriendsAction::clear_search) {
+            if (!content->search.text.bytes && (scene->focus.action == UiFriendsAction::clear_search ||
+                                                scene->focus.action == UiFriendsAction::add_friend)) {
                 scene->focus = {UiFriendsAction::search, 0, tab};
                 ui_widget_manager_focus(&scene->widgets, scene->search_field);
             }
@@ -718,7 +881,10 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
     scene->phase = phase;
     scene->status = status;
     scene->viewport = viewport;
+    scene->toolbar = bar;
     scene->surface = surface(viewport, modal);
+    if (ui_rect_has_area(bar))
+        scene->surface.top = bar.top;
     scene->active_visible = active_visible;
     scene->active_collapsed = active_collapsed;
     reset_value(&scene->active_rect);
@@ -754,10 +920,11 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
 void ui_friends_scene_release(UiFriendsScene* s) noexcept {
     if (!s)
         return;
-    const auto revision = s->revision + 1;
+    const auto revision = s->revision + 1, layout_revision = s->layout_revision + 1;
     ui_fixed_widget_storage_release(&s->storage);
     reset_value(s);
     s->revision = revision;
+    s->layout_revision = layout_revision;
 }
 bool ui_friends_scene_scroll(UiFriendsScene* s, float delta) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(delta))
@@ -775,13 +942,16 @@ bool ui_friends_scene_scroll(UiFriendsScene* s, float delta) noexcept {
         !ui_widget_manager_layout_rectangle(&s->widgets, s->surface).ok())
         return false;
     ++s->revision;
+    ++s->layout_revision;
     return true;
 }
 namespace {
 // Whether the scene currently offers the control `t` names.
 bool offered(const UiFriendsScene& s, const UiFriendsTarget& t) noexcept {
-    if (!current(s) || t.action == UiFriendsAction::none || t.action > UiFriendsAction::active_card)
+    if (!current(s) || t.action == UiFriendsAction::none || t.action > UiFriendsAction::ignore_dm)
         return false;
+    if (t.action == UiFriendsAction::note)
+        return !t.user_id && t.tab == s.tab && adding(s) && searching(s);
     if (t.action == UiFriendsAction::active_toggle || t.action == UiFriendsAction::active_card) {
         if (!s.active_visible || (t.action == UiFriendsAction::active_toggle) == (t.user_id != 0))
             return false;
@@ -791,7 +961,7 @@ bool offered(const UiFriendsScene& s, const UiFriendsTarget& t) noexcept {
         return listed;
     }
     if (t.action == UiFriendsAction::select_tab)
-        return !t.user_id && t.tab <= UiFriendsTab::add_friend && !hidden(s);
+        return !t.user_id && ui_friends_tab_requests(t.tab) == ui_friends_tab_requests(s.tab) && !hidden(s);
     if (t.tab != s.tab)
         return false;
     if (t.action == UiFriendsAction::clear_incoming) {
@@ -810,7 +980,7 @@ bool offered(const UiFriendsScene& s, const UiFriendsTarget& t) noexcept {
         return !t.user_id && s.sections &&
                (s.sections->hidden_view || (s.phase == UiFriendsPhase::ready && s.sections->hidden_available));
     if (t.action == UiFriendsAction::toggle_section) {
-        if (t.user_id || !s.sections || s.phase != UiFriendsPhase::ready)
+        if (t.user_id || !s.sections || s.phase != UiFriendsPhase::ready || empty_state(s))
             return false;
         for (u32 i = 0; i < s.sections->count; ++i)
             if (s.sections->sections[i].kind == t.section)
@@ -819,11 +989,12 @@ bool offered(const UiFriendsScene& s, const UiFriendsTarget& t) noexcept {
     }
     if (t.action == UiFriendsAction::search || t.action == UiFriendsAction::clear_search)
         return !t.user_id && searching(s) &&
-               (t.action != UiFriendsAction::clear_search || s.content->search.text.bytes != 0);
-    if (t.action == UiFriendsAction::add_friend || t.action == UiFriendsAction::retry)
-        return !t.user_id && (t.action == UiFriendsAction::add_friend
-                                  ? s.tab == UiFriendsTab::add_friend && s.phase == UiFriendsPhase::ready
-                                  : s.phase == UiFriendsPhase::error);
+               (t.action != UiFriendsAction::clear_search || (s.content->search.text.bytes != 0 && !adding(s)));
+    if (t.action == UiFriendsAction::add_friend)
+        return !t.user_id && (adding(s) ? searching(s) && s.content->search.text.bytes && s.phase == UiFriendsPhase::ready
+                                        : empty_offers_add(s));
+    if (t.action == UiFriendsAction::retry)
+        return !t.user_id && s.phase == UiFriendsPhase::error;
     u32 at = 0;
     UiFriendsRow row{};
     float top = 0;
@@ -871,6 +1042,26 @@ bool ui_friends_scene_focus(UiFriendsScene* s, const UiFriendsTarget& t) noexcep
         ++s->revision;
     }
     return true;
+}
+u64 ui_friends_scene_hovered_row(const UiFriendsScene& s) noexcept {
+    if (!current(s))
+        return 0;
+    const auto h = s.widgets.hovered;
+    if (!h.generation || h.generation != s.widgets.generation || h.slot >= s.widgets.count)
+        return 0;
+    // A row's own actions keep its plate.
+    return entries(s)[h.slot].row.user_id;
+}
+bool ui_friends_scene_name_hover(UiFriendsScene* s) noexcept {
+    const u64 row = s ? ui_friends_scene_hovered_row(*s) : 0;
+    if (!s || row == s->name_row)
+        return false;
+    s->name_row = row;
+    ++s->revision;
+    return true;
+}
+bool ui_friends_scene_contains(const UiFriendsScene& s, float x, float y) noexcept {
+    return ui_rect_contains(s.viewport, x, y) || (in_toolbar(s) && ui_rect_contains(s.toolbar, x, y));
 }
 void ui_friends_scene_set_focus_visible(UiFriendsScene* s, bool visible) noexcept {
     if (s && s->focus_visible != visible) {
@@ -954,7 +1145,22 @@ UiFriendsSearchGeometry ui_friends_scene_search_geometry(const UiFriendsScene& s
     const auto* clear = ui_widget_manager_layout_node(s.widgets, s.clear_search);
     if (!field || !clear)
         return {};
-    return {field->rectangle, ui_rect_inset(field->content_rectangle, {10, 6, 36, 6}), clear->rectangle};
+    return {field->rectangle,
+            ui_rect_inset(field->content_rectangle, {10, 6, adding(s) ? send_width + 12 : 36.f, 6}), clear->rectangle};
+}
+UiFriendsSearchGeometry ui_friends_scene_note_geometry(const UiFriendsScene& s) noexcept {
+    const auto* field = current(s) ? ui_widget_manager_layout_node(s.widgets, s.note_field) : nullptr;
+    if (!field)
+        return {};
+    const auto text = ui_rect_inset(field->content_rectangle, {10, 6, note_counter_width + 12, 6});
+    return {field->rectangle, text, {text.right + 4, text.top, field->content_rectangle.right - 8, text.bottom}};
+}
+UiFriendsEditField ui_friends_scene_edit_field(const UiFriendsScene& s) noexcept {
+    if (!current(s) || !searching(s))
+        return {};
+    if (s.content->note.focused && s.note_field.generation)
+        return {&s.content->note, ui_friends_scene_note_geometry(s).text};
+    return {&s.content->search, ui_friends_scene_search_geometry(s).text};
 }
 u32 ui_friends_scene_visible_count(const UiFriendsScene& s) noexcept {
     return current(s) ? s.count : 0;
@@ -997,12 +1203,12 @@ bool ui_friends_scene_presence_paint(const UiFriendsScene& s, const Theme& theme
             p.fail();
             break;
         }
-        if (!ui_rect_intersects(row.presence, row.clip))
+        // Message requests show the person's avatar alone.
+        if (!ui_rect_intersects(row.presence, row.clip) || row.row.kind == UiFriendsKind::message_request)
             continue;
-        const bool blocked = row.row.kind == UiFriendsKind::blocked;
         // The cut-out takes the colour under the row: the content canvas, or the requests dialog's card.
-        p.use<ui_presence_paint>(row.presence, blocked ? UiPresence::offline : row.row.presence,
-                                 hidden(s) ? theme.base_lowest : theme.base_low, theme, !blocked && row.row.mobile);
+        p.use<ui_presence_paint>(row.presence, row.row.presence, hidden(s) ? theme.base_lowest : theme.base_low, theme,
+                                 row.row.mobile);
     }
     return p.end();
 }
@@ -1015,7 +1221,18 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
     if (!current(s))
         return false;
     UiPaint p{paint, theme};
-    p.clip(s.viewport);
+    p.clip(bounds(s));
+    // The toolbar's people glyph before the title, and the divider between the title and the tabs.
+    if (in_toolbar(s)) {
+        const auto& t = s.toolbar;
+        const float middle = (t.top + t.bottom) * .5f;
+        p.icon(ui_friends_tab_requests(s.tab) ? UiIcon::direct_message : UiIcon::members,
+               {t.left, middle - 12, t.left + 24, middle + 12}, theme.text_secondary);
+        if (const auto* title = ui_widget_manager_layout_node(s.widgets, s.heading)) {
+            const float x = title->rectangle.right + toolbar_divider * .5f;
+            p.fill({x, middle - 12, x + 1, middle + 12}, ui_separator_color(theme));
+        }
+    }
     // The page draws no plate of its own: the shell's content canvas (with its
     // effect and, on gradient themes, the contrast plate) shows through it as
     // through the message view. The requests dialog dims the page under its card.
@@ -1036,8 +1253,9 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             continue;
         const UiWidgetHandle h{static_cast<u16>(i), s.widgets.generation};
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
-        if (e.target.action == UiFriendsAction::search ||
-            (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes))
+        if (e.target.action == UiFriendsAction::search || e.target.action == UiFriendsAction::note ||
+            (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes) ||
+            (e.target.action == UiFriendsAction::add_friend && adding(s)))
             continue;
         if (!node || !ui_rect_intersects(node->rectangle, node->clip_rectangle))
             continue;
@@ -1059,9 +1277,25 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         }
         // The tab row: the shared pill tab, a plate only while selected or hot.
         if (e.target.action == UiFriendsAction::select_tab) {
-            p.look<kUiTab>(node->rectangle, static_cast<u8>((hovered ? ui_state_hovered : 0) |
-                                                            (focused ? ui_state_focused : 0) |
-                                                            (e.target.tab == s.tab ? ui_state_selected : 0)));
+            const bool selected = e.target.tab == s.tab;
+            // Add Friend is the primary pill: brand filled, a brand tint while selected.
+            if (e.target.tab == UiFriendsTab::add_friend)
+                p.rounded_border(node->rectangle,
+                                 selected  ? ui_theme_color_alpha(theme.tokens.accent.brand, .16f)
+                                 : hovered ? ui_background_hover_color(theme, theme.tokens.accent.brand, .85f)
+                                           : theme.tokens.accent.brand,
+                                 focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
+                                 ui_rect_height(node->rectangle) * .5f, focused ? 2.f : 0.f);
+            else
+                p.look<kUiTab>(node->rectangle, static_cast<u8>((hovered ? ui_state_hovered : 0) |
+                                                                (focused ? ui_state_focused : 0) |
+                                                                (selected ? ui_state_selected : 0)));
+            if (e.target.tab == UiFriendsTab::pending && s.badge) {
+                const auto& r = node->rectangle;
+                const float w = ui_mention_badge_width(s.badge), top = (r.top + r.bottom - kUiMentionBadgeHeight) * .5f;
+                p.rounded({r.right - 8 - w, top, r.right - 8, top + kUiMentionBadgeHeight}, theme.tokens.accent.danger,
+                          kUiMentionBadgeHeight * .5f);
+            }
             continue;
         }
         const UiIcon icon = e.row.user_id && !e.row_label ? action_icon(e.target.action) : UiIcon::count;
@@ -1076,13 +1310,51 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
                              focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
                              half, focused ? 2.f : 0.f)
                 .icon(icon, {cx - glyph, cy - glyph, cx + glyph, cy + glyph},
-                      hovered && enabled ? theme.text_primary : theme.text_secondary);
+                      !hovered || !enabled                          ? theme.text_secondary
+                      : e.target.action == UiFriendsAction::accept  ? theme.tokens.text.positive
+                      : e.target.action == UiFriendsAction::decline ||
+                              e.target.action == UiFriendsAction::cancel
+                          ? theme.tokens.text.danger
+                          : theme.text_primary);
+            continue;
+        }
+        // A message request's Accept DM (primary on Requests) and Ignore buttons.
+        if (e.target.action == UiFriendsAction::accept_dm || e.target.action == UiFriendsAction::ignore_dm) {
+            const bool primary = e.target.action == UiFriendsAction::accept_dm && s.tab == UiFriendsTab::requests;
+            const bool enabled = (s.widgets.storage[i].flags & ui_widget_enabled) != 0;
+            const Color fill = primary ? (hovered && enabled ? ui_background_hover_color(theme, theme.tokens.accent.brand, .85f)
+                                                             : theme.tokens.accent.brand)
+                                       : ui_background_hover_color(theme, theme.interactive_hover, hovered ? .32f : .20f);
+            p.rounded_border(node->rectangle, enabled ? fill : ui_theme_color_alpha(fill, .5f),
+                             focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
+                             theme.scale.radius_sm, focused ? 2.f : 0.f);
+            continue;
+        }
+        if (e.target.action == UiFriendsAction::add_friend) {
+            p.rounded_border(node->rectangle,
+                             hovered ? ui_background_hover_color(theme, theme.tokens.accent.brand, .85f)
+                                     : theme.tokens.accent.brand,
+                             focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
+                             theme.scale.radius_sm, focused ? 2.f : 0.f);
             continue;
         }
         // Idle row/action background and border quads are skipped: the labels
         // already show the affordance and the quads would exceed the shared native
         // paint budget at tall viewports. Button chrome and hover/focus feedback stay.
-        if ((!e.row.user_id && e.target.action != UiFriendsAction::toggle_section) || hovered || focused)
+        // A row's plate fades in and out with the host's hover motion (the official client's background ease).
+        const float hover_amount =
+            e.row_label && s.row_hover && !focused ? ui_motion_hover_amount(*s.row_hover, e.row.user_id) : -1.f;
+        if (hover_amount > 0) {
+            // The plate's own alpha carries the fade: a flat theme's colour helpers ignore their opacity argument.
+            Color fill = ui_background_hover_color(theme, theme.interactive_hover, pressed ? .32f : .20f);
+            Color border = ui_background_surface_color(theme, theme.interactive, .38f);
+            fill.alpha *= hover_amount;
+            border.alpha *= hover_amount;
+            p.rounded_border({node->rectangle.left + 1, node->rectangle.top + 1, node->rectangle.right - 1,
+                              node->rectangle.bottom - 1},
+                             fill, border, theme.scale.radius_sm, 1.f);
+        } else if (hover_amount < 0 &&
+                 ((!e.row.user_id && e.target.action != UiFriendsAction::toggle_section) || hovered || focused))
             p.rounded_border(
                 {node->rectangle.left + 1, node->rectangle.top + 1, node->rectangle.right - 1,
                  node->rectangle.bottom - 1},
@@ -1101,6 +1373,16 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             const auto r = node->content_rectangle;
             const float top = (r.top + r.bottom - avatar) * .5f;
             p.rounded({r.left, top, r.left + avatar, top + avatar}, theme.interactive, avatar * .5f);
+            UiActivityStatus activity{};
+            if (!e.row.ignored && activity_line(s, e.row, {}, &activity) && activity.glyph != UiActivityGlyph::none) {
+                UiFriendsAction available[4]{};
+                const u32 n = actions(e.row, available, hidden(s));
+                float actions_width = 0;
+                for (u32 j = 0; j < n; ++j)
+                    actions_width += action_step(available[j]);
+                p.icon(ui_activity_glyph_icon(activity.glyph),
+                       ui_activity_glyph_rectangle(status_line(r, actions_width)), theme.text_secondary);
+            }
         }
     }
     if (clip_open)
@@ -1108,8 +1390,27 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
     p.scrollbar(ui_friends_scene_scrollbar(s));
     if (searching(s)) {
         const auto g = ui_friends_scene_search_geometry(s);
-        p.use<ui_edit_field_paint>(g.field, g.text, s.content->search, edit, theme.base_lowest, theme, dpi,
-                                   kUiEditCornerRadius);
+        const bool note_focused = s.content->note.focused && s.note_field.generation;
+        p.use<ui_edit_field_paint>(g.field, g.text, s.content->search, note_focused ? nullptr : edit, theme.base_lowest,
+                                   theme, dpi, kUiEditCornerRadius);
+        if (s.note_field.generation) {
+            const auto n = ui_friends_scene_note_geometry(s);
+            p.use<ui_edit_field_paint>(n.field, n.text, s.content->note, note_focused ? edit : nullptr,
+                                       theme.base_lowest, theme, dpi, kUiEditCornerRadius);
+        }
+        // Send Friend Request sits inside the field, primary while there is a name to send.
+        if (adding(s)) {
+            const auto& w = s.widgets.storage[s.clear_search.slot];
+            const bool enabled = (w.flags & ui_widget_enabled) != 0;
+            const bool hot = enabled && ui_widget_handle_equal(s.widgets.hovered, s.clear_search);
+            const bool focused = s.focus_visible && ui_widget_handle_equal(s.widgets.focused, s.clear_search);
+            p.rounded_border(g.clear,
+                             enabled ? (hot ? ui_background_hover_color(theme, theme.tokens.accent.brand, .85f)
+                                            : theme.tokens.accent.brand)
+                                     : ui_theme_color_alpha(theme.tokens.accent.brand, .5f),
+                             focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
+                             theme.scale.radius_sm, focused ? 2.f : 0.f);
+        }
     }
     if (p && include_presence && !ui_friends_scene_presence_paint(s, theme, paint))
         p.fail();
@@ -1144,6 +1445,10 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             }
             p.icon(data.kind == UiFriendsActiveKind::voice ? UiIcon::speaker : UiIcon::play,
                    {card.right - 30, card.top + 18, card.right - 14, card.top + 34}, theme.text_secondary);
+            // The game's details under the title: art, lines and timer (the host draws the images).
+            if (p && data.activity &&
+                !ui_activity_card_paint(*data.activity, active_detail_origin(card, data), theme, paint))
+                p.fail();
         }
     }
     return p.end();
@@ -1158,43 +1463,88 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
         return false;
     const auto* heading = ui_widget_manager_layout_node(s.widgets, s.heading);
     const auto* status = ui_widget_manager_layout_node(s.widgets, s.status_widget);
-    const auto* count = ui_widget_manager_layout_node(s.widgets, s.count_widget);
-    if (!heading || !status || !count)
+    if (!heading || !status)
         return false;
-    UiTextPen text{stream, s.widgets, s.viewport};
-    text.at(s.heading)(s.heading, hidden(s) ? utf8_literal("Other requests") : utf8_literal("Friends"),
-                       heading->content_rectangle, theme.text_primary, text_style_heading_2 | text_style_bold);
+    const UiRect panel = bounds(s);
+    UiTextPen text{stream, s.widgets, panel};
+    text.at(s.heading)(s.heading, hidden(s)                       ? utf8_literal("Other requests")
+                                  : ui_friends_tab_requests(s.tab) ? utf8_literal("Message Requests")
+                                                                   : utf8_literal("Friends"),
+                       heading->content_rectangle, theme.text_primary,
+                       in_toolbar(s) ? text_style_bold : text_style_heading_2 | text_style_bold);
+    const auto tone = s.content ? s.content->tone : UiFriendsTone::neutral;
     if (hidden(s))
         text.at(s.status_widget)(s.status_widget,
                                  utf8_literal("Requests from people you've ignored and possible spam."),
                                  status->content_rectangle, theme.text_secondary, text_style_subtext,
                                  ui_text_wrap | ui_text_middle | ui_text_clip);
     else
-        text.at(s.status_widget)(s.status_widget, status_label(s), status->content_rectangle, theme.text_secondary,
+        text.at(s.status_widget)(s.status_widget, status_label(s), status->content_rectangle,
+                                 tone == UiFriendsTone::positive ? theme.tokens.text.positive
+                                 : tone == UiFriendsTone::danger ? theme.tokens.text.danger
+                                                                 : theme.text_secondary,
                                  text_style_subtext);
-    text.at(s.count_widget)(s.count_widget, {s.count_heading, s.count_heading_bytes}, count->content_rectangle,
-                            theme.text_secondary, text_style_subtext);
+    if (const auto* intro = ui_widget_manager_layout_node(s.widgets, s.intro)) {
+        auto r = intro->content_rectangle;
+        r.bottom = r.top + 24;
+        text.at(s.intro)(s.intro, utf8_literal("Add Friend"), r, theme.text_primary, text_style_bold);
+        r.top = r.bottom;
+        r.bottom = intro->content_rectangle.bottom;
+        text.at(s.intro)(s.intro, utf8_literal("You can add friends with their Discord username."), r,
+                         theme.text_secondary, text_style_subtext);
+    }
+    if (const auto* empty = ui_widget_manager_layout_node(s.widgets, s.empty))
+        text.at(s.empty)(s.empty, empty_label(s), empty->content_rectangle, theme.text_secondary, text_style_subtext,
+                         ui_text_center | ui_text_wrap | ui_text_middle | ui_text_clip);
     if (searching(s)) {
         const auto g = ui_friends_scene_search_geometry(s);
+        const bool note_focused = s.content->note.focused && s.note_field.generation;
         if (text.ok() && !ui_edit_field_text_output(stream, {&s.widgets, s.search_field}, g.text, s.content->search,
-                                                    edit, utf8_literal("Search friends"), theme))
+                                                    note_focused ? nullptr : edit,
+                                                    adding(s) ? utf8_literal("Enter a username")
+                                                              : utf8_literal("Search friends"),
+                                                    theme))
             text.fail();
+        if (adding(s))
+            text.at(s.clear_search)(s.clear_search, utf8_literal("Send Friend Request"), g.clear,
+                                    theme.tokens.text.on_accent, text_style_subtext | text_style_bold, ui_text_center);
+        if (s.note_field.generation) {
+            const auto n = ui_friends_scene_note_geometry(s);
+            if (text.ok() && !ui_edit_field_text_output(stream, {&s.widgets, s.note_field}, n.text, s.content->note,
+                                                        note_focused ? edit : nullptr,
+                                                        utf8_literal("Personalize your request (Optional)"), theme))
+                text.fail();
+            // The characters left of the note's 120, red once none are.
+            const u32 left = 120 - minimum(120u, utf8_validate(s.content->note.text).codepoints);
+            char digits[4];
+            u32 used = 0;
+            if (left >= 100) digits[used++] = static_cast<char>('0' + left / 100);
+            if (left >= 10) digits[used++] = static_cast<char>('0' + left / 10 % 10);
+            digits[used++] = static_cast<char>('0' + left % 10);
+            const UiRect clip = ui_rect_intersection(n.clear, panel);
+            if (text.ok() && ui_rect_has_area(clip) &&
+                !ui_text_output_push_owned(stream, {{digits, used}, {&s.widgets, s.note_field}, n.clear, clip,
+                                                    left ? theme.text_secondary : theme.tokens.text.danger,
+                                                    text_style_subtext, UiTextAlignment::end, UiTextAlignment::center,
+                                                    TextWrapping::no_wrap, TextOverflow::clip, UiTextFace::normal}))
+                text.fail();
+        }
     }
     if (s.active_visible && !s.active_collapsed) {
         const auto& r = s.active_rect;
         auto line = text.in(r);
         const auto toggle = active_toggle_rect(s);
-        line(s.heading, utf8_literal("Active now"), {r.left + active_padding, r.top + 12, toggle.left - 8, r.top + 44},
+        line(s.heading, utf8_literal("Active Now"), {r.left + active_padding, r.top + 12, toggle.left - 8, r.top + 44},
              theme.text_primary, text_style_heading_2 | text_style_bold);
         const u32 cards = active_card_count(s);
         if (!cards) {
             const UiRect title{r.left + active_padding, r.top + active_heading + 24, r.right - active_padding,
                                r.top + active_heading + 48};
             const UiRect body{title.left, title.bottom + 4, title.right, title.bottom + 64};
-            line(s.heading, utf8_literal("It's quiet for now"), title, theme.text_primary, text_style_bold);
+            line(s.heading, utf8_literal("It's quiet for now..."), title, theme.text_primary, text_style_bold);
             line(s.heading,
-                 utf8_literal("When a friend starts an activity, like playing a game or hanging out in voice, "
-                              "it shows here."),
+                 utf8_literal("When a friend starts an activity\xE2\x80\x94like playing a game or hanging out on "
+                              "voice\xE2\x80\x94we'll show it here!"),
                  body, theme.text_secondary, text_style_subtext, ui_text_wrap | ui_text_middle | ui_text_clip);
         }
         for (u32 i = 0; text.ok() && i < cards; ++i) {
@@ -1211,10 +1561,16 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
             }
             line(s.heading, {more, more_bytes}, {avatars_right, card.top + 14, right, card.top + 46},
                  theme.text_secondary, text_style_subtext);
-            line(s.heading, data.title, {left, card.top + 52, right, card.top + 72}, theme.text_primary,
+            // One friend: name and activity beside the avatar; shared: the title and members under the avatars.
+            const bool solo = active_solo(data);
+            const float text_left = solo ? avatars_right + 2 : left, title_top = solo ? card.top + 12 : card.top + 52;
+            line(s.heading, data.title, {text_left, title_top, right, title_top + 20}, theme.text_primary,
                  text_style_bold);
-            line(s.heading, data.subtitle, {left, card.top + 72, card.right - 14, card.top + 90}, theme.text_secondary,
-                 text_style_subtext);
+            line(s.heading, data.subtitle, {text_left, title_top + 20, card.right - 14, title_top + 38},
+                 theme.text_secondary, text_style_subtext);
+            if (data.activity && !ui_activity_card_text(*data.activity, active_detail_origin(card, data), theme, text,
+                                                        s.heading, card))
+                text.fail();
         }
     }
     for (u32 i = 0; text.ok() && i < s.widgets.count; ++i) {
@@ -1227,8 +1583,9 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
             text.fail();
             break;
         }
-        if (e.target.action == UiFriendsAction::search ||
-            (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes))
+        if (e.target.action == UiFriendsAction::search || e.target.action == UiFriendsAction::note ||
+            (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes) ||
+            (e.target.action == UiFriendsAction::add_friend && adding(s)))
             continue;
         if (e.row_label) {
             UiFriendsAction available[4]{};
@@ -1240,22 +1597,63 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
             r.left += 44;
             r.right = maximum(r.left, r.right - actions_width - 8);
             r.bottom = r.top + 22;
-            text.at(h)(h, e.row.display_name.bytes ? e.row.display_name : e.row.username, r, theme.text_primary,
-                       text_style_bold);
+            const Utf8View name = e.row.display_name.bytes ? e.row.display_name : e.row.username;
+            if (e.row.user_id == s.name_row && e.row.username.bytes && !utf8_equal(name, e.row.username)) {
+                // The pointer's row shows the username after the name, muted, as the official client's list does.
+                char composed[2 * 128 + 1];
+                const u32 name_bytes = utf8_copy_truncated(composed, sizeof(composed) - 1, name);
+                composed[name_bytes] = ' ';
+                const u32 used = name_bytes + 1 +
+                    utf8_copy_truncated(composed + name_bytes + 1, sizeof(composed) - name_bytes - 1, e.row.username);
+                s.name_spans[0] = {0, name_bytes, text_style_bold, 0, {}};
+                s.name_spans[1] = {name_bytes + 1, used - name_bytes - 1, text_style_subtext, 0, {}};
+                const UiRect clip = ui_rect_intersection(r, node->clip_rectangle);
+                if (ui_rect_has_area(clip) &&
+                    !ui_text_output_push_owned(stream, {{composed, used}, {&s.widgets, h}, r, clip, theme.text_primary, 0,
+                                                        UiTextAlignment::start, UiTextAlignment::center,
+                                                        TextWrapping::no_wrap, TextOverflow::ellipsis, UiTextFace::normal,
+                                                        {}, {s.name_spans, 2}}))
+                    text.fail();
+            } else
+                text.at(h)(h, name, r, theme.text_primary, text_style_bold);
             r.top += 23;
             r.bottom = node->content_rectangle.bottom;
             const auto label =
                 e.row.status.bytes ? e.row.status
                 : hidden(s) ? (e.row.ignored ? utf8_literal("Ignored") : utf8_literal("Potential spam"))
-                : e.row.kind == UiFriendsKind::incoming ? utf8_literal("Incoming friend request")
-                : e.row.kind == UiFriendsKind::outgoing ? utf8_literal("Outgoing friend request")
-                : e.row.kind == UiFriendsKind::blocked  ? utf8_literal("Blocked")
+                : e.row.kind == UiFriendsKind::incoming ? utf8_literal("Incoming Friend Request")
+                : e.row.kind == UiFriendsKind::outgoing ? utf8_literal("Outgoing Friend Request")
                 : e.row.presence == UiPresence::online  ? utf8_literal("Online")
                 : e.row.presence == UiPresence::idle    ? utf8_literal("Idle")
                 : e.row.presence == UiPresence::busy    ? utf8_literal("Do Not Disturb")
                 : e.row.presence == UiPresence::unknown ? utf8_literal("Status unavailable")
                                                         : utf8_literal("Offline");
-            text.at(h)(h, label, r, theme.text_secondary, text_style_subtext);
+            // An online friend's activity or custom status replaces the presence label.
+            char storage[kAppearanceActivityBytes], composed[kAppearanceActivityBytes + 32];
+            UiActivityStatus activity{};
+            if (!e.row.ignored && activity_line(s, e.row, {storage, sizeof(storage)}, &activity)) {
+                u32 used = 0;
+                const auto put = [&](const Utf8View& value) noexcept {
+                    used += utf8_copy_truncated(composed + used, sizeof(composed) - used, value);
+                };
+                put(activity.emoji);
+                if (activity.emoji.bytes && activity.text.bytes)
+                    put(utf8_literal(" "));
+                put(activity.text);
+                const auto line = ui_activity_glyph_text(r, activity.glyph);
+                const UiRect clip = ui_rect_intersection(line, node->clip_rectangle);
+                if (used && ui_rect_has_area(clip) && text.ok() &&
+                    !ui_text_output_push_owned(stream, {{composed, used}, {&s.widgets, h}, line, clip,
+                                                        theme.text_secondary, text_style_subtext,
+                                                        UiTextAlignment::start, UiTextAlignment::center,
+                                                        TextWrapping::no_wrap, TextOverflow::ellipsis,
+                                                        UiTextFace::normal}))
+                    text.fail();
+                if (used)
+                    continue;
+            }
+            text.at(h)(h, e.row.ignored && e.row.kind == UiFriendsKind::friend_user ? utf8_literal("Ignored") : label,
+                       r, theme.text_secondary, text_style_subtext);
         } else if (e.row.user_id && action_icon(e.target.action) != UiIcon::count) {
             continue; // painted as an icon button
         } else {
@@ -1267,18 +1665,34 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                     if (section.kind == e.target.section && section.allow_clear && section.count >= 5)
                         r.right = maximum(r.left, r.right - 72);
                 }
+            const bool tab = e.target.action == UiFriendsAction::select_tab;
+            if (tab && e.target.tab == UiFriendsTab::pending && s.badge) {
+                const float w = ui_mention_badge_width(s.badge);
+                const float top = (node->rectangle.top + node->rectangle.bottom - kUiMentionBadgeHeight) * .5f;
+                const UiRect badge{node->rectangle.right - 8 - w, top, node->rectangle.right - 8,
+                                   top + kUiMentionBadgeHeight};
+                if (!ui_mention_badge_text_output(s.badge, s.widgets, h, badge, node->clip_rectangle, stream))
+                    text.fail();
+                r.right = maximum(r.left, badge.left - 4);
+            }
+            // Primary pills (the Add Friend tab and button, a request's Accept DM) read on the brand fill.
+            const bool primary_pill =
+                (tab && e.target.tab == UiFriendsTab::add_friend) || e.target.action == UiFriendsAction::add_friend ||
+                (e.target.action == UiFriendsAction::accept_dm && s.tab == UiFriendsTab::requests);
             text.at(h)(h,
                        e.target.action == UiFriendsAction::toggle_section
                            ? Utf8View{e.section_label, e.section_label_bytes}
                        : e.target.action == UiFriendsAction::toggle_hidden
                            ? (s.sections->hidden_view ? utf8_literal("Close") : utf8_literal("View other requests"))
-                       : e.target.action == UiFriendsAction::clear_hidden         ? utf8_literal("Clear all")
-                       : e.target.action == UiFriendsAction::cancel && s.sections ? utf8_literal("X")
-                       : e.target.action == UiFriendsAction::select_tab ? tab_label(e.target.tab)
-                                                                        : action_label(e.target.action),
+                       : e.target.action == UiFriendsAction::clear_hidden ? utf8_literal("Clear all")
+                       : tab && e.target.tab == UiFriendsTab::spam && s.spam_label_bytes
+                           ? Utf8View{s.spam_label, s.spam_label_bytes}
+                       : tab ? tab_label(e.target.tab)
+                                                                          : action_label(e.target.action),
                        r,
-                       (s.widgets.storage[i].flags & ui_widget_enabled) &&
-                               (e.target.action != UiFriendsAction::select_tab || e.target.tab == s.tab)
+                       primary_pill ? (tab && e.target.tab == s.tab ? theme.tokens.accent.brand
+                                                                    : theme.tokens.text.on_accent)
+                       : (s.widgets.storage[i].flags & ui_widget_enabled) && (!tab || e.target.tab == s.tab)
                            ? theme.text_primary
                            : theme.text_secondary,
                        text_style_subtext, e.target.action == UiFriendsAction::toggle_section ? 0 : ui_text_center);
@@ -1309,6 +1723,13 @@ bool ui_friends_scene_active_avatar(const UiFriendsScene& s, u32 index, UiFriend
         return out->user_id != 0;
     }
     return false;
+}
+bool ui_friends_scene_active_card(const UiFriendsScene& s, u32 index, UiRect* card, UiPoint* activity) noexcept {
+    if (!card || !activity || !current(s) || index >= active_card_count(s))
+        return false;
+    *card = active_card_rect(s, index);
+    *activity = active_detail_origin(*card, s.active_now->cards[index]);
+    return true;
 }
 bool ui_friends_scene_active_hover(UiFriendsScene* s, float x, float y) noexcept {
     if (!s || !current(*s))
@@ -1344,7 +1765,7 @@ bool ui_friends_scene_icon_action(const UiFriendsScene& s, bool keyboard, float 
             continue;
         *widget = h;
         *target = e.target;
-        *tooltip = e.target.action == UiFriendsAction::open_dm ? utf8_literal("Message") : utf8_literal("More");
+        *tooltip = action_label(e.target.action);
         return true;
     }
     return false;

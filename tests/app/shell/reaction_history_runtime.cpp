@@ -1280,6 +1280,7 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
 }
 INACTIVE_REQUEST_OWNER(self_status, true)
 INACTIVE_REQUEST_OWNER(user_settings, true)
+INACTIVE_REQUEST_OWNER(test_mode, true)
 INACTIVE_REQUEST_OWNER(account_settings, true)
 INACTIVE_REQUEST_OWNER(notification_controls, true)
 INACTIVE_REQUEST_OWNER(custom_status, true)
@@ -1306,6 +1307,7 @@ bool application_guild_folders_submit(u64, u64) noexcept {
     return false;
 }
 INACTIVE_REQUEST_OWNER(invite_cards, true)
+INACTIVE_REQUEST_OWNER(game_lookup, true)
 bool application_message_forward_synchronize() noexcept {
     return true;
 }

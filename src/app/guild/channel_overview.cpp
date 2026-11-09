@@ -390,7 +390,7 @@ static SettingsLayer* edit_layer() noexcept {
     auto* layer = modal_layer();
     if (!layer)
         return owner && owner->scene.active ? &owner->layer : nullptr;
-    return layer == application_report_settings_layer()           ? nullptr
+    return layer == application_report_settings_layer() || layer == application_game_profile_settings_layer() ? nullptr
            : layer == application_profile_editor_settings_layer() ? application_profile_editor_edit_layer()
                                                                   : layer;
 }

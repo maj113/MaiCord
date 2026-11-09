@@ -35,6 +35,8 @@ struct ApplicationMediaPump {
 
     bool request_profile_media(const ProfileMedia& media, bool* stop, bool play = true,
                                AccountMediaRequestResult* failure = nullptr) noexcept;
+    // A profile card's avatar colours (banner fill, avatar theme): read when resident, else requested.
+    bool read_avatar_colors(ProfileScene& scene, bool* stop) noexcept;
     // Go Live preview thumbnails shown by the stream card and call tiles.
     bool request_stream_previews(bool* stop) noexcept;
     // A refused asset waiting out its backoff (media_asset_failures.hpp): no request fetches or decodes it.

@@ -1,6 +1,8 @@
 #include "maicord/protocol/guild/community.hpp"
+#include "maicord/protocol/guild/community_admin.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/color_hex.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/http/rest_route.hpp"
@@ -455,10 +457,19 @@ bool blank(Utf8View text) noexcept {
 // Requests
 
 bool guild_community_operation_has_body(GuildCommunityOperation operation) noexcept {
-    return operation == GuildCommunityOperation::verification_submit ||
-           operation == GuildCommunityOperation::onboarding_submit ||
-           operation == GuildCommunityOperation::onboarding_update ||
-           operation == GuildCommunityOperation::event_create;
+    using Op = GuildCommunityOperation;
+    return operation == Op::verification_submit || operation == Op::onboarding_submit ||
+           operation == Op::onboarding_update || operation == Op::event_create ||
+           operation == Op::verification_update || operation == Op::template_create ||
+           operation == Op::template_update || operation == Op::discovery_metadata_update ||
+           operation == Op::guild_profile_visibility;
+}
+
+bool guild_community_operation_large_reply(GuildCommunityOperation operation) noexcept {
+    using Op = GuildCommunityOperation;
+    // The REST client's large response path takes GET and JSON POST only; a sync or an update (PUT, PATCH) reads
+    // its reply within the ordinary 256 KiB.
+    return operation == Op::templates_list || operation == Op::template_create;
 }
 
 bool guild_community_request_valid(const GuildCommunityRequest& request) noexcept {
@@ -470,7 +481,15 @@ bool guild_community_request_valid(const GuildCommunityRequest& request) noexcep
     const auto op = request.operation;
     const bool event = op == GuildCommunityOperation::event_get || op == GuildCommunityOperation::event_interested ||
                        op == GuildCommunityOperation::event_uninterested;
-    if (event != (request.event_id != 0))
+    const bool subcategory = op == GuildCommunityOperation::discovery_subcategory_add ||
+                             op == GuildCommunityOperation::discovery_subcategory_remove;
+    if (!subcategory && event != (request.event_id != 0))
+        return false;
+    if (subcategory && request.event_id > 0xFFFFFFFFull)
+        return false;
+    const bool coded = op == GuildCommunityOperation::template_sync || op == GuildCommunityOperation::template_update ||
+                       op == GuildCommunityOperation::template_delete;
+    if (coded ? !guild_template_code_valid(request.code) : (request.code.data || request.code.bytes))
         return false;
     if (!guild_community_operation_has_body(op))
         return !request.body && !request.body_bytes;
@@ -570,6 +589,63 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
              (!session_id.bytes || route_write(&route, "&session_id=", session_id));
         result.method = RestMethod::put;
         result.route_id = kGuildJoinRouteId;
+        break;
+    case GuildCommunityOperation::verification_update:
+        ok = ok && guild_path() && route_write(&route, "/member-verification");
+        result.method = RestMethod::patch;
+        result.route_id = kGuildVerificationUpdateRouteId;
+        break;
+    case GuildCommunityOperation::templates_list:
+    case GuildCommunityOperation::template_create:
+        ok = ok && guild_path() && route_write(&route, "/templates");
+        result.method =
+            request.operation == GuildCommunityOperation::templates_list ? RestMethod::get : RestMethod::post;
+        result.route_id = kGuildTemplatesRouteId;
+        break;
+    case GuildCommunityOperation::template_sync:
+    case GuildCommunityOperation::template_update:
+    case GuildCommunityOperation::template_delete:
+        ok = ok && guild_path() && route_write(&route, "/templates/", request.code);
+        result.method = request.operation == GuildCommunityOperation::template_sync     ? RestMethod::put
+                        : request.operation == GuildCommunityOperation::template_update ? RestMethod::patch
+                                                                                        : RestMethod::delete_method;
+        result.route_id = kGuildTemplateRouteId;
+        break;
+    case GuildCommunityOperation::discovery_requirements:
+        ok = ok && guild_path() && route_write(&route, "/discovery-requirements");
+        result.method = RestMethod::get;
+        result.route_id = kGuildDiscoveryRequirementsRouteId;
+        break;
+    case GuildCommunityOperation::discovery_metadata_get:
+    case GuildCommunityOperation::discovery_metadata_update:
+        ok = ok && guild_path() && route_write(&route, "/discovery-metadata");
+        result.method = request.operation == GuildCommunityOperation::discovery_metadata_get ? RestMethod::get
+                                                                                              : RestMethod::patch;
+        result.route_id = kGuildDiscoveryMetadataRouteId;
+        break;
+    case GuildCommunityOperation::discovery_categories:
+        // The official client asks in its own locale for every category.
+        ok = ok && route_write(&route, "/api/v9/discovery/categories?locale=en-US&primary_only=false");
+        result.method = RestMethod::get;
+        result.route_id = kDiscoveryCategoriesRouteId;
+        break;
+    case GuildCommunityOperation::discovery_subcategory_add:
+    case GuildCommunityOperation::discovery_subcategory_remove:
+        ok = ok && guild_path() && route_write(&route, "/discovery-categories/", request.event_id);
+        result.method = request.operation == GuildCommunityOperation::discovery_subcategory_add
+                            ? RestMethod::put
+                            : RestMethod::delete_method;
+        result.route_id = kGuildDiscoverySubcategoryRouteId;
+        break;
+    case GuildCommunityOperation::guild_profile_visibility:
+        ok = ok && guild_path() && route_write(&route, "/profile");
+        result.method = RestMethod::patch;
+        result.route_id = kGuildProfileVisibilityRouteId;
+        break;
+    case GuildCommunityOperation::join_requests_submitted:
+        ok = ok && guild_path() && route_write(&route, "/requests?status=SUBMITTED&limit=25");
+        result.method = RestMethod::get;
+        result.route_id = kGuildJoinRequestsRouteId;
         break;
     default:
         ok = false;
@@ -1056,9 +1132,11 @@ u32 scheduled_event_write_link(u64 guild_id, u64 event_id, Slice<char> output) n
 // Server profile
 
 namespace {
+struct ProfileActivity;
 struct ProfileParse {
     const JsonIndexedDocument* document;
     GuildProfile* output;
+    ProfileActivity* activity;
 };
 // "#rrggbb" (the brand colour form) or a number; ~0u otherwise.
 u32 profile_color(JsonValue value) noexcept {
@@ -1071,12 +1149,15 @@ u32 profile_color(JsonValue value) noexcept {
     return bytes == 7 && text[0] == '#' && color_hex_parse_rgb24({text, 7}, &color) ? color : ~0u;
 }
 bool visit_profile_feature(void* context, u32, JsonValue feature) noexcept {
-    static constexpr u32 bits[]{guild_profile_discoverable, guild_profile_tags};
+    static constexpr u32 bits[]{guild_profile_discoverable, guild_profile_tags, guild_profile_community,
+                                guild_profile_verified, guild_profile_partnered, guild_profile_verification_gate,
+                                guild_profile_manual_approval};
     JsonString text{};
     if (!json_value_as_string(feature, &text))
         return true;
-    const u32 known = member_index<"DISCOVERABLE", "GUILD_TAGS">(text);
-    if (known < 2)
+    const u32 known = member_index<"DISCOVERABLE", "GUILD_TAGS", "COMMUNITY", "VERIFIED", "PARTNERED",
+                                   "MEMBER_VERIFICATION_GATE_ENABLED", "MEMBER_VERIFICATION_MANUAL_APPROVAL">(text);
+    if (known < 7)
         *static_cast<u32*>(context) |= bits[known];
     return true;
 }
@@ -1087,9 +1168,14 @@ struct ProfileTraitItem {
 };
 bool visit_profile_trait_member(void* context, JsonString key, JsonValue value) noexcept {
     auto& e = *static_cast<ProfileTraitItem*>(context);
-    switch (member_index<"label", "position">(key)) {
+    switch (member_index<"label", "position", "emoji_id", "emoji_name", "emoji_animated">(key)) {
     case 0: e.trait.label_bytes = static_cast<u8>(decode_text(value, e.trait.label, kGuildProfileTraitBytes)); break;
     case 1: e.positioned = json_value_to_u64(value, &e.position); break;
+    case 2: json_value_to_nullable_snowflake(value, &e.trait.emoji_id); break;
+    case 3:
+        e.trait.emoji_name_bytes = static_cast<u8>(decode_text(value, e.trait.emoji_name, kGuildProfileEmojiNameBytes));
+        break;
+    case 4: json_value_to_bool(value, &e.trait.emoji_animated); break;
     default: break;
     }
     return true;
@@ -1108,12 +1194,52 @@ bool visit_profile_trait(void* context, u32, JsonValue item) noexcept {
         t.slots[entry.position] = entry.trait;
     return true;
 }
+bool visit_profile_game_id(void* context, u32, JsonValue item) noexcept {
+    auto& o = *static_cast<GuildProfile*>(context);
+    u64 id = 0;
+    if (o.game_count < kGuildProfileGames && json_value_to_snowflake(item, &id) && id)
+        o.games[o.game_count++] = {id, 0, 0};
+    return true;
+}
+// game_activity: {"<application id>": {activity_level, activity_score}}, kept until the ids are known.
+struct ProfileActivity {
+    const JsonIndexedDocument* document;
+    GuildProfileGame entries[kGuildProfileGames];
+    u32 count;
+};
+bool visit_profile_activity_member(void* context, JsonString key, JsonValue value) noexcept {
+    auto& game = *static_cast<GuildProfileGame*>(context);
+    u64 number = 0;
+    switch (member_index<"activity_level", "activity_score">(key)) {
+    case 0:
+        if (json_value_to_u64(value, &number))
+            game.level = static_cast<u8>(minimum<u64>(number, 255));
+        break;
+    case 1:
+        if (json_value_to_u64(value, &number))
+            game.score = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
+        break;
+    default: break;
+    }
+    return true;
+}
+bool visit_profile_activity(void* context, JsonString key, JsonValue value) noexcept {
+    auto& a = *static_cast<ProfileActivity*>(context);
+    GuildProfileGame game{};
+    if (a.count >= kGuildProfileGames || value.kind != JsonValueKind::object || !decimal_parse(key.encoded, &game.id))
+        return true;
+    json_visit_indexed_object(*a.document, value, kDepth, visit_profile_activity_member, &game);
+    a.entries[a.count++] = game;
+    return true;
+}
 bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<ProfileParse*>(opaque);
     auto& o = *p.output;
     u64 number = 0;
     switch (member_index<"id", "name", "description", "icon_hash", "custom_banner_hash", "badge_hash", "tag",
-                         "online_count", "member_count", "brand_color_primary", "features", "traits">(name)) {
+                         "online_count", "member_count", "brand_color_primary", "features", "traits",
+                         "premium_subscription_count", "premium_tier", "game_application_ids",
+                         "game_activity">(name)) {
     case 0: json_value_to_snowflake(value, &o.id); break;
     case 1: o.name_bytes = static_cast<u16>(decode_text(value, o.name, kGuildProfileNameBytes)); break;
     case 2: o.description_bytes = static_cast<u16>(decode_text(value, o.description, kGuildProfileDescriptionBytes)); break;
@@ -1150,6 +1276,25 @@ bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
                     o.traits[o.trait_count++] = slot;
         }
         break;
+    case 12:
+        if (json_value_to_u64(value, &number))
+            o.premium_subscription_count = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
+        break;
+    case 13:
+        if (json_value_to_u64(value, &number))
+            o.premium_tier = static_cast<u8>(minimum<u64>(number, 3));
+        break;
+    case 14:
+        o.game_count = 0;
+        if (value.kind == JsonValueKind::array)
+            json_visit_indexed_array(*p.document, value, kDepth, visit_profile_game_id, &o);
+        break;
+    case 15:
+        if (value.kind == JsonValueKind::object && p.activity) {
+            p.activity->count = 0;
+            json_visit_indexed_object(*p.document, value, kDepth, visit_profile_activity, p.activity);
+        }
+        break;
     default: break;
     }
     return true;
@@ -1163,9 +1308,25 @@ bool guild_profile_decode(Utf8View body, Slice<u32> scratch, GuildProfile* outpu
     const auto scanned = scan(body, scratch);
     if (!scanned.ok)
         return false;
-    ProfileParse parse{&scanned.document, output};
+    ProfileActivity activity{&scanned.document, {}, 0};
+    ProfileParse parse{&scanned.document, output, &activity};
     if (!json_visit_root_object(body, scanned.document.structurals, kDepth, visit_profile, &parse).ok())
         return false;
+    // The games by activity score, highest first; a stable insertion sort keeps equal scores in their order.
+    auto& games = output->games;
+    for (u32 i = 0; i < output->game_count; ++i)
+        for (u32 k = 0; k < activity.count; ++k)
+            if (activity.entries[k].id == games[i].id) {
+                games[i].score = activity.entries[k].score;
+                games[i].level = activity.entries[k].level;
+            }
+    for (u32 i = 1; i < output->game_count; ++i) {
+        const GuildProfileGame game = games[i];
+        u32 at = i;
+        for (; at > 0 && games[at - 1].score < game.score; --at)
+            games[at] = games[at - 1];
+        games[at] = game;
+    }
     return output->id && output->name_bytes;
 }
 

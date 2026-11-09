@@ -36,6 +36,12 @@ MAICORD_THEME_TOKEN(accent, warning, RGBA(.94f, .69f, .2f, 1), RGBA(.94f, .69f, 
 MAICORD_THEME_TOKEN(accent, danger, P(notification), P(notification))
 // The APP tag beside a bot's name: the brand blurple in every theme.
 MAICORD_THEME_TOKEN(accent, app_badge, RGBA(.34509804f, .39607843f, .94901961f, 1), RGBA(.34509804f, .39607843f, .94901961f, 1))
+// Server boosting: the level 3 gem and a boosted server's badge (the official client's #ff73fa).
+MAICORD_THEME_TOKEN(accent, boost, RGBA(1, .45098039f, .98039216f, 1), RGBA(1, .45098039f, .98039216f, 1))
+// A boosted server's badge behind its gem, every level (the official icon-muted grey #96979e, light #6c6d76).
+MAICORD_THEME_TOKEN(accent, boost_badge, RGBA(.58823529f, .59215686f, .61960784f, 1), RGBA(.42352941f, .42745098f, .46274510f, 1))
+// A server's busy game: the flame on its icon (the official orange #fa9746).
+MAICORD_THEME_TOKEN(accent, game_activity, RGBA(.98039216f, .5921569f, .27450982f, 1), RGBA(.98039216f, .5921569f, .27450982f, 1))
 MAICORD_THEME_GROUP_END(accent)
 
 MAICORD_THEME_GROUP(text)
@@ -51,7 +57,11 @@ MAICORD_THEME_GROUP_END(text)
 MAICORD_THEME_GROUP(border)
 MAICORD_THEME_TOKEN(border, subtle, RGBA(1, 1, 1, .08f), RGBA(0, 0, 0, .08f))
 MAICORD_THEME_TOKEN(border, strong, RGBA(1, 1, 1, .12f), RGBA(0, 0, 0, .12f))
+// The faint edge of a grouped control (the profile badge box).
+MAICORD_THEME_TOKEN(border, muted, RGBA(.592f, .592f, .624f, .04f), RGBA(.592f, .592f, .624f, .2f))
 MAICORD_THEME_TOKEN(border, focus, P(accent), P(accent))
+// Outlined chips (a server's traits and their tooltip): the official border-subtle, #97979f at 12% (28% light).
+MAICORD_THEME_TOKEN(border, outline, RGBA(.592f, .592f, .624f, .12f), RGBA(.592f, .592f, .624f, .28f))
 MAICORD_THEME_GROUP_END(border)
 
 MAICORD_THEME_GROUP(state)
@@ -89,7 +99,8 @@ MAICORD_THEME_GROUP(status)
 MAICORD_THEME_TOKEN(status, online, T(accent, success), T(accent, success))
 MAICORD_THEME_TOKEN(status, idle, T(accent, warning), T(accent, warning))
 MAICORD_THEME_TOKEN(status, dnd, T(accent, danger), T(accent, danger))
-MAICORD_THEME_TOKEN(status, offline, P(interactive), P(interactive))
+// Offline presence and the member count's dot: the official client's neutral grey (#9d9ea5, light #5f606a).
+MAICORD_THEME_TOKEN(status, offline, RGBA(.61568627f, .61960784f, .64705882f, 1), RGBA(.37254902f, .37647059f, .41568627f, 1))
 MAICORD_THEME_GROUP_END(status)
 
 MAICORD_THEME_GROUP(mention)
@@ -147,7 +158,8 @@ MAICORD_THEME_GROUP_END(ansi)
 // card takes the column of its own profile theme (darkness of the primary colour).
 // overlay is the 60% veil over the theme gradient; surface and modal are the
 // unthemed card and full-profile backgrounds; banner is the colourless
-// banner; control is the circular header button over the banner.
+// banner; control is the circular header button over the banner;
+// server_banner is a server profile's banner without a brand colour or icon.
 MAICORD_THEME_GROUP(profile)
 MAICORD_THEME_TOKEN(profile, surface, P(base_lower), P(base_lower))
 MAICORD_THEME_TOKEN(profile, modal, P(base_lower), P(base_lower))
@@ -162,10 +174,20 @@ MAICORD_THEME_TOKEN(profile, card_hover, RGBA(.594f, .594f, .626f, .2f), RGBA(1,
 MAICORD_THEME_TOKEN(profile, input, RGBA(1, 1, 1, .12f), RGBA(0, 0, 0, .08f))
 MAICORD_THEME_TOKEN(profile, button, RGBA(1, 1, 1, .08f), RGBA(1, 1, 1, .72f))
 MAICORD_THEME_TOKEN(profile, button_hover, RGBA(1, 1, 1, .16f), RGBA(1, 1, 1, .92f))
+// The badge box of a themed card (unthemed cards take state.row_hover/row_selected).
+MAICORD_THEME_TOKEN(profile, badge_box, RGBA(.592f, .592f, .624f, .12f), RGBA(1, 1, 1, .24f))
+MAICORD_THEME_TOKEN(profile, badge_box_hover, RGBA(.592f, .592f, .624f, .2f), RGBA(1, 1, 1, .4f))
+// A themed card's Game Collection icon plate (unthemed cards take state.row_selected), and the veil behind the
+// row's "+N" count.
+MAICORD_THEME_TOKEN(profile, game_plate, RGBA(1, 1, 1, .24f), RGBA(0, 0, 0, .32f))
+MAICORD_THEME_TOKEN(profile, count_veil, RGBA(0, 0, 0, .6f), RGBA(0, 0, 0, .6f))
+// The tile behind a connected account's logo: the services' marks are dark on transparent, so it is white in every theme.
+MAICORD_THEME_TOKEN(profile, connection_tile, RGBA(1, 1, 1, 1), RGBA(1, 1, 1, 1))
 MAICORD_THEME_TOKEN(profile, banner, RGBA(.067f, .071f, .078f, 1), RGBA(.067f, .071f, .078f, 1))
 MAICORD_THEME_TOKEN(profile, control, RGBA(0, 0, 0, .56f), RGBA(0, 0, 0, .56f))
 MAICORD_THEME_TOKEN(profile, control_border, RGBA(1, 1, 1, .08f), RGBA(1, 1, 1, .08f))
 MAICORD_THEME_TOKEN(profile, control_icon, RGBA(1, 1, 1, 1), RGBA(1, 1, 1, 1))
+MAICORD_THEME_TOKEN(profile, server_banner, RGBA(.07058824f, .07058824f, .078431373f, 1), RGBA(.43921569f, .44313725f, .47843137f, 1))
 MAICORD_THEME_GROUP_END(profile)
 
 // The window caption (ui/caption_bar.hpp): drag band, title and the window

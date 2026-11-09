@@ -18,8 +18,8 @@ const Api* library() noexcept;
 // running), cancels what the client was saying and queues the new text. False for no text, an unusable text (not UTF-8
 // from its first byte, or empty up to a NUL), no library (`load` gives null) or no daemon. A failed open is not retried
 // by later calls; a failed say drops the connection so that the next call opens another. `load` is called when there is
-// something to say.
-bool speak(Speech* speech, const Api* (*load)() noexcept, Utf8View text) noexcept;
+// something to say. `rate` (speech.hpp's -10..10) is set on the connection when it differs from the one applied last.
+bool speak(Speech* speech, const Api* (*load)() noexcept, Utf8View text, i32 rate = 0) noexcept;
 
 // Stops what the client says and closes the connection; the speech is closed (zeroed) afterwards.
 void release(Speech* speech, const Api* api) noexcept;

@@ -6,6 +6,11 @@
 #include "application_account_logout.hpp"
 #include "../settings/settings.hpp"
 #include "account_ui_runtime.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/ui/widgets/color_picker.hpp"
+#include "maicord/media/image/dominant_color.hpp"
+#include "maicord/ui/account/profile_appearance.hpp"
+#include "maicord/ui/account/profile_media.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -153,13 +158,16 @@ bool prepare_uri(Picked& picked) noexcept {
     return true;
 }
 
-// Colours (Primary / Accent / Banner Color): a hex value, like the picker's input.
-// Valid text recolours the preview live; closing without Apply restores the
-// colours the draft had when the form opened.
-enum ColorSlot : u64 { color_primary = 1, color_accent, color_banner };
+// Colours (Primary / Accent / Banner Color) through the colour picker. Every change recolours the preview live;
+// closing without Apply restores the colours the draft had when the picker opened. The suggestions are the saved
+// avatar's palette, as the official client suggests them.
+// Name colours are color_name + their index (up to kProfileNameStyleColors).
+enum ColorSlot : u64 { color_primary = 1, color_accent, color_banner, color_name };
 struct ColorPreview {
-    bool active, applied, accent_set, theme_set, theme_reset;
+    bool active, applied, accent_set, theme_set, theme_reset, name_style_set;
     u32 accent, theme[2];
+    ProfileNameStyle name_style;
+    u32 suggested[kImagePaletteColors];
 } g_color_preview;
 
 } // namespace
@@ -177,6 +185,9 @@ void color_apply(u64 slot, u32 color) noexcept {
     if (slot == color_banner) {
         p.draft.accent_set = true;
         p.draft.accent = color;
+    } else if (slot >= color_name && slot < color_name + kProfileNameStyleColors) {
+        p.draft.name_style_set = true;
+        p.draft.name_style.colors[slot - color_name] = color;
     } else {
         u32 colors[2]{};
         if (effective_theme(colors) != 2)
@@ -189,21 +200,36 @@ void color_apply(u64 slot, u32 color) noexcept {
     }
     repaint();
 }
-bool color_check(TextFormOwnerKey key, Utf8View text, u32* rgba) noexcept {
-    if (!application_text_form_color_check(key, text, rgba))
-        return false;
+void color_preview(TextFormOwnerKey key, u32 rgb) noexcept {
     if (g_color_preview.active && color_valid(key))
-        color_apply(key.collection, *rgba >> 8);
+        color_apply(key.collection, rgb);
+}
+bool color_save(TextFormOwnerKey key, u32 rgb) noexcept {
+    if (!color_valid(key))
+        return false;
+    color_apply(key.collection, rgb);
+    g_color_preview.applied = true;
     return true;
 }
-bool color_save(TextFormOwnerKey key, Utf8View text) noexcept {
-    u32 color = 0;
-    if (!color_valid(key) || !color_hex_parse_rgb24(text, &color))
-        return false;
-    color_apply(key.collection, color);
-    g_color_preview.applied = true;
-    application_text_form_close(false, false);
-    return true;
+// The avatar's palette, once the preview card has its picture resident (0 colours before): a picked, unsaved avatar as
+// it is cropped, as the preview's theme reads it, else the saved one.
+u32 avatar_palette(u32* colors) noexcept {
+    ProfileMedia still;
+    const auto& card = owner->preview;
+    if (!owner->preview_open)
+        return 0;
+    if (card.pending_avatar.active) {
+        const auto out = image_crop_output(card.pending_avatar.crop);
+        const u32 dpi = card.media_dpi ? card.media_dpi : 96u;
+        return renderer_media_crop_palette(&g_app.renderer, card.pending_avatar.key,
+                                           {out.x, out.y, out.width, out.height, card.pending_avatar.crop.image_width,
+                                            (static_cast<u32>(kProfileAvatarThemeDips) * dpi + 95) / 96, out.rotation},
+                                           colors);
+    }
+    return profile_avatar_still_media(card, kProfileAvatarThemeDips, &still) ||
+                   profile_avatar_still_media(card, ui_rect_width(card.avatar), &still)
+               ? renderer_media_palette(&g_app.renderer, still.key, colors)
+               : 0;
 }
 void color_closed(TextFormOwnerKey key) noexcept {
     const auto preview = g_color_preview;
@@ -217,36 +243,42 @@ void color_closed(TextFormOwnerKey key) noexcept {
     d.theme_reset = preview.theme_reset;
     d.theme[0] = preview.theme[0];
     d.theme[1] = preview.theme[1];
+    d.name_style_set = preview.name_style_set;
+    d.name_style = preview.name_style;
     repaint();
 }
 void edit_color(ColorSlot slot) noexcept {
     auto& p = *owner;
+    const auto& d = p.draft;
+    g_color_preview = {true,        false,        d.accent_set, d.theme_set, d.theme_reset, d.name_style_set,
+                       d.accent,    {d.theme[0], d.theme[1]},   d.name_style, {}};
+    const u32 suggested = avatar_palette(g_color_preview.suggested);
     u32 colors[2]{};
-    const u32 current = slot == color_banner ? (p.draft.accent_set ? p.draft.accent : p.base.accent)
+    const u32 fallback = suggested ? g_color_preview.suggested[0] : 0x41434A;
+    const bool name = slot >= color_name;
+    const u32 current = name ? d.name_style.colors[slot - color_name]
+                        : slot == color_banner ? (d.accent_set ? d.accent : p.base.has_accent ? p.base.accent : fallback)
                         : effective_theme(colors) == 2 ? colors[slot == color_primary ? 0 : 1]
-                                                       : 0x41434A;
-    static char initial[8];
-    const u32 bytes = profile_editor_format_color(current, {initial, sizeof(initial)});
-    ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Pick a Color");
-    request.label = slot == color_primary ? utf8_literal("Primary") : slot == color_accent ? utf8_literal("Accent")
-                                                                                          : utf8_literal("Banner Color");
-    request.context = utf8_literal("Enter a hex colour such as #5865F2.");
-    request.accept = utf8_literal("Apply");
-    request.initial = {initial, bytes};
+                                                       : fallback;
+    ApplicationColorPickerRequest request{};
+    request.title = slot == color_primary  ? utf8_literal("Primary Color")
+                    : slot == color_accent ? utf8_literal("Accent Color")
+                    : slot == color_banner ? utf8_literal("Banner Color")
+                    : d.name_style.color_count > 2 ? utf8_literal("Name Palette Color")
+                    : d.name_style.color_count > 1
+                        ? (slot == color_name ? utf8_literal("Name Start Color") : utf8_literal("Name End Color"))
+                        : utf8_literal("Name Color");
+    request.label = request.title;
     request.owner = {p.lifetime, slot, 0};
     request.valid = color_valid;
+    request.rgb = current;
+    // Name colours suggest the official client's name swatches; profile colours the saved avatar's palette.
+    request.suggested = name ? ConstSlice<u32>{kProfileNameColorSuggestions, sizeof(kProfileNameColorSuggestions) / sizeof(u32)}
+                             : ConstSlice<u32>{g_color_preview.suggested, suggested};
+    request.preview = color_preview;
     request.save = color_save;
     request.closed = color_closed;
-    request.maximum_codepoints = 7;
-    request.single_line = true;
-    request.placeholder = utf8_literal("#RRGGBB");
-    request.check = color_check;
-    request.rejected = utf8_literal("That isn't a hex colour. Use #RGB or #RRGGBB.");
-    request.swatch = true;
-    const auto& d = p.draft;
-    g_color_preview = {true, false, d.accent_set, d.theme_set, d.theme_reset, d.accent, {d.theme[0], d.theme[1]}};
-    if (!application_text_form_open(request))
+    if (!application_color_picker_open(request))
         reset_value(&g_color_preview);
 }
 
@@ -266,6 +298,79 @@ bool guard() noexcept {
 } // namespace profile_editor_detail
 namespace {
 
+// A dropdown row: enabled (the popup ignores clicks on rows without the flag), checked when it is the current value.
+u16 dropdown_flags(bool current) noexcept {
+    return static_cast<u16>(popup_item_enabled | (current ? popup_item_checked : 0));
+}
+// Opens a dropdown under its select field, left-aligned and as wide as the field, as the official client's select;
+// the pointer's position plays no part.
+void open_dropdown(const UiSettingsTarget& target, ConstSlice<PopupItem> items) noexcept {
+    auto& p = *owner;
+    UiSettingsControlGeometry geometry{};
+    if (!ui_settings_scene_control_geometry(p.scene, target, &geometry))
+        return;
+    settings_layer_open_choice(&p.layer, kProfilesPage.owner_id, items, geometry.field,
+                               maximum(96.f, ui_rect_width(geometry.field)));
+}
+// Try It Out's Shuffle, as the official client's: a random theme and a random name style to preview.
+void shuffle() noexcept {
+    auto& p = *owner;
+    u64 state = clock_monotonic_milliseconds() * 0x9E3779B97F4A7C15ull ^ p.lifetime;
+    const auto next = [&state](u32 bound) noexcept {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        return static_cast<u32>(state % bound);
+    };
+    const float hue = next(360) / 360.f;
+    p.draft.theme_set = true;
+    p.draft.theme_reset = false;
+    p.draft.theme[0] = color_picker_rgb({hue, .45f + next(40) / 100.f, .55f + next(40) / 100.f});
+    p.draft.theme[1] = color_picker_rgb({hue < .5f ? hue + .5f : hue - .5f, .45f + next(40) / 100.f, .3f + next(40) / 100.f});
+    p.draft.name_style_set = true;
+    p.draft.name_style = profile_name_style_with_effect({kProfileNameFonts[next(kProfileNameFontCount)].id, 0, 0, {}},
+                                                        next(kProfileNameEffectCount));
+}
+// Leaving Try It Out returns every field the account can't save to its saved value; other edits stay.
+void stop_trying() noexcept {
+    auto& p = *owner;
+    p.trying = false;
+    const u16 gated = static_cast<u16>(~gate().enabled);
+    auto& d = p.draft;
+    if (gated & profile_editor_avatar) {
+        release_picked(p.avatar);
+        d.avatar = ProfileImageEdit::keep;
+    }
+    if (gated & profile_editor_banner) {
+        release_picked(p.banner);
+        d.banner = ProfileImageEdit::keep;
+    }
+    if (gated & profile_editor_theme)
+        d.theme_set = d.theme_reset = false;
+    if (gated & profile_editor_name_style) {
+        d.name_style_set = false;
+        d.name_style = p.base.name_style;
+    }
+    if (gated & profile_editor_effect) {
+        d.effect_set = false;
+        d.effect_sku = p.base.effect_sku;
+    }
+    const bool guild = p.tab == ProfileEditorTab::guild;
+    if (gated & profile_editor_decoration) {
+        d.decoration_set = false;
+        d.decoration_sku = p.base.decoration_sku;
+        assign(&p.decoration_asset, guild && p.saved.member_decoration_asset.bytes
+                                        ? p.saved.member_decoration_asset.view()
+                                        : p.saved.decoration_asset.view());
+    }
+    if (gated & profile_editor_nameplate) {
+        d.nameplate_set = false;
+        d.nameplate_sku = p.base.nameplate_sku;
+        assign(&p.nameplate_asset, guild ? p.saved.member_nameplate_asset.view() : p.saved.nameplate_asset.view());
+    }
+    if (gated & profile_editor_bio)
+        load_editor(editor_bio, p.base.bio);
+}
 void hand_off(const UiSettingsTarget& target) noexcept {
     if (!guard())
         return;
@@ -413,9 +518,8 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         if (p.guild_choice_count && !changes()) {
             PopupItem items[kGuildChoices]{};
             for (u32 i = 0; i < p.guild_choice_count; ++i)
-                items[i] = {p.guild_choices[i], i + 1};
-            settings_layer_open_choice(&p.layer, kProfilesPage.owner_id, {items, p.guild_choice_count},
-                                       activation.anchor, maximum(240.f, ui_rect_width(activation.anchor)));
+                items[i] = {p.guild_choices[i], popup_guild + i + 1, dropdown_flags(p.guild_ids[i] == p.guild_id)};
+            open_dropdown(target, {items, p.guild_choice_count});
         }
         return;
     }
@@ -462,10 +566,73 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
     case control_accent:
         edit_color(color_banner);
         break;
+    case control_try:
+        // Not trying: the notice's Try It Out. Trying: Shuffle, then Stop Trying.
+        if (!p.trying)
+            p.trying = true;
+        else if (choice == 0)
+            shuffle();
+        else
+            stop_trying();
+        break;
+    case control_name_style:
+    case control_name_effect: {
+        // A dropdown of the fonts or the effects, the current one checked.
+        const bool fonts = id == control_name_style;
+        const auto& style = p.draft.name_style;
+        const u32 current = !profile_name_style_set(style) ? ~0u
+                            : fonts                          ? profile_name_font_index(style.font)
+                                                             : profile_name_effect_index(style.effect);
+        PopupItem items[kProfileNameFontCount]{};
+        const u32 count = fonts ? kProfileNameFontCount : kProfileNameEffectCount;
+        for (u32 i = 0; i < count; ++i)
+            items[i] = {fonts ? kProfileNameFonts[i].name : kProfileNameEffects[i].name,
+                        (fonts ? popup_font : popup_effect) + i + 1, dropdown_flags(i == current)};
+        open_dropdown(target, {items, count});
+        return;
+    }
+    case control_name_colors:
+        if (choice < p.draft.name_style.color_count)
+            edit_color(static_cast<ColorSlot>(color_name + choice));
+        else {
+            // Remove Style (Use Default on a server profile).
+            p.draft.name_style_set = true;
+            reset_value(&p.draft.name_style);
+        }
+        break;
+    case control_nameplate:
+        if (choice == 0)
+            open_picker_dialog(Dialog::nameplate);
+        else {
+            p.draft.nameplate_set = true;
+            p.draft.nameplate_sku = 0;
+            reset_value(&p.nameplate_asset);
+        }
+        break;
     default:
         return;
     }
     repaint();
+}
+
+// A choice from one of the page's dropdowns (its action: the popup's base + the index + 1).
+void choose_option(u32 action) noexcept {
+    auto& p = *owner;
+    if (action > popup_effect) {
+        if (!editable())
+            return;
+        p.draft.name_style_set = true;
+        p.draft.name_style = profile_name_style_with_effect(p.draft.name_style, action - popup_effect - 1);
+    } else if (action > popup_font) {
+        if (!editable() || action - popup_font - 1 >= kProfileNameFontCount)
+            return;
+        auto& style = p.draft.name_style;
+        if (!profile_name_style_set(style))
+            style = profile_name_style_with_effect(style, 0);
+        style.font = kProfileNameFonts[action - popup_font - 1].id;
+        p.draft.name_style_set = true;
+    } else if (action)
+        select_guild(action - 1);
 }
 
 } // namespace profile_editor_detail

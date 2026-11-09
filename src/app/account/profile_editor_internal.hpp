@@ -35,16 +35,23 @@ constexpr UiSettingsStyle kEditorStyle{12, 40, 136};
 
 enum : u64 {
     control_tabs = 1,
+    control_try,
     control_guild,
     control_name,
     control_name_error,
     control_pronouns,
     control_pronouns_error,
     control_nitro_note,
+    control_name_style,
+    control_name_effect,
+    control_name_colors,
+    control_name_style_error,
     control_avatar,
     control_avatar_error,
     control_decoration,
     control_effect,
+    control_nameplate,
+    control_nameplate_error,
     control_accent,
     control_banner,
     control_banner_error,
@@ -58,7 +65,9 @@ enum : u64 {
 enum Editor : u32 { editor_name, editor_pronouns, editor_bio, editor_count };
 enum class Op : u8 { none, fetch, collectibles, product, save_account, save_profile };
 enum class Pick : u8 { none, avatar, banner };
-enum class Dialog : u8 { none, crop, decoration, effect };
+enum class Dialog : u8 { none, crop, decoration, effect, nameplate };
+// Settings popups this page opens; their actions are the choice's index + 1 above the popup's base.
+enum : u32 { popup_guild = 0, popup_font = 1000, popup_effect = 2000 };
 
 // A picked image: file bytes, what the module reported, its crop and its
 // local preview (thumbnail in the preview atlas), and the data URI made
@@ -99,8 +108,9 @@ struct Owner : SettingsModal {
     Utf8View guild_choices[kGuildChoices];
     u64 guild_ids[kGuildChoices];
     u32 guild_choice_count;
-    Utf8View avatar_buttons[2], decoration_buttons[2], effect_buttons[2], banner_buttons[2];
-    Utf8View theme_choices[2], accent_choices[1];
+    Utf8View avatar_buttons[2], decoration_buttons[2], effect_buttons[2], banner_buttons[2], nameplate_buttons[2];
+    Utf8View theme_choices[2], accent_choices[1], name_color_choices[kProfileNameStyleColors], try_buttons[2];
+    Utf8View font_choices[kProfileNameFontCount], effect_choices[kProfileNameEffectCount];
     ProfileEditorTab tab;
     u64 guild_id;
     u16 guild_generation;
@@ -111,6 +121,8 @@ struct Owner : SettingsModal {
     ProfileEditorBase base;
     ProfileCollectibleRef base_collectibles[kProfileEditCollectibleMaximum];
     bool loaded, load_failed;
+    // Try It Out (no Nitro): Nitro fields are editable for the preview only; Save needs them back to their saved values.
+    bool trying;
     // Pending images and the one being cropped.
     Picked avatar, banner, staged;
     Pick staged_use;
@@ -123,6 +135,7 @@ struct Owner : SettingsModal {
     u32 owned_count;
     bool collectibles_loaded, collectibles_failed;
     ProfileString<64> decoration_asset;
+    ProfileString<128> nameplate_asset;
     // The preview card and its profile effect.
     ProfileScene preview;
     ProfileEffect effect;
@@ -160,9 +173,14 @@ ChatStateStore& state() noexcept;
 bool scope_current() noexcept;
 bool busy() noexcept;
 bool saving() noexcept;
+template <u32 N> void assign(ProfileString<N>* to, const Utf8View& from) noexcept {
+    to->bytes = static_cast<u16>(utf8_copy_truncated(to->data, from));
+}
 bool editable() noexcept;
 using Editors = SettingsEditors<&owner, editable>;
+// What the account may save, and what the page lets it edit (Try It Out adds the Nitro fields).
 ProfileEditorGate gate() noexcept;
+ProfileEditorGate shown_gate() noexcept;
 char* editor_buffer(u32 index) noexcept;
 u32 editor_capacity(u32 index) noexcept;
 void load_editor(u32 index, const Utf8View& text) noexcept;
@@ -192,6 +210,7 @@ void poll_picker() noexcept;
 bool color_valid(TextFormOwnerKey key) noexcept;
 bool guard() noexcept;
 void select_guild(u32 index) noexcept;
+void choose_option(u32 action) noexcept;
 void collect_guilds() noexcept;
 void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcept;
 

@@ -17,13 +17,14 @@ float style_em(u32 style) noexcept {
 // Measuring through the host's text cache: the keys carry the style word (and the spans of a styled block).
 constexpr u64 kMeasureSource = 0x4B49544D45415355ull;
 bool cache_measure(void* context, const Utf8View& text, u32 style, u16 kind, UiSize constraint, bool single_line,
-                   UiTextMeasureValue* value) noexcept {
+                   UiTextMeasureValue* value, UiTextFace face = UiTextFace::normal) noexcept {
     const TextStyleSpan span{0, text.bytes, style};
     const UiTextMeasureRequest request{{kMeasureSource, hash64_mix(hash64_bytes(kHash64Seed, text.data, text.bytes), style), 0, kind, 0},
                                        text,
                                        style ? ConstSlice<TextStyleSpan>{&span, 1} : ConstSlice<TextStyleSpan>{},
                                        constraint,
-                                       single_line};
+                                       single_line,
+                                       face};
     return ui_text_measure_cache_measure(static_cast<UiTextMeasureCache*>(context), request, value).ok();
 }
 float cache_width(void* context, const Utf8View& text, u32 style) noexcept {
@@ -36,6 +37,12 @@ float cache_height(void* context, const Utf8View& text, u32 style, float width) 
     return cache_measure(context, text, style, 1, {width, 65536.f}, false, &value)
                ? value.size.height
                : ui_kit_text_height(nullptr, text, style, width);
+}
+float cache_chat_width(void* context, const Utf8View& text, u32 style) noexcept {
+    UiTextMeasureValue value{};
+    return cache_measure(context, text, style, 3, {4096.f, 64.f}, true, &value, ui_text_face_chat(UiTextFace::normal))
+               ? value.size.width
+               : -1.f;
 }
 // A negative height asks the caller for its estimate.
 float cache_styled_height(void* context, const Utf8View& text, ConstSlice<TextStyleSpan> spans, float width) noexcept {
@@ -61,6 +68,17 @@ float ui_kit_text_width(const UiKitMeasure* measure, const Utf8View& text, u32 s
     return ui_settings_text_width(text, style_em(style)) *
            ((style & text_style_bold) ? kBoldFactor : kRegularFactor);
 }
+float ui_kit_chat_text_width(const UiKitMeasure* measure, const Utf8View& text, u32 style, float chat_em) noexcept {
+    if (!text.bytes)
+        return 0;
+    if (measure && measure->chat_width) {
+        const float width = measure->chat_width(measure->context, text, style);
+        if (width >= 0)
+            return width;
+    }
+    return ui_settings_text_width(text, style_em(style) * chat_em / 16.f) *
+           ((style & text_style_bold) ? kBoldFactor : kRegularFactor);
+}
 float ui_kit_text_height(const UiKitMeasure* measure, const Utf8View& text, u32 style, float width) noexcept {
     if (!text.bytes)
         return 0;
@@ -70,7 +88,7 @@ float ui_kit_text_height(const UiKitMeasure* measure, const Utf8View& text, u32 
            ui_kit_line_height(style);
 }
 void ui_kit_measure_cache(UiKitMeasure* out, UiTextMeasureCache* cache) noexcept {
-    *out = cache ? UiKitMeasure{cache_width, cache_height, cache_styled_height, cache} : UiKitMeasure{};
+    *out = cache ? UiKitMeasure{cache_width, cache_height, cache_styled_height, cache_chat_width, cache} : UiKitMeasure{};
 }
 
 // ---------------------------------------------------------------------------
@@ -100,23 +118,44 @@ u32 ui_segmented_hit(const UiSettingsLayoutTokens& t, const UiRect& track, u32 c
     const float position = (x - track.left - pad) / item;
     return position <= 0 ? 0u : minimum(static_cast<u32>(position), count - 1);
 }
+UiRect ui_segmented_cell(const UiSettingsLayoutTokens& t, const UiRect& track, u32 count, u32 index) noexcept {
+    UiRect cell = ui_segmented_option(t, track, count, index);
+    // Neighbouring plates keep the track's padding between them; the outer edges stay at the padding.
+    const float half = t.metric.segment_padding * .5f;
+    if (index > 0)
+        cell.left += half;
+    if (index + 1 < count)
+        cell.right -= half;
+    return cell;
+}
+UiRect ui_segmented_plate(const UiSettingsLayoutTokens& t, const UiRect& track, u32 count, u32 selected,
+                          const UiSegmentedMotion& motion) noexcept {
+    const UiRect to = ui_segmented_cell(t, track, count, selected);
+    if (motion.from >= count || motion.from == selected || !(motion.progress < 1))
+        return to;
+    const UiRect from = ui_segmented_cell(t, track, count, motion.from);
+    const float at = motion.progress > 0 ? motion.progress : 0.f;
+    return {from.left + (to.left - from.left) * at, to.top, from.right + (to.right - from.right) * at, to.bottom};
+}
 bool ui_segmented_paint(PaintStream* paint, const UiSettingsTokens& t, const UiRect& track, u32 count, u32 selected,
-                        u32 hovered, UiControlState state) noexcept {
+                        u32 hovered, UiControlState state, const UiSegmentedMotion& motion) noexcept {
     const auto& c = t.color;
     const float alpha = state.enabled ? 1.f : t.disabled_alpha, radius = t.metric.control_radius;
     bool ok = paint_stream_push_rounded_border(paint, track, ui_settings_color_alpha(c.input_background, alpha),
                                                ui_settings_color_alpha(c.border_subtle, alpha), radius, 1);
-    for (u32 i = 0; ok && i < count; ++i) {
-        const bool on = i == selected, hover = state.enabled && i == hovered;
-        if (!on && !hover)
-            continue;
-        const auto option = ui_segmented_option(t, track, count, i);
-        ok = on ? paint_stream_push_rounded_border(paint, option, ui_settings_color_alpha(c.mod_strong, alpha),
-                                                   ui_settings_color_alpha(c.border_normal, alpha), radius * .5f, 1)
-                : paint_stream_push_rounded(paint, option, state.pressed ? c.mod_normal : c.mod_subtle, radius * .5f);
-    }
+    const UiRect plate = ui_segmented_plate(t, track, count, selected, motion);
+    // The hover plate never touches the selected plate, also while that one slides past it.
+    const UiRect hover = ui_segmented_cell(t, track, count, hovered);
+    const float gap = t.metric.segment_padding;
+    const bool apart = selected >= count ||
+                       (hover.right + gap <= plate.left + .01f || plate.right + gap <= hover.left + .01f);
+    if (ok && state.enabled && hovered < count && hovered != selected && apart)
+        ok = paint_stream_push_rounded(paint, hover, state.pressed ? c.mod_normal : c.mod_subtle, radius * .5f);
+    if (ok && selected < count)
+        ok = paint_stream_push_rounded_border(paint, plate, ui_settings_color_alpha(c.mod_strong, alpha),
+                                              ui_settings_color_alpha(c.border_normal, alpha), radius * .5f, 1);
     if (ok && state.focused && count)
-        ok = ui_settings_focus_paint(paint, t, ui_segmented_option(t, track, count, selected < count ? selected : 0),
+        ok = ui_settings_focus_paint(paint, t, selected < count ? plate : ui_segmented_cell(t, track, count, 0),
                                      radius * .5f);
     return ok;
 }

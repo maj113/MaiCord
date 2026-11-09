@@ -47,7 +47,7 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
 void test_voice_udp(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_udp_handoff(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_state_store(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_elapsed_timer(void (*check)(bool, const char*) noexcept) noexcept;
+void test_voice_channel_rows(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_channel_info(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_gateway_policy(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_jitter_buffer(void (*check)(bool, const char*) noexcept) noexcept;
@@ -63,6 +63,9 @@ void test_voice_preferences(void (*check)(bool, const char*) noexcept) noexcept;
 void test_call_view(void (*check)(bool, const char*) noexcept) noexcept;
 void test_stream_watch(void (*check)(bool, const char*) noexcept) noexcept;
 void test_stage_channel(void (*check)(bool, const char*) noexcept) noexcept;
+void test_go_live_scene(void (*check)(bool, const char*) noexcept) noexcept;
+void test_go_live_send(void (*check)(bool, const char*) noexcept) noexcept;
+void test_go_live_thumbnails(void (*check)(bool, const char*) noexcept) noexcept;
 namespace {
 u32 failures;
 void check(bool value, const char* message) noexcept {
@@ -116,7 +119,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_voice_tests_entry() noexcept
     maicord::test_voice_udp(maicord::check);
     maicord::test_voice_udp_handoff(maicord::check);
     maicord::test_voice_state_store(maicord::check);
-    maicord::test_voice_elapsed_timer(maicord::check);
+    maicord::test_voice_channel_rows(maicord::check);
     maicord::test_voice_channel_info(maicord::check);
     maicord::test_voice_gateway_policy(maicord::check);
     maicord::test_voice_jitter_buffer(maicord::check);
@@ -132,5 +135,8 @@ extern "C" __declspec(noreturn) void WINAPI maicord_voice_tests_entry() noexcept
     maicord::test_call_view(maicord::check);
     maicord::test_stream_watch(maicord::check);
     maicord::test_stage_channel(maicord::check);
+    maicord::test_go_live_scene(maicord::check);
+    maicord::test_go_live_send(maicord::check);
+    maicord::test_go_live_thumbnails(maicord::check);
     ExitProcess(maicord::failures ? 1 : 0);
 }

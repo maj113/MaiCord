@@ -149,7 +149,7 @@ void copy_message(const GatewayMessageEvent& source, GatewayClientMessageMutatio
     // without its data would read as "thread: null" and clear a starter card.
     destination->fields = source.fields & ~static_cast<u32>(gateway_message_field_thread);
     destination->content_bytes = source.content.bytes;
-    destination->forwarding_features = source.forwarding_features;
+    destination->forwarding_features = source.forwarding_features | (source.tts ? kGatewayClientMessageTts : 0u);
     destination->transient_bytes = source.transient_bytes;
     destination->mention_role_count = static_cast<u16>(source.mention_roles.count);
     destination->member_role_count = static_cast<u16>(source.member_roles.count);
@@ -663,7 +663,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     event->dispatch_kind = GatewayClientDispatchKind::unknown;
     // One lookup for every event that is routed by name before the state, thread, administration and
     // member list routes: the cursor, notification and acknowledgement events, the verbatim interaction
-    // kinds (positions 7-26), and the stage, call and user events.
+    // kinds (positions 7-26 and 41-49), and the stage, call and user events.
     const u32 early = protocol_detail::wide_member_index<
         "PASSIVE_UPDATE_V2", "CHANNEL_UNREAD_UPDATE", "MESSAGE_ACK", "CHANNEL_PINS_UPDATE",
         "GUILD_APPLICATION_COMMAND_INDEX_UPDATE", "USER_REQUIRED_ACTION_UPDATE",
@@ -678,7 +678,10 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         "STATE_UPDATE", "CHANNEL_RECIPIENT_ADD", "CHANNEL_RECIPIENT_REMOVE", "STAGE_INSTANCE_CREATE",
         "STAGE_INSTANCE_UPDATE", "STAGE_INSTANCE_DELETE", "CALL_CREATE", "CALL_UPDATE", "CALL_DELETE",
         "READY_USER", "USER_UPDATE", "USER_GUILD_SETTINGS_UPDATE", "USER_SETTINGS_PROTO_UPDATE",
-        "NOTIFICATION_SETTINGS_UPDATE">(envelope.event_name);
+        "NOTIFICATION_SETTINGS_UPDATE",
+        "AUTO_MODERATION_RULE_CREATE", "AUTO_MODERATION_RULE_UPDATE", "AUTO_MODERATION_RULE_DELETE",
+        "WEBHOOKS_UPDATE", "INTEGRATION_CREATE", "INTEGRATION_UPDATE", "INTEGRATION_DELETE",
+        "GUILD_INTEGRATIONS_UPDATE", "APPLICATION_COMMAND_PERMISSIONS_UPDATE">(envelope.event_name);
     if (early <= 1)
         return gateway_client_route_channel_cursors(envelope, structural_scratch, maximum_depth,
                                                      content_scratch, event, payload);
@@ -714,7 +717,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         }
         return {};
     }
-    if (early >= 7 && early <= 26) {
+    if ((early >= 7 && early <= 26) || (early >= 41 && early <= 49)) {
         // Interaction lifecycle events are small and ancillary like
         // autocomplete: a malformed one never fails the session.
         static constexpr GatewayClientDispatchKind kinds[]{
@@ -740,11 +743,21 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
             // Voice channel statuses and start times (protocol/voice/channel_info.hpp).
             GatewayClientDispatchKind::channel_info,
             GatewayClientDispatchKind::voice_channel_start_time_update,
-            GatewayClientDispatchKind::voice_channel_status_update};
+            GatewayClientDispatchKind::voice_channel_status_update,
+            // Server Settings apps and AutoMod (protocol/guild/automation.hpp), positions 41-49.
+            GatewayClientDispatchKind::automod_rule_create,
+            GatewayClientDispatchKind::automod_rule_update,
+            GatewayClientDispatchKind::automod_rule_delete,
+            GatewayClientDispatchKind::webhooks_update,
+            GatewayClientDispatchKind::integrations_update,
+            GatewayClientDispatchKind::integrations_update,
+            GatewayClientDispatchKind::integrations_update,
+            GatewayClientDispatchKind::integrations_update,
+            GatewayClientDispatchKind::command_permissions_update};
         if (envelope.data.kind == JsonValueKind::object &&
             envelope.data.source.bytes <= content_scratch.count) {
             copy_bytes(content_scratch.data, envelope.data.source.data, envelope.data.source.bytes);
-            event->dispatch_kind = kinds[early - 7];
+            event->dispatch_kind = kinds[early <= 26 ? early - 7 : early - 21];
             event->dispatch_payload_bytes = envelope.data.source.bytes;
             *payload = {reinterpret_cast<const u8*>(content_scratch.data), envelope.data.source.bytes};
         }

@@ -2,20 +2,19 @@
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/ui/core/geometry.hpp"
+#include "maicord/ui/guild/card_scene.hpp"
 
 #include "maicord/platform/window/event.hpp"
-
-namespace maicord {
-struct UiGuildCardScene;
-}
 
 namespace maicord::app_detail {
 // Server tag popout: a server tag chip (message author line, profile card)
 // opens the server profile popout beside it, filled from
-// GET /guilds/{id}/profile: icon, name, tag and badge, online and member
-// counts, founding month, description and traits, and Go to Server (member)
-// or Join (an invite seen in chat, or a discoverable server). A limited
-// profile (50001) shows "Private Server"; other failures retry on click.
+// GET /guilds/{id}/profile: icon, name with the server badge (verified,
+// partnered, community or boost level) and tag chip, online and member counts,
+// founding month, description and traits, and Go to Server (member) or Join
+// (an invite seen in chat, or a discoverable server). Without a brand colour
+// the banner takes the icon's dominant colour once the icon is resident. A
+// limited profile (50001) shows "Private Server"; other failures retry on click.
 bool application_guild_card_open(u64 guild_id, UiRect anchor) noexcept;
 void application_guild_card_close() noexcept;
 // The community lane's answer for the card: its profile, or its join.
@@ -35,12 +34,15 @@ void application_guild_card_join_poll(u64 now_ms) noexcept;
 bool application_guild_card_join_take_captcha(u64 guild_id) noexcept;
 // Paint-only spinner phase while loading; null otherwise.
 UiGuildCardScene* application_guild_card_spinner_scene() noexcept;
-// The icon and tag badge (CDN URLs) while shown.
+// The icon, tag badge, banner and game pictures (CDN URLs) while shown.
+inline constexpr u32 kGuildCardMediaCapacity = 3 + kUiGuildCardGames + kUiGuildCardGamesMore;
 struct GuildCardMedia {
     Utf8View url; // Borrowed until the next guild card call.
     MediaAssetKey key;
 };
 u32 application_guild_card_media(GuildCardMedia* output, u32 capacity) noexcept;
+// The shown traits' custom emoji, by key.
+u32 application_guild_card_emoji_media(MediaAssetKey* output, u32 capacity) noexcept;
 bool application_guild_card_key_current(MediaAssetKey key) noexcept;
 // A refused or failed fetch of the icon, badge or banner: logged once per
 // opening with its state and codec/HTTP errors (the banner is a JPEG).

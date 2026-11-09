@@ -43,7 +43,12 @@ struct CaptionState {
     // When a shown tooltip last hid.
     u64 tooltip_hidden_ms;
     bool tooltip_shown;
+    // The shown tooltip's entrance (kUiMotionTooltip), restarted for each part it shows for.
+    UiMotionTransition tooltip_entrance;
+    UiCaptionPart entrance_part;
+    u64 entrance_generation;
 } g_caption;
+constexpr u64 kCaptionTooltipMotionOwner = 0x4341'5054'5449'5031ull; // "CAPTTIP1"
 
 inline constexpr u64 kCaptionTooltipSweepMs = 400;
 
@@ -273,6 +278,20 @@ UiCaptionBarState application_caption_state() noexcept {
     const bool tooltip = g_caption.tooltip_shown && g_caption.pressed == UiCaptionPart::none &&
                          ui_caption_bar_part_tooltip(g_caption.hovered);
     const ApplicationUpdatesView updates = application_updates_view();
+    // A newly shown tooltip pops in (opacity) on the tooltip spring.
+    const UiCaptionPart shown = tooltip ? g_caption.hovered : UiCaptionPart::none;
+    float entrance = 0;
+    if (shown != UiCaptionPart::none) {
+        if (shown != g_caption.entrance_part) {
+            g_caption.entrance_part = shown;
+            ui_motion_transition_reset(&g_caption.tooltip_entrance,
+                                       {kCaptionTooltipMotionOwner, ++g_caption.entrance_generation}, 0);
+        }
+        entrance = 1 - application_motion_tick(&g_caption.tooltip_entrance, g_caption.tooltip_entrance.scope, 1,
+                                               clock_monotonic_milliseconds(), kUiMotionTooltip);
+    } else {
+        g_caption.entrance_part = UiCaptionPart::none;
+    }
     return {g_caption.hovered,
             g_caption.pressed,
             g_caption.active,
@@ -281,7 +300,8 @@ UiCaptionBarState application_caption_state() noexcept {
             g_app.login.visible,
             application_update_progress(updates),
             to_dips(static_cast<i32>(g_caption.side_frame), window_dpi()),
-            tooltip ? g_caption.hovered : UiCaptionPart::none};
+            shown,
+            entrance};
 }
 
 UiCaptionBarLayout application_caption_layout() noexcept {

@@ -30,10 +30,14 @@ struct UiKitMeasure {
     float (*height)(void* context, const Utf8View&, u32 style, float width) noexcept;
     // Wrapped height of text carrying style spans (a markdown block); null estimates it.
     float (*styled_height)(void* context, const Utf8View&, ConstSlice<TextStyleSpan>, float width) noexcept;
+    // Width of text set in the chat face (Accessibility's preview); null estimates it.
+    float (*chat_width)(void* context, const Utf8View&, u32 style) noexcept;
     void* context;
 };
 float ui_kit_line_height(u32 style) noexcept;
 float ui_kit_text_width(const UiKitMeasure*, const Utf8View&, u32 style) noexcept;
+// The width of chat text of this style at `chat_em` (Text size in chat), rather than the interface's size.
+float ui_kit_chat_text_width(const UiKitMeasure*, const Utf8View&, u32 style, float chat_em) noexcept;
 // Wrapped height: lines * line height (zero for empty text).
 float ui_kit_text_height(const UiKitMeasure*, const Utf8View&, u32 style, float width) noexcept;
 // A measure over the host's text cache (null cache: every hook null, the estimates apply). A styled height the
@@ -50,10 +54,21 @@ float ui_segmented_item_width(const UiSettingsLayoutTokens&, const float* label_
 float ui_segmented_width(const UiSettingsLayoutTokens&, float item_width, u32 count) noexcept;
 float ui_segmented_height(const UiSettingsLayoutTokens&, bool compact) noexcept;
 UiRect ui_segmented_option(const UiSettingsLayoutTokens&, const UiRect& track, u32 count, u32 index) noexcept;
+// The plate of an option: its rectangle with the neighbouring plates a track padding away (outer edges unchanged).
+UiRect ui_segmented_cell(const UiSettingsLayoutTokens&, const UiRect& track, u32 count, u32 index) noexcept;
 // ~0u outside every option.
 u32 ui_segmented_hit(const UiSettingsLayoutTokens&, const UiRect& track, u32 count, float x, float y) noexcept;
+// The selection plate in motion: `from` is the option it leaves (~0u: at rest) and `progress` the eased 0..1 of
+// its slide from there to the selected option; at 1 it rests on the selection.
+struct UiSegmentedMotion {
+    u32 from{~0u};
+    float progress{1};
+};
+// The plate's rectangle: option `selected`, or its slide toward it.
+UiRect ui_segmented_plate(const UiSettingsLayoutTokens&, const UiRect& track, u32 count, u32 selected,
+                          const UiSegmentedMotion&) noexcept;
 bool ui_segmented_paint(PaintStream*, const UiSettingsTokens&, const UiRect& track, u32 count, u32 selected,
-                        u32 hovered, UiControlState) noexcept;
+                        u32 hovered, UiControlState, const UiSegmentedMotion& = {}) noexcept;
 // A track wider than 60% of its row does not fit beside the label.
 bool ui_segmented_fits(float track_width, float row_width) noexcept;
 

@@ -273,7 +273,7 @@ bool application_plugin_settings_active() noexcept {
 void application_plugin_settings_close(bool restore_focus) noexcept {
     if (!application_plugin_settings_active()) return;
     settings_modal_suspend(*form);
-    settings_modal_leave(*form, restore_focus && g_app.account_ui && !g_app.login.visible);
+    settings_modal_close(*form, restore_focus && g_app.account_ui && !g_app.login.visible);
 }
 
 void application_plugin_settings_release() noexcept {

@@ -2,6 +2,7 @@
 #include "../../support/window_fixture.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "../../support/application_downloads_inactive.hpp"
+#include "../../support/application_go_live_inactive.hpp"
 #include "../../support/application_inbox_inactive.hpp"
 #include "../../support/application_poll_inactive.hpp"
 #include "../../support/application_member_moderation_inactive.hpp"

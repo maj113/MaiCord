@@ -126,7 +126,8 @@ maicord_library(maicord_protocol
     src/protocol/http/rest_route.cpp src/protocol/gateway/commands.cpp src/protocol/gateway/endpoint.cpp
     src/protocol/gateway/events.cpp src/protocol/auth/account_requirement.cpp src/protocol/gateway/voice.cpp
     src/protocol/gateway/stream.cpp src/protocol/guild/stage_channel.cpp src/protocol/user/social.cpp
-    src/protocol/guild/community.cpp src/protocol/voice/gateway.cpp src/protocol/voice/discovery.cpp
+    src/protocol/guild/community.cpp src/protocol/guild/community_admin.cpp src/protocol/voice/gateway.cpp
+    src/protocol/voice/discovery.cpp
     src/protocol/voice/media_packet.cpp src/protocol/voice/media_events.cpp src/protocol/voice/participants.cpp
     src/protocol/voice/dave_replay.cpp src/protocol/voice/dave_frame.cpp src/protocol/auth/p256_signature.cpp
     src/protocol/voice/mls_objects.cpp src/protocol/voice/mls_objects_write.cpp src/protocol/voice/heartbeat.cpp
@@ -140,6 +141,7 @@ maicord_library(maicord_protocol
     src/protocol/http/http_response_stream.cpp src/protocol/media/attachment_download.cpp src/protocol/encoding/json_write.cpp
     src/protocol/messages/history.cpp src/protocol/messages/ack.cpp src/protocol/messages/bulk_message_ack.cpp
     src/protocol/messages/create.cpp src/protocol/messages/delete.cpp src/protocol/user/private_conversation.cpp
+    src/protocol/user/profile_connection.cpp
     src/protocol/messages/edit.cpp src/protocol/messages/reaction.cpp src/protocol/user/profile_decode.cpp
     src/protocol/gateway/activity_decode.cpp src/protocol/messages/reaction_users.cpp src/protocol/messages/typing.cpp
     src/protocol/auth/remote_auth.cpp src/protocol/auth/user_auth.cpp src/protocol/auth/webauthn_mfa.cpp
@@ -151,7 +153,7 @@ maicord_library(maicord_protocol
     src/protocol/user/self_status_settings.cpp src/protocol/guild/folders.cpp src/protocol/guild/invite.cpp
     src/protocol/user/settings_proto.cpp src/protocol/user/account_settings.cpp src/protocol/user/emoji_preferences.cpp
     src/protocol/user/gif_favorites.cpp src/protocol/guild/channel_overview.cpp src/protocol/guild/admin.cpp
-    src/protocol/guild/admin_decode.cpp
+    src/protocol/guild/admin_decode.cpp src/protocol/guild/game_profile.cpp
     src/protocol/guild/assets.cpp src/protocol/user/profile_edit.cpp src/protocol/voice/video_signaling.cpp
     src/protocol/voice/rtcp_feedback.cpp src/protocol/guild/soundboard.cpp src/protocol/user/notification_settings.cpp
     src/protocol/voice/rtcp_sender.cpp src/protocol/voice/dave_codec.cpp
@@ -159,6 +161,7 @@ maicord_library(maicord_protocol
     # Icon hash check kept apart from cdn_url.cpp: the client keeps it (Gateway
     # user records) while it forwards every other CDN URL function to the module.
     src/protocol/media/cdn_icon_hash.cpp src/protocol/guild/moderation.cpp src/protocol/voice/channel_info.cpp
+    src/protocol/guild/automation.cpp
     src/protocol/media/embed_provider.cpp
     src/protocol/media/embed_player.cpp
     src/protocol/media/embed_player_video.cpp
@@ -276,17 +279,18 @@ maicord_library(maicord_ui
     src/ui/chat/composer/spellcheck.cpp src/ui/text/form.cpp src/ui/text/composition.cpp src/ui/widgets/qr_code.cpp
     src/ui/chat/messages/reaction_picker.cpp src/ui/text/edit_field.cpp src/ui/widgets/badge.cpp src/ui/account/profile_scene.cpp
     src/ui/account/profile_scene_sections.cpp src/ui/account/profile_scene_layout.cpp
+    src/ui/account/profile_scene_activity.cpp src/ui/account/activity_card.cpp
     src/ui/account/profile_media.cpp src/ui/account/profile_dialog_scene.cpp src/ui/chat/messages/reaction_viewer.cpp
     src/ui/chat/messages/reaction_viewer_presentation.cpp src/ui/core/scene.cpp src/ui/kit/scene_kit.cpp src/ui/shell/navigation_scene.cpp
-    src/ui/shell/presentation.cpp src/ui/shell/text_presentation.cpp src/ui/chat/private_channel_title.cpp
-    src/ui/chat/private_channel_rows.cpp src/ui/layout/smooth_scroll.cpp src/ui/layout/scroll_host.cpp src/ui/text/flow_layout.cpp
+    src/ui/shell/presentation.cpp src/ui/shell/text_presentation.cpp src/ui/shell/notice_band.cpp src/ui/chat/private_channel_title.cpp
+    src/ui/chat/private_channel_rows.cpp src/ui/chat/names_card.cpp src/ui/layout/smooth_scroll.cpp src/ui/layout/scroll_host.cpp src/ui/text/flow_layout.cpp
     src/ui/text/measure_cache.cpp src/ui/text/presentation.cpp src/ui/layout/virtual_list.cpp src/ui/core/widget_manager.cpp
     src/ui/core/widget_builder.cpp src/ui/widgets/menu_row.cpp src/ui/widgets/button_keyboard.cpp src/ui/core/input_router.cpp
     src/ui/layout/list_navigation.cpp src/ui/layout/list_paging.cpp src/ui/layout/widget_scroll.cpp src/ui/core/widget_storage.cpp
     src/ui/shell/page_registry.cpp src/ui/settings/scene.cpp src/ui/settings/scene_layout.cpp
     src/ui/settings/scene_paint.cpp src/ui/settings/theme_editor.cpp windows:src/ui/theme/styles.cpp
     src/ui/theme/style_projection.cpp src/ui/widgets/settings_choice.cpp src/ui/account/friends_scene.cpp
-    src/ui/widgets/kit_fields.cpp src/ui/widgets/kit_collections.cpp
+    src/ui/widgets/kit_fields.cpp src/ui/widgets/kit_collections.cpp src/ui/widgets/color_picker.cpp
     src/ui/widgets/kit_markdown.cpp
     src/ui/store/store_layout.cpp src/ui/store/store_input.cpp src/ui/store/store_paint.cpp src/ui/store/store_access.cpp
     src/ui/account/friends_media.cpp src/ui/controls/settings_tokens.cpp src/ui/controls/switch.cpp
@@ -301,10 +305,10 @@ maicord_library(maicord_ui
     src/ui/media/download_scene.cpp src/ui/shell/shortcuts_scene.cpp src/ui/media/picker.cpp
     src/ui/media/picker_layout.cpp
     src/ui/media/picker_presentation.cpp src/ui/chat/search/query.cpp src/ui/chat/search/filter_context.cpp
-    src/ui/voice/channel_rows.cpp src/ui/voice/panel.cpp
+    src/ui/voice/channel_rows.cpp src/ui/voice/panel.cpp src/ui/voice/go_live_scene.cpp
     src/ui/voice/call_scene.cpp src/ui/voice/call_stage.cpp src/ui/widgets/hover_card.cpp src/ui/voice/stream_card_scene.cpp
     src/ui/guild/card_scene.cpp src/ui/guild/folder_open.cpp src/ui/guild/hidden_channel_menu.cpp
-    src/ui/guild/banner.cpp src/ui/account/profile_activity.cpp src/ui/shell/caption_bar.cpp src/ui/widgets/activity_status.cpp
+    src/ui/guild/banner.cpp src/ui/chat/game_media.cpp src/ui/account/profile_activity.cpp src/ui/shell/caption_bar.cpp src/ui/widgets/activity_status.cpp
     src/ui/chat/messages/typing_indicator.cpp src/ui/account/dm_profile_panel.cpp
     src/ui/widgets/toast.cpp windows:src/ui/theme/theme.cpp src/ui/theme/background_color_math.cpp src/ui/chat/search/message_result_card.cpp
     src/ui/text/pointer_selection.cpp src/ui/chat/messages/author.cpp src/ui/chat/messages/interaction.cpp
@@ -335,7 +339,7 @@ maicord_library(maicord_model
     src/model/user/note_store.cpp src/model/user/active_now.cpp src/model/user/friend_search.cpp
     src/model/chat/typing_store.cpp src/model/chat/message_rich_store.cpp src/model/chat/message_rich_store_pack.cpp
     src/model/guild/invite_card_cache.cpp
-    src/model/guild/scheduled_event_store.cpp src/model/chat/message_composer.cpp
+    src/model/guild/scheduled_event_store.cpp src/model/chat/message_composer.cpp src/model/chat/game_store.cpp
     src/model/chat/message_composer_input_target.cpp src/model/chat/message_draft_store.cpp
     src/model/chat/reaction_preferences.cpp src/model/chat/message_store.cpp src/model/chat/message_search.cpp
     src/model/notifications/message_notifications.cpp src/model/voice/state_store.cpp src/model/voice/stage_instance_store.cpp
@@ -349,7 +353,8 @@ maicord_library(maicord_model
     src/model/notifications/desktop_notification_queue.cpp src/model/notifications/sound_policy.cpp
     src/model/notifications/sound_admission.cpp src/model/notifications/retention.cpp
     src/model/guild/permission_grid.cpp src/model/guild/settings_model.cpp src/model/guild/channel_settings_model.cpp
-    src/model/guild/detail_store.cpp src/model/guild/member_search.cpp src/model/voice/channel_info_store.cpp
+    src/model/guild/detail_store.cpp src/model/guild/member_search.cpp src/model/guild/server_tag.cpp
+    src/model/guild/community_settings.cpp src/model/voice/channel_info_store.cpp
     LIBS maicord_core maicord_edit_history maicord_protocol linux:maicord_crypto)
 
 maicord_library(maicord_atlas_gpu

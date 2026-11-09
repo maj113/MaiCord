@@ -57,6 +57,14 @@ void test_icon_pack(void (*check)(bool, const char*) noexcept) noexcept {
                   paint.quads[1].top == 4 && paint.quads[1].bottom == 20 && paint.quads[1].reserved_x < 0;
     }
     painted = painted && !ui_icon_paint(&paint, UiIcon::count, {0, 0, 16, 16}, {1, 1, 1, 1}) && paint.count == 2;
+    // A turned icon carries its turn in the border's alpha; every other icon carries zero (the 1:1 read).
+    const bool turned = painted &&
+                        ui_icon_paint_turned(&paint, UiIcon::chevron_down, {0, 0, 16, 16}, {1, 1, 1, 1},
+                                             -kUiQuarterTurn * .5f) &&
+                        paint.count == 3 && paint.quads[2].border.alpha == -kUiQuarterTurn * .5f &&
+                        ui_icon_quad_data(paint.quads[2]).icon == static_cast<u32>(UiIcon::chevron_down) &&
+                        paint.quads[0].border.alpha == 0 && paint.quads[1].border.alpha == 0;
+    check(turned, "icons: a turned icon encodes its turn; ordinary icons stay unturned");
     paint_stream_release(&paint);
     check(painted && ui_icon_stroke_pixels(20, 1, 1) == 1.5f && ui_icon_stroke_pixels(24, 1, 1) == 2.f &&
               ui_icon_stroke_pixels(16, 1.25f, 1) == 2.f && ui_icon_stroke_pixels(24, 2, 1) == 4.f &&

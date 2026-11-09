@@ -415,6 +415,28 @@ void test_cdn_http_policy() noexcept {
                                                         "Connection: keep-alive\r\n\r\n")),
            "cdn_gif_credential_free_request_head");
 
+    // A connected account's logo: discord.com/assets/<16 hex digits>.png as a PNG, nothing else on that host.
+    const CdnRequestResult web_asset_request = write_static_cdn_get_request(
+        CdnImageType::png, CdnHost::web_asset, byte_literal("/assets/1cc92a6d139af44d.png"), {},
+        Slice<u8>{request, sizeof(request)});
+    const auto web_asset_head = byte_literal("GET /assets/1cc92a6d139af44d.png HTTP/1.1\r\nHost: discord.com\r\n");
+    const auto web_asset_refused = [&](CdnImageType type, ConstSlice<u8> target) noexcept {
+        return !write_static_cdn_get_request(type, CdnHost::web_asset, target, {}, Slice<u8>{request, sizeof(request)})
+                    .ok();
+    };
+    expect(web_asset_request.ok() && web_asset_request.bytes > web_asset_head.count &&
+               bytes_equal(ConstSlice<u8>{request, web_asset_head.count}, web_asset_head) &&
+               utf8_equal(cdn_host_name(CdnHost::web_asset), utf8_literal("discord.com")) &&
+               web_asset_target_valid(byte_literal("/assets/1cc92a6d139af44d.png")) &&
+               !web_asset_target_valid(byte_literal("/assets/1CC92a6d139af44d.png")) &&
+               !web_asset_target_valid(byte_literal("/assets/1cc92a6d139af44.png")) &&
+               !web_asset_target_valid(byte_literal("/assets/1cc92a6d139af44d.svg")) &&
+               !web_asset_target_valid(byte_literal("/assets/../1cc92a6d139af44d.png")) &&
+               web_asset_refused(CdnImageType::png, byte_literal("/api/v9/users/@me")) &&
+               web_asset_refused(CdnImageType::png, byte_literal("/assets/1cc92a6d139af44d.png?x=1")) &&
+               web_asset_refused(CdnImageType::webp, byte_literal("/assets/1cc92a6d139af44d.png")),
+           "cdn_web_asset_host_serves_only_hashed_png_assets");
+
     const CdnRequestResult jpeg_request = write_static_cdn_get_request(
         CdnImageType::jpeg, CdnHost::cdn,
         byte_literal("/attachments/123/456/a.jpg?ex=2&is=1&hm="

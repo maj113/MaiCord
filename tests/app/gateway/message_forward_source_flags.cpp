@@ -74,5 +74,15 @@ void test_message_forward_source_flags(void (*check)(bool, const char*) noexcept
         check(!gateway_client_event_as_message(invalid, payload, rich, &event),
             "forward source: mailbox rejects unknown source-policy bits");
     }
+    // A /tts message keeps its flag through the mailbox, beside (not among) the source-policy bits.
+    constexpr auto tts_text = utf8_literal(R"({"op":0,"s":2,"t":"MESSAGE_CREATE","d":{"id":"901","channel_id":"7","author":{"id":"11"},"content":"read me","timestamp":"2026-10-05T00:00:00Z","tts":true}})");
+    GatewayClientEvent tts_routed{};
+    const bool spoken = gateway_decode_envelope(tts_text, {fixture.structurals, 256}, 16, &envelope).ok() &&
+        gateway_client_route_dispatch(envelope, {fixture.structurals, 256}, 16, {fixture.mailbox, 2048}, {ids, 2}, 2,
+            &tts_routed, &payload, gateway_test_message_scratch()).ok() &&
+        gateway_client_event_as_message(tts_routed, payload, rich, &event);
+    check(spoken && event.tts && event.forwarding_features == 0 &&
+              (tts_routed.message.forwarding_features & kGatewayClientMessageTts),
+          "tts: a /tts message's flag crosses the mailbox and reads back as tts");
 }
 } // namespace maicord

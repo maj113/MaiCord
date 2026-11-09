@@ -5,6 +5,10 @@
 #include "maicord/core/os_text.hpp"
 #include "maicord/core/module.hpp"
 #include "../shell/state.hpp"
+#include "../settings/streamer_mode.hpp"
+#include "../settings/user_settings.hpp"
+#include "../account/user_actions.hpp"
+#include "../voice/voice.hpp"
 #include "../account/friends.hpp"
 #include "../shell/content_input.hpp"
 #include "maicord/platform/desktop/notifications.hpp"
@@ -14,6 +18,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/core/stable_storage.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
@@ -23,6 +28,7 @@
 #include "maicord/model/notifications/sound_admission.hpp"
 #include "maicord/app/notifications/sound_assets.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
+#include "maicord/model/chat/game_store.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/log_event.hpp"
@@ -228,7 +234,8 @@ void audio_preferences(Application& a,ApplicationNotifications& n) noexcept {
     }
 }
 void sound_submit(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
-    if(!id || epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n)) return;
+    // Streamer Mode's "Disable all sound effects".
+    if(!id || epoch!=n.audio_epoch || !n.audio_preference || application_streamer_disable_sounds() || !audio_sink(n)) return;
     if(id!=1 && id!=2) return;
     const u32 clip=notification_soundpack_clip(n.current_pack,id==2?NotificationSoundKind::message3:NotificationSoundKind::message1);
     if(!clip) return;
@@ -432,6 +439,7 @@ Utf8View entity(void* context,MessageMarkdownEntityKind kind,u64 id) noexcept {
         const auto* channel=chat_state_store_find_channel(ui.chat_state,id);
         return channel?chat_state_store_channel_name(ui.chat_state,*channel):Utf8View{};
     }
+    if(kind==MessageMarkdownEntityKind::game&&a.renderer.game_store) return game_store_name(*a.renderer.game_store,id);
     return {};
 }
 bool contains_nul(Utf8View text) noexcept { for(u32 i=0;i<text.bytes;++i) if(!text.data[i]) return true; return false; }
@@ -457,6 +465,84 @@ Utf8View preview(Application& a,Utf8View source,char* output,u32 capacity) noexc
         output[used++]=text[i];
     }
     return {output,used};
+}
+// Discord's text-to-speech messages: a /tts message in the channel being read while "Allow playback and usage of
+// /tts command" is on, and with "Speak all messages out loud" others' messages there or everywhere; never while
+// deafened, from a blocked or ignored user, or in a muted channel. Reads "{name} said {text}" (a reply:
+// "{name} replied to {name} {text}") as the official client does: mentions, channels and emoji as their names, each
+// spoiler as the word "Spoiler", a link as its domain, and the line cut to 200 characters at the last space.
+constexpr u32 kSpeechCharacters = 200;
+// A link's spoken form: its host without "www.", empty when it has none.
+Utf8View link_domain(Utf8View text,u32 at,u32* end) noexcept {
+    u32 i=at;
+    while(i<text.bytes&&text.data[i]!=' '&&text.data[i]!='\n'&&text.data[i]!='\t') ++i;
+    *end=i;
+    u32 host=at+(text.data[at+4]=='s'?8u:7u);
+    if(host+4<=i&&bytes_equal(text.data+host,"www.",4)) host+=4;
+    u32 stop=host;
+    while(stop<i&&text.data[stop]!='/'&&text.data[stop]!='?'&&text.data[stop]!='#') ++stop;
+    return {text.data+host,stop-host};
+}
+bool link_at(Utf8View text,u32 at) noexcept {
+    const u32 left=text.bytes-at;
+    return (at==0||text.data[at-1]==' '||text.data[at-1]=='\n')&&
+           ((left>7&&bytes_equal(text.data+at,"http://",7))||(left>8&&bytes_equal(text.data+at,"https://",8)));
+}
+void speak(Application& a,const ApplicationNotifications& n,const GatewayMessageEvent& message,const ChannelRecord& channel,
+           Utf8View author,u32 relationship_gates) noexcept {
+    const auto& state=a.account_ui->chat_state;
+    const bool selected=channel.id==state.selected_channel_id;
+    const u8 everything=a.preferences.speak_messages;
+    const bool command=message.tts&&selected&&application_user_settings_tts_command();
+    const bool spoken=message.author_id!=state.self_user_id&&(everything==client_speak_messages_all||
+                                                               (everything==client_speak_messages_selected&&selected));
+    if((!command&&!spoken)||relationship_gates||!message.content.bytes||contains_nul(message.content)||
+       application_voice_view().self_deaf||
+       message_notifications_override_muted(n.settings,channel.guild_id,channel.id,clock_unix_milliseconds()))
+        return;
+    // Markdown reduced to its plain text, entities named; the line is cut to 200 characters anyway, so the source is
+    // bounded to its first 768 bytes.
+    Utf8View source=message.content;
+    if(source.bytes>768) source.bytes=utf8_truncated_length(source,768);
+    char text[1024]; u32 styles[1024]; TextStyleSpan spans[64];
+    MessageMarkdownOptions options{}; options.context=&a; options.resolve_entity=entity;
+    const auto parsed=message_markdown_parse(source,{text,1024},{styles,1024},{spans,64},options,{});
+    const Utf8View body=parsed.ok()?parsed.text:source;
+    const Utf8View replied=message.type==19?message.reference.author_name:Utf8View{};
+    char line[1536];
+    TextWriter writer{{line,sizeof(line)}};
+    writer.add(author.bytes?author:utf8_literal("Someone"));
+    if(replied.bytes) { writer.add(utf8_literal(" replied to ")); writer.add(replied); writer.add(utf8_literal(" ")); }
+    else writer.add(utf8_literal(" said "));
+    for(u32 i=0;i<body.bytes;) {
+        if(parsed.ok()&&(styles[i]&text_style_spoiler)) {
+            writer.add(utf8_literal("Spoiler"));
+            while(i<body.bytes&&(styles[i]&text_style_spoiler)) ++i;
+            continue;
+        }
+        if(link_at(body,i)) {
+            u32 end=i;
+            writer.add(link_domain(body,i,&end));
+            i=end;
+            continue;
+        }
+        writer.add({body.data+i,1});
+        ++i;
+    }
+    if(!writer.ok) return;
+    // Over 200 characters: the first 200, then back to the last space among them.
+    u32 bytes=writer.used,characters=0,cut=0;
+    for(u32 i=0;i<bytes;++i) {
+        if((static_cast<u8>(line[i])&0xC0)==0x80) continue;
+        if(characters++==kSpeechCharacters) { cut=i; break; }
+    }
+    if(cut) {
+        u32 space=cut;
+        while(space>0&&line[space-1]!=' ') --space;
+        bytes=space>1?space-1:cut;
+    }
+    if(!application_user_actions_speak({line,bytes}))
+        log_write(LogLevel::warning,"notifications","speech_unavailable");
 }
 // Mentioned role ids of a message and those of them the user holds; false when the payload lacks one.
 bool collect_mention_roles(const ChatStateStore& state,u64 guild_id,const GatewayClientEvent& event,const ConstSlice<u8>& payload,u64* mentioned,u64* held,u32* held_count) noexcept {
@@ -1194,7 +1280,8 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     input.current_voice_channel=ui.voice_session.channel_id==policy_channel->id &&
         ui.voice_session.phase!=VoiceSetupPhase::idle;
     input.known_gates=notification_gate_active_application|notification_gate_rpc_suppressed|notification_gate_streamer|notification_gate_overlay|notification_gate_required_action;
-    input.gates=a->account.status.required_action==AccountRequirement::none?0u:notification_gate_required_action;
+    input.gates=(a->account.status.required_action==AccountRequirement::none?0u:notification_gate_required_action)|
+        (application_streamer_disable_notifications()?notification_gate_streamer:0u);
     input.known_gates|=n.global_known_gates; input.gates|=n.global_gates;
     if(gs) { input.known_gates|=gs->known_gates; input.gates|=gs->gates; }
     if(cs) { input.known_gates|=cs->known_gates; input.gates|=cs->gates; }
@@ -1204,6 +1291,13 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     u32 relationship_gates{};
     if(application_friends_notification_gates(message.author_id,&relationship_gates)) {
         input.known_gates|=notification_gate_blocked|notification_gate_ignored; input.gates|=relationship_gates;
+    }
+    {
+        // Read aloud by the server nickname, else the name the message carries.
+        Utf8View speaker=message.member_nick;
+        if(!speaker.bytes&&!gateway_client_event_message_author_name(event,payload,&speaker)) reset_value(&speaker);
+        if(contains_nul(speaker)||speaker.bytes>256) reset_value(&speaker);
+        speak(*a,n,message,*channel,speaker,relationship_gates&(notification_gate_blocked|notification_gate_ignored));
     }
     if(event.message.fields&gateway_message_field_author_policy) {
         input.known_gates|=notification_gate_spammer;

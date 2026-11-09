@@ -19,6 +19,10 @@
 #include "../chat/composer/text_edit_keys.hpp"
 #include "user_settings.hpp"
 #include "account_settings.hpp"
+#include "streamer_mode.hpp"
+#include "../account/activity.hpp"
+#include "../account/account_text_retry.hpp"
+#include "../shell/window_state.hpp"
 #include "maicord/app/account/login/oauth_account.hpp"
 #include "maicord/core/log_event.hpp"
 #include "maicord/core/hash.hpp"
@@ -165,7 +169,7 @@ void application_animation_activity_synchronize() noexcept {
     // The official client holds avatar, server icon, emoji, GIF
     // and sticker animations while its window is inactive. The Settings
     // modal keeps the shell beneath it live, animations included.
-    if (g_app.preferences.reduced_motion || g_app.renderer.live_resize || g_window_inactive ||
+    if (application_reduced_motion() || g_app.renderer.live_resize || g_window_inactive ||
         application_window_minimized())
         animation_visual_runtime_suspend(&g_app.animations, now);
     else
@@ -183,16 +187,79 @@ void application_animation_window_active(bool active) noexcept {
 void application_preferences_apply() noexcept {
     g_app.member_pane_visible = g_app.preferences.member_pane_visible;
     application_user_settings_apply_display();
-    const bool immediate = !g_app.preferences.smooth_scroll || g_app.preferences.reduced_motion;
-    if (g_app.scroll_host.immediate != immediate)
-        ui_scroll_host_cancel(&g_app.scroll_host);
-    g_app.scroll_host.immediate = immediate;
     if (g_app.renderer.reduced_motion != g_app.preferences.reduced_motion)
         content_text_retention_invalidate(&g_app.renderer.content_text_retention);
     g_app.renderer.reduced_motion = g_app.preferences.reduced_motion;
+    const bool immediate = !g_app.preferences.smooth_scroll || application_reduced_motion();
+    if (g_app.scroll_host.immediate != immediate)
+        ui_scroll_host_cancel(&g_app.scroll_host);
+    g_app.scroll_host.immediate = immediate;
     application_animation_activity_synchronize();
     g_app.renderer.retained_presentation.valid = false;
     application_image_zoom_configure();
+}
+void application_streamer_mode_synchronize() noexcept {
+    static bool g_window_excluded, g_active;
+    g_streamer_tool_running = application_activity_streamer_tool_running();
+    const bool active = application_streamer_mode_active();
+    const bool exclude = active && g_app.preferences.streamer_hide_window;
+    if (g_app.window && exclude != g_window_excluded) {
+        g_window_excluded = exclude;
+        if (!window_set_capture_excluded(g_app.window, exclude))
+            log_write(LogLevel::warning, "streamer_mode", "capture_exclusion_failed");
+    }
+    if (active == g_active)
+        return;
+    g_active = active;
+    // What it hides (personal details, invite links) shows again, or goes.
+    if (g_app.account_ui && g_app.renderer_ready)
+        (void)refresh_account_text(true);
+    if (g_app.settings)
+        project(*g_app.settings);
+    application_request_frame();
+}
+bool application_streamer_mode_toggle() noexcept {
+    g_app.preferences.streamer_mode = !g_app.preferences.streamer_mode;
+    persist();
+    application_streamer_mode_synchronize();
+    return true;
+}
+void application_zoom_apply() noexcept {
+    if (!g_app.renderer_ready || !g_app.window)
+        return;
+    const u32 dpi = application_zoomed_dpi(application_window_dpi(g_app.window));
+    if (dpi == g_app.renderer.dpi)
+        return;
+    popup_scene_close(&g_app.popup_scene);
+    g_app.popup_owner_kind = PopupOwnerKind::none;
+    renderer_set_dpi(&g_app.renderer, dpi);
+    // Everything is laid out again in the new DIPs, as after a resize.
+    if (!synchronize_shell_layout() || !refresh_account_text_for_layout() ||
+        (g_app.login.visible && !application_synchronize_login_view()))
+        log_write(LogLevel::warning, "settings", "zoom_layout_failed");
+    application_request_frame();
+}
+bool application_zoom_shortcut(ShortcutChord chord) noexcept {
+    const bool in = shortcut_matches(ShortcutAction::zoom_in, chord), out = shortcut_matches(ShortcutAction::zoom_out, chord);
+    if (!in && !out && !shortcut_matches(ShortcutAction::zoom_reset, chord))
+        return false;
+    // The next mark up or down from the one nearest the current zoom, or 100%.
+    constexpr u32 count = sizeof(kClientPreferencesZoomScales);
+    const u32 at = client_preferences_nearest_mark(kClientPreferencesZoomScales, g_app.preferences.zoom);
+    const u8 zoom = in    ? kClientPreferencesZoomScales[at + 1 < count ? at + 1 : at]
+                    : out ? kClientPreferencesZoomScales[at ? at - 1 : 0]
+                          : u8{100};
+    if (zoom == g_app.preferences.zoom)
+        return true;
+    g_app.preferences.zoom = zoom;
+    persist();
+    application_zoom_apply();
+    if (g_app.settings) {
+        project(*g_app.settings);
+        if (g_app.settings->scene.active)
+            (void)update_scene(*g_app.settings, application_viewport_dips());
+    }
+    return true;
 }
 bool application_preferences_member_visibility(bool visible) noexcept {
     g_app.preferences.member_pane_visible = visible;
@@ -296,6 +363,22 @@ void application_settings_refresh_pages() noexcept {
     project(*g_app.settings);
     if (g_app.settings->scene.active && !refresh())
         log_write(LogLevel::warning, "plugins", "settings_refresh_failed");
+}
+void application_settings_drop_borrowed() noexcept {
+    auto* settings = g_app.settings;
+    if (!settings)
+        return;
+    // The pages' last controls borrow texts from the owner about to free them: forget them all, so the next projection
+    // compares against nothing and rebuilds every native page.
+    reset_value(&settings->controls);
+    for (auto& content : settings->content) {
+        reset_value(&content.controls);
+        content.presentation = nullptr;
+        content.meters = nullptr;
+        content.avatar_media = nullptr;
+        content.list_items = nullptr;
+    }
+    settings->native_page = 0;
 }
 bool application_settings_active() noexcept {
     return application_channel_overview_active() || (g_app.settings && g_app.settings->scene.active);
@@ -581,8 +664,8 @@ bool application_settings_synchronize() noexcept {
         return true;
     }
     const u32 native_page = native_page_of(*settings);
-    // A connection change (READY, a stop) re-projects the account pages by itself.
-    const bool connection = application_account_settings_connection_changed();
+    // A connection change (READY, a stop) or a blocked/ignored account change re-projects the account pages by itself.
+    const bool connection = application_account_settings_changed();
     if (settings->native_page != native_page ||
         settings->custom_theme_revision != application_custom_theme_view().revision || connection)
         project(*settings);
@@ -600,7 +683,7 @@ bool application_settings_synchronize() noexcept {
     if (!update_scene(*settings, application_viewport_dips()))
         return recover_rejected_page(*settings);
     const u64 now = clock_monotonic_milliseconds();
-    bool animating = ui_settings_scene_tick(&settings->scene, now, g_app.preferences.reduced_motion);
+    bool animating = ui_settings_scene_tick(&settings->scene, now, application_reduced_motion());
     animating = application_store_synchronize(&settings->scene) || animating;
     if (settings->scene.flash_control) {
         const auto timing = ui_settings_layout_tokens(application_theme().styles).duration;

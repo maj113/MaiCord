@@ -104,7 +104,6 @@ bool ui_theme_editor_key(UiThemeEditorScene*, UiThemeEditorElement, u32 virtual_
                          BackgroundTheme*) noexcept;
 bool ui_theme_editor_action(UiThemeEditorScene*, UiThemeEditorElement, u32 random_seed,
                             BackgroundTheme*) noexcept;
-u32 ui_theme_editor_hsv_rgb(float hue, float saturation, float value) noexcept;
 bool ui_theme_editor_paint(const UiThemeEditorScene&, const Theme&, PaintStream*) noexcept;
 bool ui_theme_editor_text_output(const UiThemeEditorScene&, const Theme&, UiTextOutput*) noexcept;
 } // namespace maicord

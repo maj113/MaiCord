@@ -61,6 +61,9 @@ struct SettingsLayer {
         scrollbar_sidebar, drop_below;
     // A press on a dialog's scrim; releasing it there closes the dialog.
     bool backdrop_pressed;
+    // A press in an editor placed its caret: later moves extend from it. A press into a field whose text layout is
+    // not built yet places the caret at the first point that maps instead.
+    bool select_anchored;
 };
 // Rows of side-by-side options that a click picks directly.
 inline bool settings_option_row(UiSettingsControlKind kind) noexcept {

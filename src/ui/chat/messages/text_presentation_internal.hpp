@@ -67,6 +67,7 @@ struct CommandLook {
     u8 slot;
     TextOverflow overflow;
     u16 source_id;
+    bool interface_text;
 };
 
 inline constexpr CommandLook kLookMiddle{.vertical = UiTextAlignment::center,
@@ -158,7 +159,7 @@ bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& te
                        const Color& inline_role_color, const UiWidgetReference& owner, const MessageRecord& record,
                        u16 measurement_index, TextOverflow overflow,
                        float right_inset = 0.0f, float left_inset = kMessageReplyTextInset,
-                       ConstSlice<MessageMarkdownSemantic> semantics = {}) noexcept;
+                       ConstSlice<MessageMarkdownSemantic> semantics = {}, float line_height = 18.0f) noexcept;
 bool initialize_flow(MessageTextPresentation* presentation, const UiLayoutNode& region, float text_left,
                      float text_width, const UiRect& clip, UiTextFlowLayout* flow) noexcept;
 bool finish_flow(MessageTextPresentation* presentation, const UiTextFlowLayout& flow,
@@ -167,7 +168,8 @@ float rich_item_total(const MessageSceneRichItemLayout& layout, u32 begin, u32 c
 bool compact_content(MessageTextPresentation* presentation, BuildContext* context, Utf8View name,
                      Utf8View source, Utf8View* text, ConstSlice<TextStyleSpan>* styles,
                      ConstSlice<MessageMarkdownSemantic>* semantics,
-                     const UiPluginRenderDecoration* decoration = nullptr) noexcept;
+                     const UiPluginRenderDecoration* decoration = nullptr, u64 avatar_user = 0,
+                     u32 dot_rgb = 0) noexcept;
 bool append_compact_timestamp(MessageTextPresentation* presentation, const MessageScene& scene,
                               const MessageSceneRowWidget& row, const UiRect& clip, const Theme& theme,
                               const MessageRecord& record, u64 now_unix_seconds) noexcept;

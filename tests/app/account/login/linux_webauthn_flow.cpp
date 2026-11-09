@@ -51,6 +51,11 @@ bool webauthn_ceremony_start(const WebAuthnMfaRequestOptions& request, const Wak
     return true;
 }
 
+// Registering a key belongs to the account pages, which this test links without exercising.
+bool webauthn_ceremony_start_creation(const WebAuthnMfaCreationOptions&, const Waker&, u64) noexcept {
+    return false;
+}
+
 WebAuthnCeremonyState webauthn_ceremony_state() noexcept {
     return g_fake.state;
 }

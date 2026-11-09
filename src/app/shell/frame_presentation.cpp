@@ -9,6 +9,7 @@
 #include "../voice/call.hpp"
 #include "../media/video.hpp"
 #include "../voice/stream.hpp"
+#include "../voice/go_live.hpp"
 #include "../guild/card.hpp"
 #include "../media/expression_card.hpp"
 #include "../guild/banner.hpp"
@@ -44,6 +45,8 @@
 #include "../chat/composer/text_input.hpp"
 #include "../chat/composer/edit_menu.hpp"
 #include "../settings/settings.hpp"
+#include "../settings/modal.hpp"
+#include "content_input.hpp"
 #include "../settings/theme_editor.hpp"
 #include "../store/store_host.hpp"
 #include "../account/friends.hpp"
@@ -139,7 +142,7 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
     for (const u8* at : phases)
         shown = shown || at;
     ui_spinner_clock_tick(&g_loading_spinner, now_ms, g_app.renderer_ready && !renderer.live_resize && shown,
-                          g_app.preferences.reduced_motion);
+                          application_reduced_motion());
     // The phase is part of each panel's presentation stamp, so a new phase
     // repaints that panel without rebuilding its text or widgets.
     for (u8* at : phases)
@@ -151,7 +154,7 @@ UiTypingDotsClock g_typing_dots{};
 
 // As the official client: an inactive window holds the dots at full size.
 bool typing_dots_animate() noexcept {
-    return !g_app.preferences.reduced_motion && !application_window_inactive() && !application_window_minimized();
+    return !application_reduced_motion() && !application_window_inactive() && !application_window_minimized();
 }
 // The "is typing" dots step only while someone types in the shown chat; the
 // renderer patches the sampled phase into its retained stream.
@@ -265,14 +268,16 @@ bool application_present_frame() noexcept {
     if (g_app.renderer.device_lost && !application_recover_device())
         return present_rejected("device_lost");
     MAICORD_PERF_MARK("frame_begin");
-    application_caption_synchronize();
     // The clock is sampled once per stage of the frame: before the scenes publish, before the panels do, before the
-    // shell's own surfaces do and once they all have.
+    // shell's own surfaces do and once they all have. The shared motion scheduler's due wake is consumed first, so
+    // every tick of this frame (the caption's included) arms the next one, and only the next frame's start drops it.
     u64 now_ms = clock_monotonic_milliseconds();
+    application_surface_motion_begin_frame(now_ms);
+    application_caption_synchronize();
     // Consume a due spinner step first: a rejected draw below must not leave
     // the expired deadline armed (it is re-sampled once scenes are published).
     if (ui_spinner_clock_due(g_loading_spinner, now_ms))
-        ui_spinner_clock_tick(&g_loading_spinner, now_ms, true, g_app.preferences.reduced_motion);
+        ui_spinner_clock_tick(&g_loading_spinner, now_ms, true, application_reduced_motion());
     if (ui_typing_dots_clock_due(g_typing_dots, now_ms))
         ui_typing_dots_clock_tick(&g_typing_dots, now_ms, true, typing_dots_animate());
     if (ui_typing_dots_clock_due(g_component_dots, now_ms))
@@ -282,6 +287,8 @@ bool application_present_frame() noexcept {
     // against the same past-due opacity sample. Reconcile final scene keys again
     // below, after the surfaces have published their current projections.
     application_surface_motion_synchronize(now_ms);
+    // A closing settings dialog fades and shrinks out (settings_modal_close).
+    settings_modal_exit_synchronize(now_ms);
     // Consume the bounded background deadline before preparing other surfaces.
     // A rejected text/scene publication must not leave its expired visual wake
     // armed and turn retained DXGI permits into a tight retry loop.
@@ -312,6 +319,7 @@ bool application_present_frame() noexcept {
     application_message_forward_tick(now_ms);
     application_quick_switcher_tick(now_ms);
     if (!application_shortcuts_overlay_synchronize() || !application_downloads_synchronize() ||
+        !application_go_live_modal_synchronize() ||
         !application_message_forward_synchronize() ||
         !application_quick_switcher_synchronize() || !application_search_synchronize() ||
         !application_pinned_messages_synchronize() || !application_inbox_synchronize() ||
@@ -353,6 +361,7 @@ bool application_present_frame() noexcept {
     renderer_bind_focus_owner(&g_app.renderer, focus);
     now_ms = clock_monotonic_milliseconds();
     application_navigation_drag_tick(now_ms);
+    application_navigation_chevron_synchronize(now_ms);
     if (!application_guild_folders_synchronize(now_ms))
         return present_rejected("guild_folders");
     application_guild_invite_synchronize();

@@ -201,12 +201,14 @@ OutboundDrive drive_voice_output(GatewayClient* client, GatewayClientRuntime* ru
     return result;
 }
 
-// Go Live commands (ops 19-21). UI watch requests apply here, after the voice
-// request, so a join and a watch posted together see the joined channel.
+// Go Live commands (ops 18-22): the watched stream's, then our own stream's.
+// UI requests apply here, after the voice request, so a join and a watch or
+// start posted together see the joined channel.
 OutboundDrive drive_stream_output(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
     if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
         return OutboundDrive::idle;
-    auto& control = runtime->stream.control;
+    apply_go_live(client, runtime, now_ms);
+    auto* control = &runtime->stream.control;
     AcquireSRWLockExclusive(&runtime->voice_lock);
     const bool requested = runtime->stream_request_pending;
     const GatewayStreamKey desired = runtime->desired_stream;
@@ -220,29 +222,32 @@ OutboundDrive drive_stream_output(GatewayClient* client, GatewayClientRuntime* r
         publish_voice_snapshot(client, runtime);
     if (requested) {
         if (desired.type == GatewayStreamType::none)
-            gateway_stream_stop(&control, GatewayStreamEnd::stopped);
+            gateway_stream_stop(control, GatewayStreamEnd::stopped);
         else {
-            if (!control.setup.user_id)
-                gateway_stream_bind(&control, runtime->self_user_id,
+            if (!control->setup.user_id)
+                gateway_stream_bind(control, runtime->self_user_id,
                                     {runtime->resume.session_id, runtime->resume.session_id_bytes});
-            gateway_stream_watch(&control, desired, now_ms);
+            gateway_stream_watch(control, desired, now_ms);
         }
         publish_voice_snapshot(client, runtime);
     }
     GatewayStreamCommand command;
-    if (!gateway_stream_next(control, &command))
-        return OutboundDrive::idle;
+    if (!gateway_stream_next(*control, &command)) {
+        control = &runtime->go_live.control;
+        if (!gateway_stream_next(*control, &command))
+            return OutboundDrive::idle;
+    }
     if (!acquire_send(runtime, now_ms))
         return OutboundDrive::rate_limited;
     const auto written =
         gateway_stream_write(command, {runtime->gateway_payload, static_cast<u32>(sizeof(runtime->gateway_payload))});
     if (!written.ok()) {
-        gateway_stream_submitted(&control, command); // Unencodable: drop it.
+        gateway_stream_submitted(control, command); // Unencodable: drop it.
         return OutboundDrive::idle;
     }
     const auto result = send_control_command(runtime, written, SendPurpose::stream);
     if (result == OutboundDrive::sending)
-        gateway_stream_submitted(&control, command);
+        gateway_stream_submitted(control, command);
     return result;
 }
 

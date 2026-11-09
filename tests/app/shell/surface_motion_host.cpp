@@ -35,6 +35,89 @@ void show(HWND window, int command) noexcept {
     application_window_observe_position(win32_window(window));
 }
 
+// The profile owner's real close, run once its exit finishes.
+ProfileScene* closing_profile{};
+u32 profile_closes{};
+void close_profile() noexcept {
+    ++profile_closes;
+    closing_profile->active = false;
+}
+
+// The shared scheduler (application_motion_tick): frames are asked for only while a transition runs, each frame
+// consumes its deadline, and the last one leaves the loop idle.
+void shared_scheduler() noexcept {
+    g_app.surface_motion.scheduled_ms = 0;
+    UiMotionTransition hover{};
+    const UiMotionScope scope{9, 1};
+    ui_motion_transition_reset(&hover, scope);
+    check(!application_surface_motion_next_wake(), "shared motion: nothing animating schedules no frame");
+    application_motion_tick(&hover, scope, 1, 3000, kUiMotionHover);
+    g_app.frame_pending = false;
+    check(hover.active && hover.value == 0 && application_surface_motion_next_wake() == 3016 &&
+              !application_surface_motion_request_frame_if_due(3015, true) && !g_app.frame_pending &&
+              application_surface_motion_request_frame_if_due(3016, true) && g_app.frame_pending,
+          "shared motion: a started transition asks for its next frame, not an earlier one");
+    u32 frames = 0;
+    float previous = 0;
+    bool rising = true;
+    for (u64 wake = application_surface_motion_next_wake(); wake && frames < 100;
+         wake = application_surface_motion_next_wake()) {
+        application_surface_motion_begin_frame(wake);
+        const float value = application_motion_tick(&hover, scope, 1, wake, kUiMotionHover);
+        rising = rising && value >= previous;
+        previous = value;
+        ++frames;
+    }
+    g_app.frame_pending = false;
+    // 170 ms: frames every 16 ms from 3016 to 3160, then the completion at 3170.
+    check(frames == 11 && rising && hover.value == 1 && !hover.active && !application_surface_motion_next_wake() &&
+              !application_surface_motion_request_frame_if_due(4000, true) && !g_app.frame_pending,
+          "shared motion: the transition ends at its target and frames stop");
+    application_motion_tick(&hover, scope, 1, 4000, kUiMotionHover);
+    check(!application_surface_motion_next_wake(), "shared motion: ticking a settled transition stays idle");
+    g_app.preferences.reduced_motion = true;
+    application_motion_tick(&hover, scope, 0, 4100, kUiMotionHover);
+    check(hover.value == 0 && !hover.active && !application_surface_motion_next_wake(),
+          "shared motion: reduced motion settles at once without a frame");
+    g_app.preferences.reduced_motion = false;
+    UiMotionHover rows{};
+    check(application_motion_hover_tick(&rows, 5, 4200) && ui_motion_hover_amount(rows, 5) == 0 &&
+              application_surface_motion_next_wake() == 4216,
+          "shared motion: a hover fade starts and schedules its frame");
+    application_surface_motion_begin_frame(4300);
+    application_motion_hover_tick(&rows, 6, 4300);
+    const float out = ui_motion_hover_amount(rows, 5);
+    check(out > 0 && out < 1 && ui_motion_hover_amount(rows, 6) == 0,
+          "shared motion: the row the pointer left eases out from where it was");
+    application_surface_motion_begin_frame(4500);
+    application_motion_hover_tick(&rows, 6, 4500);
+    check(ui_motion_hover_amount(rows, 6) == 1 && ui_motion_hover_amount(rows, 5) == 0 &&
+              !application_surface_motion_next_wake(),
+          "shared motion: hover fades settle and stop scheduling frames");
+    // A long frame (the clock jumps 50 ms between the tick and the second synchronize) neither drops the next fade
+    // step nor stalls the fade: the wake the tick armed is still due afterwards, the next frame is asked for at once,
+    // and the fade settles.
+    UiMotionHover slow{};
+    application_motion_hover_tick(&slow, 7, 5000);
+    u64 start = application_surface_motion_next_wake();
+    bool kept = start == 5016;
+    u32 slow_frames = 0;
+    for (; start && slow_frames < 100; ++slow_frames) {
+        application_surface_motion_begin_frame(start);
+        application_motion_hover_tick(&slow, 7, start + 5);
+        application_surface_motion_synchronize(start + 50);
+        const u64 wake = application_surface_motion_next_wake();
+        g_app.frame_pending = false;
+        kept = kept && (!wake || (wake <= start + 50 && application_surface_motion_request_frame_if_due(start + 50, true) &&
+                                  g_app.frame_pending));
+        start = wake ? start + 50 : 0;
+    }
+    g_app.frame_pending = false;
+    check(kept && slow_frames > 1 && slow_frames < 100 && ui_motion_hover_amount(slow, 7) == 1 &&
+              !application_surface_motion_next_wake(),
+          "shared motion: a fade whose frames run 50 ms long still gets every next frame and settles");
+}
+
 void background_host(HWND window) noexcept {
     g_app.preferences = client_preferences_defaults();
     g_app.preferences.theme = ClientTheme::custom_gradient;
@@ -192,6 +275,10 @@ void run() noexcept {
     g_app.renderer.layer_opacity = {1, 1, 1, 1, 1, 1};
     g_app.surface_motion.system_preference_cached = true;
     g_app.surface_motion.client_area_animation = true;
+    // Reduced motion follows the system's animation setting, as by default.
+    g_app.preferences.reduced_motion_sync = true;
+    for (auto& transform : g_app.renderer.layer_transform)
+        transform.scale = 1;
     auto& popup = g_app.popup_scene;
     popup.kind = PopupKind::context_menu;
     popup.rectangle = {20, 20, 180, 140};
@@ -336,56 +423,131 @@ void run() noexcept {
     check(g_app.renderer.layer_opacity.profile == 1, "host motion: profile popout enters without a fade");
     application_surface_motion_retire(RendererLayerSurface::profile);
     profile.presentation = ProfilePresentation::modal;
+    const auto& profile_pose = g_app.renderer.layer_transform[static_cast<u32>(RendererLayerSurface::profile)];
     application_surface_motion_synchronize(700);
-    check(g_app.renderer.layer_opacity.profile == 0 && application_surface_motion_next_wake() == 716,
-          "host motion: user profile popout owns a fresh fade and native frame wake");
+    check(g_app.renderer.layer_opacity.profile == 0 && application_surface_motion_next_wake() == 716 &&
+              profile_pose.scale == kUiMotionModalScale && profile_pose.origin_x == 170 &&
+              profile_pose.origin_y == 220,
+          "host motion: the full profile modal enters faded and scaled about its centre with a frame wake");
     ++profile.revision;
     application_surface_motion_synchronize(760);
-    check(g_app.renderer.layer_opacity.profile == .875f,
-          "host motion: async profile publication does not restart its entrance");
-    application_surface_motion_synchronize(820);
-    check(g_app.renderer.layer_opacity.profile == 1 && !application_surface_motion_next_wake(),
-          "host motion: profile fade settles and retires frame scheduling");
-    application_surface_motion_retire(RendererLayerSurface::profile);
+    const float entering = g_app.renderer.layer_opacity.profile;
+    check(entering > 0 && entering < 1 &&
+              profile_pose.scale == kUiMotionModalScale + (1 - kUiMotionModalScale) * entering,
+          "host motion: async profile publication does not restart the modal spring; scale follows opacity");
+    application_surface_motion_synchronize(1100);
+    check(g_app.renderer.layer_opacity.profile == 1 && profile_pose.scale == 1 &&
+              !application_surface_motion_next_wake(),
+          "host motion: the modal settles at identity after its 400 ms spring and retires frame scheduling");
+    // The exit: fade and shrink on the exit spring, then the owner's close runs once.
+    closing_profile = &profile;
+    profile_closes = 0;
+    g_app.frame_pending = false;
+    check(application_surface_motion_exit(RendererLayerSurface::profile, close_profile) && g_app.frame_pending &&
+              application_surface_motion_exit(RendererLayerSurface::profile, close_profile) && !profile_closes,
+          "host motion: a modal exit starts once, keeps the surface and requests a frame");
+    application_surface_motion_synchronize(1110);
+    check(g_app.renderer.layer_opacity.profile == 1 && application_surface_motion_next_wake() == 1126,
+          "host motion: the exit starts from the shown modal at the next frame");
+    application_surface_motion_synchronize(1200);
+    const float leaving = g_app.renderer.layer_opacity.profile;
+    check(leaving > 0 && leaving < 1 &&
+              profile_pose.scale == kUiMotionModalScale + (1 - kUiMotionModalScale) * leaving && !profile_closes,
+          "host motion: the exiting modal fades and shrinks together");
+    application_surface_motion_synchronize(1350);
+    check(profile_closes == 1 && !profile.active && g_app.renderer.layer_opacity.profile == 1 &&
+              profile_pose.scale == 1 && !application_surface_motion_next_wake(),
+          "host motion: the finished exit closes the owner once and leaves identity and no wake");
+    profile.active = true;
     ++profile.opens;
-    application_surface_motion_synchronize(900);
-    check(g_app.renderer.layer_opacity.profile == 0,
-          "host motion: profile close/reopen replays even with the same cached user");
+    profile_closes = 0;
+    application_surface_motion_synchronize(1400);
+    application_surface_motion_synchronize(1800);
+    check(application_surface_motion_exit(RendererLayerSurface::profile, close_profile) && !profile_closes,
+          "host motion: a reopened modal can exit again");
+    application_surface_motion_synchronize(1810);
+    application_surface_motion_finish_exits();
+    check(profile_closes == 1 && !profile.active && g_app.renderer.layer_opacity.profile == 1,
+          "host motion: input finishes a pending exit at once");
+    // A surface covered while it exits (a settings dialog opened over it) closes at once.
+    profile.active = true;
+    ++profile.opens;
+    profile_closes = 0;
+    application_surface_motion_synchronize(1820);
+    application_surface_motion_synchronize(2220);
+    UiSettingsScene covering{};
+    covering.active = true;
+    check(application_surface_motion_exit(RendererLayerSurface::profile, close_profile),
+          "host motion: the reopened modal starts another exit");
+    g_app.renderer.settings_scene = &covering;
+    application_surface_motion_synchronize(2230);
+    g_app.renderer.settings_scene = nullptr;
+    check(profile_closes == 1 && !profile.active && !application_surface_motion_next_wake(),
+          "host motion: a modal covered while it exits closes at once");
+    profile.active = true;
+    ++profile.opens;
     g_app.preferences.reduced_motion = true;
-    application_surface_motion_synchronize(901);
-    check(g_app.renderer.layer_opacity.profile == 1 && !application_surface_motion_next_wake(),
-          "host motion: reduced-motion profile settles without a pending timer");
+    application_surface_motion_synchronize(1900);
+    check(g_app.renderer.layer_opacity.profile == 1 && !application_surface_motion_next_wake() &&
+              !application_surface_motion_exit(RendererLayerSurface::profile, close_profile),
+          "host motion: reduced motion shows the modal at once and closes it without an exit");
     g_app.preferences.reduced_motion = false;
     profile.active = false;
-    application_surface_motion_synchronize(902);
+    application_surface_motion_synchronize(1902);
     g_app.renderer.profile_scene = nullptr;
     // The server header popout grows from .01 about its top centre while it
     // fades in (the official scale popout, 120 ms CSS ease-out).
+    const auto& popup_pose = g_app.renderer.layer_transform[static_cast<u32>(RendererLayerSurface::popup)];
     g_app.renderer.popup_scene = &popup;
     popup.kind = PopupKind::context_menu;
     popup.active = true;
     g_app.shell_scene.guild_menu_expanded = true;
     ++popup.opens;
-    application_surface_motion_synchronize(1000);
-    check(g_app.renderer.popup_layer_scale == .01f && g_app.renderer.popup_layer_origin_x == 100 &&
-              g_app.renderer.popup_layer_origin_y == 20 && g_app.renderer.layer_opacity.popup == 0,
+    application_surface_motion_synchronize(2000);
+    check(popup_pose.scale == .01f && popup_pose.origin_x == 100 && popup_pose.origin_y == 20 &&
+              g_app.renderer.layer_opacity.popup == 0,
           "host motion: the server header popout starts scaled down at its top centre");
-    application_surface_motion_synchronize(1060);
+    application_surface_motion_synchronize(2060);
     const float opacity = g_app.renderer.layer_opacity.popup;
-    check(opacity > 0 && opacity < 1 && g_app.renderer.popup_layer_scale == .01f + .99f * opacity,
+    check(opacity > 0 && opacity < 1 && popup_pose.scale == .01f + .99f * opacity,
           "host motion: popout scale and opacity share one eased trajectory");
-    application_surface_motion_synchronize(1120);
-    check(g_app.renderer.popup_layer_scale == 1 && g_app.renderer.layer_opacity.popup == 1 &&
+    application_surface_motion_synchronize(2120);
+    check(popup_pose.scale == 1 && g_app.renderer.layer_opacity.popup == 1 &&
               !application_surface_motion_next_wake(),
           "host motion: the popout settles at identity scale after 120 ms");
     g_app.shell_scene.guild_menu_expanded = false;
     ++popup.opens;
-    application_surface_motion_synchronize(1200);
-    check(g_app.renderer.popup_layer_scale == 1 && g_app.renderer.layer_opacity.popup == 0,
-          "host motion: ordinary popups fade without scaling");
+    application_surface_motion_synchronize(2200);
+    check(popup_pose.scale == 1 && popup_pose.shift_y == 0 && g_app.renderer.layer_opacity.popup == 0,
+          "host motion: context menus fade without scaling or sliding");
+    // A popout below its anchor slides up to it from 10 DIPs, opaque, over 200 ms of CSS ease-out.
+    popup.kind = PopupKind::popover;
+    popup.anchor = {20, 0, 60, 16};
+    ++popup.opens;
+    application_surface_motion_synchronize(2300);
+    check(g_app.renderer.layer_opacity.popup == 1 && popup_pose.shift_y == kUiMotionPopoutDistance &&
+              popup_pose.shift_x == 0 && popup_pose.scale == 1,
+          "host motion: a popout starts 10 DIPs away from its anchor at full opacity");
+    application_surface_motion_synchronize(2400);
+    check(popup_pose.shift_y > 0 && popup_pose.shift_y < kUiMotionPopoutDistance * .5f,
+          "host motion: the popout slide eases out toward its anchor");
+    application_surface_motion_synchronize(2500);
+    check(popup_pose.shift_y == 0 && !application_surface_motion_next_wake(),
+          "host motion: the popout rests at its anchor after 200 ms with no wake");
+    // A tooltip pops in on its stiff spring: opacity and scale .95 about its centre.
+    popup.kind = PopupKind::tooltip;
+    ++popup.opens;
+    application_surface_motion_synchronize(2600);
+    check(g_app.renderer.layer_opacity.popup == 0 && popup_pose.scale == kUiMotionTooltipScale &&
+              popup_pose.origin_x == 100 && popup_pose.origin_y == 80,
+          "host motion: a tooltip starts transparent at 95% about its centre");
+    application_surface_motion_synchronize(2760);
+    check(g_app.renderer.layer_opacity.popup == 1 && popup_pose.scale == 1 && !application_surface_motion_next_wake(),
+          "host motion: the tooltip spring settles within 160 ms");
     popup.active = false;
     retire_all();
     g_app.renderer.popup_scene = nullptr;
+    shared_scheduler();
     background_host(window);
     g_app.renderer_ready = false;
     g_app.window = nullptr;

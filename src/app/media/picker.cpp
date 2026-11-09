@@ -7,6 +7,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../chat/composer/commands.hpp"
+#include "../chat/composer/composer.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/ui/media/picker.hpp"
 
@@ -108,8 +109,8 @@ bool inline_enter_resume(ApplicationMediaPicker& p) noexcept {
 } // namespace
 
 bool application_media_picker_open(UiMediaPickerKind kind) noexcept {
-    // The composer launchers replace an open reaction popout.
-    if (g_app.media_picker && g_app.media_picker->reaction_message_id)
+    // The composer launchers replace an open reaction or field popout.
+    if (g_app.media_picker && (g_app.media_picker->reaction_message_id || g_app.media_picker->field_mode))
         application_media_picker_close();
     if (!front())
         return false;
@@ -137,7 +138,7 @@ bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept {
     // Already on the Stickers tab: stay open (a reopen would toggle it shut).
     auto* p = g_app.media_picker;
     const bool shown = p && p->active && p->scene.active && owns_current(*p) && p->kind == UiMediaPickerKind::sticker &&
-                       !p->reaction_message_id;
+                       !p->reaction_message_id && !p->field_mode;
     if (!shown && !application_media_picker_open(UiMediaPickerKind::sticker))
         return false;
     if (!g_app.media_picker)
@@ -145,7 +146,7 @@ bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept {
     g_app.media_picker->jump_section = pack_id;
     return repaint();
 }
-bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor) noexcept {
+bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor, bool autocomplete) noexcept {
     auto* open = g_app.media_picker;
     // Inline results hide while the expression picker is open.
     if (open && open->active && !open->inline_mode)
@@ -161,7 +162,7 @@ bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiR
     rebind(p);
     if (p.generation == ~u32{0})
         return false;
-    const bool fresh = !p.active || !p.inline_mode || p.kind != kind;
+    const bool fresh = !p.active || !p.inline_mode || p.kind != kind || p.inline_autocomplete != autocomplete;
     if (fresh) {
         if (p.active)
             application_media_picker_close();
@@ -177,6 +178,7 @@ bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiR
         p.inline_mode = p.active = true;
     }
     p.inline_anchor = anchor;
+    p.inline_autocomplete = autocomplete;
     // The search field's capacity bounds the query, as the catalog does.
     char bounded[kMediaCatalogMaximumQueryBytes];
     query = {bounded, utf8_copy_truncated(bounded, sizeof(bounded), query)};
@@ -319,6 +321,51 @@ bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexc
     application_media_picker_close();
     return false;
 }
+bool application_media_picker_open_field(UiRect anchor, u64 owner_id) noexcept {
+    if (!owner_id || !ui_rect_valid(anchor) || !account_ready() || !unobstructed(false, true))
+        return false;
+    auto* owner = ensure_owner();
+    if (!owner)
+        return false;
+    auto& p = *owner;
+    // The button on the open field popout toggles it shut.
+    if (p.active && p.scene.active && p.field_mode) {
+        application_media_picker_close();
+        return true;
+    }
+    if (p.active)
+        application_media_picker_close();
+    rebind(p);
+    if (p.generation == ~u32{0})
+        return false;
+    // Keep the composer picker's query for its next open.
+    const auto saved = message_composer_text(p.edit);
+    p.composer_kind = p.kind;
+    p.tab_query_bytes[static_cast<u32>(p.kind)] = static_cast<u16>(saved.bytes);
+    CopyMemory(p.tab_query[static_cast<u32>(p.kind)], saved.data, saved.bytes);
+    message_composer_clear(&p.edit);
+    p.field_mode = true;
+    p.field_owner = owner_id;
+    p.reaction_anchor = anchor;
+    p.kind = UiMediaPickerKind::emoji;
+    p.favorites_view = p.wanted = false;
+    p.due_at = 0;
+    ++p.generation;
+    p.active = true;
+    application_gif_favorites_set_visible(false);
+    application_emoji_preferences_open();
+    if (open_emoji_model(p)) {
+        focus(p, true);
+        if (repaint())
+            return true;
+    }
+    application_media_picker_close();
+    return false;
+}
+void application_media_picker_close_field() noexcept {
+    if (g_app.media_picker && g_app.media_picker->field_mode)
+        application_media_picker_close();
+}
 void application_media_picker_reaction_changed() noexcept {
     auto* p = g_app.media_picker;
     if (p && p->active && p->reaction_message_id && !repaint())
@@ -330,21 +377,22 @@ void application_media_picker_close() noexcept {
         return;
     application_surface_motion_retire(RendererLayerSurface::gallery);
     // The scene's storage is released below; its tab keeps the scroll offset.
-    if (!p->reaction_message_id && !p->inline_mode && p->scene.active)
+    if (!p->reaction_message_id && !p->field_mode && !p->inline_mode && p->scene.active)
         p->tab_scroll[static_cast<u32>(p->kind)] = p->scene.scroll_dips;
     cancel(*p);
     p->active = p->wanted = false;
     p->jump_section = 0;
     focus(*p, false);
-    if (p->reaction_message_id || p->inline_mode) {
+    if (p->reaction_message_id || p->field_mode || p->inline_mode) {
         // Return the shared search field and kind to the composer picker.
         const u32 kind = static_cast<u32>(p->composer_kind);
         message_composer_restore(&p->edit, 0, {p->tab_query[kind], p->tab_query_bytes[kind]},
                                  p->tab_query_bytes[kind], p->tab_query_bytes[kind]);
         p->kind = p->composer_kind;
-        p->reaction_message_id = 0;
+        p->reaction_message_id = p->field_owner = 0;
         reset_value(&p->reaction_scope);
-        p->reaction_error = p->inline_mode = p->inline_select = p->enter_pending = false;
+        p->reaction_error = p->field_mode = p->inline_mode = p->inline_select = p->enter_pending =
+            p->inline_autocomplete = false;
     }
     revoke_capture(*p);
     p->hover_at = 0;
@@ -427,11 +475,12 @@ bool application_media_picker_synchronize() noexcept {
         g_app.renderer.media_picker_scene = nullptr;
         return true;
     }
-    // Inline results go with the command (its option bar); another popup
+    // Inline results go with the command (its option bar), or an autocomplete's with its ':' query; another popup
     // obstructs them (front).
     if (!front(p) || p->account_id != g_app.account_ui->chat_state.self_user_id ||
         p->channel_id != g_app.account_ui->active_channel_id ||
-        (p->inline_mode && !application_commands_bar_visible())) {
+        (p->inline_mode && !(p->inline_autocomplete ? application_composer_emoji_query_active()
+                                                    : application_commands_bar_visible()))) {
         application_media_picker_close();
         return true;
     }
@@ -492,10 +541,12 @@ bool application_media_picker_synchronize() noexcept {
         g_app.renderer.media_picker_scene = nullptr;
         return true;
     }
-    content.available_tabs = reaction ? ui_media_picker_tab_bit(UiMediaPickerKind::emoji)
+    // The field popout takes the reaction popout's shape (Emoji alone, beside its anchor).
+    const bool popout = reaction || p->field_mode;
+    content.available_tabs = popout ? ui_media_picker_tab_bit(UiMediaPickerKind::emoji)
                              : p->inline_mode ? ui_media_picker_tab_bit(p->kind)
                                               : 7;
-    content.variant = reaction         ? UiMediaPickerVariant::reaction
+    content.variant = popout           ? UiMediaPickerVariant::reaction
                       : p->inline_mode ? UiMediaPickerVariant::inline_results
                                        : UiMediaPickerVariant::expression;
     if (p->inline_mode) {
@@ -530,11 +581,11 @@ bool application_media_picker_synchronize() noexcept {
     // The composer picker sits above the composer; the reaction popout may
     // use the whole client area below the title bar beside its message;
     // inline results sit above their anchor (the commands popup).
-    const UiRect anchor = reaction         ? p->reaction_anchor
+    const UiRect anchor = popout           ? p->reaction_anchor
                           : p->inline_mode ? p->inline_anchor
                           : composer       ? composer->rectangle
                                            : UiRect{};
-    if (reaction) {
+    if (popout) {
         viewport.left = 0;
         viewport.bottom = static_cast<float>(g_app.renderer.height) * 96.f / maximum(g_app.renderer.dpi, 1u);
     } else if (p->inline_mode)
@@ -544,7 +595,7 @@ bool application_media_picker_synchronize() noexcept {
     if (p->resizing && !ui_rect_equal(viewport, p->scene.viewport))
         revoke_capture(*p);
     const u32 prior_generation = p->scene.generation;
-    if ((!reaction && !p->inline_mode && !composer) ||
+    if ((!popout && !p->inline_mode && !composer) ||
         !ui_media_picker_scene_update(&p->scene, &p->source, &p->content, viewport, anchor,
                                       p->preferred_width))
         return false;

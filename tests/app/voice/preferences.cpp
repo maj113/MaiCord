@@ -1,5 +1,7 @@
 #include "maicord/app/voice/preferences.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/hash.hpp"
 #include "voice/settings_binding.hpp"
 
 namespace maicord {
@@ -44,6 +46,51 @@ void test_record(Check check) noexcept {
         board.soundboard_volume = 101;
         check(kept && !voice_preferences_valid(board),
               "Voice preferences: the soundboard volume and mute survive a round trip (v2)");
+    }
+    {
+        // v3: the Go Live stream settings; a v2 record (no stream byte) still loads with their defaults.
+        static VoicePreferences stream, back;
+        static u8 stream_record[kVoicePreferencesMaximumBytes];
+        stream = voice_preferences_defaults();
+        const bool defaults = stream.stream_preset == 1 && stream.stream_resolution == 720 && stream.stream_fps == 30 &&
+                              !stream.stream_muted && !stream.stream_hide_preview;
+        stream.stream_preset = 3;
+        stream.stream_resolution = 0;
+        stream.stream_fps = 60;
+        stream.stream_muted = true;
+        stream.stream_hide_preview = true;
+        const u32 n = voice_preferences_encode(stream, {stream_record, sizeof(stream_record)});
+        back = voice_preferences_defaults();
+        const bool kept = n && voice_preferences_decode({stream_record, n}, &back) && back.stream_preset == 3 &&
+                          back.stream_resolution == 0 && back.stream_fps == 60 && back.stream_muted &&
+                          back.stream_hide_preview;
+        check(defaults && kept, "Voice preferences: the Go Live stream settings survive a round trip (v3)");
+        stream.stream_fps = 5;
+        const bool five = !voice_preferences_valid(stream);
+        stream.stream_fps = 30;
+        stream.stream_resolution = 900;
+        const bool odd = !voice_preferences_valid(stream);
+        stream.stream_resolution = 720;
+        stream.stream_preset = 4;
+        check(five && odd && !voice_preferences_valid(stream),
+              "Voice preferences: stream settings outside the offered presets, resolutions and frame rates are refused");
+        // The v2 form of a default record: version 2, no stream byte or flags; it must still load.
+        static VoicePreferences plain, old;
+        static u8 old_record[kVoicePreferencesMaximumBytes];
+        plain = voice_preferences_defaults();
+        plain.soundboard_volume = 40;
+        const u32 m = voice_preferences_encode(plain, {old_record, sizeof(old_record)});
+        old_record[8] = 2;
+        old_record[27] = 0;
+        // The checksum covers the version and the stream byte: recompute it as a v2 writer would have.
+        u64 hash = hash64_bytes(kHash64Seed, old_record, 32);
+        hash = hash64_bytes(hash, old_record + 40, m - 40);
+        byte_store_le64(old_record + 32, hash);
+        old = voice_preferences_defaults();
+        old.stream_preset = 2;
+        const bool loaded = m && voice_preferences_decode({old_record, m}, &old) && old.soundboard_volume == 40 &&
+                            old.stream_preset == 1 && old.stream_resolution == 720 && old.stream_fps == 30;
+        check(loaded, "Voice preferences: a v2 record loads with the default stream settings");
     }
     record[bytes - 1] ^= 1;
     decoded.audio.sensitivity = 99;

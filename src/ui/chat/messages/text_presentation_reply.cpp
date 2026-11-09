@@ -3,6 +3,7 @@
 #include "maicord/ui/text/ansi_text.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/model/chat/game_store.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
@@ -123,6 +124,10 @@ Utf8View resolve_entity_name(const BuildContext* context, MessageMarkdownEntityK
     if (!context || !context->state || !context->navigation || id == 0) {
         return Utf8View{};
     }
+    if (kind == MessageMarkdownEntityKind::game)
+        return context->presentation && context->presentation->games
+                   ? game_store_name(*context->presentation->games, id)
+                   : Utf8View{};
     if (kind == MessageMarkdownEntityKind::user) {
         if (!context->users) {
             return Utf8View{};
@@ -354,12 +359,11 @@ bool markdown_cache_entry_current(const MessageMarkdownCacheEntry& entry, const 
     return !(entry.flags & markdown_cache_spoilers) || entry.spoiler_signature == markdown_spoiler_signature(context);
 }
 
-} // namespace
 // message_markdown_parse through the presentation's cache. A hit copies the
 // retained output into the same caller buffers a parse would have written,
 // and only when the parse itself would have produced that output there: the
 // recorded capacity bound guarantees no label degraded and nothing failed.
-MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentation, BuildContext* context,
+MessageMarkdownResult markdown_parse_cached(MessageTextPresentation* presentation, BuildContext* context,
                                             MarkdownCacheMode mode, const Utf8View& source, const Slice<char>& text_output,
                                             const Slice<u32>& scratch, const Slice<TextStyleSpan>& span_output,
                                             const MessageMarkdownOptions& options,
@@ -444,6 +448,22 @@ MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentatio
         saturating_increment(cache->inserts);
     return parsed;
 }
+} // namespace
+// The cached parse, with every link underlined when Accessibility's "Always underline links" is on (the cache keeps
+// the parser's own spans).
+MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentation, BuildContext* context,
+                                            MarkdownCacheMode mode, const Utf8View& source, const Slice<char>& text_output,
+                                            const Slice<u32>& scratch, const Slice<TextStyleSpan>& span_output,
+                                            const MessageMarkdownOptions& options,
+                                            const Slice<MessageMarkdownSemantic>& semantic_output) noexcept {
+    const MessageMarkdownResult result = markdown_parse_cached(presentation, context, mode, source, text_output,
+                                                               scratch, span_output, options, semantic_output);
+    if (presentation->underline_links && result.ok())
+        for (u32 i = 0; i < result.span_count && i < span_output.count; ++i)
+            if (span_output[i].flags & text_style_link)
+                span_output[i].flags |= text_style_underline;
+    return result;
+}
 
 bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
                     const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
@@ -496,6 +516,7 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
                                  look.vertical,
                                  look.wrapping,
                                  look.overflow,
+                                 look.interface_text,
                                  look.source_id};
     command.measurement_identity = command_measurement_identity(command, owner_widget->id);
     const UiSize measured = previous_measurement(presentation, command.measurement_identity);
@@ -765,7 +786,8 @@ retain_reply_summary(MessageTextPresentation* presentation, BuildContext* contex
          ++index) {
         MessageMarkdownSemantic semantic = chip_semantics[index];
         if (semantic.kind != MessageMarkdownSemanticKind::chip_icon &&
-            semantic.kind != MessageMarkdownSemanticKind::guild_icon)
+            semantic.kind != MessageMarkdownSemanticKind::guild_icon &&
+            semantic.kind != MessageMarkdownSemanticKind::game_icon)
             continue;
         semantic.byte_offset += content_offset;
         presentation->semantics[presentation->semantic_count++] = semantic;
@@ -896,7 +918,7 @@ bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& te
                        const Color& inline_role_color, const UiWidgetReference& owner, const MessageRecord& record,
                        u16 measurement_index, TextOverflow overflow,
                        float right_inset, float left_inset,
-                       ConstSlice<MessageMarkdownSemantic> semantics) noexcept {
+                       ConstSlice<MessageMarkdownSemantic> semantics, float line_height) noexcept {
     if (!presentation || !flow || text.bytes == 0) {
         return false;
     }
@@ -906,9 +928,9 @@ bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& te
     if (!begin_item(presentation, flow, left_inset, right_inset, &rectangle)) {
         return false;
     }
-    // Bound shaping to one line; the renderer applies character-granularity
+    // Bound shaping to one line (the box of one quoted line); the renderer applies character-granularity
     // ellipsis inside this retained width.
-    rectangle.bottom = rectangle.top + 18.0f;
+    rectangle.bottom = rectangle.top + line_height;
     if (!append_command(presentation, text, styles, semantics, owner, rectangle,
                         flow->clip_rectangle, color, &record, measurement_index,
                         {.kind = MessageTextMeasurementKind::reply,

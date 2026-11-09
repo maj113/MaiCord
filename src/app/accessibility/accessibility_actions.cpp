@@ -1,4 +1,6 @@
 #include "accessibility_internal.hpp"
+#include "../chat/private_header.hpp"
+#include "../shell/notice.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #if defined(_WIN32)
 #include "maicord/core/win32_kernel.hpp"
@@ -8,6 +10,7 @@
 #include "../shell/caption.hpp"
 #include "../account/profile_editor.hpp"
 #include "../chat/report.hpp"
+#include "../chat/game_profile.hpp"
 #include "accessibility.hpp"
 #if defined(_WIN32)
 #include "maicord/core/win32_user.hpp"
@@ -20,6 +23,7 @@
 #include "../guild/channel_overview.hpp"
 #include "../chat/composer/composer.hpp"
 #include "../chat/composer/input.hpp"
+#include "../chat/composer/text_form.hpp"
 #include "../shell/content_input.hpp"
 #include "../account/custom_status.hpp"
 #include "../plugins/settings_dialog.hpp"
@@ -328,7 +332,8 @@ SettingsLayer* active_settings_layer() noexcept {
                                   application_poll_create_settings_layer(),
                                   application_guild_community_settings_layer(),
                                   application_profile_editor_settings_layer(),
-                                  application_report_settings_layer()};
+                                  application_report_settings_layer(),
+                                  application_game_profile_settings_layer()};
     for (auto* layer : layers)
         if (layer && layer->scene && layer->scene == g_app.renderer.settings_scene && layer->scene->active)
             return layer;
@@ -545,6 +550,10 @@ void run_action(const PendingAction& pending) noexcept {
             application_caption_command(static_cast<UiCaptionPart>(node.item));
             return;
         }
+        if (node.surface == surface_notice) {
+            application_notice_activate(static_cast<UiNoticeBandPart>(node.item));
+            return;
+        }
         if (!locked && row && (node.surface == surface_guilds || node.surface == surface_channels) &&
             pending.action != UiAccessAction::toggle && !(node.state & (ui_access_expanded | ui_access_collapsed))) {
             if (focus_item(node.surface, node.item) && !activate_focused_navigation())
@@ -567,6 +576,10 @@ void run_action(const PendingAction& pending) noexcept {
     case UiAccessAction::collapse: {
         if (node.surface == surface_quick)
             return; // the switcher's list is open for as long as the switcher
+        if (node.item == kPrivateHeaderAccessItem) {
+            application_private_header_popout(pending.action == UiAccessAction::expand);
+            return; // the DM header's identity: its popout, not the click that opens the profile
+        }
         const bool expanded = (node.state & ui_access_expanded) != 0;
         if (expanded != (pending.action == UiAccessAction::expand))
             click_node(node);
@@ -602,6 +615,8 @@ void run_action(const PendingAction& pending) noexcept {
     case UiAccessAction::set_range:
         if (node.surface == surface_settings)
             set_settings_slider(node, pending.number);
+        else if (node.surface == surface_form && !locked)
+            application_text_form_set_slider(center(node.visible), pending.number);
         return;
     default:
         return;

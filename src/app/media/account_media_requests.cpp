@@ -327,6 +327,24 @@ static MediaUrlResult parse_activity_art_url(const Utf8View& url, const Slice<u8
     copy_bytes(target_output.data, target.data, target.count);
     return {target.count, CdnHost::activity_art, MediaUrlError::none};
 }
+// A connected account's logo: exactly https://discord.com/assets/<16 hex digits>.png, requested as a PNG.
+constexpr char kWebAssetOrigin[] = "https://discord.com/";
+static bool web_asset_url(const Utf8View& url) noexcept {
+    constexpr u32 bytes = sizeof(kWebAssetOrigin) - 1;
+    return url.data && url.bytes > bytes && bytes_equal(url.data, kWebAssetOrigin, bytes);
+}
+static MediaUrlResult parse_web_asset_url(const Utf8View& url, const Slice<u8>& target_output) noexcept {
+    constexpr u32 origin_bytes = sizeof(kWebAssetOrigin) - 2;
+    if (!web_asset_url(url))
+        return {0, CdnHost::none, MediaUrlError::invalid_host};
+    const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + origin_bytes), url.bytes - origin_bytes};
+    if (!web_asset_target_valid(target))
+        return {0, CdnHost::none, MediaUrlError::invalid_target};
+    if (target.count > target_output.count)
+        return {0, CdnHost::none, MediaUrlError::output_capacity};
+    copy_bytes(target_output.data, target.data, target.count);
+    return {target.count, CdnHost::web_asset, MediaUrlError::none};
+}
 
 // Drops the previous video and reserves the video and audio fetches of a split-stream source.
 static bool reserve_stream_fetches(AccountMedia* media) noexcept {
@@ -436,6 +454,9 @@ AccountMediaRequestResult request_url_media(AccountMedia* media,
             : request.key.kind == MediaAssetKind::profile_image &&
                     request.image_type == CdnImageType::jpeg && !request.proxy_width && activity_art_url(request.url)
                 ? parse_activity_art_url(request.url, Slice<u8>{target, sizeof(target)})
+            : request.key.kind == MediaAssetKind::profile_image &&
+                    request.image_type == CdnImageType::png && !request.proxy_width && web_asset_url(request.url)
+                ? parse_web_asset_url(request.url, Slice<u8>{target, sizeof(target)})
                 : parse_media_url(request.url, Slice<u8>{target, sizeof(target)});
         if (!parsed.ok()) {
             AccountMediaRequestResult failure =

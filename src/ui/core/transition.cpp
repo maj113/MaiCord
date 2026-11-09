@@ -1,5 +1,6 @@
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/core/geometry.hpp"
 
 namespace maicord {
 namespace {
@@ -68,18 +69,18 @@ bool motion_scope_matches(const UiMotionTransition& transition, UiMotionScope sc
 bool motion_style_equal(const UiMotionStyle& a, const UiMotionStyle& b) noexcept {
     return a.duration_ms == b.duration_ms && a.curve == b.curve;
 }
-// Step response of x'' = -1000 (x - 1) - 48 x' sampled over 400 ms, integrated
-// at compile time; the spring settles within the sampled window.
+// Step response of x'' = -tension (x - 1) - friction x' sampled over `steps` x 32 steps of 0.1 ms, integrated at
+// compile time; each spring settles within its sampled window.
 struct SpringTable {
     float values[33]{};
 };
-constexpr SpringTable make_spring() noexcept {
+constexpr SpringTable make_spring(double tension, double friction, u32 steps) noexcept {
     SpringTable table{};
     double x = 0, v = 0;
     constexpr double dt = .0001;
     for (u32 sample = 1; sample <= 32; ++sample) {
-        for (u32 step = 0; step < 125; ++step) {
-            v += (-1000 * (x - 1) - 48 * v) * dt;
+        for (u32 step = 0; step < steps; ++step) {
+            v += (-tension * (x - 1) - friction * v) * dt;
             x += v * dt;
         }
         table.values[sample] = static_cast<float>(x > 1 ? 1 : x);
@@ -87,15 +88,40 @@ constexpr SpringTable make_spring() noexcept {
     table.values[32] = 1;
     return table;
 }
-constexpr SpringTable spring_table = make_spring();
-float eased(float progress, UiMotionCurve curve) noexcept {
-    if (curve == UiMotionCurve::spring) {
-        const float position = progress * 32;
-        const u32 index = position >= 32 ? 31 : static_cast<u32>(position);
-        const float t = position - static_cast<float>(index);
-        return spring_table.values[index] + (spring_table.values[index + 1] - spring_table.values[index]) * t;
+constexpr SpringTable spring_table = make_spring(1000, 48, 125);      // 400 ms
+constexpr SpringTable exit_spring_table = make_spring(1200, 80, 75);  // 240 ms
+constexpr SpringTable quick_spring_table = make_spring(2400, 52, 50); // 160 ms
+float spring_sample(const SpringTable& table, float progress) noexcept {
+    const float position = progress * 32;
+    const u32 index = position >= 32 ? 31 : static_cast<u32>(position);
+    const float t = position - static_cast<float>(index);
+    return table.values[index] + (table.values[index + 1] - table.values[index]) * t;
+}
+// CSS cubic-bezier(x1, y1, x2, y2) at x = progress: Newton on x(t) from t = progress (CSS ease has a slope of at
+// least .75 at both ends, so four steps converge), then y(t).
+float cubic_bezier(float x1, float y1, float x2, float y2, float progress) noexcept {
+    float t = progress;
+    for (u32 i = 0; i < 4; ++i) {
+        const float u = 1 - t;
+        const float x = 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t;
+        const float slope = 3 * u * u * x1 + 6 * u * t * (x2 - x1) + 3 * t * t * (1 - x2);
+        if (!(slope > 1e-4f))
+            break;
+        t -= (x - progress) / slope;
+        t = t > 0 ? (t < 1 ? t : 1) : 0;
     }
-    if (curve == UiMotionCurve::css_ease_out) {
+    const float u = 1 - t;
+    return 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t;
+}
+float eased(float progress, UiMotionCurve curve) noexcept {
+    switch (curve) {
+    case UiMotionCurve::spring:
+        return spring_sample(spring_table, progress);
+    case UiMotionCurve::spring_exit:
+        return spring_sample(exit_spring_table, progress);
+    case UiMotionCurve::spring_quick:
+        return spring_sample(quick_spring_table, progress);
+    case UiMotionCurve::css_ease_out: {
         // CSS ease-out: cubic-bezier(0, 0, .58, 1), so x = t^2 (1.74 - .74 t) and y = t^2 (3 - 2 t). x grows as t^2
         // from 0, so Newton from t = sqrt(x) solves it in three steps.
         if (!(progress > 0))
@@ -105,13 +131,17 @@ float eased(float progress, UiMotionCurve curve) noexcept {
             t -= (t * t * (1.74f - .74f * t) - progress) / (t * (3.48f - 2.22f * t));
         return t * t * (3 - 2 * t);
     }
-    if (curve == UiMotionCurve::ease_out) {
+    case UiMotionCurve::css_ease:
+        return cubic_bezier(.25f, .1f, .25f, 1, progress);
+    case UiMotionCurve::ease_out: {
         const float remaining = 1 - progress;
         return 1 - remaining * remaining * remaining;
     }
-    if (curve == UiMotionCurve::ease_in_out)
+    case UiMotionCurve::ease_in_out:
         return progress * progress * (3 - 2 * progress);
-    return progress;
+    default:
+        return progress;
+    }
 }
 void motion_sample(UiMotionTransition& transition, u64 now_ms) noexcept {
     if (!transition.active)
@@ -135,7 +165,7 @@ float ui_motion_curve_sample(UiMotionCurve curve, float progress) noexcept {
 
 bool ui_motion_style_valid(const UiMotionStyle& style) noexcept {
     return style.duration_ms <= kUiMotionMaximumDurationMs &&
-           static_cast<u8>(style.curve) <= static_cast<u8>(UiMotionCurve::spring);
+           static_cast<u8>(style.curve) < static_cast<u8>(UiMotionCurve::count);
 }
 
 void ui_motion_transition_reset(UiMotionTransition* transition, const UiMotionScope& scope_view, float value) noexcept {
@@ -194,6 +224,55 @@ u64 ui_motion_transition_next_wake(const UiMotionTransition& transition, UiMotio
     if (sampled > ~u64{0} - kUiTransitionFrameMs)
         return completion;
     return minimum(completion, sampled + kUiTransitionFrameMs);
+}
+
+UiMotionEdge ui_motion_edge(const UiRect& anchor, const UiRect& surface) noexcept {
+    if (surface.top >= anchor.bottom)
+        return UiMotionEdge::bottom;
+    if (surface.bottom <= anchor.top)
+        return UiMotionEdge::top;
+    if (surface.left >= anchor.right)
+        return UiMotionEdge::right;
+    if (surface.right <= anchor.left)
+        return UiMotionEdge::left;
+    return UiMotionEdge::none;
+}
+
+namespace {
+constexpr UiMotionScope kHoverScope{1, 1};
+}
+bool ui_motion_hover_tick(UiMotionHover* hover, u64 hovered_id, u64 now_ms, const UiMotionStyle& style,
+                          bool reduced_motion) noexcept {
+    if (!hover)
+        return false;
+    if (!hover->in.scope.owner)
+        ui_motion_transition_reset(&hover->in, kHoverScope);
+    if (!hover->out.scope.owner)
+        ui_motion_transition_reset(&hover->out, kHoverScope);
+    bool changed = hovered_id != hover->in_id;
+    if (changed) {
+        // The control the pointer left eases out from where it was; one it comes back to resumes its fade.
+        const UiMotionTransition left = hover->in;
+        const u64 left_id = hover->in_id;
+        if (hovered_id && hovered_id == hover->out_id)
+            hover->in = hover->out;
+        else
+            ui_motion_transition_reset(&hover->in, kHoverScope);
+        hover->out = left;
+        hover->out_id = left_id;
+        hover->in_id = hovered_id;
+    }
+    changed = ui_motion_transition_tick(&hover->in, kHoverScope, hover->in_id ? 1.f : 0.f, now_ms, style,
+                                        reduced_motion, true) || changed;
+    return ui_motion_transition_tick(&hover->out, kHoverScope, 0, now_ms, style, reduced_motion, true) || changed;
+}
+float ui_motion_hover_amount(const UiMotionHover& hover, u64 id) noexcept {
+    return !id ? 0 : id == hover.in_id ? hover.in.value : id == hover.out_id ? hover.out.value : 0;
+}
+u64 ui_motion_hover_next_wake(const UiMotionHover& hover) noexcept {
+    const u64 a = ui_motion_transition_next_wake(hover.in, kHoverScope, false, true);
+    const u64 b = ui_motion_transition_next_wake(hover.out, kHoverScope, false, true);
+    return !a ? b : !b ? a : minimum(a, b);
 }
 
 } // namespace maicord

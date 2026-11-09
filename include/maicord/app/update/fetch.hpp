@@ -106,8 +106,11 @@ struct UpdateHttpResponse {
     u32 location_bytes;
     u32 native_error; // transport failures: Winsock, resolver or SECURITY_STATUS code
     u16 status;
+    u8 etag_bytes; // 0 when the response had no ETag (or one over the capacity)
     bool has_content_length, has_retry_after, has_ratelimit_reset, ratelimit_exhausted;
+    bool gzip; // Content-Encoding: gzip (only asked for with HttpsExchangeOptions::accept_gzip)
     char location[kUpdateTargetCapacity + 128];
+    char etag[96]; // for a later If-None-Match
 };
 enum class UpdateTransportError : u8 {
     none, invalid_input, resolve, connect, tls, send, receive, http, oversize, sink, cancelled,

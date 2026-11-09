@@ -94,6 +94,48 @@ void test_protocol() noexcept {
     decoration.fields = user_patch_avatar_decoration;
     check(writes(user_request(&decoration), me, utf8_literal(R"({"avatar_decoration_sku_id":null})")),
           "profile edit: removing the decoration sends a null sku");
+    UserPatch styled{};
+    styled.fields = user_patch_name_style | user_patch_nameplate;
+    styled.name_style = {12, 2, 2, {0x5865F2, 0xEB459E}};
+    styled.nameplate_sku = 1344802364934062152ull;
+    check(writes(user_request(&styled), me,
+                 utf8_literal(R"({"nameplate_sku_id":"1344802364934062152","display_name_font_id":12,)"
+                              R"("display_name_effect_id":2,"display_name_colors":[5793266,15418782]})")),
+          "profile edit: a display name style and a nameplate PATCH /users/@me");
+    styled.name_style = {};
+    styled.nameplate_sku = 0;
+    check(writes(user_request(&styled), me,
+                 utf8_literal(R"({"nameplate_sku_id":null,"display_name_font_id":null,)"
+                              R"("display_name_effect_id":null,"display_name_colors":null})")),
+          "profile edit: removing the style and the nameplate sends nulls");
+    styled.name_style = {12, 2, 0, {}};
+    check(!profile_edit_request_valid(user_request(&styled)), "profile edit: a style needs a colour");
+    styled.fields = user_patch_name_style;
+    styled.name_style = profile_name_style_with_effect({}, profile_name_effect_index(7));
+    check(styled.name_style.color_count == 5 &&
+              writes(user_request(&styled), me,
+                     utf8_literal(R"({"display_name_font_id":11,"display_name_effect_id":7,)"
+                                  R"("display_name_colors":[16683586,3534206,16769095,16731346,5793266]})")),
+          "profile edit: Prism sends its five-colour palette, as the official client does");
+    styled.name_style.color_count = 6;
+    check(!profile_edit_request_valid(user_request(&styled)), "profile edit: a style takes at most five colours");
+    const auto gummy = profile_name_style_with_effect({8, 2, 2, {1, 2}}, profile_name_effect_index(8));
+    check(gummy.font == 8 && gummy.effect == 8 && gummy.color_count == 4 && gummy.colors[0] == 0xE9A9D5,
+          "profile style: a palette effect starts from its own palette");
+    MemberEditPatch member_style{};
+    member_style.fields = member_edit_name_style | member_edit_nameplate;
+    member_style.name_style = {3, 4, 1, {0xF42098, 0}};
+    member_style.nameplate_sku = 77;
+    check(writes(member_request(&member_style), utf8_literal("/api/v9/guilds/10/members/@me"),
+                 utf8_literal(R"({"collectibles":{"nameplate":{"sku_id":"77"}},"display_name_font_id":3,)"
+                              R"("display_name_effect_id":4,"display_name_colors":[15999128]})")),
+          "profile edit: a server style and nameplate PATCH the member like the official client");
+    member_style.fields = member_edit_nameplate;
+    member_style.name_style = {};
+    member_style.nameplate_sku = 0;
+    check(writes(member_request(&member_style), utf8_literal("/api/v9/guilds/10/members/@me"),
+                 utf8_literal(R"({"collectibles":{"nameplate":null}})")),
+          "profile edit: removing a server nameplate sends a null nameplate");
 
     ProfilePatch text{};
     text.fields = profile_patch_bio | profile_patch_pronouns;
@@ -409,11 +451,44 @@ void test_patches() noexcept {
     check(!profile_editor_changes_allowed(ProfileEditorTab::guild, guild, gated, guild_free),
           "profile save: a per-server bio needs Nitro");
 
-    char hex[8];
+    // Display name styles: Nitro on the main profile; a nameplate is free there. Picking an effect keeps the font
+    // and brings its own colours; changes patch /users/@me.
+    auto styled = draft_from(base);
+    styled.name_style_set = true;
+    styled.name_style = profile_name_style_with_effect({8, 0, 0, {}}, profile_name_effect_index(2));
+    check(styled.name_style.font == 8 && styled.name_style.effect == 2 && styled.name_style.color_count == 2 &&
+              profile_editor_changes(ProfileEditorTab::main, base, styled) == profile_editor_name_style &&
+              !profile_editor_changes_allowed(ProfileEditorTab::main, base, styled, free) &&
+              profile_name_style_with_effect(styled.name_style, profile_name_effect_index(3)).colors[0] ==
+                  styled.name_style.colors[0] &&
+              profile_name_font_index(16) == kProfileNameFontCount - 1 && profile_name_font_index(1) == ~0u,
+          "profile style: an effect starts a style with its colours; styles need Nitro");
+    styled.nameplate_set = true;
+    styled.nameplate_sku = 55;
+    UserPatch styled_user{};
+    MemberEditPatch unused_member{};
+    ProfilePatch styled_profile{};
+    check(profile_editor_patches(ProfileEditorTab::main, base, styled, nitro, &styled_user, &unused_member,
+                                 &styled_profile) &&
+              styled_user.fields == (user_patch_name_style | user_patch_nameplate) && styled_user.nameplate_sku == 55 &&
+              styled_user.name_style.effect == 2 && !styled_profile.fields,
+          "profile save: a style and a nameplate go in the /users/@me body");
+    auto plate = draft_from(base);
+    plate.nameplate_set = true;
+    plate.nameplate_sku = 55;
+    check(profile_editor_changes_allowed(ProfileEditorTab::main, base, plate, free),
+          "profile save: a nameplate needs no Nitro on the main profile");
+    auto unstyle = draft_from(guild);
+    unstyle.name_style_set = true;
+    guild.name_style = {3, 1, 1, {0xFF0000, 0}};
+    check(profile_editor_changes(ProfileEditorTab::guild, guild, unstyle) == profile_editor_name_style &&
+              profile_editor_changes_allowed(ProfileEditorTab::guild, guild, unstyle, guild_free),
+          "profile save: removing a per-server style needs no Nitro");
+    guild.name_style = {};
+
     u32 color = 0;
-    check(profile_editor_format_color(0x5865F2, {hex, sizeof(hex)}) == 7 &&
-              utf8_equal({hex, 7}, utf8_literal("#5865F2")) && color_hex_parse_rgb24(utf8_literal("5865f2"), &color) &&
-              color == 0x5865F2 && !color_hex_parse_rgb24(utf8_literal("#12345G"), &color) &&
+    check(color_hex_parse_rgb24(utf8_literal("5865f2"), &color) && color == 0x5865F2 &&
+              !color_hex_parse_rgb24(utf8_literal("#12345G"), &color) &&
               !color_hex_parse_rgb24(utf8_literal("#1234"), &color),
           "profile colours: hex input converts to the API's integer RGB");
 }
@@ -442,6 +517,19 @@ void test_decode() noexcept {
           "profile decode: the editor reads user, profile, member and member profile values");
     check(!profile_edit_decode_profile(body, {structurals, 4096}, 43, 0, &saved),
           "profile decode: another user's profile is rejected");
+    const auto styled = utf8_literal(
+        R"({"user":{"id":"42","username":"ada","avatar_decoration_data":null,)"
+        R"("display_name_styles":{"font_id":12,"effect_id":2,"colors":[1,2,3]},)"
+        R"("collectibles":{"nameplate":{"asset":"nameplates/n/angel/","sku_id":"55","palette":"bubble_gum"}}},)"
+        R"("user_profile":{},"guild_member":{"nick":null,"avatar_decoration_data":null,"display_name_styles":null,)"
+        R"("collectibles":{"nameplate":null}},)"
+        R"("guild_member_profile":{},"premium_type":2})");
+    check(profile_edit_decode_profile(styled, {structurals, 4096}, 42, 10, &saved) && saved.name_style.font == 12 &&
+              saved.name_style.effect == 2 && saved.name_style.color_count == 3 && saved.name_style.colors[2] == 3 &&
+              saved.nameplate_sku == 55 &&
+              utf8_equal(saved.nameplate_asset.view(), utf8_literal("nameplates/n/angel/")) &&
+              !profile_name_style_set(saved.member_name_style) && !saved.member_nameplate_sku,
+          "profile decode: display name styles and nameplates of the user and the member");
 
     ProfileEditErrors errors{};
     const auto invalid = utf8_literal(
@@ -461,6 +549,15 @@ void test_decode() noexcept {
     check(profile_edit_decode_errors(limited, {structurals, 4096}, &errors) && !errors.code &&
               utf8_equal(errors.message.view(), utf8_literal("You are being rate limited.")),
           "profile errors: other failures keep their message");
+    const auto style_errors = utf8_literal(
+        R"({"code":50035,"errors":{"display_name_colors":{"_errors":[{"message":"Too many colors."}]},)"
+        R"("nameplate_sku_id":{"_errors":[{"message":"Not owned."}]}}})");
+    check(profile_edit_decode_errors(style_errors, {structurals, 4096}, &errors) &&
+              utf8_equal(errors.fields[static_cast<u32>(ProfileEditErrorField::name_style)].view(),
+                         utf8_literal("Too many colors.")) &&
+              utf8_equal(errors.fields[static_cast<u32>(ProfileEditErrorField::nameplate)].view(),
+                         utf8_literal("Not owned.")),
+          "profile errors: name style and nameplate errors show beside their fields");
 
     ProfileCollectible owned[8]{};
     const auto purchases = utf8_literal(
@@ -470,12 +567,14 @@ void test_decode() noexcept {
         R"("items":[{"type":0,"sku_id":"4","asset":"red","label":"Red Ears"}]}]},)"
         R"({"sku_id":"1","name":"Cat Ears","items":[{"type":0,"sku_id":"1","asset":"a_cat"}]}])");
     const u32 count = profile_edit_decode_collectibles(purchases, {structurals, 4096}, {owned, 8});
-    check(count == 3 && owned[0].sku == 1 && utf8_equal(owned[0].label.view(), utf8_literal("Cat Ears")) &&
+    check(count == 4 && owned[0].sku == 1 && utf8_equal(owned[0].label.view(), utf8_literal("Cat Ears")) &&
               utf8_equal(owned[0].asset.view(), utf8_literal("a_cat")) &&
               owned[1].type == ProfileCollectibleType::profile_effect &&
-              utf8_equal(owned[1].label.view(), utf8_literal("Snowfall")) && owned[2].sku == 4 &&
-              utf8_equal(owned[2].label.view(), utf8_literal("Red Ears")),
-          "profile collectibles: owned decorations and effects, variants flattened, duplicates once");
+              utf8_equal(owned[1].label.view(), utf8_literal("Snowfall")) && owned[2].sku == 3 &&
+              owned[2].type == ProfileCollectibleType::nameplate &&
+              utf8_equal(owned[2].label.view(), utf8_literal("Bundle")) && owned[3].sku == 4 &&
+              utf8_equal(owned[3].label.view(), utf8_literal("Red Ears")),
+          "profile collectibles: owned decorations, effects and nameplates, variants flattened, duplicates once");
     check(profile_edit_decode_collectibles(utf8_literal("{\"oops\":1}"), {structurals, 4096}, {owned, 8}) == ~0u,
           "profile collectibles: a malformed body is reported");
 }

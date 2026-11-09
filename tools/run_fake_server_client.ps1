@@ -77,7 +77,7 @@ $openssl = (Get-Command openssl.exe -ErrorAction SilentlyContinue).Source
 if (!$openssl) { $openssl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe' }
 if (!(Test-Path -LiteralPath $openssl)) { throw 'openssl.exe was not found (it ships with Git for Windows).' }
 $names = 'discord.com', 'gateway.discord.gg', 'cdn.discordapp.com', 'media.discordapp.net', 'remote-auth-gateway.discord.gg',
-    'us-qa.discord.media', 'maj113.github.io'
+    'us-qa.discord.media', 'us-qa-stream.discord.media', 'maj113.github.io'
 $alternatives = ($names | ForEach-Object { "DNS:$_" }) -join ','
 $authority = Join-Path ([IO.Path]::GetTempPath()) ('mc-certificate-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $authority | Out-Null

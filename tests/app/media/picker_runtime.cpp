@@ -1778,6 +1778,9 @@ bool application_settings_commit_preferences() noexcept {
 bool application_friends_active() noexcept {
     return false;
 }
+bool application_profile_insert_message_text(Utf8View) noexcept {
+    return false;
+}
 bool focus_message_composer_control(MessageComposerControl) noexcept {
     return true;
 }
@@ -1787,6 +1790,13 @@ void application_composer_text_input_notify_layout() noexcept {
 }
 bool application_composer_text_input_synchronize() noexcept {
     return true;
+}
+// No composer here: no emoji query, so sticker autocomplete results never open.
+bool application_composer_emoji_query_active() noexcept {
+    return false;
+}
+bool application_composer_emoji_query_clear() noexcept {
+    return false;
 }
 
 } // namespace app_detail

@@ -21,6 +21,8 @@ enum class UserActivityField : u8 {
     button_1,
     // The presence session (received only); activity metadata is keyed by it.
     session,
+    // sync_id: the synced item (a Spotify track's ID).
+    sync,
     count
 };
 inline constexpr u32 kUserActivityFieldCount = static_cast<u32>(UserActivityField::count);
@@ -28,14 +30,16 @@ inline constexpr u32 kUserActivityTextBytes = 1024;
 inline constexpr u32 kUserActivityMaximum = 3;
 // Per-field byte budgets; text is cut at a code point, image keys (up to 313
 // characters, e.g. mp:external/...) are kept whole or dropped.
-inline constexpr u16 kUserActivityFieldBudget[kUserActivityFieldCount]{128, 128, 128, 320, 128,
-                                                                       320, 128, 256, 96, 96, 64};
+inline constexpr u16 kUserActivityFieldBudget[kUserActivityFieldCount]{128, 128, 128, 320, 128, 320,
+                                                                       128, 256, 96,  96,  64,  64};
 // The largest user_activities_write record: marker, count and three
 // activities' fixed fields and full text.
 inline constexpr u32 kUserActivityRecordMaximumBytes =
     2 + kUserActivityMaximum * (4 + 4 * 8 + 3 * 4 + 2 * kUserActivityFieldCount + kUserActivityTextBytes);
 enum UserActivityFlag : u32 {
     user_activity_flag_join = 1u << 1,
+    user_activity_flag_sync = 1u << 4,
+    user_activity_flag_play = 1u << 5,
     user_activity_flag_embedded = 1u << 8,
 };
 // Facts about fields that are not kept whole.
@@ -69,6 +73,9 @@ Utf8View user_activity_text(const UserActivity&, UserActivityField) noexcept;
 // The Spotify integration's listening activity: named "Spotify" with a
 // "spotify:" party.
 bool user_activity_is_spotify(const UserActivity&) noexcept;
+// The Spotify track's page, https://open.spotify.com/track/<sync_id>, for a
+// Spotify activity whose sync_id is a plain ID; 0 otherwise.
+u32 user_activity_spotify_url(const UserActivity&, Slice<char> output) noexcept;
 // One-line status: "Playing X", "Streaming X", "Listening to X", "Watching X",
 // "Competing in X". Returns the byte count written (0 if none).
 u32 user_activity_summary(UserActivityType, Utf8View name, Utf8View details, Slice<char> output) noexcept;
@@ -109,6 +116,9 @@ bool user_activity_applications_decode(Utf8View body, Slice<u32> structurals, Us
 u32 user_activity_metadata_target(u64 user_id, Utf8View session, u64 application_id, Slice<u8> output) noexcept;
 // metadata.button_urls[index] when it is an http(s) URL; 0 otherwise.
 u32 user_activity_button_url(Utf8View body, Slice<u32> structurals, u32 index, Slice<char> output) noexcept;
+// metadata.album_id as the Spotify album's page (a podcast episode's: its
+// show's); 0 when absent or not a plain ID.
+u32 user_activity_album_url(Utf8View body, Slice<u32> structurals, Slice<char> output) noexcept;
 
 // Decodes presence.activities into non-custom activities (at most
 // kUserActivityMaximum). *present reports whether the presence carried an

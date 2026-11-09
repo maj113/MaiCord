@@ -276,8 +276,15 @@ bool profile_activity_content(const UserActivity& a, bool bot, bool self, Profil
     c.clock_glyph = a.type == UserActivityType::listening  ? ProfileActivityGlyph::music
                     : a.type == UserActivityType::watching ? ProfileActivityGlyph::screen
                                                            : ProfileActivityGlyph::game;
-    if (self || c.spotify)
+    if (self)
         return true;
+    if (c.spotify) {
+        char url[128];
+        if ((a.flags & (user_activity_flag_play | user_activity_flag_sync)) &&
+            user_activity_spotify_url(a, {url, sizeof(url)}))
+            c.action = ProfileActivityAction::spotify;
+        return true;
+    }
     if (a.button_count)
         c.action = ProfileActivityAction::custom;
     else if (playing && (a.flags & user_activity_flag_join) && !embedded && a.application_id &&

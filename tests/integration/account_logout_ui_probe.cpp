@@ -729,8 +729,14 @@ bool application_friends_requests_active() noexcept {
 bool application_friends_show() noexcept {
     return unexpected();
 }
+bool application_friends_show_requests() noexcept {
+    return unexpected();
+}
 bool application_private_channel_picker(u64) noexcept {
     return false;
+}
+bool application_quick_switcher_open() noexcept {
+    return unexpected();
 }
 bool application_guild_menu_toggle(bool) noexcept {
     return false;

@@ -169,6 +169,10 @@ enum class MessageHistoryRequestOwner : u8 {
     startup_history,
     expression_card,
     interaction_data,
+    // Game mentions, the game search and the game profile (chat/game_lookup.hpp).
+    game_lookup,
+    // Settings > Developer's Application Test Mode (settings/test_mode.hpp).
+    test_mode,
     count,
 };
 
@@ -242,6 +246,8 @@ enum PopupAction : u32 {
     popup_action_private_accept_request,
     popup_action_private_ignore_request,
     popup_action_autocomplete_first = 1'000,
+    // The composer's game search results (chat/composer/game_search.hpp).
+    popup_action_game_first = 1'100,
 };
 
 struct LoginRuntime {
@@ -504,12 +510,28 @@ __declspec(noinline) inline u32 application_caret_blink_ms() noexcept {
     return platform_settings_read().caret_blink_ms;
 }
 
-// Reduced motion: the user's preference, or Windows' client-area animation setting as the surface-motion owner
-// cached it (the system setting, refreshed on WM_SETTINGCHANGE). Read this instead of querying the system per frame.
-__declspec(noinline) inline bool application_reduced_motion() noexcept {
+// The computer's reduced-motion setting (Windows' client-area animation) as the surface-motion owner cached it,
+// refreshed on WM_SETTINGCHANGE.
+inline bool application_system_reduced_motion() noexcept {
     const auto& motion = g_app.surface_motion;
-    return g_app.preferences.reduced_motion || g_app.renderer.reduced_motion ||
-           (motion.system_preference_cached && !motion.client_area_animation);
+    return motion.system_preference_cached && !motion.client_area_animation;
+}
+// Reduced motion (Settings > Accessibility): the user's switch, or the computer's setting while "Sync with computer
+// setting" is on. Read this instead of querying the system per frame.
+__declspec(noinline) inline bool application_reduced_motion() noexcept {
+    return client_preferences_reduced_motion(g_app.preferences, application_system_reduced_motion()) ||
+           g_app.renderer.reduced_motion;
+}
+// The saturation (0..1) user colours (role colours, profile and server colours) are drawn at: Accessibility's
+// Saturation when "Apply saturation setting to custom colors" is on, else 1.
+inline float application_user_color_saturation() noexcept {
+    const auto& preferences = g_app.preferences;
+    return preferences.desaturate_user_colors ? static_cast<float>(100 - preferences.desaturation) / 100.f : 1.f;
+}
+// The DPI the interface lays out and draws at: the window's, scaled by Accessibility's Zoom level.
+inline u32 application_zoomed_dpi(u32 window_dpi) noexcept {
+    const u32 zoom = g_app.preferences.zoom ? g_app.preferences.zoom : 100;
+    return (window_dpi ? window_dpi : 96) * zoom / 100;
 }
 
 const Theme& application_theme() noexcept;

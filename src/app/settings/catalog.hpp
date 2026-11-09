@@ -73,6 +73,8 @@ enum class SettingBinding : u16 {
     taskbar_flash,
     // Account pages (application_account_settings).
     account_card,
+    // My Account's Devices row: opens the nested Devices page.
+    account_devices,
     account_display_name,
     account_username,
     account_email,
@@ -88,6 +90,33 @@ enum class SettingBinding : u16 {
     profile_bio,
     devices_list,
     apps_list,
+    // My Account's security and removal rows, Devices' log-out-all, Connected Apps' connections and Data & Privacy's
+    // consents and data request (application_account_settings).
+    account_totp,
+    account_sms,
+    account_backup_codes,
+    security_keys_list,
+    account_key_add,
+    account_disable,
+    account_delete,
+    devices_logout_all,
+    connections_list,
+    data_notice,
+    data_usage_statistics,
+    data_activity_link,
+    data_request,
+    // The data request's types, in harvest_create's option bit order.
+    harvest_account,
+    harvest_analytics,
+    harvest_activities,
+    harvest_ads,
+    harvest_messages,
+    harvest_servers,
+    harvest_zendesk,
+    // Messaging Permissions' blocked and ignored accounts, each with Unblock or Unignore (application_account_settings
+    // over application_friends_user_action).
+    blocked_list,
+    ignored_list,
     // Chat (settings-proto text_and_images, application_user_settings).
     chat_notice,
     inline_attachment_media,
@@ -149,6 +178,50 @@ enum class SettingBinding : u16 {
     browse_effects,
     // Themes' header action, reached from settings search: pick a theme file, install it and apply it.
     import_theme,
+    // Accessibility (local): Text Readability, Visual Density, Color & Contrast, Reduced Motion and
+    // Audio & Screen Reader rows.
+    chat_font_size,
+    underline_links,
+    zoom,
+    saturation,
+    desaturate_user_colors,
+    role_style,
+    reduced_motion_sync,
+    speech_rate,
+    speech_preview,
+    // Accessibility's preview card (kind preview), drawn from the current choices.
+    accessibility_preview,
+    // Streamer Mode (local, Appearance).
+    streamer_mode,
+    streamer_auto,
+    streamer_hide_personal,
+    streamer_hide_invites,
+    streamer_disable_sounds,
+    streamer_disable_notifications,
+    streamer_hide_window,
+    // Synced (settings-proto/1): localization.locale, the Notifications page's "Notify me when..." rows and
+    // mobile push delay, and Chat Box's game suggestions.
+    language,
+    notifications_notice,
+    notify_go_live,
+    notify_friend_online,
+    notify_profile_updates,
+    notify_anniversaries,
+    notify_reactions,
+    mobile_push_delay,
+    game_mentions_autocomplete,
+    // Synced: UI Density (appearance.ui_density), Show user avatars in compact mode, Show image descriptions,
+    // Chat Box's sticker suggestions and the /tts command (text_and_images).
+    ui_density,
+    compact_avatars,
+    image_descriptions,
+    sticker_autocomplete,
+    tts_command,
+    // Notifications' "Speak all messages out loud" (local) and Developer's Application Test Mode.
+    speak_messages,
+    test_mode,
+    // Registered Games' running game row (application_activity_settings_*).
+    current_game,
     count
 };
 enum class SettingBackend : u8 {
@@ -162,8 +235,9 @@ enum class SettingBackend : u8 {
 };
 SettingBackend settings_binding_backend(SettingBinding) noexcept;
 #if !defined(_WIN32)
-// A binding this system has nothing behind: the Windows notification settings page, and the voice processing switch
-// (the audio server owns echo cancellation and noise suppression on Linux). Its row is not shown and not searched.
+// A binding this system has nothing behind: the Windows notification settings page, the voice processing switch
+// (the audio server owns echo cancellation and noise suppression on Linux) and hiding the window from screen capture
+// (Wayland compositors decide what a capture shows). Its row is not shown and not searched.
 bool settings_binding_unavailable(SettingBinding) noexcept;
 #endif
 

@@ -191,6 +191,7 @@ struct Array {
 void merge_appearance(UserAppearance* target, const UserAppearance& other) noexcept {
     if (!target->user_id) { target->user_id = other.user_id; target->guild_id = other.guild_id; }
     if (other.fields & appearance_bot) target->bot = other.bot;
+    if (other.fields & appearance_system) target->system = other.system;
     if (other.fields & appearance_flags) target->public_flags = other.public_flags;
     if (other.fields & appearance_name) target->name = other.name;
     if (other.fields & appearance_decoration) target->decoration = other.decoration;

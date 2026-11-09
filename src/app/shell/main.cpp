@@ -50,6 +50,8 @@
 #include "shutdown_metrics.hpp"
 #include "../settings/settings.hpp"
 #include "../settings/custom_theme.hpp"
+#include "../settings/streamer_mode.hpp"
+#include "../settings/account_settings.hpp"
 #include "../plugins/pipeline_host.hpp"
 #include "../packages/packages.hpp"
 #include "scrolling.hpp"
@@ -62,6 +64,7 @@
 #include "../media/media.hpp"
 #include "../media/video.hpp"
 #include "tooltip.hpp"
+#include "notice.hpp"
 #include "../chat/unread_banner.hpp"
 #include "toast.hpp"
 #include "../account/dm_profile.hpp"
@@ -297,6 +300,8 @@ int run_application() noexcept {
         return 3;
     }
     g_app.renderer_ready = true;
+    // Accessibility's Zoom level scales the window's DPI the interface is laid out at.
+    renderer_set_dpi(&g_app.renderer, application_zoomed_dpi(g_app.renderer.dpi));
     g_app.renderer.zoom_lens = &g_app.image_zoom.lens;
     application_trace_load_stage("renderer_ready");
     application_log_start_gpu(g_app.renderer.graphics.device);
@@ -695,7 +700,7 @@ int run_application() noexcept {
             application_forum_form_tick(restart_now_ms);
             application_friends_tick(restart_now_ms);
             application_search_tick(restart_now_ms);
-            application_voice_timer_tick(restart_now_ms);
+            application_voice_invite_tick(restart_now_ms);
             application_toast_tick(restart_now_ms);
             application_dm_profile_tick(restart_now_ms);
             application_inbox_trim();
@@ -707,11 +712,14 @@ int run_application() noexcept {
             }
             application_media_picker_tick(restart_now_ms);
             application_channel_overview_tick(restart_now_ms);
+            application_account_settings_test_open();
             if (!application_tooltip_synchronize(restart_now_ms))
                 log_write(LogLevel::warning, "ui", "tooltip_synchronize_failed");
             application_notification_controls_tick(restart_now_ms);
             application_custom_status_tick(restart_now_ms);
             application_activity_tick(restart_now_ms);
+            application_streamer_mode_synchronize();
+            application_notice_synchronize(restart_now_ms);
             application_tick_message_composer_caret(restart_now_ms);
             application_composer_spellcheck_tick(restart_now_ms);
             application_message_interaction_tick(restart_now_ms);

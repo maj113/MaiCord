@@ -152,15 +152,15 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
                 message_composer_preferred_height(model, message_composer_scene_text_width(width));
             const float toolbar_height = message_composer_scene_toolbar_height(width);
             compact = compact && (text.bytes > 5 || base == 48.0f);
-            // Show/hide typing and reply rows without stealing space from the editor.
+            // The typing strip is always reserved; reply and attachment rows add to it without stealing space
+            // from the editor, and who is typing never changes the height.
             for (u32 mode = 0; mode < 9; ++mode) {
                 const bool reply = (mode & 1u) != 0;
                 const bool typing = (mode & 2u) != 0;
                 const bool attachments = (mode & 4u) != 0;
-                const float height =
-                    message_composer_scene_preferred_height(model, width, reply, typing, attachments);
-                compact = compact && height == base + toolbar_height + (reply ? 32.0f : 0.0f) +
-                                                   (typing ? 24.0f : 0.0f) + (attachments ? 32.0f : 0.0f);
+                const float height = message_composer_scene_preferred_height(model, width, reply, attachments);
+                compact = compact && height == base + toolbar_height + 24.0f + (reply ? 32.0f : 0.0f) +
+                                                   (attachments ? 32.0f : 0.0f);
                 const UiRect viewport{10, 20, 10 + width, 20 + height};
                 clean = clean && message_composer_scene_update(
                                      &scene, &model, viewport, true, reply ? 77 : 0,
@@ -178,10 +178,9 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
                     separate_typing && surface && indicator &&
                     ui_rect_height(surface->rectangle) ==
                         base + toolbar_height + (reply ? 32.0f : 0.0f) + (attachments ? 32.0f : 0.0f) &&
-                    (!typing ||
-                     (indicator->rectangle.top == viewport.top &&
-                      indicator->rectangle.bottom + 4.0f == surface->rectangle.top &&
-                      !ui_rect_has_area(ui_rect_intersection(indicator->rectangle, surface->rectangle))));
+                    indicator->rectangle.top == viewport.top &&
+                    indicator->rectangle.bottom + 4.0f == surface->rectangle.top &&
+                    !ui_rect_has_area(ui_rect_intersection(indicator->rectangle, surface->rectangle));
                 compact = compact && edit && ui_rect_height(edit->rectangle) == base - 8.0f;
                 // The 624-DIP window minimum leaves a 304-DIP composer: GIF and
                 // sticker fold into the emoji picker so the editor keeps one row.
@@ -255,8 +254,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             for (u32 mode = 0; mode < 8; ++mode) {
                 const bool reply = (mode & 1u) != 0, typing = (mode & 2u) != 0;
                 const bool attachments = (mode & 4u) != 0;
-                const float height =
-                    message_composer_scene_preferred_height(model, width, reply, typing, attachments);
+                const float height = message_composer_scene_preferred_height(model, width, reply, attachments);
                 const UiRect responsive_viewport{10.f, 20.f, 10.f + width, 20.f + height};
                 const auto update = [&]() noexcept {
                     return message_composer_scene_update(
@@ -305,13 +303,13 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
                                (folded ? scene.emoji : scene.gif).slot;
                 UiLayoutDiagnostic diagnostics[32]{};
                 rows &= ui_layout_engine_validate(scene.widgets.layout, {diagnostics, 32}).clean();
-                const float chrome = message_composer_scene_chrome_height(reply, typing, attachments);
+                const float chrome = message_composer_scene_chrome_height(reply, attachments);
                 const float measured = message_composer_scene_measured_height(scene, 60.f);
                 rows &= measured == 80.f + toolbar_height + chrome &&
                         message_composer_scene_measured_height(scene, 1000.f) ==
                             kMessageComposerMaximumHeight + toolbar_height + chrome;
                 scene.measured_row_height = 80.f;
-                rows &= message_composer_scene_cached_height(scene, reply, typing, attachments, width) ==
+                rows &= message_composer_scene_cached_height(scene, reply, attachments, width) ==
                         measured;
                 const u32 layout_passes = scene.layout_passes, projection_passes = scene.projection_passes;
                 const u64 display_signature = scene.display_signature;
@@ -684,7 +682,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         const usize allocated = scene.owned_storage.offset;
         scene.measured_row_height = 100.f;
         const float height =
-            message_composer_scene_preferred_height(model, 304.f, true, true, true, &styles);
+            message_composer_scene_preferred_height(model, 304.f, true, true, &styles);
         bool projected = message_composer_scene_bind_theme_styles(&scene, &styles) &&
                          scene.measured_row_height == 0.f && scene.geometry_dirty &&
                          message_composer_scene_minimum_inline_width(&styles) == 496.f &&
@@ -717,7 +715,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         scene.measured_row_height = 64.f;
         bool stable = !message_composer_scene_bind_theme_styles(&scene, &styles) && !update().changed &&
                       scene.measured_row_height == 64.f &&
-                      message_composer_scene_cached_height(scene, true, true, true) == height &&
+                      message_composer_scene_cached_height(scene, true, true) == height &&
                       message_composer_scene_measured_height(scene, 28.f) == height;
         ++styles.revision;
         ++styles.paint_revision;
@@ -752,7 +750,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         ++styles.geometry_revision;
         message_composer_scene_bind_theme_styles(&scene, &styles);
         const float small_height =
-            message_composer_scene_preferred_height(model, 304.f, false, false, false, &styles);
+            message_composer_scene_preferred_height(model, 304.f, false, false, &styles);
         bool minimum_target =
             message_composer_scene_update(&scene, &model, {0, 0, 304, small_height}, true).ok();
         const auto* small = message_composer_scene_layout_node(scene, MessageComposerControl::send);

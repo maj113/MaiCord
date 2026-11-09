@@ -3,6 +3,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/widgets/kit.hpp"
 #include "maicord/ui/widgets/icon.hpp"
+#include "maicord/ui/widgets/badge.hpp"
 
 namespace maicord {
 using namespace settings_scene_detail;
@@ -44,19 +45,24 @@ bool side_control(UiSettingsControlKind kind) noexcept {
 bool grouped_kind(UiSettingsControlKind kind) noexcept {
     return kind != UiSettingsControlKind::category && kind != UiSettingsControlKind::notice &&
            kind != UiSettingsControlKind::tabs && kind != UiSettingsControlKind::error &&
-           kind != UiSettingsControlKind::status && kind != UiSettingsControlKind::footnote;
+           kind != UiSettingsControlKind::status && kind != UiSettingsControlKind::footnote &&
+           kind != UiSettingsControlKind::preview;
 }
 bool solo_kind(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::status;
 }
 } // namespace
 // Sectioned pages: the space after a row that ends its section (the divider
-// sits in its middle); none while error rows follow and after the last.
+// sits in its middle); none while error rows or a footnote follow, and after the last.
 float section_trailing(const UiSettingsPageContent& content, u32 index) noexcept {
     if (!content.sectioned)
         return 0;
     const u32 next = index + 1;
-    if (next >= content.controls.count || content.controls[next].kind == UiSettingsControlKind::error)
+    if (next >= content.controls.count || content.controls[next].kind == UiSettingsControlKind::error ||
+        content.controls[next].kind == UiSettingsControlKind::footnote)
+        return 0;
+    // A grid's cells continue the section of the row before them.
+    if (more(content, next, ui_settings_more_cell))
         return 0;
     return kSectionGap * 2 + 1;
 }
@@ -114,6 +120,9 @@ float button_label_width(const UiKitMeasure* measure, const Utf8View& label) noe
 }
 // The circle of an avatar row's lead, after the drag handle's slot when the row has one.
 UiRect avatar_rect(const UiSettingsMetrics& m, const UiSettingsPageContent& content, u32 index, const UiRect& lead) noexcept {
+    // A grid cell's cover fills its lead.
+    if (more(content, index, ui_settings_more_cell))
+        return lead;
     const float left = lead.left + (has_flag(content, index, ui_settings_presentation_grip) ? m.grip_width + 4 : 0.f);
     const float size = m.avatar_size, cy = (lead.top + lead.bottom) * .5f;
     return {left, cy - size * .5f, left + size, cy + size * .5f};
@@ -352,6 +361,99 @@ bool more(const UiSettingsPageContent& content, u32 index, u8 flag) noexcept {
     const auto* p = presentation(content, index);
     return p && (p->more & flag);
 }
+namespace {
+bool cell_kind(UiSettingsControlKind kind) noexcept {
+    return kind == UiSettingsControlKind::edit || kind == UiSettingsControlKind::action;
+}
+// Rows i and j are cells of one run: both cells, of one kind and column count.
+bool same_run(const UiSettingsPageContent& content, u32 i, u32 j) noexcept {
+    return more(content, i, ui_settings_more_cell) && more(content, j, ui_settings_more_cell) &&
+           content.controls[i].kind == content.controls[j].kind && cell_kind(content.controls[i].kind) &&
+           content.presentation[i].default_choice == content.presentation[j].default_choice;
+}
+} // namespace
+CellPlace cell_place(const UiSettingsPageContent& content, u32 index) noexcept {
+    CellPlace place{};
+    if (index >= content.controls.count || !more(content, index, ui_settings_more_cell) ||
+        !cell_kind(content.controls[index].kind))
+        return place;
+    place.cell = true;
+    place.run_first = index;
+    while (place.run_first && same_run(content, place.run_first - 1, index))
+        --place.run_first;
+    place.run_end = index + 1;
+    while (place.run_end < content.controls.count && same_run(content, place.run_end, index))
+        ++place.run_end;
+    const u16 columns = content.presentation[index].default_choice;
+    place.columns = columns && columns <= 8 ? columns : 1;
+    place.column = (index - place.run_first) % place.columns;
+    place.line_first = index - place.column;
+    place.line_end = minimum(place.line_first + place.columns, place.run_end);
+    return place;
+}
+float cell_width(const UiSettingsLayoutTokens& t, float width, u32 columns) noexcept {
+    const float gaps = t.metric.lead_gap * static_cast<float>(columns - 1);
+    return maximum(1.f, (width - gaps) / static_cast<float>(columns));
+}
+UiRect banner_tile_rect(const UiSettingsLayoutTokens& t, const UiRect& field, u32 index) noexcept {
+    const float width = cell_width(t, ui_rect_width(field), kBannerTileColumns), height = width * .6f;
+    const float x = field.left + static_cast<float>(index % kBannerTileColumns) * (width + t.metric.lead_gap);
+    const float y = field.top + static_cast<float>(index / kBannerTileColumns) * (height + t.metric.lead_gap);
+    return {x, y, x + width, y + height};
+}
+float banner_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept {
+    const u32 lines = (count + kBannerTileColumns - 1) / kBannerTileColumns;
+    const float tile = cell_width(t, width, kBannerTileColumns) * .6f;
+    return lines ? static_cast<float>(lines) * tile + static_cast<float>(lines - 1) * t.metric.lead_gap : 0;
+}
+u32 banner_tile_hit(const UiSettingsLayoutTokens& t, const UiRect& field, u32 count, float x, float y) noexcept {
+    for (u32 i = 0; i < count; ++i)
+        if (ui_rect_contains(banner_tile_rect(t, field, i), x, y))
+            return i;
+    return ~0u;
+}
+namespace {
+// Room around the outer tiles for the selection ring.
+constexpr float kGlyphTileRing = 3;
+u32 glyph_columns(const UiSettingsLayoutTokens& t, float width) noexcept {
+    const float pitch = kGlyphTile + t.metric.lead_gap;
+    return maximum(1u, static_cast<u32>((width - kGlyphTileRing * 2 + t.metric.lead_gap) / pitch));
+}
+} // namespace
+UiRect glyph_tile_rect(const UiSettingsLayoutTokens& t, const UiRect& field, u32 index) noexcept {
+    const u32 columns = glyph_columns(t, ui_rect_width(field));
+    const float pitch = kGlyphTile + t.metric.lead_gap;
+    const float x = field.left + kGlyphTileRing + static_cast<float>(index % columns) * pitch;
+    const float y = field.top + kGlyphTileRing + static_cast<float>(index / columns) * pitch;
+    return {x, y, x + kGlyphTile, y + kGlyphTile};
+}
+float glyph_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept {
+    const u32 columns = glyph_columns(t, width), lines = (count + columns - 1) / columns;
+    return lines ? static_cast<float>(lines) * (kGlyphTile + t.metric.lead_gap) - t.metric.lead_gap + kGlyphTileRing * 2
+                 : 0;
+}
+u32 glyph_tile_hit(const UiSettingsLayoutTokens& t, const UiRect& field, u32 count, float x, float y) noexcept {
+    for (u32 i = 0; i < count; ++i)
+        if (ui_rect_contains(glyph_tile_rect(t, field, i), x, y))
+            return i;
+    return ~0u;
+}
+const UiSettingsGlyphTile* glyph_tile(const UiSettingsPageContent& content, u32 index, u32 offset) noexcept {
+    if (!content.glyph_tiles || !content.presentation || index >= content.controls.count)
+        return nullptr;
+    const u32 at = content.presentation[index].default_choice + offset;
+    return at < content.glyph_tile_count ? &content.glyph_tiles[at] : nullptr;
+}
+UiRect cell_lead_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept {
+    const float size = t.metric.chip_height, cy = (field.top + field.bottom) * .5f;
+    const float left = field.left + t.metric.chip_padding;
+    return {left, cy - size * .5f, left + size, cy + size * .5f};
+}
+UiRect cell_clear_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept {
+    const float size = t.metric.chip_height, cy = (field.top + field.bottom) * .5f;
+    const float right = field.right - t.metric.chip_padding;
+    return {right - size, cy - size * .5f, right, cy + size * .5f};
+}
 RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& style, const UiSettingsPageContent& content,
                      u32 index, float left, float top, float width, const RowContext& context) noexcept {
     const auto& m = t.metric;
@@ -539,6 +641,78 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         r.row = {left, top, left + width, top + r.height};
         return r;
     }
+    if (c.kind == UiSettingsControlKind::preview && content.preview) {
+        // Accessibility's preview: its title, then a card holding two example messages (cozy: a 40-DIP avatar and
+        // the name over the first; compact: a time column, then the name and the text on each line), the first's
+        // reactions and, under them, three example avatars beside an example button. The sample is chat text: its
+        // lines, time column and reaction pills follow the chat size, the rest of the card keeps the interface's.
+        const auto& s = *content.preview;
+        const float em = s.text_size > 0 ? s.text_size : 16.f, scale = em / 16.f;
+        const float pad = m.card_inset, line = em * 1.375f, right = left + width - pad;
+        const bool cozy = !s.compact;
+        r.label = {left, top, left + width, top + kUiSettingsLabelLine};
+        const float card_top = r.label.bottom + 8, inner = left + pad;
+        const float text_left = cozy ? inner + 56 : inner + 60 * scale;
+        float y = card_top + pad;
+        if (cozy) {
+            r.lead = {inner, y, inner + 40, y + 40};
+            r.tag = {text_left, y, right, y + line};
+            y += line;
+        } else {
+            r.tag = {inner, y, text_left - 8, y + line};
+        }
+        r.description = {text_left, y, right, y + line};
+        y += line;
+        if (s.reactions) {
+            r.chips = {text_left, y + 4, right, y + 4 + 24};
+            y = r.chips.bottom;
+        }
+        if (cozy)
+            y = maximum(y, r.lead.bottom);
+        y += s.group_gap;
+        r.value = {text_left, y, right, y + line};
+        y = r.value.bottom + 16;
+        r.icon = {inner, y, inner + 3 * 32 + 2 * 8, y + 32};
+        const float button = ui_kit_text_width(measure, c.action_label, kUiKitTextLabelBold) + 32;
+        r.control = {r.icon.right + 16, y, r.icon.right + 16 + button, y + 32};
+        r.body = {left, card_top, left + width, r.icon.bottom + pad};
+        r.height = r.body.bottom - top;
+        r.row = {left, top, left + width, top + r.height};
+        return r;
+    }
+    if (more(content, index, ui_settings_more_cell) &&
+        (c.kind == UiSettingsControlKind::edit || c.kind == UiSettingsControlKind::action)) {
+        // A grid cell: the run's last cell carries the section's trailing space; a run right under a field (the game
+        // search) starts lead_gap below it.
+        const float trailing = section_trailing(content, index);
+        const auto place = cell_place(content, index);
+        const float above = place.line_first == place.run_first && place.run_first &&
+                                    editor_kind(content.controls[place.run_first - 1].kind)
+                                ? m.lead_gap
+                                : 0.f;
+        const float start = top + above;
+        if (c.kind == UiSettingsControlKind::edit) {
+            // A trait: the field with its emoji button at the start and the clear button at the end.
+            const float height = maximum(m.control_height, style.single_height);
+            r.control = {left, start, left + width, start + height};
+            r.lead = cell_lead_button(t, r.control);
+            if (c.action_label.bytes)
+                r.value = cell_clear_button(t, r.control);
+            r.height = above + height + trailing;
+        } else {
+            // A game tile: a 3:4 cover, its check at the top end, the name under it.
+            const float cover = width * 4.f / 3.f;
+            r.lead = {left, start, left + width, start + cover};
+            const float check = m.chip_height, inset = m.chip_gap * 1.5f;
+            r.icon = {r.lead.right - inset - check, r.lead.top + inset, r.lead.right - inset, r.lead.top + inset + check};
+            r.label = {left, r.lead.bottom + m.label_gap * 2, left + width,
+                       r.lead.bottom + m.label_gap * 2 + kUiSettingsDescriptionLine};
+            r.control = {left, start, left + width, r.label.bottom};
+            r.height = r.label.bottom - top + trailing;
+        }
+        r.row = {left, top, left + width, top + r.height};
+        return r;
+    }
     if (const auto* item = list_item(content, index)) {
         if (item->style == UiSettingsListStyle::card) {
             const float pad = m.notice_padding, inset = m.row_padding * .5f;
@@ -663,7 +837,9 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         else if (c.kind == UiSettingsControlKind::palette)
             height = swatch_rows_height(t, c.choices.count, width);
         else if (c.kind == UiSettingsControlKind::swatches)
-            height = ui_color_grid_height(t, c.choices.count, width - 8);
+            height = more(content, index, ui_settings_more_banner_tiles) ? banner_tiles_height(t, c.choices.count, width)
+                     : more(content, index, ui_settings_more_glyphs)    ? glyph_tiles_height(t, c.choices.count, width)
+                                                                         : ui_color_grid_height(t, c.choices.count, width - 8);
         else if (c.kind == UiSettingsControlKind::buttons)
             height = m.button_small;
         else if (c.kind == UiSettingsControlKind::colors)
@@ -697,6 +873,14 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
     if (card && r.height < m.row_min_height) {
         shift_rows(&r, (m.row_min_height - r.height) * .5f);
         r.height = m.row_min_height;
+    }
+    if (c.kind == UiSettingsControlKind::action && more(content, index, ui_settings_more_name_tag) && c.detail.bytes) {
+        // The server tag chip right after the name, as the author line draws it (ui_badge_compact_layout).
+        const float name = minimum(ui_kit_text_width(measure, c.label, kUiKitTextBodyBold), ui_rect_width(r.label));
+        const float chip = kUiBadgeCompactPadding * 2 + kUiBadgeCompactIcon + kUiBadgeCompactIconGap +
+                           ui_kit_text_width(measure, c.detail, kUiKitTextSmallBold);
+        const float chip_left = r.label.left + name + m.chip_gap, middle = (r.label.top + r.label.bottom) * .5f;
+        r.tag = {chip_left, middle - kUiBadgeCompactHeight * .5f, chip_left + chip, middle + kUiBadgeCompactHeight * .5f};
     }
     r.row = {row_left, top, row_left + row_width, top + r.height};
     return r;
@@ -735,6 +919,7 @@ void visit_nav(const UiSettingsScene& scene, UiVisitRef<const NavRow&> visit) no
             if (!page_registered(scene, e.page))
                 continue;
             row.target = {UiSettingsTargetKind::page, e.page, 0};
+            row.subpage = e.subpage;
         } else if (e.kind == UiSettingsNavKind::action)
             row.target = {UiSettingsTargetKind::action, {}, e.action};
         if (!visit(row))
@@ -761,6 +946,11 @@ u32 pinned_count(const UiSettingsScene& scene) noexcept {
     return count;
 }
 } // namespace
+bool nav_selected(const UiSettingsScene& scene, const NavRow& row) noexcept {
+    return row.kind == UiSettingsNavKind::page &&
+           (ui_page_key_equal(row.target.page, scene.selected_page) ||
+            (row.subpage.owner_id && ui_page_key_equal(row.subpage, scene.selected_page)));
+}
 bool nav_row(const UiSettingsScene& scene, u32 index, NavRow* row) noexcept {
     u32 position = 0;
     bool found = false;
@@ -825,11 +1015,23 @@ Frame frame(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept {
         f.nav.top = l.sidebar.top + 56;
         f.nav.bottom = l.sidebar.bottom - 24;
     }
-    if (pinned) {
-        // The foot: a hairline, then the pinned rows; the scrolling list ends where it starts.
-        const float foot = kNavFootRule + static_cast<float>(pinned) * (m.nav_item_height + m.nav_item_gap);
+    // The note's lines (12/16 under an 8 DIP gap), a modal sidebar's last.
+    u32 note_lines = 0;
+    if (modal && scene.navigation_note.bytes) {
+        note_lines = 1;
+        for (u32 i = 0; i < scene.navigation_note.bytes; ++i)
+            note_lines += scene.navigation_note.data[i] == '\n';
+        note_lines = minimum(note_lines, kUiSettingsNavigationNoteLines);
+    }
+    if (pinned || note_lines) {
+        // The foot: a hairline, then the pinned rows and the note; the scrolling list ends where it starts.
+        const float note = note_lines ? 8.f + static_cast<float>(note_lines) * kNavNoteLine : 0.f;
+        const float foot = kNavFootRule + static_cast<float>(pinned) * (m.nav_item_height + m.nav_item_gap) + note;
         f.nav_foot = {f.nav.left, maximum(f.nav.top, f.nav.bottom - foot), f.nav.right, f.nav.bottom};
         f.nav_rule = {f.nav_foot.left, f.nav_foot.top, f.nav_foot.right, f.nav_foot.top + 1};
+        if (note_lines)
+            f.nav_note = {f.nav_foot.left + m.nav_item_padding, maximum(f.nav_foot.top, f.nav_foot.bottom - note + 8),
+                          f.nav_foot.right - m.nav_item_padding, f.nav_foot.bottom};
         f.nav.bottom = f.nav_foot.top;
     }
     const bool dialog = scene.presentation == UiSettingsPresentation::dialog;
@@ -878,7 +1080,7 @@ AsideLayout aside_layout(const UiSettingsScene& scene) noexcept {
     a.width = minimum(c.aside_width, full);
     a.block = (c.aside_label.bytes ? kUiSettingsLabelLine + kAsideHeadingGap : 0) + c.aside_height;
     a.beside = full >= c.aside_width + kAsideGap + kAsideFormMinimum;
-    a.form = a.beside ? full - c.aside_width - kAsideGap : full;
+    a.form = a.beside ? minimum(full - c.aside_width - kAsideGap, kAsideFormMaximum) : full;
     return a;
 }
 namespace {
@@ -977,7 +1179,7 @@ bool valid_content(const UiSettingsPageContent& content) noexcept {
         return false;
     for (u32 i = 0; i < content.controls.count; ++i) {
         const auto& c = content.controls[i];
-        if (!c.id || c.kind > UiSettingsControlKind::footnote || !valid_text(c.label) || !valid_text(c.description) ||
+        if (!c.id || c.kind > UiSettingsControlKind::preview || !valid_text(c.label) || !valid_text(c.description) ||
             !valid_text(c.action_label) || !valid_text(c.detail))
             return false;
         // Notices may be text only; a radio group's options can stand alone
@@ -989,6 +1191,10 @@ bool valid_content(const UiSettingsPageContent& content) noexcept {
             return false;
         // Markdown rows carry their source in the description, parsed from at most this much.
         if (c.kind == UiSettingsControlKind::markdown && c.description.bytes > kUiMarkdownSourceMaximum)
+            return false;
+        // A preview row carries its sample.
+        if (c.kind == UiSettingsControlKind::preview &&
+            (!content.preview || !valid_text(content.preview->author) || !valid_text(content.preview->time)))
             return false;
         // Status chips are plain, non-empty labels.
         if (c.kind == UiSettingsControlKind::status && (c.choices.count > 8u || (c.choices.count && !c.choices.data)))
@@ -1075,11 +1281,15 @@ bool focusable_control(const UiSettingsScene& scene, u32 index) noexcept {
     case UiSettingsControlKind::footnote:
         return c.action_label.bytes != 0;
     case UiSettingsControlKind::error:
+    case UiSettingsControlKind::preview:
         return false;
     case UiSettingsControlKind::markdown:
         return !c.checked && c.detail.bytes != 0;
     case UiSettingsControlKind::disclosure:
         return !more(scene.content, index, ui_settings_more_plain);
+    case UiSettingsControlKind::action:
+        // A name preview focuses only its button.
+        return !more(scene.content, index, ui_settings_more_name_tag) || c.action_label.bytes != 0;
     default:
         return true;
     }
@@ -1233,7 +1443,11 @@ bool build(UiSettingsScene* scene) noexcept {
     const u32 navs = nav_count(*scene);
     const float min_row = kUiSettingsLabelLine + m.row_padding * 2 - 8;
     const u32 visible_rows = static_cast<u32>(visible_height(*scene, false, m) / maximum(24.f, min_row)) + 3;
-    const u32 required = 24 + navs + visible_rows;
+    // Grid cells sit several to a line, each line one more container.
+    u32 cells = 0;
+    for (u32 i = 0; i < scene->content.controls.count; ++i)
+        cells += more(scene->content, i, ui_settings_more_cell) ? 2u : 0u;
+    const u32 required = 24 + navs + visible_rows + cells;
     const u32 prefix_required = scene->content.controls.count + 1;
     if (required > kUiSettingsMaterializedWidgetLimit)
         return false;
@@ -1263,10 +1477,20 @@ bool build(UiSettingsScene* scene) noexcept {
     // Stacked asides take a block (and a section gap) before their row.
     const float stacked = aside.active && !aside.beside ? aside.block + kSectionGap : 0;
     prefix[0] = scene->content.aside_row == 0 ? stacked : 0;
-    for (u32 i = 0; i < scene->content.controls.count; ++i)
-        prefix[i + 1] = prefix[i] +
-                        row_layout(t, scene->style, scene->content, i, 0, 0, row_width(*scene, aside, i), context).height +
-                        (i + 1 == scene->content.aside_row ? stacked : 0);
+    for (u32 i = 0; i < scene->content.controls.count; ++i) {
+        float height = 0;
+        const auto place = cell_place(scene->content, i);
+        if (!place.cell)
+            height = row_layout(t, scene->style, scene->content, i, 0, 0, row_width(*scene, aside, i), context).height;
+        else if (i + 1 == place.line_end) {
+            // A line of cells is as tall as its tallest cell, lead_gap above the next line.
+            const float cell = cell_width(t, row_width(*scene, aside, place.line_first), place.columns);
+            for (u32 k = place.line_first; k < place.line_end; ++k)
+                height = maximum(height, row_layout(t, scene->style, scene->content, k, 0, 0, cell, context).height);
+            height += place.line_end < place.run_end ? m.lead_gap : 0;
+        }
+        prefix[i + 1] = prefix[i] + height + (i + 1 == scene->content.aside_row ? stacked : 0);
+    }
     scene->content_offset = clamp_offset(*scene, false, scene->content_offset, m);
     scene->sidebar_offset = clamp_offset(*scene, true, scene->sidebar_offset, m);
     const auto f = frame(*scene, m);
@@ -1320,22 +1544,44 @@ bool build(UiSettingsScene* scene) noexcept {
     style.flags |= ui_layout_node_clip_children | ui_layout_node_scroll_vertical;
     scene->body = add(scene, root, UiWidgetKind::scroll_view, utf8_literal("Controls"), style);
     const u32 count = scene->content.controls.count;
-    const u32 first = first_row(*scene, scene->content_offset);
+    u32 first = first_row(*scene, scene->content_offset);
+    // Lines of cells materialize whole.
+    if (const auto place = cell_place(scene->content, first); place.cell)
+        first = place.line_first;
     u32 end = first;
     const float bottom = scene->content_offset + ui_rect_height(f.body);
     while (end < count && row_start(*scene, end) < bottom)
         ++end;
     end = minimum(count, end + 1);
+    if (const auto place = cell_place(scene->content, end - 1); end > first && place.cell)
+        end = place.line_end;
     scene->rows_first = first;
     add(scene, scene->body, UiWidgetKind::container, utf8_literal("Before"), sized(width, row_start(*scene, first)));
+    UiWidgetHandle line = ui_widget_invalid_handle();
+    float cell = 0, cell_height = 0;
     for (u32 i = first; i < end; ++i) {
         const auto& c = scene->content.controls[i];
         const UiSettingsTarget target{UiSettingsTargetKind::control, scene->selected_page, c.id};
         const bool interactive_row = focusable_control(*scene, i);
         const auto kind = editor_kind(c.kind) ? UiWidgetKind::text_field : UiWidgetKind::button;
-        add(scene, scene->body, interactive_row ? kind : UiWidgetKind::container, utf8_literal("Setting"),
-            sized(row_width(*scene, aside, i), row_start(*scene, i + 1) - row_start(*scene, i)), target, i,
-            interactive_row, EntryRole::row);
+        const auto place = cell_place(scene->content, i);
+        auto row = sized(row_width(*scene, aside, i), row_start(*scene, i + 1) - row_start(*scene, i));
+        if (place.cell) {
+            if (i == place.line_first) {
+                // The line: its cells side by side, lead_gap apart, its gap to the next line below them.
+                const float line_width = row_width(*scene, aside, place.line_first);
+                const float line_height = row_start(*scene, place.line_end) - row_start(*scene, place.line_first);
+                cell = cell_width(t, line_width, place.columns);
+                cell_height = line_height - (place.line_end < place.run_end ? m.lead_gap : 0);
+                auto line_style = sized(line_width, line_height);
+                line_style.flow = UiLayoutFlow::horizontal;
+                line_style.gap = m.lead_gap;
+                line = add(scene, scene->body, UiWidgetKind::container, utf8_literal("Cells"), line_style);
+            }
+            row = sized(cell, cell_height);
+        }
+        add(scene, place.cell ? line : scene->body, interactive_row ? kind : UiWidgetKind::container,
+            utf8_literal("Setting"), row, target, i, interactive_row, EntryRole::row);
     }
     add(scene, scene->body, UiWidgetKind::container, utf8_literal("After"),
         sized(width, content_extent(*scene, m) - row_start(*scene, end)));
@@ -1523,13 +1769,18 @@ UiControlState hover_option(const UiSettingsScene& scene, UiControlState state, 
 }
 UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle, const UiSettingsTarget& target,
                             bool enabled) noexcept {
-    const bool hovered = ui_widget_manager_input_enabled(scene.widgets, handle) &&
-                         ui_widget_handle_equal(scene.widgets.hovered, handle);
+    const bool input = ui_widget_manager_input_enabled(scene.widgets, handle);
+    const bool hovered = input && ui_widget_handle_equal(scene.widgets.hovered, handle);
     const bool pressed = hovered && ui_widget_handle_equal(scene.widgets.captured, handle);
     // A parked focus (its control is not focusable now) draws no ring.
     const bool focused =
         scene.focus_visible && ui_settings_target_equal(scene.focus, target) && target_exists(scene, target);
-    return {enabled, hovered, pressed, focused};
+    // The hover fade's amount; a newly hovered control the next tick has not seen yet starts from rest.
+    const u64 id = hover_motion_id(handle);
+    const auto& fade = scene.hover_motion;
+    const bool tracked = input && !scene.reduced_motion && (id == fade.in_id || id == fade.out_id);
+    const bool fading = tracked || (input && !scene.reduced_motion && hovered);
+    return {enabled, hovered, pressed, focused, fading, tracked ? ui_motion_hover_amount(fade, id) : 0.f};
 }
 float toggle_motion(const UiSettingsScene& scene, const UiSettingsTarget& target, const UiSettingsLayoutTokens& t,
                     bool checked) noexcept {
@@ -1539,6 +1790,15 @@ float toggle_motion(const UiSettingsScene& scene, const UiSettingsTarget& target
     const u32 duration = scene.reduced_motion ? t.duration.switch_reduced_ms : t.duration.switch_ms;
     const float elapsed = scene.clock_ms > animation.started_ms ? static_cast<float>(scene.clock_ms - animation.started_ms) : 0.f;
     return duration ? minimum(1.f, elapsed / static_cast<float>(duration)) : 1.f;
+}
+UiSegmentedMotion segment_motion(const UiSettingsScene& scene, const UiSettingsControl& control) noexcept {
+    const auto& segment = scene.segment;
+    if (!segment.control_id || segment.control_id != control.id || segment.from == control.selected_choice)
+        return {};
+    return {segment.from, segment.transition.value};
+}
+float segment_selection(const UiSegmentedMotion& motion, u32 selected, u32 option) noexcept {
+    return option == selected ? motion.progress : option == motion.from ? 1 - motion.progress : 0.f;
 }
 void reveal_range(UiSettingsScene* scene, bool sidebar, float first, float last, const UiSettingsMetrics& m) noexcept {
     auto& offset = sidebar ? scene->sidebar_offset : scene->content_offset;

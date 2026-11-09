@@ -247,8 +247,9 @@ bool d3d11_renderer_measure_composer_edit(D3D11Renderer* renderer) noexcept {
         return false;
     }
     select_edit_geometry(renderer, &renderer->composer_layout, &renderer->login_edit);
+    // The draft is chat text.
     return text_composer_layout_measure(&renderer->composer_layout, renderer->message_composer_scene,
-                                          renderer->glyph_text.system);
+                                        renderer_text_system(renderer, ui_text_face_chat(UiTextFace::normal)));
 }
 
 } // namespace maicord

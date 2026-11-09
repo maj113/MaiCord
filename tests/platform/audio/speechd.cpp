@@ -34,7 +34,8 @@ bool same_text(const char* a, const char* b) noexcept {
 // The fake daemon connection ---------------------------------------------------------------------------------------------
 
 struct Fake {
-    u32 loads, opens, closes, says, cancels;
+    u32 loads, opens, closes, says, cancels, rates;
+    i32 rate;
     bool open_fails;
     i32 say_result;
     char order[64]; // 'o'pen, 'x' cancel, 's'ay, 'c'lose
@@ -108,7 +109,14 @@ i32 fake_cancel(speechd::Connection*) noexcept {
     return 0;
 }
 
-const speechd::Api g_fake_api = {fake_open, fake_close, fake_say, fake_cancel};
+i32 fake_rate(speechd::Connection*, i32 rate) noexcept {
+    ++g_fake.rates;
+    note('r');
+    g_fake.rate = rate;
+    return 0;
+}
+
+const speechd::Api g_fake_api = {fake_open, fake_close, fake_say, fake_cancel, fake_rate};
 
 const speechd::Api* load_fake() noexcept {
     ++g_fake.loads;
@@ -195,6 +203,16 @@ void test_logic() noexcept {
     check(speechd::speak(&speech, load_fake, view("back", 4)) && g_fake.opens == opens + 1 && said("back"),
           "the next text opens a new connection");
 
+    // The rate is set once when it changes (x10 on speech-dispatcher's scale, clamped to -10..10 first), before the
+    // text; the configured rate stays until then, and a reconnect starts from it again.
+    const u32 rates = g_fake.rates;
+    check(speechd::speak(&speech, load_fake, view("fast", 4), 6) && g_fake.rates == rates + 1 && g_fake.rate == 60 &&
+              speechd::speak(&speech, load_fake, view("again", 5), 6) && g_fake.rates == rates + 1 &&
+              speechd::speak(&speech, load_fake, view("max", 3), 25) && g_fake.rate == 100 &&
+              speechd::speak(&speech, load_fake, view("normal", 6), 0) && g_fake.rate == 0 &&
+              g_fake.rates == rates + 3 && rates == 0,
+          "the rate is applied only when it changes, scaled and clamped");
+
     // Release stops the speech and closes the connection; the speech is closed again.
     forget();
     speechd::release(&speech, &g_fake_api);
@@ -233,8 +251,8 @@ void test_failures() noexcept {
 void test_no_library() noexcept {
     check(speechd::library() == nullptr, "a missing libspeechd is not loaded");
     Speech speech{};
-    check(!speech_speak(&speech, view("hello", 5)) && !speech.voice, "no libspeechd: speech reports unavailable");
-    check(!speech_speak(&speech, view("hello", 5)), "and keeps reporting it");
+    check(!speech_speak(&speech, view("hello", 5), 0) && !speech.voice, "no libspeechd: speech reports unavailable");
+    check(!speech_speak(&speech, view("hello", 5), 0), "and keeps reporting it");
     speech_release(&speech);
     check(!speech.attempted && !speech.voice, "releasing it resets it");
 }
@@ -249,7 +267,7 @@ void test_no_daemon() noexcept {
     if (!speechd::library())
         skip("libspeechd.so.2 is not installed");
     Speech speech{};
-    check(!speech_speak(&speech, view("hello", 5)) && !speech.voice && speech.attempted,
+    check(!speech_speak(&speech, view("hello", 5), 0) && !speech.voice && speech.attempted,
           "libspeechd without a daemon: speech reports unavailable");
     speech_release(&speech);
     check(!speech.attempted, "and releasing it resets it");
@@ -262,10 +280,10 @@ void test_live() noexcept {
     if (!address || !*address)
         skip("SPEECHD_ADDRESS is not set: this test is run by tools/test_speechd.sh");
     Speech speech{};
-    check(speech_speak(&speech, view("Alice said first message", 24)) && speech.voice, "a speech-dispatcher takes the first text");
-    check(speech_speak(&speech, view("Bob said second message", 23)), "and the second, which interrupts it");
-    check(!speech_speak(&speech, view("\xFF", 1)), "a text that is not UTF-8 is refused");
-    check(speech_speak(&speech, view("caf\xC3\xA9 \xE2\x82\xAC", 9)), "multi-byte text is taken");
+    check(speech_speak(&speech, view("Alice said first message", 24), 0) && speech.voice, "a speech-dispatcher takes the first text");
+    check(speech_speak(&speech, view("Bob said second message", 23), 3), "and the second, faster, which interrupts it");
+    check(!speech_speak(&speech, view("\xFF", 1), 3), "a text that is not UTF-8 is refused");
+    check(speech_speak(&speech, view("caf\xC3\xA9 \xE2\x82\xAC", 9), 0), "multi-byte text is taken");
     speech_release(&speech);
     check(!speech.voice && !speech.attempted, "release closes the connection");
 }

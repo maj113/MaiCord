@@ -79,6 +79,7 @@ bool publish(const ClientThemeDocument* document, u32 glide_ms) noexcept;
 void glide_frame(ThemePublication& p, const ClientThemeDocument* document) noexcept {
     const u64 now = glide_now();
     Theme palette = look(p, document, nullptr);
+    theme_desaturate(&palette, 100u - g_app.preferences.desaturation);
     p.ease_ms = glide(&palette, glide_from(p), p.ease_start_ms, p.ease_ms, now);
     ui_theme_resolve_emphasis(&palette);
     palette.styles = p.styles;
@@ -128,6 +129,9 @@ void application_theme_schedule_tick(u64 now_ms, bool frame) noexcept {
 bool application_custom_theme_publish(const ClientThemeDocument* document, bool animate) noexcept {
     return publish(document, animate ? kClientThemeGlideMs : 0);
 }
+bool application_theme_accessibility_refresh() noexcept {
+    return publish(application_custom_theme_document(), 0);
+}
 
 namespace {
 // Publishes the source's look (application_custom_theme_publish). A change of colours from what shows glides for
@@ -147,6 +151,7 @@ bool publish(const ClientThemeDocument* document, u32 glide_ms) noexcept {
 
     const u64 now = glide_now();
     Theme palette = look(publication, document, &glide_ms);
+    theme_desaturate(&palette, 100u - g_app.preferences.desaturation);
     // The glide this publication shows, kept only if it succeeds. Only colours glide: a change of background alone
     // (the theme editor's gradient, a slider) follows the pointer.
     alignas(Theme) u8 started_from[sizeof(Theme)];
@@ -168,7 +173,11 @@ bool publish(const ClientThemeDocument* document, u32 glide_ms) noexcept {
     // expand into inline vector loops.
     static constexpr UiThemeTypography default_typography{};
     static constexpr UiThemeIcons default_icons{};
-    const UiThemeTypography& typography = document ? document->typography : default_typography;
+    // Accessibility's Text size in chat sizes chat text only; the theme's body size stays the interface's. Unset (0),
+    // or the size the theme already has, follows the body size.
+    UiThemeTypography typography = document ? document->typography : default_typography;
+    const u8 font_size = g_app.preferences.chat_font_size;
+    typography.chat_size = font_size == typography.body_size ? 0.f : font_size;
     const UiThemeMetrics& metrics = document ? document->metrics : kUiThemeMetricsDefault;
     // Read before the commit below overwrites the published bank.
     const UiThemeMetrics& previous = publication.styles ? publication.styles->metrics : kUiThemeMetricsDefault;
@@ -180,7 +189,7 @@ bool publish(const ClientThemeDocument* document, u32 glide_ms) noexcept {
     else
         reset_value(&candidate);
     UiThemeStylesResult styles_result{};
-    if (document || publication.styles) {
+    if (document || publication.styles || typography.chat_size) {
         styles_result = ui_theme_styles_apply(&candidate, typography, metrics);
         if (!styles_result.ok())
             return false;
@@ -198,7 +207,7 @@ bool publish(const ClientThemeDocument* document, u32 glide_ms) noexcept {
     }
     auto* destination = publication.styles;
     bool allocated = false;
-    if (document && !destination) {
+    if ((document || typography.chat_size) && !destination) {
         destination = static_cast<UiResolvedThemeStyles*>(
             commit_pages(sizeof(UiResolvedThemeStyles)));
         if (!destination)

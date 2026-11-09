@@ -15,7 +15,8 @@ constexpr char kSemanticNames[] =
     "Shell\0GuildRail\0ChannelSidebar\0ChannelHeader\0ChannelNavigation\0ChannelFooter\0Content\0TitleBar\0"
     "TitleLabel\0MemberToggle\0MessageView\0Composer\0MemberSidebar\0Home\0GuildNavigation\0UserSettings\0"
     "Friends\0PinnedMessages\0Threads\0ThreadHeader\0ThreadStatus\0ThreadPrimaryAction\0ThreadActions\0"
-    "ThreadFeedback\0ThreadCancel\0CreateDirectMessage\0AddPeople\0StartCall\0Inbox\0ServerMenu\0InvitePeople\0";
+    "ThreadFeedback\0ThreadCancel\0CreateDirectMessage\0AddPeople\0StartCall\0ViewProfile\0Inbox\0ServerMenu\0InvitePeople\0"
+    "FindConversation\0DirectMessagesHeading\0";
 static_assert(name_list_count(kSemanticNames) == static_cast<u32>(UiSemantic::count));
 
 struct SemanticOffsets {
@@ -48,7 +49,8 @@ bool semantic_button(UiSemantic semantic) noexcept {
            semantic == UiSemantic::thread_overflow || semantic == UiSemantic::thread_cancel ||
            semantic == UiSemantic::private_create || semantic == UiSemantic::private_add ||
            semantic == UiSemantic::private_call || semantic == UiSemantic::inbox_toggle ||
-           semantic == UiSemantic::guild_menu || semantic == UiSemantic::guild_invite;
+           semantic == UiSemantic::guild_menu || semantic == UiSemantic::guild_invite ||
+           semantic == UiSemantic::private_search || semantic == UiSemantic::private_identity;
 }
 
 UiWidgetKind semantic_kind(UiSemantic semantic) noexcept {
@@ -136,7 +138,9 @@ bool shell_metrics_valid(const UiShellLayoutMetrics& metrics) noexcept {
            ui_extent_valid(metrics.member_sidebar_top) && ui_extent_valid(metrics.message_bottom_margin) &&
            ui_extent_valid(metrics.composer_height) && (!composer || metrics.composer_height > 0.0f) &&
            ui_insets_valid(metrics.composer_margin) && ui_insets_valid(metrics.navigation_header_padding) &&
-           ui_insets_valid(metrics.title_bar_padding) && ui_extent_valid(metrics.navigation_footer_reserve);
+           ui_insets_valid(metrics.title_bar_padding) && ui_extent_valid(metrics.navigation_footer_reserve) &&
+           ui_extent_valid(metrics.notice_height) && ui_extent_valid(metrics.composer_overlap) &&
+           metrics.composer_overlap <= metrics.composer_height;
 }
 
 float shell_content_left(const UiShellLayoutMetrics& metrics, bool navigation) noexcept {
@@ -208,6 +212,12 @@ void update_header_controls(UiScene* scene, const UiShellLayoutMetrics& metrics,
     set_margin(threads, search_width + (toggle.generation ? 52.f : 8.f) + (pins.generation ? 44.f : 0.f));
     set_margin(add, search_width + existing_width);
     set_margin(call, search_width + existing_width + (add.generation ? 44.f : 0.f));
+    if (const auto identity = scene->semantics[static_cast<u32>(UiSemantic::private_identity)]; identity.generation) {
+        const float room = maximum(0.f, width - left - metrics.title_bar_padding.left - metrics.title_bar_padding.right -
+                                            controls_width - search_width - 8.f);
+        scene->widgets.layout.storage[identity.slot].spec.style.width =
+            ui_layout_fixed(minimum(metrics.private_identity_width, maximum(32.f, room)));
+    }
 }
 
 bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics, u8 variant) noexcept {
@@ -218,6 +228,8 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
     }
 
     UiLayoutStyle root_style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_clip_children);
+    // The notice band (ui/shell/notice_band.hpp) takes the top of the root; the panes lay out below it.
+    root_style.padding.top = metrics.notice_height;
     if (!add_node(scene, UiSemantic::root, ui_widget_invalid_handle(), root_style)) {
         return false;
     }
@@ -326,13 +338,28 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
             friends_style.padding = {16.f, 0, 16.f, 0};
             if (!add_node(scene, UiSemantic::friends_button, channels, friends_style))
                 return false;
+            // The header holds "Find or start a conversation"; "Direct Messages" and its + head the list.
+            UiLayoutStyle search_style = ui_layout_style();
+            search_style.width = ui_layout_fill();
+            search_style.height = ui_layout_fixed(28.f);
+            search_style.vertical_alignment = UiLayoutAlignment::center;
+            search_style.padding = {8.f, 0, 8.f, 0};
+            search_style.flags |= ui_layout_node_allow_overlap;
+            if (!add_node(scene, UiSemantic::private_search,
+                          scene->semantics[static_cast<u32>(UiSemantic::channel_header)], search_style))
+                return false;
+            auto heading_style = fixed_height(32.f);
+            heading_style.margin = {8.f, 8.f, 8.f, 0};
+            heading_style.padding = {10.f, 0, 6.f, 0};
+            if (!add_node(scene, UiSemantic::private_heading, channels, heading_style))
+                return false;
             UiLayoutStyle create_style = fixed_width(24.f);
             create_style.height = ui_layout_fixed(24.f);
             create_style.horizontal_alignment = UiLayoutAlignment::end;
             create_style.vertical_alignment = UiLayoutAlignment::center;
             create_style.flags |= ui_layout_node_allow_overlap;
             if (!add_node(scene, UiSemantic::private_create,
-                          scene->semantics[static_cast<u32>(UiSemantic::channel_header)], create_style))
+                          scene->semantics[static_cast<u32>(UiSemantic::private_heading)], create_style))
                 return false;
         }
         UiLayoutStyle navigation_style = ui_layout_style();
@@ -402,6 +429,18 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
         (!add_title_button(scene, UiSemantic::private_add, title) ||
          !add_title_button(scene, UiSemantic::private_call, title)))
         return false;
+    // A one-to-one DM's identity (avatar and name) is one button over the label's start; its width follows the name
+    // (update_header_controls).
+    if (view == UiShellView::private_channels && metrics.private_identity_width > 0.f) {
+        UiLayoutStyle identity = ui_layout_style();
+        identity.width = ui_layout_fixed(metrics.private_identity_width);
+        identity.height = ui_layout_fixed(32.f);
+        identity.vertical_alignment = UiLayoutAlignment::center;
+        identity.horizontal_alignment = UiLayoutAlignment::start;
+        identity.flags |= static_cast<u16>(ui_layout_node_clip_children);
+        if (!add_node(scene, UiSemantic::private_identity, title, identity))
+            return false;
+    }
     if ((variant & 64u) && !add_title_button(scene, UiSemantic::inbox_toggle, title))
         return false;
     UiLayoutStyle message_style = ui_layout_style();
@@ -484,6 +523,15 @@ bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShel
     update_header_controls(scene, metrics, width, variant);
     if (!ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok())
         return false;
+    // The composer's typing strip draws over the list's bottom space: the list reaches down by the overlap.
+    if (variant & 4u) {
+        if (UiLayoutNode* list = ui_widget_manager_layout_node(&scene->widgets,
+                                                               scene->semantics[static_cast<u32>(UiSemantic::message_view)])) {
+            list->rectangle.bottom += metrics.composer_overlap;
+            list->content_rectangle.bottom += metrics.composer_overlap;
+            list->clip_rectangle.bottom += metrics.composer_overlap;
+        }
+    }
     ++scene->layout_passes;
     scene->count = scene->widgets.count;
     if (!same_structure)

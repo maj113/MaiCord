@@ -12,8 +12,10 @@
 namespace maicord {
 struct UiBadgeWidget;
 struct ChatStateStore;
+struct VoiceStateStore;
 struct UiScrollBinding;
 struct UserStore;
+struct GameStore;
 enum class UiPresence : u8;
 // User profile surfaces: the click popout (compact card), the full profile
 // modal (profile card and tab panel) and the profile editor's preview.
@@ -72,7 +74,27 @@ enum class ProfileAction : u16 {
     badge,
     // A bot's popular command chip (source: its index in commands): the host
     // puts the command in the composer.
-    command
+    command,
+    // The full profile's Board tab (and the popout's Game Collection row).
+    widgets,
+    // A Board widget's "Show more" / "Show less" (source: its widget index).
+    widget_more,
+    // A Board game's cover or name (target: the game's application ID): its game profile.
+    game,
+    // The signed-in user's empty Activity tab: Settings at Registered Games.
+    add_game,
+    // The popout message field's emoji button: the host opens the emoji picker for the field.
+    emoji,
+    // A Spotify card (source: the activity's index): Play on Spotify and the
+    // track title open the track's page (target 0), the album art the album's
+    // (target 1, from the activity's metadata).
+    activity_spotify,
+    // The voice card: its channel and Join Voice join the call (or open it
+    // when already there); "in <server>" opens the server (target: its ID).
+    voice_join,
+    voice_guild,
+    // A connected account's name and its arrow (source: its index in connections): opens the account's page.
+    connection
 };
 enum class ProfilePhase : u8 {
     loading,
@@ -126,7 +148,19 @@ enum class ProfileMediaKind : u8 {
     activity_card,
     activity_action,
     // The current server's icon beside its Member Since date.
-    member_guild
+    member_guild,
+    // A Board game's cover, or its icon without one (target: the game's ID).
+    widget_game,
+    // The Game Collection row's game icon (target: the game's ID); one with style 1 is dimmed under "+N".
+    collection_game,
+    // A voice card member's avatar (target: the user's ID).
+    voice_avatar,
+    // The editor preview's member row: the drafted nameplate's still behind it.
+    nameplate,
+    // A connected account's logo (source: its index in connections), and the small game picture beside one of
+    // its statistics (source: a ProfileConnectionChipIcon).
+    connection_logo,
+    connection_chip
 };
 // How a part paints (its widget kind stays text, button or container).
 enum class ProfileLook : u8 {
@@ -156,7 +190,17 @@ enum class ProfileLook : u8 {
     // Connection platform box.
     box,
     // A 1 DIP divider.
-    rule
+    rule,
+    // The badge list's box: lighter while one of its badges is hovered.
+    badge_box,
+    // The Game Collection's 24 DIP plate behind a game icon, and the veil
+    // behind its "+N".
+    game_plate,
+    count_veil,
+    // A circle behind a voice card member's avatar and its "+N".
+    avatar_plate,
+    // The white tile behind a connected account's logo.
+    connection_tile
 };
 // Text colour roles (resolved per profile theme in paint/text).
 enum class ProfileTone : u8 {
@@ -165,6 +209,8 @@ enum class ProfileTone : u8 {
     subtle,
     muted,
     positive,
+    // Errors (a note that could not be saved).
+    danger,
     link,
     on_accent,
     custom
@@ -208,6 +254,10 @@ struct ProfileTextHit {
     UiWidgetHandle owner;
     UiRect layout, ink;
 };
+// The full profile's tabs in the official order; a tab shows only where it
+// applies (Board with game widgets; the mutual lists not for oneself, a bot
+// only Mutual Servers).
+enum class ProfileTab : u8 { widgets, activity, friends, servers };
 struct ProfileScene {
     // Only plain inline action labels use ink hits; cards retain their full targets.
     mutable ProfileTextHit text_hits[16];
@@ -216,7 +266,8 @@ struct ProfileScene {
     Arena storage;
     ProfilePart* parts;
     u32 part_count;
-    UiWidgetHandle root, panel, body, message_field, bio_widget, name_widget;
+    // row_name_widget: the editor preview's member row name, drawn in the name style like name_widget.
+    UiWidgetHandle root, panel, body, message_field, bio_widget, name_widget, row_name_widget;
     ProfileString<kProfileBioMaximumUtf8Bytes> bio_display;
     // Every bio byte carries the text-sm size (gaps between styles included).
     TextStyleSpan bio_styles[260];
@@ -256,8 +307,9 @@ struct ProfileScene {
     u16 http_status;
     u8 tab;
     // Host facts: the relationship (0 none, 1 friend, 2 incoming, 3 outgoing,
-    // 4 blocked) and where the popout opens.
+    // 4 blocked), since when (Unix ms, 0 unknown) and where the popout opens.
     u8 relation;
+    u64 friends_since_ms;
     ProfilePlacement placement;
     bool active, roles_busy, roles_expanded, can_manage_roles;
     // The panel's Commands section: the bot's popular commands the host
@@ -271,9 +323,23 @@ struct ProfileScene {
     u64 opened_ms;
     float intro_offset;
     // Theme resolved at layout (Nitro theme colours, its dark/light choice).
-    bool themed, theme_dark;
+    // avatar_themed: a Nitro card without theme colours of its own, themed from
+    // its avatar (avatar_theme once read, else kProfileAvatarThemeFallback).
+    bool themed, theme_dark, avatar_themed;
     u32 theme_primary, theme_secondary, banner_color;
     bool has_banner_color;
+    // The avatar's colours (image_palette of a still picture of it), which the
+    // host reads once that picture is resident: avatar_color, the banner's fill
+    // when the profile names no colour (!has_banner_color), from the saved
+    // avatar as drawn; avatar_theme, an avatar-themed card's two colours, from
+    // the avatar at 80 DIPs (in the editor's preview a picked, unsaved avatar's
+    // crop, as the official client themes it). Each key names the picture its
+    // colours came from; avatar_theme_crop, the picked crop's signature (0 for
+    // the saved avatar).
+    MediaAssetKey avatar_color_key, avatar_theme_key;
+    u64 avatar_theme_crop;
+    u32 avatar_color, avatar_theme[2];
+    bool has_avatar_color, has_avatar_theme;
     // Set before profile_scene_open. Preview cards draw pending images in
     // place of the saved avatar/banner and publish their laid-out height.
     ProfilePresentation presentation;
@@ -290,12 +356,20 @@ struct ProfileScene {
     // Applications a laid-out card would show the icon of, not in applications.
     u64 missing_icons[kUserActivityMaximum];
     u32 missing_icon_count;
-    // Activity artwork corner radius, from the theme the card was last painted with.
-    mutable float activity_art_radius;
+    // Activity artwork and Game Collection icon corner radii, from the theme the card was last painted with.
+    mutable float activity_art_radius, game_icon_radius;
+    // The voice card: every voice state (null: no card), the revision laid
+    // out, and the channel this account's call is in (Join Voice reads Open
+    // Voice there). Host-owned.
+    const VoiceStateStore* voice_states;
+    u32 voice_revision;
+    u64 connected_channel;
     // Note about another user. The host owns the text (borrowed until the next
     // layout); while note_editing the edit view belongs to the note field.
     Utf8View note_text;
-    bool note_visible, note_loading, note_editing;
+    // note_failed: the last save was refused (an error shows under the note).
+    // hide_personal: Streamer Mode hides the bio, connections and the note.
+    bool note_visible, note_loading, note_editing, note_failed, hide_personal;
     UiWidgetHandle note_field;
     // The full profile opened at its Note: the next layout scrolls the card
     // body to note_offset (the note section's top in body content).
@@ -303,6 +377,14 @@ struct ProfileScene {
     float note_offset;
     // The modal's corners are rounded only when it does not fill the window.
     bool modal_rounded;
+    // The Board's games (host-owned cache; null draws them as placeholders)
+    // and its widgets showing all their games (bit: widget index).
+    const GameStore* games;
+    u8 widgets_expanded;
+    // The full profile's requested tab; one not shown selects the first
+    // (layout then keeps that, once the profile has loaded). tab is the
+    // shown tab's index, set by layout.
+    ProfileTab section;
 };
 bool profile_scene_open(ProfileScene* scene, const UserProfile* profile, const ChatStateStore* state,
                         const UserStore* users, u64 self, const UiRect& anchor, const UiRect& viewport) noexcept;
@@ -317,6 +399,9 @@ UiScrollBinding profile_scene_scroll_binding(ProfileScene*, bool secondary = fal
 // Absolute-position adapter; wheel and key input must use the shared scroll host.
 bool profile_scene_scroll(ProfileScene* scene, float delta, bool secondary = false) noexcept;
 void profile_scene_release(ProfileScene* scene) noexcept;
+// The banner's fill: the profile's colour (ProfileDisplay::color), else its
+// avatar's once read, else the theme's colourless banner.
+Color profile_scene_banner_color(const ProfileScene& scene, const Theme& theme) noexcept;
 bool profile_scene_paint(const ProfileScene& scene, const Theme& theme, PaintStream* paint) noexcept;
 // Activity card glyphs: timer chips and the artwork placeholder.
 enum class ProfileActivityGlyph : u8;
@@ -337,6 +422,8 @@ bool profile_scene_foreground(const ProfileScene& scene, const Theme& theme, Pai
                               const UiEditGeometry* edit = nullptr, u32 dpi = 96,
                               u32* controls_first_batch = nullptr) noexcept;
 ProfileAction profile_scene_action(const ProfileScene& scene, UiWidgetHandle widget) noexcept;
+// Whether (x, y) is over the text of the card's edit field: inside it, but not on its emoji button.
+bool profile_scene_over_edit(const ProfileScene& scene, float x, float y) noexcept;
 // The part behind a widget, or null.
 const ProfilePart* profile_scene_part(const ProfileScene& scene, UiWidgetHandle widget) noexcept;
 // The chip a part draws (a tag or plugin chip), or null.

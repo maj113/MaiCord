@@ -16,8 +16,8 @@ namespace maicord::app_detail {
 namespace {
 
 void choose(SettingsLayer*, u32 action) noexcept {
-    if (owner && action)
-        select_guild(action - 1);
+    if (owner)
+        choose_option(action);
     repaint();
 }
 bool edited(SettingsLayer*, u64 control) noexcept {
@@ -567,7 +567,7 @@ bool application_profile_editor_response(const RestClientResponse& response, Utf
         p.collectibles_failed = count == ~0u;
         p.collectibles_loaded = true;
         p.owned_count = count == ~0u ? 0 : count;
-        if (p.dialog_kind == Dialog::decoration || p.dialog_kind == Dialog::effect)
+        if (p.dialog_kind != Dialog::none && p.dialog_kind != Dialog::crop)
             build_items(p.dialog_kind);
         break;
     }

@@ -1,4 +1,5 @@
 #include "../account/profile.hpp"
+#include "../chat/private_header.hpp"
 #include "maicord/core/memory.hpp"
 #include "../account/account_presentation.hpp"
 #include "overlay_input.hpp"
@@ -34,17 +35,20 @@ struct ThreadHeaderKeyboardCapture {
     bool armed;
 };
 ThreadHeaderKeyboardCapture thread_header_keyboard;
-// The Friends / server-menu button that leads the channel list.
+// The Friends / server-menu button that leads the channel list, and Home's
+// "Find or start a conversation" bar above Friends.
 bool channel_header_button(const UiWidget* widget) noexcept {
     return widget && (widget->id == static_cast<u32>(UiSemantic::friends_button) + 1u ||
-                      widget->id == static_cast<u32>(UiSemantic::guild_menu) + 1u);
+                      widget->id == static_cast<u32>(UiSemantic::guild_menu) + 1u ||
+                      widget->id == static_cast<u32>(UiSemantic::private_search) + 1u);
 }
 u32 current_pane() noexcept {
     const auto* owner = g_app.context_focus;
     if (owner == &g_app.shell_scene.widgets) {
         if (ui_thread_header_widget_target(g_app.thread_header, owner->focused).thread_id) return thread_header;
         const auto* widget = ui_widget_manager_resolve(*owner, owner->focused);
-        if (widget && widget->id == static_cast<u32>(UiSemantic::threads_toggle) + 1u)
+        if (widget && (widget->id == static_cast<u32>(UiSemantic::threads_toggle) + 1u ||
+                       widget->id == static_cast<u32>(UiSemantic::private_identity) + 1u))
             return thread_header;
         return channel_header_button(widget) ? channels : guilds;
     }
@@ -82,6 +86,14 @@ UiWidgetManager* focus_navigation(bool guild, UiListMove move, bool entering) no
         const auto button = friends.generation ? friends : header;
         const auto* owner = ui_widget_manager_resolve(g_app.shell_scene.widgets, g_app.shell_scene.widgets.focused);
         const bool on_button = g_app.context_focus == &g_app.shell_scene.widgets && channel_header_button(owner);
+        // Home: the search bar sits above Friends; Up from Friends reaches it, Down returns.
+        const auto search = g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::private_search)];
+        const bool on_search = on_button && owner->id == static_cast<u32>(UiSemantic::private_search) + 1u;
+        if (search.generation && friends.generation && !entering &&
+            ((on_search && move != UiListMove::next) || (on_button && !on_search && move == UiListMove::previous)))
+            return ui_widget_manager_focus(&g_app.shell_scene.widgets, search) ? &g_app.shell_scene.widgets : nullptr;
+        if (on_search && move == UiListMove::next)
+            return ui_widget_manager_focus(&g_app.shell_scene.widgets, friends) ? &g_app.shell_scene.widgets : nullptr;
         const auto first = navigation_focus_target(view, false, focused, UiListMove::first);
         if (button.generation && ((friends.generation && (entering || move == UiListMove::first)) ||
             (move == UiListMove::previous && (on_button || focused == first.id))))
@@ -108,17 +120,21 @@ UiWidgetManager* focus_pane(u32 pane, UiListMove move, bool entering) noexcept {
     case channels: return focus_navigation(false, move, entering);
     case thread_header: {
         auto& header = g_app.thread_header;
+        const auto identity = g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::private_identity)];
         const auto browser = g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::threads_toggle)];
-        if (!browser.generation && (!header.active || header.manager != &g_app.shell_scene.widgets)) return nullptr;
-        const UiWidgetHandle candidates[]{browser, header.widgets.primary, header.widgets.overflow, header.widgets.cancel};
+        if (!identity.generation && !browser.generation &&
+            (!header.active || header.manager != &g_app.shell_scene.widgets)) return nullptr;
+        // The DM header's identity leads the header's controls, then the threads button and the thread header's.
+        const UiWidgetHandle candidates[]{identity, browser, header.widgets.primary, header.widgets.overflow,
+                                          header.widgets.cancel};
         u32 current = kUiListNoSelection;
-        for (u32 i = 0; !entering && i < 4; ++i)
+        for (u32 i = 0; !entering && i < 5; ++i)
             if (ui_widget_handle_equal(candidates[i], g_app.shell_scene.widgets.focused)) current = i;
         struct Eligible { const UiThreadHeader* header; const UiWidgetHandle* candidates; } eligible{&header, candidates};
-        const u32 index = ui_list_move(4, current, move,
+        const u32 index = ui_list_move(5, current, move,
             [](void* opaque, u32 i) noexcept {
                 const auto& source = *static_cast<Eligible*>(opaque);
-                if (i == 0)
+                if (i <= 1)
                     return ui_widget_manager_resolve(g_app.shell_scene.widgets, source.candidates[i]) != nullptr;
                 return ui_thread_header_widget_target(*source.header, source.candidates[i]).thread_id != 0;
             }, &eligible);
@@ -256,6 +272,8 @@ bool handle_content_focus_key(u32 key) noexcept {
         application_control_down() || application_alt_down()) return false;
     const bool reverse = application_shift_down();
     const u32 pane = current_pane();
+    if (pane == thread_header && (key == key::enter || key == key::space) && application_private_header_focused())
+        return application_private_header_activate() || true;
     if (pane == thread_header && (key == key::enter || key == key::space))
         return handle_thread_header_key(key, true, false);
     if (key == key::space) {

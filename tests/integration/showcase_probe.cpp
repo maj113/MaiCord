@@ -749,10 +749,9 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
     metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_pins | ui_shell_layout_threads);
     const bool bar = f.command.command_bar_name.bytes != 0;
     metrics.composer_height =
-        message_composer_scene_preferred_height(f.composer, ui_scene_composer_width(metrics, width), false,
-                                                typing.bytes != 0) +
-        (bar ? message_composer_scene_chrome_height(false, typing.bytes != 0, 0, nullptr, true) -
-                   message_composer_scene_chrome_height(false, typing.bytes != 0, 0, nullptr, false)
+        message_composer_scene_preferred_height(f.composer, ui_scene_composer_width(metrics, width), false) +
+        (bar ? message_composer_scene_chrome_height(false, 0, nullptr, true) -
+                   message_composer_scene_chrome_height(false, 0, nullptr, false)
              : 0.f);
     metrics.revision += 10'000u + ui_extent_units(metrics.composer_height) + metrics.flags * 7u;
     message_scene_set_display(&f.messages, {0, false, MessageSceneClock::meridiem, g_reply_timestamps, true});
@@ -791,14 +790,10 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
                                                title->rectangle, &header),
                "search_update_failed"))
         return false;
-    // Built-in extras: the typing names take their members' role colours; reply previews show their time in
-    // the extras capture only.
+    // Built-in extras: reply previews show their time in the extras capture only; the typing names are bold.
     f.composer_scene.typing_name_count = 0;
-    for (u32 i = 0; typed.ok() && typed.users <= 3 && i < typed.users; ++i) {
-        const GuildMemberRecord* member = guild_member_store_find(f.members, kGuild, typing_names[i].user_id);
-        f.composer_scene.typing_names[f.composer_scene.typing_name_count++] = {
-            typing_names[i].offset, typing_names[i].bytes, member ? member->role_color & 0xFFFFFFu : 0u};
-    }
+    for (u32 i = 0; typed.ok() && typed.users <= 3 && i < typed.users; ++i)
+        f.composer_scene.typing_names[f.composer_scene.typing_name_count++] = typing_names[i];
     if (!place_gifs(f, r))
         return false;
     r.search_scene = &f.search;
@@ -981,7 +976,7 @@ bool open_profile(Fixture& f, D3D11Renderer& r, bool modal) noexcept {
     scene.presence = UiPresence::online;
     if (modal) {
         scene.presentation = ProfilePresentation::modal;
-        scene.tab = 0;
+        scene.section = ProfileTab::activity;
         if (!profile_scene_layout(&scene, viewport, true))
             return check(false, "profile_layout_failed");
     }

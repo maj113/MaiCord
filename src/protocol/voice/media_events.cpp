@@ -22,6 +22,7 @@ struct Read {
     u32 seen, depth, offset, keys;
     GatewayEventDecodeError error;
     u8 key[32];
+    u64 stream_quality; // Of the stream ready.video_ssrc came from.
 };
 bool reject(Read& read, GatewayEventDecodeError error, u32 offset) noexcept {
     read.error = error;
@@ -43,8 +44,31 @@ bool modes(void* opaque, u32, JsonValue value) noexcept {
     read.ready.recognized_modes |= voice_transport_mode(name);
     return true;
 }
-bool objects(void*, u32, JsonValue value) noexcept {
-    return value.kind == JsonValueKind::object;
+// Ready streams: the assigned send SSRC of each Identify stream; we keep the
+// highest quality's (the full-resolution layer).
+struct ReadyStream {
+    u64 ssrc, rtx, quality;
+};
+bool stream_field(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& stream = *static_cast<ReadyStream*>(opaque);
+    const u32 index = protocol_detail::member_index<"ssrc", "rtx_ssrc", "quality">(name);
+    u64* target = index == 0 ? &stream.ssrc : index == 1 ? &stream.rtx : index == 2 ? &stream.quality : nullptr;
+    if (!target || value.kind == JsonValueKind::null_value)
+        return true;
+    return json_value_to_u64(value, target) && *target <= ~u32{0};
+}
+bool streams(void* opaque, u32, JsonValue value) noexcept {
+    auto& read = *static_cast<Read*>(opaque);
+    ReadyStream stream{};
+    if (value.kind != JsonValueKind::object ||
+        !json_visit_indexed_object(read.document, value, read.depth, stream_field, &stream).ok())
+        return false;
+    if (stream.ssrc && (!read.ready.video_ssrc || stream.quality > read.stream_quality)) {
+        read.ready.video_ssrc = static_cast<u32>(stream.ssrc);
+        read.ready.video_rtx_ssrc = stream.rtx ? static_cast<u32>(stream.rtx) : static_cast<u32>(stream.ssrc + 1);
+        read.stream_quality = stream.quality;
+    }
+    return true;
 }
 bool key_byte(void* opaque, u32 index, JsonValue value) noexcept {
     auto& read = *static_cast<Read*>(opaque);
@@ -88,7 +112,7 @@ bool ready_field(void* opaque, JsonString name, JsonValue value) noexcept {
         valid = array(read, value, modes, true);
         break;
     case 4:
-        valid = array(read, value, objects);
+        valid = array(read, value, streams);
         break;
     case 5:
         valid = array(read, value, strings);

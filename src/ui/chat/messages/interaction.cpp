@@ -73,7 +73,8 @@ bool message_interaction_layout(const MessageScene& scene, const MessageTextComm
                           text,
                           flags ? ConstSlice<TextStyleSpan>{&span, 1} : ConstSlice<TextStyleSpan>{},
                           {maximum(1.f, ui_rect_width(command.rectangle)), 64},
-                          true},
+                          true,
+                          ui_text_face_chat(UiTextFace::normal)},
                          &value)
                          .ok();
         return ok ? value.size.width + 2.0f : text.bytes * 8.0f;
@@ -246,7 +247,8 @@ MessageInteractionHit message_reply_author_hit_test(const MessageScene& scene,
                           name,
                           {&span, 1},
                           {maximum(1.f, ui_rect_width(command.rectangle)), 64},
-                          true},
+                          true,
+                          ui_text_face_chat(UiTextFace::normal)},
                          &value)
                          .ok();
         const UiRect avatar = reply_avatar(scene, command.rectangle);

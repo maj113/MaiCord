@@ -1,4 +1,5 @@
 #include "maicord/core/memory.hpp"
+#include "maicord/model/chat/game_store.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 #include "../../account/account_presentation.hpp"
@@ -168,6 +169,12 @@ bool application_composer_prepare_send(bool* handled) noexcept {
     if (!scratch.data)
         return true;
     char* output = *scratch.data;
+    // An unpicked game search goes as "@query", as the official client sends it.
+    u32 flattened = 0;
+    if (game_tokens_rewrite(message_composer_text(composer), true, {output, kMessageComposerMaximumBytes}, &flattened) &&
+        message_composer_replace_range(&composer, 0, composer.bytes, {output, flattened}) ==
+            MessageComposerResult::invalid_input)
+        return true;
     const ComposerTextCommand command =
         composer_text_command_parse(message_composer_text(composer), {output, kMessageComposerMaximumBytes});
     switch (command.kind) {
@@ -302,7 +309,7 @@ void application_message_highlight_begin(u64 message_id) noexcept {
     feedback.highlight_message_id = message_id;
     feedback.highlight_started_ms = message_id ? clock_monotonic_milliseconds() : 0;
     // Reduced motion skips the fades; the hold still marks the target.
-    if (message_id && g_app.preferences.reduced_motion)
+    if (message_id && application_reduced_motion())
         feedback.highlight_started_ms -= kMessageJumpHighlightFadeMs;
     if (highlight_tick(clock_monotonic_milliseconds()) && g_app.window)
         application_request_frame();

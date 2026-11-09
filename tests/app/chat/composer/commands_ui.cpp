@@ -124,13 +124,15 @@ bool application_composer_fill_command(Utf8View name) noexcept {
 UiMediaPickerKind searched_kind;
 char searched[64];
 u32 searched_bytes, searches;
-bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect) noexcept {
+bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect, bool) noexcept {
     searched_kind = kind;
     searched_bytes = utf8_copy_truncated(searched, query);
     ++searches;
     return true;
 }
 void application_media_picker_inline_close() noexcept {}
+// /tts stays out of these channels' built-ins (its playback switch reads off).
+bool application_user_settings_tts_command() noexcept { return false; }
 // The inline results' Enter contract as the commands see it (the real picker has
 // its own runtime test): ready results send the selected one and end the
 // command, loading ones are waited for, anything else is unhandled.

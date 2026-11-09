@@ -12,6 +12,8 @@
 #include "guild/card.hpp"
 #include "chat/search/search.hpp"
 #include "account/user_actions.hpp"
+#include "voice/voice.hpp"
+#include "shell/content_input.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/time.hpp"
@@ -26,6 +28,10 @@
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
+#include "maicord/ui/chat/names_card.hpp"
+#include "chat/private_header.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
+#include "maicord/ui/accessibility/accessibility.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/chat/messages/typing_indicator.hpp"
@@ -39,7 +45,10 @@ using namespace app_detail;
 u32 failures, reads, full_opens, menus;
 // Shell text rebuilds and the panel text runs the last one emitted.
 u32 text_builds, text_runs;
-u8 expanded_tab;
+ProfileTab expanded_tab;
+u32 view_full_opens;
+u64 view_full_user;
+UiRect view_full_anchor;
 // The command index the Commands section reads, and the last insertion.
 u32 command_revision = 1;
 u64 inserted_application, inserted_command, asked_channel;
@@ -348,8 +357,13 @@ bool fixture_setup() noexcept {
 bool layout_shell() noexcept {
     const auto in = application_side_panel_input();
     g_app.shell_scene.side_panel_profile = in.home && in.channel_type == 1;
-    return ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::private_channels, shell_metrics(in, 1280),
-                                        1280, 800);
+    auto metrics = shell_metrics(in, 1280);
+    // The one-to-one DM header's identity button, as the shell builds it (account_presentation).
+    auto& ui = *g_app.account_ui;
+    const UiPrivateRowSource source{&ui.chat_state, &ui.user_store, g_relations, nullptr, &ui.text_measure_cache};
+    metrics.private_identity_width = ui_private_header_identity_width(source, 9998);
+    metrics.revision += 1 + static_cast<u32>(metrics.private_identity_width);
+    return ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::private_channels, metrics, 1280, 800);
 }
 
 void header_cases() noexcept {
@@ -473,10 +487,10 @@ void panel_cases() noexcept {
     check(!g_app.dm_profile_clock_ms,
           "DM panel: a due clock without a timed activity is consumed outside a frame");
     u32 opens = full_opens;
-    check(click(ProfileAction::servers) && full_opens == opens + 1 && expanded_tab == 2,
+    check(click(ProfileAction::servers) && full_opens == opens + 1 && expanded_tab == ProfileTab::servers,
           "DM panel: the mutuals row opens the full profile on Mutual Servers");
     opens = full_opens;
-    check(click(ProfileAction::expand) && full_opens == opens + 1 && expanded_tab == 0,
+    check(click(ProfileAction::expand) && full_opens == opens + 1 && expanded_tab == ProfileTab::widgets,
           "DM panel: View Full Profile opens the full profile");
     // Leaving for a server and coming back within the minute reuses the cache.
     state.home_selected = false;
@@ -571,8 +585,8 @@ void bot_cases() noexcept {
               !find_text(*s, utf8_literal("Member Since")) && find_text(*s, utf8_literal("1 Mutual Server")) &&
               find_part(*s, ProfileAction::servers),
           "DM bot: name#1234, Created On and the mutual servers row");
-    check(click(ProfileAction::servers) && expanded_tab == 1,
-          "DM bot: its servers open the full profile on Mutual Servers (Activity, Mutual Servers)");
+    check(click(ProfileAction::servers) && expanded_tab == ProfileTab::servers,
+          "DM bot: its servers open the full profile on Mutual Servers");
     check(s && utf8_equal(s->bio_display.view(), utf8_literal(" NOW UPDATED FOR SOME MODS! ")) &&
               s->bio_style_count && (s->bio_styles[0].flags & text_style_bold) && (s->bio_styles[0].flags & text_style_italic),
           "DM bot: *** around spaced text renders bold italic");
@@ -904,6 +918,278 @@ void failure_cases() noexcept {
     chat_state_store_select_channel(&g_app.account_ui->chat_state, 9998);
 }
 
+void set_tag(u64 user, bool enabled, bool system) noexcept {
+    UserAppearance a{};
+    a.user_id = user;
+    a.fields = appearance_guild_tag | appearance_nameplate | appearance_system;
+    a.primary_enabled = enabled;
+    a.primary_guild_id = enabled ? 777 : 0;
+    a.primary_tag.bytes = enabled ? 4 : 0;
+    copy_bytes(a.primary_tag.data, "WUBE", 4);
+    a.primary_badge.bytes = enabled ? 6 : 0;
+    copy_bytes(a.primary_badge.data, "abc123", 6);
+    a.nameplate_sku = enabled ? 555 : 0;
+    a.system = system;
+    user_appearance_upsert(&g_app.account_ui->user_store.appearance, a);
+}
+
+// A one-to-one row's name, its server tag or OFFICIAL chip and the close button never overlap, at any width.
+void row_cases() noexcept {
+    auto& ui = *g_app.account_ui;
+    const UiPrivateRowSource source{&ui.chat_state, &ui.user_store, g_relations, nullptr, &ui.text_measure_cache};
+    set_tag(123, true, false);
+    bool apart = true, inside = true, centred = true, closed = true;
+    for (float width = 60; width <= 320; width += 20) {
+        const UiRect row{0, 0, 60 + width + 40, 42}, content{60, 0, 60 + width, 42};
+        UiPrivateRowChip chip{};
+        const bool made = ui_private_row_chip(source, 9998, {}, content, content.right, false, &chip);
+        const auto& b = chip.badge.rectangle;
+        const auto close = ui_private_row_close_rectangle(row);
+        apart = apart && made && chip.kind == UiPrivateRowChipKind::server_tag && chip.name.left == content.left &&
+                chip.name.right <= b.left && b.left - chip.name.right <= kUiPrivateRowChipGap + .01f;
+        inside = inside && b.left >= content.left && b.right <= content.right + .01f && chip.name.right <= content.right;
+        centred = centred && near((chip.name.top + chip.name.bottom) * .5f, (b.top + b.bottom) * .5f);
+        closed = closed && b.right <= close.left && chip.name.right <= close.left;
+    }
+    check(apart && inside && centred && closed,
+          "DM row: the server tag follows the name 8 DIPs after it, centred on its line and clear of the close button at every width");
+    UiPrivateRowChip chip{};
+    const UiRect content{60, 0, 300, 42};
+    // "Mai" measures 24 DIPs; the line keeps 2 more so the name is never ellipsized by rounding.
+    check(ui_private_row_chip(source, 9998, {}, content, 300, false, &chip) && near(chip.name.right, 60 + 26) &&
+              near(chip.badge.rectangle.left, 60 + 26 + kUiPrivateRowChipGap) &&
+              near(ui_rect_width(chip.badge.rectangle), 66),
+          "DM row: a short name leaves the chip at its natural width right after it");
+    check(ui_private_row_chip(source, 9998, {}, content, 300, true, &chip) &&
+              near(chip.name.bottom - chip.name.top, 20) && near(chip.name.top, 21 - 19),
+          "DM row: a subtitle lifts the name line (and its chip) above the activity line");
+    const auto* record = user_appearance_find(ui.user_store.appearance, 123);
+    ProfileMedia plate{}, still{}, badge{};
+    const UiRect row_rectangle{0, 0, 240, 42};
+    check(record && user_nameplate_media(*record, false, row_rectangle, row_rectangle, &still) &&
+              user_nameplate_media(*record, true, row_rectangle, row_rectangle, &plate) &&
+              utf8_equal({still.url.data, still.url.bytes},
+                         utf8_literal("https://cdn.discordapp.com/media/v1/collectibles-shop/555/static")) &&
+              utf8_equal({plate.url.data, plate.url.bytes},
+                         utf8_literal("https://cdn.discordapp.com/media/v1/collectibles-shop/555/animated")) &&
+              !(still.key.flags & media_asset_flag_animated) && (plate.key.flags & media_asset_flag_animated) &&
+              user_guild_badge_media(*record, row_rectangle, row_rectangle, &badge) &&
+              utf8_equal({badge.url.data, badge.url.bytes},
+                         utf8_literal("https://cdn.discordapp.com/clan-badges/777/abc123.png?size=32")),
+          "DM row: the nameplate and the tag's badge come from the CDN, the nameplate animated only when asked");
+    // The nameplate shows behind a hovered or selected row only, and moves only under the pointer.
+    const auto rest = ui_private_row_plate(false, false, true), selected = ui_private_row_plate(true, false, true),
+               hovered = ui_private_row_plate(false, true, true), still_hover = ui_private_row_plate(false, true, false);
+    check(!rest.shown && !rest.animated && selected.shown && !selected.animated && hovered.shown && hovered.animated &&
+              still_hover.shown && !still_hover.animated,
+          "DM row: the nameplate shows when hovered or selected, never at rest, and animates only under the pointer");
+    set_tag(123, false, false);
+    check(!ui_private_row_chip(source, 9998, {}, content, 300, false, &chip) && chip.kind == UiPrivateRowChipKind::none &&
+              near(chip.name.right, 300),
+          "DM row: without a tag the name keeps the whole line");
+    // A conversation with its context menu open keeps its nameplate, though neither hovered nor selected.
+    static PopupScene popup;
+    popup.active = true;
+    popup.kind = PopupKind::context_menu;
+    popup.owner_id = 9998;
+    UiPrivateRowSource with_menu = source;
+    with_menu.menu = &popup;
+    const auto menu_plate = ui_private_row_plate(false, false, true, ui_private_row_menu_channel(with_menu) == 9998);
+    const auto other_plate = ui_private_row_plate(false, false, true, ui_private_row_menu_channel(with_menu) == 9996);
+    popup.kind = PopupKind::popover;
+    check(menu_plate.shown && !menu_plate.animated && !other_plate.shown &&
+              ui_private_row_menu_channel(with_menu) == 0 && ui_private_row_menu_channel(source) == 0,
+          "DM row: the nameplate stays while the row's context menu is open (still), and only for that row");
+    popup.active = false;
+    // Discord's system account: OFFICIAL with a check, and "Official Discord Message" under the name.
+    set_tag(124, false, true);
+    char storage[64];
+    check(ui_private_row_chip(source, 9996, {}, content, 300, true, &chip) && chip.kind == UiPrivateRowChipKind::official &&
+              chip.badge.accent && chip.badge.compact && chip.badge.leading &&
+              utf8_equal(chip.badge.label, utf8_literal("OFFICIAL")) &&
+              utf8_equal(ui_private_row_subtitle(source, 9996, {storage, sizeof(storage)}),
+                         utf8_literal("Official Discord Message")),
+          "DM row: the system account shows OFFICIAL and its official-message line");
+    set_tag(124, false, false);
+}
+
+// The header's identity (avatar and name), its click and the names popout.
+void header_identity_cases() noexcept {
+    auto& ui = *g_app.account_ui;
+    const UiPrivateRowSource source{&ui.chat_state, &ui.user_store, g_relations, nullptr, &ui.text_measure_cache};
+    UiPrivateHeaderIdentity identity{};
+    const bool laid_out = layout_shell();
+    const auto* label = ui_scene_node(g_app.shell_scene, UiSemantic::title_label);
+    const bool found = laid_out && ui_private_header_identity(g_app.shell_scene, source, 9998, &identity);
+    check(found && label && identity.user == 123 && ui_rect_equal(identity.avatar, ui_private_header_avatar(g_app.shell_scene)) &&
+              near(identity.name.left, label->rectangle.left + kUiPrivateHeaderAvatar + 8) &&
+              near(ui_rect_width(identity.name), 24),
+          "DM header: the identity is the avatar and the name after it");
+    UiPrivateHeaderIdentity group{};
+    check(!ui_private_header_identity(g_app.shell_scene, source, 9997, &group),
+          "DM header: a group has no identity to open");
+    const auto event = [&](EventType type, float x, float y) noexcept {
+        WindowEvent e{};
+        e.type = type;
+        e.button = static_cast<u8>(PointerButton::left);
+        e.pointer.x = x;
+        e.pointer.y = y;
+        return e;
+    };
+    const float ay = (identity.avatar.top + identity.avatar.bottom) * .5f;
+    const float ax = (identity.avatar.left + identity.avatar.right) * .5f;
+    const float nx = (identity.name.left + identity.name.right) * .5f;
+    const u32 before = view_full_opens;
+    check(application_private_header_window_event(event(EventType::cursor_query, ax, ay)) &&
+              view_full_opens == before,
+          "DM header: the pointer over the avatar is a button");
+    check(application_private_header_window_event(event(EventType::pointer_down, ax, ay)) &&
+              view_full_opens == before + 1 && view_full_user == 123 && ui_rect_equal(view_full_anchor, identity.avatar),
+          "DM header: clicking the avatar opens the user's full profile");
+    check(application_private_header_window_event(event(EventType::pointer_down, nx, ay)) &&
+              view_full_opens == before + 2 && view_full_user == 123,
+          "DM header: clicking the name opens it too");
+    check(!application_private_header_window_event(event(EventType::pointer_down, identity.name.right + 120, ay)) &&
+              !application_private_header_window_event(event(EventType::pointer_down, ax, identity.avatar.bottom + 60)) &&
+              view_full_opens == before + 2,
+          "DM header: clicks beside the identity leave the header alone");
+    // Without another nickname there is no popout to show on hover.
+    check(!application_private_header_window_event(event(EventType::pointer_move, ax, ay)) &&
+              !g_app.renderer.names_card_scene,
+          "DM header: hovering a user with no other nicknames shows no popout");
+    // The same nickname in two servers is one row with both servers' pictures; the pointer on the popout keeps it.
+    static GuildMemberRecord member_records[8];
+    static u32 member_order[8];
+    auto& state = ui.chat_state;
+    const bool shared =
+        guild_member_store_initialize(&ui.guild_member_store, {member_records, 8}, {member_order, 8}) &&
+        chat_state_store_upsert_guild(&state, {10, utf8_literal("Til Server"), GuildMutationKind::create, 3}).ok() &&
+        chat_state_store_upsert_guild(&state, {11, utf8_literal("Wube"), GuildMutationKind::create, 3}).ok() &&
+        guild_member_store_upsert(&ui.guild_member_store, state, 10, 123, utf8_literal("TIL"), {}, false,
+                                  GuildMemberStatus::offline).ok() &&
+        guild_member_store_upsert(&ui.guild_member_store, state, 11, 123, utf8_literal("TIL"), {}, false,
+                                  GuildMemberStatus::offline).ok();
+    application_private_header_window_event(event(EventType::pointer_move, identity.name.right + 200, ay));
+    application_private_header_window_event(event(EventType::pointer_move, ax, ay));
+    const auto* shown = g_app.renderer.names_card_scene;
+    check(shared && shown && shown->active && shown->row_count == 1 && shown->icon_count[0] == 2 &&
+              utf8_equal({shown->username_text, shown->username_bytes}, utf8_literal("mai")) &&
+              utf8_equal({shown->nickname_text[0], shown->nickname_bytes[0]}, utf8_literal("TIL")) &&
+              utf8_equal({shown->initial_text[0], shown->initial_bytes[0]}, utf8_literal("T")) &&
+              near(shown->panel.top, identity.avatar.bottom + kUiNamesCardGap),
+          "DM header: hovering the avatar shows the username with AKA and each other nickname with its servers");
+    const float cx = shown ? shown->panel.left + 30 : 0, cy = shown ? shown->panel.top + 30 : 0;
+    check(shown && application_private_header_window_event(event(EventType::pointer_move, cx, cy)) &&
+              application_private_header_window_event(event(EventType::pointer_down, cx, cy)) &&
+              view_full_opens == before + 2 && g_app.renderer.names_card_scene,
+          "DM header: the popout stays under the pointer and swallows clicks on it");
+    WindowEvent left{};
+    left.type = EventType::pointer_leave;
+    application_private_header_window_event(left);
+    check(g_app.renderer.names_card_scene && application_private_header_next_wake() != 0,
+          "DM header: leaving schedules the popout's close instead of dropping it at once");
+    chat_state_store_select_channel(&state, 9996);
+    application_private_header_pump();
+    chat_state_store_select_channel(&state, 9998);
+    check(!g_app.renderer.names_card_scene && application_private_header_next_wake() == 0,
+          "DM header: switching conversations closes the popout");
+}
+
+// The identity is a focusable header button: Enter and Space open the profile, focus shows the popout, and the
+// screen-reader node names it and offers Invoke and Expand.
+void header_keyboard_cases() noexcept {
+    auto& ui = *g_app.account_ui;
+    const bool laid_out = layout_shell();
+    const auto identity = g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::private_identity)];
+    const auto* node = ui_scene_node(g_app.shell_scene, UiSemantic::private_identity);
+    const auto* label = ui_scene_node(g_app.shell_scene, UiSemantic::title_label);
+    check(laid_out && identity.generation && node && label && near(node->rectangle.left, label->rectangle.left) &&
+              near(ui_rect_width(node->rectangle), kUiPrivateHeaderAvatar + 8 + 24),
+          "DM header: the identity is one button over the avatar and the name");
+    const bool focused = ui_widget_manager_focus(&g_app.shell_scene.widgets, identity);
+    g_app.context_focus = &g_app.shell_scene.widgets;
+    const u32 before = view_full_opens;
+    check(focused && application_private_header_focused() && application_private_header_activate() &&
+              view_full_opens == before + 1 && view_full_user == 123,
+          "DM header: the focused identity opens the full profile");
+    // Focus shows the popout (the nicknames of header_identity_cases are still known) and releases it with a grace.
+    chat_state_store_select_channel(&ui.chat_state, 9998);
+    application_private_header_pump();
+    check(g_app.renderer.names_card_scene && g_app.renderer.names_card_scene->active,
+          "DM header: focusing the identity shows the names popout");
+    g_app.shell_scene.widgets.focused = ui_widget_invalid_handle();
+    application_private_header_pump();
+    check(g_app.renderer.names_card_scene && application_private_header_next_wake() != 0,
+          "DM header: moving focus on releases the popout after the grace");
+    application_private_header_popout(false);
+    UiAccessWidgetInfo info{};
+    application_private_header_access(&info);
+    check(!g_app.renderer.names_card_scene && info.role == UiAccessRole::button && info.item == kPrivateHeaderAccessItem &&
+              (info.actions & (ui_access_action_invoke | ui_access_action_expand)) ==
+                  (ui_access_action_invoke | ui_access_action_expand) &&
+              (info.state & ui_access_collapsed) && utf8_equal(info.name, utf8_literal("Mai, view profile")),
+          "DM header: the screen-reader node is a collapsed button named after the user");
+    application_private_header_popout(true);
+    UiAccessWidgetInfo open{};
+    application_private_header_access(&open);
+    check(g_app.renderer.names_card_scene && (open.state & ui_access_expanded),
+          "DM header: Expand shows the popout for a screen reader");
+    application_private_header_popout(false);
+    g_app.context_focus = nullptr;
+}
+
+void names_card_cases() noexcept {
+    static UiNamesCardScene card;
+    UiNamesCardContent content{};
+    content.username = utf8_literal("biglojze");
+    content.row_count = 2;
+    content.rows[0].nickname = utf8_literal("TIL");
+    content.rows[0].server_count = 1;
+    content.rows[0].icons[0] = {1001, 1, MediaAssetKind::guild_icon, 0};
+    content.rows[1].nickname = utf8_literal("Wube Fan");
+    content.rows[1].server_count = 5;
+    for (u32 i = 0; i < 3; ++i) {
+        content.rows[1].icons[i] = i ? MediaAssetKey{} : MediaAssetKey{1002, 1, MediaAssetKind::guild_icon, 0};
+        content.rows[1].initials[i] = utf8_literal("W");
+    }
+    const UiRect anchor{30, 8, 54, 32}, viewport{0, 0, 800, 600};
+    auto& ui = *g_app.account_ui;
+    check(ui_names_card_show(&card, 123, content, anchor, viewport, 0, true, &ui.text_measure_cache) && card.active &&
+              near(card.panel.top, anchor.bottom + kUiNamesCardGap) && near(card.panel.left, 18) &&
+              ui_rect_width(card.panel) >= kUiNamesCardMinimum + 32 && ui_rect_width(card.panel) <= kUiNamesCardMaximum + 32,
+          "names popout: under the avatar, 12 DIPs left of it, 212 to 312 DIPs wide");
+    const float inner_left = card.panel.left + kUiNamesCardPadding, inner_right = card.panel.right - kUiNamesCardPadding;
+    check(near(card.username.left, inner_left) && card.label.left >= card.username.right + kUiNamesCardGap - .01f &&
+              near(card.divider.left, inner_left) && near(card.divider.right, inner_right) &&
+              near(card.divider.bottom - card.divider.top, 1) &&
+              near(card.divider.top, card.username.bottom + kUiNamesCardGap),
+          "names popout: the username and AKA, then a divider across the content");
+    bool clear = card.icon_count[0] == 1 && card.icon_count[1] == 3 && card.more_bytes[0] == 0 && card.more_bytes[1] == 2 &&
+                 utf8_equal({card.more_text[1], card.more_bytes[1]}, utf8_literal("+2"));
+    for (u32 row = 0; row < 2; ++row) {
+        const u32 first = row * kUiNamesCardIcons;
+        clear = clear && card.nicknames[row].right + kUiNamesCardNicknameGap <= card.icons[first].left + .01f &&
+                card.icons[first + card.icon_count[row] - 1].right <= inner_right + .01f &&
+                card.nicknames[row].top >= card.divider.bottom;
+        for (u32 i = 1; i < card.icon_count[row]; ++i)
+            clear = clear && near(card.icons[first + i].left, card.icons[first + i - 1].right + kUiNamesCardIconGap);
+    }
+    clear = clear && card.more[1].left >= card.icons[kUiNamesCardIcons + 2].right && card.more[1].right <= inner_right + .01f &&
+            card.nicknames[1].top >= card.nicknames[0].bottom + kUiNamesCardRowGap - .01f;
+    check(clear, "names popout: nicknames, up to three pictures and +N stay apart and inside the card");
+    UiNamesCardMedia media{};
+    check(ui_names_card_media(card, 0, &media) && media.key.id == 1001 &&
+              !ui_names_card_media(card, kUiNamesCardIcons + 1, &media) &&
+              ui_names_card_media(card, kUiNamesCardIcons, &media) && media.key.id == 1002,
+          "names popout: a server picture is drawn where it has one; a server without is a disc with its initial");
+    const UiRect low{30, 560, 54, 584};
+    check(ui_names_card_show(&card, 123, content, low, viewport, 0, true, &ui.text_measure_cache) &&
+              card.panel.bottom <= low.top && ui_names_card_contains(card, card.panel.left + 20, card.panel.top + 20),
+          "names popout: opens above the avatar when the window ends below it");
+    ui_names_card_close(&card);
+    check(!card.active && !ui_names_card_contains(card, 40, 40), "names popout: closing hides it");
+}
+
 void run() noexcept {
     side_panel_cases();
     layout_cases();
@@ -915,6 +1201,10 @@ void run() noexcept {
         return;
     }
     header_cases();
+    row_cases();
+    header_identity_cases();
+    header_keyboard_cases();
+    names_card_cases();
     panel_cases();
     bot_cases();
     geometry_cases();
@@ -943,6 +1233,13 @@ bool application_friends_user_action(u64, ApplicationFriendsUserAction) noexcept
 bool application_friends_active() noexcept {
     return false;
 }
+const GameStore* application_games() noexcept {
+    return nullptr;
+}
+void game_lookup_want(u64) noexcept {}
+u32 game_lookup_revision() noexcept {
+    return 0;
+}
 bool application_search_active() noexcept {
     return false;
 }
@@ -950,13 +1247,23 @@ bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     ++full_opens;
     return true;
 }
-bool application_profile_expand(u64, u8 tab) noexcept {
+bool application_profile_expand(u64, ProfileTab tab) noexcept {
     expanded_tab = tab;
     return true;
 }
+bool application_profile_view_full(u64 user, const UiRect& anchor) noexcept {
+    ++view_full_opens;
+    view_full_user = user;
+    view_full_anchor = anchor;
+    return true;
+}
+bool application_settings_active() noexcept {
+    return false;
+}
 const UiPrivateRowSource* application_private_channel_rows() noexcept {
     static UiPrivateRowSource source{};
-    source = {&g_app.account_ui->chat_state, &g_app.account_ui->user_store, g_relations, nullptr, nullptr};
+    source = {&g_app.account_ui->chat_state, &g_app.account_ui->user_store, g_relations, nullptr,
+             &g_app.account_ui->text_measure_cache};
     return &source;
 }
 // The bot's loaded root commands: its third popular one is NSFW, its fourth
@@ -996,6 +1303,15 @@ bool application_open_content_url(const Utf8View&) noexcept {
     return true;
 }
 bool application_link_open(Utf8View, bool) noexcept {
+    return true;
+}
+const GatewayClientVoiceSnapshot* application_voice_call() noexcept {
+    return nullptr;
+}
+bool application_voice_join(u64, u64) noexcept {
+    return true;
+}
+bool select_content_guild(u64) noexcept {
     return true;
 }
 bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<PopupItem>,

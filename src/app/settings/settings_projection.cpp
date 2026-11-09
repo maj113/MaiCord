@@ -8,6 +8,7 @@
 #include "../notifications/notifications.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "../update/updates.hpp"
+#include "test_mode.hpp"
 #include "maicord/ui/widgets/kit.hpp"
 #include "../store/store_host.hpp"
 #include "user_settings.hpp"
@@ -20,13 +21,19 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/guild/icon_media.hpp"
 #include "../shell/window_state.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/ui/chat/messages/scene.hpp"
+#include "maicord/ui/chat/messages/rich_layout.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
 
 namespace maicord::app_detail {
 
 static_assert(sizeof(ApplicationSettingsChoice) == 88);
 
-inline constexpr u32 kSettingsPanelRowLimit = kKeybindsSettingsBankCapacity;
-static_assert(kSettingsPanelRowLimit >= kSettingsControlCapacity && kSettingsPanelRowLimit >= kApplicationUpdatesSettingsRows);
+inline constexpr u32 kSettingsPanelRowLimit = kAccountSettingsBankRows;
+static_assert(kSettingsPanelRowLimit >= kSettingsControlCapacity && kSettingsPanelRowLimit >= kApplicationUpdatesSettingsRows &&
+              kSettingsPanelRowLimit >= kKeybindsSettingsBankCapacity);
 inline constexpr u32 kSettingsSearchHits = 16;
 
 // The bank is allocated lazily; nothing is allocated at application startup.
@@ -168,6 +175,46 @@ static Utf8View search_query(const ApplicationSettings& settings) noexcept {
 // with a new theme revision and so a new projection), then "Browse" (opens Themes; a swatch caption fits one word).
 static Utf8View g_theme_tiles[kInstalledThemeTiles + 1];
 
+// Accessibility's preview sample: your name, the official preview's role colour (#dd80f4) at the user-colour
+// saturation and Role Colors' style, and the display choices it follows. Projected with its row; the row's
+// selected_choice carries a digest so a change repaints the page.
+UiSettingsPreview g_accessibility_preview{};
+char g_preview_author[kUserDisplayNameMaximumBytes], g_preview_time[48];
+u32 project_accessibility_preview() noexcept {
+    auto& s = g_accessibility_preview;
+    const auto& p = g_app.preferences;
+    s.author = utf8_literal("You");
+    if (g_app.account_ui)
+        if (const auto* self = user_store_find(g_app.account_ui->user_store, g_app.account_ui->chat_state.self_user_id))
+            s.author = {g_preview_author, utf8_copy_truncated(g_preview_author, sizeof(g_preview_author),
+                                                              user_store_name(g_app.account_ui->user_store, *self))};
+    if (!s.author.bytes)
+        s.author = utf8_literal("You");
+    s.compact = g_app.message_scene.display.compact;
+    s.reactions = message_rich_display().reactions;
+    s.underline = p.underline_links;
+    s.role_style = p.role_style;
+    const Color role = message_user_color(color_from_rgb24(0xdd80f4), p.desaturate_user_colors ? p.desaturation : 0);
+    const auto channel = [](float value) noexcept { return static_cast<u32>(clamp_unit(value) * 255.f + .5f); };
+    s.role_rgb = p.role_style == client_role_style_hidden
+                     ? 0u
+                     : channel(role.red) << 16 | channel(role.green) << 8 | channel(role.blue);
+    // Space Between Message Groups: the mode's default (16 cozy, 0 compact), else 0, 4, 8, 16 or 24.
+    constexpr float spacings[]{0, 4, 8, 16, 24};
+    s.group_gap = p.message_group_spacing ? spacings[p.message_group_spacing - 1] : s.compact ? 0.f : 16.f;
+    const auto* styles = application_theme().styles;
+    s.text_size = styles && styles->ready ? ui_theme_chat_size(styles->typography) : 16.f;
+    const u64 now = clock_unix_milliseconds() / 1'000u;
+    const auto formatted = format_timestamp_local(now, 't', now, {g_preview_time + 9, sizeof(g_preview_time) - 9});
+    copy_bytes(g_preview_time, "Today at ", 9);
+    s.time = s.compact ? Utf8View{g_preview_time + 9, formatted.bytes} : Utf8View{g_preview_time, 9 + formatted.bytes};
+    u64 digest = hash64_bytes(kHash64Seed, s.author.data, s.author.bytes) ^ hash64_bytes(kHash64Seed, s.time.data, s.time.bytes);
+    digest ^= (static_cast<u64>(s.role_rgb) << 8) ^ (static_cast<u64>(s.role_style) << 40) ^
+              (static_cast<u64>(s.compact) << 44) ^ (static_cast<u64>(s.reactions) << 45) ^
+              (static_cast<u64>(s.underline) << 46) ^ (static_cast<u64>(s.group_gap) << 48) ^
+              (static_cast<u64>(s.text_size) << 56);
+    return static_cast<u32>(digest ^ (digest >> 32));
+}
 // Live projection of one catalog node. Returns false when the node has no
 // backing in the current state and must be omitted.
 static bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiSettingsControl* control,
@@ -192,6 +239,17 @@ static bool project_node(const ApplicationSettings& settings, u32 panel, u32 ind
         if (account.message.bytes) control->description = account.message;
         control->action_label = account.saved ? utf8_literal("Sign out")
                                 : account.sign_in.runtime ? utf8_literal("Cancel") : utf8_literal("Sign in");
+    }
+    if (binding == SettingBinding::accessibility_preview) {
+        // Discord's example messages, avatars and button.
+        static constexpr Utf8View texts[]{utf8_literal("what happened to all the beans"),
+                                          utf8_literal("here\xE2\x80\x99s a link "),
+                                          utf8_literal("https://discord.com/accessibility")};
+        control->choices = {texts, 3};
+        control->action_label = utf8_literal("Example Button");
+        control->enabled = false;
+        control->selected_choice = project_accessibility_preview();
+        return true;
     }
     if (binding == SettingBinding::update_changelog)
         return application_updates_project(binding, control, presentation);
@@ -226,6 +284,15 @@ static bool project_node(const ApplicationSettings& settings, u32 panel, u32 ind
         if (control->selected_choice == kUiSettingsNoChoice)
             control->selected_choice = fallback;
     }
+    // Text size in chat left to the theme marks the size nearest its body size.
+    if (binding == SettingBinding::chat_font_size && control->selected_choice == kUiSettingsNoChoice) {
+        const auto* styles = application_theme().styles;
+        control->selected_choice = client_preferences_nearest_mark(
+            kClientPreferencesFontSizes, styles && styles->ready ? styles->typography.body_size : 16.f);
+    }
+    // Enable Reduced Motion shows what applies: the switch, or the computer's setting while it is followed.
+    if (binding == SettingBinding::reduced_motion)
+        control->checked = client_preferences_reduced_motion(g_app.preferences, application_system_reduced_motion());
     // Installed package effects follow the built-in effects.
     if (binding == SettingBinding::background_effect)
         application_effects_project(control);
@@ -290,6 +357,14 @@ static bool project_node(const ApplicationSettings& settings, u32 panel, u32 ind
         control->description = g_app.preferences_save_pending ? utf8_literal("Saving…") : node.description();
         control->enabled = !g_app.preferences_save_pending;
         return settings.save_failed;
+    case SettingBinding::test_mode:
+        // With Developer Mode only, as the official client's; Clear while an application is in test mode.
+        control->description = application_test_mode_status();
+        if (g_app.preferences.test_mode_application) {
+            control->action_label = utf8_literal("Clear");
+            presentation->variant = UiSettingsVariant::critical;
+        }
+        return g_app.preferences.developer_mode;
     case SettingBinding::update_status:
     case SettingBinding::update_channel:
     case SettingBinding::update_interval:
@@ -308,6 +383,15 @@ static UiSettingsAvatarMedia self_avatar_media() noexcept {
 static bool same_avatar_media(const UiSettingsAvatarMedia& left, const UiSettingsAvatarMedia& right) noexcept {
     return media_asset_key_equal(left.key, right.key) && left.hash_bytes == right.hash_bytes &&
            bytes_equal(left.hash, right.hash, left.hash_bytes);
+}
+
+// The scene indexes the shared bank's avatar media by row: a row past it keeps its initials and no image.
+static UiSettingsControlPresentation bounded_look(const ApplicationSettings& settings,
+                                                  const UiSettingsControlPresentation* bank, u32 row,
+                                                  UiSettingsControlPresentation look) noexcept {
+    if (bank == settings.presentation && row >= kSettingsAvatarRows)
+        look.flags = static_cast<u8>(look.flags & ~ui_settings_presentation_avatar);
+    return look;
 }
 
 static u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed, UiSettingsControl* bank,
@@ -330,7 +414,9 @@ static u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed
         if (project_node(settings, panel, i, &controls[count], &presentation[count])) {
             ++count;
             const auto binding = binding_of(nodes[i]);
-            if (binding == SettingBinding::devices_list || binding == SettingBinding::apps_list)
+            if (binding == SettingBinding::devices_list || binding == SettingBinding::apps_list ||
+                binding == SettingBinding::connections_list || binding == SettingBinding::security_keys_list ||
+                binding == SettingBinding::blocked_list || binding == SettingBinding::ignored_list)
                 count += application_account_settings_list(binding, {controls + count, capacity - count},
                                                            {presentation + count, capacity - count});
             if (binding == SettingBinding::keybinds_custom || binding == SettingBinding::keybinds_defaults)
@@ -349,10 +435,10 @@ static u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed
         if (controls[i].kind == UiSettingsControlKind::category &&
             (i + 1 == count || controls[i + 1].kind == UiSettingsControlKind::category))
             continue;
-        *changed = *changed || !same_control(bank[kept], controls[i]) ||
-                   !same_presentation(bank_presentation[kept], presentation[i]);
+        const auto look = bounded_look(settings, bank_presentation, kept, presentation[i]);
+        *changed = *changed || !same_control(bank[kept], controls[i]) || !same_presentation(bank_presentation[kept], look);
         bank[kept] = controls[i];
-        bank_presentation[kept++] = presentation[i];
+        bank_presentation[kept++] = look;
     }
     return kept;
 }
@@ -365,10 +451,11 @@ static u32 project_search(ApplicationSettings& settings, bool* changed) noexcept
     const auto emit = [&](const UiSettingsControl& control, const UiSettingsControlPresentation& presentation) noexcept {
         if (count >= kSettingsControlCapacity)
             return;
+        const auto look = bounded_look(settings, settings.presentation, count, presentation);
         *changed = *changed || !same_control(settings.controls[count], control) ||
-                   !same_presentation(settings.presentation[count], presentation);
+                   !same_presentation(settings.presentation[count], look);
         settings.controls[count] = control;
-        settings.presentation[count++] = presentation;
+        settings.presentation[count++] = look;
     };
     for (u32 panel = 0; panel < schema.panels.count; ++panel) {
         if (g_signed_out.active && !settings_panel_signed_out(static_cast<SettingsPanel>(panel)))
@@ -492,6 +579,22 @@ void project(ApplicationSettings& settings) noexcept {
         content.presentation = presentation;
         content.avatar_media = nullptr;
         content.meters = nullptr;
+    } else if (UiSettingsControl* controls = nullptr;
+               (native == static_cast<u32>(SettingsPanel::authorized_apps) + 1 ||
+                native == static_cast<u32>(SettingsPanel::content_social) + 1) &&
+               application_account_settings_bank(&controls, nullptr)) {
+        // Connected Apps (every connection's display options and every authorized app) and Messaging Permissions
+        // (every blocked and ignored account) borrow the account bank.
+        auto& page = changed[native - 1];
+        auto& content = settings.content[native - 1];
+        UiSettingsControlPresentation* presentation = nullptr;
+        application_account_settings_bank(&controls, &presentation);
+        const u32 count = project_panel(settings, native - 1, &page, controls, presentation, kAccountSettingsBankRows);
+        page = page || content.controls.count != count || content.controls.data != controls;
+        content.controls = {controls, count};
+        content.presentation = presentation;
+        content.avatar_media = nullptr;
+        content.meters = nullptr;
     } else if (native) {
         auto& page = changed[native - 1];
         const u32 count = native == kSettingsSearchPage
@@ -502,22 +605,25 @@ void project(ApplicationSettings& settings) noexcept {
         page = page || content.controls.count != count;
         content.controls = {settings.controls, count};
         content.presentation = settings.presentation;
+        // Accessibility's preview row draws this sample (project_accessibility_preview).
+        content.preview = &g_accessibility_preview;
         // The account card draws the cached self avatar over its initials,
         // through the same user-avatar key as the footer and message authors.
         UiSettingsSchemaLocation card{};
         const u64 card_id =
             settings_catalog_binding(SettingBinding::account_card, &card) ? settings_control_id(card.panel, card.node) : 0;
         const auto self = self_avatar_media();
-        const bool avatars = count <= kSettingsAvatarRows;
-        for (u32 i = 0; avatars && i < count; ++i) {
-            const auto media = card_id && settings.controls[i].id == card_id ? self : UiSettingsAvatarMedia{};
-            if (!same_avatar_media(settings.avatar_media[i], media)) {
+        for (u32 i = 0; i < count; ++i) {
+            const auto media = card_id && settings.controls[i].id == card_id && i < kSettingsAvatarRows
+                                   ? self
+                                   : UiSettingsAvatarMedia{};
+            if (i < kSettingsAvatarRows && !same_avatar_media(settings.avatar_media[i], media)) {
                 settings.avatar_media[i] = media;
                 page = true;
             }
         }
-        page = page || (content.avatar_media != nullptr) != avatars;
-        content.avatar_media = avatars ? settings.avatar_media : nullptr;
+        page = page || content.avatar_media != settings.avatar_media;
+        content.avatar_media = settings.avatar_media;
         content.meters = native == static_cast<u32>(SettingsPanel::voice) + 1
                              ? application_voice_settings_meters({settings.controls, count})
                              : nullptr;
@@ -727,6 +833,18 @@ static void bind_chrome(ApplicationSettings& settings) noexcept {
     }
     ui_settings_scene_bind_navigation(&settings.scene, navigation,
                                       settings.registry.revision ^ (signed_out ? 0x8000'0000u : 0u) ^ (attention ? 0x4000'0000u : 0u));
+    // The build and system under the sidebar, as the official client shows its version info.
+    static char note[96];
+    static u32 note_bytes;
+    if (!note_bytes) {
+        constexpr Utf8View head = utf8_literal("MaiCord ");
+        constexpr Utf8View system = MAICORD_OS_TEXT("\nWindows x64", "\nLinux x64");
+        copy_bytes(note, head.data, head.bytes);
+        const u32 version = application_update_build_version_text({note + head.bytes, 64});
+        copy_bytes(note + head.bytes + version, system.data, system.bytes);
+        note_bytes = head.bytes + version + system.bytes;
+    }
+    ui_settings_scene_set_navigation_note(&settings.scene, {note, note_bytes});
     const bool focused = settings.scene.focus.kind == UiSettingsTargetKind::search &&
                          application_window_keyboard_focus();
     ui_settings_scene_set_search(

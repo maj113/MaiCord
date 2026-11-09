@@ -43,28 +43,56 @@ struct ProfileCollectibleRef {
     ProfileCollectibleType type;
 };
 
+// A display name style (display_name_styles): the font, the effect and the effect's colours (0xRRGGBB): one or two for
+// the classic effects, four for Gummy and five for Prism (Userdoccers "Display Name Effect"; the official client sends a
+// whole palette for those). No font and no effect is "none" (the style is removed: three nulls).
+inline constexpr u32 kProfileNameStyleColors = 5;
+struct ProfileNameStyle {
+    u16 font, effect;
+    u8 color_count;
+    u32 colors[kProfileNameStyleColors];
+};
+inline bool profile_name_style_set(const ProfileNameStyle& s) noexcept {
+    return s.font || s.effect;
+}
+inline bool profile_name_style_equal(const ProfileNameStyle& a, const ProfileNameStyle& b) noexcept {
+    if (a.font != b.font || a.effect != b.effect || a.color_count != b.color_count)
+        return false;
+    for (u32 i = 0; i < a.color_count && i < kProfileNameStyleColors; ++i)
+        if (a.colors[i] != b.colors[i])
+            return false;
+    return true;
+}
+
 enum UserPatchField : u8 {
     user_patch_avatar = 1u << 0,
     user_patch_global_name = 1u << 1,
     user_patch_avatar_decoration = 1u << 2,
+    user_patch_name_style = 1u << 3,
+    user_patch_nameplate = 1u << 4,
 };
 // avatar: a data URI, empty sends null. avatar_description rides along a new
 // avatar, and avatar_md5 (32 lowercase hex, or empty) is the MD5 of the picked original file,
-// sent as X-Discord-Original-MD5. A zero decoration sku sends null.
+// sent as X-Discord-Original-MD5. A zero decoration or nameplate sku sends null; a name style without font and
+// effect sends display_name_font_id, display_name_effect_id and display_name_colors as null.
 struct UserPatch {
     u8 fields;
     Utf8View avatar, avatar_description, avatar_md5, global_name;
-    u64 avatar_decoration_sku;
+    u64 avatar_decoration_sku, nameplate_sku;
+    ProfileNameStyle name_style;
 };
 enum MemberEditField : u8 {
     member_edit_nick = 1u << 0,
     member_edit_avatar = 1u << 1,
     member_edit_avatar_decoration = 1u << 2,
+    member_edit_name_style = 1u << 3,
+    member_edit_nameplate = 1u << 4, // collectibles: {"nameplate": {"sku_id"} or null}
 };
 struct MemberEditPatch {
     u8 fields;
     Utf8View nick, avatar, avatar_description, avatar_md5;
-    u64 avatar_decoration_sku;
+    u64 avatar_decoration_sku, nameplate_sku;
+    ProfileNameStyle name_style;
 };
 enum ProfilePatchField : u8 {
     profile_patch_banner = 1u << 0,
@@ -138,6 +166,10 @@ struct ProfileEditSaved {
     bool has_accent, has_theme;
     ProfileCollectibleRef collectibles[kProfileEditCollectibleMaximum];
     u8 collectible_count;
+    // display_name_styles and collectibles.nameplate (sku and asset path).
+    ProfileNameStyle name_style;
+    u64 nameplate_sku;
+    ProfileString<128> nameplate_asset;
     // Server values.
     ProfileString<128> nick;
     ProfileString<34> member_avatar, member_banner;
@@ -149,21 +181,25 @@ struct ProfileEditSaved {
     bool has_member_theme;
     ProfileCollectibleRef member_collectibles[kProfileEditCollectibleMaximum];
     u8 member_collectible_count;
+    ProfileNameStyle member_name_style;
+    u64 member_nameplate_sku;
+    ProfileString<128> member_nameplate_asset;
 };
 bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user, u64 guild,
                                  ProfileEditSaved* output) noexcept;
 // The sku of a type in a collectibles list; zero when absent.
 u64 profile_edit_collectible(ConstSlice<ProfileCollectibleRef> list, ProfileCollectibleType type) noexcept;
 
-// One owned avatar decoration or profile effect.
+// One owned avatar decoration, profile effect or nameplate.
 struct ProfileCollectible {
     u64 sku;
     ProfileCollectibleType type;
     ProfileString<96> label;
-    // Decorations: the preset asset; effects: the thumbnail URL.
+    // Decorations: the preset asset; effects: the thumbnail URL; nameplates: the asset path
+    // ("nameplates/<collection>/<name>/").
     ProfileString<384> asset;
 };
-// Owned decorations and effects from GET collectibles-purchases (variant
+// Owned decorations, effects and nameplates from GET collectibles-purchases (variant
 // groups flattened, other types skipped). ~0u for a malformed body.
 u32 profile_edit_decode_collectibles(Utf8View body, Slice<u32> structurals, Slice<ProfileCollectible> output) noexcept;
 
@@ -176,6 +212,8 @@ enum class ProfileEditErrorField : u8 {
     avatar,
     banner,
     bio,
+    name_style, // display_name_font_id, display_name_effect_id, display_name_colors
+    nameplate,  // nameplate_sku_id, collectibles
     misc,
     count,
 };

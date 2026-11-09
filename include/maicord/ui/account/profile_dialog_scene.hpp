@@ -12,13 +12,14 @@ struct Theme;
 
 // Modal dialogs of the profile editor, drawn above its settings page:
 // the "Edit Image" cropper for avatar and banner uploads, and the
-// avatar decoration / profile effect pickers. The host owns all values and
+// avatar decoration / profile effect / nameplate pickers. The host owns all values and
 // requests; the scene is a retained projection with hit testing.
 enum class UiProfileDialogKind : u8 {
     none,
     crop,
     decoration,
     effect,
+    nameplate,
 };
 enum class UiProfileDialogAction : u8 {
     none,

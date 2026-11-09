@@ -91,6 +91,7 @@ namespace maicord {
     X(test_background_effect_policy) \
     X(test_background_color_math) \
     X(test_theme_editor) \
+    X(test_color_picker) \
     X(test_theme_styles) \
     X(test_theme_style_projection) \
     X(test_client_theme_storage) \
@@ -215,7 +216,7 @@ constexpr ExtensionFixture extension_fixtures[]{
 constexpr u32 kExtensionFixtureCount = sizeof(extension_fixtures) / sizeof(extension_fixtures[0]);
 constexpr u32 kExtensionShardCount = 4;
 constexpr u32 kUpdateFixtureCount = 5;
-static_assert(kExtensionFixtureCount == 163);
+static_assert(kExtensionFixtureCount == 164);
 static_assert(extension_fixtures[0] == test_update_manifest &&
               extension_fixtures[kUpdateFixtureCount - 1] == test_update_package &&
               extension_fixtures[kUpdateFixtureCount] == test_desktop_integration);
@@ -230,7 +231,7 @@ constexpr u32 shard_fixture_count(u32 shard) noexcept {
     return count;
 }
 static_assert(shard_fixture_count(0) == 45 && shard_fixture_count(1) == 40 &&
-              shard_fixture_count(2) == 39 && shard_fixture_count(3) == 39);
+              shard_fixture_count(2) == 40 && shard_fixture_count(3) == 39);
 static_assert(shard_fixture_count(0) + shard_fixture_count(1) + shard_fixture_count(2) +
                   shard_fixture_count(3) == kExtensionFixtureCount);
 

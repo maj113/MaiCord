@@ -99,6 +99,10 @@ struct ApplicationMediaPicker {
     ApplicationMessageMutationScope reaction_scope;
     UiMediaPickerKind composer_kind;
     bool reaction_error;
+    // Field popout: the reaction popout's shape beside reaction_anchor, its Emoji tab inserting the chosen emoji
+    // into the profile popout's message field (field_owner: the profile's user, the frecency owner).
+    bool field_mode;
+    u64 field_owner;
     // Server sticker sections of the guild bank; labels live in its text.
     struct StickerServer {
         u64 id;
@@ -121,7 +125,9 @@ struct ApplicationMediaPicker {
     // and query (composer_kind, tab_query). enter_pending: Enter came while
     // the results loaded; the result sends as they show, unless the query
     // changes or the results close first.
-    bool inline_mode, inline_select, enter_pending;
+    // inline_autocomplete: the sticker list of a ':' emoji query (Show stickers in autocomplete results), which
+    // lasts while that query does; sending one replaces the query with nothing.
+    bool inline_mode, inline_select, enter_pending, inline_autocomplete;
     UiRect inline_anchor;
     u32 inline_heading_bytes, inline_heading_plain;
     char inline_heading[320];
@@ -162,7 +168,8 @@ bool enable_favorites(ApplicationMediaPicker& p) noexcept;
 bool account_ready() noexcept;
 bool available(const ApplicationMediaPicker* p = nullptr) noexcept;
 bool owns_current(const ApplicationMediaPicker& p) noexcept;
-bool unobstructed(bool inline_results = false) noexcept;
+// profile_field: the field popout, which sits over the profile popout.
+bool unobstructed(bool inline_results = false, bool profile_field = false) noexcept;
 bool front(const ApplicationMediaPicker* p = nullptr) noexcept;
 bool shown(const ApplicationMediaPicker* p) noexcept;
 void focus(ApplicationMediaPicker& p, bool value) noexcept;

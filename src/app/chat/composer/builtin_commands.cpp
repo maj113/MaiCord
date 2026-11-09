@@ -7,6 +7,7 @@
 #include "../application_private_conversation.hpp"
 #include "../../shell/state.hpp"
 #include "../threads/actions.hpp"
+#include "../../settings/user_settings.hpp"
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
 #include "maicord/app/chat/messages/send_response.hpp"
@@ -29,12 +30,12 @@
 namespace maicord::app_detail {
 namespace {
 // The client's built-in commands (its ids, negated), in its section order
-// (by name). /tts (no text-to-speech here), /schedule and /roll-dice (behind
-// experiments) are left out.
+// (by name). /schedule and /roll-dice (behind experiments) are left out.
 enum Builtin : u64 {
     shrug = 1,
     tableflip = 2,
     unflip = 3,
+    tts = 4,
     me = 5,
     spoiler = 6,
     nick = 7,
@@ -247,9 +248,16 @@ bool builtin_command_available(const ApplicationCommand& command, u64 channel_id
         return permitted(channel, kPermissionModerateMembers);
     case leave:
         return channel && channel->type == 3;
+    case tts:
+        // Server channels only, while Notifications' /tts switch is on and the member may send them.
+        return channel && channel->guild_id && application_user_settings_tts_command() &&
+               permitted(channel, kPermissionSendSpeechMessages);
     default:
         return true;
     }
+}
+bool builtin_command_speaks(const ApplicationCommand& command) noexcept {
+    return command.id == tts;
 }
 
 BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8View options_json, u64 channel_id,
@@ -274,6 +282,10 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
     }
     case me:
         *text = join(text_storage, utf8_literal("_"), message, utf8_literal("_"));
+        return text->bytes ? BuiltinCommandRun::text : BuiltinCommandRun::failed;
+    case tts:
+        // Sent as typed, with "tts": true (application_commands_take_tts).
+        *text = message;
         return text->bytes ? BuiltinCommandRun::text : BuiltinCommandRun::failed;
     case spoiler:
         *text = ascii_trim(join(text_storage, utf8_literal("||"), message, utf8_literal("||")));

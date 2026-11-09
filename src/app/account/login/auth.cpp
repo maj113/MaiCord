@@ -1016,8 +1016,9 @@ bool application_login_pump() noexcept {
             host.login_instance, Slice<char>{url, static_cast<u32>(sizeof(url))}, &url_bytes);
         const bool encoded =
             copied && url_bytes == kRemoteAuthQrUrlBytes &&
-            qr_code_encode_v5_m(ConstSlice<u8>{reinterpret_cast<const u8*>(url), url_bytes},
-                                &g_app.login.qr_code);
+            qr_code_encode_m(ConstSlice<u8>{reinterpret_cast<const u8*>(url), url_bytes}, 5,
+                             &g_app.login.qr_code) &&
+            g_app.login.qr_code.size == kQrCodeSize;
         secure_clear_bytes(url, sizeof(url));
         if (!encoded) {
             host.api.login_cancel_remote_auth(host.login_instance);

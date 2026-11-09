@@ -149,8 +149,18 @@ void release_runtime_allocation(GatewayClient* client) noexcept {
         runtime->self_status_group = nullptr;
     }
     secure_buffer_release(&runtime->refreshed_credential);
+    secure_buffer_release(&runtime->replacement_credential);
     SecureZeroMemory(runtime, bytes);
     pages_release(runtime);
+}
+
+void gateway_adopt_replacement_credential(GatewayClientRuntime* runtime) noexcept {
+    AcquireSRWLockExclusive(&runtime->resume_lock);
+    if (runtime->replacement_credential.data) {
+        secure_buffer_release(&runtime->credential);
+        secure_buffer_transfer(&runtime->credential, &runtime->replacement_credential);
+    }
+    ReleaseSRWLockExclusive(&runtime->resume_lock);
 }
 
 } // namespace client_detail
@@ -614,12 +624,15 @@ void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime
     for (u32 i = 0; i != video.count; ++i)
         video.users[i] = {users[i].user_id, users[i].ssrc, users[i].frames, users[i].kind, users[i].quality, {}};
     const auto stream = gateway_stream_session_snapshot(runtime->stream, runtime->self_user_id);
+    GoLiveSnapshot live{};
+    const bool live_changed = gateway_go_live_publish(&runtime->go_live, &live);
     AcquireSRWLockExclusive(&runtime->voice_lock);
     const bool changed = !(snapshot == runtime->voice_snapshot) || !(video == runtime->voice_video_snapshot) ||
-                         !(stream == runtime->stream_snapshot);
+                         !(stream == runtime->stream_snapshot) || live_changed;
     copy_value(&runtime->voice_snapshot, snapshot);
     copy_value(&runtime->voice_video_snapshot, video);
     copy_value(&runtime->stream_snapshot, stream);
+    copy_value(&runtime->go_live_snapshot, live);
     ReleaseSRWLockExclusive(&runtime->voice_lock);
     if (changed && client->notification_event)
         event_set(client->notification_event);
@@ -633,9 +646,12 @@ void reset_voice(GatewayClient* client, GatewayClientRuntime* runtime) noexcept 
     // The stream connection is bound to this Gateway session; nothing is sent.
     gateway_stream_session_reset(&runtime->stream, GatewayStreamEnd::session);
     voice_setup_release(&runtime->stream.control.setup);
+    gateway_go_live_reset(&runtime->go_live, GatewayStreamEnd::session);
+    voice_setup_release(&runtime->go_live.control.setup);
     AcquireSRWLockExclusive(&runtime->voice_lock);
     runtime->voice_request_pending = false;
     runtime->stream_request_pending = false;
+    runtime->go_live_command_count = 0;
     reset_value(&runtime->desired_voice);
     runtime->video_unwanted_count = 0;
     runtime->video_unwanted_dirty = false;
@@ -697,6 +713,28 @@ void apply_video_wants(GatewayClient* client, GatewayClientRuntime* runtime) noe
     }
 }
 
+void apply_go_live(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+    GoLiveCommand commands[kGatewayGoLiveCommands];
+    AcquireSRWLockExclusive(&runtime->voice_lock);
+    if (runtime->go_live_backend_dirty) {
+        runtime->go_live.backend = runtime->go_live_backend;
+        runtime->go_live_backend_dirty = false;
+    }
+    const u32 count = runtime->go_live_command_count;
+    copy_bytes(commands, runtime->go_live_commands, count * static_cast<u32>(sizeof(GoLiveCommand)));
+    runtime->go_live_command_count = 0;
+    ReleaseSRWLockExclusive(&runtime->voice_lock);
+    auto& live = runtime->go_live;
+    live.wake = wake_voice_worker;
+    live.wake_context = client;
+    live.decodable = voice_video_sink_decodable(runtime->voice_receive.video);
+    for (u32 i = 0; i != count; ++i)
+        gateway_go_live_command(&live, commands[i], runtime->self_user_id,
+                                {runtime->resume.session_id, runtime->resume.session_id_bytes}, now_ms);
+    if (count)
+        publish_voice_snapshot(client, runtime);
+}
+
 bool ready_projection_work(void* opaque, GatewayReadyProjectionPhase) noexcept {
     auto& binding = *static_cast<ReadyProjectionBinding*>(opaque);
     const auto& runtime = *binding.runtime;
@@ -736,7 +774,8 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
         const u64 deadline = earliest_deadline(
             earliest_deadline(earliest_deadline(main_deadline, voice_connection_deadline(runtime->voice_connection)),
                               voice_receive_deadline(runtime->voice_receive)),
-            gateway_stream_session_deadline(runtime->stream));
+            earliest_deadline(gateway_stream_session_deadline(runtime->stream),
+                              gateway_go_live_deadline(runtime->go_live)));
         return deadline ? wait_milliseconds_until(now_ms, deadline) : INFINITE;
     }
     u64 deadline = runtime->deadline_ms;
@@ -745,6 +784,7 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
     deadline = earliest_deadline(deadline, voice_connection_deadline(runtime->voice_connection));
     deadline = earliest_deadline(deadline, voice_receive_deadline(runtime->voice_receive));
     deadline = earliest_deadline(deadline, gateway_stream_session_deadline(runtime->stream));
+    deadline = earliest_deadline(deadline, gateway_go_live_deadline(runtime->go_live));
     if (runtime->session.lifecycle.heartbeat_interval_ms != 0)
         deadline = earliest_deadline(deadline, runtime->session.lifecycle.next_heartbeat_ms);
     deadline = earliest_deadline(deadline, client_activity_deadline(runtime, now_ms));
@@ -766,7 +806,8 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
     if (runtime->send_purpose == SendPurpose::none && !runtime->rate_deadline_ms &&
         runtime->session.lifecycle.phase == GatewayLifecyclePhase::ready &&
         (gateway_voice_next(runtime->voice, &voice_command) ||
-         gateway_stream_next(runtime->stream.control, &stream_command)))
+         gateway_stream_next(runtime->stream.control, &stream_command) ||
+         gateway_stream_next(runtime->go_live.control, &stream_command)))
         return 0;
     return deadline == 0 ? INFINITE : wait_milliseconds_until(now_ms, deadline);
 }

@@ -108,6 +108,10 @@ RestClientSubmitResult WINAPI module_account_settings(void* instance, const Acco
     return account_settings_submit(module_rest(instance, !account_settings_primary(request->operation)), *request,
                                    request_id);
 }
+bool WINAPI module_credential_replace(void* instance, const u8* token, u32 bytes) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    return runtime && token && user_account_coordinator_replace_credential(&runtime->coordinator, {token, bytes});
+}
 // Thread, forum and poll requests act as the signed-in user of this profile; forum posts and polls also
 // need a published identity.
 bool admit_thread_action(AccountModuleRuntime& runtime, const ThreadActionRequest& request) noexcept {
@@ -178,7 +182,11 @@ void bind_video_keyframes(void* context, VideoKeyframeRequester requester) noexc
 // Installs the decoders into the gateway runtime that currently exists (a new
 // session allocates a new runtime that starts without a sink).
 void ensure_video_frames(AccountModuleRuntime* runtime, GatewayClient* gateway) noexcept {
-    if (!gateway || gateway_client_has_video_frames(gateway, &runtime->video))
+    if (!gateway)
+        return;
+    if (!gateway_client_has_go_live_backend(gateway))
+        gateway_client_set_go_live_backend(gateway, go_live_devices_backend(&runtime->go_live));
+    if (gateway_client_has_video_frames(gateway, &runtime->video))
         return;
     gateway_client_set_video_frames(
         gateway, {video_stream_decoders_sink(&runtime->video), &runtime->video, bind_video_keyframes});
@@ -208,6 +216,7 @@ bool WINAPI module_voice_video_device(void* instance, GpuDevice* device) noexcep
     if (!runtime)
         return false;
     video_stream_decoders_set_device(&runtime->video, device);
+    go_live_devices_set_device(&runtime->go_live, device);
     ensure_video_frames(runtime, user_account_coordinator_gateway(&runtime->coordinator));
     return true;
 }
@@ -230,6 +239,37 @@ bool WINAPI module_stream_watch(void* instance, const GatewayStreamKey* key) noe
     // Stream video goes to the same decoders as call video.
     ensure_video_frames(runtime, gateway);
     return gateway_client_stream_watch(gateway, key ? *key : GatewayStreamKey{});
+}
+bool WINAPI module_go_live(void* instance, const GoLiveCommand* command) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    if (!gateway || !command)
+        return false;
+    ensure_video_frames(runtime, gateway);
+    return gateway_client_go_live(gateway, *command);
+}
+bool WINAPI module_go_live_snapshot(void* instance, GoLiveSnapshot* output) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    ensure_video_frames(runtime, gateway);
+    return gateway && gateway_client_go_live_snapshot(gateway, output);
+}
+// The self-preview: the encoder's newest NV12 picture, as a remote stream's.
+bool WINAPI module_go_live_preview(void* instance, VideoStreamFrame* output) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    if (!runtime || !output)
+        return false;
+    const auto backend = go_live_devices_backend(&runtime->go_live);
+    GpuVideoFrame frame{};
+    u32 sequence = 0;
+    if (!backend.preview(backend.context, &frame, &sequence))
+        return false;
+    reset_value(output);
+    output->gpu = frame;
+    output->sequence = sequence;
+    output->display_width = static_cast<u16>(frame.width);
+    output->display_height = static_cast<u16>(frame.height);
+    return true;
 }
 
 RestClientSubmitResult WINAPI module_stream_preview(void* instance, const GatewayStreamKey* key,
@@ -512,6 +552,7 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
     }
     status.profile_id = snapshot.profile_id;
     status.error = final_session_saved ? AccountModuleError::none : AccountModuleError::session_store;
+    go_live_devices_release(&runtime->go_live);
     video_stream_decoders_release(&runtime->video);
     SecureZeroMemory(runtime, sizeof(*runtime));
     pages_release(runtime);

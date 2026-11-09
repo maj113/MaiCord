@@ -49,6 +49,7 @@ void application_surface_motion_owner_retire(ApplicationSurfaceMotionOwner* owne
     auto& slot = owner->slots[static_cast<u32>(surface)];
     ui_motion_transition_cancel(&slot.motion);
     reset_value(&slot.key);
+    slot.close = nullptr;
 }
 
 float application_surface_motion_update(ApplicationSurfaceMotionOwner* owner, RendererLayerSurface surface,
@@ -69,6 +70,7 @@ float application_surface_motion_update(ApplicationSurfaceMotionOwner* owner, Re
     if (!same_key(slot.key, key)) {
         const bool successor = slot.key.scene != 0;
         slot.key = key;
+        slot.close = nullptr;
         // Account/source replacement is not an opening animation. Popup opens
         // supply their own lifetime, so their entrance can start.
         const bool entrance = animate && (!successor || surface != RendererLayerSurface::gallery);
@@ -80,7 +82,8 @@ float application_surface_motion_update(ApplicationSurfaceMotionOwner* owner, Re
         const UiMotionScope scope{static_cast<u64>(surface) + 1, ++owner->scope_serial};
         ui_motion_transition_reset(&slot.motion, scope, entrance ? 0.0f : 1.0f);
     }
-    ui_motion_transition_tick(&slot.motion, slot.motion.scope, 1, now_ms, slot.style, !animate, true);
+    ui_motion_transition_tick(&slot.motion, slot.motion.scope, slot.close ? 0 : 1, now_ms, slot.style, !animate,
+                              true);
     return slot.motion.value;
 }
 
@@ -101,10 +104,10 @@ struct ObservedSurface {
     ApplicationSurfaceMotionKey key{};
     bool animate{};
 };
+// Reduced motion is the user's setting or, while it syncs with the system, the system's (application_reduced_motion);
+// nothing animates before the system preference is read, while sizing or without a shown window.
 bool host_motion_allowed() noexcept {
-    const auto& owner = g_app.surface_motion;
-    return owner.system_preference_cached && owner.client_area_animation &&
-           !g_app.preferences.reduced_motion && !g_app.renderer.reduced_motion &&
+    return g_app.surface_motion.system_preference_cached && !application_reduced_motion() &&
            !g_app.renderer.live_resize && g_app.renderer_ready && g_app.window && application_window_shown();
 }
 ObservedSurface observe(RendererLayerSurface surface, bool allowed) noexcept {
@@ -144,6 +147,10 @@ ObservedSurface observe(RendererLayerSurface surface, bool allowed) noexcept {
     if (surface == RendererLayerSurface::popup && application_downloads_active())
         return {{reinterpret_cast<u64>(renderer.download_scene), g_app.plugin_account_scope_serial,
                  g_app.downloads_lifetime_serial, 0x444C4F41u}, allowed && !form};
+    // The dialog keeps the layer while its options menu is open over it: the menu does not fade the dialog again.
+    if (surface == RendererLayerSurface::popup && d3d11_renderer_go_live_visible(renderer))
+        return {{reinterpret_cast<u64>(renderer.go_live_scene), g_app.plugin_account_scope_serial,
+                 renderer.go_live_scene->opens, 0x474c4956u}, allowed && !form};
     if (surface == RendererLayerSurface::popup && d3d11_renderer_message_forward_visible(renderer))
         return {{reinterpret_cast<u64>(renderer.message_forward_scene), g_app.plugin_account_scope_serial,
                  g_app.message_forward_lifetime_serial, 0x465744u}, allowed && !form};
@@ -168,22 +175,32 @@ void application_surface_motion_refresh_system_preference() noexcept {
     auto& owner = g_app.surface_motion;
     owner.client_area_animation = platform_settings_read().client_area_animation;
     owner.system_preference_cached = true;
-    if (!owner.client_area_animation) {
+    if (application_reduced_motion()) {
         for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i) {
             const auto surface = static_cast<RendererLayerSurface>(i);
             auto& slot = owner.slots[i];
             application_surface_motion_update(&owner, surface, slot.key, slot.motion.sampled_ms, false);
             renderer_set_layer_opacity(&g_app.renderer, surface, 1);
+            renderer_set_layer_transform(&g_app.renderer, surface, 1, 0, 0, 0, 0);
         }
     }
+}
+
+void application_surface_motion_begin_frame(u64 now_ms) noexcept {
+    // A due shared-scheduler frame is this one: the transitions still running tick during it and schedule their next
+    // frame again. Wakes armed after this point survive the whole frame, however long it takes.
+    auto& owner = g_app.surface_motion;
+    if (owner.scheduled_ms && now_ms >= owner.scheduled_ms)
+        owner.scheduled_ms = 0;
 }
 
 void application_surface_motion_synchronize(u64 now_ms) noexcept {
     auto& owner = g_app.surface_motion;
     if (!owner.system_preference_cached)
         application_surface_motion_refresh_system_preference();
+    // The system's animation setting stops motion only while reduced motion follows it.
     g_app.renderer.system_animation_off = g_app.member_list_scene.system_animation_off =
-        !owner.client_area_animation;
+        g_app.preferences.reduced_motion_sync && !owner.client_area_animation;
     const bool allowed = host_motion_allowed();
     auto& rail = g_app.guild_rail_scene;
     bool pill_changed = false;
@@ -208,28 +225,68 @@ void application_surface_motion_synchronize(u64 now_ms) noexcept {
     }
     if (pill_changed) g_app.renderer.retained_presentation.valid = false;
     application_surface_motion_owner_initialize(&owner);
+    // A due shared-scheduler wake is consumed at the frame's start (application_surface_motion_begin_frame), never here:
+    // this runs again once the scenes published, and a wake a ticker armed during the frame is that ticker's next frame.
     for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i) {
         const auto surface = static_cast<RendererLayerSurface>(i);
         const auto current = observe(surface, allowed);
-        // Surface entrances follow the theme's fast motion token. The server
-        // header popout uses the official client's scale popout instead: opacity and
-        // scale(.01 -> 1) about its top centre, 120 ms CSS ease-out.
-        const bool scale_popout = surface == RendererLayerSurface::popup && current.key.scene &&
-                                  g_app.shell_scene.guild_menu_expanded;
-        owner.slots[i].style = scale_popout ? UiMotionStyle{120, UiMotionCurve::css_ease_out}
-                                            : application_theme().motion.fast;
+        auto& slot = owner.slots[i];
+        // Entrances follow the theme's fast motion token, except the official client's own animations: the server
+        // header popout scales from its top centre, other popouts slide toward their anchor, tooltips pop on their
+        // spring, and the full profile is a modal (scale and fade in, the same back out on its exit spring).
+        const bool popup = surface == RendererLayerSurface::popup && current.key.scene;
+        const bool scale_popout = popup && g_app.shell_scene.guild_menu_expanded;
+        const bool popover = popup && !scale_popout && current.key.kind == static_cast<u32>(PopupKind::popover);
+        const bool tooltip = popup && current.key.kind == static_cast<u32>(PopupKind::tooltip);
+        const auto* profile = g_app.renderer.profile_scene;
+        const bool modal = surface == RendererLayerSurface::profile && profile &&
+                           profile->presentation == ProfilePresentation::modal;
+        slot.style = slot.close     ? kUiMotionModalExit
+                     : modal        ? kUiMotionModalEnter
+                     : scale_popout ? kUiMotionPopoutScale
+                     : popover      ? kUiMotionPopout
+                     : tooltip      ? kUiMotionTooltip
+                                    : application_theme().motion.fast;
+        if (slot.close && !current.key.scene) {
+            // Covered or hidden while exiting (another surface took over): the owner closes now.
+            auto* close = slot.close;
+            application_surface_motion_retire(surface);
+            close();
+            continue;
+        }
         const float value =
             application_surface_motion_update(&owner, surface, current.key, now_ms, current.animate);
-        // A profile popout slides in without a fade (application_profile);
-        // the full profile modal keeps the surface fade.
-        const bool slide = surface == RendererLayerSurface::profile && g_app.renderer.profile_scene &&
-                           g_app.renderer.profile_scene->presentation == ProfilePresentation::popout;
-        renderer_set_layer_opacity(&g_app.renderer, surface, slide ? 1.f : value);
-        if (surface == RendererLayerSurface::popup) {
-            const UiRect popup = g_app.popup_scene.rectangle;
-            renderer_set_popup_scale(&g_app.renderer, scale_popout ? .01f + .99f * value : 1.f,
-                                     (popup.left + popup.right) * .5f, popup.top);
+        if (slot.close && value <= 0 && !slot.motion.active) {
+            // The exit finished: the owner closes for real.
+            auto* close = slot.close;
+            application_surface_motion_retire(surface);
+            close();
+            continue;
         }
+        // A profile popout slides in without a fade (application_profile).
+        const bool slide = surface == RendererLayerSurface::profile && profile &&
+                           profile->presentation == ProfilePresentation::popout;
+        UiMotionPose pose = ui_motion_fade(slide ? 1.f : value);
+        UiRect rectangle{};
+        if (scale_popout || popover || tooltip)
+            rectangle = g_app.popup_scene.rectangle;
+        else if (modal)
+            rectangle = profile->rectangle;
+        float origin_y = (rectangle.top + rectangle.bottom) * .5f;
+        if (scale_popout) {
+            pose = ui_motion_scale(value, kUiMotionPopoutScaleFrom);
+            origin_y = rectangle.top;
+        } else if (popover) {
+            pose = ui_motion_slide(value, ui_motion_edge(g_app.popup_scene.anchor, rectangle),
+                                   kUiMotionPopoutDistance, false);
+        } else if (tooltip) {
+            pose = ui_motion_scale(value, kUiMotionTooltipScale);
+        } else if (modal) {
+            pose = ui_motion_scale(value, kUiMotionModalScale);
+        }
+        renderer_set_layer_opacity(&g_app.renderer, surface, pose.opacity);
+        renderer_set_layer_transform(&g_app.renderer, surface, pose.scale, (rectangle.left + rectangle.right) * .5f,
+                                     origin_y, pose.x, pose.y);
     }
 }
 
@@ -239,6 +296,7 @@ u64 application_surface_motion_next_wake() noexcept {
         return 0;
     u64 wake = earliest_deadline(application_unread_banner_next_wake(),
                                  application_guild_folders_next_wake());
+    wake = earliest_deadline(wake, g_app.surface_motion.scheduled_ms);
     const auto& rail = g_app.guild_rail_scene;
     if (rail.active && !g_app.renderer.login_visible &&
         !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active)) {
@@ -270,8 +328,56 @@ bool application_surface_motion_request_frame_if_due(u64 now_ms, bool frame_avai
 void application_surface_motion_retire(RendererLayerSurface surface) noexcept {
     application_surface_motion_owner_retire(&g_app.surface_motion, surface);
     renderer_set_layer_opacity(&g_app.renderer, surface, 1);
-    if (surface == RendererLayerSurface::popup)
-        renderer_set_popup_scale(&g_app.renderer, 1, 0, 0);
+    renderer_set_layer_transform(&g_app.renderer, surface, 1, 0, 0, 0, 0);
+}
+
+bool application_surface_motion_exit(RendererLayerSurface surface, void (*close)() noexcept) noexcept {
+    if (static_cast<u32>(surface) >= kApplicationSurfaceMotionCount || !close)
+        return false;
+    auto& slot = g_app.surface_motion.slots[static_cast<u32>(surface)];
+    if (slot.close)
+        return true;
+    const auto current = observe(surface, host_motion_allowed());
+    if (!current.animate || !current.key.scene || !same_key(slot.key, current.key) || slot.motion.value <= 0)
+        return false;
+    slot.close = close;
+    application_request_frame();
+    return true;
+}
+
+void application_surface_motion_finish_exits() noexcept {
+    for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i) {
+        auto* close = g_app.surface_motion.slots[i].close;
+        if (!close)
+            continue;
+        application_surface_motion_retire(static_cast<RendererLayerSurface>(i));
+        close();
+    }
+}
+
+void application_motion_schedule(u64 deadline_ms) noexcept {
+    auto& owner = g_app.surface_motion;
+    owner.scheduled_ms = earliest_deadline(owner.scheduled_ms, deadline_ms);
+}
+
+float application_motion_tick(UiMotionTransition* transition, const UiMotionScope& scope, float target, u64 now_ms,
+                              const UiMotionStyle& style) noexcept {
+    if (!transition)
+        return target;
+    if (!transition->scope.owner)
+        ui_motion_transition_reset(transition, scope, target);
+    const bool animate = host_motion_allowed();
+    ui_motion_transition_tick(transition, scope, target, now_ms, style, !animate, true);
+    application_motion_schedule(ui_motion_transition_next_wake(*transition, scope, !animate, true));
+    return transition->value;
+}
+
+bool application_motion_hover_tick(UiMotionHover* hover, u64 hovered_id, u64 now_ms,
+                                   const UiMotionStyle& style) noexcept {
+    const bool changed = ui_motion_hover_tick(hover, hovered_id, now_ms, style, !host_motion_allowed());
+    if (hover)
+        application_motion_schedule(ui_motion_hover_next_wake(*hover));
+    return changed;
 }
 #endif
 

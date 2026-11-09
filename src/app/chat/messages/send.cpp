@@ -60,7 +60,7 @@ bool queue_composer_message(bool mention_confirmed) noexcept {
         g_app.account_ui->chat_state.self_user_id, clock_unix_milliseconds(),
         clock_monotonic_milliseconds(), reply.message_id, {attachments, attachment_count},
         {attachment_sizes, attachment_count}, nullptr, {}, reply.mention_reply_author, &reply,
-        application_plugins_take_suppress_embeds());
+        application_plugins_take_suppress_embeds(), application_commands_take_tts());
     if (!queued.ok()) {
         log_u64(LogLevel::error, "message", "message_send_queue_error", static_cast<u64>(queued.error));
     } else {

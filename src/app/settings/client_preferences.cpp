@@ -10,7 +10,7 @@ namespace maicord {
 namespace {
 constexpr u8 kMagic[8] = {'M', 'A', 'I', 'C', 'P', 'R', 'E', 'F'};
 constexpr u32 kHeaderBytes = 16;
-constexpr u32 kChecksumOffset = 72;
+constexpr u32 kChecksumOffset = 88, kVersion9Bytes = 80, kVersion9ChecksumOffset = 72;
 constexpr u8 kKnownFlags = 127;
 constexpr u32 kBuiltInFlags = 63;
 
@@ -50,7 +50,12 @@ bool client_preferences_valid(const ClientPreferences& preferences) noexcept {
            pane_width_valid(preferences.channel_pane_width) && pane_width_valid(preferences.member_pane_width) &&
            preferences.image_zoom_factor >= 2 && preferences.image_zoom_factor <= 100 &&
            preferences.image_zoom_size >= 5 && preferences.image_zoom_size <= 100 &&
-           background_theme_valid(preferences.gradient);
+           (!preferences.chat_font_size || (preferences.chat_font_size >= 12 && preferences.chat_font_size <= 24)) &&
+           preferences.desaturation <= 100 && preferences.zoom >= kClientPreferencesZoomMinimum &&
+           preferences.zoom <= kClientPreferencesZoomMaximum &&
+           preferences.speech_rate < kClientPreferencesSpeechRateCount &&
+           preferences.role_style <= client_role_style_hidden &&
+           preferences.speak_messages <= client_speak_messages_all && background_theme_valid(preferences.gradient);
 }
 
 bool client_preferences_equal(const ClientPreferences& a, const ClientPreferences& b) noexcept {
@@ -76,7 +81,16 @@ bool client_preferences_equal(const ClientPreferences& a, const ClientPreference
            a.folders_follow_selection == b.folders_follow_selection && a.show_hidden_channels == b.show_hidden_channels &&
            a.image_zoom == b.image_zoom && a.image_zoom_square == b.image_zoom_square &&
            a.image_zoom_factor == b.image_zoom_factor && a.image_zoom_size == b.image_zoom_size &&
-           background_theme_equal(a.gradient, b.gradient);
+           a.chat_font_size == b.chat_font_size && a.desaturation == b.desaturation && a.zoom == b.zoom &&
+           a.speech_rate == b.speech_rate && a.reduced_motion_sync == b.reduced_motion_sync &&
+           a.desaturate_user_colors == b.desaturate_user_colors && a.underline_links == b.underline_links &&
+           a.role_style == b.role_style && a.streamer_mode == b.streamer_mode &&
+           a.streamer_auto == b.streamer_auto && a.streamer_hide_personal == b.streamer_hide_personal &&
+           a.streamer_hide_invites == b.streamer_hide_invites &&
+           a.streamer_disable_sounds == b.streamer_disable_sounds &&
+           a.streamer_disable_notifications == b.streamer_disable_notifications &&
+           a.streamer_hide_window == b.streamer_hide_window && a.speak_messages == b.speak_messages &&
+           a.test_mode_application == b.test_mode_application && background_theme_equal(a.gradient, b.gradient);
 }
 
 ClientPreferencesResult client_preferences_encode(const ClientPreferences& preferences,
@@ -118,6 +132,20 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
     record.data[69] = static_cast<u8>(preferences.channel_pane_width >> 8);
     record.data[70] = static_cast<u8>(preferences.member_pane_width);
     record.data[71] = static_cast<u8>(preferences.member_pane_width >> 8);
+    record.data[72] = preferences.chat_font_size;
+    record.data[73] = preferences.desaturation;
+    record.data[74] = preferences.zoom;
+    record.data[75] = preferences.speech_rate;
+    record.data[76] = static_cast<u8>((preferences.reduced_motion_sync ? 1u : 0u) |
+                                      (preferences.desaturate_user_colors ? 2u : 0u) |
+                                      (preferences.underline_links ? 4u : 0u) | preferences.role_style << 3);
+    record.data[77] = static_cast<u8>(
+        (preferences.streamer_mode ? 1u : 0u) | (preferences.streamer_auto ? 2u : 0u) |
+        (preferences.streamer_hide_personal ? 4u : 0u) | (preferences.streamer_hide_invites ? 8u : 0u) |
+        (preferences.streamer_disable_sounds ? 16u : 0u) | (preferences.streamer_disable_notifications ? 32u : 0u) |
+        (preferences.streamer_hide_window ? 64u : 0u));
+    record.data[78] = preferences.speak_messages;
+    byte_store_le64(record.data + 80, preferences.test_mode_application);
     byte_store_le64(record.data + kChecksumOffset, hash64_bytes(kHash64Seed, record.data, kChecksumOffset));
     return {};
 }
@@ -130,12 +158,17 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
         return failure(ClientPreferencesError::size);
     if (!bytes_equal(record.data, kMagic, sizeof(kMagic)))
         return failure(ClientPreferencesError::format);
-    // Older records are not migrated; callers treat them like a missing file.
-    if (byte_load_le32(record.data + 8) != kClientPreferencesVersion)
+    // Version 9 records decode with the fields added since at their defaults; older ones are not migrated and
+    // callers treat them like a missing file.
+    const u32 version = byte_load_le32(record.data + 8);
+    if (version != kClientPreferencesVersion && version != 9)
         return failure(ClientPreferencesError::version);
-    if (record.count != kClientPreferencesRecordBytes)
+    const bool current = version == kClientPreferencesVersion;
+    const u32 bytes = current ? kClientPreferencesRecordBytes : kVersion9Bytes;
+    const u32 checksum = current ? kChecksumOffset : kVersion9ChecksumOffset;
+    if (record.count != bytes)
         return failure(ClientPreferencesError::size);
-    if (byte_load_le32(record.data + 12) != kClientPreferencesRecordBytes)
+    if (byte_load_le32(record.data + 12) != bytes)
         return failure(ClientPreferencesError::format);
     if (record.data[16] > static_cast<u8>(ClientTheme::custom_light_gradient) ||
         (record.data[17] & ~kKnownFlags) != 0 || record.data[18] > 200 ||
@@ -143,10 +176,11 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
         (record.data[66] & ~127u) || (record.data[65] & ~kBuiltInFlags) ||
         record.data[67] >= kClientPreferencesGroupSpacingCount || (record.data[60] & ~3u) ||
         (record.data[61] && (record.data[61] < 2 || record.data[61] > 100)) ||
-        (record.data[62] && (record.data[62] < 5 || record.data[62] > 100)))
+        (record.data[62] && (record.data[62] < 5 || record.data[62] > 100)) ||
+        (current && ((record.data[76] & ~31u) || (record.data[77] & ~127u) || record.data[78] > client_speak_messages_all ||
+                     record.data[79])))
         return failure(ClientPreferencesError::format);
-    if (byte_load_le64(record.data + kChecksumOffset) !=
-        hash64_bytes(kHash64Seed, record.data, kChecksumOffset))
+    if (byte_load_le64(record.data + checksum) != hash64_bytes(kHash64Seed, record.data, checksum))
         return failure(ClientPreferencesError::checksum);
     ClientPreferences decoded = {static_cast<ClientTheme>(record.data[16]),
                                  (record.data[17] & 1) != 0,
@@ -184,6 +218,35 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
     decoded.expression_picker_width = byte_load_le16(record.data + 58);
     decoded.channel_pane_width = byte_load_le16(record.data + 68);
     decoded.member_pane_width = byte_load_le16(record.data + 70);
+    if (current) {
+        decoded.chat_font_size = record.data[72];
+        decoded.desaturation = record.data[73];
+        decoded.zoom = record.data[74];
+        decoded.speech_rate = record.data[75];
+        decoded.reduced_motion_sync = (record.data[76] & 1) != 0;
+        decoded.desaturate_user_colors = (record.data[76] & 2) != 0;
+        decoded.underline_links = (record.data[76] & 4) != 0;
+        decoded.role_style = static_cast<u8>(record.data[76] >> 3);
+        decoded.streamer_mode = (record.data[77] & 1) != 0;
+        decoded.streamer_auto = (record.data[77] & 2) != 0;
+        decoded.streamer_hide_personal = (record.data[77] & 4) != 0;
+        decoded.streamer_hide_invites = (record.data[77] & 8) != 0;
+        decoded.streamer_disable_sounds = (record.data[77] & 16) != 0;
+        decoded.streamer_disable_notifications = (record.data[77] & 32) != 0;
+        decoded.streamer_hide_window = (record.data[77] & 64) != 0;
+        decoded.speak_messages = record.data[78];
+        decoded.test_mode_application = byte_load_le64(record.data + 80);
+    } else {
+        const auto defaults = client_preferences_defaults();
+        decoded.zoom = defaults.zoom;
+        decoded.speech_rate = defaults.speech_rate;
+        decoded.reduced_motion_sync = defaults.reduced_motion_sync;
+        decoded.streamer_auto = defaults.streamer_auto;
+        decoded.streamer_hide_personal = defaults.streamer_hide_personal;
+        decoded.streamer_hide_invites = defaults.streamer_hide_invites;
+        decoded.streamer_disable_sounds = defaults.streamer_disable_sounds;
+        decoded.streamer_disable_notifications = defaults.streamer_disable_notifications;
+    }
     if (!client_preferences_valid(decoded))
         return failure(ClientPreferencesError::format);
     *preferences = decoded;

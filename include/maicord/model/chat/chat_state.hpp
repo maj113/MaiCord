@@ -7,6 +7,7 @@
 namespace maicord {
 struct PrivateChannelStore;
 struct ReadStateStore;
+struct RelationshipStore;
 struct ChatStateStore;
 
 inline constexpr u32 kChannelObfuscatedFlag = 1u << 17;
@@ -515,8 +516,11 @@ struct ChatStateStore {
     // Both fit existing tail padding.
     u16 guild_free_hint;
     u16 channel_free_hint;
+    // Friends and their personal nicknames, which name one-to-one DMs (the
+    // host sets it while the relationships are loaded, else null).
+    const RelationshipStore* relationships;
 };
-static_assert(sizeof(ChatStateStore) == 328);
+static_assert(sizeof(ChatStateStore) == 336);
 
 enum class ChatStateStoreError : u8 {
     none,

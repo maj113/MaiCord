@@ -40,8 +40,19 @@ bool avatar_valid(const Utf8View& avatar, const Utf8View& description, const Utf
     return image_valid(avatar) && md5_valid(md5, avatar) && (!description.bytes || avatar.bytes) &&
            text_within(description, kProfileEditDescriptionBytes, kProfileEditDescriptionBytes);
 }
+bool style_valid(const ProfileNameStyle& s, bool sent) noexcept {
+    if (!sent)
+        return !s.font && !s.effect && !s.color_count;
+    if (s.color_count > kProfileNameStyleColors || (profile_name_style_set(s) && !s.color_count) ||
+        (!profile_name_style_set(s) && s.color_count))
+        return false;
+    for (u32 i = 0; i < s.color_count; ++i)
+        if (s.colors[i] > 0xFFFFFF)
+            return false;
+    return true;
+}
 bool user_valid(const UserPatch& p) noexcept {
-    if (!p.fields || (p.fields & ~7u))
+    if (!p.fields || (p.fields & ~31u))
         return false;
     if (!(p.fields & user_patch_avatar) && (p.avatar.bytes || p.avatar_description.bytes))
         return false;
@@ -49,11 +60,14 @@ bool user_valid(const UserPatch& p) noexcept {
         return false;
     if (!(p.fields & user_patch_avatar_decoration) && p.avatar_decoration_sku)
         return false;
+    if (!(p.fields & user_patch_nameplate) && p.nameplate_sku)
+        return false;
     return avatar_valid(p.avatar, p.avatar_description, p.avatar_md5) &&
+           style_valid(p.name_style, p.fields & user_patch_name_style) &&
            text_within(p.global_name, kProfileEditDisplayNameCodepoints, kProfileEditDisplayNameCodepoints * 4);
 }
 bool member_valid(const MemberEditPatch& p) noexcept {
-    if (!p.fields || (p.fields & ~7u))
+    if (!p.fields || (p.fields & ~31u))
         return false;
     if (!(p.fields & member_edit_avatar) && (p.avatar.bytes || p.avatar_description.bytes))
         return false;
@@ -61,7 +75,10 @@ bool member_valid(const MemberEditPatch& p) noexcept {
         return false;
     if (!(p.fields & member_edit_avatar_decoration) && p.avatar_decoration_sku)
         return false;
+    if (!(p.fields & member_edit_nameplate) && p.nameplate_sku)
+        return false;
     return avatar_valid(p.avatar, p.avatar_description, p.avatar_md5) &&
+           style_valid(p.name_style, p.fields & member_edit_name_style) &&
            text_within(p.nick, kProfileEditNicknameCodepoints, kProfileEditNicknameCodepoints * 4);
 }
 bool profile_valid(const ProfilePatch& p, bool member) noexcept {
@@ -87,6 +104,25 @@ bool profile_valid(const ProfilePatch& p, bool member) noexcept {
 void escaped(const Utf8View& value, u32* bytes) noexcept {
     *bytes += 2 + value.bytes * 6;
 }
+// display_name_font_id, display_name_effect_id and display_name_colors: a style, or three nulls.
+void write_style(JsonBody& b, const ProfileNameStyle& s) noexcept {
+    if (!profile_name_style_set(s)) {
+        b.member("display_name_font_id", "null");
+        b.member("display_name_effect_id", "null");
+        b.member("display_name_colors", "null");
+        return;
+    }
+    b.member("display_name_font_id", static_cast<u32>(s.font));
+    b.member("display_name_effect_id", static_cast<u32>(s.effect));
+    b.key("display_name_colors");
+    b.put('[');
+    for (u32 i = 0; i < s.color_count; ++i) {
+        if (i)
+            b.put(',');
+        b.put(s.colors[i]);
+    }
+    b.put(']');
+}
 void write_user(JsonBody& b, const UserPatch& p) noexcept {
     if (p.fields & user_patch_avatar) {
         b.member("avatar", nullable_json(p.avatar));
@@ -96,6 +132,9 @@ void write_user(JsonBody& b, const UserPatch& p) noexcept {
     b.member_if(p.fields & user_patch_global_name, "global_name", json_text(p.global_name));
     b.member_if(p.fields & user_patch_avatar_decoration, "avatar_decoration_sku_id",
                 nullable_snowflake(p.avatar_decoration_sku));
+    b.member_if(p.fields & user_patch_nameplate, "nameplate_sku_id", nullable_snowflake(p.nameplate_sku));
+    if (p.fields & user_patch_name_style)
+        write_style(b, p.name_style);
 }
 void write_member(JsonBody& b, const MemberEditPatch& p) noexcept {
     b.member_if(p.fields & member_edit_nick, "nick", json_text(p.nick));
@@ -106,6 +145,16 @@ void write_member(JsonBody& b, const MemberEditPatch& p) noexcept {
     }
     b.member_if(p.fields & member_edit_avatar_decoration, "avatar_decoration_sku_id",
                 nullable_snowflake(p.avatar_decoration_sku));
+    if (p.fields & member_edit_nameplate) {
+        // As the official client sends it: {"nameplate": {"sku_id": "..."}} or {"nameplate": null}.
+        b.key("collectibles");
+        if (p.nameplate_sku)
+            b.put("{\"nameplate\":{\"sku_id\":\"", p.nameplate_sku, "\"}}");
+        else
+            b.put("{\"nameplate\":null}");
+    }
+    if (p.fields & member_edit_name_style)
+        write_style(b, p.name_style);
 }
 void write_profile(JsonBody& b, const ProfilePatch& p) noexcept {
     b.member_if(p.fields & profile_patch_banner, "banner", nullable_json(p.banner));
@@ -157,12 +206,12 @@ template <u32 N> bool string(const JsonValue& v, ProfileString<N>* s) noexcept {
 }
 struct Colors {
     u32* values;
-    u32 count;
+    u32 count, capacity;
 };
 bool color_item(void* opaque, u32, JsonValue value) noexcept {
     auto& c = *static_cast<Colors*>(opaque);
     u64 n = 0;
-    if (!filled(value) || !number(value, &n) || n > 0xFFFFFF || c.count == 2)
+    if (!filled(value) || !number(value, &n) || n > 0xFFFFFF || c.count == c.capacity)
         return false;
     c.values[c.count++] = static_cast<u32>(n);
     return true;
@@ -171,7 +220,7 @@ bool theme(const JsonIndexedDocument& doc, JsonValue v, u32* out, bool* has) noe
     *has = false;
     if (!filled(v))
         return true;
-    Colors c{out, 0};
+    Colors c{out, 0, 2};
     // [null, null] (a reset per-server theme) reads as no theme.
     if (!json_visit_indexed_array(doc, v, 64, color_item, &c).ok())
         return true;
@@ -203,6 +252,38 @@ bool collectibles(const JsonIndexedDocument& doc, JsonValue v, ProfileCollectibl
 bool decoration(const JsonIndexedDocument& doc, JsonValue v, ProfileString<64>* asset, u64* sku) noexcept {
     FieldSet<"asset", "sku_id"> f;
     return object(doc, v, f) && string(f[0].value, asset) && number(f[1].value, sku);
+}
+// display_name_styles: {font_id, effect_id, colors}; null or absent is no style. The first two colours are kept.
+bool name_style(const JsonIndexedDocument& doc, JsonValue v, ProfileNameStyle* out) noexcept {
+    reset_value(out);
+    if (!filled(v))
+        return true;
+    FieldSet<"font_id", "effect_id", "colors"> f;
+    u64 font = 0, effect = 0;
+    if (!object(doc, v, f) || !number(f[0].value, &font) || !number(f[1].value, &effect) || font > 0xFFFF ||
+        effect > 0xFFFF)
+        return false;
+    out->font = static_cast<u16>(font);
+    out->effect = static_cast<u16>(effect);
+    if (filled(f[2].value)) {
+        // Up to five (Prism); a longer list keeps its first five.
+        Colors c{out->colors, 0, kProfileNameStyleColors};
+        json_visit_indexed_array(doc, f[2].value, 64, color_item, &c);
+        out->color_count = static_cast<u8>(c.count);
+    }
+    return true;
+}
+// collectibles: {nameplate: {asset, sku_id, ...}}; absent or null is none.
+bool nameplate(const JsonIndexedDocument& doc, JsonValue v, ProfileString<128>* asset, u64* sku) noexcept {
+    if (!filled(v))
+        return true;
+    FieldSet<"nameplate"> c;
+    if (!object(doc, v, c))
+        return false;
+    if (!filled(c[0].value))
+        return true;
+    FieldSet<"asset", "sku_id"> n;
+    return object(doc, c[0].value, n) && string(n[0].value, asset) && number(n[1].value, sku);
 }
 } // namespace
 
@@ -302,7 +383,8 @@ u32 profile_edit_write_md5(const ProfileEditRequest& r, Slice<u8> output) noexce
 u32 profile_edit_body_capacity(const ProfileEditRequest& r) noexcept {
     if (profile_edit_method(r.operation) == RestMethod::get)
         return 0;
-    u32 bytes = 192;
+    // Keys, ids, colours and a name style's three members.
+    u32 bytes = 384;
     if (r.user) {
         escaped(r.user->avatar, &bytes);
         escaped(r.user->avatar_description, &bytes);
@@ -353,12 +435,15 @@ bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user
     FieldSet<"user", "user_profile", "guild_member", "guild_member_profile", "premium_type"> f;
     if (!object(doc, {body, 0, JsonValueKind::object}, f) || !filled(f[0].value))
         return false;
-    FieldSet<"id", "username", "global_name", "avatar", "avatar_decoration_data", "banner"> u;
+    FieldSet<"id", "username", "global_name", "avatar", "avatar_decoration_data", "banner", "display_name_styles",
+             "collectibles">
+        u;
     u64 premium = 0;
     if (!object(doc, f[0].value, u) || !number(u[0].value, &p->user_id) || p->user_id != user ||
         !string(u[1].value, &p->username) || !string(u[2].value, &p->global_name) || !string(u[3].value, &p->avatar) ||
         !decoration(doc, u[4].value, &p->decoration_asset, &p->decoration_sku) || !number(f[4].value, &premium) ||
-        premium > 255)
+        premium > 255 || !name_style(doc, u[6].value, &p->name_style) ||
+        !nameplate(doc, u[7].value, &p->nameplate_asset, &p->nameplate_sku))
         return false;
     p->premium_type = static_cast<u8>(premium);
     p->guild_id = guild;
@@ -376,9 +461,11 @@ bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user
     if (!p->banner.bytes && !string(u[5].value, &p->banner))
         return false;
     if (filled(f[2].value)) {
-        FieldSet<"nick", "avatar", "avatar_decoration_data"> m;
+        FieldSet<"nick", "avatar", "avatar_decoration_data", "display_name_styles", "collectibles"> m;
         if (!object(doc, f[2].value, m) || !string(m[0].value, &p->nick) || !string(m[1].value, &p->member_avatar) ||
-            !decoration(doc, m[2].value, &p->member_decoration_asset, &p->member_decoration_sku))
+            !decoration(doc, m[2].value, &p->member_decoration_asset, &p->member_decoration_sku) ||
+            !name_style(doc, m[3].value, &p->member_name_style) ||
+            !nameplate(doc, m[4].value, &p->member_nameplate_asset, &p->member_nameplate_sku))
             return false;
     }
     FieldSet<"bio", "pronouns", "banner", "theme_colors", "collectibles"> gm;
@@ -409,14 +496,16 @@ bool owned_item(void* opaque, u32, JsonValue value) noexcept {
     u64 type = 0, sku = 0;
     if (!object(*c.doc, value, f) || !number(f[0].value, &type) || !number(f[1].value, &sku))
         return false;
-    if (type > 1 || c.count >= c.out.count)
+    if (type > 2 || c.count >= c.out.count)
         return true;
     // Built in the next free slot; it only counts once it is kept.
     ProfileCollectible& item = c.out[c.count];
     reset_value(&item);
     item.sku = sku ? sku : c.purchase_sku;
     item.type = static_cast<ProfileCollectibleType>(type);
-    if (!string(type ? f[4].value : f[3].value, &item.label) || !string(type ? f[5].value : f[2].value, &item.asset))
+    // Effects carry title and thumbnailPreviewSrc; decorations and nameplates label and asset.
+    const bool effect = type == 1;
+    if (!string(effect ? f[4].value : f[3].value, &item.label) || !string(effect ? f[5].value : f[2].value, &item.asset))
         return false;
     if (!item.label.bytes)
         item.label = c.name;
@@ -480,8 +569,17 @@ bool message_item(void* opaque, u32 index, JsonValue value) noexcept {
 }
 bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& c = *static_cast<ErrorContext*>(opaque);
-    static constexpr Utf8View names[] = {utf8_literal("global_name"), utf8_literal("nick"),   utf8_literal("pronouns"),
-                                  utf8_literal("avatar"),      utf8_literal("banner"), utf8_literal("bio")};
+    static constexpr Utf8View names[] = {
+        utf8_literal("global_name"),          utf8_literal("nick"),
+        utf8_literal("pronouns"),             utf8_literal("avatar"),
+        utf8_literal("banner"),               utf8_literal("bio"),
+        utf8_literal("display_name_font_id"), utf8_literal("display_name_effect_id"),
+        utf8_literal("display_name_colors"),  utf8_literal("nameplate_sku_id"),
+        utf8_literal("collectibles")};
+    using F = ProfileEditErrorField;
+    static constexpr F slots[] = {F::global_name, F::nick,       F::pronouns,   F::avatar,    F::banner,   F::bio,
+                                  F::name_style,  F::name_style, F::name_style, F::nameplate, F::nameplate};
+    static_assert(sizeof(names) / sizeof(names[0]) == sizeof(slots) / sizeof(slots[0]));
     u32 slot = static_cast<u32>(ProfileEditErrorField::misc);
     if (json_string_equals_ascii(key, utf8_literal("username"))) {
         // A per-server username error is reported under nick.
@@ -490,7 +588,7 @@ bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
     } else if (!json_string_equals_ascii(key, utf8_literal("_errors")))
         for (u32 i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
             if (json_string_equals_ascii(key, names[i])) {
-                slot = i;
+                slot = static_cast<u32>(slots[i]);
                 break;
             }
     auto& target = c.out->fields[slot];

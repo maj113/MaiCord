@@ -40,4 +40,29 @@ inline void remember_preferences(ThemePublication& publication,
     publication.previous_gradient = preferences.gradient;
     publication.previous_kind = preferences.theme;
 }
+// Accessibility's Saturation (percent): the interface colours (palette, tokens and the background gradient) moved
+// toward their own luma; images, video and user colours keep theirs.
+inline void theme_desaturate(Theme* theme, u32 percent) noexcept {
+    if (percent >= 100)
+        return;
+    static_assert(__builtin_offsetof(Theme, base_lowest) == 0 && __builtin_offsetof(Theme, tokens) % sizeof(Color) == 0 &&
+                  sizeof(UiThemeTokens) % sizeof(Color) == 0);
+    const float s = static_cast<float>(percent) / 100.f;
+    auto* color = reinterpret_cast<Color*>(theme);
+    for (u32 i = 0, count = (__builtin_offsetof(Theme, tokens) + sizeof(UiThemeTokens)) / sizeof(Color); i < count;
+         ++i) {
+        auto& c = color[i];
+        const float luma = .2126f * c.red + .7152f * c.green + .0722f * c.blue;
+        c.red = luma + (c.red - luma) * s;
+        c.green = luma + (c.green - luma) * s;
+        c.blue = luma + (c.blue - luma) * s;
+    }
+    auto& background = theme->background;
+    for (u32 i = 0; i < background.color_count && i < sizeof(background.colors) / sizeof(background.colors[0]); ++i) {
+        const i32 rgb = static_cast<i32>(background.colors[i]), r = rgb >> 16 & 255, g = rgb >> 8 & 255, b = rgb & 255;
+        const i32 luma = (r * 54 + g * 183 + b * 19) >> 8, scale = static_cast<i32>(percent);
+        const auto mix = [&](i32 channel) noexcept { return static_cast<u32>(luma + (channel - luma) * scale / 100); };
+        background.colors[i] = mix(r) << 16 | mix(g) << 8 | mix(b);
+    }
+}
 } // namespace maicord::app_detail

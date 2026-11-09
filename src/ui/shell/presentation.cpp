@@ -5,6 +5,7 @@
 #include "maicord/ui/chat/messages/mention_badge.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/shell/presentation.hpp"
+#include "maicord/ui/shell/notice_band.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
@@ -420,6 +421,12 @@ bool shell_presentation_paint_reply_mention(const MessageComposerScene& scene, c
            paint_stream_push(stream, divider, middle - 10, divider + 1, middle + 10, ui_separator_color(theme));
 }
 
+// The typing label's dots sit on the label's line (kUiTypingLabelDrop below the row's middle).
+static UiRect typing_dots_box(const UiLayoutNode& typing) noexcept {
+    return ui_typing_dots_row({typing.rectangle.left, typing.rectangle.top + kUiTypingLabelDrop,
+                               typing.rectangle.right, typing.rectangle.bottom + kUiTypingLabelDrop});
+}
+
 bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView* navigation,
                                      const GuildRailScene* guild_scene,
                                      const ShellNavigationScene* channel_scene,
@@ -472,6 +479,11 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                     UiBackgroundTier::app_frame)) {
         return false;
     }
+    // The app-wide notice band over the root's top inset.
+    if (scene.notice &&
+        !ui_notice_band_paint(stream, *scene.notice,
+                              ui_notice_band_geometry(*scene.notice, root->rectangle, measure.cache), theme))
+        return false;
 
     // Home: the MaiCord mark on a rail tile that takes the accent (the brand gradient in the built-in flat themes)
     // while hovered or selected, then the separator one gap below it.
@@ -624,7 +636,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                 // its divider band.
                 const float row_height = row.voice_count || row.stage_live || row.voice_subtitle || row.voice_invite
                                              ? shell_navigation_voice_top(row)
-                                         : row.type == kNavigationEventsRowType ? kShellNavigationVoiceHeadHeight
+                                         : row.type == kNavigationEventsRowType ? shell_navigation_head_height()
                                                                                 : ui_rect_height(row_rectangle);
                 const float selected_right = row_rectangle.right - kShellChannelHighlightRight;
                 const bool thread = shell_navigation_thread_row(row) && !private_row;
@@ -693,8 +705,14 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                              kTextStyleSizeCodeSm, shell_category_name_space(row_rectangle, row)));
                         const Color ink = row_hovered ? theme.text_primary : row_color;
                         const UiRect create = shell_navigation_control_rectangle(row_rectangle, row, channel_row_create);
-                        if (!ui_icon_paint(stream, row.collapsed ? UiIcon::chevron_right : UiIcon::chevron_down,
-                                           geometry.chevron, ink) ||
+                        // A toggled category's chevron turns (100 ms linear, the host's chevron_turn): it draws
+                        // pointing down, turned toward right; other rows keep their pixel-snapped resting icons.
+                        const bool turning = channel_scene->chevron_category == row.id;
+                        if (!(turning ? ui_icon_paint_turned(stream, UiIcon::chevron_down, geometry.chevron, ink,
+                                                             -kUiQuarterTurn * channel_scene->chevron_turn)
+                                      : ui_icon_paint(stream, row.collapsed ? UiIcon::chevron_right
+                                                                            : UiIcon::chevron_down,
+                                                      geometry.chevron, ink)) ||
                             (ui_rect_has_area(create) && !ui_icon_paint(stream, UiIcon::plus, create, ink)))
                             return false;
                     } else if (thread ? !paint_thread_spine(stream, spine, ui_background_line_color(theme))
@@ -805,6 +823,14 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                             item.surface))
             return false;
     }
+    if (const auto* search = ui_scene_node(scene, UiSemantic::private_search)) {
+        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::private_search));
+        if (!paint_stream_push_rounded(stream, search->rectangle,
+                                       hovered ? ui_background_hover_color(theme, theme.surface_high, .36f)
+                                               : ui_background_surface_color(theme, theme.base_lowest, .9f),
+                                       theme.scale.radius_sm))
+            return false;
+    }
     if (const auto* create = ui_scene_node(scene, UiSemantic::private_create)) {
         const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::private_create));
         if (!ui_icon_paint(stream, UiIcon::plus, ui_rect_shrink(create->rectangle, 4),
@@ -851,10 +877,18 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     }
     if (const auto* friends = ui_scene_node(scene, UiSemantic::friends_button)) {
         const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::friends_button));
-        if (!paint_stream_push_rounded(stream, friends->rectangle, scene.view == UiShellView::friends
+        // The Message Requests page shares the view; its own sidebar row is the selected one then.
+        const bool selected = scene.view == UiShellView::friends && !(navigation && navigation->requests_mode);
+        if (!paint_stream_push_rounded(stream, friends->rectangle, selected
             ? ui_background_hover_color(theme, theme.interactive, .28f)
         : hovered ? ui_background_hover_color(theme, theme.surface_high, .20f)
                   : ui_background_surface_color(theme, theme.base_lower, .12f), theme.scale.radius_sm))
+            return false;
+        // The people glyph leads the label, as on the official client's Friends row.
+        const UiRect content = ui_scene_content_rectangle(scene, UiSemantic::friends_button);
+        const float middle = (content.top + content.bottom) * .5f;
+        if (!ui_icon_paint(stream, UiIcon::members, {content.left, middle - 10.f, content.left + 20.f, middle + 10.f},
+                           selected || hovered ? theme.text_primary : theme.text_secondary))
             return false;
     }
     if (members && member_scene && member_scene->active) {
@@ -1045,7 +1079,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     }
     // Typing dots animate in the composer overlay; a notice keeps resting ones.
     if (message_composer_scene_typing_label(*composer_scene).bytes != 0 && !composer_scene->typing_dots &&
-        !ui_typing_dots_paint(stream, ui_typing_dots_row(typing->rectangle),
+        !ui_typing_dots_paint(stream, typing_dots_box(*typing),
                               composer_scene->status_is_error || composer_scene->status_tone == 4 ? theme.notification
                               : composer_scene->status_tone == 3 ? theme.tokens.text.warning
                               : composer_scene->status_tone == 2 ? theme.tokens.text.positive
@@ -1115,19 +1149,45 @@ UiRect caret_pixel_rectangle(const UiRect& caret, const UiRect& clip, u32 dpi) n
     const float bottom = floor_pixel(minimum(caret.bottom, clip.bottom) * scale + .5f);
     return bottom > top ? UiRect{x / scale, top / scale, (x + 1) / scale, bottom / scale} : UiRect{};
 }
+// The fade behind the typing strip, painted while the list is scrolled away: the official client's chat
+// gradient. Alone it is `kUiTypingFadeIdle` DIPs up to the list's bottom; while someone types it is
+// `kUiTypingFadeTyping` DIPs up to the strip's top, followed by a solid band of the background down to the
+// list's bottom, so no message shows through behind the label.
+static bool paint_typing_fade(const MessageComposerScene& scene, const ShellTypingFade& fade, const Theme& theme,
+                              PaintStream* paint) noexcept {
+    const UiRect& list = fade.list;
+    if (!fade.scrolled_away || !ui_rect_has_area(list) || ui_background_active(theme))
+        return true;
+    const auto* typing = message_composer_scene_layout_node(scene, MessageComposerControl::typing_indicator);
+    const bool typing_now = typing && scene.typing_dots && message_composer_scene_typing_label(scene).bytes != 0;
+    const float right = maximum(list.left, list.right - kUiTypingFadeRightInset);
+    const float strip_top = typing_now ? minimum(list.bottom, typing->rectangle.top) : list.bottom;
+    const UiRect ramp{list.left, maximum(list.top, strip_top - (typing_now ? kUiTypingFadeTyping : kUiTypingFadeIdle)),
+                      right, strip_top};
+    const Color solid = theme.base_low;
+    Color clear = solid;
+    clear.alpha = 0;
+    return (!ui_rect_has_area(ramp) || paint_stream_push_gradient(paint, ramp, clear, solid)) &&
+           (strip_top >= list.bottom || paint_stream_push(paint, {list.left, strip_top, right, list.bottom}, solid));
+}
 bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene,
                                                const MessageComposerPresentationInput& input,
                                                const Theme& theme, PaintStream* paint, u32 dpi,
-                                               UiTypingDotsPaint* dots) noexcept {
+                                               UiTypingDotsPaint* dots, const ShellTypingFade* fade) noexcept {
     if (dots)
         reset_value(dots);
+    // The fade goes first: the dots (and the label's text beneath this layer) stay clear of it.
+    if (scene && scene->active && fade && !paint_typing_fade(*scene, *fade, theme, paint))
+        return false;
     // Typing dots: always three quads, so a step patches only their geometry
     // (renderer_step_typing_dots).
     if (scene && scene->active && scene->typing_dots && message_composer_scene_typing_label(*scene).bytes) {
         const auto* typing = message_composer_scene_layout_node(*scene, MessageComposerControl::typing_indicator);
-        const UiRect row = typing ? ui_typing_dots_row(typing->rectangle) : UiRect{};
+        const UiRect row = typing ? typing_dots_box(*typing) : UiRect{};
         const u32 first = paint ? paint->count : 0;
-        if (typing && (!paint_stream_push_clip(paint, typing->rectangle) ||
+        if (typing && (!paint_stream_push_clip(paint, {typing->rectangle.left, typing->rectangle.top,
+                                                       typing->rectangle.right,
+                                                       typing->rectangle.bottom + kUiTypingLabelDrop}) ||
                        !ui_typing_dots_paint(paint, row, theme.text_primary, scene->typing_phase)))
             return false;
         if (typing && dots) {

@@ -338,9 +338,8 @@ bool drawn(const D3D11Renderer& r, const MediaAssetKey& key) noexcept {
     return false;
 }
 
-// The screen pixel at DIP point `at` shows `key`'s colour (within rounding and blending), never the banner's
-// fallback fill.
-bool on_screen(D3D11Renderer& r, UiPoint at, const MediaAssetKey& key) noexcept {
+// The screen pixel at DIP point `at` shows `rgb` (within rounding and blending).
+bool on_screen_rgb(D3D11Renderer& r, UiPoint at, u32 rgb) noexcept {
     if (!d3d11_renderer_draw_stream(&r, kDefaultTheme, true, true, nullptr))
         return false;
     ProbeTargetReadback readback;
@@ -351,7 +350,6 @@ bool on_screen(D3D11Renderer& r, UiPoint at, const MediaAssetKey& key) noexcept 
     if (x >= readback.width || y >= readback.height)
         return false;
     const u8* p = static_cast<const u8*>(readback.mapped.pData) + y * readback.mapped.RowPitch + x * 4;
-    const u32 rgb = key_rgb(key);
     // The target is BGRA.
     const float shown[3]{static_cast<float>(p[2]), static_cast<float>(p[1]), static_cast<float>(p[0])};
     const float colour[3]{static_cast<float>((rgb >> 16) & 255), static_cast<float>((rgb >> 8) & 255),
@@ -364,6 +362,16 @@ bool on_screen(D3D11Renderer& r, UiPoint at, const MediaAssetKey& key) noexcept 
     for (u32 c = 0; c < 3; ++c)
         match = match && shown[c] - dim * colour[c] <= 5.f && dim * colour[c] - shown[c] <= 5.f;
     return match;
+}
+
+// The screen pixel at DIP point `at` shows `key`'s colour, never the banner's fallback fill.
+bool on_screen(D3D11Renderer& r, UiPoint at, const MediaAssetKey& key) noexcept {
+    return on_screen_rgb(r, at, key_rgb(key));
+}
+
+// The colour image_dominant_color finds in a picture of one colour: the centre of its 5-bit cell.
+u32 cell_centre(u32 rgb) noexcept {
+    return (rgb & 0xF8F8F8u) | 0x040404u;
 }
 
 template <u32 N>
@@ -392,11 +400,14 @@ void set_url(ProfileString<N>* text, const char* value, u32 number, u32 layer) n
     text->bytes += 4;
 }
 
-enum class BannerKind : u8 { still, animated, server };
+// A banner picture (still, animated, per-server), or none: the accent colour alone, or neither (the avatar's colour).
+enum class BannerKind : u8 { still, animated, server, accent, avatar };
 
 struct CardResult {
-    MediaAssetKey banner, decoration, effects[2];
+    MediaAssetKey banner, avatar, decoration, effects[2];
     bool banner_requested, banner_resident, banner_drawn, banner_visible;
+    // Without a picture: the banner shows the accent, or the avatar's colour.
+    bool fill_visible;
     bool decoration_ok, effects_ok;
     // The burst under the open card backed bands of the identity surface, and returned bands it had backed.
     bool mapped, released;
@@ -519,11 +530,12 @@ bool open_card(D3D11Renderer& renderer, Application& application, UiTextMeasureC
     renderer.profile_scene = &scene;
     bool ok = profile_scene_layout(&scene, viewport, true) && renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
               probe_present(&renderer, kDefaultTheme) && run_frames(renderer, application, 2);
-    // The profile arrives.
+    // The profile arrives: an accent colour (but for the avatar-coloured card) and the banner picture, if any.
+    data.has_accent = kind != BannerKind::avatar;
     data.accent_color = 0x2040C0;
     if (kind == BannerKind::server)
         set(&data.guild_banner, "server", k);
-    else
+    else if (kind == BannerKind::still || kind == BannerKind::animated)
         set(&data.banner, kind == BannerKind::animated ? "a_animated" : "still", k);
     if (effect) {
         data.effect_sku_id = 900 + k;
@@ -544,6 +556,8 @@ bool open_card(D3D11Renderer& renderer, Application& application, UiTextMeasureC
             continue;
         if (scene.parts[i].media == ProfileMediaKind::banner)
             out->banner = media.key;
+        else if (scene.parts[i].media == ProfileMediaKind::avatar)
+            out->avatar = media.key;
         else if (scene.parts[i].media == ProfileMediaKind::decoration)
             out->decoration = media.key;
     }
@@ -584,9 +598,14 @@ bool open_card(D3D11Renderer& renderer, Application& application, UiTextMeasureC
     out->banner_drawn = ok && drawn(renderer, out->banner);
     const UiRect banner = scene.banner;
     // Right of the avatar, below the header buttons.
-    out->banner_visible = ok && on_screen(renderer, {banner.left + ui_rect_width(banner) * .55f,
-                                                     banner.top + ui_rect_height(banner) * .7f},
-                                          out->banner);
+    const UiPoint inside{banner.left + ui_rect_width(banner) * .55f, banner.top + ui_rect_height(banner) * .7f};
+    out->banner_visible = ok && on_screen(renderer, inside, out->banner);
+    // Without a picture: the accent, else the colour of the still avatar picture the pump reads.
+    ProfileMedia still{};
+    const bool still_ok = profile_avatar_still_media(scene, ui_rect_width(scene.avatar), &still);
+    const u32 fill = kind == BannerKind::accent ? data.accent_color : cell_centre(key_rgb(still.key));
+    out->fill_visible = ok && (kind == BannerKind::accent || (kind == BannerKind::avatar && still_ok)) &&
+                        on_screen_rgb(renderer, inside, fill);
     out->decoration_ok = media_asset_key_valid(out->decoration) && requested(out->decoration) &&
                          resident_pixels(renderer, out->decoration) && drawn(renderer, out->decoration);
     out->effects_ok = true;
@@ -716,6 +735,21 @@ bool profile_media_sequence_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
             log_u64(LogLevel::error, "probe", "profile_sequence_effect_missing", kCards + k);
             fail(__LINE__);
         }
+    }
+    // Cards without a banner picture: the accent colour fills the banner, and without one the avatar's colour (its
+    // dominant colour, read back once the avatar is resident). Their member-list rows follow every earlier burst's.
+    for (u32 k = 0; ok && k < 2; ++k) {
+        CardResult card{};
+        const auto kind = k ? BannerKind::avatar : BannerKind::accent;
+        ok = open_card(renderer, *application, cache, state, users, 2 * (kCards + kEffectCards) + k, kind, false,
+                       &card);
+        if (!ok)
+            fail(__LINE__);
+        log_u64(card.fill_visible ? LogLevel::info : LogLevel::error, "probe",
+                card.fill_visible ? "profile_sequence_banner_fill_shown" : "profile_sequence_banner_fill_missing",
+                static_cast<u64>(kind));
+        if (!card.fill_visible || !card.decoration_ok)
+            fail(__LINE__);
     }
     if (ok && !nameplate_rows(renderer))
         fail(__LINE__);

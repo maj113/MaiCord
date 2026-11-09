@@ -29,6 +29,8 @@ enum UserAppearanceField : u32 {
     // With appearance_activity: the line is the custom status, not a
     // "Playing X" summary of another activity.
     appearance_custom_status = 256,
+    // The official Discord system account (user.system).
+    appearance_system = 512,
 };
 inline constexpr u32 kAppearanceActivityBytes = 256;
 inline constexpr u32 kAppearanceStatusEmojiBytes = 64;
@@ -44,7 +46,7 @@ struct UserAppearance {
     ProfileString<32> primary_tag;
     ProfileString<kAppearanceActivityBytes> activity;
     ProfileString<kAppearanceStatusEmojiBytes> status_emoji;
-    bool bot, primary_enabled, emoji_animated;
+    bool bot, primary_enabled, emoji_animated, system;
 };
 // A string of a stored appearance record. The offset is relative to this
 // field, so a record is one contiguous allocation whose strings follow it.
@@ -66,7 +68,7 @@ struct UserAppearanceRecord {
     AppearanceText decoration, nameplate, avatar, primary_badge, primary_tag, activity, status_emoji;
     u16 bytes; // record and strings
     u16 units; // allocated 8-byte units
-    bool bot, primary_enabled, emoji_animated;
+    bool bot, primary_enabled, emoji_animated, system;
     UserAppearanceRecord(const UserAppearanceRecord&) = delete;
     UserAppearanceRecord& operator=(const UserAppearanceRecord&) = delete;
 };
@@ -106,18 +108,65 @@ struct ProfileBadge {
     ProfileString<192> description;
     ProfileString<128> link;
 };
+// A connected account (connected_accounts[]): the type, the service's ID and the account's name, the metadata's
+// created_at (ISO 8601) when the service reports it, and the service's other statistics in compact form
+// (profile_connection.hpp): count[i] holds when bit i of count_mask is set, marks are the yes/no statistics.
 struct ProfileConnection {
     ProfileString<32> type;
-    ProfileString<128> name;
-    // metadata.created_at (ISO 8601) when the platform reports it.
+    ProfileString<128> id, name;
     ProfileString<40> created_at;
+    u32 count[3];
+    u8 count_mask, marks;
     bool verified;
 };
 struct ProfilePeer {
     u64 id;
     ProfileString<128> name;
     ProfileString<34> icon;
+    // A mutual server's member nickname (mutual_guilds[].nick); empty for friends.
+    ProfileString<128> nick;
 };
+// The profile's game widgets (Userdoccers, Widgets: game widget objects), the
+// tiles on a profile's Board. Other widget types are left out.
+enum class ProfileWidgetKind : u8 { favorite_games, played_games, current_games, want_to_play_games, application };
+// A game widget's tags, bit i of ProfileWidgetGame::tags (the documented order).
+enum ProfileWidgetTag : u8 {
+    profile_widget_noob,
+    profile_widget_learning_the_ropes,
+    profile_widget_casual,
+    profile_widget_getting_good,
+    profile_widget_intermediate,
+    profile_widget_expert,
+    profile_widget_better_than_you,
+    profile_widget_obsessed,
+    profile_widget_love_it,
+    profile_widget_kind_of_love_it,
+    profile_widget_kind_of_hate_it,
+    profile_widget_rage_quitting,
+    profile_widget_like_it,
+    profile_widget_frustrated,
+    profile_widget_too_easy,
+    profile_widget_looking_for_group,
+    profile_widget_open_to_play,
+    profile_widget_looking_for_tips,
+    profile_widget_open_to_teach,
+    profile_widget_looking_to_discuss,
+    profile_widget_tag_count
+};
+struct ProfileWidgetGame {
+    u64 game_id;
+    u32 tags;
+    // The comment shown under the game in detailed widgets (cut to fit).
+    ProfileString<192> comment;
+};
+struct ProfileWidget {
+    u64 id, application_id; // application_id: application widgets only
+    ProfileWidgetKind kind;
+    // Its games: widget_games[first_game, first_game + game_count).
+    u8 first_game, game_count;
+};
+// One widget of each kind; favorite 1, played 20, current 5, want to play 20 games.
+inline constexpr u32 kProfileWidgetMaximum = 5, kProfileWidgetGameMaximum = 46;
 struct ProfileEffectLayer {
     ProfileString<384> source;
     ProfileString<64> id;
@@ -158,9 +207,19 @@ struct UserProfile {
     // most used commands (at most five), most popular first.
     u64 application_id, popular_commands[5];
     u8 popular_command_count;
+    // The profile's game widgets in order, and their games.
+    ProfileWidget widgets[kProfileWidgetMaximum];
+    ProfileWidgetGame widget_games[kProfileWidgetGameMaximum];
+    u8 widget_count, widget_game_count;
     u8 premium_type;
-    bool has_theme, has_guild_theme, private_profile;
+    // has_accent: user_profile.accent_color is set (0 is black). A member profile's accent is not used.
+    // guild_theme_reset: the member profile lists theme colours with a null ([null, null]), which hides the
+    // user's theme in that server.
+    bool has_theme, has_guild_theme, guild_theme_reset, has_accent, private_profile;
 };
 bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected_user, u64 guild,
                             UserProfile* output) noexcept;
+// The games of the profile's game-list widgets, each once, in widget order (what the Game Collection shows).
+// Returns how many it wrote, at most `capacity`.
+u32 profile_widget_game_ids(const UserProfile& profile, u64* output, u32 capacity) noexcept;
 } // namespace maicord

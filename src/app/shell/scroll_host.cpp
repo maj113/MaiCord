@@ -132,7 +132,7 @@ bool read_surface(void*, u64 key, UiScrollRange* range) noexcept {
         *range = {g_app.member_list_scene.viewport, g_app.member_list_scene.scroll_dips,
                   maximum(0.0f, g_app.member_list_scene.content_height -
                                     ui_rect_height(g_app.member_list_scene.viewport)),
-                  kMemberListRowHeight, 1};
+                  member_list_row_height(), 1};
         return true;
     case guilds:
         if (!g_app.guild_rail_scene.active)

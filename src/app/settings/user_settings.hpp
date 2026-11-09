@@ -15,9 +15,19 @@ bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_user_settings_response(const RestClientResponse&, Utf8View body) noexcept;
 u64 application_user_settings_next_wake() noexcept;
 void application_user_settings_release() noexcept;
-// Reapplies display consumers (compact mode, group spacing, time format and
-// the Chat page: media, embeds, reactions, animation, spoilers).
+// Reapplies display consumers (compact mode and its avatars, group spacing, time format, UI Density and the Chat
+// page: media, embeds, reactions, animation, spoilers, image descriptions) and mirrors the account's Developer
+// Mode into the local preferences.
 void application_user_settings_apply_display() noexcept;
+// Saves Developer Mode to the account (appearance.developer_mode); false while the synced settings are not loaded.
+bool application_user_settings_set_developer_mode(bool on) noexcept;
+// Appearance > Chat Box "Show games in autocomplete results" (text_and_images.include_game_mentions_in_autocomplete;
+// true while unset or not loaded).
+bool application_user_settings_game_mentions_autocomplete() noexcept;
+// Chat Box "Show stickers in autocomplete results" (include_stickers_in_autocomplete; false while unset).
+bool application_user_settings_sticker_autocomplete() noexcept;
+// "Allow playback and usage of /tts command" (enable_tts_command; true while unset or not loaded).
+bool application_user_settings_tts_command() noexcept;
 // Chat "Show spoiler content" for a channel: always, or where you moderate.
 bool application_user_settings_reveal_spoilers(u64 channel_id) noexcept;
 // Context defaults and stored overrides share one account/revision cache.

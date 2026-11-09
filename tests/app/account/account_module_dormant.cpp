@@ -49,8 +49,9 @@ void test_account_module_dormant(void (*check)(bool, const char*) noexcept) noex
     forum.operation = ForumPostOperation::parent_metadata;
     check(api.forum_post(nullptr, &forum, 1).error == invalid && api.forum_post(nullptr, nullptr, 1).error == invalid,
           "dormant module: forum posts");
-    check(api.guild_admin(nullptr, nullptr, 1).error == invalid && api.guild_moderation(nullptr, nullptr, 1).error == invalid,
-          "dormant module: guild administration and moderation");
+    check(api.guild_admin(nullptr, nullptr, 1).error == invalid && api.guild_moderation(nullptr, nullptr, 1).error == invalid &&
+              api.guild_automation(nullptr, nullptr, 1).error == invalid,
+          "dormant module: guild administration, moderation and automation");
     GuildAssetRequest probe{};
     probe.operation = GuildAssetOperation::image_probe;
     probe.image = {reinterpret_cast<const u8*>("x"), 1};

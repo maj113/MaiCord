@@ -31,6 +31,8 @@
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/ui/media/picker.hpp"
+#include "../../src/app/chat/composer/game_search.hpp"
+#include "../../src/app/settings/user_settings.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};
@@ -133,8 +135,8 @@ bool project() noexcept {
     const float full_width = ui_scene_composer_width(metrics, r.width * 96.f / r.dpi);
     const bool command_bar = fixture->command && fixture->command->command_bar_name.bytes;
     metrics.composer_height = message_composer_scene_cached_height(
-        g_app.message_composer_scene, reply.message_id != 0, fixture->typing.bytes != 0,
-        fixture->attachments.bytes != 0, full_width, command_bar);
+        g_app.message_composer_scene, reply.message_id != 0, fixture->attachments.bytes != 0, full_width,
+        command_bar);
     MessageComposerProjectionContext projection{&ui.user_store, &ui.chat_state, kGuild};
     if (const auto* command = fixture->command) {
         projection.command = command->command;
@@ -171,8 +173,8 @@ bool project() noexcept {
         const float width = ui_rect_width(g_app.message_composer_scene.viewport);
         g_app.message_composer_scene.measured_row_height =
             measured -
-            message_composer_scene_chrome_height(reply.message_id != 0, fixture->typing.bytes != 0,
-                                                 fixture->attachments.bytes != 0, nullptr, command_bar) -
+            message_composer_scene_chrome_height(reply.message_id != 0, fixture->attachments.bytes != 0, nullptr,
+                                                 command_bar) -
             message_composer_scene_toolbar_height(width);
         if (measured == metrics.composer_height) {
             settled = true;
@@ -908,7 +910,8 @@ bool typing_dots_steps() noexcept {
     };
     // The dots' box with the damage fringe, in pixels.
     const float scale = r.dpi / 96.f;
-    const UiRect row = ui_typing_dots_row(typing->rectangle);
+    const UiRect row = ui_typing_dots_row({typing->rectangle.left, typing->rectangle.top + kUiTypingLabelDrop,
+                                           typing->rectangle.right, typing->rectangle.bottom + kUiTypingLabelDrop});
     const float middle = (row.top + row.bottom) * .5f;
     const RECT box{static_cast<LONG>((row.left - 2) * scale) - 1, static_cast<LONG>((middle - 5.5f) * scale) - 1,
                    static_cast<LONG>((row.right + 2) * scale) + 2, static_cast<LONG>((middle + 5.5f) * scale) + 2};
@@ -1347,6 +1350,21 @@ bool pump_message_history() noexcept {
 bool application_commands_sync(bool* handled) noexcept {
     if (handled)
         *handled = fixture->commands_handled;
+    return true;
+}
+// No @game token is ever typed here (src/app/chat/composer/game_search.hpp).
+bool application_game_search_sync(bool* handled) noexcept {
+    *handled = false;
+    return true;
+}
+bool application_user_settings_game_mentions_autocomplete() noexcept {
+    return false;
+}
+// Sticker suggestions are off here.
+bool application_user_settings_sticker_autocomplete() noexcept {
+    return false;
+}
+bool application_media_picker_inline(UiMediaPickerKind, Utf8View, UiRect, bool) noexcept {
     return true;
 }
 bool application_composer_prepare_send(bool* handled) noexcept {

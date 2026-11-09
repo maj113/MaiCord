@@ -188,6 +188,14 @@ bool alphanumeric(Utf8View text, u32 limit) noexcept {
     return true;
 }
 } // namespace
+u32 user_activity_spotify_url(const UserActivity& a, Slice<char> output) noexcept {
+    const auto id = user_activity_text(a, UserActivityField::sync);
+    if (!user_activity_is_spotify(a) || !alphanumeric(id, 64))
+        return 0;
+    GuardedWriter w{output};
+    w.put("https://open.spotify.com/track/", id);
+    return w.finish();
+}
 u32 user_activity_image_url(const UserActivity& a, bool large, Slice<char> output,
                             MediaAttachmentFormat* format) noexcept {
     const auto key = user_activity_text(a, large ? UserActivityField::large_image : UserActivityField::small_image);
@@ -275,7 +283,7 @@ namespace {
 enum ActivityMember : u32 {
     activity_type, activity_name, activity_details, activity_state, activity_url, activity_application_id,
     activity_timestamps, activity_created_at, activity_party, activity_assets, activity_buttons, activity_flags,
-    activity_session_id, activity_platform, activity_display, activity_member_count
+    activity_session_id, activity_platform, activity_display, activity_sync, activity_member_count
 };
 struct ActivityFields {
     JsonValue v[activity_member_count];
@@ -284,7 +292,8 @@ bool activity_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& f = *static_cast<ActivityFields*>(opaque);
     const u32 index = protocol_detail::wide_member_index<"type", "name", "details", "state", "url", "application_id",
                                                          "timestamps", "created_at", "party", "assets", "buttons",
-                                                         "flags", "session_id", "platform", "status_display_type">(key);
+                                                         "flags", "session_id", "platform", "status_display_type",
+                                                         "sync_id">(key);
     // First occurrence wins.
     if (index < activity_member_count && !f.v[index].source.data)
         f.v[index] = value;
@@ -401,6 +410,7 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     if (type == 1)
         take(F::url, f.v[activity_url], true);
     take(F::session, f.v[activity_session_id], true);
+    take(F::sync, f.v[activity_sync], true);
     Members assets{{}, {}, {}, {}, utf8_literal("large_image"), utf8_literal("large_text"),
                    utf8_literal("small_image"), utf8_literal("small_text")};
     if (!object(*c.doc, f.v[activity_assets], &assets))
@@ -481,8 +491,8 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     u32 total = 0;
     for (u32 i = 0; i < kUserActivityFieldCount; ++i)
         total += pending.bytes[i];
-    const F drop_order[] = {F::session, F::small_image, F::small_text, F::url, F::large_text, F::button_1,
-                            F::button_0, F::large_image, F::state, F::details};
+    const F drop_order[] = {F::session, F::sync,     F::small_image, F::small_text, F::url,  F::large_text,
+                            F::button_1, F::button_0, F::large_image, F::state,      F::details};
     for (u32 k = 0; total > kUserActivityTextBytes && k < sizeof(drop_order) / sizeof(drop_order[0]); ++k) {
         const u32 i = static_cast<u32>(drop_order[k]);
         total -= pending.bytes[i];
@@ -582,5 +592,25 @@ u32 user_activity_button_url(Utf8View body, Slice<u32> structurals, u32 index, S
         return 0;
     copy_bytes(output.data, text, bytes);
     return bytes;
+}
+u32 user_activity_album_url(Utf8View body, Slice<u32> structurals, Slice<char> output) noexcept {
+    if (!body.bytes || body.data[0] != '{')
+        return 0;
+    const auto scan = json_scan_structurals_avx1(body, structurals);
+    if (!scan.ok())
+        return 0;
+    const JsonIndexedDocument doc{body, {structurals.data, scan.count}};
+    Members m{{}, {}, {}, {}, utf8_literal("album_id"), utf8_literal("type")};
+    if (!object(doc, {body, 0, JsonValueKind::object}, &m))
+        return 0;
+    char id[72], type[16];
+    const Utf8View album{id, decode(m.a, id, 64, true)};
+    // An episode's "album" is its show.
+    const bool show = utf8_equal({type, decode(m.b, type, sizeof(type), true)}, utf8_literal("episode"));
+    if (!alphanumeric(album, 64))
+        return 0;
+    GuardedWriter w{output};
+    w.put(show ? "https://open.spotify.com/show/" : "https://open.spotify.com/album/", album);
+    return w.finish();
 }
 } // namespace maicord

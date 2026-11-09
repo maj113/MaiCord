@@ -1,5 +1,6 @@
 #include "../shell/overlay_input.hpp"
 #include "../shell/window_state.hpp"
+#include "../shell/surface_motion.hpp"
 #include "login/action_captcha.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -14,6 +15,12 @@
 #include "../chat/composer/text_input.hpp"
 #include "../chat/composer/composer.hpp"
 #include "../chat/application_private_conversation.hpp"
+#include "../chat/private_channel.hpp"
+#include "maicord/app/chat/private_conversation.hpp"
+#include "maicord/ui/chat/private_channel_title.hpp"
+#include "maicord/ui/account/activity_card.hpp"
+#include "maicord/ui/account/profile_media.hpp"
+#include "maicord/media/core/asset.hpp"
 #include "profile.hpp"
 #include "../chat/messages/interaction.hpp"
 #include "../shell/input.hpp"
@@ -42,14 +49,22 @@
 
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
+#include "maicord/model/user/private_channel_store.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
 
 namespace maicord::app_detail {
 namespace {
 constexpr u32 relationship_capacity = kFriendsRelationshipCapacity;
+// An Active Now card's details span the column less its 16-DIP margins and the card's 14-DIP insets.
+constexpr float kActiveDetailWidth = kUiFriendsActiveNowWidth - 2 * 16 - 2 * 14;
+// The Message Requests page lists at most this many request DMs per tab, newest first.
+constexpr u32 kFriendsDmRequestCapacity = 256;
 enum class FriendsRequestPhase : u8 { idle, queued, awaiting, retry, failed };
 struct FriendsRequest {
     u64 user_id, request_id, retry_at, membership_epoch, intent_epoch;
-    char username[kRelationshipUsernameMaximumBytes];
+    // A username to send a request to (with its note after a line feed), or a friend's new nickname.
+    char username[kRelationshipRequestTextMaximumBytes];
+    static_assert(kRelationshipRequestTextMaximumBytes >= kRelationshipNicknameMaximumBytes);
     u32 username_bytes;
     RelationshipOperation operation;
     RelationshipType expected_type;
@@ -81,12 +96,14 @@ struct ApplicationFriends {
     u64 membership_epoch, snapshot_sequence, confirmation_serial, confirmation_epoch;
     u32 snapshot_items;
     u32 store_revision, user_revision, pressed_revision, held_key;
-    u32 query_revision, total_count, edit_revision;
+    u32 query_revision, total_count, edit_revision, note_revision;
     u64 search_blink_at;
     u32 search_blink_ms;
     UiFriendsTab tab;
     bool visible, ready, snapshot_active, snapshot_failed, snapshot_sorted, incomplete, dragging;
     bool search_focused, search_caret_visible, search_dragging, stranger_confirmation;
+    // On Add Friend the keyboard edits the request note rather than the username.
+    bool note_focused;
     bool requests_visible, collapsed[2], confirmation_hidden, confirmation_ignored, confirmation_spam, confirmation_stranger, confirmation_stranger_known;
     float thumb_grab;
     // Active Now: the projection, its card strings and the inputs it saw.
@@ -97,11 +114,43 @@ struct ApplicationFriends {
     UiFriendsActiveNow active_now;
     u32 active_store_revision, active_user_revision, active_voice_revision, active_activity_revision;
     bool active_collapsed, active_projected;
+    // Each card's activity (a copy the laid-out card's timer reads) and its
+    // compact layout; the next once-a-second timer refresh, zero for none.
+    UserActivity active_sources[kUiFriendsActiveNowCards];
+    UiActivityCard active_details[kUiFriendsActiveNowCards];
+    ProfileMedia active_images[kUiFriendsActiveNowCards][2];
+    u64 active_tick_at;
+    // Add Friend: the last send's result line and its colour; the incoming
+    // requests badging Pending; a friend whose DM opens into a voice call.
+    char add_status[192];
+    UiFriendsTone add_tone;
+    u32 incoming_badge;
+    u64 call_user, nickname_serial;
+    // The list rows' hover fade.
+    UiMotionHover row_hover;
+    // The Message Requests page: the shown tab's request DMs, newest first, with their other person and the last
+    // message's date; the inputs they were projected from; the Friends tab to return to.
+    UiFriendsSource dm_source;
+    u64 dm_channels[kFriendsDmRequestCapacity], dm_users[kFriendsDmRequestCapacity];
+    char dm_dates[kFriendsDmRequestCapacity][40];
+    u8 dm_date_bytes[kFriendsDmRequestCapacity];
+    u32 dm_store_revision, dm_user_revision, dm_spam_count;
+    u64 dm_busy;
+    UiFriendsTab dm_tab, friends_tab;
 };
 const RelationshipStore* application_friends_relationships() noexcept {
     const auto* friends = g_app.friends;
     return friends && friends->ready && !friends->incomplete && !friends->snapshot_active
                ? &friends->store : nullptr;
+}
+namespace {
+// Friend nicknames name one-to-one DMs: the loaded relationships go to the
+// chat state, and the list and header text are built again with them.
+void publish_dm_names() noexcept {
+    if (!g_app.account_ui) return;
+    g_app.account_ui->chat_state.relationships = application_friends_relationships();
+    refresh_account_text(true);
+}
 }
 bool application_friends_notification_gates(u64 user_id, u32* gates) noexcept {
     const auto* store = application_friends_relationships();
@@ -206,6 +255,76 @@ bool requests_find(void* opaque, u64 id, u32* index) noexcept {
     }
     return false;
 }
+// A message request row: the other person, and the last message's date under their name.
+bool dm_resolve(void* opaque, u32 index, UiFriendsRow* row) noexcept {
+    const auto& friends = *static_cast<const ApplicationFriends*>(opaque);
+    if (!g_app.account_ui || index >= friends.dm_source.count) return false;
+    const auto& users = g_app.account_ui->user_store;
+    const auto* user = user_store_find(users, friends.dm_users[index]);
+    const auto name = user ? user_store_name(users, *user) : Utf8View{};
+    *row = {friends.dm_users[index], name.bytes ? name : utf8_literal("Unknown user"),
+        user ? user_store_username(users, *user) : Utf8View{},
+        {friends.dm_dates[index], friends.dm_date_bytes[index]}, UiPresence::offline, UiFriendsKind::message_request,
+        friends.dm_busy == friends.dm_channels[index], friends.dm_tab == UiFriendsTab::spam};
+    return true;
+}
+bool dm_find(void* opaque, u64 id, u32* index) noexcept {
+    const auto& friends = *static_cast<const ApplicationFriends*>(opaque);
+    for (u32 i = 0; i < friends.dm_source.count; ++i) if (friends.dm_users[i] == id) { *index = i;return true; }
+    return false;
+}
+// The request DM a Message Requests row stands for.
+u64 dm_channel(const ApplicationFriends& friends, u64 user_id) noexcept {
+    u32 index = 0;
+    return dm_find(const_cast<ApplicationFriends*>(&friends), user_id, &index) ? friends.dm_channels[index] : 0;
+}
+// Lists the shown tab's request DMs (pending or spam), newest first, when they, their people or the busy one changed.
+void project_dm(ApplicationFriends& friends) noexcept {
+    const auto& state = g_app.account_ui->chat_state;
+    const auto* store = state.private_channels;
+    const auto& users = g_app.account_ui->user_store;
+    u64 busy = 0;
+    for (u32 i = 0; i < friends.dm_source.count && !busy; ++i)
+        if (application_private_channel_request_busy(friends.dm_channels[i])) busy = friends.dm_channels[i];
+    const u32 revision = store ? store->revision : 0;
+    if (friends.dm_tab == friends.tab && friends.dm_store_revision == revision && friends.dm_user_revision == users.revision &&
+        friends.dm_busy == busy && friends.dm_source.revision)
+        return;
+    friends.dm_tab = friends.tab;friends.dm_store_revision = revision;friends.dm_user_revision = users.revision;
+    friends.dm_busy = busy;
+    friends.dm_spam_count = store ? private_channel_store_request_count(*store, true) : 0;
+    const bool spam = friends.tab == UiFriendsTab::spam;
+    const u64 now = clock_unix_milliseconds() / 1000;
+    u64 recency[kFriendsDmRequestCapacity];
+    u32 count = 0;
+    for (u32 i = 0; store && i < store->count; ++i) {
+        const auto& record = store->records[i];
+        if (!private_channel_is_request(record) || ((record.request_flags & private_request_spam) != 0) != spam) continue;
+        const auto recipients = private_channel_store_recipients(*store, record);
+        if (!recipients.count) continue;
+        const auto* channel = chat_state_store_find_channel(state, record.id);
+        const u64 sort = channel && channel->last_message_id ? channel->last_message_id : record.id;
+        // Insertion keeps the newest first; past the capacity the oldest drop off.
+        u32 at = count;
+        while (at && recency[at - 1] < sort) --at;
+        if (at >= kFriendsDmRequestCapacity) continue;
+        const u32 last = minimum(count, kFriendsDmRequestCapacity - 1);
+        for (u32 j = last; j > at; --j) {
+            recency[j] = recency[j - 1];friends.dm_channels[j] = friends.dm_channels[j - 1];
+            friends.dm_users[j] = friends.dm_users[j - 1];
+        }
+        recency[at] = sort;friends.dm_channels[at] = record.id;friends.dm_users[at] = recipients[0];
+        if (count < kFriendsDmRequestCapacity) ++count;
+    }
+    for (u32 i = 0; i < count; ++i) {
+        // Snowflakes count milliseconds from 2015-01-01.
+        const u64 sent = ((recency[i] >> 22) + 1420070400000ull) / 1000;
+        const auto formatted = format_timestamp_calendar(sent, now, {friends.dm_dates[i], sizeof(friends.dm_dates[i])});
+        friends.dm_date_bytes[i] = static_cast<u8>(formatted.ok ? formatted.bytes : 0);
+    }
+    friends.dm_source.count = count;
+    if (++friends.dm_source.revision == 0) ++friends.dm_source.revision;
+}
 ApplicationFriends* ensure() noexcept {
     if (g_app.friends) return g_app.friends;
     auto* friends = commit_pages<ApplicationFriends>();
@@ -226,6 +345,8 @@ ApplicationFriends* ensure() noexcept {
     friends->snapshot = {{friends->candidate, relationship_capacity}, 0, 0};
     friends->source = {friends, 0, 1, resolve, find};
     friends->requests_source = {friends, 0, 1, requests_resolve, requests_find};
+    friends->dm_source = {friends, 0, 0, dm_resolve, dm_find};
+    friends->friends_tab = UiFriendsTab::online;
     friends->sections = {friends->section_rows, 2, 1, false, false, 0};
     friends->requests_sections = {nullptr, 0, 1, false, true, 0};
     friends->tab = UiFriendsTab::online;
@@ -265,9 +386,8 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
         } else if (record.type == RelationshipType::outgoing) ++outgoing_total;
     }
     const auto filter = friends.tab == UiFriendsTab::online ? RelationshipFilter::online :
-        friends.tab == UiFriendsTab::pending ? RelationshipFilter::pending :
-        friends.tab == UiFriendsTab::blocked ? RelationshipFilter::blocked : RelationshipFilter::all;
-    if (friends.tab != UiFriendsTab::add_friend)
+        friends.tab == UiFriendsTab::pending ? RelationshipFilter::pending : RelationshipFilter::all;
+    if (friends.tab <= UiFriendsTab::pending)
         for (u32 i = 0; i < friends.store.count; ++i)
             if (relationship_matches(friends.records[i], filter)) {
                 ++friends.total_count;
@@ -289,6 +409,7 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
     friends.section_rows[1] = {UiFriendsSectionKind::outgoing, incoming_count, friends.source.count - incoming_count,
         outgoing_total, friends.collapsed[1]};
     friends.sections.hidden_available = hidden_count != 0;friends.sections.hidden_count = hidden_count;++friends.sections.revision;
+    friends.incoming_badge = incoming_total;
     friends.requests_sections.hidden_count = hidden_count;++friends.requests_sections.revision;
     if (friends.requests_visible) {
         if ((!friends.requests_indices.arena.base && !stable_storage_initialize(&friends.requests_indices,
@@ -330,16 +451,25 @@ void restart_search_blink(ApplicationFriends& friends) noexcept {
                                   ? deadline_after(clock_monotonic_milliseconds(), friends.search_blink_ms)
                                   : 0;
 }
-void search_focus(ApplicationFriends& friends, bool focused) noexcept {
-    auto* model = friends_search_document(&friends.search, friends.tab);
+// The document the keyboard edits: Add Friend's note while it holds the focus, else the tab's query or username.
+MessageComposer* edit_model(ApplicationFriends& friends) noexcept {
+    return friends.tab == UiFriendsTab::add_friend && friends.note_focused
+        ? &friends.search.note : friends_search_document(&friends.search, friends.tab);
+}
+void search_focus(ApplicationFriends& friends, bool focused, bool note = false) noexcept {
+    note = focused && note && friends.tab == UiFriendsTab::add_friend;
+    const bool moved = friends.note_focused != note;
+    friends.note_focused = note;
+    auto* model = edit_model(friends);
     focused = focused && model && search_available();
-    if (friends.search_focused != focused) application_composer_text_input_suspend();
+    if (friends.search_focused != focused || moved) application_composer_text_input_suspend();
     for (auto& document : friends.search.models) document.focused = focused && &document == model;
+    friends.search.note.focused = focused && note;
     friends.search_focused = focused;
     restart_search_blink(friends);
     if (focused) {
         message_composer_enable_history(model, 2048);
-        ui_friends_scene_focus(&friends.scene, {UiFriendsAction::search, 0, friends.tab});
+        ui_friends_scene_focus(&friends.scene, {note ? UiFriendsAction::note : UiFriendsAction::search, 0, friends.tab});
         g_app.context_focus = &friends.scene.widgets;
     }
 }
@@ -352,29 +482,49 @@ void close_requests(ApplicationFriends& friends) noexcept {
     renderer_bind_friends_requests_scene(&g_app.renderer, nullptr);ui_friends_scene_release(&friends.requests_scene);
     friends.requests_source.count = 0;++friends.requests_source.revision;
 }
-void project_content(ApplicationFriends& friends) noexcept {
-    auto* model = friends_search_document(&friends.search, friends.tab);
+UiEditView edit_view(const MessageComposer* model, bool focused, bool caret_visible) noexcept {
     UiEditView edit{};
     if (model) {
         edit.text = message_composer_text(*model);edit.active = true;
         edit.anchor = model->anchor;edit.caret = model->caret;
-        edit.focused = application_friends_search_focused();edit.caret_visible = edit.focused && friends.search_caret_visible;
+        edit.focused = focused;edit.caret_visible = focused && caret_visible;
     }
-    const u32 revision = model ? model->revision : 0;
-    const auto old = friends.content.search;
-    if (revision != friends.edit_revision || old.text.data != edit.text.data || old.text.bytes != edit.text.bytes ||
-        old.anchor != edit.anchor || old.caret != edit.caret || old.active != edit.active || old.focused != edit.focused ||
-        old.caret_visible != edit.caret_visible || friends.content.total_count != friends.total_count) {
-        friends.content.search = edit;friends.content.total_count = friends.total_count;friends.edit_revision = revision;
+    return edit;
+}
+bool edit_view_equal(const UiEditView& a, const UiEditView& b) noexcept {
+    return a.text.data == b.text.data && a.text.bytes == b.text.bytes && a.anchor == b.anchor && a.caret == b.caret &&
+        a.active == b.active && a.focused == b.focused && a.caret_visible == b.caret_visible;
+}
+void project_content(ApplicationFriends& friends) noexcept {
+    auto* model = friends_search_document(&friends.search, friends.tab);
+    const bool focused = application_friends_search_focused();
+    const auto edit = edit_view(model, focused && !friends.note_focused, friends.search_caret_visible);
+    // Add Friend's request note sits under its username.
+    const bool adding = friends.tab == UiFriendsTab::add_friend;
+    const auto note = edit_view(adding ? &friends.search.note : nullptr, focused && friends.note_focused,
+                                friends.search_caret_visible);
+    const u32 revision = model ? model->revision : 0, note_revision = adding ? friends.search.note.revision : 0;
+    // The tone colours only the Add Friend result the status shows now.
+    const auto tone = friends.status.data == friends.add_status ? friends.add_tone : UiFriendsTone::neutral;
+    const auto* users = g_app.account_ui ? &g_app.account_ui->user_store : nullptr;
+    if (revision != friends.edit_revision || note_revision != friends.note_revision ||
+        !edit_view_equal(friends.content.search, edit) || !edit_view_equal(friends.content.note, note) ||
+        friends.content.total_count != friends.total_count ||
+        friends.content.incoming_count != friends.incoming_badge || friends.content.tone != tone ||
+        friends.content.users != users || friends.content.spam_count != friends.dm_spam_count) {
+        friends.content.search = edit;friends.content.note = note;friends.content.total_count = friends.total_count;
+        friends.edit_revision = revision;friends.note_revision = note_revision;
+        friends.content.incoming_count = friends.incoming_badge;friends.content.tone = tone;friends.content.users = users;
+        friends.content.spam_count = friends.dm_spam_count;
         ++friends.content.revision;
     }
 }
 bool search_pointer(ApplicationFriends& friends, float x, float y, bool extend, bool word = false) noexcept {
-    auto* model = friends_search_document(&friends.search, friends.tab);
+    auto* model = edit_model(friends);
     u32 position = 0, offset = 0;
     if (!model || !text_edit_layout_hit_test(g_app.renderer.composer_layout, x, y, &position) ||
         !utf8_byte_offset_for_utf16_position(message_composer_text(*model), position, &offset)) return false;
-    search_focus(friends, true);
+    search_focus(friends, true, friends.note_focused);
     const auto result = word ? message_composer_select_word(model, offset) :
         message_composer_set_selection(model, extend ? model->anchor : offset, offset);
     return result != MessageComposerResult::invalid_input && application_friends_search_changed(false);
@@ -408,6 +558,65 @@ void member_names(ActiveText& text, const ActiveNowCard& card) noexcept {
         text.add(utf8_literal(" and "));
         text.number(card.total - 1);
         text.add(utf8_literal(" others"));
+    }
+}
+// An activity image the card shows (its art or the art's corner badge), keyed
+// by URL as the profile card keys the same image; false without one.
+bool active_image(const UserActivity& activity, const UiActivityCardItem& item, bool large, ProfileMedia* out) noexcept {
+    reset_value(out);
+    MediaAttachmentFormat format{};
+    const u32 bytes = user_activity_image_url(activity, large, {out->url.data, sizeof(out->url.data)}, &format);
+    if (!bytes) return false;
+    out->url.bytes = static_cast<u16>(bytes);
+    out->key = media_asset_embed(hash64_bytes(kHash64Seed, out->url.data, bytes), 1, 0, MediaEmbedResource::image,
+                                 format, false, MediaResolutionTier::px512);
+    out->key.kind = MediaAssetKind::profile_image;
+    out->rectangle = out->mask = item.rect;
+    out->circular = item.role == UiActivityCardRole::badge;
+    out->mask_radius = out->circular ? ui_rect_width(item.rect) * .5f : 4.f;
+    return media_asset_key_valid(out->key);
+}
+// A laid-out card's images, collected again whenever it is laid out.
+void active_card_images(ApplicationFriends& friends, u32 slot, UiFriendsActiveCard* out) noexcept {
+    const auto& detail = friends.active_details[slot];
+    out->images = friends.active_images[slot];
+    out->image_count = 0;
+    for (u32 j = 0; j < detail.count && out->image_count < 2; ++j) {
+        const auto& part = detail.items[j];
+        const bool art = part.role == UiActivityCardRole::art && detail.art.large != UserActivityArt::application;
+        if ((art || part.role == UiActivityCardRole::badge) &&
+            active_image(friends.active_sources[slot], part, art && detail.art.large == UserActivityArt::large,
+                         &friends.active_images[slot][out->image_count]))
+            ++out->image_count;
+    }
+}
+// The activity behind an Active Now card (its first member's), laid out as the
+// shared compact activity card in the card's slot with its images; nothing
+// when it has no details to show. A ticking timer schedules the column's
+// once-a-second refresh.
+void active_detail(ApplicationFriends& friends, u32 slot, const ActiveNowCard& card, UiFriendsActiveCard* out) noexcept {
+    UserActivitySet set{};
+    if (!card.member_count || !user_activity_find(g_app.account_ui->user_store.activities, card.members[0], &set))
+        return;
+    const Utf8View name{card.name, card.name_bytes};
+    for (u32 i = 0; i < set.count; ++i) {
+        const auto& item = set.items[i];
+        if (item.type != card.activity_type ||
+            (card.application_id ? item.application_id != card.application_id
+                                 : !utf8_equal(user_activity_text(item, UserActivityField::name), name)))
+            continue;
+        auto& source = friends.active_sources[slot];
+        auto& detail = friends.active_details[slot];
+        source = item;
+        const UiActivityCardInput input{UiActivityCardSize::compact, kActiveDetailWidth, clock_unix_milliseconds(),
+                                        false, false, false, false, nullptr, nullptr};
+        if (!ui_activity_card_layout(source, input, &detail) || !detail.count)
+            return;
+        out->activity = &detail;
+        active_card_images(friends, slot, out);
+        if (ui_activity_card_timed(detail) && !friends.active_tick_at)
+            friends.active_tick_at = deadline_after(clock_monotonic_milliseconds(), 1000);
+        return;
     }
 }
 // Rebuilds the projection when friends, presence, voice or activities moved;
@@ -445,6 +654,7 @@ void project_active(ApplicationFriends& friends) noexcept {
     for (u32 i = 0; i < projected; ++i)
         friends.active_projection[i] = cards[i];
     friends.active_projection_count = projected;
+    friends.active_tick_at = 0;
     const u32 shown = minimum(projected, kUiFriendsActiveNowCards);
     for (u32 i = 0; i < shown; ++i) {
         const auto& card = cards[i];
@@ -469,9 +679,18 @@ void project_active(ApplicationFriends& friends) noexcept {
             char heading[160];
             const u32 bytes = user_activity_summary(card.activity_type, {card.name, card.name_bytes}, {},
                                                     {heading, sizeof(heading)});
-            title.add(bytes ? Utf8View{heading, bytes} : Utf8View{card.name, card.name_bytes});
-            member_names(subtitle, card);
-            if (card.detail_bytes)
+            const Utf8View summary = bytes ? Utf8View{heading, bytes} : Utf8View{card.name, card.name_bytes};
+            // One friend: their name over "Playing X", as the official column heads a card; a
+            // shared activity names it over who is in it.
+            if (card.total == 1) {
+                title.add(friend_name(card.members[0]));
+                subtitle.add(summary);
+            } else {
+                title.add(summary);
+                member_names(subtitle, card);
+            }
+            active_detail(friends, i, card, &out);
+            if (card.detail_bytes && !out.activity)
                 subtitle.add_after_dot({card.detail, card.detail_bytes});
             out.kind = UiFriendsActiveKind::activity;
         }
@@ -495,11 +714,17 @@ bool more(ApplicationFriends& friends, const UiFriendsTarget& target, UiRect anc
     if (!ui_friends_scene_activation(scene, {UiFriendsAction::more, target.user_id, friends.tab}, &checked)) return false;
     const auto* relationship = relationship_store_find(friends.store, target.user_id);
     if (!relationship) return false;
-    PopupItem items[4 + kApplicationPluginMenuRows]{};u32 count = 0;
+    PopupItem items[6 + kApplicationPluginMenuRows]{};u32 count = 0;
     popup_item_set(&items[count++], utf8_literal("Profile"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::profile), popup_item_enabled);
-    if (relationship->type == RelationshipType::friend_)
-        popup_item_set(&items[count++], utf8_literal("Remove friend"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::remove),
+    if (relationship->type == RelationshipType::friend_) {
+        popup_item_set(&items[count++], utf8_literal("Start Voice Call"),
+            friends_popup_action_base + static_cast<u32>(UiFriendsAction::voice_call), popup_item_enabled);
+        popup_item_set(&items[count++], relationship->nickname_bytes ? utf8_literal("Change Friend Nickname") :
+            utf8_literal("Add Friend Nickname"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::nickname),
+            popup_item_enabled);
+        popup_item_set(&items[count++], utf8_literal("Remove Friend"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::remove),
             static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before));
+    }
     if (relationship->type != RelationshipType::blocked) {
         popup_item_set(&items[count++], utf8_literal("Block"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::block),
             static_cast<u16>(popup_item_enabled | popup_item_danger));
@@ -556,8 +781,8 @@ bool queue(RelationshipOperation operation, u64 id = 0, Utf8View username = {}, 
         return true;
     auto* friends = ensure();
     if (!friends || !g_app.account_ui || !g_app.account.instance || request_busy(*friends) ||
-        username.bytes > kRelationshipUsernameMaximumBytes || (!username.data && username.bytes)) return false;
-    u8 target[96], body[256];
+        username.bytes > sizeof(FriendsRequest::username) || (!username.data && username.bytes)) return false;
+    u8 target[96], body[kRelationshipBodyMaximumBytes];
     if (!write_relationship_target(operation, id, {target, sizeof(target)}).ok() ||
         !write_relationship_body(operation, username, {body, sizeof(body)}).ok()) return false;
     FriendsRequest pending{};
@@ -582,11 +807,68 @@ bool queue(RelationshipOperation operation, u64 id = 0, Utf8View username = {}, 
     if (g_app.window) window_wake(g_app.window);
     return true;
 }
-bool text_valid(TextFormOwnerKey key) noexcept {
-    return g_app.friends && g_app.account_ui && key.scope == g_app.account.status.profile_id;
+// Add Friend's result line under the username field: "Success! ..." or why it failed.
+void add_result(ApplicationFriends& friends, UiFriendsTone tone, Utf8View first, Utf8View name = {},
+                Utf8View last = {}) noexcept {
+    u32 used = utf8_copy_truncated(friends.add_status, first);
+    used += utf8_copy_truncated(friends.add_status + used, sizeof(friends.add_status) - used, name);
+    used += utf8_copy_truncated(friends.add_status + used, sizeof(friends.add_status) - used, last);
+    friends.status = {friends.add_status, used};
+    friends.add_tone = tone;
 }
-bool text_save(TextFormOwnerKey key, Utf8View username) noexcept {
-    return text_valid(key) && queue(RelationshipOperation::request, 0, username);
+Utf8View trimmed(Utf8View text) noexcept {
+    while (text.bytes && text.data[0] == ' ') { ++text.data;--text.bytes; }
+    while (text.bytes && text.data[text.bytes - 1] == ' ') --text.bytes;
+    return text;
+}
+// Sends the Add Friend field's username with the note, if any; a malformed one fails here as the server would.
+bool submit_add(ApplicationFriends& friends) noexcept {
+    auto* model = friends_search_document(&friends.search, UiFriendsTab::add_friend);
+    const auto name = model ? trimmed(message_composer_text(*model)) : Utf8View{};
+    if (!name.bytes || request_busy(friends)) return false;
+    // The request text: the username, then a line feed and the note.
+    const auto note = trimmed(message_composer_text(friends.search.note));
+    char text[kRelationshipRequestTextMaximumBytes];
+    u32 used = 0;
+    u8 body[kRelationshipBodyMaximumBytes];
+    if (name.bytes <= kRelationshipUsernameMaximumBytes && note.bytes <= kRelationshipNoteMaximumBytes) {
+        copy_bytes(text, name.data, name.bytes);
+        used = name.bytes;
+        if (note.bytes) { text[used++] = '\n';copy_bytes(text + used, note.data, note.bytes);used += note.bytes; }
+    }
+    if (!used || !write_relationship_body(RelationshipOperation::request, {text, used}, {body, sizeof(body)}).ok()) {
+        add_result(friends, UiFriendsTone::danger, utf8_literal("Hm, didn't work. Double check that the username is correct."));
+        return repaint();
+    }
+    return queue(RelationshipOperation::request, 0, {text, used});
+}
+// A friend's personal nickname (PATCH /users/@me/relationships/{id}): empty clears it.
+bool nickname_valid(TextFormOwnerKey key) noexcept {
+    const auto* friends = g_app.friends;
+    if (!friends || !g_app.account_ui || key.scope != g_app.account.status.profile_id ||
+        key.collection != friends->nickname_serial) return false;
+    const auto* current = relationship_store_find(friends->store, key.item);
+    return current && current->type == RelationshipType::friend_;
+}
+bool nickname_save(TextFormOwnerKey key, Utf8View text) noexcept {
+    return nickname_valid(key) && queue(RelationshipOperation::nickname, key.item, trimmed(text));
+}
+bool open_nickname(ApplicationFriends& friends, u64 user_id) noexcept {
+    const auto* current = relationship_store_find(friends.store, user_id);
+    if (!current || current->type != RelationshipType::friend_ || request_busy(friends) || g_app.text_form) return false;
+    search_focus(friends, false);
+    ApplicationTextFormRequest request{current->nickname_bytes ? utf8_literal("Change Friend Nickname") :
+        utf8_literal("Add Friend Nickname"),
+        utf8_literal("Find a friend faster with a personal nickname. It will only be visible to you in your direct messages."),
+        utf8_literal("Friend Nickname"), utf8_literal("Save"), {current->nickname, current->nickname_bytes},
+        {g_app.account.status.profile_id, ++friends.nickname_serial, user_id}, nickname_valid, nickname_save,
+        kRelationshipNicknameMaximumCodepoints};
+    request.maximum_bytes = kRelationshipNicknameMaximumBytes;
+    request.single_line = true;
+    // A form that does not open leaves the serial of the one already open.
+    if (application_text_form_open(request)) return true;
+    --friends.nickname_serial;
+    return false;
 }
 bool confirmation_valid(TextFormOwnerKey key) noexcept {
     const auto* friends = g_app.friends;
@@ -650,10 +932,10 @@ bool confirm(ApplicationFriends& friends, const UiFriendsTarget& target, bool al
     search_focus(friends, false);
     ApplicationTextFormRequest request{target.action == UiFriendsAction::accept ? utf8_literal("Accept friend request") :
         target.action == UiFriendsAction::block ? utf8_literal("Block user") : target.action == UiFriendsAction::ignore ? utf8_literal("Ignore user") :
-        bulk ? utf8_literal("Clear requests") : utf8_literal("Remove friend"),
+        bulk ? utf8_literal("Clear requests") : utf8_literal("Remove Friend"),
         {friends.confirmation_text, writer.used}, {}, target.action == UiFriendsAction::accept ? utf8_literal("Accept") :
         target.action == UiFriendsAction::block ? utf8_literal("Block") : target.action == UiFriendsAction::ignore ? utf8_literal("Ignore") :
-        bulk ? utf8_literal("Clear all") : utf8_literal("Remove friend"), {},
+        bulk ? utf8_literal("Clear all") : utf8_literal("Remove Friend"), {},
         {g_app.account.status.profile_id, friends.confirmation_serial, target.user_id}, confirmation_valid, confirmation_save, 0, true};
     request.danger = target.action != UiFriendsAction::accept && target.action != UiFriendsAction::ignore;
     return application_text_form_open(request);
@@ -686,9 +968,20 @@ bool activate(const UiFriendsTarget& target) noexcept {
         if (queued) { close_requests(*friends);return repaint(); }return false;
     }
     if (checked.action == UiFriendsAction::select_tab) {
-        search_focus(*friends, false);friends->tab = checked.tab;project(*friends, true);return repaint();
+        // A finished Add Friend result stays with its tab.
+        if (friends->status.data == friends->add_status && !request_busy(*friends)) friends->status = {};
+        search_focus(*friends, false);friends->tab = checked.tab;project(*friends, true);
+        if (!ui_friends_tab_requests(checked.tab)) friends->friends_tab = checked.tab;
+        // Add Friend opens on its username field.
+        if (checked.tab == UiFriendsTab::add_friend) {
+            if (!repaint()) return false;
+            search_focus(*friends, true);
+        }
+        return repaint();
     }
-    if (checked.action == UiFriendsAction::search) { search_focus(*friends, true);return repaint(); }
+    if (checked.action == UiFriendsAction::search || checked.action == UiFriendsAction::note) {
+        search_focus(*friends, true, checked.action == UiFriendsAction::note);return repaint();
+    }
     if (checked.action == UiFriendsAction::clear_search) {
         auto* model = friends_search_document(&friends->search, friends->tab);
         if (!model) return false;
@@ -701,10 +994,27 @@ bool activate(const UiFriendsTarget& target) noexcept {
         if (queued) { application_friends_hide();return synchronize_navigation_view() && synchronize_shell_layout() && refresh_account_text(true) && application_request_frame(); }
         return false;
     }
-    if (checked.action == UiFriendsAction::add_friend)
-        return application_text_form_open({utf8_literal("Add friend"), utf8_literal("Enter their username."),
-            utf8_literal("Username"), utf8_literal("Send friend request"), {}, {g_app.account.status.profile_id, 0, 0},
-            text_valid, text_save, kRelationshipUsernameMaximumBytes});
+    // A message request: Accept DM moves it to the conversations, Ignore drops it.
+    if (checked.action == UiFriendsAction::accept_dm || checked.action == UiFriendsAction::ignore_dm) {
+        const u64 channel = dm_channel(*friends, checked.user_id);
+        return channel && (checked.action == UiFriendsAction::accept_dm ? application_private_channel_accept_request(channel)
+                                                                       : application_private_channel_ignore_request(channel)) &&
+            repaint();
+    }
+    if (checked.action == UiFriendsAction::add_friend) {
+        if (friends->tab == UiFriendsTab::add_friend) return submit_add(*friends);
+        // An empty Online or All tab leads to Add Friend.
+        return activate({UiFriendsAction::select_tab, 0, UiFriendsTab::add_friend});
+    }
+    if (checked.action == UiFriendsAction::nickname) return open_nickname(*friends, checked.user_id);
+    if (checked.action == UiFriendsAction::voice_call) {
+        // The DM opens first; the call starts once it is the selected conversation.
+        if (!queue_private_conversation(PrivateConversationOperation::open, checked.user_id)) return false;
+        friends->call_user = checked.user_id;
+        application_friends_hide();
+        return synchronize_navigation_view() && synchronize_shell_layout() && refresh_account_text(true) &&
+               application_request_frame();
+    }
     if (checked.action == UiFriendsAction::retry && friends->stranger_confirmation) {
         const auto* current = relationship_store_find(friends->store, friends->request.user_id);
         if (!current || !request_current(*friends, friends->request)) {
@@ -751,7 +1061,7 @@ TextInputResult search_replace(const TextInputTarget& target, u32 a, u32 b, Cons
     u32 first = 0, last = 0;
     if (!utf8_byte_offset_for_utf16_position(message_composer_text(*model), a, &first) ||
         !utf8_byte_offset_for_utf16_position(message_composer_text(*model), b, &last)) return TextInputResult::invalid_utf16;
-    char text[kFriendsSearchBytes];u32 bytes = 0;
+    char text[kRelationshipNoteMaximumBytes];u32 bytes = 0;
     const u32 available = model->capacity - (model->bytes - (last - first));
     if (input.count > available) return TextInputResult::capacity;
     for (u32 i = 0; i < input.count; ++i) {
@@ -766,6 +1076,12 @@ TextInputResult search_replace(const TextInputTarget& target, u32 a, u32 b, Cons
         if (count > available - bytes || count > sizeof(text) - bytes) return TextInputResult::capacity;
         copy_bytes(text + bytes, encoded, count);bytes += count;
     }
+    // Add Friend's note keeps to its 120 characters.
+    if (g_app.friends && model == &g_app.friends->search.note &&
+        utf8_validate(message_composer_text(*model)).codepoints -
+                utf8_validate({model->text + first, last - first}).codepoints + utf8_validate({text, bytes}).codepoints >
+            kRelationshipNoteMaximumCodepoints)
+        return TextInputResult::capacity;
     const auto result = message_composer_replace_range(model, first, last, {text, bytes});
     if (result == MessageComposerResult::changed || result == MessageComposerResult::unchanged) {
         *change = {a, b, a + input.count};return result == MessageComposerResult::changed ? TextInputResult::changed : TextInputResult::unchanged;
@@ -780,17 +1096,28 @@ bool search_begin(const TextInputTarget& target) noexcept {
 void search_end(const TextInputTarget& target) noexcept { text_input_end_group(search_delegate(target)); }
 constexpr TextInputOperations search_operations{search_ready, search_revision, search_length, search_selection, search_select,
     search_copy, search_replace, search_cancel, search_begin, search_end};
+// Add Friend's note takes at most 120 characters: what replacing the selection with `added` would leave.
+bool note_fits(const ApplicationFriends& friends, const MessageComposer& model, u32 added) noexcept {
+    if (&model != &friends.search.note) return true;
+    const auto text = message_composer_text(model);
+    const u32 first = minimum(model.anchor, model.caret), last = maximum(model.anchor, model.caret);
+    return utf8_validate(text).codepoints - utf8_validate({text.data + first, last - first}).codepoints + added <=
+        kRelationshipNoteMaximumCodepoints;
+}
 bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key) noexcept {
-    auto* model = friends_search_document(&friends.search, friends.tab);
+    auto* query = friends_search_document(&friends.search, friends.tab);
     const bool raw_control = application_control_down(), alt = application_alt_down();
     const bool control = raw_control && !alt, shift = application_shift_down();
     if (kind == UiInputKind::key_down && shortcut_matches(ShortcutAction::search, shortcut_chord_from_keyboard(key)) &&
-        model) {
-        search_focus(friends, true);message_composer_select_all(model);return application_friends_search_changed(false);
+        query) {
+        search_focus(friends, true);message_composer_select_all(query);return application_friends_search_changed(false);
     }
+    auto* model = edit_model(friends);
     if (!model || !application_friends_search_focused()) return false;
     if (kind == UiInputKind::character) {
         if (control || (alt && !raw_control) || key < 32 || key == 127 || key == 0x2028 || key == 0x2029) return true;
+        // A low surrogate completes the character its high half already counted.
+        if (!note_fits(friends, *model, key >= 0xDC00 && key <= 0xDFFF ? 0 : 1)) return true;
         const auto result = message_composer_insert_utf16(model, static_cast<u16>(key), clock_monotonic_milliseconds());
         if (result == MessageComposerResult::changed) application_friends_search_changed(true);
         return true;
@@ -799,6 +1126,14 @@ bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key) noexcep
     if (key == key::space && !control) return true;
     if (key == key::up || key == key::down || key == key::page_up || key == key::page_down) return true;
     if (key == key::tab) { search_focus(friends, false);return false; }
+    // The note is one line: Enter there does nothing, as in the official client.
+    if (key == key::enter && friends.note_focused) { friends.held_key = key;return true; }
+    if (key == key::enter && friends.tab == UiFriendsTab::add_friend) {
+        // Enter sends the request and keeps the field for the next name.
+        friends.held_key = key;
+        if (model->bytes) submit_add(friends);
+        return true;
+    }
     if (key == key::enter || key == key::escape) {
         if (key == key::escape && model->bytes) message_composer_clear(model);
         else { search_focus(friends, false);ui_friends_scene_navigate(&friends.scene, UiListMove::first); }
@@ -812,7 +1147,7 @@ bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key) noexcep
         if (last > first && clipboard_write_utf8({model->text + first, last - first}) && key == 'X')
             result = message_composer_replace_range(model, first, last, {});
     } else if (control && key == 'V') {
-        char text[kFriendsSearchBytes];const auto read = clipboard_read_utf8({text, sizeof(text)});
+        char text[kRelationshipNoteMaximumBytes];const auto read = clipboard_read_utf8({text, sizeof(text)});
         bool line = read.ok();
         for (u32 i = 0; line && i < read.bytes;) {
             const auto scalar = utf8_decode_one(text + i, read.bytes - i);
@@ -820,14 +1155,15 @@ bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key) noexcep
                 scalar.codepoint != 0x2028 && scalar.codepoint != 0x2029;
             if (line) i += scalar.width;
         }
-        if (line) result = message_composer_insert_utf8(model, {text, read.bytes});
+        if (line && note_fits(friends, *model, utf8_validate({text, read.bytes}).codepoints))
+            result = message_composer_insert_utf8(model, {text, read.bytes});
     } else if (!message_composer_edit_key(model, key, control, shift, &result)) return false;
     if (result == MessageComposerResult::changed) application_friends_search_changed(text_revision != model->text_revision);
     return true;
 }
 }
 MessageComposer* application_friends_search_model() noexcept {
-    return g_app.friends ? friends_search_document(&g_app.friends->search, g_app.friends->tab) : nullptr;
+    return g_app.friends ? edit_model(*g_app.friends) : nullptr;
 }
 bool application_friends_search_focused() noexcept {
     return g_app.friends && g_app.friends->search_focused && application_friends_search_model() && search_available() &&
@@ -838,15 +1174,20 @@ TextInputTarget application_friends_search_target() noexcept {
 }
 void application_friends_search_cancel_native_group(const TextInputTarget& target) noexcept {
     if (!g_app.friends || target.operations != &search_operations) return;
-    for (auto& model : g_app.friends->search.models) {
-        if (target.context != &model || target.identity != model.document_identity) continue;
-        const auto cleanup = message_composer_input_target(&model);
+    auto& documents = g_app.friends->search;
+    for (u32 i = 0; i <= kFriendsSearchDocuments; ++i) {
+        auto* model = i < kFriendsSearchDocuments ? &documents.models[i] : &documents.note;
+        if (target.context != model || target.identity != model->document_identity) continue;
+        const auto cleanup = message_composer_input_target(model);
         text_input_end_group(cleanup);text_input_cancel(cleanup);return;
     }
 }
 bool application_friends_search_changed(bool content) noexcept {
     auto* friends = g_app.friends;if (!friends) return false;
     restart_search_blink(*friends);
+    // Typing a new name clears the previous send's result.
+    if (content && friends->tab == UiFriendsTab::add_friend && friends->status.data == friends->add_status)
+        friends->status = {};
     if (content) project(*friends);
     return repaint();
 }
@@ -883,22 +1224,66 @@ bool application_friends_user_action(u64 user_id, ApplicationFriendsUserAction a
             confirm(*friends, {UiFriendsAction::block, user_id, friends->tab}, true);
     case ApplicationFriendsUserAction::unblock:
         return current && current->type == RelationshipType::blocked && queue(RelationshipOperation::remove, user_id, {}, true);
+    case ApplicationFriendsUserAction::unignore:
+        return current && current->ignored && queue(RelationshipOperation::unignore, user_id, {}, true);
     }
     return false;
 }
 bool application_friends_popup_action(u32 action) noexcept {
     auto* friends = g_app.friends;
     if (!friends || g_app.popup_owner_kind != PopupOwnerKind::friends || !g_app.popup_scene.active ||
-        action < friends_popup_action_base || action > friends_popup_action_base + static_cast<u32>(UiFriendsAction::unignore)) return false;
+        action < friends_popup_action_base || action > friends_popup_action_base + static_cast<u32>(UiFriendsAction::voice_call)) return false;
     const UiFriendsTarget target{static_cast<UiFriendsAction>(action - friends_popup_action_base), g_app.popup_scene.owner_id, friends->tab};
     UiFriendsTarget checked{};
     if ((target.action != UiFriendsAction::profile && target.action != UiFriendsAction::remove && target.action != UiFriendsAction::block &&
-        target.action != UiFriendsAction::ignore && target.action != UiFriendsAction::unignore) ||
+        target.action != UiFriendsAction::ignore && target.action != UiFriendsAction::unignore &&
+        target.action != UiFriendsAction::nickname && target.action != UiFriendsAction::voice_call) ||
         !ui_friends_scene_activation(input_scene(*friends), target, &checked)) { dismiss_popup();return true; }
     dismiss_popup();return activate(checked);
 }
+namespace {
+// Whether a shown Active Now card has a timer to advance.
+bool active_timed(const ApplicationFriends& friends) noexcept {
+    if (!friends.scene.active_visible || friends.scene.active_collapsed) return false;
+    for (u32 i = 0; i < friends.active_now.count; ++i)
+        if (friends.active_cards[i].activity && ui_activity_card_timed(friends.active_details[i])) return true;
+    return false;
+}
+// Advances the Active Now cards' timers; a timer whose text changed length lays its card out again.
+void tick_active(ApplicationFriends& friends, u64 now) noexcept {
+    friends.active_tick_at = 0;
+    if (!application_friends_active() || !active_timed(friends)) return;
+    bool changed = false, timed = false;
+    const u64 unix_now = clock_unix_milliseconds();
+    for (u32 i = 0; i < friends.active_now.count; ++i) {
+        auto& card = friends.active_cards[i];
+        if (!card.activity) continue;
+        auto& detail = friends.active_details[i];
+        const auto tick = ui_activity_card_tick(&detail, friends.active_sources[i], unix_now);
+        if (tick == UiActivityCardTick::relayout) {
+            if (ui_activity_card_layout(friends.active_sources[i], {UiActivityCardSize::compact, kActiveDetailWidth,
+                                                                    unix_now, false, false, false, false, nullptr,
+                                                                    nullptr}, &detail))
+                active_card_images(friends, i, &card);
+            else {
+                card.activity = nullptr;
+                card.image_count = 0;
+            }
+        }
+        changed = changed || tick != UiActivityCardTick::unchanged;
+        timed = timed || (card.activity && ui_activity_card_timed(detail));
+    }
+    if (timed) friends.active_tick_at = deadline_after(now, 1000);
+    if (changed) {
+        if (++friends.active_now.revision == 0) ++friends.active_now.revision;
+        repaint();
+    }
+}
+}
 void application_friends_tick(u64 now) noexcept {
-    auto* friends = g_app.friends;if (!friends || !friends->search_blink_at || !deadline_due(now, friends->search_blink_at)) return;
+    auto* friends = g_app.friends;if (!friends) return;
+    if (friends->active_tick_at && deadline_due(now, friends->active_tick_at)) tick_active(*friends, now);
+    if (!friends->search_blink_at || !deadline_due(now, friends->search_blink_at)) return;
     if (!application_friends_search_focused() || (g_app.window && !application_window_keyboard_focus())) {
         friends->search_blink_at = 0;friends->search_caret_visible = false;
     } else {
@@ -907,8 +1292,13 @@ void application_friends_tick(u64 now) noexcept {
     }
     repaint();
 }
+// The caret blink, and the Active Now timers while the column shows them.
 u64 application_friends_search_next_wake() noexcept {
-    return g_app.friends && application_friends_search_focused() ? g_app.friends->search_blink_at : 0;
+    const auto* friends = g_app.friends;
+    if (!friends) return 0;
+    const u64 caret = application_friends_search_focused() ? friends->search_blink_at : 0;
+    const u64 timers = application_friends_active() ? friends->active_tick_at : 0;
+    return !caret ? timers : !timers ? caret : minimum(caret, timers);
 }
 bool application_friends_active() noexcept {
     return g_app.friends && g_app.friends->visible && g_app.account_ui && g_app.account_ui->chat_state.home_selected && !g_app.login.visible;
@@ -919,11 +1309,15 @@ bool application_friends_requests_active() noexcept {
 void application_friends_close_requests() noexcept {
     if (g_app.friends) close_requests(*g_app.friends);
 }
-bool application_friends_show() noexcept {
+namespace {
+bool show(UiFriendsTab tab) noexcept {
     if (!g_app.account_ui || !g_app.renderer_ready || g_app.login.visible || g_app.text_form || application_settings_active()) return false;
     auto* friends = ensure();if (!friends) return false;
     const auto selected = chat_state_store_select_home(&g_app.account_ui->chat_state);
     if (!selected.ok()) return false;
+    // Friends and Message Requests share the page; the sidebar marks Message Requests while it shows.
+    if (friends->tab != tab) { search_focus(*friends, false);friends->tab = tab;project(*friends, true); }
+    application_private_channel_set_requests_mode(ui_friends_tab_requests(tab));
     friends->visible = true;
     application_composer_text_input_suspend();dismiss_popup();application_profile_close();application_image_viewer_close();
     g_app.message_composer.focused = false;g_app.context_focus = nullptr;ui_scroll_host_cancel(&g_app.scroll_host);
@@ -934,8 +1328,20 @@ bool application_friends_show() noexcept {
     if (!friends->ready && !friends->snapshot_active && !request_busy(*friends)) queue(RelationshipOperation::list);
     return true;
 }
+}
+bool application_friends_show() noexcept {
+    const auto* friends = g_app.friends;
+    return show(friends && !ui_friends_tab_requests(friends->tab) ? friends->tab
+                : friends ? friends->friends_tab : UiFriendsTab::online);
+}
+bool application_friends_show_requests() noexcept {
+    const auto* friends = g_app.friends;
+    return show(friends && ui_friends_tab_requests(friends->tab) ? friends->tab : UiFriendsTab::requests);
+}
 void application_friends_hide() noexcept {
     auto* friends = g_app.friends;if (!friends) return;
+    // The sidebar stops marking Message Requests once the page gives way to a conversation.
+    if (friends->visible && ui_friends_tab_requests(friends->tab)) application_private_channel_set_requests_mode(false);
     application_text_form_cancel_owner(confirmation_valid);
     if (g_app.popup_owner_kind == PopupOwnerKind::friends) dismiss_popup();
     close_requests(*friends);
@@ -946,21 +1352,42 @@ void application_friends_hide() noexcept {
     renderer_bind_friends_scene(&g_app.renderer, nullptr);ui_friends_scene_release(&friends->scene);
 }
 void application_friends_release() noexcept {
-    application_text_form_cancel_owner(text_valid);
+    application_text_form_cancel_owner(nickname_valid);
     application_text_form_cancel_owner(confirmation_valid);
     application_friends_hide();
     auto* friends = g_app.friends;g_app.friends = nullptr;
+    if (g_app.account_ui) g_app.account_ui->chat_state.relationships = nullptr;
     if (friends) {
         friends_search_documents_release(&friends->search);
         stable_storage_release(&friends->requests_indices);
         friends_relationship_storage_release(&friends->storage);pages_release(friends);
     }
 }
+namespace {
+// Start Voice Call: once the friend's DM finished opening and is the selected
+// conversation, its call starts (and rings them); a failed or redirected open drops it.
+void start_pending_call(ApplicationFriends& friends) noexcept {
+    if (!friends.call_user || !g_app.account_ui) return;
+    auto& ui = *g_app.account_ui;
+    const auto phase = ui.private_conversation.phase;
+    if (phase == PrivateConversationPhase::queued || phase == PrivateConversationPhase::awaiting ||
+        phase == PrivateConversationPhase::retry_wait) return;
+    const u64 user = friends.call_user, channel = ui.chat_state.selected_channel_id;
+    friends.call_user = 0;
+    const auto* record = chat_state_store_find_channel(ui.chat_state, channel);
+    if (phase == PrivateConversationPhase::idle && record && record->type == 1 &&
+        private_channel_peer(ui.chat_state, channel) == user)
+        application_private_channel_call(channel);
+}
+}
 bool application_friends_synchronize() noexcept {
     auto* friends = g_app.friends;if (!friends) return true;
+    start_pending_call(*friends);
     if (!application_friends_active()) { if (friends->scene.active) application_friends_hide();return true; }
     if (application_settings_active()) { close_requests(*friends);return true; }
     project(*friends);
+    const bool requests_page = ui_friends_tab_requests(friends->tab);
+    if (requests_page) project_dm(*friends);
     if (friends->requests_visible && !friends->requests_sections.hidden_count) close_requests(*friends);
     project_content(*friends);
     const auto phase = friends->request.phase == FriendsRequestPhase::failed ? UiFriendsPhase::error :
@@ -968,9 +1395,26 @@ bool application_friends_synchronize() noexcept {
         friends->incomplete ? UiFriendsPhase::error : UiFriendsPhase::ready;
     ui_friends_scene_set_focus_visible(&friends->scene, g_app.keyboard_focus_visible);
     project_active(*friends);
-    if (!ui_friends_scene_update(&friends->scene, &friends->source, friends->tab, phase, friends->status,
+    // The title and tabs sit in the shell header's free span (its title label, the header's height).
+    const auto* bar = ui_scene_node(g_app.shell_scene, UiSemantic::title_bar);
+    const auto* label = ui_scene_node(g_app.shell_scene, UiSemantic::title_label);
+    const UiRect toolbar = bar && label ? UiRect{label->rectangle.left, bar->rectangle.top, label->rectangle.right,
+                                                 bar->rectangle.bottom} : UiRect{};
+    if (!ui_friends_scene_update(&friends->scene, requests_page ? &friends->dm_source : &friends->source, friends->tab,
+        requests_page ? UiFriendsPhase::ready : phase, requests_page ? Utf8View{} : friends->status,
         ui_scene_content_rectangle(g_app.shell_scene, UiSemantic::message_view), &friends->content,
-        friends->tab == UiFriendsTab::pending ? &friends->sections : nullptr, &friends->active_now)) return false;
+        friends->tab == UiFriendsTab::pending ? &friends->sections : nullptr, requests_page ? nullptr : &friends->active_now,
+        toolbar)) return false;
+    // The column's timers run while it shows them (it can reappear with a wider window).
+    if (!friends->active_tick_at && active_timed(*friends))
+        friends->active_tick_at = deadline_after(clock_monotonic_milliseconds(), 1000);
+    // Row plates fade with the pointer (the shared hover motion; reduced motion snaps). The
+    // renderer keys its presentation on the fade, so input revisions stay put while it runs.
+    friends->scene.row_hover = &friends->row_hover;
+    if (application_motion_hover_tick(&friends->row_hover, ui_friends_scene_hovered_row(friends->scene),
+                                      clock_monotonic_milliseconds(), kUiMotionRowHover))
+        application_request_frame();
+    ui_friends_scene_name_hover(&friends->scene);
     bool changed = g_app.renderer.friends_scene != &friends->scene ||
         g_app.renderer.interaction_text_friends_revision != friends->scene.revision;
     renderer_bind_friends_scene(&g_app.renderer, &friends->scene);
@@ -1095,6 +1539,7 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
                 {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount});
             if (!hydrated.ok()) log_u64(LogLevel::warning, "friends", "user_hydration_error", static_cast<u64>(hydrated.error));
             friends->ready = true;friends->incomplete = false;++friends->membership_epoch;
+            publish_dm_names();
         }
     } else if (ok && request.user_id && request.membership_epoch == friends->membership_epoch) {
         if (request.operation == RelationshipOperation::remove) ok = relationship_store_remove(&friends->store, request.user_id).ok();
@@ -1104,12 +1549,16 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
             record.user_id = request.user_id;
             if (request.operation == RelationshipOperation::ignore || request.operation == RelationshipOperation::unignore)
                 record.ignored = request.operation == RelationshipOperation::ignore;
-            else record.type = request.operation == RelationshipOperation::block ? RelationshipType::blocked :
+            else if (request.operation == RelationshipOperation::nickname) {
+                copy_bytes(record.nickname, request.username, request.username_bytes);
+                record.nickname_bytes = static_cast<u16>(request.username_bytes);
+            } else record.type = request.operation == RelationshipOperation::block ? RelationshipType::blocked :
                 request.unknown_target ? RelationshipType::outgoing : RelationshipType::friend_;
             ok = friends_relationship_storage_upsert(&friends->storage, friends->store, record.user_id) &&
                 relationship_store_upsert(&friends->store, record).ok();
         }
         if (ok) ++friends->membership_epoch;
+        if (ok && request.operation == RelationshipOperation::nickname) publish_dm_names();
     }
     request.phase = ok ? FriendsRequestPhase::idle : FriendsRequestPhase::failed;
     const bool captcha = !ok && application_action_captcha_capture(ApplicationActionCaptchaKind::friend_request,
@@ -1118,6 +1567,43 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         captcha ? utf8_literal("Discord needs a CAPTCHA first. Send again to verify in your browser.") :
         api_rejection_requires_action(response.rejection) ? utf8_literal("Verify your account to continue.") :
         utf8_literal("Something went wrong. Try again.");
+    if (request.operation == RelationshipOperation::request && !captcha && !api_rejection_requires_action(response.rejection)) {
+        // Add Friend reports under its field and stays ready for another name.
+        // The request text is the username, then the note after a line feed.
+        Utf8View name{request.username, request.username_bytes};
+        for (u32 i = 0; i < name.bytes; ++i)
+            if (name.data[i] == '\n') { name.bytes = i;break; }
+        if (ok) {
+            add_result(*friends, UiFriendsTone::positive, utf8_literal("Success! Your friend request to "), name,
+                       utf8_literal(" was sent."));
+            if (auto* model = friends_search_document(&friends->search, UiFriendsTab::add_friend))
+                message_composer_clear(model);
+            message_composer_clear(&friends->search.note);
+        } else {
+            request.phase = FriendsRequestPhase::idle;
+            switch (response.rejection.code) {
+            case 80000:
+                add_result(*friends, UiFriendsTone::danger, {}, name,
+                           utf8_literal(" is not accepting friend requests. They\xE2\x80\x99ll have to add you to become friends."));
+                break;
+            case 80007: add_result(*friends, UiFriendsTone::danger, utf8_literal("You're already friends with that user!")); break;
+            case 30002:
+                add_result(*friends, UiFriendsTone::danger,
+                           utf8_literal("You've maxed out your friend list. Welcome to the elite 1,000 friends club!"));
+                break;
+            case 30078:
+                add_result(*friends, UiFriendsTone::danger,
+                           utf8_literal("You've maxed out your pending outgoing friend requests."));
+                break;
+            case 30059: add_result(*friends, UiFriendsTone::danger, utf8_literal("You've maxed out your block list.")); break;
+            case 40068:
+            case 340007: add_result(*friends, UiFriendsTone::danger, utf8_literal("Your account has limited access")); break;
+            default:
+                add_result(*friends, UiFriendsTone::danger,
+                           utf8_literal("Hm, didn't work. Double check that the username is correct."));
+            }
+        }
+    }
     if (ok && friends->incomplete)
         recovery(*friends, utf8_literal("Your friends list is out of date. Try again to refresh."));
     project(*friends, true);return repaint();
@@ -1171,6 +1657,7 @@ void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8>
         invalidate_sources(*friends);
         if (committed.ok()) {
             friends->ready = true;friends->incomplete = false;++friends->membership_epoch;
+            publish_dm_names();
             if (!request_busy(*friends)) { reset_value(&friends->request);reset_value(&friends->status); }
         } else {
             recovery(*friends, utf8_literal("Couldn't load your friends. Try again."));
@@ -1200,7 +1687,10 @@ void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8>
             relationship_apply_decoded(&friends->store, operation, mutation) :
             RelationshipStoreResult{RelationshipStoreError::capacity, false};
         valid = applied.ok();
-        if (applied.changed) { ++friends->membership_epoch;invalidate_sources(*friends);application_request_frame(); }
+        if (applied.changed) {
+            ++friends->membership_epoch;invalidate_sources(*friends);application_request_frame();
+            publish_dm_names();
+        }
         if (friends->snapshot_active) friends->snapshot_failed = true;
     }
     if (valid && mutation.user.id) {
@@ -1237,7 +1727,9 @@ bool application_friends_input(UiInputKind kind, u32 key, bool repeated) noexcep
             const auto* node = ui_widget_manager_layout_node(scene.widgets, next);
             if (node) ui_friends_scene_focus(&scene, ui_friends_scene_hit_test(scene,
                 (node->rectangle.left + node->rectangle.right) * .5f, (node->rectangle.top + node->rectangle.bottom) * .5f));
-            search_focus(*friends, ui_friends_scene_focused(scene).action == UiFriendsAction::search);
+            const auto focused = ui_friends_scene_focused(scene).action;
+            search_focus(*friends, focused == UiFriendsAction::search || focused == UiFriendsAction::note,
+                         focused == UiFriendsAction::note);
         }
     } else if (key == key::up || key == key::down || key == key::home || key == key::end)
         ui_friends_scene_navigate(&scene, key == key::up ? UiListMove::previous : key == key::down ? UiListMove::next : key == key::home ? UiListMove::first : UiListMove::last);
@@ -1291,10 +1783,10 @@ bool application_friends_window_event(const WindowEvent& event) noexcept {
         search_pointer(*friends, x, y, true);
         return true;
     }
-    const bool inside = ui_rect_contains(scene.viewport, x, y);
+    const bool inside = ui_friends_scene_contains(scene, x, y);
     // A second press anywhere but the search field is another press.
-    const bool search_double = input_double(event) && inside &&
-                               ui_friends_scene_hit_test(scene, x, y).action == UiFriendsAction::search;
+    const auto double_hit = input_double(event) && inside ? ui_friends_scene_hit_test(scene, x, y).action : UiFriendsAction::none;
+    const bool search_double = double_hit == UiFriendsAction::search || double_hit == UiFriendsAction::note;
     const bool press = input_press(event) || (input_double(event) && !search_double);
     if (event.type == EventType::pointer_move && ui_friends_scene_active_hover(&scene, inside ? x : -1.f, inside ? y : -1.f))
         application_request_frame();
@@ -1319,22 +1811,28 @@ bool application_friends_window_event(const WindowEvent& event) noexcept {
             return true;
         }
         friends->pressed = ui_friends_scene_hit_test(scene, x, y);
-        if (friends->pressed.action == UiFriendsAction::search) {
-            search_focus(*friends, true);repaint();
-            search_pointer(*friends, x, y, input_shift(event));
-            reset_value(&friends->pressed);friends->search_dragging = true;window_capture_pointer(g_app.window);return true;
+        if (friends->pressed.action == UiFriendsAction::search || friends->pressed.action == UiFriendsAction::note) {
+            // The renderer measured the focused field: a press in the other one moves the focus there, caret last.
+            const bool note = friends->pressed.action == UiFriendsAction::note, measured = note == friends->note_focused;
+            search_focus(*friends, true, note);repaint();
+            auto* model = edit_model(*friends);
+            if (measured) search_pointer(*friends, x, y, input_shift(event));
+            else if (model) { message_composer_set_selection(model, model->bytes, model->bytes);application_friends_search_changed(false); }
+            reset_value(&friends->pressed);friends->search_dragging = measured;
+            if (measured) window_capture_pointer(g_app.window);
+            return true;
         }
         search_focus(*friends, false);
         if (friends->pressed.action != UiFriendsAction::none) {
             ui_friends_scene_focus(&scene, friends->pressed);g_app.context_focus = &scene.widgets;
-            repaint();friends->pressed_revision = scene.revision;window_capture_pointer(g_app.window);
+            repaint();friends->pressed_revision = scene.layout_revision;window_capture_pointer(g_app.window);
         }
         return true;
     }
     if (input_release(event)) {
         const auto pressed = friends->pressed;const auto revision = friends->pressed_revision;
         reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;application_release_capture();
-        if (revision == scene.revision && ui_friends_target_equal(pressed, ui_friends_scene_hit_test(scene, x, y))) activate(pressed);
+        if (revision == scene.layout_revision && ui_friends_target_equal(pressed, ui_friends_scene_hit_test(scene, x, y))) activate(pressed);
         return true;
     }
     if (search_double)

@@ -8,10 +8,14 @@
 #include "../chat/application_link_trust.hpp"
 #include "profile.hpp"
 #include "../chat/private_channel.hpp"
+#include "../chat/game_lookup.hpp"
 #include "../chat/search/search.hpp"
 #include "../shell/state.hpp"
+#include "../settings/streamer_mode.hpp"
+#include "maicord/model/user/profile_connection.hpp"
 #include "profile_commands.hpp"
 #include "user_actions.hpp"
+#include "../voice/voice.hpp"
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/decimal.hpp"
@@ -43,6 +47,8 @@ struct DmProfilePanel {
     // the profile or the icons may next be asked for.
     u64 shown, requested, retry_at, icons_retry_at;
     bool fetch, icons_requested;
+    // The game lookup's revision at the last layout (the Game Collection's icons).
+    u32 games_revision;
     // The Commands section (profile_commands.hpp).
     ProfileCommandSet commands;
 };
@@ -213,6 +219,18 @@ bool show(u64 user, UiRect slot) noexcept {
     if (!entry->loaded_at && (changed || entry->seeded_revision != g_app.account_ui->user_store.revision))
         seed(entry);
     s.applications = g_panel->applications.view();
+    s.voice_states = &g_app.account_ui->voice_states;
+    const auto* call = application_voice_call();
+    const bool call_moved = s.connected_channel != (call ? call->channel_id : 0);
+    s.connected_channel = call ? call->channel_id : 0;
+    // The Game Collection's games, asked for while the panel shows; a lookup that lands lays it out again.
+    u64 games[kProfileWidgetGameMaximum];
+    const u32 game_count = profile_widget_game_ids(entry->data, games, kProfileWidgetGameMaximum);
+    for (u32 i = 0; i < game_count; ++i)
+        game_lookup_want(games[i]);
+    s.games = application_games();
+    const bool games_changed = game_count && game_lookup_revision() != g_panel->games_revision;
+    g_panel->games_revision = game_lookup_revision();
     if (changed) {
         g_panel->shown = user;
         // Fetched on showing when stale, never on a timer while shown.
@@ -229,6 +247,7 @@ bool show(u64 user, UiRect slot) noexcept {
         s.effect = nullptr;
         s.note_visible = false;
         s.reduced_motion = application_reduced_motion();
+        s.hide_personal = application_streamer_hide_personal();
         s.media_dpi = static_cast<u16>(g_app.renderer.dpi);
         s.measure = &g_app.account_ui->text_measure_cache;
         const auto& state = g_app.account_ui->chat_state;
@@ -243,10 +262,13 @@ bool show(u64 user, UiRect slot) noexcept {
         const u8 relation = application_friends_relation(user);
         const UiPresence presence = presence_of(user);
         const bool mobile = ui_presence_mobile(presence, user_store_client_status(g_app.account_ui->user_store, user));
-        const bool moved = commands || !ui_rect_equal(s.anchor, slot) || relation != s.relation ||
+        const bool moved = commands || games_changed || call_moved || !ui_rect_equal(s.anchor, slot) ||
+                           relation != s.relation ||
                            presence != s.presence || mobile != s.presence_mobile ||
-                           s.media_dpi != static_cast<u16>(g_app.renderer.dpi);
+                           s.media_dpi != static_cast<u16>(g_app.renderer.dpi) ||
+                           s.hide_personal != application_streamer_hide_personal();
         s.media_dpi = static_cast<u16>(g_app.renderer.dpi);
+        s.hide_personal = application_streamer_hide_personal();
         s.anchor = slot;
         s.relation = relation;
         s.presence = presence;
@@ -258,7 +280,7 @@ bool show(u64 user, UiRect slot) noexcept {
     g_app.renderer.dm_profile_panel = &s;
     return true;
 }
-bool open_full(u64 user, const UiRect& anchor, u8 tab = 0) noexcept {
+bool open_full(u64 user, const UiRect& anchor, ProfileTab tab = ProfileTab::widgets) noexcept {
     if (!application_profile_open(user, anchor))
         return false;
     application_profile_expand(user, tab);
@@ -289,16 +311,17 @@ bool activate(const ProfileScene& s, UiWidgetHandle target) noexcept {
     switch (part->action) {
     case ProfileAction::expand:
     case ProfileAction::view_bio:
+    case ProfileAction::widgets:
+        return open_full(user, s.rectangle);
     case ProfileAction::card:
     case ProfileAction::activity:
     case ProfileAction::activity_button:
-        return open_full(user, s.rectangle);
-    // The mutuals row opens the full profile on its tab (a bot's tabs are
-    // Activity and Mutual Servers).
+        return open_full(user, s.rectangle, ProfileTab::activity);
+    // The mutuals row opens the full profile on its tab.
     case ProfileAction::friends:
-        return open_full(user, s.rectangle, 1);
+        return open_full(user, s.rectangle, ProfileTab::friends);
     case ProfileAction::servers:
-        return open_full(user, s.rectangle, s.profile->user_appearance.bot ? 1 : 2);
+        return open_full(user, s.rectangle, ProfileTab::servers);
     case ProfileAction::command:
         if (part->source < g_panel->commands.count && !profile_commands_insert(g_panel->commands, part->source))
             log_u64(LogLevel::warning, "profile", "panel_command_insert_failed", part->source);
@@ -311,11 +334,39 @@ bool activate(const ProfileScene& s, UiWidgetHandle target) noexcept {
         if (part->source < s.profile->badge_count && s.profile->badges[part->source].link.bytes)
             application_open_content_url(s.profile->badges[part->source].link.view());
         return true;
+    case ProfileAction::connection:
+        if (part->source < s.profile->connection_count) {
+            char url[512];
+            const auto& connection = s.profile->connections[part->source];
+            const u32 bytes = profile_connection_url(connection, {url, sizeof(url)});
+            if (bytes)
+                application_link_open({url, bytes}, profile_connection_link_trusted(connection));
+        }
+        return true;
     case ProfileAction::activity_watch:
         if (s.activity_set && part->source < s.activity_set->count)
             application_link_open(user_activity_text(s.activity_set->items[part->source], UserActivityField::url),
                                   true);
         return true;
+    case ProfileAction::voice_join: {
+        const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, part->target);
+        return !part->target || application_voice_join(channel ? channel->guild_id : 0, part->target) || true;
+    }
+    case ProfileAction::voice_guild:
+        return !part->target || select_content_guild(part->target);
+    case ProfileAction::activity_spotify: {
+        // The track opens here; the album needs the activity's metadata, which
+        // the full profile fetches.
+        char url[128];
+        const u32 bytes = part->media != ProfileMediaKind::activity_large && s.activity_set &&
+                                  part->source < s.activity_set->count
+                              ? user_activity_spotify_url(s.activity_set->items[part->source], {url, sizeof(url)})
+                              : 0;
+        if (!bytes)
+            return open_full(user, s.rectangle);
+        application_link_open({url, bytes}, true);
+        return true;
+    }
     case ProfileAction::add_friend:
     case ProfileAction::accept_friend:
         if (!application_friends_user_action(user, part->action == ProfileAction::add_friend

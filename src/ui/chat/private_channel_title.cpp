@@ -3,6 +3,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
+#include "maicord/model/user/relationship_store.hpp"
 
 namespace maicord {
 u64 private_channel_peer(const ChatStateStore& state, u64 channel_id) noexcept {
@@ -34,7 +35,11 @@ Utf8View private_channel_title(const ChatStateStore& state, const UserStore* use
         if (used) append(utf8_literal(", "));
         const auto* user = users ? user_store_find(*users, recipients[i]) : nullptr;
         const auto nick = state.private_channels ? private_channel_store_nickname(*state.private_channels, channel.id, recipients[i]) : Utf8View{};
+        // A friend's personal nickname names them in your DMs.
+        const auto* relationship = !nick.bytes && state.relationships ? relationship_store_find(*state.relationships, recipients[i]) : nullptr;
         if (nick.bytes) append(nick);
+        else if (relationship && relationship->type == RelationshipType::friend_ && relationship->nickname_bytes)
+            append({relationship->nickname, relationship->nickname_bytes});
         else if (user) append(user_store_name(*users, *user));
         else {
             char digits[20];

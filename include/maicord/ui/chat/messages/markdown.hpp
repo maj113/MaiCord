@@ -15,6 +15,8 @@ enum class MessageMarkdownEntityKind : u8 {
     user,
     channel,
     role,
+    // A game (<@$id>): its name, empty while unknown.
+    game,
 };
 
 enum class MessageMarkdownSemanticKind : u8 {
@@ -42,7 +44,24 @@ enum class MessageMarkdownSemanticKind : u8 {
     // The "(edited)" label after a message's text: target is the edit time in
     // Unix seconds (the tooltip shows it in full). Never a click target.
     edited,
+    // <@$id>, a game mention: target is the game (application) id; the
+    // semantic covers the chip. Unknown games read "unknown-game".
+    game_mention,
+    // The game's icon cell at the chip's start (an em, measured like
+    // chip_icon): target is the game id. Drawn from the game's icon, else the
+    // game placeholder glyph; never a hit target of its own.
+    game_icon,
+    // A compact row's author avatar: an em cell before the name (target is the user id), drawn as the round avatar
+    // ("Show user avatars" in compact mode). Never a hit target of its own: the name's profile hit covers it.
+    author_avatar,
+    // A compact row's role dot: an en cell before the name (target is the role colour, 0xRRGGBB), drawn as an
+    // 8-DIP disc (Role Colors "Next to names"). Never a hit target.
+    role_dot,
+    // An attachment's "ALT" badge (Show image descriptions): target is the attachment's index, with
+    // kMessageAltSnapshot set for a forwarded snapshot's attachment; clicking it opens the description's popout.
+    alt_text,
 };
+inline constexpr u64 kMessageAltSnapshot = 1ull << 63;
 
 inline constexpr u8 kMessageMarkdownChipHovered = 1u << 2;
 // reserved bit of a link semantic: a CDN attachment URL shown as a chip with

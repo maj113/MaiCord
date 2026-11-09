@@ -28,13 +28,14 @@ struct ApplicationSettingsChoice {
     bool active;
 };
 
-// Native panels and search share one registry.
-inline constexpr u32 kSettingsPageCapacity = 24;
+// Native panels and search share one registry with the plugins' pages.
+inline constexpr u32 kSettingsPageCapacity = 32;
 // One bank serves any catalog panel and search results. Keybinds, which lists every default shortcut, projects
 // into its own bank (application_keybinds_settings_bank).
-inline constexpr u32 kSettingsControlCapacity = 40;
+inline constexpr u32 kSettingsControlCapacity = 48;
 
-// Only short pages carry avatar media (the Account card); longer ones have none.
+// The shared bank's avatar media (the Account card, near the top of a page) covers its first rows; rows past it carry no avatar
+// flag (bounded_look).
 inline constexpr u32 kSettingsAvatarRows = 12;
 
 inline constexpr u32 kSettingsSearchBytes = 40;

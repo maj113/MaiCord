@@ -109,10 +109,20 @@ bool select_point(SettingsLayer* layer, float x, float y, bool extend) noexcept 
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
     u32 acp = 0, byte = 0;
-    if (!focused_editor(layer, &model, &binding, nullptr) ||
-        !text_edit_layout_hit_test(g_app.renderer.media_picker_layout, x, y, &acp) ||
+    // The shared edit layout follows the focused field a frame late: one still built for another field (the one
+    // focused before a click) maps the point to the wrong text, so it places nothing.
+    const auto& layout = g_app.renderer.media_picker_layout;
+    UiSettingsControlGeometry field{};
+    if (!focused_editor(layer, &model, &binding, nullptr) || !layout.active ||
+        layout.text_signature != text_edit_signature(message_composer_text(*model)) ||
+        !ui_settings_scene_control_geometry(*layer->scene, ui_settings_scene_focused(*layer->scene), &field) ||
+        absolute_value(layout.viewport_left - field.text.left) > .5f ||
+        absolute_value(layout.viewport_top - field.text.top) > .5f ||
+        absolute_value(layout.width - ui_rect_width(field.text)) > .5f ||
+        !text_edit_layout_hit_test(layout, x, y, &acp) ||
         !utf8_byte_offset_for_utf16_position(message_composer_text(*model), acp, &byte))
         return false;
+    layer->select_anchored = true;
     message_composer_set_selection(model, extend ? model->anchor : byte, byte);
     return settings_layer_edit_changed(layer, false);
 }
@@ -317,7 +327,7 @@ void settings_layer_shake(SettingsLayer* layer) noexcept {
 void settings_layer_tick(SettingsLayer* layer, u64 now_ms) noexcept {
     if (!layer->scene || !layer->scene->active)
         return;
-    const bool reduced_motion = g_app.preferences.reduced_motion;
+    const bool reduced_motion = application_reduced_motion();
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
     if (focused_editor(layer, &model, &binding, nullptr)) {
@@ -748,9 +758,12 @@ bool settings_layer_window_event(SettingsLayer* layer, const WindowEvent& event)
             return true;
         }
         if (layer->selecting) {
+            // Until the press placed the caret, the first point that maps places it (no selection from a stale one).
             if (step == PointerStep::move)
-                select_point(layer, x, y, true);
+                select_point(layer, x, y, layer->select_anchored);
             else if (step == PointerStep::release) {
+                if (!layer->select_anchored)
+                    select_point(layer, x, y, false);
                 layer->selecting = false;
                 application_release_capture();
             }
@@ -782,6 +795,7 @@ bool settings_layer_window_event(SettingsLayer* layer, const WindowEvent& event)
             }
             settings_layer_focus(layer, editor ? field.target : target);
             if (editor) {
+                layer->select_anchored = false;
                 select_point(layer, x, y, input_shift(event));
                 layer->selecting = true;
             } else if (ui_settings_scene_slider_hit(*scene, target, x, y)) {

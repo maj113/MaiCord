@@ -109,9 +109,11 @@ bool measure_content_search(D3D11Renderer* renderer) noexcept {
         text_edit_layout_invalidate(&renderer->login_edit);
         renderer->edit_selection_owner = &layout;
     }
-    return d3d11_renderer_measure_search_edit(&layout, renderer->edit_selections, scene->content->search,
-                                              ui_friends_scene_search_geometry(*scene).text,
-                                              renderer->glyph_text.system, true, &renderer->friends_search_geometry);
+    // The field the keyboard edits: Add Friend's note or the search/username field.
+    const auto field = ui_friends_scene_edit_field(*scene);
+    return field.view && d3d11_renderer_measure_search_edit(&layout, renderer->edit_selections, *field.view, field.text,
+                                                            renderer->glyph_text.system, true,
+                                                            &renderer->friends_search_geometry);
 }
 
 bool measure_message_search(D3D11Renderer* renderer) noexcept {
@@ -341,6 +343,9 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         const auto* store = renderer->settings_store;
         if (store && store->active && !ui_store_scene_text_output(*store, theme, &output, false))
             return false;
+        const auto* guild = renderer->settings_guild_preview;
+        if (guild && guild->active && !ui_guild_card_text_output(*guild, theme, &output))
+            return false;
         boundaries->settings_preview_end = emitter->count;
         boundaries->popup_start = boundaries->popup_end = emitter->count;
         boundaries->settings_choice_start = emitter->count;
@@ -449,6 +454,9 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     if (d3d11_renderer_download_visible(*renderer) &&
         !ui_download_scene_text_output(*renderer->download_scene, theme, &output))
         return false;
+    if (d3d11_renderer_go_live_visible(*renderer) &&
+        !ui_go_live_scene_text_output(*renderer->go_live_scene, theme, &output))
+        return false;
     if (d3d11_renderer_message_forward_visible(*renderer)) {
         const auto popup_edit = d3d11_renderer_popup_edit_geometry(*renderer);
         if (!ui_message_forward_scene_text_output(*renderer->message_forward_scene, theme, &output,
@@ -478,6 +486,9 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         return false;
     if (d3d11_renderer_stream_card_visible(*renderer) &&
         !ui_stream_card_text_output(*renderer->stream_card_scene, theme, &output))
+        return false;
+    if (d3d11_renderer_names_card_visible(*renderer) &&
+        !ui_names_card_text_output(*renderer->names_card_scene, theme, &output))
         return false;
     if (d3d11_renderer_guild_card_visible(*renderer) &&
         !ui_guild_card_text_output(*renderer->guild_card_scene, theme, &output))

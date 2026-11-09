@@ -241,6 +241,10 @@ bool action(ApplicationThemeEditor& e, UiThemeEditorElement element) noexcept {
         request.check = application_text_form_color_check;
         request.rejected = utf8_literal("That isn't a hex color. Use #RGB or #RRGGBB.");
         request.swatch = true;
+        // The colour picker around the field, the theme's other colours as quick picks. Apply commits once; the
+        // drawer's own square and hue bar stay the live editor.
+        request.picker = true;
+        request.suggested_colors = {e.scene.draft.colors, e.scene.draft.color_count};
         return application_text_form_open(request);
     }
     if (element == UiThemeEditorElement::dark || element == UiThemeEditorElement::light) {

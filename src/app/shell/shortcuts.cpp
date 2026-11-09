@@ -20,6 +20,7 @@
 #include "quick_switcher.hpp"
 #include "../chat/search/search.hpp"
 #include "../settings/settings.hpp"
+#include "../settings/streamer_mode.hpp"
 #include "input.hpp"
 #include "../voice/voice.hpp"
 #include "../voice/settings.hpp"
@@ -72,6 +73,7 @@ bool run_custom(CustomKeybindAction action) noexcept {
     switch (action) {
     case CustomKeybindAction::toggle_mute: return application_voice_toggle_mute();
     case CustomKeybindAction::toggle_deafen: return application_voice_toggle_deafen();
+    case CustomKeybindAction::toggle_streamer_mode: return application_streamer_mode_toggle();
     default: return false; // Push to talk is held by the capture thread.
     }
 }

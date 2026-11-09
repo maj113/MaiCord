@@ -14,6 +14,9 @@
 #include "../chat/composer/preview.hpp"
 #include "../chat/threads/forum_form.hpp"
 #include "../chat/composer/commands.hpp"
+#include "../chat/game_lookup.hpp"
+#include "../chat/composer/game_search.hpp"
+#include "maicord/ui/chat/game_media.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
@@ -21,6 +24,8 @@
 #include "maicord/media/core/animation_timeline.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/ui/core/geometry.hpp"
+#include "maicord/ui/account/profile_appearance.hpp"
+#include "maicord/media/image/dominant_color.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
@@ -60,6 +65,74 @@ u64 animated_avatar_message(const Application& application) noexcept {
     return 0;
 }
 } // namespace
+
+// The saved avatar's colours a card needs, read once a still picture of the avatar is resident (the official client
+// reads them from the static avatar URL): the banner's fill when the profile names no colour and shows no banner
+// picture (the avatar as drawn), and an avatar-themed card's two theme colours (the avatar at 80 DIPs; the card is
+// laid out again with them). The pictures are fetched until then, and not drawn. The banner never reads a picked,
+// unsaved avatar; the preview's theme does (below).
+bool ApplicationMediaPump::read_avatar_colors(ProfileScene& scene, bool* stop) noexcept {
+    if (!scene.active || !scene.profile)
+        return true;
+    u32 colors[kImagePaletteColors];
+    ProfileMedia still;
+    const float drawn = ui_rect_width(scene.avatar);
+    if (!scene.has_banner_color && !scene.pending_banner.active && !profile_display(*scene.profile).banner.bytes &&
+        drawn > 0 && profile_avatar_still_media(scene, drawn, &still)) {
+        if (!media_asset_key_equal(still.key, scene.avatar_color_key)) {
+            scene.avatar_color_key = still.key;
+            scene.has_avatar_color = false;
+        }
+        if (!scene.has_avatar_color) {
+            if (renderer_media_palette(&application.renderer, still.key, colors)) {
+                scene.avatar_color = colors[0];
+                scene.has_avatar_color = true;
+                if (repaint)
+                    *repaint = true;
+            } else if (!request_profile_media(still, stop))
+                return false;
+        }
+    }
+    // The editor's preview themes from a picked, unsaved avatar as it is cropped (the official client reads the
+    // pending avatar), drawn at the size the saved one is read at.
+    const bool picked = scene.avatar_themed && scene.presentation == ProfilePresentation::preview &&
+                        scene.pending_avatar.active;
+    RendererPaletteCrop crop{};
+    u64 signature = 0;
+    if (picked) {
+        const auto out = image_crop_output(scene.pending_avatar.crop);
+        const u32 dpi = scene.media_dpi ? scene.media_dpi : 96u;
+        crop = {out.x, out.y, out.width, out.height, scene.pending_avatar.crop.image_width,
+                (static_cast<u32>(kProfileAvatarThemeDips) * dpi + 95) / 96, out.rotation};
+        const u32 fields[]{crop.x, crop.y, crop.width, crop.height, crop.source_width, crop.size, crop.rotation};
+        signature = hash64_bytes(kHash64Seed, fields, sizeof(fields)) | 1;
+        still.key = scene.pending_avatar.key;
+    }
+    if (scene.avatar_themed && (picked || profile_avatar_still_media(scene, kProfileAvatarThemeDips, &still))) {
+        if (!media_asset_key_equal(still.key, scene.avatar_theme_key) || signature != scene.avatar_theme_crop) {
+            scene.avatar_theme_key = still.key;
+            scene.avatar_theme_crop = signature;
+            scene.has_avatar_theme = false;
+        }
+        if (!scene.has_avatar_theme) {
+            // A picked avatar is already resident in the preview atlas (the card draws it).
+            if (const u32 count = picked ? renderer_media_crop_palette(&application.renderer, still.key, crop, colors)
+                                         : renderer_media_palette(&application.renderer, still.key, colors)) {
+                // A one-colour palette pairs its colour with a companion.
+                scene.avatar_theme[0] = colors[0];
+                scene.avatar_theme[1] = count > 1 ? colors[1] : image_palette_companion(colors[0]);
+                scene.has_avatar_theme = true;
+                if (!profile_scene_layout(&scene, scene.viewport, true))
+                    return false;
+                result.text_changed = true;
+                if (repaint)
+                    *repaint = true;
+            } else if (!picked && !request_profile_media(still, stop))
+                return false;
+        }
+    }
+    return true;
+}
 
 __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* repaint) noexcept {
     if (repaint) {
@@ -274,6 +347,16 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
         }
         return true;
     };
+    // Cards that take their avatar's colours, read (and their still avatars requested) before any request can end
+    // the scan.
+    if (!visibility_only) {
+        ProfileScene* const cards[]{application.profile ? &application.profile->scene : nullptr,
+                                    content_media_visible() ? application.renderer.dm_profile_panel : nullptr,
+                                    application_profile_editor_preview()};
+        for (ProfileScene* card : cards)
+            if (card && !proceed(read_avatar_colors(*card, &stop)))
+                return outcome;
+    }
     if (application.profile && application.profile->scene.active) {
         auto& profile = application.profile->scene;
         // Submit the banner and avatar before decorative effect layers can fill the worker queue.
@@ -399,13 +482,16 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
 
     // A command app's picture (the commands module's fallback chain): its bot's
     // avatar through the user store, or a picture fetched by the URL the
-    // commands module keeps under the key.
+    // commands module (or the game search's rows) keeps under the key.
     const auto request_app_picture = [&](const MediaAssetKey& key) noexcept {
         if (key.kind == MediaAssetKind::profile_image) {
             ProfileMedia media{};
             media.key = key;
             media.url.bytes = static_cast<u16>(
                 application_commands_icon_url(key.id, {media.url.data, sizeof(media.url.data)}));
+            if (!media.url.bytes)
+                media.url.bytes = static_cast<u16>(
+                    application_game_search_icon_url(key.id, {media.url.data, sizeof(media.url.data)}));
             return !media.url.bytes ||
                    request_profile_media(media, &stop);
         }
@@ -428,10 +514,25 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             return outcome;
         for (u32 i = 0; i < composer.projection_span_count; ++i) {
             UiRect rectangle{}, clip{};
+            const auto& span = composer.projection_spans[i];
+            // A game mention in the draft asks for its game, then its icon.
+            if (span.kind == MessageComposerProjectionKind::game)
+                game_lookup_want(span.target);
             if (!text_composer_emoji_rectangle(application.renderer.composer_layout, composer, i,
                                                  &rectangle, &clip))
                 continue;
-            const auto& span = composer.projection_spans[i];
+            if (span.kind == MessageComposerProjectionKind::game) {
+                GameImageMedia icon;
+                if (!game_chip_icon_media(application_games(), span.target, &icon))
+                    continue;
+                ProfileMedia media{};
+                media.key = icon.key;
+                media.url.bytes = static_cast<u16>(icon.url_bytes);
+                copy_bytes(media.url.data, icon.url, icon.url_bytes);
+                if (!proceed(request_profile_media(media, &stop)))
+                    return outcome;
+                continue;
+            }
             const auto key = span.kind == MessageComposerProjectionKind::regional_flag
                                  ? media_asset_regional_flag(static_cast<u16>(span.target))
                                  : media_asset_custom_emoji(span.target, span.animated);
@@ -780,6 +881,32 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             const bool row_plays = avatar_row_animates(hovered_row == &row || row.view.selected);
             if (!proceed(request_conversation(row.view.id, row_plays)))
                 return outcome;
+            // A one-to-one row's nameplate (hovered or selected; the still under its animation) and server tag badge,
+            // as the member list requests them.
+            const auto* rows_source = application.account_ui->navigation_view.private_rows;
+            const UiPrivateRowMedia layers[]{UiPrivateRowMedia::nameplate_still, UiPrivateRowMedia::nameplate,
+                                             UiPrivateRowMedia::tag};
+            for (u32 layer = 0; rows_source && layer < 3; ++layer) {
+                const u64 selected = application.account_ui->navigation_view.friends_mode
+                                         ? 0
+                                         : application.account_ui->chat_state.selected_channel_id;
+                ProfileMedia media;
+                if (!ui_private_row_media(scene, i, *rows_source, selected, !application.renderer.system_animation_off,
+                                          layers[layer], &media))
+                    continue;
+                const bool resident = media_atlas_find(application.renderer.media_atlas, media.key).ok();
+                if (media.key.flags & media_asset_flag_animated) {
+                    if (animation_timeline_observe_visible(&application.animations.timeline, media.key, now_us) &&
+                        resident)
+                        continue;
+                } else if (resident) {
+                    continue;
+                }
+                if (visibility_only)
+                    continue;
+                if (!proceed(request_profile_media(media, &stop)))
+                    return outcome;
+            }
         }
         // The conversation header repeats the selected row's avatars, still.
         if (application.shell_scene.view == UiShellView::private_channels) {

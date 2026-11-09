@@ -401,8 +401,13 @@ void test_ui_scene() noexcept {
             MessageComposerResult::changed &&
         message_composer_set_selection(&shell_composer_model, 1, 4) == MessageComposerResult::changed &&
         message_composer_scene_initialize_owned(&shell_composer_scene) &&
-        message_composer_scene_update(&shell_composer_scene, &shell_composer_model, composer->rectangle,
-                                      true)
+        // The shell's default composer height is one editor row; the scene also reserves the typing strip.
+        message_composer_scene_update(
+            &shell_composer_scene, &shell_composer_model,
+            {composer->rectangle.left, composer->rectangle.top, composer->rectangle.right,
+             composer->rectangle.top + message_composer_scene_preferred_height(
+                                           shell_composer_model, ui_rect_width(composer->rectangle), false)},
+            true)
             .ok();
     shell_composer_model.focused = true;
     const UiLayoutNode* shell_composer_edit =
@@ -1902,7 +1907,7 @@ void test_member_list_scene() noexcept {
             : MemberListSceneResult{};
     const MemberListSceneResult tail =
         first.ok() ? member_list_scene_update(&scene, &projection, &members, &users, &state, viewport,
-                                              static_cast<float>(source_count) * kMemberListRowHeight)
+                                              static_cast<float>(source_count) * member_list_row_height())
                    : MemberListSceneResult{};
     const UiLayoutNode* row_layout = nullptr;
     const UiLayoutNode* status_layout = nullptr;

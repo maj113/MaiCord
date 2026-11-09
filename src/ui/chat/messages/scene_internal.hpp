@@ -36,9 +36,10 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept;
 inline const UiThemeMetrics& metrics(const MessageScene& scene) noexcept {
     return ui_theme_metrics(scene.theme_styles);
 }
+// The em of everything a message row shows: Text size in chat. Heights and widths that hold message text derive from it.
 inline float message_em(const MessageScene& scene) noexcept {
     const auto* bank = scene.theme_styles;
-    return bank && bank->ready ? bank->typography.body_size : 16.f;
+    return bank && bank->ready ? ui_theme_chat_size(bank->typography) : 16.f;
 }
 inline float content_height(const MessageScene& scene) noexcept {
     return message_em(scene) * 1.3125f;

@@ -348,9 +348,15 @@ VoiceProtocolCommand voice_connection_protocol_command(const VoiceConnection& co
         return command;
     }
     VoiceCodecOffer offers[kVoiceVideoMaximumCodecs];
-    const u32 count = voice_video_decode_offers(connection.video_decodable, {offers, kVoiceVideoMaximumCodecs});
-    for (u32 i = 0; i != count; ++i)
+    const u32 count = connection.video_encodable
+                          ? voice_video_offers(connection.video_decodable, connection.video_encodable,
+                                               {offers, kVoiceVideoMaximumCodecs})
+                          : voice_video_decode_offers(connection.video_decodable, {offers, kVoiceVideoMaximumCodecs});
+    for (u32 i = 0; i != count; ++i) {
         command.video_offer |= voice_video_codec_bit(offers[i].codec);
+        command.video_codecs[i] = static_cast<u8>(offers[i].codec);
+    }
+    command.video_codec_count = static_cast<u8>(count);
     command.write = voice_gateway_write_select_protocol_media(
         {{{external.address, external.address_bytes}, external.port, command.mode},
          ConstSlice<VoiceCodecOffer>{offers, count},
@@ -366,6 +372,8 @@ bool voice_connection_protocol_submitted(VoiceConnection* connection, const Voic
         !voice_media_protocol_selected(&connection->media, command.mode))
         return false;
     connection->media.video_offer = command.video_offer;
+    copy_bytes(connection->media.video_codecs, command.video_codecs, sizeof(command.video_codecs));
+    connection->media.video_codec_count = command.video_codec_count;
     return true;
 }
 VoiceMediaSetupError voice_connection_description(VoiceConnection* connection, JsonValue data,
@@ -525,6 +533,22 @@ VoiceSocketSend voice_connection_speaking(VoiceConnection* connection, u32 flags
     if (!encoded.ok())
         return VoiceSocketSend::invalid;
     return voice_socket_send(&connection->socket, WebSocketOpcode::text, {payload, encoded.bytes}, now_ms);
+}
+VoiceSocketSend voice_connection_video(VoiceConnection* connection, const VoiceVideoSendStream& stream,
+                                       u64 now_ms) noexcept {
+    if (!connection || !connection->identify_submitted || !connection->media.has_ready)
+        return VoiceSocketSend::invalid;
+    u8 payload[384];
+    const auto encoded = voice_gateway_write_video({connection->media.ssrc, stream}, {payload, sizeof(payload)});
+    if (!encoded.ok())
+        return VoiceSocketSend::invalid;
+    return voice_socket_send(&connection->socket, WebSocketOpcode::text, {payload, encoded.bytes}, now_ms);
+}
+u8 voice_connection_video_payload_type(const VoiceConnection& connection, VoiceVideoCodec codec) noexcept {
+    for (u32 i = 0; i != connection.media.video_codec_count; ++i)
+        if (connection.media.video_codecs[i] == static_cast<u8>(codec))
+            return static_cast<u8>(kVoiceVideoPayloadTypeBase + 2 * i);
+    return 0;
 }
 bool voice_connection_set_sink_wants(VoiceConnection* connection, u8 any_quality,
                                      ConstSlice<VoiceSinkWant> wants) noexcept {

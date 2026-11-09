@@ -1,0 +1,31 @@
+#pragma once
+#include "maicord/app/gateway/go_live_stream.hpp"
+#include "maicord/core/win32_records.hpp"
+#include "maicord/platform/audio/stream_audio.hpp"
+
+namespace maicord {
+// The Go Live producers of a client: screen/window capture and stream audio
+// (platform/capture, platform/audio/stream_audio.hpp) and the GPU encoder
+// (platform/encode), on the renderer's device. Owned by the account module
+// (it outlives Gateway sessions); the session reaches it as a GoLiveBackend.
+// Zero-initialize.
+struct GoLiveDevices {
+    SrwLock lock; // device, encoder and media, read by the capture and encoder threads
+    GpuDevice* device; // Referenced.
+    ScreenCapture* capture;
+    StreamAudioCapture audio;
+    GpuStreamEncoder* encoder;
+    GoLiveMedia* media;
+    u32 width, height; // The last picture size reported.
+    u32 frames;        // Pictures the capture delivered since it started (capture thread).
+    // Borrowed, set by the owner: signaled for every unit the encoder delivers, so the self-preview shows the new
+    // picture at once (the call view's video notification).
+    HANDLE picture_event;
+    bool audio_running;
+};
+// Any thread: the renderer's device (null detaches it; a running stream keeps its own).
+void go_live_devices_set_device(GoLiveDevices* devices, GpuDevice* device) noexcept;
+GoLiveBackend go_live_devices_backend(GoLiveDevices* devices) noexcept;
+// After the session stopped every producer.
+void go_live_devices_release(GoLiveDevices* devices) noexcept;
+} // namespace maicord

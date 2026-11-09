@@ -293,15 +293,17 @@ bool d3d11_draw_pipeline_update_transform(const D3D11DrawPipelineOwner& owner, G
 
 namespace {
 bool write_frame(const D3D11DrawPipelineOwner& owner, GpuContext* context, u32 width, u32 height,
-                 u32 dpi, float opacity, float scale, float origin_x, float origin_y, float shift_y,
+                 u32 dpi, float opacity, float scale, float origin_x, float origin_y, float shift_x, float shift_y,
                  float surface_top, float surface_height) noexcept {
     if (!owner.ui_frame_buffer || !context || width == 0 || height == 0 || dpi == 0) {
         return false;
     }
     if (!(scale > 0.0f && scale <= 2.0f) || !(origin_x == origin_x) || !(origin_y == origin_y))
         scale = 1.0f, origin_x = origin_y = 0.0f;
+    if (!(shift_x == shift_x) || !(shift_y == shift_y))
+        shift_x = shift_y = 0.0f;
 
-    // position' = origin + (position - origin) * scale, then the DIP-to-clip map.
+    // position' = origin + (position - origin) * scale + shift, then the DIP-to-clip map.
     const float dpi_scale = static_cast<float>(dpi) / 96.0f;
     const float x_scale = 2.0f * dpi_scale / static_cast<float>(width);
     const float y_scale = -2.0f * dpi_scale / static_cast<float>(height);
@@ -316,7 +318,7 @@ bool write_frame(const D3D11DrawPipelineOwner& owner, GpuContext* context, u32 w
     const float axis_x = x / projection, axis_y = y / projection;
     const FrameTransform transform{x_scale * scale,
                                    y_scale * scale,
-                                   -1.0f + origin_x * (1.0f - scale) * x_scale,
+                                   -1.0f + (origin_x * (1.0f - scale) + shift_x) * x_scale,
                                    1.0f + (origin_y * (1.0f - scale) + shift_y) * y_scale,
                                    opacity >= 0.0f && opacity <= 1.0f ? opacity : 1.0f,
                                    {axis_x, axis_y, 0.5f - (half_x * axis_x + (surface_top + half_y) * axis_y)}};
@@ -327,11 +329,11 @@ bool write_frame(const D3D11DrawPipelineOwner& owner, GpuContext* context, u32 w
 
 bool d3d11_draw_pipeline_update_layer(const D3D11DrawPipelineOwner& owner, GpuContext* context,
                                       u32 width, u32 height, u32 dpi, float opacity, float scale, float origin_x,
-                                      float origin_y) noexcept {
+                                      float origin_y, float shift_x, float shift_y) noexcept {
     const float dpi_scale = static_cast<float>(dpi ? dpi : 96) / 96.0f;
     const float caption = static_cast<float>(owner.backdrop_caption) / dpi_scale;
-    return write_frame(owner, context, width, height, dpi, opacity, scale, origin_x, origin_y, 0, -caption,
-                       static_cast<float>(height) / dpi_scale + caption);
+    return write_frame(owner, context, width, height, dpi, opacity, scale, origin_x, origin_y, shift_x, shift_y,
+                       -caption, static_cast<float>(height) / dpi_scale + caption);
 }
 
 bool d3d11_draw_pipeline_update_caption(const D3D11DrawPipelineOwner& owner, GpuContext* context,
@@ -339,7 +341,7 @@ bool d3d11_draw_pipeline_update_caption(const D3D11DrawPipelineOwner& owner, Gpu
                                         bool content_space) noexcept {
     const float dpi_scale = static_cast<float>(dpi ? dpi : 96) / 96.0f;
     const float caption = static_cast<float>(height) / dpi_scale;
-    return write_frame(owner, context, width, height, dpi, 1, 1, 0, 0, content_space ? caption : 0,
+    return write_frame(owner, context, width, height, dpi, 1, 1, 0, 0, 0, content_space ? caption : 0,
                        content_space ? -caption : 0,
                        static_cast<float>(height + content_height) / dpi_scale);
 }

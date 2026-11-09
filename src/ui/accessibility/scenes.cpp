@@ -4,6 +4,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
+#include "maicord/ui/voice/go_live_scene.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "maicord/ui/media/image_viewer.hpp"
 #include "maicord/ui/chat/inbox_scene.hpp"
@@ -855,6 +856,34 @@ void describe_text_form(void* context, const UiWidgetManager&, UiWidgetHandle ha
         info->state |= c.select_expanded ? ui_access_expanded : ui_access_collapsed;
         return;
     }
+    // The color picker: two sliders (the square reads its saturation and brightness, its range is the
+    // saturation), the eyedropper and the suggested swatches as a list reading the keyboard's swatch.
+    if (element(TextFormElement::color_field) || element(TextFormElement::color_hue)) {
+        const bool hue = element(TextFormElement::color_hue);
+        info->role = UiAccessRole::slider;
+        info->leaf = true;
+        info->name = hue ? utf8_literal("Hue") : utf8_literal("Saturation and brightness");
+        info->value = Utf8View{s.color_values[hue], static_cast<u32>(c_string_length(s.color_values[hue]))};
+        info->range = hue ? UiAccessRange{c.color.hsv.hue * 360, 0, 360, 1, 10}
+                          : UiAccessRange{c.color.hsv.saturation * 100, 0, 100, 1, 10};
+        info->help = hue ? Utf8View{} : utf8_literal("Arrow keys change saturation and brightness");
+        return;
+    }
+    if (element(TextFormElement::eyedropper)) {
+        info->role = UiAccessRole::toggle_button;
+        info->leaf = true;
+        info->name = utf8_literal("Pick a color from the screen");
+        info->state |= ui_access_toggleable | (c.color.picking ? ui_access_checked : 0);
+        return;
+    }
+    if (element(TextFormElement::color_swatches)) {
+        info->role = UiAccessRole::list;
+        info->leaf = true;
+        info->name = utf8_literal("Suggested colors");
+        info->value = Utf8View{s.color_values[2], static_cast<u32>(c_string_length(s.color_values[2]))};
+        info->help = utf8_literal("Arrow keys choose a color; Enter applies it");
+        return;
+    }
     for (u32 i = 0; i < kTextFormChoices + kTextFormSelectOptions; ++i) {
         const bool choice = i < kTextFormChoices;
         const auto e = static_cast<TextFormElement>(
@@ -1174,12 +1203,15 @@ void add_call_control(UiAccessTree* tree, u32 parent, u8 surface, const UiCallSc
 void call_tile_name(const UiCallParticipant& p, UiAccessNameBuilder* name) noexcept {
     name->clear();
     if (p.stream != UiCallStream::none) {
-        name->add(pick(p.name, utf8_literal("Someone"))).add("'s stream");
+        if (p.self)
+            name->add(utf8_literal("Your stream"));
+        else
+            name->add(pick(p.name, utf8_literal("Someone"))).add("'s stream");
         switch (p.stream) {
         case UiCallStream::available: name->part(utf8_literal("live, not watching")); break;
         case UiCallStream::connecting: name->part(utf8_literal("connecting")); break;
         case UiCallStream::live:
-            name->part(utf8_literal("watching"));
+            name->part(p.self ? utf8_literal("live") : utf8_literal("watching"));
             if (p.paused)
                 name->part(utf8_literal("paused"));
             break;
@@ -1259,7 +1291,7 @@ void mount_call(void* context, UiAccessTree* tree, u32 node) noexcept {
             tree->nodes[item].placement.position = index + 1;
             tree->nodes[item].placement.set_size = s.tile_count;
             static constexpr UiCallControl kTile[]{UiCallControl::stream_watch, UiCallControl::stream_dismiss,
-                                                   UiCallControl::stage_move};
+                                                   UiCallControl::stage_move, UiCallControl::stream_viewers};
             for (const auto control : kTile)
                 add_call_control(tree, item, surface, s, control, tile.user_id,
                                  ui_call_scene_tile_control(s, tile.user_id, control));
@@ -1332,7 +1364,79 @@ u32 add_scene(UiAccessTree* tree, u32 parent, const Scene& scene, UiAccessDescri
                : kUiAccessNone;
 }
 
+// Go Live's screen share dialog: a modal dialog with its tabs, the source grid (list items named by their source),
+// the system picker's cards, Make Selection, Options and the HD line.
+void describe_go_live(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&,
+                      const UiLayoutNode&, UiAccessWidgetInfo* info) noexcept {
+    const auto& s = *static_cast<const UiGoLiveScene*>(context);
+    if (same(handle, s.root)) {
+        info->role = UiAccessRole::dialog;
+        info->state |= ui_access_modal;
+        info->name = s.mode == UiGoLiveMode::picker ? utf8_literal("Screen Share") : Utf8View{s.title, s.title_bytes};
+        // The unavailable reason, or the stream quality summary and an error.
+        g_name.clear();
+        if (s.mode == UiGoLiveMode::unavailable)
+            g_name.add({s.body_text, s.body_bytes});
+        else
+            g_name.part({s.notice, s.notice_bytes}).part({s.summary, s.summary_bytes}).part({s.detail, s.detail_bytes});
+        info->help = g_name.view();
+        return;
+    }
+    info->leaf = true;
+    for (u32 i = 0; i < 2; ++i) {
+        if (same(handle, s.tabs[i])) {
+            info->role = UiAccessRole::tab;
+            info->actions = ui_access_action_select | ui_access_action_invoke;
+            info->state |= ui_access_selectable | (static_cast<u32>(s.tab) == i ? ui_access_selected : 0);
+            set_position(info, i + 1, 2);
+            return;
+        }
+        if (same(handle, s.kinds[i])) {
+            info->role = UiAccessRole::radio_button;
+            info->state |= static_cast<u32>(s.kind) == i + 1 ? ui_access_checked : 0;
+            set_position(info, i + 1, 2);
+            return;
+        }
+    }
+    if (same(handle, s.grid)) {
+        info->leaf = false;
+        info->role = UiAccessRole::list;
+        g_name.clear().add(s.tab == UiGoLiveTab::applications ? utf8_literal("Applications")
+                                                              : utf8_literal("Entire Screen"));
+        info->name = g_name.view();
+        info->actions = ui_access_action_scroll;
+        info->scroll = scroll_state(s.scroll, s.content_height - ui_rect_height(s.body), ui_rect_height(s.body));
+        return;
+    }
+    for (u32 i = 0; i < s.source_count; ++i) {
+        if (!same(handle, s.tiles[i]))
+            continue;
+        info->role = UiAccessRole::list_item;
+        info->ignore_text = true;
+        info->item = static_cast<u64>(i) + 1;
+        info->key = hash64_mix(s.sources[i].id, 0x474c4956u);
+        g_name.clear().add(pick(s.sources[i].name, s.sources[i].screen ? utf8_literal("Screen")
+                                                                         : utf8_literal("Window")));
+        info->name = g_name.view();
+        info->help = s.change_source ? utf8_literal("Change Stream") : utf8_literal("Share Screen");
+        info->actions = ui_access_action_invoke;
+        set_position(info, i + 1, s.source_count);
+        return;
+    }
+    if (same(handle, s.select) && s.kind == UiGoLiveSystemKind::none)
+        info->state |= ui_access_disabled;
+    if (same(handle, s.options)) {
+        info->name = utf8_literal("Options");
+        info->actions = ui_access_action_invoke | ui_access_action_expand;
+        info->state |= ui_access_collapsed;
+    }
+}
+
 } // namespace
+
+u32 ui_access_add_go_live(UiAccessTree* tree, u32 parent, const UiGoLiveScene& scene, u8 surface) noexcept {
+    return add_scene(tree, parent, scene, describe_go_live, surface);
+}
 
 u32 ui_access_add_quick_switcher(UiAccessTree* tree, u32 parent, const UiQuickSwitcherScene& scene,
                                  u8 surface) noexcept {

@@ -224,6 +224,12 @@ struct UiStoreScene {
     bool focus_visible, active, dialog_open, dialog_bar, reduced_motion;
     bool hover_clear; // the pointer is over the clear button of the hovered search field
     u64 clock_ms;
+    // The switch last activated, for its slide (the nodes are rebuilt, so the scene keeps one record, not per-node
+    // state): its action, the state it turns to, the clock it started at (0: the next tick starts it) and the
+    // duration of the slide. toggle_action 0 is idle.
+    u64 toggle_started_ms;
+    u32 toggle_action, toggle_ms;
+    bool toggle_to;
     // Host-sampled UiSpinnerClock phase (busy buttons, the dialog's spinner); part of the paint stamp.
     u8 spinner_phase;
     const UiStoreSearch* search;
@@ -263,8 +269,9 @@ bool ui_store_scene_press_is_slider(const UiStoreScene&) noexcept;
 u32 ui_store_scene_value(const UiStoreScene&, u32 action) noexcept;
 // True when the pointer is over a dialog (so the page must not react).
 bool ui_store_scene_modal_hit(const UiStoreScene&, float x, float y) noexcept;
-// The skeleton pulse: advances the paint clock; true while a pulsing skeleton is on screen (a frame is due).
-bool ui_store_scene_tick(UiStoreScene*, u64 now_ms, bool reduced_motion) noexcept;
+// Advances the paint clock: the skeleton pulse and the slide of the switch last toggled. `switch_ms` is that slide's
+// duration (the settings switch's, shorter under reduced motion). True while a frame is due.
+bool ui_store_scene_tick(UiStoreScene*, u64 now_ms, bool reduced_motion, u32 switch_ms) noexcept;
 bool ui_store_scene_animating(const UiStoreScene&) noexcept;
 // True while a spinner (a busy button, the dialog's check) is on screen: the host's shared spinner clock drives it.
 bool ui_store_scene_spinner_visible(const UiStoreScene&) noexcept;

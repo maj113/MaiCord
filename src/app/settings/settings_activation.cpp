@@ -8,10 +8,13 @@
 #include "../notifications/notifications.hpp"
 #include "theme_editor.hpp"
 #include "../update/updates.hpp"
+#include "test_mode.hpp"
 #include "../chat/application_link_trust.hpp"
 #include "user_settings.hpp"
 #include "account_settings.hpp"
 #include "keybinds_settings.hpp"
+#include "streamer_mode.hpp"
+#include "../account/user_actions.hpp"
 #include "../notifications/desktop.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
 #include "maicord/platform/desktop/shell_open.hpp"
@@ -320,7 +323,9 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
     if (application_updates_changelog_row(target.control_id))
         return settled(*settings, application_updates_activate_row(target.control_id));
     if (settings_list_control(target.control_id))
-        return settled(*settings, application_account_settings_activate_row(target.control_id));
+        return settled_toggle(*settings, target, request,
+                              application_account_settings_activate_row(target.control_id, request.checked,
+                                                                        request.selected_choice));
     SettingBinding binding{};
     if (!control_node(target.control_id, &binding))
         return false;
@@ -359,6 +364,15 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
     case SettingBinding::preferences_retry:
         persist();
         return settled(*settings, true);
+    case SettingBinding::test_mode:
+        if (g_app.preferences.test_mode_application) {
+            application_test_mode_clear();
+            return settled(*settings, true);
+        }
+        return settled(*settings, application_test_mode_open());
+    case SettingBinding::speech_preview:
+        return settled(*settings, application_user_actions_speak(
+                                      utf8_literal("This is what text-to-speech sounds like at the current speed.")));
     case SettingBinding::update_status:
     case SettingBinding::update_channel:
     case SettingBinding::update_interval:
@@ -393,7 +407,8 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
         return settled_toggle(*settings, target, request,
                               backend == SettingBackend::proto1
                                   ? application_user_settings_activate(binding, request.checked, request.selected_choice)
-                                  : application_account_settings_activate(binding));
+                                  : application_account_settings_activate(binding, request.checked,
+                                                                          request.selected_choice));
     if (backend != SettingBackend::local)
         return false;
     // The built-in gradient knobs never act on (or fork) an installed theme: the projection disables them.
@@ -407,9 +422,20 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
     auto next = g_app.preferences;
     if (binding == SettingBinding::gradient_direction || binding == SettingBinding::gradient_intensity)
         next.gradient = gradient_edit_base();
-    if (!settings_store_write(&next, binding, {request.checked, request.selected_choice}) ||
-        !client_preferences_valid(next))
+    if (!settings_store_write(&next, binding, {request.checked, request.selected_choice}))
         return false;
+    // As in the official client: choosing reduced motion stops following the computer's setting, following it
+    // again takes the computer's choice, and no longer following it keeps what applied.
+    if (binding == SettingBinding::reduced_motion)
+        next.reduced_motion_sync = false;
+    else if (binding == SettingBinding::reduced_motion_sync)
+        next.reduced_motion = !next.reduced_motion_sync &&
+                              client_preferences_reduced_motion(g_app.preferences, application_system_reduced_motion());
+    if (!client_preferences_valid(next))
+        return false;
+    // Developer Mode is the account's: saved there first, since applying the preferences mirrors the account's value.
+    if (binding == SettingBinding::developer_mode)
+        (void)application_user_settings_set_developer_mode(next.developer_mode);
     const bool shell_changed = next.member_pane_visible != g_app.preferences.member_pane_visible;
     const auto prior_preferences = g_app.preferences;
     g_app.preferences = next;
@@ -424,9 +450,18 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
         application_notifications_settings_refresh(&g_app);
     animate_toggle(*settings, target, request);
     application_preferences_apply();
-    // Hidden channels and voice name colours change what the channel list shows.
+    // Text size in chat and Saturation are applied where the theme is published; zoom scales the interface.
+    if (binding == SettingBinding::chat_font_size || binding == SettingBinding::saturation)
+        (void)application_theme_accessibility_refresh();
+    if (binding == SettingBinding::zoom)
+        application_zoom_apply();
+    if (binding >= SettingBinding::streamer_mode && binding <= SettingBinding::streamer_hide_window)
+        application_streamer_mode_synchronize();
+    // Hidden channels, role colours and link underlines change what the channel list and messages show.
     if (g_app.account_ui && g_app.renderer_ready &&
-        (binding == SettingBinding::show_hidden_channels || binding == SettingBinding::role_colors_everywhere))
+        (binding == SettingBinding::show_hidden_channels || binding == SettingBinding::role_colors_everywhere ||
+         binding == SettingBinding::role_style || binding == SettingBinding::desaturate_user_colors ||
+         binding == SettingBinding::saturation || binding == SettingBinding::underline_links))
         (void)(synchronize_navigation_view() && refresh_account_text(true));
     if (save)
         persist();

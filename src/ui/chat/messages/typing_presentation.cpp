@@ -11,7 +11,7 @@ Utf8View display_name(const UserStore& users, u64 user_id) noexcept {
 }
 
 MessageTypingPresentationResult failure(MessageTypingPresentationError error) noexcept {
-    return MessageTypingPresentationResult{0, 0, error};
+    return MessageTypingPresentationResult{.error = error};
 }
 
 } // namespace
@@ -26,11 +26,15 @@ MessageTypingPresentationResult message_typing_presentation_build(const TypingSt
     }
     const u32 count = typing_store_channel_count(typing, channel_id, self_user_id);
     if (count == 0) {
-        return MessageTypingPresentationResult{0, 0, MessageTypingPresentationError::none};
+        return MessageTypingPresentationResult{};
     }
     TextWriter writer{output};
+    u32 named = 0;
     if (count > 3) {
-        writer.add(utf8_literal("Several people are typing…"));
+        writer.add(utf8_literal("Several people"));
+        if (names && writer.ok)
+            names[named++] = {0, static_cast<u16>(writer.used)};
+        writer.add(utf8_literal(" are typing..."));
     } else {
         u64 ids[3]{};
         const u32 written =
@@ -41,21 +45,19 @@ MessageTypingPresentationResult message_typing_presentation_build(const TypingSt
         for (u32 index = 0; index < written; ++index) {
             const Utf8View name = display_name(users, ids[index]);
             if (index != 0) {
-                writer.add(written == 2           ? utf8_literal(" and ")
-                           : index + 1 == written ? utf8_literal(", and ")
-                                                  : utf8_literal(", "));
+                writer.add(index + 1 == written ? utf8_literal(" and ") : utf8_literal(", "));
             }
             const u32 name_at = writer.used;
             writer.add(name.bytes != 0 ? name : utf8_literal("Someone"));
             if (names && writer.ok)
-                names[index] = {ids[index], static_cast<u16>(name_at), static_cast<u16>(writer.used - name_at)};
+                names[named++] = {static_cast<u16>(name_at), static_cast<u16>(writer.used - name_at)};
         }
-        writer.add(written == 1 ? utf8_literal(" is typing…") : utf8_literal(" are typing…"));
+        writer.add(written == 1 ? utf8_literal(" is typing...") : utf8_literal(" are typing..."));
     }
     if (!writer.ok) {
         return failure(MessageTypingPresentationError::capacity);
     }
-    return MessageTypingPresentationResult{writer.used, count, MessageTypingPresentationError::none};
+    return MessageTypingPresentationResult{writer.used, count, named, MessageTypingPresentationError::none};
 }
 
 } // namespace maicord

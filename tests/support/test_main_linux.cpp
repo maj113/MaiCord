@@ -64,6 +64,7 @@ MAICORD_TEST_ENTRY(maicord_tests_entry) {
     maicord::test_apng_decode();
     maicord::test_gif_decode();
     maicord::test_png_decode();
+    maicord::test_image_dominant_color();
 
     if (maicord::g_failures == 0) {
         maicord::test_write_text("PASS maicord_core\n");

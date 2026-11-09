@@ -270,6 +270,11 @@ void update_http_observe_field(UpdateHttpResponse* r, ConstSlice<u8> name, Const
         if (decimal(value, &n)) { r->ratelimit_reset_unix = n; r->has_ratelimit_reset = true; }
     } else if (equal_case(name, utf8_literal("x-ratelimit-remaining"))) {
         r->ratelimit_exhausted = decimal(value, &n) && n == 0;
+    } else if (equal_case(name, utf8_literal("etag"))) {
+        r->etag_bytes = value.count <= sizeof(r->etag) ? static_cast<u8>(value.count) : 0;
+        copy_bytes(r->etag, value.data, r->etag_bytes);
+    } else if (equal_case(name, utf8_literal("content-encoding"))) {
+        r->gzip = equal_case(value, utf8_literal("gzip"));
     }
 }
 

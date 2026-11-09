@@ -518,6 +518,20 @@ void test_routes() noexcept {
         utf8_literal(R"({"features":["NEWS","COMMUNITY","ACTIVITY_FEED_ENABLED_BY_USER"],"afk_channel_id":"60",)"
                      R"("afk_timeout":3600,"system_channel_id":null,"default_message_notifications":1,)"
                      R"("system_channel_flags":2177})"));
+    // Server Profile games: the server's top games, the picker's search (trimmed, lowercased, '_' as a space,
+    // percent-encoded) and the games list (repeated game_ids); the two game routes belong to no guild.
+    r = guild_request(GuildAdminOperation::top_games);
+    add(r, RestMethod::get, utf8_literal("/api/v9/guilds/10/top-games"), {});
+    GuildAdminRequest search{};
+    search.operation = GuildAdminOperation::game_search;
+    search.game_query = utf8_literal("  Dark_Souls &3 ");
+    add(search, RestMethod::get, utf8_literal("/api/v9/games/autocomplete?q=dark%20souls%20%263&filter_group=default"), {});
+    const u64 game_ids[] = {356875221078245376ull, 700136079562375258ull};
+    GuildAdminRequest games{};
+    games.operation = GuildAdminOperation::games_list;
+    games.game_ids = {game_ids, 2};
+    add(games, RestMethod::get,
+        utf8_literal("/api/v9/games?game_ids=356875221078245376&game_ids=700136079562375258"), {});
 
     bool exact = true, short_buffers = true;
     for (u32 n = 0; n < count; ++n) {
@@ -535,7 +549,7 @@ void test_routes() noexcept {
         exact = exact && row_exact;
         short_buffers = bounded(row.request) && short_buffers;
     }
-    check(exact && count == 27,
+    check(exact && count == 30,
           "guild admin protocol: every operation writes its exact method, path and body");
     check(short_buffers, "guild admin protocol: every short target buffer is refused untouched");
 
@@ -639,6 +653,40 @@ void test_routes() noexcept {
     rejected = rejected && !guild_admin_request_valid(bad);
     check(rejected, "guild admin protocol: missing targets, stray fields, bounds, duplicates, unsafe codes and "
                     "invalid reasons are refused");
+    // Game routes: no guild, a query that normalizes to something, 1-25 nonzero ids, no stray fields.
+    GuildAdminRequest game{};
+    game.operation = GuildAdminOperation::game_search;
+    game.game_query = utf8_literal(" \t ");
+    bool games_refused = !guild_admin_request_valid(game);
+    game.game_query = utf8_literal("zelda");
+    game.guild_id = 10;
+    games_refused = games_refused && !guild_admin_request_valid(game);
+    game.guild_id = 0;
+    const u64 many[kGuildAdminGamesListMaximum + 1]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+                                                     14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
+    game.game_ids = {many, 1};
+    games_refused = games_refused && !guild_admin_request_valid(game);
+    game.operation = GuildAdminOperation::games_list;
+    game.game_query = {};
+    game.game_ids = {many, kGuildAdminGamesListMaximum + 1};
+    games_refused = games_refused && !guild_admin_request_valid(game);
+    const u64 zero[] = {0};
+    game.game_ids = {zero, 1};
+    games_refused = games_refused && !guild_admin_request_valid(game);
+    game.game_ids = {many, kGuildAdminGamesListMaximum};
+    check(games_refused && guild_admin_request_valid(game),
+          "guild admin protocol: game routes refuse a guild, a blank query and 0 or more than 25 ids");
+    // Profile saves send at most 20 games.
+    GuildServerProfileWrite twenty_one{};
+    twenty_one.game_application_ids = {many, kGuildAdminProfileGameMaximum + 1};
+    GuildSettingsPatch profile_patch{};
+    profile_patch.fields = guild_settings_patch_profile;
+    profile_patch.profile = &twenty_one;
+    GuildAdminRequest save = guild_request(GuildAdminOperation::profile_update);
+    save.guild = &profile_patch;
+    const bool over = !guild_admin_request_valid(save);
+    twenty_one.game_application_ids = {many, kGuildAdminProfileGameMaximum};
+    check(over && guild_admin_request_valid(save), "guild admin protocol: a profile save lists at most 20 games");
 }
 
 void test_reason_and_head() noexcept {
@@ -941,6 +989,56 @@ void test_decoders() noexcept {
           "guild admin decode: invites validate codes and nested channel/inviter identities");
 }
 
+// The Server Profile's game reads: GET /games (the documented hashes, else the newer media), the picker's
+// autocomplete (id as a number, icon only) and GET /guilds/{g}/top-games.
+void test_game_decoders() noexcept {
+    u32 scratch[2048];
+    GuildAdminGame games[3];
+    constexpr char listed[] =
+        R"([{"id":"356875221078245376","name":"DARK SOULS III","icon_hash":"aa11","cover_image_hash":"bb22",)"
+        R"("executables":[{"name":"ds3.exe","os":"win32"}],"aliases":[]},)"
+        R"({"id":"700136079562375258","name":"Nier","media":{"icon":{"type":"hash","value":"cc33"},)"
+        R"("cover":{"type":"url","value":"https://images.example/c.jpg"},"banner":null}},)"
+        R"({"name":"no id"}])";
+    const auto list = guild_admin_decode_games(utf8_literal(listed), {scratch, 2048}, {games, 3});
+    check(list.ok() && list.count == 2 && games[0].id == 356875221078245376ull &&
+              same(reinterpret_cast<const u8*>(games[0].name), games[0].name_bytes, utf8_literal("DARK SOULS III")) &&
+              same(reinterpret_cast<const u8*>(games[0].icon), games[0].icon_bytes, utf8_literal("aa11")) &&
+              same(reinterpret_cast<const u8*>(games[0].cover), games[0].cover_bytes, utf8_literal("bb22")) &&
+              !games[0].cover_url && games[1].id == 700136079562375258ull && !games[1].icon_url &&
+              same(reinterpret_cast<const u8*>(games[1].icon), games[1].icon_bytes, utf8_literal("cc33")) &&
+              games[1].cover_url &&
+              same(reinterpret_cast<const u8*>(games[1].cover), games[1].cover_bytes,
+                   utf8_literal("https://images.example/c.jpg")),
+          "guild admin decode: games keep id, name, icon and cover hashes or URLs and skip id-less items");
+    const auto found = guild_admin_decode_games(utf8_literal(R"([{"id":1402418696126992445,"name":"Ark","icon":"dd44"}])"),
+                                                {scratch, 2048}, {games, 3});
+    check(found.ok() && found.count == 1 && games[0].id == 1402418696126992445ull && !games[0].cover_bytes &&
+              same(reinterpret_cast<const u8*>(games[0].icon), games[0].icon_bytes, utf8_literal("dd44")),
+          "guild admin decode: a search result's numeric id and icon");
+    check(!guild_admin_decode_games(utf8_literal(R"([{"id":"1"},{"id":"2"},{"id":"3"},{"id":"4"}])"), {scratch, 2048},
+                                    {games, 3})
+               .ok(),
+          "guild admin decode: more games than room is refused");
+    GuildAdminGameActivity top[2];
+    const auto played = guild_admin_decode_top_games(
+        utf8_literal(R"({"top_games":[{"game_application_id":"555","activity_level":2,"activity_score":90},)"
+                     R"({"game_application_id":"556","activity_level":1,"activity_score":10},)"
+                     R"({"game_application_id":"557","activity_level":1,"activity_score":5}]})"),
+        {scratch, 2048}, {top, 2});
+    check(played.ok() && played.count == 2 && top[0].application_id == 555 && top[0].level == 2 && top[0].score == 90 &&
+              top[1].application_id == 556 &&
+              !guild_admin_decode_top_games(utf8_literal(R"({"top_games":[{"activity_score":1}]})"), {scratch, 2048},
+                                            {top, 2})
+                   .ok(),
+          "guild admin decode: top games keep the first ones and need their game");
+    char query[400];
+    const u32 bytes = guild_admin_game_query(utf8_literal("  Final_FANTASY XIV  "), {query, sizeof(query)});
+    check(same(reinterpret_cast<const u8*>(query), bytes, utf8_literal("final fantasy xiv")) &&
+              !guild_admin_game_query(utf8_literal("   "), {query, sizeof(query)}),
+          "guild admin decode: the game query is trimmed, lowercased and '_' becomes a space");
+}
+
 // Server Profile, Boost Perks and the custom invite link at the transport.
 void test_profile_and_boost() noexcept {
     RestClient details{};
@@ -995,6 +1093,28 @@ void test_profile_and_boost() noexcept {
           "guild admin account: the custom invite link PATCH sends only its code");
     vanity.vanity_code = utf8_literal("this-code-is-much-too-long-for-it");
     check(!guild_admin_request_valid(request), "guild admin account: codes stop at 25 characters");
+
+    // Server Tag: the tag fields alone on PATCH /guilds/{g}/profile, and
+    // adopting the tag with PUT /users/@me/clan.
+    const GuildTagWrite tag{utf8_literal("BUG"), utf8_literal("#32a070"), {}, 6};
+    GuildSettingsPatch tag_patch{};
+    tag_patch.tag = &tag;
+    request = guild_request(GuildAdminOperation::tag_update);
+    request.guild = &tag_patch;
+    capture.header_bytes = 0;
+    check(account_guild_admin_submit(&details, &request, 190).ok() &&
+              captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::tag_update,
+                       utf8_literal("/api/v9/guilds/10/profile"),
+                       utf8_literal(R"({"tag":"BUG","badge":6,"badge_color_primary":"#32a070",)"
+                                    R"("badge_color_secondary":null})")) &&
+              !capture.header_bytes,
+          "guild admin account: the Server Tag PATCH sends tag, badge and both colours");
+    request = guild_request(GuildAdminOperation::identity_adopt);
+    check(account_guild_admin_submit(&details, &request, 191).ok() &&
+              captured(RestMethod::put, RestMajorParameter::guild, 10, GuildAdminOperation::identity_adopt,
+                       utf8_literal("/api/v9/users/@me/clan"),
+                       utf8_literal(R"({"identity_guild_id":"10","identity_enabled":true})")),
+          "guild admin account: adopting the tag PUTs /users/@me/clan");
 
     // Boost Perks: a new banner's MD5 (of the original file, "abc") rides
     // along; the unchanged splash resends its hash.
@@ -1088,6 +1208,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_guild_admin_entry() 
     test_reason_and_head();
     test_role_toggle();
     test_decoders();
+    test_game_decoders();
     test_profile_and_boost();
     maicord::test_exit(failures, "guild admin protocol and transport");
 }

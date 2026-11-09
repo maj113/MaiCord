@@ -104,6 +104,10 @@ struct VoiceConnection {
     // voice_video_codec_bit set the owner's decoders handle; Select Protocol
     // offers them (voice_video_decode_offers) and records the offer in media.
     u32 video_decodable;
+    // voice_video_codec_bit set the local encoder sends (Go Live sender
+    // connections): Select Protocol then offers voice_video_offers and the
+    // offer order (payload types) is kept in media.video_codecs.
+    u32 video_encodable;
     // Desired media sink wants (op 15), sent after Session Description and
     // whenever they change. The default asks for every stream at full quality.
     VoiceSinkWant sink_wants[kVoiceSinkWantsMaximum];
@@ -139,6 +143,8 @@ struct VoiceProtocolCommand {
     u32 mode;
     GatewayCommandWriteResult write;
     u32 video_offer; // voice_video_codec_bit set of the offered video codecs.
+    u8 video_codecs[8]; // VoiceVideoCodec of offer i (payload type 101 + 2i).
+    u8 video_codec_count;
 };
 // Worker-owned two-phase command: zero revision means discovery/selection is
 // not ready. A nonzero revision has the writer result (including size queries).
@@ -167,6 +173,12 @@ VoiceUdpMediaSend voice_connection_media_send(VoiceConnection* connection, u64 r
                                               ConstSlice<u8> plaintext) noexcept;
 // Speaking (op 5) for the local audio SSRC announced by Ready.
 VoiceSocketSend voice_connection_speaking(VoiceConnection* connection, u32 flags, u64 now_ms) noexcept;
+// Video (op 12) for the local send stream (Ready's video SSRCs): stream.ssrc
+// zero clears video. Busy when the socket has output in flight.
+VoiceSocketSend voice_connection_video(VoiceConnection* connection, const VoiceVideoSendStream& stream,
+                                       u64 now_ms) noexcept;
+// The payload type Select Protocol gave codec (0 when it was not offered).
+u8 voice_connection_video_payload_type(const VoiceConnection& connection, VoiceVideoCodec codec) noexcept;
 // Replace the desired media sink wants; drive sends op 15 once the session is
 // described and the socket is idle. Unchanged wants are not resent. False for
 // invalid input (quality above 100, zero/duplicate SSRC, too many entries).
@@ -188,6 +200,11 @@ DaveMediaResult voice_connection_dave_decrypt_frame(VoiceConnection* connection,
                                                     u64 now_ms) noexcept;
 DaveSealResult voice_connection_dave_encrypt(VoiceConnection* connection, ConstSlice<u8> opus,
                                              Slice<u8> output) noexcept;
+// One encoded video frame (dave_session_encrypt_video); prepared and scratch
+// as large as frame.count + frame.count / 4 + 4, output 255 bytes more.
+DaveSealResult voice_connection_dave_encrypt_video(VoiceConnection* connection, DaveVideoCodec codec,
+                                                   ConstSlice<u8> frame, Slice<u8> prepared, Slice<u8> scratch,
+                                                   Slice<u8> output) noexcept;
 // True once DAVE (or negotiated passthrough) permits sending media.
 bool voice_connection_dave_ready(const VoiceConnection& connection) noexcept;
 // Gateway event handler of the voice socket (exposed for scripted tests).

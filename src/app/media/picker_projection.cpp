@@ -295,9 +295,11 @@ void emoji_unavailable(ApplicationMediaPicker& p) noexcept {
 bool open_emoji_model(ApplicationMediaPicker& p) noexcept {
     const bool reaction = p.reaction_message_id != 0;
     auto& ui = *g_app.account_ui;
-    if (!reaction_picker_open(&p.emoji, reaction ? p.reaction_message_id : p.channel_id,
-                              &ui.reaction_preferences, clock_unix_milliseconds(), &ui.chat_state, p.guild_id,
-                              &p.edit, reaction ? ReactionPreferenceKind::reaction : ReactionPreferenceKind::message)
+    // The field popout's message goes to a DM: no server, so a DM's custom emoji rules.
+    const u64 owner = reaction ? p.reaction_message_id : p.field_mode ? p.field_owner : p.channel_id;
+    if (!reaction_picker_open(&p.emoji, owner, &ui.reaction_preferences, clock_unix_milliseconds(), &ui.chat_state,
+                              p.field_mode ? 0 : p.guild_id, &p.edit,
+                              reaction ? ReactionPreferenceKind::reaction : ReactionPreferenceKind::message)
              .ok() ||
         !emoji_projection(p))
         return false;
@@ -466,6 +468,9 @@ bool available(const ApplicationMediaPicker* p) noexcept {
         return false;
     if (p && p->reaction_message_id)
         return reaction_current(*p);
+    // The field popout needs only the profile popout's message field.
+    if (p && p->field_mode)
+        return g_app.profile && g_app.profile->scene.active && g_app.profile->scene.message_field.generation;
     return g_app.message_composer_scene.active &&
            g_app.message_composer.channel_id == g_app.account_ui->active_channel_id &&
            g_app.message_composer_scene.channel_allows_send && !g_app.message_edit.editor_active;
@@ -474,15 +479,17 @@ bool owns_current(const ApplicationMediaPicker& p) noexcept {
     return available(&p) && p.account_id == g_app.account_ui->chat_state.self_user_id &&
            p.channel_id == g_app.account_ui->active_channel_id;
 }
-// Inline results belong to the commands popup's option bar and show beside it.
-bool unobstructed(bool inline_results) noexcept {
+// Inline results belong to the commands popup's option bar (an autocomplete's to the emoji popup) and show beside it.
+bool unobstructed(bool inline_results, bool profile_field) noexcept {
     return !application_settings_active() && !g_app.text_form &&
-           (!g_app.popup_scene.active || (inline_results && g_app.popup_owner_kind == PopupOwnerKind::commands)) &&
-           !(g_app.profile && g_app.profile->scene.active) && !g_app.image_viewer.scene.active &&
+           (!g_app.popup_scene.active ||
+            (inline_results && (g_app.popup_owner_kind == PopupOwnerKind::commands ||
+                                g_app.popup_owner_kind == PopupOwnerKind::autocomplete))) &&
+           (profile_field || !(g_app.profile && g_app.profile->scene.active)) && !g_app.image_viewer.scene.active &&
            !g_app.reaction_viewer.active;
 }
 bool front(const ApplicationMediaPicker* p) noexcept {
-    return available(p) && unobstructed(p && p->inline_mode);
+    return available(p) && unobstructed(p && p->inline_mode, p && p->field_mode);
 }
 // Open and current on screen, the inline results included (these never take
 // the keyboard: application_media_picker_active is the expression picker).
@@ -938,7 +945,7 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
         const u64 now = clock_monotonic_milliseconds();
         if (ui_media_picker_scene_page(&p.scene, target.action == UiMediaPickerAction::page_forward, now,
                                        static_cast<float>(maximum(g_app.renderer.dpi, 1u)) / 96.f,
-                                       g_app.preferences.reduced_motion) &&
+                                       application_reduced_motion()) &&
             ui_media_picker_scene_paging(p.scene))
             p.page_at = deadline_after(now, kUiTransitionFrameMs);
         return repaint();
@@ -991,6 +998,10 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
                 !protocol_writer_append_literal(&writer, ">"))
                 return false;
             value = {insertion, writer.used};
+        }
+        if (p.field_mode) {
+            application_media_picker_close();
+            return application_profile_insert_message_text(value);
         }
         const u32 first = minimum(g_app.message_composer.anchor, g_app.message_composer.caret);
         const u32 last = maximum(g_app.message_composer.anchor, g_app.message_composer.caret);
@@ -1081,9 +1092,11 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
         p.status = utf8_literal("Couldn't send. Try again.");
         return repaint();
     }
-    // A result sent from the inline strip or list ends its command: the draft clears.
-    const bool inline_results = p.inline_mode;
+    // A result sent from the inline strip or list ends its command (the draft clears) or its ':' query.
+    const bool inline_results = p.inline_mode, autocomplete = p.inline_autocomplete;
     application_media_picker_close();
+    if (autocomplete)
+        return application_composer_emoji_query_clear() && pump_message_history();
     if (inline_results && !application_commands_builtin_used({}))
         return false;
     return refresh_message_composer_ui() && pump_message_history();

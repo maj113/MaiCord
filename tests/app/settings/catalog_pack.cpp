@@ -90,10 +90,16 @@ void test_settings_catalog_pack(void (*check)(bool, const char*) noexcept) noexc
     check(nodes_match && nodes != 0,
           "settings catalog pack: every node's text, kind, variant, flags, binding, default and choices match the data file");
 
-    // The sidebar's pages and headers come from the decoded panels and sections.
+    // The sidebar's pages and headers come from the decoded panels and sections; as in the official client the
+    // profile entry and the account pages lead under no title.
     const auto navigation = settings_catalog_navigation(true);
     const auto signed_out = settings_catalog_navigation_signed_out();
-    bool nav = navigation.count == 25 && settings_catalog_navigation(false).count == 24 && signed_out.count == 10;
+    const u32 last = navigation.count - 1;
+    bool nav = navigation.count == 23 && settings_catalog_navigation(false).count == 22 && signed_out.count == 10 &&
+               navigation[0].kind == UiSettingsNavKind::page &&
+               navigation[0].page.page_id == static_cast<u64>(SettingsPanel::profiles) + 1 &&
+               navigation[1].page.page_id == static_cast<u64>(SettingsPanel::account) + 1 &&
+               navigation[1].subpage.page_id == static_cast<u64>(SettingsPanel::devices) + 1;
     for (u32 i = 0; nav && i < navigation.count; ++i) {
         const auto& entry = navigation[i];
         if (entry.kind == UiSettingsNavKind::page) {
@@ -101,15 +107,16 @@ void test_settings_catalog_pack(void (*check)(bool, const char*) noexcept) noexc
                   same_text(entry.label, catalog.panels[entry.page.page_id - 1].title) &&
                   entry.icon == catalog.panels[entry.page.page_id - 1].icon && !entry.destructive;
         } else if (entry.kind == UiSettingsNavKind::header) {
-            nav = i == 0 ? same_text(entry.label, sections[0].header) : entry.label.bytes != 0;
+            nav = entry.label.bytes != 0;
         } else {
-            nav = i == 24 && entry.kind == UiSettingsNavKind::action && entry.destructive && entry.pinned &&
+            nav = i == last && entry.kind == UiSettingsNavKind::action && entry.destructive && entry.pinned &&
                   entry.action == kSettingsLogOutAction && utf8_equal(entry.label, utf8_literal("Log Out"));
         }
     }
     check(nav && signed_out[0].kind == UiSettingsNavKind::header && signed_out[9].pinned &&
               signed_out[9].page.page_id == static_cast<u64>(SettingsPanel::advanced) + 1,
-          "settings catalog pack: the sidebar lists headers, panels and Log Out in order");
+          "settings catalog pack: the sidebar lists the account pages (Devices nested in Account), then headers and "
+          "panels, and Log Out last");
 }
 
 } // namespace maicord

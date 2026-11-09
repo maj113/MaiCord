@@ -1376,6 +1376,15 @@ bool guild_detail_store_apply_gateway_event(GuildDetailStore* store, const ChatS
     input.premium_tier = details.premium_tier;
     input.lockdown_duration_hours = details.lockdown_duration_hours;
     input.premium_progress_bar_enabled = details.premium_progress_bar_enabled;
+    input.preferred_locale = {details.preferred_locale,
+                              details.preferred_locale_bytes <= sizeof(details.preferred_locale)
+                                  ? details.preferred_locale_bytes
+                                  : u8{0}};
+    input.owner_configured_content_level = details.owner_configured_content_level;
+    input.nsfw_level = details.nsfw_level;
+    input.discovery_splash = {details.discovery_splash, details.discovery_splash_bytes <= sizeof(details.discovery_splash)
+                                                             ? details.discovery_splash_bytes
+                                                             : u8{0}};
     input.keep_feature_names = !guild || !guild->permissions_resolved || (guild->base_permissions & manage);
     return guild_detail_store_apply(store, input);
 }

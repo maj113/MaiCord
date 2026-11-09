@@ -1,6 +1,8 @@
 #include "maicord/ui/account/friends_media.hpp"
+#include "maicord/ui/account/profile_media.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 u32 friends_avatar_media_count(const UiFriendsScene& scene) noexcept {
@@ -61,5 +63,33 @@ FriendsAvatarMediaVisitResult friends_avatar_media_visit(const UiFriendsScene& s
         if (stop) { result.stopped = true;return result; }
     }
     return result;
+}
+bool friends_activity_media_resolve(const UiFriendsScene& scene, u32 index, ProfileMedia* output) noexcept {
+    if (!output || !scene.active_now) return false;
+    UiRect card{};
+    UiPoint origin{};
+    for (u32 i = 0; ui_friends_scene_active_card(scene, i, &card, &origin); ++i) {
+        const auto& data = scene.active_now->cards[i];
+        if (!data.activity || !data.images) continue;
+        if (index >= data.image_count) {
+            index -= data.image_count;
+            continue;
+        }
+        copy_value(output, data.images[index]);
+        const auto place = [&](UiRect& r) noexcept {
+            r = {r.left + origin.x, r.top + origin.y, r.right + origin.x, r.bottom + origin.y};
+        };
+        place(output->rectangle);
+        if (ui_rect_has_area(output->mask)) place(output->mask);
+        output->clip = ui_rect_intersection(card, scene.active_rect);
+        return true;
+    }
+    return false;
+}
+bool friends_activity_media_current(const UiFriendsScene& scene, MediaAssetKey key) noexcept {
+    ProfileMedia media;
+    for (u32 i = 0; friends_activity_media_resolve(scene, i, &media); ++i)
+        if (media_asset_key_equal(key, media.key) && ui_rect_intersects(media.rectangle, media.clip)) return true;
+    return false;
 }
 } // namespace maicord

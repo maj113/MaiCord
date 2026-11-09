@@ -16,6 +16,10 @@ namespace maicord {
 
 struct GatewayStreamKey;
 struct GatewayClientStreamSnapshot;
+struct GoLiveBackend;
+struct GoLiveCommand;
+struct GoLiveSnapshot;
+inline constexpr u32 kGatewayGoLiveCommands = 8;
 struct GatewayClient;
 struct RestClient;
 struct RestClientResponse;
@@ -111,6 +115,10 @@ void gateway_user_launch_signed_in() noexcept;
 // empty `output`; the worker already identifies and resumes with it. False when none
 // is waiting. The owner hands it to REST and saves it with the profile.
 bool gateway_client_take_refreshed_credential(GatewayClient* client, SecureBuffer* output) noexcept;
+// A token a REST response handed out (a password change, MFA turned on or off: the old
+// one stops working): the worker sends it from its next IDENTIFY or RESUME, and the owner
+// takes a copy through gateway_client_take_refreshed_credential. False for a malformed token.
+bool gateway_client_replace_credential(GatewayClient* client, ConstSlice<u8> token) noexcept;
 // After the worker finishes, the profile metadata and locked credential are
 // returned together. A client that is not a user one is rejected without
 // stopping and the empty output remains unchanged.
@@ -182,6 +190,15 @@ bool gateway_client_stream_watch(GatewayClient* client, const GatewayStreamKey& 
 bool gateway_client_stream_snapshot(const GatewayClient* client, GatewayClientStreamSnapshot* output) noexcept;
 // Stream audio bus volume (0-200 %, default 100), on top of the output volume.
 bool gateway_client_stream_volume(GatewayClient* client, u32 percent) noexcept;
+// Go Live sending (UI thread; go_live_session.hpp). Commands queue for the
+// worker (false when the queue is full or the client is not ready); start
+// needs the local call in the command's channel.
+bool gateway_client_go_live(GatewayClient* client, const GoLiveCommand& command) noexcept;
+bool gateway_client_go_live_snapshot(const GatewayClient* client, GoLiveSnapshot* output) noexcept;
+// The producers (capture, encoder, stream audio) this runtime streams with;
+// they must outlive it. A new session starts without them.
+bool gateway_client_set_go_live_backend(GatewayClient* client, const GoLiveBackend& backend) noexcept;
+bool gateway_client_has_go_live_backend(const GatewayClient* client) noexcept;
 // UI-thread request; transport teardown and fresh identify run on the worker.
 GatewayStateRecoveryResult gateway_client_request_fresh_state(GatewayClient* client) noexcept;
 

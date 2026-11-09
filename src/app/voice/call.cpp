@@ -18,6 +18,8 @@
 #include "soundboard.hpp"
 #include "../shell/state.hpp"
 #include "stream.hpp"
+#include "../chat/private_header.hpp"
+#include "go_live.hpp"
 #include "../chat/threads/browser.hpp"
 #include "voice.hpp"
 #include "../shell/window.hpp"
@@ -176,6 +178,14 @@ u32 project_streams(u64 channel_id) noexcept {
     auto& ui = *g_app.account_ui;
     const u64 self = ui.chat_state.self_user_id;
     u32 count = 0;
+    // Your own stream leads, with its self-preview, while it starts or runs.
+    if (UiCallParticipant own{}; application_go_live_tile(channel_id, &own)) {
+        if (own.stream == UiCallStream::live || own.stream == UiCallStream::reconnecting) {
+            own.video_ssrc = kGoLivePreviewSsrc;
+            attach_picture(own, kGoLivePreviewSsrc);
+        }
+        view.participants[count++] = own;
+    }
     const auto watched = application_stream_view();
     u64 watched_owner = 0;
     // A stream whose owner the channel's known voice states no longer list
@@ -343,7 +353,7 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
     view.snapshot_valid = true;
     const bool shown = scene_visible() && view.channel_id == s->channel_id && g_app.window && !application_window_minimized();
     const float pixel_scale = static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u) / 96.f;
-    CallVideoTarget targets[kGatewayVoiceVideoUsers + 1];
+    CallVideoTarget targets[kGatewayVoiceVideoUsers + 2];
     u32 count = 0;
     const auto add_target = [&](u64 user_id, u32 ssrc) noexcept {
         CallVideoTarget target{user_id, ssrc, 0, false};
@@ -368,8 +378,14 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
     if (watched.video_ssrc && watched.key.channel_id == s->channel_id &&
         (watched.state == StreamWatchState::live || watched.state == StreamWatchState::reconnecting))
         add_target(application_stream_tile(watched.key.owner_id), watched.video_ssrc);
+    // Your own stream's self-preview: the session's picture, never a receive want.
+    if (UiCallParticipant own{}; application_go_live_tile(s->channel_id, &own) &&
+                                 (own.stream == UiCallStream::live || own.stream == UiCallStream::reconnecting))
+        add_target(own.user_id, kGoLivePreviewSsrc);
     CallVideoHost callbacks{};
     callbacks.frame = +[](void*, u32 ssrc, VideoStreamFrame* output) noexcept {
+        if (ssrc == kGoLivePreviewSsrc)
+            return application_go_live_preview(output);
         auto& h = g_app.account;
         return h.instance && h.api.voice_video_frame && h.api.voice_video_frame(h.instance, ssrc, output);
     };
@@ -403,6 +419,8 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
     };
     callbacks.wanted = +[](void*, u64 user_id, bool wanted) noexcept {
         auto& h = g_app.account;
+        if (g_app.account_ui && user_id == gateway_stream_video_user(g_app.account_ui->chat_state.self_user_id))
+            return true; // The self-preview is local.
         return h.instance && h.api.voice_video_wanted && h.api.voice_video_wanted(h.instance, user_id, wanted);
     };
     callbacks.resident = +[](void*, u64 user_id, u32 ssrc) noexcept {
@@ -462,10 +480,24 @@ void activate(UiCallControl control, u64 user_id) noexcept {
         break;
     }
     case UiCallControl::stream_stop:
+        // Your own tile's bar stops your stream.
+        if (g_app.account_ui && user_id == gateway_stream_video_user(g_app.account_ui->chat_state.self_user_id)) {
+            application_go_live_stop();
+            break;
+        }
+        [[fallthrough]];
     case UiCallControl::stream_dismiss:
         application_stream_stop();
         if (view.focus_user == user_id)
             view.focus_user = 0;
+        break;
+    case UiCallControl::stream_viewers:
+        release_pointer();
+        application_go_live_viewers_open(ui_call_scene_tile_control(view.scene, user_id, control));
+        break;
+    case UiCallControl::screen_share:
+        release_pointer();
+        application_go_live_button(view.scene.controls[static_cast<u32>(UiCallControl::screen_share)]);
         break;
     case UiCallControl::stream_volume:
         release_pointer();
@@ -493,7 +525,7 @@ void activate(UiCallControl control, u64 user_id) noexcept {
                                       view.scene.controls[static_cast<u32>(UiCallControl::soundboard)]);
         break;
     default:
-        break; // Camera and screen share stay disabled until sending exists.
+        break; // Camera sending is not part of MaiCord.
     }
     application_repaint();
 }
@@ -632,10 +664,12 @@ bool application_call_synchronize() noexcept {
     content.chat_open = view.chat_open;
     content.soundboard_available = joined && !content.stage.active && application_soundboard_available(view.channel_id);
     content.soundboard_open = content.soundboard_available && application_soundboard_picker_open();
+    // Streaming goes to the call you are in; another channel's view offers it nothing.
+    content.share = joined ? application_go_live_share(view.channel_id) : UiCallShare::not_allowed;
     // The search pass (earlier this frame) placed its field in the header.
     content.search_width = g_app.renderer.search_scene ? view.search_width : 0;
     const u32 revision = view.scene.revision;
-    if (!ui_call_scene_update(&view.scene, content, call_viewport(), now, g_app.preferences.reduced_motion)) {
+    if (!ui_call_scene_update(&view.scene, content, call_viewport(), now, application_reduced_motion())) {
         // Too small to lay out (a tiny window): leave the content visible.
         if (g_app.renderer.call_scene == &view.scene) {
             g_app.renderer.call_scene = nullptr;
@@ -677,6 +711,7 @@ bool application_call_pump(bool* repaint_requested) noexcept {
     if (!g_app.account_ui)
         return true;
     application_stream_pump();
+    application_private_header_pump();
     const u64 now = clock_monotonic_milliseconds();
     // Poll when due (or unscheduled); earlier pumps only reconcile wants, so
     // a busy frame loop never postpones the next poll.
@@ -684,7 +719,7 @@ bool application_call_pump(bool* repaint_requested) noexcept {
     const auto result = synchronize_video(poll);
     const bool signaled = video_notification() != nullptr;
     view.next_poll_ms = call_video_poll_after(view.next_poll_ms, now, poll, result, signaled);
-    const u64 morph = scene_visible() ? ui_call_scene_next_wake(view.scene, g_app.preferences.reduced_motion) : 0;
+    const u64 morph = scene_visible() ? ui_call_scene_next_wake(view.scene, application_reduced_motion()) : 0;
     if ((result.presented || result.changed || (morph && now >= morph)) && repaint_requested) {
         *repaint_requested = true;
         if (result.changed)
@@ -697,6 +732,7 @@ void application_call_voice_pump() noexcept {
     if (!g_app.account_ui)
         return;
     application_stream_pump();
+    application_private_header_pump();
     const auto result = synchronize_video(false);
     if (result.visible && !view.next_poll_ms)
         view.next_poll_ms = clock_monotonic_milliseconds() + call_video_poll_interval(video_notification() != nullptr);
@@ -709,8 +745,9 @@ u64 application_call_next_wake() noexcept {
     u64 wake = earliest_deadline(view.next_poll_ms,
                                  view.open ? call_view_lifecycle_deadline(view.lifecycle, view.opened_ms) : 0);
     wake = earliest_deadline(wake, application_stream_next_wake());
+    wake = earliest_deadline(wake, application_private_header_next_wake());
     if (scene_visible())
-        wake = earliest_deadline(wake, ui_call_scene_next_wake(view.scene, g_app.preferences.reduced_motion));
+        wake = earliest_deadline(wake, ui_call_scene_next_wake(view.scene, application_reduced_motion()));
     return wake;
 }
 

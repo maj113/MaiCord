@@ -9,6 +9,8 @@
 #include "maicord/ui/layout/widget_scroll.hpp"
 #include "maicord/ui/core/widget_builder.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/color_hex.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 
@@ -37,6 +39,8 @@ Utf8View label(const TextFormContent& content, TextFormElement element) noexcept
         return content.title;
     case TextFormElement::context:
         return content.context;
+    case TextFormElement::qr_caption:
+        return content.qr_caption;
     case TextFormElement::label:
         return content.label;
     case TextFormElement::detail:
@@ -60,10 +64,15 @@ bool radio(TextFormElement element) noexcept {
     u32 at = 0;
     return text_form_choice_index(element, &at) || text_form_select_index(element, &at);
 }
+// The colour picker's interactive parts.
+bool picker_part(TextFormElement element) noexcept {
+    return element == TextFormElement::color_field || element == TextFormElement::color_hue ||
+           element == TextFormElement::eyedropper || element == TextFormElement::color_swatches;
+}
 bool control(TextFormElement element) noexcept {
     return element == TextFormElement::edit || element == TextFormElement::cancel ||
            element == TextFormElement::accept || element == TextFormElement::option ||
-           element == TextFormElement::select || radio(element);
+           element == TextFormElement::select || radio(element) || picker_part(element);
 }
 // Whether a form shows an element at all.
 bool present(const TextFormContent& content, TextFormElement element) noexcept {
@@ -74,7 +83,15 @@ bool present(const TextFormContent& content, TextFormElement element) noexcept {
         return content.select_expanded && at < content.select_options.count;
     switch (element) {
     case TextFormElement::label:
-        return content.label.bytes && (!content.confirmation_only || content.detail.bytes);
+        return content.label.bytes && !content.picker && (!content.confirmation_only || content.detail.bytes);
+    case TextFormElement::color_field:
+    case TextFormElement::color_hue:
+    case TextFormElement::color_row:
+        return content.picker;
+    case TextFormElement::eyedropper:
+        return content.picker && content.color.eyedropper;
+    case TextFormElement::color_swatches:
+        return content.picker && content.color.suggested.count;
     case TextFormElement::detail:
         return content.confirmation_only && content.detail.bytes;
     case TextFormElement::edit:
@@ -83,6 +100,10 @@ bool present(const TextFormContent& content, TextFormElement element) noexcept {
         return !content.single_action;
     case TextFormElement::option:
         return content.option.bytes != 0;
+    case TextFormElement::qr:
+        return content.qr.size != 0;
+    case TextFormElement::qr_caption:
+        return content.qr.size != 0 && content.qr_caption.bytes;
     case TextFormElement::choices_label:
         return content.choices.count && content.choices_label.bytes;
     case TextFormElement::select_label:
@@ -93,12 +114,32 @@ bool present(const TextFormContent& content, TextFormElement element) noexcept {
         return true;
     }
 }
-u32 present_mask(const TextFormContent& content) noexcept {
-    u32 mask = 0;
+u64 present_mask(const TextFormContent& content) noexcept {
+    u64 mask = 0;
     for (u32 i = 0; i < kTextFormElements; ++i)
         if (present(content, static_cast<TextFormElement>(i)))
-            mask |= 1u << i;
+            mask |= 1ull << i;
     return mask;
+}
+bool built(const TextFormScene& scene, TextFormElement element) noexcept {
+    return (scene.built >> index(element)) & 1;
+}
+// `first`, the number `a`, `second`, then (unless b is ~0u) the number `b` and `third`, as a C string.
+void format_value(char (&out)[40], const char* first, u32 a, const char* second, u32 b = ~0u,
+                  const char* third = "") noexcept {
+    u32 at = 0;
+    const auto put = [&](const char* text) noexcept {
+        while (*text && at + 1 < sizeof(out))
+            out[at++] = *text++;
+    };
+    put(first);
+    at += decimal_write(out + at, a);
+    put(second);
+    if (b != ~0u) {
+        at += decimal_write(out + at, b);
+        put(third);
+    }
+    out[at] = 0;
 }
 // The editor folds away while another choice than its own is chosen.
 bool editor_collapsed(const TextFormContent& content) noexcept {
@@ -108,6 +149,8 @@ bool editor_collapsed(const TextFormContent& content) noexcept {
 // The checkbox square and the gap before its label.
 constexpr float kOptionBox = 20.0f;
 constexpr float kOptionGap = 8.0f;
+// The QR code's light square (its 8 DIP quiet zone included).
+constexpr float kQrSide = 192.0f;
 // The colour swatch square at the editor's end and the editor's end padding
 // that makes room for it.
 float swatch_side(const UiThemeMetrics& metrics) noexcept {
@@ -175,22 +218,26 @@ bool build(TextFormScene* scene) noexcept {
     if (!ui_widget_manager_set_measure_callback(&scene->widgets, measure_label, scene))
         return false;
     static constexpr char names[] =
-        "TextForm\0Panel\0Title\0Context\0Choices\0Choice1\0Choice2\0Choice3\0Choice4\0Label\0Detail\0Edit\0SelectLabel\0"
-        "Select\0Option1\0Option2\0Option3\0Option4\0Option5\0Option6\0Option7\0Option8\0Status\0Option\0Actions\0"
-        "Cancel\0Accept\0";
+        "TextForm\0Panel\0Title\0Context\0Qr\0QrCaption\0Choices\0Choice1\0Choice2\0Choice3\0Choice4\0ColorField\0"
+        "ColorHue\0Label\0"
+        "Detail\0ColorRow\0Edit\0Eyedropper\0Swatches\0SelectLabel\0Select\0Option1\0Option2\0Option3\0Option4\0"
+        "Option5\0Option6\0Option7\0Option8\0Status\0Option\0Actions\0Cancel\0Accept\0";
     static_assert(name_list_count(names) == kTextFormElements);
-    const auto parent_of = [](TextFormElement element) noexcept {
+    const bool picker = scene->content.picker;
+    const auto parent_of = [picker](TextFormElement element) noexcept {
         return element == TextFormElement::root    ? TextFormElement::count
                : element == TextFormElement::panel ? TextFormElement::root
                : element == TextFormElement::cancel || element == TextFormElement::accept
                    ? TextFormElement::actions
+               : picker && (element == TextFormElement::edit || element == TextFormElement::eyedropper)
+                   ? TextFormElement::color_row
                    : TextFormElement::panel;
     };
     UiWidgetBuilder widgets(scene->widgets);
     scene->built = present_mask(scene->content);
     for (u32 i = 0; i < kTextFormElements; ++i) {
         const auto element = static_cast<TextFormElement>(i);
-        if (!(scene->built & (1u << i)))
+        if (!(scene->built >> i & 1))
             continue;
         UiLayoutStyle style = ui_layout_style();
         style.width = ui_layout_fill();
@@ -211,6 +258,28 @@ bool build(TextFormScene* scene) noexcept {
             kind = UiWidgetKind::container;
             style.flow = UiLayoutFlow::horizontal_wrap;
             style.justification = UiLayoutJustification::end;
+        } else if (element == TextFormElement::color_row) {
+            // The hex field and the eyedropper side by side, 12 DIP apart.
+            kind = UiWidgetKind::container;
+            style.flow = UiLayoutFlow::horizontal;
+            style.vertical_alignment = UiLayoutAlignment::center;
+            style.gap = kColorPickerSwatchGap;
+        } else if (element == TextFormElement::qr) {
+            // A fixed light square, centred, with room around it.
+            kind = UiWidgetKind::container;
+            style.width = ui_layout_fixed(kQrSide);
+            style.height = ui_layout_fixed(kQrSide);
+            style.margin.top = style.margin.bottom = 8.f;
+        } else if (picker_part(element)) {
+            // Square, hue bar and swatches fill the width at fixed heights (the swatches' set at layout); the
+            // eyedropper is a square button.
+            kind = UiWidgetKind::button;
+            const float side = ui_theme_metrics(scene->theme_styles).control_height;
+            style.height = ui_layout_fixed(element == TextFormElement::color_field ? kColorPickerFieldHeight
+                                           : element == TextFormElement::color_hue ? kColorPickerHueHeight
+                                                                                   : side);
+            if (element == TextFormElement::eyedropper)
+                style.width = ui_layout_fixed(side);
         } else if (element == TextFormElement::edit) {
             kind = UiWidgetKind::text_field;
             style.flags |= ui_layout_node_clip_children;
@@ -305,8 +374,7 @@ bool text_form_select_index(TextFormElement element, u32* at) noexcept {
 }
 
 UiRect text_form_choice_marker(const TextFormScene& scene, TextFormElement element) noexcept {
-    return marker_box(radio(element) && (scene.built & (1u << index(element))) ? text_form_node(scene, element)
-                                                                                : nullptr);
+    return marker_box(radio(element) && built(scene, element) ? text_form_node(scene, element) : nullptr);
 }
 
 UiRect text_form_option_box(const TextFormScene& scene) noexcept {
@@ -342,7 +410,10 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
         (!content.select_options.data && content.select_options.count) ||
         (content.choice_selected != ~0u && content.choice_selected >= content.choices.count) ||
         (content.choice_editor != ~0u && content.choice_editor >= content.choices.count) ||
-        (content.select_options.count && content.select_selected >= content.select_options.count))
+        (content.select_options.count && content.select_selected >= content.select_options.count) ||
+        (content.picker && (content.confirmation_only || !content.swatch ||
+                            content.color.suggested.count > kColorPickerSuggestedColors ||
+                            (!content.color.suggested.data && content.color.suggested.count))))
         return false;
     u64 signature = hash64_bytes(kHash64Seed, &viewport, sizeof(viewport));
     signature = hash64_mix(signature, scene->theme_geometry_revision);
@@ -353,6 +424,9 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
     signature = hash64_mix(signature, present_mask(content));
     signature = hash64_mix(signature, editor_collapsed(content));
     signature = hash64_mix(signature, content.swatch);
+    signature = hash64_mix(signature, content.picker | content.color.eyedropper << 1);
+    signature = hash64_mix(signature, content.color.suggested.count);
+    signature = hash64_mix(signature, content.qr.size);
     for (u32 i = 0; i < kTextFormElements; ++i) {
         if (i == index(TextFormElement::edit) ||
             (i == index(TextFormElement::label) && !present(content, TextFormElement::label)))
@@ -405,7 +479,14 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
         content.caret_visible != scene->content.caret_visible ||
         content.focus_visible != scene->content.focus_visible || content.error != scene->content.error ||
         content.swatch_rgba != scene->content.swatch_rgba ||
-        !utf8_equal(content.placeholder, scene->content.placeholder);
+        !utf8_equal(content.placeholder, scene->content.placeholder) ||
+        (content.picker &&
+         (content.color.hsv.hue != scene->content.color.hsv.hue ||
+          content.color.hsv.saturation != scene->content.color.hsv.saturation ||
+          content.color.hsv.value != scene->content.color.hsv.value ||
+          content.color.focused_swatch != scene->content.color.focused_swatch ||
+          content.color.picking != scene->content.color.picking ||
+          content.color.suggested.data != scene->content.color.suggested.data));
     copy_value(&scene->content, content);
     scene->measure = measure;
     if ((!scene->widgets.count || present_mask(content) != scene->built) && !build(scene)) {
@@ -457,13 +538,20 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
                 ? UiInsets{8, 8, 8, 8}
                 : UiInsets{metrics.form_field_padding + 8, metrics.form_field_padding + 8,
                            metrics.form_field_padding + 8, metrics.form_field_padding + 8};
+        if (content.picker && content.color.suggested.count) {
+            auto* swatches = ui_widget_manager_layout_node(&scene->widgets,
+                                                           scene->elements[index(TextFormElement::color_swatches)]);
+            swatches->spec.style.height = ui_layout_fixed(color_picker_swatches_height(
+                panel->spec.style.width.value - panel->spec.style.padding.left - panel->spec.style.padding.right,
+                static_cast<u32>(content.color.suggested.count)));
+        }
         const float button_width = panel->spec.style.width.value - panel->spec.style.padding.left -
                                    panel->spec.style.padding.right;
         static constexpr TextFormElement buttons[] = {TextFormElement::cancel, TextFormElement::accept};
         UiTextMeasureValue labels[2]{};
         float button_height = metrics.control_height + 4;
         for (u32 i = 0; i < 2; ++i) {
-            if (!(scene->built & (1u << index(buttons[i]))))
+            if (!built(*scene, buttons[i]))
                 continue;
             if (!measure_text(scene, buttons[i], {kMaximumUiCoordinate, kMaximumUiCoordinate}, &labels[i]))
                 return false;
@@ -474,8 +562,10 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
             auto* button = ui_widget_manager_layout_node(&scene->widgets, scene->elements[index(element)]);
             if (!button)
                 continue;
+            // Padding plus one DIP: a label drawn at device pixels can end a fraction past its measured width, which
+            // ellipsized "Cancel" in a button sized to it exactly.
             button->spec.style.minimum_size.width =
-                minimum(maximum(80.0f, labels[i].size.width + 32), button_width);
+                minimum(maximum(80.0f, labels[i].size.width + 33), button_width);
             button->spec.style.maximum_size.width = button_width;
             button->spec.style.height = ui_layout_fixed(button_height);
         }
@@ -484,6 +574,20 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
         scene->layout_signature = signature;
     }
     scene->viewport = viewport;
+    if (content.picker) {
+        // "Saturation 40%, brightness 70%" and "Hue 200 degrees", the values screen readers read.
+        const auto percent = [](float v) noexcept { return static_cast<u32>(v * 100 + .5f); };
+        format_value(scene->color_values[0], "Saturation ", percent(content.color.hsv.saturation), "%, brightness ",
+                     percent(content.color.hsv.value), "%");
+        format_value(scene->color_values[1], "Hue ", static_cast<u32>(content.color.hsv.hue * 360 + .5f) % 360,
+                     " degrees");
+        const auto& swatches = content.color.suggested;
+        const u32 at = content.color.focused_swatch;
+        const u32 bytes = at < swatches.count ? color_hex_format(swatches[at] << 8 | 0xFF, false,
+                                                                 {scene->color_values[2], 39})
+                                              : 0;
+        scene->color_values[2][bytes] = 0;
+    }
     scene->text_signature = text_signature;
     scene->composition_signature = composition_signature;
     scene->active = true;
@@ -541,7 +645,7 @@ TextFormElement text_form_focused(const TextFormScene& scene) noexcept {
 }
 // An edit field is only built when the form is not confirmation-only.
 bool text_form_focus(TextFormScene* scene, TextFormElement element) noexcept {
-    return scene->active && control(element) && (scene->built & (1u << index(element))) &&
+    return scene->active && control(element) && built(*scene, element) &&
            !(element == TextFormElement::edit && editor_collapsed(scene->content)) &&
            ui_widget_manager_focus(&scene->widgets, scene->elements[index(element)]) &&
            reveal(scene, scene->elements[index(element)]);
@@ -581,11 +685,19 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
     bool valid =
         fill(paint, scene.viewport, theme.tokens.overlay.scrim) &&
         ui_surface_paint(paint, panel->rectangle, theme, UiElevation::dialog, theme.scale.radius_lg);
+    if (valid && built(scene, TextFormElement::qr)) {
+        // As the sign-in QR: light surface, dark modules, its 8 DIP padding the quiet zone; clipped to the panel.
+        const auto* node = text_form_node(scene, TextFormElement::qr);
+        valid = node && paint_stream_push_clip(paint, panel->rectangle) &&
+                paint_stream_push_rounded(paint, node->rectangle, theme.text_primary, 4.f) &&
+                qr_code_paint(paint, node->rectangle, scene.content.qr, 1.f, 8.f, theme.base_lowest) &&
+                paint_stream_pop_clip(paint);
+    }
     const auto focus = text_form_focused(scene);
     const auto& metrics = ui_theme_metrics(scene.theme_styles);
     for (u32 slot = 0; slot < kTextFormElements; ++slot) {
         const auto element = static_cast<TextFormElement>(slot);
-        if (!control(element) || !(scene.built & (1u << slot)) ||
+        if (!control(element) || !built(scene, element) ||
             (element == TextFormElement::edit && editor_collapsed(scene.content)))
             continue;
         const auto* node = text_form_node(scene, element);
@@ -596,8 +708,9 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
         // A button's focus ring sits outside it: clip buttons to the panel
         // rather than the content box they lie in.
         UiRect bounds = node->clip_rectangle;
-        if (action(element)) {
-            const float ring = theme.scale.space_2 * .75f;
+        if (action(element) || picker_part(element)) {
+            // The picker's thumbs also reach past their square and bar.
+            const float ring = picker_part(element) ? kColorPickerHueHeight * .5f : theme.scale.space_2 * .75f;
             bounds = ui_rect_intersection(
                 {bounds.left - ring, bounds.top - ring, bounds.right + ring, bounds.bottom + ring}, panel->rectangle);
         }
@@ -617,6 +730,27 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
                 const Color color = color_from_rgba(rgba);
                 valid = paint_stream_push_rounded_border(paint, swatch, color, theme.tokens.border.strong, theme.scale.radius_xs, 1);
             }
+        } else if (element == TextFormElement::color_field || element == TextFormElement::color_hue) {
+            const auto& color = scene.content.color;
+            valid = element == TextFormElement::color_field
+                        ? color_picker_paint_field(paint, node->rectangle, color.hsv, theme, outlined)
+                        : color_picker_paint_hue(paint, node->rectangle, color.hsv, theme, outlined);
+        } else if (element == TextFormElement::color_swatches) {
+            const auto& color = scene.content.color;
+            valid = color_picker_paint_swatches(paint, node->rectangle, color.suggested, scene.content.swatch_rgba >> 8,
+                                                color.focused_swatch, theme, outlined);
+        } else if (element == TextFormElement::eyedropper) {
+            // A quiet square button; filled while a pick is under way.
+            const auto r = node->rectangle;
+            const bool picking = scene.content.color.picking;
+            const bool hovered = ui_widget_handle_matches(scene.widgets.hovered, scene.elements[slot]);
+            const float icon = ui_rect_width(r) * .5f, cx = (r.left + r.right) * .5f, cy = (r.top + r.bottom) * .5f;
+            const Color fill = picking ? theme.tokens.emphasis.fill : hovered ? theme.interactive_hover : theme.interactive;
+            valid = paint_stream_push_rounded_border(paint, r, fill, outlined ? theme.tokens.border.focus : fill,
+                                                     metrics.control_radius, outlined ? 2.0f : 1.0f) &&
+                    ui_icon_paint(paint, UiIcon::pipette,
+                                  {cx - icon * .5f, cy - icon * .5f, cx + icon * .5f, cy + icon * .5f},
+                                  picking ? theme.tokens.emphasis.text : ui_surface_foreground(theme, fill));
         } else if (radio(element)) {
             // A radio circle with a dot when chosen.
             u32 at = 0;
@@ -696,7 +830,7 @@ bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometr
         return true;
     for (u32 i = 0; i < kTextFormElements; ++i) {
         const auto element = static_cast<TextFormElement>(i);
-        if (!(scene.built & (1u << i)) || (element == TextFormElement::edit && editor_collapsed(scene.content)))
+        if (!built(scene, element) || (element == TextFormElement::edit && editor_collapsed(scene.content)))
             continue;
         const bool hint = element == TextFormElement::edit && !scene.content.text.bytes &&
                           scene.content.placeholder.bytes && !scene.content.confirmation_only;

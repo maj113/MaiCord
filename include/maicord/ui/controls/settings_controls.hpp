@@ -11,7 +11,15 @@ struct UiSettingsLayoutTokens;
 // tokens. Callers own state, animation clocks and text emission.
 struct UiControlState {
     bool enabled{true}, hovered{}, pressed{}, focused{};
+    // While `fading`, `hover` is a hover colour fade's amount in [0, 1] (UiMotionHover); otherwise the colours
+    // follow `hovered`. A zero-filled state follows `hovered`.
+    bool fading{};
+    float hover{};
 };
+// How far a control's colours have eased to their hover value.
+constexpr float ui_control_hover(const UiControlState& state) noexcept {
+    return state.fading ? (state.hover > 0 ? (state.hover < 1 ? state.hover : 1) : 0) : state.hovered ? 1.f : 0.f;
+}
 
 // Concentric rings: a stroke of `width` whose inner edge sits `gap` outside a
 // rounded shape, every corner sharing the shape's centre of curvature (ring
@@ -71,7 +79,9 @@ bool ui_select_paint(PaintStream*, const UiSettingsTokens&, const UiRect& field,
 enum class UiSettingsButtonVariant : u8 {
     secondary,
     primary,
-    critical
+    critical,
+    // The official critical-secondary: the secondary plate with critical text (Remove Icon).
+    critical_secondary
 };
 // Button sizes: sm is 32 DIP, md 40 DIP.
 enum class UiSettingsButtonSize : u8 {

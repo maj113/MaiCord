@@ -26,6 +26,7 @@
 #include "maicord/platform/desktop/file_picker.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/widgets/kit_markdown.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -691,7 +692,7 @@ bool media_key(const void*, u32 slot, const UiRect& rect, MediaAssetKey* key, u8
 // a beat, so a pointer passing over does not flicker) or under keyboard focus. Never under reduced motion.
 u32 loop_slot(u64 now, bool* pending) noexcept {
     *pending = false;
-    if (g_app.preferences.reduced_motion || g->kind != CatalogKind::effect || g->scene.dialog_open)
+    if (application_reduced_motion() || g->kind != CatalogKind::effect || g->scene.dialog_open)
         return 0;
     const StorePageState& st = page();
     if (st.detail) {
@@ -785,7 +786,7 @@ void build_and_commit(UiSettingsScene* settings) noexcept {
                                                  : utf8_literal("Search"),
                  g->editing_action};
     g->scene.search = g->editing ? &g->search : nullptr;
-    StoreLayoutInput in{&m, &st, g->scene.search, ui_rect_width(g->host_page), g_app.preferences.reduced_motion, g->about, g->changes};
+    StoreLayoutInput in{&m, &st, g->scene.search, ui_rect_width(g->host_page), application_reduced_motion(), g->about, g->changes};
     ui_store_scene_begin(&g->scene);
     store_page_build(&g->scene, in);
     UiRect modal = settings->layout.modal;
@@ -941,7 +942,10 @@ bool application_store_synchronize(UiSettingsScene* settings) noexcept {
         g->scene.active = true;
         build_and_commit(settings);
     }
-    const bool animating = ui_store_scene_tick(&g->scene, now, g_app.preferences.reduced_motion);
+    const bool reduced = application_reduced_motion();
+    const auto timing = ui_settings_layout_tokens(settings->theme_styles).duration;
+    const bool animating =
+        ui_store_scene_tick(&g->scene, now, reduced, reduced ? timing.switch_reduced_ms : timing.switch_ms);
     if (g->scene.revision != g->revisions[0]) {
         g->revisions[0] = g->scene.revision;
         ++settings->revision;

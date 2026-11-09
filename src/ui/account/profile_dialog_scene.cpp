@@ -203,7 +203,8 @@ void build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport)
     add(s, grid->widget, origin, {origin.left, origin.top, origin.right, origin.top + kSectionHeader - 8}, role_section,
         UiProfileDialogAction::none,
         s->content.kind == UiProfileDialogKind::decoration ? utf8_literal("Your Decorations")
-                                                           : utf8_literal("Your Effects"),
+        : s->content.kind == UiProfileDialogKind::nameplate ? utf8_literal("Your Nameplates")
+                                                            : utf8_literal("Your Effects"),
         0, text_style_bold);
     for (u32 i = 0; i < count && i < kUiProfileDialogItemCapacity; ++i) {
         const u32 row = i / columns, column = i % columns;

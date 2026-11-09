@@ -952,7 +952,7 @@ void test_qr_code() noexcept {
     const ConstSlice<u8> payload =
         byte_literal("https://discord.com/ra/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     QrCode code{};
-    const bool encoded = qr_code_encode_v5_m(payload, &code);
+    const bool encoded = qr_code_encode_m(payload, 5, &code);
     u8 unpacked[kQrCodeSize * kQrCodeSize]{};
     for (u32 y = 0; y < kQrCodeSize; ++y) {
         for (u32 x = 0; x < kQrCodeSize; ++x) {
@@ -987,18 +987,61 @@ void test_qr_code() noexcept {
     QrCode untouched{};
     untouched.size = 99;
     expect(
-        !qr_code_encode_v5_m(ConstSlice<u8>{oversized, static_cast<u32>(sizeof(oversized))}, &untouched) &&
+        !qr_code_encode_m(ConstSlice<u8>{oversized, static_cast<u32>(sizeof(oversized))}, 1, &untouched) &&
             untouched.size == 99 && !qr_code_module(code, kQrCodeSize, 0),
         "qr_capacity_failure_is_atomic");
 
     const ConstSlice<u8> changed_payload =
         byte_literal("https://discord.com/ra/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB");
     QrCode changed{};
-    const bool changed_ok = qr_code_encode_v5_m(changed_payload, &changed);
+    const bool changed_ok = qr_code_encode_m(changed_payload, 5, &changed);
     expect(changed_ok &&
                hash64_bytes(kHash64Seed, code.modules, sizeof(code.modules)) !=
                    hash64_bytes(kHash64Seed, changed.modules, sizeof(changed.modules)),
            "qr_payload_changes_symbol");
+
+    // Larger versions against a reference encoder's matrices (segno, level M, byte mode, its mask forced to the one this
+    // encoder's penalty rules choose: the borders count as light for the finder-like runs, so another encoder may pick
+    // another mask; segno also pads a stream that already ends on a codeword boundary with a stray zero codeword,
+    // which is patched out), packed as QrCode keeps them: version 6 (four blocks) and version 10 (version
+    // information, a 3 x 3 alignment grid, 16-bit count, uneven blocks).
+    const auto matches = [](const QrCodeLarge& encoded, u32 size, u32 mask, const char* hex) noexcept {
+        const auto nibble = [](char c) noexcept { return static_cast<u8>(c <= '9' ? c - '0' : c - 'a' + 10); };
+        bool same = encoded.size == size && encoded.mask == mask;
+        for (u32 i = 0; same && i < (size * size + 7) / 8; ++i)
+            same = encoded.modules[i] == static_cast<u8>(nibble(hex[2 * i]) << 4 | nibble(hex[2 * i + 1]));
+        return same;
+    };
+    constexpr char kV6[] =
+        "7fc84538fc837636710976d16476d0edd25a02a6dbd59c8c5a374821739be05f5555557f00267f7900550823ef915e75272280e01159c8b446"
+        "2d31d351a4dda633fa0217d4672628de279ed1c981e2199f48c8cf08118f45ba8a7b8bffeb89c4f9677d4b7763009f9e13f35d41382aea3430"
+        "cec8cc731821b3ffc6ea3fa228de0365c4e60029f15e08051fa1d9b75790af37ef7f1a05436d0669f66a1dc16793727d7d01656d80009f016e"
+        "f57fe2ff4191c5570e72b3558fd05557baf3ad4beb660e7f57315904ee20e59999577f09b9bbb701";
+    constexpr char kV10[] =
+        "7ff44d432be6fc83a4d1689b6d0976fd24321cd8d3ed4ad914f723a4db1555de87c8483768f984380e8be05f55555555557f800b80a3f4fd00"
+        "7d3228ffd42a7d74131ff7635cc7446937239ede87b385229f3f02816bdc495586850c72739d1449c072281361902ad7e61f1cac77ad9c6935"
+        "694431c6bae0410c9721e3707b734227a63c9c8251ab3879931d4cfbcf87078b26e5e63001e5e75df463ca7cd57b67d3abb24d02609d13cb2a"
+        "dbf388a41c860446af3adb030a27eb7766ffc563ffcaf8092876ef8f931557522dcf500de275b228d5240e7dc09ffff7dd27cbc9c0ea23007b"
+        "44edff0d7e2a2b6f9c970a371d8a1d7f2c9f716d2abe5c6348c89905d3964c238f2d12a5652c3d30864624f22f33b4a9b8ba4a46dcd88134bf"
+        "f3efec5c70480a591806c2742c8628b770f537bd842b79985728b1ac7e9f556eab0396b9a6e1ba21b31375398fd25d3c94b64f559243c77ef5"
+        "c0a745fd906e5f0032568f417ee2fc89615f7fb9d70a0a712d3e1388d315f1d6c7c1f0b3eb09d36be2a04b574c8710f7e68920ae4dba9c5a3d"
+        "7fcd5ddafe84d700";
+    const ConstSlice<u8> otpauth = byte_literal(
+        "otpauth://totp/Discord:someone.with.a.long.name?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Discord");
+    u8 long_payload[208];
+    for (u32 i = 0; i < 190; ++i)
+        long_payload[i] = static_cast<u8>(32 + i % 95);
+    for (u32 i = 0; i < 18; ++i)
+        long_payload[190 + i] = static_cast<u8>('a' + i);
+    QrCodeLarge six{}, ten{};
+    QrCode small{};
+    expect(qr_code_encode_m(otpauth, 1, &six) && matches(six, 41, 0, kV6) &&
+               qr_code_encode_m(ConstSlice<u8>{long_payload, 208}, 1, &ten) && matches(ten, 57, 2, kV10) &&
+               !qr_code_encode_m(otpauth, 1, &small),
+           "qr_versions_6_and_10_match_the_reference_and_a_small_symbol_caps_its_version");
+    QrCodeRect large[1024]{};
+    expect(qr_code_compact_rects(ten, Slice<QrCodeRect>{large, 1024}).ok(),
+           "qr_version_10_compacts_within_the_paint_buffer");
 }
 
 namespace {

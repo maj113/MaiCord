@@ -7,6 +7,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/widgets/color_picker.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
 namespace maicord {
 namespace {
@@ -40,9 +41,6 @@ UiControlState editor_button_state(const UiThemeEditorScene& s, UiWidgetHandle h
 float clamp(float v, float lo = 0, float hi = 1) noexcept {
     return maximum(lo, minimum(v, hi));
 }
-bool unit(float v) noexcept {
-    return v >= 0 && v <= 1;
-}
 bool control(UiThemeEditorElement e) noexcept {
     return at(e) >= at(UiThemeEditorElement::close) && e != UiThemeEditorElement::effect_label;
 }
@@ -61,18 +59,10 @@ float slider_fraction(const BackgroundTheme& draft, UiThemeEditorElement e) noex
     return e == UiThemeEditorElement::direction ? draft.angle_degrees / 360.f : draft.*percent_field(e) / 100.f;
 }
 void rgb_hsv(UiThemeEditorScene& s, u32 rgb) noexcept {
-    const Color c = color_from_rgb24(rgb);
-    const float r = c.red, g = c.green, b = c.blue;
-    const float high = maximum(r, maximum(g, b)), low = minimum(r, minimum(g, b)), d = high - low;
-    s.value = high;
-    s.saturation = high ? d / high : 0;
-    if (d) {
-        float h = high == r ? (g - b) / d : high == g ? (b - r) / d + 2 : (r - g) / d + 4;
-        h /= 6;
-        if (h < 0)
-            h += 1;
-        s.hue = h;
-    }
+    const auto hsv = color_picker_hsv(rgb, {s.hue, s.saturation, s.value});
+    s.hue = hsv.hue;
+    s.saturation = hsv.saturation;
+    s.value = hsv.value;
 }
 void numbers(UiThemeEditorScene& s) noexcept {
     static constexpr char digits[] = "0123456789ABCDEF";
@@ -249,18 +239,6 @@ bool publish(UiThemeEditorScene& s, BackgroundTheme next, BackgroundTheme* outpu
     return true;
 }
 } // namespace
-u32 ui_theme_editor_hsv_rgb(float h, float s, float v) noexcept {
-    if (!unit(h) || !unit(s) || !unit(v))
-        return 0;
-    const float sector = (h == 1 ? 0 : h) * 6;
-    const u32 i = static_cast<u32>(sector);
-    const float f = sector - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
-    const float rgb[6][3]{{v, t, p}, {q, v, p}, {p, v, t}, {p, q, v}, {t, p, v}, {v, p, q}};
-    const float* const c = rgb[i < 6 ? i : 0];
-    const float r = c[0], g = c[1], b = c[2];
-    return static_cast<u32>(r * 255 + .5f) << 16 | static_cast<u32>(g * 255 + .5f) << 8 |
-           static_cast<u32>(b * 255 + .5f);
-}
 bool ui_theme_editor_current(const UiThemeEditorScene& s) noexcept {
     return s.active && background_theme_valid(s.draft) &&
            ui_widget_manager_layout_node(s.widgets, s.elements[at(UiThemeEditorElement::panel)]);
@@ -452,10 +430,10 @@ bool ui_theme_editor_pointer(UiThemeEditorScene* s, UiThemeEditorElement e, UiPo
     if (e == UiThemeEditorElement::sv) {
         s->saturation = x;
         s->value = 1 - y;
-        next.colors[s->selected_stop] = ui_theme_editor_hsv_rgb(s->hue, s->saturation, s->value);
+        next.colors[s->selected_stop] = color_picker_rgb({s->hue, s->saturation, s->value});
     } else if (e == UiThemeEditorElement::hue) {
         s->hue = x;
-        next.colors[s->selected_stop] = ui_theme_editor_hsv_rgb(s->hue, s->saturation, s->value);
+        next.colors[s->selected_stop] = color_picker_rgb({s->hue, s->saturation, s->value});
     } else if (e == UiThemeEditorElement::direction)
         next.angle_degrees = background_theme_snap_angle(x * 360);
     else
@@ -627,7 +605,7 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
         } else if (e == UiThemeEditorElement::sv) {
             const float x = clamp(r.left + s.saturation * ui_rect_width(r), r.left + 6, r.right - 6);
             const float y = clamp(r.top + (1 - s.value) * ui_rect_height(r), r.top + 6, r.bottom - 6);
-            p.use<paint_stream_push_sv_square>(r, color_from_rgb24(ui_theme_editor_hsv_rgb(s.hue, 1, 1)),
+            p.use<paint_stream_push_sv_square>(r, color_from_rgb24(color_picker_rgb({s.hue, 1, 1})),
                                                s.style.control_radius)
                 .rounded_border({x - 5, y - 5, x + 5, y + 5}, Color{}, color_from_rgb24(0), 5, 2)
                 .rounded_border({x - 4, y - 4, x + 4, y + 4}, Color{}, color_from_rgb24(0xffffff), 4, 1.5f);

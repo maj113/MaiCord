@@ -21,6 +21,9 @@ struct RendererTypographyOwner {
     TextSystem system{};
     TextSystemTypography policy{};
     u32 native_code_format{};
+    // The interface's per-face formats at the chat size (Text size in chat), made when chat text first asks. They live
+    // with the owner: its text context made them, and a new owner starts without.
+    u32 native_chat_faces[static_cast<u32>(UiTextFace::count)]{};
 };
 namespace renderer_text_detail {
 
@@ -361,34 +364,50 @@ bool prepare_typography_face(RendererTypographyOwner& owner, UiTextFace face, u3
     return (!private_font || native_text_register_font_path(system.native_text, path, &scope)) &&
            create_face_format(system, text_font_family(asset, index), scope, native_format);
 }
-TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcept {
-    auto system = renderer->glyph_text.system;
-    const u32 index = static_cast<u32>(face);
-    if (!index || index >= static_cast<u32>(UiTextFace::count))
-        return system;
-    if (face == UiTextFace::mono && renderer->typography_owner) {
-        const auto& owner = *renderer->typography_owner;
-        system.native_format = owner.native_code_format;
-        const auto selected = static_cast<u32>(owner.policy.value.code_face);
-        system.tracking = text_fonts[selected].tracking;
-        system.fixed_weight = text_fonts[selected].file != nullptr;
-        return system;
-    }
-    system.native_format = renderer->native_text_faces[index];
-    if (!system.native_format && system.native_text) {
+// The format of font `font` at `system`'s em size, kept in `*cache` (one of the renderer's per-face format sets).
+u32 face_format(const TextSystem& system, u32 font, u32* cache) noexcept {
+    if (!*cache && system.native_text) {
         wchar_t path[1024];
-        const bool private_path = profile_font_path(index, path);
-        u32 scope = 0;
+        u32 scope = 0, format = 0;
         // Missing optional assets retain system-family fallback; existing files
         // are registered directly.
-        const bool available = private_path && file_path_exists(path);
+        const bool available = profile_font_path(font, path) && file_path_exists(path);
         if ((!available || native_text_register_font_path(system.native_text, path, &scope)) &&
-            create_face_format(system, text_font_family(text_fonts[index], index), scope, &system.native_format))
-            renderer->native_text_faces[index] = system.native_format;
+            create_face_format(system, text_font_family(text_fonts[font], font), scope, &format))
+            *cache = format;
     }
-    system.tracking = text_fonts[index].tracking;
-    system.fixed_weight = text_fonts[index].file != nullptr;
-    return system;
+    return *cache;
+}
+TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcept {
+    auto system = renderer->glyph_text.system;
+    auto* owner = renderer->typography_owner;
+    const u32 index = static_cast<u32>(ui_text_face_base(face));
+    if (index >= static_cast<u32>(UiTextFace::count))
+        return system;
+    u32* formats = renderer->native_text_faces;
+    // Chat text takes Text size in chat as its em, with formats of that size; at the body size it is the same text.
+    const bool chat = ui_text_face_is_chat(face) && owner && ui_theme_chat_size(owner->policy.value) != system.em_size;
+    if (chat) {
+        system.em_size = ui_theme_chat_size(owner->policy.value);
+        formats = owner->native_chat_faces;
+    } else if (!index) {
+        return system;
+    }
+    if (index == static_cast<u32>(UiTextFace::mono) && owner) {
+        const auto selected = static_cast<u32>(owner->policy.value.code_face);
+        system.native_format = chat ? face_format(system, selected, &formats[index]) : owner->native_code_format;
+        system.tracking = text_fonts[selected].tracking;
+        system.fixed_weight = text_fonts[selected].file != nullptr;
+    } else {
+        // The body face of `normal` keeps the body system's tracking and weight.
+        system.native_format =
+            face_format(system, index ? index : static_cast<u32>(owner->policy.value.body_face), &formats[index]);
+        if (index) {
+            system.tracking = text_fonts[index].tracking;
+            system.fixed_weight = text_fonts[index].file != nullptr;
+        }
+    }
+    return chat && !system.native_format ? renderer->glyph_text.system : system;
 }
 
 // Plain text of a flag-capable owner is projected into object cells (a flag
@@ -1118,6 +1137,7 @@ constexpr u32 kInteractionTextSourceOffsets[]{
     offsetof(D3D11Renderer, interaction_text_guild_card_revision),
     offsetof(D3D11Renderer, interaction_text_media_picker_revision),
     offsetof(D3D11Renderer, interaction_text_expression_card_revision),
+    offsetof(D3D11Renderer, interaction_text_go_live_revision),
     offsetof(D3D11Renderer, interaction_text_friends_revision),
     offsetof(D3D11Renderer, interaction_text_friends_requests_revision),
     offsetof(D3D11Renderer, interaction_text_profile_revision),
@@ -1126,13 +1146,14 @@ constexpr u32 kInteractionTextSourceOffsets[]{
     offsetof(D3D11Renderer, interaction_text_popup_revision),
     offsetof(D3D11Renderer, interaction_text_reaction_viewer_revision),
     offsetof(D3D11Renderer, interaction_text_form_revision),
+    offsetof(D3D11Renderer, interaction_text_names_card_revision),
 };
 constexpr u32 kInteractionTextSourceCount = sizeof(kInteractionTextSourceOffsets) / sizeof(u32);
-// Sources 0 to 24 apply on every page; 25 to 32 are friends, friends requests, profile, image viewer,
-// action bar, popup, reaction viewer and form.
-constexpr u32 kInteractionTextProfileSource = 27, kInteractionTextActionBarSource = 29,
-              kInteractionTextPopupSource = 30, kInteractionTextFormSource = 32;
-constexpr u64 kInteractionTextStaticSources = (1ull << 25) - 1,
+// Sources 0 to 25 apply on every page; 26 to 33 are friends, friends requests, profile, image viewer,
+// action bar, popup, reaction viewer and form; 34 is the names card.
+constexpr u32 kInteractionTextProfileSource = 28, kInteractionTextActionBarSource = 30,
+              kInteractionTextPopupSource = 31, kInteractionTextFormSource = 33;
+constexpr u64 kInteractionTextStaticSources = (1ull << 26) - 1,
               kInteractionTextAllSources = (1ull << kInteractionTextSourceCount) - 1;
 // Sources 5 to 9 are 64-bit fields; the rest are 32-bit.
 constexpr u32 kInteractionTextWideSources = 0x3E0u;
@@ -1172,6 +1193,7 @@ u64 interaction_text_source_values(const D3D11Renderer& renderer, u64* values) n
     values[22] = d3d11_renderer_guild_card_visible(renderer) ? renderer.guild_card_scene->revision : 0;
     values[23] = d3d11_renderer_media_picker_visible(renderer) ? renderer.media_picker_scene->revision : 0;
     values[24] = d3d11_renderer_expression_card_visible(renderer) ? renderer.expression_card_scene->revision : 0;
+    values[25] = d3d11_renderer_go_live_visible(renderer) ? renderer.go_live_scene->revision : 0;
     values[kInteractionTextFormSource] =
         renderer.text_form && renderer.text_form->scene ? renderer.text_form->scene->revision : 0;
     if (renderer_settings_page_visible(renderer)) {
@@ -1181,14 +1203,15 @@ u64 interaction_text_source_values(const D3D11Renderer& renderer, u64* values) n
         return kInteractionTextStaticSources | 1ull << kInteractionTextProfileSource |
                1ull << kInteractionTextPopupSource | 1ull << kInteractionTextFormSource;
     }
-    values[25] = renderer.friends_scene ? renderer.friends_scene->revision : 0;
-    values[26] = renderer.friends_requests_scene ? renderer.friends_requests_scene->revision : 0;
+    values[26] = renderer.friends_scene ? renderer.friends_scene->revision : 0;
+    values[27] = renderer.friends_requests_scene ? renderer.friends_requests_scene->revision : 0;
     values[kInteractionTextProfileSource] = renderer.profile_scene ? renderer.profile_scene->revision : 0;
-    values[28] = renderer.image_viewer ? renderer.image_viewer->revision : 0;
+    values[29] = renderer.image_viewer ? renderer.image_viewer->revision : 0;
     values[kInteractionTextActionBarSource] =
         renderer.message_action_bar ? renderer.message_action_bar->revision : 0;
     values[kInteractionTextPopupSource] = renderer.popup_scene ? renderer.popup_scene->revision : 0;
-    values[31] = renderer.reaction_viewer ? renderer.reaction_viewer->revision : 0;
+    values[32] = renderer.reaction_viewer ? renderer.reaction_viewer->revision : 0;
+    values[34] = d3d11_renderer_names_card_visible(renderer) ? renderer.names_card_scene->revision : 0;
     return kInteractionTextAllSources;
 }
 } // namespace

@@ -129,6 +129,9 @@ void ordinary_projection() noexcept {
           "ordinary projection: valid empty model borrows zero bytes without an extra buffer");
     form->request.confirmation_only = true;
     form->edit = {};
+    check(form->dismissible && form->can_cancel &&
+              application_text_form_window_event(window_test::focus_changed(false)) && g_app.text_form == form,
+          "ordinary form: the window losing focus leaves a dismissible dialog open");
     application_text_form_close(false, false);
     seen.ordinary_projection = false;
 }
@@ -639,6 +642,7 @@ EDIT_RESULT(secure_edit_select_word, (SecureEdit*, u32))
 EDIT_RESULT(secure_edit_select_line, (SecureEdit*, u32))
 EDIT_RESULT(secure_edit_undo, (SecureEdit*))
 EDIT_RESULT(secure_edit_redo, (SecureEdit*))
+EDIT_RESULT(secure_edit_render_window, (const SecureEdit&, u32, const Slice<char>&, u32*, SecureEditRenderWindow*))
 #undef EDIT_RESULT
 bool secure_text_store_initialize(SecureTextStore*, SecureTextStoreConfig) noexcept {
     ++confirmation_runtime_test::seen.store_calls;

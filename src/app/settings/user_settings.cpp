@@ -11,6 +11,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
+#include "maicord/ui/layout/density.hpp"
 
 #include "maicord/protocol/user/account_settings.hpp"
 #include "../account/account_ui_runtime.hpp"
@@ -38,6 +39,28 @@ constexpr UserSettingsField kNsfwGuilds{6, 20, 0, K::boolean}, kHideRequestNotes
     kDropsOptedOut{8, 18, 0, K::boolean}, kQuests3pOptedOut{8, 30, 0, K::boolean},
     kNotifyOnline{7, 25, 0, K::boolean}, kNotifyGoLive{7, 26, 0, K::boolean},
     kActivityServers{8, 29, 0, K::enumeration}, kJoinFriends{8, 1, 0, K::boolean}, kJoinVoice{8, 2, 0, K::boolean};
+// Language, the Notifications page's "Notify me when..." rows, Mobile Notification Delay (afk_timeout, seconds),
+// Chat Box's game suggestions and Developer Mode.
+constexpr UserSettingsField kLocale{12, 1, 0, K::string}, kStreamNotifications{5, 7, 0, K::boolean},
+    kAfkTimeout{5, 6, 0, K::uint32}, kFriendOnline{7, 12, 0, K::boolean}, kProfileUpdateNotices{7, 16, 0, K::boolean},
+    kAnniversaries{7, 14, 0, K::boolean}, kReactionNotifications{7, 7, 0, K::enumeration},
+    kGameMentions{6, 39, 0, K::boolean}, kDeveloperMode{13, 2, 0, K::plain_bool};
+// Show image descriptions, the /tts command, sticker suggestions, compact avatars and UI Density.
+constexpr UserSettingsField kImageDescriptions{6, 7, 0, K::boolean}, kTtsCommand{6, 16, 0, K::boolean},
+    kStickerAutocomplete{6, 28, 0, K::boolean}, kCompactAvatars{6, 41, 0, K::boolean},
+    kUiDensity{13, 12, 0, K::enumeration};
+// UI Density's choices (Compact, Default, Spacious) as UIDensity values; unset reads as Default.
+constexpr u8 kUiDensityValues[]{1, 4, 2};
+// Discord's locales, in the order of catalog_data.inc's `languages`.
+constexpr Utf8View kLocales[]{
+    utf8_literal("id"),    utf8_literal("da"),    utf8_literal("de"),    utf8_literal("en-GB"), utf8_literal("en-US"),
+    utf8_literal("es-ES"), utf8_literal("es-419"), utf8_literal("fr"),   utf8_literal("hr"),    utf8_literal("it"),
+    utf8_literal("lt"),    utf8_literal("hu"),    utf8_literal("nl"),    utf8_literal("no"),    utf8_literal("pl"),
+    utf8_literal("pt-BR"), utf8_literal("ro"),    utf8_literal("fi"),    utf8_literal("sv-SE"), utf8_literal("vi"),
+    utf8_literal("tr"),    utf8_literal("cs"),    utf8_literal("el"),    utf8_literal("bg"),    utf8_literal("ru"),
+    utf8_literal("uk"),    utf8_literal("hi"),    utf8_literal("th"),    utf8_literal("zh-CN"), utf8_literal("zh-TW"),
+    utf8_literal("ja"),    utf8_literal("ko"),    utf8_literal("ar")};
+constexpr u32 kLocaleUnitedStates = 4;
 constexpr Utf8View kExplicitChoices[]{utf8_literal("Show"), utf8_literal("Blur"), utf8_literal("Block")};
 // privacy.restricted_guild_ids, message_request_restricted_guild_ids,
 // activity_restricted_guild_ids, activity_joining_restricted_guild_ids.
@@ -50,7 +73,7 @@ constexpr UserSettingsField kGuildLists[]{{8, 3, 0, K::id_member},
 // render_spoilers strings by MessageSpoilerReveal; unset or unknown is ON_CLICK.
 constexpr Utf8View kSpoilerValues[]{utf8_literal("ON_CLICK"), utf8_literal("IF_MODERATOR"),
                                     utf8_literal("ALWAYS")};
-// The select lists On click, Always, Moderated (servers you moderate).
+// The select lists On click, Always, On servers I moderate.
 constexpr u8 kSpoilerChoices[]{0, 2, 1};
 // friend_source_flags: MUTUAL_FRIENDS 2, MUTUAL_GUILDS 4, NO_RELATION 8. Everyone
 // means all three (14); turning it off keeps both narrower sources (6).
@@ -80,10 +103,12 @@ struct Owner {
 };
 Owner g_owner{};
 // The message scene's display: the account's compact flag and clock shape with
-// the local group spacing and built-in extras.
-MessageSceneDisplay scene_display(bool compact) noexcept {
-    return {g_app.preferences.message_group_spacing, compact, static_cast<MessageSceneClock>(timestamp_clock_shape()),
-            g_app.preferences.reply_timestamps, g_app.preferences.role_colors_everywhere};
+// the local group spacing, built-in extras and Accessibility's role colours and links.
+MessageSceneDisplay scene_display(bool compact, bool compact_avatars) noexcept {
+    const auto& p = g_app.preferences;
+    return {p.message_group_spacing, compact, static_cast<MessageSceneClock>(timestamp_clock_shape()),
+            p.reply_timestamps, p.role_colors_everywhere, p.role_style,
+            static_cast<u8>(p.desaturate_user_colors ? p.desaturation : 0), p.underline_links, compact_avatars};
 }
 
 UserSettingsStore* store() noexcept {
@@ -223,6 +248,14 @@ bool synced_toggle(SettingBinding binding, SyncedToggle* toggle) noexcept {
     case SettingBinding::share_streaming: *toggle = {kNotifyGoLive, true, false}; return true;
     case SettingBinding::join_friends: *toggle = {kJoinFriends, true, false}; return true;
     case SettingBinding::join_voice: *toggle = {kJoinVoice, true, false}; return true;
+    case SettingBinding::notify_go_live: *toggle = {kStreamNotifications, true, false}; return true;
+    case SettingBinding::notify_friend_online: *toggle = {kFriendOnline, true, false}; return true;
+    case SettingBinding::notify_profile_updates: *toggle = {kProfileUpdateNotices, true, false}; return true;
+    case SettingBinding::notify_anniversaries: *toggle = {kAnniversaries, true, false}; return true;
+    case SettingBinding::game_mentions_autocomplete: *toggle = {kGameMentions, true, false}; return true;
+    case SettingBinding::image_descriptions: *toggle = {kImageDescriptions, false, false}; return true;
+    case SettingBinding::sticker_autocomplete: *toggle = {kStickerAutocomplete, false, false}; return true;
+    case SettingBinding::tts_command: *toggle = {kTtsCommand, true, false}; return true;
     default: return false;
     }
 }
@@ -241,6 +274,7 @@ MessageRichDisplay chat_display() noexcept {
     display.stickers = stickers <= 2 ? static_cast<MessageMediaAnimation>(stickers) : MessageMediaAnimation::always;
     display.spoilers = static_cast<MessageSpoilerReveal>(spoiler_choice());
     display.convert_emoticons = read_number(kConvertEmoticons, 1) != 0;
+    display.image_descriptions = read_number(kImageDescriptions, 0) != 0;
     return display;
 }
 bool chat_toggle(SettingBinding binding, UserSettingsField* field) noexcept {
@@ -415,19 +449,31 @@ void application_user_settings_release() noexcept {
     release_bank();
     reset_value(&g_owner);
     timestamp_set_hour_cycle(HourCycle::automatic);
-    message_scene_set_display(&g_app.message_scene, scene_display(false));
+    g_ui_density = UiDensity::standard;
+    message_scene_set_display(&g_app.message_scene, scene_display(false, false));
     if (message_rich_set_display({}))
         message_scene_invalidate_geometry(&g_app.message_scene);
 }
 
 void application_user_settings_apply_display() noexcept {
     const bool compact = loaded() && read_number(kCompact, 0) != 0;
+    const bool compact_avatars = loaded() && read_number(kCompactAvatars, 0) != 0;
     const u64 cycle = loaded() ? read_number(kHourCycle, 0) : 0;
+    // UIDensity COMPACT 1, COZY 2 (Spacious); unset, DEFAULT and RESPONSIVE lay out as Default.
+    const u64 density_value = loaded() ? read_number(kUiDensity, 4) : 4;
+    const UiDensity density = density_value == 1   ? UiDensity::compact
+                              : density_value == 2 ? UiDensity::spacious
+                                                   : UiDensity::standard;
+    const bool density_changed = density != g_ui_density;
+    g_ui_density = density;
     g_owner.applied_revision = store() ? store()->revision : g_owner.applied_revision;
+    // Developer Mode is the account's (appearance.developer_mode); the local copy serves before sign-in.
+    if (loaded())
+        g_app.preferences.developer_mode = read_number(kDeveloperMode, 0) != 0;
     // The cycle first: it decides the timestamp column's width.
     const bool time = timestamp_set_hour_cycle(cycle <= 2 ? static_cast<HourCycle>(cycle)
                                                                   : HourCycle::automatic);
-    const bool display = message_scene_set_display(&g_app.message_scene, scene_display(compact));
+    const bool display = message_scene_set_display(&g_app.message_scene, scene_display(compact, compact_avatars));
     const MessageRichDisplay chat = chat_display();
     const MessageRichDisplay previous = message_rich_display();
     const bool chat_changed = !message_rich_display_equal(chat, previous);
@@ -437,8 +483,22 @@ void application_user_settings_apply_display() noexcept {
         message_scene_invalidate_geometry(&g_app.message_scene);
     if (chat_changed)
         g_app.message_media.scan_pending = true;
-    if ((display || time || chat_changed) && g_app.renderer_ready)
-        application_refresh_theme_consumers(false, display || chat_geometry);
+    if ((display || time || chat_changed || density_changed) && g_app.renderer_ready)
+        application_refresh_theme_consumers(false, display || chat_geometry || density_changed);
+}
+
+bool application_user_settings_set_developer_mode(bool on) noexcept {
+    return loaded() && write(kDeveloperMode, user_settings_number(on));
+}
+
+bool application_user_settings_game_mentions_autocomplete() noexcept {
+    return !loaded() || read_number(kGameMentions, 1) != 0;
+}
+bool application_user_settings_sticker_autocomplete() noexcept {
+    return loaded() && read_number(kStickerAutocomplete, 0) != 0;
+}
+bool application_user_settings_tts_command() noexcept {
+    return !loaded() || read_number(kTtsCommand, 1) != 0;
 }
 
 bool application_user_settings_reveal_spoilers(u64 channel_id) noexcept {
@@ -548,7 +608,43 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
     case SettingBinding::chat_notice:
     case SettingBinding::activity_notice:
     case SettingBinding::accessibility_notice:
+    case SettingBinding::notifications_notice:
         return notice();
+    case SettingBinding::language: {
+        // Unset is the default locale, en-US; one this list doesn't name selects nothing.
+        UserSettingsValue locale{};
+        control->selected_choice = kLocaleUnitedStates;
+        if (store() && user_settings_store_read(*store(), kLocale, &locale) && locale.present) {
+            control->selected_choice = kUiSettingsNoChoice;
+            for (u32 i = 0; i < sizeof(kLocales) / sizeof(kLocales[0]); ++i)
+                if (utf8_equal({locale.text, locale.text_bytes}, kLocales[i]))
+                    control->selected_choice = i;
+        }
+        return true;
+    }
+    case SettingBinding::notify_reactions: {
+        // NOTIFICATIONS_ENABLED 0, ONLY_DMS 1, NOTIFICATIONS_DISABLED 2: the choices' order.
+        const u64 value = read_number(kReactionNotifications, 0);
+        control->selected_choice = value <= 2 ? static_cast<u32>(value) : 0;
+        return true;
+    }
+    case SettingBinding::mobile_push_delay: {
+        // afk_timeout in seconds (unset: 60), shown as the whole minute 1..10 at or below it.
+        const u64 minutes = read_number(kAfkTimeout, 60) / 60;
+        control->selected_choice = minutes >= 1 && minutes <= 10 ? static_cast<u32>(minutes - 1) : 0;
+        return true;
+    }
+    case SettingBinding::compact_avatars:
+        // Cozy messages always show avatars: the switch reads on and only works in compact mode.
+        control->checked = read_number(kCompact, 0) == 0 || read_number(kCompactAvatars, 0) != 0;
+        control->enabled = ready && read_number(kCompact, 0) != 0;
+        if (read_number(kCompact, 0) == 0)
+            control->description =
+                utf8_literal("To hide avatars, go to Accessibility and select Compact under Chat Message Display.");
+        return true;
+    case SettingBinding::ui_density:
+        control->selected_choice = index_of(kUiDensityValues, 3, read_number(kUiDensity, 4), 1);
+        return true;
     case SettingBinding::animate_stickers: {
         const u64 value = read_number(kAnimateStickers, 0);
         control->selected_choice = value <= 2 ? static_cast<u32>(value) : 0;
@@ -704,6 +800,16 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
         return choice < 3 && write(kAnimateStickers, user_settings_number(choice));
     case SettingBinding::render_spoilers:
         return choice < 3 && write(kSpoilers, user_settings_text(kSpoilerValues[kSpoilerChoices[choice]]));
+    case SettingBinding::language:
+        return choice < sizeof(kLocales) / sizeof(kLocales[0]) && write(kLocale, user_settings_text(kLocales[choice]));
+    case SettingBinding::notify_reactions:
+        return choice < 3 && write(kReactionNotifications, user_settings_number(choice));
+    case SettingBinding::mobile_push_delay:
+        return choice < 10 && write(kAfkTimeout, user_settings_number((choice + 1) * 60));
+    case SettingBinding::compact_avatars:
+        return read_number(kCompact, 0) != 0 && write(kCompactAvatars, user_settings_number(checked));
+    case SettingBinding::ui_density:
+        return choice < 3 && write(kUiDensity, user_settings_number(kUiDensityValues[choice]));
     default: {
         SyncedToggle toggle{};
         if (synced_toggle(binding, &toggle))

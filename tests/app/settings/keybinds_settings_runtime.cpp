@@ -1,5 +1,6 @@
 #include "settings/keybinds_settings.hpp"
 #include "settings/settings.hpp"
+#include "settings/settings_internal.hpp"
 #include "shell/state.hpp"
 #include "voice/voice.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -63,6 +64,17 @@ bool type(u32 key, u8 modifiers) noexcept {
 bool chip(const UiSettingsControl* row, Utf8View text) noexcept {
     return row && row->choices.count && utf8_equal(row->choices[0], text);
 }
+// A set keybind's row: its keys as the description, Edit and Delete as its buttons.
+bool keybind_row(const UiSettingsControl* row, Utf8View keys) noexcept {
+    return row && row->kind == UiSettingsControlKind::buttons && row->choices.count == 2 &&
+           utf8_equal(row->description, keys) && utf8_equal(row->choices[0], utf8_literal("Edit")) &&
+           utf8_equal(row->choices[1], utf8_literal("Delete"));
+}
+// Presses one button of a row's group (Edit or Delete), as a click on it does.
+bool button(u64 id, u32 index) noexcept {
+    return settings_detail::activate({UiSettingsTargetKind::control, kKeybindsPage, id}, false, false, index) &&
+           application_settings_synchronize();
+}
 } // namespace
 
 void test_application_keybinds_settings_runtime(Check check) noexcept {
@@ -100,7 +112,7 @@ void test_application_keybinds_settings_runtime(Check check) noexcept {
     CustomKeybinds stored{};
     check(typed && keybinds.count == 1 && keybinds.items[0].action == CustomKeybindAction::toggle_mute &&
               keybinds.items[0].chord.key == 'M' && keybinds.items[0].chord.modifiers == (C | L) &&
-              !application_keybinds_settings_recording() && chip(control(custom(0)), utf8_literal("Ctrl+Alt+M")) &&
+              !application_keybinds_settings_recording() && keybind_row(control(custom(0)), utf8_literal("Ctrl+Alt+M")) &&
               custom_keybinds_load(&stored) && stored.count == 1 && control(node(SettingBinding::keybinds_add)),
           "keybinds settings: a recorded chord becomes a saved keybind row");
 
@@ -118,12 +130,24 @@ void test_application_keybinds_settings_runtime(Check check) noexcept {
                      press(custom(kKeybindsDraftRecordRow)) && type(key::escape, 0) &&
                      !application_keybinds_settings_recording() && control(custom(kKeybindsDraftRecordRow)) &&
                      press(custom(kKeybindsDraftRecordRow)) && type('V', 0);
-    check(ptt && voice.audio.push_to_talk_key == 'V' && chip(control(custom(kKeybindsPushToTalkRow)), utf8_literal("V")) &&
+    check(ptt && voice.audio.push_to_talk_key == 'V' && control(custom(kKeybindsPushToTalkRow)) &&
+              control(custom(kKeybindsPushToTalkRow))->kind == UiSettingsControlKind::buttons &&
               keybinds.count == 1,
           "keybinds settings: push to talk records one key into the voice preferences; Esc only stops recording");
 
-    check(press(custom(0)) && keybinds.count == 0 && custom_keybinds_load(&stored) && stored.count == 0 &&
-              press(custom(kKeybindsPushToTalkRow)) && !voice.audio.push_to_talk_key &&
+    // Edit opens the draft on the keybind's action; the recorded keys replace it in place of a new keybind.
+    const bool edited = button(custom(0), 0) && control(custom(kKeybindsDraftActionRow)) &&
+                        control(custom(kKeybindsDraftActionRow))->selected_choice ==
+                            static_cast<u32>(CustomKeybindAction::toggle_mute) &&
+                        utf8_equal(control(custom(kKeybindsDraftCancelRow))->label, utf8_literal("Edit keybind")) &&
+                        press(custom(kKeybindsDraftRecordRow)) && type('D', C | L);
+    check(edited && keybinds.count == 1 && keybinds.items[0].chord.key == 'D' &&
+              keybind_row(control(custom(0)), utf8_literal("Ctrl+Alt+D")) && custom_keybinds_load(&stored) &&
+              stored.count == 1 && stored.items[0].chord.key == 'D',
+          "keybinds settings: Edit records new keys for the same keybind");
+
+    check(button(custom(0), 1) && keybinds.count == 0 && custom_keybinds_load(&stored) && stored.count == 0 &&
+              button(custom(kKeybindsPushToTalkRow), 1) && !voice.audio.push_to_talk_key &&
               !control(custom(kKeybindsPushToTalkRow)) && control(settings_list_control_id(SettingBinding::keybinds_defaults, 1)) &&
               !application_keybinds_settings_activate_row(settings_list_control_id(SettingBinding::keybinds_defaults, 1), 0) &&
               keybinds.count == 0,

@@ -575,7 +575,15 @@ bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept {
     ++tooltip_runtime_test::text_builds;
     return !tooltip_runtime_test::fail_text_build;
 }
+// The tooltip's entrance (opacity and scale) is drawn by the renderer; these runs show it settled.
+bool renderer_set_tooltip_entrance(D3D11Renderer*, float) noexcept {
+    return false;
+}
 namespace app_detail {
+float application_motion_tick(UiMotionTransition*, const UiMotionScope&, float target, u64,
+                              const UiMotionStyle&) noexcept {
+    return target;
+}
 bool application_settings_active() noexcept {
     return tooltip_runtime_test::settings;
 }

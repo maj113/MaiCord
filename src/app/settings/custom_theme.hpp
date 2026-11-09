@@ -22,6 +22,9 @@ struct ApplicationCustomThemeView {
 // A null document requests the current built-in preference projection. `animate`: a change of colours glides
 // (client_theme_glide, kClientThemeGlideMs) where it can be seen; the saved theme loaded at startup shows at once.
 bool application_custom_theme_publish(const ClientThemeDocument*, bool animate) noexcept;
+// Publishes the current theme again after Accessibility's Text size in chat or Saturation changed (both are applied at
+// publication).
+bool application_theme_accessibility_refresh() noexcept;
 // A published theme with variants follows the clock (theme_publication.cpp): when it is published again next (0 when
 // none is published), and that publication once it is due. A glide steps in the same tick once per display frame
 // (`frame`: the loop took a display slot, or has no display clock): while one runs, the loop asks for frames.

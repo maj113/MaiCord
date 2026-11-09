@@ -2,6 +2,7 @@
 #include "shell/state.hpp"
 #include "settings/settings.hpp"
 #include "account/profile.hpp"
+#include "account/friends.hpp"
 #include "account/profile_editor.hpp"
 #include "shell/content_input.hpp"
 #include "voice/voice.hpp"
@@ -108,9 +109,25 @@ bool renderer_finish_resize(D3D11Renderer* renderer, u32 width, u32 height) noex
     renderer->live_resize = false;
     return true;
 }
+// Zoom level relayouts at the renderer's DPI; the fixture keeps the value only.
+void renderer_set_dpi(D3D11Renderer* renderer, u32 dpi) noexcept {
+    renderer->dpi = dpi ? dpi : 96;
+}
 namespace app_detail {
 // The magnifier follows the stored preferences; this fixture has no lens.
 void application_image_zoom_configure() noexcept {}
+// Text size in chat and Saturation republish the theme; Preview speaks: counted, nothing published or said.
+bool application_theme_accessibility_refresh() noexcept {
+    ++settings_runtime_test::observed.theme_refreshes;
+    return true;
+}
+bool application_user_actions_speak(Utf8View) noexcept {
+    ++settings_runtime_test::observed.speeches;
+    return true;
+}
+bool application_synchronize_login_view() noexcept {
+    return true;
+}
 // The Profiles page hands the modal to the profile editor, which is not
 // linked here.
 bool application_profile_editor_open(ProfileEditorTab, u64) noexcept {
@@ -149,6 +166,18 @@ ConstSlice<ClientThemeCatalogEntry> application_custom_theme_installed() noexcep
 }
 u32 application_custom_theme_installed_active() noexcept {
     return settings_runtime_test::installed_selection.active;
+}
+// The sidebar's version note (src/app/update/entry.cpp in the client).
+u32 application_update_build_version_text(Slice<char> output) noexcept {
+    constexpr char version[] = "0.7.1";
+    if (output.count < sizeof(version) - 1)
+        return 0;
+    copy_bytes(output.data, version, sizeof(version) - 1);
+    return sizeof(version) - 1;
+}
+// Developer > Test Mode reloads the open channel's history (src/app/chat/messages/history.cpp in the client).
+bool pump_message_history() noexcept {
+    return true;
 }
 bool application_custom_theme_apply_installed(u32 index, bool preview) noexcept {
     using namespace settings_runtime_test;
@@ -230,7 +259,8 @@ void application_tooltip_clear() noexcept {
 }
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept {
     auto& form = settings_runtime_test::gradient_form;
-    if (form.active || !request.valid || !request.save || !request.valid(request.owner) ||
+    if (form.active || !request.valid || (!request.save && !request.save_choices && !request.save_option) ||
+        !request.valid(request.owner) ||
         request.initial.bytes > sizeof(form.initial))
         return false;
     form.request = request;
@@ -240,13 +270,18 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
     ++form.opens;
     return true;
 }
-void application_text_form_cancel_owner(TextFormOwnerValid validator) noexcept {
-    auto& form = settings_runtime_test::gradient_form;
-    if (form.active && form.request.valid == validator)
-        form.active = false;
-}
+// Closing tells the owner, as the real form does.
 void application_text_form_close(bool, bool) noexcept {
-    settings_runtime_test::gradient_form.active = false;
+    auto& form = settings_runtime_test::gradient_form;
+    if (!form.active)
+        return;
+    form.active = false;
+    if (form.request.closed)
+        form.request.closed(form.request.owner);
+}
+void application_text_form_cancel_owner(TextFormOwnerValid validator) noexcept {
+    if (settings_runtime_test::gradient_form.request.valid == validator)
+        application_text_form_close(false, false);
 }
 const ApplicationTextFormRequest* settings_runtime_text_form() noexcept {
     const auto& form = settings_runtime_test::gradient_form;
@@ -315,8 +350,21 @@ bool application_friends_user_relation(u64 user_id, u8* relation) noexcept {
     *relation = static_cast<u8>(row.kind);
     return true;
 }
+// Messaging Permissions lists these blocked and ignored accounts; Unblock and Unignore land in the last action.
+RelationshipStore* settings_runtime_relationships() noexcept {
+    static RelationshipRecord records[3]{};
+    static RelationshipStore store{{records, 3}, 0, 0};
+    return &store;
+}
+u64 settings_runtime_relationship_user = 0;
+ApplicationFriendsUserAction settings_runtime_relationship_action{};
 const RelationshipStore* application_friends_relationships() noexcept {
-    return nullptr;
+    return settings_runtime_relationships();
+}
+bool application_friends_user_action(u64 user_id, ApplicationFriendsUserAction action) noexcept {
+    settings_runtime_relationship_user = user_id;
+    settings_runtime_relationship_action = action;
+    return true;
 }
 bool application_thread_browser_read_blocked() noexcept {
     return false;
@@ -342,7 +390,13 @@ void application_friends_close_requests() noexcept {
 bool application_friends_show() noexcept {
     return false;
 }
+bool application_friends_show_requests() noexcept {
+    return false;
+}
 bool application_private_channel_picker(u64) noexcept {
+    return false;
+}
+bool application_quick_switcher_open() noexcept {
     return false;
 }
 bool application_private_channel_call(u64) noexcept {

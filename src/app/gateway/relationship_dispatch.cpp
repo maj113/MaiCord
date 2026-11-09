@@ -292,7 +292,11 @@ bool gateway_client_relationship_record(ConstSlice<u8> payload, u32* cursor, Rel
         sizeof(*output) > payload.count - *cursor) return false;
     const u8* bytes = payload.data + *cursor;
     // Check raw bool representations before materializing the owned ABI object.
-    if (bytes[10] > 1 || bytes[11] > 1 || bytes[12] > 1 || bytes[13] > 1 || bytes[157] > 1 || bytes[448] > 1) return false;
+    constexpr u32 avatar_seen = offsetof(RelationshipMutation, user) + offsetof(RelationshipUser, avatar_seen);
+    constexpr u32 preserve_nickname = offsetof(RelationshipMutation, preserve_nickname);
+    if (bytes[10] > 1 || bytes[11] > 1 || bytes[12] > 1 || bytes[13] > 1 || bytes[avatar_seen] > 1 ||
+        bytes[preserve_nickname] > 1)
+        return false;
     RelationshipMutation candidate;
     copy_bytes(&candidate, bytes, sizeof(candidate));
     const auto& record = candidate.record;

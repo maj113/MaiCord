@@ -202,38 +202,10 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
         return true;
     }
 
-    QrCodeRect rectangles[384];
-    const QrCodeRectResult compacted = qr_code_compact_rects(
-        *input.qr_code,
-        Slice<QrCodeRect>{rectangles, static_cast<u32>(sizeof(rectangles) / sizeof(rectangles[0]))});
     // As the official client: the white surface's 8 DIP padding is the quiet
     // zone and the symbol fills the rest, in whole device pixels per module.
-    constexpr i32 kTotalModules = static_cast<i32>(kQrCodeSize);
-    constexpr float kQuietDip = 8.0f;
-    const float dpi_scale = static_cast<float>(dpi) / 96.0f;
-    const i32 left_px = static_cast<i32>(qr.left * dpi_scale + 0.5f);
-    const i32 top_px = static_cast<i32>(qr.top * dpi_scale + 0.5f);
-    const i32 extent_px = static_cast<i32>((qr.right - qr.left) * dpi_scale + 0.5f);
-    const i32 quiet_px = static_cast<i32>(kQuietDip * dpi_scale + 0.5f);
-    const i32 module_px = (extent_px - 2 * quiet_px) / kTotalModules;
-    if (!compacted.ok() || module_px <= 0) {
-        return false;
-    }
-    const i32 symbol_px = module_px * kTotalModules;
-    const i32 origin_x_px = left_px + (extent_px - symbol_px) / 2;
-    const i32 origin_y_px = top_px + (extent_px - symbol_px) / 2;
-    const float dip_per_pixel = 1.0f / dpi_scale;
-    for (u32 index = 0; index < compacted.count; ++index) {
-        const QrCodeRect rectangle = rectangles[index];
-        const float left = static_cast<float>(origin_x_px + rectangle.left * module_px) * dip_per_pixel;
-        const float top = static_cast<float>(origin_y_px + rectangle.top * module_px) * dip_per_pixel;
-        const float right = static_cast<float>(origin_x_px + rectangle.right * module_px) * dip_per_pixel;
-        const float bottom = static_cast<float>(origin_y_px + rectangle.bottom * module_px) * dip_per_pixel;
-        if (!paint_stream_push(stream, left, top, right, bottom, theme.base_lowest)) {
-            return false;
-        }
-    }
-    return true;
+    return qr_code_paint(stream, qr, qr_code_modules(*input.qr_code), static_cast<float>(dpi) / 96.0f, 8.0f,
+                         theme.base_lowest);
 }
 
 } // namespace maicord

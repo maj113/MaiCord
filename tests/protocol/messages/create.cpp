@@ -41,6 +41,11 @@ void test_message_create_stickers(void (*check)(bool, const char*) noexcept) noe
     const auto muted_attachment = write_message_create_body({}, 103, 7, 8,
         {&file, 1}, {}, {body, sizeof(body)}, false);
     check(muted_attachment.ok() && test_contains({reinterpret_cast<const char*>(body), muted_attachment.bytes}, utf8_literal(R"("replied_user":false)")), "attachment-only reply body carries explicit author mention policy");
+    const auto spoken = write_message_create_body(utf8_literal("hello"), 104, 0, 0, {}, {}, {body, sizeof(body)}, true,
+                                                  kMessageCreateTts | kMessageFlagSuppressNotifications);
+    check(spoken.ok() && test_contains({reinterpret_cast<const char*>(body), spoken.bytes},
+                                       utf8_literal(R"(,"tts":true,"flags":4096)")),
+          "/tts sends tts true and keeps its marker out of flags");
     const u64 invalid[]{0, 123, 123, 456};
     body[0] = 0xa5;
     check(write_message_create_body({}, 99, 0, 0, {}, {invalid, 1}, {body, sizeof(body)}).error ==

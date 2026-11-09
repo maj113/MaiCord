@@ -110,19 +110,28 @@ constexpr CommandLook kLookStampEnd{.themed = true,
 // parsed text in the retained buffers so styles and semantics shift by it.
 // A plugin name prefix/suffix wraps the name as muted subtext (in the role
 // colour for MC_TONE_ROLE); the name stays the bold role-coloured span.
+// avatar_user leads with the author's avatar cell (a hair space, an em and a
+// four-per-em space, as the client's 1em avatar with .1em and .25em margins);
+// dot_rgb puts the role dot's cell (an en space and a four-per-em space)
+// right before the name.
 bool compact_content(MessageTextPresentation* presentation, BuildContext* context, Utf8View name,
                      Utf8View source, Utf8View* text, ConstSlice<TextStyleSpan>* styles,
                      ConstSlice<MessageMarkdownSemantic>* semantics,
-                     const UiPluginRenderDecoration* decoration) noexcept {
+                     const UiPluginRenderDecoration* decoration, u64 avatar_user, u32 dot_rgb) noexcept {
+    constexpr Utf8View avatar_cell = utf8_literal("\xE2\x80\x8A\xE2\x80\x83\xE2\x80\x85");
+    constexpr Utf8View dot_cell = utf8_literal("\xE2\x80\x82\xE2\x80\x85");
     const Utf8View name_prefix = decoration ? decoration->name_prefix : Utf8View{};
     const Utf8View name_suffix = decoration ? decoration->name_suffix : Utf8View{};
-    const u32 lead = name_prefix.bytes ? name_prefix.bytes + 1u : 0u;
+    const u32 avatar = avatar_user ? avatar_cell.bytes : 0u, dot = dot_rgb ? dot_cell.bytes : 0u;
+    const u32 lead = avatar + (name_prefix.bytes ? name_prefix.bytes + 1u : 0u) + dot;
     const u32 tail = name_suffix.bytes ? name_suffix.bytes + 1u : 0u;
     const u32 prefix = lead + name.bytes + tail + 1u;
-    const u32 leading_spans = 1u + (lead ? 1u : 0u) + (tail ? 1u : 0u);
+    const u32 leading_spans = 1u + (name_prefix.bytes ? 1u : 0u) + (tail ? 1u : 0u);
+    const u32 leading_semantics = (avatar ? 1u : 0u) + (dot ? 1u : 0u);
     if (presentation->utf8_count > presentation->utf8.count ||
         prefix > presentation->utf8.count - presentation->utf8_count ||
-        leading_spans > presentation->styles.count - presentation->style_count) {
+        leading_spans > presentation->styles.count - presentation->style_count ||
+        leading_semantics > presentation->semantics.count - presentation->semantic_count) {
         return fail(presentation, MessageTextPresentationError::capacity);
     }
     const u32 text_begin = presentation->utf8_count;
@@ -130,10 +139,21 @@ bool compact_content(MessageTextPresentation* presentation, BuildContext* contex
     const u32 decoration_flags =
         text_style_subtext | (decoration && decoration->name_tone == kUiPluginToneRole ? text_style_inline_role_color : 0u);
     char* out = presentation->utf8.data + text_begin;
-    if (lead) {
-        copy_bytes(out, name_prefix.data, name_prefix.bytes);
-        out[name_prefix.bytes] = ' ';
-        presentation->styles[presentation->style_count++] = TextStyleSpan{0, name_prefix.bytes, decoration_flags};
+    const u32 semantic_begin = presentation->semantic_count;
+    if (avatar) {
+        copy_bytes(out, avatar_cell.data, avatar);
+        presentation->semantics[presentation->semantic_count++] =
+            MessageMarkdownSemantic{avatar_user, 3, 3, 0, 0, MessageMarkdownSemanticKind::author_avatar, 0};
+    }
+    if (name_prefix.bytes) {
+        copy_bytes(out + avatar, name_prefix.data, name_prefix.bytes);
+        out[avatar + name_prefix.bytes] = ' ';
+        presentation->styles[presentation->style_count++] = TextStyleSpan{avatar, name_prefix.bytes, decoration_flags};
+    }
+    if (dot) {
+        copy_bytes(out + lead - dot, dot_cell.data, dot);
+        presentation->semantics[presentation->semantic_count++] =
+            MessageMarkdownSemantic{dot_rgb, lead - dot, 3, 0, 0, MessageMarkdownSemanticKind::role_dot, 0};
     }
     copy_bytes(out + lead, name.data, name.bytes);
     presentation->styles[presentation->style_count++] =
@@ -146,7 +166,7 @@ bool compact_content(MessageTextPresentation* presentation, BuildContext* contex
     }
     out[prefix - 1u] = ' ';
     presentation->utf8_count += prefix;
-    const u32 semantic_begin = presentation->semantic_count;
+    const u32 parsed_semantic_begin = presentation->semantic_count;
     Utf8View parsed = source;
     ConstSlice<TextStyleSpan> parsed_styles{};
     ConstSlice<MessageMarkdownSemantic> parsed_semantics{};
@@ -161,7 +181,7 @@ bool compact_content(MessageTextPresentation* presentation, BuildContext* contex
     }
     for (u32 index = style_begin + leading_spans; index < presentation->style_count; ++index)
         presentation->styles[index].byte_offset += prefix;
-    for (u32 index = semantic_begin; index < presentation->semantic_count; ++index)
+    for (u32 index = parsed_semantic_begin; index < presentation->semantic_count; ++index)
         presentation->semantics[index].byte_offset += prefix;
     if (!parsed.bytes)
         --presentation->utf8_count; // no trailing separator after a bare name

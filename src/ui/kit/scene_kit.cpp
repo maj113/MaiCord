@@ -25,7 +25,7 @@ UiTextPen<Policy>& UiTextPen<Policy>::push(const UiRect& region, UiWidgetHandle 
                                      wrap && !(mode & ui_text_middle) ? UiTextAlignment::start : UiTextAlignment::center,
                                      wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
                                      (mode & ui_text_clip) ? TextOverflow::clip : TextOverflow::ellipsis,
-                                     UiTextFace::normal});
+                                     (mode & ui_text_chat) ? ui_text_face_chat(UiTextFace::normal) : UiTextFace::normal});
     return *this;
 }
 template class UiTextPen<UiTextClip::intersect>;

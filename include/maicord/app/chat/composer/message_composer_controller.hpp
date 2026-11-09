@@ -47,7 +47,7 @@ struct MessageComposerRequest {
     u64 author_id;
     u64 created_at_ms;
     u64 sticker_ids[kMessageCreateMaximumStickerCount];
-    u32 sticker_count;
+    u8 sticker_count; // at most kMessageCreateMaximumStickerCount
     // Per-reply policy; ordinary sends always store false.
     bool mention_reply_author;
     bool reply_unavailable;
@@ -55,6 +55,8 @@ struct MessageComposerRequest {
     bool suppress_notifications;
     // The send suppresses link embeds (SUPPRESS_EMBEDS), asked by a plugin.
     bool suppress_embeds;
+    // Sent with "tts": true (the /tts command).
+    bool tts;
     MessageForwardReference forward_reference;
 };
 
@@ -73,6 +75,7 @@ struct MessageComposerSubmit {
     bool mention_reply_author;
     bool suppress_notifications;
     bool suppress_embeds;
+    bool tts;
     MessageForwardReference forward_reference;
 };
 static_assert(sizeof(MessageComposerRequest) == 128);
@@ -151,7 +154,8 @@ MessageComposerControllerResult message_composer_controller_queue_send(
     const ConstSlice<u64>& attachment_sizes = {},
     MessageComposer* source = nullptr, const ConstSlice<u64>& sticker_ids = {},
     bool mention_reply_author = true,
-    const MessageComposerReplySnapshot* reply_snapshot = nullptr, bool suppress_embeds = false) noexcept;
+    const MessageComposerReplySnapshot* reply_snapshot = nullptr, bool suppress_embeds = false,
+    bool tts = false) noexcept;
 // A complete message from outside the composer (plugin actions). The reply
 // target is explicit and independent of the active draft, which is left
 // untouched; silent sends SUPPRESS_NOTIFICATIONS. The caller checked that the

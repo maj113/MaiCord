@@ -223,7 +223,7 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
     const u32 index = member_index<"type", "activity_instance", "application_id", "changelog_id",
                                    "interaction_metadata", "poll", "call", "activity", "id", "channel_id", "author",
                                    "content", "timestamp", "edited_timestamp", "flags", "nonce", "pinned",
-                                   "mention_everyone", "mentions", "mention_roles", "member">(name);
+                                   "mention_everyone", "mentions", "mention_roles", "member", "tts">(name);
     switch (index) {
     case 0:
         if (!accept_member(&event.fields, gateway_message_field_type,
@@ -356,6 +356,10 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
             return false;
         }
         context->member = value;
+        break;
+    case 21:
+        // Informational only: a malformed value reads as a plain message.
+        (void)json_value_to_bool(value, &event.tts);
         break;
     default: break;
     }

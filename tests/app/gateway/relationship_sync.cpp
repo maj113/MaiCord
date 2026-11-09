@@ -274,6 +274,17 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     check(apply_event(&store, RelationshipEvent::update, utf8_literal(R"({"id":"20","type":1})"),
         {scratch, 1024}).changed && !records[1].nickname_bytes && records[1].presence == RelationshipPresence::online,
         "friends: UPDATE clears omitted nickname while retaining independently tracked presence");
+    check(apply_event(&store, RelationshipEvent::update,
+                      utf8_literal(R"({"id":"20","type":1,"since":"2020-09-13T12:26:40.000000+00:00"})"), {scratch, 1024})
+                  .changed &&
+              records[1].since_ms == 1'600'000'000'000ull &&
+              apply_event(&store, RelationshipEvent::update, utf8_literal(R"({"id":"20","type":1})"), {scratch, 1024})
+                  .ok() &&
+              records[1].since_ms == 1'600'000'000'000ull &&
+              apply_event(&store, RelationshipEvent::add, utf8_literal(R"({"id":"20","type":3})"), {scratch, 1024})
+                  .ok() &&
+              !records[1].since_ms,
+          "friends: since decodes, an update without it keeps the date, a new relationship type drops it");
     check(apply_event(&store, RelationshipEvent::remove, utf8_literal(R"({"id":"30"})"), {scratch, 1024}).changed &&
         !apply_event(&store, RelationshipEvent::remove, utf8_literal(R"({"id":"30"})"), {scratch, 1024}).changed,
         "friends: REMOVE is idempotent and accepts the confirmed ID-only dispatch shape");
@@ -342,6 +353,26 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     auto written = write_relationship_body(RelationshipOperation::request, utf8_literal("some.user"), {output, 128});
     check(written.ok() && utf8_equal({reinterpret_cast<const char*>(output), written.bytes},
         utf8_literal("{\"username\":\"some.user\",\"discriminator\":null}")), "friends: modern username request uses current-client POST body fields");
+    u8 note_body[kRelationshipBodyMaximumBytes];
+    written = write_relationship_body(RelationshipOperation::request, utf8_literal("some.user\nSaw you \"flying\" by"),
+                                      {note_body, sizeof(note_body)});
+    check(written.ok() && utf8_equal({reinterpret_cast<const char*>(note_body), written.bytes},
+        utf8_literal("{\"username\":\"some.user\",\"discriminator\":null,\"note\":\"Saw you \\\"flying\\\" by\"}")),
+        "friends: a request's personal note follows the username, escaped");
+    char long_note[10 + kRelationshipNoteMaximumCodepoints + 1];
+    copy_bytes(long_note, "some.user\n", 10);
+    for (u32 i = 0; i <= kRelationshipNoteMaximumCodepoints; ++i) long_note[10 + i] = '"';
+    written = write_relationship_body(RelationshipOperation::request, {long_note, sizeof(long_note) - 1},
+                                      {note_body, sizeof(note_body)});
+    const bool longest = written.ok() && written.bytes == 55 + 2 * kRelationshipNoteMaximumCodepoints;
+    check(longest &&
+              write_relationship_body(RelationshipOperation::request, {long_note, sizeof(long_note)},
+                                      {note_body, sizeof(note_body)}).error == RelationshipWriteError::invalid_input &&
+              write_relationship_body(RelationshipOperation::request, utf8_literal("some.user\nline\tbreak"),
+                                      {note_body, sizeof(note_body)}).error == RelationshipWriteError::invalid_input &&
+              write_relationship_body(RelationshipOperation::request, utf8_literal("some.user\n"),
+                                      {note_body, sizeof(note_body)}).bytes == 45,
+          "friends: a note is at most 120 characters on one line and an empty one is left out");
     written = write_relationship_body(RelationshipOperation::accept, {}, {output, 128});
     check(written.ok() && written.bytes == 2 && bytes_equal(output, "{}", 2), "friends: accepting uses minimal type-omitted PUT body");
     const auto stranger_target = write_relationship_target(RelationshipOperation::accept_stranger, 42, {output, 128});
@@ -362,7 +393,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     for (auto& byte : output) byte = 0xCC;
     check(write_relationship_body(RelationshipOperation::block, {}, {output, 1}).error == RelationshipWriteError::output_too_small &&
         output[0] == 0xCC, "friends: failed request writes are atomic even at exact buffer capacity boundaries");
-    const auto invalid_operation = static_cast<RelationshipOperation>(10);
+    const auto invalid_operation = static_cast<RelationshipOperation>(11);
     check(write_relationship_target(RelationshipOperation::accept_stranger, 0, {output, 128}).error == RelationshipWriteError::invalid_input &&
         write_relationship_body(RelationshipOperation::accept_stranger, utf8_literal("extra"), {output, 128}).error == RelationshipWriteError::invalid_input &&
         write_relationship_target(invalid_operation, 42, {output, 128}).error == RelationshipWriteError::invalid_input &&
@@ -404,6 +435,32 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         output[0] == 0xCC &&
         write_relationship_body(RelationshipOperation::ignore, utf8_literal("extra"), {output, 128}).error == RelationshipWriteError::invalid_input,
         "friends: hidden filters and new operation scope failures preserve output atomically");
+    const auto nickname_target = write_relationship_target(RelationshipOperation::nickname, ~u64{0}, {output, 128});
+    check(nickname_target.ok() && utf8_equal({reinterpret_cast<const char*>(output), nickname_target.bytes},
+            utf8_literal("/api/v9/users/@me/relationships/18446744073709551615")) &&
+        relationship_method(RelationshipOperation::nickname) == RestMethod::patch &&
+        write_relationship_target(RelationshipOperation::nickname, 0, {output, 128}).error == RelationshipWriteError::invalid_input,
+        "friends: friend nicknames PATCH the individual relationship route");
+    written = write_relationship_body(RelationshipOperation::nickname, utf8_literal("Ada \"the\" \xC3\xA9"), {output, 128});
+    check(written.ok() && utf8_equal({reinterpret_cast<const char*>(output), written.bytes},
+            utf8_literal("{\"nickname\":\"Ada \\\"the\\\" \xC3\xA9\"}")),
+        "friends: a friend nickname is an escaped JSON string");
+    written = write_relationship_body(RelationshipOperation::nickname, {}, {output, 128});
+    check(written.ok() && utf8_equal({reinterpret_cast<const char*>(output), written.bytes}, utf8_literal("{\"nickname\":null}")),
+        "friends: clearing a friend nickname sends null");
+    for (auto& byte : output) byte = 0xCC;
+    check(write_relationship_body(RelationshipOperation::nickname, utf8_literal("123456789012345678901234567890123"),
+              {output, 128}).error == RelationshipWriteError::invalid_input &&
+        write_relationship_body(RelationshipOperation::nickname, utf8_literal("tab\there"), {output, 128}).error ==
+            RelationshipWriteError::invalid_input &&
+        write_relationship_body(RelationshipOperation::nickname, utf8_literal("\xC3"), {output, 128}).error ==
+            RelationshipWriteError::invalid_input &&
+        write_relationship_body(RelationshipOperation::nickname, utf8_literal("Ada"), {output, 8}).error ==
+            RelationshipWriteError::output_too_small &&
+        output[0] == 0xCC &&
+        write_relationship_body(RelationshipOperation::nickname, utf8_literal("12345678901234567890123456789012"),
+                                {output, 128}).ok(),
+        "friends: nicknames hold 1-32 characters on one line and fail atomically");
 
     Capture stream{};
     relationship_store_initialize(&stream.active, {stream.active_rows, 8});
@@ -451,17 +508,19 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         relationship_store_find(stream.active, 1) && !relationship_store_find(stream.active, 2),
         "friends Gateway: an untypeable relationship is skipped and the snapshot completes");
     GatewayEnvelope envelope{};
-    const auto live = utf8_literal(R"({"id":"55","type":3,"user":{"id":"55","username":"requester"}})");
+    const auto live = utf8_literal(
+        R"({"id":"55","type":3,"since":"2020-09-13T12:26:40.000000+00:00","user":{"id":"55","username":"requester"}})");
     envelope.event_name = {utf8_literal("RELATIONSHIP_ADD"), 0, false}; envelope.data = {live, 0, JsonValueKind::object};
     envelope.has_event_name = true; envelope.has_sequence = true; envelope.sequence = 15;
     char payload_storage[512]{}; GatewayClientEvent routed{}; ConstSlice<u8> payload{};
     check(gateway_client_route_dispatch(envelope, {scratch, 1024}, 64, {payload_storage, 512}, {}, 1, &routed, &payload).ok() &&
-        routed.dispatch_kind == GatewayClientDispatchKind::relationship_add && routed.state.record_count == 1 && payload.count == 456,
+        routed.dispatch_kind == GatewayClientDispatchKind::relationship_add && routed.state.record_count == 1 && payload.count == 464,
         "friends Gateway: live first-party relationship event routes to bounded typed owned payload");
     RelationshipMutation mutation{}; u32 cursor = 0;
-    check(gateway_client_relationship_record(payload, &cursor, &mutation) && cursor == 456 && mutation.record.user_id == 55 &&
-        mutation.record.type == RelationshipType::incoming && mutation.user.username_bytes == 9 && !mutation.record.stranger_known,
-        "friends Gateway: typed payload keeps user identity and owned username after JSON buffer reuse");
+    check(gateway_client_relationship_record(payload, &cursor, &mutation) && cursor == 464 && mutation.record.user_id == 55 &&
+        mutation.record.type == RelationshipType::incoming && mutation.user.username_bytes == 9 && !mutation.record.stranger_known &&
+        mutation.record.since_ms == 1'600'000'000'000ull,
+        "friends Gateway: typed payload keeps user identity, owned username and since after JSON buffer reuse");
     {
         auto known = mutation;
         known.record.stranger_known = true;
@@ -469,7 +528,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         copy_bytes(raw, &known, sizeof(known));
         u32 known_cursor = 0;
         RelationshipMutation copied{};
-        check(gateway_client_relationship_record({raw, sizeof(raw)}, &known_cursor, &copied) && known_cursor == 456 &&
+        check(gateway_client_relationship_record({raw, sizeof(raw)}, &known_cursor, &copied) && known_cursor == 464 &&
             !copied.record.stranger && copied.record.stranger_known && copied.record.user_id == 55 &&
             copied.user.id == 55 && copied.user.username_bytes == 9,
             "friends Gateway: known false metadata survives the typed mailbox boundary with record, user and mutation offsets unchanged");
@@ -483,7 +542,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
             "friends Gateway: malformed raw known boolean is rejected before materialization without cursor or output mutation");
     }
     cursor = 0;
-    check(!gateway_client_relationship_record({payload.data, 455}, &cursor, &mutation) && !cursor,
+    check(!gateway_client_relationship_record({payload.data, 463}, &cursor, &mutation) && !cursor,
         "friends Gateway: truncated typed payload never advances ownership cursor");
     auto invalid_mutation = mutation;
     invalid_mutation.user.avatar_bytes = 1;invalid_mutation.user.avatar[0] = 'z';

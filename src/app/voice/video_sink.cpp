@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 // Per-frame hand-off and call bookkeeping, not a byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -10,6 +11,7 @@
 namespace maicord {
 namespace {
 constexpr u32 kBufferBytes = 2 * kVideoRtpFrameBytes;
+constexpr u32 kHeldPageBytes = 4096;
 VideoRtpCodec rtp_codec(VoiceVideoCodec codec) noexcept {
     return codec == VoiceVideoCodec::h264   ? VideoRtpCodec::h264
            : codec == VoiceVideoCodec::h265 ? VideoRtpCodec::h265
@@ -42,6 +44,15 @@ void end_stream(VoiceVideoSink& sink, u32 index) noexcept {
     if (sink.frames.end_stream)
         sink.frames.end_stream(sink.frames.context, ssrc);
 }
+// The held first unit lives in its own reservation: address space only until a unit is held, then just the pages
+// it needs, decommitted again when it is emitted or dropped (the sink's two committed buffers cannot hold it, as
+// other streams' frames use them between the unit's early open and its turn).
+void drop_settled(VoiceVideoSink& sink) noexcept {
+    sink.settled.valid = false;
+    if (sink.held_committed)
+        pages_decommit(sink.held, sink.held_committed);
+    sink.held_committed = 0;
+}
 void deliver(void* context, const VideoRtpFrame& frame) noexcept {
     auto& sink = *static_cast<VoiceVideoSink*>(context);
     if (!sink.decrypt || !frame.annex_b.count || frame.annex_b.count > kVideoRtpFrameBytes)
@@ -51,14 +62,47 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
         if (!sink.buffer)
             return;
     }
-    const auto opened = sink.decrypt(sink.decrypt_context, frame.user_id, frame.ssrc, frame.annex_b,
-                                     {sink.buffer + kVideoRtpFrameBytes, kVideoRtpFrameBytes},
-                                     {sink.buffer, kVideoRtpFrameBytes});
-    if (!opened.ok() || !opened.bytes || opened.bytes > kVideoRtpFrameBytes) {
-        // Without this frame the decoder lacks a reference: ask for a fresh
-        // keyframe (throttled by the RTP core), e.g. once DAVE keys arrive.
-        video_rtp_request_keyframe(&sink.rtp, frame.ssrc);
+    auto& settled = sink.settled;
+    if (frame.early) {
+        // The unit waits out its stream's start; DAVE opens it now so the sender's counters are consumed in arrival
+        // order (its audio is opened as it comes), and the plaintext waits for the unit's turn. A failure is
+        // reported then, when the unit comes again.
+        if (settled.valid)
+            return;
+        if (!sink.held && !(sink.held = static_cast<u8*>(pages_reserve_no_access(kVideoRtpFrameBytes))))
+            return;
+        const u32 pages = (frame.annex_b.count + kHeldPageBytes - 1) & ~(kHeldPageBytes - 1); // A body never exceeds its frame.
+        if (!pages_commit(sink.held, pages))
+            return;
+        sink.held_committed = pages;
+        const auto opened = sink.decrypt(sink.decrypt_context, frame.user_id, frame.ssrc, frame.annex_b,
+                                         {sink.buffer + kVideoRtpFrameBytes, kVideoRtpFrameBytes}, {sink.held, pages});
+        if (opened.ok() && opened.bytes && opened.bytes <= pages)
+            settled = {frame.ssrc, frame.rtp_timestamp, frame.annex_b.count, opened.bytes, true};
+        else
+            drop_settled(sink);
         return;
+    }
+    const bool ours = settled.valid && settled.ssrc == frame.ssrc;
+    // Packets reordered into the unit during the wait change its size: it is opened again then.
+    const bool claimed =
+        ours && settled.timestamp == frame.rtp_timestamp && settled.sealed_bytes == frame.annex_b.count;
+    const u8* plain = sink.held;
+    u32 bytes = settled.bytes;
+    if (!claimed) {
+        if (ours)
+            drop_settled(sink);
+        const auto opened = sink.decrypt(sink.decrypt_context, frame.user_id, frame.ssrc, frame.annex_b,
+                                         {sink.buffer + kVideoRtpFrameBytes, kVideoRtpFrameBytes},
+                                         {sink.buffer, kVideoRtpFrameBytes});
+        if (!opened.ok() || !opened.bytes || opened.bytes > kVideoRtpFrameBytes) {
+            // Without this frame the decoder lacks a reference: ask for a fresh
+            // keyframe (throttled by the RTP core), e.g. once DAVE keys arrive.
+            video_rtp_request_keyframe(&sink.rtp, frame.ssrc);
+            return;
+        }
+        plain = sink.buffer;
+        bytes = opened.bytes;
     }
     bool known = false;
     for (u32 i = 0; i != sink.ended_count && !known; ++i)
@@ -66,10 +110,12 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
     if (!known && sink.ended_count != kVideoRtpMaxStreams)
         sink.ended[sink.ended_count++] = frame.ssrc;
     if (sink.frames.push_frame &&
-        sink.frames.push_frame(sink.frames.context, frame.ssrc, voice_codec(frame.codec), {sink.buffer, opened.bytes},
+        sink.frames.push_frame(sink.frames.context, frame.ssrc, voice_codec(frame.codec), {plain, bytes},
                                frame.rtp_timestamp, frame.keyframe, !frame.references_lost)) {
         ++sink.summary.frames;
     }
+    if (claimed)
+        drop_settled(sink);
 }
 // Counts only, no identities: packets, average kbps, frames and feedback.
 void log_summary(VoiceVideoSink& sink) noexcept {
@@ -188,6 +234,8 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
     for (auto& stream : sink->rtp.streams)
         if (stream.slots && !current_video(*connection, stream.ssrc, stream.user_id))
             video_rtp_remove_stream(&sink->rtp, stream.ssrc);
+    if (sink->settled.valid && !video_rtp_find_stream(sink->rtp, sink->settled.ssrc))
+        drop_settled(*sink); // Its stream went away before the unit's turn.
     for (u32 i = 0; i < sink->ended_count;)
         if (!video_rtp_find_stream(sink->rtp, sink->ended[i]))
             end_stream(*sink, i);
@@ -243,6 +291,10 @@ void voice_video_sink_stop(VoiceVideoSink* sink) noexcept {
         pages_release(sink->buffer);
     }
     sink->buffer = nullptr;
+    drop_settled(*sink);
+    if (sink->held)
+        pages_release(sink->held);
+    sink->held = nullptr;
     for (auto& pending : sink->pending_keyframes)
         InterlockedExchange(&pending, 0);
     sink->rtp_ready = false;
@@ -272,6 +324,10 @@ u64 voice_video_sink_deadline(const VoiceVideoSink& sink) noexcept {
 
 u32 voice_video_sink_decodable(const VoiceVideoSink& sink) noexcept {
     return sink.frames.decodable ? sink.frames.decodable(sink.frames.context) : 0;
+}
+
+u64 voice_video_sink_committed_bytes(const VoiceVideoSink& sink) noexcept {
+    return (sink.buffer ? u64{kBufferBytes} : 0) + sink.held_committed;
 }
 
 u32 voice_video_users(const VoiceConnection& connection, const VoiceVideoSink* sink, u64 self_user_id,

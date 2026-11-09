@@ -6,6 +6,7 @@
 #include "voice.hpp"
 #include "channels.hpp"
 #include "call.hpp"
+#include "go_live.hpp"
 #include "stage.hpp"
 #include "../shell/shortcuts.hpp"
 #include "../account/account_presentation.hpp"
@@ -123,7 +124,7 @@ bool same_view(const UiVoicePanelView& a, const UiVoicePanelView& b) noexcept {
     return a.guild_id == b.guild_id && a.channel_id == b.channel_id && a.state == b.state && a.signal == b.signal &&
            a.self_mute == b.self_mute && a.self_deaf == b.self_deaf && a.server_mute == b.server_mute &&
            a.server_deaf == b.server_deaf && a.speaking == b.speaking && a.hovered == b.hovered &&
-           a.pressed == b.pressed;
+           a.pressed == b.pressed && a.share_enabled == b.share_enabled && a.share_live == b.share_live;
 }
 void refresh_view() noexcept {
     UiVoicePanelView next = voice.view;
@@ -145,8 +146,12 @@ void refresh_view() noexcept {
     // The worker's speaker list is current every pump; the audio status that
     // also reports speech is polled once a second.
     next.speaking = joined && (gateway_voice_self_speaking(*s) || voice.status.transmitting);
-    if (next.state == UiVoicePanelState::hidden && (next.hovered == UiVoiceControl::disconnect ||
-                                                    next.hovered == UiVoiceControl::channel))
+    const UiCallShare share = joined ? application_go_live_share(s->channel_id) : UiCallShare::unavailable;
+    next.share_enabled = share == UiCallShare::available || share == UiCallShare::live;
+    next.share_live = share == UiCallShare::live;
+    if (next.state == UiVoicePanelState::hidden &&
+        (next.hovered == UiVoiceControl::disconnect || next.hovered == UiVoiceControl::channel ||
+         next.hovered == UiVoiceControl::screen_share))
         next.hovered = UiVoiceControl::none;
     if (next.state != voice.view.state) {
         // The panel's "Couldn't connect" state, with the worker's reasons.
@@ -234,11 +239,12 @@ void application_voice_pump() noexcept {
     application_shortcuts_pump();
     application_call_voice_pump();
     application_stage_pump();
+    application_go_live_pump();
 }
 
 u64 application_voice_next_wake() noexcept {
     // Background voice keybinds sample their chords on the same cadence as push to talk.
-    const u64 keys = application_shortcuts_next_wake();
+    const u64 keys = earliest_deadline(application_shortcuts_next_wake(), application_go_live_next_wake());
     const auto earliest = [keys](u64 wake) noexcept { return earliest_deadline(wake, keys); };
     if (!voice.monitor && !application_voice_call())
         return earliest(voice.users_dirty || voice.save_pending ? clock_monotonic_milliseconds() + 250 : 0);
@@ -323,6 +329,12 @@ bool application_voice_shell_click(float x, float y) noexcept {
         if (const auto* s = application_voice_call())
             application_call_open(s->channel_id, 0); // The voice card opens the call view.
         return true;
+    case UiVoiceControl::screen_share: {
+        // A disabled button still takes its click (its tooltip says why).
+        if (const UiRect* rectangle = footer())
+            application_go_live_button(ui_voice_panel_screen_share(ui_voice_panel_rectangle(*rectangle), voice.view));
+        return true;
+    }
     default:
         return false;
     }
@@ -368,41 +380,75 @@ bool application_voice_hand_cursor(float x, float y) noexcept {
     return application_voice_channels_hand_cursor(x, y) || hit(x, y) != UiVoiceControl::none;
 }
 
+namespace {
+// A control's label and rectangle as the voice card and the account panel show them; empty for none.
+Utf8View control_label(UiVoiceControl control, const UiRect& footer, UiRect* area) noexcept {
+    const auto& v = voice.view;
+    switch (control) {
+    case UiVoiceControl::mute:
+        *area = ui_voice_account_button(footer, control);
+        return v.server_mute                ? utf8_literal("Server muted")
+               : v.self_mute || v.self_deaf ? utf8_literal("Unmute")
+                                            : utf8_literal("Mute");
+    case UiVoiceControl::deafen:
+        *area = ui_voice_account_button(footer, control);
+        return v.server_deaf ? utf8_literal("Server deafened")
+               : v.self_deaf ? utf8_literal("Undeafen")
+                             : utf8_literal("Deafen");
+    case UiVoiceControl::disconnect:
+        *area = ui_voice_panel_disconnect(ui_voice_panel_rectangle(footer));
+        return utf8_literal("Disconnect");
+    case UiVoiceControl::channel:
+        *area = ui_voice_panel_channel_text(ui_voice_panel_rectangle(footer));
+        return utf8_literal("Show call");
+    case UiVoiceControl::screen_share: {
+        const UiCallShare share = application_go_live_share(v.channel_id);
+        *area = ui_voice_panel_screen_share(ui_voice_panel_rectangle(footer), v);
+        return share == UiCallShare::live          ? utf8_literal("Stop Streaming")
+               : share == UiCallShare::available   ? utf8_literal("Share Your Screen")
+               : share == UiCallShare::not_allowed ? utf8_literal("You can\xE2\x80\x99t stream into this channel.")
+                                                   : utf8_literal("Screen Sharing Unavailable");
+    }
+    default:
+        *area = {};
+        return {};
+    }
+}
+} // namespace
+
 Utf8View application_voice_tooltip(float x, float y, UiRect* anchor, u32* identity) noexcept {
     const UiRect* rectangle = footer();
     const auto control = rectangle ? ui_voice_hit(*rectangle, voice.view, x, y) : UiVoiceControl::none;
     const auto& v = voice.view;
-    Utf8View label{};
     UiRect area{};
-    switch (control) {
-    case UiVoiceControl::mute:
-        label = v.server_mute                ? utf8_literal("Server muted")
-                : v.self_mute || v.self_deaf ? utf8_literal("Unmute")
-                                             : utf8_literal("Mute");
-        area = ui_voice_account_button(*rectangle, control);
-        break;
-    case UiVoiceControl::deafen:
-        label = v.server_deaf ? utf8_literal("Server deafened")
-                : v.self_deaf ? utf8_literal("Undeafen")
-                              : utf8_literal("Deafen");
-        area = ui_voice_account_button(*rectangle, control);
-        break;
-    case UiVoiceControl::disconnect:
-        label = utf8_literal("Disconnect");
-        area = ui_voice_panel_disconnect(ui_voice_panel_rectangle(*rectangle));
-        break;
-    case UiVoiceControl::channel:
-        label = utf8_literal("Show call");
-        area = ui_voice_panel_channel_text(ui_voice_panel_rectangle(*rectangle));
-        break;
-    default:
+    const Utf8View label = rectangle ? control_label(control, *rectangle, &area) : Utf8View{};
+    if (!label.bytes)
         return {};
-    }
     if (anchor)
         *anchor = area;
     if (identity)
-        *identity = static_cast<u32>(control) * 4 + (v.self_mute ? 1 : 0) + (v.self_deaf ? 2 : 0);
+        *identity = static_cast<u32>(control) * 4 + (v.self_mute ? 1 : 0) + (v.self_deaf ? 2 : 0) +
+                    (control == UiVoiceControl::screen_share ? (v.share_live ? 64u : 0u) + (v.share_enabled ? 128u : 0u)
+                                                             : 0u);
     return label;
+}
+
+u32 application_voice_card_controls(VoiceCardControl* output, u32 capacity) noexcept {
+    const UiRect* rectangle = footer();
+    if (!rectangle || !output || voice.view.state == UiVoicePanelState::hidden)
+        return 0;
+    static constexpr UiVoiceControl kCard[]{UiVoiceControl::channel, UiVoiceControl::screen_share,
+                                            UiVoiceControl::disconnect};
+    u32 count = 0;
+    for (const auto control : kCard) {
+        UiRect area{};
+        const Utf8View label = control_label(control, *rectangle, &area);
+        if (!label.bytes || !ui_rect_has_area(area) || count == capacity)
+            continue;
+        const bool share = control == UiVoiceControl::screen_share;
+        output[count++] = {area, label, static_cast<u8>(control), !share || voice.view.share_enabled};
+    }
+    return count;
 }
 
 bool application_voice_context_at(float x, float y, UiRect anchor) noexcept {

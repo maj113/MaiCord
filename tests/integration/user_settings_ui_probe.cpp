@@ -59,6 +59,11 @@ constexpr Utf8View kAccess[]{utf8_literal("Deny"), utf8_literal("Inherit"), utf8
 constexpr Utf8View kRoleColors[]{utf8_literal("Blue"), utf8_literal("Green"), utf8_literal("Gold"),
                                  utf8_literal("Red"), utf8_literal("Pink"), utf8_literal("Gray")};
 constexpr u32 kRoleRgb[]{0x3498DB, 0x2ECC71, 0xF1C40F, 0xE74C3C, 0xE91E63, 0x95A5A6};
+// Accessibility's preview card: Discord's example messages under a role-coloured name, cozy, with reactions.
+constexpr Utf8View kPreviewTexts[]{utf8_literal("what happened to all the beans"),
+                                   utf8_literal("here\xE2\x80\x99s a link "), utf8_literal("https://discord.com/accessibility")};
+constexpr UiSettingsPreview kPreview{utf8_literal("Wumpus"), utf8_literal("Today at 4:20 PM"), 0xdd80f4, 0, false, true,
+                                     true, 16};
 
 // Theme swatches resolve as the settings host does, under default
 // preferences (the dark theme the probe renders); the gallery's Theme row is
@@ -114,6 +119,8 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
             c.selected_choice = c.choices.count * 2 / 3;
         if (n.kind == UiSettingsControlKind::category && n.binding())
             continue; // list headings are followed by host rows only
+        if (n.kind == UiSettingsControlKind::preview)
+            c.choices = {kPreviewTexts, 3}, c.action_label = utf8_literal("Example Button");
         looks[count] = {static_cast<UiSettingsVariant>(n.variant),
                         static_cast<u8>(n.flags & ui_settings_schema_marks ? ui_settings_presentation_marks : 0),
                         n.default_choice() < kUiSettingsNoDefault ? static_cast<u16>(n.default_choice())
@@ -460,6 +467,7 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
         const u32 count = project_panel(panel, f.controls[panel], f.looks[panel]);
         f.contents[panel] = {source.title, source.summary, {f.controls[panel], count}, 1};
         f.contents[panel].presentation = f.looks[panel];
+        f.contents[panel].preview = &kPreview;
         if (panel == static_cast<u32>(SettingsPanel::updates)) {
             f.contents[panel].controls = {f.controls[panel],
                                           project_updates(UpdatesState::idle, f.controls[panel], f.looks[panel], f.update_meters)};

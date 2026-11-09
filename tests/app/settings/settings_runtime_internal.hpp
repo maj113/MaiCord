@@ -41,6 +41,8 @@ struct Observations {
     bool friends_active, requests_active;
     u32 opened_urls;
     u32 notifications_refreshes, notifications_setups;
+    // Accessibility: theme republications (Text size in chat, Saturation) and Preview's speech.
+    u32 theme_refreshes, speeches;
     u32 content_hits, text_hits, profile_hits;
 };
 extern Observations observed;

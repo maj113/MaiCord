@@ -8,6 +8,8 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/protocol/http/rest.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
@@ -60,8 +62,8 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(opaque);
     auto& record = parse.mutation.record;
     const u32 index = protocol_detail::member_index<"id", "type", "nickname", "is_spam_request", "user_ignored",
-                                                    "is_stranger_request", "user">(name);
-    if (index > 6) return true;
+                                                    "is_stranger_request", "user", "since">(name);
+    if (index > 7) return true;
     if (!mark(parse, &parse.seen, 1u << index)) return false;
     bool valid = true;
     switch (index) {
@@ -82,9 +84,14 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
         valid = json_value_to_bool(value, &record.stranger);
         record.stranger_known = valid;
         break;
-    default:
+    case 6:
         valid = value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value;
         parse.user = value;
+        break;
+    default:
+        // An unreadable date leaves it unknown rather than dropping the relationship.
+        if (!json_value_to_timestamp(value, &record.since_ms))
+            record.since_ms = 0;
         break;
     }
     if (!valid) parse.error = RelationshipsDecodeError::record;
@@ -152,14 +159,16 @@ RestMethod relationship_method(RelationshipOperation operation) noexcept {
     case RelationshipOperation::accept_stranger: case RelationshipOperation::ignore: return RestMethod::put;
     case RelationshipOperation::remove: case RelationshipOperation::unignore:
     case RelationshipOperation::clear_incoming: case RelationshipOperation::clear_hidden: return RestMethod::delete_method;
+    case RelationshipOperation::nickname: return RestMethod::patch;
     default: return RestMethod::get;
     }
 }
 RelationshipWriteResult write_relationship_target(RelationshipOperation operation, u64 user_id, Slice<u8> output) noexcept {
     const bool individual = operation == RelationshipOperation::accept || operation == RelationshipOperation::remove ||
         operation == RelationshipOperation::block || operation == RelationshipOperation::accept_stranger ||
-        operation == RelationshipOperation::ignore || operation == RelationshipOperation::unignore;
-    if (operation > RelationshipOperation::clear_hidden || individual != (user_id != 0) ||
+        operation == RelationshipOperation::ignore || operation == RelationshipOperation::unignore ||
+        operation == RelationshipOperation::nickname;
+    if (operation > RelationshipOperation::nickname || individual != (user_id != 0) ||
         !byte_range_valid({output.data, output.count})) return {0, RelationshipWriteError::invalid_input};
     char temporary[96];
     RouteWriter writer{};
@@ -175,21 +184,56 @@ RelationshipWriteResult write_relationship_target(RelationshipOperation operatio
     return {writer.bytes, RelationshipWriteError::none};
 }
 RelationshipWriteResult write_relationship_body(RelationshipOperation operation, Utf8View username, Slice<u8> output) noexcept {
-    if (operation > RelationshipOperation::clear_hidden || !byte_range_valid({output.data, output.count}) ||
+    const bool text = operation == RelationshipOperation::request || operation == RelationshipOperation::nickname;
+    if (operation > RelationshipOperation::nickname || !byte_range_valid({output.data, output.count}) ||
         !byte_range_valid({reinterpret_cast<const u8*>(username.data), username.bytes}) ||
-        (operation != RelationshipOperation::request && username.bytes)) return {0, RelationshipWriteError::invalid_input};
-    char temporary[128];
-    RouteWriter writer{};
-    route_writer_initialize(&writer, {reinterpret_cast<u8*>(temporary), sizeof(temporary)});
+        (!text && username.bytes)) return {0, RelationshipWriteError::invalid_input};
+    if (operation == RelationshipOperation::nickname) {
+        // 1-32 characters on one line; empty text clears the nickname (null).
+        const auto checked = utf8_validate(username);
+        if (!checked.valid || checked.codepoints > kRelationshipNicknameMaximumCodepoints)
+            return {0, RelationshipWriteError::invalid_input};
+        for (u32 i = 0; i < username.bytes; ++i)
+            if (static_cast<u8>(username.data[i]) < 0x20) return {0, RelationshipWriteError::invalid_input};
+        u8 staged[224];
+        ProtocolWriter writer{{staged, sizeof(staged)}, 0};
+        if (!protocol_write(&writer, "{\"nickname\":", nullable_json(username), '}') || writer.used > output.count)
+            return {0, RelationshipWriteError::output_too_small};
+        copy_bytes(output.data, staged, writer.used);
+        return {writer.used, RelationshipWriteError::none};
+    }
     if (operation == RelationshipOperation::request) {
-        if (username.bytes < 2 || username.bytes > kRelationshipUsernameMaximumBytes) return {0, RelationshipWriteError::invalid_input};
-        for (u32 i = 0; i < username.bytes; ++i) {
+        // The username, then optionally a line feed and the note (one line of up to 120 characters).
+        u32 name = 0;
+        while (name < username.bytes && username.data[name] != '\n') ++name;
+        const Utf8View note = name < username.bytes ? Utf8View{username.data + name + 1, username.bytes - name - 1}
+                                                     : Utf8View{};
+        if (name < 2 || name > kRelationshipUsernameMaximumBytes) return {0, RelationshipWriteError::invalid_input};
+        for (u32 i = 0; i < name; ++i) {
             const char c = username.data[i];
             if (!(ascii_is_alnum(c) || c == '_' || c == '.'))
                 return {0, RelationshipWriteError::invalid_input};
         }
-        route_write(&writer, "{\"username\":\"", username, "\",\"discriminator\":null}");
-    } else if (operation == RelationshipOperation::accept) route_write(&writer, "{}");
+        const auto checked = utf8_validate(note);
+        if (!checked.valid || checked.codepoints > kRelationshipNoteMaximumCodepoints)
+            return {0, RelationshipWriteError::invalid_input};
+        for (u32 i = 0; i < note.bytes; ++i)
+            if (static_cast<u8>(note.data[i]) < 0x20) return {0, RelationshipWriteError::invalid_input};
+        u8 staged[kRelationshipBodyMaximumBytes];
+        ProtocolWriter writer{{staged, sizeof(staged)}, 0};
+        const Utf8View user{username.data, name};
+        const bool written = note.bytes
+            ? protocol_write(&writer, "{\"username\":", nullable_json(user), ",\"discriminator\":null,\"note\":",
+                             nullable_json(note), '}')
+            : protocol_write(&writer, "{\"username\":", nullable_json(user), ",\"discriminator\":null}");
+        if (!written || writer.used > output.count) return {0, RelationshipWriteError::output_too_small};
+        copy_bytes(output.data, staged, writer.used);
+        return {writer.used, RelationshipWriteError::none};
+    }
+    char temporary[128];
+    RouteWriter writer{};
+    route_writer_initialize(&writer, {reinterpret_cast<u8*>(temporary), sizeof(temporary)});
+    if (operation == RelationshipOperation::accept) route_write(&writer, "{}");
     else if (operation == RelationshipOperation::block) route_write(&writer, "{\"type\":2}");
     else if (operation == RelationshipOperation::accept_stranger)
         route_write(&writer, "{\"confirm_stranger_request\":true}");
@@ -225,6 +269,9 @@ RelationshipStoreResult relationship_apply_decoded(RelationshipStore* store,
             record.nickname_bytes = old->nickname_bytes;
             copy_bytes(record.nickname, old->nickname, sizeof(record.nickname));
         }
+        // An update without `since` keeps the known date of the same relationship.
+        if (!record.since_ms && record.type == old->type)
+            record.since_ms = old->since_ms;
     }
     return relationship_store_upsert(store, record);
 }

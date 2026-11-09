@@ -1,3 +1,4 @@
+#include "../../support/fake_text_measure.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
 #include "maicord/ui/chat/messages/mention_badge.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
@@ -186,8 +187,8 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
           "text emitter: mutually exclusive stored and synchronous destinations enforced");
     const auto resolutions = f.resolutions;
     ui_text_command_stream_reset(&f.stream);
-    // Friend row More actions are icon buttons and emit no text commands.
-    check(tall_projection(&stored) && f.stream.count > 1000 && f.stream.count <= 1500,
+    // Friend row actions (Accept, Ignore, Message, More) are icon buttons and emit no text commands.
+    check(tall_projection(&stored) && f.stream.count > 800 && f.stream.count <= 1500,
         "text emitter: supported 8192-DIP pending Friends with populated navigation fits the stream bank");
     comparison = {&f.stream};
     check(ui_text_emitter_initialize(&emitter, consume, &comparison) && tall_projection(&emitted) &&
@@ -219,7 +220,7 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
             semantic_composer &=
                 message_composer_scene_update(
                     &composer_scene, &composer,
-                    {0, 0, 304, message_composer_scene_preferred_height(composer, 304, false, false)}, true)
+                    {0, 0, 304, message_composer_scene_preferred_height(composer, 304, false)}, true)
                     .ok() &&
                 shell_text_presentation_build_output(f.shell, f.state, f.view, theme, f.navigation,
                                                      &composer_scene, nullptr, nullptr, &stored, nullptr,
@@ -257,6 +258,69 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
                              "flat/active Dark/Light placeholders and primary/error draft semantics");
     check(placeholder_signature, "text emitter: custom secondary token changes invalidate actual shell "
                                  "placeholder command signatures");
+    {
+        // The typing line: names draw bold; one to three names collapse to "Multiple people are typing..."
+        // when they do not fit the row (8 DIP per character here), "Several people" never does.
+        UiTextMeasureRecord records[32]{};
+        UiTextMeasureCache measure{};
+        const bool measuring = ui_text_measure_cache_initialize(&measure, {records, 32}, fake_text_measure<>, nullptr);
+        struct Typing {
+            char joined[96];
+            u32 bold;
+            bool ok;
+        };
+        const auto typing_line = [&](float width, Utf8View label, const MessageTypingName* spans, u32 count,
+                                     bool collapsible) noexcept {
+            Typing line{};
+            message_composer_reset(&composer, 80, false);
+            line.ok = measuring &&
+                      message_composer_scene_update(
+                          &composer_scene, &composer,
+                          {0, 0, width, message_composer_scene_preferred_height(composer, width, false)}, true, 0, {},
+                          nullptr, label)
+                          .ok();
+            composer_scene.typing_name_count = static_cast<u8>(count);
+            for (u32 i = 0; i < count; ++i)
+                composer_scene.typing_names[i] = spans[i];
+            composer_scene.typing_collapsible = collapsible;
+            line.ok = line.ok && shell_text_presentation_build_output(
+                                     f.shell, f.state, f.view, kDefaultTheme, f.navigation, &composer_scene, nullptr,
+                                     nullptr, &stored, nullptr, &f.rail, 0, &measure);
+            u32 used = 0;
+            for (u32 index = 0; line.ok && index < f.stream.count; ++index) {
+                const auto& command = f.commands[index];
+                if (command.owner.manager != &composer_scene.widgets ||
+                    command.owner.handle.slot != composer_scene.typing_indicator.slot ||
+                    used + command.text.bytes >= sizeof(line.joined))
+                    continue;
+                for (u32 byte = 0; byte < command.text.bytes; ++byte)
+                    line.joined[used++] = static_cast<char>(command.text.data[byte]);
+                line.bold += (command.style_flags & text_style_bold) != 0;
+            }
+            line.joined[used] = 0;
+            return line;
+        };
+        const auto says = [](const Typing& line, const char* text) noexcept {
+            return line.ok && utf8_equal(Utf8View{line.joined, c_string_length(line.joined)},
+                                         Utf8View{text, c_string_length(text)});
+        };
+        const MessageTypingName names[3]{{0, 5}, {7, 3}, {15, 4}};
+        const MessageTypingName one_name[1]{{0, 5}};
+        const MessageTypingName several_name[1]{{0, 14}};
+        const Utf8View three = utf8_literal("Alice, Bob and Cara are typing...");
+        const Typing wide = typing_line(740, three, names, 3, true);
+        const Typing narrow = typing_line(304, three, names, 3, true);
+        const Typing single = typing_line(304, utf8_literal("Alice is typing..."), one_name, 1, true);
+        const Typing crowd = typing_line(232, utf8_literal("Several people are typing..."), several_name, 1, false);
+        check(says(wide, "Alice, Bob and Cara are typing...") && wide.bold == 3,
+              "text emitter: typing line keeps three names bold when they fit the row");
+        check(says(narrow, "Multiple people are typing...") && narrow.bold == 1,
+              "text emitter: three typing names collapse to Multiple people, bold, when they do not fit the row");
+        check(says(single, "Alice is typing...") && single.bold == 1,
+              "text emitter: one short typing name stays at a narrow row");
+        check(says(crowd, "Several people are typing...") && crowd.bold == 1,
+              "text emitter: Several people is never collapsed and is drawn bold");
+    }
     message_composer_scene_release(&composer_scene);
     ui_friends_scene_release(&f.friends);
     ui_scene_release(&f.shell);

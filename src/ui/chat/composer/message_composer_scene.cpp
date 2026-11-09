@@ -15,6 +15,7 @@
 #include "maicord/ui/chat/messages/typing_presentation.hpp"
 #include "maicord/ui/chat/messages/typing_indicator.hpp"
 #include "maicord/model/chat/chat_state.hpp"
+#include "maicord/model/chat/game_store.hpp"
 #include "maicord/media/core/asset.hpp"
 
 namespace maicord {
@@ -329,6 +330,8 @@ u64 projection_input_signature(const MessageComposerScene& scene, const MessageC
     signature = hash64_mix(signature, context ? reinterpret_cast<usize>(context->state) : 0);
     if (context && context->users)
         signature = hash64_mix(signature, context->users->revision);
+    if (context && context->games)
+        signature = hash64_mix(signature, context->games->revision);
     if (context && context->state) {
         signature = hash64_mix(signature, context->state->guild_mutations);
         signature = hash64_mix(signature, context->state->channel_mutations);
@@ -370,7 +373,7 @@ UiLayoutStyle typing_style(const UiResolvedThemeStyles* styles = nullptr) noexce
     return style;
 }
 
-// A collapsible banner row (reply, attachments, typing): zero height unless shown.
+// A collapsible banner row (reply, attachments): zero height unless shown.
 constexpr u16 kComposerInteractiveFlags = static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable);
 inline void banner_row(UiLayoutNode* node, bool shown, float height) noexcept {
     node->spec.style.height = ui_layout_fixed(shown ? height : 0.0f);
@@ -420,7 +423,11 @@ struct ProjectedToken {
     MessageComposerProjectionKind kind;
     char marker;
     bool animated;
+    // A known game's chip: its icon cell before the name, as the chat draws it.
+    bool icon_cell;
 };
+// The chat's game icon cell: an em, then 3 px (markdown_links.cpp).
+constexpr Utf8View kGameIconCell = utf8_literal("\xE2\x80\x83\xE2\x80\x86");
 
 bool projected_token_at(const Utf8View& source, u32 first, const MessageComposerProjectionContext* context,
                         ProjectedToken* token) noexcept {
@@ -443,6 +450,9 @@ bool projected_token_at(const Utf8View& source, u32 first, const MessageComposer
         }
         if (cursor < source.bytes && source.data[cursor] == '&') {
             kind = MessageComposerProjectionKind::role;
+            ++cursor;
+        } else if (cursor < source.bytes && source.data[cursor] == '$' && source.data[cursor - 1] == '@') {
+            kind = MessageComposerProjectionKind::game;
             ++cursor;
         } else {
             kind = MessageComposerProjectionKind::user;
@@ -475,10 +485,12 @@ bool projected_token_at(const Utf8View& source, u32 first, const MessageComposer
     if (!decimal_parse_padded({source.data + digits_first, cursor - digits_first}, &id) || id == 0) {
         return false;
     }
-    if (kind != MessageComposerProjectionKind::emoji && (!context || !context->state))
+    if (kind != MessageComposerProjectionKind::emoji && kind != MessageComposerProjectionKind::game &&
+        (!context || !context->state))
         return false;
     Utf8View label{};
     u32 color = 0;
+    bool icon_cell = false;
     if (kind == MessageComposerProjectionKind::user) {
         const UserRecord* user =
             context->users ? user_store_find(*context->users, id) : nullptr;
@@ -488,6 +500,15 @@ bool projected_token_at(const Utf8View& source, u32 first, const MessageComposer
         label = channel ? chat_state_store_channel_name(*context->state, *channel) : Utf8View{};
     } else if (kind == MessageComposerProjectionKind::emoji) {
         label = utf8_literal("\xEF\xBF\xBC");
+    } else if (kind == MessageComposerProjectionKind::game) {
+        // The official composer: a known game's icon and name in a mention
+        // chip, any other "@unknown-game" as plain text.
+        label = context && context->games ? game_store_name(*context->games, id) : Utf8View{};
+        icon_cell = label.bytes != 0;
+        if (!icon_cell)
+            label = utf8_literal("unknown-game");
+        else
+            marker = 0;
     } else {
         const RoleRecord* role =
             chat_state_store_find_role(*context->state, context->guild_id, id);
@@ -497,7 +518,7 @@ bool projected_token_at(const Utf8View& source, u32 first, const MessageComposer
     if (label.bytes == 0 || !label.data) {
         return false;
     }
-    *token = ProjectedToken{label, id, cursor + 1, color, kind, marker, animated};
+    *token = ProjectedToken{label, id, cursor + 1, color, kind, marker, animated, icon_cell};
     return true;
 }
 
@@ -604,6 +625,9 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
     u32 flag_cursor = 0;
     RegionalFlagRange flag{};
     bool have_flag = regional_flag_next(source, &flag_cursor, &flag);
+    // The end mark of the game search token being drawn, and its chip flags.
+    u32 game_end_at = ~0u;
+    u8 game_flags = 0;
     while (cursor < end) {
         while (have_flag && flag.first_byte < cursor)
             have_flag = regional_flag_next(source, &flag_cursor, &flag);
@@ -630,13 +654,34 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
             }
             ++chip;
         }
-        if (context && chip < context->option_chip_count) {
-            const auto& option = context->option_chips[chip];
-            const Utf8View name{source.data + option.name_first, option.key_last - option.name_first - 1u};
-            const u32 last = head ? option.key_last : option.end_last;
+        // The game search token reads as a chip the same way: "@game" as its
+        // head, the query as its value, active while the caret is in it.
+        const bool option_chip = context && chip < context->option_chip_count;
+        GameToken game{};
+        const bool game_head = !option_chip && game_token_at(source, cursor, &game) && game.last <= end;
+        if (game_head) {
+            game_end_at = game.query_last;
+            game_flags = model.caret >= game.query_first && model.caret <= game.query_last
+                             ? message_composer_chip_active
+                             : 0;
+        }
+        if (option_chip || game_head || (!option_chip && cursor == game_end_at)) {
+            const bool game_chip = !option_chip;
+            if (game_chip)
+                head = game_head;
+            const auto& option = game_chip ? MessageComposerOptionChip{} : context->option_chips[chip];
+            const bool named = game_chip || option.key_last > option.name_first;
+            const Utf8View name = game_chip ? utf8_literal("@game")
+                                  : named   ? Utf8View{source.data + option.name_first,
+                                                     option.key_last - option.name_first - 1u}
+                                            : Utf8View{};
+            const u32 last = game_chip ? (head ? game.query_first : cursor + kGameTokenEndBytes)
+                             : head    ? option.key_last
+                                       : option.end_last;
+            const u8 flags = game_chip ? game_flags : option.flags;
             const u32 spaces = head ? kMessageComposerChipMargin + 3 * kMessageComposerChipPadding
                                     : kMessageComposerChipPadding + kMessageComposerChipMargin;
-            if (last <= end && option.key_last > option.name_first &&
+            if (last <= end && named &&
                 scene->projection_span_count < kMessageComposerProjectionSpanCapacity &&
                 spaces * 2 + (head ? name.bytes : 0) <= kMessageComposerDisplayBytes - scene->display_bytes) {
                 const u32 display_first = scene->display_bytes;
@@ -659,9 +704,11 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                     cursor, last, display_first, scene->display_bytes, 0,
                     head ? MessageComposerProjectionKind::command_option
                          : MessageComposerProjectionKind::command_option_end,
-                    option.flags, false};
+                    flags, false};
                 scene->atomic_spans[scene->projection_span_count++] = MessageComposerAtomicSpan{cursor, last};
                 append_display_style(scene, display_first, scene->display_bytes - display_first, style);
+                if (game_chip && !head)
+                    game_end_at = ~0u;
                 cursor = last;
                 continue;
             }
@@ -682,12 +729,17 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                                                                        style | text_style_custom_emoji)) &&
                                token.source_last <= end &&
                                scene->projection_span_count < kMessageComposerProjectionSpanCapacity &&
-                               token.label.bytes + 1 <= kMessageComposerDisplayBytes - scene->display_bytes;
+                               token.label.bytes + kGameIconCell.bytes + 1 <=
+                                   kMessageComposerDisplayBytes - scene->display_bytes;
         if (projected) {
             const u32 display_first = scene->display_bytes;
             if (token.marker) {
                 scene->display[scene->display_bytes++] = token.marker;
                 signature = hash64_mix(signature, static_cast<u8>(token.marker));
+            }
+            if (token.icon_cell) {
+                copy_bytes(scene->display + scene->display_bytes, kGameIconCell.data, kGameIconCell.bytes);
+                scene->display_bytes += kGameIconCell.bytes;
             }
             for (u32 byte = 0; byte < token.label.bytes; ++byte) {
                 const char value = token.label.data[byte];
@@ -703,11 +755,11 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                 token.kind == MessageComposerProjectionKind::regional_flag
                     ? MessageComposerAtomicSpan{}
                     : MessageComposerAtomicSpan{cursor, token.source_last};
+            const bool media = token.kind == MessageComposerProjectionKind::emoji ||
+                               token.kind == MessageComposerProjectionKind::regional_flag;
+            const bool plain = token.kind == MessageComposerProjectionKind::game && !token.icon_cell;
             append_display_style(scene, display_first, scene->display_bytes - display_first,
-                                 style | ((token.kind == MessageComposerProjectionKind::emoji ||
-                                           token.kind == MessageComposerProjectionKind::regional_flag)
-                                              ? text_style_custom_emoji
-                                              : text_style_mention));
+                                 style | (media ? text_style_custom_emoji : plain ? 0u : text_style_mention));
             cursor = token.source_last;
             continue;
         }
@@ -963,30 +1015,30 @@ float message_composer_scene_measured_height(const MessageComposerScene& scene,
                                              float text_height) noexcept {
     const auto* styles = scene.theme_styles;
     const float extras = message_composer_scene_chrome_height(
-        scene.reply_message_id != 0, scene.typing_label_bytes != 0, message_composer_scene_attachment_row(scene),
+        scene.reply_message_id != 0, message_composer_scene_attachment_row(scene),
         styles, scene.command_bar_name_bytes != 0);
     return composer_row_height(text_height + editor_padding_height(styles), styles) +
            message_composer_scene_toolbar_height(ui_rect_width(scene.viewport), styles) + extras;
 }
 
 float message_composer_scene_preferred_height(const MessageComposer& model, float composer_width,
-                                              bool reply_visible, bool typing_visible,
+                                              bool reply_visible,
                                               u8 attachments_visible,
                                               const UiResolvedThemeStyles* styles) noexcept {
     const float natural =
         message_composer_preferred_height(model, message_composer_scene_text_width(composer_width, styles));
     return composer_row_height(natural + editor_padding_height(styles) - editor_padding_height(), styles) +
            message_composer_scene_toolbar_height(composer_width, styles) +
-           message_composer_scene_chrome_height(reply_visible, typing_visible, attachments_visible, styles);
+           message_composer_scene_chrome_height(reply_visible, attachments_visible, styles);
 }
 
-float message_composer_scene_cached_height(const MessageComposerScene& scene, bool reply, bool typing,
-                                           u8 attachments, float composer_width, bool command_bar) noexcept {
+float message_composer_scene_cached_height(const MessageComposerScene& scene, bool reply, u8 attachments,
+                                           float composer_width, bool command_bar) noexcept {
     const auto* styles = scene.theme_styles;
     const float width = composer_width > 0.f ? composer_width : ui_rect_width(scene.viewport);
     return composer_row_height(scene.measured_row_height, styles) +
            message_composer_scene_toolbar_height(width, styles) +
-           message_composer_scene_chrome_height(reply, typing, attachments, styles, command_bar);
+           message_composer_scene_chrome_height(reply, attachments, styles, command_bar);
 }
 
 MessageComposerSceneResult message_composer_scene_update(
@@ -1091,9 +1143,6 @@ MessageComposerSceneResult message_composer_scene_update(
     UiWidget* cancel = ui_widget_manager_resolve(&scene->widgets, scene->reply_cancel);
     UiLayoutNode* mention_layout =
         ui_widget_manager_layout_node(&scene->widgets, scene->reply_mention);
-    UiWidget* typing = ui_widget_manager_resolve(&scene->widgets, scene->typing_indicator);
-    UiLayoutNode* typing_layout =
-        ui_widget_manager_layout_node(&scene->widgets, scene->typing_indicator);
     UiWidget* attachment_widget = ui_widget_manager_resolve(&scene->widgets, scene->attachments);
     UiLayoutNode* attachment_layout =
         ui_widget_manager_layout_node(&scene->widgets, scene->attachments);
@@ -1101,7 +1150,7 @@ MessageComposerSceneResult message_composer_scene_update(
     UiLayoutNode* command_bar_layout =
         ui_widget_manager_layout_node(&scene->widgets, scene->command_bar);
     UiWidget* command_close = ui_widget_manager_resolve(&scene->widgets, scene->command_close);
-    if (!reply || !reply_layout || !mention || !mention_layout || !cancel || !typing || !typing_layout ||
+    if (!reply || !reply_layout || !mention || !mention_layout || !cancel ||
         !attachment_widget || !attachment_layout || !command_bar || !command_bar_layout || !command_close) {
         return failure(MessageComposerSceneError::widget);
     }
@@ -1151,11 +1200,10 @@ MessageComposerSceneResult message_composer_scene_update(
     banner_row(reply_layout, reply_message_id != 0, kComposerReplyHeight);
     reply->flags = ui_widget_none;
     cancel->flags = reply_message_id != 0 ? kComposerInteractiveFlags : ui_widget_none;
-    banner_row(typing_layout, typing_label.bytes != 0, kComposerTypingHeight);
     ui_widget_manager_reconcile_input(&scene->widgets);
     const bool attachments_resized = previous_attachment_row != attachment_row;
     const bool relayout = scene->geometry_dirty || !scene->active || reply_changed || plugins_changed ||
-                          mention_visibility_changed || typing_changed || attachments_resized || bar_resized ||
+                          mention_visibility_changed || attachments_resized || bar_resized ||
                           !ui_rect_equal(scene->viewport, viewport);
     bool changed = relayout || scene->model != model || scene->observed_revision != model->revision ||
                    scene->command.name_bytes != (projection ? projection->command.name_bytes : 0) ||
@@ -1168,7 +1216,7 @@ MessageComposerSceneResult message_composer_scene_update(
     changed = update_placeholder(scene, *model, projection) || changed;
     if (relayout && (!configure_controls(scene, viewport,
                                          message_composer_scene_chrome_height(
-                                             reply_message_id != 0, typing_label.bytes != 0,
+                                             reply_message_id != 0,
                                              attachment_row, scene->theme_styles,
                                              scene->command_bar_name_bytes != 0)) ||
                      !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok())) {
@@ -1618,11 +1666,12 @@ u32 message_composer_scene_chip_ranges(const MessageComposerScene& scene,
 }
 
 float message_composer_scene_chrome_height(
-    bool reply, bool typing, u8 attachments, const UiResolvedThemeStyles* styles,
+    bool reply, u8 attachments, const UiResolvedThemeStyles* styles,
     bool command_bar) noexcept {
     const float gap = ui_theme_metrics(styles).composer_padding;
+    // The typing strip is always reserved: the indicator draws inside it, so the message list above never moves.
     return (command_bar ? kMessageComposerCommandBarHeight + gap : 0.f) + (reply ? kComposerReplyHeight + gap : 0.f) +
-           (typing ? kComposerTypingHeight + gap : 0.f) +
+           kComposerTypingHeight + gap +
            (attachments == message_composer_attachment_row_strip ? ui_composer_attachment_strip_height() + gap
             : attachments                                         ? kComposerReplyHeight + gap
                                                                   : 0.f);

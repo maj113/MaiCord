@@ -1315,15 +1315,16 @@ void test_chat_state() noexcept {
                 if (command.owner.handle.slot == ui_scene_widget(shell_text_scene, UiSemantic::friends_button).slot &&
                     command.owner.handle.generation == ui_scene_widget(shell_text_scene, UiSemantic::friends_button).generation &&
                     utf8_equal(command.text, utf8_literal("Friends"))) {
+                    // The 16-DIP padding, then the 20-DIP people glyph and its 12-DIP gap.
                     friends_label_padded =
-                        command.rectangle.left == friends_text_node->rectangle.left + 16.f &&
+                        command.rectangle.left == friends_text_node->rectangle.left + 16.f + 32.f &&
                         command.rectangle.right == friends_text_node->rectangle.right - 16.f &&
                         ui_rect_equal(command.clip, friends_text_node->rectangle);
                 }
             }
         }
     }
-    expect(friends_label_padded, "shell_text_friends_label_uses_declared_16dip_content_padding");
+    expect(friends_label_padded, "shell_text_friends_label_follows_its_glyph_inside_the_16dip_content_padding");
 
     GuildViewRow tiny_guild_rows[1]{};
     ChannelViewRow tiny_channel_rows[2]{};

@@ -8,6 +8,7 @@
 #include "plugins/plugins.hpp"
 #include "account/profile_editor.hpp"
 #include "account/user_actions.hpp"
+#include "voice/voice.hpp"
 #include "maicord/app/guild/account_guild_admin.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
@@ -16,6 +17,8 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "chat/game_lookup.hpp"
+#include "settings/settings.hpp"
 
 namespace maicord::profile_runtime_test {
 using namespace app_detail;
@@ -34,6 +37,15 @@ u32 opened_url_bytes, opened, content_url_bytes, content_opened;
 // The command index the profile's Commands read, and the last insertion.
 u64 command_channel, inserted_application, inserted_command;
 bool opened_trusted;
+// The message field's emoji popout: where it opened, for whom, and how often it was closed.
+UiRect field_picker_anchor;
+u64 field_picker_owner;
+u32 field_picker_closes;
+// Games the profile asked the game cache for (bit: id - 500), the game whose
+// profile opened, and the Settings page opened.
+u32 wanted_games;
+u64 opened_game;
+UiPageKey opened_page;
 GuildRecord guild;
 u16 guild_order;
 RoleRecord roles[21];
@@ -112,16 +124,21 @@ bool choose_add() noexcept {
             return application_profile_menu_activate(p.menu_items[i].action);
     return false;
 }
-bool retry() noexcept {
+// Text actions take the pointer only on their drawn ink (absent without a
+// renderer), so they are pressed from the keyboard.
+bool press(ProfileAction action) noexcept {
     auto& scene = g_app.profile->scene;
     for (u32 i = 0; i < scene.part_count; ++i) {
         const auto& part = scene.parts[i];
-        if (part.action == ProfileAction::retry)
+        if (part.action == action)
             return ui_widget_manager_focus(&scene.widgets, part.widget) &&
                    application_profile_key(key::enter, true, false) &&
                    application_profile_key(key::enter, false, false);
     }
     return false;
+}
+bool retry() noexcept {
+    return press(ProfileAction::retry);
 }
 void response(u16 status, Utf8View json = {}) noexcept {
     RestClientResponse reply{};
@@ -310,6 +327,19 @@ void run() noexcept {
           "profile runtime: a badge click opens its link through the content link rules");
     check(laid && click_badge(1) && content_opened == 1 && p.scene.active,
           "profile runtime: a badge without a link opens nothing");
+    // The message field's emoji button opens the field popout beside the card for this user; the chosen emoji
+    // lands in the field, which keeps its focus. (The fixture card was opened without application_profile_open,
+    // which gives the field its storage.)
+    p.message.focused = false;
+    const auto grin = utf8_literal("\xF0\x9F\x98\x80");
+    const bool field = p.message.text || message_composer_initialize_owned(&p.message);
+    check(laid && field && p.scene.edit.active && click(ProfileAction::emoji) && field_picker_owner == 42 &&
+              ui_rect_equal(field_picker_anchor, p.scene.rectangle),
+          "profile runtime: the message field's emoji button opens the field picker beside the card");
+    check(p.message.focused && application_profile_insert_message_text(grin) &&
+              utf8_equal(message_composer_text(p.message), grin),
+          "profile runtime: the field keeps its focus and the picked emoji fills it");
+    message_composer_clear(&p.message);
     // A verified bot: its check carries "Verified App", the popout lists its
     // Commands for the selected channel, its servers open the full profile's
     // Mutual Servers tab (Activity, Mutual Servers), and a chip closes the
@@ -368,7 +398,9 @@ void run() noexcept {
     check(popout && full && p.scene.active && p.scene.presentation == ProfilePresentation::modal &&
               p.scene.opens == opens + 1 && p.data.user_id == 43 && p.data.guild_id == 7 && placed && nick,
           "profile runtime: View Full Profile opens the same member's full profile, laid out, not the popout");
-    check(application_profile_close() && !p.scene.active, "profile runtime: the full profile closes");
+    const u32 closes = field_picker_closes;
+    check(application_profile_close() && !p.scene.active && field_picker_closes == closes + 1,
+          "profile runtime: the full profile closes, and its message field's emoji popout with it");
     // A profile GET that fails (404 Unknown User): the card stays open on what the client cached, the name, and the
     // notice, and its full profile lays out the same way.
     static UserRecord user_records[4];
@@ -397,6 +429,33 @@ void run() noexcept {
               shows(notice),
           "profile runtime: a 404 profile shows the cached card and its full profile, never a blank one");
     check(application_profile_close(), "profile runtime: the failed card closes");
+    // The Board: a profile with game widgets asks the game cache for every game, its full profile opens on Board
+    // (eight covers, Show more for the ninth), and a cover opens that game's profile in place of the full profile.
+    constexpr auto board = utf8_literal(
+        R"({"user":{"id":"45","username":"gamer"},"widgets":[{"id":"1","data":{"type":"played_games","games":[)"
+        R"({"game_id":"501"},{"game_id":"502"},{"game_id":"503"},{"game_id":"504"},{"game_id":"505"},)"
+        R"({"game_id":"506"},{"game_id":"507"},{"game_id":"508"},{"game_id":"509"}]}}]})");
+    const auto covers = [&]() noexcept {
+        u32 n = 0;
+        for (u32 i = 0; i < p.scene.part_count; ++i)
+            n += p.scene.parts[i].media == ProfileMediaKind::widget_game;
+        return n;
+    };
+    wanted_games = 0;
+    const bool board_read = application_profile_open(45, anchor) && application_profile_submit(500) && read_user == 45;
+    response(200, board);
+    check(board_read && wanted_games == 0x3FE && application_profile_view_full(45, anchor) &&
+              p.scene.section == ProfileTab::widgets && p.scene.tab == 0 && covers() == 8 &&
+              shows(utf8_literal("Board")) && shows(utf8_literal("Games I Like")) && shows(utf8_literal("Show more")),
+          "profile runtime: game widgets open the full profile on Board with eight covers and Show more");
+    check(press(ProfileAction::widget_more) && covers() == 9 && shows(utf8_literal("Show less")),
+          "profile runtime: Show more lists every game");
+    check(click(ProfileAction::activity) && p.scene.section == ProfileTab::activity && p.scene.tab == 1 &&
+              shows(utf8_literal("gamer doesn’t have any activity to share here")) &&
+              click(ProfileAction::widgets) && p.scene.tab == 0,
+          "profile runtime: the tabs switch between Board and Activity, an empty Activity says so");
+    check(click(ProfileAction::game, 503) && !p.scene.active && opened_game == 503,
+          "profile runtime: a Board game opens its game profile in place of the full profile");
     application_profile_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
@@ -468,6 +527,13 @@ void end_message_text_selection() noexcept {
 }
 void application_surface_motion_retire(RendererLayerSurface) noexcept {
 }
+// No window: the full profile closes at once.
+bool application_surface_motion_exit(RendererLayerSurface, void (*)() noexcept) noexcept {
+    return false;
+}
+const RelationshipStore* application_friends_relationships() noexcept {
+    return nullptr;
+}
 bool application_friends_user_relation(u64, u8*) noexcept {
     return false;
 }
@@ -501,6 +567,14 @@ const UiPrivateRowSource* application_private_channel_rows() noexcept {
 bool application_profile_editor_open(ProfileEditorTab, u64) noexcept {
     return false;
 }
+bool application_media_picker_open_field(UiRect anchor, u64 owner) noexcept {
+    profile_runtime_test::field_picker_anchor = anchor;
+    profile_runtime_test::field_picker_owner = owner;
+    return true;
+}
+void application_media_picker_close_field() noexcept {
+    ++profile_runtime_test::field_picker_closes;
+}
 bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<PopupItem>,
                                 const UiPopupFeedback*) noexcept {
     return false;
@@ -514,6 +588,9 @@ bool application_user_note_edit(u64, Utf8View) noexcept {
     return true;
 }
 void application_user_note_flush(u64) noexcept {
+}
+bool application_user_note_failed(u64) noexcept {
+    return false;
 }
 bool application_guild_card_open(u64, UiRect) noexcept {
     return false;
@@ -538,6 +615,30 @@ bool application_link_open(Utf8View url, bool trusted) noexcept {
 }
 bool select_content_guild(u64) noexcept {
     return false;
+}
+const GatewayClientVoiceSnapshot* application_voice_call() noexcept {
+    return nullptr;
+}
+bool application_voice_join(u64, u64) noexcept {
+    return true;
+}
+const GameStore* application_games() noexcept {
+    return nullptr;
+}
+void game_lookup_want(u64 id) noexcept {
+    if (id > 500 && id < 532)
+        profile_runtime_test::wanted_games |= 1u << (id - 500);
+}
+u32 game_lookup_revision() noexcept {
+    return 0;
+}
+bool application_game_profile_open(u64 id) noexcept {
+    profile_runtime_test::opened_game = id;
+    return true;
+}
+bool application_settings_open_page(UiPageKey page) noexcept {
+    profile_runtime_test::opened_page = page;
+    return true;
 }
 bool queue_private_conversation(PrivateConversationOperation, u64) noexcept {
     return false;

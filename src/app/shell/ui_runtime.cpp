@@ -1,10 +1,13 @@
 #include "../account/dm_profile.hpp"
+#include "../chat/game_lookup.hpp"
+#include "../chat/game_profile.hpp"
 #include "maicord/core/memory.hpp"
 #include "../guild/invite_cards.hpp"
 #include "../chat/messages/components.hpp"
 #include "shortcuts.hpp"
 #include "../voice/call.hpp"
 #include "../voice/stream.hpp"
+#include "../voice/go_live.hpp"
 #include "../guild/card.hpp"
 #include "../media/expression_card.hpp"
 #include "../voice/stage.hpp"
@@ -145,6 +148,7 @@ void release_overlay_owners() noexcept {
     application_shortcuts_overlay_release();
     application_call_release();
     application_stream_release();
+    application_go_live_release();
     application_guild_card_release();
     application_expression_card_release();
     application_stage_release();
@@ -279,6 +283,8 @@ void application_release_account_ui(Application& application) noexcept {
     if (&application == &g_app) {
         application_profile_release();
         application_dm_profile_release();
+        application_game_profile_release();
+        application_game_lookup_release();
         application_image_viewer_close();
         application_text_form_close(false, false);
         application_thread_creation_release();

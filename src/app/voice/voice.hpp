@@ -12,10 +12,9 @@ namespace maicord::app_detail {
 // mute/deafen, the voice user menu and the settings meter.
 void application_voice_pump() noexcept;
 u64 application_voice_next_wake() noexcept;
-// Voice channel timers and the invite row countdown
-// (channels.cpp): visual wakes only while one is on screen.
-u64 application_voice_timer_next_wake() noexcept;
-void application_voice_timer_tick(u64 now_ms) noexcept;
+// The "Invite to Voice" row countdown (channels.cpp): a visual wake only while the row is on screen.
+u64 application_voice_invite_next_wake() noexcept;
+void application_voice_invite_tick(u64 now_ms) noexcept;
 float application_voice_panel_reserve() noexcept;
 
 bool application_voice_join(u64 guild_id, u64 channel_id) noexcept;
@@ -34,6 +33,15 @@ bool application_voice_shell_hover(float x, float y) noexcept;
 bool application_voice_hand_cursor(float x, float y) noexcept;
 // Tooltip label, anchor and a stable identity for the control under the pointer.
 Utf8View application_voice_tooltip(float x, float y, UiRect* anchor, u32* identity) noexcept;
+// The connected voice card's buttons (Show call, screen share, disconnect) for screen readers: rectangle, label,
+// UiVoiceControl and whether it acts now. The count written.
+struct VoiceCardControl {
+    UiRect rectangle;
+    Utf8View name;
+    u8 control;
+    bool enabled;
+};
+u32 application_voice_card_controls(VoiceCardControl* output, u32 capacity) noexcept;
 
 // The connected user drawn under a voice channel row at (x, y): its voice
 // state, the row and its LIVE badge (empty unless streaming). Null if none.

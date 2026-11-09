@@ -27,7 +27,6 @@ struct StatusForm {
 struct VoiceChannels {
     VoiceChannelInfoStore info;
     UiVoiceChannelExtras extras;
-    UiVoiceTimerClock clock;
     UiVoiceInviteCountdown invite;
     StatusForm form;
     u64 form_serial;
@@ -154,16 +153,8 @@ void follow_connection() noexcept {
     bump();
 }
 
-UiRect head_rectangle(UiRect row) noexcept {
-    return {row.left, row.top, row.right, row.top + kShellNavigationVoiceHeadHeight};
-}
 bool on_screen(const UiRect& rectangle) noexcept {
     return ui_rect_has_area(ui_rect_intersection(rectangle, g_app.shell_navigation_scene.viewport));
-}
-bool row_timer(const ChannelViewRow& row) noexcept {
-    const auto* info =
-        row.type == 2 && !row.mention_count ? voice_channel_info_store_find(vc.info, row.id) : nullptr;
-    return info && info->start_s;
 }
 
 Hit hit(float x, float y) noexcept {
@@ -367,47 +358,31 @@ void application_voice_channels_status_result(u64 channel_id, bool ok, u32 statu
                                      : utf8_literal("Couldn't set the status. Try again."));
 }
 
-u64 application_voice_timer_next_wake() noexcept {
-    const u64 timer = ui_voice_timer_next_wake(vc.clock), invite = ui_voice_invite_next_wake(vc.invite);
-    return !timer ? invite : !invite ? timer : minimum(timer, invite);
+u64 application_voice_invite_next_wake() noexcept {
+    return ui_voice_invite_next_wake(vc.invite);
 }
 
-void application_voice_timer_tick(u64 now_ms) noexcept {
+void application_voice_invite_tick(u64 now_ms) noexcept {
     vc.extras.info = &vc.info;
-    // Runs every loop turn: without start times or an invite row nothing can show.
-    if (!vc.info.count && !ui_voice_invite_channel(vc.invite)) {
-        vc.clock.visible = false;
-        vc.clock.wake_ms = 0;
+    // Runs every loop turn: without an invite row nothing can show.
+    if (!ui_voice_invite_channel(vc.invite))
         return;
-    }
     const bool shown = g_app.window && application_window_shown() &&
                        !renderer_settings_hides_shell(g_app.renderer);
     const auto& scene = g_app.shell_navigation_scene;
-    bool timer = false, invite = false;
+    bool invite = false;
     for (u32 i = 0; shown && scene.active && g_app.account_ui && i < scene.count; ++i) {
         const auto& row = scene.rows[i].view;
-        const bool has_timer = row_timer(row);
-        if (!has_timer && !row.voice_invite)
+        if (!row.voice_invite)
             continue;
         const auto* layout = shell_navigation_scene_layout_node(scene, scene.rows[i]);
         if (!layout)
             continue;
-        timer = timer || (has_timer && on_screen(head_rectangle(layout->rectangle)));
         UiVoiceInviteRow rows{};
         invite = invite || (ui_voice_invite_row(row, layout->rectangle, &rows) && on_screen(rows.row));
     }
-    const u64 unix_ms = clock_unix_milliseconds();
-    const bool focused = application_window_foreground() && !g_app.preferences.reduced_motion;
-    if (ui_voice_timer_tick(&vc.clock, now_ms, unix_ms, timer, focused)) {
-        vc.extras.clock_s = vc.clock.shown_s;
-        application_repaint();
-    } else if (!timer) {
-        // Off screen the label follows the clock without wakes, so a timer
-        // that comes into view draws the current time in its first frame.
-        vc.extras.clock_s = unix_ms / 1'000;
-    }
     // Reduced motion keeps the row until it is dismissed, as in the official client.
-    const bool running = invite && !vc.extras.invite_hovered && !g_app.preferences.reduced_motion;
+    const bool running = invite && !vc.extras.invite_hovered && !application_reduced_motion();
     if (ui_voice_invite_tick(&vc.invite, now_ms, running))
         hide_invite();
 }

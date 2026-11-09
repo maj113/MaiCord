@@ -4,6 +4,8 @@
 #include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/text/composition.hpp"
+#include "maicord/ui/widgets/color_picker.hpp"
+#include "maicord/ui/widgets/qr_code.hpp"
 
 namespace maicord {
 
@@ -14,17 +16,29 @@ enum class TextFormElement : u8 {
     panel,
     title,
     context,
+    // An optional QR code under the context (an authenticator app's setup link), centred on its light square, and
+    // the text under it (its manual-entry key).
+    qr,
+    qr_caption,
     // An optional radio group above the editor.
     choices_label,
     choice_0,
     choice_1,
     choice_2,
     choice_3,
+    // Colour pickers: the saturation/value square and the hue bar above the field.
+    color_field,
+    color_hue,
     label,
     // Confirmations: read-only text under the label. Static wrapping text,
     // never focused or edited; it scrolls with the panel.
     detail,
+    // Colour pickers: the row holding the hex field and the eyedropper.
+    color_row,
     edit,
+    // Colour pickers: the eyedropper beside the field and the suggested swatches below it.
+    eyedropper,
+    color_swatches,
     // An optional dropdown below the editor; its options list while open.
     select_label,
     select,
@@ -48,6 +62,20 @@ inline constexpr u32 kTextFormChoices = 4;
 inline constexpr u32 kTextFormSelectOptions = 8;
 // The radio group and dropdown elements, absent unless a form uses them.
 inline constexpr u32 kTextFormChoiceElements = 2 + kTextFormChoices + 1 + kTextFormSelectOptions;
+// The colour picker's elements, absent unless a form is a picker.
+inline constexpr u32 kTextFormColorElements = 5;
+// The QR code and its caption, absent unless a form shows a code.
+inline constexpr u32 kTextFormQrElements = 2;
+
+// A colour picker form's picker state (ui/widgets/color_picker.hpp): the colour as HSV, the suggested swatches
+// (0xRRGGBB, at most kColorPickerSuggestedColors) with the keyboard's position among them, and the eyedropper:
+// whether the desktop offers one and whether a pick is under way.
+struct TextFormColorPicker {
+    ColorPickerHsv hsv;
+    ConstSlice<u32> suggested;
+    u32 focused_swatch;
+    bool eyedropper, picking;
+};
 
 // Borrowed immutable projection. All strings outlive presentation; the host
 // owns editing, validation, translation, modal routing and semantic actions.
@@ -94,6 +122,13 @@ struct TextFormContent {
     // One footer button: Accept is the only action and Cancel is absent
     // (`cancel` may be empty); can_cancel still lets Escape dismiss.
     bool single_action = false;
+    // Editors with a swatch: the colour picker (square, hue bar, eyedropper, suggested swatches) around the field,
+    // which then shows no label (the label still names the field for screen readers).
+    bool picker = false;
+    TextFormColorPicker color{};
+    // The QR code element's symbol (size 0 for none) and the caption under it; borrowed like the strings.
+    QrCodeModules qr{};
+    Utf8View qr_caption;
 };
 
 struct UiResolvedThemeStyles;
@@ -111,7 +146,9 @@ struct TextFormScene {
     u64 text_signature;
     u64 composition_signature;
     // The elements the widgets were built with, one bit each.
-    u32 built;
+    u64 built;
+    // A colour picker's square, hue and keyboard swatch as screen readers read them.
+    char color_values[3][40];
     u32 revision;
     bool active;
 };
