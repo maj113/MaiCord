@@ -24,6 +24,10 @@ enum class Outcome : u8 {
     cancelled,
     timed_out,      // the key was not touched in time
     failed,         // anything else; Result::native says what libfido2 said last
+    created,        // a key made the credential: the MakeResult holds it
+    excluded,       // every key present holds one of the credentials the registration excludes
+    unsupported,    // no key accepts any of the algorithms asked for
+    key_full,       // the key has no room for another credential
 };
 
 inline constexpr u32 kMaximumDevices = 16;
@@ -63,6 +67,26 @@ struct Hooks {
 Outcome run(const Api& api, const WebAuthnMfaRequestOptions& request, const u8* client_data_hash, const Hooks& hooks,
             Result* result) noexcept;
 
+// What a key answered to a creation: the new credential's id, its raw authenticator data (the CBOR byte string's header
+// stripped), its attestation statement (a CBOR map, as libfido2 keeps it) and format name.
+struct MakeResult {
+    i32 native;  // the last status libfido2 returned
+    u8 credential_id[kWebAuthnMfaMaximumCredentialIdBytes];
+    u32 credential_id_bytes;
+    u8 authenticator_data[1024];
+    u32 authenticator_data_bytes;
+    u8 attestation_statement[2048];
+    u32 attestation_statement_bytes;
+    char format[24];
+};
+
+// Registers a key: the same search and PIN steps as run, asking the first key that answers to make a credential for
+// the relying party, user and algorithms of `creation` (the first algorithm the key accepts, in the server's order)
+// with the key's own credentials excluded. `client_data_hash` is the 32-byte SHA-256 of the creation's client data.
+// Outcome::created holds the answer in `result`; Outcome::excluded is every key present holding an excluded credential.
+Outcome make(const Api& api, const WebAuthnMfaCreationOptions& creation, const u8* client_data_hash, const Hooks& hooks,
+             MakeResult* result) noexcept;
+
 } // namespace maicord::fido2
 
 namespace maicord {
@@ -70,5 +94,7 @@ namespace maicord {
 // webauthn_ceremony_start over the given library (the tests' fake); the public one uses fido2::library().
 bool webauthn_ceremony_start_with(const fido2::Api& api, const WebAuthnMfaRequestOptions& request, const Waker& wake,
                                   u64 token) noexcept;
+bool webauthn_ceremony_start_creation_with(const fido2::Api& api, const WebAuthnMfaCreationOptions& creation,
+                                           const Waker& wake, u64 token) noexcept;
 
 } // namespace maicord

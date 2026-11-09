@@ -192,6 +192,14 @@ maicord_shader(MAICORD_FX_COMPOSITE_VERTEX_HEADER maicord_fx_composite_vs.hpp vs
 maicord_shader(MAICORD_FX_COMPOSITE_PIXEL_HEADER maicord_fx_composite_ps.hpp ps_5_0 fx_composite_pixel
     g_maicord_fx_composite_pixel_shader ${maicord_shaders}/background_fx.hlsl PACK fx_composite_pixel
     FX_COMPOSITE_PIXEL=1)
+# The Go Live encoder's BGRA to NV12 conversion (src/platform/encode): Windows only (Linux converts with VA-API), used
+# only while streaming, so it stays out of the pack and has no GLSL twin.
+maicord_shader(MAICORD_ENCODE_VERTEX_HEADER maicord_encode_vs.hpp vs_4_0 vs_main g_maicord_encode_vertex_shader
+    src/platform/encode/bgra_nv12.hlsl)
+maicord_shader(MAICORD_ENCODE_LUMA_HEADER maicord_encode_luma_ps.hpp ps_4_0 ps_luma g_maicord_encode_luma_shader
+    src/platform/encode/bgra_nv12.hlsl)
+maicord_shader(MAICORD_ENCODE_CHROMA_HEADER maicord_encode_chroma_ps.hpp ps_4_0 ps_chroma g_maicord_encode_chroma_shader
+    src/platform/encode/bgra_nv12.hlsl)
 set(MAICORD_SHADER_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.inc")
 set(MAICORD_SHADER_PACK_PACKED "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.bin")
 add_custom_command(

@@ -258,6 +258,8 @@ maicord_library(maicord_app_client ${MAICORD_APP_CLIENT_SOURCES}
     src/platform/desktop/linux/notifications.cpp src/platform/desktop/linux/notification_identity.cpp
     # The file dialog (the FileChooser portal) and the dropped and pasted files it checks.
     src/platform/desktop/linux/file_picker.cpp
+    # The colour picker's eyedropper (the Screenshot portal's PickColor).
+    src/platform/desktop/screen_color.cpp
     src/model/chat/message_reconcile.cpp
     LIBS maicord_app_net maicord_app_update maicord_app_packages maicord_app_catalog_index maicord_ui maicord_core maicord_model
         maicord_protocol maicord_media_core maicord_media_codec maicord_compression maicord_crypto

@@ -14,6 +14,8 @@ namespace {
 
 constexpr u32 kWorkerStackBytes = 256 * 1024;
 constexpr u32 kJoinMs = 5000;
+// A registration's attestation object: the format name, an attestation statement and the authenticator data.
+constexpr u32 kAttestationObjectBytes = 3200;
 
 struct Ceremony {
     const fido2::Api* api;
@@ -21,7 +23,9 @@ struct Ceremony {
     Waker wake;
     u64 token;
     u64 deadline;
-    WebAuthnMfaRequestOptions request;
+    // What the ceremony asks: an assertion uses only `creation.request`.
+    WebAuthnMfaCreationOptions creation;
+    bool creating;
     u8 client_data[kWebAuthnMfaMaximumClientDataBytes];
     u32 client_data_bytes;
     u8 client_data_hash[32];
@@ -35,6 +39,7 @@ struct Ceremony {
     WebAuthnPinPrompt prompt;
     fido2::Outcome outcome;
     fido2::Result result;
+    fido2::MakeResult made;
 };
 Ceremony g_ceremony;
 
@@ -103,7 +108,8 @@ void on_pause(void* context, u32 milliseconds) noexcept {
 u32 worker(void* context) noexcept {
     auto& c = *static_cast<Ceremony*>(context);
     const fido2::Hooks hooks{&c, cancelled, on_device, on_pin, on_pause};
-    c.outcome = fido2::run(*c.api, c.request, c.client_data_hash, hooks, &c.result);
+    c.outcome = c.creating ? fido2::make(*c.api, c.creation, c.client_data_hash, hooks, &c.made)
+                           : fido2::run(*c.api, c.creation.request, c.client_data_hash, hooks, &c.result);
     set_state(c, WebAuthnCeremonyState::done);
     window_post(c.wake, c.token, kWebAuthnWakeDone);
     return 0;
@@ -112,6 +118,7 @@ u32 worker(void* context) noexcept {
 WebAuthnCeremonyError error_of(fido2::Outcome outcome) noexcept {
     switch (outcome) {
     case fido2::Outcome::assertion:
+    case fido2::Outcome::created:
         return WebAuthnCeremonyError::none;
     case fido2::Outcome::no_device:
         return WebAuthnCeremonyError::no_device;
@@ -127,6 +134,12 @@ WebAuthnCeremonyError error_of(fido2::Outcome outcome) noexcept {
         return WebAuthnCeremonyError::cancelled;
     case fido2::Outcome::timed_out:
         return WebAuthnCeremonyError::timed_out;
+    case fido2::Outcome::excluded:
+        return WebAuthnCeremonyError::excluded;
+    case fido2::Outcome::unsupported:
+        return WebAuthnCeremonyError::unsupported;
+    case fido2::Outcome::key_full:
+        return WebAuthnCeremonyError::key_full;
     default:
         return WebAuthnCeremonyError::failed;
     }
@@ -143,20 +156,68 @@ void reset(Ceremony& c) noexcept {
     secure_clear_bytes(&c, static_cast<u32>(sizeof(c)));
 }
 
-} // namespace
+// The credential JSON of a sign-in: the key's answer in the shape the Windows path writes.
+WebAuthnMfaResult serialize_assertion(const Ceremony& c, SecureBuffer* output) noexcept {
+    const fido2::Result& answer = c.result;
+    const WebAuthnMfaAssertionView view{
+        ConstSlice<u8>{answer.credential_id, answer.credential_id_bytes},
+        ConstSlice<u8>{c.client_data, c.client_data_bytes},
+        ConstSlice<u8>{answer.authenticator_data, answer.authenticator_data_bytes},
+        ConstSlice<u8>{answer.signature, answer.signature_bytes},
+        ConstSlice<u8>{answer.user_handle, answer.user_handle_bytes},
+        WebAuthnAuthenticatorAttachment::cross_platform};
+    return webauthn_mfa_write_assertion(view, Slice<u8>{output->data, output->capacity});
+}
 
-bool webauthn_ceremony_start_with(const fido2::Api& api, const WebAuthnMfaRequestOptions& request, const Waker& wake,
-                                  u64 token) noexcept {
+// The credential JSON of a registration: the attestation object from the key's format, statement and authenticator
+// data (a "none" attestation drops the statement and the key's AAGUID, as a browser does).
+WebAuthnMfaResult serialize_creation(Ceremony& c, SecureBuffer* output) noexcept {
+    fido2::MakeResult& made = c.made;
+    WebAuthnMfaAttestationObjectView object{{made.format, c_string_length(made.format)},
+                                            {made.attestation_statement, made.attestation_statement_bytes},
+                                            {made.authenticator_data, made.authenticator_data_bytes}};
+    if (c.creation.attestation_none) {
+        webauthn_mfa_clear_aaguid(made.authenticator_data, made.authenticator_data_bytes);
+        object.format = utf8_literal("none");
+        object.attestation_statement = {};
+    }
+    u8 encoded[kAttestationObjectBytes];
+    const WebAuthnMfaResult written = webauthn_mfa_write_attestation_object(object, Slice<u8>{encoded, sizeof(encoded)});
+    if (!written.ok())
+        return written;
+    i32 algorithm = webauthn_mfa_credential_algorithm(object.authenticator_data);
+    if (algorithm == 0)
+        algorithm = c.creation.algorithms[0];
+    // A key on hidraw is reached over USB.
+    const WebAuthnMfaAttestationView view{ConstSlice<u8>{made.credential_id, made.credential_id_bytes},
+                                          ConstSlice<u8>{c.client_data, c.client_data_bytes},
+                                          ConstSlice<u8>{encoded, written.bytes},
+                                          object.authenticator_data,
+                                          algorithm,
+                                          webauthn_transport_usb,
+                                          WebAuthnAuthenticatorAttachment::cross_platform};
+    const WebAuthnMfaResult serialized = webauthn_mfa_write_attestation(view, Slice<u8>{output->data, output->capacity});
+    secure_clear_bytes(encoded, sizeof(encoded));
+    return serialized;
+}
+
+// Starts the worker over the options already copied into the ceremony: the client data, its hash and the thread.
+bool begin(const fido2::Api& api, bool creating, const Waker& wake, u64 token) noexcept {
     Ceremony& c = g_ceremony;
-    if (state_of(c) != WebAuthnCeremonyState::idle || request.challenge_bytes == 0 ||
-        request.challenge_bytes > kWebAuthnMfaMaximumChallengeBytes ||
+    const WebAuthnMfaRequestOptions& request = c.creation.request;
+    if (request.challenge_bytes == 0 || request.challenge_bytes > kWebAuthnMfaMaximumChallengeBytes ||
         request.credential_count > kWebAuthnMfaMaximumAllowedCredentials ||
-        request.credential_id_bytes > kWebAuthnMfaCredentialIdStorageBytes)
+        request.credential_id_bytes > kWebAuthnMfaCredentialIdStorageBytes ||
+        (creating && (c.creation.user_id_bytes == 0 || c.creation.user_id_bytes > kWebAuthnMfaMaximumUserIdBytes ||
+                      c.creation.algorithm_count == 0 ||
+                      c.creation.algorithm_count > kWebAuthnMfaMaximumAlgorithms))) {
+        reset(c);
         return false;
-    clear_bytes(&c, static_cast<u32>(sizeof(c)));
-    copy_bytes(&c.request, &request, static_cast<u32>(sizeof(request)));
-    const WebAuthnMfaResult client_data = webauthn_mfa_write_client_data(
-        c.request, Slice<u8>{c.client_data, static_cast<u32>(sizeof(c.client_data))});
+    }
+    c.creating = creating;
+    const Slice<u8> client_data_output{c.client_data, static_cast<u32>(sizeof(c.client_data))};
+    const WebAuthnMfaResult client_data = creating ? webauthn_mfa_write_creation_client_data(c.creation, client_data_output)
+                                                   : webauthn_mfa_write_client_data(request, client_data_output);
     if (!client_data.ok()) {
         reset(c);
         return false;
@@ -191,9 +252,35 @@ bool webauthn_ceremony_start_with(const fido2::Api& api, const WebAuthnMfaReques
     return true;
 }
 
+} // namespace
+
+bool webauthn_ceremony_start_with(const fido2::Api& api, const WebAuthnMfaRequestOptions& request, const Waker& wake,
+                                  u64 token) noexcept {
+    if (state_of(g_ceremony) != WebAuthnCeremonyState::idle)
+        return false;
+    clear_bytes(&g_ceremony, static_cast<u32>(sizeof(g_ceremony)));
+    copy_bytes(&g_ceremony.creation.request, &request, static_cast<u32>(sizeof(request)));
+    return begin(api, false, wake, token);
+}
+
+bool webauthn_ceremony_start_creation_with(const fido2::Api& api, const WebAuthnMfaCreationOptions& creation,
+                                           const Waker& wake, u64 token) noexcept {
+    if (state_of(g_ceremony) != WebAuthnCeremonyState::idle)
+        return false;
+    clear_bytes(&g_ceremony, static_cast<u32>(sizeof(g_ceremony)));
+    copy_bytes(&g_ceremony.creation, &creation, static_cast<u32>(sizeof(creation)));
+    return begin(api, true, wake, token);
+}
+
 bool webauthn_ceremony_start(const WebAuthnMfaRequestOptions& request, const Waker& wake, u64 token) noexcept {
     const fido2::Api* api = fido2::library();
     return api && webauthn_ceremony_start_with(*api, request, wake, token);
+}
+
+bool webauthn_ceremony_start_creation(const WebAuthnMfaCreationOptions& creation, const Waker& wake,
+                                      u64 token) noexcept {
+    const fido2::Api* api = fido2::library();
+    return api && webauthn_ceremony_start_creation_with(*api, creation, wake, token);
 }
 
 bool webauthn_platform_available() noexcept {
@@ -240,23 +327,15 @@ WebAuthnCeremonyResult webauthn_ceremony_finish(SecureBuffer* serialized_credent
     Ceremony& c = g_ceremony;
     if (state_of(c) != WebAuthnCeremonyState::done)
         return {WebAuthnCeremonyError::invalid_input, 0};
-    WebAuthnCeremonyResult result{error_of(c.outcome), c.result.native};
+    WebAuthnCeremonyResult result{error_of(c.outcome), c.creating ? c.made.native : c.result.native};
     if (result.ok()) {
         if (!serialized_credential || !serialized_credential->data || !serialized_credential->locked ||
             serialized_credential->capacity == 0) {
             result.error = WebAuthnCeremonyError::invalid_input;
         } else {
             secure_buffer_clear(serialized_credential);
-            const fido2::Result& answer = c.result;
-            const WebAuthnMfaAssertionView view{
-                ConstSlice<u8>{answer.credential_id, answer.credential_id_bytes},
-                ConstSlice<u8>{c.client_data, c.client_data_bytes},
-                ConstSlice<u8>{answer.authenticator_data, answer.authenticator_data_bytes},
-                ConstSlice<u8>{answer.signature, answer.signature_bytes},
-                ConstSlice<u8>{answer.user_handle, answer.user_handle_bytes},
-                WebAuthnAuthenticatorAttachment::cross_platform};
-            const WebAuthnMfaResult serialized = webauthn_mfa_write_assertion(
-                view, Slice<u8>{serialized_credential->data, serialized_credential->capacity});
+            const WebAuthnMfaResult serialized = c.creating ? serialize_creation(c, serialized_credential)
+                                                            : serialize_assertion(c, serialized_credential);
             if (serialized.ok())
                 serialized_credential->bytes = serialized.bytes;
             else

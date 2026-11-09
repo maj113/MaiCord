@@ -14,6 +14,10 @@
 
 // <dxgi.h>
 #define DXGI_USAGE_RENDER_TARGET_OUTPUT 0x00000020UL
+// <winerror.h>
+#define DXGI_ERROR_NOT_FOUND _HRESULT_TYPEDEF_(0x887A0002L)
+#define DXGI_ERROR_ACCESS_LOST _HRESULT_TYPEDEF_(0x887A0026L)
+#define DXGI_ERROR_WAIT_TIMEOUT _HRESULT_TYPEDEF_(0x887A0027L)
 
 typedef UINT DXGI_USAGE;
 
@@ -83,7 +87,19 @@ struct DXGI_ADAPTER_DESC {
     SIZE_T SharedSystemMemory;
     LUID AdapterLuid;
 };
-struct DXGI_OUTPUT_DESC;
+// <dxgitype.h>
+enum DXGI_MODE_ROTATION {
+    DXGI_MODE_ROTATION_UNSPECIFIED = 0,
+    DXGI_MODE_ROTATION_IDENTITY = 1,
+};
+// <dxgi.h>
+struct DXGI_OUTPUT_DESC {
+    WCHAR DeviceName[32];
+    RECT DesktopCoordinates;
+    BOOL AttachedToDesktop;
+    DXGI_MODE_ROTATION Rotation;
+    HMONITOR Monitor;
+};
 enum DXGI_SWAP_EFFECT {
     DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL = 3,
 };
@@ -101,12 +117,38 @@ struct __declspec(uuid("3d3e0379-f9de-4d58-bb6c-18d62992f1a6")) __declspec(novta
     virtual HRESULT __stdcall GetDevice(const IID& riid, void** ppDevice) = 0;
 };
 struct __declspec(uuid("2411e7e1-12ac-4ccf-bd14-9798e8534dc0")) __declspec(novtable) IDXGIAdapter : IDXGIObject {
-    MAICORD_COM_UNUSED(EnumOutputs);
+    virtual HRESULT __stdcall EnumOutputs(UINT Output, IDXGIOutput** ppOutput) = 0;
     virtual HRESULT __stdcall GetDesc(DXGI_ADAPTER_DESC* pDesc) = 0;
     virtual HRESULT __stdcall CheckInterfaceSupport(const GUID& InterfaceName, LARGE_INTEGER* pUMDVersion) = 0;
 };
 struct __declspec(uuid("ae02eedb-c735-4690-8d52-5a8dc20213aa")) __declspec(novtable) IDXGIOutput : IDXGIObject {
     virtual HRESULT __stdcall GetDesc(DXGI_OUTPUT_DESC* pDesc) = 0;
+    MAICORD_COM_UNUSED(GetDisplayModeList);
+    MAICORD_COM_UNUSED(FindClosestMatchingMode);
+    MAICORD_COM_UNUSED(WaitForVBlank);
+    MAICORD_COM_UNUSED(TakeOwnership);
+    MAICORD_COM_UNUSED(ReleaseOwnership);
+    MAICORD_COM_UNUSED(GetGammaControlCapabilities);
+    MAICORD_COM_UNUSED(SetGammaControl);
+    MAICORD_COM_UNUSED(GetGammaControl);
+    MAICORD_COM_UNUSED(SetDisplaySurface);
+    MAICORD_COM_UNUSED(GetDisplaySurfaceData);
+    MAICORD_COM_UNUSED(GetFrameStatistics);
+};
+struct __declspec(uuid("035f3ab4-482e-4e50-b41f-8a7f8bd8960b")) __declspec(novtable) IDXGIResource : IDXGIDeviceSubObject {
+    MAICORD_COM_UNUSED(GetSharedHandle);
+    MAICORD_COM_UNUSED(GetUsage);
+    MAICORD_COM_UNUSED(SetEvictionPriority);
+    MAICORD_COM_UNUSED(GetEvictionPriority);
+};
+struct __declspec(uuid("cafcb56c-6ac3-4889-bf47-9e23bbd260ec")) __declspec(novtable) IDXGISurface : IDXGIDeviceSubObject {
+    MAICORD_COM_UNUSED(GetDesc);
+    MAICORD_COM_UNUSED(Map);
+    MAICORD_COM_UNUSED(Unmap);
+};
+struct __declspec(uuid("4AE63092-6327-4c1b-80AE-BFE12EA32B86")) __declspec(novtable) IDXGISurface1 : IDXGISurface {
+    virtual HRESULT __stdcall GetDC(BOOL Discard, HDC* phdc) = 0;
+    virtual HRESULT __stdcall ReleaseDC(RECT* pDirtyRect) = 0;
 };
 struct __declspec(uuid("310d36a0-d2e7-4c0a-aa04-6a9d23b8886a")) __declspec(novtable) IDXGISwapChain : IDXGIDeviceSubObject {
     virtual HRESULT __stdcall Present(UINT SyncInterval, UINT Flags) = 0;
@@ -207,6 +249,37 @@ struct __declspec(uuid("50c83a1c-e072-4c48-87b0-3630fa36a6d0")) __declspec(novta
 };
 struct __declspec(uuid("0AA1AE0A-FA0E-4B84-8644-E05FF8E5ACB5")) __declspec(novtable) IDXGIAdapter2 : IDXGIAdapter1 {
     MAICORD_COM_UNUSED(GetDesc2);
+};
+struct DXGI_OUTDUPL_POINTER_POSITION {
+    POINT Position;
+    BOOL Visible;
+};
+struct DXGI_OUTDUPL_FRAME_INFO {
+    LARGE_INTEGER LastPresentTime;
+    LARGE_INTEGER LastMouseUpdateTime;
+    UINT AccumulatedFrames;
+    BOOL RectsCoalesced;
+    BOOL ProtectedContentMaskedOut;
+    DXGI_OUTDUPL_POINTER_POSITION PointerPosition;
+    UINT TotalMetadataBufferSize;
+    UINT PointerShapeBufferSize;
+};
+struct __declspec(uuid("191cfac3-a341-470d-b26e-a864f428319c")) __declspec(novtable) IDXGIOutputDuplication : IDXGIObject {
+    MAICORD_COM_UNUSED(GetDesc);
+    virtual HRESULT __stdcall AcquireNextFrame(UINT TimeoutInMilliseconds, DXGI_OUTDUPL_FRAME_INFO* pFrameInfo,
+        IDXGIResource** ppDesktopResource) = 0;
+    MAICORD_COM_UNUSED(GetFrameDirtyRects);
+    MAICORD_COM_UNUSED(GetFrameMoveRects);
+    MAICORD_COM_UNUSED(GetFramePointerShape);
+    MAICORD_COM_UNUSED(MapDesktopSurface);
+    MAICORD_COM_UNUSED(UnMapDesktopSurface);
+    virtual HRESULT __stdcall ReleaseFrame() = 0;
+};
+struct __declspec(uuid("00cddea8-939b-4b83-a340-a685226666cc")) __declspec(novtable) IDXGIOutput1 : IDXGIOutput {
+    MAICORD_COM_UNUSED(GetDisplayModeList1);
+    MAICORD_COM_UNUSED(FindClosestMatchingMode1);
+    MAICORD_COM_UNUSED(GetDisplaySurfaceData1);
+    virtual HRESULT __stdcall DuplicateOutput(IUnknown* pDevice, IDXGIOutputDuplication** ppOutputDuplication) = 0;
 };
 // <dxgi1_3.h>
 struct __declspec(uuid("6007896c-3244-4afd-bf18-a6d3beda5023")) __declspec(novtable) IDXGIDevice3 : IDXGIDevice2 {

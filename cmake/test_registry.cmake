@@ -985,6 +985,10 @@ maicord_test(MaiCordCookieJarTests ENTRY maicord_cookie_jar_entry SOURCES tests/
 maicord_test(MaiCordUserSettingsTests ENTRY maicord_user_settings_tests_entry SOURCES tests/protocol/user/settings_proto.cpp
     BUNDLE MaiCordProtocolTests
     TIMEOUT 10 TEST maicord_user_settings)
+# Registering a security key: the creation challenge, its client data and the credential JSON the request carries.
+maicord_test(MaiCordWebAuthnRegistrationTests ENTRY maicord_webauthn_registration_entry
+    SOURCES tests/protocol/auth/webauthn_registration.cpp
+    BUNDLE MaiCordProtocolTests TIMEOUT 10 TEST maicord_webauthn_registration)
 maicord_test(MaiCordGuildSettingsTests ENTRY maicord_guild_settings_entry SOURCES tests/model/guild/settings_model.cpp
     BUNDLE MaiCordModelTests TIMEOUT 10 TEST maicord_guild_settings)
 # Role manager: tri-state permissions and switch, role reorder and
@@ -1372,6 +1376,55 @@ maicord_test(MaiCordApplicationNotificationTests ONLY WINDOWS ENTRY maicord_appl
     INCLUDES src/app
     DEFINES MAICORD_NOTIFICATION_FIXTURE=1
     TEST maicord_application_notifications)
+# Go Live capture (src/platform/capture), never capturing the user's screen or sound:
+#
+#   maicord_capture            the shared picker, thumbnail, frame-cap and name rules; Windows: the WinRT and process
+#                              loopback ABI against the SDK (tests/platform/capture/capture_abi.cpp, SDK includes), the
+#                              methods per build, the source list's order, the GPU thumbnail of a synthetic texture;
+#                              Linux: the PipeWire negotiation PODs against libspa's bytes, the format reader, fourccs
+#   maicord_capture_portal     Linux: the ScreenCast portal flow against the mock (tools/test_dbus.sh; 77 without it)
+#   maicord_capture_pipewire   Linux: the consumer against a private PipeWire daemon and a synthetic dma-buf source
+#                              (tools/test_capture_pipewire.sh; 77 without it, libpipewire or /dev/dri/card0)
+#   maicord_stream_audio_pipewire  Linux: stream audio against the same daemon, with a synthetic "MaiCord" player that
+#                              must never be heard and another application's player that must
+#   maicord_capture_probe      opt-in manual probe of the real screen and sound (MAICORD_CAPTURE_PROBE=1; 77 without)
+if(NOT MAICORD_LINUX)
+    add_library(maicord_capture_abi_conformance OBJECT tests/platform/capture/capture_abi.cpp)
+    target_link_libraries(maicord_capture_abi_conformance PRIVATE maicord_compile_contract)
+    set_target_properties(maicord_capture_abi_conformance PROPERTIES CXX_EXTENSIONS OFF MAICORD_SDK_INCLUDES ON)
+endif()
+maicord_test(MaiCordCaptureTests ENTRY maicord_capture_entry
+    SOURCES tests/platform/capture/capture.cpp
+    WINDOWS SOURCES $<TARGET_OBJECTS:maicord_capture_abi_conformance> src/core/log.cpp
+        LIBS maicord_capture maicord_gpu_d3d11 maicord_core d3d11 dxgi ole32 user32 gdi32 kernel32
+    LINUX LIBS maicord_capture maicord_dbus maicord_core
+    BOTH TIMEOUT 20 TEST maicord_capture)
+maicord_test(MaiCordCaptureProbe ENTRY maicord_capture_probe_entry
+    SOURCES tests/platform/capture/capture_probe.cpp
+    WINDOWS SOURCES src/core/log.cpp
+        LIBS maicord_capture maicord_gpu_d3d11 maicord_core d3d11 dxgi ole32 user32 gdi32 kernel32
+    LINUX LIBS maicord_capture maicord_dbus maicord_core
+    BOTH TIMEOUT 120 SKIP_RETURN_CODE 77 LABELS integration TEST maicord_capture_probe)
+# The whole producer chain on the real desktop: the primary screen into the real hardware encoder, counts per second
+# (opt-in like the probe above: MAICORD_CAPTURE_PROBE=1; 77 without).
+maicord_test(MaiCordGoLivePipelineProbe ONLY WINDOWS ENTRY maicord_go_live_pipeline_probe_entry
+    SOURCES tests/platform/encode/go_live_pipeline_probe.cpp src/core/log.cpp
+    LIBS maicord_capture maicord_video_encode maicord_gpu_d3d11 maicord_core d3d11 dxgi ole32 user32 gdi32 kernel32
+    TIMEOUT 120 SKIP_RETURN_CODE 77 LABELS integration TEST maicord_go_live_pipeline_probe)
+maicord_test(MaiCordCapturePortalTests ONLY LINUX ENTRY maicord_capture_portal_entry
+    SOURCES tests/platform/capture/capture_portal.cpp
+    LIBS maicord_capture maicord_dbus maicord_core
+    TIMEOUT 40 SKIP_RETURN_CODE 77 TEST maicord_capture_portal)
+maicord_add_tests(MaiCordCapturePortalTests ONLY LINUX TIMEOUT 20 SKIP_RETURN_CODE 77 TEST maicord_capture_portal_bare
+    --bare)
+maicord_test(MaiCordCapturePipewireTests ONLY LINUX ENTRY maicord_capture_pipewire_entry
+    SOURCES tests/platform/capture/pipewire_dmabuf.cpp
+    LIBS maicord_capture maicord_dbus maicord_core
+    TIMEOUT 30 SKIP_RETURN_CODE 77 LABELS integration TEST maicord_capture_pipewire)
+maicord_test(MaiCordStreamAudioPipewireTests ONLY LINUX ENTRY maicord_stream_audio_pipewire_entry
+    SOURCES tests/platform/capture/pipewire_audio.cpp
+    LIBS maicord_capture maicord_dbus maicord_core
+    TIMEOUT 30 SKIP_RETURN_CODE 77 LABELS integration TEST maicord_stream_audio_pipewire)
 if(MAICORD_LINUX)
     # The tests of the D-Bus client (src/platform/dbus).
     #
@@ -1391,8 +1444,9 @@ if(MAICORD_LINUX)
     #   maicord_dbus_services_portal  notifications through the portal (the script sets MAICORD_NOTIFICATION_BACKEND=portal)
     #   maicord_dbus_services_plain   notifications through a daemon that does not read markup in the body
     #   maicord_dbus_services_bare    every client on a bus without any service
-    #   maicord_dbus_desktop          the tray (StatusNotifierItem and dbusmenu), GlobalShortcuts, the file chooser, the launcher
-    #                                 badge and single instance on the bus, against the mock; _bare: all of it without services
+    #   maicord_dbus_desktop          the tray (StatusNotifierItem and dbusmenu), GlobalShortcuts, the file chooser, the
+    #                                 eyedropper (Screenshot.PickColor), the launcher badge and single instance on the bus,
+    #                                 against the mock; _bare: all of it without services
     #   maicord_dbus_instance_socket  single instance over the abstract socket (no bus needed: always runs)
     #   maicord_dbus_secure_buffer    the user-bound secure buffer with its master key in the Secret Service (creation,
     #                                 lookup, the fallback to the key file, moving the file in), and on a bus without one
@@ -1435,7 +1489,7 @@ if(MAICORD_LINUX)
     maicord_add_tests(MaiCordDbusServicesTests TIMEOUT 20 TEST maicord_dbus_services_plain --plain)
     maicord_add_tests(MaiCordDbusServicesTests TIMEOUT 20 TEST maicord_dbus_services_bare --bare)
     maicord_test(MaiCordDbusDesktopTests ENTRY maicord_dbus_desktop_entry
-        SOURCES tests/platform/dbus/dbus_desktop.cpp
+        SOURCES tests/platform/dbus/dbus_desktop.cpp src/platform/desktop/screen_color.cpp
         LIBS maicord_dbus maicord_core
         DEPENDS maicord_dbus
         TIMEOUT 20 TEST maicord_dbus_desktop)
@@ -1593,6 +1647,39 @@ maicord_test(MaiCordH264StreamGpuTests ONLY WINDOWS ENTRY maicord_h264_stream_gp
     LIBS maicord_core maicord_media_codec maicord_gpu_d3d11 kernel32 d3d11 dxguid
     INCLUDES ${MAICORD_GENERATED_DIRECTORY}
     TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu_c TEST maicord_h264_stream_gpu)
+# The Go Live encoder on real hardware: each codec the GPU encodes, through MaiCord's own stream decoder and video
+# conversion, at 40 dB PSNR or better; keyframe requests, the preview and a reconfiguration, then a continuous stream.
+# One case per codec (MAICORD_STREAM_ENCODER_CODEC), so the three hardware sessions run side by side: a case for a
+# codec the GPU lacks passes with nothing to do, and the first codec the GPU encodes also runs the checks done once.
+# Skipped without a hardware encoder.
+maicord_test(MaiCordStreamEncoderGpuTests ONLY WINDOWS ENTRY maicord_stream_encoder_gpu_tests_entry
+    SOURCES tests/platform/encode/stream_encoder_gpu_test.cpp src/platform/decode/gpu_stream_decoder.cpp
+        src/platform/decode/h264_gpu_stream_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
+        src/platform/decode/av1_gpu_stream.cpp src/platform/decode/av1_dxva_parameters.cpp
+        src/platform/decode/gpu_decoder_surfaces.cpp src/gpu/d3d11/video_frame.cpp ${MAICORD_VIDEO_FRAME_HEADER}
+    LIBS maicord_video_encode maicord_core maicord_media_codec maicord_gpu_d3d11 kernel32 d3d11 dxguid ole32
+    INCLUDES ${MAICORD_GENERATED_DIRECTORY})
+foreach(maicord_encoder_codec IN ITEMS h264 h265 av1)
+    maicord_add_tests(MaiCordStreamEncoderGpuTests ONLY WINDOWS TIMEOUT 20 LABELS gpu
+        ENV MAICORD_STREAM_ENCODER_CODEC=${maicord_encoder_codec} TEST maicord_stream_encoder_gpu_${maicord_encoder_codec})
+endforeach()
+# The encoder's pure parts on both systems: Discord's quality presets and Nitro limits, extents and bitrates, the codec
+# tiers, and the rewriting of the hardware encoders' output into the sender's access units.
+maicord_test(MaiCordStreamEncoderUnitTests ENTRY maicord_stream_encoder_units_entry
+    SOURCES tests/platform/encode/stream_encoder_units.cpp
+    LIBS maicord_video_encode maicord_media_codec maicord_core kernel32
+    TIMEOUT 10 TEST maicord_stream_encoder_units)
+if(MAICORD_LINUX)
+    # The VA-API encoder on real hardware, through MaiCord's own decoder at 40 dB PSNR or better. Status 77 without an
+    # EGL device, a VA-API encoder (WSL has none) or /dev/udmabuf.
+    maicord_test(MaiCordStreamEncoderVaapiTests ENTRY maicord_stream_encoder_vaapi_entry
+        SOURCES tests/platform/encode/stream_encoder_vaapi_test.cpp
+        LIBS maicord_video_encode maicord_video_decode maicord_gpu_gles_video maicord_gpu_gles_shaders maicord_gpu_gles
+            maicord_video_vaapi maicord_video_software maicord_compression maicord_media_codec maicord_core
+        INCLUDES src
+        TIMEOUT 20 LABELS gpu TEST maicord_stream_encoder_vaapi)
+    set_tests_properties(maicord_stream_encoder_vaapi PROPERTIES SKIP_RETURN_CODE 77)
+endif()
 if(MAICORD_LINUX)
     # The tests of the Linux live video decoders (src/platform/decode).
     #

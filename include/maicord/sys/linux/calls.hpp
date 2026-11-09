@@ -139,6 +139,10 @@ inline long sys_ftruncate(int fd, u64 length) noexcept {
     return syscall2(kSysFtruncate, fd, static_cast<long>(length));
 }
 
+inline long sys_ioctl(int fd, unsigned long request, void* argument) noexcept {
+    return syscall3(kSysIoctl, fd, static_cast<long>(request), reinterpret_cast<long>(argument));
+}
+
 inline long sys_flock(int fd, int operation) noexcept {
     return syscall2(kSysFlock, fd, operation);
 }

@@ -109,4 +109,85 @@ WebAuthnMfaResult webauthn_mfa_write_assertion(
     const WebAuthnMfaAssertionView& assertion,
     Slice<u8> output) noexcept;
 
+// Registering a security key (POST /users/@me/mfa/webauthn/credentials answers {"ticket", "challenge"}; `challenge` is a
+// string holding {"publicKey": PublicKeyCredentialCreationOptions}). The relying party and the challenge, timeout and
+// user verification of `request` read as in a sign-in; `request.credentials` lists the credentials the key must not
+// already hold (excludeCredentials).
+inline constexpr u32 kWebAuthnMfaMaximumUserIdBytes = 64;
+inline constexpr u32 kWebAuthnMfaMaximumEntityNameBytes = 128;
+inline constexpr u32 kWebAuthnMfaMaximumAlgorithms = 8;
+// COSE algorithm identifiers (ES256, EdDSA, RS256) the ceremonies can ask a key for.
+inline constexpr i32 kWebAuthnCoseEs256 = -7;
+inline constexpr i32 kWebAuthnCoseEdDsa = -8;
+inline constexpr i32 kWebAuthnCoseRs256 = -257;
+
+enum class WebAuthnResidentKey : u8 {
+    discouraged,
+    preferred,
+    required,
+};
+
+struct WebAuthnMfaCreationOptions {
+    WebAuthnMfaRequestOptions request;
+    char rp_name[kWebAuthnMfaMaximumEntityNameBytes + 1];
+    u8 user_id[kWebAuthnMfaMaximumUserIdBytes];
+    char user_name[kWebAuthnMfaMaximumEntityNameBytes + 1];
+    char user_display_name[kWebAuthnMfaMaximumEntityNameBytes + 1];
+    // The acceptable algorithms in the server's order (pubKeyCredParams); ES256 and RS256 when it lists none.
+    i32 algorithms[kWebAuthnMfaMaximumAlgorithms];
+    u32 algorithm_count;
+    u32 user_id_bytes;
+    WebAuthnResidentKey resident_key;
+    // authenticatorSelection.authenticatorAttachment; unknown asks for no particular kind.
+    WebAuthnAuthenticatorAttachment attachment;
+    // attestation: "none" (also when absent) asks for no attestation statement.
+    bool attestation_none;
+};
+
+// The creation challenge's decoded JSON; the relying party must be discord.com.
+WebAuthnMfaResult webauthn_mfa_decode_creation(
+    Utf8View json, Slice<u32> structural_scratch, u32 maximum_depth,
+    WebAuthnMfaCreationOptions* output) noexcept;
+
+// CollectedClientData of a creation ("webauthn.create"), hashed by the authenticator.
+WebAuthnMfaResult webauthn_mfa_write_creation_client_data(
+    const WebAuthnMfaCreationOptions& creation,
+    Slice<u8> output) noexcept;
+
+// An attestation object (CBOR {"fmt", "attStmt", "authData"}) from what a key returned: its format name (at most 23
+// bytes), its attestation statement as a CBOR map (empty: an empty map) and its raw authenticator data.
+struct WebAuthnMfaAttestationObjectView {
+    Utf8View format;
+    ConstSlice<u8> attestation_statement;
+    ConstSlice<u8> authenticator_data;
+};
+WebAuthnMfaResult webauthn_mfa_write_attestation_object(
+    const WebAuthnMfaAttestationObjectView& object,
+    Slice<u8> output) noexcept;
+
+// Zeroes the AAGUID of authenticator data that carries attested credential data (what an "none" attestation sends).
+void webauthn_mfa_clear_aaguid(u8* authenticator_data, u32 bytes) noexcept;
+
+// The COSE algorithm (entry 3) of the credential public key in authenticator data that carries attested credential
+// data; 0 when it holds none or the key does not parse.
+i32 webauthn_mfa_credential_algorithm(ConstSlice<u8> authenticator_data) noexcept;
+
+struct WebAuthnMfaAttestationView {
+    ConstSlice<u8> credential_id;
+    ConstSlice<u8> client_data_json;
+    ConstSlice<u8> attestation_object;
+    ConstSlice<u8> authenticator_data;
+    // COSE algorithm of the credential's public key.
+    i32 public_key_algorithm;
+    // WebAuthnTransport bits the key was reached by.
+    u32 transports;
+    WebAuthnAuthenticatorAttachment attachment;
+};
+
+// The stringified PublicKeyCredential.toJSON value of a creation, the `credential` of the registration request.
+// Binary members use unpadded base64url; the size is checked before anything is written.
+WebAuthnMfaResult webauthn_mfa_write_attestation(
+    const WebAuthnMfaAttestationView& attestation,
+    Slice<u8> output) noexcept;
+
 } // namespace maicord

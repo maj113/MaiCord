@@ -108,7 +108,9 @@ enum VARENUM {
     VT_BSTR = 8,
     VT_BOOL = 11,
     VT_UNKNOWN = 13,
+    VT_UI4 = 19,
     VT_LPWSTR = 31,
+    VT_BLOB = 65,
 };
 struct _tagpropertykey {
     GUID fmtid;

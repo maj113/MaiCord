@@ -24,7 +24,7 @@ set(maicord_sys_headers
     include/maicord/sys/dxva.hpp include/maicord/sys/d2d1.hpp include/maicord/sys/dwrite.hpp
     include/maicord/sys/wasapi.hpp include/maicord/sys/media_foundation.hpp include/maicord/sys/tsf.hpp
     include/maicord/sys/uia.hpp include/maicord/sys/speech.hpp include/maicord/sys/spellcheck.hpp
-    include/maicord/sys/webauthn.hpp include/maicord/sys/process_info.hpp
+    include/maicord/sys/webauthn.hpp include/maicord/sys/process_info.hpp include/maicord/sys/desktop_capture.hpp
     include/maicord/sys/libc/stddef.h include/maicord/sys/libc/stdint.h include/maicord/sys/libc/limits.h
     include/maicord/sys/libc/stdarg.h include/maicord/sys/libc/crtdbg.h)
 set(maicord_sys_conformance_unit "${MAICORD_GENERATED_DIRECTORY}/sys_conformance.cpp")
@@ -105,13 +105,14 @@ maicord_library(maicord_platform
     src/platform/desktop/timezone.cpp src/platform/crypto/remote_auth_crypto.cpp src/platform/crypto/secure_buffer.cpp
     src/platform/net/tls_client.cpp src/platform/net/tls_stream.cpp src/platform/desktop/notifications.cpp
     src/platform/desktop/notification_identity.cpp src/platform/desktop/taskbar_attention.cpp
+    src/platform/desktop/screen_color.cpp
     src/platform/desktop/integration.cpp src/platform/desktop/system_tray.cpp src/platform/desktop/spell_checker.cpp
     src/platform/audio/speech.cpp src/platform/audio/voice_audio_output.cpp src/platform/audio/voice_audio_capture.cpp
     # Used by the application core and client preferences, which both link this
     # library: one compile for every image.
     src/app/net/file_persistence.cpp
     ${maicord_test_hook_net_sources}
-    LIBS maicord_core maicord_window_win32 ${maicord_tls_libs} ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
+    LIBS maicord_core maicord_window_win32 ${maicord_tls_libs} ole32 user32 gdi32 shell32 mfuuid ntdll maicord_combase advapi32)
 
 maicord_library(maicord_notification_audio src/platform/audio/notification_audio.cpp
     src/platform/audio/notification_audio_mixer.cpp

@@ -167,6 +167,8 @@
 #define FLASHW_STOP 0
 #define FLASHW_TRAY 0x00000002
 #define FLASHW_TIMERNOFG 0x0000000C
+#define WDA_NONE 0x00000000
+#define WDA_EXCLUDEFROMCAPTURE 0x00000011
 #define SWP_NOSIZE 0x0001
 #define SWP_NOMOVE 0x0002
 #define SWP_NOZORDER 0x0004
@@ -229,9 +231,14 @@
 #define SPI_GETWHEELSCROLLLINES 0x0068
 #define SPI_GETCLIENTAREAANIMATION 0x1042
 #define MONITOR_DEFAULTTONEAREST 0x00000002
+#define WH_MOUSE_LL 14
+#define HC_ACTION 0
 
+struct HHOOK__;
+typedef struct HHOOK__* HHOOK;
 typedef void(__stdcall* TIMERPROC)(HWND, UINT, UINT_PTR, DWORD);
 typedef BOOL(__stdcall* WNDENUMPROC)(HWND, LPARAM);
+typedef LRESULT(__stdcall* HOOKPROC)(int, WPARAM, LPARAM);
 
 MAICORD_SYS_TYPES_BEGIN
 // <winuser.h>
@@ -352,6 +359,14 @@ struct tagTITLEBARINFOEX {
     RECT rgrect[6];
 };
 typedef tagTITLEBARINFOEX TITLEBARINFOEX;
+struct tagMSLLHOOKSTRUCT {
+    POINT pt;
+    DWORD mouseData;
+    DWORD flags;
+    DWORD time;
+    ULONG_PTR dwExtraInfo;
+};
+typedef tagMSLLHOOKSTRUCT MSLLHOOKSTRUCT;
 MAICORD_SYS_TYPES_END
 
 // <winuser.h>
@@ -386,6 +401,7 @@ extern "C" __declspec(dllimport) BOOL WINAPI IsWindow(HWND hWnd);
 extern "C" __declspec(dllimport) BOOL WINAPI DestroyWindow(HWND hWnd);
 extern "C" __declspec(dllimport) BOOL WINAPI ShowWindow(HWND hWnd, int nCmdShow);
 extern "C" __declspec(dllimport) BOOL WINAPI FlashWindowEx(PFLASHWINFO pfwi);
+extern "C" __declspec(dllimport) BOOL WINAPI SetWindowDisplayAffinity(HWND hWnd, DWORD dwAffinity);
 extern "C" __declspec(dllimport) BOOL WINAPI SetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx,
     int cy, UINT uFlags);
 extern "C" __declspec(dllimport) BOOL WINAPI GetWindowPlacement(HWND hWnd, WINDOWPLACEMENT* lpwndpl);
@@ -448,6 +464,12 @@ extern "C" __declspec(dllimport) int WINAPI MessageBoxW(HWND hWnd, LPCWSTR lpTex
 extern "C" __declspec(dllimport) BOOL WINAPI MessageBeep(UINT uType);
 extern "C" __declspec(dllimport) HCURSOR WINAPI SetCursor(HCURSOR hCursor);
 extern "C" __declspec(dllimport) BOOL WINAPI GetCursorPos(LPPOINT lpPoint);
+extern "C" __declspec(dllimport) HHOOK WINAPI SetWindowsHookExW(int idHook, HOOKPROC lpfn, HINSTANCE hmod,
+    DWORD dwThreadId);
+extern "C" __declspec(dllimport) BOOL WINAPI UnhookWindowsHookEx(HHOOK hhk);
+extern "C" __declspec(dllimport) LRESULT WINAPI CallNextHookEx(HHOOK hhk, int nCode, WPARAM wParam, LPARAM lParam);
+extern "C" __declspec(dllimport) HDC WINAPI GetDC(HWND hWnd);
+extern "C" __declspec(dllimport) int WINAPI ReleaseDC(HWND hWnd, HDC hDC);
 extern "C" __declspec(dllimport) UINT WINAPI GetCaretBlinkTime();
 extern "C" __declspec(dllimport) BOOL WINAPI ClientToScreen(HWND hWnd, LPPOINT lpPoint);
 extern "C" __declspec(dllimport) BOOL WINAPI ScreenToClient(HWND hWnd, LPPOINT lpPoint);
@@ -461,6 +483,8 @@ extern "C" __declspec(dllimport) HWND WINAPI FindWindowExW(HWND hWndParent, HWND
     LPCWSTR lpszWindow);
 extern "C" __declspec(dllimport) BOOL WINAPI EnumWindows(WNDENUMPROC lpEnumFunc, LPARAM lParam);
 extern "C" __declspec(dllimport) BOOL WINAPI EnumThreadWindows(DWORD dwThreadId, WNDENUMPROC lpfn, LPARAM lParam);
+extern "C" __declspec(dllimport) BOOL WINAPI EnumChildWindows(HWND hWndParent, WNDENUMPROC lpEnumFunc, LPARAM lParam);
+extern "C" __declspec(dllimport) HWND WINAPI GetForegroundWindow(void);
 extern "C" __declspec(dllimport) int WINAPI GetClassNameW(HWND hWnd, LPWSTR lpClassName, int nMaxCount);
 extern "C" __declspec(dllimport) DWORD WINAPI GetWindowThreadProcessId(HWND hWnd, LPDWORD lpdwProcessId);
 extern "C" __declspec(dllimport) HWND WINAPI GetWindow(HWND hWnd, UINT uCmd);

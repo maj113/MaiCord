@@ -4,6 +4,7 @@
 #include "maicord/platform/dbus/instance.hpp"
 #include "maicord/platform/dbus/launcher_entry.hpp"
 #include "maicord/platform/dbus/tray.hpp"
+#include "maicord/platform/desktop/screen_color.hpp"
 #include "mock_control.hpp"
 
 // The desktop integration over the session bus (tools/test_dbus.sh): the StatusNotifierItem tray with its dbusmenu, the
@@ -463,6 +464,30 @@ void test_file_uris() noexcept {
     check(!file_uri_to_path("file:///0123456789", path, 8), "a path that does not fit is refused");
 }
 
+bool g_picked;
+void pick_settled(void*) noexcept {
+    g_picked = true;
+}
+bool pick_done() noexcept {
+    return g_picked;
+}
+// The colour picker's eyedropper over Screenshot.PickColor; the mock answers (0.25, 0.5, 1.0).
+void test_screen_color(bool bare) noexcept {
+    g_picked = false;
+    check(screen_color_pick_start(pick_settled, nullptr) &&
+              screen_color_pick_state(nullptr) == ScreenColorState::picking,
+          "the eyedropper asks the Screenshot portal");
+    u32 rgb = 0;
+    if (bare)
+        check(pump(pick_done, 4000) && screen_color_pick_state(&rgb) == ScreenColorState::failed,
+              "no portal: the eyedropper fails");
+    else
+        check(pump(pick_done, 4000) && screen_color_pick_state(&rgb) == ScreenColorState::picked && rgb == 0x4080FF,
+              "PickColor's (ddd) colour becomes 0xRRGGBB");
+    screen_color_pick_end();
+    check(screen_color_pick_state(nullptr) == ScreenColorState::idle, "ending the pick returns to idle");
+}
+
 void test_file_chooser() noexcept {
     test_file_uris();
     const char* const images[2] = {"*.png", "*.jpg"};
@@ -904,6 +929,7 @@ MAICORD_TEST_ENTRY(maicord_dbus_desktop_entry) {
         test_tray_bare();
         test_shortcuts_bare();
         test_file_chooser_bare();
+        test_screen_color(true);
         check(launcher_entry_update("io.github.maj113.MaiCord.desktop", LauncherEntryState{1, true, false}), "the launcher entry is sent on any bus");
         test_exit(g_failures, "dbus_desktop_bare");
     }
@@ -915,6 +941,7 @@ MAICORD_TEST_ENTRY(maicord_dbus_desktop_entry) {
     test_tray();
     test_shortcuts();
     test_file_chooser();
+    test_screen_color(false);
     test_launcher_entry();
     test_instance_bus();
     connection_close(g_control);

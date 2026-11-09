@@ -163,6 +163,8 @@ set_tests_properties(maicord_resize_stress_probe maicord_surface_motion_ui_probe
 # starts late forms the suite's tail.
 set(maicord_test_rank 99)
 foreach(maicord_long_test
+    maicord_stream_encoder_gpu_h264 maicord_stream_encoder_gpu_h265 maicord_stream_encoder_gpu_av1
+    maicord_go_live_loopback
     maicord_profile_media_sequence_ui_probe maicord_plugin_dev maicord_core maicord_native_arabic_run
     maicord_native_arabic_plan maicord_resize_text_ui_probe maicord_network_loop maicord_oauth_sign_in
     maicord_voice_setup maicord_media_memory_probe maicord_native_matrix_decorations

@@ -55,6 +55,9 @@ void window_show_system_menu(Window window, float x, float y) noexcept;
 void window_set_min_size(Window window, u32 width_px, u32 height_px) noexcept;
 void window_request_attention(Window window, Attention attention) noexcept;
 void window_set_drop_target(Window window, bool accept_files) noexcept;
+// Keeps the window out of screen captures and recordings (Streamer Mode). False where the system cannot (Wayland: the
+// compositor decides what a capture shows).
+bool window_set_capture_excluded(Window window, bool excluded) noexcept;
 void window_invalidate(Window window) noexcept;
 // The StateFlag bits of the window now: minimized, visible, maximized, fullscreen, ...
 u32 window_state(Window window) noexcept;

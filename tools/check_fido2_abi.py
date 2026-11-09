@@ -5,7 +5,8 @@ analogue of tools/check_speechd_abi.py for the security-key backend.
 The backend never links libfido2: it declares the functions it resolves with dlsym, and the constants it uses,
 itself. Nothing at build time proves those declarations match the library, so this script does:
 
-  * every constant of abi.hpp whose comment names a libfido2 enumerator (`// FIDO_ERR_PIN_INVALID`) is compiled against the real
+  * every constant of abi.hpp whose comment names a libfido2 enumerator or COSE algorithm (`// FIDO_ERR_PIN_INVALID`,
+    `// COSE_ES256`) is compiled against the real
     header in a _Static_assert, so a value that differs fails;
   * every function of the MAICORD_FIDO2_FUNCTIONS table is found in the preprocessed header, and its argument count
     and the kind (pointer, integer of a size, void) of its return type and every argument must be the declared one.
@@ -41,7 +42,7 @@ def kind(type_text):
 
 def main():
     compiler, includes = shared.command_line(__doc__, ["/usr/include"])
-    functions, constants = shared.read_dlsym_table(HEADER, "MAICORD_FIDO2_FUNCTIONS", "FIDO_")
+    functions, constants = shared.read_dlsym_table(HEADER, "MAICORD_FIDO2_FUNCTIONS", "(?:FIDO_|COSE_)")
     if not functions or not constants:
         raise SystemExit("found no table in " + HEADER)
 

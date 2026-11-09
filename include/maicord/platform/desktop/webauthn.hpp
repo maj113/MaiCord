@@ -17,6 +17,8 @@ enum class WindowsWebAuthnError : u8 {
     platform,
     assertion,
     output_too_small,
+    excluded,
+    unsupported,
 };
 
 struct WindowsWebAuthnResult {
@@ -37,6 +39,14 @@ WindowsWebAuthnResult windows_webauthn_authenticate(
     Window owner, const WebAuthnMfaRequestOptions& request,
     SecureBuffer* serialized_credential) noexcept;
 
+// Registers a security key (the creation of POST /users/@me/mfa/webauthn/credentials) through the same library: one
+// modal OS prompt. On success `serialized_credential` holds the credential JSON of the registration request.
+// `excluded` is a key that already holds one of the excluded credentials; `unsupported` one that offers none of the
+// algorithms asked for.
+WindowsWebAuthnResult windows_webauthn_register(
+    Window owner, const WebAuthnMfaCreationOptions& creation,
+    SecureBuffer* serialized_credential) noexcept;
+
 // Whether this system has a security-key ceremony. Windows does (webauthn.dll is asked when the ceremony runs, and
 // answers `unavailable` where it cannot). Linux has it when libfido2 (`libfido2.so.1`) can be loaded.
 #if defined(_WIN32)
@@ -51,7 +61,7 @@ bool webauthn_platform_available() noexcept;
 // thread and the caller's loop goes on. One ceremony at a time:
 //
 //   start      builds the client data and starts the worker: it finds the keys on hidraw (waiting for one to be plugged in),
-//              asks for the assertion and follows what the key says
+//              asks for the assertion (or, started as a registration, makes the credential) and follows what the key says
 //   wake       the worker posts `wake` with a = the token given to start and b = kWebAuthnWakePin (the key wants a PIN)
 //              or kWebAuthnWakeDone (finished: take the result)
 //   PIN        webauthn_ceremony_pin_prompt says whether the last PIN was refused; submit_pin answers
@@ -77,6 +87,9 @@ enum class WebAuthnCeremonyError : u8 {
     timed_out,       // the key was not touched in time
     output_too_small,
     failed,
+    excluded,        // a registration: every key present already holds one of the credentials it excludes
+    unsupported,     // a registration: no key accepts any of the algorithms asked for
+    key_full,        // a registration: the key has no room for another credential
 };
 
 struct WebAuthnCeremonyResult {
@@ -94,6 +107,9 @@ struct WebAuthnPinPrompt {
 };
 
 bool webauthn_ceremony_start(const WebAuthnMfaRequestOptions& request, const Waker& wake, u64 token) noexcept;
+// The same ceremony registering a key: a credential for the relying party and user of `creation` instead of an assertion;
+// finish writes the credential JSON of the registration request (what windows_webauthn_register writes).
+bool webauthn_ceremony_start_creation(const WebAuthnMfaCreationOptions& creation, const Waker& wake, u64 token) noexcept;
 WebAuthnCeremonyState webauthn_ceremony_state() noexcept;
 WebAuthnPinPrompt webauthn_ceremony_pin_prompt() noexcept;
 // The user's PIN (UTF-8, 4 to 63 bytes); only while the state is need_pin. The ceremony copies it and the caller clears its own.

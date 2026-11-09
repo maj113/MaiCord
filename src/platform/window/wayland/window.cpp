@@ -839,6 +839,11 @@ void window_request_close(Window window) noexcept {
     loop_wake();
 }
 
+// No Wayland protocol lets a client keep its surface out of captures: the compositor and the portal decide.
+bool window_set_capture_excluded(Window, bool) noexcept {
+    return false;
+}
+
 bool window_set_fullscreen(Window window, bool fullscreen) noexcept {
     if (!is_window(window) || !g.caps.fullscreen)
         return false;

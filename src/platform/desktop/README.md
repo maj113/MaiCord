@@ -44,8 +44,22 @@ and user-verification flows, `ACTION_TIMEOUT` pacing, platform authenticators) i
   `fido_dev_cancel`, as does a switch of method or account); the PIN is typed in the MFA code field on the `mfa_required` screen,
   masked, labelled "SECURITY KEY PIN", sent with "Verify" at four characters or more (a wrong one asks again, with the attempts
   left). A late answer from a screen that is gone is joined and dropped.
+- Registering a key (Settings > My Account > Security Keys > Add a Security Key, and verifying with a key there) uses the same
+  ceremony: `webauthn_ceremony_start_creation` decodes Discord's creation challenge (`webauthn_mfa_decode_creation`: relying
+  party discord.com, user, algorithms, excluded credentials, resident key, verification, attestation), hashes the client data of
+  `webauthn.create` and runs `fido2::make`, which asks the first key that answers for `fido_dev_make_cred` with the first
+  algorithm of the server's list the key accepts (ES256, EdDSA or RS256; `FIDO_ERR_UNSUPPORTED_ALGORITHM` tries the next),
+  the same PIN steps, and `FIDO_ERR_CREDENTIAL_EXCLUDED` from every key present as `excluded`. `webauthn_ceremony_finish` builds
+  the attestation object (the key's `fmt`, `attStmt` and `authData`; a "none" attestation, Discord's default, sends `none`, an
+  empty statement and the AAGUID zeroed, as a browser does) and the credential JSON of the second POST. Only a resident key
+  that the server *requires* is asked for as one, and hidraw keys are reported as `usb`. The account pages route the wakes by a
+  token with its top bit set (`application_account_settings_webauthn_progress`, tried before the sign-in's); a dialog closed
+  while the key waits cancels the ceremony. `windows_webauthn_register` is the Windows path (`WebAuthNAuthenticatorMakeCredential`).
 - Tests: `maicord_linux_fido2` (a fake libfido2 table: success, PIN required, wrong PIN, blocked PIN, no device, no credential,
-  never touched, cannot open, cancel while waiting, through `fido2::run` and the worker-thread ceremony),
+  never touched, cannot open, cancel while waiting, through `fido2::run` and the worker-thread ceremony; and registration:
+  the algorithm fallback, exclusion, a full key, a refusal on the key and the attestation object through `fido2::make`),
+  `maicord_webauthn_registration` (the creation challenge, client data, attestation object and credential JSON; Windows'
+  MakeCredential needs a key, so only its request building and response parsing are tested),
   `maicord_linux_fido2_no_library`, `maicord_linux_webauthn_flow` (the sign-in over a fake ceremony on the headless window) and
   `maicord_linux_webauthn_text`.
 

@@ -3,6 +3,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/media/image/apng.hpp"
 #include "maicord/media/image/jpeg.hpp"
+#include "maicord/media/image/dominant_color.hpp"
 #include "../../support/media_fixture.hpp"
 #include "../../fixtures/jpeg_reference_fixture.hpp"
 #include "../../fixtures/jpeg_progressive_fixture.hpp"
@@ -2191,6 +2192,101 @@ void test_png_decode() noexcept {
                                 Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)})
                    .error == PngError::palette_index,
            "png_out_of_range_palette_index_reject");
+}
+
+// image_dominant_color gives what the official client's median cut gives for the same pixels (values taken from its
+// quantizer): a gradient; one colour (its 5-bit cell's centre); skipped translucent and near-white pixels (black when
+// nothing is left); a picture with alpha; the inverted boxes of one and two sampled pixels; and 250 grey, which is
+// not near-white and outweighs a larger green area by population times volume.
+void test_image_dominant_color() noexcept {
+    static u8 rgba[64 * 64 * 4];
+    static u32 histogram[kImageDominantColorHistogramEntries];
+    // `pixel` gives 0xRRGGBBAA.
+    const auto dominant = [](u32 width, u32 height, auto&& pixel) noexcept {
+        for (u32 y = 0; y < height; ++y)
+            for (u32 x = 0; x < width; ++x) {
+                const u32 value = pixel(x, y);
+                u8* p = rgba + (y * width + x) * 4;
+                p[0] = static_cast<u8>(value >> 24);
+                p[1] = static_cast<u8>(value >> 16);
+                p[2] = static_cast<u8>(value >> 8);
+                p[3] = static_cast<u8>(value);
+            }
+        return image_dominant_color({rgba, width * height * 4}, width, height,
+                                    {histogram, kImageDominantColorHistogramEntries});
+    };
+    constexpr u32 green = 0x088959FFu;
+    expect(dominant(64, 64, [](u32 x, u32 y) { return (x * 4) << 24 | (y * 4) << 16 | (x + y) * 2 << 8 | 255u; }) ==
+               0xB8A0AA,
+           "dominant_color_gradient");
+    expect(dominant(16, 16, [](u32, u32) { return green; }) == 0x0C8C5C, "dominant_color_one_colour_cell_centre");
+    expect(dominant(16, 16, [](u32 x, u32) { return x < 8 ? 0xFFFFFFFFu : 0x0A141E64u; }) == 0,
+           "dominant_color_white_and_translucent_skipped");
+    expect(dominant(40, 40,
+                    [](u32 x, u32 y) { return x < 30 ? green : y < 20 ? 0xFFFFFFFFu : 0x141418FFu; }) == 0x0C8C5C,
+           "dominant_color_largest_area");
+    expect(dominant(50, 30,
+                    [](u32 x, u32 y) {
+                        return (x * 37 % 256) << 24 | (y * 53 % 256) << 16 | (x * y * 11 % 256) << 8 |
+                               ((x + y) % 7 ? 255u : 100u);
+                    }) == 0x41422F,
+           "dominant_color_mixed_alpha");
+    expect(dominant(1, 1, [](u32, u32) { return green; }) == 0x084830, "dominant_color_one_pixel");
+    expect(dominant(11, 1, [](u32 x, u32) { return x == 0 ? green : x == 10 ? 0xC8281EFFu : 0u; }) == 0x6C1810,
+           "dominant_color_two_pixels");
+    expect(dominant(48, 48,
+                    [](u32 x, u32 y) {
+                        return x + y < 40 ? green : x * y % 5 == 0 ? 0xFAFAFAFFu : 0x111214FFu;
+                    }) == 0xFCFCFC,
+           "dominant_color_population_times_volume");
+    // The same 16x16 pixels (the last picture's first rows hold green) with a short histogram or pixel buffer.
+    constexpr u32 entries = kImageDominantColorHistogramEntries;
+    expect(image_dominant_color({rgba, 1024}, 16, 16, {histogram, entries}) != 0 &&
+               image_dominant_color({rgba, 1024}, 16, 16, {histogram, entries - 1}) == 0 &&
+               image_dominant_color({rgba, 1023}, 16, 16, {histogram, entries}) == 0,
+           "dominant_color_rejects_short_buffers");
+    // The whole palette (Discord's quantizer gives five colours, repeats included; the two-pixel picture one) and
+    // the companion a single-colour palette's theme takes as its second colour (the client's first suggestion).
+    const auto palette = [](u32 width, u32 height, auto&& pixel, u32 count, const u32* want) noexcept {
+        for (u32 y = 0; y < height; ++y)
+            for (u32 x = 0; x < width; ++x) {
+                const u32 value = pixel(x, y);
+                u8* p = rgba + (y * width + x) * 4;
+                p[0] = static_cast<u8>(value >> 24);
+                p[1] = static_cast<u8>(value >> 16);
+                p[2] = static_cast<u8>(value >> 8);
+                p[3] = static_cast<u8>(value);
+            }
+        u32 colors[kImagePaletteColors]{};
+        if (image_palette({rgba, width * height * 4}, width, height, {histogram, kImageDominantColorHistogramEntries},
+                          colors) != count)
+            return false;
+        for (u32 i = 0; i < count; ++i)
+            if (colors[i] != want[i])
+                return false;
+        return true;
+    };
+    constexpr u32 gradient[]{0xB8A0AA, 0x1F7F4D, 0xA01F5D, 0x58A07A, 0x444444};
+    constexpr u32 area[]{0x0C8C5C, 0x14141C, 0x10903C, 0x10903C, 0x10903C};
+    constexpr u32 mixed[]{0x41422F, 0x84DE58, 0x9B5FD4, 0xD95B4E, 0x3BA93B};
+    constexpr u32 two[]{0x6C1810};
+    expect(palette(64, 64, [](u32 x, u32 y) { return (x * 4) << 24 | (y * 4) << 16 | (x + y) * 2 << 8 | 255u; }, 5,
+                   gradient) &&
+               palette(40, 40, [](u32 x, u32 y) { return x < 30 ? green : y < 20 ? 0xFFFFFFFFu : 0x141418FFu; }, 5,
+                       area) &&
+               palette(50, 30,
+                       [](u32 x, u32 y) {
+                           return (x * 37 % 256) << 24 | (y * 53 % 256) << 16 | (x * y * 11 % 256) << 8 |
+                                  ((x + y) % 7 ? 255u : 100u);
+                       },
+                       5, mixed) &&
+               palette(11, 1, [](u32 x, u32) { return x == 0 ? green : x == 10 ? 0xC8281EFFu : 0u; }, 1, two),
+           "dominant_color_palette_matches_the_client");
+    expect(image_palette_companion(0x6C1810) == 0x46106C && image_palette_companion(0x0C8C5C) == 0x7B8C0C &&
+               image_palette_companion(0) == 0x261B32 && image_palette_companion(0xFFFFFF) == 0x997AB8 &&
+               image_palette_companion(0x808080) == 0x805AA6 && image_palette_companion(0xFF0000) == 0x8000FF &&
+               image_palette_companion(0x123456) == 0x125612 && image_palette_companion(0x101010) == 0x362647,
+           "dominant_color_single_colour_companion_matches_the_client");
 }
 
 } // namespace maicord

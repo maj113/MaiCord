@@ -125,10 +125,12 @@ enum D3D11_CPU_ACCESS_FLAG {
     D3D11_CPU_ACCESS_READ = 0x20000L
 };
 enum D3D11_RESOURCE_MISC_FLAG {
+    D3D11_RESOURCE_MISC_GENERATE_MIPS = 0x1L,
     D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS = 0x20L,
     D3D11_RESOURCE_MISC_BUFFER_STRUCTURED = 0x40L,
     D3D11_RESOURCE_MISC_TILE_POOL = 0x20000L,
     D3D11_RESOURCE_MISC_TILED = 0x40000L,
+    D3D11_RESOURCE_MISC_GDI_COMPATIBLE = 0x200L,
 };
 enum D3D11_MAP {
     D3D11_MAP_READ = 1,
@@ -327,7 +329,61 @@ struct D3D11_SHADER_RESOURCE_VIEW_DESC {
 struct __declspec(uuid("b0e06fe0-8192-4e1a-b1ca-36d7414710b2")) __declspec(novtable) ID3D11ShaderResourceView : ID3D11View {
     virtual void __stdcall GetDesc(D3D11_SHADER_RESOURCE_VIEW_DESC* pDesc) = 0;
 };
-struct D3D11_RENDER_TARGET_VIEW_DESC;
+enum D3D11_RTV_DIMENSION {
+    D3D11_RTV_DIMENSION_TEXTURE2D = 4,
+};
+struct D3D11_BUFFER_RTV {
+    union {
+        UINT FirstElement;
+        UINT ElementOffset;
+    };
+    union {
+        UINT NumElements;
+        UINT ElementWidth;
+    };
+};
+struct D3D11_TEX1D_RTV {
+    UINT MipSlice;
+};
+struct D3D11_TEX1D_ARRAY_RTV {
+    UINT MipSlice;
+    UINT FirstArraySlice;
+    UINT ArraySize;
+};
+struct D3D11_TEX2D_RTV {
+    UINT MipSlice;
+};
+struct D3D11_TEX2DMS_RTV {
+    UINT UnusedField_NothingToDefine;
+};
+struct D3D11_TEX2D_ARRAY_RTV {
+    UINT MipSlice;
+    UINT FirstArraySlice;
+    UINT ArraySize;
+};
+struct D3D11_TEX2DMS_ARRAY_RTV {
+    UINT FirstArraySlice;
+    UINT ArraySize;
+};
+struct D3D11_TEX3D_RTV {
+    UINT MipSlice;
+    UINT FirstWSlice;
+    UINT WSize;
+};
+struct D3D11_RENDER_TARGET_VIEW_DESC {
+    DXGI_FORMAT Format;
+    D3D11_RTV_DIMENSION ViewDimension;
+    union {
+        D3D11_BUFFER_RTV Buffer;
+        D3D11_TEX1D_RTV Texture1D;
+        D3D11_TEX1D_ARRAY_RTV Texture1DArray;
+        D3D11_TEX2D_RTV Texture2D;
+        D3D11_TEX2D_ARRAY_RTV Texture2DArray;
+        D3D11_TEX2DMS_RTV Texture2DMS;
+        D3D11_TEX2DMS_ARRAY_RTV Texture2DMSArray;
+        D3D11_TEX3D_RTV Texture3D;
+    };
+};
 struct __declspec(uuid("dfdba067-0b8d-4865-875b-d7b4516cc164")) __declspec(novtable) ID3D11RenderTargetView : ID3D11View {
     virtual void __stdcall GetDesc(D3D11_RENDER_TARGET_VIEW_DESC* pDesc) = 0;
 };
@@ -569,7 +625,7 @@ struct __declspec(uuid("c0bfa96c-e089-44fb-8eaf-26f8796190da")) __declspec(novta
     virtual void __stdcall ClearUnorderedAccessViewFloat(ID3D11UnorderedAccessView* pUnorderedAccessView,
         const FLOAT Values[4]) = 0;
     MAICORD_COM_UNUSED(ClearDepthStencilView);
-    MAICORD_COM_UNUSED(GenerateMips);
+    virtual void __stdcall GenerateMips(ID3D11ShaderResourceView* pShaderResourceView) = 0;
     MAICORD_COM_UNUSED(SetResourceMinLOD);
     MAICORD_COM_UNUSED(GetResourceMinLOD);
     MAICORD_COM_UNUSED(ResolveSubresource);
@@ -804,6 +860,8 @@ enum D3D11_CREATE_DEVICE_FLAG {
     D3D11_CREATE_DEVICE_VIDEO_SUPPORT = 0x800
 };
 // <d3d11_1.h>
+struct __declspec(uuid("5c1e0d8a-7c23-48f9-8c59-a92958ceff11")) __declspec(novtable) ID3DDeviceContextState : ID3D11DeviceChild {
+};
 struct __declspec(uuid("bb2c6faa-b5fb-4082-8e6b-388b8cfa90e1")) __declspec(novtable) ID3D11DeviceContext1 : ID3D11DeviceContext {
     MAICORD_COM_UNUSED(CopySubresourceRegion1);
     MAICORD_COM_UNUSED(UpdateSubresource1);
@@ -822,7 +880,8 @@ struct __declspec(uuid("bb2c6faa-b5fb-4082-8e6b-388b8cfa90e1")) __declspec(novta
     MAICORD_COM_UNUSED(GSGetConstantBuffers1);
     MAICORD_COM_UNUSED(PSGetConstantBuffers1);
     MAICORD_COM_UNUSED(CSGetConstantBuffers1);
-    MAICORD_COM_UNUSED(SwapDeviceContextState);
+    virtual void __stdcall SwapDeviceContextState(ID3DDeviceContextState* pState,
+        ID3DDeviceContextState** ppPreviousState) = 0;
     virtual void __stdcall ClearView(ID3D11View* pView, const FLOAT Color[4], const D3D11_RECT* pRect,
         UINT NumRects) = 0;
     MAICORD_COM_UNUSED(DiscardView1);
@@ -840,7 +899,9 @@ struct __declspec(uuid("a04bfb29-08ef-43d6-a49c-a9bdbdcbe686")) __declspec(novta
     MAICORD_COM_UNUSED(CreateDeferredContext1);
     MAICORD_COM_UNUSED(CreateBlendState1);
     MAICORD_COM_UNUSED(CreateRasterizerState1);
-    MAICORD_COM_UNUSED(CreateDeviceContextState);
+    virtual HRESULT __stdcall CreateDeviceContextState(UINT Flags, const D3D_FEATURE_LEVEL* pFeatureLevels,
+        UINT FeatureLevels, UINT SDKVersion, const IID& EmulatedInterface, D3D_FEATURE_LEVEL* pChosenFeatureLevel,
+        ID3DDeviceContextState** ppContextState) = 0;
     MAICORD_COM_UNUSED(OpenSharedResource1);
     MAICORD_COM_UNUSED(OpenSharedResourceByName);
 };

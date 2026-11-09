@@ -15,6 +15,7 @@ enum SyscallNumber : long {
     kSysMprotect = 10,
     kSysMunmap = 11,
     kSysRtSigprocmask = 14,
+    kSysIoctl = 16,
     kSysPread64 = 17,
     kSysPwrite64 = 18,
     kSysSchedYield = 24,

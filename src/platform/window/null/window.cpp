@@ -234,6 +234,11 @@ void window_set_drop_target(Window, bool accept_files) noexcept {
     g.probe.drop_target = accept_files;
 }
 
+bool window_set_capture_excluded(Window, bool excluded) noexcept {
+    g.probe.capture_excluded = excluded;
+    return true;
+}
+
 void window_invalidate(Window) noexcept {
     ++g.probe.invalidations;
 }

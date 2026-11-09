@@ -13,6 +13,7 @@
 // <wingdi.h>
 #define GDI_ERROR (0xFFFFFFFFL)
 #define HGDI_ERROR (LongToHandle(0xFFFFFFFFL))
+#define CLR_INVALID 0xFFFFFFFF
 #define LCS_sRGB 'sRGB'
 #define LCS_GM_IMAGES 0x00000004L
 #define BI_RGB 0L
@@ -119,4 +120,5 @@ extern "C" __declspec(dllimport) DWORD WINAPI GetFontData(HDC hdc, DWORD dwTable
 extern "C" __declspec(dllimport) DWORD WINAPI GetGlyphIndicesW(HDC hdc, LPCWSTR lpstr, int c, LPWORD pgi, DWORD fl);
 extern "C" __declspec(dllimport) HGDIOBJ WINAPI SelectObject(HDC hdc, HGDIOBJ h);
 extern "C" __declspec(dllimport) COLORREF WINAPI SetTextColor(HDC hdc, COLORREF color);
+extern "C" __declspec(dllimport) COLORREF WINAPI GetPixel(HDC hdc, int x, int y);
 extern "C" __declspec(dllimport) int WINAPI GetTextFaceW(HDC hdc, int c, LPWSTR lpName);

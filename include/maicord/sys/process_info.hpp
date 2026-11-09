@@ -1,6 +1,7 @@
 #pragma once
 
-// Process information: PSAPI and Tool Help, declared as the SDK declares them; see maicord/sys/sdk.hpp.
+// Process information: PSAPI, Tool Help and process queries, declared as the SDK declares them; see
+// maicord/sys/sdk.hpp.
 
 #include "maicord/sys/sdk.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -18,6 +19,9 @@
 
 // <tlhelp32.h>
 #define TH32CS_SNAPPROCESS 0x00000002
+
+// <winnt.h>
+#define PROCESS_QUERY_LIMITED_INFORMATION (0x1000)
 
 MAICORD_SYS_TYPES_BEGIN
 // <psapi.h>
@@ -118,6 +122,15 @@ struct tagPROCESSENTRY32W {
 };
 typedef tagPROCESSENTRY32W PROCESSENTRY32W;
 typedef PROCESSENTRY32W* LPPROCESSENTRY32W;
+// <winternl.h>
+enum _PROCESSINFOCLASS {
+    ProcessBasicInformation = 0,
+    ProcessDebugPort = 7,
+    ProcessWow64Information = 26,
+    ProcessImageFileName = 27,
+    ProcessBreakOnTermination = 29
+};
+typedef _PROCESSINFOCLASS PROCESSINFOCLASS;
 MAICORD_SYS_TYPES_END
 
 // <psapi.h>
@@ -133,3 +146,13 @@ extern "C" BOOL WINAPI K32GetProcessMemoryInfo(HANDLE Process, PPROCESS_MEMORY_C
 extern "C" HANDLE WINAPI CreateToolhelp32Snapshot(DWORD dwFlags, DWORD th32ProcessID);
 extern "C" BOOL WINAPI Process32FirstW(HANDLE hSnapshot, LPPROCESSENTRY32W lppe);
 extern "C" BOOL WINAPI Process32NextW(HANDLE hSnapshot, LPPROCESSENTRY32W lppe);
+
+// <processthreadsapi.h>
+extern "C" __declspec(dllimport) HANDLE WINAPI OpenProcess(DWORD dwDesiredAccess, BOOL bInheritHandle,
+    DWORD dwProcessId);
+// <WinBase.h>
+extern "C" __declspec(dllimport) BOOL WINAPI QueryFullProcessImageNameW(HANDLE hProcess, DWORD dwFlags,
+    LPWSTR lpExeName, PDWORD lpdwSize);
+// <winternl.h>
+extern "C" NTSTATUS NTAPI NtQueryInformationProcess(HANDLE ProcessHandle, PROCESSINFOCLASS ProcessInformationClass,
+    PVOID ProcessInformation, ULONG ProcessInformationLength, PULONG ReturnLength);

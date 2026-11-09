@@ -16,6 +16,7 @@ struct NullWindowProbe {
     bool focused;         // the window holds the keyboard focus
     bool fullscreen;
     bool drop_target;     // window_set_drop_target(true) is in effect
+    bool capture_excluded; // window_set_capture_excluded(true) is in effect
     bool shown;           // a window_show other than hide is in effect
     u8 cursor;            // the UiCursor of the last window_set_cursor
     u32 cursor_changes;   // window_set_cursor calls

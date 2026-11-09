@@ -35,6 +35,9 @@
 #   libva.so.2 libva-drm.so.2         libva2 libva-drm2 (libva-dev: the ABI check), libdav1d.so.7 (libdav1d-dev),
 #                                     libopenh264.so.7 (libopenh264-dev): the video tiers' libraries and the headers
 #                                     tools/check_video_abi.py compares their declarations with
+#   libpipewire-0.3.so.0              libpipewire-0.3-dev and libspa-0.2-dev (the library and the headers
+#                                     tools/check_pipewire_abi.py reads; pipewire and pipewire-bin for
+#                                     tools/test_capture_pipewire.sh)
 #   libEGL.so.1 libGLESv2.so.2        libegl1 libgles2 and Mesa's drivers libegl-mesa0 libgl1-mesa-dri (llvmpipe, no GPU)
 #   libwayland-client.so.0 libwayland-egl.so.1 libwayland-cursor.so.0 libxkbcommon.so.0
 #                                     libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0
@@ -117,10 +120,10 @@ if [ "$with_tests" = 1 ]; then
               fonts-liberation libhunspell-1.7-0 hunspell-en-us hunspell-de-de libenchant-2-2 libpulse0 libegl1 libgles2
               libegl-mesa0 libgl1-mesa-dri libwayland-client0 libwayland-egl1 libwayland-cursor0 libxkbcommon0
               libssl-dev libpulse-dev libspeechd-dev libspeechd2 libfido2-dev libfido2-1 libva-dev libdav1d-dev
-              libopenh264-dev)
+              libopenh264-dev libpipewire-0.3-dev libspa-0.2-dev)
     if [ "$with_integration" = 1 ]; then
         packages+=(sway grim dbus-daemon python3-dbus python3-gi python3-pil pulseaudio speech-dispatcher
-                   at-spi2-core gir1.2-atspi-2.0 appstream desktop-file-utils squashfs-tools zsync rpm)
+                   at-spi2-core gir1.2-atspi-2.0 appstream desktop-file-utils squashfs-tools zsync rpm pipewire pipewire-bin)
     fi
     apt_install "${packages[@]}"
 fi

@@ -187,6 +187,11 @@ void window_request_attention(Window window, Attention attention) noexcept {
     FlashWindowEx(&info);
 }
 
+bool window_set_capture_excluded(Window window, bool excluded) noexcept {
+    const HWND hwnd = win32_hwnd(window);
+    return hwnd && SetWindowDisplayAffinity(hwnd, excluded ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
+}
+
 void window_set_drop_target(Window window, bool accept_files) noexcept {
     const HWND hwnd = win32_hwnd(window);
     if (!hwnd)

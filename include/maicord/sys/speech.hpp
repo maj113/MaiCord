@@ -45,5 +45,14 @@ struct __declspec(uuid("6C44DF74-72B9-4992-A1EC-EF996E0422D4")) __declspec(novta
     MAICORD_COM_UNUSED(SetVoice);
     MAICORD_COM_UNUSED(GetVoice);
     virtual HRESULT __stdcall Speak(LPCWSTR pwcs, DWORD dwFlags, ULONG* pulStreamNumber) = 0;
+    MAICORD_COM_UNUSED(SpeakStream);
+    MAICORD_COM_UNUSED(GetStatus);
+    MAICORD_COM_UNUSED(Skip);
+    MAICORD_COM_UNUSED(SetPriority);
+    MAICORD_COM_UNUSED(GetPriority);
+    MAICORD_COM_UNUSED(SetAlertBoundary);
+    MAICORD_COM_UNUSED(GetAlertBoundary);
+    virtual HRESULT __stdcall SetRate(long RateAdjust) = 0;
+    virtual HRESULT __stdcall GetRate(long* pRateAdjust) = 0;
 };
 MAICORD_SYS_TYPES_END

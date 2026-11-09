@@ -38,7 +38,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VA_HEADER = os.path.join(ROOT, "include", "maicord", "platform", "decode", "vaapi", "abi.hpp")
 SOFTWARE_HEADER = os.path.join(ROOT, "include", "maicord", "platform", "decode", "software", "abi.hpp")
 
-VA_INCLUDES = ("va/va.h", "va/va_drm.h", "va/va_drmcommon.h", "va/va_dec_hevc.h", "va/va_dec_av1.h")
+VA_INCLUDES = ("va/va.h", "va/va_drm.h", "va/va_drmcommon.h", "va/va_dec_hevc.h", "va/va_dec_av1.h", "va/va_enc_h264.h",
+               "va/va_enc_hevc.h", "va/va_enc_av1.h", "va/va_vpp.h")
 DAV1D_INCLUDES = ("errno.h", "dav1d/dav1d.h", "dav1d/data.h", "dav1d/picture.h")
 OPENH264_INCLUDES = ("wels/codec_api.h",)
 
@@ -64,6 +65,18 @@ VA_STRUCTS = {
     "IqMatrixHevc": "VAIQMatrixBufferHEVC", "SegmentationAv1": "VASegmentationStructAV1",
     "FilmGrainAv1": "VAFilmGrainStructAV1", "WarpedMotionAv1": "VAWarpedMotionParamsAV1",
     "PictureParameterAv1": "VADecPictureParameterBufferAV1", "SliceParameterAv1": "VASliceParameterBufferAV1",
+    "EncSequenceParameterH264": "VAEncSequenceParameterBufferH264",
+    "EncPictureParameterH264": "VAEncPictureParameterBufferH264", "EncSliceParameterH264": "VAEncSliceParameterBufferH264",
+    "EncSequenceParameterHevc": "VAEncSequenceParameterBufferHEVC",
+    "EncPictureParameterHevc": "VAEncPictureParameterBufferHEVC", "EncSliceParameterHevc": "VAEncSliceParameterBufferHEVC",
+    "EncMiscRateControl": "VAEncMiscParameterRateControl", "EncMiscFrameRate": "VAEncMiscParameterFrameRate",
+    "CodedBufferSegment": "VACodedBufferSegment", "Rectangle": "VARectangle",
+    "ProcColorProperties": "VAProcColorProperties", "ProcPipelineParameter": "VAProcPipelineParameterBuffer",
+    "EncPackedHeaderParameter": "VAEncPackedHeaderParameterBuffer", "EncAv1Ext1": "VAConfigAttribValEncAV1Ext1",
+    "EncAv1Ext2": "VAConfigAttribValEncAV1Ext2", "EncSequenceParameterAv1": "VAEncSequenceParameterBufferAV1",
+    "EncSegmentationAv1": "VAEncSegParamAV1", "EncWarpedMotionAv1": "VAEncWarpedMotionParamsAV1",
+    "EncPictureParameterAv1": "VAEncPictureParameterBufferAV1", "EncTileGroupAv1": "VAEncTileGroupBufferAV1",
+    "RefFrameControlAv1": "VARefFrameCtrlAV1",
 }
 # In-tree field name -> expression of the library's struct (where the spelling differs).
 VA_FIELDS = {
@@ -77,6 +90,8 @@ VA_FIELDS = {
     ("IqMatrixHevc", "scaling_list_4x4"): "ScalingList4x4", ("IqMatrixHevc", "scaling_list_8x8"): "ScalingList8x8",
     ("IqMatrixHevc", "scaling_list_16x16"): "ScalingList16x16", ("IqMatrixHevc", "scaling_list_32x32"): "ScalingList32x32",
     ("IqMatrixHevc", "scaling_list_dc_16x16"): "ScalingListDC16x16", ("IqMatrixHevc", "scaling_list_dc_32x32"): "ScalingListDC32x32",
+    ("EncPictureParameterH264", "curr_pic"): "CurrPic", ("EncPictureParameterH264", "reference_frames"): "ReferenceFrames",
+    ("EncSliceParameterH264", "ref_pic_list0"): "RefPicList0", ("EncSliceParameterH264", "ref_pic_list1"): "RefPicList1",
 }
 VA_OFFSETS = [
     ("DrmPrimeDescriptor", f) for f in ("num_objects", "objects", "num_layers", "layers")
@@ -114,6 +129,52 @@ VA_OFFSETS = [
     ("FilmGrainAv1", "ar_coeffs_cr"), ("FilmGrainAv1", "cb_offset"), ("FilmGrainAv1", "cr_offset"),
     ("WarpedMotionAv1", "wmmat"), ("WarpedMotionAv1", "invalid"), ("SurfaceAttrib", "value"),
     ("GenericValue", "value"),
+] + [
+    ("EncSequenceParameterH264", f) for f in ("intra_period", "bits_per_second", "picture_width_in_mbs", "seq_fields",
+                                              "offset_for_ref_frame", "frame_cropping_flag", "frame_crop_bottom_offset",
+                                              "vui_fields", "time_scale")
+] + [
+    ("EncPictureParameterH264", f) for f in ("reference_frames", "coded_buf", "frame_num", "pic_init_qp", "pic_fields")
+] + [
+    ("EncSliceParameterH264", f) for f in ("slice_type", "idr_pic_id", "pic_order_cnt_lsb", "ref_pic_list0",
+                                           "luma_weight_l0", "chroma_offset_l1", "cabac_init_idc")
+] + [
+    ("EncSequenceParameterHevc", f) for f in ("intra_period", "pic_width_in_luma_samples", "seq_fields",
+                                              "log2_min_luma_coding_block_size_minus3", "pcm_sample_bit_depth_luma_minus1",
+                                              "vui_fields", "vui_time_scale", "scc_fields")
+] + [
+    ("EncPictureParameterHevc", f) for f in ("reference_frames", "coded_buf", "column_width_minus1", "nal_unit_type",
+                                             "pic_fields", "scc_fields")
+] + [
+    ("EncSliceParameterHevc", f) for f in ("slice_type", "ref_pic_list0", "ref_pic_list1", "luma_log2_weight_denom",
+                                           "chroma_offset_l1", "max_num_merge_cand", "slice_fields",
+                                           "pred_weight_table_bit_length")
+] + [
+    ("EncMiscRateControl", "rc_flags"), ("EncMiscRateControl", "target_frame_size"), ("EncMiscFrameRate", "framerate_flags"),
+    ("CodedBufferSegment", "buf"), ("CodedBufferSegment", "next"), ("Rectangle", "width"),
+] + [
+    ("ProcPipelineParameter", f) for f in ("surface_region", "output_region", "output_color_standard", "filter_flags",
+                                           "filters", "rotation_state", "blend_state", "additional_outputs",
+                                           "input_surface_flag", "input_color_properties", "output_color_properties",
+                                           "processing_mode", "output_hdr_metadata")
+] + [
+    ("EncPackedHeaderParameter", "bit_length"), ("EncPackedHeaderParameter", "has_emulation_bytes"),
+    ("EncSequenceParameterAv1", "intra_period"), ("EncSequenceParameterAv1", "seq_fields"),
+    ("EncSequenceParameterAv1", "order_hint_bits_minus_1"), ("EncSegmentationAv1", "feature_data"),
+    ("EncSegmentationAv1", "feature_mask"), ("EncWarpedMotionAv1", "wmmat"), ("EncWarpedMotionAv1", "invalid"),
+    ("EncTileGroupAv1", "tg_end"),
+] + [
+    ("EncPictureParameterAv1", f) for f in ("reconstructed_frame", "coded_buf", "reference_frames", "ref_frame_idx",
+                                            "primary_ref_frame", "refresh_frame_flags", "ref_frame_ctrl_l0",
+                                            "ref_frame_ctrl_l1", "picture_flags", "seg_id_block_size", "filter_level",
+                                            "loop_filter_flags", "interpolation_filter", "ref_deltas", "base_qindex",
+                                            "min_base_qindex", "qmatrix_flags", "mode_control_flags", "segments",
+                                            "tile_cols", "width_in_sbs_minus_1", "height_in_sbs_minus_1",
+                                            "context_update_tile_id", "cdef_damping_minus_3", "cdef_y_strengths",
+                                            "cdef_uv_strengths", "loop_restoration_flags", "wm", "bit_offset_qindex",
+                                            "bit_offset_cdef_params", "byte_offset_frame_hdr_obu_size",
+                                            "size_in_bits_frame_hdr_obu", "tile_group_obu_hdr_info",
+                                            "skip_frames_reduced_size")
 ]
 
 DAV1D_STRUCTS = {"Dav1dSettings": "Dav1dSettings", "Dav1dData": "Dav1dData", "Dav1dSequenceHeader": "Dav1dSequenceHeader",
@@ -253,8 +314,10 @@ def struct_body(text, name, keyword):
 def check_bit_fields(va_text, header_text):
     failures = 0
     for mine, theirs in VA_STRUCTS.items():
-        ours = struct_body(header_text, mine, r"struct %s\s*{")
-        real = struct_body(va_text, theirs, r"typedef struct _?%s\b[^{]*{") or struct_body(va_text, theirs, r"struct _%s\s*{")
+        ours = struct_body(header_text, mine, r"(?:struct|union) %s\s*{")
+        real = (struct_body(va_text, theirs, r"typedef (?:struct|union) _?%s\b[^{]*{") or
+                struct_body(va_text, theirs, r"(?:struct|union) _%s\s*{") or
+                struct_body(va_text, theirs, r"typedef union\s*{(?=(?:(?!typedef)[\s\S])*?}\s*%s\s*;)"))
         if ours is None or real is None:
             print("%s: no declaration to compare the bit fields of" % mine)
             failures += 1

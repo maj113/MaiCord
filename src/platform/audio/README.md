@@ -23,14 +23,16 @@ bits of endpoint watching are in `endpoint_watch.hpp`; each backend fills them i
 
 ## Text to speech (`speechd/`)
 
-"Speak message" is the one caller of `speech_speak`; the message "tts" flag is always false and the client reads no notification
+"Speak message" and Settings > Accessibility's Text-to-Speech rate Preview are the callers of `speech_speak`; the message "tts" flag is always false and the client reads no notification
 aloud, as on Windows. It is speech-dispatcher through `libspeechd.so.2` (`dlopen`; `include/maicord/platform/audio/speechd/abi.hpp`,
 checked by `python tools/check_speechd_abi.py`).
 
 - The client name is `maicord` on `spd_open2` (single threaded, the default address, so `$SPEECHD_ADDRESS`, with the daemon's
   autospawn); `spd_cancel` before each `spd_say` at priority text (SAPI's `SPF_PURGEBEFORESPEAK`); `spd_cancel` and `spd_close` at
   release.
-- The voice, rate and language are the user's: the daemon's own configuration and its per-client section for `maicord`.
+- The voice and language are the user's: the daemon's own configuration and its per-client section for `maicord`. So is the rate
+  until Settings > Accessibility's Text-to-Speech rate moves it: `spd_set_voice_rate` (its -10..10 step x 10) on the connection when
+  it differs from the one set last; a new connection starts from the configured rate again.
 - A text goes in as its valid UTF-8 prefix, cut at 4096 bytes and at the first NUL. With no library, no daemon (not retried: each
   try can wait on the spawn) or a refused say the call returns false and the caller logs `speech_unavailable`; a failed say drops the
   connection so the next call opens another.

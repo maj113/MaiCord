@@ -23,7 +23,8 @@ An in-house D-Bus client: no libdbus, no sd-bus. Headers are in `include/maicord
 - The application id is `io.github.maj113.MaiCord`; it is also the window's `app_id` and the `.desktop` file's name.
   `tools/generate_desktop_entry.py` writes the `.desktop` file (`MimeType=x-scheme-handler/discord`) and the hicolor icons
   into `<build>/packaging` (target `maicord_desktop_entry`).
-- Portal dialogs (file chooser, OpenURI, global shortcuts) send the window's `xdg-foreign` handle as `parent_window`
+- Portal dialogs (file chooser, OpenURI, global shortcuts, the colour picker's eyedropper: Screenshot.PickColor in
+  `src/platform/desktop/screen_color.cpp`) send the window's `xdg-foreign` handle as `parent_window`
   (`portal_set_parent_window`, set by the Wayland window; empty without it).
 - `secure_buffer` (`src/platform/crypto/linux`) keeps its master key in the Secret Service (`application=maicord`,
   `purpose=master-key`; an old key file moves in and is deleted) and falls back to the 0600 key file, logged, when there is no

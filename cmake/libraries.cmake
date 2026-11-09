@@ -23,7 +23,7 @@ maicord_library(maicord_compression src/media/compression/deflate.cpp src/media/
 
 maicord_library(maicord_media_core
     src/media/core/animation_timeline.cpp src/media/core/encoded_cache.cpp src/media/core/presentation_policy.cpp
-    src/media/image/regional_flag_art.cpp src/ui/text/regional_flag.cpp
+    src/media/image/regional_flag_art.cpp src/media/image/dominant_color.cpp src/ui/text/regional_flag.cpp
     LIBS maicord_core)
 
 # maiopus (third_party/opus): the Opus decoder, and the voice encoder, as C under the same freestanding contract: like
@@ -62,6 +62,7 @@ maicord_library(maicord_media_codec
     src/media/image/png_stream.cpp src/media/image/png_encode.cpp src/media/image/png_common.cpp src/media/image/vp8.cpp
     src/media/image/webp.cpp src/media/image/webp_thumbnail.cpp src/media/image/webp_alpha.cpp src/media/image/animated_webp.cpp
     src/media/video/rtp_h264.cpp src/media/video/rtp_h265.cpp src/media/video/hevc_stream.cpp
+    src/media/video/rtp_video_packetize.cpp
     src/media/video/rtp_av1.cpp src/media/video/av1.cpp src/media/containers/mp4_fragment.cpp src/media/containers/mp4_fragment_track.cpp
     src/media/containers/mp4_fragment_source.cpp
     src/media/containers/mp4_fragment_audio.cpp
@@ -81,6 +82,28 @@ else()
     target_compile_options(maicord_media_codec PRIVATE
         "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/Zl;/GS-;/O2;/Ob1;/arch:AVX;/fp:precise;/Gy;/Gw;/GF;/Brepro;-Wno-missing-braces>")
 endif()
+
+# The Go Live encoder (include/maicord/platform/encode/gpu_stream_encoder.hpp): hardware Media Foundation transforms
+# on Windows, VA-API on the decoders' display on Linux; the rewriting of the encoders' units into the form the stream
+# sender takes is shared.
+maicord_library(maicord_video_encode
+    src/platform/encode/access_unit.cpp src/platform/encode/av1_headers.cpp
+    linux:src/platform/encode/linux/gpu_stream_encoder.cpp
+    windows:src/platform/encode/gpu_stream_encoder.cpp "windows:${MAICORD_ENCODE_VERTEX_HEADER}"
+    "windows:${MAICORD_ENCODE_LUMA_HEADER}" "windows:${MAICORD_ENCODE_CHROMA_HEADER}"
+    LIBS maicord_core maicord_media_codec windows:d3d11 windows:ole32 linux:maicord_video_vaapi linux:maicord_gpu_gles
+    INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
+
+# Go Live capture (include/maicord/platform/capture/screen_capture.hpp, platform/audio/stream_audio.hpp): screens and
+# windows through Windows.Graphics.Capture and DXGI Desktop Duplication and stream audio through WASAPI process loopback
+# on Windows; the ScreenCast portal over the D-Bus client and PipeWire (dlopen()ed: dma-bufs, and the other
+# applications' playback for stream audio) on Linux. See src/platform/capture/README.md.
+maicord_library(maicord_capture
+    windows:src/platform/capture/windows/screen_capture.cpp windows:src/platform/capture/windows/stream_audio.cpp
+    linux:src/platform/capture/linux/pipewire.cpp linux:src/platform/capture/linux/screen_capture.cpp
+    linux:src/platform/capture/linux/stream_audio.cpp
+    LIBS maicord_core windows:d3d11 windows:dxgi windows:user32 windows:gdi32 windows:ole32 windows:maicord_combase
+    linux:maicord_dbus)
 
 # Voice send encoder; linked only through the account module.
 maicord_library(maicord_voice_encoder src/media/audio/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)
@@ -131,6 +154,7 @@ maicord_library(maicord_protocol
     src/protocol/guild/admin_decode.cpp
     src/protocol/guild/assets.cpp src/protocol/user/profile_edit.cpp src/protocol/voice/video_signaling.cpp
     src/protocol/voice/rtcp_feedback.cpp src/protocol/guild/soundboard.cpp src/protocol/user/notification_settings.cpp
+    src/protocol/voice/rtcp_sender.cpp src/protocol/voice/dave_codec.cpp
     src/protocol/user/guild_settings.cpp
     # Icon hash check kept apart from cdn_url.cpp: the client keeps it (Gateway
     # user records) while it forwards every other CDN URL function to the module.

@@ -4,7 +4,7 @@
 Run with DBUS_SESSION_BUS_ADDRESS pointing at a private bus (tools/test_dbus.sh). It owns:
 
   org.maicord.Test                    /org/maicord/Test    generic calls: Describe(any) -> s, Add, Slow, ReadFd, MakeFd, Fire
-  org.freedesktop.portal.Desktop      Settings, Notification, OpenURI, Inhibit (version only)
+  org.freedesktop.portal.Desktop      Settings, Notification, OpenURI, Inhibit (version only), ScreenCast
   org.freedesktop.Notifications       the notification daemon
   org.freedesktop.secrets             the Secret Service (plain sessions)
   org.maicord.Mock                    /org/maicord/Mock    the test's control: Take, SetSetting, signals, modes, Quit
@@ -253,7 +253,56 @@ def respond(request, code, results, delay=40):
     GLib.timeout_add(delay, fire)
 
 
-class Portal(dbus.service.Object):
+SCREENCAST = 'org.freedesktop.portal.ScreenCast'
+SCREENCAST_PROPERTIES = {'AvailableSourceTypes': dbus.UInt32(3), 'AvailableCursorModes': dbus.UInt32(7)}
+
+
+class ScreenCastPortal(dbus.service.Object):
+    """The ScreenCast portal (screen capture): CreateSession, SelectSources, Start (one stream, node 42, or a cancel with
+    mode screencast-cancel), OpenPipeWireRemote (a pipe whose other end is closed: no PipeWire behind it). Its methods
+    share names with GlobalShortcuts, so they live in this base class of Portal (dbus-python looks a member up by name
+    along the class hierarchy, matching the interface)."""
+
+    @dbus.service.method(SCREENCAST, in_signature='a{sv}', out_signature='o', sender_keyword='sender')
+    def CreateSession(self, options, sender=None):
+        record('ScreenCast.CreateSession %s' % canon(options))
+        request = make_request(sender, options)
+        token = str(options.get('session_handle_token', 'maicord'))
+        session_path = '/org/freedesktop/portal/desktop/session/%s/%s' % (sender_part(sender), token)
+        portal_state['screencast'] = Session(session_path)
+        respond(request, 0, dbus.Dictionary({'session_handle': dbus.String(session_path)}, signature='sv'))
+        return dbus.ObjectPath(request.path)
+
+    @dbus.service.method(SCREENCAST, in_signature='oa{sv}', out_signature='o', sender_keyword='sender')
+    def SelectSources(self, session, options, sender=None):
+        record('ScreenCast.SelectSources %s %s' % (canon(session), canon(options)))
+        request = make_request(sender, options)
+        respond(request, 0, dbus.Dictionary({}, signature='sv'))
+        return dbus.ObjectPath(request.path)
+
+    @dbus.service.method(SCREENCAST, in_signature='osa{sv}', out_signature='o', sender_keyword='sender')
+    def Start(self, session, parent, options, sender=None):
+        record('ScreenCast.Start %s %s %s' % (canon(session), canon(parent), canon(options)))
+        request = make_request(sender, options)
+        if modes.get('screencast-cancel'):
+            respond(request, 1, dbus.Dictionary({}, signature='sv'))
+        else:
+            stream = dbus.Struct((dbus.UInt32(42), dbus.Dictionary({'source_type': dbus.UInt32(1)}, signature='sv')),
+                                 signature='ua{sv}')
+            respond(request, 0, dbus.Dictionary({'streams': dbus.Array([stream], signature='(ua{sv})')}, signature='sv'))
+        return dbus.ObjectPath(request.path)
+
+    @dbus.service.method(SCREENCAST, in_signature='oa{sv}', out_signature='h')
+    def OpenPipeWireRemote(self, session, options):
+        record('ScreenCast.OpenPipeWireRemote %s %s' % (canon(session), canon(options)))
+        read_end, write_end = os.pipe()
+        remote = dbus.types.UnixFd(read_end)  # a duplicate; ours are closed
+        os.close(read_end)
+        os.close(write_end)
+        return remote
+
+
+class Portal(ScreenCastPortal):
     versions = {
         'org.freedesktop.portal.Settings': 2,
         'org.freedesktop.portal.Notification': 1,
@@ -261,6 +310,8 @@ class Portal(dbus.service.Object):
         'org.freedesktop.portal.Inhibit': 3,
         'org.freedesktop.portal.GlobalShortcuts': 1,
         'org.freedesktop.portal.FileChooser': 4,
+        'org.freedesktop.portal.Screenshot': 2,
+        SCREENCAST: 4,
     }
 
     def __init__(self):
@@ -270,6 +321,8 @@ class Portal(dbus.service.Object):
     def Get(self, interface, name):
         if name == 'version' and str(interface) in self.versions:
             return dbus.UInt32(self.versions[str(interface)])
+        if str(interface) == SCREENCAST and str(name) in SCREENCAST_PROPERTIES:
+            return SCREENCAST_PROPERTIES[str(name)]
         raise dbus.exceptions.DBusException('no such property', name='org.freedesktop.DBus.Error.UnknownProperty')
 
     @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature='s', out_signature='a{sv}')
@@ -370,6 +423,19 @@ class Portal(dbus.service.Object):
                          sender_keyword='sender', byte_arrays=True)
     def SaveFile(self, parent, title, options, sender=None):
         return self.file_request('SaveFile', parent, title, options, sender)
+
+    # The colour picker's eyedropper: answers {color: (ddd)} (mode pick_color: [r, g, b]) or a cancel (pick_code 1).
+    @dbus.service.method('org.freedesktop.portal.Screenshot', in_signature='sa{sv}', out_signature='o',
+                         sender_keyword='sender')
+    def PickColor(self, parent, options, sender=None):
+        record('PickColor %s %s' % (canon(parent), canon(options)))
+        request = make_request(sender, options)
+        code = int(modes.get('pick_code', 0))
+        color = modes.get('pick_color', [0.25, 0.5, 1.0])
+        results = (dbus.Dictionary({'color': dbus.Struct([dbus.Double(c) for c in color], signature='ddd')},
+                                   signature='sv') if code == 0 else dbus.Dictionary({}, signature='sv'))
+        respond(request, code, results)
+        return dbus.ObjectPath(request.path)
 
 
 # --- the notification daemon -----------------------------------------------------------------------------------------
