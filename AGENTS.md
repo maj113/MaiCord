@@ -138,7 +138,12 @@ Linux:
   alone, and `--stamp <twin>` records the hash after you reviewed the pair. DXC and SPIRV-Cross are for plugin effects only.
 - Audio: Windows WASAPI/SAPI, Linux `src/platform/audio/pulse` and `speechd`. Video: Windows DXVA/Media Foundation, Linux
   `src/platform/decode/{vaapi,software,linux}` behind `gpu_stream_decoder.hpp` (VA-API dma-buf to EGLImage, dav1d/openh264 software
-  tier, MP4; planes in `src/gpu/gles/video_planes.cpp`; see its README); AAC in-house on Linux.
+  tier, MP4; planes in `src/gpu/gles/video_planes.cpp`; see its README); AAC in-house on Linux. Go Live encoding:
+  `src/platform/encode` behind `gpu_stream_encoder.hpp` (Windows hardware Media Foundation transforms on D3D11 textures, Linux
+  VA-API on the decoders' display; see its README), quality presets in `media/video/stream_quality.hpp`. Go Live capture:
+  `src/platform/capture` behind `platform/capture/screen_capture.hpp` and `platform/audio/stream_audio.hpp` (Windows
+  Windows.Graphics.Capture, DXGI Desktop Duplication and WASAPI process loopback; Linux the ScreenCast portal and
+  `dlopen`ed PipeWire: dma-bufs, and the other applications' playback for stream audio; see its README).
 - Crypto and TLS: Windows CNG/SChannel, Linux system OpenSSL 3 or 4 through `dlopen` (`src/platform/crypto/openssl`,
   `src/platform/net/linux/tls_client.cpp`).
 - Desktop: `platform/desktop` (`shell_open.hpp`, notifications, spell checker, security keys); Linux over the in-house D-Bus client

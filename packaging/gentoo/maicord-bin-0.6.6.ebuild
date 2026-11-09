@@ -40,6 +40,7 @@ RDEPEND="
 pkg_postinst() {
 	xdg_pkg_postinst
 	optfeature "voice and notification audio" media-libs/libpulse
+	optfeature "Go Live screen sharing and stream audio" media-video/pipewire
 	optfeature "system fonts and font fallback" media-libs/fontconfig
 	optfeature "the file chooser, settings and global shortcut portals" sys-apps/xdg-desktop-portal
 	optfeature "colour emoji" media-fonts/noto-emoji

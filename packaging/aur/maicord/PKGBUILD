@@ -21,6 +21,7 @@ makedepends=('git' 'cmake' 'ninja' 'python' 'clang' 'lld' 'llvm' 'gcc')
 optdepends=(
     'mesa: OpenGL ES drivers for the GPU (llvmpipe without one); your GPU vendor'\''s driver works too'
     'libpulse: voice, notification and media audio (PulseAudio, or PipeWire with pipewire-pulse)'
+    'libpipewire: Go Live screen sharing (with xdg-desktop-portal) and stream audio'
     'speech-dispatcher: text-to-speech for "Speak message"'
     'libfido2: security keys for two-factor sign-in (and the udev rules for hidraw access)'
     'fontconfig: system fonts and the fallback for scripts the bundled fonts lack'

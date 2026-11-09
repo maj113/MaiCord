@@ -343,19 +343,19 @@ jobs:
           bash tools/build_linux.sh --test --skip-client --keep-intermediates --test-timeout-scale 3 "${selection[@]}"
 
       # The declarations the Linux build resolves with dlsym, and the libc, errno and addrinfo pins, against the installed
-      # headers (libc6-dev, libssl-dev, libpulse-dev, libspeechd-dev, libfido2-dev, libva-dev, libdav1d-dev, libopenh264-dev),
-      # side by side.
+      # headers (libc6-dev, libssl-dev, libpulse-dev, libspeechd-dev, libfido2-dev, libva-dev, libdav1d-dev, libopenh264-dev,
+      # libpipewire-0.3-dev, libspa-0.2-dev), side by side.
       - name: ABI checks
         if: matrix.part == 'portable'
         run: |
-          for abi in libc openssl pulse speechd fido2 video; do
+          for abi in libc openssl pulse speechd fido2 video pipewire; do
             python3 -B "tools/check_${abi}_abi.py" --compiler "$MAICORD_LLVM_BIN/clang" > "$RUNNER_TEMP/abi-$abi.log" 2>&1 &
           done
           status=0
-          for abi in libc openssl pulse speechd fido2 video; do
+          for abi in libc openssl pulse speechd fido2 video pipewire; do
             wait -n || status=1
           done
-          for abi in libc openssl pulse speechd fido2 video; do echo "::group::$abi"; cat "$RUNNER_TEMP/abi-$abi.log"; echo "::endgroup::"; done
+          for abi in libc openssl pulse speechd fido2 video pipewire; do echo "::group::$abi"; cat "$RUNNER_TEMP/abi-$abi.log"; echo "::endgroup::"; done
           exit "$status"
 
       # Headless sway, the GPU surface, the D-Bus mocks, PulseAudio and speech-dispatcher (tools/test_linux_integration.sh

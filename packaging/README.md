@@ -257,7 +257,8 @@ cmake --build BUILD
 ### What the program opens
 
 `libssl.so.4` or `libssl.so.3` (OpenSSL 4 or 3), `libwayland-client/-egl/-cursor`, `libxkbcommon`, `libEGL`/`libGLESv2` are required; `libpulse`, `fontconfig`,
-hunspell or enchant, `libfido2`, speech-dispatcher, VA-API drivers and the portals and Secret Service over D-Bus are used when present.
+hunspell or enchant, `libfido2`, speech-dispatcher, VA-API drivers, `libpipewire-0.3` (Go Live screen sharing and stream
+audio) and the portals and Secret Service over D-Bus are used when present.
 
 ## Channels: who acts, what they build
 

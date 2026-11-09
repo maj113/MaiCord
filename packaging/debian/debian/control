@@ -21,6 +21,7 @@ Depends: ${misc:Depends},
  libgles2
 Recommends: libgl1-mesa-dri,
  libpulse0,
+ libpipewire-0.3-0t64 | libpipewire-0.3-0,
  libfontconfig1,
  fonts-noto-color-emoji,
  xdg-desktop-portal,

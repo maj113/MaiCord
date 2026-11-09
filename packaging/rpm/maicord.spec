@@ -46,6 +46,7 @@ Suggests:       speech-dispatcher
 BuildRequires:  update-desktop-files
 Recommends:     Mesa-dri
 Recommends:     libpulse0
+Recommends:     libpipewire-0_3-0
 Recommends:     libfontconfig1
 Recommends:     google-noto-coloremoji-fonts
 Recommends:     libhunspell-1_7-0
@@ -55,6 +56,7 @@ Suggests:       libfido2-1
 %else
 Recommends:     mesa-dri-drivers
 Recommends:     pulseaudio-libs
+Recommends:     pipewire-libs
 Recommends:     fontconfig
 Recommends:     google-noto-color-emoji-fonts
 Recommends:     hunspell

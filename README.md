@@ -99,7 +99,7 @@ differ, Linux memory most of all.
       <b>Plugins.</b> Native plugins from a signed, reviewed catalog; permissions you approve.
     </td>
     <td width="50%" valign="top">
-      <b>Voice.</b> End-to-end encrypted voice (DAVE), push-to-talk, soundboard, and watching Go Live streams and cameras.
+      <b>Voice.</b> End-to-end encrypted voice (DAVE), push-to-talk, soundboard, Go Live screen sharing, and watching streams and cameras.
       <br><br>
       <b>Accounts.</b> Two-factor and QR sign-in, up to five saved accounts.
       <br><br>
@@ -124,7 +124,9 @@ differ, Linux memory most of all.
   [ANSI colored text](https://gist.github.com/kkrypt0nn/a02506f3712ff2d1c8ca7c9e0aed7c06)
 - Rich embeds with image galleries, link previews, stickers and custom emoji
 - Replies (with timestamps on the preview), forwards, pins, reactions, threads, forum posts and polls (create and vote)
-- Role colors on mentions, in voice participant lists and on typing names
+- Role colors on mentions and in voice participant lists
+- Game mentions: type `@game` to search Discord's game catalogue; mentions show as chips with the game's icon and open
+  its game profile (details, links and the friends playing it)
 - Slash commands, including Discord's built-in ones, and app buttons, select menus, modals and Components V2 layouts
 - Record and send voice messages
 - Emoji, GIF and sticker picker that syncs your Discord favorites
@@ -138,9 +140,11 @@ differ, Linux memory most of all.
 - Voice channels with Discord's end-to-end encryption (DAVE)
 - Push-to-talk, per-user volume, soundboard and stage channels
 - Watch Go Live streams and cameras, decoded on the GPU
+- Go Live: share a screen or window (with its sound), encoded on the GPU, at Discord's qualities up to your Nitro's
 
 **Servers**
-- Server settings: roles and permissions, members, bans, audit log, emoji, stickers, soundboard and invites
+- Server settings: roles and permissions, members, bans, audit log, emoji, stickers, soundboard and invites; join
+  access (rules screening, join applications, Server Discovery), Community setup and overview, and server templates
 - Scheduled events, community onboarding, per-server profiles and privacy
 - Server folders: opening one closes the others
 - Hidden channels are listed with a lock and a summary of who can see them; nothing is fetched from them
@@ -150,6 +154,10 @@ differ, Linux memory most of all.
   codes, SMS), QR login and CAPTCHA support
 - Up to five saved accounts with quick switching
 - Full profile editor: avatar cropping, banner, decorations, effects and profile colors
+- Friends: Online, All and Pending (with its badge) in the header with search, activity lines and usernames on hover,
+  Add Friend by username with an optional note, friend nicknames that name your DMs, a voice call from a friend's
+  menu, and Active Now with your friends' games and voice channels; a Message Requests page (Requests and Spam) to
+  accept or ignore DMs from people you may not know; blocked and ignored accounts are in settings
 
 **System integration**
 - Native notifications, a tray icon and an unread badge: Windows toasts, the taskbar and the Win32 tray; on Linux the
@@ -157,6 +165,13 @@ differ, Linux memory most of all.
 - Spellcheck and IME input through the Windows text services; Hunspell or Enchant and the Wayland text-input protocol
   on Linux
 - Screen reader support through UI Automation on Windows and AT-SPI (Orca) on Linux
+- Accessibility settings as in Discord: a live preview, UI density, text size in chat (messages, replies, embeds and the
+  draft; the interface keeps its size), zoom level
+  (<kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>-</kbd>/<kbd>0</kbd>), saturation, role colour styles, always-underlined links,
+  reduced motion that can follow the system, image descriptions (ALT) and the text-to-speech rate; `/tts` messages
+  and "Speak all messages out loud" read through the system voice
+- Streamer Mode: hides invite links, silences sounds and notifications, turns itself on while OBS or XSplit runs, and
+  on Windows keeps the window out of screen captures
 - Signed automatic updates from GitHub releases (see [Install](#install) for what updates itself on Linux)
 
 </details>
@@ -331,7 +346,7 @@ only redraws what changes, so it is one small program that starts fast and sits 
 <details>
 <summary><b>Which features are missing?</b></summary>
 
-- Sending camera video and screen share (you can join voice and watch streams and cameras)
+- Sending camera video (you can share your screen, join voice and watch streams and cameras)
 - macOS, phones, and X11 on Linux (it needs a Wayland session)
 - A Windows installer (the zip is portable)
 - More plugin APIs: on-demand Discord fetches and the voice panel

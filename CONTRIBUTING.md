@@ -247,6 +247,7 @@ layout and Linux reads them as std140 (see Code guidelines).
 | Renderer, effects (`.mcfx` GLSL), Lottie geometry | `src/render/README.md` |
 | Video (VA-API, software tier, MP4) | `src/platform/decode/README.md` |
 | Audio (PulseAudio, speech-dispatcher, AAC) | `src/platform/audio/README.md` |
+| Screen, window and stream audio capture (Go Live; both systems) | `src/platform/capture/README.md` |
 | D-Bus, portals, tray, single instance, secrets | `src/platform/dbus/README.md` |
 | AT-SPI accessibility | `src/platform/atspi/README.md` |
 | Spell checker, security keys, desktop integration | `src/platform/desktop/README.md` |
@@ -276,7 +277,8 @@ signed-in window that headless sway scans out directly stays unrepainted in grim
 re-applies the output scale; never judge a screenshot from a bare `grim`. Signed-in screens need no account:
 `tools/test_discord_wayland.sh --binary <client> [--site <site>] [--root] [--dbus] STEP...` runs the client against
 `tools/fake_discord_server.py`, a fake Discord (REST and the user gateway in ETF with one zstd frame per message, over TLS in a private
-user, network and mount namespace) serving one account, a guild with two channels, messages with markdown, emoji, reactions, an embed, a
+user, network and mount namespace) serving one account (its profile lists Steam, GitHub and Spotify connections, their logos files of
+`discord.com/assets`), a guild with two channels, messages with markdown, emoji, reactions, an embed, a
 picture, an MP4 and a file (`MAICORD_FAKE_MENTION_AFTER=N` adds a mention of the account, `MAICORD_FAKE_EXTRA_MESSAGES=FILE` more
 messages; `MAICORD_FAKE_WORLD=DIR` replaces the QA guild with a fuller made-up world: several guilds, people with avatars, banners and
 profiles, roles, presences, server tags, display-name styles, the member list, direct messages and scripted live events, and a
@@ -289,9 +291,42 @@ the client reads (an unknown request is 404 and logged), and its READY must stay
 user's settings proto and the guild's `user_guild_settings` entry decide whether a mention raises a notification).
 `tools/test_signin_wayland.sh --binary <client>` is the sign-in regression run (without and with `--bar`, a swaybar that reserves the top
 23 pixels); `tools/test_voice_wayland.sh --binary <client>` joins the fake guild's stage (a voice channel needs DAVE, which the fake does
-not serve) with `--audio` giving the client a private PulseAudio server; `tools/test_catalog_wayland.sh --binary <client> --site <site>
+not serve) with `--audio` giving the client a private PulseAudio server. The fake does serve Go Live: the stream commands (ops 18-22) and
+a stream server (`us-qa-stream.discord.media`; its UDP port, like the voice server's, is ephemeral) that runs DAVE as
+Discord's does (external sender, proposals, commit and welcome relay) and forwards the media between the sender and its
+viewers; `MAICORD_FAKE_STREAM_CODEC` picks the codec and `MAICORD_FAKE_STREAM_VIEWER_AFTER` when the other user starts
+watching. `maicord_go_live_loopback` (`tools/test_go_live_loopback.py`) streams from MaiCord's sender to MaiCord's
+receive path through it for each codec and checks the frames;
+`tools/test_catalog_wayland.sh --binary <client> --site <site>
 --expect index-4.json ...` runs the client against a catalog site built with the catalog scripts and a throwaway key
 (`MAICORD_PLUGIN_CATALOG_PUBLIC_KEY=<hex> tools/build_linux.sh` in a fresh build directory makes the matching client).
+`tools/test_server_settings_wayland.sh --binary <client> --page "<sidebar label>" [--expect REGEX]... STEP...` is the Server Settings
+probe: a test build (`--test`) opens Server Settings on the fake's QA guild at that page (the `MAICORD_TEST_GUILD_SETTINGS` hook),
+runs the steps and checks the fake's request log, which also holds the bodies of the profile, `/users/@me/clan`, webhook,
+command permission, AutoMod, guild, role, membership form and template writes (`MAICORD_FAKE_GUILD_FEATURES` sets the
+guild's features, `GUILD_TAGS` by default); `tools/test_server_tag_wayland.sh` is the Server Tag page's run,
+`tools/test_server_apps_wayland.sh` the Integrations and AutoMod pages' (the fake serves one app with two commands, one
+webhook, one followed channel and the mention spam rule, pushes the Gateway events Discord pushes for each write, and
+with `MAICORD_FAKE_AUTOMATION_EXTERNAL=1` changes each list as another moderator would) and
+`tools/test_server_access_wayland.sh` the Server Template, Access and Enable Community pages' (no membership form, template
+or Community at first; Discovery requirements met, one search tag set and two applications waiting), and
+`tools/test_server_profile_wayland.sh` the Server Profile page's (the fake serves three games on `/games` and
+`/games/autocomplete`, two of them as the guild's `/top-games`, with flat cover pictures), and
+`tools/test_game_mentions_wayland.sh` the game mentions' (chips, tooltip, the game profile with
+`MAICORD_FAKE_GAME_FRIEND=1`'s friend playing, and the composer's @game search). CTest registers these
+as opt-in (`MAICORD_FAKE_DISCORD_INTEGRATION=1` at configure time; status 77 where the namespaces or sway are missing).
+`tools/test_user_settings_wayland.sh --binary <client> --page <catalog key> [--expect REGEX]... STEP...` is the User Settings
+probe: a test build opens Settings at that page (the `MAICORD_TEST_USER_SETTINGS` hook) once the account is ready, and the fake's
+account routes (password `hunter2`, authenticator code `123456`, verification code `424242`) log each write's body;
+`tools/test_account_settings_wayland.sh` is My Account's, Data & Privacy's and Connected Apps' run, and
+`tools/test_app_settings_wayland.sh` the app-behaviour pages' (each switch checked by the field its decoded settings-proto PATCH
+carries; the fake answers `/activities/{id}/test-mode` and `/applications/public` for Application Test Mode), and
+`tools/test_profile_editor_wayland.sh` Profiles' (`MAICORD_FAKE_NITRO=1` makes the account Nitro; the name style dropdowns by
+mouse and keyboard, the colour picker and the saved PATCH body, Try It Out without Nitro, the owned nameplate on the
+preview's member row, and the same picker on a role's Custom colour through `MAICORD_FAKE_ROLE=1`'s "QA Role"), opt-in like
+the others.
+`client_flow.py`'s `keys:A,B,...` sends several keys from one virtual keyboard: each new one moves keyboard focus, which closes
+an open menu.
 `tools/test_dbus_real.sh` (real xdg-desktop-portal and gnome-keyring) and `tools/test_dbus_tray.sh` (swaybar's tray) need a graphical
 session and stay manual. A client run that opens Settings and closes (`python3 tools/client_flow.py wait:4 click:1139,16 wait:1.5 close`)
 must exit 0.

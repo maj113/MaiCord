@@ -27,6 +27,7 @@
   libglvnd,
   fontconfig,
   libpulseaudio,
+  pipewire,
   libva,
   dav1d,
   openh264,
@@ -73,6 +74,7 @@ stdenv.mkDerivation (finalAttrs: {
     libglvnd
     fontconfig
     libpulseaudio
+    pipewire
     libva
     dav1d
     openh264
