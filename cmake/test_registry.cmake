@@ -607,6 +607,125 @@ if(MAICORD_LINUX)
     add_test(NAME maicord_linux_client_version COMMAND MaiCord --version)
     set_tests_properties(maicord_linux_client_version PROPERTIES
         PASS_REGULAR_EXPRESSION "^MaiCord [0-9]+\\.[0-9]+\\.[0-9]+[^\n]*\n$" TIMEOUT 10)
+    # Server Settings > Server Tag against the fake Discord (tools/test_server_tag_wayland.sh on
+    # tools/test_server_settings_wayland.sh): the page loads the profile, saves the tag fields with their exact PATCH body
+    # and adopts the tag; a server without GUILD_TAGS shows the locked card and writes nothing. Needs user and network
+    # namespaces and headless sway, so it is opt-in: MAICORD_FAKE_DISCORD_INTEGRATION=1 at configure time (status 77
+    # without the tools).
+    add_test(NAME maicord_server_tag_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_server_tag_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/server-tag-qa")
+    set_tests_properties(maicord_server_tag_ui_probe PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_server_tag_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # Home's Friends page against the fake Discord (tools/test_friends_wayland.sh): Add Friend sends the typed username
+    # and reports the refusals under its field, and a friend's nickname saves with its PATCH body. Opt-in like the
+    # Server Tag run.
+    add_test(NAME maicord_friends_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_friends_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/friends-qa")
+    set_tests_properties(maicord_friends_ui_probe PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_friends_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # Go Live against the fake Discord and the desktop portal mocks (tools/test_go_live_wayland.sh): the voice card's
+    # screen share button opens the dialog, which picks a window through the ScreenCast portal (or explains why this
+    # computer cannot stream), and Escape closes it. Opt-in like the Server Tag run.
+    add_test(NAME maicord_go_live_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_go_live_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/go-live-qa")
+    set_tests_properties(maicord_go_live_ui_probe PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_go_live_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # Server Settings > Server Profile against the fake Discord (tools/test_server_profile_wayland.sh): the page reads
+    # the profile, the server's top games and their game objects, then saves a banner preset, a trait and a suggested
+    # game in one PATCH, checked by its body. Opt-in like the Server Tag run.
+    add_test(NAME maicord_server_profile_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_server_profile_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/server-profile-qa")
+    set_tests_properties(maicord_server_profile_ui_probe PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_server_profile_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # Settings > Profiles against the fake Discord (tools/test_profile_editor_wayland.sh): the name font and effect
+    # dropdowns picked by mouse and by keyboard, the colour picker (drag, typed hex, apply) and the saved PATCH body with
+    # Nitro; without it the same picks stay in Try It Out and write nothing; an owned nameplate shows on the preview's
+    # member row and saves; the same picker sets a role's custom colour in Server Settings > Roles. Opt-in like the
+    # Server Tag run.
+    add_test(NAME maicord_profile_editor_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_profile_editor_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/profile-editor-qa")
+    set_tests_properties(maicord_profile_editor_ui_probe PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_profile_editor_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # Server Settings > Integrations and AutoMod against the fake Discord (tools/test_server_apps_wayland.sh): webhook
+    # rename and create, unfollow, an app's and a command's permissions (with a member override), Gateway events from
+    # another moderator, AutoMod rule disable and set up, and AutoMod inside a community server's Safety Setup, each
+    # checked by its exact request body. Opt-in like the Server Tag run.
+    add_test(NAME maicord_server_apps_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_server_apps_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/server-apps-qa")
+    set_tests_properties(maicord_server_apps_ui_probe PROPERTIES TIMEOUT 240 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_server_apps_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # Server Settings > Server Template, Access and Enable Community against the fake Discord
+    # (tools/test_server_access_wayland.sh): template create, sync and delete; rules and questions typed in their
+    # dialogs and saved with their exact member-verification bodies; the waiting applications read and rejected on
+    # leaving Apply to Join; listing on Discovery (guild and metadata PATCHes, a tag, a subcategory); and the Community
+    # setup's role and guild PATCHes. Opt-in like the Server Tag run.
+    add_test(NAME maicord_server_access_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_server_access_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/server-access-qa")
+    set_tests_properties(maicord_server_access_ui_probe PROPERTIES TIMEOUT 420 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_server_access_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # Game mentions against the fake Discord (tools/test_game_mentions_wayland.sh): mention chips and their batch
+    # lookup, the tooltip, the game profile (its game object request and the friend who plays) and the composer's
+    # @game search and pick. Opt-in like the Server Tag run.
+    add_test(NAME maicord_game_mentions_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_game_mentions_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/game-mentions-qa")
+    set_tests_properties(maicord_game_mentions_ui_probe PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_game_mentions_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # The app-behaviour User Settings pages against the fake Discord (tools/test_app_settings_wayland.sh): UI Density,
+    # Show image descriptions, /tts, sticker autocomplete and Developer Mode, each checked by the field its decoded
+    # settings-proto PATCH carries, with the Accessibility preview and the Application Test Mode dialog in the
+    # screenshots. Opt-in like the Server Tag run.
+    add_test(NAME maicord_app_settings_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_app_settings_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/app-settings-qa")
+    set_tests_properties(maicord_app_settings_ui_probe PROPERTIES TIMEOUT 240 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_app_settings_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # My Account, Data & Privacy and Connected Apps against the fake Discord
+    # (tools/test_account_settings_wayland.sh on tools/test_user_settings_wayland.sh): the username change with its
+    # password, a data request and a connection's visibility, each checked by its exact body. Opt-in like the Server
+    # Tag run.
+    add_test(NAME maicord_account_settings_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_account_settings_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/account-settings-qa")
+    set_tests_properties(maicord_account_settings_ui_probe PROPERTIES TIMEOUT 240 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_account_settings_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
 endif()
 # The delay-load helper (src/core/delay_load.cpp): imports by ordinal and by
 # name, a forwarded API-set export, and racing first calls.

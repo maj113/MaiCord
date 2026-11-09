@@ -78,7 +78,8 @@ fi
 [ -x "$binary" ] || { echo "No client at $binary" >&2; exit 1; }
 [ -z "$site" ] || [ -f "$site/index-4.json" ] || [ -f "$site/index-3.json" ] || { echo "No catalog site at '$site'" >&2; exit 1; }
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-names=(discord.com gateway.discord.gg cdn.discordapp.com media.discordapp.net remote-auth-gateway.discord.gg us-qa.discord.media "$catalog_host")
+names=(discord.com gateway.discord.gg cdn.discordapp.com media.discordapp.net remote-auth-gateway.discord.gg us-qa.discord.media
+    us-qa-stream.discord.media "$catalog_host")
 
 if [ -z "${MAICORD_DISCORD_NAMESPACE:-}" ]; then
     mkdir -p "$out"

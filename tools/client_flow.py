@@ -7,6 +7,8 @@
 Steps (one command-line argument each):
     wait:SECONDS          sleep
     shot:NAME             grim screenshot of the whole output to DIR/NAME.png
+    grab:NAME             the same screenshot without re-applying the output scale, which takes the client's keyboard
+                          focus away for a moment (it closes open popups); put a move: step first so the output repaints
     click:X,Y             move the pointer to layout pixel X,Y and click the left button (tools/wayland_pointer.py)
     move:X,Y              move the pointer to layout pixel X,Y (hover)
     drag:X0,Y0,X1,Y1      press at X0,Y0, move to X1,Y1, release
@@ -14,6 +16,7 @@ Steps (one command-line argument each):
     scrollrun:X,Y,SECONDS,HZ  scroll the wheel continuously at HZ notches a second (a sustained-scroll load)
     type:TEXT             type text with wtype
     key:NAME              press a key (wtype -k NAME, such as Return, Escape, Tab)
+    keys:A,B,...          press several keys from one virtual keyboard (a menu walk: a new keyboard closes menus)
     chord:MODS,KEY        press KEY with modifiers (ctrl, shift, alt, logo), such as chord:ctrl,a
     sway:COMMAND          any swaymsg command (output scale, fullscreen, resize, floating, ...)
     tree                  print the client's window rectangle in sway's tree
@@ -175,6 +178,9 @@ class Flow:
         # repaints it, changes nothing for the client and costs a few milliseconds.
         subprocess.run(["swaymsg", "output", "*", "scale", f"{self.options.scale:g}"], env=self.env, capture_output=True)
         time.sleep(0.3)
+        self.step_grab(argument)
+
+    def step_grab(self, argument):
         path = os.path.join(self.out, argument + ".png")
         result = subprocess.run(["grim", path], env=self.env, capture_output=True, text=True)
         if result.returncode != 0:
@@ -251,6 +257,14 @@ class Flow:
 
     def step_key(self, argument):
         self.wtype("-k", argument)
+
+    def step_keys(self, argument):
+        # Several keys from one virtual keyboard: a new one makes the compositor move keyboard focus, which closes an
+        # open menu, so a keyboard walk through a menu (open, arrows, Enter) needs a single wtype.
+        arguments = []
+        for key in argument.split(","):
+            arguments += ["-k", key]
+        self.wtype(*arguments)
 
     def step_chord(self, argument):
         *mods, key = argument.split(",")
