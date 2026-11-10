@@ -3,14 +3,16 @@
 #include "maicord/media/audio/opus_scratch.hpp"
 
 namespace maicord {
-// Voice profile: 48 kHz PCM16, VOIP application, one 20 ms VBR frame per packet.
+// Voice profile: 48 kHz PCM16, VOIP application, one 20 ms VBR frame per packet, always coded as full-band hybrid
+// (SILK wideband plus CELT bands 17-20); bitrate 6-510 kbit/s, complexity 1-10.
 inline constexpr u32 kOpusEncoderSampleRate = 48000;
 inline constexpr u32 kOpusEncoderFrameSamples = 960; // Per channel; stereo PCM is interleaved.
 inline constexpr u32 kOpusEncoderStateAlignment = 16;
 inline constexpr u32 kOpusEncoderMaximumPacketBytes = 1275; // RFC 6716 single-frame bound.
 inline constexpr u32 kOpusEncoderMinimumBitrate = 6000, kOpusEncoderMaximumBitrate = 510000;
 inline constexpr u32 kOpusEncoderDefaultBitrate = 64000;
-inline constexpr u32 kOpusEncoderDefaultComplexity = 7, kOpusEncoderMaximumComplexity = 10;
+inline constexpr u32 kOpusEncoderDefaultComplexity = 7, kOpusEncoderMinimumComplexity = 1,
+                     kOpusEncoderMaximumComplexity = 10;
 inline constexpr u32 kOpusEncoderDefaultPacketLossPercent = 10;
 enum class OpusEncodeError : u8 {
     none,
@@ -43,9 +45,6 @@ OpusEncodeResult opus_encoder_bitrate(OpusEncoder*, u32 bits_per_second) noexcep
 OpusEncodeResult opus_encoder_complexity(OpusEncoder*, u32 complexity) noexcept;
 OpusEncodeResult opus_encoder_inband_fec(OpusEncoder*, bool enabled) noexcept;
 OpusEncodeResult opus_encoder_packet_loss(OpusEncoder*, u32 percent) noexcept;
-// Constrained VBR keeps every packet near the bitrate's average size (the
-// profile always encodes VBR; CBR padding is not compiled in).
-OpusEncodeResult opus_encoder_vbr_constraint(OpusEncoder*, bool enabled) noexcept;
 // Encoder delay in 48 kHz samples (the Ogg Opus pre-skip).
 OpusEncodeResult opus_encoder_lookahead(OpusEncoder*, u32* samples) noexcept;
 // Exactly one frame (960 * channels samples) into at least

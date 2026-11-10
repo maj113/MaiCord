@@ -66,16 +66,14 @@ OpusEncodeResult opus_encoder_bitrate(OpusEncoder* encoder, u32 bits_per_second)
                    kOpusEncoderMaximumBitrate);
 }
 OpusEncodeResult opus_encoder_complexity(OpusEncoder* encoder, u32 complexity) noexcept {
-    return control(encoder, OPUS_SET_COMPLEXITY_REQUEST, complexity, 0, kOpusEncoderMaximumComplexity);
+    return control(encoder, OPUS_SET_COMPLEXITY_REQUEST, complexity, kOpusEncoderMinimumComplexity,
+                   kOpusEncoderMaximumComplexity);
 }
 OpusEncodeResult opus_encoder_inband_fec(OpusEncoder* encoder, bool enabled) noexcept {
     return control(encoder, OPUS_SET_INBAND_FEC_REQUEST, enabled, 0, 1);
 }
 OpusEncodeResult opus_encoder_packet_loss(OpusEncoder* encoder, u32 percent) noexcept {
     return control(encoder, OPUS_SET_PACKET_LOSS_PERC_REQUEST, percent, 0, 100);
-}
-OpusEncodeResult opus_encoder_vbr_constraint(OpusEncoder* encoder, bool enabled) noexcept {
-    return control(encoder, OPUS_SET_VBR_CONSTRAINT_REQUEST, enabled, 0, 1);
 }
 OpusEncodeResult opus_encoder_lookahead(OpusEncoder* encoder, u32* samples) noexcept {
     if (!current(encoder))

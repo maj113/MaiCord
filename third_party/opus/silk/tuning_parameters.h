@@ -140,7 +140,4 @@ POSSIBILITY OF SUCH DAMAGE.
 /* Compensation in bitrate calculations for 10 ms modes */
 #define REDUCE_BITRATE_10_MS_BPS                        2200
 
-/* Maximum time before allowing a bandwidth transition */
-#define MAX_BANDWIDTH_SWITCH_DELAY_MS                   5000
-
 #endif /* SILK_TUNING_PARAMETERS_H */

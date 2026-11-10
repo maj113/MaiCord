@@ -272,9 +272,9 @@ extern "C" {
   */
 
 /** Configures the encoder's computational complexity.
-  * The supported range is 0-10 inclusive with 10 representing the highest complexity.
+  * The supported range is 1-10 inclusive with 10 representing the highest complexity.
   * @see OPUS_GET_COMPLEXITY
-  * @param[in] x <tt>opus_int32</tt>: Allowed values: 0-10, inclusive.
+  * @param[in] x <tt>opus_int32</tt>: Allowed values: 1-10, inclusive.
   *
   * @hideinitializer */
 #define OPUS_SET_COMPLEXITY(x) OPUS_SET_COMPLEXITY_REQUEST, opus_check_int(x)
@@ -286,11 +286,8 @@ extern "C" {
 #define OPUS_GET_COMPLEXITY(x) OPUS_GET_COMPLEXITY_REQUEST, opus_check_int_ptr(x)
 
 /** Configures the bitrate in the encoder.
-  * Rates from 500 to 512000 bits per second are meaningful, as well as the
-  * special values #OPUS_AUTO and #OPUS_BITRATE_MAX.
-  * The value #OPUS_BITRATE_MAX can be used to cause the codec to use as much
-  * rate as it can, which is useful for controlling the rate by adjusting the
-  * output buffer size.
+  * Rates from 6000 to 510000 bits per second are accepted (maiopus's encoder does not take
+  * #OPUS_AUTO or #OPUS_BITRATE_MAX).
   * @see OPUS_GET_BITRATE
   * @param[in] x <tt>opus_int32</tt>: Bitrate in bits per second. The default
   *                                   is determined based on the number of

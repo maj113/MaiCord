@@ -70,11 +70,6 @@ void denormalise_bands(const CELTMode *m, const celt_norm * OPUS_RESTRICT X,
 #define SPREAD_NORMAL     (2)
 #define SPREAD_AGGRESSIVE (3)
 
-int spreading_decision(const CELTMode *m, const celt_norm *X, int *average,
-      int last_decision, int *hf_average, int *tapset_decision, int update_hf,
-      int end, int C, int M, const int *spread_weight);
-
-
 void haar1(celt_norm *X, int N0, int stride);
 
 /** Quantisation/encoding of the residual spectrum

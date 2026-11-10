@@ -29,8 +29,7 @@ POSSIBILITY OF SUCH DAMAGE.
 /*
  * maiopus: the API rate is 48 kHz on both sides, so only two of the resampling
  * methods remain:
- *   48 kHz -> 8, 12 or 16 kHz (encoder input): AR2 filter followed by FIR
- *     decimation by 6, 4 or 3;
+ *   48 kHz -> 16 kHz (encoder input): AR2 filter followed by FIR decimation by 3;
  *   8, 12 or 16 kHz -> 48 kHz (decoder output, and the encoder's conversion
  *     of its buffered input): allpass-based 2x upsampling followed by FIR
  *     interpolation.
@@ -39,7 +38,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "resampler_private.h"
 
 /* Delay compensation values to equalize total delay for different modes */
-static const opus_int8 delay_enc[ 3 ] = { 18, 10, 12 };    /* 48 kHz to 8, 12, 16 kHz */
+static const opus_int8 delay_enc = 12;                     /* 48 kHz to 16 kHz */
 static const opus_int8 delay_dec[ 3 ] = {  0,  4,  7 };    /* 8, 12, 16 kHz to 48 kHz */
 
 /* Simple way to make [8000, 12000, 16000] to [0, 1, 2] */
@@ -63,11 +62,11 @@ opus_int silk_resampler_init(
 
     /* Input checking */
     if( forEnc ) {
-        if( Fs_Hz_in != 48000 || ( Fs_Hz_out != 8000 && Fs_Hz_out != 12000 && Fs_Hz_out != 16000 ) ) {
+        if( Fs_Hz_in != 48000 || Fs_Hz_out != 16000 ) {
             celt_assert( 0 );
             return -1;
         }
-        S->inputDelay = delay_enc[ rateID( Fs_Hz_out ) ];
+        S->inputDelay = delay_enc;
     } else {
         if( ( Fs_Hz_in != 8000 && Fs_Hz_in != 12000 && Fs_Hz_in != 16000 ) || Fs_Hz_out != 48000 ) {
             celt_assert( 0 );
@@ -83,15 +82,9 @@ opus_int silk_resampler_init(
     S->batchSize = S->Fs_in_kHz * RESAMPLER_MAX_BATCH_SIZE_MS;
 
     if( forEnc ) {
-        /* Downsample: Fs_out : Fs_in = 1 : 6, 1 : 4 or 1 : 3 */
+        /* Downsample: Fs_out : Fs_in = 1 : 3 */
         S->resampler_function = USE_silk_resampler_private_down_FIR;
-        if( Fs_Hz_out == 16000 ) {
-            S->Coefs = silk_Resampler_1_3_COEFS;
-        } else if( Fs_Hz_out == 12000 ) {
-            S->Coefs = silk_Resampler_1_4_COEFS;
-        } else {
-            S->Coefs = silk_Resampler_1_6_COEFS;
-        }
+        S->Coefs = silk_Resampler_1_3_COEFS;
         up2x = 0;
     } else {
         /* Upsample */

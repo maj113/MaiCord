@@ -41,9 +41,9 @@ extern "C" {
 #endif
 
 /** Bytes of caller scratch memory that opus_encode() and opus_decode() take:
-  * the larger of the encoder's (44640) and the decoder's (19248) worst-case
+  * the larger of the encoder's (43968) and the decoder's (19248) worst-case
   * working sets, asserted in src/opus_encoder.c and src/opus_decoder.c. */
-#define OPUS_SCRATCH_BYTES 44640
+#define OPUS_SCRATCH_BYTES 43968
 
 /**
  * @mainpage Opus
@@ -60,7 +60,7 @@ extern "C" {
  * maiopus is a fixed-point build of libopus with a complete decoder (every
  * mode, bandwidth, frame size, FEC and PLC, output at 8 to 48 kHz) and an
  * encoder reduced to one voice profile: 48 kHz mono or stereo input, VOIP
- * tuning, one 20 ms VBR frame per packet. The library never allocates and
+ * tuning, one 20 ms VBR frame per packet coded as full-band hybrid. The library never allocates and
  * never uses alloca: states live in caller memory sized by
  * opus_encoder_get_size() and opus_decoder_get_size(), and opus_encode() and
  * opus_decode() work in a caller-owned scratch block of #OPUS_SCRATCH_BYTES.
@@ -90,8 +90,9 @@ extern "C" {
   * for the supported requests.
   *
   * Each opus_encode() call takes exactly one 20 ms frame (960 samples per
-  * channel) and returns the packet length, or a negative error code. There is
-  * no DTX; a packet of 2 bytes or less carries no audio.
+  * channel) and returns the packet length, or a negative error code. Every
+  * packet is a full-band hybrid frame (SILK wideband plus CELT bands 17 to 20);
+  * there is no DTX, no CELT-only or SILK-only coding and no bandwidth switching.
   */
 
 /** Opus encoder state.
@@ -137,12 +138,10 @@ OPUS_EXPORT int opus_encoder_init(
   *                                            least \a max_data_bytes.
   * @param [in] max_data_bytes <tt>opus_int32</tt>: Size of the allocated
   *                                                 memory for the output
-  *                                                 payload. This may be
-  *                                                 used to impose an upper limit on
-  *                                                 the instant bitrate, but should
-  *                                                 not be used as the only bitrate
-  *                                                 control. Use #OPUS_SET_BITRATE to
-  *                                                 control the bitrate.
+  *                                                 payload. This must be 1275,
+  *                                                 the largest single-frame
+  *                                                 packet; use #OPUS_SET_BITRATE
+  *                                                 to control the bitrate.
   * @param [in] scratch <tt>void*</tt>: Caller-owned scratch memory of
   *                                     #OPUS_SCRATCH_BYTES, 16-byte aligned,
   *                                     not overlapping any other argument.

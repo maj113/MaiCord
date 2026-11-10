@@ -9,9 +9,14 @@ the changes and added files use the same terms):
   refuses the others, and the resamplers and CELT downsampling they need are
   removed). Requests: reset, gain (set only) and the final range.
 - **Encoder: one voice profile.** 48 kHz mono or stereo PCM16, VOIP tuning, one
-  20 ms VBR frame per packet, no DTX. Bitrate, complexity, in-band FEC, packet
-  loss and the VBR constraint can be set; the lookahead is the only query. For
-  these settings the packets are bit-identical to upstream libopus.
+  20 ms VBR frame per packet, always coded as full-band hybrid (SILK wideband plus
+  CELT bands 17-20), no DTX. Bitrate (6-510 kbit/s), complexity (1-10), in-band FEC
+  and packet loss can be set (the VBR constraint is accepted and has no effect);
+  the lookahead is the only query. Upstream libopus picks full-band hybrid for
+  MaiCord's settings (mono 32 and 64 kbit/s, stereo 128 kbit/s, FEC with a loss
+  hint or off), and the packets are bit-identical to the earlier maiopus encoder's
+  there; at other settings (lower rates with FEC, CELT-only rates) it chose other
+  modes or bandwidths and the packets differ.
 - **Fixed point, no heap, no alloca, no C runtime.** States live in caller memory
   (`opus_*_get_size()`/`opus_*_init()`); `opus_encode()` and `opus_decode()`
   work in caller scratch of `OPUS_SCRATCH_BYTES` that holds nothing between
@@ -52,7 +57,10 @@ SHA-256 and a status:
 the official tarball and fails on unlisted sources. Every upstream notice is
 kept. Not included from the release: the repacketizer, packet extensions,
 multistream and projection, tonality analysis, DNN/LPCNet/DRED/OSCE, custom
-modes, the float build, other architectures, build systems, tools and tests.
+modes, the float build, other architectures, build systems, tools and tests, and
+the encoder's other coding modes (CELT-only and SILK-only packets, audio bandwidth
+and mode switching, redundancy frames, the pitch prefilter, time-frequency
+analysis, the non-delayed-decision quantizer and the variable low-pass filter).
 
 ## Build
 
@@ -73,9 +81,9 @@ and rolled: their vector bodies never ran.
   range coder state equal to the encoder's for every packet), pass
   `opus_compare`, and must reproduce pinned PCM hashes of the unmodified
   fixed-point build, mono and stereo.
-- Encoder: packet digests across bitrates, complexities, FEC, the VBR
-  constraint and setting changes, and the decoder's final ranges over those
-  packets, must equal unmodified upstream.
+- Encoder: packet digests of the scenarios in `tests/media/audio/opus_encoder.cpp` (unmodified upstream's for the
+  three it was pinned from, the earlier maiopus encoder's for MaiCord's settings) and the decoder's final ranges over
+  those packets.
 
 ## Updating
 

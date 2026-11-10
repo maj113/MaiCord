@@ -84,7 +84,7 @@ VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, 
     u32 lookahead = 0;
     if (!opus_encoder_initialize(&r->encoder, {r->block + kEncoderOffset, l.levels - kEncoderOffset}, 1).ok() ||
         !opus_encoder_bitrate(&r->encoder, kVoiceMessageBitrate).ok() ||
-        !opus_encoder_vbr_constraint(&r->encoder, true).ok() || !opus_encoder_inband_fec(&r->encoder, false).ok() ||
+        !opus_encoder_inband_fec(&r->encoder, false).ok() ||
         !opus_encoder_packet_loss(&r->encoder, 0).ok() || !opus_encoder_complexity(&r->encoder, 10).ok() ||
         !opus_encoder_lookahead(&r->encoder, &lookahead).ok() ||
         lookahead > kVoiceMessageFrameSamples * (kVoiceMessagePaddingFrames - 1)) {

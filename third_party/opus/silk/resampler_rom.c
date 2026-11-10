@@ -36,21 +36,11 @@ POSSIBILITY OF SUCH DAMAGE.
 /* fprintf('\t%6d, %6d, %6d, %6d\n', round(B(2)*2^16), round(-A(2)*2^16), round((1-A(3))*2^16), round(G*2^15)) */
 /* const opus_int16 silk_resampler_up2_hq_notch[ 4 ] = { 9634,  -7012,   7209,  30474 }; */
 
-/* Tables with IIR and FIR coefficients for fractional downsamplers (maiopus: the decimators by 3, 4 and 6
-   that the 48 kHz API rate needs) */
+/* Table with IIR and FIR coefficients for the fractional downsampler (maiopus: the decimator by 3
+   that the 48 kHz API rate and 16 kHz internal rate need) */
 silk_DWORD_ALIGN const opus_int16 silk_Resampler_1_3_COEFS[ 2 + RESAMPLER_DOWN_ORDER_FIR2 / 2 ] = {
      16102, -15162,
        -13,      0,     20,     26,      5,    -31,    -43,     -4,     65,     90,      7,   -157,   -248,    -44,    593,   1583,   2612,   3271,
-};
-
-silk_DWORD_ALIGN const opus_int16 silk_Resampler_1_4_COEFS[ 2 + RESAMPLER_DOWN_ORDER_FIR2 / 2 ] = {
-     22500, -15099,
-         3,    -14,    -20,    -15,      2,     25,     37,     25,    -16,    -71,   -107,    -79,     50,    292,    623,    982,   1288,   1464,
-};
-
-silk_DWORD_ALIGN const opus_int16 silk_Resampler_1_6_COEFS[ 2 + RESAMPLER_DOWN_ORDER_FIR2 / 2 ] = {
-     27540, -15257,
-        17,     12,      8,      1,    -10,    -22,    -30,    -32,    -22,      3,     44,    100,    168,    243,    317,    381,    429,    455,
 };
 
 silk_DWORD_ALIGN const opus_int16 silk_Resampler_2_3_COEFS_LQ[ 2 + 2 * 2 ] = {

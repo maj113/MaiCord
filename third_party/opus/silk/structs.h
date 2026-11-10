@@ -69,14 +69,6 @@ typedef struct {
     opus_int32                  counter;                        /* Frame counter used in the initial phase                              */
 } silk_VAD_state;
 
-/* Variable cut-off low-pass filter state */
-typedef struct {
-    opus_int32                   In_LP_State[ 2 ];           /* Low pass filter state */
-    opus_int32                   transition_frame_no;        /* Counter which is mapped to a cut-off frequency */
-    opus_int                     mode;                       /* Operating mode, <0: switch down, >0: switch up; 0: do nothing           */
-    opus_int32                   saved_fs_kHz;               /* If non-zero, holds the last sampling rate before a bandwidth switching reset. */
-} silk_LP_state;
-
 /* Structure containing NLSF codebook */
 typedef struct {
     const opus_int16             nVectors;
@@ -132,22 +124,16 @@ typedef struct {
     opus_int32                   In_HP_State[ 2 ];                  /* High pass filter state                                           */
     opus_int32                   variable_HP_smth1_Q15;             /* State of first smoother                                          */
     opus_int32                   variable_HP_smth2_Q15;             /* State of second smoother                                         */
-    silk_LP_state                sLP;                               /* Low pass filter state                                            */
     silk_VAD_state               sVAD;                              /* Voice activity detector state                                    */
     silk_nsq_state               sNSQ;                              /* Noise Shape Quantizer State                                      */
     opus_int16                   prev_NLSFq_Q15[ MAX_LPC_ORDER ];   /* Previously quantized NLSF vector                                 */
     opus_int                     speech_activity_Q8;                /* Speech activity                                                  */
-    opus_int                     allow_bandwidth_switch;            /* Flag indicating that switching of internal bandwidth is allowed  */
     opus_int8                    LBRRprevLastGainIndex;
     opus_int8                    prevSignalType;
     opus_int                     prevLag;
     opus_int                     pitch_LPC_win_length;
     opus_int                     max_pitch_lag;                     /* Highest possible pitch lag (samples)                             */
     opus_int32                   API_fs_Hz;                         /* API sampling frequency (Hz)                                      */
-    opus_int32                   prev_API_fs_Hz;                    /* Previous API sampling frequency (Hz)                             */
-    opus_int                     maxInternal_fs_Hz;                 /* Maximum internal sampling frequency (Hz)                         */
-    opus_int                     minInternal_fs_Hz;                 /* Minimum internal sampling frequency (Hz)                         */
-    opus_int                     desiredInternal_fs_Hz;             /* Soft request for internal sampling frequency (Hz)                */
     opus_int                     fs_kHz;                            /* Internal sampling frequency (kHz)                                */
     opus_int                     nb_subfr;                          /* Number of 5 ms subframes in a frame                              */
     opus_int                     frame_length;                      /* Frame length (samples)                                           */
@@ -174,7 +160,6 @@ typedef struct {
     opus_int                     controlled_since_last_payload;     /* Flag for ensuring codec_control only runs once per packet        */
     opus_int                     warping_Q16;                       /* Warping parameter for warped noise shaping                       */
     opus_int                     useCBR;                            /* Flag to enable constant bitrate                                  */
-    opus_int                     prefillFlag;                       /* Flag to indicate that only buffers are prefilled, no coding      */
     const opus_uint8             *pitch_lag_low_bits_iCDF;          /* Pointer to iCDF table for low bits of pitch lag index            */
     const opus_uint8             *pitch_contour_iCDF;               /* Pointer to iCDF table for pitch contour index                    */
     const silk_NLSF_CB_struct    *psNLSF_CB;                        /* Pointer to NLSF codebook                                         */

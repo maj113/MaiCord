@@ -48,16 +48,6 @@ typedef struct {
 
     /* I:   Input signal sampling rate in Hertz; 8000/12000/16000/24000/32000/44100/48000   */
     opus_int32 API_sampleRate;
-
-    /* I:   Maximum internal sampling rate in Hertz; 8000/12000/16000                       */
-    opus_int32 maxInternalSampleRate;
-
-    /* I:   Minimum internal sampling rate in Hertz; 8000/12000/16000                       */
-    opus_int32 minInternalSampleRate;
-
-    /* I:   Soft request for internal sampling rate in Hertz; 8000/12000/16000              */
-    opus_int32 desiredInternalSampleRate;
-
     /* I:   Number of samples per packet in milliseconds; 10/20/40/60                       */
     opus_int payloadSize_ms;
 
@@ -88,23 +78,8 @@ typedef struct {
     /* I:   Causes a smooth downmix to mono                                                 */
     opus_int toMono;
 
-    /* I:   Opus encoder is allowing us to switch bandwidth                                 */
-    opus_int opusCanSwitch;
-
-    /* O:   Internal sampling rate used, in Hertz; 8000/12000/16000                         */
-    opus_int32 internalSampleRate;
-
-    /* O: Flag that bandwidth switching is allowed (because low voice activity)             */
-    opus_int allowBandwidthSwitch;
-
-    /* O:   Flag that SILK runs in WB mode without variable LP filter (use for switching between WB/SWB/FB) */
-    opus_int inWBmodeWithoutVariableLP;
-
     /* O:   Stereo width */
     opus_int stereoWidth_Q14;
-
-    /* O:   Tells the Opus encoder we're ready to switch                                    */
-    opus_int switchReady;
 
     /* O: SILK Signal type */
     opus_int signalType;

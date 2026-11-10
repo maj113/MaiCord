@@ -73,8 +73,6 @@ opus_int silk_InitEncoder(                              /* O    Returns error co
 /**************************/
 /* Encode frame with Silk */
 /**************************/
-/* Note: if prefillFlag is set, the input must contain 10 ms of audio, irrespective of what                     */
-/* encControl->payloadSize_ms is set to                                                                         */
 opus_int silk_Encode(                                   /* O    Returns error code                              */
     void                            *encState,          /* I/O  State                                           */
     silk_EncControlStruct           *encControl,        /* I    Control status                                  */
@@ -82,7 +80,6 @@ opus_int silk_Encode(                                   /* O    Returns error co
     opus_int                        nSamplesIn,         /* I    Number of samples in input vector               */
     ec_enc                          *psRangeEnc,        /* I/O  Compressor data structure                       */
     opus_int32                      *nBytesOut,         /* I/O  Number of bytes in payload (input: Max bytes)   */
-    const opus_int                  prefillFlag,        /* I    Flag to indicate prefilling buffers no coding   */
     int                             activity,           /* I    Decision of Opus voice activity detector        */
     char                            *scratch            /* I    Scratch arena                                   */
 );

@@ -60,14 +60,6 @@ typedef struct {
 /* Encoder/decoder Requests */
 
 
-#define CELT_SET_PREDICTION_REQUEST    10002
-/** Controls the use of interframe prediction.
-    0=Independent frames
-    1=Short term interframe prediction allowed
-    2=Long term prediction allowed
- */
-#define CELT_SET_PREDICTION(x) CELT_SET_PREDICTION_REQUEST, opus_check_int(x)
-
 #define CELT_SET_CHANNELS_REQUEST    10008
 #define CELT_SET_CHANNELS(x) CELT_SET_CHANNELS_REQUEST, opus_check_int(x)
 
@@ -99,17 +91,17 @@ static OPUS_INLINE opus_int32 bitrate_to_bits(opus_int32 bitrate, opus_int32 Fs,
 
 int celt_encoder_get_size(int channels);
 
-int celt_encode_with_ec(OpusCustomEncoder * OPUS_RESTRICT st, const opus_res * pcm, int frame_size, unsigned char *compressed, int nbCompressedBytes, ec_enc *enc, char *scratch);
+int celt_encode_with_ec(OpusCustomEncoder * OPUS_RESTRICT st, const opus_res * pcm, int nbCompressedBytes, ec_enc *enc, char *scratch);
 
 /* Scratch arena bytes (stack_alloc.h, 16-byte rounded allocations) for frames
-   of up to 960 samples, two channels and the 21-band mode.
+   of 960 samples, two channels and the 21-band mode.
    Encoder: celt_encode_with_ec keeps in (2*1080*4), freq and X (2*960*4 each),
-   five 2-channel band arrays, eight band arrays and the collapse masks (25520),
+   five 2-channel band arrays, six band arrays and the collapse masks (25328),
    then quant_all_bands with theta RDO takes the band norms (2*800*4), six
    last-band saves (6*176*4), the byte save (1275) and alg_quant's leaf
-   (179*4 + 2*176*4): 14032. Every earlier callee (prefilter 21280, MDCT
-   7680, ...) needs less at its call point. */
-#define CELT_ENCODER_SCRATCH_BYTES 39552
+   (179*4 + 2*176*4): 14032. Every earlier callee (MDCT 7680, ...) needs less
+   at its call point. */
+#define CELT_ENCODER_SCRATCH_BYTES 39360
 
 int celt_encoder_init(CELTEncoder *st, int channels);
 

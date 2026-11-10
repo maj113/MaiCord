@@ -11,17 +11,22 @@ using Check = void (*)(bool, const char*) noexcept;
 constexpr u32 kFrame = kOpusEncoderFrameSamples, kMaximumFrames = 50;
 struct Scenario {
     u32 channels, bitrate, complexity, fec, loss, signal, frames, bitrate2, complexity2;
-    // Unmodified upstream 1.6.1 (its own CMake, fixed point; SIMD and scalar agree): FNV-1a of the packets, and of
-    // the encoder's final range after each packet (little-endian 32-bit).
+    // FNV-1a of the packets, and of the decoder's final range after each packet (little-endian 32-bit), which equals
+    // the encoder's for a conformant bitstream. Scenarios 1-3 were pinned from unmodified upstream 1.6.1 (its own CMake,
+    // fixed point; SIMD and scalar agree); the others, MaiCord's settings, from the encoder before its reduction to
+    // full-band hybrid, which they equal.
     u64 digest, ranges;
 };
 // signal: 0 speech, 1 tones, 2 speech then digital silence. Half-way changes apply bitrate2/complexity2.
 constexpr Scenario kScenarios[]{
-    {1, 24000, 7, 1, 10, 0, 50, 40000, 3, 0xc42d07a88db11b9eull, 0xcbeb562a8654002full},
     {2, 64000, 10, 1, 5, 0, 25, 0, 0, 0x7d2175e8c525c94full, 0x2fe65413dcfaae09ull},
     {1, 16000, 2, 0, 0, 2, 50, 0, 0, 0x90257e0b9d439e71ull, 0x075f8a24294bc53eull},
-    {1, 96000, 5, 0, 0, 1, 25, 0, 0, 0x9cc72fb99d689a29ull, 0xa0f14c5210805a74ull},
     {2, 128000, 8, 1, 20, 1, 25, 0, 0, 0x9ccfd7e830b5ebfbull, 0x98a61a934c5ec221ull},
+    {1, 40000, 7, 1, 10, 0, 50, 64000, 3, 0x4b4d0614ce9b5b54ull, 0x46a2f575051c0373ull},
+    {1, 64000, 7, 1, 10, 0, 50, 0, 0, 0x6356a098b7b241f7ull, 0x2ba18314bacaa7c1ull}, // voice send
+    {2, 128000, 7, 1, 10, 0, 50, 0, 0, 0xcdd1e74f6367e6fdull, 0x913dfaceaf6376cdull}, // Go Live
+    {1, 32000, 10, 0, 0, 0, 50, 0, 0, 0x39871ca962ec2b0dull, 0x4fcda627aae66cb4ull}, // voice message
+    {2, 32000, 10, 0, 0, 1, 25, 0, 0, 0x6d2e9dfeabee8736ull, 0x0266fe0beef7b743ull},
 };
 alignas(16) u8 encoder_storage[32768], decoder_storage[32768], saved[32768];
 OpusScratch scratch;
@@ -126,7 +131,7 @@ Quality quality(u32 channels, u32 frames, u32 skip) noexcept {
     best.segmental = segments ? sum / segments : 0;
     return best;
 }
-constexpr Scenario kStackScenario{2, 24000, 10, 1, 20, 0, 8, 128000, 10, 0, 0}; // SILK/hybrid, then CELT
+constexpr Scenario kStackScenario{2, 24000, 10, 1, 20, 0, 8, 128000, 10, 0, 0}; // low then high bitrate
 DWORD WINAPI stack_worker(void* parameter) noexcept {
     u64 digest = 0;
     auto* encoder = static_cast<OpusEncoder*>(parameter);
@@ -169,6 +174,7 @@ void test_opus_encoder(Check check) noexcept {
     copy_bytes(saved, encoder_storage, mono);
     check(opus_encoder_bitrate(&encoder, kOpusEncoderMinimumBitrate - 1).error == OpusEncodeError::invalid_input &&
               opus_encoder_bitrate(&encoder, kOpusEncoderMaximumBitrate + 1).error == OpusEncodeError::invalid_input &&
+              opus_encoder_complexity(&encoder, kOpusEncoderMinimumComplexity - 1).error == OpusEncodeError::invalid_input &&
               opus_encoder_complexity(&encoder, 11).error == OpusEncodeError::invalid_input &&
               opus_encoder_packet_loss(&encoder, 101).error == OpusEncodeError::invalid_input &&
               bytes_equal(saved, encoder_storage, mono),
@@ -215,16 +221,16 @@ void test_opus_encoder(Check check) noexcept {
               "Opus encoder defaults: initialization codes as 64 kbit/s, measured complexity and FEC with a loss hint");
     }
 
-    // Bit-exact verification against unmodified upstream, then decodability and the range check of the same packets.
+    // Pinned packets, then decodability and the range check of the same packets.
     for (const Scenario& s : kScenarios) {
         fill(s);
         u64 digest = 0, ranges = 0;
         encoder = {};
         check(opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, s.channels).ok() &&
                   configure(&encoder, s) && encode_all(&encoder, s, &digest) && digest == s.digest,
-              "Opus encoder upstream identity: MaiCord profile packets equal unmodified libopus 1.6.1 packets");
+              "Opus encoder pinned output: MaiCord profile packets equal the pinned digests");
         check(decode_all(s.channels, s.frames, &ranges) && ranges == s.ranges,
-              "Opus encoder bitstream: every upstream-identical packet decodes 20 ms and ends at upstream's final range");
+              "Opus encoder bitstream: every pinned packet decodes 20 ms and ends at the pinned final range");
         opus_encoder_release(&encoder);
     }
 
@@ -248,7 +254,7 @@ void test_opus_encoder(Check check) noexcept {
         }
     }
 
-    // Waveform fidelity through the MaiCord decoder; measured 12.3/9.8, 12.0/10.8 and 26.5 dB.
+    // Waveform fidelity through the MaiCord decoder; measured 12.3/9.8, 12.0/10.8 and 34.7 dB.
     struct Fidelity { Scenario scenario; double snr, segmental; const char* message; };
     const Fidelity fidelity[]{
         {{1, 32000, kOpusEncoderDefaultComplexity, 1, 10, 0, 50, 0, 0, 0, 0}, 9, 7,

@@ -45,8 +45,6 @@ static const opus_int16 silk_resampler_up2_hq_1[ 3 ] = { 6854, 25769, 55542 - 65
 
 /* Tables with IIR and FIR coefficients for fractional downsamplers */
 extern const opus_int16 silk_Resampler_1_3_COEFS[ 2 +     RESAMPLER_DOWN_ORDER_FIR2 / 2 ];
-extern const opus_int16 silk_Resampler_1_4_COEFS[ 2 +     RESAMPLER_DOWN_ORDER_FIR2 / 2 ];
-extern const opus_int16 silk_Resampler_1_6_COEFS[ 2 +     RESAMPLER_DOWN_ORDER_FIR2 / 2 ];
 extern const opus_int16 silk_Resampler_2_3_COEFS_LQ[ 2 + 2 * 2 ];
 
 /* Table with interplation fractions of 1/24, 3/24, ..., 23/24 */

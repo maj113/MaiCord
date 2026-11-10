@@ -119,7 +119,7 @@ void silk_find_pitch_lags_FIX(
         /*****************************************/
         if( silk_pitch_analysis_core( res, psEncCtrl->pitchL, &psEnc->sCmn.indices.lagIndex, &psEnc->sCmn.indices.contourIndex,
                 &psEnc->LTPCorr_Q15, psEnc->sCmn.prevLag, psEnc->sCmn.pitchEstimationThreshold_Q16,
-                (opus_int)thrhld_Q13, psEnc->sCmn.fs_kHz, psEnc->sCmn.pitchEstimationComplexity, psEnc->sCmn.nb_subfr,
+                (opus_int)thrhld_Q13, 16, psEnc->sCmn.pitchEstimationComplexity, MAX_NB_SUBFR,
                 scratch) == 0 )
         {
             psEnc->sCmn.indices.signalType = TYPE_VOICED;

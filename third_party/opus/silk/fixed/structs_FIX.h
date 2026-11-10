@@ -98,8 +98,6 @@ typedef struct {
     opus_int                    nChannelsAPI;
     opus_int                    nChannelsInternal;
     opus_int                    nPrevChannelsInternal;
-    opus_int                    timeSinceSwitchAllowed_ms;
-    opus_int                    allowBandwidthSwitch;
     opus_int                    prev_decode_only_middle;
     /* This needs to be last so we can skip the second state for mono. */
     silk_encoder_state_FIX      state_Fxx[ ENCODER_NUM_CHANNELS ];

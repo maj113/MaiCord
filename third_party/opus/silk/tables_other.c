@@ -86,27 +86,3 @@ const opus_uint8 silk_uniform6_iCDF[ 6 ] = { 213, 171, 128, 85, 43, 0 };
 const opus_uint8 silk_uniform8_iCDF[ 8 ] = { 224, 192, 160, 128, 96, 64, 32, 0 };
 
 const opus_uint8 silk_NLSF_EXT_iCDF[ 7 ] = { 100, 40, 16, 7, 3, 1, 0 };
-
-/*  Elliptic/Cauer filters designed with 0.1 dB passband ripple,
-        80 dB minimum stopband attenuation, and
-        [0.95 : 0.15 : 0.35] normalized cut off frequencies. */
-
-/* Interpolation points for filter coefficients used in the bandwidth transition smoother */
-const opus_int32 silk_Transition_LP_B_Q28[ TRANSITION_INT_NUM ][ TRANSITION_NB ] =
-{
-{    250767114,  501534038,  250767114  },
-{    209867381,  419732057,  209867381  },
-{    170987846,  341967853,  170987846  },
-{    131531482,  263046905,  131531482  },
-{     89306658,  178584282,   89306658  }
-};
-
-/* Interpolation points for filter coefficients used in the bandwidth transition smoother */
-const opus_int32 silk_Transition_LP_A_Q28[ TRANSITION_INT_NUM ][ TRANSITION_NA ] =
-{
-{    506393414,  239854379  },
-{    411067935,  169683996  },
-{    306733530,  116694253  },
-{    185807084,   77959395  },
-{     35497197,   57401098  }
-};

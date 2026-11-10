@@ -1,5 +1,5 @@
 # maiopus: fixed-point libopus 1.6.1 fork; provenance in upstream-manifest.json.
-# A complete decoder plus a 48 kHz, 20 ms VBR voice encoder, freestanding
+# A complete decoder plus a 48 kHz, 20 ms VBR voice encoder that always codes full-band hybrid frames, freestanding
 # (no CRT, no heap). The parent project may set:
 #   MAIOPUS_DECODER_TARGET / MAIOPUS_ENCODER_TARGET  target names
 #   MAIOPUS_LINK_CONTRACT  an INTERFACE target linked privately (link options)
@@ -138,17 +138,14 @@ add_library(${MAIOPUS_ENCODER_TARGET} STATIC
     celt/celt_encoder.c
     silk/A2NLSF.c
     silk/HP_variable_cutoff.c
-    silk/LP_variable_cutoff.c
     silk/NLSF_VQ.c
     silk/NLSF_VQ_weights_laroia.c
     silk/NLSF_del_dec_quant.c
     silk/NLSF_encode.c
-    silk/NSQ.c
     silk/VAD.c
     silk/ana_filt_bank_1.c
     silk/biquad_alt.c
     silk/control_SNR.c
-    silk/control_audio_bandwidth.c
     silk/control_codec.c
     silk/enc_API.c
     silk/encode_indices.c
@@ -198,7 +195,7 @@ set_source_files_properties(${maiopus_encoder_sources} PROPERTIES COMPILE_OPTION
 # Control, initialization and entropy-coding units run once per frame without
 # a sample loop: -Oz, with no measurable encode-time change.
 set(maiopus_encoder_cold silk/control_codec.c silk/control_SNR.c
-    silk/control_audio_bandwidth.c silk/init_encoder.c silk/HP_variable_cutoff.c silk/LP_variable_cutoff.c
+    silk/init_encoder.c silk/HP_variable_cutoff.c
     silk/stereo_encode_pred.c silk/stereo_quant_pred.c)
 set_source_files_properties(${maiopus_encoder_cold} PROPERTIES COMPILE_OPTIONS "${maiopus_smallest_options}")
 set_source_files_properties(${maiopus_encoder_hot} PROPERTIES COMPILE_OPTIONS "${maiopus_speed_options}")

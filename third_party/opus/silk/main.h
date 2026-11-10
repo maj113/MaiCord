@@ -38,7 +38,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "entenc.h"
 #include "entdec.h"
 
-/* Scratch bytes silk_NSQ and silk_NSQ_del_dec allocate at most (proved where they allocate) */
+/* Scratch bytes silk_NSQ_del_dec allocates at most (proved where it allocates) */
 #define SILK_NSQ_SCRATCH_BYTES  9520
 
 
@@ -126,12 +126,6 @@ void silk_decode_signs(
     const opus_int              signalType,                         /* I    Signal type                             */
     const opus_int              quantOffsetType,                    /* I    Quantization offset type                */
     const opus_int              sum_pulses[ MAX_NB_SHELL_BLOCKS ]   /* I    Sum of absolute pulses per block        */
-);
-
-/* Control internal sampling rate */
-opus_int silk_control_audio_bandwidth(
-    silk_encoder_state          *psEncC,                        /* I/O  Pointer to Silk encoder state               */
-    silk_EncControlStruct       *encControl                     /* I    Control structure                           */
 );
 
 /* Control SNR of residual quantizer */
@@ -232,25 +226,6 @@ void silk_VQ_WMat_EC(
 /* Noise shaping quantization (NSQ) */
 /************************************/
 
-void silk_NSQ(
-    const silk_encoder_state    *psEncC,                                      /* I    Encoder State                   */
-    silk_nsq_state              *NSQ,                                         /* I/O  NSQ state                       */
-    SideInfoIndices             *psIndices,                                   /* I/O  Quantization Indices            */
-    const opus_int16            x16[],                                        /* I    Input                           */
-    opus_int8                   pulses[],                                     /* O    Quantized pulse signal          */
-    const opus_int16            *PredCoef_Q12,                                /* I    Short term prediction coefs     */
-    const opus_int16            LTPCoef_Q14[ LTP_ORDER * MAX_NB_SUBFR ],      /* I    Long term prediction coefs      */
-    const opus_int16            AR_Q13[ MAX_NB_SUBFR * MAX_SHAPE_LPC_ORDER ], /* I    Noise shaping coefs             */
-    const opus_int              HarmShapeGain_Q14[ MAX_NB_SUBFR ],            /* I    Long term shaping coefs         */
-    const opus_int              Tilt_Q14[ MAX_NB_SUBFR ],                     /* I    Spectral tilt                   */
-    const opus_int32            LF_shp_Q14[ MAX_NB_SUBFR ],                   /* I    Low frequency shaping coefs     */
-    const opus_int32            Gains_Q16[ MAX_NB_SUBFR ],                    /* I    Quantization step sizes         */
-    const opus_int              pitchL[ MAX_NB_SUBFR ],                       /* I    Pitch lags                      */
-    const opus_int              Lambda_Q10,                                   /* I    Rate/distortion tradeoff        */
-    const opus_int              LTP_scale_Q14,                                /* I    LTP state scaling               */
-    char                        *scratch                                      /* I    Scratch arena                   */
-);
-
 /* Noise shaping using delayed decision */
 void silk_NSQ_del_dec(
     const silk_encoder_state    *psEncC,                                      /* I    Encoder State                   */
@@ -289,15 +264,6 @@ opus_int silk_VAD_GetSA_Q8(                                     /* O    Return v
 void silk_VAD_GetNoiseLevels(
     const opus_int32            pX[ VAD_N_BANDS ],              /* I    subband energies                            */
     silk_VAD_state              *psSilk_VAD                     /* I/O  Pointer to Silk VAD state                   */
-);
-
-/* Low-pass filter with variable cutoff frequency based on  */
-/* piece-wise linear interpolation between elliptic filters */
-/* Start by setting transition_frame_no = 1;                */
-void silk_LP_variable_cutoff(
-    silk_LP_state               *psLP,                          /* I/O  LP filter state                             */
-    opus_int16                  *frame,                         /* I/O  Low-pass filtered output signal             */
-    const opus_int              frame_length                    /* I    Frame length                                */
 );
 
 /******************/
