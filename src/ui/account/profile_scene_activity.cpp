@@ -64,6 +64,34 @@ ProfileTone card_tone(const UiActivityCardItem& item) noexcept {
         return ProfileTone::normal;
     }
 }
+// How each card item becomes a part, by role (UiActivityCardRole order): its look and media, the timer part it is
+// (1 clock, 2 glyph, 3 elapsed, 4 total, 5 bar) and what it takes from the item: its text and style (kText), its tone
+// (kTone), its icon (kIcon), its own action (kAction) or the card's click when it only has a hint (kHinted), and
+// whether it stays out of keyboard focus without an action of its own, always or only with a hint (kLoose).
+struct PartKind {
+    ProfileLook look;
+    ProfileMediaKind media;
+    u8 timer, bits;
+};
+constexpr u8 kText = 1, kTone = 2, kIcon = 4, kAction = 8, kHinted = 16, kLoose = 32, kLooseAlways = 64;
+constexpr PartKind kPartKinds[]{
+    {ProfileLook::plain, ProfileMediaKind::none, 0, kText | kTone},                                    // heading
+    {ProfileLook::plain, ProfileMediaKind::activity_text, 0, kText | kTone | kHinted | kLoose},       // title
+    {ProfileLook::plain, ProfileMediaKind::activity_text, 0, kText | kTone | kHinted | kLoose},       // line
+    {ProfileLook::icon, ProfileMediaKind::none, 0, kTone | kIcon},                                     // glyph
+    {ProfileLook::plain, ProfileMediaKind::activity_text, 0, kText | kTone},                           // chip
+    {ProfileLook::icon, ProfileMediaKind::none, 2, kTone | kIcon},                                     // clock_glyph
+    {ProfileLook::plain, ProfileMediaKind::activity_text, 1, kText | kTone},                           // clock
+    {ProfileLook::plain, ProfileMediaKind::activity_text, 3, kText | kTone},                           // elapsed
+    {ProfileLook::plain, ProfileMediaKind::activity_clock, 4, kText | kTone},                          // total
+    {ProfileLook::plain, ProfileMediaKind::activity_progress, 5, 0},                                   // bar
+    {ProfileLook::plain, ProfileMediaKind::activity_large, 0, kHinted | kLoose | kLooseAlways},       // art
+    {ProfileLook::plain, ProfileMediaKind::activity_small, 0, kHinted | kLoose | kLooseAlways},       // badge
+    {ProfileLook::secondary, ProfileMediaKind::activity_action, 0, kAction},                           // button
+    {ProfileLook::icon, ProfileMediaKind::none, 0, kTone | kIcon},                                     // button_glyph
+    {ProfileLook::plain, ProfileMediaKind::none, 0, kText | kTone},                                    // button_label
+};
+static_assert(sizeof(kPartKinds) / sizeof(kPartKinds[0]) == static_cast<u32>(Role::button_label) + 1);
 } // namespace
 
 // One card from the shared layout: each item becomes a part, offset to the
@@ -94,67 +122,31 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
     background->source = static_cast<u16>(item);
     const u16 source = static_cast<u16>(item);
     ActivityTimer timer{kNoPart, kNoPart, kNoPart, kNoPart, kNoPart, static_cast<u8>(item), static_cast<u8>(card)};
+    u16* const timer_parts[]{&timer.clock, &timer.glyph, &timer.elapsed, &timer.total, &timer.bar};
     for (u32 i = 0; i < c.count; ++i) {
         const auto& it = c.items[i];
         const UiRect r{left + it.rect.left, top + it.rect.top, left + it.rect.right, top + it.rect.bottom};
-        const auto tone = card_tone(it);
+        const auto& kind = kPartKinds[static_cast<u32>(it.role)];
+        const auto tone = (kind.bits & kTone) ? card_tone(it) : ProfileTone::normal;
         const auto act = card_action(it.action);
-        ProfilePart* part = nullptr;
-        switch (it.role) {
-        case Role::heading:
-            part = caption(s, owner, r, it.text, it.flags, tone);
-            break;
-        case Role::title:
-        case Role::line:
-            part = add(s, owner, r, it.text, act != ProfileAction::none ? act : it.hint.bytes ? hint_action(*s)
-                                                                                               : ProfileAction::none,
-                       it.flags, ProfileLook::plain, tone);
-            part->wrap = it.wrap;
-            part->media = ProfileMediaKind::activity_text;
-            if (act == ProfileAction::none && it.hint.bytes)
-                unfocusable(s, part);
-            break;
-        case Role::art:
-        case Role::badge:
-            part = blank(s, owner, r,
-                         act != ProfileAction::none ? act : it.hint.bytes ? hint_action(*s) : ProfileAction::none);
-            part->media = it.role == Role::art ? ProfileMediaKind::activity_large : ProfileMediaKind::activity_small;
-            if (act == ProfileAction::none)
-                unfocusable(s, part);
-            break;
-        case Role::glyph:
-        case Role::clock_glyph:
-        case Role::button_glyph:
-            part = icon(s, owner, r, it.icon, ProfileAction::none, tone);
-            if (it.role == Role::clock_glyph)
-                timer.glyph = part_index(*s, part);
-            break;
-        case Role::chip:
-        case Role::clock:
-        case Role::elapsed:
-        case Role::total:
-        case Role::button_label:
-            part = caption(s, owner, r, it.text, it.flags, tone);
-            if (it.role != Role::button_label)
-                part->media = it.role == Role::total ? ProfileMediaKind::activity_clock : ProfileMediaKind::activity_text;
-            if (it.role == Role::clock)
-                timer.clock = part_index(*s, part);
-            else if (it.role == Role::elapsed)
-                timer.elapsed = part_index(*s, part);
-            else if (it.role == Role::total)
-                timer.total = part_index(*s, part);
-            break;
-        case Role::bar:
-            part = blank(s, owner, r);
-            part->media = ProfileMediaKind::activity_progress;
+        const auto part_action = (kind.bits & kAction)        ? act
+                                 : !(kind.bits & kHinted)     ? ProfileAction::none
+                                 : act != ProfileAction::none ? act
+                                 : it.hint.bytes              ? hint_action(*s)
+                                                              : ProfileAction::none;
+        const bool text = kind.bits & kText;
+        ProfilePart* part =
+            add(s, owner, r, text ? it.text : Utf8View{}, part_action, text ? it.flags : 0, kind.look, tone);
+        part->wrap = it.wrap;
+        part->media = kind.media;
+        if (kind.bits & kIcon)
+            part->icon = static_cast<u16>(it.icon);
+        if ((kind.bits & kLoose) && act == ProfileAction::none && ((kind.bits & kLooseAlways) || it.hint.bytes))
+            unfocusable(s, part);
+        if (kind.timer)
+            *timer_parts[kind.timer - 1] = part_index(*s, part);
+        if (it.role == Role::bar)
             part->color = {c.fraction, 0, 0, 1};
-            timer.bar = part_index(*s, part);
-            break;
-        case Role::button:
-            part = blank(s, owner, r, act, ProfileLook::secondary);
-            part->media = ProfileMediaKind::activity_action;
-            break;
-        }
         part->source = source;
         part->hint = it.hint;
         // The art's image kind (Spotify's album art opens the album); a button's index.

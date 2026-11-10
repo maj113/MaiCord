@@ -23,23 +23,21 @@ Utf8View cost_label(u8 cost) noexcept;
 Utf8View base_label(u32 base) noexcept;       // "Dark"; a base past the last reads as the first
 // The index-th of a packed list of names (core/name_list.hpp); out of line, so a call site is one call.
 Utf8View name_at(const char* names, u32 index) noexcept;
+// The label of sort choice `sort` of a kind's Sort control ("Least access", or "Lightest" for effects).
+Utf8View sort_name(CatalogKind, u32 sort) noexcept;
 // "Oct 28, 2026" and "9.0 KB" into the scene arena.
 Utf8View date_text(UiStoreBuilder&, u64 unix) noexcept;
 Utf8View size_text(UiStoreBuilder&, u32 bytes) noexcept;
 Utf8View byline(UiStoreBuilder&, const StoreItem&, bool listed = false) noexcept;
-// "Updated 1.1 / Update 1.2.0" style label pieces.
-inline Utf8View join(UiStoreBuilder& b, const Utf8View& x, const Utf8View& y) noexcept {
-    return b.copy(x, y);
-}
-inline Utf8View join(UiStoreBuilder& b, const Utf8View& x, const Utf8View& y, const Utf8View& z) noexcept {
-    return b.copy(x, y, z);
-}
-inline Utf8View join(UiStoreBuilder& b, const Utf8View& x, const Utf8View& y, const Utf8View& z, const Utf8View& w) noexcept {
-    return b.copy(x, y, z, w);
-}
+// `pattern` with each "{}" replaced by the next view, in the scene arena. At most four pieces in all (the literals
+// between the marks count too); nest a compose for more.
+Utf8View compose(UiStoreBuilder&, const char* pattern, const Utf8View& a) noexcept;
+Utf8View compose(UiStoreBuilder&, const char* pattern, const Utf8View& a, const Utf8View& b) noexcept;
+Utf8View compose(UiStoreBuilder&, const char* pattern, const Utf8View& a, const Utf8View& b, const Utf8View& c) noexcept;
 
 // Leaves.
 UiStoreNode& subtle(Ctx&, const Utf8View& value, u16 flags = 0) noexcept;
+UiStoreNode& subtle(Ctx&, const char* value, u16 flags = 0) noexcept;
 void card_open(Ctx&, UiStoreFill fill = UiStoreFill::subtle, u32 action = 0) noexcept;
 UiStoreNode& hairline_row(Ctx&, bool last, float pad_x = 16, float pad_y = 12) noexcept;
 // The two most common containers in one call: a column of text lines (gap 2, takes the row's free space) and a

@@ -70,6 +70,27 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
               same(light.color.border_normal, edge(.36f)) && same(light.color.input_border, edge(.36f)) &&
               same(light.color.modal_background, kLightTheme.surface),
           "theme: Dark and Light palettes and settings tokens are unchanged");
+    // Each widget token against Discord's midnight variables: inputs, switches (off), radios and checkboxes are
+    // translucent black with grey borders (input/switch/radio/checkbox-background-default, -border-default), the
+    // selected plates and chips grey (background-mod-subtle/normal/strong), the slider track #383840.
+    const Color black12{0, 0, 0, .122f}, black_light{0, 0, 0, .04f};
+    check(same(midnight.color.input_background, black12) && same(midnight.color.switch_track, black12) &&
+              same(midnight.color.switch_border, edge(.2f)) && same(midnight.color.radio_border, edge(.64f)) &&
+              same(midnight.color.mod_normal, edge(.2f)) && same(midnight.color.mod_strong, edge(.24f)) &&
+              same(midnight.color.slider_track, rgb(byte(56), byte(56), byte(64))) &&
+              same(midnight.color.nav_selected, edge(.24f)),
+          "theme: AMOLED widget tokens equal Discord's midnight input, switch, radio, plate and slider variables");
+    check(same(dark.color.input_background, black12) && same(dark.color.switch_track, black12) &&
+              same(dark.color.switch_border, edge(.2f)) && same(dark.color.radio_border, edge(.64f)) &&
+              same(dark.color.mod_subtle, edge(.122f)) && same(dark.color.mod_normal, edge(.161f)) &&
+              same(dark.color.mod_strong, edge(.2f)) &&
+              same(dark.color.slider_track,
+                   ui_settings_color_mix(kDefaultTheme.base_low, kDefaultTheme.text_secondary, .25f)) &&
+              same(light.color.input_background, black_light) && same(light.color.mod_subtle, edge(.16f)) &&
+              same(light.color.mod_normal, edge(.22f)) && same(light.color.mod_strong, edge(.28f)) &&
+              same(light.color.slider_track,
+                   ui_settings_color_mix(kLightTheme.base_low, kLightTheme.text_secondary, .35f)),
+          "theme: Dark and Light widget tokens are unchanged");
 
     PaintStream paint{};
     bool presence = paint_stream_initialize(&paint);

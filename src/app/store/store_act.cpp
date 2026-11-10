@@ -88,15 +88,14 @@ void store_page_build(UiStoreScene* scene, const StoreLayoutInput& in) noexcept 
     }
     page.close();
     const bool dialog = m.consent.open || st.remove_confirm || st.link_dialog || m.link.open;
-    if (dialog) {
-        UiStoreBuilder d(scene, true);
+    if (dialog || m.trying) {
+        // The dialog's modal tree, or the trial's bar floating at the bottom of it.
+        UiStoreBuilder d(scene, true, !dialog);
         Ctx dc{d, m, st, in};
-        build_dialog(dc);
-        d.close();
-    } else if (m.trying) {
-        UiStoreBuilder d(scene, true, true);
-        Ctx dc{d, m, st, in};
-        build_trial_bar(dc);
+        if (dialog)
+            build_dialog(dc);
+        else
+            build_trial_bar(dc);
         d.close();
     }
     if (!page.ok())
@@ -185,7 +184,7 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
     case StoreAct::sort:
         return menu(StoreMenu::sort, 0, anchor);
     case StoreAct::chip: {
-        StoreChips chips{};
+        StoreChips chips;
         store_chips_build(m, st->kind, &chips);
         st->chips = store_chip_toggle(st->chips, chips, arg);
         return cmd(StoreCommandKind::none);
@@ -451,8 +450,8 @@ u32 overflow_rows(const StoreModel& m, u32 item, Row (&rows)[8]) noexcept {
 }
 
 constexpr u32 kColors[]{0xE5484D, 0xF5A524, 0xF5D90A, 0x30A46C, 0x12A594, 0x0091FF, 0x6E56CF, 0xE93D82, 0xFFFFFF, 0x8B8D98};
-constexpr Utf8View kColorNames[]{utf8_literal("Red"),    utf8_literal("Orange"), utf8_literal("Yellow"), utf8_literal("Green"), utf8_literal("Teal"),
-                                 utf8_literal("Blue"),   utf8_literal("Purple"), utf8_literal("Pink"),   utf8_literal("White"), utf8_literal("Grey")};
+constexpr char kColorNames[] = "Red\0Orange\0Yellow\0Green\0Teal\0Blue\0Purple\0Pink\0White\0Grey\0";
+static_assert(name_list_count(kColorNames) == sizeof(kColors) / sizeof(kColors[0]));
 
 } // namespace
 
@@ -464,11 +463,9 @@ u32 store_menu_items(const StoreModel& m, const StorePageState& st, StoreMenu wh
             out[n++] = p;
     };
     if (which == StoreMenu::sort) {
-        static constexpr Utf8View kNames[]{utf8_literal("Name"), utf8_literal("Newest"), utf8_literal("Least access")};
-        static constexpr Utf8View kLight[]{utf8_literal("Name"), utf8_literal("Newest"), utf8_literal("Lightest")};
         const u32 rows = st.kind == CatalogKind::theme ? 2 : 3;
         for (u32 i = 0; i < rows; ++i)
-            add(row_item(st.kind == CatalogKind::effect ? kLight[i] : kNames[i], i, UiIcon::count,
+            add(row_item(sort_name(st.kind, i), i, UiIcon::count,
                          static_cast<u16>(static_cast<u32>(st.sort) == i ? popup_item_checked : 0)));
         return n;
     }
@@ -478,7 +475,7 @@ u32 store_menu_items(const StoreModel& m, const StorePageState& st, StoreMenu wh
         const StoreKnob& k = m.knobs[item];
         if (k.type == 3) {
             for (u32 i = 0; i < 10; ++i) {
-                PopupItem p = row_item(kColorNames[i], i, UiIcon::palette, k.rgb == kColors[i] ? popup_item_checked : 0);
+                PopupItem p = row_item(name_at(kColorNames, i), i, UiIcon::palette, k.rgb == kColors[i] ? popup_item_checked : 0);
                 p.media_flags = kPopupItemMediaIconTint;
                 p.media_variant = kColors[i];
                 add(p);

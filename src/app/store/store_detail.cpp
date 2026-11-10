@@ -1,5 +1,7 @@
 #include "store_build.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord::app_detail::store_build {
 namespace {
@@ -18,7 +20,7 @@ void markdown(Ctx& c, const void* block, const Utf8View& plain) noexcept {
 }
 
 Utf8View tab_name(StoreTab t) noexcept {
-    return t == StoreTab::installed ? utf8_literal("Installed") : t == StoreTab::updates ? utf8_literal("Updates") : utf8_literal("Browse");
+    return name_at("Browse\0Installed\0Updates\0", static_cast<u8>(t) <= 2 ? static_cast<u8>(t) : 0);
 }
 
 void back_link(Ctx& c, const Utf8View& label) noexcept {
@@ -31,9 +33,9 @@ void meta_row(Ctx& c, const StoreItem& item) noexcept {
     auto& row = c.b.open(UiStoreKind::flow);
     row.gap = 8;
     if (item.authors.bytes)
-        c.b.text(join(c.b, utf8_literal("by "), item.authors, utf8_literal("  \xC2\xB7")), UiStoreType::small, UiStoreInk::subtle);
+        c.b.text(compose(c.b, "by {}  \xC2\xB7", item.authors), UiStoreType::small, UiStoreInk::subtle);
     if (item.released)
-        c.b.text(join(c.b, utf8_literal("Updated "), date_text(c.b, item.released)), UiStoreType::small, UiStoreInk::subtle);
+        c.b.text(compose(c.b, "Updated {}", date_text(c.b, item.released)), UiStoreType::small, UiStoreInk::subtle);
     if (item.item != ~0u && !item.unreviewed && !item.sideloaded)
         c.b.chip("Reviewed", UiStoreTone::positive, UiIcon::circle_check);
     if (item.unreviewed)
@@ -61,39 +63,39 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         n.type = 1;
         return n;
     };
-    Utf8View caption{};
+    const char* caption = nullptr;
     const u32 primary = store_action(StoreAct::detail_primary, index), secondary = store_action(StoreAct::detail_secondary, index);
     if (item.revoked) {
-        caption = utf8_literal("MaiCord turned this off because it was found harmful.");
+        caption = "MaiCord turned this off because it was found harmful.";
     } else if (item.busy) {
-        stretch(c.b.button(item.update ? utf8_literal("Updating...") : utf8_literal("Installing..."), UiStoreButton::primary, 0)).flags |=
+        stretch(c.b.button(item.update ? "Updating..." : "Installing...", UiStoreButton::primary, 0)).flags |=
             ui_store_busy | ui_store_disabled;
     } else if (!item.installed) {
         auto& b = stretch(c.b.button("Install", UiStoreButton::primary, primary, UiIcon::download));
         if (!item.installable || item.incompatible)
             b.flags |= ui_store_disabled;
-        caption = item.incompatible ? utf8_literal("This needs a newer MaiCord.")
-                  : kind == CatalogKind::plugin ? utf8_literal("You'll see what it can do and approve it before it runs.")
-                  : kind == CatalogKind::theme  ? utf8_literal("A theme is data. It installs in one click.")
-                                                : utf8_literal("An effect is data. It runs on your GPU, never as code on your PC.");
+        caption = item.incompatible                 ? "This needs a newer MaiCord."
+                  : kind == CatalogKind::plugin ? "You'll see what it can do and approve it before it runs."
+                  : kind == CatalogKind::theme  ? "A theme is data. It installs in one click."
+                                                : "An effect is data. It runs on your GPU, never as code on your PC.";
     } else if (item.update) {
-        auto& b = stretch(c.b.button(join(c.b, item.needs_review ? utf8_literal("Review ") : utf8_literal("Update to "), item.update_version),
+        auto& b = stretch(c.b.button(compose(c.b, item.needs_review ? "Review {}" : "Update to {}", item.update_version),
                                      UiStoreButton::primary, primary, UiIcon::download));
         if (!item.installable)
             b.flags |= ui_store_disabled;
-        caption = item.needs_review ? utf8_literal("This version asks for more than you approved before.") : Utf8View{};
+        caption = item.needs_review ? "This version asks for more than you approved before." : nullptr;
     } else if (kind == CatalogKind::plugin) {
-        stretch(c.b.button(item.enabled ? utf8_literal("Turn off") : utf8_literal("Turn on"),
+        stretch(c.b.button(item.enabled ? "Turn off" : "Turn on",
                            item.enabled ? UiStoreButton::secondary : UiStoreButton::primary, primary));
         if (item.has_settings)
             stretch(c.b.button("Settings", UiStoreButton::secondary, secondary, UiIcon::settings));
     } else if (kind == CatalogKind::theme) {
-        auto& b = stretch(c.b.button(item.active ? utf8_literal("Applied") : utf8_literal("Apply theme"), UiStoreButton::primary, primary, UiIcon::check));
+        auto& b = stretch(c.b.button(item.active ? "Applied" : "Apply theme", UiStoreButton::primary, primary, UiIcon::check));
         if (item.active)
             b.flags |= ui_store_disabled;
-        caption = utf8_literal("Installed.");
+        caption = "Installed.";
     } else {
-        auto& b = stretch(c.b.button(item.active ? utf8_literal("Current background") : utf8_literal("Use as background"), UiStoreButton::primary, primary));
+        auto& b = stretch(c.b.button(item.active ? "Current background" : "Use as background", UiStoreButton::primary, primary));
         if (item.active)
             b.flags |= ui_store_disabled;
         stretch(c.b.button("Knobs", UiStoreButton::secondary, secondary, UiIcon::filters));
@@ -101,9 +103,9 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
     // Try it is secondary: a moment's preview of an installed theme, never needed to apply one. The theme in use
     // offers the way back to the last built-in theme instead.
     if (kind == CatalogKind::theme && item.installed && !item.update && !item.revoked)
-        stretch(c.b.button(item.active ? utf8_literal("Use built-in theme") : utf8_literal("Try it for a moment"),
+        stretch(c.b.button(item.active ? "Use built-in theme" : "Try it for a moment",
                            UiStoreButton::secondary, secondary, item.active ? UiIcon::palette : UiIcon::eye));
-    if (caption.bytes)
+    if (caption)
         c.b.text(caption, UiStoreType::small, UiStoreInk::subtle, ui_store_wrap);
     c.b.leaf(UiStoreKind::rule);
     auto& facts = c.b.open(UiStoreKind::column);
@@ -113,7 +115,7 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
     fact(c, "Size", item.bytes ? size_text(c.b, item.bytes) : Utf8View{});
     fact(c, "License", item.license, item.license.bytes ? store_action(StoreAct::detail_source, 1) : 0);
     if (kind == CatalogKind::plugin && item.api_level)
-        fact(c, "Plugin API", join(c.b, utf8_literal("Level "), c.b.number(item.api_level)));
+        fact(c, "Plugin API", compose(c.b, "Level {}", c.b.number(item.api_level)));
     if (kind == CatalogKind::theme) {
         fact(c, "Base", base_label(item.base));
         fact(c, "Contrast", item.contrast);
@@ -137,7 +139,7 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         b.flags |= ui_store_stretch;
     }
     if (item.installed) {
-        auto& b = c.b.button(item.kind == CatalogKind::plugin ? utf8_literal("Uninstall...") : utf8_literal("Remove"),
+        auto& b = c.b.button(item.kind == CatalogKind::plugin ? "Uninstall..." : "Remove",
                              UiStoreButton::ghost_critical, store_action(StoreAct::detail_remove, index), UiIcon::trash, true);
         b.flags |= ui_store_stretch;
     }
@@ -149,7 +151,7 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         auto& glyph = c.b.leaf(UiStoreKind::icon);
         glyph.icon = static_cast<u8>(UiIcon::shield);
         glyph.ink = static_cast<u8>(UiStoreInk::subtle);
-        c.b.text(join(c.b, utf8_literal("Built by MaiCord's CI from the reviewed source at commit "), item.commit, utf8_literal(" and signed.")),
+        c.b.text(compose(c.b, "Built by MaiCord's CI from the reviewed source at commit {} and signed.", item.commit),
                  UiStoreType::small, UiStoreInk::normal, ui_store_flex | ui_store_wrap);
         c.b.close();
         c.b.close();
@@ -159,8 +161,8 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
 
 void credit(Ctx& c, const StoreItem& item) noexcept {
     heading(c, "Credit");
-    c.b.text(join(c.b, utf8_literal("Made by "), item.authors.bytes ? item.authors : utf8_literal("its author"),
-                  item.license.bytes ? join(c.b, utf8_literal(", under the "), item.license, utf8_literal(" license.")) : utf8_literal(".")),
+    c.b.text(compose(c.b, "Made by {}{}", item.authors.bytes ? item.authors : utf8_literal("its author"),
+                     item.license.bytes ? compose(c.b, ", under the {} license.", item.license) : utf8_literal(".")),
              UiStoreType::paragraph, UiStoreInk::normal, ui_store_wrap);
 }
 
@@ -246,7 +248,7 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
     split.gap = 24;
     c.b.open(UiStoreKind::column);
     if (item.revoked)
-        notice_card(c, UiIcon::warning, join(c.b, utf8_literal("Turned off: "), item.reason), {}, UiStoreFill::critical_tint, UiStoreInk::critical);
+        notice_card(c, UiIcon::warning, compose(c.b, "Turned off: {}", item.reason), {}, UiStoreFill::critical_tint, UiStoreInk::critical);
     else if (item.incompatible)
         notice_card(c, UiIcon::warning, utf8_literal("Needs a newer MaiCord"), utf8_literal("Update MaiCord to install this."), UiStoreFill::warning_tint,
                     UiStoreInk::warning);
@@ -255,7 +257,7 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         view.variant = static_cast<u8>(kind == CatalogKind::theme ? UiStoreAspect::r16x10 : UiStoreAspect::r16x9);
         view.value = index + 1;
         view.data = item.has_swatches ? item.swatches : nullptr;
-        auto& pill = c.b.chip(kind == CatalogKind::theme ? utf8_literal("Main chat view") : utf8_literal("Preview"), UiStoreTone::scrim,
+        auto& pill = c.b.chip(kind == CatalogKind::theme ? "Main chat view" : "Preview", UiStoreTone::scrim,
                               kind == CatalogKind::theme ? UiIcon::image : UiIcon::play);
         pill.anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
         pill.flags = ui_store_foreground;
@@ -265,7 +267,7 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         heading(c, "Colours");
         auto& flow = c.b.open(UiStoreKind::flow);
         flow.gap = 16;
-        static constexpr Utf8View kRoles[]{utf8_literal("Background"), utf8_literal("Surface"), utf8_literal("Text"), utf8_literal("Accent")};
+        static constexpr char kRoles[] = "Background\0Surface\0Text\0Accent\0";
         for (u32 i = 0; i < 4; ++i) {
             center_row(c, 8);
             auto& sw = c.b.leaf(UiStoreKind::swatch);
@@ -273,7 +275,7 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
             sw.value = item.swatches[i];
             sw.rw = sw.rh = 40;
             c.b.open(UiStoreKind::column);
-            c.b.text(kRoles[i], UiStoreType::small_bold, UiStoreInk::strong);
+            c.b.text(name_at(kRoles, i), UiStoreType::small_bold, UiStoreInk::strong);
             char hex[8]{'#'};
             for (u32 k = 0; k < 6; ++k)
                 hex[1 + k] = ascii_hex_digit(item.swatches[i] >> (20 - 4 * k));
@@ -284,7 +286,7 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         c.b.close();
         if (item.effect_slug.bytes) {
             heading(c, "Uses an effect");
-            c.b.text(join(c.b, item.effect_slug, utf8_literal(" is installed with this theme.")), UiStoreType::paragraph, UiStoreInk::normal, ui_store_wrap);
+            c.b.text(compose(c.b, "{} is installed with this theme.", item.effect_slug), UiStoreType::paragraph, UiStoreInk::normal, ui_store_wrap);
         }
     }
     heading(c, "About");
@@ -302,8 +304,8 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         for (u32 i = 0; i < c.m.knob_count; ++i) {
             hairline_row(c, i + 1 == c.m.knob_count, 16, 10);
             c.b.text(c.m.knobs[i].label, UiStoreType::body, UiStoreInk::strong, ui_store_flex);
-            static constexpr Utf8View kTypes[]{utf8_literal("Slider"), utf8_literal("Whole number"), utf8_literal("Switch"), utf8_literal("Colour"), utf8_literal("Choice")};
-            c.b.text(kTypes[c.m.knobs[i].type < 5 ? c.m.knobs[i].type : 0], UiStoreType::small, UiStoreInk::subtle);
+            static constexpr char kTypes[] = "Slider\0Whole number\0Switch\0Colour\0Choice\0";
+            c.b.text(name_at(kTypes, c.m.knobs[i].type < 5 ? c.m.knobs[i].type : 0), UiStoreType::small, UiStoreInk::subtle);
             c.b.close();
         }
         c.b.close();
@@ -350,16 +352,21 @@ Utf8View number_text(UiStoreBuilder& b, float value, u32 decimals) noexcept {
     for (u32 i = 0; i < decimals; ++i)
         scale *= 10;
     const u64 scaled = static_cast<u64>(value * scale + .5f);
-    Utf8View whole = b.number(scaled / scale);
-    if (!decimals)
-        return negative ? join(b, utf8_literal("-"), whole) : whole;
-    u64 frac = scaled % scale;
-    char digits[4]{'0', '0', '0', '0'};
-    for (u32 i = decimals; i; --i) {
-        digits[i - 1] = static_cast<char>('0' + frac % 10);
-        frac /= 10;
+    char text[48];
+    u32 n = 0;
+    if (negative)
+        text[n++] = '-';
+    n += decimal_write(text + n, scaled / scale);
+    if (decimals) {
+        u64 frac = scaled % scale;
+        text[n++] = '.';
+        for (u32 i = decimals; i; --i) {
+            text[n + i - 1] = static_cast<char>('0' + frac % 10);
+            frac /= 10;
+        }
+        n += decimals;
     }
-    return join(b, negative ? utf8_literal("-") : Utf8View{}, whole, utf8_literal("."), b.copy({digits, decimals}));
+    return b.copy({text, n});
 }
 
 void value_row(Ctx& c, const Utf8View& label, const Utf8View& value, bool overridden, u32 reset_action) noexcept {
@@ -387,25 +394,23 @@ void knob_row(Ctx& c, u32 i, bool last) noexcept {
     col.gap = 8;
     col.flags = ui_store_flex;
     switch (k.type) {
-    case 2: {
-        center_row(c, 8);
-        c.b.text(k.label, UiStoreType::body, UiStoreInk::strong, ui_store_flex);
-        auto& t = c.b.leaf(UiStoreKind::toggle);
-        t.action = store_action(StoreAct::knob, i);
-        t.value = k.value > .5f ? 1 : 0;
-        t.group = 6;
-        c.b.close();
-        break;
-    }
+    case 2:
     case 3: {
         center_row(c, 8);
         c.b.text(k.label, UiStoreType::body, UiStoreInk::strong, ui_store_flex);
-        auto& sw = c.b.leaf(UiStoreKind::swatch);
-        sw.variant = 1;
-        sw.value = k.rgb;
-        sw.rw = sw.rh = 24;
-        sw.action = store_action(StoreAct::knob_color, i);
-        sw.group = 6;
+        if (k.type == 2) {
+            auto& t = c.b.leaf(UiStoreKind::toggle);
+            t.action = store_action(StoreAct::knob, i);
+            t.value = k.value > .5f ? 1 : 0;
+            t.group = 6;
+        } else {
+            auto& sw = c.b.leaf(UiStoreKind::swatch);
+            sw.variant = 1;
+            sw.value = k.rgb;
+            sw.rw = sw.rh = 24;
+            sw.action = store_action(StoreAct::knob_color, i);
+            sw.group = 6;
+        }
         c.b.close();
         break;
     }
@@ -436,7 +441,7 @@ void knob_row(Ctx& c, u32 i, bool last) noexcept {
         const u32 steps = knob_steps(k);
         value_row(c, k.label,
                   k.type == 1  ? number_text(c.b, k.value, 0)
-                  : k.percent ? join(c.b, number_text(c.b, k.value * 100.f, 0), utf8_literal(" %"))
+                  : k.percent ? compose(c.b, "{} %", number_text(c.b, k.value * 100.f, 0))
                               : number_text(c.b, k.value, 2),
                   false, 0);
         auto& s = c.b.leaf(UiStoreKind::slider);
@@ -454,13 +459,13 @@ void knob_row(Ctx& c, u32 i, bool last) noexcept {
     c.b.close();
 }
 
-void segments(Ctx& c, StoreUniversalRow row, const Utf8View* labels, u32 count, u32 selected) noexcept {
+void segments(Ctx& c, StoreUniversalRow row, const char* names, u32 count, u32 selected) noexcept {
     auto& track = c.b.open(UiStoreKind::row);
     track.variant = 1;
     track.pad_x = track.pad_y = 4;
     for (u32 o = 0; o < count; ++o) {
         auto& s = c.b.leaf(UiStoreKind::segment);
-        s.text = labels[o];
+        s.text = name_at(names, o);
         s.action = store_action(StoreAct::universal, (static_cast<u32>(row) << 8) | o);
         s.group = 8 + static_cast<u32>(row);
         if (o == selected)
@@ -469,100 +474,100 @@ void segments(Ctx& c, StoreUniversalRow row, const Utf8View* labels, u32 count, 
     c.b.close();
 }
 
+// The labels of the universal rows by StoreUniversalRow, and the options of the rows that pick one.
+constexpr char kRowLabels[] = "Resolution\0" "Frame rate\0" "Speed\0" "Opacity\0" "Blend\0" "When MaiCord isn't focused\0"
+                              "GPU budget\0" "React to pointer\0" "Light themes\0";
+static_assert(static_cast<u32>(StoreUniversalRow::resolution) == 0 && static_cast<u32>(StoreUniversalRow::frame_rate) == 1 &&
+              static_cast<u32>(StoreUniversalRow::speed) == 2 && static_cast<u32>(StoreUniversalRow::opacity) == 3 &&
+              static_cast<u32>(StoreUniversalRow::blend) == 4 && static_cast<u32>(StoreUniversalRow::unfocused) == 5 &&
+              static_cast<u32>(StoreUniversalRow::budget) == 6 && static_cast<u32>(StoreUniversalRow::pointer) == 7 &&
+              static_cast<u32>(StoreUniversalRow::light) == 8);
+constexpr char kResolutionNames[] = "25\0" "35\0" "50\0" "75\0" "100\0";
+constexpr char kFrameNames[] = "10\0" "15\0" "24\0" "30\0" "60\0";
+constexpr char kBlendNames[] = "Normal\0" "Screen\0" "Add\0";
+constexpr char kFocusNames[] = "Keep\0" "10 fps\0" "Pause\0";
+constexpr char kBudgetNames[] = "Low\0" "Balanced\0" "High\0";
+constexpr char kLightNames[] = "Auto\0" "Off\0";
+
 // A universal block row: a label with its value, the control, an optional hint.
 void universal_row(Ctx& c, StoreUniversalRow row, bool last, bool overridable, bool global_panel) noexcept {
     const StoreUniversal& u = global_panel ? c.m.global_universal : c.m.universal;
-    static constexpr Utf8View kResolution[]{utf8_literal("25"), utf8_literal("35"), utf8_literal("50"), utf8_literal("75"), utf8_literal("100")};
-    static constexpr Utf8View kFrames[]{utf8_literal("10"), utf8_literal("15"), utf8_literal("24"), utf8_literal("30"), utf8_literal("60")};
-    static constexpr Utf8View kBlend[]{utf8_literal("Normal"), utf8_literal("Screen"), utf8_literal("Add")};
-    static constexpr Utf8View kFocus[]{utf8_literal("Keep"), utf8_literal("10 fps"), utf8_literal("Pause")};
-    static constexpr Utf8View kBudget[]{utf8_literal("Low"), utf8_literal("Balanced"), utf8_literal("High")};
     hairline_row(c, last, 16, 12);
     auto& col = c.b.open(UiStoreKind::column);
     col.gap = 8;
     col.flags = ui_store_flex;
     const u32 reset = store_action(StoreAct::universal_reset, static_cast<u32>(row));
+    const u32 action = store_action(StoreAct::universal, static_cast<u32>(row) << 8);
+    const Utf8View label = name_at(kRowLabels, static_cast<u32>(row));
     switch (row) {
-    case StoreUniversalRow::resolution: {
-        const bool over = overridable && u.resolution;
-        const u32 effective = over ? u.resolution : global_panel ? u.resolution : u.global_resolution ? u.global_resolution : 3;
-        value_row(c, utf8_literal("Resolution"), effective ? join(c.b, kResolution[effective - 1], utf8_literal(" %")) : utf8_literal("Automatic"), over, reset);
-        segments(c, row, kResolution, 5, effective ? effective - 1 : ~0u);
-        if (over && u.global_resolution)
-            subtle(c, join(c.b, utf8_literal("Global default: "), kResolution[u.global_resolution - 1], utf8_literal(" %.")));
-        break;
-    }
+    case StoreUniversalRow::resolution:
     case StoreUniversalRow::frame_rate: {
-        const bool over = overridable && u.frame_rate;
-        const u32 requested = global_panel ? 0 : u.requested_frame_rate;
-        const u32 effective = over ? u.frame_rate : global_panel ? u.frame_rate : u.global_frame_rate ? u.global_frame_rate : requested ? requested : 3;
-        value_row(c, utf8_literal("Frame rate"), effective ? join(c.b, kFrames[effective - 1], utf8_literal(" fps")) : utf8_literal("Automatic"), over, reset);
-        segments(c, row, kFrames, 5, effective ? effective - 1 : ~0u);
+        // Steps of one list: the shader's own step, else the global default, else what the package asks for, else 3.
+        const bool frames = row == StoreUniversalRow::frame_rate;
+        const char* names = frames ? kFrameNames : kResolutionNames;
+        const char* unit = frames ? " fps" : " %";
+        const u32 value = frames ? u.frame_rate : u.resolution, global = frames ? u.global_frame_rate : u.global_resolution;
+        const u32 requested = frames && !global_panel ? u.requested_frame_rate : 0;
+        const bool over = overridable && value;
+        const u32 effective = over || global_panel ? value : global ? global : requested ? requested : 3;
+        const Utf8View suffix{unit, c_string_length(unit)};
+        value_row(c, label, effective ? compose(c.b, "{}{}", name_at(names, effective - 1), suffix) : utf8_literal("Automatic"), over, reset);
+        segments(c, row, names, 5, effective ? effective - 1 : ~0u);
         if (over || requested) {
-            Utf8View hint = u.global_frame_rate ? join(c.b, utf8_literal("Global default: "), kFrames[u.global_frame_rate - 1], utf8_literal(" fps.")) : Utf8View{};
-            if (requested && requested != u.frame_rate)
-                hint = join(c.b, hint, hint.bytes ? utf8_literal(" ") : Utf8View{}, utf8_literal("This effect asks for "), join(c.b, kFrames[requested - 1], utf8_literal(" fps.")));
+            Utf8View hint = global ? compose(c.b, "Global default: {}{}.", name_at(names, global - 1), suffix) : Utf8View{};
+            if (requested && requested != value) {
+                const Utf8View asks = compose(c.b, "This effect asks for {}{}.", name_at(names, requested - 1), suffix);
+                hint = hint.bytes ? compose(c.b, "{} {}", hint, asks) : asks;
+            }
             if (hint.bytes)
-                subtle(c, hint, ui_store_wrap);
+                subtle(c, hint, frames ? ui_store_wrap : 0);
         }
         break;
     }
-    case StoreUniversalRow::speed: {
-        const float x = u.speed * .05f;
-        value_row(c, utf8_literal("Speed"), join(c.b, number_text(c.b, x, 1), utf8_literal("\xC3\x97")), false, 0);
-        auto& s = c.b.leaf(UiStoreKind::slider);
-        s.count = 61;
-        s.value = u.speed;
-        s.aux = 21;
-        s.action = store_action(StoreAct::universal, (static_cast<u32>(row) << 8));
-        s.group = 8 + static_cast<u32>(row);
-        break;
-    }
+    case StoreUniversalRow::speed:
     case StoreUniversalRow::opacity: {
-        value_row(c, utf8_literal("Opacity"), join(c.b, c.b.number(u.opacity), utf8_literal(" %")), false, 0);
+        const bool speed = row == StoreUniversalRow::speed;
+        value_row(c, label,
+                  speed ? compose(c.b, "{}\xC3\x97", number_text(c.b, u.speed * .05f, 1)) : compose(c.b, "{} %", c.b.number(u.opacity)),
+                  false, 0);
         auto& s = c.b.leaf(UiStoreKind::slider);
-        s.count = 101;
-        s.value = u.opacity;
-        s.aux = 101;
-        s.action = store_action(StoreAct::universal, (static_cast<u32>(row) << 8));
+        s.count = speed ? 61 : 101;
+        s.value = speed ? u.speed : u.opacity;
+        s.aux = speed ? 21 : 101;
+        s.action = action;
         s.group = 8 + static_cast<u32>(row);
         break;
     }
-    case StoreUniversalRow::blend: {
-        const u32 sel = u.blend ? u.blend - 1 : 0;
-        value_row(c, utf8_literal("Blend"), kBlend[sel < 3 ? sel : 0], false, 0);
-        segments(c, row, kBlend, 3, sel);
+    case StoreUniversalRow::blend:
+    case StoreUniversalRow::unfocused:
+    case StoreUniversalRow::budget: {
+        const bool blend = row == StoreUniversalRow::blend;
+        const u32 selected = blend ? (u.blend ? u.blend - 1u : 0u) : row == StoreUniversalRow::unfocused ? u.unfocused : u.budget;
+        const char* names = blend ? kBlendNames : row == StoreUniversalRow::unfocused ? kFocusNames : kBudgetNames;
+        value_row(c, label, name_at(names, selected < 3 ? selected : blend ? 0 : 1), false, 0);
+        segments(c, row, names, 3, selected);
         break;
     }
-    case StoreUniversalRow::unfocused:
-        value_row(c, utf8_literal("When MaiCord isn't focused"), kFocus[u.unfocused < 3 ? u.unfocused : 1], false, 0);
-        segments(c, row, kFocus, 3, u.unfocused);
-        break;
-    case StoreUniversalRow::budget:
-        value_row(c, utf8_literal("GPU budget"), kBudget[u.budget < 3 ? u.budget : 1], false, 0);
-        segments(c, row, kBudget, 3, u.budget);
-        break;
     case StoreUniversalRow::light: {
-        static constexpr Utf8View kLight[]{utf8_literal("Auto"), utf8_literal("Off")};
         if (!global_panel && u.appearance) {
-            value_row(c, utf8_literal("Light themes"), utf8_literal("Its own"), false, 0);
-            subtle(c, utf8_literal("This effect follows the light or dark theme itself."), ui_store_wrap);
+            value_row(c, label, utf8_literal("Its own"), false, 0);
+            subtle(c, "This effect follows the light or dark theme itself.", ui_store_wrap);
             break;
         }
         const bool over = overridable && u.light;
         const u32 off = (over || global_panel ? u.light : u.global_light) == 2 ? 1 : 0;
-        value_row(c, utf8_literal("Light themes"), kLight[off], over, reset);
-        segments(c, row, kLight, 2, off);
-        subtle(c, over ? join(c.b, utf8_literal("Global default: "), kLight[u.global_light == 2 ? 1 : 0], utf8_literal("."))
+        value_row(c, label, name_at(kLightNames, off), over, reset);
+        segments(c, row, kLightNames, 2, off);
+        subtle(c, over ? compose(c.b, "Global default: {}.", name_at(kLightNames, u.global_light == 2 ? 1 : 0))
                        : utf8_literal("Auto turns the effect's light into shade on a light theme."),
                ui_store_wrap);
         break;
     }
     default: {
         center_row(c, 8);
-        c.b.text("React to pointer", UiStoreType::body, UiStoreInk::strong, ui_store_flex);
+        c.b.text(label, UiStoreType::body, UiStoreInk::strong, ui_store_flex);
         auto& t = c.b.leaf(UiStoreKind::toggle);
-        t.action = store_action(StoreAct::universal, (static_cast<u32>(row) << 8));
+        t.action = action;
         t.value = u.pointer ? 1 : 0;
         t.group = 8 + static_cast<u32>(row);
         c.b.close();
@@ -625,8 +630,8 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
     c.b.text(item.name, UiStoreType::title, UiStoreInk::strong);
     auto& meta = c.b.open(UiStoreKind::flow);
     meta.gap = 8;
-    c.b.text(join(c.b, byline(c.b, item), item.license.bytes ? join(c.b, utf8_literal(" \xC2\xB7 "), item.license) : Utf8View{}), UiStoreType::small,
-             UiStoreInk::subtle);
+    c.b.text(compose(c.b, "{}{}", byline(c.b, item), item.license.bytes ? compose(c.b, " \xC2\xB7 {}", item.license) : Utf8View{}),
+             UiStoreType::small, UiStoreInk::subtle);
     if (item.active)
         c.b.chip("Current background", UiStoreTone::positive, UiIcon::check);
     if (c.m.effect_cost_text.bytes)
@@ -650,11 +655,11 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
     view.rh = 220;
     if (refused || failed)
         view.flags = ui_store_critical;
-    const Utf8View live_text = join(c.b, utf8_literal("Live preview \xC2\xB7 "), join(c.b, c.b.number(kFrames[(frames - 1) % 5]), utf8_literal(" fps \xC2\xB7 ")),
-                                    join(c.b, c.b.number(kResolutions[(resolution - 1) % 5]), utf8_literal(" %")));
     auto& pill = c.b.chip(refused  ? utf8_literal("Too heavy for this GPU")
                           : failed ? utf8_literal("This effect could not be drawn")
-                                   : live_text,
+                                   : compose(c.b, "Live preview \xC2\xB7 {}{}",
+                                             compose(c.b, "{} fps \xC2\xB7 ", c.b.number(kFrames[(frames - 1) % 5])),
+                                             compose(c.b, "{} %", c.b.number(kResolutions[(resolution - 1) % 5]))),
                           UiStoreTone::scrim, UiIcon::play);
     pill.anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
     pill.flags = ui_store_foreground;
@@ -691,7 +696,7 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
     if (!c.m.knob_count) {
         auto& col = c.b.open(UiStoreKind::column);
         col.pad_x = col.pad_y = 16;
-        subtle(c, utf8_literal("This effect has no knobs of its own."), ui_store_wrap);
+        subtle(c, "This effect has no knobs of its own.", ui_store_wrap);
         c.b.close();
     }
     c.b.close();

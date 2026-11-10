@@ -111,7 +111,8 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
     const auto& s = settings_style(theme.styles);
     const bool light = theme.appearance == ThemeAppearance::light;
     // Discord's midnight theme (a pure black rail, AMOLED) keeps cards, fields and dialogs on the near-black
-    // surface and shows their edges: one step stronger greys instead of the other themes' grey fills.
+    // surface and shows their edges: stronger greys (border-subtle/normal/input-border .2/.24/.24, mod-normal/strong
+    // .2/.24, slider track #383840). Its inputs, switches, radios and checkboxes are the same translucent black as in Dark.
     const bool midnight = theme.base_lowest.red + theme.base_lowest.green + theme.base_lowest.blue == 0.f &&
                           !ui_background_active(theme);
     constexpr Color white{1, 1, 1, 1}, black{0, 0, 0, 1};
@@ -125,8 +126,8 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
     c.border_subtle = pick(s.border_subtle, neutral(light ? .24f : midnight ? .2f : .122f));
     c.border_normal = pick(s.border_normal, neutral(light ? .36f : midnight ? .24f : .2f));
     c.mod_subtle = pick(s.mod_subtle, neutral(light ? .16f : .122f));
-    c.mod_normal = pick(s.mod_normal, neutral(light ? .22f : .161f));
-    c.mod_strong = pick(s.mod_strong, neutral(light ? .28f : .2f));
+    c.mod_normal = pick(s.mod_normal, neutral(light ? .22f : midnight ? .2f : .161f));
+    c.mod_strong = pick(s.mod_strong, neutral(light ? .28f : midnight ? .24f : .2f));
     c.input_background = pick(s.input_background, ui_settings_color_alpha(black, light ? .04f : .122f));
     c.input_border = pick(s.input_border, neutral(light ? .36f : midnight ? .24f : .2f));
     // Accent treatment: emphasis tokens follow a gradient theme's palette.
@@ -151,8 +152,9 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
     c.switch_border_hover.alpha = minimum(1.f, c.switch_border.alpha * 2);
     c.switch_border_on = c.border_subtle;
     c.thumb = white;
-    c.slider_track =
-        pick(s.slider_track, ui_settings_color_mix(theme.base_low, theme.text_secondary, light ? .35f : .25f));
+    c.slider_track = pick(s.slider_track, midnight ? Color{56 / 255.f, 56 / 255.f, 64 / 255.f, 1}
+                                                   : ui_settings_color_mix(theme.base_low, theme.text_secondary,
+                                                                           light ? .35f : .25f));
     c.radio_border = pick(s.radio_border, neutral(.64f));
     c.radio_border_hover = neutral(.8f);
     c.modal_background = pick(s.modal_background, light || midnight ? theme.surface : theme.base_low);

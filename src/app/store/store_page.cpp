@@ -1,4 +1,6 @@
 #include "store_build.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/os_text.hpp"
 
@@ -58,7 +60,7 @@ UiIcon category_icon(const StoreItem& item) noexcept {
     return UiIcon::puzzle;
 }
 Utf8View risk_label(u8 risk) noexcept {
-    return risk >= 2 ? utf8_literal("High access") : risk == 1 ? utf8_literal("Medium access") : utf8_literal("Low access");
+    return name_at("Low access\0Medium access\0High access\0", risk < 2 ? risk : 2);
 }
 __declspec(noinline) Utf8View name_at(const char* names, u32 index) noexcept {
     return name_list_at(names, index);
@@ -70,32 +72,97 @@ UiStoreTone risk_tone(u8 risk) noexcept {
     return risk >= 2 ? UiStoreTone::risk_high : risk == 1 ? UiStoreTone::risk_medium : UiStoreTone::risk_low;
 }
 Utf8View cost_label(u8 cost) noexcept {
-    return cost >= 2 ? utf8_literal("Heavy") : cost == 1 ? utf8_literal("Medium") : utf8_literal("Light");
+    return name_at("Light\0Medium\0Heavy\0", cost < 2 ? cost : 2);
 }
 
 Utf8View date_text(UiStoreBuilder& b, u64 unix) noexcept {
     if (!unix)
         return {};
     const Date d = civil(unix);
-    return join(b, name_at(kMonths, d.month - 1), utf8_literal(" "), b.number(d.day), join(b, utf8_literal(", "), b.number(d.year)));
+    char text[32];
+    const Utf8View month = name_at(kMonths, d.month - 1);
+    copy_bytes(text, month.data, month.bytes);
+    u32 n = month.bytes;
+    text[n++] = ' ';
+    n += decimal_write(text + n, d.day);
+    text[n++] = ',';
+    text[n++] = ' ';
+    n += decimal_write(text + n, d.year);
+    return b.copy({text, n});
 }
 Utf8View size_text(UiStoreBuilder& b, u32 bytes) noexcept {
+    char text[32];
+    u32 n;
+    const char* unit = " B";
     if (bytes < 1024)
-        return join(b, b.number(bytes), utf8_literal(" B"));
-    const u32 unit = bytes < 1024 * 1024 ? 1024 : 1024 * 1024;
-    const u64 tenths = (static_cast<u64>(bytes) * 10 + unit / 2) / unit;
-    return join(b, b.number(tenths / 10), utf8_literal("."), b.number(tenths % 10),
-                unit == 1024 ? utf8_literal(" KB") : utf8_literal(" MB"));
+        n = decimal_write(text, bytes);
+    else {
+        const u32 scale = bytes < 1024 * 1024 ? 1024 : 1024 * 1024;
+        const u64 tenths = (static_cast<u64>(bytes) * 10 + scale / 2) / scale;
+        n = decimal_write(text, tenths / 10);
+        text[n++] = '.';
+        text[n++] = static_cast<char>('0' + tenths % 10);
+        unit = scale == 1024 ? " KB" : " MB";
+    }
+    while (*unit)
+        text[n++] = *unit++;
+    return b.copy({text, n});
 }
 Utf8View byline(UiStoreBuilder& b, const StoreItem& item, bool listed) noexcept {
     // A Browse card names what the catalog offers; an installed item's own pages name what is installed.
     const Utf8View version = item.installed && item.installed_version.bytes && !(listed && item.version.bytes) ? item.installed_version : item.version;
     if (!item.authors.bytes)
-        return join(b, utf8_literal("v"), version);
-    return join(b, item.authors, utf8_literal(" \xC2\xB7 v"), version);
+        return compose(b, "v{}", version);
+    return compose(b, "{} \xC2\xB7 v{}", item.authors, version);
+}
+
+namespace {
+Utf8View compose_pieces(UiStoreBuilder& b, const char* pattern, const Utf8View* const* args) noexcept {
+    Utf8View parts[4]{};
+    u32 count = 0, next = 0;
+    const char* piece = pattern;
+    for (const char* at = pattern; count < 4; ++at) {
+        const bool end = !*at;
+        if (!end && !(at[0] == '{' && at[1] == '}'))
+            continue;
+        if (at != piece)
+            parts[count++] = {piece, static_cast<u32>(at - piece)};
+        if (end)
+            break;
+        parts[count++] = *args[next++];
+        piece = at += 2;
+        --at;
+    }
+    switch (count) {
+    case 1:
+        return b.copy(parts[0]);
+    case 2:
+        return b.copy(parts[0], parts[1]);
+    case 3:
+        return b.copy(parts[0], parts[1], parts[2]);
+    default:
+        return b.copy(parts[0], parts[1], parts[2], parts[3]);
+    }
+}
+} // namespace
+__declspec(noinline) Utf8View compose(UiStoreBuilder& b, const char* pattern, const Utf8View& x) noexcept {
+    const Utf8View* const args[]{&x};
+    return compose_pieces(b, pattern, args);
+}
+__declspec(noinline) Utf8View compose(UiStoreBuilder& b, const char* pattern, const Utf8View& x, const Utf8View& y) noexcept {
+    const Utf8View* const args[]{&x, &y};
+    return compose_pieces(b, pattern, args);
+}
+__declspec(noinline) Utf8View compose(UiStoreBuilder& b, const char* pattern, const Utf8View& x, const Utf8View& y,
+                                      const Utf8View& z) noexcept {
+    const Utf8View* const args[]{&x, &y, &z};
+    return compose_pieces(b, pattern, args);
 }
 
 UiStoreNode& subtle(Ctx& c, const Utf8View& value, u16 flags) noexcept {
+    return c.b.text(value, UiStoreType::small, UiStoreInk::subtle, flags);
+}
+UiStoreNode& subtle(Ctx& c, const char* value, u16 flags) noexcept {
     return c.b.text(value, UiStoreType::small, UiStoreInk::subtle, flags);
 }
 void card_open(Ctx& c, UiStoreFill fill, u32 action) noexcept {
@@ -188,7 +255,7 @@ void build_toolbar(Ctx& c, const Utf8View& placeholder) noexcept;
 
 void build_skeleton(Ctx& c) noexcept {
     const auto kind = c.st.kind;
-    build_toolbar(c, join(c.b, utf8_literal("Search "), kind_plural(kind)));
+    build_toolbar(c, compose(c.b, "Search {}", kind_plural(kind)));
     c.b.spacer(0, 12);
     auto& bar = c.b.open(UiStoreKind::row);
     bar.gap = 8;
@@ -255,15 +322,13 @@ void build_header(Ctx& c) noexcept {
     col.gap = 8;
     col.flags = ui_store_flex;
     c.b.text(kind_title(kind), UiStoreType::title, UiStoreInk::strong);
-    const Utf8View subtitle =
-        kind == CatalogKind::plugin
-            ? utf8_literal("Add features to MaiCord. Every catalog plugin is reviewed, built from its public source and signed, "
-                           "and you approve what it may do before it runs.")
-        : kind == CatalogKind::theme
-            ? utf8_literal("Colours, type and motion for MaiCord's interface. A theme is plain data: it runs no code.")
-            : utf8_literal("Animated backgrounds drawn by your GPU. An effect is a small shader with a few knobs; it runs "
-                           "no code on your PC.");
-    auto& sub = c.b.text(subtitle, UiStoreType::small, UiStoreInk::subtle, ui_store_wrap);
+    auto& sub = c.b.text(name_at("Add features to MaiCord. Every catalog plugin is reviewed, built from its public source and signed, "
+                                 "and you approve what it may do before it runs.\0"
+                                 "Colours, type and motion for MaiCord's interface. A theme is plain data: it runs no code.\0"
+                                 "Animated backgrounds drawn by your GPU. An effect is a small shader with a few knobs; it runs "
+                                 "no code on your PC.\0",
+                                 static_cast<u32>(kind)),
+                         UiStoreType::small, UiStoreInk::subtle, ui_store_wrap);
     sub.rw = 560;
     sub.count = 2;
     // Themes has two header actions: they sit under the subtitle and wrap, so a narrow column keeps both whole.
@@ -299,8 +364,8 @@ void build_header(Ctx& c) noexcept {
         glyph.icon = static_cast<u8>(UiIcon::warning);
         glyph.ink = static_cast<u8>(UiStoreInk::critical);
         text_column(c);
-        c.b.text(c.m.theme_error == 1 ? utf8_literal("Couldn't read theme file") : utf8_literal("Couldn't save theme"),
-                 UiStoreType::body_bold, UiStoreInk::strong);
+        c.b.text(c.m.theme_error == 1 ? "Couldn't read theme file" : "Couldn't save theme", UiStoreType::body_bold,
+                 UiStoreInk::strong);
         subtle(c, c.m.theme_status, ui_store_wrap);
         c.b.close();
         if (c.m.theme_error == 1)
@@ -345,17 +410,23 @@ namespace {
 
 // The control at the end of a card or row footer for an item's state.
 void card_control(Ctx& c, const StoreItem& item, u32 index, bool row) noexcept {
-    const u32 primary = store_action(row ? StoreAct::row_primary : StoreAct::card_primary, index);
-    const u32 toggle = store_action(row ? StoreAct::row_switch : StoreAct::card_switch, index);
-    const u32 settings = store_action(row ? StoreAct::row_settings : StoreAct::card_settings, index);
-    const u32 overflow = store_action(row ? StoreAct::row_overflow : StoreAct::card_overflow, index);
+    // The row actions follow the card's, four apart.
+    static_assert(static_cast<u8>(StoreAct::row_primary) - static_cast<u8>(StoreAct::card_primary) == 4 &&
+                  static_cast<u8>(StoreAct::row_switch) - static_cast<u8>(StoreAct::card_switch) == 4 &&
+                  static_cast<u8>(StoreAct::row_settings) - static_cast<u8>(StoreAct::card_settings) == 4 &&
+                  static_cast<u8>(StoreAct::row_overflow) - static_cast<u8>(StoreAct::card_overflow) == 4);
+    const u32 shift = row ? 4u << 16 : 0;
+    const u32 primary = store_action(StoreAct::card_primary, index) + shift;
+    const u32 toggle = store_action(StoreAct::card_switch, index) + shift;
+    const u32 settings = store_action(StoreAct::card_settings, index) + shift;
+    const u32 overflow = store_action(StoreAct::card_overflow, index) + shift;
     const auto kind = item.kind;
     if (item.revoked) {
         c.b.chip("Turned off", UiStoreTone::dev);
         return;
     }
     if (item.busy) {
-        auto& b = c.b.button(item.update ? utf8_literal("Updating...") : utf8_literal("Installing..."), UiStoreButton::secondary, 0);
+        auto& b = c.b.button(item.update ? "Updating..." : "Installing...", UiStoreButton::secondary, 0);
         b.flags |= ui_store_busy | ui_store_disabled;
         return;
     }
@@ -385,7 +456,7 @@ void card_control(Ctx& c, const StoreItem& item, u32 index, bool row) noexcept {
         auto& t = c.b.leaf(UiStoreKind::toggle);
         t.action = toggle;
         t.value = item.enabled ? 1 : 0;
-        t.text = item.enabled ? utf8_literal("On") : utf8_literal("Off");
+        t.text = name_at("Off\0On\0", item.enabled ? 1 : 0);
         return;
     }
     if (item.active && kind == CatalogKind::theme) {
@@ -397,11 +468,11 @@ void card_control(Ctx& c, const StoreItem& item, u32 index, bool row) noexcept {
     }
     if (item.active) {
         if (row)
-            c.b.chip(utf8_literal("Current"), UiStoreTone::positive, UiIcon::check);
+            c.b.chip("Current", UiStoreTone::positive, UiIcon::check);
         c.b.icon_button(UiIcon::filters, "Knobs", primary);
         return;
     }
-    c.b.button(kind == CatalogKind::theme ? utf8_literal("Apply") : utf8_literal("Use"), UiStoreButton::primary, primary);
+    c.b.button(kind == CatalogKind::theme ? "Apply" : "Use", UiStoreButton::primary, primary);
     if (row)
         c.b.icon_button(UiIcon::ellipsis, "More", overflow);
 }
@@ -420,8 +491,7 @@ void build_card(Ctx& c, u32 index) noexcept {
         view.value = index + 1;
         view.data = item.has_swatches ? item.swatches : nullptr;
         if (item.active) {
-            auto& tag = c.b.chip(kind == CatalogKind::theme ? utf8_literal("Applied") : utf8_literal("Current"),
-                                 UiStoreTone::positive, UiIcon::check);
+            auto& tag = c.b.chip(kind == CatalogKind::theme ? "Applied" : "Current", UiStoreTone::positive, UiIcon::check);
             tag.anchor = static_cast<u8>(UiStoreAnchor::top_left);
             tag.flags = ui_store_foreground;
         }
@@ -439,15 +509,13 @@ void build_card(Ctx& c, u32 index) noexcept {
     if (kind == CatalogKind::plugin) {
         center_row(c, 12);
         c.b.tile(category_icon(item), 40, UiStoreTone::subtle);
-        auto& names = c.b.open(UiStoreKind::column);
-        names.flags = ui_store_flex;
-        c.b.text(item.name, UiStoreType::body_bold, UiStoreInk::strong);
-        c.b.text(byline(c.b, item, true), UiStoreType::small, UiStoreInk::subtle);
+        c.b.open(UiStoreKind::column).flags = ui_store_flex;
+    }
+    c.b.text(item.name, UiStoreType::body_bold, UiStoreInk::strong);
+    c.b.text(byline(c.b, item, true), UiStoreType::small, UiStoreInk::subtle);
+    if (kind == CatalogKind::plugin) {
         c.b.close();
         c.b.close();
-    } else {
-        c.b.text(item.name, UiStoreType::body_bold, UiStoreInk::strong);
-        c.b.text(byline(c.b, item, true), UiStoreType::small, UiStoreInk::subtle);
     }
     auto& summary = c.b.text(item.summary, UiStoreType::small, UiStoreInk::normal, ui_store_wrap);
     summary.count = 2;
@@ -518,6 +586,14 @@ void search_field(Ctx& c, const Utf8View& placeholder) noexcept {
     field.value = c.st.query_bytes ? 1 : 0;
 }
 
+} // namespace
+
+Utf8View sort_name(CatalogKind kind, u32 sort) noexcept {
+    return name_at(kind == CatalogKind::effect ? "Name\0Newest\0Lightest\0" : "Name\0Newest\0Least access\0", sort);
+}
+
+namespace {
+
 void build_toolbar(Ctx& c, const Utf8View& placeholder) noexcept {
     auto& row = c.b.open(UiStoreKind::row);
     row.gap = 8;
@@ -525,18 +601,16 @@ void build_toolbar(Ctx& c, const Utf8View& placeholder) noexcept {
     auto& dd = c.b.leaf(UiStoreKind::dropdown);
     dd.rw = 184;
     dd.text = utf8_literal("Sort");
-    static constexpr char kSort[] = "Name\0Newest\0Least access\0", kSortLight[] = "Name\0Newest\0Lightest\0";
     const u32 s = static_cast<u32>(c.st.sort);
     // Themes sort by name or newest: a third choice reads as name.
-    dd.text2 = name_at(c.st.kind == CatalogKind::effect ? kSortLight : kSort, c.st.kind == CatalogKind::theme && s >= 2 ? 0 : s);
+    dd.text2 = sort_name(c.st.kind, c.st.kind == CatalogKind::theme && s >= 2 ? 0 : s);
     dd.action = store_action(StoreAct::sort);
     dd.group = 4;
     c.b.close();
 }
 
 Utf8View count_text(Ctx& c, u32 count) noexcept {
-    return join(c.b, c.b.number(count), utf8_literal(" "),
-                count == 1 ? kind_noun(c.st.kind) : kind_plural(c.st.kind));
+    return compose(c.b, "{} {}", c.b.number(count), count == 1 ? kind_noun(c.st.kind) : kind_plural(c.st.kind));
 }
 
 void footnote(Ctx& c, const Utf8View& value) noexcept {
@@ -583,13 +657,13 @@ void build_browse(Ctx& c) noexcept {
         return;
     }
     if (c.m.catalog == StoreCatalogState::unreachable && (!listed || !c.st.show_saved)) {
-        build_empty(c, UiIcon::cloud_off, join(c.b, utf8_literal("Can't reach the "), kind_noun(kind), utf8_literal(" catalog")),
-                    join(c.b, utf8_literal("Check your connection and try again. "), kind_title(kind),
-                         utf8_literal(" you've installed keep working, and MaiCord retries on its own.")));
+        build_empty(c, UiIcon::cloud_off, compose(c.b, "Can't reach the {} catalog", kind_noun(kind)),
+                    compose(c.b, "Check your connection and try again. {} you've installed keep working, and MaiCord retries on its own.",
+                            kind_title(kind)));
         actions_row(c);
         c.b.button("Try again", UiStoreButton::primary, store_action(StoreAct::retry), UiIcon::refresh, true);
         if (listed)
-            c.b.button(join(c.b, utf8_literal("Show the saved catalog ("), date_text(c.b, c.m.fetched_unix), utf8_literal(")")),
+            c.b.button(compose(c.b, "Show the saved catalog ({})", date_text(c.b, c.m.fetched_unix)),
                        UiStoreButton::secondary, store_action(StoreAct::show_saved), UiIcon::count, true);
         c.b.close();
         if (c.m.error_text.bytes) {
@@ -597,7 +671,7 @@ void build_browse(Ctx& c) noexcept {
             auto& detail = c.b.open(UiStoreKind::row);
             detail.gap = 4;
             detail.flags = ui_store_center | ui_store_justify;
-            c.b.text(join(c.b, utf8_literal("Error: "), c.m.error_text, utf8_literal(" \xC2\xB7 ")), UiStoreType::small, UiStoreInk::subtle);
+            c.b.text(compose(c.b, "Error: {} \xC2\xB7 ", c.m.error_text), UiStoreType::small, UiStoreInk::subtle);
             c.b.button("Copy details", UiStoreButton::link, store_action(StoreAct::copy_details));
             c.b.close();
         }
@@ -608,16 +682,16 @@ void build_browse(Ctx& c) noexcept {
         protocol_notice(c);
     if (c.m.catalog == StoreCatalogState::stale || c.m.catalog == StoreCatalogState::unreachable) {
         notice_card(c, UiIcon::warning, utf8_literal("The catalog is out of date"),
-                    join(c.b, utf8_literal("Showing the saved catalog from "), date_text(c.b, c.m.fetched_unix),
-                         utf8_literal(". Installs need a fresh catalog.")),
+                    compose(c.b, "Showing the saved catalog from {}. Installs need a fresh catalog.",
+                            date_text(c.b, c.m.fetched_unix)),
                     UiStoreFill::warning_tint, UiStoreInk::warning);
         c.b.spacer(0, 16);
     }
-    StoreChips chips{};
+    StoreChips chips; // store_chips_build writes the first `count`, which is all anyone reads
     store_chips_build(c.m, kind, &chips);
-    StoreList list{};
+    StoreList list;   // each list builder writes what its page reads
     store_browse_list(c.m, c.st, chips, &list);
-    build_toolbar(c, join(c.b, utf8_literal("Search "), c.b.number(list.total), utf8_literal(" "), kind_plural(kind)));
+    build_toolbar(c, compose(c.b, "Search {} {}", c.b.number(list.total), kind_plural(kind)));
     c.b.spacer(0, 12);
     build_chips(c, chips);
     c.b.spacer(0, 16);
@@ -632,9 +706,8 @@ void build_browse(Ctx& c) noexcept {
     if (!list.count) {
         const Utf8View query{c.st.query, c.st.query_bytes};
         build_empty(c, UiIcon::search,
-                    query.bytes ? join(c.b, utf8_literal("No "), kind_plural(kind), utf8_literal(" match \""),
-                                       join(c.b, query, utf8_literal("\"")))
-                                : join(c.b, utf8_literal("No "), kind_plural(kind), utf8_literal(" match")),
+                    query.bytes ? compose(c.b, "No {} match \"{}", kind_plural(kind), compose(c.b, "{}\"", query))
+                                : compose(c.b, "No {} match", kind_plural(kind)),
                     utf8_literal("Try another word, or clear the filters."));
         actions_row(c);
         if (c.st.query_bytes)
@@ -654,8 +727,8 @@ void build_browse(Ctx& c) noexcept {
     footnote(c, kind == CatalogKind::plugin
                     ? utf8_literal("Plugins come from the reviewed MaiCord catalog. Developer Mode adds a Developer tab for "
                                    "loading your own builds.")
-                    : join(c.b, kind_title(kind), utf8_literal(" come from the reviewed MaiCord catalog. \"Install from link\" "
-                                                              "adds one that hasn't been reviewed.")));
+                    : compose(c.b, "{} come from the reviewed MaiCord catalog. \"Install from link\" adds one that hasn't been reviewed.",
+                              kind_title(kind)));
 }
 
 namespace {
@@ -679,11 +752,11 @@ void installed_row(Ctx& c, const StoreItem& item, u32 index, bool last) noexcept
     center_row(c, 8);
     c.b.text(item.name, UiStoreType::body, UiStoreInk::strong);
     if (item.installed_version.bytes)
-        c.b.text(join(c.b, utf8_literal("v"), item.installed_version), UiStoreType::small, UiStoreInk::subtle);
+        c.b.text(compose(c.b, "v{}", item.installed_version), UiStoreType::small, UiStoreInk::subtle);
     if (item.local)
         c.b.chip("Local file", UiStoreTone::subtle, UiIcon::file);
     if (item.update)
-        c.b.chip(join(c.b, utf8_literal("Update "), item.update_version), item.needs_review ? UiStoreTone::warning : UiStoreTone::brand);
+        c.b.chip(compose(c.b, "Update {}", item.update_version), item.needs_review ? UiStoreTone::warning : UiStoreTone::brand);
     if (item.update && item.needs_review)
         c.b.chip("Needs review", UiStoreTone::warning);
     if (item.sideloaded)
@@ -694,7 +767,7 @@ void installed_row(Ctx& c, const StoreItem& item, u32 index, bool last) noexcept
         c.b.chip("Turned off", UiStoreTone::dev);
     c.b.close();
     if (item.sideloaded && item.folder.bytes)
-        subtle(c, join(c.b, utf8_literal("Loaded from "), item.folder, utf8_literal(" \xC2\xB7 reloads when you rebuild")));
+        subtle(c, compose(c.b, "Loaded from {} \xC2\xB7 reloads when you rebuild", item.folder));
     else
         subtle(c, item.summary);
     c.b.close();
@@ -713,19 +786,18 @@ void build_item_list(Ctx& c, const StoreList& list) noexcept {
 
 void build_installed(Ctx& c) noexcept {
     const auto kind = c.st.kind;
-    StoreList list{};
+    StoreList list;
     store_installed_list(c.m, c.st, &list);
     if (kind == CatalogKind::effect)
         build_perf_defaults(c);
     if (!list.counts[0] && kind != CatalogKind::effect) {
-        build_empty(c, kind_icon(kind),
-                    join(c.b, utf8_literal("No "), kind_plural(kind), kind == CatalogKind::theme ? utf8_literal(" installed") : utf8_literal(" yet")),
-                    kind == CatalogKind::plugin ? utf8_literal("Plugins add features to MaiCord. Each one tells you what it can do before it runs.")
-                    : kind == CatalogKind::theme ? utf8_literal("The built-in themes live in Appearance.")
-                                                 : utf8_literal("Stars and Comets are built in (Appearance)."));
+        build_empty(c, kind_icon(kind), compose(c.b, kind == CatalogKind::theme ? "No {} installed" : "No {} yet", kind_plural(kind)),
+                    name_at("Plugins add features to MaiCord. Each one tells you what it can do before it runs.\0"
+                            "The built-in themes live in Appearance.\0",
+                            static_cast<u32>(kind)));
         actions_row(c);
-        c.b.button(join(c.b, utf8_literal("Browse "), kind_plural(kind)), UiStoreButton::primary, store_action(StoreAct::tab, static_cast<u32>(StoreTab::browse)),
-                   UiIcon::count, true);
+        c.b.button(compose(c.b, "Browse {}", kind_plural(kind)), UiStoreButton::primary,
+                   store_action(StoreAct::tab, static_cast<u32>(StoreTab::browse)), UiIcon::count, true);
         if (kind == CatalogKind::theme) {
             c.b.button("Import theme", UiStoreButton::secondary, store_action(StoreAct::import_theme), UiIcon::count, true);
             c.b.button("Install from link", UiStoreButton::secondary, store_action(StoreAct::header_link), UiIcon::count, true);
@@ -739,8 +811,8 @@ void build_installed(Ctx& c) noexcept {
         const auto& item = c.m.items[i];
         if (item.kind != kind || !item.installed || !item.revoked)
             continue;
-        notice_card(c, UiIcon::warning, {}, join(c.b, utf8_literal("MaiCord turned off "), item.name, utf8_literal(" because it was found harmful. "),
-                                                  item.reason),
+        notice_card(c, UiIcon::warning, {},
+                    compose(c.b, "MaiCord turned off {} because it was found harmful. {}", item.name, item.reason),
                     UiStoreFill::critical_tint, UiStoreInk::critical);
         c.b.spacer(0, 12);
     }
@@ -748,16 +820,16 @@ void build_installed(Ctx& c) noexcept {
     if (kind == CatalogKind::plugin || searchable) {
         auto& bar = c.b.open(UiStoreKind::row);
         bar.gap = 8;
-        search_field(c, join(c.b, utf8_literal("Search installed "), kind_plural(kind)));
+        search_field(c, compose(c.b, "Search installed {}", kind_plural(kind)));
         if (kind == CatalogKind::plugin) {
             auto& track = c.b.open(UiStoreKind::row);
             track.variant = 1;
             track.rw = 330;
             track.pad_x = track.pad_y = 4;
-            static constexpr Utf8View kNames[]{utf8_literal("All "), utf8_literal("On "), utf8_literal("Off "), utf8_literal("Updates ")};
+            static constexpr char kNames[] = "All \0On \0Off \0Updates \0";
             for (u32 i = 0; i < 4; ++i) {
                 auto& s = c.b.leaf(UiStoreKind::segment);
-                s.text = join(c.b, kNames[i], c.b.number(list.counts[i]));
+                s.text = compose(c.b, "{}{}", name_at(kNames, i), c.b.number(list.counts[i]));
                 s.action = store_action(StoreAct::segment, i);
                 s.group = 5;
                 if (static_cast<u32>(c.st.filter) == i)
@@ -777,7 +849,7 @@ void build_installed(Ctx& c) noexcept {
         glyph.icon = static_cast<u8>(UiIcon::download);
         glyph.ink = static_cast<u8>(UiStoreInk::brand);
         text_column(c);
-        c.b.text(list.counts[3] == 1 ? utf8_literal("1 update is ready") : join(c.b, c.b.number(list.counts[3]), utf8_literal(" updates are ready")),
+        c.b.text(list.counts[3] == 1 ? utf8_literal("1 update is ready") : compose(c.b, "{} updates are ready", c.b.number(list.counts[3])),
                  UiStoreType::body_bold, UiStoreInk::strong);
         u32 first = ~0u, review = 0;
         for (u32 i = 0; i < c.m.count; ++i)
@@ -787,20 +859,21 @@ void build_installed(Ctx& c) noexcept {
                 review += c.m.items[i].needs_review ? 1 : 0;
             }
         if (list.counts[3] == 1 && first != ~0u)
-            subtle(c, join(c.b, c.m.items[first].name, utf8_literal(" "), c.m.items[first].update_version,
-                           c.m.items[first].needs_review ? utf8_literal(" asks for new permissions.") : utf8_literal(" asks for no new permissions.")));
+            subtle(c, compose(c.b,
+                              c.m.items[first].needs_review ? "{} {} asks for new permissions." : "{} {} asks for no new permissions.",
+                              c.m.items[first].name, c.m.items[first].update_version));
         else
-            subtle(c, review ? join(c.b, c.b.number(review), utf8_literal(" of them need your review.")) : utf8_literal("None of them asks for new permissions."));
+            subtle(c, review ? compose(c.b, "{} of them need your review.", c.b.number(review)) : utf8_literal("None of them asks for new permissions."));
         c.b.close();
-        c.b.button(list.counts[3] == 1 ? utf8_literal("Update") : utf8_literal("Update all"), UiStoreButton::primary, store_action(StoreAct::banner_update));
+        c.b.button(list.counts[3] == 1 ? "Update" : "Update all", UiStoreButton::primary, store_action(StoreAct::banner_update));
         c.b.close();
         c.b.close();
         c.b.spacer(0, 16);
     }
     if (kind == CatalogKind::plugin) {
         u32 off = list.counts[2];
-        subtle(c, off ? join(c.b, c.b.number(list.counts[0]), utf8_literal(" plugins \xC2\xB7 "), c.b.number(off), utf8_literal(" turned off"))
-                      : join(c.b, c.b.number(list.counts[0]), list.counts[0] == 1 ? utf8_literal(" plugin") : utf8_literal(" plugins")));
+        subtle(c, off ? compose(c.b, "{} plugins \xC2\xB7 {} turned off", c.b.number(list.counts[0]), c.b.number(off))
+                      : compose(c.b, list.counts[0] == 1 ? "{} plugin" : "{} plugins", c.b.number(list.counts[0])));
         c.b.spacer(0, 12);
     }
     if (list.count)
@@ -824,7 +897,7 @@ void build_installed(Ctx& c) noexcept {
 }
 
 void build_updates(Ctx& c) noexcept {
-    StoreList list{};
+    StoreList list;
     store_updates_list(c.m, &list);
     card_open(c);
     c.b.node().pad_x = 20;
@@ -832,10 +905,10 @@ void build_updates(Ctx& c) noexcept {
     center_row(c, 16);
     c.b.tile(list.count ? UiIcon::download : UiIcon::circle_check, 48, list.count ? UiStoreTone::subtle : UiStoreTone::neutral);
     text_column(c);
-    c.b.text(list.count ? (list.count == 1 ? utf8_literal("1 update available") : join(c.b, c.b.number(list.count), utf8_literal(" updates available")))
+    c.b.text(list.count ? (list.count == 1 ? utf8_literal("1 update available") : compose(c.b, "{} updates available", c.b.number(list.count)))
                         : utf8_literal("Your plugins are up to date"),
              UiStoreType::heading, UiStoreInk::strong);
-    subtle(c, c.m.checked_unix ? join(c.b, utf8_literal("Last checked "), date_text(c.b, c.m.checked_unix)) : utf8_literal("Not checked yet"));
+    subtle(c, c.m.checked_unix ? compose(c.b, "Last checked {}", date_text(c.b, c.m.checked_unix)) : utf8_literal("Not checked yet"));
     c.b.close();
     if (list.count)
         c.b.button("Update all", UiStoreButton::primary, store_action(StoreAct::update_all), UiIcon::download, true);
@@ -849,7 +922,7 @@ void build_updates(Ctx& c) noexcept {
     center_row(c, 16);
     text_column(c);
     c.b.text("Update official plugins automatically", UiStoreType::body, UiStoreInk::strong);
-    subtle(c, utf8_literal("Plugins that ask for no new permissions update on their own. Others wait for your review."), ui_store_wrap);
+    subtle(c, "Plugins that ask for no new permissions update on their own. Others wait for your review.", ui_store_wrap);
     c.b.close();
     auto& t = c.b.leaf(UiStoreKind::toggle);
     t.action = store_action(StoreAct::auto_update_all);
@@ -872,11 +945,12 @@ void build_updates(Ctx& c) noexcept {
         if (item.needs_review)
             c.b.chip("Needs review", UiStoreTone::warning);
         c.b.close();
-        subtle(c, join(c.b, item.installed_version, utf8_literal(" \xE2\x86\x92 "), item.update_version));
+        subtle(c, compose(c.b, "{} \xE2\x86\x92 {}", item.installed_version, item.update_version));
         c.b.close();
         c.b.icon_button(open ? UiIcon::chevron_up : UiIcon::chevron_down, "Changelog", store_action(StoreAct::updates_expand, i));
-        auto& b = item.needs_review ? c.b.button("Review", UiStoreButton::secondary, store_action(StoreAct::row_primary, list.order[i]))
-                                    : c.b.button("Update", UiStoreButton::primary, store_action(StoreAct::row_primary, list.order[i]));
+        auto& b = c.b.button(item.needs_review ? "Review" : "Update",
+                             item.needs_review ? UiStoreButton::secondary : UiStoreButton::primary,
+                             store_action(StoreAct::row_primary, list.order[i]));
         if (!item.installable || item.busy)
             b.flags |= ui_store_disabled;
         c.b.close();
@@ -892,41 +966,34 @@ void build_updates(Ctx& c) noexcept {
     c.b.close();
 }
 
+namespace {
+// A Developer card row: a title, the line under it (the caller writes it), then a button.
+void dev_row_begin(Ctx& c, bool last, float height, const Utf8View& title) noexcept {
+    hairline_row(c, last).rh = height;
+    text_column(c);
+    c.b.text(title, UiStoreType::body, UiStoreInk::strong);
+}
+void dev_row_end(Ctx& c, const char* label, UiStoreButton variant, StoreAct act) noexcept {
+    c.b.close();
+    c.b.button(label, variant, store_action(act));
+    c.b.close();
+}
+} // namespace
+
 void build_developer(Ctx& c) noexcept {
     const auto kind = c.st.kind;
     card_open(c);
-    {
-        auto& row = hairline_row(c, false);
-        row.rh = 64;
-        text_column(c);
-        c.b.text("Dev folder", UiStoreType::body, UiStoreInk::strong);
-        c.b.text(c.m.dev_folder, UiStoreType::mono, UiStoreInk::subtle);
-        c.b.close();
-        c.b.button("Open", UiStoreButton::ghost, store_action(StoreAct::open_folder));
-        c.b.close();
-    }
-    {
-        auto& row = hairline_row(c, false);
-        row.rh = 56;
-        text_column(c);
-        c.b.text(kind == CatalogKind::plugin ? MAICORD_OS_TEXT("Load a plugin DLL...", "Load a plugin...") : utf8_literal("Load a .mcfx..."), UiStoreType::body, UiStoreInk::strong);
-        subtle(c, kind == CatalogKind::plugin ? utf8_literal("Asks for your consent as an unreviewed plugin with full access to your PC.")
-                                              : utf8_literal("Shows the not-reviewed card with a preview before it is installed."),
-               ui_store_wrap);
-        c.b.close();
-        c.b.button("Choose file...", UiStoreButton::secondary, store_action(StoreAct::dev_load));
-        c.b.close();
-    }
-    {
-        auto& row = hairline_row(c, true);
-        row.rh = 56;
-        text_column(c);
-        c.b.text("Reload", UiStoreType::body, UiStoreInk::strong);
-        subtle(c, utf8_literal("Scan the dev folder again now."));
-        c.b.close();
-        c.b.button("Reload", UiStoreButton::secondary, store_action(StoreAct::dev_reload));
-        c.b.close();
-    }
+    dev_row_begin(c, false, 64, utf8_literal("Dev folder"));
+    c.b.text(c.m.dev_folder, UiStoreType::mono, UiStoreInk::subtle);
+    dev_row_end(c, "Open", UiStoreButton::ghost, StoreAct::open_folder);
+    dev_row_begin(c, false, 56, kind == CatalogKind::plugin ? MAICORD_OS_TEXT("Load a plugin DLL...", "Load a plugin...") : utf8_literal("Load a .mcfx..."));
+    subtle(c, kind == CatalogKind::plugin ? "Asks for your consent as an unreviewed plugin with full access to your PC."
+                                          : "Shows the not-reviewed card with a preview before it is installed.",
+           ui_store_wrap);
+    dev_row_end(c, "Choose file...", UiStoreButton::secondary, StoreAct::dev_load);
+    dev_row_begin(c, true, 56, utf8_literal("Reload"));
+    subtle(c, "Scan the dev folder again now.");
+    dev_row_end(c, "Reload", UiStoreButton::secondary, StoreAct::dev_reload);
     c.b.close();
     u32 loaded = 0;
     for (u32 i = 0; i < c.m.count; ++i)
@@ -952,7 +1019,7 @@ void build_developer(Ctx& c) noexcept {
         text_column(c);
         c.b.text("Console", UiStoreType::body, UiStoreInk::strong);
         subtle(c, c.m.console_total > c.m.console_count
-                      ? join(c.b, utf8_literal("The newest "), c.b.number(c.m.console_count), utf8_literal(" of "), c.b.number(c.m.console_total))
+                      ? compose(c.b, "The newest {} of {}", c.b.number(c.m.console_count), c.b.number(c.m.console_total))
                       : utf8_literal("Plugin logs, time-budget strikes and reloads."));
         c.b.close();
         if (c.m.console_count)
@@ -965,13 +1032,13 @@ void build_developer(Ctx& c) noexcept {
         static constexpr UiStoreInk kInk[]{UiStoreInk::subtle, UiStoreInk::normal, UiStoreInk::warning, UiStoreInk::critical,
                                            UiStoreInk::warning, UiStoreInk::positive, UiStoreInk::critical};
         hairline_row(c, i + 1 == c.m.console_count, 16, 6);
-        c.b.text(join(c.b, line.time, utf8_literal("  "), line.name, utf8_literal("  ")), UiStoreType::mono, UiStoreInk::subtle);
+        c.b.text(compose(c.b, "{}  {}  ", line.time, line.name), UiStoreType::mono, UiStoreInk::subtle);
         c.b.text(line.text, UiStoreType::mono, kInk[line.kind < 7 ? line.kind : 1], ui_store_flex);
         c.b.close();
     }
     if (!c.m.console_count) {
         hairline_row(c, true);
-        subtle(c, utf8_literal("Nothing yet. Build a plugin with maicord-plugin dev and its ctx.log lines show here."), ui_store_wrap);
+        subtle(c, "Nothing yet. Build a plugin with maicord-plugin dev and its ctx.log lines show here.", ui_store_wrap);
         c.b.close();
     }
     c.b.close();

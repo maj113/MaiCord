@@ -63,18 +63,25 @@ void consent_row(Ctx& c, const StorePermission& p, ConstSlice<Utf8View> hosts) n
     c.b.close();
 }
 
+// A large footer button in its dialog's arrow-key group.
+UiStoreNode& footer_button(Ctx& c, const char* label, UiStoreButton variant, u32 action, u32 group) noexcept {
+    auto& b = c.b.button(label, variant, action, UiIcon::count, true);
+    b.group = group;
+    return b;
+}
+
 void build_consent(Ctx& c) noexcept {
     const StoreConsent& k = c.m.consent;
     const bool critical = k.sideload;
     dialog_body(c);
     const Utf8View title = k.sideload ? utf8_literal("Load an unreviewed plugin?")
-                           : k.update ? join(c.b, k.name, utf8_literal(" "), k.version, utf8_literal(" needs new permissions"))
-                                      : join(c.b, utf8_literal("Install "), k.name, utf8_literal("?"));
-    Utf8View sub = k.author.bytes ? join(c.b, k.author, utf8_literal(" \xC2\xB7 v"), k.version) : join(c.b, utf8_literal("v"), k.version);
+                           : k.update ? compose(c.b, "{} {} needs new permissions", k.name, k.version)
+                                      : compose(c.b, "Install {}?", k.name);
+    Utf8View sub = k.author.bytes ? compose(c.b, "{} \xC2\xB7 v{}", k.author, k.version) : compose(c.b, "v{}", k.version);
     if (k.bytes)
-        sub = join(c.b, sub, utf8_literal(" \xC2\xB7 "), size_text(c.b, k.bytes));
+        sub = compose(c.b, "{} \xC2\xB7 {}", sub, size_text(c.b, k.bytes));
     title_row(c, title, sub, UiIcon::puzzle, true, true, k.reviewed);
-    c.b.text(join(c.b, k.name, utf8_literal(" will be able to:")), UiStoreType::body, UiStoreInk::normal);
+    c.b.text(compose(c.b, "{} will be able to:", k.name), UiStoreType::body, UiStoreInk::normal);
     const ConstSlice<Utf8View> hosts{k.hosts, k.host_count};
     u32 lows = 0;
     bool acknowledge = false;
@@ -104,10 +111,10 @@ void build_consent(Ctx& c) noexcept {
             u32 shown = 0;
             for (u32 i = 0; i < k.permission_count && shown < 3; ++i)
                 if (k.permissions[i].risk == 0) {
-                    names = shown ? join(c.b, names, utf8_literal(", "), k.permissions[i].name) : k.permissions[i].name;
+                    names = shown ? compose(c.b, "{}, {}", names, k.permissions[i].name) : k.permissions[i].name;
                     ++shown;
                 }
-            auto& b = c.b.button(join(c.b, c.b.number(lows), lows == 1 ? utf8_literal(" low-access permission: ") : utf8_literal(" low-access permissions: "), names),
+            auto& b = c.b.button(compose(c.b, lows == 1 ? "{} low-access permission: {}" : "{} low-access permissions: {}", c.b.number(lows), names),
                                  UiStoreButton::secondary, store_action(StoreAct::dialog_toggle_low), UiIcon::count, true);
             b.icon2 = static_cast<u8>(UiIcon::chevron_down);
             b.flags |= ui_store_stretch;
@@ -142,14 +149,9 @@ void build_consent(Ctx& c) noexcept {
         c.b.spacer(0, 0, true);
     } else
         c.b.spacer(0, 0, true);
-    auto& cancel = c.b.button(k.update ? utf8_literal("Not now") : utf8_literal("Cancel"), UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true);
-    cancel.group = 20;
-    auto& ok = c.b.button(k.update ? utf8_literal("Allow and update")
-                          : k.sideload ? utf8_literal("Load plugin")
-                          : c.st.dialog_check ? utf8_literal("Install and turn on")
-                                              : utf8_literal("Install"),
-                          critical ? UiStoreButton::critical : UiStoreButton::primary, store_action(StoreAct::dialog_confirm), UiIcon::count, true);
-    ok.group = 20;
+    footer_button(c, k.update ? "Not now" : "Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), 20);
+    auto& ok = footer_button(c, k.update ? "Allow and update" : k.sideload ? "Load plugin" : c.st.dialog_check ? "Install and turn on" : "Install",
+                             critical ? UiStoreButton::critical : UiStoreButton::primary, store_action(StoreAct::dialog_confirm), 20);
     if (critical && acknowledge && !c.st.dialog_acknowledged)
         ok.flags |= ui_store_disabled;
     c.b.close();
@@ -168,10 +170,10 @@ void build_link(Ctx& c) noexcept {
         field.flags = ui_store_stretch;
         c.b.close();
         dialog_footer(c);
-        c.b.button("Open file...", UiStoreButton::secondary, store_action(StoreAct::dialog_open_file), UiIcon::count, true).group = 21;
+        footer_button(c, "Open file...", UiStoreButton::secondary, store_action(StoreAct::dialog_open_file), 21);
         c.b.spacer(0, 0, true);
-        c.b.button("Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
-        c.b.button("Continue", UiStoreButton::primary, store_action(StoreAct::dialog_confirm), UiIcon::count, true).group = 21;
+        footer_button(c, "Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), 21);
+        footer_button(c, "Continue", UiStoreButton::primary, store_action(StoreAct::dialog_confirm), 21);
         c.b.close();
         return;
     }
@@ -185,7 +187,7 @@ void build_link(Ctx& c) noexcept {
         c.b.close();
         dialog_footer(c);
         c.b.spacer(0, 0, true);
-        c.b.button("Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
+        footer_button(c, "Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), 21);
         c.b.close();
         return;
     }
@@ -196,14 +198,14 @@ void build_link(Ctx& c) noexcept {
         c.b.close();
         dialog_footer(c);
         c.b.spacer(0, 0, true);
-        c.b.button("Close", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
-        c.b.button("Try another link", UiStoreButton::primary, store_action(StoreAct::dialog_open_file, 1), UiIcon::count, true).group = 21;
+        footer_button(c, "Close", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), 21);
+        footer_button(c, "Try another link", UiStoreButton::primary, store_action(StoreAct::dialog_open_file, 1), 21);
         c.b.close();
         return;
     }
     dialog_body(c);
-    title_row(c, join(c.b, utf8_literal("Install "), l.kind == CatalogKind::effect ? utf8_literal("an effect") : utf8_literal("a theme"), utf8_literal(" from a link?")),
-              l.host.bytes ? join(c.b, utf8_literal("From "), l.host) : Utf8View{}, UiIcon::link, false, false, false);
+    title_row(c, l.kind == CatalogKind::effect ? utf8_literal("Install an effect from a link?") : utf8_literal("Install a theme from a link?"),
+              l.host.bytes ? compose(c.b, "From {}", l.host) : Utf8View{}, UiIcon::link, false, false, false);
     notice_card(c, UiIcon::warning, utf8_literal("Not reviewed"),
                 l.kind == CatalogKind::effect
                     ? utf8_literal("MaiCord hasn't checked this effect, and it won't update on its own. Effects are data: they run on your GPU and never as code "
@@ -228,7 +230,7 @@ void build_link(Ctx& c) noexcept {
         }
         c.b.close();
     }
-    auto& pill = c.b.chip(l.previewing ? utf8_literal("Live \xC2\xB7 Low budget") : utf8_literal("Preview"), UiStoreTone::scrim, UiIcon::play);
+    auto& pill = c.b.chip(l.previewing ? "Live \xC2\xB7 Low budget" : "Preview", UiStoreTone::scrim, UiIcon::play);
     pill.anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
     pill.flags = ui_store_foreground;
     c.b.close();
@@ -249,7 +251,7 @@ void build_link(Ctx& c) noexcept {
             fact(c, "Cost here", utf8_literal("Measuring..."));
     }
     if (l.has_effect)
-        fact(c, "Effect", l.effect_installed ? join(c.b, l.effect_slug, utf8_literal(" (installed)")) : l.effect_slug);
+        fact(c, "Effect", l.effect_installed ? compose(c.b, "{} (installed)", l.effect_slug) : l.effect_slug);
     if (l.replaces)
         fact(c, "Replaces", utf8_literal("the one you installed before"));
     c.b.close();
@@ -257,10 +259,9 @@ void build_link(Ctx& c) noexcept {
     c.b.close();
     dialog_footer(c);
     c.b.spacer(0, 0, true);
-    c.b.button("Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
-    auto& ok = c.b.button(l.kind == CatalogKind::effect ? utf8_literal("Install effect") : utf8_literal("Install theme"), UiStoreButton::primary,
-                          store_action(StoreAct::dialog_confirm), UiIcon::count, true);
-    ok.group = 21;
+    footer_button(c, "Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), 21);
+    auto& ok = footer_button(c, l.kind == CatalogKind::effect ? "Install effect" : "Install theme", UiStoreButton::primary,
+                             store_action(StoreAct::dialog_confirm), 21);
     if (l.cost_refused)
         ok.flags |= ui_store_disabled;
     c.b.close();
@@ -269,9 +270,9 @@ void build_link(Ctx& c) noexcept {
 void build_remove(Ctx& c) noexcept {
     const StoreItem& item = c.m.items[c.st.remove_item < c.m.count ? c.st.remove_item : 0];
     dialog_body(c);
-    title_row(c, join(c.b, item.kind == CatalogKind::plugin ? utf8_literal("Uninstall ") : utf8_literal("Remove "), item.name, utf8_literal("?")), {}, UiIcon::trash, false, false, false);
-    c.b.text(item.kind == CatalogKind::plugin ? utf8_literal("The plugin is turned off and its files are deleted. It can be installed again from the catalog.")
-                                              : utf8_literal("The file is deleted. Anything using it falls back to the built-in choice."),
+    title_row(c, compose(c.b, item.kind == CatalogKind::plugin ? "Uninstall {}?" : "Remove {}?", item.name), {}, UiIcon::trash, false, false, false);
+    c.b.text(item.kind == CatalogKind::plugin ? "The plugin is turned off and its files are deleted. It can be installed again from the catalog."
+                                              : "The file is deleted. Anything using it falls back to the built-in choice.",
              UiStoreType::body, UiStoreInk::normal, ui_store_wrap);
     if (item.kind == CatalogKind::plugin) {
         auto& box = c.b.leaf(UiStoreKind::check);
@@ -283,8 +284,8 @@ void build_remove(Ctx& c) noexcept {
     c.b.close();
     dialog_footer(c);
     c.b.spacer(0, 0, true);
-    c.b.button("Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 22;
-    c.b.button(item.kind == CatalogKind::plugin ? utf8_literal("Uninstall") : utf8_literal("Remove"), UiStoreButton::critical, store_action(StoreAct::dialog_confirm), UiIcon::count, true).group = 22;
+    footer_button(c, "Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), 22);
+    footer_button(c, item.kind == CatalogKind::plugin ? "Uninstall" : "Remove", UiStoreButton::critical, store_action(StoreAct::dialog_confirm), 22);
     c.b.close();
 }
 
@@ -303,7 +304,7 @@ void build_trial_bar(Ctx& c) noexcept {
     auto& row = center_row(c, 12);
     row.pad_x = 16;
     row.pad_y = 8;
-    c.b.text(join(c.b, utf8_literal("Previewing "), c.m.trying_name), UiStoreType::body_bold, UiStoreInk::strong);
+    c.b.text(compose(c.b, "Previewing {}", c.m.trying_name), UiStoreType::body_bold, UiStoreInk::strong);
     c.b.button("Revert", UiStoreButton::secondary, store_action(StoreAct::revert_theme)).group = 23;
     c.b.button("Keep", UiStoreButton::primary, store_action(StoreAct::keep_theme)).group = 23;
     c.b.close();

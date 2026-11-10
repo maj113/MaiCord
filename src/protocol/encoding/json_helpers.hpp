@@ -75,18 +75,29 @@ template <u32 Scratch> u32 copy_text_truncated(const JsonValue& value, char* out
     return result.ok() ? utf8_copy_truncated(output, capacity, {decoded, result.bytes}) : 0;
 }
 
+// What scan_json_outcome found: the document, a body that cannot be scanned, a scratch that is too small, or a body
+// that is not JSON.
+enum ScanOutcome : u8 { scanned_ok, scanned_input, scanned_capacity, scanned_not_json };
+__declspec(noinline) inline ScanOutcome scan_json_outcome(const Utf8View& body, const Slice<u32>& scratch,
+                                                          JsonIndexedDocument* document) noexcept {
+    if (!view_valid(body) || !body.bytes || !scratch.data || !scratch.count || !utf8_validate(body).valid)
+        return scanned_input;
+    const auto scanned = json_scan_structurals_avx1(body, scratch);
+    if (!scanned.ok())
+        return scanned.error == JsonScanError::output_overflow ? scanned_capacity : scanned_not_json;
+    *document = {body, {scratch.data, scanned.count}};
+    return scanned_ok;
+}
 // Error is an enum with none, input, capacity and json.
 template <typename Error> struct ScannedJson {
     JsonIndexedDocument document;
     Error error;
 };
 template <typename Error> ScannedJson<Error> scan_json(const Utf8View& body, const Slice<u32>& scratch) noexcept {
-    if (!view_valid(body) || !body.bytes || !scratch.data || !scratch.count || !utf8_validate(body).valid)
-        return {{}, Error::input};
-    const auto scanned = json_scan_structurals_avx1(body, scratch);
-    if (!scanned.ok())
-        return {{}, scanned.error == JsonScanError::output_overflow ? Error::capacity : Error::json};
-    return {{body, {scratch.data, scanned.count}}, Error::none};
+    static constexpr Error kOutcome[]{Error::none, Error::input, Error::capacity, Error::json};
+    ScannedJson<Error> scanned{};
+    scanned.error = kOutcome[scan_json_outcome(body, scratch, &scanned.document)];
+    return scanned;
 }
 
 // A JSON body written part by part (see GuardedWriter). Object members and array elements carry their separating

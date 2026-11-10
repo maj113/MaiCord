@@ -5,6 +5,7 @@
 #include "maicord/protocol/encoding/writer.hpp"
 #include "../encoding/json_helpers.hpp"
 #include "../encoding/json_field_lists.hpp"
+#include "field_table.hpp"
 
 namespace maicord {
 namespace {
@@ -155,6 +156,11 @@ void write_rule(JsonBody& b, u64 guild_id, const AutoModRuleWrite& r, bool updat
 
 // Decoders --------------------------------------------------------------------
 
+using Error = GuildAutomationError;
+// A decode that fails says `field`, whatever failed: a member's value, an item without its id, the object itself.
+constexpr ErrorCodes kCodes{0, static_cast<u8>(Error::field), static_cast<u8>(Error::field),
+                            static_cast<u8>(Error::field), static_cast<u8>(Error::capacity)};
+
 template <u32 Capacity, typename Size> bool label(const JsonValue& value, char (&output)[Capacity], Size* bytes) noexcept {
     *bytes = 0;
     if (value.kind == JsonValueKind::null_value)
@@ -201,11 +207,6 @@ bool user(const JsonIndexedDocument& d, const JsonValue& value, u64* id, char (&
 }
 
 // Webhooks.
-struct WebhookParse {
-    const JsonIndexedDocument* document;
-    GuildWebhook* hook;
-    bool id_seen;
-};
 // The name of a source_guild or source_channel object.
 template <u32 Capacity>
 bool source_name(const JsonIndexedDocument& d, const JsonValue& value, char (&output)[Capacity], u8* bytes) noexcept {
@@ -214,96 +215,54 @@ bool source_name(const JsonIndexedDocument& d, const JsonValue& value, char (&ou
     const JsonValue name = object_member(d, value, utf8_literal("name"), kDepth);
     return !name.source.bytes || label(name, output, bytes);
 }
-bool visit_webhook(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<WebhookParse*>(opaque);
-    auto& h = *p.hook;
-    switch (member_index<"id", "type", "channel_id", "name", "avatar", "token", "application_id", "user",
-                         "source_guild", "source_channel">(name)) {
-    case 0: return p.id_seen = json_value_to_snowflake(value, &h.id);
-    case 1: {
-        u64 type = 0;
-        if (!json_value_to_u64(value, &type) || type > 255)
-            return false;
-        h.type = static_cast<u8>(type);
-        return true;
-    }
-    case 2: return json_value_to_nullable_snowflake(value, &h.channel_id);
-    case 3: return label(value, h.name, &h.name_bytes);
-    case 4: return label(value, h.avatar, &h.avatar_bytes);
-    case 5: return label(value, h.token, &h.token_bytes);
-    case 6: return json_value_to_nullable_snowflake(value, &h.application_id);
-    case 7: return user(*p.document, value, &h.creator_id, h.creator, &h.creator_bytes);
-    case 8: return source_name(*p.document, value, h.source_guild, &h.source_guild_bytes);
-    case 9: return source_name(*p.document, value, h.source_channel, &h.source_channel_bytes);
-    default: return true;
-    }
+bool webhook_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& h = *reinterpret_cast<GuildWebhook*>(r.base);
+    if (index == 7)
+        return user(*r.document, value, &h.creator_id, h.creator, &h.creator_bytes);
+    if (index == 8)
+        return source_name(*r.document, value, h.source_guild, &h.source_guild_bytes);
+    return source_name(*r.document, value, h.source_channel, &h.source_channel_bytes);
 }
-
-// A list being read: how many rows the output holds and how many were read, whatever the row.
-struct ListHead {
-    const JsonIndexedDocument* document;
-    u32 capacity, count;
-    GuildAutomationError error;
+constexpr FieldDef kWebhookDefs[]{
+    {"id", MAICORD_FIELD_SNOWFLAKE(GuildWebhook, id)},
+    {"type", MAICORD_FIELD_NUMBER(GuildWebhook, type)},
+    {"channel_id", MAICORD_FIELD_SNOWFLAKE_OR_NULL(GuildWebhook, channel_id)},
+    {"name", MAICORD_FIELD_LABEL(GuildWebhook, name, name_bytes)},
+    {"avatar", MAICORD_FIELD_LABEL(GuildWebhook, avatar, avatar_bytes)},
+    {"token", MAICORD_FIELD_LABEL(GuildWebhook, token, token_bytes)},
+    {"application_id", MAICORD_FIELD_SNOWFLAKE_OR_NULL(GuildWebhook, application_id)},
+    {"user", MAICORD_FIELD_HOOK_OR_NULL},
+    {"source_guild", MAICORD_FIELD_HOOK_OR_NULL},
+    {"source_channel", MAICORD_FIELD_HOOK_OR_NULL},
 };
-template <typename Row> struct ListParse : ListHead {
-    Row* rows;
-};
-
-bool webhook_item(void* opaque, u32, JsonValue value) noexcept {
-    auto& p = *static_cast<ListParse<GuildWebhook>*>(opaque);
-    if (p.count >= p.capacity) {
-        p.error = GuildAutomationError::capacity;
-        return false;
-    }
-    GuildWebhook& hook = p.rows[p.count];
-    reset_value(&hook);
-    WebhookParse parse{p.document, &hook, false};
-    if (value.kind != JsonValueKind::object ||
-        !json_visit_indexed_object(*p.document, value, kDepth, visit_webhook, &parse).ok() || !parse.id_seen) {
-        p.error = GuildAutomationError::field;
-        return false;
-    }
-    ++p.count;
-    return true;
-}
+MAICORD_FIELD_TABLE(kWebhookSpec, kWebhookDefs, webhook_hook, kCodes, kDepth, 1, sizeof(GuildWebhook));
 
 // Integrations.
-struct IntegrationParse {
-    const JsonIndexedDocument* document;
-    GuildIntegration* row;
-    bool id_seen;
-};
-bool visit_application(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<IntegrationParse*>(opaque);
-    auto& r = *p.row;
-    switch (member_index<"id", "icon", "bot">(name)) {
-    case 0: return json_value_to_snowflake(value, &r.application_id);
-    case 1: return label(value, r.icon, &r.icon_bytes);
-    case 2: {
-        if (value.kind != JsonValueKind::object)
-            return value.kind == JsonValueKind::null_value;
-        const JsonValue id = object_member(*p.document, value, utf8_literal("id"), kDepth);
-        return !id.source.bytes || json_value_to_snowflake(id, &r.bot_id);
-    }
-    default: return true;
-    }
+bool application_hook(ObjectReader& r, u32, const JsonValue& value) noexcept {
+    if (value.kind != JsonValueKind::object)
+        return false;
+    const JsonValue id = object_member(*r.document, value, utf8_literal("id"), kDepth);
+    return !id.source.bytes || json_value_to_snowflake(id, &reinterpret_cast<GuildIntegration*>(r.base)->bot_id);
 }
-bool visit_integration(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<IntegrationParse*>(opaque);
-    auto& r = *p.row;
-    switch (member_index<"id", "name", "type", "enabled", "application", "user">(name)) {
-    case 0:
+constexpr FieldDef kApplicationDefs[]{
+    {"id", MAICORD_FIELD_SNOWFLAKE(GuildIntegration, application_id)},
+    {"icon", MAICORD_FIELD_LABEL(GuildIntegration, icon, icon_bytes)},
+    {"bot", MAICORD_FIELD_HOOK_OR_NULL},
+};
+MAICORD_FIELD_TABLE(kApplicationSpec, kApplicationDefs, application_hook, kCodes, kDepth);
+bool integration_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& g = *reinterpret_cast<GuildIntegration*>(r.base);
+    if (index == 0) {
         // "twitch-partners" is an ID too; only snowflakes can be removed.
-        p.id_seen = value.kind == JsonValueKind::string;
-        if (!json_value_to_snowflake(value, &r.id))
-            r.id = 0;
-        return p.id_seen;
-    case 1: return label(value, r.name, &r.name_bytes);
-    case 2: {
+        if (!json_value_to_snowflake(value, &g.id))
+            g.id = 0;
+        return value.kind == JsonValueKind::string;
+    }
+    if (index == 2) {
         JsonString type{};
         if (!json_value_as_string(value, &type))
             return false;
-        r.type = json_string_equals_ascii(type, utf8_literal("discord"))   ? GuildIntegrationType::discord
+        g.type = json_string_equals_ascii(type, utf8_literal("discord"))   ? GuildIntegrationType::discord
                  : json_string_equals_ascii(type, utf8_literal("twitch"))  ? GuildIntegrationType::twitch
                  : json_string_equals_ascii(type, utf8_literal("youtube")) ? GuildIntegrationType::youtube
                  : json_string_equals_ascii(type, utf8_literal("guild_subscription"))
@@ -311,54 +270,37 @@ bool visit_integration(void* opaque, JsonString name, JsonValue value) noexcept 
                      : GuildIntegrationType::other;
         return true;
     }
-    case 3: return value.kind == JsonValueKind::null_value || json_value_to_bool(value, &r.enabled);
-    case 4:
-        return value.kind == JsonValueKind::null_value ||
-               (value.kind == JsonValueKind::object &&
-                json_visit_indexed_object(*p.document, value, kDepth, visit_application, &p).ok());
-    case 5: return user(*p.document, value, &r.user_id, r.user, &r.user_bytes);
-    default: return true;
+    if (index == 4) {
+        ObjectReader application{{r.document, 0}, &kApplicationSpec, r.base, 0};
+        return value.kind == JsonValueKind::object && read_object(application, value) == 0;
     }
+    return user(*r.document, value, &g.user_id, g.user, &g.user_bytes);
 }
-bool integration_item(void* opaque, u32, JsonValue value) noexcept {
-    auto& p = *static_cast<ListParse<GuildIntegration>*>(opaque);
-    if (p.count >= p.capacity) {
-        p.error = GuildAutomationError::capacity;
-        return false;
-    }
-    GuildIntegration& row = p.rows[p.count];
-    reset_value(&row);
-    IntegrationParse parse{p.document, &row, false};
-    if (value.kind != JsonValueKind::object ||
-        !json_visit_indexed_object(*p.document, value, kDepth, visit_integration, &parse).ok() || !parse.id_seen) {
-        p.error = GuildAutomationError::field;
-        return false;
-    }
-    ++p.count;
-    return true;
-}
+constexpr FieldDef kIntegrationDefs[]{
+    {"id", MAICORD_FIELD_HOOK},
+    {"name", MAICORD_FIELD_LABEL(GuildIntegration, name, name_bytes)},
+    {"type", MAICORD_FIELD_HOOK},
+    {"enabled", MAICORD_FIELD_BOOL_OR_NULL(GuildIntegration, enabled)},
+    {"application", MAICORD_FIELD_HOOK_OR_NULL},
+    {"user", MAICORD_FIELD_HOOK_OR_NULL},
+};
+MAICORD_FIELD_TABLE(kIntegrationSpec, kIntegrationDefs, integration_hook, kCodes, kDepth, 1, sizeof(GuildIntegration));
 
 // Command permissions.
-struct EntryParse {
-    GuildCommandPermission entry;
-    bool id_seen, type_seen, permission_seen;
-};
-bool visit_permission(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<EntryParse*>(opaque);
-    switch (member_index<"id", "type", "permission">(name)) {
-    case 0: return p.id_seen = json_value_to_snowflake(value, &p.entry.id);
-    case 1: {
-        u64 type = 0;
-        if (!json_value_to_u64(value, &type) || type < guild_command_permission_role ||
-            type > guild_command_permission_channel)
-            return false;
-        p.entry.type = static_cast<u8>(type);
-        return p.type_seen = true;
-    }
-    case 2: return p.permission_seen = json_value_to_bool(value, &p.entry.permission);
-    default: return true;
-    }
+bool permission_hook(ObjectReader& r, u32, const JsonValue& value) noexcept {
+    u64 type = 0;
+    if (!json_value_to_u64(value, &type) || type < guild_command_permission_role ||
+        type > guild_command_permission_channel)
+        return false;
+    reinterpret_cast<GuildCommandPermission*>(r.base)->type = static_cast<u8>(type);
+    return true;
 }
+constexpr FieldDef kPermissionDefs[]{
+    {"id", MAICORD_FIELD_SNOWFLAKE(GuildCommandPermission, id)},
+    {"type", MAICORD_FIELD_HOOK},
+    {"permission", MAICORD_FIELD_BOOL(GuildCommandPermission, permission)},
+};
+MAICORD_FIELD_TABLE(kPermissionSpec, kPermissionDefs, permission_hook, kCodes, kDepth, 7);
 struct CommandParse {
     const JsonIndexedDocument* document;
     GuildCommandPermissionsPage* page;
@@ -369,10 +311,9 @@ struct CommandParse {
 };
 bool permission_item(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<CommandParse*>(opaque);
-    EntryParse entry{};
-    if (value.kind != JsonValueKind::object ||
-        !json_visit_indexed_object(*p.document, value, kDepth, visit_permission, &entry).ok() || !entry.id_seen ||
-        !entry.type_seen || !entry.permission_seen) {
+    GuildCommandPermission entry{};
+    ObjectReader r{{p.document, 0}, &kPermissionSpec, reinterpret_cast<u8*>(&entry), 0};
+    if (value.kind != JsonValueKind::object || read_object(r, value) != 0 || r.seen != 7) {
         p.error = GuildAutomationError::field;
         return false;
     }
@@ -380,7 +321,7 @@ bool permission_item(void* opaque, u32, JsonValue value) noexcept {
         p.error = GuildAutomationError::capacity;
         return false;
     }
-    p.page->entries[p.page->count++] = entry.entry;
+    p.page->entries[p.page->count++] = entry;
     return true;
 }
 bool visit_command(void* opaque, JsonString name, JsonValue value) noexcept {
@@ -412,50 +353,38 @@ bool command_item(void* opaque, u32, JsonValue value) noexcept {
 }
 
 // The application's commands (GET /guilds/{g}/application-commands/{a}).
+struct CommandBuild : GuildApplicationCommand {
+    u64 owner;
+};
+constexpr FieldDef kCommandRowDefs[]{
+    {"id", MAICORD_FIELD_SNOWFLAKE(CommandBuild, id)},
+    {"application_id", MAICORD_FIELD_SNOWFLAKE(CommandBuild, owner)},
+    {"type", MAICORD_FIELD_NUMBER(CommandBuild, type)},
+    {"name", MAICORD_FIELD_LABEL(CommandBuild, name, name_bytes)},
+    {"description", MAICORD_FIELD_LABEL(CommandBuild, description, description_bytes)},
+};
+MAICORD_FIELD_TABLE(kCommandRowSpec, kCommandRowDefs, nullptr, kCodes, kDepth, 1);
 struct CommandListParse {
     const JsonIndexedDocument* document;
     Slice<GuildApplicationCommand> rows;
     u32 count;
     u64 application_id;
-    GuildApplicationCommand row;
-    u64 owner;
-    bool id_seen;
     GuildAutomationError error;
 };
-bool visit_command_row(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<CommandListParse*>(opaque);
-    auto& r = p.row;
-    switch (member_index<"id", "application_id", "type", "name", "description">(name)) {
-    case 0: return p.id_seen = json_value_to_snowflake(value, &r.id);
-    case 1: return json_value_to_snowflake(value, &p.owner);
-    case 2: {
-        u64 type = 0;
-        if (!json_value_to_u64(value, &type) || type > 255)
-            return false;
-        r.type = static_cast<u8>(type);
-        return true;
-    }
-    case 3: return label(value, r.name, &r.name_bytes);
-    case 4: return label(value, r.description, &r.description_bytes);
-    default: return true;
-    }
-}
 bool command_row_item(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<CommandListParse*>(opaque);
-    reset_value(&p.row);
-    p.owner = 0;
-    p.id_seen = false;
-    if (value.kind != JsonValueKind::object ||
-        !json_visit_indexed_object(*p.document, value, kDepth, visit_command_row, &p).ok() || !p.id_seen) {
+    CommandBuild row{};
+    ObjectReader r{{p.document, 0}, &kCommandRowSpec, reinterpret_cast<u8*>(&row), 0};
+    if (value.kind != JsonValueKind::object || read_object(r, value) != 0 || !(r.seen & 1)) {
         p.error = GuildAutomationError::field;
         return false;
     }
-    if (p.owner && p.owner != p.application_id)
+    if (row.owner && row.owner != p.application_id)
         return true;
-    if (p.row.type == 0)
-        p.row.type = guild_command_chat_input;
+    if (row.type == 0)
+        row.type = guild_command_chat_input;
     if (p.count < p.rows.count)
-        copy_value(&p.rows[p.count++], p.row);
+        copy_value(&p.rows[p.count++], static_cast<const GuildApplicationCommand&>(row));
     return true;
 }
 // Stops at the first element: the array is not empty.
@@ -494,18 +423,20 @@ bool visit_event(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 
 // AutoMod rules.
-struct RuleParse {
-    const JsonIndexedDocument* document;
-    AutoModRule* rule;
+struct RuleReader : ObjectReader {
     AutoModPool* pool;
     JsonValue action_metadata;
     u64* ids;
     u32 list_at, list_count, ids_capacity;
     u8 action_type;
-    bool id_seen, trigger_seen, capacity;
+    bool capacity;
+};
+// A nested object of a rule (its trigger metadata, an action, an action's metadata) fills the same rule.
+struct RuleSub : ObjectReader {
+    RuleReader* rule;
 };
 bool pool_item(void* opaque, u32, JsonValue value) noexcept {
-    auto& p = *static_cast<RuleParse*>(opaque);
+    auto& p = *static_cast<RuleReader*>(opaque);
     JsonString string{};
     if (!json_value_as_string(value, &string))
         return false;
@@ -532,9 +463,8 @@ bool pool_item(void* opaque, u32, JsonValue value) noexcept {
     pool.used += separator + decoded.bytes;
     return ++p.list_count <= 0xFFFF;
 }
-bool pool_list(RuleParse& p, const JsonValue& value, u32* at, u32* bytes, u16* count) noexcept {
-    if (value.kind == JsonValueKind::null_value)
-        return true;
+// A list of words (not null) into the pool.
+bool pool_list(RuleReader& p, const JsonValue& value, u32* at, u32* bytes, u16* count) noexcept {
     p.list_at = p.pool->used;
     p.list_count = 0;
     if (value.kind != JsonValueKind::array ||
@@ -546,7 +476,7 @@ bool pool_list(RuleParse& p, const JsonValue& value, u32* at, u32* bytes, u16* c
     return true;
 }
 bool preset_item(void* opaque, u32, JsonValue value) noexcept {
-    auto& r = *static_cast<RuleParse*>(opaque)->rule;
+    auto& r = *reinterpret_cast<AutoModRule*>(static_cast<RuleReader*>(opaque)->base);
     u64 preset = 0;
     if (!json_value_to_u64(value, &preset))
         return false;
@@ -556,91 +486,88 @@ bool preset_item(void* opaque, u32, JsonValue value) noexcept {
         r.foreign = true;
     return true;
 }
-bool visit_metadata(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<RuleParse*>(opaque);
-    auto& r = *p.rule;
-    switch (member_index<"keyword_filter", "regex_patterns", "allow_list", "presets", "mention_total_limit",
-                         "mention_raid_protection_enabled">(name)) {
-    case 0: return pool_list(p, value, &r.keywords_at, &r.keywords_bytes, &r.keyword_count);
-    case 1: return pool_list(p, value, &r.regex_at, &r.regex_bytes, &r.regex_count);
-    case 2: return pool_list(p, value, &r.allow_at, &r.allow_bytes, &r.allow_count);
-    case 3:
-        return value.kind == JsonValueKind::null_value ||
-               (value.kind == JsonValueKind::array &&
-                json_visit_indexed_array(*p.document, value, kDepth, preset_item, &p).ok());
-    case 4: {
-        u64 limit = 0;
-        if (value.kind == JsonValueKind::null_value)
-            return true;
-        if (!json_value_to_u64(value, &limit) || limit > 255)
-            return false;
-        r.mention_limit = static_cast<u8>(limit);
-        return true;
-    }
-    case 5: return value.kind == JsonValueKind::null_value || json_value_to_bool(value, &r.mention_raid_protection);
-    default: return true;
-    }
+bool metadata_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& p = *static_cast<RuleSub&>(r).rule;
+    auto& rule = *reinterpret_cast<AutoModRule*>(r.base);
+    if (index == 0)
+        return pool_list(p, value, &rule.keywords_at, &rule.keywords_bytes, &rule.keyword_count);
+    if (index == 1)
+        return pool_list(p, value, &rule.regex_at, &rule.regex_bytes, &rule.regex_count);
+    if (index == 2)
+        return pool_list(p, value, &rule.allow_at, &rule.allow_bytes, &rule.allow_count);
+    return value.kind == JsonValueKind::array &&
+           json_visit_indexed_array(*r.document, value, kDepth, preset_item, &p).ok();
 }
-bool visit_action_metadata(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<RuleParse*>(opaque);
-    auto& r = *p.rule;
-    switch (member_index<"custom_message", "channel_id", "duration_seconds">(name)) {
-    case 0: return p.action_type != 1 || label(value, r.custom_message, &r.custom_message_bytes);
-    case 1: return p.action_type != 2 || json_value_to_nullable_snowflake(value, &r.alert_channel_id);
-    case 2: {
-        u64 seconds = 0;
-        if (p.action_type != 3 || value.kind == JsonValueKind::null_value)
-            return true;
-        if (!json_value_to_u64(value, &seconds) || seconds > kAutoModTimeoutMaximumSeconds)
-            return false;
-        r.timeout_seconds = static_cast<u32>(seconds);
+constexpr FieldDef kMetadataDefs[]{
+    {"keyword_filter", MAICORD_FIELD_HOOK_OR_NULL},
+    {"regex_patterns", MAICORD_FIELD_HOOK_OR_NULL},
+    {"allow_list", MAICORD_FIELD_HOOK_OR_NULL},
+    {"presets", MAICORD_FIELD_HOOK_OR_NULL},
+    {"mention_total_limit", MAICORD_FIELD_NUMBER_OR_NULL(AutoModRule, mention_limit)},
+    {"mention_raid_protection_enabled", MAICORD_FIELD_BOOL_OR_NULL(AutoModRule, mention_raid_protection)},
+};
+MAICORD_FIELD_TABLE(kMetadataSpec, kMetadataDefs, metadata_hook, kCodes, kDepth);
+bool action_metadata_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& p = *static_cast<RuleSub&>(r).rule;
+    auto& rule = *reinterpret_cast<AutoModRule*>(r.base);
+    if (index == 0)
+        return p.action_type != 1 || label(value, rule.custom_message, &rule.custom_message_bytes);
+    if (index == 1)
+        return p.action_type != 2 || json_value_to_nullable_snowflake(value, &rule.alert_channel_id);
+    u64 seconds = 0;
+    if (p.action_type != 3 || value.kind == JsonValueKind::null_value)
         return true;
-    }
-    default: return true;
-    }
+    if (!json_value_to_u64(value, &seconds) || seconds > kAutoModTimeoutMaximumSeconds)
+        return false;
+    rule.timeout_seconds = static_cast<u32>(seconds);
+    return true;
 }
-bool visit_action(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<RuleParse*>(opaque);
-    switch (member_index<"type", "metadata">(name)) {
-    case 0: {
+constexpr FieldDef kActionMetadataDefs[]{
+    {"custom_message", MAICORD_FIELD_HOOK},
+    {"channel_id", MAICORD_FIELD_HOOK},
+    {"duration_seconds", MAICORD_FIELD_HOOK},
+};
+MAICORD_FIELD_TABLE(kActionMetadataSpec, kActionMetadataDefs, action_metadata_hook, kCodes, kDepth);
+bool action_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& p = *static_cast<RuleSub&>(r).rule;
+    if (index == 0) {
         u64 type = 0;
         if (!json_value_to_u64(value, &type))
             return false;
         p.action_type = type >= 1 && type <= 4 ? static_cast<u8>(type) : 0;
         return true;
     }
-    case 1:
-        if (value.kind == JsonValueKind::object)
-            p.action_metadata = value;
-        return value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value;
-    default: return true;
-    }
+    if (value.kind == JsonValueKind::object)
+        p.action_metadata = value;
+    return value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value;
 }
+constexpr FieldDef kActionDefs[]{{"type", MAICORD_FIELD_HOOK}, {"metadata", MAICORD_FIELD_HOOK}};
+MAICORD_FIELD_TABLE(kActionSpec, kActionDefs, action_hook, kCodes, kDepth);
 bool action_item(void* opaque, u32, JsonValue value) noexcept {
-    auto& p = *static_cast<RuleParse*>(opaque);
+    auto& p = *static_cast<RuleReader*>(opaque);
+    auto& rule = *reinterpret_cast<AutoModRule*>(p.base);
     p.action_type = 0;
     p.action_metadata = {};
-    if (value.kind != JsonValueKind::object ||
-        !json_visit_indexed_object(*p.document, value, kDepth, visit_action, &p).ok())
+    RuleSub action{{{p.document, 0}, &kActionSpec, p.base, 0}, &p};
+    if (value.kind != JsonValueKind::object || read_object(action, value) != 0)
         return false;
     if (!p.action_type) {
-        p.rule->foreign = true;
+        rule.foreign = true;
         return true;
     }
-    p.rule->actions = static_cast<u8>(p.rule->actions | (1u << (p.action_type - 1)));
+    rule.actions = static_cast<u8>(rule.actions | (1u << (p.action_type - 1)));
     // Metadata may come before the type: it is read once the type is known.
-    return !p.action_metadata.source.bytes ||
-           json_visit_indexed_object(*p.document, p.action_metadata, kDepth, visit_action_metadata, &p).ok();
+    RuleSub metadata{{{p.document, 0}, &kActionMetadataSpec, p.base, 0}, &p};
+    return !p.action_metadata.source.bytes || read_object(metadata, p.action_metadata) == 0;
 }
 bool id_item(void* opaque, u32, JsonValue value) noexcept {
-    auto& p = *static_cast<RuleParse*>(opaque);
+    auto& p = *static_cast<RuleReader*>(opaque);
     if (p.list_count >= p.ids_capacity)
         return false;
     return json_value_to_snowflake(value, &p.ids[p.list_count++]);
 }
-bool ids(RuleParse& p, const JsonValue& value, u64* output, u32 capacity, u8* count) noexcept {
-    if (value.kind == JsonValueKind::null_value)
-        return true;
+// A list of ids (not null).
+bool ids(RuleReader& p, const JsonValue& value, u64* output, u32 capacity, u8* count) noexcept {
     p.ids = output;
     p.ids_capacity = capacity;
     p.list_count = 0;
@@ -649,43 +576,35 @@ bool ids(RuleParse& p, const JsonValue& value, u64* output, u32 capacity, u8* co
     *count = static_cast<u8>(p.list_count);
     return ok;
 }
-bool visit_rule(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<RuleParse*>(opaque);
-    auto& r = *p.rule;
-    switch (member_index<"id", "name", "creator_id", "event_type", "trigger_type", "trigger_metadata", "actions",
-                         "enabled", "exempt_roles", "exempt_channels", "position">(name)) {
-    case 0: return p.id_seen = json_value_to_snowflake(value, &r.id);
-    case 1: return label(value, r.name, &r.name_bytes);
-    case 2: return json_value_to_nullable_snowflake(value, &r.creator_id);
-    case 3:
-    case 4: {
-        u64 number = 0;
-        if (!json_value_to_u64(value, &number) || number > 255)
-            return false;
-        (name_is(name, "event_type") ? r.event_type : r.trigger_type) = static_cast<u8>(number);
-        p.trigger_seen = p.trigger_seen || name_is(name, "trigger_type");
-        return true;
+bool rule_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& p = static_cast<RuleReader&>(r);
+    auto& rule = *reinterpret_cast<AutoModRule*>(r.base);
+    if (index == 5) {
+        RuleSub metadata{{{r.document, 0}, &kMetadataSpec, r.base, 0}, &p};
+        return value.kind == JsonValueKind::object && read_object(metadata, value) == 0;
     }
-    case 5:
-        return value.kind == JsonValueKind::null_value ||
-               (value.kind == JsonValueKind::object &&
-                json_visit_indexed_object(*p.document, value, kDepth, visit_metadata, &p).ok());
-    case 6:
+    if (index == 6)
         return value.kind == JsonValueKind::array &&
-               json_visit_indexed_array(*p.document, value, kDepth, action_item, &p).ok();
-    case 7: return json_value_to_bool(value, &r.enabled);
-    case 8: return ids(p, value, r.exempt_roles, kAutoModExemptRoleMaximum, &r.exempt_role_count);
-    case 9: return ids(p, value, r.exempt_channels, kAutoModExemptChannelMaximum, &r.exempt_channel_count);
-    case 10: {
-        u64 position = 0;
-        if (value.kind != JsonValueKind::null_value && (!json_value_to_u64(value, &position) || position > 0xFFFF'FFFFu))
-            return false;
-        r.position = static_cast<u32>(position);
-        return true;
-    }
-    default: return true;
-    }
+               json_visit_indexed_array(*r.document, value, kDepth, action_item, &r).ok();
+    if (index == 8)
+        return ids(p, value, rule.exempt_roles, kAutoModExemptRoleMaximum, &rule.exempt_role_count);
+    return ids(p, value, rule.exempt_channels, kAutoModExemptChannelMaximum, &rule.exempt_channel_count);
 }
+constexpr FieldDef kRuleDefs[]{
+    {"id", MAICORD_FIELD_SNOWFLAKE(AutoModRule, id)},
+    {"name", MAICORD_FIELD_LABEL(AutoModRule, name, name_bytes)},
+    {"creator_id", MAICORD_FIELD_SNOWFLAKE_OR_NULL(AutoModRule, creator_id)},
+    {"event_type", MAICORD_FIELD_NUMBER(AutoModRule, event_type)},
+    {"trigger_type", MAICORD_FIELD_NUMBER(AutoModRule, trigger_type)},
+    {"trigger_metadata", MAICORD_FIELD_HOOK_OR_NULL},
+    {"actions", MAICORD_FIELD_HOOK},
+    {"enabled", MAICORD_FIELD_BOOL(AutoModRule, enabled)},
+    {"exempt_roles", MAICORD_FIELD_HOOK_OR_NULL},
+    {"exempt_channels", MAICORD_FIELD_HOOK_OR_NULL},
+    {"position", MAICORD_ROW(field_number, kFieldNull | kFieldNullClears, AutoModRule, position)},
+};
+// A rule needs its id and trigger type.
+MAICORD_FIELD_TABLE(kRuleSpec, kRuleDefs, rule_hook, kCodes, kDepth, 1 | 16);
 struct RulesParse {
     const JsonIndexedDocument* document;
     Slice<AutoModRule> rows;
@@ -700,10 +619,9 @@ bool decode_rule(RulesParse& p, const JsonValue& value) noexcept {
     }
     AutoModRule& rule = p.rows[p.count];
     reset_value(&rule);
-    RuleParse parse{p.document, &rule, p.pool, {}, nullptr, 0, 0, 0, 0, false, false, false};
-    if (value.kind != JsonValueKind::object ||
-        !json_visit_indexed_object(*p.document, value, kDepth, visit_rule, &parse).ok() || !parse.id_seen ||
-        !parse.trigger_seen) {
+    RuleReader parse{{{p.document, 0}, &kRuleSpec, reinterpret_cast<u8*>(&rule), 0}, p.pool, {}, nullptr, 0, 0, 0, 0, false};
+    if (value.kind != JsonValueKind::object || read_object(parse, value) != 0 ||
+        (parse.seen & kRuleSpec.required) != kRuleSpec.required) {
         p.error = parse.capacity ? GuildAutomationError::capacity : GuildAutomationError::field;
         return false;
     }
@@ -722,18 +640,18 @@ GuildAutomationResult failure(const JsonReadResult& read, GuildAutomationError e
                                                    : GuildAutomationError::json};
 }
 
-// The array `body` holds, a row for each of its elements; `*count` rows.
-GuildAutomationResult decode_list(Utf8View body, Slice<u32> scratch, ListHead* list,
-                                  bool (*item)(void* opaque, u32, JsonValue) noexcept, u32* count) noexcept {
+// The array `body` holds, a row of `spec` for each of its elements; `*count` rows.
+GuildAutomationResult decode_list(Utf8View body, Slice<u32> scratch, const ObjectSpec& spec, void* rows, u32 capacity,
+                                  u32* count) noexcept {
     *count = 0;
     const auto s = scan_json<GuildAutomationError>(body, scratch);
     if (s.error != GuildAutomationError::none)
         return {0, s.error};
-    list->document = &s.document;
-    const auto read = json_visit_root_array(s.document.input, s.document.structurals, kDepth, item, list);
+    ItemReader list{{&s.document, 0}, &spec, static_cast<u8*>(rows), capacity, 0};
+    const auto read = json_visit_root_array(s.document.input, s.document.structurals, kDepth, read_item, &list);
     if (!read.ok())
-        return failure(read, list->error);
-    *count = list->count;
+        return failure(read, static_cast<GuildAutomationError>(list.error));
+    *count = list.count;
     return {body.bytes, GuildAutomationError::none};
 }
 
@@ -983,8 +901,7 @@ GuildAutomationResult guild_webhooks_decode(Utf8View body, Slice<u32> scratch, S
                                             u32* count) noexcept {
     if (!count || (!output.data && output.count))
         return {0, GuildAutomationError::input};
-    ListParse<GuildWebhook> list{{nullptr, output.count, 0, GuildAutomationError::none}, output.data};
-    return decode_list(body, scratch, &list, webhook_item, count);
+    return decode_list(body, scratch, kWebhookSpec, output.data, output.count, count);
 }
 
 GuildAutomationResult guild_webhook_decode(Utf8View body, Slice<u32> scratch, GuildWebhook* output) noexcept {
@@ -994,9 +911,9 @@ GuildAutomationResult guild_webhook_decode(Utf8View body, Slice<u32> scratch, Gu
     if (s.error != GuildAutomationError::none)
         return {0, s.error};
     reset_value(output);
-    WebhookParse p{&s.document, output, false};
-    const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_webhook, &p);
-    if (!read.ok() || !p.id_seen)
+    ObjectReader r{{&s.document, 0}, &kWebhookSpec, reinterpret_cast<u8*>(output), 0};
+    const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, read_member, &r);
+    if (!read.ok() || !(r.seen & 1))
         return failure(read, GuildAutomationError::none);
     return {body.bytes, GuildAutomationError::none};
 }
@@ -1005,8 +922,7 @@ GuildAutomationResult guild_integrations_decode(Utf8View body, Slice<u32> scratc
                                                 u32* count) noexcept {
     if (!count || (!output.data && output.count))
         return {0, GuildAutomationError::input};
-    ListParse<GuildIntegration> list{{nullptr, output.count, 0, GuildAutomationError::none}, output.data};
-    return decode_list(body, scratch, &list, integration_item, count);
+    return decode_list(body, scratch, kIntegrationSpec, output.data, output.count, count);
 }
 
 GuildAutomationResult guild_command_permissions_decode(Utf8View body, Slice<u32> scratch, u64 application_id,
@@ -1066,7 +982,7 @@ GuildAutomationResult guild_application_commands_decode(Utf8View body, Slice<u32
     const JsonValue permissions = object_member(s.document, root, utf8_literal("permissions"), kDepth);
     if (commands.kind != JsonValueKind::array)
         return {0, GuildAutomationError::field};
-    CommandListParse p{&s.document, output, 0, application_id, {}, 0, false, GuildAutomationError::none};
+    CommandListParse p{&s.document, output, 0, application_id, GuildAutomationError::none};
     auto read = json_visit_indexed_array(s.document, commands, kDepth, command_row_item, &p);
     if (read.ok() && permissions.kind == JsonValueKind::array)
         read = json_visit_indexed_array(s.document, permissions, kDepth, command_mark_item, &p);
