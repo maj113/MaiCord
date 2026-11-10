@@ -58,23 +58,25 @@ void encoder_ended(void* context, GpuStreamEncoderEnd) noexcept {
 void audio_block(void* context, ConstSlice<i16> stereo, u64) noexcept {
     go_live_media_audio(of(context).media, stereo);
 }
-
-u32 encodable(void* context, bool* known) noexcept {
-    auto& d = of(context);
+// Setup, teardown and queries: once per stream or per snapshot, compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+// The encoding device with a reference of the caller's, or null.
+GpuDevice* retain_device(GoLiveDevices& d) noexcept {
     AcquireSRWLockShared(d.lock.native());
     GpuDevice* device = d.device;
     if (device)
         gpu_retain(device);
     ReleaseSRWLockShared(d.lock.native());
+    return device;
+}
+u32 encodable(void* context, bool* known) noexcept {
+    GpuDevice* device = retain_device(of(context));
     *known = device != nullptr;
     if (!device)
         return 0;
     const u32 codecs = gpu_stream_encoder_codecs(device);
     gpu_release(device);
     return codecs;
-}
-bool audio_available(void*) noexcept {
-    return stream_audio_available(stream_audio_method());
 }
 bool capture(void* context, GoLiveMedia* media, const CaptureSource& source, bool system_picker,
              u32 max_fps) noexcept {
@@ -121,11 +123,7 @@ void sound_stop(void* context) noexcept {
 }
 bool encoder(void* context, GoLiveMedia* media, GpuStreamCodec codec, const GpuStreamEncoderSettings& settings) noexcept {
     auto& d = of(context);
-    AcquireSRWLockShared(d.lock.native());
-    GpuDevice* device = d.device;
-    if (device)
-        gpu_retain(device);
-    ReleaseSRWLockShared(d.lock.native());
+    GpuDevice* device = retain_device(d);
     if (!device)
         return false;
     d.media = media;
@@ -176,6 +174,7 @@ void encoder_stop(void* context) noexcept {
     }
     gpu_stream_encoder_destroy(encoder);
 }
+#pragma clang attribute pop
 bool preview(void* context, GpuVideoFrame* output, u32* sequence) noexcept {
     auto& d = of(context);
     AcquireSRWLockShared(d.lock.native());
@@ -197,8 +196,8 @@ void go_live_devices_set_device(GoLiveDevices* devices, GpuDevice* device) noexc
 }
 
 GoLiveBackend go_live_devices_backend(GoLiveDevices* devices) noexcept {
-    return {devices, encodable,   audio_available, capture, capture_stop_all, sound, sound_stop,
-            encoder, configure,   bitrate,         keyframe, encoder_stop,    preview};
+    return {devices,   encodable, capture,  capture_stop_all, sound,        sound_stop, encoder,
+            configure, bitrate,   keyframe, encoder_stop,     preview};
 }
 
 void go_live_devices_release(GoLiveDevices* devices) noexcept {

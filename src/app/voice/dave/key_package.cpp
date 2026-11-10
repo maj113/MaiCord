@@ -1,4 +1,5 @@
 #include "maicord/app/voice/dave/key_package.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/voice/mls_encoding.hpp"
 #include "../../shell/byte_views.hpp"
@@ -29,8 +30,7 @@ DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing,
         return {0, key.native_status, DavePackageError::key_failure};
     if (bytes_equal(init, leaf, 65))
         return {0, 0, DavePackageError::key_reuse};
-    for (u32 i = 0; i != 8; ++i)
-        identity[7 - i] = static_cast<u8>(user_id >> (8 * i));
+    byte_store_le64(identity, byte_swap(user_id));
     static constexpr u8 one[]{0, 1}, two[]{0, 2};
     MlsKeyPackageView view{};
     view.version = 1;

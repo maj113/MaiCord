@@ -1,89 +1,89 @@
 #include "maicord/model/user/profile_connection.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
-// By ProfileConnectionKind (from 1): the type as Discord names it, the display name and the logo's asset file.
-struct Platform {
-    Utf8View type, name, icon;
+using K = ProfileConnectionKind;
+// By ProfileConnectionKind (from 1): the type as Discord names it, the display name and the logo's asset file; the
+// texts are '\0'-separated lists, the logos 16 characters each.
+constexpr char kTypes[] =
+    "amazon-music\0battlenet\0bluesky\0bungie\0crunchyroll\0domain\0ebay\0epicgames\0facebook\0github\0instagram\0"
+    "leagueoflegends\0letterboxd\0mastodon\0paypal\0playstation\0reddit\0riotgames\0roblox\0skype\0spotify\0steam\0"
+    "tiktok\0twitch\0twitter\0xbox\0youtube";
+constexpr char kNames[] =
+    "Amazon Music\0Battle.net\0Bluesky\0Bungie.net\0Crunchyroll\0Domain\0eBay\0Epic Games\0Facebook\0GitHub\0Instagram\0"
+    "League of Legends\0Letterboxd\0Mastodon\0PayPal\0PlayStation Network\0Reddit\0Riot Games\0Roblox\0Skype\0Spotify\0"
+    "Steam\0TikTok\0Twitch\0X\0Xbox\0YouTube";
+constexpr char kIcons[] =
+    "cda6fb74e92e32f1" "0e1a419c00a471a2" "8a42ef6bc4dd4e0d" "9b762e8a42709cc4" "4e56bb1ecb9b9dc3" "8d54a5919eb645f9"
+    "d0f7fa72a2ca6388" "e87d94bf0041b63e" "bda550439e2a1af0" "1cc92a6d139af44d" "ea0692691904fca9" "fc30b78cd5e1db04"
+    "cb1a567ff6191fb5" "53fcd6d102d44c2b" "81a39a4672d62d60" "ae74d3de4958bf78" "afc3f4fa75178004" "fa9e14fc0fd3680f"
+    "268c81933d752854" "4f2cb7753e5d5e61" "40518c6ced9fed93" "b68f2f4df4af9085" "b4002d11fb3b5c1c" "45900de231038a6d"
+    "90d18081c2eb2ea3" "8cea2073e188eabe" "c569f6e10f1fa390";
+constexpr u32 kPlatformCount = 27;
+static_assert(kPlatformCount == static_cast<u32>(K::youtube) && sizeof(kIcons) == kPlatformCount * 16 + 1);
+// Entry `index` of a '\0'-separated list.
+Utf8View entry(const char* list, u32 index) noexcept {
+    while (index--)
+        list += c_string_length(list) + 1;
+    return {list, c_string_length(list)};
+}
+// A service's account page, in kPageTexts' order (prefix, suffix): the prefix, the name (or the ID) as a URI
+// component, then the suffix. Mastodon and domain connections carry their own URL and host instead.
+struct Page {
+    K kind;
+    bool by_id, keep_colon; // keep_colon: a Bluesky DID keeps its ':'
 };
-constexpr Platform kPlatforms[] = {
-    {utf8_literal("amazon-music"), utf8_literal("Amazon Music"), utf8_literal("cda6fb74e92e32f1")},
-    {utf8_literal("battlenet"), utf8_literal("Battle.net"), utf8_literal("0e1a419c00a471a2")},
-    {utf8_literal("bluesky"), utf8_literal("Bluesky"), utf8_literal("8a42ef6bc4dd4e0d")},
-    {utf8_literal("bungie"), utf8_literal("Bungie.net"), utf8_literal("9b762e8a42709cc4")},
-    {utf8_literal("crunchyroll"), utf8_literal("Crunchyroll"), utf8_literal("4e56bb1ecb9b9dc3")},
-    {utf8_literal("domain"), utf8_literal("Domain"), utf8_literal("8d54a5919eb645f9")},
-    {utf8_literal("ebay"), utf8_literal("eBay"), utf8_literal("d0f7fa72a2ca6388")},
-    {utf8_literal("epicgames"), utf8_literal("Epic Games"), utf8_literal("e87d94bf0041b63e")},
-    {utf8_literal("facebook"), utf8_literal("Facebook"), utf8_literal("bda550439e2a1af0")},
-    {utf8_literal("github"), utf8_literal("GitHub"), utf8_literal("1cc92a6d139af44d")},
-    {utf8_literal("instagram"), utf8_literal("Instagram"), utf8_literal("ea0692691904fca9")},
-    {utf8_literal("leagueoflegends"), utf8_literal("League of Legends"), utf8_literal("fc30b78cd5e1db04")},
-    {utf8_literal("letterboxd"), utf8_literal("Letterboxd"), utf8_literal("cb1a567ff6191fb5")},
-    {utf8_literal("mastodon"), utf8_literal("Mastodon"), utf8_literal("53fcd6d102d44c2b")},
-    {utf8_literal("paypal"), utf8_literal("PayPal"), utf8_literal("81a39a4672d62d60")},
-    {utf8_literal("playstation"), utf8_literal("PlayStation Network"), utf8_literal("ae74d3de4958bf78")},
-    {utf8_literal("reddit"), utf8_literal("Reddit"), utf8_literal("afc3f4fa75178004")},
-    {utf8_literal("riotgames"), utf8_literal("Riot Games"), utf8_literal("fa9e14fc0fd3680f")},
-    {utf8_literal("roblox"), utf8_literal("Roblox"), utf8_literal("268c81933d752854")},
-    {utf8_literal("skype"), utf8_literal("Skype"), utf8_literal("4f2cb7753e5d5e61")},
-    {utf8_literal("spotify"), utf8_literal("Spotify"), utf8_literal("40518c6ced9fed93")},
-    {utf8_literal("steam"), utf8_literal("Steam"), utf8_literal("b68f2f4df4af9085")},
-    {utf8_literal("tiktok"), utf8_literal("TikTok"), utf8_literal("b4002d11fb3b5c1c")},
-    {utf8_literal("twitch"), utf8_literal("Twitch"), utf8_literal("45900de231038a6d")},
-    {utf8_literal("twitter"), utf8_literal("X"), utf8_literal("90d18081c2eb2ea3")},
-    {utf8_literal("xbox"), utf8_literal("Xbox"), utf8_literal("8cea2073e188eabe")},
-    {utf8_literal("youtube"), utf8_literal("YouTube"), utf8_literal("c569f6e10f1fa390")},
+constexpr Page kPages[] = {
+    {K::twitch, false, false},   {K::youtube, true, false}, {K::bluesky, true, true},  {K::steam, true, false},
+    {K::reddit, false, false},   {K::twitter, false, false}, {K::spotify, true, false}, {K::github, false, false},
+    {K::roblox, true, false},    {K::ebay, false, false},   {K::tiktok, false, false}, {K::instagram, false, false},
+    {K::letterboxd, false, false},
 };
-static_assert(sizeof(kPlatforms) / sizeof(kPlatforms[0]) == static_cast<u32>(ProfileConnectionKind::youtube));
-const Platform* platform(ProfileConnectionKind kind) noexcept {
-    const u32 index = static_cast<u32>(kind);
-    return index && index <= sizeof(kPlatforms) / sizeof(kPlatforms[0]) ? &kPlatforms[index - 1] : nullptr;
+constexpr char kPageTexts[] =
+    "https://www.twitch.tv/\0\0"
+    "https://www.youtube.com/channel/\0\0"
+    "https://bsky.app/profile/\0\0"
+    "https://steamcommunity.com/profiles/\0\0"
+    "https://www.reddit.com/u/\0\0"
+    "https://x.com/\0\0"
+    "https://open.spotify.com/user/\0\0"
+    "https://github.com/\0\0"
+    "https://roblox.com/users/\0/profile\0"
+    "https://www.ebay.com/usr/\0\0"
+    "https://www.tiktok.com/@\0\0"
+    "https://www.instagram.com/\0\0"
+    "https://letterboxd.com/\0/";
+Utf8View text_of(const char* text) noexcept {
+    return {text, c_string_length(text)};
 }
 bool is(const Utf8View& text, const Utf8View& literal) noexcept {
     return utf8_equal(text, literal);
 }
-bool unreserved(char c) noexcept {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' ||
-           c == '.' || c == '!' || c == '~' || c == '*' || c == '\'' || c == '(' || c == ')';
+// encodeURIComponent; `keep_colon` leaves ':' as it is.
+void component(TextWriter& w, const Utf8View& value, bool keep_colon) noexcept {
+    for (u32 i = 0; i < value.bytes; ++i) {
+        const char c = value.data[i];
+        if (ascii_is_alnum(c) || c == '-' || c == '_' || c == '.' || c == '!' || c == '~' || c == '*' ||
+            c == '\'' || c == '(' || c == ')' || (keep_colon && c == ':')) {
+            w.add(&c, 1);
+            continue;
+        }
+        const char escaped[3]{'%', ascii_hex_digit_upper(static_cast<u8>(c) >> 4), ascii_hex_digit_upper(c)};
+        w.add(escaped, 3);
+    }
 }
-// Appends to a fixed buffer; a text that does not fit leaves `ok` false.
-struct Writer {
-    char* data;
-    u32 capacity, used;
-    bool ok;
-    void text(const Utf8View& value) noexcept {
-        if (!ok || value.bytes > capacity - used) {
-            ok = false;
-            return;
-        }
-        copy_bytes(data + used, value.data, value.bytes);
-        used += value.bytes;
-    }
-    // encodeURIComponent; `keep_colon` leaves ':' as it is (a Bluesky DID).
-    void component(const Utf8View& value, bool keep_colon = false) noexcept {
-        static constexpr char hex[] = "0123456789ABCDEF";
-        for (u32 i = 0; ok && i < value.bytes; ++i) {
-            const char c = value.data[i];
-            if (unreserved(c) || (keep_colon && c == ':')) {
-                text({&c, 1});
-                continue;
-            }
-            const char escaped[3]{'%', hex[static_cast<u8>(c) >> 4], hex[static_cast<u8>(c) & 15]};
-            text({escaped, 3});
-        }
-    }
-};
 // A domain connection's ID is a host name; anything else would build another URL.
 bool host_name(const Utf8View& id) noexcept {
     if (!id.bytes)
         return false;
     for (u32 i = 0; i < id.bytes; ++i) {
         const char c = id.data[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.'))
+        if (!ascii_is_alnum(c) && c != '-' && c != '.')
             return false;
     }
     return true;
@@ -100,18 +100,22 @@ bool https_url(const Utf8View& id) noexcept {
 }
 } // namespace
 ProfileConnectionKind profile_connection_kind(const Utf8View& type) noexcept {
-    for (u32 i = 0; i < sizeof(kPlatforms) / sizeof(kPlatforms[0]); ++i)
-        if (utf8_equal(kPlatforms[i].type, type))
-            return static_cast<ProfileConnectionKind>(i + 1);
-    return ProfileConnectionKind::unknown;
+    const char* at = kTypes;
+    for (u32 i = 0; i < kPlatformCount; ++i) {
+        const Utf8View candidate = text_of(at);
+        if (utf8_equal(candidate, type))
+            return static_cast<K>(i + 1);
+        at += candidate.bytes + 1;
+    }
+    return K::unknown;
 }
 Utf8View profile_connection_name(ProfileConnectionKind kind) noexcept {
-    const auto* p = platform(kind);
-    return p ? p->name : Utf8View{};
+    const u32 index = static_cast<u32>(kind);
+    return index && index <= kPlatformCount ? entry(kNames, index - 1) : Utf8View{};
 }
 Utf8View profile_connection_icon(ProfileConnectionKind kind) noexcept {
-    const auto* p = platform(kind);
-    return p ? p->icon : Utf8View{};
+    const u32 index = static_cast<u32>(kind);
+    return index && index <= kPlatformCount ? Utf8View{kIcons + (index - 1) * 16, 16} : Utf8View{};
 }
 Utf8View profile_connection_chip_icon(ProfileConnectionChipIcon icon) noexcept {
     switch (icon) {
@@ -124,86 +128,40 @@ Utf8View profile_connection_chip_icon(ProfileConnectionChipIcon icon) noexcept {
     }
 }
 bool profile_connection_link_trusted(const ProfileConnection& connection) noexcept {
-    return profile_connection_kind(connection.type.view()) != ProfileConnectionKind::domain;
+    return profile_connection_kind(connection.type.view()) != K::domain;
 }
 u32 profile_connection_url(const ProfileConnection& connection, Slice<char> output) noexcept {
     const auto kind = profile_connection_kind(connection.type.view());
-    const Utf8View name = connection.name.view(), id = connection.id.view();
-    Writer w{output.data, output.count, 0, true};
-    // The page is built from the name or from the ID, which must then be there.
-    const auto by_name = [&](const Utf8View& prefix, const Utf8View& suffix = {}) noexcept {
-        if (name.bytes) {
-            w.text(prefix);
-            w.component(name);
-            w.text(suffix);
-        }
-    };
-    const auto by_id = [&](const Utf8View& prefix, const Utf8View& suffix = {}, bool keep_colon = false) noexcept {
-        if (id.bytes) {
-            w.text(prefix);
-            w.component(id, keep_colon);
-            w.text(suffix);
-        }
-    };
-    switch (kind) {
-    case ProfileConnectionKind::twitch:
-        by_name(utf8_literal("https://www.twitch.tv/"));
-        break;
-    case ProfileConnectionKind::youtube:
-        by_id(utf8_literal("https://www.youtube.com/channel/"));
-        break;
-    case ProfileConnectionKind::bluesky:
-        by_id(utf8_literal("https://bsky.app/profile/"), {}, true);
-        break;
-    case ProfileConnectionKind::steam:
-        by_id(utf8_literal("https://steamcommunity.com/profiles/"));
-        break;
-    case ProfileConnectionKind::reddit:
-        by_name(utf8_literal("https://www.reddit.com/u/"));
-        break;
-    case ProfileConnectionKind::twitter:
-        by_name(utf8_literal("https://x.com/"));
-        break;
-    case ProfileConnectionKind::spotify:
-        by_id(utf8_literal("https://open.spotify.com/user/"));
-        break;
-    case ProfileConnectionKind::github:
-        by_name(utf8_literal("https://github.com/"));
-        break;
-    case ProfileConnectionKind::roblox:
-        by_id(utf8_literal("https://roblox.com/users/"), utf8_literal("/profile"));
-        break;
-    case ProfileConnectionKind::ebay:
-        by_name(utf8_literal("https://www.ebay.com/usr/"));
-        break;
-    case ProfileConnectionKind::tiktok:
-        by_name(utf8_literal("https://www.tiktok.com/@"));
-        break;
-    case ProfileConnectionKind::instagram:
-        by_name(utf8_literal("https://www.instagram.com/"));
-        break;
-    case ProfileConnectionKind::letterboxd:
-        by_name(utf8_literal("https://letterboxd.com/"), utf8_literal("/"));
-        break;
-    case ProfileConnectionKind::mastodon:
+    const Utf8View id = connection.id.view();
+    TextWriter w{output};
+    if (kind == K::mastodon) {
         if (https_url(id))
-            w.text(id);
-        break;
-    case ProfileConnectionKind::domain:
+            w.add(id);
+    } else if (kind == K::domain) {
         if (host_name(id)) {
-            w.text(utf8_literal("https://"));
-            w.text(id);
-            w.text(utf8_literal("/"));
+            w.add("https://");
+            w.add(id);
+            w.add("/");
         }
-        break;
-    default:
-        break;
+    } else {
+        for (u32 i = 0; i < sizeof(kPages) / sizeof(kPages[0]); ++i) {
+            const Page& page = kPages[i];
+            if (page.kind != kind)
+                continue;
+            // The page is built from the name or from the ID, which must then be there.
+            const Utf8View value = page.by_id ? id : connection.name.view();
+            if (value.bytes) {
+                w.add(entry(kPageTexts, 2 * i));
+                component(w, value, page.keep_colon);
+                w.add(entry(kPageTexts, 2 * i + 1));
+            }
+            break;
+        }
     }
-    return w.ok ? w.used : 0;
+    return w.finish();
 }
 ProfileConnectionField profile_connection_field(ProfileConnectionKind kind, const Utf8View& name) noexcept {
     constexpr u8 none = 0xFF;
-    using K = ProfileConnectionKind;
     const auto slot = [&](u8 index, u8 scale = 1) noexcept { return ProfileConnectionField{index, scale, 0}; };
     const auto mark = [&](u8 bit) noexcept { return ProfileConnectionField{none, 1, bit}; };
     switch (kind) {
@@ -286,7 +244,6 @@ struct ChipWriter {
 };
 } // namespace
 u32 profile_connection_chips(const ProfileConnection& c, ProfileConnectionChip* chips) noexcept {
-    using K = ProfileConnectionKind;
     using I = ProfileConnectionChipIcon;
     ChipWriter w{chips, 0};
     switch (profile_connection_kind(c.type.view())) {

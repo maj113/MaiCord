@@ -71,8 +71,6 @@ struct VoiceState {
     u64 next_poll_ms;
     u64 notice_until_ms;
     VoiceMessageNotice notice; // After the flow ended (shown in the status row).
-    char text[160];
-    u32 text_bytes;
 };
 VoiceState g_voice;
 
@@ -267,26 +265,22 @@ void project(u64 now_ms) noexcept {
     } else {
         v.progress = 0;
     }
-    Utf8View status{};
     v.error = false;
     if (f.phase == VoiceMessagePhase::recording) {
-        status = f.held ? (f.hold_inside ? (s.limit_reached ? utf8_literal("Limit reached! Release to Send")
-                                                            : utf8_literal("Release to Send"))
-                                         : (s.limit_reached ? utf8_literal("Limit reached! Release to Cancel")
-                                                            : utf8_literal("Release to Cancel")))
-                        : !s.capturing ? utf8_literal("Starting microphone\xE2\x80\xA6")
-                                       : utf8_literal("Esc to delete \xC2\xB7 Enter to send");
+        v.status = f.held ? (f.hold_inside ? (s.limit_reached ? utf8_literal("Limit reached! Release to Send")
+                                                              : utf8_literal("Release to Send"))
+                                           : (s.limit_reached ? utf8_literal("Limit reached! Release to Cancel")
+                                                              : utf8_literal("Release to Cancel")))
+                          : !s.capturing ? utf8_literal("Starting microphone\xE2\x80\xA6")
+                                         : utf8_literal("Esc to delete \xC2\xB7 Enter to send");
     } else if (f.phase == VoiceMessagePhase::sending) {
-        status = utf8_literal("Sending\xE2\x80\xA6");
+        v.status = utf8_literal("Sending\xE2\x80\xA6");
     } else if (f.notice != VoiceMessageNotice::none) {
-        status = notice_text(f.notice);
+        v.status = notice_text(f.notice);
         v.error = f.notice == VoiceMessageNotice::upload;
     } else {
-        status = utf8_literal("Enter to send");
+        v.status = utf8_literal("Enter to send");
     }
-    g_voice.text_bytes = minimum<u32>(status.bytes, sizeof(g_voice.text));
-    copy_bytes(g_voice.text, status.data, g_voice.text_bytes);
-    v.status = {g_voice.text, g_voice.text_bytes};
 }
 bool stale() noexcept {
     return voice_message_flow_active(g_voice.flow) &&

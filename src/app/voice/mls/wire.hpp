@@ -35,8 +35,7 @@ __declspec(noinline) inline const u8* mls_read_point(MlsReader& reader) noexcept
     return point.data;
 }
 inline void mls_store_be64(u64 value, u8* output) noexcept {
-    for (u32 i = 0; i != 8; ++i)
-        output[7 - i] = static_cast<u8>(value >> (8 * i));
+    byte_store_le64(output, byte_swap(value));
 }
 // Sorted big-endian u32 list membership (unmerged leaves).
 __declspec(noinline) inline bool mls_u32_list_contains(ConstSlice<u8> values, u32 target) noexcept {
@@ -78,10 +77,10 @@ struct MlsWriter {
             used += count;
     }
     __declspec(noinline) void integer(u64 value, u32 count) noexcept {
+        // The low count bytes, big-endian: the tail of the swapped value.
         u8 encoded[8];
-        for (u32 i = 0; i != count; ++i)
-            encoded[count - 1 - i] = static_cast<u8>(value >> (8 * i));
-        bytes(encoded, count);
+        mls_store_be64(value, encoded);
+        bytes(encoded + 8 - count, count);
     }
     __declspec(noinline) void varint(u32 value) noexcept {
         u8 encoded[4];
@@ -150,8 +149,7 @@ MlsStatus mls_node_key(KdfSha256Workspace& kdf, const u8* path_secret, P256Key* 
 inline u32 mls_leaf_binding(const u8* group_id, u32 leaf_index, u8* output) noexcept {
     output[0] = kMlsGroupIdBytes;
     copy_bytes(output + 1, group_id, kMlsGroupIdBytes);
-    for (u32 i = 0; i != 4; ++i)
-        output[9 + i] = static_cast<u8>(leaf_index >> (24 - 8 * i));
+    byte_store_be32(output + 9, leaf_index);
     return 13;
 }
 } // namespace maicord

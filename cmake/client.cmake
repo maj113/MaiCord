@@ -134,6 +134,7 @@ else()
         src/app/guild/settings/integrations.cpp src/app/guild/settings/automod.cpp
         src/app/guild/settings/server_access.cpp src/app/guild/settings/access.cpp
         src/app/guild/settings/community_setup.cpp src/app/guild/settings/server_template.cpp
+        src/app/guild/settings/page_common.cpp
         src/app/chat/polls/create.cpp
         src/app/account/self_status.cpp src/app/account/login/browser_auth.cpp
         src/app/account/login/captcha_auth.cpp src/app/media/animation.cpp

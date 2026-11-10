@@ -180,7 +180,7 @@ template <typename T> Slice<T> history_decode_pool_slice(const HistoryDecodeStor
 inline bool application_message_decode_scratch(AccountUiRuntime& ui, MessageHistoryDecodeScratch* output,
                                                const Utf8View& body = {}) noexcept {
     HistoryDecodeStorage& storage = ui.history_decode_storage;
-    if (!output || !storage.base)
+    if (!storage.base)
         return false;
     const HistoryDecodeBodyShape shape = application_message_body_shape(body);
     const bool snapshot = (shape.optional & 2) != 0;

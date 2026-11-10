@@ -641,6 +641,10 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
         if (!paint_stream_push_clip(paint, visible))
             return false;
         const bool hot = hovered(s, p);
+        // Most looks are one plate: a rounded fill, or with a 1-DIP border.
+        Color fill{}, border{};
+        float radius = theme.scale.radius_md;
+        enum : u8 { no_plate, rounded, bordered } plate = rounded;
         switch (p.look) {
         case ProfileLook::card: {
             const bool activity = p.media == ProfileMediaKind::activity_card;
@@ -650,8 +654,8 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
                 if (const auto* h = profile_scene_part(s, s.widgets.hovered); h && h->action == p.action)
                     if (const auto* hn = ui_widget_manager_layout_node(s.widgets, h->widget))
                         lit = ui_rect_intersects(hn->rectangle, r);
-            ok = paint_stream_push_rounded(paint, r, lit ? c.card_hover : c.card,
-                                           activity ? activity_radius : card_radius);
+            fill = lit ? c.card_hover : c.card;
+            radius = activity ? activity_radius : card_radius;
             break;
         }
         case ProfileLook::peek: {
@@ -661,81 +665,95 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
                  paint_stream_push_rounded(paint, r, hot ? c.card_hover : c.card,
                                            activity_radius) &&
                  paint_stream_pop_clip(paint);
+            plate = no_plate;
             break;
         }
         case ProfileLook::row:
-            ok = !hot || paint_stream_push_rounded(paint, r, c.hover, theme.scale.radius_sm);
+            plate = hot ? rounded : no_plate;
+            fill = c.hover;
+            radius = theme.scale.radius_sm;
             break;
-        case ProfileLook::role: {
-            const Color border = c.border;
-            const float cy = (r.top + r.bottom) * .5f;
-            ok = paint_stream_push_rounded_border(paint, r, Color{}, border,
-                                                  theme.scale.radius_md, 1) &&
-                 paint_stream_push_rounded(paint, r.left + 6, cy - 6, r.left + 18, cy + 6,
-                                           p.color.alpha ? p.color : c.subtle, theme.scale.radius_full);
+        case ProfileLook::role:
+            plate = bordered;
+            border = c.border;
             break;
-        }
         case ProfileLook::pill:
-            ok = paint_stream_push_rounded_border(paint, r, hot ? c.hover : Color{},
-                                                  c.border, theme.scale.radius_md, 1);
+            plate = bordered;
+            if (hot)
+                fill = c.hover;
+            border = c.border;
             break;
         case ProfileLook::tab:
+            plate = no_plate;
             if (p.source == s.tab || hot) {
                 const Color bar = p.source == s.tab ? (s.themed ? c.strong : theme.tokens.text.link) : c.subtle;
                 ok = paint_stream_push_rounded(paint, r.left, r.bottom - 2, r.right, r.bottom, bar, theme.scale.radius_xs);
             }
             break;
         case ProfileLook::dot:
-            ok = paint_stream_push_rounded(paint, r, large ? c.subtle : c.text,
-                                           theme.scale.radius_full);
+            fill = large ? c.subtle : c.text;
+            radius = theme.scale.radius_full;
             break;
         case ProfileLook::rule:
             // A profile's own theme column keeps its border; the application theme's cards take the separator.
             ok = paint_stream_push(paint, r, s.themed ? c.border : ui_separator_color(theme));
+            plate = no_plate;
             break;
         case ProfileLook::input:
-            ok = paint_stream_push_rounded(paint, r, c.input, theme.scale.radius_md);
+            fill = c.input;
             break;
         case ProfileLook::primary:
-            ok = paint_stream_push_rounded(paint, r, hot ? c.accent_hover : c.accent,
-                                           theme.scale.radius_md);
+            fill = hot ? c.accent_hover : c.accent;
             break;
-        case ProfileLook::secondary: {
+        case ProfileLook::secondary:
             // Ask to Join stays disabled: no hover.
-            const bool lit = hot && p.action != ProfileAction::activity_join;
-            ok = paint_stream_push_rounded(paint, r, lit ? c.button_hover : c.button,
-                                           p.media == ProfileMediaKind::activity_action ? inner_radius
-                                                                                        : theme.scale.radius_md);
+            fill = hot && p.action != ProfileAction::activity_join ? c.button_hover : c.button;
+            if (p.media == ProfileMediaKind::activity_action)
+                radius = inner_radius;
             break;
-        }
         case ProfileLook::bubble:
             ok = bubble_paint(paint, r, c, theme.scale.radius_xl);
+            plate = no_plate;
             break;
         case ProfileLook::box:
-            ok = paint_stream_push_rounded_border(paint, r, c.card, c.border,
-                                                  theme.scale.radius_md, 1);
+            plate = bordered;
+            fill = c.card;
+            border = c.border;
             break;
         case ProfileLook::badge_box: {
             const auto* hover = profile_scene_part(s, s.widgets.hovered);
             const auto* node = hover && hover->media == ProfileMediaKind::badge
                                    ? ui_widget_manager_layout_node(s.widgets, hover->widget)
                                    : nullptr;
-            const bool lit = node && ui_rect_intersects(node->rectangle, r);
-            ok = paint_stream_push_rounded_border(paint, r, lit ? c.badge_box_hover : c.badge_box, c.badge_box_border,
-                                                  theme.scale.radius_md, 1);
+            plate = bordered;
+            fill = node && ui_rect_intersects(node->rectangle, r) ? c.badge_box_hover : c.badge_box;
+            border = c.badge_box_border;
             break;
         }
         case ProfileLook::game_plate:
-            ok = paint_stream_push_rounded(paint, r, c.game_plate, theme.scale.radius_sm);
+            fill = c.game_plate;
+            radius = theme.scale.radius_sm;
             break;
         case ProfileLook::avatar_plate:
-            ok = paint_stream_push_rounded(paint, r, c.card_hover, ui_rect_width(r) * .5f);
+            fill = c.card_hover;
+            radius = ui_rect_width(r) * .5f;
             break;
         case ProfileLook::connection_tile:
-            ok = paint_stream_push_rounded(paint, r, c.connection_tile, theme.scale.radius_md);
+            fill = c.connection_tile;
             break;
         default:
+            plate = no_plate;
             break;
+        }
+        if (plate == rounded)
+            ok = paint_stream_push_rounded(paint, r, fill, radius);
+        else if (plate == bordered)
+            ok = paint_stream_push_rounded_border(paint, r, fill, border, radius, 1);
+        // A role's colour dot inside its pill.
+        if (ok && p.look == ProfileLook::role) {
+            const float cy = (r.top + r.bottom) * .5f;
+            ok = paint_stream_push_rounded(paint, r.left + 6, cy - 6, r.left + 18, cy + 6,
+                                           p.color.alpha ? p.color : c.subtle, theme.scale.radius_full);
         }
         if (ok && p.media == ProfileMediaKind::activity_large)
             // Artwork placeholder; the image draws over it once decoded.

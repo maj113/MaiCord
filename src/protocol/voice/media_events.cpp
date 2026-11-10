@@ -47,15 +47,14 @@ bool modes(void* opaque, u32, JsonValue value) noexcept {
 // Ready streams: the assigned send SSRC of each Identify stream; we keep the
 // highest quality's (the full-resolution layer).
 struct ReadyStream {
-    u64 ssrc, rtx, quality;
+    u64 fields[3]; // ssrc, rtx_ssrc, quality
 };
 bool stream_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& stream = *static_cast<ReadyStream*>(opaque);
     const u32 index = protocol_detail::member_index<"ssrc", "rtx_ssrc", "quality">(name);
-    u64* target = index == 0 ? &stream.ssrc : index == 1 ? &stream.rtx : index == 2 ? &stream.quality : nullptr;
-    if (!target || value.kind == JsonValueKind::null_value)
+    if (index == 3 || value.kind == JsonValueKind::null_value)
         return true;
-    return json_value_to_u64(value, target) && *target <= ~u32{0};
+    return json_value_to_u64(value, &stream.fields[index]) && stream.fields[index] <= ~u32{0};
 }
 bool streams(void* opaque, u32, JsonValue value) noexcept {
     auto& read = *static_cast<Read*>(opaque);
@@ -63,10 +62,11 @@ bool streams(void* opaque, u32, JsonValue value) noexcept {
     if (value.kind != JsonValueKind::object ||
         !json_visit_indexed_object(read.document, value, read.depth, stream_field, &stream).ok())
         return false;
-    if (stream.ssrc && (!read.ready.video_ssrc || stream.quality > read.stream_quality)) {
-        read.ready.video_ssrc = static_cast<u32>(stream.ssrc);
-        read.ready.video_rtx_ssrc = stream.rtx ? static_cast<u32>(stream.rtx) : static_cast<u32>(stream.ssrc + 1);
-        read.stream_quality = stream.quality;
+    const u64 ssrc = stream.fields[0], rtx = stream.fields[1], quality = stream.fields[2];
+    if (ssrc && (!read.ready.video_ssrc || quality > read.stream_quality)) {
+        read.ready.video_ssrc = static_cast<u32>(ssrc);
+        read.ready.video_rtx_ssrc = rtx ? static_cast<u32>(rtx) : static_cast<u32>(ssrc + 1);
+        read.stream_quality = quality;
     }
     return true;
 }

@@ -1,7 +1,7 @@
 #pragma once
 // The Access, Enable Community / Community Overview and Server Template pages'
 // shared state and requests. UI thread only.
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "maicord/model/guild/community_settings.hpp"
 
 namespace maicord::app_detail::server_settings {
@@ -173,6 +173,11 @@ Utf8View access_locale_label(Utf8View code) noexcept;
 Utf8View access_guild_description() noexcept;
 // The server's complete features list for a PATCH; false while it is not kept.
 bool access_feature_names(ConstSlice<u8>* names, u16* count) noexcept;
+// Whether the features list is kept, for a page that only has to know it can write one.
+bool access_features_known() noexcept;
+// The description editor's text into `overview`; the language chosen from the language popup into it.
+void access_sync_description(GuildCommunityOverview* overview) noexcept;
+void access_choose_locale(GuildCommunityOverview* overview, u32 index) noexcept;
 // A text form of these pages: its key, validity and the page that answers it.
 enum AccessForm : u64 {
     form_access_rule = 0x41434301,

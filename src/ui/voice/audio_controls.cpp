@@ -377,7 +377,7 @@ bool ui_audio_scene_project(UiAudioScene* scene, const UiAudioPlaybackState& sta
     if (!scene)
         return false;
     const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
-    UiAudioControlsProjection projection{};
+    UiAudioControlsProjection projection; // Written whole by ui_audio_controls_project before any read.
     const bool same_source = scene->active && scene->surface == surface &&
                              scene->owner.manager == owner.manager &&
                              scene->owner.handle.slot == owner.handle.slot &&

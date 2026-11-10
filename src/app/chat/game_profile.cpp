@@ -78,20 +78,24 @@ constexpr char kGenreNames[] =
     "Tactical\0Indie\0Arcade\0Point and Click";
 constexpr u32 kGenreCount = 69;
 
+constexpr char kMonthNames[] =
+    "January\0February\0March\0April\0May\0June\0July\0August\0September\0October\0November\0December";
+
+// Entry `index` of a '\0'-separated list.
+Utf8View entry(const char* list, u32 index) noexcept {
+    while (index--)
+        list += c_string_length(list) + 1;
+    return {list, c_string_length(list)};
+}
 Utf8View genre_name(u32 genre) noexcept {
-    if (!genre || genre > kGenreCount)
-        return {};
-    const char* at = kGenreNames;
-    for (u32 i = 1; i < genre; ++i)
-        at += c_string_length(at) + 1;
-    return {at, c_string_length(at)};
+    return genre && genre <= kGenreCount ? entry(kGenreNames, genre - 1) : Utf8View{};
 }
 
 // Game platform types (Userdoccers): desktop 0, xbox 1, playstation 2, ios 3, android 4, nintendo 5, linux 6,
 // macos 7, roblox 8. The official client folds Linux and macOS into Desktop and iOS and Android into Mobile.
 struct Platform {
     u16 mask;
-    const char* name;
+    char name[12];
 };
 constexpr Platform kPlatforms[] = {{(1u << 0) | (1u << 6) | (1u << 7), "Desktop"},
                                    {(1u << 3) | (1u << 4), "Mobile"},
@@ -173,14 +177,12 @@ Utf8View link_title(const GameProfileLink& link) noexcept {
 
 // "September 4, 2023" (the official client's "LL"), in UTC.
 Utf8View release_text(u64 ms) noexcept {
-    static constexpr const char* kMonths[12] = {"January", "February", "March",     "April",   "May",      "June",
-                                                "July",    "August",   "September", "October", "November", "December"};
     auto& bank = owner->bank;
     const CivilDate date = civil_date_from_days(static_cast<i64>(ms / 86'400'000));
     if (date.month < 1 || date.month > 12 || date.year < 0)
         return {};
     const u32 start = bank.used;
-    bank.add(literal(kMonths[date.month - 1]));
+    bank.add(entry(kMonthNames, date.month - 1));
     bank.add(" ");
     bank.number(date.day);
     bank.add(", ");
@@ -224,30 +226,32 @@ void collect_friends() noexcept {
     }
 }
 
-u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation = {
-                                                UiSettingsVariant::standard, 0, kUiSettingsNoDefault}) noexcept {
+// Appends a control; ~0u past capacity.
+u32 add(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind,
+        const Utf8View& action_label = {},
+        UiSettingsControlPresentation presentation = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault}) noexcept {
     auto& p = *owner;
     if (p.control_count >= kControlCapacity)
         return ~0u;
     p.presentation[p.control_count] = presentation;
     reset_value(&p.avatar_media[p.control_count]);
-    p.controls[p.control_count] = control;
+    p.controls[p.control_count] = {id, label, description, kind, true, false, {}, 0, action_label, nullptr};
     return p.control_count++;
 }
-UiSettingsControl row(u64 id, Utf8View label, Utf8View description, UiSettingsControlKind kind,
-                      Utf8View action_label = {}) noexcept {
-    return {id, label, description, kind, true, false, {}, 0, action_label, nullptr};
-}
 // A details line: its label and value, or "-" when the game has none.
-void detail(u64 id, Utf8View label, Utf8View value) noexcept {
-    push(row(id, label, value.bytes ? value : utf8_literal("-"), UiSettingsControlKind::notice));
+void detail(u64 id, const Utf8View& label, const Utf8View& value) noexcept {
+    add(id, label, value.bytes ? value : utf8_literal("-"), UiSettingsControlKind::notice);
+}
+// A plural label, without its final "s" for `one`.
+template <usize Count> Utf8View plural(const char (&text)[Count], bool one) noexcept {
+    return {text, static_cast<u32>(Count - (one ? 2 : 1))};
 }
 
 void project_details() noexcept {
     auto& p = *owner;
     const auto& g = p.game;
     auto& bank = p.bank;
-    push(row(control_details, utf8_literal("Details"), {}, UiSettingsControlKind::category));
+    add(control_details, utf8_literal("Details"), {}, UiSettingsControlKind::category);
     u32 start = bank.used;
     for (u32 i = 0; i < g.genre_count; ++i)
         if (const Utf8View name = genre_name(g.genres[i]); name.bytes) {
@@ -255,11 +259,9 @@ void project_details() noexcept {
                 bank.add(", ");
             bank.add(name);
         }
-    detail(control_genres, g.genre_count == 1 ? utf8_literal("Genre") : utf8_literal("Genres"), bank.since(start));
-    detail(control_publishers, g.publisher_count == 1 ? utf8_literal("Publisher") : utf8_literal("Publishers"),
-           view(g.publishers, g.publishers_bytes));
-    detail(control_developers, g.developer_count == 1 ? utf8_literal("Developer") : utf8_literal("Developers"),
-           view(g.developers, g.developers_bytes));
+    detail(control_genres, plural("Genres", g.genre_count == 1), bank.since(start));
+    detail(control_publishers, plural("Publishers", g.publisher_count == 1), view(g.publishers, g.publishers_bytes));
+    detail(control_developers, plural("Developers", g.developer_count == 1), view(g.developers, g.developers_bytes));
     detail(control_release, utf8_literal("Release Date"), g.release_ms ? release_text(g.release_ms) : Utf8View{});
     start = bank.used;
     u32 platforms = 0;
@@ -269,20 +271,18 @@ void project_details() noexcept {
                 bank.add(", ");
             bank.add(literal(platform.name));
         }
-    detail(control_platforms, platforms > 1 ? utf8_literal("Platforms") : utf8_literal("Platform"),
-           bank.since(start));
+    detail(control_platforms, plural("Platforms", platforms <= 1), bank.since(start));
     if (!p.link_count) {
         detail(control_links, utf8_literal("Links"), {});
     } else {
-        push(row(control_links, utf8_literal("Links"), {}, UiSettingsControlKind::notice));
+        add(control_links, utf8_literal("Links"), {}, UiSettingsControlKind::notice);
         for (u32 i = 0; i < p.link_count; ++i) {
             const auto& link = g.links[p.links[i]];
-            push(row(control_link_base + i, link_title(link), view(link.url, link.url_bytes),
-                     UiSettingsControlKind::action, utf8_literal("Open")));
+            add(control_link_base + i, link_title(link), view(link.url, link.url_bytes), UiSettingsControlKind::action,
+                utf8_literal("Open"));
         }
     }
-    push(row(control_credit, utf8_literal("Game metadata by"), {}, UiSettingsControlKind::footnote,
-             utf8_literal("IGDB")));
+    add(control_credit, utf8_literal("Game metadata by"), {}, UiSettingsControlKind::footnote, utf8_literal("IGDB"));
 }
 
 bool project() noexcept {
@@ -295,43 +295,41 @@ bool project() noexcept {
     p.games_revision = game_lookup_revision();
     // The cover art leads, captioned with the game's name.
     if (record && game_cover_media(record->game, kCoverDips, g_app.renderer.dpi, &p.cover)) {
-        const u32 index = push(row(control_cover, view(p.title, p.title_bytes), {}, UiSettingsControlKind::action),
-                               {UiSettingsVariant::standard, ui_settings_presentation_avatar, kCoverColumns, 0, 0,
-                                ui_settings_more_cell});
+        const u32 index = add(control_cover, view(p.title, p.title_bytes), {}, UiSettingsControlKind::action, {},
+                              {UiSettingsVariant::standard, ui_settings_presentation_avatar, kCoverColumns, 0, 0,
+                               ui_settings_more_cell});
         if (index != ~0u) {
             p.avatar_media[index].key = p.cover.key;
             p.avatar_media[index].url = p.cover.url_view();
         }
     }
     switch (p.phase) {
-    case Phase::loading: {
-        UiSettingsControl loading = row(control_status, utf8_literal("Loading"), {}, UiSettingsControlKind::notice);
-        loading.checked = true;
-        push(loading);
+    case Phase::loading:
+        add(control_status, utf8_literal("Loading"), {}, UiSettingsControlKind::notice);
+        p.controls[p.control_count - 1].checked = true;
         break;
-    }
     case Phase::failed:
-        push(row(control_status, utf8_literal("Couldn't load this game's details"),
-                 utf8_literal("Check your connection and try again."), UiSettingsControlKind::notice));
-        push(row(control_retry, utf8_literal("Try again"), {}, UiSettingsControlKind::action, utf8_literal("Retry")));
+        add(control_status, utf8_literal("Couldn't load this game's details"),
+            utf8_literal("Check your connection and try again."), UiSettingsControlKind::notice);
+        add(control_retry, utf8_literal("Try again"), {}, UiSettingsControlKind::action, utf8_literal("Retry"));
         p.controls[p.control_count - 1].enabled = connected();
         break;
     case Phase::loaded:
         if (p.game.summary_bytes)
-            push(row(control_summary, {}, view(p.game.summary, p.game.summary_bytes), UiSettingsControlKind::notice));
+            add(control_summary, {}, view(p.game.summary, p.game.summary_bytes), UiSettingsControlKind::notice);
         project_details();
         break;
     }
     collect_friends();
     if (p.friend_count) {
-        push(row(control_friends, utf8_literal("Friends Who Play"), {}, UiSettingsControlKind::category));
+        add(control_friends, utf8_literal("Friends Who Play"), {}, UiSettingsControlKind::category);
         const auto& users = g_app.account_ui->user_store;
         for (u32 i = 0; i < p.friend_count; ++i) {
             const auto* user = user_store_find(users, p.friends[i]);
-            const u32 index = push(row(control_friend_base + i,
-                                       user ? user_store_name(users, *user) : utf8_literal("A friend"),
-                                       utf8_literal("Playing Now"), UiSettingsControlKind::action),
-                                   {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
+            const u32 index = add(control_friend_base + i,
+                                  user ? user_store_name(users, *user) : utf8_literal("A friend"),
+                                  utf8_literal("Playing Now"), UiSettingsControlKind::action, {},
+                                  {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
             if (index != ~0u)
                 p.avatar_media[index] = application_user_avatar_media(p.friends[i]);
         }

@@ -80,8 +80,6 @@ __declspec(noinline) DaveSealError rotate_key(DaveFrameSealer& sealer, KdfSha256
     secure_clear_bytes(secret, sizeof(secret));
     return imported.ok() ? DaveSealError::none : DaveSealError::crypto_failure;
 }
-} // namespace
-namespace {
 u32 uleb_bytes(u32 value) noexcept {
     u32 bytes = 1;
     for (value >>= 7; value; value >>= 7)

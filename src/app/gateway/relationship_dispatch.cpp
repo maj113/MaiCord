@@ -125,7 +125,7 @@ bool publish_presence(void* opaque, u32, JsonValue value) noexcept {
         extra_bytes = user_appearance_write(appearance, {extra, sizeof(extra)});
     u32 rich = 0;
     if (extra_bytes) {
-        UserActivitySet activities{};
+        UserActivitySet activities; // user_activities_decode resets it
         bool has_activities = false;
         if (user_activities_decode(document, root, presence.value.user_id, &activities, &has_activities) &&
             has_activities && activities.count) {

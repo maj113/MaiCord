@@ -85,9 +85,6 @@ u32 encodable(void*, bool* known) noexcept {
     return gpu_stream_codec_bit(GpuStreamCodec::h264) | gpu_stream_codec_bit(GpuStreamCodec::h265) |
            gpu_stream_codec_bit(GpuStreamCodec::av1);
 }
-bool yes(void*) noexcept {
-    return true;
-}
 bool capture(void* context, GoLiveMedia* media, const CaptureSource&, bool, u32) noexcept {
     auto& p = *static_cast<Producer*>(context);
     p.media = media;
@@ -360,8 +357,8 @@ int run() noexcept {
     if (!network_loop_initialize(&g->loop).ok())
         return 1;
     auto& live = g->live;
-    live.backend = {&g->producer, encodable, yes,     capture,  capture_stop, sound,   sound_stop,
-                    encoder,      configure, bitrate, keyframe, encoder_stop, preview};
+    live.backend = {&g->producer, encodable, capture,   capture_stop, sound, sound_stop,
+                    encoder,      configure, bitrate,   keyframe,     encoder_stop, preview};
     live.decodable = decodable(nullptr);
     g->voice.setup.channel_id = kChannel;
     g->voice.setup.phase = VoiceSetupPhase::credentials_ready;
@@ -405,7 +402,7 @@ int run() noexcept {
         for (; now >= next_audio; next_audio += 20)
             produce_audio(audio_index++);
         if (g->received.frames >= kWantedFrames && g->received.keyframes && g->received.audio_frames >= 10 &&
-            live.sender.stats.feedback)
+            live.sender.bandwidth.acked_since_us)
             break;
         if (live.state == GoLiveState::ended)
             break;
@@ -427,7 +424,7 @@ int run() noexcept {
     check(!r.video_failures, "Go Live loopback: no video frame fails DAVE decryption, across the epoch change");
     check(r.nonce_frames >= 20 && !r.nonce_regressions,
           "Go Live loopback: the sender's DAVE counters (audio and video share one) arrive in increasing order");
-    check(live.sender.stats.feedback != 0, "Go Live loopback: the viewer's transport feedback reaches the sender");
+    check(live.sender.bandwidth.acked_since_us != 0, "Go Live loopback: the viewer's transport feedback reaches the sender");
     if (g->decoder) {
         // Decoding is synchronous: every pushed H.264 frame produced a picture.
         check(g->decoded.frames >= kWantedFrames && !g->decoded.mismatches,

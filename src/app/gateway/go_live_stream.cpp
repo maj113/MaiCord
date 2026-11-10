@@ -73,6 +73,8 @@ StreamBitrate bounds(const GoLiveSettings& settings) noexcept {
     return stream_quality_bitrate({settings.resolution, settings.fps});
 }
 
+// Once per stream (buffers, teardown, end reasons), compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 GoLiveMedia* media_create(GatewayGoLive& live) noexcept {
     const u32 opus_bytes = (opus_encoder_storage_bytes(2) + 15) & ~15u;
     auto* block = static_cast<u8*>(
@@ -141,6 +143,7 @@ GoLiveEnd end_of(const GatewayStreamControl& control) noexcept {
         return GoLiveEnd::connection_failed;
     }
 }
+#pragma clang attribute pop
 GpuStreamEncoderSettings encoder_settings(const GatewayGoLive& live) noexcept {
     const auto extent = stream_encode_extent(live.settings.resolution, live.capture_width, live.capture_height);
     return {extent.width, extent.height, live.settings.fps,
@@ -468,6 +471,8 @@ void go_live_media_capture_size(GoLiveMedia* media, u32 width, u32 height) noexc
     wake(media);
 }
 
+// Once per stream or user command.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, u64 self_user_id,
                              Utf8View session, u64 now_ms) noexcept {
     auto& b = live->backend;
@@ -486,7 +491,7 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
         live->source = command.source;
         live->system_picker = command.system_picker;
         live->user_paused = live->minimized = live->paused = false;
-        live->started_ms = live->media_revision = 0;
+        live->media_revision = 0;
         live->capture_width = command.system_picker ? 0 : command.source.width;
         live->capture_height = command.system_picker ? 0 : command.source.height;
         live->keyframe_wanted = live->dave_ready = false;
@@ -586,6 +591,7 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
     }
     return false;
 }
+#pragma clang attribute pop
 
 void gateway_go_live_drive(GatewayGoLive* live, const GatewayVoiceControl& voice, NetworkLoop* loop,
                            u64 now_ms) noexcept {
@@ -628,8 +634,6 @@ void gateway_go_live_drive(GatewayGoLive* live, const GatewayVoiceControl& voice
         break;
     case GatewayStreamPhase::active:
         live->state = GoLiveState::live;
-        if (!live->started_ms)
-            live->started_ms = now_ms;
         break;
     default:
         end_session(*live, end_of(control));
@@ -652,32 +656,21 @@ u64 gateway_go_live_deadline(const GatewayGoLive& live) noexcept {
     return deadline;
 }
 
+// Once per snapshot poll, reset or release.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool gateway_go_live_publish(GatewayGoLive* live, GoLiveSnapshot* output) noexcept {
     GoLiveSnapshot s{};
     auto& b = live->backend;
     bool known = false;
-    const u32 encodable = b.encodable ? b.encodable(b.context, &known) : 0;
     s.key = live->control.key;
-    s.started_ms = live->state == GoLiveState::live || live->state == GoLiveState::reconnecting ? live->started_ms : 0;
     s.viewer_count = active(*live) ? live->control.viewer_count : 0;
     copy_bytes(s.viewer_ids, live->control.viewer_ids, minimum(s.viewer_count, kGoLiveViewerIds) * 8u);
-    s.bitrate_kbps = live->sender.history ? live->sender.bandwidth.target / 1000 : 0;
-    s.encodable = voice_bits(encodable);
+    s.encodable = voice_bits(b.encodable ? b.encodable(b.context, &known) : 0);
     s.encodable_known = known;
-    if (active(*live) && live->encoding) {
-        const auto extent = stream_encode_extent(live->settings.resolution, live->capture_width, live->capture_height);
-        s.width = static_cast<u16>(extent.width);
-        s.height = static_cast<u16>(extent.height);
-        s.fps = live->settings.fps;
-        s.codec = voice_codec(live->codec);
-    }
     s.settings = live->settings;
     s.state = live->state;
     s.end = live->end;
-    s.delete_reason = live->control.delete_reason;
     s.paused = live->paused;
-    s.sound_active = live->sounding;
-    s.audio_available = b.audio_available && b.audio_available(b.context);
     s.generation = live->published.generation;
     const bool changed = !bytes_equal(&s, &live->published, sizeof(s));
     if (changed) {
@@ -703,4 +696,5 @@ void gateway_go_live_release(GatewayGoLive* live) noexcept {
     live->state = GoLiveState::idle;
     live->end = GoLiveEnd::none;
 }
+#pragma clang attribute pop
 } // namespace maicord

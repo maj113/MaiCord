@@ -119,40 +119,38 @@ struct Obu {
     u8 type;
     bool extension, kept;
 };
-// Calls visit(obu) for every OBU; false when the frame is malformed.
-template <typename Visit>
-bool each_obu(ConstSlice<u8> frame, Visit visit) noexcept {
-    u32 at = 0;
-    while (at < frame.count) {
-        Obu obu{at, 0, 0, static_cast<u8>((frame[at] >> 3) & 15), (frame[at] & 4) != 0, false};
-        const bool sized = (frame[at] & 2) != 0;
-        if (frame[at] & 0x80)
-            return false;
-        at += obu.extension ? 2 : 1;
-        u64 size = frame.count - (at < frame.count ? at : frame.count);
-        if (at > frame.count || (sized && !read_leb128(frame, &at, &size)) || size > frame.count - at)
-            return false;
-        obu.payload = at;
-        obu.size = static_cast<u32>(size);
-        obu.kept = obu.type != 2 && obu.type != 8 && obu.type != 15; // TD, tile list, padding.
-        at += obu.size;
-        visit(obu);
-    }
+// The OBU at *at, which moves past it; false when the frame is malformed.
+bool next_obu(ConstSlice<u8> frame, u32* at, Obu* obu) noexcept {
+    const u8 first = frame[*at];
+    *obu = {*at, 0, 0, static_cast<u8>((first >> 3) & 15), (first & 4) != 0, false};
+    if (first & 0x80)
+        return false;
+    *at += obu->extension ? 2 : 1;
+    u64 size = frame.count - (*at < frame.count ? *at : frame.count);
+    if (*at > frame.count || ((first & 2) && !read_leb128(frame, at, &size)) || size > frame.count - *at)
+        return false;
+    obu->payload = *at;
+    obu->size = static_cast<u32>(size);
+    obu->kept = obu->type != 2 && obu->type != 8 && obu->type != 15; // TD, tile list, padding.
+    *at += obu->size;
     return true;
 }
 void prepare_av1(Builder& b, ConstSlice<u8> frame) noexcept {
-    u32 kept = 0, last = ~u32{0};
-    if (!each_obu(frame, [&](const Obu& obu) noexcept {
-            if (obu.kept)
-                last = obu.header;
-            kept += obu.kept;
-        }) || !kept) {
-        b.ok = false;
-        return;
-    }
-    each_obu(frame, [&](const Obu& obu) noexcept {
-        if (!obu.kept)
+    Obu obu;
+    u32 last = ~u32{0};
+    for (u32 at = 0; at < frame.count;) {
+        if (!next_obu(frame, &at, &obu)) {
+            b.ok = false;
             return;
+        }
+        if (obu.kept)
+            last = obu.header;
+    }
+    b.ok = last != ~u32{0};
+    for (u32 at = 0; b.ok && at < frame.count;) {
+        next_obu(frame, &at, &obu);
+        if (!obu.kept)
+            continue;
         const bool final = obu.header == last;
         const u8 header = static_cast<u8>(final ? frame[obu.header] & ~2u : frame[obu.header] | 2u);
         b.clear(&header, 1);
@@ -170,7 +168,7 @@ void prepare_av1(Builder& b, ConstSlice<u8> frame) noexcept {
             b.clear(size, n);
         }
         b.encrypted(frame.data + obu.payload, obu.size);
-    });
+    }
 }
 bool has_start_code(ConstSlice<u8> data, u32 from, u32 to) noexcept {
     for (u32 i = from; i + 2 < to; ++i)

@@ -401,14 +401,9 @@ Utf8View control_label(UiVoiceControl control, const UiRect& footer, UiRect* are
     case UiVoiceControl::channel:
         *area = ui_voice_panel_channel_text(ui_voice_panel_rectangle(footer));
         return utf8_literal("Show call");
-    case UiVoiceControl::screen_share: {
-        const UiCallShare share = application_go_live_share(v.channel_id);
+    case UiVoiceControl::screen_share:
         *area = ui_voice_panel_screen_share(ui_voice_panel_rectangle(footer), v);
-        return share == UiCallShare::live          ? utf8_literal("Stop Streaming")
-               : share == UiCallShare::available   ? utf8_literal("Share Your Screen")
-               : share == UiCallShare::not_allowed ? utf8_literal("You can\xE2\x80\x99t stream into this channel.")
-                                                   : utf8_literal("Screen Sharing Unavailable");
-    }
+        return ui_call_share_label(application_go_live_share(v.channel_id));
     default:
         *area = {};
         return {};
@@ -435,7 +430,7 @@ Utf8View application_voice_tooltip(float x, float y, UiRect* anchor, u32* identi
 
 u32 application_voice_card_controls(VoiceCardControl* output, u32 capacity) noexcept {
     const UiRect* rectangle = footer();
-    if (!rectangle || !output || voice.view.state == UiVoicePanelState::hidden)
+    if (!rectangle || voice.view.state == UiVoicePanelState::hidden)
         return 0;
     static constexpr UiVoiceControl kCard[]{UiVoiceControl::channel, UiVoiceControl::screen_share,
                                             UiVoiceControl::disconnect};

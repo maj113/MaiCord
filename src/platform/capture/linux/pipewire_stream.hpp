@@ -27,11 +27,10 @@ struct VideoFormat {
 // choose. Writes them into `storage` and their addresses into `pods`; returns the count (0 when the storage is short).
 u32 build_enum_formats(u8* storage, u32 capacity, const Pod** pods, u32 max_fps, bool fixed, u32 video_format,
                        u64 modifier) noexcept;
-// The stream audio capture's format (SPA_PARAM_EnumFormat): 48 kHz stereo (FL, FR) interleaved S16LE. False when the
-// storage is too small.
-bool build_audio_format(u8* storage, u32 capacity, const Pod** pod) noexcept;
-// SPA_PARAM_Buffers (dma-bufs only) and SPA_PARAM_Meta (the header, for the timestamp): two pods.
-u32 build_buffer_params(u8* storage, u32 capacity, const Pod** pods) noexcept;
+// The stream audio capture's format (SPA_PARAM_EnumFormat): 48 kHz stereo (FL, FR) interleaved S16LE.
+const Pod* audio_format() noexcept;
+// SPA_PARAM_Buffers (dma-bufs only) and SPA_PARAM_Meta (the header, for the timestamp) into pods[0] and pods[1].
+void buffer_params(const Pod** pods) noexcept;
 // Reads a SPA_PARAM_Format object; false for anything that is not one of the accepted formats.
 bool parse_video_format(const Pod* pod, VideoFormat* format) noexcept;
 // The DRM fourcc of an accepted SPA video format (XR24, AR24, XB24, AB24), 0 otherwise.

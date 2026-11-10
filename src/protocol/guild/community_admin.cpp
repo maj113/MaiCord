@@ -452,12 +452,7 @@ bool guild_template_code_valid(Utf8View code) noexcept {
 bool guild_template_title_valid(Utf8View name) noexcept {
     if (!text_within(name, kGuildTemplateNameCodepoints))
         return false;
-    u32 first = 0, last = name.bytes;
-    while (first < last && ascii_is_space(name.data[first]))
-        ++first;
-    while (last > first && ascii_is_space(name.data[last - 1]))
-        --last;
-    return utf8_validate({name.data + first, last - first}).codepoints >= 2;
+    return utf8_validate(ascii_trim(name)).codepoints >= 2;
 }
 
 bool guild_template_description_valid(Utf8View description) noexcept {

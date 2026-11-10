@@ -1,6 +1,4 @@
-#include "internal.hpp"
-#include "maicord/core/heap_sort.hpp"
-#include "maicord/core/time.hpp"
+#include "page_common.hpp"
 #include "maicord/core/virtual_memory.hpp"
 
 // AutoMod: the server's rules by trigger, in the official page's sections
@@ -146,9 +144,6 @@ Utf8View duration_name(u32 seconds) noexcept {
 }
 bool can_moderate() noexcept {
     return permission_has(owner->access.permissions, kPermissionModerateMembers);
-}
-bool community() noexcept {
-    return (guild_features() & guild_feature_community) != 0;
 }
 const AutoModRule* rule_by_id(u64 id) noexcept {
     for (u32 i = 0; i < am()->rule_count; ++i)
@@ -568,15 +563,14 @@ void project(Bank& bank) noexcept {
     push_notice(utf8_literal("Give your mods a break while keeping your server safe! Set up filters to moderate content "
                              "and automate a custom response when they’re found and AutoMod will make it happen."));
     if (s.failed) {
-        push_error(utf8_literal("Couldn't load AutoMod rules"), owner->status, utf8_literal("Try again"));
+        push_load_error(utf8_literal("Couldn't load AutoMod rules"));
         return;
     }
     if (!s.loaded) {
         push_loading(utf8_literal("Loading AutoMod rules…"), control_loading);
         return;
     }
-    if (owner->failed && owner->status.bytes)
-        push_error({}, owner->status);
+    push_status_error();
     for (const u8 trigger : kTriggers) {
         if (trigger == automod_trigger_member_profile)
             push_category(control_section_members, utf8_literal("Members"));
@@ -668,15 +662,8 @@ void confirm_delete(const AutoModRule& r) noexcept {
     bank.add("Are you sure you want to remove the ‘");
     bank.add({r.name, r.name_bytes});
     bank.add("’ AutoMod rule?");
-    ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Delete Rule");
-    request.context = bank.since(0);
-    request.accept = utf8_literal("Delete Rule");
-    request.danger = request.confirmation_only = true;
-    request.owner = form_key(form_rule_delete, r.id);
-    request.valid = form_valid;
-    request.save = form_saved;
-    application_text_form_open(request);
+    open_confirmation(form_rule_delete, r.id, utf8_literal("Delete Rule"), bank.since(0),
+                      utf8_literal("Delete Rule"), form_saved);
 }
 
 bool contains(const u64* ids, u32 count, u64 id) noexcept {
@@ -718,26 +705,18 @@ void open_menu(Pending kind, const UiRect& anchor) noexcept {
     } else {
         // Channels and categories in channel-list order (a category covers its channels).
         const auto& st = state();
-        const ChannelRecord* rows[kPopupCapacity];
-        const u32 slots = chat_state_store_channel_slot_bound(st);
-        for (u32 i = 0; i < slots && count < kPopupCapacity; ++i) {
-            const auto& c = st.channels[i];
-            if (c.occupied && c.guild_id == p.guild_id && c.type < 32 &&
-                ((1u << c.type) & ((1u << 0) | (1u << 2) | (1u << 4) | (1u << 5) | (1u << 13) | (1u << 15) | (1u << 16))))
-                rows[count++] = &c;
-        }
-        heap_sort_shared(rows, count, [&st](const ChannelRecord* a, const ChannelRecord* b) noexcept {
-            return guild_settings_channel_before(st, GuildChannelPickerOrder::channel_list, *a, *b);
-        });
+        count = sorted_channels((1u << 0) | (1u << 2) | (1u << 4) | (1u << 5) | (1u << 13) | (1u << 15) | (1u << 16),
+                                kPopupCapacity);
         Bank bank{p.popup_text, sizeof(p.popup_text), 0};
         for (u32 i = 0; i < count; ++i) {
+            const auto* channel = p.popup_rows[i].channel;
             const u32 start = bank.used;
-            if (rows[i]->type != 2 && rows[i]->type != 4 && rows[i]->type != 13)
+            if (channel->type != 2 && channel->type != 4 && channel->type != 13)
                 bank.add("#");
-            bank.add(chat_state_store_channel_name(st, *rows[i]));
+            bank.add(chat_state_store_channel_name(st, *channel));
             popup_row(i, bank.since(start), i,
-                      contains(d.exempt_channels, d.exempt_channel_count, rows[i]->id) ? popup_item_checked : 0);
-            p.menu_channel[i] = rows[i]->id;
+                      contains(d.exempt_channels, d.exempt_channel_count, channel->id) ? popup_item_checked : 0);
+            p.menu_channel[i] = channel->id;
         }
     }
     if (!count)
@@ -797,7 +776,7 @@ void editor_activate(const SettingsLayerActivation& activation) noexcept {
     } else
         return;
     if (activation.value.kind == UiSettingsControlKind::toggle)
-        ui_settings_scene_animate_toggle(&owner->scene, activation.value.target, checked, clock_monotonic_milliseconds());
+        animate_toggle(activation);
     repaint();
 }
 

@@ -231,7 +231,7 @@ bool application_guild_folders_close_all() noexcept {
 }
 
 Utf8View application_guild_rail_label(const GuildViewRow& row, const Slice<char>& output) noexcept {
-    if (!g_app.account_ui || !output.data)
+    if (!g_app.account_ui)
         return {};
     const auto& state = g_app.account_ui->chat_state;
     if (row.folder_role == GuildFolderRole::header) {
@@ -260,7 +260,7 @@ u64 application_guild_folders_folder_id(const GuildViewRow& row) noexcept {
 }
 
 bool application_guild_folders_folder(u64 folder_id, ApplicationGuildFolder* output) noexcept {
-    if (!output || !g_folders || !g_folders->settings.present || !g_app.account_ui)
+    if (!g_folders || !g_folders->settings.present || !g_app.account_ui)
         return false;
     const u32 index = guild_folders_find_folder(g_folders->settings, folder_id);
     if (index == ~0u)

@@ -349,6 +349,18 @@ maicord_fold_helpers(
         "(^|/)src/app/settings/(catalog|client_theme_document)\\.cpp$" "(^|/)src/app/shell/startup_shell_state\\.cpp$"
         "(^|/)src/app/store/store_(act|page)\\.cpp$" "(^|/)src/app/update/(acceptance|artifact|https|package|service)\\.cpp$"
         "(^|/)src/app/voice/(account_voice_message|connection_setup)\\.cpp$" "(^|/)src/platform/uia/provider(_patterns)?\\.cpp$")
+# The syllabic (Khmer, Myanmar, Sinhala, Tibetan) and Latin shapers loop over a few scalars or glyphs per run: with
+# unrolling and vectorizing off, the client is 7.7 KB smaller and their runs take 0.4-3% fewer cycles (min of 600 rounds
+# over the fixture strings, and over Latin, Cyrillic and Greek text in Segoe UI). The Linux client compiles all of
+# src/text/(shaping|scripts|layout) this way (below). The pixel loops do not: without unrolling lossy WebP rows took
+# 15% longer, lossless WebP 11% and JPEG entropy decoding 5%; without vectorizing JPEG decoding took 10% longer.
+if(NOT MAICORD_LINUX)
+    foreach(source IN ITEMS src/text/scripts/syllabic_shape.cpp src/text/scripts/latin_run.cpp src/text/scripts/ascii_run.cpp
+            src/text/shaping/shape_run.cpp)
+        set_property(SOURCE "${source}" APPEND PROPERTY COMPILE_OPTIONS ${maicord_clang}-fno-unroll-loops
+            ${maicord_clang}-fno-vectorize ${maicord_clang}-fno-slp-vectorize)
+    endforeach()
+endif()
 # The Linux client's third tier. It carries what the Windows one gets from the operating system (the D-Bus and AT-SPI
 # services, the TLS and crypto wrappers over OpenSSL, the Wayland and EGL backends, the in-house AAC decoder, the Lottie
 # geometry, the ELF plugin loader), and with the lists above it stayed over the Windows client's size cap

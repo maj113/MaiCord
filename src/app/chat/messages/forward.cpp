@@ -256,14 +256,16 @@ bool application_message_forward_synchronize() noexcept {
     q->content.can_send = !q->controller.committed && q->controller.caption_valid && q->controller.destination_count;
     q->content.sending = message_forward_pending(q->controller);
     q->content.committed = q->controller.committed;
+    // UI state by MessageForwardDestinationState.
+    static constexpr UiMessageForwardState kStates[] = {
+        UiMessageForwardState::ready, UiMessageForwardState::sending, UiMessageForwardState::sending,
+        UiMessageForwardState::sending, UiMessageForwardState::sent, UiMessageForwardState::failed,
+        UiMessageForwardState::failed, UiMessageForwardState::cancelled};
     for (u32 i = 0; i < q->controller.destination_count; ++i) {
         const auto& d = q->controller.destinations[i];
         if (!q->controller.committed && d.state != MessageForwardDestinationState::ready) q->content.can_send = false;
         q->content.selected[i] = {d.row.target.channel_id, {d.row.label, d.row.label_bytes}, message_forward_destination_status(d),
-            d.state == MessageForwardDestinationState::sent ? UiMessageForwardState::sent :
-            d.state == MessageForwardDestinationState::cancelled ? UiMessageForwardState::cancelled :
-            (d.state == MessageForwardDestinationState::failed || d.state == MessageForwardDestinationState::unavailable) ? UiMessageForwardState::failed :
-            d.state == MessageForwardDestinationState::ready ? UiMessageForwardState::ready : UiMessageForwardState::sending};
+            kStates[static_cast<u32>(d.state)]};
     }
     if (!ui_message_forward_scene_update(&q->scene, &q->source, &q->content, application_viewport_dips())) return false;
     g_app.renderer.message_forward_scene = &q->scene;

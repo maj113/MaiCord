@@ -371,7 +371,7 @@ void application_voice_invite_tick(u64 now_ms) noexcept {
                        !renderer_settings_hides_shell(g_app.renderer);
     const auto& scene = g_app.shell_navigation_scene;
     bool invite = false;
-    for (u32 i = 0; shown && scene.active && g_app.account_ui && i < scene.count; ++i) {
+    for (u32 i = 0; !invite && shown && scene.active && g_app.account_ui && i < scene.count; ++i) {
         const auto& row = scene.rows[i].view;
         if (!row.voice_invite)
             continue;
@@ -379,7 +379,7 @@ void application_voice_invite_tick(u64 now_ms) noexcept {
         if (!layout)
             continue;
         UiVoiceInviteRow rows{};
-        invite = invite || (ui_voice_invite_row(row, layout->rectangle, &rows) && on_screen(rows.row));
+        invite = ui_voice_invite_row(row, layout->rectangle, &rows) && on_screen(rows.row);
     }
     // Reduced motion keeps the row until it is dismissed, as in the official client.
     const bool running = invite && !vc.extras.invite_hovered && !application_reduced_motion();

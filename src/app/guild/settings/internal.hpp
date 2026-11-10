@@ -292,9 +292,8 @@ enum class Menu : u8 {
     automation,
     // The Access and Community pages' menus (their own kinds).
     server_access,
-    // Server Profile: a trait's emoji picker and the game search results.
+    // Server Profile: a trait's emoji picker.
     trait_emoji,
-    game_search,
 };
 enum ExpressionAction : u32 {
     expression_rename = 1,
@@ -389,7 +388,7 @@ struct Settings : SettingsModal {
     char trait_text[kGuildAdminProfileTraits][kGuildAdminProfileTraitBytes];
     char game_search_text[kGuildAdminGameQueryCodepoints * 4];
     GuildAdminGameActivity top_games[kGuildAdminProfileGameMaximum];
-    u32 top_game_count, emoji_slot, game_search_revision;
+    u32 top_game_count, emoji_slot;
     bool top_games_requested, top_games_failed;
     GameImageMedia covers[kGuildAdminProfileGames + kGuildAdminProfileGameMaximum];
     GameImageMedia preview_games[kUiGuildCardGames];

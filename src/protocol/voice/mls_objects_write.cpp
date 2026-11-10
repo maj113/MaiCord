@@ -1,6 +1,7 @@
 #include "maicord/protocol/voice/mls_objects.hpp"
 #include "maicord/protocol/voice/mls_reader.hpp"
 #include "maicord/protocol/voice/mls_encoding.hpp"
+#include "maicord/core/byte_order.hpp"
 
 namespace maicord {
 namespace {
@@ -31,10 +32,10 @@ struct Writer {
         used += data.count;
     }
     void integer(u64 value, u32 count) noexcept {
+        // The low count bytes, big-endian: the tail of the swapped value.
         u8 bytes[8];
-        for (u32 i = 0; i != count; ++i)
-            bytes[count - i - 1] = static_cast<u8>(value >> (i * 8));
-        raw({bytes, count});
+        byte_store_le64(bytes, byte_swap(value));
+        raw({bytes + 8 - count, count});
     }
     void vector(const ConstSlice<u8>& data) noexcept {
         u8 prefix[4];

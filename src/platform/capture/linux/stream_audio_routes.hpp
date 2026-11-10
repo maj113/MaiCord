@@ -43,18 +43,15 @@ constexpr bool stream_audio_node_recorded(bool playback, u32 process, u32 own_pr
 // The inputs (bit 0 left, bit 1 right) an output port of `channel` (audio.channel) is linked to: left and right
 // channels to their side, mono and centre to both, anything else (LFE, unknown positions) to none.
 constexpr u8 stream_audio_channel_inputs(const char* channel) noexcept {
-    constexpr const char* kLeft[] = {"FL", "SL", "RL", "FLC", "FLW"};
-    constexpr const char* kRight[] = {"FR", "SR", "RR", "FRC", "FRW"};
-    constexpr const char* kBoth[] = {"MONO", "FC", "RC", "TC"};
-    for (const char* name : kLeft)
-        if (stream_audio_text_equal(channel, name))
-            return 1;
-    for (const char* name : kRight)
-        if (stream_audio_text_equal(channel, name))
-            return 2;
-    for (const char* name : kBoth)
-        if (stream_audio_text_equal(channel, name))
-            return 3;
+    struct Channel {
+        char name[5];
+        u8 inputs;
+    };
+    constexpr Channel kChannels[]{{"FL", 1},  {"SL", 1},  {"RL", 1},  {"FLC", 1}, {"FLW", 1}, {"FR", 2}, {"SR", 2},
+                                  {"RR", 2},  {"FRC", 2}, {"FRW", 2}, {"MONO", 3}, {"FC", 3}, {"RC", 3}, {"TC", 3}};
+    for (const Channel& entry : kChannels)
+        if (stream_audio_text_equal(channel, entry.name))
+            return entry.inputs;
     return 0;
 }
 

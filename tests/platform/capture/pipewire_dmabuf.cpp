@@ -70,8 +70,8 @@ void producer_param(void* data, u32 id, const Pod* param) noexcept {
         return; // the consumer fixes it
     InterlockedExchange(&p->negotiated_modifier_fixed, format.modifier == 0 ? 1 : 2);
     const Pod* pods[2];
-    const u32 count = build_buffer_params(p->pods, sizeof(p->pods), pods);
-    p->api->pw_stream_update_params(p->stream, pods, count);
+    buffer_params(pods);
+    p->api->pw_stream_update_params(p->stream, pods, 2);
 }
 
 void producer_add_buffer(void* data, Buffer* buffer) noexcept {

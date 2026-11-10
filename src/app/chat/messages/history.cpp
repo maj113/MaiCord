@@ -875,7 +875,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                 return false;
             }
             if (response.diagnostics.completions != 0) {
-                char line[384]{};
+                char line[384];
                 ProtocolWriter writer{{reinterpret_cast<u8*>(line), sizeof(line) - 1}, 0};
                 const auto field = [&](const char* label, u64 value) noexcept {
                     protocol_writer_append_c_string(&writer, label);
@@ -891,6 +891,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                 field(" challenge=", response.rejection.captcha);
                 field(" attempts=", response.diagnostics.attempts);
                 field(" completions=", response.diagnostics.completions);
+                line[writer.used] = '\0';
                 log_write(response.error != RestClientError::none || response.status_code >= 400
                               ? LogLevel::warning
                               : LogLevel::info,

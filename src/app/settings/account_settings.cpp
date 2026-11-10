@@ -12,6 +12,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/platform/crypto/random.hpp"
@@ -50,7 +51,6 @@ constexpr u32 kRows = kRelationFirstRow + 2 * (kRelationRows + 1);
 static_assert(2 * (kRelationRows + 1) + 40 <= kAccountSettingsBankRows);
 // A password or code field's longest text (Discord passwords are at most 72 characters).
 constexpr u32 kSecretCodepoints = 72;
-constexpr u32 kSecretBytes = 4 * kSecretCodepoints;
 static_assert(kSecretCodepoints <= kApplicationTextFormSecretCodepoints);
 
 // The dialogs of the account flows, in the order a flow opens them. Each saves into a field and either opens the
@@ -479,6 +479,131 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept;
 bool form_save_option(TextFormOwnerKey key, bool checked) noexcept;
 bool form_save_choices(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 select) noexcept;
 
+// Each dialog's shape and fixed texts, in Form order: its title, context, field label and accept button packed as a
+// NameList (an empty accept is "Done"; a password field without a label asks for the current password). A text field
+// holds up to `codepoints`; a confirmation has none. The texts a dialog composes are filled in by open_form.
+enum FormShape : u8 { form_text, form_secret = 1, form_confirm = 2, form_danger = 4 };
+struct FormSpec {
+    const char* texts;
+    u8 shape, codepoints;
+};
+constexpr FormSpec kForms[]{
+    {"\0" "\0" "\0", form_text, 0},
+    {"Change your display name\0" "\0" "Display name\0" "Save", form_text, 32},
+    {"Change your pronouns\0" "\0" "Pronouns\0" "Save", form_text, 40},
+    {"Edit about me\0" "\0" "About me\0" "Save", form_text, 190},
+    {"Change your username\0" "Enter a new username and your existing password.\0" "Username\0" "Next", form_text, 32},
+    {"Change your username\0" "Enter a new username and your existing password.\0" "\0", form_secret, kSecretCodepoints},
+    {"Change your password\0" "Enter your current password and a new password.\0" "\0" "Next", form_secret,
+     kSecretCodepoints},
+    {"Change your password\0" "Enter your current password and a new password.\0" "New Password\0" "Next", form_secret,
+     kSecretCodepoints},
+    {"Change your password\0" "Enter your current password and a new password.\0" "Confirm New Password\0", form_secret,
+     kSecretCodepoints},
+    {"Verify email address\0" "\0" "\0" "Send Verification Code", form_confirm, 0},
+    {"Enter code\0" "Check your email: we sent you a verification code.\0" "Verification code\0" "Next", form_text, 16},
+    {"Enter an email address\0" "Enter a new email address and your existing password.\0" "Email\0" "Next", form_text,
+     128},
+    {"Enter an email address\0" "Enter a new email address and your existing password.\0" "\0", form_secret,
+     kSecretCodepoints},
+    {"Enter a phone number\0" "You will receive a text message with a verification code.\0" "Phone Number\0" "Send",
+     form_text, 24},
+    {"Verify your phone number\0" "\0" "Verification code\0" "Next", form_text, 16},
+    {"Verify your phone number\0" "Enter your password to finish.\0" "\0", form_secret, kSecretCodepoints},
+    {"Remove phone number\0" "Enter your password to remove the phone number from your account.\0" "\0" "Remove",
+     form_secret | form_danger, kSecretCodepoints},
+    // As the official client: the steps, the QR of the otpauth:// link (Discord:<email>, the key, issuer Discord), the
+    // key for manual entry under it, then the code field.
+    {"Enable Authenticator App\0"
+     "Make your account safer in 3 easy steps:\n1. Download an authenticator app.\n2. Scan the QR code with it, or "
+     "enter the key under it.\n3. Enter the 6-digit code it shows.\0"
+     "6-digit authentication code\0"
+     "Activate",
+     form_text, 10},
+    {"Remove Authenticator App\0" "Are you sure you want to remove your Authenticator App?\0" "\0" "Remove",
+     form_confirm | form_danger, 0},
+    {"Backup Codes\0"
+     "These codes will allow you to enter your account if you lose your authenticator app. Each code can only be used "
+     "once.\0"
+     "Your backup codes\0",
+     form_confirm, 0},
+    {"Enable SMS Authentication\0"
+     "Your phone number becomes a backup way to sign in: Discord can text it a code.\0"
+     "\0"
+     "Enable",
+     form_confirm, 0},
+    {"Remove SMS Authentication\0" "Enter your password to stop using your phone for authentication.\0" "\0" "Remove",
+     form_secret | form_danger, kSecretCodepoints},
+    {"Show Backup Codes\0"
+     "Enter your password. Discord emails you a verification key to view your backup codes.\0"
+     "\0"
+     "Send Key",
+     form_secret, kSecretCodepoints},
+    {"Show Backup Codes\0"
+     "Check your email: enter the verification key Discord sent you.\0"
+     "Verification key\0"
+     "Show Codes",
+     form_text, 32},
+    {"Backup Codes\0"
+     "These codes will allow you to enter your account if you lose your authenticator app. Each code can only be used "
+     "once.\0"
+     "Your backup codes\0",
+     form_confirm, 0},
+    {"Rename security key\0" "\0" "Name\0" "Save", form_text, 32},
+    {"Remove security key\0" "You won't be able to use this key to sign in anymore.\0" "\0" "Remove",
+     form_confirm | form_danger, 0},
+    {"Disable Account\0"
+     "Are you sure that you want to disable your account? This will immediately log you out and make your account "
+     "inaccessible to anyone.\0"
+     "Password\0"
+     "Disable Account",
+     form_secret | form_danger, kSecretCodepoints},
+    {"Delete Account\0"
+     "Are you sure that you want to delete your account? This will immediately log you out of your account and you "
+     "will not be able to log in again.\0"
+     "Password\0"
+     "Delete Account",
+     form_secret | form_danger, kSecretCodepoints},
+    {"Log out this device?\0" "It will need to sign in again to use your account.\0" "\0" "Log Out",
+     form_confirm | form_danger, 0},
+    {"Log out of all known devices?\0"
+     "You'll have to log back in on all logged out devices.\0"
+     "\0"
+     "Log Out All Known Devices",
+     form_confirm | form_danger, 0},
+    {"\0" "It loses access to your account until you authorize it again.\0" "\0" "Deauthorize",
+     form_confirm | form_danger, 0},
+    {"\0"
+     "Disconnecting removes this account from your profile and leaves any server you joined through it.\0"
+     "\0"
+     "Disconnect",
+     form_confirm | form_danger, 0},
+    {"Turn off use data to improve Discord?\0"
+     "If you turn this off, we'll stop processing new data for analytics. You will lose access to new experimental "
+     "features and usage-based improvements to features like voice chat.\0"
+     "\0"
+     "Yes, I'm sure",
+     form_confirm | form_danger, 0},
+    {"Register a Security Key\0"
+     "When you are ready to authenticate, press the button below.\0"
+     "\0"
+     "Let\xE2\x80\x99s go",
+     form_confirm, 0},
+    {"Security Key PIN\0" "Enter the PIN of your security key.\0" "PIN\0" "Confirm", form_secret, kSecretCodepoints},
+    {"Name your security key\0" "Choose a name for your new key.\0" "Name\0" "Save", form_text, 32},
+    {"Confirm Password\0"
+     "For your security, confirm your password to continue.\0"
+     "Password\0"
+     "Confirm",
+     form_secret, kSecretCodepoints},
+    {"Multi-Factor Authentication\0"
+     "Confirm it's you: choose a method and enter its code.\0"
+     "\0"
+     "Confirm",
+     form_text, 16},
+};
+static_assert(sizeof(kForms) / sizeof(kForms[0]) == static_cast<u32>(Form::mfa_code) + 1);
+
 void open_form(Form form) noexcept {
     auto& b = *g_owner.bank;
     g_owner.form = form;
@@ -487,6 +612,10 @@ void open_form(Form form) noexcept {
     // What an earlier step left to say (a refused PIN, a failed ceremony) opens with the dialog.
     form_status(g_owner.carry, g_owner.carry_error);
     g_owner.carry = {};
+    if (form == Form::none)
+        return;
+    const FormSpec& spec = kForms[static_cast<u32>(form)];
+    const bool danger = (spec.shape & form_danger) != 0;
     ApplicationTextFormRequest r{};
     r.owner = form_key();
     r.valid = form_valid;
@@ -494,121 +623,57 @@ void open_form(Form form) noexcept {
     r.progress = form_progress;
     r.closed = form_closed;
     r.single_line = true;
-    r.accept = utf8_literal("Done");
-    const auto editor = [&](Utf8View title, Utf8View context, Utf8View label, u32 codepoints) noexcept {
-        r.title = title;
-        r.context = context;
-        r.label = label;
-        r.maximum_codepoints = codepoints;
-        r.maximum_bytes = 4 * codepoints;
-    };
-    const auto secret = [&](Utf8View title, Utf8View context, Utf8View label) noexcept {
-        editor(title, context, label, kSecretCodepoints);
-        r.maximum_bytes = kSecretBytes;
-        r.secret = true;
-    };
-    const auto confirm = [&](Utf8View title, Utf8View context, Utf8View accept, bool danger) noexcept {
-        r.title = title;
-        r.context = context;
-        r.accept = accept;
+    NameList texts{spec.texts};
+    r.title = texts.name();
+    texts.next();
+    r.context = texts.name();
+    texts.next();
+    r.label = texts.name();
+    texts.next();
+    r.accept = texts.bytes ? texts.name() : utf8_literal("Done");
+    r.danger = danger;
+    if (spec.shape & form_confirm) {
         r.confirmation_only = true;
-        r.danger = danger;
         r.accept_focused = !danger;
-    };
-    const Utf8View password = utf8_literal("Current Password");
+    } else {
+        r.maximum_codepoints = spec.codepoints;
+        r.maximum_bytes = 4 * spec.codepoints;
+        r.secret = (spec.shape & form_secret) != 0;
+        if (r.secret && !r.label.bytes)
+            r.label = utf8_literal("Current Password");
+    }
     b.context_bytes = 0;
     switch (form) {
     case Form::display_name:
-        editor(utf8_literal("Change your display name"), {}, utf8_literal("Display name"), 32);
         r.initial = view(b.self.global_name, b.self.global_name_bytes);
         r.maximum_bytes = kAccountSettingsDisplayNameBytes;
-        r.accept = utf8_literal("Save");
         break;
     case Form::pronouns:
-    case Form::bio: {
-        const bool pronouns = form == Form::pronouns;
-        editor(pronouns ? utf8_literal("Change your pronouns") : utf8_literal("Edit about me"), {},
-               pronouns ? utf8_literal("Pronouns") : utf8_literal("About me"), pronouns ? 40u : 190u);
-        r.initial = pronouns ? view(b.profile.pronouns, b.profile.pronouns_bytes) : view(b.profile.bio, b.profile.bio_bytes);
-        r.maximum_bytes = pronouns ? kAccountSettingsPronounsBytes : kAccountSettingsBioBytes;
-        r.single_line = pronouns;
-        r.accept = utf8_literal("Save");
+        r.initial = view(b.profile.pronouns, b.profile.pronouns_bytes);
+        r.maximum_bytes = kAccountSettingsPronounsBytes;
         break;
-    }
+    case Form::bio:
+        r.initial = view(b.profile.bio, b.profile.bio_bytes);
+        r.maximum_bytes = kAccountSettingsBioBytes;
+        r.single_line = false;
+        break;
     case Form::username:
-        editor(utf8_literal("Change your username"), utf8_literal("Enter a new username and your existing password."),
-               utf8_literal("Username"), 32);
         r.initial = view(b.self.username, b.self.username_bytes);
-        r.accept = utf8_literal("Next");
-        break;
-    case Form::username_password:
-        secret(utf8_literal("Change your username"), utf8_literal("Enter a new username and your existing password."),
-               password);
-        break;
-    case Form::password_current:
-        secret(utf8_literal("Change your password"), utf8_literal("Enter your current password and a new password."),
-               password);
-        r.accept = utf8_literal("Next");
-        break;
-    case Form::password_new:
-        secret(utf8_literal("Change your password"), utf8_literal("Enter your current password and a new password."),
-               utf8_literal("New Password"));
-        r.accept = utf8_literal("Next");
-        break;
-    case Form::password_confirm:
-        secret(utf8_literal("Change your password"), utf8_literal("Enter your current password and a new password."),
-               utf8_literal("Confirm New Password"));
         break;
     case Form::email_send:
         append(b.context, b.context_bytes, utf8_literal("We'll need to verify your old email address, "));
         append(b.context, b.context_bytes, view(b.email_mask, b.email_mask_bytes));
-        append(b.context, b.context_bytes, utf8_literal(", in order to change it."));
-        confirm(utf8_literal("Verify email address"), view(b.context, b.context_bytes),
-                utf8_literal("Send Verification Code"), false);
-        break;
-    case Form::email_code:
-        editor(utf8_literal("Enter code"), utf8_literal("Check your email: we sent you a verification code."),
-               utf8_literal("Verification code"), 16);
-        r.accept = utf8_literal("Next");
-        break;
-    case Form::email_new:
-        editor(utf8_literal("Enter an email address"), utf8_literal("Enter a new email address and your existing password."),
-               utf8_literal("Email"), 128);
-        r.accept = utf8_literal("Next");
-        break;
-    case Form::email_password:
-        secret(utf8_literal("Enter an email address"),
-               utf8_literal("Enter a new email address and your existing password."), password);
+        r.context = append(b.context, b.context_bytes, utf8_literal(", in order to change it."));
         break;
     case Form::phone_number:
-        editor(utf8_literal("Enter a phone number"), utf8_literal("You will receive a text message with a verification code."),
-               utf8_literal("Phone Number"), 24);
         r.placeholder = utf8_literal("+1 555 123 4567");
-        r.accept = utf8_literal("Send");
         break;
     case Form::phone_code:
         append(b.context, b.context_bytes, utf8_literal("We sent a code to "));
         append(b.context, b.context_bytes, field(field_extra));
-        append(b.context, b.context_bytes, utf8_literal(". Enter it to verify your phone number."));
-        editor(utf8_literal("Verify your phone number"), view(b.context, b.context_bytes),
-               utf8_literal("Verification code"), 16);
-        r.accept = utf8_literal("Next");
-        break;
-    case Form::phone_password:
-        secret(utf8_literal("Verify your phone number"), utf8_literal("Enter your password to finish."), password);
-        break;
-    case Form::phone_remove:
-        secret(utf8_literal("Remove phone number"),
-               utf8_literal("Enter your password to remove the phone number from your account."), password);
-        r.accept = utf8_literal("Remove");
-        r.danger = true;
+        r.context = append(b.context, b.context_bytes, utf8_literal(". Enter it to verify your phone number."));
         break;
     case Form::totp_setup: {
-        // As the official client: the steps, the QR of the otpauth:// link (Discord:<email>, the key, issuer Discord),
-        // the key for manual entry under it, then the code field.
-        append(b.context, b.context_bytes,
-               utf8_literal("Make your account safer in 3 easy steps:\n1. Download an authenticator app.\n2. Scan the "
-                            "QR code with it, or enter the key under it.\n3. Enter the 6-digit code it shows."));
         b.detail_bytes = 0;
         append(b.detail, b.detail_bytes, utf8_literal("2FA Key (Manual entry)\n"));
         r.qr_caption = grouped_secret();
@@ -617,22 +682,10 @@ void open_form(Form form) noexcept {
         if (uri_bytes && qr_code_encode_m(ConstSlice<u8>{reinterpret_cast<const u8*>(uri), uri_bytes}, 1, &b.totp_qr))
             r.qr = qr_code_modules(b.totp_qr);
         secure_clear_bytes(uri, sizeof(uri));
-        editor(utf8_literal("Enable Authenticator App"), view(b.context, b.context_bytes),
-               utf8_literal("6-digit authentication code"), 10);
-        r.accept = utf8_literal("Activate");
         break;
     }
-    case Form::totp_remove:
-        confirm(utf8_literal("Remove Authenticator App"),
-                utf8_literal("Are you sure you want to remove your Authenticator App?"), utf8_literal("Remove"), true);
-        break;
     case Form::new_codes:
     case Form::backup_list:
-        confirm(utf8_literal("Backup Codes"),
-                utf8_literal("These codes will allow you to enter your account if you lose your authenticator app. "
-                             "Each code can only be used once."),
-                utf8_literal("Done"), false);
-        r.label = utf8_literal("Your backup codes");
         r.detail = codes_detail();
         r.cancel = utf8_literal("Close");
         if (form == Form::backup_list && field(field_token2).bytes) {
@@ -640,125 +693,38 @@ void open_form(Form form) noexcept {
             r.save_option = form_save_option;
         }
         break;
-    case Form::sms_enable:
-        confirm(utf8_literal("Enable SMS Authentication"),
-                utf8_literal("Your phone number becomes a backup way to sign in: Discord can text it a code."),
-                utf8_literal("Enable"), false);
-        break;
-    case Form::sms_disable:
-        secret(utf8_literal("Remove SMS Authentication"),
-               utf8_literal("Enter your password to stop using your phone for authentication."), password);
-        r.accept = utf8_literal("Remove");
-        r.danger = true;
-        break;
-    case Form::backup_password:
-        secret(utf8_literal("Show Backup Codes"),
-               utf8_literal("Enter your password. Discord emails you a verification key to view your backup codes."),
-               password);
-        r.accept = utf8_literal("Send Key");
-        break;
-    case Form::backup_key:
-        editor(utf8_literal("Show Backup Codes"),
-               utf8_literal("Check your email: enter the verification key Discord sent you."),
-               utf8_literal("Verification key"), 32);
-        r.accept = utf8_literal("Show Codes");
-        break;
-    case Form::key_rename: {
-        const auto& key = b.keys[g_owner.target];
-        editor(utf8_literal("Rename security key"), {}, utf8_literal("Name"), 32);
-        r.initial = view(key.name, key.name_bytes);
-        r.accept = utf8_literal("Save");
-        break;
-    }
-    case Form::key_register:
-        confirm(utf8_literal("Register a Security Key"),
-                utf8_literal("When you are ready to authenticate, press the button below."),
-                utf8_literal("Let\xE2\x80\x99s go"), false);
-        break;
-    case Form::key_pin:
-        secret(utf8_literal("Security Key PIN"), utf8_literal("Enter the PIN of your security key."),
-               utf8_literal("PIN"));
-        r.accept = utf8_literal("Confirm");
+    case Form::key_rename:
+        r.initial = view(b.keys[g_owner.target].name, b.keys[g_owner.target].name_bytes);
         break;
     case Form::key_name:
-        editor(utf8_literal("Name your security key"), utf8_literal("Choose a name for your new key."),
-               utf8_literal("Name"), 32);
         r.initial = utf8_literal("My Key");
-        r.accept = utf8_literal("Save");
-        break;
-    case Form::key_delete:
-        confirm(utf8_literal("Remove security key"),
-                utf8_literal("You won't be able to use this key to sign in anymore."), utf8_literal("Remove"), true);
-        break;
-    case Form::account_disable:
-    case Form::account_delete: {
-        const bool disable = form == Form::account_disable;
-        secret(disable ? utf8_literal("Disable Account") : utf8_literal("Delete Account"),
-               disable ? utf8_literal("Are you sure that you want to disable your account? This will immediately log "
-                                      "you out and make your account inaccessible to anyone.")
-                       : utf8_literal("Are you sure that you want to delete your account? This will immediately log "
-                                      "you out of your account and you will not be able to log in again."),
-               utf8_literal("Password"));
-        r.accept = disable ? utf8_literal("Disable Account") : utf8_literal("Delete Account");
-        r.danger = true;
-        break;
-    }
-    case Form::session_logout:
-        confirm(utf8_literal("Log out this device?"), utf8_literal("It will need to sign in again to use your account."),
-                utf8_literal("Log Out"), true);
-        break;
-    case Form::logout_all:
-        confirm(utf8_literal("Log out of all known devices?"),
-                utf8_literal("You'll have to log back in on all logged out devices."),
-                utf8_literal("Log Out All Known Devices"), true);
         break;
     case Form::token_revoke: {
         const auto& app = b.apps[g_owner.target];
         append(b.context, b.context_bytes, utf8_literal("Deauthorize "));
         append(b.context, b.context_bytes, app.name_bytes ? view(app.name, app.name_bytes) : utf8_literal("this app"));
-        append(b.context, b.context_bytes, utf8_literal("?"));
-        confirm(view(b.context, b.context_bytes),
-                utf8_literal("It loses access to your account until you authorize it again."),
-                utf8_literal("Deauthorize"), true);
+        r.title = append(b.context, b.context_bytes, utf8_literal("?"));
         break;
     }
     case Form::connection_remove: {
         const auto& connection = b.connections[g_owner.target];
         append(b.context, b.context_bytes, utf8_literal("Disconnect "));
         append(b.context, b.context_bytes, view(connection.name, connection.name_bytes));
-        append(b.context, b.context_bytes, utf8_literal("?"));
-        confirm(view(b.context, b.context_bytes),
-                utf8_literal("Disconnecting removes this account from your profile and leaves any server you joined "
-                             "through it."),
-                utf8_literal("Disconnect"), true);
+        r.title = append(b.context, b.context_bytes, utf8_literal("?"));
         break;
     }
     case Form::consent_off:
-        confirm(utf8_literal("Turn off use data to improve Discord?"),
-                utf8_literal("If you turn this off, we'll stop processing new data for analytics. You will lose access "
-                             "to new experimental features and usage-based improvements to features like voice chat."),
-                utf8_literal("Yes, I'm sure"), true);
         r.cancel = utf8_literal("No, take me back!");
         break;
-    case Form::mfa_password:
-        secret(utf8_literal("Confirm Password"), utf8_literal("For your security, confirm your password to continue."),
-               utf8_literal("Password"));
-        r.accept = utf8_literal("Confirm");
-        break;
-    case Form::mfa_code: {
-        const u32 choices = mfa_choices();
-        editor(utf8_literal("Multi-Factor Authentication"),
-               utf8_literal("Confirm it's you: choose a method and enter its code."), {}, 16);
+    case Form::mfa_code:
         r.choices_label = utf8_literal("Verify with");
-        r.choices = {g_mfa_choices, choices};
+        r.choices = {g_mfa_choices, mfa_choices()};
         r.save = nullptr;
         r.save_choices = form_save_choices;
         r.placeholder = utf8_literal("Code");
-        r.accept = utf8_literal("Confirm");
         break;
-    }
-    case Form::none:
-        return;
+    default:
+        break;
     }
     g_owner.form_shown = application_text_form_open(r);
     if (!g_owner.form_shown) {
@@ -1258,6 +1224,14 @@ void append_row(Row& row, bool description, const Utf8View& text) noexcept {
     else
         append(row.label, row.label_bytes, text);
 }
+// One row of a list: its control, with the plain presentation.
+UiSettingsControl& list_row(const Slice<UiSettingsControl>& controls,
+                            const Slice<UiSettingsControlPresentation>& presentation, u32 at, u64 id,
+                            const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
+                            const Utf8View& action) noexcept {
+    presentation[at] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    return controls[at] = {id, label, description, kind, enabled, false, {}, 0, action, nullptr};
+}
 bool current_session(const AccountSession& session) noexcept {
     const Utf8View hash = application_user_settings_session_hash();
     return hash.bytes && hash.bytes == session.id_hash_bytes && bytes_equal(hash.data, session.id_hash, hash.bytes);
@@ -1393,11 +1367,12 @@ u32 connection_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
         const Utf8View name = p ? view(p->name, c_string_length(p->name)) : view(connection.type, connection.type_bytes);
         const auto row = [&](u32 part, Utf8View label, Utf8View description, UiSettingsControlKind kind, bool checked,
                              Utf8View action) noexcept {
-            controls[count] = {settings_list_control_id(binding, i * kConnectionParts + part), label, description, kind,
-                               idle, checked, {}, 0, action, nullptr};
-            presentation[count++] = {part == part_account && action.bytes ? UiSettingsVariant::critical
-                                                                           : UiSettingsVariant::standard,
-                                     0, kUiSettingsNoDefault};
+            list_row(controls, presentation, count, settings_list_control_id(binding, i * kConnectionParts + part), label,
+                     description, kind, idle, action)
+                .checked = checked;
+            if (part == part_account && action.bytes)
+                presentation[count].variant = UiSettingsVariant::critical;
+            ++count;
         };
         // Streamer Mode keeps connected accounts' names off screen.
         row(part_account, application_streamer_hide_personal() ? name : view(connection.name, connection.name_bytes),
@@ -1472,10 +1447,9 @@ u32 relation_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
         const Utf8View name = relationship_display_name(record, g_app.account_ui->user_store);
         append_row(row, false, name.bytes ? name : utf8_literal("Unknown user"));
         b.relation_ids[list][count] = record.user_id;
-        controls[count] = {settings_list_control_id(binding, count), view(row.label, row.label_bytes), {},
-                           UiSettingsControlKind::action, idle, false, {}, 0,
-                           list ? utf8_literal("Unignore") : utf8_literal("Unblock"), nullptr};
-        presentation[count++] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+        list_row(controls, presentation, count, settings_list_control_id(binding, count), view(row.label, row.label_bytes),
+                 {}, UiSettingsControlKind::action, idle, list ? utf8_literal("Unignore") : utf8_literal("Unblock"));
+        ++count;
     }
     if (count >= controls.count || (count && !more))
         return count;
@@ -1489,10 +1463,9 @@ u32 relation_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
         append_row(note, false, {text, at + 5});
     } else
         append_row(note, false, list ? utf8_literal("You haven't ignored anyone.") : utf8_literal("You haven't blocked anyone."));
-    controls[count] = {settings_list_control_id(binding, 0xFF), view(note.label, note.label_bytes), {},
-                       UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr};
-    presentation[count++] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
-    return count;
+    list_row(controls, presentation, count, settings_list_control_id(binding, 0xFF), view(note.label, note.label_bytes),
+             {}, UiSettingsControlKind::notice, true, {});
+    return count + 1;
 }
 } // namespace
 
@@ -1741,10 +1714,8 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
         const u32 count = connection_rows(binding, controls, presentation);
         if (count || !controls.count)
             return count;
-        controls[0] = {settings_list_control_id(binding, 0xFF), utf8_literal("No connections"),
-                       utf8_literal("Accounts you connect to Discord show here."), UiSettingsControlKind::notice, true,
-                       false, {}, 0, {}, nullptr};
-        presentation[0] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+        list_row(controls, presentation, 0, settings_list_control_id(binding, 0xFF), utf8_literal("No connections"),
+                 utf8_literal("Accounts you connect to Discord show here."), UiSettingsControlKind::notice, true, {});
         return 1;
     }
     const bool idle = online() && !action_pending();
@@ -1753,10 +1724,10 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
         static constexpr Utf8View kKeyActions[]{utf8_literal("Rename"), utf8_literal("Remove")};
         for (u32 i = 0; i < g_owner.key_count && count < controls.count; ++i) {
             const auto& key = b->keys[i];
-            controls[count] = {settings_list_control_id(binding, i), view(key.name, key.name_bytes),
-                               utf8_literal("Security key"), UiSettingsControlKind::buttons, idle, false,
-                               {kKeyActions, 2}, 0, {}, nullptr};
-            presentation[count++] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+            list_row(controls, presentation, count, settings_list_control_id(binding, i), view(key.name, key.name_bytes),
+                     utf8_literal("Security key"), UiSettingsControlKind::buttons, idle, {})
+                .choices = {kKeyActions, 2};
+            ++count;
         }
         return count;
     }
@@ -1767,37 +1738,32 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
     for (u32 pass = 0; pass < (devices ? 2u : 1u); ++pass)
         for (u32 i = 0; i < total && count < controls.count; ++i) {
             Row& row = b->rows[row_base + i];
-            UiSettingsControl& c = controls[count];
-            UiSettingsControlPresentation& p = presentation[count];
-            p = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+            bool current = false;
             if (devices) {
-                const bool current = current_session(b->sessions[i]);
+                current = current_session(b->sessions[i]);
                 if ((pass == 0) != current)
                     continue;
                 build_session_row(row, b->sessions[i], current);
-                c = {settings_list_control_id(binding, i), view(row.label, row.label_bytes),
-                     view(row.description, row.description_bytes), UiSettingsControlKind::action, idle || current,
-                     false, {}, 0, current ? Utf8View{} : utf8_literal("Log out"), nullptr};
-                if (current)
-                    p.flags = ui_settings_presentation_accent;
-                else
-                    p.variant = UiSettingsVariant::critical;
             } else {
                 const auto& app = b->apps[i];
                 reset_value(&row);
                 append_row(row, false, app.name_bytes ? view(app.name, app.name_bytes) : utf8_literal("Unknown app"));
                 append_row(row, true, view(app.scopes, app.scopes_bytes));
-                c = {settings_list_control_id(binding, i), view(row.label, row.label_bytes),
-                     view(row.description, row.description_bytes), UiSettingsControlKind::action, idle, false, {}, 0,
-                     utf8_literal("Deauthorize"), nullptr};
-                p.variant = UiSettingsVariant::critical;
             }
+            list_row(controls, presentation, count, settings_list_control_id(binding, i),
+                     view(row.label, row.label_bytes), view(row.description, row.description_bytes),
+                     UiSettingsControlKind::action, idle || current,
+                     current ? Utf8View{} : devices ? utf8_literal("Log out") : utf8_literal("Deauthorize"));
+            if (current)
+                presentation[count].flags = ui_settings_presentation_accent;
+            else
+                presentation[count].variant = UiSettingsVariant::critical;
             ++count;
         }
     if (!count && controls.count) {
-        controls[0] = {settings_list_control_id(binding, 0xFF), devices ? utf8_literal("No devices") : utf8_literal("No authorized apps"),
-                       {}, UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr};
-        presentation[0] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+        list_row(controls, presentation, 0, settings_list_control_id(binding, 0xFF),
+                 devices ? utf8_literal("No devices") : utf8_literal("No authorized apps"), {},
+                 UiSettingsControlKind::notice, true, {});
         count = 1;
     }
     return count;

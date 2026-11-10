@@ -125,12 +125,7 @@ bool ui_activity_card_timed(const UiActivityCard&) noexcept;
 // Scenes without widgets of their own (Active Now) paint a card at origin:
 // the plates, glyphs, progress track and art placeholders (the host draws the
 // decoded images over the art and badge items), then the text through a pen.
-// hovered: a button item's index + 1, or 0.
-bool ui_activity_card_paint(const UiActivityCard&, UiPoint origin, const Theme&, PaintStream*,
-                            u32 hovered = 0) noexcept;
+bool ui_activity_card_paint(const UiActivityCard&, UiPoint origin, const Theme&, PaintStream*) noexcept;
 bool ui_activity_card_text(const UiActivityCard&, UiPoint origin, const Theme&, UiTextPen<>& pen,
                            UiWidgetHandle owner, const UiRect& clip) noexcept;
-// The item under a point relative to the card (kUiActivityCardNone: none);
-// only items with an action or a hint answer.
-u8 ui_activity_card_hit(const UiActivityCard&, float x, float y) noexcept;
 } // namespace maicord

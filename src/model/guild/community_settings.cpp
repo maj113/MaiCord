@@ -384,42 +384,66 @@ bool guild_community_overview_patch(const GuildCommunityOverview& draft, ConstSl
     return true;
 }
 
-const GuildLocale kGuildLocales[kGuildLocaleCount]{
-    {utf8_literal("en-US"), utf8_literal("English, US")},
-    {utf8_literal("zh-CN"), utf8_literal("中文")},
-    {utf8_literal("zh-TW"), utf8_literal("繁體中文")},
-    {utf8_literal("cs"), utf8_literal("Čeština")},
-    {utf8_literal("da"), utf8_literal("Dansk")},
-    {utf8_literal("nl"), utf8_literal("Nederlands")},
-    {utf8_literal("fr"), utf8_literal("Français")},
-    {utf8_literal("de"), utf8_literal("Deutsch")},
-    {utf8_literal("el"), utf8_literal("Ελληνικά")},
-    {utf8_literal("hu"), utf8_literal("Magyar")},
-    {utf8_literal("it"), utf8_literal("Italiano")},
-    {utf8_literal("ja"), utf8_literal("日本語")},
-    {utf8_literal("ko"), utf8_literal("한국어")},
-    {utf8_literal("pl"), utf8_literal("Polski")},
-    {utf8_literal("pt-BR"), utf8_literal("Português do Brasil")},
-    {utf8_literal("ru"), utf8_literal("Русский")},
-    {utf8_literal("es-419"), utf8_literal("Español, LATAM")},
-    {utf8_literal("es-ES"), utf8_literal("Español")},
-    {utf8_literal("sv-SE"), utf8_literal("Svenska")},
-    {utf8_literal("tr"), utf8_literal("Türkçe")},
-    {utf8_literal("bg"), utf8_literal("български")},
-    {utf8_literal("uk"), utf8_literal("Українська")},
-    {utf8_literal("fi"), utf8_literal("Suomi")},
-    {utf8_literal("no"), utf8_literal("Norsk")},
-    {utf8_literal("hr"), utf8_literal("Hrvatski")},
-    {utf8_literal("ro"), utf8_literal("Română")},
-    {utf8_literal("lt"), utf8_literal("Lietuviškai")},
-    {utf8_literal("th"), utf8_literal("ไทย")},
-    {utf8_literal("vi"), utf8_literal("Tiếng Việt")},
-    {utf8_literal("hi"), utf8_literal("हिंदी")},
+namespace {
+
+// Each language's code, then its name, NUL-ended, in the list's order.
+constexpr char kLocaleText[] =
+    "en-US\0" "English, US\0"
+    "zh-CN\0" "中文\0"
+    "zh-TW\0" "繁體中文\0"
+    "cs\0" "Čeština\0"
+    "da\0" "Dansk\0"
+    "nl\0" "Nederlands\0"
+    "fr\0" "Français\0"
+    "de\0" "Deutsch\0"
+    "el\0" "Ελληνικά\0"
+    "hu\0" "Magyar\0"
+    "it\0" "Italiano\0"
+    "ja\0" "日本語\0"
+    "ko\0" "한국어\0"
+    "pl\0" "Polski\0"
+    "pt-BR\0" "Português do Brasil\0"
+    "ru\0" "Русский\0"
+    "es-419\0" "Español, LATAM\0"
+    "es-ES\0" "Español\0"
+    "sv-SE\0" "Svenska\0"
+    "tr\0" "Türkçe\0"
+    "bg\0" "български\0"
+    "uk\0" "Українська\0"
+    "fi\0" "Suomi\0"
+    "no\0" "Norsk\0"
+    "hr\0" "Hrvatski\0"
+    "ro\0" "Română\0"
+    "lt\0" "Lietuviškai\0"
+    "th\0" "ไทย\0"
+    "vi\0" "Tiếng Việt\0"
+    "hi\0" "हिंदी\0";
+
+// Where each of the 2 * kGuildLocaleCount strings starts, and where the last one ends.
+struct LocaleOffsets {
+    u16 at[2 * kGuildLocaleCount + 1];
 };
+constexpr LocaleOffsets kLocaleOffsets = [] {
+    LocaleOffsets offsets{};
+    u32 strings = 0;
+    for (u32 i = 0; i + 1 < sizeof(kLocaleText); ++i)
+        if (!kLocaleText[i])
+            offsets.at[++strings] = static_cast<u16>(i + 1);
+    return strings == 2 * kGuildLocaleCount ? offsets : LocaleOffsets{};
+}();
+static_assert(kLocaleOffsets.at[2 * kGuildLocaleCount] == sizeof(kLocaleText) - 1,
+              "the language list holds kGuildLocaleCount languages");
+
+} // namespace
+
+GuildLocale guild_locale(u32 index) noexcept {
+    const u16* at = kLocaleOffsets.at + 2 * index;
+    return {{kLocaleText + at[0], at[1] - at[0] - 1u}, {kLocaleText + at[1], at[2] - at[1] - 1u}};
+}
 
 u32 guild_locale_index(Utf8View code) noexcept {
     for (u32 i = 0; i < kGuildLocaleCount; ++i)
-        if (utf8_equal(code, kGuildLocales[i].code))
+        if (utf8_equal(code, guild_locale(i).code))
             return i;
     return kGuildLocaleCount;
 }

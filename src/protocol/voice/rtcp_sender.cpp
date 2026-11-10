@@ -1,6 +1,5 @@
 #include "maicord/protocol/voice/rtcp_sender.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 
 namespace maicord {
 namespace {
@@ -65,8 +64,7 @@ void transport(const u8* fci, u32 bytes, const RtcpFeedbackVisitor& visitor) noe
 } // namespace
 
 u32 rtcp_write_sender_report(Slice<u8> output, u32 offset, const RtcpSenderReport& report) noexcept {
-    if (!output.data || !byte_range_valid({output.data, output.count}) || offset > output.count ||
-        output.count - offset < kRtcpSenderReportBytes)
+    if (offset > output.count || output.count - offset < kRtcpSenderReportBytes)
         return 0;
     u8* packet = output.data + offset;
     packet[0] = 0x80;
@@ -83,8 +81,6 @@ u32 rtcp_write_sender_report(Slice<u8> output, u32 offset, const RtcpSenderRepor
 }
 
 void rtcp_read_feedback(ConstSlice<u8> compound, const RtcpFeedbackVisitor& visitor) noexcept {
-    if (!compound.data || !byte_range_valid(compound))
-        return;
     u32 offset = 0;
     while (compound.count - offset >= 4) {
         const u8* part = compound.data + offset;

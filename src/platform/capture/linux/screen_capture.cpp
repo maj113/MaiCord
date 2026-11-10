@@ -17,6 +17,10 @@
 #include "maicord/platform/dbus/portal.hpp"
 #include "pipewire_stream.hpp"
 
+// The portal flow, once per stream, and a loop that wakes for D-Bus messages: compiled for size. The pictures never
+// pass through here (pipewire.cpp delivers them on PipeWire's thread).
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord {
 namespace {
 using namespace dbus;
@@ -30,7 +34,9 @@ constexpr u32 kResponseFailed = 2, kResponseStopped = 3;
 // How long the stream may take to reach the portal's node (link and negotiation) before the capture counts as failed.
 constexpr u64 kLinkTimeoutMs = 10'000;
 
+// The requests of the flow, in order, and the ScreenCast method of each.
 enum class Step : u8 { create, select, start };
+constexpr const char* kStepMembers[]{"CreateSession", "SelectSources", "Start"};
 
 struct Runtime {
     CaptureOptions options;
@@ -104,10 +110,16 @@ void on_session_closed(void* context, const Message&) noexcept {
     static_cast<Runtime*>(context)->session_closed = true;
 }
 
-// Starts a request, letting `options` add to the call's a{sv} after the handle token. Returns the response code,
-// kResponseFailed when the call failed, kResponseStopped when stop came first.
-template <class Options>
-u32 request(Runtime& r, Step step, const char* member, bool with_session, const char* text, Options options) noexcept {
+void dict_u32(Builder* body, const char* key, u32 value) noexcept {
+    builder_open_dict_entry(body, key, "u");
+    builder_u32(body, value);
+    builder_close_dict_entry(body);
+}
+
+// One request of the flow: the call (SelectSources with the source `types` and `cursor_mode` to ask for, where the
+// portal offers them) and its Response. Returns the response code, kResponseFailed when the call failed,
+// kResponseStopped when stop came first.
+u32 request(Runtime& r, Step step, u32 types = 0, u32 cursor_mode = 0) noexcept {
     r.step = step;
     r.responded = false;
     r.code = kResponseFailed;
@@ -115,17 +127,26 @@ u32 request(Runtime& r, Step step, const char* member, bool with_session, const 
         return kResponseFailed;
     Builder body;
     builder_init(&body);
-    if (with_session)
+    if (step != Step::create)
         builder_object_path(&body, r.session);
-    if (text)
-        builder_string(&body, text);
+    if (step == Step::start)
+        builder_string(&body, r.parent);
     builder_open_array(&body, "{sv}");
     portal_request_append_token(&body, r.request);
-    options(&body);
+    if (step == Step::create) {
+        builder_dict_string(&body, "session_handle_token", r.request.token);
+    } else if (step == Step::select) {
+        if (types)
+            dict_u32(&body, "types", types);
+        builder_dict_bool(&body, "multiple", false);
+        if (cursor_mode)
+            dict_u32(&body, "cursor_mode", cursor_mode);
+    }
     builder_close_array(&body);
     Message reply{};
-    const Status status =
-        connection_call_sync(r.connection, {kPortalName, kPortalPath, kScreenCast, member}, &body, kCallTimeoutMs, &reply);
+    const Status status = connection_call_sync(
+        r.connection, {kPortalName, kPortalPath, kScreenCast, kStepMembers[static_cast<u8>(step)]}, &body, kCallTimeoutMs,
+        &reply);
     builder_release(&body);
     if (status != Status::ok) {
         if (status == Status::error_reply) {
@@ -197,6 +218,11 @@ int open_remote(Runtime& r) noexcept {
     return fd;
 }
 
+// How the capture ends when a request's response is not success.
+CaptureEnd refused(u32 code) noexcept {
+    return code == kResponseStopped ? CaptureEnd::stopped : code == 1 ? CaptureEnd::denied : CaptureEnd::failed;
+}
+
 void close_session(Runtime& r) noexcept {
     if (r.session[0])
         connection_call(r.connection, {kPortalName, r.session, "org.freedesktop.portal.Session", "Close"}, nullptr, 0,
@@ -212,13 +238,11 @@ CaptureEnd run(Runtime& r) noexcept {
         log_write(LogLevel::warning, "capture", "screencast_portal_missing");
         return CaptureEnd::unsupported;
     }
-    u32 code = request(r, Step::create, "CreateSession", false, nullptr, [&](Builder* options) noexcept {
-        builder_dict_string(options, "session_handle_token", r.request.token);
-    });
-    if (code == kResponseStopped)
-        return CaptureEnd::stopped;
-    if (code != 0 || !r.session[0])
-        return code == 1 ? CaptureEnd::denied : CaptureEnd::failed;
+    u32 code = request(r, Step::create);
+    if (code != 0)
+        return refused(code);
+    if (!r.session[0])
+        return CaptureEnd::failed;
     const SignalMatch closed{kPortalName, r.session, "org.freedesktop.portal.Session", "Closed", nullptr};
     connection_subscribe(r.connection, closed, on_session_closed, &r);
 
@@ -230,28 +254,11 @@ CaptureEnd run(Runtime& r) noexcept {
     const u32 cursor_mode = r.options.cursor && (cursor_modes & kCursorEmbedded) ? kCursorEmbedded
                             : (cursor_modes & kCursorHidden)                      ? kCursorHidden
                                                                                   : 0;
-    code = request(r, Step::select, "SelectSources", true, nullptr, [&](Builder* options) noexcept {
-        if (types) {
-            builder_open_dict_entry(options, "types", "u");
-            builder_u32(options, types);
-            builder_close_dict_entry(options);
-        }
-        builder_dict_bool(options, "multiple", false);
-        if (cursor_mode) {
-            builder_open_dict_entry(options, "cursor_mode", "u");
-            builder_u32(options, cursor_mode);
-            builder_close_dict_entry(options);
-        }
-    });
-    if (code == kResponseStopped)
-        return CaptureEnd::stopped;
+    code = request(r, Step::select, types, cursor_mode);
+    if (code == 0)
+        code = request(r, Step::start);
     if (code != 0)
-        return code == 1 ? CaptureEnd::denied : CaptureEnd::failed;
-    code = request(r, Step::start, "Start", true, r.parent, [](Builder*) noexcept {});
-    if (code == kResponseStopped)
-        return CaptureEnd::stopped;
-    if (code != 0)
-        return code == 1 ? CaptureEnd::denied : CaptureEnd::failed;
+        return refused(code);
     if (!r.node)
         return CaptureEnd::failed;
     const int fd = open_remote(r);
@@ -350,3 +357,5 @@ void capture_stop(ScreenCapture* capture) noexcept {
 }
 
 } // namespace maicord
+
+#pragma clang attribute pop

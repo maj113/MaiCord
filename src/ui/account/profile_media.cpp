@@ -46,6 +46,23 @@ bool id(ProfileString<384>* s, u64 value) noexcept {
     s->bytes += static_cast<u16>(decimal_write(s->data + s->bytes, value));
     return true;
 }
+// A path segment named by an id: "<prefix><id>/".
+void segment(ProfileString<384>* url, const Utf8View& prefix, u64 value) noexcept {
+    append(url, prefix);
+    id(url, value);
+    append(url, utf8_literal("/"));
+}
+// The CDN's default (embed) avatar after the CDN's root: "embed/avatars/<index>.png".
+void default_avatar_path(ProfileString<384>* url, u32 index) noexcept {
+    append(url, utf8_literal("embed/avatars/"));
+    id(url, index);
+    append(url, utf8_literal(".png"));
+}
+// A member's per-server image directory after the CDN's root: "guilds/<guild>/users/<user>/".
+void member_path(ProfileString<384>* url, u64 guild, u64 user) noexcept {
+    segment(url, utf8_literal("guilds/"), guild);
+    segment(url, utf8_literal("users/"), user);
+}
 bool asset(const Utf8View& value) noexcept {
     if (!value.bytes)
         return false;
@@ -104,9 +121,7 @@ bool guild_badge_media(bool enabled, u64 guild_id, const Utf8View& badge, const 
     if (!out || !enabled || !guild_id || !asset(badge))
         return false;
     ProfileMedia result{};
-    append(&result.url, utf8_literal("https://cdn.discordapp.com/clan-badges/"));
-    id(&result.url, guild_id);
-    append(&result.url, utf8_literal("/"));
+    segment(&result.url, utf8_literal("https://cdn.discordapp.com/clan-badges/"), guild_id);
     append(&result.url, badge);
     append(&result.url, utf8_literal(".png?size=32"));
     result.key = profile_key(result.url, MediaAttachmentFormat::png, false);
@@ -277,9 +292,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
     if (part.media == ProfileMediaKind::avatar && !display.avatar.bytes) {
         // Users without an avatar show the CDN's default (embed) avatar under the key every list shares.
         const u32 index = default_avatar_index(p.user_id);
-        append(&url, utf8_literal("embed/avatars/"));
-        id(&url, index);
-        append(&url, utf8_literal(".png"));
+        default_avatar_path(&url, index);
         result.circular = true;
         result.key = default_avatar_key(index);
         copy_value(out, result);
@@ -296,9 +309,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         result.mask_radius = ui_rect_width(result.rectangle) * .5f;
         if (!asset(hash)) {
             const u32 index = default_avatar_index(part.target);
-            append(&url, utf8_literal("embed/avatars/"));
-            id(&url, index);
-            append(&url, utf8_literal(".png"));
+            default_avatar_path(&url, index);
             result.key = default_avatar_key(index);
             copy_value(out, result);
             return media_asset_key_valid(result.key);
@@ -309,23 +320,17 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         hash = guild ? chat_state_store_guild_icon_hash(*guild) : Utf8View{};
         if (!asset(hash))
             return false;
-        append(&url, utf8_literal("icons/"));
-        id(&url, p.guild_id);
-        append(&url, utf8_literal("/"));
+        segment(&url, utf8_literal("icons/"), p.guild_id);
         animated = ui_guild_banner_animated_hash(hash);
     } else if (main_avatar) {
         hash = p.avatar.view();
         if (!asset(hash))
             return false;
-        append(&url, utf8_literal("avatars/"));
-        id(&url, p.user_id);
-        append(&url, utf8_literal("/"));
+        segment(&url, utf8_literal("avatars/"), p.user_id);
         result.circular = true;
         animated = ui_guild_banner_animated_hash(hash);
     } else if (part.media == ProfileMediaKind::voice_avatar) {
-        append(&url, utf8_literal("avatars/"));
-        id(&url, part.target);
-        append(&url, utf8_literal("/"));
+        segment(&url, utf8_literal("avatars/"), part.target);
         animated = ui_guild_banner_animated_hash(hash);
     } else if (part.media == ProfileMediaKind::peer_avatar || part.media == ProfileMediaKind::peer_guild) {
         const bool user = part.media == ProfileMediaKind::peer_avatar;
@@ -340,9 +345,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         }
         if (!asset(hash))
             return false;
-        append(&url, user ? utf8_literal("avatars/") : utf8_literal("icons/"));
-        id(&url, peer.id);
-        append(&url, utf8_literal("/"));
+        segment(&url, user ? utf8_literal("avatars/") : utf8_literal("icons/"), peer.id);
         // Masked to their own circle: the full profile lists them outside the
         // profile card that unmasked media is rounded to.
         result.circular = true;
@@ -357,16 +360,10 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         if (!asset(hash))
             return false;
         if (guild) {
-            append(&url, utf8_literal("guilds/"));
-            id(&url, p.guild_id);
-            append(&url, utf8_literal("/users/"));
-            id(&url, p.user_id);
-            append(&url, avatar ? utf8_literal("/avatars/") : utf8_literal("/banners/"));
-        } else {
+            member_path(&url, p.guild_id, p.user_id);
             append(&url, avatar ? utf8_literal("avatars/") : utf8_literal("banners/"));
-            id(&url, p.user_id);
-            append(&url, utf8_literal("/"));
-        }
+        } else
+            segment(&url, avatar ? utf8_literal("avatars/") : utf8_literal("banners/"), p.user_id);
         animated = ui_guild_banner_animated_hash(hash);
         result.circular = avatar;
         if (!avatar)
@@ -378,9 +375,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         if (!a.primary_enabled || !a.primary_guild_id || !asset(a.primary_badge.view()))
             return false;
         hash = a.primary_badge.view();
-        append(&url, utf8_literal("clan-badges/"));
-        id(&url, a.primary_guild_id);
-        append(&url, utf8_literal("/"));
+        segment(&url, utf8_literal("clan-badges/"), a.primary_guild_id);
         format = MediaAttachmentFormat::png;
     } else if (part.media == ProfileMediaKind::decoration) {
         hash = display.decoration;
@@ -432,24 +427,16 @@ bool profile_avatar_still_media(const ProfileScene& scene, float dips, ProfileMe
     if (!display.avatar.bytes) {
         // The CDN's default (embed) avatar, under the key every list shares.
         const u32 index = default_avatar_index(p.user_id);
-        append(&url, utf8_literal("embed/avatars/"));
-        id(&url, index);
-        append(&url, utf8_literal(".png"));
+        default_avatar_path(&url, index);
         result.key = default_avatar_key(index);
     } else {
         if (!asset(display.avatar))
             return false;
         if (display.guild_avatar) {
-            append(&url, utf8_literal("guilds/"));
-            id(&url, p.guild_id);
-            append(&url, utf8_literal("/users/"));
-            id(&url, p.user_id);
-            append(&url, utf8_literal("/avatars/"));
-        } else {
+            member_path(&url, p.guild_id, p.user_id);
             append(&url, utf8_literal("avatars/"));
-            id(&url, p.user_id);
-            append(&url, utf8_literal("/"));
-        }
+        } else
+            segment(&url, utf8_literal("avatars/"), p.user_id);
         append(&url, display.avatar);
         // A static WebP: the first frame of an animated avatar. The same URL and key as a still avatar drawn
         // at this size, so a still one is not fetched twice.
@@ -526,9 +513,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         if (!global || !global->primary_enabled || !global->primary_guild_id ||
             !asset(global->primary_badge.view()))
             return false;
-        append(&url, utf8_literal("clan-badges/"));
-        id(&url, global->primary_guild_id);
-        append(&url, utf8_literal("/"));
+        segment(&url, utf8_literal("clan-badges/"), global->primary_guild_id);
         append(&url, global->primary_badge.view());
         append(&url, utf8_literal(".png?size=32"));
         format = MediaAttachmentFormat::png;
@@ -563,11 +548,8 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         hash = guild->avatar.view();
         if (!asset(hash))
             return false;
-        append(&url, utf8_literal("guilds/"));
-        id(&url, s.source->guild_id);
-        append(&url, utf8_literal("/users/"));
-        id(&url, row.user_id);
-        append(&url, utf8_literal("/avatars/"));
+        member_path(&url, s.source->guild_id, row.user_id);
+        append(&url, utf8_literal("avatars/"));
         append(&url, hash);
         append(&url, utf8_literal(".webp?size=64"));
         animated = ui_guild_banner_animated_hash(hash);

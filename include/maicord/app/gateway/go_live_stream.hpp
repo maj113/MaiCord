@@ -27,7 +27,6 @@ struct GoLiveBackend {
     // gpu_stream_codec_bit set of the hardware encoders; *known is false
     // until there is a device to probe.
     u32 (*encodable)(void* context, bool* known) noexcept;
-    bool (*audio_available)(void* context) noexcept;
     // Starts capturing into media (the picker's source, or the system picker
     // offering 1 << source.kind); false when nothing could start.
     bool (*capture)(void* context, GoLiveMedia* media, const CaptureSource& source, bool system_picker,
@@ -72,7 +71,7 @@ struct GatewayGoLive {
     GoLiveSettings settings;
     CaptureSource source;
     GoLiveSnapshot published; // Last snapshot; its generation bumps on change.
-    u64 media_revision, started_ms, last_keyframe_ms, keyframe_request_ms, pump_due_ms;
+    u64 media_revision, last_keyframe_ms, keyframe_request_ms, pump_due_ms;
     u32 encodable, decodable; // gpu_stream_codec_bit encoders; voice_video_codec_bit decoders (offered too).
     u32 capture_width, capture_height, bitrate_applied, video_timestamp_offset, audio_timestamp_base;
     VoiceVideoSendStream announced; // Last op 12 sent (ssrc 0: none yet).

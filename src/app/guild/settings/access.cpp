@@ -1,5 +1,4 @@
 #include "server_access.hpp"
-#include "maicord/core/ascii.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 
@@ -36,12 +35,6 @@ constexpr AccessStep kSaveOrder[]{AccessStep::content_level,      AccessStep::le
 ServerAccessState& st() noexcept {
     return *owner->server_access;
 }
-bool administrator() noexcept {
-    return permission_has(owner->access.permissions, kPermissionAdministrator);
-}
-bool community() noexcept {
-    return (guild_features() & guild_feature_community) != 0;
-}
 // A server not yet in Discovery needs an administrator to list it, and one
 // already listed needs one to leave.
 bool join_allowed(GuildJoinType type) noexcept {
@@ -68,14 +61,9 @@ bool discovery_ready() noexcept {
     return s.requirements_loaded && s.metadata_loaded && s.categories_loaded;
 }
 
-void sync_description() noexcept {
-    auto& d = st().discovery_draft;
-    const auto text = editor_text(editor_description);
-    d.description_bytes = static_cast<u16>(utf8_copy_truncated(d.description, sizeof(d.description), text));
-}
 bool discovery_profile_dirty() noexcept {
     auto& s = st();
-    sync_description();
+    access_sync_description(&s.discovery_draft);
     return owner->splash.set || s.discovery_splash_clear ||
            s.discovery_draft.description_bytes != s.discovery_base.description_bytes ||
            !bytes_equal(s.discovery_draft.description, s.discovery_base.description,
@@ -134,7 +122,7 @@ u32 save_plan() noexcept {
 // Discovery's required information, as the official page asks it before listing.
 bool listing_complete() noexcept {
     auto& s = st();
-    sync_description();
+    access_sync_description(&s.discovery_draft);
     return s.discovery_draft.description_bytes && s.metadata_draft.primary_category_id &&
            s.metadata_draft.keyword_count;
 }
@@ -161,10 +149,8 @@ Utf8View problem() noexcept {
         if (standing() == GuildDiscoveryStanding::eligible_disabled && !listing_complete())
             return utf8_literal("Fill in the required information to list on Discovery.");
     }
-    ConstSlice<u8> names{};
-    u16 count = 0;
     if ((save_plan() & (part(AccessStep::leave_discovery) | part(AccessStep::discovery_guild))) &&
-        !access_feature_names(&names, &count))
+        !access_features_known())
         return utf8_literal("The server's features haven't arrived yet.");
     return {};
 }
@@ -332,7 +318,7 @@ void project_discovery(Bank& bank, bool edit) noexcept {
     auto& p = *owner;
     auto& s = st();
     if (s.requirements_failed || s.metadata_failed) {
-        push_error(utf8_literal("Couldn't load Server Discovery"), p.status, utf8_literal("Try again"));
+        push_load_error(utf8_literal("Couldn't load Server Discovery"));
         return;
     }
     if (!discovery_ready()) {
@@ -413,15 +399,14 @@ void project_discovery(Bank& bank, bool edit) noexcept {
 }
 
 void project(Bank& bank) noexcept {
-    auto& p = *owner;
     if (!server_access_state()) {
-        push_error(utf8_literal("Couldn't open this page"), utf8_literal("MaiCord ran out of memory."));
+        push_no_memory();
         return;
     }
     auto& s = st();
     const bool edit = editable() && can_manage_guild();
-    if (p.failed && p.status.bytes && !s.form_failed && !s.requirements_failed && !s.metadata_failed)
-        push_error({}, p.status);
+    if (!s.form_failed && !s.requirements_failed && !s.metadata_failed)
+        push_status_error();
     push_category(control_list_category, utf8_literal("How can people join your server?"),
                   utf8_literal("Keep your server private or open it up for more people to join."));
     const u32 join = static_cast<u32>(s.join_draft);
@@ -445,7 +430,7 @@ void project(Bank& bank) noexcept {
              UiSettingsControlKind::toggle, edit && s.join_draft != GuildJoinType::discoverable && !nsfw_locked,
              age_restricted());
     if (s.form_failed) {
-        push_error(utf8_literal("Couldn't load the membership form"), p.status, utf8_literal("Try again"));
+        push_load_error(utf8_literal("Couldn't load the membership form"));
         return;
     }
     if (!s.form_loaded) {
@@ -513,23 +498,13 @@ bool choices_saved(TextFormOwnerKey key, Utf8View text) noexcept {
     auto& s = st();
     Utf8View lines[kGuildVerificationChoiceMaximum];
     u32 count = 0;
-    for (u32 at = 0; at <= text.bytes;) {
-        u32 end = at;
-        while (end < text.bytes && text.data[end] != '\n')
-            ++end;
-        Utf8View line{text.data + at, end - at};
-        while (line.bytes && ascii_is_space(line.data[line.bytes - 1]))
-            --line.bytes;
-        while (line.bytes && ascii_is_space(line.data[0])) {
-            ++line.data;
-            --line.bytes;
-        }
-        if (line.bytes) {
-            if (count == kGuildVerificationChoiceMaximum)
-                return false;
-            lines[count++] = line;
-        }
-        at = end + 1;
+    Utf8View line{};
+    for (u32 at = 0; next_part(text, &at, '\n', &line);) {
+        if (!line.bytes)
+            continue;
+        if (count == kGuildVerificationChoiceMaximum)
+            return false;
+        lines[count++] = line;
     }
     if (!guild_access_set_question(&s.form_draft, s.question_index, s.question_type,
                                    {s.question_label, s.question_label_bytes}, {lines, count}))
@@ -604,18 +579,8 @@ bool tags_saved(TextFormOwnerKey key, Utf8View text) noexcept {
         return false;
     GuildDiscoveryMetadata draft = st().metadata_draft;
     draft.keyword_count = 0;
-    for (u32 at = 0; at <= text.bytes;) {
-        u32 end = at;
-        while (end < text.bytes && text.data[end] != ',')
-            ++end;
-        Utf8View tag{text.data + at, end - at};
-        while (tag.bytes && ascii_is_space(tag.data[tag.bytes - 1]))
-            --tag.bytes;
-        while (tag.bytes && ascii_is_space(tag.data[0])) {
-            ++tag.data;
-            --tag.bytes;
-        }
-        at = end + 1;
+    Utf8View tag{};
+    for (u32 at = 0; next_part(text, &at, ',', &tag);) {
         if (!tag.bytes)
             continue;
         const auto checked = utf8_validate(tag);
@@ -718,20 +683,8 @@ void preview_form() noexcept {
             bank.add(guild_access_choice(q, c));
         }
     }
-    ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Preview");
-    request.context = utf8_literal("New members see this before they can talk in the server.");
-    request.detail = bank.since(0);
-    request.accept = utf8_literal("Close");
-    request.owner = form_key(form_access_preview, 0);
-    request.valid = form_valid;
-    request.save = [](TextFormOwnerKey, Utf8View) noexcept {
-        application_text_form_close();
-        return true;
-    };
-    request.confirmation_only = true;
-    request.single_action = true;
-    application_text_form_open(request);
+    open_preview(form_access_preview, 0, utf8_literal("Preview"),
+                 utf8_literal("New members see this before they can talk in the server."), {}, bank.since(0));
 }
 
 // Page ops --------------------------------------------------------------------
@@ -843,18 +796,14 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     const u64 id = activation.value.target.control_id;
     const u32 choice = activation.value.selected_choice;
     const bool checked = activation.value.checked;
-    const auto animate = [&]() noexcept {
-        ui_settings_scene_animate_toggle(&owner->scene, activation.value.target, checked,
-                                         clock_monotonic_milliseconds());
-    };
     if (id == access_join && choice < 3)
         select_join(static_cast<GuildJoinType>(choice));
     else if (id == access_age) {
         s.age_draft = checked;
-        animate();
+        animate_toggle(activation);
     } else if (id == access_require_rules) {
         s.require_rules_draft = checked;
-        animate();
+        animate_toggle(activation);
     } else if (id == access_rule_add)
         open_rule(f.rule_count);
     else if (id >= access_rule_row && id < access_rule_row + f.rule_count) {
@@ -913,12 +862,12 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     } else if (id == access_apply_profile) {
         s.apply_from_profile = checked;
         s.apply_from_profile_set = true;
-        animate();
+        animate_toggle(activation);
     } else if (id == access_discovery_tags)
         open_tags();
     else if (id == access_discovery_emoji) {
         s.metadata_draft.emoji_discoverability_enabled = checked;
-        animate();
+        animate_toggle(activation);
     } else if (id == access_locale) {
         access_open_locales({s.discovery_draft.locale, s.discovery_draft.locale_bytes}, activation.anchor);
         return;
@@ -940,11 +889,8 @@ void choose(Menu menu, u32 action) noexcept {
         s->subcategory_target = s->categories[index].id;
         server_access_queue(AccessStep::subcategory_add);
     }
-    else if (kind == AccessMenu::locale && index < kGuildLocaleCount) {
-        const auto code = kGuildLocales[index].code;
-        copy_bytes(s->discovery_draft.locale, code.data, code.bytes);
-        s->discovery_draft.locale_bytes = static_cast<u8>(code.bytes);
-    }
+    else if (kind == AccessMenu::locale)
+        access_choose_locale(&s->discovery_draft, index);
 }
 
 bool dirty() noexcept {
@@ -1079,7 +1025,7 @@ bool access_build(AccessStep step, GuildSettingsPatch* patch, GuildCommunityRequ
             !guild_features_edit(names, count, guild_feature_manual_approval, {&discoverable, 1},
                                  {owner->feature_names, kFeatureNameBytes}, patch))
             return false;
-        sync_description();
+        access_sync_description(&s.discovery_draft);
         patch->fields |= guild_settings_patch_description;
         patch->description = {s.discovery_draft.description, s.discovery_draft.description_bytes};
         if (s.discovery_draft.locale_bytes) {

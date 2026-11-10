@@ -1,4 +1,5 @@
 #include "maicord/app/voice/dave/key_derivation.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/voice/mls_encoding.hpp"
 
@@ -22,8 +23,7 @@ KdfResult dave_ratchet_step(KdfSha256Workspace& workspace, ConstSlice<u8> seed, 
                             u8* next_secret) noexcept {
     static constexpr u8 key_label[]{'k', 'e', 'y'}, secret_label[]{'s', 'e', 'c', 'r', 'e', 't'};
     u8 context[4], derived_key[16], next[32];
-    for (u32 i = 0; i != 4; ++i)
-        context[i] = static_cast<u8>(generation >> (24 - i * 8));
+    byte_store_be32(context, generation);
     auto result =
         mls_expand_label(workspace, seed, {key_label, sizeof(key_label)}, {context, 4}, {derived_key, 16});
     if (result.ok())

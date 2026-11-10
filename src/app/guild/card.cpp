@@ -32,7 +32,12 @@
 
 namespace maicord::app_detail {
 namespace {
+// Past closed, the phases follow UiGuildCardPhase.
 enum class Phase : u8 { closed, loading, ready, private_profile, failed };
+static_assert(static_cast<u8>(Phase::loading) - 1 == static_cast<u8>(UiGuildCardPhase::loading) &&
+              static_cast<u8>(Phase::ready) - 1 == static_cast<u8>(UiGuildCardPhase::ready) &&
+              static_cast<u8>(Phase::private_profile) - 1 == static_cast<u8>(UiGuildCardPhase::private_profile) &&
+              static_cast<u8>(Phase::failed) - 1 == static_cast<u8>(UiGuildCardPhase::failed));
 
 struct State {
     UiGuildCardScene scene;
@@ -201,10 +206,7 @@ bool project() noexcept {
     const auto& p = c.profile;
     UiGuildCardContent content{};
     content.guild_id = c.guild_id;
-    content.phase = c.phase == Phase::ready             ? UiGuildCardPhase::ready
-                    : c.phase == Phase::private_profile ? UiGuildCardPhase::private_profile
-                    : c.phase == Phase::failed          ? UiGuildCardPhase::failed
-                                                        : UiGuildCardPhase::loading;
+    content.phase = static_cast<UiGuildCardPhase>(static_cast<u8>(c.phase) - 1);
     if (c.phase == Phase::ready) {
         content.name = {p.name, p.name_bytes};
         content.description = {p.description, p.description_bytes};
@@ -542,7 +544,7 @@ UiGuildCardScene* application_guild_card_spinner_scene() noexcept {
 }
 
 u32 application_guild_card_media(GuildCardMedia* output, u32 capacity) noexcept {
-    if (!output || !open_now() || g_card->phase != Phase::ready)
+    if (!open_now() || g_card->phase != Phase::ready)
         return 0;
     u32 count = 0;
     if (count < capacity && g_card->icon_url_bytes)
@@ -558,7 +560,7 @@ u32 application_guild_card_media(GuildCardMedia* output, u32 capacity) noexcept 
 }
 
 u32 application_guild_card_emoji_media(MediaAssetKey* output, u32 capacity) noexcept {
-    if (!output || !open_now() || g_card->phase != Phase::ready)
+    if (!open_now() || g_card->phase != Phase::ready)
         return 0;
     const auto& s = g_card->scene;
     u32 count = 0;

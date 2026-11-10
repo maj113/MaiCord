@@ -334,14 +334,12 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
         ui_rect_height(viewport) < 200 || ui_rect_height(viewport) > 8192 || registry->count > 16384)
         return false;
     const auto* page = ui_page_registry_selected(*registry);
-    UiSettingsPageContent content{utf8_literal("Settings"), {}, {}, 0};
-    UiPageKey selected{};
-    if (page) {
-        if (!page->context)
-            return false;
-        content = *static_cast<const UiSettingsPageContent*>(page->context);
-        selected = page->key;
-    }
+    if (page && !page->context)
+        return false;
+    // The selected page's content (borrowed), or the placeholder of a registry with none selected.
+    const UiSettingsPageContent none{utf8_literal("Settings"), {}, {}, 0};
+    const auto& content = page ? *static_cast<const UiSettingsPageContent*>(page->context) : none;
+    const UiPageKey selected = page ? page->key : UiPageKey{};
     const bool unchanged =
         scene->active && scene->registry == registry && scene->registry_revision == registry->revision &&
         ui_page_key_equal(selected, scene->selected_page) && scene->content_revision == content.revision &&
@@ -713,7 +711,7 @@ bool ui_settings_scene_control_anchor(const UiSettingsScene& scene, const UiSett
     const auto* control = ui_settings_scene_control(scene, target);
     if (!control || !anchor || !control->enabled)
         return false;
-    UiSettingsControlGeometry geometry{};
+    UiSettingsControlGeometry geometry;
     if (!ui_settings_scene_control_geometry(scene, target, &geometry))
         return false;
     *anchor = geometry.clip;
@@ -729,8 +727,8 @@ bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, const UiSe
         return false;
     const auto handle = target_handle(scene, target);
     const SceneTokens t(scene);
-    RowLayout row{};
-    UiRect clip{};
+    RowLayout row;
+    UiRect clip;
     if (!row_layout_for(scene, t, handle, index, &row, &clip))
         return false;
     UiRect field = ui_rect_has_area(row.control) ? row.control : row.row;
@@ -766,14 +764,14 @@ bool ui_settings_scene_editor_hit(const UiSettingsScene& scene, float x, float y
     if (output)
         reset_value(output);
     const auto target = ui_settings_scene_hit_test(scene, x, y);
-    const auto* control = ui_settings_scene_control(scene, target);
+    u32 index = 0;
+    const auto* control = ui_settings_scene_control(scene, target, &index);
     if (!(control && control->enabled && editor_kind(control->kind) &&
           ui_settings_scene_control_geometry(scene, target, output) && ui_rect_contains(output->clip, x, y)))
         return false;
     // An edit cell's buttons are not part of its text.
-    u32 index = 0;
-    if (ui_settings_scene_control(scene, target, &index) && more(scene.content, index, ui_settings_more_cell)) {
-        RowLayout row{};
+    if (more(scene.content, index, ui_settings_more_cell)) {
+        RowLayout row;
         if (row_layout_for(scene, SceneTokens(scene), target_handle(scene, target), index, &row) &&
             (ui_rect_contains(row.lead, x, y) || ui_rect_contains(row.value, x, y))) {
             reset_value(output);
@@ -816,7 +814,7 @@ bool ui_settings_scene_slider_geometry(const UiSettingsScene& scene, const UiSet
                                        UiSettingsSliderGeometry* output) noexcept {
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
-    UiSettingsControlGeometry geometry{};
+    UiSettingsControlGeometry geometry;
     if (!output || !c || c->kind != UiSettingsControlKind::slider ||
         !ui_settings_scene_control_geometry(scene, target, &geometry))
         return false;
@@ -831,7 +829,7 @@ bool ui_settings_scene_slider_geometry(const UiSettingsScene& scene, const UiSet
 }
 bool ui_settings_scene_slider_pointer(const UiSettingsScene& scene, const UiSettingsTarget& target, float x,
                                       UiSettingsActivation* output) noexcept {
-    UiSettingsSliderGeometry geometry{};
+    UiSettingsSliderGeometry geometry;
     if (!output || !ui_coordinate_valid(x) || !ui_settings_scene_slider_geometry(scene, target, &geometry) ||
         !geometry.control.enabled)
         return false;
@@ -840,7 +838,7 @@ bool ui_settings_scene_slider_pointer(const UiSettingsScene& scene, const UiSett
     return report(target, *c, static_cast<u32>(fraction * (c->choices.count - 1) + .5f), output);
 }
 bool ui_settings_scene_slider_hit(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y) noexcept {
-    UiSettingsSliderGeometry geometry{};
+    UiSettingsSliderGeometry geometry;
     if (!ui_coordinate_valid(x) || !ui_coordinate_valid(y) ||
         !ui_settings_scene_slider_geometry(scene, target, &geometry) || !geometry.control.enabled)
         return false;
@@ -872,7 +870,7 @@ bool ui_settings_scene_slider_key(const UiSettingsScene& scene, const UiSettings
 }
 bool ui_settings_scene_palette_pointer(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y,
                                        UiSettingsActivation* output) noexcept {
-    UiSettingsControlGeometry geometry{};
+    UiSettingsControlGeometry geometry;
     const auto* c = output ? pointer_control(scene, target, UiSettingsControlKind::palette, x, y, &geometry) : nullptr;
     if (!c)
         return false;
@@ -888,7 +886,7 @@ bool ui_settings_scene_palette_pointer(const UiSettingsScene& scene, const UiSet
 }
 bool ui_settings_scene_radio_pointer(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y,
                                      UiSettingsActivation* output) noexcept {
-    UiSettingsControlGeometry geometry{};
+    UiSettingsControlGeometry geometry;
     const auto* c = output ? pointer_control(scene, target, UiSettingsControlKind::radio, x, y, &geometry) : nullptr;
     const u32 choice = c ? ui_radio_hit(SceneTokens(scene), geometry.field, c->choices.count, x, y) : ~0u;
     return choice != ~0u && report(target, *c, choice, output);
@@ -898,13 +896,13 @@ bool ui_settings_scene_button_hit(const UiSettingsScene& scene, const UiSettings
     const auto* c = ui_settings_scene_control(scene, target, &index);
     const bool cell = c && more(scene.content, index, ui_settings_more_cell);
     if (c && c->kind == UiSettingsControlKind::edit && (c->action_label.bytes || cell) && c->enabled) {
-        RowLayout row{};
-        UiRect clip{};
+        RowLayout row;
+        UiRect clip;
         return row_layout_for(scene, SceneTokens(scene), target_handle(scene, target), index, &row, &clip) &&
                (ui_rect_contains(ui_rect_overlap(row.value, clip), x, y) ||
                 (cell && ui_rect_contains(ui_rect_overlap(row.lead, clip), x, y)));
     }
-    UiSettingsControlGeometry geometry{};
+    UiSettingsControlGeometry geometry;
     return c && (c->kind == UiSettingsControlKind::notice || c->kind == UiSettingsControlKind::action ||
                  c->kind == UiSettingsControlKind::status || c->kind == UiSettingsControlKind::footnote ||
                  c->kind == UiSettingsControlKind::markdown) &&
@@ -924,7 +922,7 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, const UiSett
                                       UiSettingsActivation* output) noexcept {
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
-    UiSettingsControlGeometry geometry{};
+    UiSettingsControlGeometry geometry;
     if (!output || !ui_coordinate_valid(x) || !ui_coordinate_valid(y) || !c || !c->enabled)
         return false;
     const bool edit_cell = c->kind == UiSettingsControlKind::edit && more(scene.content, index, ui_settings_more_cell);
@@ -932,8 +930,8 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, const UiSett
         (c->kind == UiSettingsControlKind::edit && (c->action_label.bytes || edit_cell))) {
         // List rows report their part; an edit row its button as choice 0 (an edit cell its leading button as 1).
         const SceneTokens t(scene);
-        RowLayout row{};
-        UiRect clip{};
+        RowLayout row;
+        UiRect clip;
         if (!row_layout_for(scene, t, target_handle(scene, target), index, &row, &clip) ||
             !ui_rect_contains(clip, x, y))
             return false;
@@ -969,10 +967,10 @@ bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, const UiSe
                                         UiRect* output) noexcept {
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
-    UiSettingsControlGeometry geometry{};
+    UiSettingsControlGeometry geometry;
     if (output && c && list_style(scene.content, index, UiSettingsListStyle::row)) {
         const SceneTokens t(scene);
-        RowLayout row{};
+        RowLayout row;
         if (!row_layout_for(scene, t, target_handle(scene, target), index, &row))
             return false;
         const auto parts = list_parts(t, scene.content, index, row.row);
@@ -1004,8 +1002,8 @@ bool ui_settings_scene_grip_hit(const UiSettingsScene& scene, const UiSettingsTa
     if (!c || !c->enabled || !has_flag(scene.content, index, ui_settings_presentation_grip))
         return false;
     const SceneTokens t(scene);
-    RowLayout row{};
-    UiRect clip{};
+    RowLayout row;
+    UiRect clip;
     if (!row_layout_for(scene, t, target_handle(scene, target), index, &row, &clip))
         return false;
     const UiRect grip{row.lead.left - 6, row.row.top, row.lead.left + t.metric.grip_width + 4, row.row.bottom};
@@ -1021,8 +1019,8 @@ bool ui_settings_scene_drop_target(const UiSettingsScene& scene, float y, u64* c
         const auto& entry = entries(scene)[i];
         if (entry.role != EntryRole::row || entry.source_index >= scene.content.controls.count)
             continue;
-        RowLayout row{};
-        UiRect clip{};
+        RowLayout row;
+        UiRect clip;
         if (!row_layout_for(scene, t, {static_cast<u16>(i), scene.widgets.generation}, entry.source_index,
                             &row, &clip) ||
             !ui_rect_intersects(row.row, clip))
@@ -1076,7 +1074,7 @@ bool ui_settings_scene_set_footer_motion(UiSettingsScene* scene, float shift, fl
 bool ui_settings_scene_palette_hover(UiSettingsScene* scene, const UiSettingsTarget& target, float x, float y) noexcept {
     if (!scene)
         return false;
-    UiSettingsActivation activation{};
+    UiSettingsActivation activation;
     const u32 index = ui_settings_scene_palette_pointer(*scene, target, x, y, &activation) ||
                               ui_settings_scene_radio_pointer(*scene, target, x, y, &activation) ||
                               ui_settings_scene_option_pointer(*scene, target, x, y, &activation)
@@ -1158,8 +1156,8 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
             continue;
         const auto& media = scene.content.avatar_media[index];
         const UiWidgetHandle handle{static_cast<u16>(*cursor), scene.widgets.generation};
-        RowLayout r{};
-        UiRect clip{};
+        RowLayout r;
+        UiRect clip;
         if (!row_layout_for(scene, t, handle, index, &r, &clip))
             continue;
         // A banner row's upload tile (its last) shows the picture covering it.

@@ -22,6 +22,10 @@
 #include "pipewire_stream.hpp"
 #include "stream_audio_routes.hpp"
 
+// The registry bookkeeping and the stream's set-up run as playback streams come and go: compiled for size. on_process,
+// which runs per block, is outside the regions.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord {
 namespace {
 using namespace pipewire;
@@ -68,7 +72,6 @@ struct Runtime {
     NodeEntry nodes[kNodes];
     PortEntry ports[kPorts];
     LinkEntry links[kLinks];
-    alignas(8) u8 format[256];
 };
 
 const char* property(const Dict* props, const char* key) noexcept {
@@ -216,6 +219,8 @@ void on_state(void* data, i32, i32 state, const char* error) noexcept {
         relink(r); // the capture's node now has its id
 }
 
+#pragma clang attribute pop
+
 void on_process(void* data) noexcept {
     auto& r = *static_cast<Runtime*>(data);
     Buffer* buffer = r.api->pw_stream_dequeue_buffer(r.stream);
@@ -237,6 +242,8 @@ void on_process(void* data) noexcept {
     }
     r.api->pw_stream_queue_buffer(r.stream, buffer);
 }
+
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 void destroy(Runtime* r) noexcept {
     const Api* a = r->api;
@@ -325,8 +332,8 @@ bool stream_audio_start(StreamAudioCapture* capture, const StreamAudioOptions& o
                                                        // adapter itself, as the session manager would.
                                                        "adapter.auto-port-config={ mode=dsp position=preserve }"))
                                 : nullptr;
-        const Pod* format = nullptr;
-        ok = r->stream && build_audio_format(r->format, sizeof(r->format), &format);
+        const Pod* format = audio_format();
+        ok = r->stream != nullptr;
         if (ok) {
             a->pw_stream_add_listener(r->stream, &r->stream_hook, &r->stream_events, r);
             ok = a->pw_stream_connect(r->stream, kDirectionInput, kAnyId, kStreamMapBuffers, &format, 1) >= 0;
@@ -355,3 +362,5 @@ void stream_audio_stop(StreamAudioCapture* capture) noexcept {
 }
 
 } // namespace maicord
+
+#pragma clang attribute pop

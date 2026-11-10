@@ -364,6 +364,7 @@ bool synchronize_shell_widget_scenes() noexcept {
             show_unread ? read_channel->last_read_message_id : 0, show_unread));
         application_message_intro_synchronize();
         MAICORD_SHELL_SCENE_STEP(message_scene_update(&g_app.message_scene, message_viewport).ok());
+        const MessageComposerReplySnapshot reply = application_reply_draft();
         MAICORD_SHELL_SCENE_STEP(
             message_composer_scene_update(
                 &g_app.message_composer_scene, &g_app.message_composer,
@@ -373,11 +374,10 @@ bool synchronize_shell_widget_scenes() noexcept {
                 g_app.account_ui ? &composer_projection : nullptr, typing_label, composer_attachments,
                 g_app.account.status.required_action != AccountRequirement::none ||
                     community_notice.bytes != 0,
-                application_reply_draft().mention_reply_author, !g_app.message_edit.editor_active,
+                reply.mention_reply_author, !g_app.message_edit.editor_active,
                 application_message_mutation_notice_is_error() ||
                     application_composer_status_notice_is_error() || voice_notice_error,
-                !application_reply_draft().message_id ||
-                    application_channel_readable(g_app, application_reply_draft().channel_id))
+                !reply.message_id || application_channel_readable(g_app, reply.channel_id))
                 .ok());
         // Someone typing animates the dots; a notice in that row does not.
         g_app.message_composer_scene.typing_dots = typing_label.bytes && typing_label.data == typing_label_storage;
@@ -505,21 +505,22 @@ bool synchronize_shell_layout() noexcept {
             metrics.flags = static_cast<u16>(metrics.flags & ~static_cast<u16>(ui_shell_layout_members));
         }
     }
-    const bool command_bar = !friends && application_commands_bar_visible();
-    const float composer_chrome =
-        friends ? 0.f
-                : message_composer_scene_chrome_height(
-                      application_reply_draft().message_id != 0 || g_app.message_edit.editor_active,
-                      message_composer_attachment_row(application_attachment_input()), styles, command_bar);
-    metrics.composer_height =
-        friends ? 0.f
-                : message_composer_scene_cached_height(
-                      g_app.message_composer_scene,
-                      application_reply_draft().message_id != 0 || g_app.message_edit.editor_active,
-                      message_composer_attachment_row(application_attachment_input()),
-                      ui_scene_composer_width(metrics, width_dip), command_bar);
-    // The typing strip is the composer's top row: it draws over the list's bottom space (see composer_overlap).
-    metrics.composer_overlap = friends ? 0.f : message_composer_scene_chrome_height(false, 0, styles);
+    float composer_chrome = 0.f;
+    if (friends) {
+        metrics.composer_height = 0.f;
+        metrics.composer_overlap = 0.f;
+    } else {
+        const bool command_bar = application_commands_bar_visible();
+        const bool context = application_reply_draft().message_id != 0 || g_app.message_edit.editor_active;
+        const u8 attachment_row = message_composer_attachment_row(application_attachment_input());
+        composer_chrome = message_composer_scene_chrome_height(context, attachment_row, styles, command_bar);
+        metrics.composer_height =
+            message_composer_scene_cached_height(g_app.message_composer_scene, context, attachment_row,
+                                                 ui_scene_composer_width(metrics, width_dip), command_bar);
+        // The typing strip is the composer's top row: it draws over the list's bottom space (see
+        // composer_overlap).
+        metrics.composer_overlap = message_composer_scene_chrome_height(false, 0, styles);
+    }
     const auto update_metrics_revision = [&]() noexcept {
         metrics.revision = 1'000u + ui_extent_units(metrics.composer_height) * 31u +
                            ui_extent_units(metrics.navigation_width) * 131u +

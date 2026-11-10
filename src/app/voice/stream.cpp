@@ -233,7 +233,7 @@ void application_stream_stop() noexcept {
     application_repaint();
 }
 
-StreamWatchView application_stream_view() noexcept {
+const StreamWatchView& application_stream_view() noexcept {
     return stream.view;
 }
 

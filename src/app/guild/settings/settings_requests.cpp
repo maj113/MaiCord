@@ -6,6 +6,45 @@
 #include "maicord/model/chat/sorted_search.hpp"
 
 namespace maicord::app_detail {
+namespace {
+
+// The guild_admin operation of each Op the admin lane sends (guild_update, the zero value, for the others).
+struct AdminOperations {
+    GuildAdminOperation of[static_cast<u32>(Op::top_games) + 1];
+};
+constexpr AdminOperations admin_operations() noexcept {
+    constexpr struct {
+        Op op;
+        GuildAdminOperation operation;
+    } entries[]{
+        {Op::widget_get, GuildAdminOperation::widget_get},
+        {Op::profile_get, GuildAdminOperation::profile_get},
+        {Op::widget_update, GuildAdminOperation::widget_update},
+        {Op::profile_update, GuildAdminOperation::profile_update},
+        {Op::tag_update, GuildAdminOperation::tag_update},
+        {Op::tag_adopt, GuildAdminOperation::identity_adopt},
+        {Op::vanity_get, GuildAdminOperation::vanity_get},
+        {Op::vanity_update, GuildAdminOperation::vanity_update},
+        {Op::role_counts, GuildAdminOperation::role_member_counts},
+        {Op::role_create, GuildAdminOperation::role_create},
+        {Op::role_update, GuildAdminOperation::role_update},
+        {Op::role_delete, GuildAdminOperation::role_delete},
+        {Op::role_reorder, GuildAdminOperation::role_reorder},
+        {Op::ban_list, GuildAdminOperation::ban_list},
+        {Op::ban_remove, GuildAdminOperation::ban_remove},
+        {Op::invite_list, GuildAdminOperation::invite_list_guild},
+        {Op::invite_delete, GuildAdminOperation::invite_delete},
+        {Op::audit_page, GuildAdminOperation::audit_log},
+    };
+    AdminOperations table{};
+    for (const auto& entry : entries)
+        table.of[static_cast<u32>(entry.op)] = entry.operation;
+    return table;
+}
+constexpr AdminOperations kAdminOperations = admin_operations();
+static_assert(GuildAdminOperation{} == GuildAdminOperation::guild_update);
+
+} // namespace
 
 bool application_guild_settings_submit(u64 now) noexcept {
     if (creation.queued && !creation.request_id && (!creation.retry_at || creation.retry_at <= now) &&
@@ -129,117 +168,79 @@ bool application_guild_settings_submit(u64 now) noexcept {
     } else if (p.request.op == Op::server_access) {
         valid = server_access_request(&request, &guild_patch, &role_patch, &community, &community_op) &&
                 (!community_op || g_app.account.api.guild_community);
-    } else switch (p.request.op) {
-    case Op::widget_get:
-        request.operation = GuildAdminOperation::widget_get;
-        break;
-    case Op::profile_get:
-        request.operation = GuildAdminOperation::profile_get;
-        break;
-    case Op::top_games:
-        valid = top_games_request(&request);
-        break;
-    case Op::engagement_update:
-        request.operation = GuildAdminOperation::guild_update;
-        valid = can_manage_guild() && engagement_guild_patch(&guild_patch);
-        request.guild = &guild_patch;
-        break;
-    case Op::widget_update:
-        request.operation = GuildAdminOperation::widget_update;
-        valid = can_manage_guild();
-        engagement_widget_patch(&guild_patch);
-        request.guild = &guild_patch;
-        break;
-    case Op::safety_update:
-        request.operation = GuildAdminOperation::guild_update;
-        valid = guild_safety_patch(p.safety_base, p.safety_draft, &guild_patch);
-        request.guild = &guild_patch;
-        break;
-    case Op::profile_update:
-        request.operation = GuildAdminOperation::profile_update;
-        valid = can_manage_guild() && profile_patch(&guild_patch, &profile_write, {profile_traits, kGuildAdminProfileTraits});
-        request.guild = &guild_patch;
-        break;
-    case Op::tag_update:
-        request.operation = GuildAdminOperation::tag_update;
-        valid = can_manage_guild() && tag_patch(&guild_patch, &tag_write, &tag_colors);
-        request.guild = &guild_patch;
-        break;
-    case Op::tag_adopt:
-        request.operation = GuildAdminOperation::identity_adopt;
-        break;
-    case Op::vanity_get:
-        request.operation = GuildAdminOperation::vanity_get;
-        break;
-    case Op::vanity_update:
-        request.operation = GuildAdminOperation::vanity_update;
-        valid = boost_vanity_patch(&guild_patch);
-        request.guild = &guild_patch;
-        break;
-    case Op::boost_update:
-        request.operation = GuildAdminOperation::guild_update;
-        valid = can_manage_guild() && boost_guild_patch(&guild_patch);
-        request.guild = &guild_patch;
-        break;
-    case Op::role_counts:
-        request.operation = GuildAdminOperation::role_member_counts;
-        break;
-    case Op::role_create:
-        // No patch: the default "new role" body.
-        request.operation = GuildAdminOperation::role_create;
-        break;
-    case Op::role_update:
-        request.operation = GuildAdminOperation::role_update;
-        request.target_id = p.editing_role;
-        valid = guild_role_patch(p.role_base, p.role_draft, &role_patch);
-        request.role = &role_patch;
-        break;
-    case Op::role_delete:
-        request.operation = GuildAdminOperation::role_delete;
-        request.target_id = p.request.target;
-        break;
-    case Op::role_reorder: {
-        request.operation = GuildAdminOperation::role_reorder;
-        const u32 count = resolve_order(p.order_rows);
-        const u32 written = guild_settings_role_positions({p.order_rows, count}, p.guild_id,
-                                                          {p.positions, kGuildRoleMaximum});
-        valid = written != ~0u && written;
-        request.positions = {p.positions, written == ~0u ? 0 : written};
-        break;
-    }
-    case Op::ban_list:
-        request.operation = GuildAdminOperation::ban_list;
-        query.limit = kBanPage;
-        query.after = guild_ban_store_next_after(p.bans);
-        request.page = &query;
-        break;
-    case Op::ban_remove:
-        request.operation = GuildAdminOperation::ban_remove;
-        request.target_id = p.request.target;
-        break;
-    case Op::invite_list:
-        request.operation = GuildAdminOperation::invite_list_guild;
-        break;
-    case Op::invite_delete:
-        // Invite routes are neither guild- nor channel-major.
-        request.operation = GuildAdminOperation::invite_delete;
-        request.guild_id = 0;
-        valid = p.request.target < p.invite_count;
-        if (valid)
-            request.invite_code = {p.invites[p.request.target].code, p.invites[p.request.target].code_bytes};
-        break;
-    case Op::audit_page:
-        request.operation = GuildAdminOperation::audit_log;
-        query.limit = kAuditPage;
-        query.before = p.audit_count ? p.audit[p.audit_count - 1].id : 0;
-        query.user_id = p.audit_filter_user;
-        query.action_type = p.audit_filter_action;
-        query.action_type_set = p.audit_filter_action_set;
-        request.page = &query;
-        break;
-    default:
-        valid = false;
-        break;
+    } else {
+        request.operation = kAdminOperations.of[static_cast<u32>(p.request.op)];
+        switch (p.request.op) {
+        case Op::none: valid = false; break;
+        case Op::top_games: valid = top_games_request(&request); break;
+        case Op::engagement_update:
+            valid = can_manage_guild() && engagement_guild_patch(&guild_patch);
+            request.guild = &guild_patch;
+            break;
+        case Op::widget_update:
+            valid = can_manage_guild();
+            engagement_widget_patch(&guild_patch);
+            request.guild = &guild_patch;
+            break;
+        case Op::safety_update:
+            valid = guild_safety_patch(p.safety_base, p.safety_draft, &guild_patch);
+            request.guild = &guild_patch;
+            break;
+        case Op::profile_update:
+            valid = can_manage_guild() &&
+                    profile_patch(&guild_patch, &profile_write, {profile_traits, kGuildAdminProfileTraits});
+            request.guild = &guild_patch;
+            break;
+        case Op::tag_update:
+            valid = can_manage_guild() && tag_patch(&guild_patch, &tag_write, &tag_colors);
+            request.guild = &guild_patch;
+            break;
+        case Op::vanity_update:
+            valid = boost_vanity_patch(&guild_patch);
+            request.guild = &guild_patch;
+            break;
+        case Op::boost_update:
+            valid = can_manage_guild() && boost_guild_patch(&guild_patch);
+            request.guild = &guild_patch;
+            break;
+        case Op::role_update:
+            request.target_id = p.editing_role;
+            valid = guild_role_patch(p.role_base, p.role_draft, &role_patch);
+            request.role = &role_patch;
+            break;
+        case Op::role_delete:
+        case Op::ban_remove: request.target_id = p.request.target; break;
+        case Op::role_reorder: {
+            const u32 count = resolve_order(p.order_rows);
+            const u32 written = guild_settings_role_positions({p.order_rows, count}, p.guild_id,
+                                                              {p.positions, kGuildRoleMaximum});
+            valid = written != ~0u && written;
+            request.positions = {p.positions, written == ~0u ? 0 : written};
+            break;
+        }
+        case Op::ban_list:
+            query.limit = kBanPage;
+            query.after = guild_ban_store_next_after(p.bans);
+            request.page = &query;
+            break;
+        case Op::invite_delete:
+            // Invite routes are neither guild- nor channel-major.
+            request.guild_id = 0;
+            valid = p.request.target < p.invite_count;
+            if (valid)
+                request.invite_code = {p.invites[p.request.target].code, p.invites[p.request.target].code_bytes};
+            break;
+        case Op::audit_page:
+            query.limit = kAuditPage;
+            query.before = p.audit_count ? p.audit[p.audit_count - 1].id : 0;
+            query.user_id = p.audit_filter_user;
+            query.action_type = p.audit_filter_action;
+            query.action_type_set = p.audit_filter_action_set;
+            request.page = &query;
+            break;
+        // The reads and the role create (the default "new role" body) are their operation alone.
+        default: break;
+        }
     }
     if (!valid) {
         p.request.queued = false;
@@ -325,17 +326,18 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         repaint();
         return true;
     }
+    const u64 retry_at = ok ? 0 : rest_rate_retry_deadline(response);
+    if (retry_at && read_op(op)) {
+        p.request.queued = true;
+        p.retry_at = retry_at;
+        return true;
+    }
+    if (!ok) {
+        p.failed = op != Op::role_counts && op != Op::widget_get && op != Op::profile_get && op != Op::vanity_get &&
+                   op != Op::top_games;
+        p.status = failure_text(response, body);
+    }
     if (op == Op::apps || op == Op::automod || op == Op::server_access) {
-        const u64 retry_at = ok ? 0 : rest_rate_retry_deadline(response);
-        if (retry_at && read_op(op)) {
-            p.request.queued = true;
-            p.retry_at = retry_at;
-            return true;
-        }
-        if (!ok) {
-            p.failed = true;
-            p.status = failure_text(response, body);
-        }
         if (op == Op::server_access)
             server_access_response(response, body);
         else
@@ -344,15 +346,6 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         return true;
     }
     if (!ok) {
-        const u64 retry_at = rest_rate_retry_deadline(response);
-        if (retry_at && read_op(op)) {
-            p.request.queued = true;
-            p.retry_at = retry_at;
-            return true;
-        }
-        p.failed = op != Op::role_counts && op != Op::widget_get && op != Op::profile_get && op != Op::vanity_get &&
-                   op != Op::top_games;
-        p.status = failure_text(response, body);
         if (op == Op::tag_update || op == Op::tag_adopt)
             tag_failed(response, body);
         if (op == Op::ban_list)

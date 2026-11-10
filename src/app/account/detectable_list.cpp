@@ -219,7 +219,8 @@ bool body_sink(void* context, ConstSlice<u8> data) noexcept {
 }
 struct Fetched {
     UpdateHttpResponse response;
-    bool fresh, kept; // 200 with a body, or 304
+    bool fresh, answered; // 200 with a body; that or a 304
+    Utf8View etag;        // the list's ETag to save: the fresh body's, else the saved one
 };
 // A gzip body replaced by its inflated bytes. The trailer's ISIZE (one member, as Discord sends) sizes the output;
 // gzip_inflate checks the header, the CRC-32 and ISIZE, and refuses a truncated or corrupt stream.
@@ -258,7 +259,9 @@ void fetch(const DetectableRefresh& r, Utf8View host, Utf8View target, Utf8View 
     const auto error = r.exchange(r.context, request, options, &fetched->response);
     fetched->fresh = error == UpdateTransportError::none && fetched->response.status == 200 && body->used &&
                      (!fetched->response.gzip || gunzip(body));
-    fetched->kept = error == UpdateTransportError::none && fetched->response.status == 304 && etag.bytes;
+    fetched->answered =
+        fetched->fresh || (error == UpdateTransportError::none && fetched->response.status == 304 && etag.bytes);
+    fetched->etag = fetched->fresh ? Utf8View{fetched->response.etag, fetched->response.etag_bytes} : etag;
 }
 } // namespace
 
@@ -387,18 +390,10 @@ DetectableRefreshResult detectable_refresh_run(const DetectableRefresh& r) noexc
         Fetched g{}, e{};
         fetch(r, utf8_literal("cdn.discordapp.com"), utf8_literal("/detectables/games-v1.json"),
               p ? Utf8View{p->games_etag, p->games_etag_bytes} : Utf8View{}, &games, &g);
-        const Utf8View games_etag = g.fresh ? Utf8View{g.response.etag, g.response.etag_bytes}
-                                    : p     ? Utf8View{p->games_etag, p->games_etag_bytes}
-                                            : Utf8View{};
-        const bool games_answered = g.fresh || g.kept;
         fetch(r, utf8_literal("discord.com"), utf8_literal("/api/v9/games/detectable/exclusions"),
               p ? Utf8View{p->exclusions_etag, p->exclusions_etag_bytes} : Utf8View{}, &exclusions, &e);
-        const Utf8View exclusions_etag = e.fresh ? Utf8View{e.response.etag, e.response.etag_bytes}
-                                         : p     ? Utf8View{p->exclusions_etag, p->exclusions_etag_bytes}
-                                                 : Utf8View{};
-        const bool exclusions_answered = e.fresh || e.kept;
         // Nothing new, or no games at all: keep what is saved.
-        if ((games_answered || exclusions_answered) && (g.fresh || p)) {
+        if ((g.answered || e.answered) && (g.fresh || p)) {
             const u32 json = g.fresh ? games.used : 0;
             const u32 rows = g.fresh ? json / 32 + 16 : p->game_count;
             const u32 keys = g.fresh ? json / 16 + 16 : p->key_count;
@@ -420,10 +415,10 @@ DetectableRefreshResult detectable_refresh_run(const DetectableRefresh& r) noexc
                     {reinterpret_cast<const char*>(games.bytes.base), json},
                     {reinterpret_cast<const char*>(exclusions.bytes.base), e.fresh ? exclusions.used : 0},
                     previous,
-                    games_etag,
-                    exclusions_etag,
-                    games_answered ? r.now_ms : p->games_checked_ms,
-                    exclusions_answered ? r.now_ms : p ? p->exclusions_checked_ms : 0};
+                    g.etag,
+                    e.etag,
+                    g.answered ? r.now_ms : p->games_checked_ms,
+                    e.answered ? r.now_ms : p ? p->exclusions_checked_ms : 0};
                 const u32 built = detectable_list_build(
                     build, {{structurals_at, structurals}, {rows_at, rows}, {keys_at, keys}, {text_at, text}},
                     {image, static_cast<u32>(image_bytes)});

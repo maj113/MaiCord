@@ -8,16 +8,18 @@ void propagate(MlsReader& outer, const MlsReader& inner, u32 base) noexcept {
     if (inner.error != MlsWireError::none)
         outer.fail(inner.error, base + inner.error_offset);
 }
-ConstSlice<u8> extensions(MlsReader& reader) noexcept {
+// A vector of <V> items, each after a u16 type when extension.
+ConstSlice<u8> list(MlsReader& reader, bool extension = true) noexcept {
     const auto data = reader.vector();
     if (reader.error != MlsWireError::none)
         return {};
-    MlsReader list{data};
-    while (list.error == MlsWireError::none && list.used < data.count) {
-        list.integer(2);
-        list.vector();
+    MlsReader items{data};
+    while (items.error == MlsWireError::none && items.used < data.count) {
+        if (extension)
+            items.integer(2);
+        items.vector();
     }
-    propagate(reader, list, reader.used - data.count);
+    propagate(reader, items, reader.used - data.count);
     return data;
 }
 void leaf(MlsReader& reader, MlsLeafView& view) noexcept {
@@ -28,16 +30,9 @@ void leaf(MlsReader& reader, MlsLeafView& view) noexcept {
     view.credential.type = static_cast<u16>(reader.integer(2));
     if (view.credential.type == 1)
         view.credential.identity = reader.vector();
-    else if (view.credential.type == 2) {
-        const auto certificates = reader.vector();
-        if (reader.error == MlsWireError::none) {
-            MlsReader list{certificates};
-            while (list.error == MlsWireError::none && list.used < certificates.count)
-                list.vector();
-            propagate(reader, list, reader.used - certificates.count);
-        }
-        view.credential.certificates = certificates;
-    } else
+    else if (view.credential.type == 2)
+        view.credential.certificates = list(reader, false);
+    else
         reader.fail(MlsWireError::unsupported_credential, credential_offset);
     view.capabilities.versions = reader.integers16();
     view.capabilities.cipher_suites = reader.integers16();
@@ -60,7 +55,7 @@ void leaf(MlsReader& reader, MlsLeafView& view) noexcept {
         reader.fail(MlsWireError::invalid_leaf_source, source_offset);
         break;
     }
-    view.extensions = extensions(reader);
+    view.extensions = list(reader);
     const u32 tbs_end = reader.used;
     view.signature = reader.vector();
     if (reader.error == MlsWireError::none) {
@@ -74,7 +69,7 @@ void package(MlsReader& reader, MlsKeyPackageView& view) noexcept {
     view.cipher_suite = static_cast<u16>(reader.integer(2));
     view.init_key = reader.vector();
     leaf(reader, view.leaf);
-    view.extensions = extensions(reader);
+    view.extensions = list(reader);
     const u32 tbs_end = reader.used;
     view.signature = reader.vector();
     if (reader.error == MlsWireError::none) {
@@ -90,7 +85,7 @@ void group(MlsReader& reader, MlsGroupContextView& view) noexcept {
     view.epoch = reader.integer(8);
     view.tree_hash = reader.vector();
     view.confirmed_transcript_hash = reader.vector();
-    view.extensions = extensions(reader);
+    view.extensions = list(reader);
     if (reader.error == MlsWireError::none)
         view.serialized = {reader.input.data + start, reader.used - start};
 }
@@ -121,7 +116,7 @@ void welcome(MlsReader& reader, MlsWelcomeView& view) noexcept {
 void group_info(MlsReader& reader, MlsGroupInfoView& view) noexcept {
     const u32 start = reader.used;
     group(reader, view.context);
-    view.extensions = extensions(reader);
+    view.extensions = list(reader);
     view.confirmation_tag = reader.vector();
     view.signer = static_cast<u32>(reader.integer(4));
     const u32 tbs_end = reader.used;

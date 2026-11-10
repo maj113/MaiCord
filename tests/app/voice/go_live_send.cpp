@@ -272,7 +272,7 @@ void sender(Check check) noexcept {
     u64 next = go_live_sender_pump(&s, to, now);
     const u32 burst = link.count;
     check(burst > 0 && burst < 20 && next > now, "Go Live sender: the pacer sends a burst, then waits for budget");
-    for (u32 i = 0; i != 2000 && !go_live_sender_idle(s) && link.count != kLinkPackets; ++i) {
+    for (u32 i = 0; i != 2000 && (s.frame_active || s.datagram_bytes) && link.count != kLinkPackets; ++i) {
         now = next > now ? next : now + 1000;
         next = go_live_sender_pump(&s, to, now);
     }
@@ -295,7 +295,7 @@ void sender(Check check) noexcept {
     go_live_sender_pump(&s, to, now + 100'000);
     const u8* rtx = link.packets[0];
     check(link.count >= 1 && (rtx[1] & 0x7f) == 104 && byte_load_be32(rtx + 8) == 201 &&
-              byte_load_be16(rtx + 24) == lost && s.stats.rtx_packets == 1,
+              byte_load_be16(rtx + 24) == lost,
           "Go Live sender: a generic NACK retransmits the packet as RTX (payload type 104, SSRC 201, original "
           "sequence first)");
     // PLI and FIR ask the encoder for a keyframe.

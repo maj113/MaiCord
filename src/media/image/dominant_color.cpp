@@ -1,6 +1,9 @@
 #include "maicord/media/image/dominant_color.hpp"
 #include "maicord/core/memory.hpp"
 
+// A palette is taken once per profile or avatar shown, over every tenth pixel: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord {
 namespace {
 constexpr u32 kShift = 3; // 8 - 5 significant bits per channel
@@ -255,3 +258,4 @@ u32 image_palette_companion(u32 rgb) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

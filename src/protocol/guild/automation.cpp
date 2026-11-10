@@ -239,16 +239,19 @@ bool visit_webhook(void* opaque, JsonString name, JsonValue value) noexcept {
     }
 }
 
-template <typename Row> struct ListParse {
+// A list being read: how many rows the output holds and how many were read, whatever the row.
+struct ListHead {
     const JsonIndexedDocument* document;
-    Slice<Row> rows;
-    u32 count;
+    u32 capacity, count;
     GuildAutomationError error;
+};
+template <typename Row> struct ListParse : ListHead {
+    Row* rows;
 };
 
 bool webhook_item(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<ListParse<GuildWebhook>*>(opaque);
-    if (p.count >= p.rows.count) {
+    if (p.count >= p.capacity) {
         p.error = GuildAutomationError::capacity;
         return false;
     }
@@ -319,7 +322,7 @@ bool visit_integration(void* opaque, JsonString name, JsonValue value) noexcept 
 }
 bool integration_item(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<ListParse<GuildIntegration>*>(opaque);
-    if (p.count >= p.rows.count) {
+    if (p.count >= p.capacity) {
         p.error = GuildAutomationError::capacity;
         return false;
     }
@@ -719,6 +722,21 @@ GuildAutomationResult failure(const JsonReadResult& read, GuildAutomationError e
                                                    : GuildAutomationError::json};
 }
 
+// The array `body` holds, a row for each of its elements; `*count` rows.
+GuildAutomationResult decode_list(Utf8View body, Slice<u32> scratch, ListHead* list,
+                                  bool (*item)(void* opaque, u32, JsonValue) noexcept, u32* count) noexcept {
+    *count = 0;
+    const auto s = scan_json<GuildAutomationError>(body, scratch);
+    if (s.error != GuildAutomationError::none)
+        return {0, s.error};
+    list->document = &s.document;
+    const auto read = json_visit_root_array(s.document.input, s.document.structurals, kDepth, item, list);
+    if (!read.ok())
+        return failure(read, list->error);
+    *count = list->count;
+    return {body.bytes, GuildAutomationError::none};
+}
+
 } // namespace
 
 bool automod_list_next(Utf8View list, u32* at, Utf8View* item) noexcept {
@@ -965,16 +983,8 @@ GuildAutomationResult guild_webhooks_decode(Utf8View body, Slice<u32> scratch, S
                                             u32* count) noexcept {
     if (!count || (!output.data && output.count))
         return {0, GuildAutomationError::input};
-    *count = 0;
-    const auto s = scan_json<GuildAutomationError>(body, scratch);
-    if (s.error != GuildAutomationError::none)
-        return {0, s.error};
-    ListParse<GuildWebhook> p{&s.document, output, 0, GuildAutomationError::none};
-    const auto read = json_visit_root_array(s.document.input, s.document.structurals, kDepth, webhook_item, &p);
-    if (!read.ok())
-        return failure(read, p.error);
-    *count = p.count;
-    return {body.bytes, GuildAutomationError::none};
+    ListParse<GuildWebhook> list{{nullptr, output.count, 0, GuildAutomationError::none}, output.data};
+    return decode_list(body, scratch, &list, webhook_item, count);
 }
 
 GuildAutomationResult guild_webhook_decode(Utf8View body, Slice<u32> scratch, GuildWebhook* output) noexcept {
@@ -995,16 +1005,8 @@ GuildAutomationResult guild_integrations_decode(Utf8View body, Slice<u32> scratc
                                                 u32* count) noexcept {
     if (!count || (!output.data && output.count))
         return {0, GuildAutomationError::input};
-    *count = 0;
-    const auto s = scan_json<GuildAutomationError>(body, scratch);
-    if (s.error != GuildAutomationError::none)
-        return {0, s.error};
-    ListParse<GuildIntegration> p{&s.document, output, 0, GuildAutomationError::none};
-    const auto read = json_visit_root_array(s.document.input, s.document.structurals, kDepth, integration_item, &p);
-    if (!read.ok())
-        return failure(read, p.error);
-    *count = p.count;
-    return {body.bytes, GuildAutomationError::none};
+    ListParse<GuildIntegration> list{{nullptr, output.count, 0, GuildAutomationError::none}, output.data};
+    return decode_list(body, scratch, &list, integration_item, count);
 }
 
 GuildAutomationResult guild_command_permissions_decode(Utf8View body, Slice<u32> scratch, u64 application_id,

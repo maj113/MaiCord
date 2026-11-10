@@ -36,6 +36,7 @@ constexpr u32 kDrmXrgb8888 = 0x34325258, kDrmArgb8888 = 0x34325241, kDrmXbgr8888
 constexpr u32 kSlots = 6;
 constexpr u8 kNone = 255;
 constexpr u32 kParameterBytes = 1024;
+constexpr u32 kScratchBytes = 4096;
 constexpr u64 kStillUs = 100'000;
 constexpr u32 kStackBytes = 256u * 1024u;
 // Keyframes come from requests (PLI/FIR); the period only bounds how long a lost request can go unanswered.
@@ -50,7 +51,7 @@ constexpr i32 kEncodeEntrypoints[]{kEntrypointEncSlice, kEntrypointEncSliceLp};
 constexpr GpuStreamCodec kEncodedCodecs[]{GpuStreamCodec::av1, GpuStreamCodec::h265, GpuStreamCodec::h264};
 constexpr u32 kAv1PackedHeaders = kEncPackedHeaderSequenceFlag | kEncPackedHeaderPictureFlag;
 
-u32 va_fourcc(u32 drm) noexcept {
+constexpr u32 va_fourcc(u32 drm) noexcept {
     switch (drm) {
     case kDrmXrgb8888: return kFourccBgrx;
     case kDrmArgb8888: return kFourccBgra;
@@ -60,6 +61,8 @@ u32 va_fourcc(u32 drm) noexcept {
     }
 }
 
+// What the display encodes with is asked once per encoder (and per probe): compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool has_entrypoint(const Driver& d, i32 profile, i32 entrypoint) noexcept {
     const i32 capacity = d.api.vaMaxNumEntrypoints(d.display);
     i32 entrypoints[64];
@@ -141,8 +144,9 @@ Choice choose(const Driver& d, GpuStreamCodec codec) noexcept {
             return {profile, entrypoint, 0, 0, false};
     return {};
 }
+#pragma clang attribute pop
 
-SurfaceAttrib integer_attribute(i32 type, u32 value) noexcept {
+inline SurfaceAttrib integer_attribute(i32 type, u32 value) noexcept {
     SurfaceAttrib attribute{};
     attribute.type = type;
     attribute.flags = kSurfaceAttribSettable;
@@ -194,35 +198,47 @@ struct GpuStreamEncoder {
     // Encoder thread only.
     u32 frames_since_idr, idr_count, bitrate_sent, fps_sent, current;
     EncodedUnitBuffer unit;
+    EncodedUnitBuffer joined; // the driver's coded segments, copied out of its mapping
+    // Two parameter buffers of the picture being built: they are kilobytes each, more than a stack frame should hold.
+    alignas(16) u8 scratch[2][kScratchBytes];
     u8 parameters[kParameterBytes]; // the last keyframe's parameter sets (Annex B) or AV1 sequence header OBU
     u32 parameter_bytes;
 };
 
 namespace {
 
-u64 now_us() noexcept {
+inline u64 now_us() noexcept {
     return clock_microseconds(clock_initialize(), 0, clock_now());
 }
 
-u32 fps_of(const GpuStreamEncoderSettings& s) noexcept {
+inline u32 fps_of(const GpuStreamEncoderSettings& s) noexcept {
     return s.max_fps ? s.max_fps : 60;
 }
 
 // The matrix of the converted pictures: AV1 signals BT.709 in its sequence header. H.264 and H.265 streams carry no
 // colour description (the driver writes their parameter sets), and the decoders assume BT.709 from 720 lines and
 // BT.601 below, so their pictures are converted to match.
-bool picture_bt709(const GpuStreamEncoder* e) noexcept {
+inline bool picture_bt709(const GpuStreamEncoder* e) noexcept {
     return e->options.codec == GpuStreamCodec::av1 || e->height >= 720;
 }
 
 // The extent the driver encodes: H.264 crops to any even size, H.265 (whose driver-written SPS has no conformance
 // window) to multiples of its 8-pixel minimum coding block.
-void encoded_extent(const GpuStreamEncoder* e, u32* width, u32* height) noexcept {
+inline void encoded_extent(const GpuStreamEncoder* e, u32* width, u32* height) noexcept {
     const u32 mask = e->options.codec == GpuStreamCodec::h265 ? ~7u : ~1u;
     *width = e->options.settings.width & mask;
     *height = e->options.settings.height & mask;
 }
 
+// One of the encoder's two parameter buffers, zeroed (encoder thread).
+template <typename T> inline T* parameter_buffer(GpuStreamEncoder* e, u32 index) noexcept {
+    static_assert(sizeof(T) <= kScratchBytes && alignof(T) <= 16);
+    clear_bytes(e->scratch[index], sizeof(T));
+    return reinterpret_cast<T*>(e->scratch[index]);
+}
+
+// The pipeline is built and torn down once per encoder and extent: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 void release_pipeline(GpuStreamEncoder* e) noexcept {
     const Driver* d = e->driver;
     if (e->coded != kInvalidId)
@@ -279,6 +295,8 @@ bool create_pipeline(GpuStreamEncoder* e) noexcept {
     e->keyframe_requested = true; // A new extent starts a new stream.
     return ok;
 }
+
+#pragma clang attribute pop
 
 // A slot the next picture may be written into: never the newest (a keyframe request encodes it again), the one the
 // preview holds, the pending one or the one being encoded.
@@ -406,7 +424,7 @@ bool rate_control(GpuStreamEncoder* e, u32 bitrate, u32 fps) noexcept {
            render(e, kEncMiscParameterBuffer, &frame_rate, sizeof(frame_rate));
 }
 
-PictureH264 h264_picture(SurfaceId surface, u32 frame_num, i32 order, u32 flags) noexcept {
+inline PictureH264 h264_picture(SurfaceId surface, u32 frame_num, i32 order, u32 flags) noexcept {
     return {surface, frame_num, flags, order, order, {}};
 }
 
@@ -416,9 +434,7 @@ bool h264_parameters(GpuStreamEncoder* e, bool idr, u32 bitrate, u32 fps, Surfac
     const u32 frame_num = e->frames_since_idr % 256;
     const i32 order = static_cast<i32>(e->frames_since_idr * 2); // picture order: twice the frame count, from the IDR
     if (idr) {
-        auto* sequence = commit_pages<EncSequenceParameterH264>();
-        if (!sequence)
-            return false;
+        auto* sequence = parameter_buffer<EncSequenceParameterH264>(e, 0);
         // Level 4.2 takes 1080p at 60 fps; larger pictures need 5.2.
         sequence->level_idc = width_mbs * height_mbs <= 8160 ? 42 : 52;
         sequence->intra_period = sequence->intra_idr_period = kIdrPeriod;
@@ -443,49 +459,38 @@ bool h264_parameters(GpuStreamEncoder* e, bool idr, u32 bitrate, u32 fps, Surfac
         sequence->vui_fields.bits.motion_vectors_over_pic_boundaries_flag = 1;
         sequence->num_units_in_tick = 1;
         sequence->time_scale = 2 * fps;
-        const bool ok = render(e, kEncSequenceParameterBuffer, sequence, sizeof(*sequence));
-        pages_release(sequence, sizeof(*sequence));
-        if (!ok)
+        if (!render(e, kEncSequenceParameterBuffer, sequence, sizeof(*sequence)))
             return false;
     }
-    auto* picture = commit_pages<EncPictureParameterH264>();
-    auto* slice = commit_pages<EncSliceParameterH264>();
-    bool ok = picture && slice;
-    if (ok) {
-        picture->curr_pic = h264_picture(current, frame_num, order, 0);
-        for (PictureH264& reference : picture->reference_frames)
-            reference = h264_picture(kInvalidId, 0, 0, kPictureH264Invalid);
-        const PictureH264 last =
-            h264_picture(previous, (frame_num + 255) % 256, order - 2, kPictureH264ShortTermReference);
-        if (!idr)
-            picture->reference_frames[0] = last;
-        picture->coded_buf = e->coded;
-        picture->frame_num = static_cast<u16>(frame_num);
-        picture->pic_init_qp = 26;
-        picture->pic_fields.bits.idr_pic_flag = idr;
-        picture->pic_fields.bits.reference_pic_flag = 1;
-        picture->pic_fields.bits.entropy_coding_mode_flag = !baseline;
-        picture->pic_fields.bits.deblocking_filter_control_present_flag = 1;
-        slice->num_macroblocks = width_mbs * height_mbs;
-        slice->macroblock_info = kInvalidId;
-        slice->slice_type = idr ? kH264SliceI : kH264SliceP;
-        slice->idr_pic_id = static_cast<u16>(e->idr_count);
-        slice->pic_order_cnt_lsb = static_cast<u16>(order % 256);
-        for (u32 i = 0; i < 32; ++i)
-            slice->ref_pic_list0[i] = slice->ref_pic_list1[i] = h264_picture(kInvalidId, 0, 0, kPictureH264Invalid);
-        if (!idr)
-            slice->ref_pic_list0[0] = last;
-        ok = render(e, kEncPictureParameterBuffer, picture, sizeof(*picture)) &&
-             render(e, kEncSliceParameterBuffer, slice, sizeof(*slice));
-    }
-    if (picture)
-        pages_release(picture, sizeof(*picture));
-    if (slice)
-        pages_release(slice, sizeof(*slice));
-    return ok;
+    auto* picture = parameter_buffer<EncPictureParameterH264>(e, 0);
+    auto* slice = parameter_buffer<EncSliceParameterH264>(e, 1);
+    picture->curr_pic = h264_picture(current, frame_num, order, 0);
+    for (PictureH264& reference : picture->reference_frames)
+        reference = h264_picture(kInvalidId, 0, 0, kPictureH264Invalid);
+    const PictureH264 last = h264_picture(previous, (frame_num + 255) % 256, order - 2, kPictureH264ShortTermReference);
+    if (!idr)
+        picture->reference_frames[0] = last;
+    picture->coded_buf = e->coded;
+    picture->frame_num = static_cast<u16>(frame_num);
+    picture->pic_init_qp = 26;
+    picture->pic_fields.bits.idr_pic_flag = idr;
+    picture->pic_fields.bits.reference_pic_flag = 1;
+    picture->pic_fields.bits.entropy_coding_mode_flag = !baseline;
+    picture->pic_fields.bits.deblocking_filter_control_present_flag = 1;
+    slice->num_macroblocks = width_mbs * height_mbs;
+    slice->macroblock_info = kInvalidId;
+    slice->slice_type = idr ? kH264SliceI : kH264SliceP;
+    slice->idr_pic_id = static_cast<u16>(e->idr_count);
+    slice->pic_order_cnt_lsb = static_cast<u16>(order % 256);
+    for (u32 i = 0; i < 32; ++i)
+        slice->ref_pic_list0[i] = slice->ref_pic_list1[i] = h264_picture(kInvalidId, 0, 0, kPictureH264Invalid);
+    if (!idr)
+        slice->ref_pic_list0[0] = last;
+    return render(e, kEncPictureParameterBuffer, picture, sizeof(*picture)) &&
+           render(e, kEncSliceParameterBuffer, slice, sizeof(*slice));
 }
 
-PictureHevc hevc_picture(SurfaceId surface, i32 order, u32 flags) noexcept {
+inline PictureHevc hevc_picture(SurfaceId surface, i32 order, u32 flags) noexcept {
     PictureHevc picture{};
     picture.picture_id = surface;
     picture.pic_order_cnt = order;
@@ -523,41 +528,33 @@ bool hevc_parameters(GpuStreamEncoder* e, bool idr, u32 bitrate, u32 fps, Surfac
         if (!render(e, kEncSequenceParameterBuffer, &sequence, sizeof(sequence)))
             return false;
     }
-    auto* picture = commit_pages<EncPictureParameterHevc>();
-    auto* slice = commit_pages<EncSliceParameterHevc>();
-    bool ok = picture && slice;
-    if (ok) {
-        picture->decoded_curr_pic = hevc_picture(current, order, 0);
-        for (PictureHevc& reference : picture->reference_frames)
-            reference = hevc_picture(kInvalidId, 0, kPictureHevcInvalid);
-        const PictureHevc last = hevc_picture(previous, order - 1, 0);
-        if (!idr)
-            picture->reference_frames[0] = last;
-        picture->coded_buf = e->coded;
-        picture->collocated_ref_pic_index = 0xFF;
-        picture->pic_init_qp = 30;
-        picture->nal_unit_type = idr ? kHevcIdrWRadl : kHevcTrailR;
-        picture->pic_fields.bits.idr_pic_flag = idr;
-        picture->pic_fields.bits.coding_type = idr ? 1 : 2;
-        picture->pic_fields.bits.reference_pic_flag = 1;
-        picture->pic_fields.bits.pps_loop_filter_across_slices_enabled_flag = 1;
-        slice->num_ctu_in_slice = ((e->width + 63) / 64) * ((e->height + 63) / 64);
-        slice->slice_type = idr ? kHevcSliceI : kHevcSliceP;
-        for (u32 i = 0; i < 15; ++i)
-            slice->ref_pic_list0[i] = slice->ref_pic_list1[i] = hevc_picture(kInvalidId, 0, kPictureHevcInvalid);
-        if (!idr)
-            slice->ref_pic_list0[0] = last;
-        slice->max_num_merge_cand = 5;
-        slice->slice_fields.bits.last_slice_of_pic_flag = 1;
-        slice->slice_fields.bits.slice_loop_filter_across_slices_enabled_flag = 1;
-        ok = render(e, kEncPictureParameterBuffer, picture, sizeof(*picture)) &&
-             render(e, kEncSliceParameterBuffer, slice, sizeof(*slice));
-    }
-    if (picture)
-        pages_release(picture, sizeof(*picture));
-    if (slice)
-        pages_release(slice, sizeof(*slice));
-    return ok;
+    auto* picture = parameter_buffer<EncPictureParameterHevc>(e, 0);
+    auto* slice = parameter_buffer<EncSliceParameterHevc>(e, 1);
+    picture->decoded_curr_pic = hevc_picture(current, order, 0);
+    for (PictureHevc& reference : picture->reference_frames)
+        reference = hevc_picture(kInvalidId, 0, kPictureHevcInvalid);
+    const PictureHevc last = hevc_picture(previous, order - 1, 0);
+    if (!idr)
+        picture->reference_frames[0] = last;
+    picture->coded_buf = e->coded;
+    picture->collocated_ref_pic_index = 0xFF;
+    picture->pic_init_qp = 30;
+    picture->nal_unit_type = idr ? kHevcIdrWRadl : kHevcTrailR;
+    picture->pic_fields.bits.idr_pic_flag = idr;
+    picture->pic_fields.bits.coding_type = idr ? 1 : 2;
+    picture->pic_fields.bits.reference_pic_flag = 1;
+    picture->pic_fields.bits.pps_loop_filter_across_slices_enabled_flag = 1;
+    slice->num_ctu_in_slice = ((e->width + 63) / 64) * ((e->height + 63) / 64);
+    slice->slice_type = idr ? kHevcSliceI : kHevcSliceP;
+    for (u32 i = 0; i < 15; ++i)
+        slice->ref_pic_list0[i] = slice->ref_pic_list1[i] = hevc_picture(kInvalidId, 0, kPictureHevcInvalid);
+    if (!idr)
+        slice->ref_pic_list0[0] = last;
+    slice->max_num_merge_cand = 5;
+    slice->slice_fields.bits.last_slice_of_pic_flag = 1;
+    slice->slice_fields.bits.slice_loop_filter_across_slices_enabled_flag = 1;
+    return render(e, kEncPictureParameterBuffer, picture, sizeof(*picture)) &&
+           render(e, kEncSliceParameterBuffer, slice, sizeof(*slice));
 }
 
 // A packed header: its parameter buffer, then its bytes.
@@ -604,54 +601,50 @@ bool av1_parameters(GpuStreamEncoder* e, bool key, u32 bitrate, SurfaceId curren
     u8 header[256];
     Av1FrameHeaderLayout layout{};
     const u32 bytes = av1_write_frame_header(sequence, frame, e->choice.av1_size_bytes, header, sizeof(header), &layout);
-    auto* picture = commit_pages<EncPictureParameterAv1>();
-    bool ok = bytes && picture;
-    if (ok) {
-        picture->frame_width_minus_1 = static_cast<u16>(e->width - 1);
-        picture->frame_height_minus_1 = static_cast<u16>(e->height - 1);
-        picture->reconstructed_frame = current;
-        picture->coded_buf = e->coded;
-        for (SurfaceId& slot : picture->reference_frames)
-            slot = key ? kInvalidId : previous;
-        picture->primary_ref_frame = frame.primary_ref_frame;
-        picture->order_hint = frame.order_hint;
-        picture->refresh_frame_flags = 0xFF;
-        if (!key)
-            picture->ref_frame_ctrl_l0.fields.search_idx0 = 1; // LAST_FRAME
-        picture->picture_flags.bits.frame_type = key ? 0 : 1;
-        picture->picture_flags.bits.error_resilient_mode = key;
-        picture->picture_flags.bits.allow_high_precision_mv = frame.allow_high_precision_mv && !key;
-        picture->filter_level[0] = frame.loop_filter_level[0];
-        picture->filter_level[1] = frame.loop_filter_level[1];
-        picture->filter_level_u = frame.loop_filter_level[2];
-        picture->filter_level_v = frame.loop_filter_level[3];
-        picture->superres_scale_denominator = 8;
-        picture->interpolation_filter = frame.interpolation_filter;
-        picture->base_qindex = frame.base_q_idx;
-        picture->min_base_qindex = 1;
-        picture->max_base_qindex = 255;
-        picture->mode_control_flags.bits.tx_mode = frame.tx_mode_select ? 2 : 1;
-        picture->tile_cols = picture->tile_rows = 1;
-        picture->width_in_sbs_minus_1[0] = static_cast<u16>(av1_superblocks(e->width) - 1);
-        picture->height_in_sbs_minus_1[0] = static_cast<u16>(av1_superblocks(e->height) - 1);
-        picture->cdef_y_strengths[0] = frame.cdef_y_strengths[0];
-        picture->cdef_uv_strengths[0] = frame.cdef_uv_strengths[0];
-        picture->bit_offset_qindex = layout.qindex;
-        picture->bit_offset_segmentation = layout.segmentation;
-        picture->bit_offset_loopfilter_params = layout.loop_filter;
-        picture->bit_offset_cdef_params = layout.cdef;
-        picture->size_in_bits_cdef_params = layout.cdef_size;
-        picture->byte_offset_frame_hdr_obu_size = layout.obu_size_byte;
-        picture->size_in_bits_frame_hdr_obu = layout.bits;
-        picture->tile_group_obu_hdr_info.bits.obu_has_size_field = 1;
-        const EncTileGroupAv1 tile_group{0, 0, {}};
-        ok = render(e, kEncPictureParameterBuffer, picture, sizeof(*picture)) &&
-             packed_header(e, kEncPackedHeaderPicture, header, bytes) &&
-             render(e, kEncSliceParameterBuffer, &tile_group, sizeof(tile_group));
-    }
-    if (picture)
-        pages_release(picture, sizeof(*picture));
-    return ok;
+    if (!bytes)
+        return false;
+    auto* picture = parameter_buffer<EncPictureParameterAv1>(e, 0);
+    picture->frame_width_minus_1 = static_cast<u16>(e->width - 1);
+    picture->frame_height_minus_1 = static_cast<u16>(e->height - 1);
+    picture->reconstructed_frame = current;
+    picture->coded_buf = e->coded;
+    for (SurfaceId& slot : picture->reference_frames)
+        slot = key ? kInvalidId : previous;
+    picture->primary_ref_frame = frame.primary_ref_frame;
+    picture->order_hint = frame.order_hint;
+    picture->refresh_frame_flags = 0xFF;
+    if (!key)
+        picture->ref_frame_ctrl_l0.fields.search_idx0 = 1; // LAST_FRAME
+    picture->picture_flags.bits.frame_type = key ? 0 : 1;
+    picture->picture_flags.bits.error_resilient_mode = key;
+    picture->picture_flags.bits.allow_high_precision_mv = frame.allow_high_precision_mv && !key;
+    picture->filter_level[0] = frame.loop_filter_level[0];
+    picture->filter_level[1] = frame.loop_filter_level[1];
+    picture->filter_level_u = frame.loop_filter_level[2];
+    picture->filter_level_v = frame.loop_filter_level[3];
+    picture->superres_scale_denominator = 8;
+    picture->interpolation_filter = frame.interpolation_filter;
+    picture->base_qindex = frame.base_q_idx;
+    picture->min_base_qindex = 1;
+    picture->max_base_qindex = 255;
+    picture->mode_control_flags.bits.tx_mode = frame.tx_mode_select ? 2 : 1;
+    picture->tile_cols = picture->tile_rows = 1;
+    picture->width_in_sbs_minus_1[0] = static_cast<u16>(av1_superblocks(e->width) - 1);
+    picture->height_in_sbs_minus_1[0] = static_cast<u16>(av1_superblocks(e->height) - 1);
+    picture->cdef_y_strengths[0] = frame.cdef_y_strengths[0];
+    picture->cdef_uv_strengths[0] = frame.cdef_uv_strengths[0];
+    picture->bit_offset_qindex = layout.qindex;
+    picture->bit_offset_segmentation = layout.segmentation;
+    picture->bit_offset_loopfilter_params = layout.loop_filter;
+    picture->bit_offset_cdef_params = layout.cdef;
+    picture->size_in_bits_cdef_params = layout.cdef_size;
+    picture->byte_offset_frame_hdr_obu_size = layout.obu_size_byte;
+    picture->size_in_bits_frame_hdr_obu = layout.bits;
+    picture->tile_group_obu_hdr_info.bits.obu_has_size_field = 1;
+    const EncTileGroupAv1 tile_group{0, 0, {}};
+    return render(e, kEncPictureParameterBuffer, picture, sizeof(*picture)) &&
+           packed_header(e, kEncPackedHeaderPicture, header, bytes) &&
+           render(e, kEncSliceParameterBuffer, &tile_group, sizeof(tile_group));
 }
 
 // Keeps the parameter sets (H.264 SPS and PPS; H.265 VPS, SPS and PPS) at the start of a keyframe the driver wrote, for
@@ -711,8 +704,8 @@ bool encode(GpuStreamEncoder* e, u8 index, GpuStreamEncoderSettings settings, bo
     if (!ok)
         return false;
     // The coded segments, joined.
-    e->unit.count = 0;
-    EncodedUnitBuffer joined{};
+    e->unit.count = e->joined.count = 0;
+    EncodedUnitBuffer& joined = e->joined;
     for (auto* segment = static_cast<CodedBufferSegment*>(mapped); ok && segment;
          segment = static_cast<CodedBufferSegment*>(segment->next)) {
         ok = encoded_unit_reserve(&joined, joined.count + segment->size);
@@ -733,7 +726,6 @@ bool encode(GpuStreamEncoder* e, u8 index, GpuStreamEncoderSettings settings, bo
         written = encoded_annexb_unit(e->options.codec, {joined.data, joined.count},
                                       {e->parameters, e->parameter_bytes}, idr, &e->unit);
     }
-    encoded_unit_release(&joined);
     if (!ok)
         return false;
     e->current ^= 1;
@@ -793,6 +785,8 @@ u32 encoder_main(void* parameter) noexcept {
     }
 }
 
+// Probe, create and teardown run once per encoder: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool settings_valid(const GpuStreamEncoderSettings& s) noexcept {
     return s.width >= 16 && s.height >= 16 && !((s.width | s.height) & 1) && s.width <= 4096 && s.height <= 4096 &&
            u64{s.width} * s.height <= kGpuVideoVisiblePixels && s.bitrate;
@@ -810,6 +804,7 @@ void release(GpuStreamEncoder* e) noexcept {
     if (e->wake)
         waitable_close(e->wake);
     encoded_unit_release(&e->unit);
+    encoded_unit_release(&e->joined);
     pages_release(e, sizeof(GpuStreamEncoder));
 }
 
@@ -866,6 +861,8 @@ GpuStreamEncoder* gpu_stream_encoder_create(const GpuStreamEncoderOptions& optio
     }
     return e;
 }
+
+#pragma clang attribute pop
 
 bool gpu_stream_encoder_submit(GpuStreamEncoder* e, const CaptureFrame& frame) noexcept {
     if (!e)

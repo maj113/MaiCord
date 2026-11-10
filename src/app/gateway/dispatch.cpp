@@ -598,7 +598,7 @@ GatewayClientDispatchRouteResult frame_index(const GatewayEnvelope& envelope, Sl
 __declspec(noinline) bool append_presence_activities(const JsonIndexedDocument& document, JsonValue presence,
                                                      Slice<char> content_scratch, u64 user_id,
                                                      u32* extra) noexcept {
-    UserActivitySet activities{};
+    UserActivitySet activities; // user_activities_decode resets it
     bool has_activities = false;
     if (user_activities_decode(document, presence, user_id, &activities, &has_activities) && has_activities &&
         activities.count) {

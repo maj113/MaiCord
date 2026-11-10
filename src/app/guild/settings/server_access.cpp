@@ -1,5 +1,4 @@
 #include "server_access.hpp"
-#include "maicord/core/heap_sort.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail::server_settings {
@@ -128,31 +127,19 @@ void access_open_channels(AccessMenu menu, u64 current, bool none_row, bool crea
     }
     const auto& st = state();
     const u32 first = count;
-    const u32 slots = chat_state_store_channel_slot_bound(st);
-    for (u32 i = 0; i < slots && count < kPopupCapacity; ++i) {
-        const auto& channel = st.channels[i];
-        if (!channel.occupied || channel.guild_id != p.guild_id || channel.type != 0)
-            continue;
-        p.popup_rows[count - first] = {{}, &channel};
-        ++count;
-    }
-    using Row = Settings::PopupRow;
-    heap_sort_shared(p.popup_rows, count - first, [&st](const Row& a, const Row& b) noexcept {
-        return guild_settings_channel_before(st, GuildChannelPickerOrder::channel_list, *a.channel, *b.channel);
-    });
-    for (u32 i = first; i < count; ++i) {
-        const auto* channel = p.popup_rows[i - first].channel;
+    const u32 listed = sorted_channels(1u << 0, kPopupCapacity - first);
+    for (u32 i = 0; i < listed; ++i) {
+        const auto* channel = p.popup_rows[i].channel;
         const u32 start = bank.used;
         bank.add("#");
         bank.add(chat_state_store_channel_name(st, *channel));
-        popup_row(i, bank.since(start), i,
-                  (channel->id == current ? popup_item_checked : 0) |
-                      (i == first && first ? popup_item_separator_before : 0));
-        p.menu_channel[i] = channel->id;
+        popup_row(first + i, bank.since(start), first + i,
+                  (channel->id == current ? popup_item_checked : 0) | (i == 0 && first ? popup_item_separator_before : 0));
+        p.menu_channel[first + i] = channel->id;
     }
     p.menu = Menu::server_access;
     s->menu = menu;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 280);
+    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, first + listed}, anchor, 280);
 }
 
 void access_open_locales(Utf8View current, const UiRect& anchor) noexcept {
@@ -160,8 +147,10 @@ void access_open_locales(Utf8View current, const UiRect& anchor) noexcept {
     auto* s = server_access_state();
     if (!s)
         return;
-    for (u32 i = 0; i < kGuildLocaleCount; ++i)
-        popup_row(i, kGuildLocales[i].name, i, utf8_equal(current, kGuildLocales[i].code) ? popup_item_checked : 0);
+    for (u32 i = 0; i < kGuildLocaleCount; ++i) {
+        const auto locale = guild_locale(i);
+        popup_row(i, locale.name, i, utf8_equal(current, locale.code) ? popup_item_checked : 0);
+    }
     p.menu = Menu::server_access;
     s->menu = AccessMenu::locale;
     settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, kGuildLocaleCount}, anchor, 240);
@@ -175,7 +164,7 @@ Utf8View access_channel_label(Bank& bank, u64 channel_id) noexcept {
 
 Utf8View access_locale_label(Utf8View code) noexcept {
     const u32 index = guild_locale_index(code);
-    return index < kGuildLocaleCount ? kGuildLocales[index].name : utf8_literal("Choose a language");
+    return index < kGuildLocaleCount ? guild_locale(index).name : utf8_literal("Choose a language");
 }
 
 Utf8View access_guild_description() noexcept {
@@ -192,6 +181,25 @@ bool access_feature_names(ConstSlice<u8>* names, u16* count) noexcept {
     *names = guild_detail_store_feature_names(details(), *record);
     *count = record->feature_count;
     return true;
+}
+
+bool access_features_known() noexcept {
+    ConstSlice<u8> names{};
+    u16 count = 0;
+    return access_feature_names(&names, &count);
+}
+
+void access_sync_description(GuildCommunityOverview* overview) noexcept {
+    overview->description_bytes = static_cast<u16>(
+        utf8_copy_truncated(overview->description, sizeof(overview->description), editor_text(editor_description)));
+}
+
+void access_choose_locale(GuildCommunityOverview* overview, u32 index) noexcept {
+    if (index >= kGuildLocaleCount)
+        return;
+    const auto code = guild_locale(index).code;
+    copy_bytes(overview->locale, code.data, code.bytes);
+    overview->locale_bytes = static_cast<u8>(code.bytes);
 }
 
 } // namespace maicord::app_detail::server_settings

@@ -91,9 +91,6 @@ struct GoLiveAudioPacket {
     u16 bytes;
     u8 data[1275 + 32]; // A DAVE-sealed Opus packet.
 };
-struct GoLiveSendStats {
-    u64 video_packets, video_bytes, rtx_packets, audio_packets, keyframe_requests, nacks, frames, feedback;
-};
 struct GoLiveSender {
     GoLiveSendStreams streams;
     GoLiveBandwidth bandwidth;
@@ -109,9 +106,8 @@ struct GoLiveSender {
     u32 audio_head, audio_count, rtx_count, datagram_bytes, frame_timestamp;
     u32 video_octets, video_count, audio_octets, audio_total; // Sender report counters.
     u16 video_sequence, rtx_sequence, audio_sequence, transport_sequence;
-    bool frame_active, keyframe, datagram_video, datagram_transport;
+    bool frame_active, datagram_video, datagram_transport;
     bool keyframe_wanted; // A PLI/FIR arrived; go_live_sender_take_keyframe consumes it.
-    GoLiveSendStats stats;
 };
 // Allocates the history and frame buffer; sequences start at random values.
 bool go_live_sender_start(GoLiveSender* sender, const GoLiveSendStreams& streams, StreamBitrate bounds,
@@ -132,6 +128,4 @@ void go_live_sender_rtcp(GoLiveSender* sender, ConstSlice<u8> compound, u64 now_
 u64 go_live_sender_pump(GoLiveSender* sender, const GoLiveSendLink& link, u64 now_us) noexcept;
 // True once since the last call when a receiver asked for a keyframe.
 bool go_live_sender_take_keyframe(GoLiveSender* sender) noexcept;
-// No frame or datagram left to send.
-bool go_live_sender_idle(const GoLiveSender& sender) noexcept;
 } // namespace maicord

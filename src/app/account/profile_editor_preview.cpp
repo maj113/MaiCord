@@ -583,17 +583,29 @@ const ProfileCollectible* owned_item(u64 sku, ProfileCollectibleType type) noexc
     return nullptr;
 }
 
-void push(const UiSettingsControl& control,
-          UiSettingsControlPresentation presentation = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault}) noexcept {
-    if (owner->control_count >= kControlCapacity)
-        return;
-    owner->presentation[owner->control_count] = presentation;
-    owner->controls[owner->control_count++] = control;
+// Appends a row with the standard presentation and its other fields empty for the caller to fill; the page has
+// at most 27 rows, within kControlCapacity.
+UiSettingsControl& row(u64 id, UiSettingsControlKind kind, bool enabled) noexcept {
+    const u32 index = owner->control_count++;
+    owner->presentation[index] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    auto& control = owner->controls[index];
+    reset_value(&control);
+    control.id = id;
+    control.kind = kind;
+    control.enabled = enabled;
+    return control;
+}
+// A row of buttons: the first changes the item, the second (with `second`) removes or resets it.
+UiSettingsControl& buttons(u64 id, bool enabled, Utf8View* pair, bool second) noexcept {
+    auto& control = row(id, UiSettingsControlKind::buttons, enabled);
+    control.choices = {pair, second ? 2u : 1u};
+    control.selected_choice = kUiSettingsNoChoice;
+    return control;
 }
 void push_error(u64 id, ProfileEditErrorField field) noexcept {
     const auto& text = owner->errors.fields[static_cast<u32>(field)];
     if (text.bytes)
-        push({id, text.view(), {}, UiSettingsControlKind::error, true, false, {}, 0, {}, nullptr});
+        row(id, UiSettingsControlKind::error, true).label = text.view();
 }
 Utf8View footer_status() noexcept {
     auto& p = *owner;
@@ -647,54 +659,60 @@ void project_controls(TextBank& bank) noexcept {
     const bool known = p.loaded && !p.load_failed;
     p.tab_choices[0] = utf8_literal("Main Profile");
     p.tab_choices[1] = utf8_literal("Per-server Profiles");
-    push({control_tabs, utf8_literal("Profiles"), {}, UiSettingsControlKind::tabs, !saving(), false, {p.tab_choices, 2},
-          static_cast<u32>(p.tab), {}, nullptr});
+    auto& tabs = row(control_tabs, UiSettingsControlKind::tabs, !saving());
+    tabs.label = utf8_literal("Profiles");
+    tabs.choices = {p.tab_choices, 2};
+    tabs.selected_choice = static_cast<u32>(p.tab);
     if (guild) {
         u32 selected = kUiSettingsNoChoice;
         for (u32 i = 0; i < p.guild_choice_count; ++i)
             if (p.guild_ids[i] == p.guild_id)
                 selected = i;
         if (!p.guild_choice_count) {
-            push({control_guild, utf8_literal("You don't belong to a server yet"),
-                  utf8_literal("Join servers to hang out with friends and explore new communities."),
-                  UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr});
-        } else
-            push({control_guild, utf8_literal("Choose a Server"),
-                  utf8_literal("Show who you are with different profiles for each of your servers."),
-                  UiSettingsControlKind::choice, !saving() && !changes(), false, {p.guild_choices, p.guild_choice_count},
-                  selected, {}, nullptr});
+            auto& none = row(control_guild, UiSettingsControlKind::notice, true);
+            none.label = utf8_literal("You don't belong to a server yet");
+            none.description = utf8_literal("Join servers to hang out with friends and explore new communities.");
+        } else {
+            auto& choose = row(control_guild, UiSettingsControlKind::choice, !saving() && !changes());
+            choose.label = utf8_literal("Choose a Server");
+            choose.description = utf8_literal("Show who you are with different profiles for each of your servers.");
+            choose.choices = {p.guild_choices, p.guild_choice_count};
+            choose.selected_choice = selected;
+        }
     }
     if (!known || (guild && !p.guild_id)) {
-        push({control_status,
-              p.load_failed ? (guild ? utf8_literal("Unable to load server profile")
-                                     : utf8_literal("Unable to load your profile"))
-                            : utf8_literal("Loading\xE2\x80\xA6"),
-              {}, UiSettingsControlKind::notice, true, false, {}, 0, p.load_failed ? utf8_literal("Try again") : Utf8View{},
-              nullptr},
-             {p.load_failed ? UiSettingsVariant::critical : UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
+        auto& status = row(control_status, UiSettingsControlKind::notice, true);
+        status.label = p.load_failed ? (guild ? utf8_literal("Unable to load server profile")
+                                              : utf8_literal("Unable to load your profile"))
+                                     : utf8_literal("Loading\xE2\x80\xA6");
+        if (p.load_failed) {
+            status.action_label = utf8_literal("Try again");
+            p.presentation[p.control_count - 1].variant = UiSettingsVariant::critical;
+        }
         return;
     }
     // Try It Out (no Nitro): the Nitro fields open for the preview; nothing that needs Nitro is saved. While trying,
     // Shuffle previews a random theme and name style, as the official client's does.
-    if (!nitro() && !p.trying)
-        push({control_try, utf8_literal("Try out Nitro"),
-              utf8_literal("Preview banners, themes and name styles."),
-              UiSettingsControlKind::notice, edit, false, {}, 0, utf8_literal("Try It Out"), nullptr});
-    else if (!nitro()) {
+    if (!nitro() && !p.trying) {
+        auto& offer = row(control_try, UiSettingsControlKind::notice, edit);
+        offer.label = utf8_literal("Try out Nitro");
+        offer.description = utf8_literal("Preview banners, themes and name styles.");
+        offer.action_label = utf8_literal("Try It Out");
+    } else if (!nitro()) {
         p.try_buttons[0] = utf8_literal("Shuffle");
         p.try_buttons[1] = utf8_literal("Stop Trying");
-        push({control_try, utf8_literal("Trying Nitro features"),
-              utf8_literal("Changes that need Nitro show in the preview only and can't be saved."),
-              UiSettingsControlKind::buttons, edit, false, {p.try_buttons, 2}, kUiSettingsNoChoice, {}, nullptr});
+        auto& trying = buttons(control_try, edit, p.try_buttons, true);
+        trying.label = utf8_literal("Trying Nitro features");
+        trying.description = utf8_literal("Changes that need Nitro show in the preview only and can't be saved.");
     }
     // Display Name / Server Nickname.
     const bool name_allowed = (g.enabled & profile_editor_name) != 0;
     const auto& s = p.saved;
     const Utf8View account_name = s.global_name.bytes ? s.global_name.view() : s.username.view();
-    push({control_name, guild ? utf8_literal("Server Nickname") : utf8_literal("Display Name"),
-          profile_editor_gate_reason(p.tab, g, profile_editor_name), UiSettingsControlKind::edit, edit && name_allowed,
-          false, {}, 0, {},
-          Editors::view(editor_name, control_name, guild ? account_name : s.username.view(), edit && name_allowed)});
+    auto& name = row(control_name, UiSettingsControlKind::edit, edit && name_allowed);
+    name.label = guild ? utf8_literal("Server Nickname") : utf8_literal("Display Name");
+    name.description = profile_editor_gate_reason(p.tab, g, profile_editor_name);
+    name.editor = Editors::view(editor_name, control_name, guild ? account_name : s.username.view(), edit && name_allowed);
     push_error(control_name_error, guild ? ProfileEditErrorField::nick : ProfileEditErrorField::global_name);
     // Display Name Style (Nitro): the font and the effect (each a dropdown) and the effect's colours, which open
     // the colour picker. Choosing either starts a style; Remove Style returns the plain name.
@@ -707,13 +725,15 @@ void project_controls(TextBank& bank) noexcept {
         p.effect_choices[i] = kProfileNameEffects[i].name;
     const u32 font = styled ? profile_name_font_index(style.font) : ~0u;
     const u32 name_effect = styled ? profile_name_effect_index(style.effect) : ~0u;
-    push({control_name_style, utf8_literal("Display Name Font"),
-          profile_editor_gate_reason(p.tab, g, profile_editor_name_style), UiSettingsControlKind::choice,
-          edit && style_allowed, false, {p.font_choices, kProfileNameFontCount},
-          font == ~0u ? kUiSettingsNoChoice : font, {}, nullptr});
-    push({control_name_effect, utf8_literal("Display Name Effect"), {}, UiSettingsControlKind::choice,
-          edit && style_allowed, false, {p.effect_choices, kProfileNameEffectCount},
-          name_effect == ~0u ? kUiSettingsNoChoice : name_effect, {}, nullptr});
+    auto& fonts = row(control_name_style, UiSettingsControlKind::choice, edit && style_allowed);
+    fonts.label = utf8_literal("Display Name Font");
+    fonts.description = profile_editor_gate_reason(p.tab, g, profile_editor_name_style);
+    fonts.choices = {p.font_choices, kProfileNameFontCount};
+    fonts.selected_choice = font == ~0u ? kUiSettingsNoChoice : font;
+    auto& effects = row(control_name_effect, UiSettingsControlKind::choice, edit && style_allowed);
+    effects.label = utf8_literal("Display Name Effect");
+    effects.choices = {p.effect_choices, kProfileNameEffectCount};
+    effects.selected_choice = name_effect == ~0u ? kUiSettingsNoChoice : name_effect;
     if (styled) {
         // One colour, a gradient's start and end, or a palette's five (Gummy, Prism).
         static constexpr Utf8View kPalette[]{utf8_literal("1"), utf8_literal("2"), utf8_literal("3"), utf8_literal("4"),
@@ -722,61 +742,66 @@ void project_controls(TextBank& bank) noexcept {
             p.name_color_choices[i] = style.color_count == 1   ? utf8_literal("Color")
                                       : style.color_count == 2 ? (i ? utf8_literal("End") : utf8_literal("Start"))
                                                                : kPalette[i];
-        push({control_name_colors, utf8_literal("Display Name Color"), {}, UiSettingsControlKind::colors,
-              edit && (style_allowed || guild), false, {p.name_color_choices, style.color_count}, kUiSettingsNoChoice,
-              guild ? utf8_literal("Use Default") : utf8_literal("Remove Style"), nullptr});
+        auto& name_colors = row(control_name_colors, UiSettingsControlKind::colors, edit && (style_allowed || guild));
+        name_colors.label = utf8_literal("Display Name Color");
+        name_colors.choices = {p.name_color_choices, style.color_count};
+        name_colors.selected_choice = kUiSettingsNoChoice;
+        name_colors.action_label = guild ? utf8_literal("Use Default") : utf8_literal("Remove Style");
     }
     push_error(control_name_style_error, ProfileEditErrorField::name_style);
     // Pronouns: open to everyone.
     const Utf8View account_pronouns = s.pronouns.view();
-    push({control_pronouns, utf8_literal("Pronouns"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-          Editors::view(editor_pronouns, control_pronouns,
-                        guild && account_pronouns.bytes ? account_pronouns : utf8_literal("Add your pronouns"), edit)});
+    auto& pronouns = row(control_pronouns, UiSettingsControlKind::edit, edit);
+    pronouns.label = utf8_literal("Pronouns");
+    pronouns.editor = Editors::view(editor_pronouns, control_pronouns,
+                                    guild && account_pronouns.bytes ? account_pronouns : utf8_literal("Add your pronouns"),
+                                    edit);
     push_error(control_pronouns_error, ProfileEditErrorField::pronouns);
     // Per-server Nitro group explanation (no upsell).
     if (guild && !nitro())
-        push({control_nitro_note, {},
-              utf8_literal("Customize your profile for every server, from avatar decorations to bios. Only with Nitro."),
-              UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr});
+        row(control_nitro_note, UiSettingsControlKind::notice, true).description =
+            utf8_literal("Customize your profile for every server, from avatar decorations to bios. Only with Nitro.");
     // Avatar.
     const bool avatar_allowed = (g.enabled & profile_editor_avatar) != 0;
     const bool has_avatar = p.draft.avatar == ProfileImageEdit::replace ||
                             (p.draft.avatar == ProfileImageEdit::keep && p.base.avatar);
     p.avatar_buttons[0] = utf8_literal("Change Avatar");
     p.avatar_buttons[1] = guild ? utf8_literal("Reset Avatar") : utf8_literal("Remove Avatar");
-    push({control_avatar, utf8_literal("Avatar"), profile_editor_gate_reason(p.tab, g, profile_editor_avatar),
-          UiSettingsControlKind::buttons, edit && (avatar_allowed || has_avatar) && !p.picker.runtime, false,
-          {p.avatar_buttons, has_avatar ? 2u : 1u}, kUiSettingsNoChoice, {}, nullptr});
+    auto& avatar = buttons(control_avatar, edit && (avatar_allowed || has_avatar) && !p.picker.runtime,
+                           p.avatar_buttons, has_avatar);
+    avatar.label = utf8_literal("Avatar");
+    avatar.description = profile_editor_gate_reason(p.tab, g, profile_editor_avatar);
     push_error(control_avatar_error, ProfileEditErrorField::avatar);
     // Avatar Decoration and Profile Effect: owned collectibles.
     const bool decoration_allowed = (g.enabled & profile_editor_decoration) != 0;
     const u64 decoration = current_sku(true);
     p.decoration_buttons[0] = utf8_literal("Change Decoration");
     p.decoration_buttons[1] = guild && p.saved.decoration_sku ? utf8_literal("Use Default") : utf8_literal("Remove Decoration");
-    push({control_decoration, utf8_literal("Avatar Decoration"),
-          profile_editor_gate_reason(p.tab, g, profile_editor_decoration), UiSettingsControlKind::buttons,
-          edit && decoration_allowed, false, {p.decoration_buttons, decoration ? 2u : 1u}, kUiSettingsNoChoice, {},
-          nullptr});
+    auto& decorations = buttons(control_decoration, edit && decoration_allowed, p.decoration_buttons, decoration);
+    decorations.label = utf8_literal("Avatar Decoration");
+    decorations.description = profile_editor_gate_reason(p.tab, g, profile_editor_decoration);
     const bool effect_allowed = (g.enabled & profile_editor_effect) != 0;
     const u64 effect = current_sku(false);
     p.effect_buttons[0] = utf8_literal("Change Effect");
     p.effect_buttons[1] = guild ? utf8_literal("Use Default") : utf8_literal("Remove Effect");
-    push({control_effect, utf8_literal("Profile Effect"), profile_editor_gate_reason(p.tab, g, profile_editor_effect),
-          UiSettingsControlKind::buttons, edit && effect_allowed, false, {p.effect_buttons, effect ? 2u : 1u},
-          kUiSettingsNoChoice, {}, nullptr});
+    auto& effect_row = buttons(control_effect, edit && effect_allowed, p.effect_buttons, effect);
+    effect_row.label = utf8_literal("Profile Effect");
+    effect_row.description = profile_editor_gate_reason(p.tab, g, profile_editor_effect);
     // Nameplate: an owned collectible shown behind the name in member lists.
     const bool nameplate_allowed = (g.enabled & profile_editor_nameplate) != 0;
     p.nameplate_buttons[0] = utf8_literal("Change Nameplate");
     p.nameplate_buttons[1] = guild ? utf8_literal("Use Default") : utf8_literal("Remove Nameplate");
-    push({control_nameplate, utf8_literal("Nameplate"), profile_editor_gate_reason(p.tab, g, profile_editor_nameplate),
-          UiSettingsControlKind::buttons, edit && nameplate_allowed, false,
-          {p.nameplate_buttons, p.draft.nameplate_sku ? 2u : 1u}, kUiSettingsNoChoice, {}, nullptr});
+    auto& nameplate = buttons(control_nameplate, edit && nameplate_allowed, p.nameplate_buttons, p.draft.nameplate_sku);
+    nameplate.label = utf8_literal("Nameplate");
+    nameplate.description = profile_editor_gate_reason(p.tab, g, profile_editor_nameplate);
     push_error(control_nameplate_error, ProfileEditErrorField::nameplate);
     // Main profile without Nitro: the free Banner Color.
     if (!guild && !nitro()) {
         p.accent_choices[0] = utf8_literal("Banner Color");
-        push({control_accent, utf8_literal("Banner Color"), {}, UiSettingsControlKind::colors, edit, false,
-              {p.accent_choices, 1}, kUiSettingsNoChoice, {}, nullptr});
+        auto& accent = row(control_accent, UiSettingsControlKind::colors, edit);
+        accent.label = p.accent_choices[0];
+        accent.choices = {p.accent_choices, 1};
+        accent.selected_choice = kUiSettingsNoChoice;
     }
     // Profile Banner (Nitro).
     const bool banner_allowed = (g.enabled & profile_editor_banner) != 0;
@@ -785,11 +810,11 @@ void project_controls(TextBank& bank) noexcept {
     p.banner_buttons[0] = utf8_literal("Change Banner");
     p.banner_buttons[1] = guild ? utf8_literal("Reset Banner") : utf8_literal("Remove Banner");
     const Utf8View banner_reason = profile_editor_gate_reason(p.tab, g, profile_editor_banner);
-    push({control_banner, utf8_literal("Profile Banner"),
-          banner_reason.bytes ? banner_reason
-                              : utf8_literal("Upload a PNG, JPG, or GIF under 10MB. Images should be at least 680x240."),
-          UiSettingsControlKind::buttons, edit && (banner_allowed || (guild && has_banner)) && !p.picker.runtime, false,
-          {p.banner_buttons, has_banner ? 2u : 1u}, kUiSettingsNoChoice, {}, nullptr});
+    auto& banner = buttons(control_banner, edit && (banner_allowed || (guild && has_banner)) && !p.picker.runtime,
+                           p.banner_buttons, has_banner);
+    banner.label = utf8_literal("Profile Banner");
+    banner.description = banner_reason.bytes ? banner_reason
+                         : utf8_literal("Upload a PNG, JPG, or GIF under 10MB. Images should be at least 680x240.");
     push_error(control_banner_error, ProfileEditErrorField::banner);
     // Profile Theme (Nitro): Primary and Accent; servers can reset theirs.
     const bool theme_allowed = (g.enabled & profile_editor_theme) != 0;
@@ -797,29 +822,35 @@ void project_controls(TextBank& bank) noexcept {
     p.theme_choices[1] = utf8_literal("Accent");
     u32 colors[2]{};
     const bool themed = effective_theme(colors) == 2;
-    push({control_theme, utf8_literal("Profile Theme"), profile_editor_gate_reason(p.tab, g, profile_editor_theme),
-          UiSettingsControlKind::colors, edit && theme_allowed, false, {p.theme_choices, 2}, kUiSettingsNoChoice,
-          themed ? utf8_literal("Reset Theme") : Utf8View{}, nullptr});
+    auto& theme = row(control_theme, UiSettingsControlKind::colors, edit && theme_allowed);
+    theme.label = utf8_literal("Profile Theme");
+    theme.description = profile_editor_gate_reason(p.tab, g, profile_editor_theme);
+    theme.choices = {p.theme_choices, 2};
+    theme.selected_choice = kUiSettingsNoChoice;
+    if (themed)
+        theme.action_label = utf8_literal("Reset Theme");
     // Bio: markdown, the remaining-characters counter inside the field.
     const bool bio_allowed = (g.enabled & profile_editor_bio) != 0;
-    const auto bio = editor_text(editor_bio);
-    const i32 remaining = profile_editor_bio_remaining(bio);
+    const i32 remaining = profile_editor_bio_remaining(editor_text(editor_bio));
     const u32 counter_start = bank.used;
     if (remaining < 0)
         bank.add("-");
     bank.number(static_cast<u64>(remaining < 0 ? -i64{remaining} : remaining));
-    const Utf8View counter = bank.since(counter_start);
     const Utf8View bio_reason = profile_editor_gate_reason(p.tab, g, profile_editor_bio);
-    push({control_bio, utf8_literal("Bio"),
-          bio_reason.bytes ? bio_reason : utf8_literal("You can use markdown and links if you\xE2\x80\x99" "d like."),
-          UiSettingsControlKind::multiline, edit && bio_allowed, false, {}, 0, counter,
-          Editors::view(editor_bio, control_bio,
-                        guild ? utf8_literal("Tell this server a bit about yourself") : Utf8View{}, edit && bio_allowed)},
-         {remaining < 0 ? UiSettingsVariant::critical : UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
+    auto& bio = row(control_bio, UiSettingsControlKind::multiline, edit && bio_allowed);
+    bio.label = utf8_literal("Bio");
+    bio.description =
+        bio_reason.bytes ? bio_reason : utf8_literal("You can use markdown and links if you\xE2\x80\x99" "d like.");
+    bio.action_label = bank.since(counter_start);
+    bio.editor = Editors::view(editor_bio, control_bio,
+                               guild ? utf8_literal("Tell this server a bit about yourself") : Utf8View{},
+                               edit && bio_allowed);
+    if (remaining < 0)
+        p.presentation[p.control_count - 1].variant = UiSettingsVariant::critical;
     push_error(control_bio_error, ProfileEditErrorField::bio);
     push_error(control_misc_error, ProfileEditErrorField::misc);
     if (p.status.bytes && !p.failed)
-        push({control_status_note, p.status, {}, UiSettingsControlKind::error, true, false, {}, 0, {}, nullptr});
+        row(control_status_note, UiSettingsControlKind::error, true).label = p.status;
 }
 
 } // namespace

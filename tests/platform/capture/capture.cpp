@@ -250,8 +250,8 @@ void test_pods() noexcept {
               settled.video_format == kVideoFormatRgba,
           "pods: a fixed modifier reads back as settled");
     check(build_enum_formats(g_pods, 64, pods, 30, false, 0, 0) == 0, "pods: storage that is too small writes nothing");
-    check(build_buffer_params(g_pods, sizeof(g_pods), pods) == 2 &&
-              pod_equals(pods[0], kGoldenBuffers, sizeof(kGoldenBuffers) / 4) &&
+    buffer_params(pods);
+    check(pod_equals(pods[0], kGoldenBuffers, sizeof(kGoldenBuffers) / 4) &&
               pod_equals(pods[1], kGoldenMeta, sizeof(kGoldenMeta) / 4),
           "pods: dma-buf buffers and the header meta are libspa's byte for byte");
     // Hostile input: a truncated object, another object type, an unaccepted format.
@@ -275,10 +275,7 @@ const u32 kGoldenAudio[] = {0xa0,  0xf, 0x40003, 0x3,     0x1,  0x0, 0x4,     0x
                             0x10,  0xd, 0x4,     0x3,     0x3,  0x4};
 
 void test_stream_audio_rules() noexcept {
-    const Pod* format = nullptr;
-    check(build_audio_format(g_pods, sizeof(g_pods), &format) &&
-              pod_equals(format, kGoldenAudio, sizeof(kGoldenAudio) / 4) &&
-              !build_audio_format(g_pods, 64, &format) && !format,
+    check(pod_equals(audio_format(), kGoldenAudio, sizeof(kGoldenAudio) / 4),
           "stream audio: the 48 kHz stereo S16LE capture format is libspa's byte for byte");
     const StreamAudioOptions screen{StreamAudioScope::everything, 0};
     check(stream_audio_node_recorded(true, 4242, 1000, screen),

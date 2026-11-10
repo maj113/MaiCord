@@ -95,6 +95,13 @@ const Entry* entries(const UiSettingsScene& scene) noexcept;
 bool editor_kind(UiSettingsControlKind kind) noexcept;
 float section_trailing(const UiSettingsPageContent& content, u32 index) noexcept;
 const UiSettingsControlPresentation* presentation(const UiSettingsPageContent& content, u32 index) noexcept;
+// A row's presentation read once: its flags (UiSettingsPresentationFlag), more bits (UiSettingsPresentationMore)
+// and variant (standard when out of range); all zero without a presentation.
+struct RowLook {
+    u8 flags, more;
+    UiSettingsVariant variant;
+};
+RowLook row_look(const UiSettingsPageContent& content, u32 index) noexcept;
 bool marks(const UiSettingsPageContent& content, u32 index) noexcept;
 bool link(const UiSettingsPageContent& content, u32 index) noexcept;
 bool has_flag(const UiSettingsPageContent& content, u32 index, u8 flag) noexcept;

@@ -11,9 +11,8 @@ enum class ApplicationNoticeSource : u8 { streamer_mode, test_mode, count };
 // Re-reads the sources and, when the shown notice or its expansion changed, lays the shell out again. Cheap when
 // nothing changed; the main loop calls it every frame.
 void application_notice_synchronize(u64 now_ms) noexcept;
-// The band to lay out (UiShellLayoutMetrics::notice_height, UiScene::notice): null and 0 without one.
+// The band to lay out (UiScene::notice; its height is UiShellLayoutMetrics::notice_height): null without one.
 const UiNoticeBand* application_notice_band() noexcept;
-float application_notice_height() noexcept;
 // A click at (x, y) content DIPs: the button runs its action, the X dismisses; true when the band took it.
 bool application_notice_click(float x, float y) noexcept;
 // The same parts by name (screen readers): false when the shown notice has no such part.

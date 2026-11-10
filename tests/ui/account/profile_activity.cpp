@@ -794,8 +794,7 @@ void test_shared_card() noexcept {
           "card: Active Now's section has no heading, 32 DIP art with its 16 DIP badge, text 12 after it");
     check(join && join->action == UiActivityCardAction::join && join->disabled && join->rect.right == 240 &&
               join->rect.top == 0 && same(join->hint, utf8_literal("Mossrun is not detected")) &&
-              title->rect.right <= join->rect.left - 12 &&
-              ui_activity_card_hit(card, join->rect.left + 1, 1) == static_cast<u8>(join - card.items),
+              title->rect.right <= join->rect.left - 12,
           "card: Ask to Join sits in its own column on the right, disabled with its reason");
     const auto* clock = find_item(card, UiActivityCardRole::clock);
     check(clock && same(clock->text, utf8_literal("1:40")) && ui_activity_card_timed(card) &&

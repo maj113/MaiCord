@@ -8,70 +8,11 @@ namespace {
 
 constexpr Utf8View kWebAuthnRpId = utf8_literal("discord.com");
 
-struct RootContext {
-    JsonValue public_key;
-    JsonString mediation;
-    WebAuthnMfaError error;
-    bool public_key_seen;
-    bool mediation_seen;
-};
-
-struct PublicKeyContext {
-    JsonString challenge;
-    JsonString rp_id;
-    JsonString user_verification;
-    JsonValue allow_credentials;
-    JsonValue extensions;
-    u32 timeout_ms;
-    WebAuthnMfaError error;
-    u32 fields;
-};
-
-struct CredentialArrayContext {
-    JsonValue values[kWebAuthnMfaMaximumAllowedCredentials];
-    WebAuthnMfaError error;
-    u32 count;
-};
-
-struct CredentialContext {
-    JsonString id;
-    JsonString type;
-    JsonValue transports;
-    WebAuthnMfaError error;
-    u8 fields;
-};
-
-struct TransportContext {
-    u32 flags;
-    WebAuthnMfaError error;
-};
-
-struct ExtensionContext {
-    WebAuthnMfaError error;
-    bool uvm;
-    bool uvm_seen;
-};
-
 WebAuthnMfaResult failure(WebAuthnMfaError error, u32 offset = 0,
                           JsonScanError scan_error = JsonScanError::none,
                           JsonReadError read_error = JsonReadError::none,
                           Base64UrlError base64_error = Base64UrlError::none, u32 bytes = 0) noexcept {
     return WebAuthnMfaResult{bytes, offset, error, scan_error, read_error, base64_error};
-}
-
-bool mark(u32* fields, u32 bit, WebAuthnMfaError* error) noexcept {
-    if ((*fields & bit) != 0) {
-        *error = WebAuthnMfaError::duplicate_field;
-        return false;
-    }
-    *fields |= bit;
-    return true;
-}
-
-bool reject(WebAuthnMfaError* error) noexcept {
-    if (*error == WebAuthnMfaError::none)
-        *error = WebAuthnMfaError::invalid_field;
-    return false;
 }
 
 bool decode_string(const JsonString& string, const Slice<char>& output, u32* bytes) noexcept {
@@ -91,83 +32,147 @@ template <protocol_detail::MemberName... Names> u32 short_string_index(const Jso
     return result.ok() ? protocol_detail::member_index<Names...>(JsonString{{decoded, result.bytes}, 0, false}) : ~0u;
 }
 
-bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<RootContext*>(opaque);
-    const u32 index = protocol_detail::member_index<"publicKey", "mediation">(name);
-    if (index == 0) {
-        if (context->public_key_seen) {
-            context->error = WebAuthnMfaError::duplicate_field;
-            return false;
-        }
-        context->public_key_seen = true;
-        if (value.kind != JsonValueKind::object) {
-            context->error = WebAuthnMfaError::invalid_field;
-            return false;
-        }
-        context->public_key = value;
-    } else if (index == 1) {
-        if (context->mediation_seen) {
-            context->error = WebAuthnMfaError::duplicate_field;
-            return false;
-        }
-        context->mediation_seen = true;
-        if (!json_value_as_string(value, &context->mediation)) {
-            context->error = WebAuthnMfaError::invalid_field;
-            return false;
-        }
+// The structural index and depth limit the visits of one document share.
+struct Document {
+    Slice<u32> scratch;
+    u32 maximum_depth;
+};
+
+// Visits an object (`members`) or an array (`items`). Every visitor context starts with the error its visitor stopped
+// on; a visit that fails without one failed on the JSON itself.
+WebAuthnMfaResult visit(const Document& document, const JsonValue& value, JsonMemberVisitor members,
+                        JsonArrayVisitor items, void* context) noexcept {
+    const JsonScanResult scan = json_scan_structurals_avx1(value.source, document.scratch);
+    if (!scan.ok()) {
+        return failure(WebAuthnMfaError::scan_failed, scan.error_offset, scan.error);
     }
+    const ConstSlice<u32> structurals{document.scratch.data, scan.count};
+    const JsonReadResult read =
+        members ? json_visit_value_object(value, structurals, document.maximum_depth, members, context)
+                : json_visit_value_array(value, structurals, document.maximum_depth, items, context);
+    if (read.ok()) {
+        return failure(WebAuthnMfaError::none);
+    }
+    const WebAuthnMfaError stopped = *static_cast<const WebAuthnMfaError*>(context);
+    return failure(stopped != WebAuthnMfaError::none ? stopped : WebAuthnMfaError::invalid_json, read.error_offset,
+                   JsonScanError::none, read.error);
+}
+
+// How a member is read: an object or array (the JsonValueKind values) or a string, kept as found, or a timeout (1 to
+// 600000 ms), boolean or COSE algorithm, converted as it is read.
+enum class MemberKind : u8 { object, array, string, timeout, flag, integer };
+
+// The kinds of an object's members, four bits each in list order.
+template <typename... Kinds> constexpr u32 member_kinds(Kinds... kinds) noexcept {
+    u32 packed = 0;
+    u32 shift = 0;
+    ((packed |= static_cast<u32>(kinds) << shift, shift += 4), ...);
+    return packed;
+}
+
+// The members of one object that `names` (a MemberNames list) lists, each at most once and of its kind.
+struct Members {
+    WebAuthnMfaError error;
+    u32 fields; // 1 << position of every member seen
+    const u8* names;
+    u32 kinds;
+    union Member {
+        JsonValue value;
+        JsonString string;
+    } member[8];
+    u32 timeout_ms;
+    i32 integer;
+    bool flag;
+};
+
+// A COSE algorithm: a whole number of at most seven digits.
+bool read_integer(const JsonValue& value, i32* output) noexcept {
+    const Utf8View text = value.source;
+    if (value.kind != JsonValueKind::number || text.bytes == 0 || text.bytes > 8) {
+        return false;
+    }
+    u32 at = text.data[0] == '-' ? 1u : 0u;
+    if (at == text.bytes) {
+        return false;
+    }
+    i32 result = 0;
+    for (; at < text.bytes; ++at) {
+        if (text.data[at] < '0' || text.data[at] > '9') {
+            return false;
+        }
+        result = result * 10 + (text.data[at] - '0');
+    }
+    *output = text.data[0] == '-' ? -result : result;
     return true;
 }
 
-bool visit_public_key(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<PublicKeyContext*>(opaque);
-    const u32 index = protocol_detail::member_index<"challenge", "rpId", "timeout", "allowCredentials",
-                                                    "userVerification", "extensions">(name);
-    if (index > 5) {
+bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* members = static_cast<Members*>(opaque);
+    const u32 index = protocol_detail::member_index(name, members->names);
+    if (index >= members->names[0]) {
         return true;
     }
-    if (!mark(&context->fields, 1u << index, &context->error)) {
-        return reject(&context->error);
+    if ((members->fields & (1u << index)) != 0) {
+        members->error = WebAuthnMfaError::duplicate_field;
+        return false;
     }
-    switch (index) {
-    case 0:
-        if (!json_value_as_string(value, &context->challenge)) {
-            return reject(&context->error);
-        }
+    members->fields |= 1u << index;
+    const auto kind = static_cast<MemberKind>((members->kinds >> (index * 4)) & 15u);
+    bool valid = false;
+    switch (kind) {
+    case MemberKind::object:
+    case MemberKind::array:
+        valid = value.kind == static_cast<JsonValueKind>(kind);
+        members->member[index].value = value;
         break;
-    case 1:
-        if (!json_value_as_string(value, &context->rp_id)) {
-            return reject(&context->error);
-        }
+    case MemberKind::string:
+        valid = json_value_as_string(value, &members->member[index].string);
         break;
-    case 2: {
+    case MemberKind::timeout: {
         u64 timeout = 0;
-        if (!json_value_to_u64(value, &timeout) || timeout == 0 || timeout > 600'000ull) {
-            return reject(&context->error);
-        }
-        context->timeout_ms = static_cast<u32>(timeout);
+        valid = json_value_to_u64(value, &timeout) && timeout != 0 && timeout <= 600'000ull;
+        members->timeout_ms = static_cast<u32>(timeout);
         break;
     }
-    case 3:
-        if (value.kind != JsonValueKind::array) {
-            return reject(&context->error);
-        }
-        context->allow_credentials = value;
-        break;
-    case 4:
-        if (!json_value_as_string(value, &context->user_verification)) {
-            return reject(&context->error);
-        }
+    case MemberKind::flag:
+        valid = json_value_to_bool(value, &members->flag);
         break;
     default:
-        if (value.kind != JsonValueKind::object) {
-            return reject(&context->error);
-        }
-        context->extensions = value;
+        valid = read_integer(value, &members->integer);
         break;
     }
-    return true;
+    if (!valid) {
+        members->error = WebAuthnMfaError::invalid_field;
+    }
+    return valid;
 }
+
+template <protocol_detail::MemberName... Names>
+__forceinline WebAuthnMfaResult read_members(const Document& document, const JsonValue& value, u32 kinds,
+                                             Members* members) noexcept {
+    members->names = protocol_detail::MemberNames<Names...>::data.bytes;
+    members->kinds = kinds;
+    return visit(document, value, visit_member, nullptr, members);
+}
+
+// The root object: publicKey (an object, required) as member 0, mediation as member 1.
+WebAuthnMfaResult read_root(const Document& document, const Utf8View& json, Members* root) noexcept {
+    const WebAuthnMfaResult read = read_members<"publicKey", "mediation">(
+        document, JsonValue{json, 0, JsonValueKind::object, false},
+        member_kinds(MemberKind::object, MemberKind::string), root);
+    return !read.ok() || (root->fields & 1u) != 0 ? read : failure(WebAuthnMfaError::missing_required_field);
+}
+
+struct CredentialArrayContext {
+    WebAuthnMfaError error;
+    u32 count;
+    JsonValue values[kWebAuthnMfaMaximumAllowedCredentials];
+};
+
+struct TransportContext {
+    WebAuthnMfaError error;
+    u32 flags;
+};
 
 bool visit_credential_array(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<CredentialArrayContext*>(opaque);
@@ -180,27 +185,6 @@ bool visit_credential_array(void* opaque, u32, JsonValue value) noexcept {
         return false;
     }
     context->values[context->count++] = value;
-    return true;
-}
-
-bool visit_credential(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<CredentialContext*>(opaque);
-    u32 fields = context->fields;
-    const u32 index = protocol_detail::member_index<"id", "type", "transports">(name);
-    if (index < 3) {
-        if (!mark(&fields, 1u << index, &context->error)) {
-            return reject(&context->error);
-        }
-        if (index == 2) {
-            if (value.kind != JsonValueKind::array) {
-                return reject(&context->error);
-            }
-            context->transports = value;
-        } else if (!json_value_as_string(value, index == 0 ? &context->id : &context->type)) {
-            return reject(&context->error);
-        }
-    }
-    context->fields = static_cast<u8>(fields);
     return true;
 }
 
@@ -221,49 +205,6 @@ bool visit_transport(void* opaque, u32, JsonValue value) noexcept {
     return true;
 }
 
-bool visit_extension(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<ExtensionContext*>(opaque);
-    if (!json_string_equals_ascii(name, utf8_literal("uvm"))) {
-        return true;
-    }
-    if (context->uvm_seen) {
-        context->error = WebAuthnMfaError::duplicate_field;
-        return false;
-    }
-    context->uvm_seen = true;
-    if (!json_value_to_bool(value, &context->uvm)) {
-        context->error = WebAuthnMfaError::invalid_field;
-        return false;
-    }
-    return true;
-}
-
-WebAuthnMfaResult visit_object(JsonValue value, const Slice<u32>& scratch, u32 maximum_depth,
-                               JsonMemberVisitor visitor, void* context) noexcept {
-    const JsonScanResult scan = json_scan_structurals_avx1(value.source, scratch);
-    if (!scan.ok()) {
-        return failure(WebAuthnMfaError::scan_failed, scan.error_offset, scan.error);
-    }
-    const JsonReadResult read = json_visit_value_object(
-        value, ConstSlice<u32>{scratch.data, scan.count}, maximum_depth, visitor, context);
-    return read.ok() ? failure(WebAuthnMfaError::none)
-                     : failure(WebAuthnMfaError::invalid_json, read.error_offset, JsonScanError::none,
-                               read.error);
-}
-
-WebAuthnMfaResult visit_array(JsonValue value, const Slice<u32>& scratch, u32 maximum_depth,
-                              JsonArrayVisitor visitor, void* context) noexcept {
-    const JsonScanResult scan = json_scan_structurals_avx1(value.source, scratch);
-    if (!scan.ok()) {
-        return failure(WebAuthnMfaError::scan_failed, scan.error_offset, scan.error);
-    }
-    const JsonReadResult read = json_visit_value_array(
-        value, ConstSlice<u32>{scratch.data, scan.count}, maximum_depth, visitor, context);
-    return read.ok() ? failure(WebAuthnMfaError::none)
-                     : failure(WebAuthnMfaError::invalid_json, read.error_offset, JsonScanError::none,
-                               read.error);
-}
-
 u32 encoded_size(u32 bytes) noexcept {
     return (bytes / 3u) * 4u + (bytes % 3u == 0 ? 0u : bytes % 3u + 1u);
 }
@@ -277,23 +218,23 @@ bool valid_binary(const ConstSlice<u8>& value, bool require_nonempty) noexcept {
     return (!require_nonempty || value.count != 0) && (value.data || value.count == 0);
 }
 
-// The root object, read up to its publicKey member (root->public_key).
-WebAuthnMfaResult read_root(const Utf8View& json, const Slice<u32>& structural_scratch, u32 maximum_depth,
-                            RootContext* root) noexcept {
-    const JsonScanResult root_scan = json_scan_structurals_avx1(json, structural_scratch);
-    if (!root_scan.ok()) {
-        return failure(WebAuthnMfaError::scan_failed, root_scan.error_offset, root_scan.error);
+// The relying party id, which must be discord.com. Only then is `bytes` of `output` (request options, or creation
+// options, which start with them) cleared and given the relying party and the timeout: a refused relying party leaves
+// the output alone.
+WebAuthnMfaResult start_options(const JsonString& rp_id, u32 timeout_ms, WebAuthnMfaRequestOptions* output,
+                                u32 bytes) noexcept {
+    char decoded[kWebAuthnMfaMaximumRpIdBytes];
+    u32 decoded_bytes = 0;
+    if (!decode_string(rp_id, Slice<char>{decoded, static_cast<u32>(sizeof(decoded))}, &decoded_bytes)) {
+        return failure(WebAuthnMfaError::value_too_large, rp_id.source_offset);
     }
-    const JsonReadResult root_read = json_visit_root_object(
-        json, ConstSlice<u32>{structural_scratch.data, root_scan.count}, maximum_depth, visit_root, root);
-    if (!root_read.ok()) {
-        return root->error != WebAuthnMfaError::none
-                   ? failure(root->error, root_read.error_offset, JsonScanError::none, root_read.error)
-                   : failure(WebAuthnMfaError::invalid_json, root_read.error_offset, JsonScanError::none,
-                             root_read.error);
+    if (!utf8_equal({decoded, decoded_bytes}, kWebAuthnRpId)) {
+        return failure(WebAuthnMfaError::relying_party_mismatch, rp_id.source_offset);
     }
-    return root->public_key_seen ? failure(WebAuthnMfaError::none)
-                                 : failure(WebAuthnMfaError::missing_required_field);
+    clear_bytes(output, bytes);
+    copy_bytes(output->rp_id, kWebAuthnRpId.data, kWebAuthnRpId.bytes);
+    output->timeout_ms = timeout_ms;
+    return failure(WebAuthnMfaError::none);
 }
 
 // A string member holding unpadded base64url, decoded into `output`.
@@ -321,38 +262,36 @@ WebAuthnMfaResult decode_challenge(const JsonString& string, WebAuthnMfaRequestO
 }
 
 // A credential list (allowCredentials, or excludeCredentials of a creation) appended to `parsed`.
-WebAuthnMfaResult decode_credential_list(const JsonValue& list, const Slice<u32>& structural_scratch,
-                                         u32 maximum_depth, WebAuthnMfaRequestOptions* parsed) noexcept {
+WebAuthnMfaResult decode_credential_list(const Document& document, const JsonValue& list,
+                                         WebAuthnMfaRequestOptions* parsed) noexcept {
     CredentialArrayContext credential_values{};
-    WebAuthnMfaResult visited = visit_array(list, structural_scratch, maximum_depth, visit_credential_array,
-                                            &credential_values);
+    WebAuthnMfaResult visited = visit(document, list, nullptr, visit_credential_array, &credential_values);
     if (!visited.ok()) {
-        return credential_values.error != WebAuthnMfaError::none
-                   ? failure(credential_values.error, visited.error_offset, visited.scan_error, visited.read_error)
-                   : visited;
+        return visited;
     }
     for (u32 index = 0; index < credential_values.count; ++index) {
-        CredentialContext credential{};
-        visited = visit_object(credential_values.values[index], structural_scratch, maximum_depth, visit_credential,
-                               &credential);
+        // id, type, transports
+        Members credential{};
+        visited = read_members<"id", "type", "transports">(
+            document, credential_values.values[index],
+            member_kinds(MemberKind::string, MemberKind::string, MemberKind::array), &credential);
         if (!visited.ok()) {
-            return credential.error != WebAuthnMfaError::none
-                       ? failure(credential.error, visited.error_offset, visited.scan_error, visited.read_error)
-                       : visited;
+            return visited;
         }
+        const JsonString& id = credential.member[0].string;
         if ((credential.fields & 3u) != 3u) {
             return failure(WebAuthnMfaError::missing_required_field, credential_values.values[index].source_offset);
         }
-        if (short_string_index<"public-key">(credential.type) != 0) {
-            return failure(WebAuthnMfaError::invalid_field, credential.type.source_offset);
+        if (short_string_index<"public-key">(credential.member[1].string) != 0) {
+            return failure(WebAuthnMfaError::invalid_field, credential.member[1].string.source_offset);
         }
         if (parsed->credential_id_bytes >= kWebAuthnMfaCredentialIdStorageBytes) {
-            return failure(WebAuthnMfaError::value_too_large, credential.id.source_offset);
+            return failure(WebAuthnMfaError::value_too_large, id.source_offset);
         }
         const u32 available = kWebAuthnMfaCredentialIdStorageBytes - parsed->credential_id_bytes;
         u32 id_bytes = 0;
         const WebAuthnMfaResult decoded_id =
-            decode_binary(credential.id,
+            decode_binary(id,
                           Slice<u8>{parsed->credential_ids + parsed->credential_id_bytes,
                                     minimum(available, kWebAuthnMfaMaximumCredentialIdBytes)},
                           &id_bytes);
@@ -362,12 +301,9 @@ WebAuthnMfaResult decode_credential_list(const JsonValue& list, const Slice<u32>
         WebAuthnAllowedCredential allowed{parsed->credential_id_bytes, id_bytes, webauthn_transport_none};
         if ((credential.fields & (1u << 2)) != 0) {
             TransportContext transports{};
-            visited = visit_array(credential.transports, structural_scratch, maximum_depth, visit_transport,
-                                  &transports);
+            visited = visit(document, credential.member[2].value, nullptr, visit_transport, &transports);
             if (!visited.ok()) {
-                return transports.error != WebAuthnMfaError::none
-                           ? failure(transports.error, visited.error_offset, visited.scan_error, visited.read_error)
-                           : visited;
+                return visited;
             }
             allowed.transports = transports.flags;
         }
@@ -377,144 +313,15 @@ WebAuthnMfaResult decode_credential_list(const JsonValue& list, const Slice<u32>
     return failure(WebAuthnMfaError::none);
 }
 
-// A creation challenge's publicKey members (rp, user, authenticatorSelection and the lists are read afterwards).
-struct CreationKeyContext {
-    JsonString challenge;
-    JsonString attestation;
-    JsonValue rp, user, parameters, excluded, selection;
-    u32 timeout_ms;
-    WebAuthnMfaError error;
-    u32 fields;
-};
-
-bool visit_creation_key(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<CreationKeyContext*>(opaque);
-    const u32 index = protocol_detail::member_index<"challenge", "rp", "user", "pubKeyCredParams", "timeout",
-                                                    "excludeCredentials", "authenticatorSelection",
-                                                    "attestation">(name);
-    if (index > 7) {
-        return true;
-    }
-    if (!mark(&context->fields, 1u << index, &context->error)) {
-        return reject(&context->error);
-    }
-    switch (index) {
-    case 0:
-        return json_value_as_string(value, &context->challenge) || reject(&context->error);
-    case 1:
-    case 2:
-    case 6:
-        if (value.kind != JsonValueKind::object) {
-            return reject(&context->error);
-        }
-        (index == 1 ? context->rp : index == 2 ? context->user : context->selection) = value;
-        return true;
-    case 3:
-    case 5:
-        if (value.kind != JsonValueKind::array) {
-            return reject(&context->error);
-        }
-        (index == 3 ? context->parameters : context->excluded) = value;
-        return true;
-    case 4: {
-        u64 timeout = 0;
-        if (!json_value_to_u64(value, &timeout) || timeout == 0 || timeout > 600'000ull) {
-            return reject(&context->error);
-        }
-        context->timeout_ms = static_cast<u32>(timeout);
-        return true;
-    }
-    default:
-        return json_value_as_string(value, &context->attestation) || reject(&context->error);
-    }
-}
-
-// rp ({id, name}) and user ({id, name, displayName}): strings all.
-struct EntityContext {
-    JsonString id, name, display;
-    WebAuthnMfaError error;
-    u32 fields;
-};
-
-bool visit_entity(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<EntityContext*>(opaque);
-    const u32 index = protocol_detail::member_index<"id", "name", "displayName">(name);
-    if (index > 2) {
-        return true;
-    }
-    if (!mark(&context->fields, 1u << index, &context->error)) {
-        return reject(&context->error);
-    }
-    return json_value_as_string(value, index == 0 ? &context->id : index == 1 ? &context->name : &context->display) ||
-           reject(&context->error);
-}
-
-struct SelectionContext {
-    JsonString attachment, resident, verification;
-    bool require_resident;
-    WebAuthnMfaError error;
-    u32 fields;
-};
-
-bool visit_selection(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<SelectionContext*>(opaque);
-    const u32 index = protocol_detail::member_index<"authenticatorAttachment", "residentKey", "requireResidentKey",
-                                                    "userVerification">(name);
-    if (index > 3) {
-        return true;
-    }
-    if (!mark(&context->fields, 1u << index, &context->error)) {
-        return reject(&context->error);
-    }
-    if (index == 2) {
-        return json_value_to_bool(value, &context->require_resident) || reject(&context->error);
-    }
-    return json_value_as_string(value, index == 0 ? &context->attachment
-                                      : index == 1 ? &context->resident
-                                                   : &context->verification) ||
-           reject(&context->error);
-}
-
-// One pubKeyCredParams entry: {"type": "public-key", "alg": -7}.
-struct ParameterContext {
-    JsonString type;
-    i32 algorithm;
-    WebAuthnMfaError error;
-    u32 fields;
-};
-
-// A COSE algorithm: a whole number of at most seven digits.
-bool read_integer(const JsonValue& value, i32* output) noexcept {
-    const Utf8View text = value.source;
-    if (value.kind != JsonValueKind::number || text.bytes == 0 || text.bytes > 8) {
-        return false;
-    }
-    u32 at = text.data[0] == '-' ? 1u : 0u;
-    if (at == text.bytes) {
-        return false;
-    }
-    i32 result = 0;
-    for (; at < text.bytes; ++at) {
-        if (text.data[at] < '0' || text.data[at] > '9') {
-            return false;
-        }
-        result = result * 10 + (text.data[at] - '0');
-    }
-    *output = text.data[0] == '-' ? -result : result;
-    return true;
-}
-
-bool visit_parameter(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<ParameterContext*>(opaque);
-    const u32 index = protocol_detail::member_index<"type", "alg">(name);
-    if (index > 1) {
-        return true;
-    }
-    if (!mark(&context->fields, 1u << index, &context->error)) {
-        return reject(&context->error);
-    }
-    return (index == 0 ? json_value_as_string(value, &context->type) : read_integer(value, &context->algorithm)) ||
-           reject(&context->error);
+// A name member (`index` of an entity) when present, into `output` (cleared, with room for the longest name and its
+// terminator).
+WebAuthnMfaResult decode_name(const Members& entity, u32 index, char* output) noexcept {
+    const JsonString& name = entity.member[index].string;
+    u32 bytes = 0;
+    return (entity.fields & (1u << index)) == 0 ||
+                   decode_string(name, Slice<char>{output, kWebAuthnMfaMaximumEntityNameBytes}, &bytes)
+               ? failure(WebAuthnMfaError::none)
+               : failure(WebAuthnMfaError::value_too_large, name.source_offset);
 }
 
 // CollectedClientData: the type's prefix up to the challenge, the challenge, then discord.com as the origin.
@@ -549,10 +356,10 @@ WebAuthnMfaResult write_client_data(const u8* challenge, u32 challenge_bytes, co
     return failure(WebAuthnMfaError::none, 0, JsonScanError::none, JsonReadError::none, Base64UrlError::none, offset);
 }
 
-// Writes the credential JSON twice (counting, then for real): a null destination only counts.
+// Writes the credential JSON twice (counting, then for real): only a writing emitter stores.
 struct Emitter {
     u8* destination;
-    u32 at;
+    u64 at;
     bool write;
 };
 
@@ -587,6 +394,87 @@ void emit_integer(Emitter* e, i32 value) noexcept {
     }
 }
 
+// The values of a PublicKeyCredential JSON (an assertion or an attestation).
+struct CredentialValues {
+    ConstSlice<u8> binary[4]; // binary[0] is the credential id
+    ConstSlice<u8> user_handle;
+    i32 algorithm;
+    u32 transports;
+    WebAuthnAuthenticatorAttachment attachment;
+};
+
+// Bytes of a credential template below 9 stand for values: 1-4 binary[0-3] as unpadded base64url, then the user
+// handle (a string, or null when empty), the algorithm, the transports and the attachment.
+enum : u8 { slot_user_handle = 5, slot_algorithm, slot_transports, slot_attachment };
+
+constexpr char kCredentialHead[] = R"({"id":")" "\1" R"(","rawId":")" "\1" R"(","response":{)";
+constexpr char kCredentialTail[] =
+    R"(},"type":"public-key","clientExtensionResults":{},"authenticatorAttachment":)" "\x08" "}";
+
+void emit_template(Emitter* e, const char* text, const CredentialValues& values) noexcept {
+    for (; *text != 0; ++text) {
+        const u8 slot = static_cast<u8>(*text);
+        if (slot > slot_attachment) {
+            emit_text(e, Utf8View{text, 1});
+        } else if (slot < slot_user_handle) {
+            emit_binary(e, values.binary[slot - 1]);
+        } else if (slot == slot_user_handle) {
+            if (values.user_handle.count == 0) {
+                emit_text(e, utf8_literal("null"));
+            } else {
+                emit_text(e, utf8_literal("\""));
+                emit_binary(e, values.user_handle);
+                emit_text(e, utf8_literal("\""));
+            }
+        } else if (slot == slot_algorithm) {
+            emit_integer(e, values.algorithm);
+        } else if (slot == slot_transports) {
+            constexpr Utf8View kNames[] = {utf8_literal("\"usb\""), utf8_literal("\"nfc\""), utf8_literal("\"ble\""),
+                                           utf8_literal("\"internal\""), utf8_literal("\"hybrid\"")};
+            constexpr u32 kBits[] = {webauthn_transport_usb, webauthn_transport_nfc, webauthn_transport_ble,
+                                     webauthn_transport_internal, webauthn_transport_hybrid};
+            bool first = true;
+            for (u32 index = 0; index < 5; ++index) {
+                if ((values.transports & kBits[index]) != 0) {
+                    if (!first) {
+                        emit_text(e, utf8_literal(","));
+                    }
+                    emit_text(e, kNames[index]);
+                    first = false;
+                }
+            }
+        } else {
+            emit_text(e, values.attachment == WebAuthnAuthenticatorAttachment::platform ? utf8_literal(R"("platform")")
+                         : values.attachment == WebAuthnAuthenticatorAttachment::cross_platform
+                             ? utf8_literal(R"("cross-platform")")
+                             : utf8_literal("null"));
+        }
+    }
+}
+
+// The credential: the head, the response members of `body`, the tail. Written twice: once to count, once for real,
+// so a short buffer is never half written.
+WebAuthnMfaResult write_credential(const char* body, const CredentialValues& values, Slice<u8> output) noexcept {
+    Emitter emitter{output.data, 0, false};
+    for (;;) {
+        emit_template(&emitter, kCredentialHead, values);
+        emit_template(&emitter, body, values);
+        emit_template(&emitter, kCredentialTail, values);
+        if (emitter.write) {
+            return failure(WebAuthnMfaError::none, 0, JsonScanError::none, JsonReadError::none,
+                           Base64UrlError::none, static_cast<u32>(emitter.at));
+        }
+        if (emitter.at > 0xFFFFFFFFull) {
+            return failure(WebAuthnMfaError::value_too_large);
+        }
+        if (emitter.at > output.count) {
+            return failure(WebAuthnMfaError::output_too_small, 0, JsonScanError::none, JsonReadError::none,
+                           Base64UrlError::none, static_cast<u32>(emitter.at));
+        }
+        emitter = Emitter{output.data, 0, true};
+    }
+}
+
 } // namespace
 
 WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structural_scratch,
@@ -596,86 +484,69 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
         structural_scratch.count == 0 || maximum_depth == 0) {
         return failure(WebAuthnMfaError::invalid_input);
     }
-    RootContext root{};
-    const WebAuthnMfaResult rooted = read_root(json, structural_scratch, maximum_depth, &root);
-    if (!rooted.ok()) {
-        return rooted;
+    const Document document{structural_scratch, maximum_depth};
+    Members root{};
+    WebAuthnMfaResult result = read_root(document, json, &root);
+    if (!result.ok()) {
+        return result;
     }
 
-    PublicKeyContext public_key{};
-    public_key.timeout_ms = 60'000;
-    WebAuthnMfaResult visited =
-        visit_object(root.public_key, structural_scratch, maximum_depth, visit_public_key, &public_key);
-    if (!visited.ok()) {
-        return public_key.error != WebAuthnMfaError::none
-                   ? failure(public_key.error, visited.error_offset, visited.scan_error, visited.read_error)
-                   : visited;
+    Members key{};
+    key.timeout_ms = 60'000;
+    result = read_members<"challenge", "rpId", "timeout", "allowCredentials", "userVerification", "extensions">(
+        document, root.member[0].value,
+        member_kinds(MemberKind::string, MemberKind::string, MemberKind::timeout, MemberKind::array,
+                     MemberKind::string, MemberKind::object),
+        &key);
+    if (!result.ok()) {
+        return result;
     }
-    constexpr u32 required_fields = (1u << 0) | (1u << 1);
-    if ((public_key.fields & required_fields) != required_fields) {
+    if ((key.fields & 3u) != 3u) {
         return failure(WebAuthnMfaError::missing_required_field);
     }
-
-    WebAuthnMfaRequestOptions parsed{};
-    parsed.timeout_ms = public_key.timeout_ms;
-    parsed.user_verification = WebAuthnUserVerification::preferred;
-    u32 rp_bytes = 0;
-    if (!decode_string(public_key.rp_id,
-                       Slice<char>{parsed.rp_id, static_cast<u32>(sizeof(parsed.rp_id) - 1)}, &rp_bytes)) {
-        return failure(WebAuthnMfaError::value_too_large, public_key.rp_id.source_offset);
+    result = start_options(key.member[1].string, key.timeout_ms, output, static_cast<u32>(sizeof(*output)));
+    if (!result.ok()) {
+        return result;
     }
-    if (!utf8_equal({parsed.rp_id, rp_bytes}, kWebAuthnRpId)) {
-        return failure(WebAuthnMfaError::relying_party_mismatch, public_key.rp_id.source_offset);
-    }
-    parsed.rp_id[rp_bytes] = 0;
-
-    const WebAuthnMfaResult challenge = decode_challenge(public_key.challenge, &parsed);
-    if (!challenge.ok()) {
-        return challenge;
+    result = decode_challenge(key.member[0].string, output);
+    if (!result.ok()) {
+        return result;
     }
 
-    if ((public_key.fields & (1u << 4)) != 0) {
-        const u32 verification =
-            short_string_index<"preferred", "required", "discouraged">(public_key.user_verification);
+    if ((key.fields & (1u << 4)) != 0) {
+        const JsonString& verification_text = key.member[4].string;
+        const u32 verification = short_string_index<"preferred", "required", "discouraged">(verification_text);
         if (verification == ~0u) {
             return failure(WebAuthnMfaError::invalid_field);
         }
         if (verification > 2) {
-            return failure(WebAuthnMfaError::invalid_field, public_key.user_verification.source_offset);
+            return failure(WebAuthnMfaError::invalid_field, verification_text.source_offset);
         }
-        parsed.user_verification = static_cast<WebAuthnUserVerification>(verification);
+        output->user_verification = static_cast<WebAuthnUserVerification>(verification);
     }
 
-    if (root.mediation_seen) {
-        const u32 mediation = short_string_index<"conditional", "optional", "required", "silent">(root.mediation);
+    if ((root.fields & 2u) != 0) {
+        const JsonString& mediation_text = root.member[1].string;
+        const u32 mediation = short_string_index<"conditional", "optional", "required", "silent">(mediation_text);
         if (mediation == ~0u) {
             return failure(WebAuthnMfaError::invalid_field);
         }
         if (mediation > 3) {
-            return failure(WebAuthnMfaError::invalid_field, root.mediation.source_offset);
+            return failure(WebAuthnMfaError::invalid_field, mediation_text.source_offset);
         }
     }
 
-    if ((public_key.fields & (1u << 3)) != 0) {
-        const WebAuthnMfaResult listed = decode_credential_list(public_key.allow_credentials, structural_scratch,
-                                                                maximum_depth, &parsed);
-        if (!listed.ok()) {
-            return listed;
+    if ((key.fields & (1u << 3)) != 0) {
+        result = decode_credential_list(document, key.member[3].value, output);
+        if (!result.ok()) {
+            return result;
         }
     }
 
-    if ((public_key.fields & (1u << 5)) != 0) {
-        ExtensionContext extensions{};
-        visited = visit_object(public_key.extensions, structural_scratch, maximum_depth, visit_extension,
-                               &extensions);
-        if (!visited.ok()) {
-            return extensions.error != WebAuthnMfaError::none
-                       ? failure(extensions.error, visited.error_offset, visited.scan_error,
-                                 visited.read_error)
-                       : visited;
-        }
+    if ((key.fields & (1u << 5)) != 0) {
+        Members extensions{};
+        return read_members<"uvm">(document, key.member[5].value, member_kinds(MemberKind::flag), &extensions);
     }
-    *output = parsed;
     return failure(WebAuthnMfaError::none);
 }
 
@@ -692,68 +563,12 @@ WebAuthnMfaResult webauthn_mfa_write_assertion(const WebAuthnMfaAssertionView& a
         !valid_binary(assertion.user_handle, false) || (!output.data && output.count != 0)) {
         return failure(WebAuthnMfaError::invalid_input);
     }
-    constexpr Utf8View prefix = utf8_literal(R"({"id":")");
-    constexpr Utf8View raw_id = utf8_literal(R"(","rawId":")");
-    constexpr Utf8View response = utf8_literal(R"(","response":{"authenticatorData":")");
-    constexpr Utf8View client = utf8_literal(R"(","clientDataJSON":")");
-    constexpr Utf8View signature = utf8_literal(R"(","signature":")");
-    constexpr Utf8View user = utf8_literal(R"(","userHandle":)");
-    constexpr Utf8View tail =
-        utf8_literal(R"(},"type":"public-key","clientExtensionResults":{},"authenticatorAttachment":)");
-    constexpr Utf8View null_value = utf8_literal("null");
-    constexpr Utf8View platform = utf8_literal(R"("platform")");
-    constexpr Utf8View cross_platform = utf8_literal(R"("cross-platform")");
-
-    const u32 id_bytes = encoded_size(assertion.credential_id.count);
-    const u32 client_bytes = encoded_size(assertion.client_data_json.count);
-    const u32 authenticator_bytes = encoded_size(assertion.authenticator_data.count);
-    const u32 signature_bytes = encoded_size(assertion.signature.count);
-    const u32 user_bytes = encoded_size(assertion.user_handle.count);
-    const Utf8View attachment = assertion.attachment == WebAuthnAuthenticatorAttachment::platform ? platform
-                                : assertion.attachment == WebAuthnAuthenticatorAttachment::cross_platform
-                                    ? cross_platform
-                                    : null_value;
-    const u64 required64 = static_cast<u64>(prefix.bytes) + id_bytes + raw_id.bytes + id_bytes +
-                           response.bytes + authenticator_bytes + client.bytes + client_bytes +
-                           signature.bytes + signature_bytes + user.bytes +
-                           (assertion.user_handle.count == 0 ? null_value.bytes : user_bytes + 2u) +
-                           tail.bytes + attachment.bytes + 1u;
-    if (required64 > 0xFFFFFFFFull) {
-        return failure(WebAuthnMfaError::value_too_large);
-    }
-    const u32 required = static_cast<u32>(required64);
-    if (required > output.count) {
-        return failure(WebAuthnMfaError::output_too_small, 0, JsonScanError::none, JsonReadError::none,
-                       Base64UrlError::none, required);
-    }
-    u32 offset = 0;
-    const auto binary = [&](const ConstSlice<u8>& value) noexcept {
-        offset += base64url_encode(value, Slice<char>{reinterpret_cast<char*>(output.data + offset), output.count - offset})
-                      .bytes;
-    };
-    write_literal(output, &offset, prefix);
-    binary(assertion.credential_id);
-    write_literal(output, &offset, raw_id);
-    binary(assertion.credential_id);
-    write_literal(output, &offset, response);
-    binary(assertion.authenticator_data);
-    write_literal(output, &offset, client);
-    binary(assertion.client_data_json);
-    write_literal(output, &offset, signature);
-    binary(assertion.signature);
-    write_literal(output, &offset, user);
-    if (assertion.user_handle.count == 0) {
-        write_literal(output, &offset, null_value);
-    } else {
-        output.data[offset++] = '"';
-        binary(assertion.user_handle);
-        output.data[offset++] = '"';
-    }
-    write_literal(output, &offset, tail);
-    write_literal(output, &offset, attachment);
-    output.data[offset++] = '}';
-    return failure(WebAuthnMfaError::none, 0, JsonScanError::none, JsonReadError::none,
-                   Base64UrlError::none, offset);
+    return write_credential(R"("authenticatorData":")" "\2" R"(","clientDataJSON":")" "\3" R"(","signature":")" "\4"
+                            R"(","userHandle":)" "\5",
+                            CredentialValues{{assertion.credential_id, assertion.authenticator_data,
+                                              assertion.client_data_json, assertion.signature},
+                                             assertion.user_handle, 0, 0, assertion.attachment},
+                            output);
 }
 
 WebAuthnMfaResult webauthn_mfa_decode_creation(Utf8View json, Slice<u32> structural_scratch, u32 maximum_depth,
@@ -762,183 +577,164 @@ WebAuthnMfaResult webauthn_mfa_decode_creation(Utf8View json, Slice<u32> structu
         maximum_depth == 0) {
         return failure(WebAuthnMfaError::invalid_input);
     }
-    RootContext root{};
-    WebAuthnMfaResult visited = read_root(json, structural_scratch, maximum_depth, &root);
-    if (!visited.ok()) {
-        return visited;
+    const Document document{structural_scratch, maximum_depth};
+    Members root{};
+    WebAuthnMfaResult result = read_root(document, json, &root);
+    if (!result.ok()) {
+        return result;
     }
-    CreationKeyContext key{};
+    Members key{};
     key.timeout_ms = 60'000;
-    visited = visit_object(root.public_key, structural_scratch, maximum_depth, visit_creation_key, &key);
-    if (!visited.ok()) {
-        return key.error != WebAuthnMfaError::none
-                   ? failure(key.error, visited.error_offset, visited.scan_error, visited.read_error)
-                   : visited;
+    result = read_members<"challenge", "rp", "user", "pubKeyCredParams", "timeout", "excludeCredentials",
+                          "authenticatorSelection", "attestation">(
+        document, root.member[0].value,
+        member_kinds(MemberKind::string, MemberKind::object, MemberKind::object, MemberKind::array,
+                     MemberKind::timeout, MemberKind::array, MemberKind::object, MemberKind::string),
+        &key);
+    if (!result.ok()) {
+        return result;
     }
-    constexpr u32 required_fields = (1u << 0) | (1u << 1) | (1u << 2);
-    if ((key.fields & required_fields) != required_fields) {
+    if ((key.fields & 7u) != 7u) {
         return failure(WebAuthnMfaError::missing_required_field);
     }
 
-    WebAuthnMfaCreationOptions parsed{};
-    WebAuthnMfaRequestOptions& request = parsed.request;
-    request.timeout_ms = key.timeout_ms;
-    request.user_verification = WebAuthnUserVerification::preferred;
-    parsed.attestation_none = true;
-
-    EntityContext rp{};
-    visited = visit_object(key.rp, structural_scratch, maximum_depth, visit_entity, &rp);
-    if (!visited.ok()) {
-        return rp.error != WebAuthnMfaError::none
-                   ? failure(rp.error, visited.error_offset, visited.scan_error, visited.read_error)
-                   : visited;
+    // rp ({id, name}) and user ({id, name, displayName}): strings all.
+    constexpr u32 kEntity = member_kinds(MemberKind::string, MemberKind::string, MemberKind::string);
+    Members rp{};
+    result = read_members<"id", "name", "displayName">(document, key.member[1].value, kEntity, &rp);
+    if (!result.ok()) {
+        return result;
     }
     if ((rp.fields & 1u) == 0) {
-        return failure(WebAuthnMfaError::missing_required_field, key.rp.source_offset);
+        return failure(WebAuthnMfaError::missing_required_field, key.member[1].value.source_offset);
     }
-    u32 text_bytes = 0;
-    if (!decode_string(rp.id, Slice<char>{request.rp_id, static_cast<u32>(sizeof(request.rp_id) - 1)}, &text_bytes)) {
-        return failure(WebAuthnMfaError::value_too_large, rp.id.source_offset);
+    WebAuthnMfaRequestOptions& request = output->request;
+    result = start_options(rp.member[0].string, key.timeout_ms, &request, static_cast<u32>(sizeof(*output)));
+    if (!result.ok()) {
+        return result;
     }
-    if (!utf8_equal({request.rp_id, text_bytes}, kWebAuthnRpId)) {
-        return failure(WebAuthnMfaError::relying_party_mismatch, rp.id.source_offset);
-    }
-    request.rp_id[text_bytes] = 0;
-    if ((rp.fields & 2u) != 0) {
-        if (!decode_string(rp.name, Slice<char>{parsed.rp_name, kWebAuthnMfaMaximumEntityNameBytes}, &text_bytes)) {
-            return failure(WebAuthnMfaError::value_too_large, rp.name.source_offset);
-        }
-        parsed.rp_name[text_bytes] = 0;
+    output->attestation_none = true;
+    result = decode_name(rp, 1, output->rp_name);
+    if (!result.ok()) {
+        return result;
     }
 
-    EntityContext user{};
-    visited = visit_object(key.user, structural_scratch, maximum_depth, visit_entity, &user);
-    if (!visited.ok()) {
-        return user.error != WebAuthnMfaError::none
-                   ? failure(user.error, visited.error_offset, visited.scan_error, visited.read_error)
-                   : visited;
+    Members user{};
+    result = read_members<"id", "name", "displayName">(document, key.member[2].value, kEntity, &user);
+    if (!result.ok()) {
+        return result;
     }
     if ((user.fields & 1u) == 0) {
-        return failure(WebAuthnMfaError::missing_required_field, key.user.source_offset);
+        return failure(WebAuthnMfaError::missing_required_field, key.member[2].value.source_offset);
     }
-    WebAuthnMfaResult decoded = decode_binary(user.id, Slice<u8>{parsed.user_id, kWebAuthnMfaMaximumUserIdBytes},
-                                              &parsed.user_id_bytes);
-    if (!decoded.ok()) {
-        return decoded;
+    result = decode_binary(user.member[0].string, Slice<u8>{output->user_id, kWebAuthnMfaMaximumUserIdBytes},
+                           &output->user_id_bytes);
+    if (!result.ok()) {
+        return result;
     }
-    if ((user.fields & 2u) != 0) {
-        if (!decode_string(user.name, Slice<char>{parsed.user_name, kWebAuthnMfaMaximumEntityNameBytes}, &text_bytes)) {
-            return failure(WebAuthnMfaError::value_too_large, user.name.source_offset);
-        }
-        parsed.user_name[text_bytes] = 0;
+    result = decode_name(user, 1, output->user_name);
+    if (!result.ok()) {
+        return result;
     }
-    if ((user.fields & 4u) != 0) {
-        if (!decode_string(user.display, Slice<char>{parsed.user_display_name, kWebAuthnMfaMaximumEntityNameBytes},
-                           &text_bytes)) {
-            return failure(WebAuthnMfaError::value_too_large, user.display.source_offset);
-        }
-        parsed.user_display_name[text_bytes] = 0;
+    result = decode_name(user, 2, output->user_display_name);
+    if (!result.ok()) {
+        return result;
     }
     // A key may show either name: each stands in for the other, and a user with neither is the account.
-    if (parsed.user_name[0] == 0) {
-        copy_bytes(parsed.user_name, parsed.user_display_name[0] ? parsed.user_display_name : "Discord",
-                   parsed.user_display_name[0] ? c_string_length(parsed.user_display_name) + 1 : 8u);
+    if (output->user_name[0] == 0) {
+        copy_bytes(output->user_name, output->user_display_name[0] ? output->user_display_name : "Discord",
+                   output->user_display_name[0] ? c_string_length(output->user_display_name) + 1 : 8u);
     }
-    if (parsed.user_display_name[0] == 0) {
-        copy_bytes(parsed.user_display_name, parsed.user_name, c_string_length(parsed.user_name) + 1);
+    if (output->user_display_name[0] == 0) {
+        copy_bytes(output->user_display_name, output->user_name, c_string_length(output->user_name) + 1);
     }
 
-    decoded = decode_challenge(key.challenge, &request);
-    if (!decoded.ok()) {
-        return decoded;
+    result = decode_challenge(key.member[0].string, &request);
+    if (!result.ok()) {
+        return result;
     }
 
     if ((key.fields & (1u << 3)) != 0) {
         CredentialArrayContext entries{};
-        visited = visit_array(key.parameters, structural_scratch, maximum_depth, visit_credential_array, &entries);
-        if (!visited.ok()) {
-            return entries.error != WebAuthnMfaError::none
-                       ? failure(entries.error, visited.error_offset, visited.scan_error, visited.read_error)
-                       : visited;
+        result = visit(document, key.member[3].value, nullptr, visit_credential_array, &entries);
+        if (!result.ok()) {
+            return result;
         }
         for (u32 index = 0; index < entries.count; ++index) {
-            ParameterContext parameter{};
-            visited = visit_object(entries.values[index], structural_scratch, maximum_depth, visit_parameter,
-                                   &parameter);
-            if (!visited.ok()) {
-                return parameter.error != WebAuthnMfaError::none
-                           ? failure(parameter.error, visited.error_offset, visited.scan_error, visited.read_error)
-                           : visited;
+            // {"type": "public-key", "alg": -7}
+            Members parameter{};
+            result = read_members<"type", "alg">(document, entries.values[index],
+                                                 member_kinds(MemberKind::string, MemberKind::integer), &parameter);
+            if (!result.ok()) {
+                return result;
             }
             // Entries of another type, or of an algorithm no key here offers, are left out.
-            if ((parameter.fields & 3u) != 3u || short_string_index<"public-key">(parameter.type) != 0 ||
-                parsed.algorithm_count == kWebAuthnMfaMaximumAlgorithms) {
+            if ((parameter.fields & 3u) != 3u || short_string_index<"public-key">(parameter.member[0].string) != 0 ||
+                output->algorithm_count == kWebAuthnMfaMaximumAlgorithms) {
                 continue;
             }
             bool listed = false;
-            for (u32 known = 0; known < parsed.algorithm_count; ++known) {
-                listed = listed || parsed.algorithms[known] == parameter.algorithm;
+            for (u32 known = 0; known < output->algorithm_count; ++known) {
+                listed = listed || output->algorithms[known] == parameter.integer;
             }
             if (!listed) {
-                parsed.algorithms[parsed.algorithm_count++] = parameter.algorithm;
+                output->algorithms[output->algorithm_count++] = parameter.integer;
             }
         }
     }
-    if (parsed.algorithm_count == 0) {
-        parsed.algorithms[0] = kWebAuthnCoseEs256;
-        parsed.algorithms[1] = kWebAuthnCoseRs256;
-        parsed.algorithm_count = 2;
+    if (output->algorithm_count == 0) {
+        output->algorithms[0] = kWebAuthnCoseEs256;
+        output->algorithms[1] = kWebAuthnCoseRs256;
+        output->algorithm_count = 2;
     }
 
     if ((key.fields & (1u << 6)) != 0) {
-        SelectionContext selection{};
-        visited = visit_object(key.selection, structural_scratch, maximum_depth, visit_selection, &selection);
-        if (!visited.ok()) {
-            return selection.error != WebAuthnMfaError::none
-                       ? failure(selection.error, visited.error_offset, visited.scan_error, visited.read_error)
-                       : visited;
+        Members selection{};
+        result = read_members<"authenticatorAttachment", "residentKey", "requireResidentKey", "userVerification">(
+            document, key.member[6].value,
+            member_kinds(MemberKind::string, MemberKind::string, MemberKind::flag, MemberKind::string), &selection);
+        if (!result.ok()) {
+            return result;
         }
         if ((selection.fields & 1u) != 0) {
-            const u32 attachment = short_string_index<"platform", "cross-platform">(selection.attachment);
+            const u32 attachment = short_string_index<"platform", "cross-platform">(selection.member[0].string);
             if (attachment == ~0u) {
-                return failure(WebAuthnMfaError::invalid_field, selection.attachment.source_offset);
+                return failure(WebAuthnMfaError::invalid_field, selection.member[0].string.source_offset);
             }
-            parsed.attachment = attachment == 0   ? WebAuthnAuthenticatorAttachment::platform
-                                : attachment == 1 ? WebAuthnAuthenticatorAttachment::cross_platform
-                                                  : WebAuthnAuthenticatorAttachment::unknown;
+            static constexpr WebAuthnAuthenticatorAttachment kAttachments[] = {
+                WebAuthnAuthenticatorAttachment::platform, WebAuthnAuthenticatorAttachment::cross_platform,
+                WebAuthnAuthenticatorAttachment::unknown};
+            output->attachment = kAttachments[attachment];
         }
         if ((selection.fields & 2u) != 0) {
-            const u32 resident = short_string_index<"discouraged", "preferred", "required">(selection.resident);
+            const u32 resident = short_string_index<"discouraged", "preferred", "required">(selection.member[1].string);
             if (resident > 2) {
-                return failure(WebAuthnMfaError::invalid_field, selection.resident.source_offset);
+                return failure(WebAuthnMfaError::invalid_field, selection.member[1].string.source_offset);
             }
-            parsed.resident_key = static_cast<WebAuthnResidentKey>(resident);
-        } else if (selection.require_resident) {
-            parsed.resident_key = WebAuthnResidentKey::required;
+            output->resident_key = static_cast<WebAuthnResidentKey>(resident);
+        } else if (selection.flag) {
+            output->resident_key = WebAuthnResidentKey::required;
         }
         if ((selection.fields & 8u) != 0) {
             const u32 verification =
-                short_string_index<"preferred", "required", "discouraged">(selection.verification);
+                short_string_index<"preferred", "required", "discouraged">(selection.member[3].string);
             if (verification > 2) {
-                return failure(WebAuthnMfaError::invalid_field, selection.verification.source_offset);
+                return failure(WebAuthnMfaError::invalid_field, selection.member[3].string.source_offset);
             }
             request.user_verification = static_cast<WebAuthnUserVerification>(verification);
         }
     }
     if ((key.fields & (1u << 7)) != 0) {
-        const u32 attestation = short_string_index<"none", "indirect", "direct", "enterprise">(key.attestation);
+        const u32 attestation =
+            short_string_index<"none", "indirect", "direct", "enterprise">(key.member[7].string);
         if (attestation > 3) {
-            return failure(WebAuthnMfaError::invalid_field, key.attestation.source_offset);
+            return failure(WebAuthnMfaError::invalid_field, key.member[7].string.source_offset);
         }
-        parsed.attestation_none = attestation == 0;
+        output->attestation_none = attestation == 0;
     }
     if ((key.fields & (1u << 5)) != 0) {
-        decoded = decode_credential_list(key.excluded, structural_scratch, maximum_depth, &request);
-        if (!decoded.ok()) {
-            return decoded;
-        }
+        return decode_credential_list(document, key.member[5].value, &request);
     }
-    *output = parsed;
     return failure(WebAuthnMfaError::none);
 }
 
@@ -1077,53 +873,14 @@ WebAuthnMfaResult webauthn_mfa_write_attestation(const WebAuthnMfaAttestationVie
         (!output.data && output.count != 0)) {
         return failure(WebAuthnMfaError::invalid_input);
     }
-    // Written twice: once to count, once for real, so a short buffer is never half written.
-    const auto run = [&](Emitter* e) noexcept {
-        emit_text(e, utf8_literal(R"({"id":")"));
-        emit_binary(e, attestation.credential_id);
-        emit_text(e, utf8_literal(R"(","rawId":")"));
-        emit_binary(e, attestation.credential_id);
-        emit_text(e, utf8_literal(R"(","response":{"attestationObject":")"));
-        emit_binary(e, attestation.attestation_object);
-        emit_text(e, utf8_literal(R"(","authenticatorData":")"));
-        emit_binary(e, attestation.authenticator_data);
-        emit_text(e, utf8_literal(R"(","clientDataJSON":")"));
-        emit_binary(e, attestation.client_data_json);
-        emit_text(e, utf8_literal(R"(","publicKeyAlgorithm":)"));
-        emit_integer(e, attestation.public_key_algorithm);
-        emit_text(e, utf8_literal(R"(,"transports":[)"));
-        constexpr Utf8View kNames[] = {utf8_literal("\"usb\""), utf8_literal("\"nfc\""), utf8_literal("\"ble\""),
-                                       utf8_literal("\"internal\""), utf8_literal("\"hybrid\"")};
-        constexpr u32 kBits[] = {webauthn_transport_usb, webauthn_transport_nfc, webauthn_transport_ble,
-                                 webauthn_transport_internal, webauthn_transport_hybrid};
-        bool first = true;
-        for (u32 index = 0; index < 5; ++index) {
-            if ((attestation.transports & kBits[index]) != 0) {
-                if (!first) {
-                    emit_text(e, utf8_literal(","));
-                }
-                emit_text(e, kNames[index]);
-                first = false;
-            }
-        }
-        emit_text(e, utf8_literal(R"(]},"type":"public-key","clientExtensionResults":{},"authenticatorAttachment":)"));
-        emit_text(e, attestation.attachment == WebAuthnAuthenticatorAttachment::platform
-                         ? utf8_literal(R"("platform")")
-                     : attestation.attachment == WebAuthnAuthenticatorAttachment::cross_platform
-                         ? utf8_literal(R"("cross-platform")")
-                         : utf8_literal("null"));
-        emit_text(e, utf8_literal("}"));
-    };
-    Emitter counter{};
-    run(&counter);
-    if (counter.at > output.count) {
-        return failure(WebAuthnMfaError::output_too_small, 0, JsonScanError::none, JsonReadError::none,
-                       Base64UrlError::none, counter.at);
-    }
-    Emitter writer{output.data, 0, true};
-    run(&writer);
-    return failure(WebAuthnMfaError::none, 0, JsonScanError::none, JsonReadError::none, Base64UrlError::none,
-                   writer.at);
+    return write_credential(R"("attestationObject":")" "\2" R"(","authenticatorData":")" "\3"
+                            R"(","clientDataJSON":")" "\4" R"(","publicKeyAlgorithm":)" "\6"
+                            R"(,"transports":[)" "\7" "]",
+                            CredentialValues{{attestation.credential_id, attestation.attestation_object,
+                                              attestation.authenticator_data, attestation.client_data_json},
+                                             {}, attestation.public_key_algorithm, attestation.transports,
+                                             attestation.attachment},
+                            output);
 }
 
 } // namespace maicord

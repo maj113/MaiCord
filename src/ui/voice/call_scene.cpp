@@ -801,10 +801,7 @@ Utf8View ui_call_control_label(const UiCallScene& s, UiCallControl control) noex
     case UiCallControl::camera:
         return utf8_literal("Camera isn't available yet");
     case UiCallControl::screen_share:
-        return s.share == UiCallShare::live          ? utf8_literal("Stop Streaming")
-               : s.share == UiCallShare::available   ? utf8_literal("Share Your Screen")
-               : s.share == UiCallShare::not_allowed ? utf8_literal("You can\xE2\x80\x99t stream into this channel.")
-                                                     : utf8_literal("Screen Sharing Unavailable");
+        return ui_call_share_label(s.share);
     case UiCallControl::disconnect:
         return utf8_literal("Disconnect");
     case UiCallControl::fullscreen:
@@ -827,6 +824,13 @@ Utf8View ui_call_control_label(const UiCallScene& s, UiCallControl control) noex
     default:
         return call_stage::label(s, control);
     }
+}
+
+Utf8View ui_call_share_label(UiCallShare share) noexcept {
+    return share == UiCallShare::live          ? utf8_literal("Stop Streaming")
+           : share == UiCallShare::available   ? utf8_literal("Share Your Screen")
+           : share == UiCallShare::not_allowed ? utf8_literal("You can\xE2\x80\x99t stream into this channel.")
+                                               : utf8_literal("Screen Sharing Unavailable");
 }
 
 Utf8View ui_call_stream_notice_text(UiCallStreamNotice notice) noexcept {

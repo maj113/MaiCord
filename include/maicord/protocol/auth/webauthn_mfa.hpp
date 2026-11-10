@@ -92,7 +92,9 @@ struct WebAuthnMfaAssertionView {
 // The API returns the WebAuthn challenge as decoded JSON of the form
 // {"publicKey": PublicKeyCredentialRequestOptions}. Only discord.com is
 // accepted as the relying party; the challenge is never allowed to retarget a
-// Windows credential ceremony.
+// Windows credential ceremony. The options are decoded in place: a refusal
+// up to and including the relying party leaves `output` alone, a later one
+// leaves it partly written (callers wipe it).
 WebAuthnMfaResult webauthn_mfa_decode_request(
     Utf8View json, Slice<u32> structural_scratch, u32 maximum_depth,
     WebAuthnMfaRequestOptions* output) noexcept;
@@ -144,7 +146,7 @@ struct WebAuthnMfaCreationOptions {
     bool attestation_none;
 };
 
-// The creation challenge's decoded JSON; the relying party must be discord.com.
+// The creation challenge's decoded JSON; the relying party must be discord.com. Decoded in place, as a request is.
 WebAuthnMfaResult webauthn_mfa_decode_creation(
     Utf8View json, Slice<u32> structural_scratch, u32 maximum_depth,
     WebAuthnMfaCreationOptions* output) noexcept;

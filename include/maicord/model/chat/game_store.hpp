@@ -98,10 +98,7 @@ void game_store_search_finish(GameStore* store, Utf8View query, ConstSlice<u64> 
 // Ids the official client never lists in search results.
 bool game_store_search_excluded(u64 id) noexcept;
 
-// <@$id> in text: the id when text starts with a whole game mention, else 0;
-// *bytes receives its length.
-u64 game_mention_at(Utf8View text, u32 offset, u32* bytes) noexcept;
-// Writes <@$id>; returns the bytes (0 when it does not fit).
+// Writes the game mention <@$id>; returns the bytes (0 when it does not fit).
 u32 game_mention_write(u64 id, Slice<char> output) noexcept;
 
 // The composer's game search token (the official client's @game inline

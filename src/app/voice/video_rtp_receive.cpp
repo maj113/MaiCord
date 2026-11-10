@@ -177,40 +177,31 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end, bool e
                                                                     : rtp_av1_keyframe(assembly));
     if (early) {
         // Opened ahead of its turn (see assemble): the stream's state is untouched.
-        if (intact && receiver.sink) {
-            VideoRtpFrame frame{};
-            frame.user_id = stream.user_id;
-            frame.annex_b = {receiver.frame, bytes};
-            frame.ssrc = stream.ssrc;
-            frame.rtp_timestamp = timestamp;
-            frame.codec = codec;
-            frame.keyframe = keyframe;
-            frame.early = true;
-            receiver.sink(receiver.sink_context, frame);
+        if (!intact)
+            return;
+    } else {
+        stream.prev_known = true;
+        stream.prev_timestamp = timestamp;
+        stream.prev_marker = true; // Either the marker or a timestamp change ended the unit.
+        stream.last_timestamp = timestamp;
+        stream.has_last_timestamp = true;
+        for (u64 sequence = stream.base; sequence <= end; ++sequence)
+            clear_slot(stream, sequence);
+        stream.base = end + 1;
+        if (!intact) {
+            ++stream.stats.damaged_frames;
+            lose(stream);
+            return;
         }
-        return;
+        if (keyframe) {
+            stream.keyframe_needed = false;
+            stream.references_lost = false;
+        } else if (!stream.keyframe_seen) {
+            stream.keyframe_needed = true; // Joined mid-stream: ask for a starting point.
+        }
+        stream.keyframe_seen = stream.keyframe_seen || keyframe;
+        ++stream.stats.frames;
     }
-    stream.prev_known = true;
-    stream.prev_timestamp = timestamp;
-    stream.prev_marker = true; // Either the marker or a timestamp change ended the unit.
-    stream.last_timestamp = timestamp;
-    stream.has_last_timestamp = true;
-    for (u64 sequence = stream.base; sequence <= end; ++sequence)
-        clear_slot(stream, sequence);
-    stream.base = end + 1;
-    if (!intact) {
-        ++stream.stats.damaged_frames;
-        lose(stream);
-        return;
-    }
-    if (keyframe) {
-        stream.keyframe_needed = false;
-        stream.references_lost = false;
-    } else if (!stream.keyframe_seen) {
-        stream.keyframe_needed = true; // Joined mid-stream: ask for a starting point.
-    }
-    stream.keyframe_seen = stream.keyframe_seen || keyframe;
-    ++stream.stats.frames;
     VideoRtpFrame frame{};
     frame.user_id = stream.user_id;
     frame.annex_b = {receiver.frame, bytes};
@@ -218,7 +209,8 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end, bool e
     frame.rtp_timestamp = timestamp;
     frame.codec = codec;
     frame.keyframe = keyframe;
-    frame.references_lost = stream.references_lost;
+    frame.references_lost = !early && stream.references_lost;
+    frame.early = early;
     if (receiver.sink)
         receiver.sink(receiver.sink_context, frame);
 }

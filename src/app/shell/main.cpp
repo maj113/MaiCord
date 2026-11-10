@@ -198,7 +198,10 @@ failed:
     return false;
 }
 
-int run_application() noexcept {
+// Once per process, before the notification and tooltip owners exist. Returns the exit code of a refused start,
+// else 0. Like the two functions after it, compiled for size with the setup it inlines: the loop between them is
+// the only part of the run that repeats.
+__attribute__((minsize)) int start_process() noexcept {
     g_app.clock = clock_initialize();
     g_app.process_start = clock_now();
     MAICORD_PERF_MARK("application_run");
@@ -232,16 +235,12 @@ int run_application() noexcept {
         log_write(LogLevel::warning, "notifications", "early_activation_unavailable");
     application_notifications_set_avatar_source(application_notification_avatar_uri);
 #endif
-    struct NotificationLifetime {
-        ~NotificationLifetime() {
-            application_notifications_release(&g_app);
-        }
-    } notification_lifetime;
-    struct TooltipLifetime {
-        ~TooltipLifetime() {
-            application_tooltip_release();
-        }
-    } tooltip_lifetime;
+    return 0;
+}
+
+// Once per process: the account prestart, the window, the renderer and the UI, up to the loop. Returns the exit code
+// of a failed start, having released what it created, else 0.
+__attribute__((minsize)) int start_interface() noexcept {
     log_write(LogLevel::info, "startup", "process_entry");
     // Connect first: the saved account's DNS/TCP/TLS/Gateway handshake runs on
     // its workers while the window, D3D11 device and UI are created below.
@@ -354,7 +353,77 @@ int run_application() noexcept {
         log_write(LogLevel::error, "auth", "remote_auth_initial_start_failed");
     }
 #endif
+    return 0;
+}
 
+// Once, after the loop: stops the account and releases every owner in dependency order.
+__attribute__((minsize)) void stop_application(int exit_code) noexcept {
+    g_app.frame_loop_active = false;
+    drain_deferred_text_services();
+    application_media_picker_close();
+    application_preferences_shutdown();
+    application_media_auth_shutdown();
+    // After Restart to update, a normal exit swaps in the update this process verified.
+    application_updates_release(exit_code == 0);
+    application_catalog_release();
+    application_notifications_prepare_shutdown(&g_app);
+    application_tooltip_release();
+    application_unread_banner_release();
+    application_toast_release();
+    application_guild_invite_release();
+    application_taskbar_attention_release();
+    application_composer_spellcheck_release();
+    application_desktop_release();
+    // The account's final startup shell records the folder layout.
+    application_stop_account();
+    application_guild_folders_release();
+    application_account_logout_release();
+    application_notifications_release(&g_app);
+    application_voice_message_release();
+    application_release_attachments();
+    application_forum_attachments_release();
+    application_forum_preview_release();
+    application_composer_preview_release();
+    g_app.renderer_ready = false;
+    application_persist_drafts_on_exit();
+    application_release_account_ui(g_app);
+    application_release_login_ui();
+    application_release_widget_storage(g_app);
+    application_packages_release();
+    if (!application_custom_theme_release(kAccountStopTimeoutMs))
+        log_write(LogLevel::warning, "theme", "theme_worker_shutdown_pending");
+    message_composer_release(&g_app.message_composer);
+    renderer_shutdown(&g_app.renderer);
+    application_theme_release();
+    animation_visual_runtime_release(&g_app.animations);
+    message_view_runtime_release(&g_app.message_view);
+    clipboard_attachment_shutdown();
+    // After Restart to update: start the (now updated) executable once this
+    // instance has released its window and profile.
+    application_updates_relaunch();
+    log_write(LogLevel::info, "shutdown", "normal_exit");
+    log_close();
+#if defined(MAICORD_PERF_PROBE)
+    perf::startup_trace_report();
+    perf::probe_finish(exit_code);
+#endif
+}
+
+int run_application() noexcept {
+    if (const int refused = start_process())
+        return refused;
+    struct NotificationLifetime {
+        ~NotificationLifetime() {
+            application_notifications_release(&g_app);
+        }
+    } notification_lifetime;
+    struct TooltipLifetime {
+        ~TooltipLifetime() {
+            application_tooltip_release();
+        }
+    } tooltip_lifetime;
+    if (const int failed = start_interface())
+        return failed;
     int exit_code = 0;
     constexpr u64 kFrameClockWatchdogUs = 100'000;
     constexpr u64 kFrameClockFallbackUs = 16'000;
@@ -763,55 +832,7 @@ int run_application() noexcept {
         application_update_frame_rate(application_now_us());
     }
 
-    g_app.frame_loop_active = false;
-    drain_deferred_text_services();
-    application_media_picker_close();
-    application_preferences_shutdown();
-    application_media_auth_shutdown();
-    // After Restart to update, a normal exit swaps in the update this process verified.
-    application_updates_release(exit_code == 0);
-    application_catalog_release();
-    application_notifications_prepare_shutdown(&g_app);
-    application_tooltip_release();
-    application_unread_banner_release();
-    application_toast_release();
-    application_guild_invite_release();
-    application_taskbar_attention_release();
-    application_composer_spellcheck_release();
-    application_desktop_release();
-    // The account's final startup shell records the folder layout.
-    application_stop_account();
-    application_guild_folders_release();
-    application_account_logout_release();
-    application_notifications_release(&g_app);
-    application_voice_message_release();
-    application_release_attachments();
-    application_forum_attachments_release();
-    application_forum_preview_release();
-    application_composer_preview_release();
-    g_app.renderer_ready = false;
-    application_persist_drafts_on_exit();
-    application_release_account_ui(g_app);
-    application_release_login_ui();
-    application_release_widget_storage(g_app);
-    application_packages_release();
-    if (!application_custom_theme_release(kAccountStopTimeoutMs))
-        log_write(LogLevel::warning, "theme", "theme_worker_shutdown_pending");
-    message_composer_release(&g_app.message_composer);
-    renderer_shutdown(&g_app.renderer);
-    application_theme_release();
-    animation_visual_runtime_release(&g_app.animations);
-    message_view_runtime_release(&g_app.message_view);
-    clipboard_attachment_shutdown();
-    // After Restart to update: start the (now updated) executable once this
-    // instance has released its window and profile.
-    application_updates_relaunch();
-    log_write(LogLevel::info, "shutdown", "normal_exit");
-    log_close();
-#if defined(MAICORD_PERF_PROBE)
-    perf::startup_trace_report();
-    perf::probe_finish(exit_code);
-#endif
+    stop_application(exit_code);
     return exit_code;
 }
 

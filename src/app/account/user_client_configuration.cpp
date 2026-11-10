@@ -263,6 +263,8 @@ UserClientConfigurationResult user_client_configuration_initialize(
     copy_bytes(storage->client_launch_id, launch_id, sizeof(launch_id));
     copy_bytes(storage->launch_signature, launch_signature, sizeof(launch_signature));
     ReleaseSRWLockExclusive(&launch_lock);
+    // Built in place: the storage is zero, as the configuration's unset fields must be.
+    GatewayUserClientConfiguration& configuration = storage->configuration;
 
 #if defined(_WIN32)
     // The host takes its locale from ICU's default, the user's format locale.
@@ -308,7 +310,6 @@ UserClientConfigurationResult user_client_configuration_initialize(
     u32 sdk_offset = os_version_bytes;
     while (storage->os_version[sdk_offset - 1] != '.')
         --sdk_offset;
-    GatewayUserClientConfiguration configuration{};
     configuration.properties = GatewayUserProperties{
         utf8_literal("Windows"),
         utf8_literal(kClientBrowser),
@@ -338,7 +339,6 @@ UserClientConfigurationResult user_client_configuration_initialize(
 #else
     LinuxClientEnvironmentBuffer environment_buffer;
     const LinuxClientEnvironment environment = linux_client_environment_read(&environment_buffer);
-    GatewayUserClientConfiguration configuration{};
     const UserClientConfigurationResult host =
         linux_client_identity_build(environment, storage, &configuration.properties);
     if (!host.ok())
@@ -347,7 +347,6 @@ UserClientConfigurationResult user_client_configuration_initialize(
     configuration.properties.launch_signature = Utf8View{storage->launch_signature, kGatewayUserLaunchIdBytes};
 #endif
     configuration.status = GatewayUserStatus::online;
-    storage->configuration = configuration;
     // The writer only writes the scratch, which is wiped either way.
     u8 validation[kGatewayUserMaximumCommandBytes];
     const auto valid = gateway_write_user_identify({utf8_literal("metadata"), configuration.properties,

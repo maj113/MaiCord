@@ -1,6 +1,7 @@
 #include "maicord/ui/account/login_text_presentation.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/core/os_text.hpp"
+#include "maicord/core/name_list.hpp"
 
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/style.hpp"
@@ -171,6 +172,52 @@ bool captcha_status_error(LoginCaptchaStatus status) noexcept {
            status == LoginCaptchaStatus::failed;
 }
 
+// The status lines of a run of states that each name their own outcome: `map` holds, by the state's offset `at`
+// from the run's first, one past the line's index in `lines` (0: the state has none here).
+Utf8View status_copy(const char* lines, const u8* map, u32 count, u32 at) noexcept {
+    return at < count && map[at] ? name_list_at(lines, map[at] - 1u) : Utf8View{};
+}
+// From session_expired through reset_mfa_pending.
+constexpr char kFormCopy[] = "Your session expired. Log in again.\0"
+                             "Couldn't connect. Try again.\0"
+                             "Couldn't cancel sign-in. Try again.\0"
+                             "Sending instructions…\0"
+                             "Check your email or phone for instructions.\0"
+                             "Phone verification isn't supported yet. Use a browser.\0"
+                             "Couldn't send instructions. Check your details and try again.\0"
+                             "Too many recovery requests. Wait before trying again.\0"
+                             "Enter a new password with at least 8 characters.\0"
+                             "Resetting password…\0"
+                             "That password can't be used. Try a different one.\0"
+                             "Too many attempts. Wait a moment and try again.\0"
+                             "Couldn't reset your password. Go back and paste your reset link again.";
+constexpr u8 kFormCopyMap[]{1, 2, 3, 0, 4, 5, 6, 7, 8, 0, 9, 10, 11, 12, 13, 0, 10};
+static_assert(sizeof(kFormCopyMap) ==
+              static_cast<u32>(LoginStatus::reset_mfa_pending) - static_cast<u32>(LoginStatus::session_expired) + 1);
+// From recovery_phone_verify_pending through recovery_phone_token_ready (the CAPTCHA's line is its own).
+constexpr char kPhoneCopy[] = "Verifying…\0"
+                              "Sending a new code…\0"
+                              "Enter exactly six digits.\0"
+                              "That code didn't work. Try again or request a new one.\0"
+                              "New code sent.\0"
+                              "Couldn't send a new code. Try again.\0"
+                              "Too many attempts. Wait a moment and try again.\0"
+                              "Too many requests. Wait a moment and try again.\0"
+                              "Couldn't confirm the request. Go back and try again.\0"
+                              "Preparing password reset…";
+constexpr u8 kPhoneCopyMap[]{1, 2, 3, 4, 5, 6, 7, 8, 0, 9, 10};
+static_assert(sizeof(kPhoneCopyMap) == static_cast<u32>(LoginStatus::recovery_phone_token_ready) -
+                                           static_cast<u32>(LoginStatus::recovery_phone_verify_pending) + 1);
+// From LoginRemoteStatus::connecting through cancelled (a CAPTCHA has none).
+constexpr char kRemoteCopy[] = "Generating QR code…\0"
+                               "Scan the QR code with Discord on your phone.\0"
+                               "Confirm on your phone to log in as:\0"
+                               "Refreshing QR code…\0"
+                               "Reconnecting…\0"
+                               "Login cancelled on your phone.";
+constexpr u8 kRemoteCopyMap[]{1, 2, 3, 4, 0, 5, 6};
+static_assert(sizeof(kRemoteCopyMap) == static_cast<u32>(LoginRemoteStatus::cancelled));
+
 #if !defined(_WIN32)
 // What the security key of the sign-in says (Linux: the app prompts for the touch and the PIN, and names what went wrong).
 Utf8View security_key_text(LoginSecurityKey state) noexcept {
@@ -237,47 +284,13 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
     }
 
     if (scene.phone_mode) {
-        Utf8View status = utf8_literal("Enter the 6-digit code.");
-        switch (view.status) {
-        case LoginStatus::recovery_phone_verify_pending:
-            status = utf8_literal("Verifying…");
-            break;
-        case LoginStatus::recovery_phone_resend_pending:
-            status = utf8_literal("Sending a new code…");
-            break;
-        case LoginStatus::recovery_phone_input_invalid:
-            status = utf8_literal("Enter exactly six digits.");
-            break;
-        case LoginStatus::recovery_phone_code_rejected:
-            status = utf8_literal("That code didn't work. Try again or request a new one.");
-            break;
-        case LoginStatus::recovery_phone_resent:
-            status = utf8_literal("New code sent.");
-            break;
-        case LoginStatus::recovery_phone_resend_failed:
-            status = utf8_literal("Couldn't send a new code. Try again.");
-            break;
-        case LoginStatus::recovery_phone_verify_rate_limited:
-            status = utf8_literal(
-                "Too many attempts. Wait a moment and try again.");
-            break;
-        case LoginStatus::recovery_phone_resend_rate_limited:
-            status =
-                utf8_literal("Too many requests. Wait a moment and try again.");
-            break;
-        case LoginStatus::recovery_phone_captcha_required:
-            status = captcha_status_copy(view.captcha_status);
-            break;
-        case LoginStatus::recovery_phone_failed:
-            status = utf8_literal(
-                "Couldn't confirm the request. Go back and try again.");
-            break;
-        case LoginStatus::recovery_phone_token_ready:
-            status = utf8_literal("Preparing password reset…");
-            break;
-        default:
-            break;
-        }
+        Utf8View status = view.status == LoginStatus::recovery_phone_captcha_required
+                              ? captcha_status_copy(view.captcha_status)
+                              : status_copy(kPhoneCopy, kPhoneCopyMap, sizeof(kPhoneCopyMap),
+                                            static_cast<u32>(view.status) -
+                                                static_cast<u32>(LoginStatus::recovery_phone_verify_pending));
+        if (!status.bytes)
+            status = utf8_literal("Enter the 6-digit code.");
         if (view.auth_retry_time_unknown) status = auth_cooldown_copy(view);
         const bool error = view.status == LoginStatus::recovery_phone_input_invalid ||
                            view.status == LoginStatus::recovery_phone_code_rejected ||
@@ -397,6 +410,11 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
         : mfa                                                  ? utf8_literal("Verify")
         : reset                                                ? utf8_literal("Reset password")
                                                                : utf8_literal("Log in");
+    const Utf8View form_copy =
+        status_copy(kFormCopy, kFormCopyMap, sizeof(kFormCopyMap),
+                    static_cast<u32>(view.status) - static_cast<u32>(LoginStatus::session_expired));
+    const Utf8View remote_copy =
+        status_copy(kRemoteCopy, kRemoteCopyMap, sizeof(kRemoteCopyMap), static_cast<u32>(remote_status) - 1);
     const Utf8View status =
         view.auth_retry_time_unknown ? auth_cooldown_copy(view)
         : view.auth_rate_limited && !reset && !recovery && !login_phone_mode(view.status)
@@ -408,48 +426,12 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
         : view.security_key != LoginSecurityKey::none ? security_key_text(view.security_key)
 #endif
         : reset && view.status == LoginStatus::submitting    ? utf8_literal("Signing in…")
-        : view.status == LoginStatus::reset_editing
-            ? utf8_literal("Enter a new password with at least 8 characters.")
-        : view.status == LoginStatus::reset_pending || view.status == LoginStatus::reset_mfa_pending
-            ? utf8_literal("Resetting password…")
-        : view.status == LoginStatus::reset_rejected
-            ? utf8_literal("That password can't be used. Try a different one.")
-        : view.status == LoginStatus::reset_rate_limited
-            ? utf8_literal(
-                  "Too many attempts. Wait a moment and try again.")
-        : view.status == LoginStatus::reset_failed
-            ? utf8_literal("Couldn't reset your password. Go back and paste your reset link again.")
-        : view.status == LoginStatus::recovery_pending ? utf8_literal("Sending instructions…")
-        : view.status == LoginStatus::recovery_sent
-            ? utf8_literal("Check your email or phone for instructions.")
-        : view.status == LoginStatus::recovery_phone_required
-            ? utf8_literal("Phone verification isn't supported yet. Use a browser.")
-        : view.status == LoginStatus::recovery_rate_limited
-            ? utf8_literal("Too many recovery requests. Wait before trying again.")
-        : view.status == LoginStatus::recovery_failed
-            ? utf8_literal(
-                  "Couldn't send instructions. Check your details and try again.")
-        : view.status == LoginStatus::cancelling
-            ? utf8_literal("Couldn't cancel sign-in. Try again.")
-        : view.status == LoginStatus::session_expired
-            ? utf8_literal("Your session expired. Log in again.")
-        : view.status == LoginStatus::connection_failed
-            ? utf8_literal("Couldn't connect. Try again.")
+        : form_copy.bytes ? form_copy
         : view.status == LoginStatus::rejected
             ? view.account_suspended
                   ? utf8_literal("Discord has suspended this account. See its standing at discord.com.")
                   : utf8_literal("Login failed. Check your details and try again.")
-        : remote_status == LoginRemoteStatus::connecting
-            ? utf8_literal("Generating QR code…")
-        : remote_status == LoginRemoteStatus::qr_ready
-            ? utf8_literal("Scan the QR code with Discord on your phone.")
-        : remote_status == LoginRemoteStatus::mobile_pending
-            ? utf8_literal("Confirm on your phone to log in as:")
-        : remote_status == LoginRemoteStatus::refreshing ? utf8_literal("Refreshing QR code…")
-        : remote_status == LoginRemoteStatus::failed
-            ? utf8_literal("Reconnecting…")
-        : remote_status == LoginRemoteStatus::cancelled
-            ? utf8_literal("Login cancelled on your phone.")
+        : remote_copy.bytes ? remote_copy
         : view.status == LoginStatus::mfa_required
             ? view.sms_sending ? utf8_literal("Sending code…")
               : selected_mfa == login_mfa_capability_sms && view.sms_sent

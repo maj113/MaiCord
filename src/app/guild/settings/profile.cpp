@@ -397,7 +397,7 @@ void choose(Menu menu, u32 action) noexcept {
     if (menu != Menu::trait_emoji || !can_manage_guild() || action < kMenuChoiceBase)
         return;
     const u32 index = action - kMenuChoiceBase;
-    if (index >= emoji_choice_count || p.emoji_slot >= kGuildAdminProfileTraits)
+    if (index >= emoji_choice_count)
         return;
     // The trait keeps the emoji's name, as the official client sends it (emoji_name "video_game", not the glyph).
     const auto glyph = emoji_choices[index];
@@ -624,12 +624,10 @@ void profile_saved(bool ok, const Utf8View& body) noexcept {
 }
 
 void profile_edited(Editor editor, Utf8View text) noexcept {
-    auto& p = *owner;
-    if (editor == editor_game_search) {
+    if (editor == editor_game_search)
         game_lookup_search(text);
-        ++p.game_search_revision;
-    } else if (editor >= editor_trait && editor <= editor_trait_last)
-        guild_server_profile_set_trait_label(&p.profile_draft, editor - editor_trait, text);
+    else if (editor >= editor_trait && editor <= editor_trait_last)
+        guild_server_profile_set_trait_label(&owner->profile_draft, editor - editor_trait, text);
 }
 
 bool top_games_request(GuildAdminRequest* request) noexcept {
@@ -682,8 +680,6 @@ void profile_page_content(UiSettingsPageContent* content) noexcept {
     content->wide = preview;
     content->aside_width = preview ? kUiGuildCardWidth : 0;
     content->aside_height = preview ? (p.preview_height > 0 ? p.preview_height : kUiGuildCardBanner * 3) : 0;
-    content->aside_row = 0;
-    content->aside_label = {};
 }
 
 bool profile_place_preview() noexcept {
@@ -733,7 +729,7 @@ namespace maicord::app_detail {
 bool application_guild_settings_preview_media(u32 index, MediaAssetKey* key, Utf8View* url) noexcept {
     using namespace server_settings;
     const auto* card = g_app.renderer.settings_guild_preview;
-    if (!owner || card != &owner->preview || !card->active || !key || !url)
+    if (!owner || card != &owner->preview || !card->active)
         return false;
     // The shown game icons, the custom banner (by URL), then the traits' server emoji (by key).
     for (u32 i = 0; i < card->shown_games; ++i) {

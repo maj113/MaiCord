@@ -16,7 +16,7 @@ DaveWelcomeResult failure(DaveWelcomeError error, i32 status = 0) noexcept {
 KdfResult welcome_key_nonce(KdfSha256Workspace& workspace, ConstSlice<u8> joiner, u8* key,
                             u8* nonce) noexcept {
     static constexpr u8 zero[32]{};
-    u8 member[32]{}, welcome[32]{};
+    u8 member[32], welcome[32];
     auto result = hkdf_sha256_extract(workspace, joiner, {zero, 32}, {member, 32});
     if (result.ok())
         result = mls_expand_label(workspace, {member, 32}, text_bytes("welcome"), {}, {welcome, 32});
@@ -87,7 +87,7 @@ DaveWelcomeResult open_candidate(KdfSha256Workspace& workspace, const P256Key& k
         return failure(DaveWelcomeError::invalid_group_secrets);
     if (candidate.secrets.psks.count)
         return failure(DaveWelcomeError::psk_unavailable);
-    u8 aes_key[16]{}, nonce[12]{};
+    u8 aes_key[16], nonce[12];
     AesGcmKey cipher{};
     auto result = welcome_key_nonce(workspace, candidate.secrets.joiner_secret, aes_key, nonce);
     AeadResult aead{};

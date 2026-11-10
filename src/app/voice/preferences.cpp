@@ -213,12 +213,12 @@ bool voice_preferences_save_file(const wchar_t* path, const VoicePreferences& pr
 }
 
 bool voice_preferences_load(VoicePreferences* preferences) noexcept {
-    wchar_t path[kAccountProfileMaximumPathCharacters]{};
+    wchar_t path[kAccountProfileMaximumPathCharacters];
     return user_path(path, false) && voice_preferences_load_file(path, preferences);
 }
 
 bool voice_preferences_save(const VoicePreferences& preferences) noexcept {
-    wchar_t path[kAccountProfileMaximumPathCharacters]{};
+    wchar_t path[kAccountProfileMaximumPathCharacters];
     return user_path(path, true) && voice_preferences_save_file(path, preferences);
 }
 } // namespace maicord

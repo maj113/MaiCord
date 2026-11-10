@@ -166,7 +166,7 @@ Utf8View application_test_mode_status() noexcept {
         return utf8_literal("Enter your Discord application ID to enable test mode for that application.");
     static char text[320];
     TextWriter writer{{text, sizeof(text)}};
-    writer.add(utf8_literal("Test mode is currently active for "));
+    writer.add(kApplicationTestModeActiveHead);
     writer.add(name);
     writer.add(utf8_literal(". Unpublished SKUs will appear and you will not be charged for any related payments."));
     return {text, writer.used};

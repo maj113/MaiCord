@@ -466,15 +466,16 @@ bool application_user_menu_open(u64 user_id, UiRect anchor, u64 guild_id, UserMe
     const u32 native = count;
     count += application_plugins_menu_items(ApplicationPluginMenuSurface::user, user_id,
                                             {items + count, kApplicationPluginMenuRows}, guild);
-    auto opened = popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, user_id, {items, count}, anchor,
-                                   application_viewport_dips(), 240.0f, false, 0, 0, 0, feedback);
-    if (!opened.ok() && count != native) {
+    // Without the plugins' rows when the whole menu cannot open.
+    for (u32 shown = count;; shown = native) {
+        if (popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, user_id, {items, shown}, anchor,
+                             application_viewport_dips(), 240.0f, false, 0, 0, 0, feedback)
+                .ok())
+            break;
+        if (shown == native)
+            return false;
         application_plugins_menu_dismissed();
-        opened = popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, user_id, {items, native}, anchor,
-                                  application_viewport_dips(), 240.0f, false, 0, 0, 0, feedback);
     }
-    if (!opened.ok())
-        return false;
     s.menu_user = user_id;
     s.menu_guild = guild;
     s.menu_message = 0;

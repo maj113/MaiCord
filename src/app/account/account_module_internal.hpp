@@ -172,34 +172,6 @@ bool WINAPI module_self_status_complete(void* instance, u64 profile_id, u64 self
                                         const RestClientResponse* response, Utf8View body) noexcept;
 AccountModuleStatus module_failure(AccountModuleError error) noexcept;
 __declspec(noinline) AccountMediaRequestResult rejected_media_request() noexcept;
-AccountLoginStatus WINAPI module_login_start(void** instance, const wchar_t* profile_path) noexcept;
-AccountLoginStatus WINAPI module_login_start_reset(void** instance, const wchar_t* profile_path) noexcept;
-AccountLoginStatus WINAPI module_login_submit_password(void* instance, const SecureBuffer* login,
-                                                       const SecureBuffer* password) noexcept;
-AccountLoginStatus WINAPI module_login_submit_recovery(void* instance, const SecureBuffer* login) noexcept;
-AccountLoginStatus WINAPI module_login_start_browser(void* instance, u64 generation,
-                                                     u32 timeout_ms) noexcept;
-SecureBufferResult WINAPI module_login_copy_browser_url(void* instance, u64 generation,
-                                                        SecureBuffer* output) noexcept;
-AccountLoginStatus WINAPI module_login_submit_verification(void* instance,
-                                                           const SecureBuffer* link_token) noexcept;
-AccountLoginStatus WINAPI module_login_submit_phone_verify(void* instance,
-                                                           const SecureBuffer* code) noexcept;
-AccountLoginStatus WINAPI module_login_submit_phone_resend(void* instance) noexcept;
-SecureBufferResult WINAPI module_login_take_phone_reset_token(void* instance, u64 generation,
-                                                              SecureBuffer* output) noexcept;
-AccountLoginStatus WINAPI module_login_submit_mfa(void* instance, const SecureBuffer* code,
-                                                  UserAuthMfaType type) noexcept;
-AccountLoginStatus WINAPI module_login_submit_reset(void* instance, const SecureBuffer* link_token,
-                                                    const SecureBuffer* password) noexcept;
-AccountLoginStatus WINAPI module_login_send_sms(void* instance) noexcept;
-AccountLoginStatus WINAPI module_login_start_remote_auth(void* instance) noexcept;
-bool WINAPI module_login_copy_remote_auth_qr(void* instance, Slice<char> output, u32* bytes) noexcept;
-bool WINAPI module_login_copy_remote_auth_user(void* instance, Slice<char> output, u32* bytes) noexcept;
-AccountLoginStatus WINAPI module_login_cancel_remote_auth(void* instance) noexcept;
-SecureBufferResult WINAPI module_login_copy_webauthn_challenge(void* instance,
-                                                               SecureBuffer* output) noexcept;
-bool copy_path(const wchar_t* source, wchar_t* destination) noexcept;
 bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapshot& snapshot,
                    bool include_sequence) noexcept;
 // Takes a token READY refreshed into REST and saves it with the profile (account_profile_save's

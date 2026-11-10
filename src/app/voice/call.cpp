@@ -186,7 +186,7 @@ u32 project_streams(u64 channel_id) noexcept {
         }
         view.participants[count++] = own;
     }
-    const auto watched = application_stream_view();
+    const auto& watched = application_stream_view();
     u64 watched_owner = 0;
     // A stream whose owner the channel's known voice states no longer list
     // live (left, moved, stopped) has no tile, even before STREAM_DELETE.
@@ -374,7 +374,7 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
     }
     // The watched stream is wanted (op 15 on its own connection) only while
     // its tile is visible, like cameras; its picture uses a tagged SSRC.
-    const auto watched = application_stream_view();
+    const auto& watched = application_stream_view();
     if (watched.video_ssrc && watched.key.channel_id == s->channel_id &&
         (watched.state == StreamWatchState::live || watched.state == StreamWatchState::reconnecting))
         add_target(application_stream_tile(watched.key.owner_id), watched.video_ssrc);

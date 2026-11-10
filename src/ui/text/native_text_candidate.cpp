@@ -543,11 +543,19 @@ CutFont cut_font(const NativeRunPlanStore& store,NativeRunPlanHandle handle,bool
 // the runs' widths and origins take the reshaped advances (a tab run absorbs the shift up to its width); the fitted
 // line metrics stay, as in directional publication. A window keeps the paragraph shaping where its reshape fails or
 // maps its clusters to other glyphs (the cluster map and hit geometry share the paragraph's glyph indices).
-// segment(unit,&first,&end) names the shaping segment holding a source unit (its first and end units), or absent when
-// that segment does not reshape; font(key) gives that segment's CutFont; shape(key,text,paragraph_start,work,&line)
-// reshapes text of it as the paragraph shaping did. output.glyphs hold the paragraph glyphs; owner.paragraph_runs
-// take the new origins and widths; owner.cut_checks and owner.cut_reshapes count the cuts and the crossed ones.
-template<class Segment,class Font,class Shape> void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& output,Segment segment,Font font,Shape shape) noexcept {
+// source.segment(context,unit,&first,&end) names the shaping segment holding a source unit (its first and end units),
+// or absent when that segment does not reshape; source.font(context,key) gives that segment's CutFont;
+// source.shape(context,key,text,paragraph_start,work,&line) reshapes text of it as the paragraph shaping did. They are
+// plain functions over the caller's context, so the line and the styled paths share this one body; none runs inside
+// the scan of a segment's cuts. output.glyphs hold the paragraph glyphs; owner.paragraph_runs take the new origins and
+// widths; owner.cut_checks and owner.cut_reshapes count the cuts and the crossed ones.
+struct CutSource {
+    void* context;
+    u32 (*segment)(void*,u32 unit,u32* first,u32* end) noexcept;
+    CutFont (*font)(void*,u32 key) noexcept;
+    SfntStatus (*shape)(void*,u32 key,Utf8View piece,bool start,const NativeAsciiLineStorage& work,NativeAsciiLineResult* line) noexcept;
+};
+void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& output,const CutSource& source) noexcept {
     constexpr u32 absent=0xffffffffu,reach=16;
     const auto& s=owner.paragraph_storage;const auto& paragraph=owner.paragraph_shape;auto runs=owner.paragraph_runs;
     const Utf8View text{owner.last_text.data,owner.last_text.count};
@@ -594,9 +602,9 @@ template<class Segment,class Font,class Shape> void reshape_emergency_cuts(Nativ
     // does not reshape.
     u32 cached_key=absent,segment_key=absent,segment_first=0,segment_end=0;CutFont cached{};
     const auto font_of=[&](u32 key) noexcept -> const CutFont& {
-        if(key!=cached_key){cached=font(key);cached_key=key;for(auto& glyph:memo_glyph)glyph=absent;}return cached;};
+        if(key!=cached_key){cached=source.font(source.context,key);cached_key=key;for(auto& glyph:memo_glyph)glyph=absent;}return cached;};
     const auto segment_of=[&](u32 at,u32* first,u32* end) noexcept {
-        if(segment_key==absent||at<segment_first||at>=segment_end){segment_key=segment(at,&segment_first,&segment_end);
+        if(segment_key==absent||at<segment_first||at>=segment_end){segment_key=source.segment(source.context,at,&segment_first,&segment_end);
             if(segment_key!=absent){const auto& f=font_of(segment_key);if(!f.plan||!f.cmap)segment_key=absent;}}
         *first=segment_first;*end=segment_end;return segment_key;};
     // A run that starts a line (x 0) at a cut: a cluster without a break opportunity after one the shaping did not end
@@ -678,8 +686,8 @@ template<class Segment,class Font,class Shape> void reshape_emergency_cuts(Nativ
         const u32 glyph_first=s.clusters[first_cluster].glyph_first,glyph_end=s.clusters[last_cluster].glyph_first+s.clusters[last_cluster].glyph_count;
         const u32 first_byte=byte_at(window.first),end_byte=byte_at(window.end);if(end_byte<=first_byte)continue;
         const Utf8View piece{text.data+first_byte,end_byte-first_byte};const bool start=begins_paragraph(text,first_byte);
-        NativeAsciiLineResult line{};auto status=shape(window.key,piece,start,*work,&line);
-        if(status!=SfntStatus::ok&&work!=&own){take_own();status=shape(window.key,piece,start,*work,&line);}
+        NativeAsciiLineResult line{};auto status=source.shape(source.context,window.key,piece,start,*work,&line);
+        if(status!=SfntStatus::ok&&work!=&own){take_own();status=source.shape(source.context,window.key,piece,start,*work,&line);}
         bool same=status==SfntStatus::ok&&line.run.glyph_count==glyph_end-glyph_first&&line.run.source_units==window.end-window.first;
         for(u32 u=0;same&&u<window.end-window.first;++u)same=s.source_glyphs[window.first+u]==absent||work->run.character_glyphs[u]+glyph_first==s.source_glyphs[window.first+u];
         if(same)for(u32 g=0;g<line.run.glyph_count;++g){const auto& p=work->run.placements[g];output.glyphs[glyph_first+g]={p.advance,p.advance_offset,p.ascender_offset,work->run.glyphs[g],0};}
@@ -754,12 +762,15 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
         for(u32 i=0;i<visible_glyphs;++i){const auto& p=s.placements[i];output->glyphs[i]={p.advance,p.advance_offset,p.ascender_offset,s.glyphs[i],0};}
         // A cut word's sides reshape on their lines where the shaping crossed the cut; the shaping restarts only at
         // controls, which no run spans.
-        if(layout.flags&native_paragraph_emergency_break)reshape_emergency_cuts(owner,layout.run_count,*output,
-            [&](u32,u32* first,u32* end) noexcept {*first=0;*end=shape.source_units;return 0u;},
-            [&](u32) noexcept {return cut_font(owner.store,binding.plan,system.independent_letters,em);},
-            [&](u32,Utf8View piece,bool start,const NativeAsciiLineStorage& work,NativeAsciiLineResult* line) noexcept {
-                return latin?native_latin_line(owner.store,binding.plan,piece,system.independent_letters,em,work,line,{},em*system.tracking,mode.profile,false,false,true,start):
-                    native_ascii_line(owner.store,binding.plan,piece,system.independent_letters,em,work,line,{},em*system.tracking);});
+        if(layout.flags&native_paragraph_emergency_break){
+            struct Cut {const NativeTextContext& owner;const Binding& binding;const TextSystem& system;const ParagraphMode& mode;float em;u32 units;bool latin;}
+                cut{owner,binding,system,mode,em,shape.source_units,latin};
+            reshape_emergency_cuts(owner,layout.run_count,*output,{&cut,
+                [](void* context,u32,u32* first,u32* end) noexcept {*first=0;*end=static_cast<const Cut*>(context)->units;return 0u;},
+                [](void* context,u32) noexcept {const auto& c=*static_cast<const Cut*>(context);return cut_font(c.owner.store,c.binding.plan,c.system.independent_letters,c.em);},
+                [](void* context,u32,Utf8View piece,bool start,const NativeAsciiLineStorage& work,NativeAsciiLineResult* line) noexcept {const auto& c=*static_cast<const Cut*>(context);
+                    return c.latin?native_latin_line(c.owner.store,c.binding.plan,piece,c.system.independent_letters,c.em,work,line,{},c.em*c.system.tracking,c.mode.profile,false,false,true,start):
+                        native_ascii_line(c.owner.store,c.binding.plan,piece,c.system.independent_letters,c.em,work,line,{},c.em*c.system.tracking);}});}
         for(u32 i=0;i<shape.source_units;++i)output->clusters[i]=i<visible_source?static_cast<u16>(s.source_glyphs[i]):0xffffu;
         for(u32 i=0;i<layout.run_count;++i){const auto& run=owner.paragraph_runs[i];output->runs[i]={binding.font,run.x,run.baseline,em,run.glyph_first,run.glyph_count,run.source_first,run.source_count,0,0,false,true};}
         output->glyph_count=visible_glyphs;output->run_count=layout.run_count;output->cluster_count=shape.source_units;output->width=layout.width;output->width_including_trailing_whitespace=layout.extent;output->height=layout.height;output->line_count=layout.line_count;

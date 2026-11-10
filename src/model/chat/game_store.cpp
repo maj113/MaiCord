@@ -247,23 +247,6 @@ bool game_store_search_excluded(u64 id) noexcept {
     return low < sizeof(kExcluded) / sizeof(kExcluded[0]) && kExcluded[low] == id;
 }
 
-u64 game_mention_at(Utf8View text, u32 offset, u32* bytes) noexcept {
-    // /^<@\$(\d+)>/
-    if (!text.data || offset + 5 > text.bytes || text.data[offset] != '<' || text.data[offset + 1] != '@' ||
-        text.data[offset + 2] != '$')
-        return 0;
-    u32 end = offset + 3;
-    while (end < text.bytes && end - offset < 24 && text.data[end] >= '0' && text.data[end] <= '9')
-        ++end;
-    u64 id = 0;
-    if (end == offset + 3 || end >= text.bytes || text.data[end] != '>' ||
-        !decimal_parse_padded({text.data + offset + 3, end - offset - 3}, &id) || !id)
-        return 0;
-    if (bytes)
-        *bytes = end + 1 - offset;
-    return id;
-}
-
 u32 game_mention_write(u64 id, Slice<char> output) noexcept {
     char digits[20];
     const u32 count = id ? decimal_write(digits, id) : 0;

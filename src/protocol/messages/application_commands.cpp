@@ -663,7 +663,7 @@ Utf8View command_option_check(const CommandIndex& index, JsonValue option, bool 
                        : invalid_text(doc, option, type);
         if (taken && taken->kind == JsonValueKind::number)
             return {};
-        NumberText number{};
+        NumberText number;
         if (!parse_number(value, &number) ||
             (type == 4 ? !safe_integer(number.value)
                        : number.value > max_safe_integer || number.value < -max_safe_integer))
@@ -830,7 +830,7 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
         } else if (type == 3) {
             ok = protocol_write(writer, json_text(value));
         } else if (type == 4 || type == 10) {
-            NumberText number{};
+            NumberText number;
             parse_number(value, &number);
             u32 used = 0;
             // Numbers are sent as JSON numbers: whole values as integers.
@@ -900,7 +900,7 @@ bool suggestion_choice(void* opaque, u32, JsonValue value) noexcept {
     const auto label = suggestion_text(output, name);
     const auto text =
         choice.kind == JsonValueKind::string ? suggestion_text(output, choice) : choice.source;
-    NumberText number{};
+    NumberText number;
     if ((choice.kind == JsonValueKind::number &&
          (!parse_number(text, &number) || number.value > max_safe_integer + 1 || number.value < -max_safe_integer - 1)) ||
         !label.data ||

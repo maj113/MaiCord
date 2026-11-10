@@ -1,5 +1,6 @@
 #include "maicord/app/chat/messages/history_sync.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/model/guild/member_store.hpp"
@@ -179,26 +180,6 @@ bool observe_history_members(GuildMemberStore* members, ChatStateStore* state,
     return true;
 }
 
-bool decimal_id(Utf8View value, u32 first, u32 last, u64* id) noexcept {
-    if (!id || first >= last || last > value.bytes) {
-        return false;
-    }
-    u64 parsed = 0;
-    for (u32 index = first; index < last; ++index) {
-        const char character = value.data[index];
-        if (character < '0' || character > '9') {
-            return false;
-        }
-        const u64 digit = static_cast<u64>(character - '0');
-        if (parsed > (~0ull - digit) / 10ull) {
-            return false;
-        }
-        parsed = parsed * 10ull + digit;
-    }
-    *id = parsed;
-    return parsed != 0;
-}
-
 bool history_message_mentions_current_member(const ChatStateStore& state,
                                              const GatewayMessageEvent& message) noexcept {
     if (message.mention_everyone || message.mentions_current_user) {
@@ -229,7 +210,7 @@ bool history_message_mentions_current_member(const ChatStateStore& state,
         }
         u64 id = 0;
         if (cursor >= content.bytes || content.data[cursor] != '>' ||
-            !decimal_id(content, digits, cursor, &id)) {
+            !decimal_parse_padded(Utf8View{content.data + digits, cursor - digits}, &id) || id == 0) {
             continue;
         }
         if ((!role && id == state.self_user_id) ||

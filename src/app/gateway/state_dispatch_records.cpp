@@ -124,7 +124,9 @@ namespace state_dispatch_detail {
 GatewayEventDecodeResult append_role_array(JsonValue array, Slice<u32> array_scratch,
                                            Slice<u32> object_scratch, u32 maximum_depth,
                                            PayloadWriter* writer, u32* count) noexcept {
-    RoleArrayContext context{};
+    RoleArrayContext context; // ids[] is read below count only
+    context.count = 0;
+    context.error = GatewayEventDecodeError::none;
     context.writer = writer;
     context.object_scratch = object_scratch;
     context.maximum_depth = maximum_depth;
@@ -259,7 +261,9 @@ GatewayEventDecodeResult append_emoji_array(JsonValue array, Slice<u32> array_sc
                                             Slice<u32> object_scratch, Slice<u32> role_scratch,
                                             u32 maximum_depth, PayloadWriter* writer, u32* count,
                                             u32* role_count) noexcept {
-    EmojiArrayContext context{};
+    EmojiArrayContext context; // ids[] is read below count only
+    context.count = context.role_count = 0;
+    context.error = GatewayEventDecodeError::none;
     context.writer = writer;
     context.object_scratch = object_scratch;
     context.role_scratch = role_scratch;

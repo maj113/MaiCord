@@ -21,84 +21,66 @@
 #include "maicord/core/time.hpp"
 #include "maicord/os/wait.hpp"
 
+// Loading the library, negotiation and the stream's set-up and teardown run once per capture: compiled for size.
+// on_process, which runs per picture, is outside the regions.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord::pipewire {
 namespace {
 
-constexpr u64 kModifierLinear = 0;
 constexpr u32 kAcceptedFormats[]{kVideoFormatBgrx, kVideoFormatBgra, kVideoFormatRgbx, kVideoFormatRgba};
 
-// A POD writer over caller storage: begin/end nest containers (objects, choices) and patch their sizes.
-struct Writer {
-    u8* data;
-    u32 size, capacity;
-    bool failed;
-    u32 open[4];
-    u32 depth;
+// The negotiation PODs are constants but for the format, the frame rate and a fixed modifier, so they are tables of
+// the 32-bit words libspa's builder writes (tests/platform/capture/capture.cpp holds its output). A POD is its body's
+// size and its type, then the body padded to 8 bytes; an object's body is its type and id, then its properties (key,
+// flags and a value POD); a choice's body is its kind, flags, the size and type of one value, then the values, the
+// default first.
+#define MAICORD_VIDEO_FORMAT_HEAD                                                                                      \
+    kTypeObject, kObjectFormat, kParamEnumFormat, kFormatMediaType, 0, 4, kTypeId, kMediaTypeVideo, 0,                 \
+        kFormatMediaSubtype, 0, 4, kTypeId, kMediaSubtypeRaw, 0, kFormatVideoFormat, 0, 4, kTypeId, 0, 0
+// Any size up to 16384 x 16384 and any rate up to 1000 a second; the defaults are 1920 x 1080 and 60 a second.
+#define MAICORD_VIDEO_FORMAT_TAIL                                                                                      \
+    kFormatVideoSize, 0, 40, kTypeChoice, kChoiceRange, 0, 8, kTypeRectangle, 1920, 1080, 1, 1, 16384, 16384,          \
+        kFormatVideoFramerate, 0, 40, kTypeChoice, kChoiceRange, 0, 8, kTypeFraction, 60, 1, 0, 1, 1000, 1
+// An offer: the modifier is linear (the default) or implicit, mandatory and for the producer to choose.
+alignas(8) constexpr u32 kFormatOffer[]{
+    248, MAICORD_VIDEO_FORMAT_HEAD,
+    kFormatVideoModifier, kPropMandatory | kPropDontFixate, 40, kTypeChoice, kChoiceEnum, 0, 8, kTypeLong,
+    0, 0, 0, 0, static_cast<u32>(kDrmFormatModifierInvalid), static_cast<u32>(kDrmFormatModifierInvalid >> 32),
+    MAICORD_VIDEO_FORMAT_TAIL};
+// The settled format with its modifier fixed.
+alignas(8) constexpr u32 kFormatFixed[]{
+    216, MAICORD_VIDEO_FORMAT_HEAD, kFormatVideoModifier, kPropMandatory, 8, kTypeLong, 0, 0, MAICORD_VIDEO_FORMAT_TAIL};
+#undef MAICORD_VIDEO_FORMAT_HEAD
+#undef MAICORD_VIDEO_FORMAT_TAIL
+// Where the tables' variable words are: the format's id, the fixed modifier (two words), and the default frame rate,
+// six words before the end of either.
+constexpr u32 kFormatWord = 20, kFixedModifierWord = 26, kFrameRateFromEnd = 6;
 
-    void bytes(const void* source, u32 count) noexcept {
-        if (failed || size + count > capacity) {
-            failed = true;
-            return;
-        }
-        copy_bytes(data + size, source, count);
-        size += count;
-    }
-    void word(u32 value) noexcept {
-        bytes(&value, 4);
-    }
-    void pad() noexcept {
-        const u32 zero[2]{};
-        bytes(zero, (8 - (size & 7)) & 7);
-    }
-    void begin(u32 type) noexcept {
-        if (depth == 4) {
-            failed = true;
-            return;
-        }
-        open[depth++] = size;
-        word(0);
-        word(type);
-    }
-    void end() noexcept {
-        const u32 start = open[--depth];
-        if (!failed) {
-            const u32 body = size - start - 8;
-            copy_bytes(data + start, &body, 4);
-        }
-        pad();
-    }
-    void scalar(u32 type, const void* value, u32 value_size) noexcept {
-        word(value_size);
-        word(type);
-        bytes(value, value_size);
-        pad();
-    }
-    void id(u32 value) noexcept {
-        scalar(kTypeId, &value, 4);
-    }
-    void integer(i32 value) noexcept {
-        scalar(kTypeInt, &value, 4);
-    }
-    void property(u32 key, u32 flags) noexcept {
-        word(key);
-        word(flags);
-    }
-    // A choice of `count` values of `type`, each `value_size` bytes, packed after the child header.
-    void choice(u32 kind, u32 type, u32 value_size, const void* values, u32 count) noexcept {
-        begin(kTypeChoice);
-        word(kind);
-        word(0);
-        word(value_size);
-        word(type);
-        bytes(values, value_size * count);
-        end();
-    }
-    void object(u32 type, u32 id) noexcept {
-        begin(kTypeObject);
-        word(type);
-        word(id);
-    }
-};
+alignas(8) constexpr u32 kAudioFormat[]{
+    160, kTypeObject, kObjectFormat, kParamEnumFormat,
+    kFormatMediaType, 0, 4, kTypeId, kMediaTypeAudio, 0,
+    kFormatMediaSubtype, 0, 4, kTypeId, kMediaSubtypeRaw, 0,
+    kFormatAudioFormat, 0, 4, kTypeId, kAudioFormatS16, 0,
+    kFormatAudioRate, 0, 4, kTypeInt, kStreamAudioRate, 0,
+    kFormatAudioChannels, 0, 4, kTypeInt, kStreamAudioChannels, 0,
+    kFormatAudioPosition, 0, 16, kTypeArray, 4, kTypeId, kChannelFl, kChannelFr};
+// Four buffers by default, two to eight; dma-bufs only.
+alignas(8) constexpr u32 kBufferParams[]{
+    96, kTypeObject, kObjectParamBuffers, kParamBuffers,
+    kBuffersBuffers, 0, 28, kTypeChoice, kChoiceRange, 0, 4, kTypeInt, 4, 2, 8, 0,
+    kBuffersDataType, 0, 20, kTypeChoice, kChoiceFlags, 0, 4, kTypeInt, 1 << kDataDmaBuf, 0};
+alignas(8) constexpr u32 kMetaParams[]{
+    56, kTypeObject, kObjectParamMeta, kParamMeta,
+    kMetaType, 0, 4, kTypeId, kMetaHeader, 0,
+    kMetaSize, 0, 4, kTypeInt, sizeof(MetaHeader), 0};
+static_assert(kFormatOffer[0] + 8 == sizeof(kFormatOffer) && kFormatFixed[0] + 8 == sizeof(kFormatFixed) &&
+              kAudioFormat[0] + 8 == sizeof(kAudioFormat) && kBufferParams[0] + 8 == sizeof(kBufferParams) &&
+              kMetaParams[0] + 8 == sizeof(kMetaParams));
+
+const Pod* table_pod(const u32* words) noexcept {
+    return reinterpret_cast<const Pod*>(words);
+}
 
 // A POD reader over one object's properties.
 struct PropertyCursor {
@@ -142,6 +124,11 @@ bool pod_value(const Pod* pod, u32 type, u32 size, void* out, bool* choice) noex
     return true;
 }
 
+// The table's names, each terminated, in the order of Api's members.
+#define MAICORD_PIPEWIRE_NAME(ret, name, args) #name "\0"
+constexpr char kFunctionNames[] = MAICORD_PIPEWIRE_FUNCTIONS(MAICORD_PIPEWIRE_NAME);
+#undef MAICORD_PIPEWIRE_NAME
+
 struct Library {
     SharedLibrary library;
     Api api;
@@ -159,12 +146,17 @@ const Api* api() noexcept {
         if (!shared_library_open(&g_library.library, "libpipewire-0.3.so.0")) {
             log_write(LogLevel::info, "capture", "libpipewire_missing");
         } else {
-            SharedLibraryResolver resolve{g_library.library, nullptr};
-#define MAICORD_PIPEWIRE_RESOLVE(ret, name, args) resolve(&g_library.api.name, #name);
-            MAICORD_PIPEWIRE_FUNCTIONS(MAICORD_PIPEWIRE_RESOLVE)
-#undef MAICORD_PIPEWIRE_RESOLVE
-            if (resolve.missing) {
-                log_write(LogLevel::warning, "capture", resolve.missing);
+            // Api is one function pointer per name.
+            u8* slot = reinterpret_cast<u8*>(&g_library.api);
+            const char* name = kFunctionNames;
+            for (; *name; name += c_string_length(name) + 1, slot += sizeof(void*)) {
+                void* const address = shared_library_symbol(g_library.library, name);
+                if (!address)
+                    break;
+                copy_bytes(slot, &address, sizeof(address));
+            }
+            if (*name) {
+                log_write(LogLevel::warning, "capture", name);
                 shared_library_close(&g_library.library);
             } else {
                 g_library.api.pw_init(nullptr, nullptr);
@@ -193,90 +185,34 @@ u32 drm_fourcc(u32 video_format) noexcept {
 
 u32 build_enum_formats(u8* storage, u32 capacity, const Pod** pods, u32 max_fps, bool fixed, u32 video_format,
                        u64 modifier) noexcept {
-    Writer w{storage, 0, capacity, false, {}, 0};
+    u32 words[sizeof(kFormatOffer) / 4];
+    const u32 bytes = fixed ? sizeof(kFormatFixed) : sizeof(kFormatOffer);
+    copy_bytes(words, fixed ? kFormatFixed : kFormatOffer, bytes);
+    if (max_fps)
+        words[bytes / 4 - kFrameRateFromEnd] = max_fps;
+    if (fixed)
+        copy_bytes(&words[kFixedModifierWord], &modifier, 8);
     u32 count = 0;
-    u32 offsets[4];
     for (const u32 format : kAcceptedFormats) {
         if (fixed && format != video_format)
             continue;
-        offsets[count++] = w.size;
-        w.object(kObjectFormat, kParamEnumFormat);
-        w.property(kFormatMediaType, 0);
-        w.id(kMediaTypeVideo);
-        w.property(kFormatMediaSubtype, 0);
-        w.id(kMediaSubtypeRaw);
-        w.property(kFormatVideoFormat, 0);
-        w.id(format);
-        if (fixed) {
-            w.property(kFormatVideoModifier, kPropMandatory);
-            w.scalar(kTypeLong, &modifier, 8);
-        } else {
-            const u64 modifiers[]{kModifierLinear, kModifierLinear, kDrmFormatModifierInvalid};
-            w.property(kFormatVideoModifier, kPropMandatory | kPropDontFixate);
-            w.choice(kChoiceEnum, kTypeLong, 8, modifiers, 3);
-        }
-        const u32 sizes[]{1920, 1080, 1, 1, 16384, 16384};
-        w.property(kFormatVideoSize, 0);
-        w.choice(kChoiceRange, kTypeRectangle, 8, sizes, 3);
-        const u32 rates[]{max_fps ? max_fps : 60, 1, 0, 1, 1000, 1};
-        w.property(kFormatVideoFramerate, 0);
-        w.choice(kChoiceRange, kTypeFraction, 8, rates, 3);
-        w.end();
+        if (capacity - count * bytes < bytes)
+            return 0;
+        words[kFormatWord] = format;
+        u8* const pod = storage + count * bytes;
+        copy_bytes(pod, words, bytes);
+        pods[count++] = reinterpret_cast<const Pod*>(pod);
     }
-    if (w.failed)
-        return 0;
-    for (u32 i = 0; i < count; ++i)
-        pods[i] = reinterpret_cast<const Pod*>(storage + offsets[i]);
     return count;
 }
 
-bool build_audio_format(u8* storage, u32 capacity, const Pod** pod) noexcept {
-    Writer w{storage, 0, capacity, false, {}, 0};
-    w.object(kObjectFormat, kParamEnumFormat);
-    w.property(kFormatMediaType, 0);
-    w.id(kMediaTypeAudio);
-    w.property(kFormatMediaSubtype, 0);
-    w.id(kMediaSubtypeRaw);
-    w.property(kFormatAudioFormat, 0);
-    w.id(kAudioFormatS16);
-    w.property(kFormatAudioRate, 0);
-    w.integer(static_cast<i32>(kStreamAudioRate));
-    w.property(kFormatAudioChannels, 0);
-    w.integer(static_cast<i32>(kStreamAudioChannels));
-    w.property(kFormatAudioPosition, 0);
-    w.begin(kTypeArray);
-    w.word(4);
-    w.word(kTypeId);
-    w.word(kChannelFl);
-    w.word(kChannelFr);
-    w.end();
-    w.end();
-    *pod = w.failed ? nullptr : reinterpret_cast<const Pod*>(storage);
-    return !w.failed;
+const Pod* audio_format() noexcept {
+    return table_pod(kAudioFormat);
 }
 
-u32 build_buffer_params(u8* storage, u32 capacity, const Pod** pods) noexcept {
-    Writer w{storage, 0, capacity, false, {}, 0};
-    w.object(kObjectParamBuffers, kParamBuffers);
-    const i32 counts[]{4, 2, 8};
-    w.property(kBuffersBuffers, 0);
-    w.choice(kChoiceRange, kTypeInt, 4, counts, 3);
-    const i32 types[]{1 << kDataDmaBuf};
-    w.property(kBuffersDataType, 0);
-    w.choice(kChoiceFlags, kTypeInt, 4, types, 1);
-    w.end();
-    const u32 meta = w.size;
-    w.object(kObjectParamMeta, kParamMeta);
-    w.property(kMetaType, 0);
-    w.id(kMetaHeader);
-    w.property(kMetaSize, 0);
-    w.integer(static_cast<i32>(sizeof(MetaHeader)));
-    w.end();
-    if (w.failed)
-        return 0;
-    pods[0] = reinterpret_cast<const Pod*>(storage);
-    pods[1] = reinterpret_cast<const Pod*>(storage + meta);
-    return 2;
+void buffer_params(const Pod** pods) noexcept {
+    pods[0] = table_pod(kBufferParams);
+    pods[1] = table_pod(kMetaParams);
 }
 
 bool parse_video_format(const Pod* pod, VideoFormat* format) noexcept {
@@ -327,6 +263,7 @@ struct Consumer {
     CaptureSink sink;
     Waitable ended;
     VideoFormat format;
+    u32 fourcc; // of format.video_format
     CapturePacer pacer;
     u32 max_fps;
     bool cursor, connected, streamed;
@@ -374,12 +311,16 @@ void on_param(void* data, u32 id, const Pod* param) noexcept {
                                    format.modifier);
     } else {
         c->format = format;
+        c->fourcc = drm_fourcc(format.video_format);
         c->linked = true;
-        count = build_buffer_params(c->pods, sizeof(c->pods), pods);
+        buffer_params(pods);
+        count = 2;
     }
     if (count)
         c->api->pw_stream_update_params(c->stream, pods, count);
 }
+
+#pragma clang attribute pop
 
 void on_process(void* data) noexcept {
     auto* c = static_cast<Consumer*>(data);
@@ -411,7 +352,7 @@ void on_process(void* data) noexcept {
     const u64 timestamp = stamped && stamped <= now + 1'000'000 && stamped + 1'000'000 >= now ? stamped : now;
     if (!corrupted && capture_pacer_admit(&c->pacer, timestamp, c->max_fps)) {
         CaptureFrame frame{};
-        frame.plane = {static_cast<i32>(plane->fd),     drm_fourcc(c->format.video_format),
+        frame.plane = {static_cast<i32>(plane->fd),     c->fourcc,
                        c->format.width,                 c->format.height,
                        plane->chunk->offset,            static_cast<u32>(plane->chunk->stride),
                        c->format.modifier,              -1,
@@ -424,6 +365,8 @@ void on_process(void* data) noexcept {
     }
     c->api->pw_stream_queue_buffer(c->stream, newest);
 }
+
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 } // namespace
 
@@ -508,3 +451,5 @@ void consumer_close(Consumer* c) noexcept {
 }
 
 } // namespace maicord::pipewire
+
+#pragma clang attribute pop

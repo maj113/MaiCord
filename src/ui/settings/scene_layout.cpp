@@ -69,6 +69,12 @@ float section_trailing(const UiSettingsPageContent& content, u32 index) noexcept
 const UiSettingsControlPresentation* presentation(const UiSettingsPageContent& content, u32 index) noexcept {
     return content.presentation && index < content.controls.count ? &content.presentation[index] : nullptr;
 }
+RowLook row_look(const UiSettingsPageContent& content, u32 index) noexcept {
+    const auto* p = presentation(content, index);
+    if (!p)
+        return {};
+    return {p->flags, p->more, p->variant <= UiSettingsVariant::positive ? p->variant : UiSettingsVariant::standard};
+}
 bool marks(const UiSettingsPageContent& content, u32 index) noexcept {
     const auto* p = presentation(content, index);
     return p && (p->flags & ui_settings_presentation_marks) && content.controls[index].choices.count <= 32;
@@ -311,14 +317,14 @@ ListParts list_parts(const UiSettingsLayoutTokens& t, const UiSettingsPageConten
 }
 namespace {
 // Width taken by a row's leading handle, avatar or dot.
-float lead_width(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index) noexcept {
-    if (content.controls[index].kind != UiSettingsControlKind::action)
+float lead_width(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, u8 flags) noexcept {
+    if (c.kind != UiSettingsControlKind::action)
         return 0;
     const auto& m = t.metric;
-    float width = has_flag(content, index, ui_settings_presentation_grip) ? m.grip_width + 4 : 0;
-    if (has_flag(content, index, ui_settings_presentation_avatar))
+    float width = flags & ui_settings_presentation_grip ? m.grip_width + 4 : 0;
+    if (flags & ui_settings_presentation_avatar)
         width += m.avatar_size + m.lead_gap + 4;
-    else if (accent(content, index))
+    else if (flags & ui_settings_presentation_accent)
         width += m.accent_dot + m.lead_gap;
     return width;
 }
@@ -459,12 +465,13 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
     const auto& m = t.metric;
     const auto& c = content.controls[index];
     const auto* measure = context.measure;
+    const auto look = row_look(content, index);
     RowLayout r{};
     if (c.kind == UiSettingsControlKind::category) {
         const float gap = index ? m.category_gap : 0;
         // Headings of a card page sit 4 DIP in, where the card's corner curve starts.
         const float indent = context.cards && !content.sectioned ? 4.f : 0.f;
-        float right = left + width - (link(content, index) ? 24 : 0);
+        float right = left + width - (look.flags & ui_settings_presentation_link ? 24 : 0);
         if (list_style(content, index, UiSettingsListStyle::header)) {
             // The column title sits over the list rows' count column.
             const float column_right = left + width - m.lead_gap - (m.list_action + m.chip_gap) * kUiSettingsListActions;
@@ -544,7 +551,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         const float text_right = right - (action_width > 0 ? action_width + gap : 0);
         const float text_width = maximum(1.f, text_right - text_left);
         const float title_height = ui_kit_line_height(kUiKitTextHeading);
-        const float meta_height = more(content, index, ui_settings_more_meta_parts)
+        const float meta_height = look.more & ui_settings_more_meta_parts
                                       ? static_cast<float>(status_meta_flow(measure, c.description, {0, 0, text_width, 0}, nullptr, nullptr)) *
                                             ui_kit_line_height(kUiKitTextSmall)
                                       : ui_kit_text_height(measure, c.description, kUiKitTextSmall, text_width);
@@ -557,7 +564,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
                                     (caption ? (button ? 4 : 0) + kUiSettingsCaptionLine : 0);
         const float inner = maximum(maximum(icon, text_height), action_height);
         const bool meter = content.meters && content.meters[index] != kUiSettingsNoMeter &&
-                           !more(content, index, ui_settings_more_progress_button);
+                           !(look.more & ui_settings_more_progress_button);
         r.height = pad * 2 + inner + (meter ? gap + kMeterHeight : 0);
         r.row = {left, top, left + width, top + r.height};
         const float inner_top = top + pad;
@@ -584,7 +591,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         return r;
     }
     if (c.kind == UiSettingsControlKind::disclosure) {
-        const bool plain = more(content, index, ui_settings_more_plain);
+        const bool plain = (look.more & ui_settings_more_plain) != 0;
         const float inset = m.card_inset, gap = m.lead_gap;
         const float right = left + width - inset, inner_left = left + inset;
         const float tag = c.detail.bytes ? ui_chip_width(ui_kit_text_width(measure, c.detail, kUiKitTextSmall)) : 0;
@@ -680,7 +687,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         r.row = {left, top, left + width, top + r.height};
         return r;
     }
-    if (more(content, index, ui_settings_more_cell) &&
+    if ((look.more & ui_settings_more_cell) &&
         (c.kind == UiSettingsControlKind::edit || c.kind == UiSettingsControlKind::action)) {
         // A grid cell: the run's last cell carries the section's trailing space; a run right under a field (the game
         // search) starts lead_gap below it.
@@ -742,7 +749,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         return r;
     }
     const bool card = (card_edges(content, index, context) & card_member) != 0;
-    const bool compact = has_flag(content, index, ui_settings_presentation_compact);
+    const bool compact = (look.flags & ui_settings_presentation_compact) != 0;
     const float pad = compact ? m.row_padding * .5f : m.row_padding;
     // Sections start at their title and end with the divider spacing.
     const float pad_top = content.sectioned ? 0.f : pad;
@@ -753,8 +760,9 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         left += m.card_inset, width = maximum(1.f, width - m.card_inset * 2);
     else if (compact)
         left += m.lead_gap, width = maximum(1.f, width - m.lead_gap * 2);
-    const bool tristate = c.kind == UiSettingsControlKind::segments && has_flag(content, index, ui_settings_presentation_tristate);
-    const bool trailing_slider = card && c.kind == UiSettingsControlKind::slider && !marks(content, index);
+    const bool tristate = c.kind == UiSettingsControlKind::segments && (look.flags & ui_settings_presentation_tristate);
+    const bool marked = (look.flags & ui_settings_presentation_marks) && c.choices.count <= 32; // marks()
+    const bool trailing_slider = card && c.kind == UiSettingsControlKind::slider && !marked;
     float control_width = 0, control_height = 0;
     if (c.kind == UiSettingsControlKind::toggle)
         control_width = m.switch_width, control_height = m.switch_height;
@@ -773,13 +781,13 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
     // A segmented track wider than 60% of its row goes under the text instead of beside it.
     const bool side = (side_control(c.kind) || trailing_slider || (card && c.kind == UiSettingsControlKind::choice)) &&
                       !(c.kind == UiSettingsControlKind::segments && !tristate && !ui_segmented_fits(control_width, width));
-    const float lead = lead_width(t, content, index);
+    const float lead = lead_width(t, c, look.flags);
     const float text_left = left + lead;
     const float text_width = side ? maximum(1.f, width - lead - control_width - m.control_gap) : width;
     float text_height = text_block(m, c.label, c.description, text_width, measure);
     const float content_top = top + pad_top;
     r.label = {text_left, content_top, text_left + text_width, content_top + kUiSettingsLabelLine};
-    if (c.kind == UiSettingsControlKind::slider && !marks(content, index) && !trailing_slider) {
+    if (c.kind == UiSettingsControlKind::slider && !marked && !trailing_slider) {
         // The value shares the label line; the label stops a gap before it.
         const float value = minimum(slider_value_width(c), text_width * .5f);
         r.value = {r.label.right - value, r.label.top, r.label.right, r.label.bottom};
@@ -789,20 +797,22 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         const float desc_top = c.label.bytes ? r.label.bottom + m.label_gap : content_top;
         r.description = {text_left, desc_top, text_left + text_width, content_top + text_height};
     }
-    if (chips(content, index)) {
-        const float height = ui_admin_chips_height(t, ui_admin_chip_rows(t, c.choices, accent(content, index), text_width));
+    // chips() and progress(): list rows returned above.
+    if (c.kind == UiSettingsControlKind::action && c.choices.data && c.choices.count && c.choices.count <= 16) {
+        const float height = ui_admin_chips_height(
+            t, ui_admin_chip_rows(t, c.choices, (look.flags & ui_settings_presentation_accent) != 0, text_width));
         r.chips = {text_left, content_top + text_height + 8, text_left + text_width,
                    content_top + text_height + 8 + height};
         text_height += 8 + height;
     }
-    if (progress(content, index)) {
+    if (c.kind == UiSettingsControlKind::action && content.meters && content.meters[index] != kUiSettingsNoMeter) {
         // The progress bar runs under the text, as wide as it.
         const float bar_top = content_top + text_height + m.field_gap;
         r.value = {text_left, bar_top, text_left + text_width, bar_top + m.slider_bar};
         text_height += m.field_gap + m.slider_bar;
     }
     const bool avatar = c.kind == UiSettingsControlKind::action &&
-                        has_flag(content, index, ui_settings_presentation_avatar);
+                        (look.flags & ui_settings_presentation_avatar);
     const bool decorated = avatar || ui_rect_has_area(r.chips);
     float inner = text_height;
     if (side) {
@@ -833,13 +843,13 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         else if (c.kind == UiSettingsControlKind::radio)
             height = ui_radio_group_height(t, c.choices.count);
         else if (c.kind == UiSettingsControlKind::slider)
-            height = ui_slider_height(t, marks(content, index));
+            height = ui_slider_height(t, marked);
         else if (c.kind == UiSettingsControlKind::palette)
             height = swatch_rows_height(t, c.choices.count, width);
         else if (c.kind == UiSettingsControlKind::swatches)
-            height = more(content, index, ui_settings_more_banner_tiles) ? banner_tiles_height(t, c.choices.count, width)
-                     : more(content, index, ui_settings_more_glyphs)    ? glyph_tiles_height(t, c.choices.count, width)
-                                                                         : ui_color_grid_height(t, c.choices.count, width - 8);
+            height = look.more & ui_settings_more_banner_tiles ? banner_tiles_height(t, c.choices.count, width)
+                     : look.more & ui_settings_more_glyphs     ? glyph_tiles_height(t, c.choices.count, width)
+                                                               : ui_color_grid_height(t, c.choices.count, width - 8);
         else if (c.kind == UiSettingsControlKind::buttons)
             height = m.button_small;
         else if (c.kind == UiSettingsControlKind::colors)
@@ -860,7 +870,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
                        middle + m.button_small * .5f};
             r.control.right = maximum(r.control.left + 1, r.value.left - m.control_gap);
         }
-        if (c.kind == UiSettingsControlKind::slider && marks(content, index)) {
+        if (c.kind == UiSettingsControlKind::slider && marked) {
             const float inset = slider_mark_inset(t, c);
             r.control.left += inset, r.control.right -= inset;
             r.control.top += 4, r.control.bottom += 4, height += 4;
@@ -874,7 +884,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         shift_rows(&r, (m.row_min_height - r.height) * .5f);
         r.height = m.row_min_height;
     }
-    if (c.kind == UiSettingsControlKind::action && more(content, index, ui_settings_more_name_tag) && c.detail.bytes) {
+    if (c.kind == UiSettingsControlKind::action && (look.more & ui_settings_more_name_tag) && c.detail.bytes) {
         // The server tag chip right after the name, as the author line draws it (ui_badge_compact_layout).
         const float name = minimum(ui_kit_text_width(measure, c.label, kUiKitTextBodyBold), ui_rect_width(r.label));
         const float chip = kUiBadgeCompactPadding * 2 + kUiBadgeCompactIcon + kUiBadgeCompactIconGap +
@@ -1661,7 +1671,7 @@ bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHan
         return true;
     const u32 index = entry.source_index;
     const auto& c = scene.content.controls[index];
-    UiSettingsActivation activation{};
+    UiSettingsActivation activation;
     switch (c.kind) {
     case UiSettingsControlKind::category:
     case UiSettingsControlKind::disclosure:
@@ -1695,8 +1705,8 @@ bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHan
     }
     // Toggles, selects, editors, notice and row buttons: the control itself
     // (and the button beside an edit field).
-    RowLayout row{};
-    UiRect clip{};
+    RowLayout row;
+    UiRect clip;
     return row_layout_for(scene, SceneTokens(scene), handle, index, &row, &clip) &&
            (ui_rect_contains(ui_rect_overlap(row.control, clip), x, y) ||
             (c.kind == UiSettingsControlKind::edit && ui_rect_contains(ui_rect_overlap(row.value, clip), x, y)));

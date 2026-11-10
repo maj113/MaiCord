@@ -1,6 +1,5 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "../../account/account_ui_runtime.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/model/guild/detail_store.hpp"
 #include "maicord/model/user/profile.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
@@ -372,8 +371,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     const u32 choice = activation.value.selected_choice;
     if (id == control_tag_enable) {
         d.enabled = activation.value.checked;
-        ui_settings_scene_animate_toggle(&p.scene, activation.value.target, activation.value.checked,
-                                         clock_monotonic_milliseconds());
+        animate_toggle(activation);
     } else if (!d.enabled)
         return;
     else if (id == control_tag_badges && choice < kGuildTagBadgeCount) {

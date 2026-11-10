@@ -19,17 +19,6 @@ bool contains(Utf8View text, Utf8View part) noexcept {
 }
 
 void test_syntax(Check check) noexcept {
-    u32 bytes = 0;
-    check(game_mention_at(utf8_literal("<@$1402418696126992445>"), 0, &bytes) == 1402418696126992445ull &&
-              bytes == 23,
-          "game mentions: <@$id> reads the id and its length");
-    check(game_mention_at(utf8_literal("hi <@$12> there"), 3, &bytes) == 12 && bytes == 6,
-          "game mentions: a mention inside text reads from its offset");
-    check(!game_mention_at(utf8_literal("<@$>"), 0, nullptr) && !game_mention_at(utf8_literal("<@$12a>"), 0, nullptr) &&
-              !game_mention_at(utf8_literal("<@$0>"), 0, nullptr) && !game_mention_at(utf8_literal("<@12>"), 0, nullptr) &&
-              !game_mention_at(utf8_literal("<@$12"), 0, nullptr) &&
-              !game_mention_at(utf8_literal("<@$99999999999999999999>"), 0, nullptr),
-          "game mentions: no digits, other characters, zero, user mentions, an open tag and overflow are no mention");
     char out[32];
     check(game_mention_write(77, {out, sizeof(out)}) == 6 && bytes_equal(out, "<@$77>", 6) &&
               !game_mention_write(77, {out, 5}) && !game_mention_write(0, {out, sizeof(out)}),

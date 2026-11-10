@@ -1,4 +1,5 @@
 #include "maicord/app/voice/mls/exporter.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "../../shell/byte_views.hpp"
 
@@ -43,8 +44,7 @@ KdfResult dave_export_media_seed(KdfSha256Workspace& workspace, ConstSlice<u8> e
     if (output.count < 16)
         return {0, 0, KdfError::output_capacity};
     u8 context[8];
-    for (u32 i = 0; i != 8; ++i)
-        context[i] = static_cast<u8>(user_id >> (i * 8));
+    byte_store_le64(context, user_id);
     const auto result = mls_export_secret(workspace, exporter_secret,
                                           text_bytes("Discord Secure Frames v0"), {context, 8},
                                           {output.data, 16});

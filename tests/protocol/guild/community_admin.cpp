@@ -393,9 +393,13 @@ void test_access_model() noexcept {
     check(none.question_count == 1 &&
               utf8_equal(guild_access_text(none.questions[0].label), utf8_literal("Why do you want to join our server?")),
           "access: Apply to Join starts with the official question");
-    check(guild_locale_index(utf8_literal("es-419")) < kGuildLocaleCount &&
+    check(guild_locale_index(utf8_literal("es-419")) == 16 &&
               guild_locale_index(utf8_literal("en-GB")) == kGuildLocaleCount &&
-              utf8_equal(kGuildLocales[0].code, utf8_literal("en-US")),
+              utf8_equal(guild_locale(0).code, utf8_literal("en-US")) &&
+              utf8_equal(guild_locale(0).name, utf8_literal("English, US")) &&
+              utf8_equal(guild_locale(16).name, utf8_literal("Español, LATAM")) &&
+              utf8_equal(guild_locale(kGuildLocaleCount - 1).code, utf8_literal("hi")) &&
+              utf8_equal(guild_locale(kGuildLocaleCount - 1).name, utf8_literal("हिंदी")),
           "community: the language list is the official one without en-GB");
     check(guild_feature_bit(utf8_literal("MEMBER_VERIFICATION_GATE_ENABLED")) == guild_feature_verification_gate &&
               guild_feature_bit(utf8_literal("DISCOVERABLE")) == guild_feature_discoverable &&

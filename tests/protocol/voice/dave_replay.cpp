@@ -70,7 +70,6 @@ void boundaries(Check check) noexcept {
                            : value.value == 123 && value.generation == 456),
               "DAVE generation expansion preserves wrap/overflow and output boundaries");
     }
-    check(!dave_frame_counter(0, 0, nullptr), "DAVE counter expansion requires output");
     DaveReplay replay{};
     check(dave_replay_can_accept(replay, 0) && dave_replay_commit(&replay, 0) &&
               !dave_replay_can_accept(replay, 0) && !dave_replay_commit(&replay, 0),

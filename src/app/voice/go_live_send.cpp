@@ -5,6 +5,8 @@
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/platform/crypto/random.hpp"
 
+// Two halves: what runs per packet (sent, or acknowledged by transport feedback) first, compiled for speed, then what
+// runs per RTCP packet from the stream server, per sender report or per stream, compiled for size.
 namespace maicord {
 namespace {
 constexpr u64 kGroupUs = 5'000;             // Packets sent within 5 ms form one group.
@@ -14,33 +16,14 @@ constexpr u64 kRetransmitSpacingUs = 50'000; // One RTX of a packet per 50 ms.
 constexpr u64 kBurstUs = 5'000;              // The pacer's largest burst.
 constexpr u16 kPlayoutMaximum = 10;          // Playout-delay extension: 0 to 100 ms (10 ms units).
 
-u32 clamp_rate(const GoLiveBandwidth& b, u64 rate) noexcept {
-    u64 high = b.bounds.maximum;
-    if (b.remb && b.remb < high)
-        high = b.remb;
-    if (high < b.bounds.minimum)
-        high = b.bounds.minimum;
-    return static_cast<u32>(rate < b.bounds.minimum ? b.bounds.minimum : rate > high ? high : rate);
-}
-double absolute(double value) noexcept {
-    return value < 0 ? -value : value;
-}
-// Least-squares slope of the delay trend.
-double slope(const GoLiveBandwidth& b) noexcept {
-    double x = 0, y = 0;
-    for (u32 i = 0; i != kGoLiveTrendWindow; ++i) {
-        x += b.trend_x[i];
-        y += b.trend_y[i];
-    }
-    x /= kGoLiveTrendWindow;
-    y /= kGoLiveTrendWindow;
-    double numerator = 0, denominator = 0;
-    for (u32 i = 0; i != kGoLiveTrendWindow; ++i) {
-        numerator += (b.trend_x[i] - x) * (b.trend_y[i] - y);
-        denominator += (b.trend_x[i] - x) * (b.trend_x[i] - x);
-    }
-    return denominator > 0 ? numerator / denominator : 0;
-}
+// What the feedback visitor's calls reach.
+struct Feedback {
+    GoLiveSender* sender;
+    u64 now_us;
+    bool transport;
+};
+void report(GoLiveSender& s, u64 now_us) noexcept;
+
 // One completed packet group: delay variation into the trendline and detector.
 void group_done(GoLiveBandwidth& b) noexcept {
     if (b.has_previous) {
@@ -57,6 +40,18 @@ void group_done(GoLiveBandwidth& b) noexcept {
     b.previous_send_us = b.group_send_us;
     b.previous_arrival_us = b.group_arrival_us;
     b.has_previous = true;
+}
+void on_transport(void* context, ConstSlice<RtcpTransportArrival> arrivals) noexcept {
+    auto& f = *static_cast<Feedback*>(context);
+    auto& s = *f.sender;
+    for (u32 i = 0; i != arrivals.count; ++i) {
+        const auto& arrival = arrivals[i];
+        const auto& sent = s.transport_log[arrival.sequence & (kGoLiveTransportLog - 1)];
+        if (sent.valid && sent.sequence == arrival.sequence)
+            go_live_bandwidth_packet(&s.bandwidth, sent.send_us, arrival.arrival_us, sent.bytes, arrival.received);
+    }
+    go_live_bandwidth_update(&s.bandwidth, f.now_us);
+    f.transport = true;
 }
 
 void store_header(u8* out, bool extension, bool marker, u8 type, u16 sequence, u32 timestamp, u32 ssrc) noexcept {
@@ -83,68 +78,6 @@ u32 video_extensions(u8* out, u16 transport) noexcept {
     out[11] = 0;
     return 12;
 }
-u64 now_unix_us() noexcept {
-    return clock_unix_milliseconds() * 1000;
-}
-
-void on_keyframe(void* context, u32 media) noexcept {
-    auto& s = *static_cast<GoLiveSender*>(context);
-    if (!media || media == s.streams.video_ssrc) {
-        s.keyframe_wanted = true;
-        ++s.stats.keyframe_requests;
-    }
-}
-void on_nack(void* context, u32 media, u16 sequence) noexcept {
-    auto& s = *static_cast<GoLiveSender*>(context);
-    if (media != s.streams.video_ssrc || !s.history)
-        return;
-    ++s.stats.nacks;
-    const auto& entry = s.history[sequence & (kGoLiveHistoryPackets - 1)];
-    if (!entry.valid || entry.sequence != sequence)
-        return;
-    for (u32 i = 0; i != s.rtx_count; ++i)
-        if (s.rtx[i] == sequence)
-            return;
-    if (s.rtx_count != kGoLiveRtxQueue)
-        s.rtx[s.rtx_count++] = sequence;
-}
-void on_remb(void* context, u64 bitrate) noexcept {
-    go_live_bandwidth_remb(&static_cast<GoLiveSender*>(context)->bandwidth, bitrate);
-}
-struct FeedbackContext {
-    GoLiveSender* sender;
-    u64 now_us;
-    bool transport;
-};
-void on_report(void* context, const RtcpReportBlock& block) noexcept {
-    auto& f = *static_cast<FeedbackContext*>(context);
-    if (block.ssrc == f.sender->streams.video_ssrc && !f.transport)
-        go_live_bandwidth_loss(&f.sender->bandwidth, block.fraction_lost, f.now_us);
-}
-void on_transport(void* context, ConstSlice<RtcpTransportArrival> arrivals) noexcept {
-    auto& f = *static_cast<FeedbackContext*>(context);
-    auto& s = *f.sender;
-    for (u32 i = 0; i != arrivals.count; ++i) {
-        const auto& arrival = arrivals[i];
-        const auto& sent = s.transport_log[arrival.sequence & (kGoLiveTransportLog - 1)];
-        if (sent.valid && sent.sequence == arrival.sequence)
-            go_live_bandwidth_packet(&s.bandwidth, sent.send_us, arrival.arrival_us, sent.bytes, arrival.received);
-    }
-    go_live_bandwidth_update(&s.bandwidth, f.now_us);
-    ++s.stats.feedback;
-    f.transport = true;
-}
-// Proxies so the feedback visitor reaches the sender through FeedbackContext.
-void on_keyframe_proxy(void* context, u32 media) noexcept {
-    on_keyframe(static_cast<FeedbackContext*>(context)->sender, media);
-}
-void on_nack_proxy(void* context, u32 media, u16 sequence) noexcept {
-    on_nack(static_cast<FeedbackContext*>(context)->sender, media, sequence);
-}
-void on_remb_proxy(void* context, u64 bitrate) noexcept {
-    on_remb(static_cast<FeedbackContext*>(context)->sender, bitrate);
-}
-
 // Sends the held datagram; true when the transport took it (or it failed for good).
 bool flush(GoLiveSender& s, const GoLiveSendLink& link, u64 now_us) noexcept {
     if (!s.datagram_bytes)
@@ -182,7 +115,6 @@ void hold_audio(GoLiveSender& s) noexcept {
     copy_bytes(out + 20, packet.data, packet.bytes);
     s.audio_octets += packet.bytes;
     ++s.audio_total;
-    ++s.stats.audio_packets;
     s.audio_head = (s.audio_head + 1) % kGoLiveAudioQueue;
     --s.audio_count;
     hold(s, 20u + packet.bytes, false, false);
@@ -203,7 +135,6 @@ void hold_rtx(GoLiveSender& s, u64 now_us) noexcept {
     out[at++] = static_cast<u8>(sequence >> 8);
     out[at++] = static_cast<u8>(sequence);
     copy_bytes(out + at, entry.payload, entry.bytes);
-    ++s.stats.rtx_packets;
     hold(s, at + entry.bytes, true, true);
 }
 void hold_video(GoLiveSender& s) noexcept {
@@ -230,36 +161,11 @@ void hold_video(GoLiveSender& s) noexcept {
     copy_bytes(entry.payload, out + header, bytes);
     s.video_octets += bytes;
     ++s.video_count;
-    ++s.stats.video_packets;
-    s.stats.video_bytes += header + bytes;
     if (marker)
         s.frame_active = false;
     hold(s, header + bytes, true, true);
 }
-void report(GoLiveSender& s, u64 now_us) noexcept {
-    const u64 unix_us = now_unix_us();
-    u32 seconds = 0, fraction = 0;
-    rtcp_ntp_time(unix_us, &seconds, &fraction);
-    u32 at = rtcp_write_sender_report({s.datagram, kGoLiveDatagramBytes}, 0,
-                                      {s.streams.video_ssrc, seconds, fraction, static_cast<u32>(now_us * 9 / 100),
-                                       s.video_count, s.video_octets});
-    if (s.audio_total)
-        at = rtcp_write_sender_report({s.datagram, kGoLiveDatagramBytes}, at,
-                                      {s.streams.audio_ssrc, seconds, fraction,
-                                       static_cast<u32>(now_us * 48 / 1000), s.audio_total, s.audio_octets});
-    if (at)
-        hold(s, at, false, false);
-}
 } // namespace
-
-void go_live_bandwidth_reset(GoLiveBandwidth* bandwidth, StreamBitrate bounds, u64 now_us) noexcept {
-    reset_value(bandwidth);
-    bandwidth->bounds = bounds;
-    bandwidth->target = bounds.start < bounds.minimum ? bounds.minimum : bounds.start;
-    bandwidth->threshold = 12.5;
-    bandwidth->last_update_us = bandwidth->last_threshold_us = now_us;
-    bandwidth->overuse_since_us = -1;
-}
 
 void go_live_bandwidth_packet(GoLiveBandwidth* bandwidth, u64 send_us, i64 arrival_us, u32 bytes,
                               bool received) noexcept {
@@ -295,101 +201,6 @@ void go_live_bandwidth_packet(GoLiveBandwidth* bandwidth, u64 send_us, i64 arriv
     b.has_group = true;
 }
 
-void go_live_bandwidth_update(GoLiveBandwidth* bandwidth, u64 now_us) noexcept {
-    auto& b = *bandwidth;
-    const double elapsed_s = static_cast<double>(now_us - b.last_update_us) / 1e6;
-    b.last_update_us = now_us;
-    // Delay: the trend slope scaled by the group count, against the adaptive threshold.
-    bool overuse = false, underuse = false;
-    if (b.trend_count >= kGoLiveTrendWindow) {
-        const double trend = slope(b) * static_cast<double>(b.groups < 60 ? b.groups : 60) * 4.0;
-        const double magnitude = absolute(trend);
-        const double dt_ms = static_cast<double>(now_us - b.last_threshold_us) / 1000.0;
-        b.last_threshold_us = now_us;
-        if (magnitude < b.threshold + 15) {
-            const double k = magnitude < b.threshold ? 0.039 : 0.0087;
-            b.threshold += k * (magnitude - b.threshold) * (dt_ms < 100 ? dt_ms : 100);
-            b.threshold = b.threshold < 6 ? 6 : b.threshold > 600 ? 600 : b.threshold;
-        }
-        if (trend > b.threshold) {
-            if (b.overuse_since_us < 0)
-                b.overuse_since_us = static_cast<i64>(now_us);
-            ++b.overuse_hits;
-            overuse = b.overuse_hits >= 2 &&
-                      static_cast<double>(static_cast<i64>(now_us) - b.overuse_since_us) / 1000.0 >= kOveruseTimeMs;
-        } else {
-            b.overuse_since_us = -1;
-            b.overuse_hits = 0;
-            underuse = trend < -b.threshold;
-        }
-    }
-    // Loss of this batch.
-    const u32 packets = b.lost + b.received;
-    const double loss = packets ? static_cast<double>(b.lost) / packets : 0;
-    b.lost = b.received = 0;
-    u64 rate = b.target;
-    if (overuse) {
-        rate = static_cast<u64>((b.acked_bps ? b.acked_bps : b.target) * 0.85);
-        b.overuse_hits = 0;
-        b.overuse_since_us = -1;
-    } else if (loss > 0.10)
-        rate = static_cast<u64>(b.target * (1.0 - 0.5 * loss));
-    else if (!underuse && loss < 0.02) {
-        rate = static_cast<u64>(b.target * (1.0 + 0.08 * (elapsed_s < 1 ? elapsed_s : 1)));
-        // Never far beyond what actually got through (an estimate already above that is kept).
-        const u64 cap = u64{b.acked_bps} * 3 / 2 + 10'000;
-        if (b.acked_bps && rate > cap)
-            rate = b.target > cap ? b.target : cap;
-    }
-    b.target = clamp_rate(b, rate);
-}
-
-void go_live_bandwidth_loss(GoLiveBandwidth* bandwidth, u8 fraction_lost, u64 now_us) noexcept {
-    auto& b = *bandwidth;
-    const double loss = fraction_lost / 256.0, elapsed_s = static_cast<double>(now_us - b.last_update_us) / 1e6;
-    b.last_update_us = now_us;
-    u64 rate = b.target;
-    if (loss > 0.10)
-        rate = static_cast<u64>(b.target * (1.0 - 0.5 * loss));
-    else if (loss < 0.02)
-        rate = static_cast<u64>(b.target * (1.0 + 0.08 * (elapsed_s < 1 ? elapsed_s : 1)));
-    b.target = clamp_rate(b, rate);
-}
-
-void go_live_bandwidth_remb(GoLiveBandwidth* bandwidth, u64 bitrate) noexcept {
-    bandwidth->remb = static_cast<u32>(bitrate > ~u32{0} ? ~u32{0} : bitrate);
-    bandwidth->target = clamp_rate(*bandwidth, bandwidth->target);
-}
-
-bool go_live_sender_start(GoLiveSender* sender, const GoLiveSendStreams& streams, StreamBitrate bounds,
-                          u64 now_us) noexcept {
-    go_live_sender_stop(sender);
-    auto* block = static_cast<u8*>(pages_allocate(kHistoryBytes + kGoLiveFrameBytes));
-    u32 random[2]{};
-    if (!block || !secure_random_fill({reinterpret_cast<u8*>(random), sizeof(random)}).ok()) {
-        if (block)
-            pages_release(block);
-        return false;
-    }
-    sender->history = reinterpret_cast<GoLiveHistoryEntry*>(block);
-    sender->frame = block + kHistoryBytes;
-    sender->streams = streams;
-    sender->video_sequence = static_cast<u16>(random[0]);
-    sender->rtx_sequence = static_cast<u16>(random[0] >> 16);
-    sender->audio_sequence = static_cast<u16>(random[1]);
-    sender->transport_sequence = static_cast<u16>(random[1] >> 16);
-    sender->next_report_us = now_us + kGoLiveReportIntervalUs;
-    sender->pace_us = now_us - kBurstUs; // The first frame may start with one burst.
-    go_live_bandwidth_reset(&sender->bandwidth, bounds, now_us);
-    return true;
-}
-
-void go_live_sender_stop(GoLiveSender* sender) noexcept {
-    if (sender->history)
-        pages_release(sender->history);
-    reset_value(sender);
-}
-
 Slice<u8> go_live_sender_frame_buffer(GoLiveSender* sender) noexcept {
     return sender->frame && !sender->frame_active ? Slice<u8>{sender->frame, kGoLiveFrameBytes} : Slice<u8>{};
 }
@@ -400,9 +211,7 @@ bool go_live_sender_frame(GoLiveSender* sender, u32 bytes, u32 rtp_timestamp, bo
                               kRtpVideoMaximumPayload))
         return false;
     sender->frame_active = true;
-    sender->keyframe = keyframe;
     sender->frame_timestamp = rtp_timestamp;
-    ++sender->stats.frames;
     return true;
 }
 
@@ -415,12 +224,6 @@ bool go_live_sender_audio(GoLiveSender* sender, ConstSlice<u8> packet, u32 rtp_t
     copy_bytes(slot.data, packet.data, packet.count);
     ++sender->audio_count;
     return true;
-}
-
-void go_live_sender_rtcp(GoLiveSender* sender, ConstSlice<u8> compound, u64 now_us) noexcept {
-    FeedbackContext context{sender, now_us, false};
-    rtcp_read_feedback(compound,
-                       {&context, on_keyframe_proxy, on_nack_proxy, on_remb_proxy, on_report, on_transport});
 }
 
 u64 go_live_sender_pump(GoLiveSender* sender, const GoLiveSendLink& link, u64 now_us) noexcept {
@@ -467,7 +270,184 @@ bool go_live_sender_take_keyframe(GoLiveSender* sender) noexcept {
     return wanted;
 }
 
-bool go_live_sender_idle(const GoLiveSender& sender) noexcept {
-    return !sender.frame_active && !sender.datagram_bytes && !sender.rtx_count && !sender.audio_count;
+// From here on: once per RTCP packet (the stream server sends a few dozen a second at most), per sender report (one
+// a second) or per stream.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+namespace {
+u32 clamp_rate(const GoLiveBandwidth& b, u64 rate) noexcept {
+    u64 high = b.bounds.maximum;
+    if (b.remb && b.remb < high)
+        high = b.remb;
+    if (high < b.bounds.minimum)
+        high = b.bounds.minimum;
+    return static_cast<u32>(rate < b.bounds.minimum ? b.bounds.minimum : rate > high ? high : rate);
 }
+// Least-squares slope of the delay trend.
+double slope(const GoLiveBandwidth& b) noexcept {
+    double x = 0, y = 0;
+    for (u32 i = 0; i != kGoLiveTrendWindow; ++i) {
+        x += b.trend_x[i];
+        y += b.trend_y[i];
+    }
+    x /= kGoLiveTrendWindow;
+    y /= kGoLiveTrendWindow;
+    double numerator = 0, denominator = 0;
+    for (u32 i = 0; i != kGoLiveTrendWindow; ++i) {
+        numerator += (b.trend_x[i] - x) * (b.trend_y[i] - y);
+        denominator += (b.trend_x[i] - x) * (b.trend_x[i] - x);
+    }
+    return denominator > 0 ? numerator / denominator : 0;
+}
+// The loss rule of both feedback kinds: above 10 % loss the rate drops by half the loss; under 2 % it grows 8 % a
+// second where it may.
+u64 loss_rate(const GoLiveBandwidth& b, double loss, double elapsed_s, bool may_grow) noexcept {
+    if (loss > 0.10)
+        return static_cast<u64>(b.target * (1.0 - 0.5 * loss));
+    if (may_grow && loss < 0.02)
+        return static_cast<u64>(b.target * (1.0 + 0.08 * (elapsed_s < 1 ? elapsed_s : 1)));
+    return b.target;
+}
+
+void on_keyframe(void* context, u32 media) noexcept {
+    auto& s = *static_cast<Feedback*>(context)->sender;
+    if (!media || media == s.streams.video_ssrc)
+        s.keyframe_wanted = true;
+}
+void on_nack(void* context, u32 media, u16 sequence) noexcept {
+    auto& s = *static_cast<Feedback*>(context)->sender;
+    if (media != s.streams.video_ssrc)
+        return;
+    const auto& entry = s.history[sequence & (kGoLiveHistoryPackets - 1)];
+    if (!entry.valid || entry.sequence != sequence)
+        return;
+    for (u32 i = 0; i != s.rtx_count; ++i)
+        if (s.rtx[i] == sequence)
+            return;
+    if (s.rtx_count != kGoLiveRtxQueue)
+        s.rtx[s.rtx_count++] = sequence;
+}
+void on_remb(void* context, u64 bitrate) noexcept {
+    go_live_bandwidth_remb(&static_cast<Feedback*>(context)->sender->bandwidth, bitrate);
+}
+void on_report(void* context, const RtcpReportBlock& block) noexcept {
+    auto& f = *static_cast<Feedback*>(context);
+    if (block.ssrc == f.sender->streams.video_ssrc && !f.transport)
+        go_live_bandwidth_loss(&f.sender->bandwidth, block.fraction_lost, f.now_us);
+}
+void report(GoLiveSender& s, u64 now_us) noexcept {
+    u32 seconds = 0, fraction = 0;
+    rtcp_ntp_time(clock_unix_milliseconds() * 1000, &seconds, &fraction);
+    u32 at = rtcp_write_sender_report({s.datagram, kGoLiveDatagramBytes}, 0,
+                                      {s.streams.video_ssrc, seconds, fraction, static_cast<u32>(now_us * 9 / 100),
+                                       s.video_count, s.video_octets});
+    if (s.audio_total)
+        at = rtcp_write_sender_report({s.datagram, kGoLiveDatagramBytes}, at,
+                                      {s.streams.audio_ssrc, seconds, fraction,
+                                       static_cast<u32>(now_us * 48 / 1000), s.audio_total, s.audio_octets});
+    hold(s, at, false, false);
+}
+} // namespace
+
+void go_live_bandwidth_reset(GoLiveBandwidth* bandwidth, StreamBitrate bounds, u64 now_us) noexcept {
+    reset_value(bandwidth);
+    bandwidth->bounds = bounds;
+    bandwidth->target = bounds.start < bounds.minimum ? bounds.minimum : bounds.start;
+    bandwidth->threshold = 12.5;
+    bandwidth->last_update_us = bandwidth->last_threshold_us = now_us;
+    bandwidth->overuse_since_us = -1;
+}
+
+void go_live_bandwidth_update(GoLiveBandwidth* bandwidth, u64 now_us) noexcept {
+    auto& b = *bandwidth;
+    const double elapsed_s = static_cast<double>(now_us - b.last_update_us) / 1e6;
+    b.last_update_us = now_us;
+    // Delay: the trend slope scaled by the group count, against the adaptive threshold.
+    bool overuse = false, underuse = false;
+    if (b.trend_count >= kGoLiveTrendWindow) {
+        const double trend = slope(b) * static_cast<double>(b.groups < 60 ? b.groups : 60) * 4.0;
+        const double magnitude = trend < 0 ? -trend : trend;
+        const double dt_ms = static_cast<double>(now_us - b.last_threshold_us) / 1000.0;
+        b.last_threshold_us = now_us;
+        if (magnitude < b.threshold + 15) {
+            const double k = magnitude < b.threshold ? 0.039 : 0.0087;
+            b.threshold += k * (magnitude - b.threshold) * (dt_ms < 100 ? dt_ms : 100);
+            b.threshold = b.threshold < 6 ? 6 : b.threshold > 600 ? 600 : b.threshold;
+        }
+        if (trend > b.threshold) {
+            if (b.overuse_since_us < 0)
+                b.overuse_since_us = static_cast<i64>(now_us);
+            ++b.overuse_hits;
+            overuse = b.overuse_hits >= 2 &&
+                      static_cast<double>(static_cast<i64>(now_us) - b.overuse_since_us) / 1000.0 >= kOveruseTimeMs;
+        } else {
+            b.overuse_since_us = -1;
+            b.overuse_hits = 0;
+            underuse = trend < -b.threshold;
+        }
+    }
+    // Loss of this batch.
+    const u32 packets = b.lost + b.received;
+    const double loss = packets ? static_cast<double>(b.lost) / packets : 0;
+    b.lost = b.received = 0;
+    u64 rate;
+    if (overuse) {
+        rate = static_cast<u64>((b.acked_bps ? b.acked_bps : b.target) * 0.85);
+        b.overuse_hits = 0;
+        b.overuse_since_us = -1;
+    } else {
+        rate = loss_rate(b, loss, elapsed_s, !underuse);
+        // Growth never goes far beyond what actually got through (an estimate already above that is kept).
+        const u64 cap = u64{b.acked_bps} * 3 / 2 + 10'000;
+        if (rate > b.target && b.acked_bps && rate > cap)
+            rate = b.target > cap ? b.target : cap;
+    }
+    b.target = clamp_rate(b, rate);
+}
+
+void go_live_bandwidth_loss(GoLiveBandwidth* bandwidth, u8 fraction_lost, u64 now_us) noexcept {
+    auto& b = *bandwidth;
+    const double elapsed_s = static_cast<double>(now_us - b.last_update_us) / 1e6;
+    b.last_update_us = now_us;
+    b.target = clamp_rate(b, loss_rate(b, fraction_lost / 256.0, elapsed_s, true));
+}
+
+void go_live_bandwidth_remb(GoLiveBandwidth* bandwidth, u64 bitrate) noexcept {
+    bandwidth->remb = static_cast<u32>(bitrate > ~u32{0} ? ~u32{0} : bitrate);
+    bandwidth->target = clamp_rate(*bandwidth, bandwidth->target);
+}
+
+bool go_live_sender_start(GoLiveSender* sender, const GoLiveSendStreams& streams, StreamBitrate bounds,
+                          u64 now_us) noexcept {
+    go_live_sender_stop(sender);
+    auto* block = static_cast<u8*>(pages_allocate(kHistoryBytes + kGoLiveFrameBytes));
+    u32 random[2]{};
+    if (!block || !secure_random_fill({reinterpret_cast<u8*>(random), sizeof(random)}).ok()) {
+        if (block)
+            pages_release(block);
+        return false;
+    }
+    sender->history = reinterpret_cast<GoLiveHistoryEntry*>(block);
+    sender->frame = block + kHistoryBytes;
+    sender->streams = streams;
+    sender->video_sequence = static_cast<u16>(random[0]);
+    sender->rtx_sequence = static_cast<u16>(random[0] >> 16);
+    sender->audio_sequence = static_cast<u16>(random[1]);
+    sender->transport_sequence = static_cast<u16>(random[1] >> 16);
+    sender->next_report_us = now_us + kGoLiveReportIntervalUs;
+    sender->pace_us = now_us - kBurstUs; // The first frame may start with one burst.
+    go_live_bandwidth_reset(&sender->bandwidth, bounds, now_us);
+    return true;
+}
+
+void go_live_sender_stop(GoLiveSender* sender) noexcept {
+    if (sender->history)
+        pages_release(sender->history);
+    reset_value(sender);
+}
+
+void go_live_sender_rtcp(GoLiveSender* sender, ConstSlice<u8> compound, u64 now_us) noexcept {
+    Feedback context{sender, now_us, false};
+    rtcp_read_feedback(compound, {&context, on_keyframe, on_nack, on_remb, on_report, on_transport});
+}
+#pragma clang attribute pop
 } // namespace maicord

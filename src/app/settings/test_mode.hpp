@@ -9,7 +9,9 @@ namespace maicord::app_detail {
 // URL MaiCord cannot serve, so it is refused.
 bool application_test_mode_open() noexcept;
 void application_test_mode_clear() noexcept;
-// The row's description: what test mode is and, while it is active, for which application.
+// The row's description: what test mode is and, while it is active, for which application (the head, then its
+// name, then what test mode changes).
+inline constexpr Utf8View kApplicationTestModeActiveHead = utf8_literal("Test mode is currently active for ");
 Utf8View application_test_mode_status() noexcept;
 // The application in test mode: its name once its public record arrived, else its ID; empty when none is.
 Utf8View application_test_mode_name() noexcept;

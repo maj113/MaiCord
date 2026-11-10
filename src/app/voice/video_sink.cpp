@@ -53,9 +53,10 @@ void drop_settled(VoiceVideoSink& sink) noexcept {
         pages_decommit(sink.held, sink.held_committed);
     sink.held_committed = 0;
 }
+// The RTP core hands over only intact units it assembled into its kVideoRtpFrameBytes frame: never empty or larger.
 void deliver(void* context, const VideoRtpFrame& frame) noexcept {
     auto& sink = *static_cast<VoiceVideoSink*>(context);
-    if (!sink.decrypt || !frame.annex_b.count || frame.annex_b.count > kVideoRtpFrameBytes)
+    if (!sink.decrypt)
         return;
     if (!sink.buffer) {
         sink.buffer = static_cast<u8*>(commit_pages(kBufferBytes));

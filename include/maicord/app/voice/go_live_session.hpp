@@ -4,8 +4,6 @@
 #include "maicord/protocol/gateway/stream.hpp"
 
 namespace maicord {
-enum class VoiceVideoCodec : u8;
-
 // Go Live sending: the UI's view of the local user's own stream. The session
 // lives in the account module on the gateway worker and owns the capture, the
 // encoder, stream audio and the stream server connection; the UI reaches it
@@ -22,9 +20,8 @@ struct GoLiveSettings {
     u16 resolution;
     u8 fps;
     StreamPreset preset;
-    bool sound;            // Share the source's audio.
-    bool preview_disabled; // "Hide stream preview": no preview pictures are kept.
-    u8 reserved[2];
+    bool sound; // Share the source's audio.
+    u8 reserved[3];
 };
 static_assert(sizeof(GoLiveSettings) == 8);
 
@@ -75,23 +72,15 @@ inline constexpr u32 kGoLiveViewerIds = 32;
 struct GoLiveSnapshot {
     GatewayStreamKey key;
     u64 generation; // Bumps whenever anything below changes.
-    u64 started_ms; // Worker tick (milliseconds) the stream went live; 0 before.
     u64 viewer_ids[kGoLiveViewerIds];
     u32 viewer_count; // May exceed kGoLiveViewerIds.
-    u32 bitrate_kbps; // Current send target.
     u32 encodable;    // voice_video_codec_bit set the GPU encodes in hardware; 0 until known or none (no H.264).
-    u16 width, height; // Encoded picture.
-    u8 fps;
     GoLiveSettings settings;
     GoLiveState state;
     GoLiveEnd end;
-    GatewayStreamDeleteReason delete_reason;
-    VoiceVideoCodec codec;
     bool paused;
-    bool sound_active;    // Stream audio is captured and sent.
-    bool audio_available; // This system can capture stream audio.
     bool encodable_known; // encodable was probed (the renderer device is set).
-    u8 reserved[6];
+    u8 reserved[4];
 };
-static_assert(sizeof(GoLiveSnapshot) == 344);
+static_assert(sizeof(GoLiveSnapshot) == 320);
 } // namespace maicord

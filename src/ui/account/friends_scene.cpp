@@ -32,6 +32,29 @@ constexpr u32 maximum_visible = kUiFriendsMaximumVisibleRows;
 constexpr float active_padding = 16, active_heading = 56, active_card_height = 96, active_card_gap = 12;
 constexpr float active_avatar = 32, active_avatar_step = 24, active_toggle_extent = 28, active_detail_gap = 12;
 constexpr float active_solo_height = 60;
+// Count labels packed in one literal ("a\0b", empty ones allowed), looked up by index through their offsets: two
+// bytes a label, no relocation and no walk.
+template <u32 Count> struct Labels {
+    const char* text;
+    u16 start[Count + 1];
+    template <usize Bytes> consteval Labels(const char (&names)[Bytes]) noexcept : text(names), start{} {
+        u32 n = 0;
+        for (u32 i = 0; i < Bytes; ++i)
+            if (!names[i])
+                start[++n] = static_cast<u16>(i + 1);
+        if (n != Count)
+            start[Count + 1] = 0; // not a constant expression: the literal holds another count of labels
+    }
+    Utf8View operator[](u32 index) const noexcept {
+        return {text + start[index], static_cast<u32>(start[index + 1] - start[index] - 1)};
+    }
+};
+constexpr Labels<6> kTabLabels{"Online\0" "All\0" "Pending\0" "Add Friend\0" "Requests\0" "Spam"};
+// By UiFriendsAction; actions named elsewhere (or not at all) are empty.
+constexpr Labels<27> kActionLabels{"\0" "\0" "Message\0" "Profile\0" "Accept\0" "Ignore\0" "Cancel\0" "Remove\0"
+                                   "Block\0" "Add Friend\0" "Retry\0" "\0" "X\0" "More\0" "\0" "\0" "\0" "Clear all\0"
+                                   "Ignore\0" "\0" "\0" "\0" "\0" "\0" "Personalize your request (Optional)\0"
+                                   "Accept DM\0" "Ignore"};
 struct Entry {
     UiFriendsTarget target;
     UiFriendsRow row;
@@ -321,59 +344,10 @@ void section_heading(Entry& e, const UiFriendsSection& section) noexcept {
     e.section_label_bytes = static_cast<u8>(used);
 }
 Utf8View tab_label(UiFriendsTab t) noexcept {
-    switch (t) {
-    case UiFriendsTab::online:
-        return utf8_literal("Online");
-    case UiFriendsTab::all:
-        return utf8_literal("All");
-    case UiFriendsTab::pending:
-        return utf8_literal("Pending");
-    case UiFriendsTab::add_friend:
-        return utf8_literal("Add Friend");
-    case UiFriendsTab::requests:
-        return utf8_literal("Requests");
-    case UiFriendsTab::spam:
-        return utf8_literal("Spam");
-    }
-    return {};
+    return kTabLabels[static_cast<u32>(t)];
 }
 Utf8View action_label(UiFriendsAction a) noexcept {
-    switch (a) {
-    case UiFriendsAction::open_dm:
-        return utf8_literal("Message");
-    case UiFriendsAction::accept_dm:
-        return utf8_literal("Accept DM");
-    case UiFriendsAction::ignore_dm:
-        return utf8_literal("Ignore");
-    case UiFriendsAction::profile:
-        return utf8_literal("Profile");
-    case UiFriendsAction::accept:
-        return utf8_literal("Accept");
-    case UiFriendsAction::ignore:
-        return utf8_literal("Ignore");
-    case UiFriendsAction::cancel:
-        return utf8_literal("Cancel");
-    case UiFriendsAction::remove:
-        return utf8_literal("Remove");
-    case UiFriendsAction::block:
-        return utf8_literal("Block");
-    case UiFriendsAction::add_friend:
-        return utf8_literal("Add Friend");
-    case UiFriendsAction::retry:
-        return utf8_literal("Retry");
-    case UiFriendsAction::more:
-        return utf8_literal("More");
-    case UiFriendsAction::decline:
-        return utf8_literal("Ignore");
-    case UiFriendsAction::clear_incoming:
-        return utf8_literal("Clear all");
-    case UiFriendsAction::clear_search:
-        return utf8_literal("X");
-    case UiFriendsAction::note:
-        return utf8_literal("Personalize your request (Optional)");
-    default:
-        return {};
-    }
+    return kActionLabels[static_cast<u32>(a)];
 }
 Utf8View status_label(const UiFriendsScene& s) noexcept {
     if (s.status.bytes)
@@ -387,24 +361,17 @@ Utf8View status_label(const UiFriendsScene& s) noexcept {
         return utf8_literal("What you write here will also show up in your DM if you become friends.");
     return {s.count_heading, s.count_heading_bytes};
 }
-// The centred message of a list tab without rows.
+// The centred message of a list tab without rows (by tab; Add Friend has none), then a search without results.
+constexpr Labels<7> kEmptyLabels{
+    "There are no friends online at this time. Check back later!\0"
+    "There are no current friends. Click \xE2\x80\x9C" "Add Friend\xE2\x80\x9D to send friend requests.\0"
+    "There are no pending friend requests. Click \xE2\x80\x9C" "Add Friend\xE2\x80\x9D to send friend requests.\0"
+    "\0"
+    "There are no pending message requests.\0"
+    "There are no spam requests.\0"
+    "No results found"};
 Utf8View empty_label(const UiFriendsScene& s) noexcept {
-    if (searching(s) && s.content->search.text.bytes)
-        return utf8_literal("No results found");
-    switch (s.tab) {
-    case UiFriendsTab::online:
-        return utf8_literal("There are no friends online at this time. Check back later!");
-    case UiFriendsTab::pending:
-        return utf8_literal("There are no pending friend requests. Click \xE2\x80\x9C" "Add Friend\xE2\x80\x9D to send "
-                            "friend requests.");
-    case UiFriendsTab::requests:
-        return utf8_literal("There are no pending message requests.");
-    case UiFriendsTab::spam:
-        return utf8_literal("There are no spam requests.");
-    default:
-        return utf8_literal("There are no current friends. Click \xE2\x80\x9C" "Add Friend\xE2\x80\x9D to send friend "
-                            "requests.");
-    }
+    return kEmptyLabels[searching(s) && s.content->search.text.bytes ? 6 : static_cast<u32>(s.tab)];
 }
 // Online and All without rows offer the Add Friend tab.
 bool empty_offers_add(const UiFriendsScene& s) noexcept {
@@ -525,10 +492,10 @@ void count_heading(UiFriendsScene& s) noexcept {
     s.count_heading_bytes = 0;
     if (adding(s) || hidden(s) || sectioned(s) || empty_state(s))
         return;
-    const auto label = s.tab == UiFriendsTab::online     ? utf8_literal("Online \xE2\x80\x94 ")
-                       : s.tab == UiFriendsTab::requests ? utf8_literal("Pending Requests \xE2\x80\x94 ")
-                       : s.tab == UiFriendsTab::spam     ? utf8_literal("Spam \xE2\x80\x94 ")
-                                                         : utf8_literal("All friends \xE2\x80\x94 ");
+    // By tab (Add Friend has no list).
+    static constexpr Labels<6> prefixes{"Online \xE2\x80\x94 \0" "All friends \xE2\x80\x94 \0" "All friends \xE2\x80\x94 \0"
+                                 "\0" "Pending Requests \xE2\x80\x94 \0" "Spam \xE2\x80\x94 "};
+    const auto label = prefixes[static_cast<u32>(s.tab)];
     copy_bytes(s.count_heading, label.data, label.bytes);
     s.count_heading_bytes = static_cast<u8>(label.bytes + decimal_write(s.count_heading + label.bytes, logical_count(s)));
 }
@@ -1275,21 +1242,33 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             previous_clip = clip;
             clip_open = true;
         }
-        // The tab row: the shared pill tab, a plate only while selected or hot.
-        if (e.target.action == UiFriendsAction::select_tab) {
-            const bool selected = e.target.tab == s.tab;
-            // Add Friend is the primary pill: brand filled, a brand tint while selected.
-            if (e.target.tab == UiFriendsTab::add_friend)
-                p.rounded_border(node->rectangle,
-                                 selected  ? ui_theme_color_alpha(theme.tokens.accent.brand, .16f)
-                                 : hovered ? ui_background_hover_color(theme, theme.tokens.accent.brand, .85f)
-                                           : theme.tokens.accent.brand,
-                                 focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
-                                 ui_rect_height(node->rectangle) * .5f, focused ? 2.f : 0.f);
-            else
-                p.look<kUiTab>(node->rectangle, static_cast<u8>((hovered ? ui_state_hovered : 0) |
-                                                                (focused ? ui_state_focused : 0) |
-                                                                (selected ? ui_state_selected : 0)));
+        // The pills: the Add Friend tab and button (brand filled, a brand tint while the tab is selected) and a
+        // message request's Accept DM (primary on Requests) and Ignore buttons.
+        const bool select_tab = e.target.action == UiFriendsAction::select_tab;
+        const bool add_tab = select_tab && e.target.tab == UiFriendsTab::add_friend;
+        const bool request = e.target.action == UiFriendsAction::accept_dm || e.target.action == UiFriendsAction::ignore_dm;
+        if (add_tab || request || e.target.action == UiFriendsAction::add_friend) {
+            // Tabs and the Add Friend button are always enabled.
+            const bool enabled = (s.widgets.storage[i].flags & ui_widget_enabled) != 0;
+            Color fill = add_tab && e.target.tab == s.tab ? ui_theme_color_alpha(theme.tokens.accent.brand, .16f)
+                         : request && (e.target.action != UiFriendsAction::accept_dm || s.tab != UiFriendsTab::requests)
+                             ? ui_background_hover_color(theme, theme.interactive_hover, hovered ? .32f : .20f)
+                         : hovered && enabled ? ui_background_hover_color(theme, theme.tokens.accent.brand, .85f)
+                                              : theme.tokens.accent.brand;
+            if (!enabled)
+                fill = ui_theme_color_alpha(fill, .5f);
+            p.rounded_border(node->rectangle, fill,
+                             focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
+                             add_tab ? ui_rect_height(node->rectangle) * .5f : theme.scale.radius_sm,
+                             focused ? 2.f : 0.f);
+            if (!add_tab)
+                continue;
+        } else if (select_tab)
+            // The tab row: the shared pill tab, a plate only while selected or hot.
+            p.look<kUiTab>(node->rectangle, static_cast<u8>((hovered ? ui_state_hovered : 0) |
+                                                            (focused ? ui_state_focused : 0) |
+                                                            (e.target.tab == s.tab ? ui_state_selected : 0)));
+        if (select_tab) {
             if (e.target.tab == UiFriendsTab::pending && s.badge) {
                 const auto& r = node->rectangle;
                 const float w = ui_mention_badge_width(s.badge), top = (r.top + r.bottom - kUiMentionBadgeHeight) * .5f;
@@ -1318,56 +1297,35 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
                           : theme.text_primary);
             continue;
         }
-        // A message request's Accept DM (primary on Requests) and Ignore buttons.
-        if (e.target.action == UiFriendsAction::accept_dm || e.target.action == UiFriendsAction::ignore_dm) {
-            const bool primary = e.target.action == UiFriendsAction::accept_dm && s.tab == UiFriendsTab::requests;
-            const bool enabled = (s.widgets.storage[i].flags & ui_widget_enabled) != 0;
-            const Color fill = primary ? (hovered && enabled ? ui_background_hover_color(theme, theme.tokens.accent.brand, .85f)
-                                                             : theme.tokens.accent.brand)
-                                       : ui_background_hover_color(theme, theme.interactive_hover, hovered ? .32f : .20f);
-            p.rounded_border(node->rectangle, enabled ? fill : ui_theme_color_alpha(fill, .5f),
-                             focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
-                             theme.scale.radius_sm, focused ? 2.f : 0.f);
-            continue;
-        }
-        if (e.target.action == UiFriendsAction::add_friend) {
-            p.rounded_border(node->rectangle,
-                             hovered ? ui_background_hover_color(theme, theme.tokens.accent.brand, .85f)
-                                     : theme.tokens.accent.brand,
-                             focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
-                             theme.scale.radius_sm, focused ? 2.f : 0.f);
-            continue;
-        }
         // Idle row/action background and border quads are skipped: the labels
         // already show the affordance and the quads would exceed the shared native
         // paint budget at tall viewports. Button chrome and hover/focus feedback stay.
         // A row's plate fades in and out with the host's hover motion (the official client's background ease).
         const float hover_amount =
             e.row_label && s.row_hover && !focused ? ui_motion_hover_amount(*s.row_hover, e.row.user_id) : -1.f;
-        if (hover_amount > 0) {
+        const bool fade = hover_amount > 0;
+        if (fade || (hover_amount < 0 &&
+                     ((!e.row.user_id && e.target.action != UiFriendsAction::toggle_section) || hovered || focused))) {
+            // A fading plate is drawn as hovered (it is never focused).
+            const bool hot = hovered || fade;
+            Color fill = (hot ? ui_background_hover_color : ui_background_surface_color)(
+                theme,
+                hot           ? theme.interactive_hover
+                : e.row_label ? theme.base_lowest
+                              : theme.surface_high,
+                pressed ? .32f
+                : hot   ? .20f
+                        : .12f);
+            Color border = focused ? theme.tokens.border.focus : ui_background_surface_color(theme, theme.interactive, .38f);
             // The plate's own alpha carries the fade: a flat theme's colour helpers ignore their opacity argument.
-            Color fill = ui_background_hover_color(theme, theme.interactive_hover, pressed ? .32f : .20f);
-            Color border = ui_background_surface_color(theme, theme.interactive, .38f);
-            fill.alpha *= hover_amount;
-            border.alpha *= hover_amount;
+            if (fade) {
+                fill.alpha *= hover_amount;
+                border.alpha *= hover_amount;
+            }
             p.rounded_border({node->rectangle.left + 1, node->rectangle.top + 1, node->rectangle.right - 1,
                               node->rectangle.bottom - 1},
-                             fill, border, theme.scale.radius_sm, 1.f);
-        } else if (hover_amount < 0 &&
-                 ((!e.row.user_id && e.target.action != UiFriendsAction::toggle_section) || hovered || focused))
-            p.rounded_border(
-                {node->rectangle.left + 1, node->rectangle.top + 1, node->rectangle.right - 1,
-                 node->rectangle.bottom - 1},
-                (hovered ? ui_background_hover_color : ui_background_surface_color)(
-                    theme,
-                    hovered       ? theme.interactive_hover
-                    : e.row_label ? theme.base_lowest
-                                  : theme.surface_high,
-                    pressed   ? .32f
-                    : hovered ? .20f
-                              : .12f),
-                focused ? theme.tokens.border.focus : ui_background_surface_color(theme, theme.interactive, .38f),
-                theme.scale.radius_sm, focused ? 2.f : 1.f);
+                             fill, border, theme.scale.radius_sm, focused ? 2.f : 1.f);
+        }
         if (e.row_label) {
             constexpr float avatar = 32;
             const auto r = node->content_rectangle;
@@ -1467,23 +1425,20 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
         return false;
     const UiRect panel = bounds(s);
     UiTextPen text{stream, s.widgets, panel};
-    text.at(s.heading)(s.heading, hidden(s)                       ? utf8_literal("Other requests")
-                                  : ui_friends_tab_requests(s.tab) ? utf8_literal("Message Requests")
-                                                                   : utf8_literal("Friends"),
+    static constexpr Labels<3> titles{"Friends\0" "Message Requests\0" "Other requests"};
+    const bool requests_dialog = hidden(s);
+    text.at(s.heading)(s.heading, titles[requests_dialog ? 2 : ui_friends_tab_requests(s.tab) ? 1 : 0],
                        heading->content_rectangle, theme.text_primary,
                        in_toolbar(s) ? text_style_bold : text_style_heading_2 | text_style_bold);
-    const auto tone = s.content ? s.content->tone : UiFriendsTone::neutral;
-    if (hidden(s))
-        text.at(s.status_widget)(s.status_widget,
-                                 utf8_literal("Requests from people you've ignored and possible spam."),
-                                 status->content_rectangle, theme.text_secondary, text_style_subtext,
-                                 ui_text_wrap | ui_text_middle | ui_text_clip);
-    else
-        text.at(s.status_widget)(s.status_widget, status_label(s), status->content_rectangle,
-                                 tone == UiFriendsTone::positive ? theme.tokens.text.positive
-                                 : tone == UiFriendsTone::danger ? theme.tokens.text.danger
-                                                                 : theme.text_secondary,
-                                 text_style_subtext);
+    const auto tone = s.content && !requests_dialog ? s.content->tone : UiFriendsTone::neutral;
+    text.at(s.status_widget)(s.status_widget,
+                             requests_dialog ? utf8_literal("Requests from people you've ignored and possible spam.")
+                                             : status_label(s),
+                             status->content_rectangle,
+                             tone == UiFriendsTone::positive ? theme.tokens.text.positive
+                             : tone == UiFriendsTone::danger ? theme.tokens.text.danger
+                                                             : theme.text_secondary,
+                             text_style_subtext, requests_dialog ? ui_text_wrap | ui_text_middle | ui_text_clip : 0);
     if (const auto* intro = ui_widget_manager_layout_node(s.widgets, s.intro)) {
         auto r = intro->content_rectangle;
         r.bottom = r.top + 24;
@@ -1618,16 +1573,6 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                 text.at(h)(h, name, r, theme.text_primary, text_style_bold);
             r.top += 23;
             r.bottom = node->content_rectangle.bottom;
-            const auto label =
-                e.row.status.bytes ? e.row.status
-                : hidden(s) ? (e.row.ignored ? utf8_literal("Ignored") : utf8_literal("Potential spam"))
-                : e.row.kind == UiFriendsKind::incoming ? utf8_literal("Incoming Friend Request")
-                : e.row.kind == UiFriendsKind::outgoing ? utf8_literal("Outgoing Friend Request")
-                : e.row.presence == UiPresence::online  ? utf8_literal("Online")
-                : e.row.presence == UiPresence::idle    ? utf8_literal("Idle")
-                : e.row.presence == UiPresence::busy    ? utf8_literal("Do Not Disturb")
-                : e.row.presence == UiPresence::unknown ? utf8_literal("Status unavailable")
-                                                        : utf8_literal("Offline");
             // An online friend's activity or custom status replaces the presence label.
             char storage[kAppearanceActivityBytes], composed[kAppearanceActivityBytes + 32];
             UiActivityStatus activity{};
@@ -1652,7 +1597,18 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                 if (used)
                     continue;
             }
-            text.at(h)(h, e.row.ignored && e.row.kind == UiFriendsKind::friend_user ? utf8_literal("Ignored") : label,
+            // The row's state: by presence, then the request kinds and the requests dialog's reasons.
+            static constexpr Labels<9> states{"Status unavailable\0" "Online\0" "Idle\0" "Do Not Disturb\0" "Offline\0"
+                                              "Incoming Friend Request\0" "Outgoing Friend Request\0" "Ignored\0"
+                                              "Potential spam"};
+            const bool ignored_friend = e.row.ignored && e.row.kind == UiFriendsKind::friend_user;
+            text.at(h)(h,
+                       e.row.status.bytes && !ignored_friend ? e.row.status
+                       : states[ignored_friend                         ? 7
+                                : hidden(s)                             ? (e.row.ignored ? 7 : 8)
+                                : e.row.kind == UiFriendsKind::incoming ? 5
+                                : e.row.kind == UiFriendsKind::outgoing ? 6
+                                                                        : static_cast<u32>(e.row.presence)],
                        r, theme.text_secondary, text_style_subtext);
         } else if (e.row.user_id && action_icon(e.target.action) != UiIcon::count) {
             continue; // painted as an icon button

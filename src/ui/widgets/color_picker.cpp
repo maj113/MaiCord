@@ -48,9 +48,13 @@ u32 color_picker_rgb(ColorPickerHsv hsv) noexcept {
     const float sector = (h == 1 ? 0 : h) * 6;
     const u32 i = minimum(static_cast<u32>(sector), 5u);
     const float f = sector - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
-    const float rgb[6][3]{{v, t, p}, {q, v, p}, {p, v, t}, {p, q, v}, {t, p, v}, {v, p, q}};
-    return static_cast<u32>(rgb[i][0] * 255 + .5f) << 16 | static_cast<u32>(rgb[i][1] * 255 + .5f) << 8 |
-           static_cast<u32>(rgb[i][2] * 255 + .5f);
+    // Each sector's red, green and blue among these four.
+    const float values[4]{v, t, p, q};
+    static constexpr u8 kOrder[6][3]{{0, 1, 2}, {3, 0, 2}, {2, 0, 1}, {2, 3, 0}, {1, 2, 0}, {0, 2, 3}};
+    u32 rgb = 0;
+    for (const u8 channel : kOrder[i])
+        rgb = rgb << 8 | static_cast<u32>(values[channel] * 255 + .5f);
+    return rgb;
 }
 
 ColorPickerHsv color_picker_hsv(u32 rgb, ColorPickerHsv previous) noexcept {

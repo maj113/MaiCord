@@ -101,6 +101,11 @@ UiSliderGeometry volume_slider(const UiSettingsTokens& tokens, const UiRect& bou
     return ui_slider_geometry(tokens, {bounds.left, middle - half, bounds.right, middle + half}, kVolumeSteps,
                               value, false);
 }
+// "Track <n>": the bubble's ordinal, before any title.
+u32 track_label(char* output, u16 track) noexcept {
+    copy_bytes(output, "Track ", 6);
+    return 6 + decimal_write(output + 6, track);
+}
 // The bubble follows the hovered second rather than the raw pointer, so
 // its glyphs move only when the label changes.
 void update_hover_time(UiVideoScene& scene) noexcept {
@@ -113,8 +118,7 @@ void update_hover_time(UiVideoScene& scene) noexcept {
         scene.hover_track = static_cast<u16>(minimum(selected->maximum, static_cast<u32>(ratio * selected->maximum + .5f)) + 1);
         if (previous_track != scene.hover_track) {
             scene.track_hover_since_ms = 0; scene.track_hover_requested = false;
-            copy_bytes(scene.hover_time, "Track ", 6); scene.hover_time_bytes = 6;
-            scene.hover_time_bytes += decimal_write(scene.hover_time + scene.hover_time_bytes, scene.hover_track);
+            scene.hover_time_bytes = track_label(scene.hover_time, scene.hover_track);
         }
         scene.hover_x = track.left + ui_rect_width(track) * (scene.hover_track - 1) / maximum(1u, selected->maximum);
         return;
@@ -261,10 +265,10 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
     };
     const bool preserve_hover = control_geometry_same(old_hover);
     const bool preserve_capture = control_geometry_same(old_capture);
-    char old_title[sizeof(scene->track_title)]{};
+    char old_title[sizeof(scene->track_title)];
     const u16 old_title_bytes = same_source && scene->projection.playback.collection_track == playback.collection_track ? scene->track_title_bytes : 0;
     copy_bytes(old_title, scene->track_title, old_title_bytes);
-    char old_tip[sizeof(scene->hover_time)]{};
+    char old_tip[sizeof(scene->hover_time)];
     const u32 old_tip_bytes = preserve_hover ? scene->hover_time_bytes : 0;
     copy_bytes(old_tip, scene->hover_time, old_tip_bytes);
     const u16 old_track = preserve_hover ? scene->hover_track : 0;
@@ -489,8 +493,7 @@ void ui_video_scene_titles(UiVideoScene* scene, Utf8View current, u16 track, Utf
     if (!scene || !scene->active) return;
     scene->track_title_bytes = static_cast<u16>(utf8_copy_truncated(scene->track_title, sizeof(scene->track_title), current));
     if (track && track == scene->hover_track && hovered.bytes) {
-        copy_bytes(scene->hover_time, "Track ", 6); scene->hover_time_bytes = 6;
-        scene->hover_time_bytes += decimal_write(scene->hover_time + scene->hover_time_bytes, track);
+        scene->hover_time_bytes = track_label(scene->hover_time, track);
         copy_bytes(scene->hover_time + scene->hover_time_bytes, " - ", 3); scene->hover_time_bytes += 3;
         scene->hover_time_bytes += utf8_copy_truncated(scene->hover_time + scene->hover_time_bytes, sizeof(scene->hover_time) - scene->hover_time_bytes, hovered);
     }

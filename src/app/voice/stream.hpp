@@ -21,7 +21,8 @@ namespace maicord::app_detail {
 void application_stream_watch(const GatewayStreamKey& key) noexcept;
 // Stops watching (also clears an ended stream's tile).
 void application_stream_stop() noexcept;
-StreamWatchView application_stream_view() noexcept;
+// Valid until the next stream pump or stop.
+const StreamWatchView& application_stream_view() noexcept;
 // The call-view tile ID of owner's stream (never a user ID).
 u64 application_stream_tile(u64 owner_id) noexcept;
 // Marks key's preview as shown now (fetching it when due) and returns its

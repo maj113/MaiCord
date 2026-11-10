@@ -44,6 +44,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -740,14 +741,13 @@ bool more(ApplicationFriends& friends, const UiFriendsTarget& target, UiRect anc
         anchor = node ? node->rectangle : scene.surface;
     }
     search_focus(friends, false);
-    auto opened = popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, target.user_id, {items, count}, anchor,
-        application_viewport_dips(), 200.f);
-    if (!opened.ok() && count != builtins) {
+    // Without the plugins' rows when the whole menu cannot open.
+    for (u32 shown = count;; shown = builtins) {
+        if (popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, target.user_id, {items, shown}, anchor,
+                             application_viewport_dips(), 200.f).ok()) break;
+        if (shown == builtins) return false;
         application_plugins_menu_dismissed();
-        opened = popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, target.user_id, {items, builtins}, anchor,
-            application_viewport_dips(), 200.f);
     }
-    if (!opened.ok()) return false;
     set_popup_owner(PopupOwnerKind::friends);g_app.context_focus = &scene.widgets;
     if (!application_plugins_menu_bind()) return false;
     return renderer_rebuild_content_text(&g_app.renderer, application_theme()) && application_request_frame();
@@ -816,6 +816,21 @@ void add_result(ApplicationFriends& friends, UiFriendsTone tone, Utf8View first,
     friends.status = {friends.add_status, used};
     friends.add_tone = tone;
 }
+// Add Friend's failures by Discord error code; the last entry stands for any other.
+struct AddFailure {
+    u32 code;
+    const char* text;
+};
+constexpr AddFailure kAddFailures[]{
+    {80000, " is not accepting friend requests. They\xE2\x80\x99ll have to add you to become friends."},
+    {80007, "You're already friends with that user!"},
+    {30002, "You've maxed out your friend list. Welcome to the elite 1,000 friends club!"},
+    {30078, "You've maxed out your pending outgoing friend requests."},
+    {30059, "You've maxed out your block list."},
+    {40068, "Your account has limited access"},
+    {340007, "Your account has limited access"},
+    {0, "Hm, didn't work. Double check that the username is correct."},
+};
 Utf8View trimmed(Utf8View text) noexcept {
     while (text.bytes && text.data[0] == ' ') { ++text.data;--text.bytes; }
     while (text.bytes && text.data[text.bytes - 1] == ' ') --text.bytes;
@@ -897,6 +912,15 @@ bool confirmation_save(TextFormOwnerKey key, Utf8View) noexcept {
     if (queued) g_app.friends->stranger_confirmation = false;
     return queued;
 }
+// Each confirmation (accept, block, ignore, remove, clear all): its title, its button, then the question around the
+// name or the count.
+constexpr const char* kConfirmTexts[]{
+    "Accept friend request\0" "Accept\0" "Accept a friend request from \0" "?",
+    "Block user\0" "Block\0" "Block \0" "?",
+    "Ignore user\0" "Ignore\0" "Ignore \0" "? You'll stay friends.",
+    "Remove Friend\0" "Remove Friend\0" "Remove \0" " from your friends?",
+    "Clear requests\0" "Clear all\0" "Clear all \0" " friend requests?",
+};
 bool confirm(ApplicationFriends& friends, const UiFriendsTarget& target, bool allow_hidden = false) noexcept {
     allow_hidden = allow_hidden || friends.requests_visible;
     const bool bulk = target.action == UiFriendsAction::clear_incoming;
@@ -910,32 +934,34 @@ bool confirm(ApplicationFriends& friends, const UiFriendsTarget& target, bool al
     friends.confirmation_ignored = current && current->ignored;friends.confirmation_spam = current && current->spam;
     friends.confirmation_stranger = current && current->stranger;friends.confirmation_stranger_known = current && current->stranger_known;
     ++friends.confirmation_serial;
+    NameList texts{kConfirmTexts[target.action == UiFriendsAction::accept ? 0 : target.action == UiFriendsAction::block ? 1 :
+        target.action == UiFriendsAction::ignore ? 2 : bulk ? 4 : 3]};
+    const Utf8View title = texts.name();
+    texts.next();
+    const Utf8View accept = texts.name();
+    texts.next();
+    u32 count = 0;
+    for (u32 i = 0; bulk && i < friends.store.count; ++i) if (friends.records[i].type == RelationshipType::incoming) ++count;
+    if (bulk && !count) return false;
     ProtocolWriter writer{{reinterpret_cast<u8*>(friends.confirmation_text), sizeof(friends.confirmation_text)}, 0};
+    const auto append = [&writer](Utf8View text) noexcept {
+        return protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(text.data), text.bytes);
+    };
+    bool written = append(texts.name());
+    texts.next();
     if (bulk) {
-        u32 count = 0;
-        for (u32 i = 0; i < friends.store.count; ++i) if (friends.records[i].type == RelationshipType::incoming) ++count;
-        if (!count || !protocol_writer_append_c_string(&writer, "Clear all ") || !protocol_writer_append_u64(&writer, count) ||
-            !protocol_writer_append_c_string(&writer, " friend requests?")) return false;
+        written = written && protocol_writer_append_u64(&writer, count);
     } else {
         Utf8View name{};
         if (current)
             name = relationship_display_name(*current, g_app.account_ui->user_store);
         else if (const auto* user = user_store_find(g_app.account_ui->user_store, target.user_id))
             name = user_store_name(g_app.account_ui->user_store, *user);
-        if (!protocol_writer_append_c_string(&writer, target.action == UiFriendsAction::accept ?
-            "Accept a friend request from " : target.action == UiFriendsAction::block ? "Block " :
-            target.action == UiFriendsAction::ignore ? "Ignore " : "Remove ") ||
-            !protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(name.bytes ? name.data : "this user"), name.bytes ? name.bytes : 9) ||
-            !protocol_writer_append_c_string(&writer, target.action == UiFriendsAction::remove ? " from your friends?" :
-                target.action == UiFriendsAction::ignore ? "? You'll stay friends." : "?")) return false;
+        written = written && append(name.bytes ? name : utf8_literal("this user"));
     }
+    if (!written || !append(texts.name())) return false;
     search_focus(friends, false);
-    ApplicationTextFormRequest request{target.action == UiFriendsAction::accept ? utf8_literal("Accept friend request") :
-        target.action == UiFriendsAction::block ? utf8_literal("Block user") : target.action == UiFriendsAction::ignore ? utf8_literal("Ignore user") :
-        bulk ? utf8_literal("Clear requests") : utf8_literal("Remove Friend"),
-        {friends.confirmation_text, writer.used}, {}, target.action == UiFriendsAction::accept ? utf8_literal("Accept") :
-        target.action == UiFriendsAction::block ? utf8_literal("Block") : target.action == UiFriendsAction::ignore ? utf8_literal("Ignore") :
-        bulk ? utf8_literal("Clear all") : utf8_literal("Remove Friend"), {},
+    ApplicationTextFormRequest request{title, {friends.confirmation_text, writer.used}, {}, accept, {},
         {g_app.account.status.profile_id, friends.confirmation_serial, target.user_id}, confirmation_valid, confirmation_save, 0, true};
     request.danger = target.action != UiFriendsAction::accept && target.action != UiFriendsAction::ignore;
     return application_text_form_open(request);
@@ -1573,36 +1599,26 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         Utf8View name{request.username, request.username_bytes};
         for (u32 i = 0; i < name.bytes; ++i)
             if (name.data[i] == '\n') { name.bytes = i;break; }
+        Utf8View first{}, last{};
         if (ok) {
-            add_result(*friends, UiFriendsTone::positive, utf8_literal("Success! Your friend request to "), name,
-                       utf8_literal(" was sent."));
+            first = utf8_literal("Success! Your friend request to ");
+            last = utf8_literal(" was sent.");
             if (auto* model = friends_search_document(&friends->search, UiFriendsTab::add_friend))
                 message_composer_clear(model);
             message_composer_clear(&friends->search.note);
         } else {
             request.phase = FriendsRequestPhase::idle;
-            switch (response.rejection.code) {
-            case 80000:
-                add_result(*friends, UiFriendsTone::danger, {}, name,
-                           utf8_literal(" is not accepting friend requests. They\xE2\x80\x99ll have to add you to become friends."));
-                break;
-            case 80007: add_result(*friends, UiFriendsTone::danger, utf8_literal("You're already friends with that user!")); break;
-            case 30002:
-                add_result(*friends, UiFriendsTone::danger,
-                           utf8_literal("You've maxed out your friend list. Welcome to the elite 1,000 friends club!"));
-                break;
-            case 30078:
-                add_result(*friends, UiFriendsTone::danger,
-                           utf8_literal("You've maxed out your pending outgoing friend requests."));
-                break;
-            case 30059: add_result(*friends, UiFriendsTone::danger, utf8_literal("You've maxed out your block list.")); break;
-            case 40068:
-            case 340007: add_result(*friends, UiFriendsTone::danger, utf8_literal("Your account has limited access")); break;
-            default:
-                add_result(*friends, UiFriendsTone::danger,
-                           utf8_literal("Hm, didn't work. Double check that the username is correct."));
-            }
+            u32 at = 0;
+            while (at + 1 < sizeof(kAddFailures) / sizeof(kAddFailures[0]) &&
+                   kAddFailures[at].code != response.rejection.code)
+                ++at;
+            const Utf8View text{kAddFailures[at].text, c_string_length(kAddFailures[at].text)};
+            // Only a user not accepting requests is named, before the text.
+            if (at)
+                name = {};
+            (at ? first : last) = text;
         }
+        add_result(*friends, ok ? UiFriendsTone::positive : UiFriendsTone::danger, first, name, last);
     }
     if (ok && friends->incomplete)
         recovery(*friends, utf8_literal("Your friends list is out of date. Try again to refresh."));

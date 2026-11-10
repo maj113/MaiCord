@@ -348,9 +348,9 @@ u32 badge_hint(const UiGuildCardServer& server, UiGuildCardBadge kind, char* out
 
 bool ui_guild_card_show(UiGuildCardScene* s, u64 identity, const UiGuildCardContent& content, UiRect anchor,
                         UiRect viewport, u64 now_ms, bool reduced_motion, UiTextMeasureCache* cache) noexcept {
-    if (!s || !identity || !ui_rect_valid(viewport) || !ui_rect_has_area(viewport) ||
+    if (!identity || !ui_rect_valid(viewport) || !ui_rect_has_area(viewport) ||
         !ui_hover_card_initialize(*s, utf8_literal("Server profile"))) {
-        if (s && s->active)
+        if (s->active)
             ui_guild_card_close(s);
         return false;
     }
@@ -473,7 +473,7 @@ UiGuildCardControl ui_guild_card_hit(const UiGuildCardScene& s, float x, float y
 }
 
 bool ui_guild_card_hint(const UiGuildCardScene& s, float x, float y, UiGuildCardHint* output) noexcept {
-    if (!output || !s.active || s.phase != UiGuildCardPhase::ready)
+    if (!s.active || s.phase != UiGuildCardPhase::ready)
         return false;
     const auto over = [&](const UiRect& r, UiGuildCardHintKind kind, Utf8View text, u32 index) noexcept {
         const auto anchor = ui_rect_has_area(r) ? ui_rect_intersection(at(s, r), s.panel) : UiRect{};
@@ -532,7 +532,7 @@ UiGuildCardBadge ui_guild_card_badge(const UiGuildCardServer& server) noexcept {
 }
 
 bool ui_guild_card_set_hover(UiGuildCardScene* s, float x, float y) noexcept {
-    return s && ui_hover_card_set_hovered(s, ui_guild_card_hit(*s, x, y) == UiGuildCardControl::action);
+    return ui_hover_card_set_hovered(s, ui_guild_card_hit(*s, x, y) == UiGuildCardControl::action);
 }
 
 bool ui_guild_card_set_pressed(UiGuildCardScene* s, bool pressed) noexcept {
@@ -544,7 +544,7 @@ bool ui_guild_card_spinner_visible(const UiGuildCardScene& s) noexcept {
 }
 
 bool ui_guild_card_media(const UiGuildCardScene& s, u32 index, UiGuildCardMedia* output) noexcept {
-    if (!output || !s.active)
+    if (!s.active)
         return false;
     if (index == 0 && media_asset_key_valid(s.icon_key) && s.phase != UiGuildCardPhase::loading) {
         const auto r = at(s, s.icon);

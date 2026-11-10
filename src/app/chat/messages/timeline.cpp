@@ -359,7 +359,7 @@ bool message_timeline_scroll_by(MessageTimeline* timeline, i64 delta_units, u64 
     return true;
 }
 
-bool message_timeline_scroll_to_start(MessageTimeline* timeline, bool* changed) noexcept {
+static bool scroll_to_edge(MessageTimeline* timeline, bool bottom, bool* changed) noexcept {
     if (changed) {
         *changed = false;
     }
@@ -367,26 +367,19 @@ bool message_timeline_scroll_to_start(MessageTimeline* timeline, bool* changed) 
         return false;
     }
     const u64 previous = timeline->scroll_units;
-    if (!message_timeline_set_scroll(timeline, 0, false)) {
+    if (!message_timeline_set_scroll(timeline, 0, bottom)) {
         return false;
     }
     *changed = timeline->scroll_units != previous;
     return true;
 }
 
+bool message_timeline_scroll_to_start(MessageTimeline* timeline, bool* changed) noexcept {
+    return scroll_to_edge(timeline, false, changed);
+}
+
 bool message_timeline_scroll_to_bottom(MessageTimeline* timeline, bool* changed) noexcept {
-    if (changed) {
-        *changed = false;
-    }
-    if (!timeline || !changed) {
-        return false;
-    }
-    const u64 previous = timeline->scroll_units;
-    if (!message_timeline_set_scroll(timeline, 0, true)) {
-        return false;
-    }
-    *changed = timeline->scroll_units != previous;
-    return true;
+    return scroll_to_edge(timeline, true, changed);
 }
 
 bool message_timeline_is_at_bottom(const MessageTimeline& timeline, u64 tolerance_units) noexcept {
@@ -736,19 +729,24 @@ static MessageTimelineApplyResult apply_decoded_message(
            gateway_message_field_message_snapshots | gateway_message_field_flags)) != 0 ||
          message.rich_truncations != 0)) {
         const MessageRecord* resident = message_store_resolve(*timeline->store, result.mutation.handle);
-        GatewayMessageEvent enriched = message;
+        // Only a quote resolved from a resident message needs a copy of the message to carry it.
+        const GatewayMessageEvent* applied = &message;
+        GatewayMessageEvent enriched;
         const auto* cached = message_rich_store_find(*timeline->rich_store, message.id);
-        const bool known_quote = cached && cached->reference.message_id == enriched.reference.message_id &&
-                                 cached->reference.channel_id == enriched.reference.channel_id &&
+        const bool known_quote = cached && cached->reference.message_id == message.reference.message_id &&
+                                 cached->reference.channel_id == message.reference.channel_id &&
                                  (cached->reference.state == GatewayMessageReferenceState::available ||
                                   cached->reference.state == GatewayMessageReferenceState::deleted);
-        if (enriched.reference.state == GatewayMessageReferenceState::unknown && !known_quote &&
-            enriched.reference.message_id != message.id &&
-            enriched.reference.channel_id == message.channel_id &&
-            resolve_resident_reference(*timeline, message.channel_id, &enriched.reference))
-            enriched.fields |= gateway_message_field_referenced_message;
+        if (message.reference.state == GatewayMessageReferenceState::unknown && !known_quote &&
+            message.reference.message_id != message.id && message.reference.channel_id == message.channel_id) {
+            enriched = message;
+            if (resolve_resident_reference(*timeline, message.channel_id, &enriched.reference)) {
+                enriched.fields |= gateway_message_field_referenced_message;
+                applied = &enriched;
+            }
+        }
         if (!resident ||
-            !message_rich_store_apply(timeline->rich_store, message.id, resident->revision, enriched)
+            !message_rich_store_apply(timeline->rich_store, message.id, resident->revision, *applied)
                  .ok()) {
             ++timeline->rejected;
             result.error = MessageTimelineError::rich_store;

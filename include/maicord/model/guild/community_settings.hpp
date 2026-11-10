@@ -137,7 +137,8 @@ struct GuildLocale {
     Utf8View code, name;
 };
 inline constexpr u32 kGuildLocaleCount = 30;
-extern const GuildLocale kGuildLocales[kGuildLocaleCount];
+// The language at `index` (below kGuildLocaleCount).
+GuildLocale guild_locale(u32 index) noexcept;
 // The list index of a code; kGuildLocaleCount for none.
 u32 guild_locale_index(Utf8View code) noexcept;
 

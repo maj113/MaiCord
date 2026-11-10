@@ -62,14 +62,13 @@ Utf8View name(const MessageReactionTarget& target) noexcept {
 bool same_emoji(u64 id, const Utf8View& value, const MessageReactionTarget& target) noexcept {
     return id == target.emoji_id && (id || utf8_equal(value, name(target)));
 }
-const MessageRecord* resident(const MessageReactionTarget& target,
-                              MessageHandle* handle = nullptr) noexcept {
-    if (!g_app.account_ui || g_app.account_ui->active_channel_id != target.channel_id)
+const MessageRecord* resident(u64 channel_id, u64 message_id, MessageHandle* handle = nullptr) noexcept {
+    if (!g_app.account_ui || g_app.account_ui->active_channel_id != channel_id)
         return nullptr;
-    const auto found = message_store_find(g_app.message_view.store, target.message_id);
+    const auto found = message_store_find(g_app.message_view.store, message_id);
     const auto* value =
         found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
-    if (!value || value->channel_id != target.channel_id ||
+    if (!value || value->channel_id != channel_id ||
         value->delivery != MessageDeliveryState::authoritative)
         return nullptr;
     if (handle)
@@ -143,7 +142,7 @@ bool eligible(const MessageReactionTarget& target, const MessageReactionAuthorit
 MessageReactionAuthority authority_from(const MessageReactionTarget& target) noexcept {
     MessageReactionAuthority value{};
     value.known = true;
-    const auto* record = resident(target);
+    const auto* record = resident(target.channel_id, target.message_id);
     const auto* rich =
         record ? message_rich_store_find(g_app.account_ui->message_rich_store, target.message_id) : nullptr;
     if (!rich || rich->message_revision != record->revision)
@@ -169,7 +168,7 @@ bool project(const MessageReactionTarget& target, const MessageReactionProjectio
              bool* model_changed = nullptr) noexcept {
     if (model_changed)
         *model_changed = false;
-    const auto* record = resident(target);
+    const auto* record = resident(target.channel_id, target.message_id);
     if (!record)
         return true;
     const auto& a = p.authority;
@@ -256,7 +255,7 @@ bool restore_current_source(const MessageReactionIntent& intent, bool* model_cha
     const auto* channel =
         chat_state_store_find_channel(g_app.account_ui->chat_state, intent.target.channel_id);
     MessageHandle handle{};
-    const auto* record = resident(intent.target, &handle);
+    const auto* record = resident(intent.target.channel_id, intent.target.message_id, &handle);
     if (!channel || channel->generation != intent.source.channel_generation || !record ||
         !same_handle(handle, intent.source.handle) || record->revision != intent.source.revision)
         return false;
@@ -385,14 +384,14 @@ ApplicationMessageReactionEnqueueResult queue(u64 id, u64 emoji, Utf8View text, 
     copy_bytes(target.name, text.data, text.bytes);
     target.channel_id = g_app.account_ui->active_channel_id;
     MessageHandle handle{};
-    const auto* record = resident(target, &handle);
+    const auto* record = resident(target.channel_id, target.message_id, &handle);
     if (!record)
         return ApplicationMessageReactionEnqueueResult::stale;
     if (!application_message_reaction_synchronize())
         return ApplicationMessageReactionEnqueueResult::stale;
     if (owner && owner->closing)
         return ApplicationMessageReactionEnqueueResult::stale;
-    record = resident(target, &handle);
+    record = resident(target.channel_id, target.message_id, &handle);
     if (!record)
         return ApplicationMessageReactionEnqueueResult::stale;
     MessageReactionProjection previous{};
@@ -546,10 +545,7 @@ Utf8View application_message_reaction_status(u64 message_id, bool* error) noexce
     if (status.message != message_id || status.channel != g_app.account_ui->active_channel_id || !channel ||
         channel->generation != status.generation || !readable(*channel))
         return {};
-    MessageReactionTarget target{};
-    target.channel_id = status.channel;
-    target.message_id = status.message;
-    if (!resident(target))
+    if (!resident(status.channel, status.message))
         return {};
     if (error)
         *error = status.error;
@@ -620,7 +616,7 @@ static bool synchronize_reactions(u64 snapshot_channel, u64 snapshot_message,
             current_channel && eligible(intent.target, intent.authority, intent.desired_mine);
         bool valid = allowed;
         MessageHandle handle{};
-        const auto* record = resident(intent.target, &handle);
+        const auto* record = resident(intent.target.channel_id, intent.target.message_id, &handle);
         auto* source = binding(intent.target.channel_id, intent.target.message_id);
         if (valid && intent.target.channel_id == owner->resident_channel) {
             const bool same_epoch = source && source->epoch == owner->resident_epoch;
@@ -698,13 +694,8 @@ static bool synchronize_reactions(u64 snapshot_channel, u64 snapshot_message,
                    controller.entries[i].target.message_id == source.message;
         if (!used)
             reset_value(&source);
-        else if (source.channel == owner->resident_channel) {
-            MessageReactionTarget target{};
-            target.channel_id = source.channel;
-            target.message_id = source.message;
-            if (resident(target))
-                source.epoch = owner->resident_epoch;
-        }
+        else if (source.channel == owner->resident_channel && resident(source.channel, source.message))
+            source.epoch = owner->resident_epoch;
     }
     mirror();
     if (changed || revision != controller.revision)
@@ -859,7 +850,7 @@ static bool observed_source_current(const MessageReactionIntent& intent, Message
     if (!channel || channel->generation != intent.source.channel_generation)
         return false;
     MessageHandle current_handle{};
-    const auto* record = resident(intent.target, &current_handle);
+    const auto* record = resident(intent.target.channel_id, intent.target.message_id, &current_handle);
     const auto* source = binding(intent.target.channel_id, intent.target.message_id);
     const bool navigation_rebind = owner->resident_channel != g_app.account_ui->active_channel_id ||
                                    (source && source->epoch != owner->resident_epoch);

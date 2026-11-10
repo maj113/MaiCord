@@ -52,6 +52,8 @@ constexpr u32 kSlots = 6;
 constexpr u8 kNone = 255;
 constexpr u32 kParameterBytes = 1024;
 
+// The transform's set-up runs once per encoder (and per probe): compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // mfplat.dll, loaded with the encoder: the client never imports Media Foundation.
 struct TypeInfo {
     GUID major, subtype;
@@ -311,6 +313,8 @@ HRESULT transform_open(const Api& api, IMFDXGIDeviceManager* manager, const LUID
     return h;
 }
 
+#pragma clang attribute pop
+
 // One NV12 surface the conversion writes and the transform reads, with the views of both and a sample over it.
 struct Slot {
     ID3D11Texture2D* texture;
@@ -389,6 +393,7 @@ void slots_release(GpuStreamEncoder* e) noexcept {
     e->slot_width = e->slot_height = 0;
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool slot_create(GpuStreamEncoder* e, Slot* slot) noexcept {
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = e->slot_width;
@@ -432,6 +437,8 @@ bool slot_create(GpuStreamEncoder* e, Slot* slot) noexcept {
         slot_release(slot);
     return SUCCEEDED(h);
 }
+
+#pragma clang attribute pop
 
 // A slot the next picture may be written into: never the newest (a keyframe request encodes it again), the one the
 // preview holds, the pending one, or one the transform has not finished with.
@@ -754,6 +761,9 @@ DWORD WINAPI encoder_main(void* parameter) noexcept {
     return 0;
 }
 
+// Open, probe, create and teardown run once per encoder or reconfiguration: compiled for size. The picture path
+// (convert, feed, take_output, the event loop and submit) stays at full speed.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // Shuts the running transform down so its event wait returns (stop or reconfiguration). Called after the flag is set.
 void wake(GpuStreamEncoder* e) noexcept {
     AcquireSRWLockExclusive(&e->lock);
@@ -919,6 +929,8 @@ GpuStreamEncoder* gpu_stream_encoder_create(const GpuStreamEncoderOptions& optio
     }
     return e;
 }
+
+#pragma clang attribute pop
 
 bool gpu_stream_encoder_submit(GpuStreamEncoder* e, const CaptureFrame& frame) noexcept {
     if (!e || !frame.texture)

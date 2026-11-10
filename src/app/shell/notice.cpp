@@ -7,7 +7,6 @@
 #include "../settings/settings.hpp"
 #include "../settings/test_mode.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
@@ -24,7 +23,7 @@ struct Notice {
     UiMotionTransition expand;
     // The laid-out height: the shell lays out again only when it changes by a whole DIP.
     float laid_out;
-    char text[384];
+    char text[320];
 };
 Notice g_notice{.source = ApplicationNoticeSource::count};
 
@@ -59,16 +58,11 @@ void build(ApplicationNoticeSource source) noexcept {
         band.action = utf8_literal("Disable");
         return;
     }
-    // "Test mode is currently active for **{application}**. Unpublished SKUs ..."
-    constexpr Utf8View head = utf8_literal("Test mode is currently active for ");
-    const Utf8View name = application_test_mode_name();
-    TextWriter writer{{g_notice.text, sizeof(g_notice.text)}};
-    writer.add(head);
-    writer.add(name);
-    writer.add(utf8_literal(". Unpublished SKUs will appear and you will not be charged for any related payments."));
+    // "Test mode is currently active for **{application}**. Unpublished SKUs ...": the settings row's text.
+    const Utf8View status = application_test_mode_status();
     band.kind = UiNoticeKind::warning;
-    band.text = {g_notice.text, writer.used};
-    band.bold[0] = {head.bytes, minimum(name.bytes, writer.used - head.bytes), text_style_bold};
+    band.text = {g_notice.text, utf8_copy_truncated(g_notice.text, sizeof(g_notice.text), status)};
+    band.bold[0] = {kApplicationTestModeActiveHead.bytes, application_test_mode_name().bytes, text_style_bold};
     band.bold_count = 1;
 }
 
@@ -108,10 +102,6 @@ void application_notice_synchronize(u64 now_ms) noexcept {
 
 const UiNoticeBand* application_notice_band() noexcept {
     return g_notice.band.height > 0 && g_notice.band.text.bytes ? &g_notice.band : nullptr;
-}
-
-float application_notice_height() noexcept {
-    return application_notice_band() ? g_notice.band.height : 0.f;
 }
 
 bool application_notice_activate(UiNoticeBandPart part) noexcept {

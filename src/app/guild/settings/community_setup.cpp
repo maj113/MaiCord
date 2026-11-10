@@ -1,6 +1,5 @@
 #include "server_access.hpp"
 #include "../../account/account_access.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/model/guild/permission_grid.hpp"
 
 namespace maicord::app_detail::server_settings {
@@ -13,12 +12,6 @@ constexpr Utf8View kFinish[]{utf8_literal("Finish Setup"), utf8_literal("Back")}
 constexpr Utf8View kBack[]{utf8_literal("Back")};
 constexpr Utf8View kStart[]{utf8_literal("Enable Community")};
 
-bool community() noexcept {
-    return (guild_features() & guild_feature_community) != 0;
-}
-bool administrator() noexcept {
-    return permission_has(owner->access.permissions, kPermissionAdministrator);
-}
 GuildSettings guild_values() noexcept {
     const auto* guild = chat_state_store_find_guild(state(), owner->guild_id);
     return guild ? guild->settings : GuildSettings{};
@@ -77,24 +70,22 @@ void project_upsell(bool edit) noexcept {
     push_choices(community_enable_button, utf8_literal("Convert to a Community Server"),
                  administrator() ? Utf8View{} : utf8_literal("Only server administrators are allowed to do this"),
                  UiSettingsControlKind::buttons, edit && administrator(), {kStart, 1});
-    push_notice(utf8_literal("Community Servers are larger spaces where people with shared interests can come "
-                             "together."));
-    push_notice(utf8_literal("Enabling Community does not make your server visible on Server Discovery."));
-    push_notice(utf8_literal("Apply to be in Server Discovery so more people can find your server directly on "
-                             "Discord."),
-                utf8_literal("Grow your community"));
-    push_notice(utf8_literal("Access tools like Server Insights that can better help you moderate and keep your "
-                             "server engaged. Server Insights are only for servers above 500 members."),
-                utf8_literal("Keep members engaged"));
-    push_notice(utf8_literal("Get direct updates about new features built for communities from Discord."),
-                utf8_literal("Stay informed"));
+    // The fixed notices, each a description then its heading (none: a lone NUL).
+    push_notices("Community Servers are larger spaces where people with shared interests can come together.\0\0"
+                 "Enabling Community does not make your server visible on Server Discovery.\0\0"
+                 "Apply to be in Server Discovery so more people can find your server directly on Discord.\0"
+                 "Grow your community\0"
+                 "Access tools like Server Insights that can better help you moderate and keep your server engaged. "
+                 "Server Insights are only for servers above 500 members.\0"
+                 "Keep members engaged\0"
+                 "Get direct updates about new features built for communities from Discord.\0"
+                 "Stay informed");
 }
 
 void project_wizard(Bank& bank, ServerAccessState& s, bool edit) noexcept {
     auto& p = *owner;
     const bool idle = edit && !busy();
-    if (p.failed && p.status.bytes)
-        push_error({}, p.status);
+    push_status_error();
     switch (s.setup) {
     case SetupStep::intro:
         push_category(control_list_category, utf8_literal("Enable Community"),
@@ -183,20 +174,13 @@ void project_wizard(Bank& bank, ServerAccessState& s, bool edit) noexcept {
     }
 }
 
-void sync_description(ServerAccessState& s) noexcept {
-    const auto text = editor_text(editor_description);
-    s.overview_draft.description_bytes = static_cast<u16>(
-        utf8_copy_truncated(s.overview_draft.description, sizeof(s.overview_draft.description), text));
-}
-
 void project_overview(Bank& bank, ServerAccessState& s, bool edit) noexcept {
     auto& p = *owner;
     auto& d = s.overview_draft;
     const bool manage = edit && can_manage_guild();
     const bool admin = edit && administrator();
     push_category(control_list_category, utf8_literal("Community Settings"));
-    if (p.failed && p.status.bytes)
-        push_error({}, p.status);
+    push_status_error();
     p.system_choice[0] = access_channel_label(bank, d.rules_channel_id);
     push_choices(community_rules_channel, utf8_literal("Rules or guidelines channel"),
                  utf8_literal("Please select the channel that hosts your rules. This channel will by default start "
@@ -249,7 +233,7 @@ void load() noexcept {
 void project(Bank& bank) noexcept {
     auto* s = server_access_state();
     if (!s) {
-        push_error(utf8_literal("Couldn't open this page"), utf8_literal("MaiCord ran out of memory."));
+        push_no_memory();
         return;
     }
     const bool edit = editable() && can_manage_guild();
@@ -333,17 +317,9 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         access_open_locales({d.locale, d.locale_bytes}, activation.anchor);
     else if (id == community_disable && administrator()) {
         if (guild_features() & guild_feature_discoverable) {
-            ApplicationTextFormRequest request{};
-            request.title = utf8_literal("Are you sure?");
-            request.context = utf8_literal("Disabling Community will also remove your server from Server Discovery.");
-            request.accept = utf8_literal("Confirm");
-            request.cancel = utf8_literal("Never Mind");
-            request.danger = true;
-            request.owner = form_key(form_community_disable, 0);
-            request.valid = form_valid;
-            request.save = disable_confirmed;
-            request.confirmation_only = true;
-            application_text_form_open(request);
+            open_confirmation(form_community_disable, 0, utf8_literal("Are you sure?"),
+                              utf8_literal("Disabling Community will also remove your server from Server Discovery."),
+                              utf8_literal("Confirm"), disable_confirmed, utf8_literal("Never Mind"));
             return;
         }
         guild_community_overview_disable(&d);
@@ -359,11 +335,7 @@ void choose(Menu menu, u32 action) noexcept {
     const AccessMenu kind = s->menu;
     s->menu = AccessMenu::none;
     if (kind == AccessMenu::locale) {
-        if (index < kGuildLocaleCount) {
-            const auto code = kGuildLocales[index].code;
-            copy_bytes(s->overview_draft.locale, code.data, code.bytes);
-            s->overview_draft.locale_bytes = static_cast<u8>(code.bytes);
-        }
+        access_choose_locale(&s->overview_draft, index);
         return;
     }
     if (index >= kPopupCapacity)
@@ -388,15 +360,13 @@ bool dirty() noexcept {
     auto* s = owner->server_access;
     if (!s || !community())
         return false;
-    sync_description(*s);
+    access_sync_description(&s->overview_draft);
     return !guild_community_overview_equal(s->overview_base, s->overview_draft);
 }
 
 bool can_save() noexcept {
     auto* s = owner->server_access;
-    ConstSlice<u8> names{};
-    u16 count = 0;
-    return dirty() && can_manage_guild() && access_feature_names(&names, &count) &&
+    return dirty() && can_manage_guild() && access_features_known() &&
            (s->overview_draft.community || administrator());
 }
 
@@ -409,10 +379,7 @@ Op next_save() noexcept {
 }
 
 Utf8View invalid() noexcept {
-    ConstSlice<u8> names{};
-    u16 count = 0;
-    return access_feature_names(&names, &count) ? Utf8View{}
-                                                : utf8_literal("The server's features haven't arrived yet.");
+    return access_features_known() ? Utf8View{} : utf8_literal("The server's features haven't arrived yet.");
 }
 
 // The Gateway's server update: a clean overview follows it; Community turning
@@ -461,7 +428,7 @@ bool community_build(AccessStep step, GuildSettingsPatch* patch, RolePatch* role
                guild_community_enable_patch(s->community, names, count, {owner->feature_names, kFeatureNameBytes},
                                             patch);
     case AccessStep::overview_update:
-        sync_description(*s);
+        access_sync_description(&s->overview_draft);
         return can_manage_guild() && access_feature_names(&names, &count) &&
                guild_community_overview_patch(s->overview_draft, names, count,
                                               {owner->feature_names, kFeatureNameBytes}, patch);

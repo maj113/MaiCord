@@ -325,7 +325,8 @@ bool next_load(SoundboardRequest* request) noexcept {
 bool picker_open() noexcept {
     return g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::soundboard;
 }
-SoundboardSendContext send_context(const SoundboardSound& sound) noexcept {
+// The call's side of the send check, shared by every sound checked against it.
+SoundboardSendContext call_context() noexcept {
     SoundboardSendContext c{};
     const auto* s = application_voice_call();
     const auto* channel = s ? voice_channel(s->channel_id) : nullptr;
@@ -334,17 +335,20 @@ SoundboardSendContext send_context(const SoundboardSound& sound) noexcept {
         c.permissions = channel->permissions_resolved ? channel->effective_permissions : 0;
         c.channel_guild_id = channel->guild_id;
     }
-    c.sound_guild_id = sound.guild_id;
     c.now_ms = now_ms();
     c.cooldown_until_ms = board.cooldown_until_ms;
     c.premium = premium();
-    c.available = sound.available;
     const auto view = application_voice_view();
     c.self_mute = view.self_mute;
     c.self_deaf = view.self_deaf;
     c.server_mute = view.server_mute || view.server_deaf;
     c.suppress = s && (s->present_flags & gateway_voice_suppress) && (s->flags & gateway_voice_suppress);
     return c;
+}
+SoundboardBlock send_check(SoundboardSendContext* c, const SoundboardSound& sound) noexcept {
+    c->sound_guild_id = sound.guild_id;
+    c->available = sound.available;
+    return soundboard_send_check(*c);
 }
 Utf8View block_text(SoundboardBlock block) noexcept {
     switch (block) {
@@ -401,6 +405,7 @@ bool build_picker(bool open) noexcept {
         ++count;
         return true;
     };
+    auto context = call_context();
     const auto row = [&](const SoundboardSound& sound) noexcept {
         if (count == kPickerItems) {
             truncated = true;
@@ -417,7 +422,7 @@ bool build_picker(bool open) noexcept {
         }
         bytes += utf8_copy_truncated(label + bytes, kLabelBytes - bytes, {sound.name, sound.name_bytes});
         item.label = {label, bytes};
-        const auto block = soundboard_send_check(send_context(sound));
+        const auto block = send_check(&context, sound);
         const bool listed = block != SoundboardBlock::unavailable && block != SoundboardBlock::external_premium &&
                             block != SoundboardBlock::external_permission;
         item.flags = static_cast<u16>(listed ? popup_item_enabled : popup_item_none);
@@ -474,8 +479,8 @@ void refresh_picker() noexcept {
         build_picker(false);
 }
 bool send(const SoundboardSound& sound) noexcept {
-    const auto c = send_context(sound);
-    const auto block = soundboard_send_check(c);
+    auto context = call_context();
+    const auto block = send_check(&context, sound);
     if (block != SoundboardBlock::none) {
         set_footer(block_text(block));
         refresh_picker();

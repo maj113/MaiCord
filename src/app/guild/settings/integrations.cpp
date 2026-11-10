@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "maicord/protocol/gateway/commands.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "../../settings/settings.hpp"
@@ -256,19 +256,6 @@ void draft_remove(u32 at) noexcept {
 
 // Add Members ----------------------------------------------------------------
 
-// `name` contains the lower-cased `query`, ignoring ASCII case.
-bool name_contains(const Utf8View& name, const Utf8View& query) noexcept {
-    if (!query.bytes || name.bytes < query.bytes)
-        return false;
-    for (u32 at = 0; at + query.bytes <= name.bytes; ++at) {
-        u32 i = 0;
-        while (i < query.bytes && ascii_lower(static_cast<u8>(name.data[at + i])) == static_cast<u8>(query.data[i]))
-            ++i;
-        if (i == query.bytes)
-            return true;
-    }
-    return false;
-}
 // The server's loaded members matching `query` (a user ID, or part of a username, display name or nickname),
 // into the menu's rows; their count.
 u32 member_matches(const Utf8View& query, Bank& bank) noexcept {
@@ -277,11 +264,7 @@ u32 member_matches(const Utf8View& query, Bank& bank) noexcept {
     u64 id = 0;
     // A user ID: at least 17 digits (a snowflake from 2015 on).
     const bool numeric = query.bytes >= 17 && snowflake_parse(query, &id);
-    char folded[kGatewayGuildMemberQueryMaximumBytes];
-    const u32 bytes = minimum(query.bytes, kGatewayGuildMemberQueryMaximumBytes);
-    for (u32 i = 0; i < bytes; ++i)
-        folded[i] = static_cast<char>(ascii_lower(static_cast<u8>(query.data[i])));
-    const Utf8View needle{folded, bytes};
+    const Utf8View needle{query.data, minimum(query.bytes, kGatewayGuildMemberQueryMaximumBytes)};
     u32 count = 0;
     const auto& members = ui.guild_member_store;
     for (u32 i = 0; i < members.slot_extent && count < kPopupCapacity; ++i) {
@@ -293,8 +276,8 @@ u32 member_matches(const Utf8View& query, Bank& bank) noexcept {
         const Utf8View username = user ? user_store_username(ui.user_store, *user) : Utf8View{};
         const Utf8View nickname{m.nickname, m.nickname_bytes};
         if (numeric ? m.user_id != id
-                    : !name_contains(display, needle) && !name_contains(username, needle) &&
-                          !name_contains(nickname, needle))
+                    : !ascii_contains_ignore_case(display, needle) && !ascii_contains_ignore_case(username, needle) &&
+                          !ascii_contains_ignore_case(nickname, needle))
             continue;
         const u32 start = bank.used;
         bank.add(nickname.bytes ? nickname : display.bytes ? display : username);
@@ -353,12 +336,27 @@ void push_back(const Utf8View& title) noexcept {
              utf8_literal("Back"));
 }
 
+// An app's row: its avatar, name and who added it; `action` labels its button.
+void push_app(Bank& bank, u64 id, const GuildIntegration& in, const Utf8View& action) noexcept {
+    Utf8View added{};
+    if (in.user_bytes) {
+        const u32 start = bank.used;
+        bank.add("Added by ");
+        bank.add({in.user, in.user_bytes});
+        added = bank.since(start);
+    }
+    const u32 row = push_row(id, named(in.name, in.name_bytes), added, UiSettingsControlKind::action, true, false,
+                             action, {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
+    if (row < kControlCapacity && in.bot_id)
+        owner->avatar_media[row] = application_user_avatar_media(in.bot_id);
+}
+
 void project_overview(Bank& bank) noexcept {
     auto& a = *apps();
     push_notice(utf8_literal("Customise your server with integrations. Manage webhooks, followed channels and apps."));
     if (can_manage_webhooks()) {
         if (a.webhooks_failed)
-            push_error(utf8_literal("Couldn't load webhooks"), owner->status, utf8_literal("Try again"));
+            push_load_error(utf8_literal("Couldn't load webhooks"));
         else if (!a.webhooks_loaded)
             push_loading(utf8_literal("Loading webhooks…"));
         else {
@@ -375,7 +373,7 @@ void project_overview(Bank& bank) noexcept {
         return;
     push_category(control_list_category, utf8_literal("Bots and Apps"));
     if (a.integrations_failed) {
-        push_error(utf8_literal("Couldn't load apps"), owner->status, utf8_literal("Try again"));
+        push_load_error(utf8_literal("Couldn't load apps"));
         return;
     }
     if (!a.integrations_loaded) {
@@ -387,18 +385,7 @@ void project_overview(Bank& bank) noexcept {
         const auto& in = a.integrations[i];
         if (in.type != GuildIntegrationType::discord || !in.application_id)
             continue;
-        Utf8View added{};
-        if (in.user_bytes) {
-            const u32 start = bank.used;
-            bank.add("Added by ");
-            bank.add({in.user, in.user_bytes});
-            added = bank.since(start);
-        }
-        const u32 row = push_row(kRowBase + i, named(in.name, in.name_bytes), added, UiSettingsControlKind::action, true,
-                                 false, utf8_literal("Manage"),
-                                 {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
-        if (row < kControlCapacity && in.bot_id)
-            owner->avatar_media[row] = application_user_avatar_media(in.bot_id);
+        push_app(bank, kRowBase + i, in, utf8_literal("Manage"));
         ++apps_shown;
     }
     if (!apps_shown)
@@ -459,8 +446,7 @@ void project_webhooks(Bank& bank, bool follower) noexcept {
                  UiSettingsControlKind::action, editable() && first_webhook_channel(), false,
                  utf8_literal("New Webhook"));
     }
-    if (owner->failed && owner->status.bytes)
-        push_error({}, owner->status);
+    push_status_error();
     // Grouped by channel, as "Posting to #channel".
     u32 order[kWebhookCapacity];
     u32 count = 0;
@@ -594,22 +580,11 @@ void project_app(Bank& bank) noexcept {
         push_notice(utf8_literal("This app is no longer in the server."));
         return;
     }
-    Utf8View added{};
-    if (in->user_bytes) {
-        const u32 start = bank.used;
-        bank.add("Added by ");
-        bank.add({in->user, in->user_bytes});
-        added = bank.since(start);
-    }
-    const u32 header = push_row(control_app_header, named(in->name, in->name_bytes), added, UiSettingsControlKind::action,
-                                true, false, {}, {UiSettingsVariant::standard, ui_settings_presentation_avatar,
-                                                  kUiSettingsNoDefault});
-    if (header < kControlCapacity && in->bot_id)
-        owner->avatar_media[header] = application_user_avatar_media(in->bot_id);
+    push_app(bank, control_app_header, *in, {});
     push_category(control_list_category, utf8_literal("Command Permissions"),
                   utf8_literal("Who can use this app's commands, and where. Each command can still override these."));
     if (a.permissions_failed)
-        push_error(utf8_literal("Couldn't load command permissions"), owner->status, utf8_literal("Try again"));
+        push_load_error(utf8_literal("Couldn't load command permissions"));
     else if (!permissions_ready())
         push_loading(utf8_literal("Loading command permissions…"));
     else
@@ -618,7 +593,7 @@ void project_app(Bank& bank) noexcept {
     push_category(control_commands_heading, utf8_literal("Commands"),
                   utf8_literal("Commands follow the app's permissions unless they have their own."));
     if (a.commands_failed)
-        push_error(utf8_literal("Couldn't load commands"), owner->status, utf8_literal("Try again"));
+        push_load_error(utf8_literal("Couldn't load commands"));
     else if (a.commands_app != a.app_id)
         push_loading(utf8_literal("Loading commands…"), control_commands_loading);
     else if (!a.command_count)
@@ -652,7 +627,7 @@ void project_command(Bank& bank) noexcept {
     if (command->description_bytes)
         push_notice({command->description, command->description_bytes});
     if (a.permissions_failed) {
-        push_error(utf8_literal("Couldn't load command permissions"), owner->status, utf8_literal("Try again"));
+        push_load_error(utf8_literal("Couldn't load command permissions"));
         return;
     }
     if (!permissions_ready()) {
@@ -801,17 +776,6 @@ bool form_confirmed(TextFormOwnerKey key, Utf8View) noexcept {
     repaint();
     return true;
 }
-void confirm(u64 kind, u64 item, const Utf8View& title, const Utf8View& context, const Utf8View& accept) noexcept {
-    ApplicationTextFormRequest request{};
-    request.title = title;
-    request.context = context;
-    request.accept = accept;
-    request.danger = request.confirmation_only = true;
-    request.owner = form_key(kind, item);
-    request.valid = form_valid;
-    request.save = form_confirmed;
-    application_text_form_open(request);
-}
 
 void open_role_menu(const UiRect& anchor) noexcept {
     auto& p = *owner;
@@ -890,12 +854,13 @@ void activate(const SettingsLayerActivation& activation) noexcept {
             Bank bank{owner->popup_text, sizeof(owner->popup_text), 0};
             bank.add(followed(*hook) ? utf8_literal("Unfollow ") : utf8_literal("Delete "));
             bank.add({hook->name, hook->name_bytes});
-            confirm(form_webhook_delete, hook->id, bank.since(0),
-                    followed(*hook) ? utf8_literal("Are you sure you want to unfollow this channel? You can refollow "
-                                                   "it in the future by visiting the server it's from.")
-                                    : utf8_literal("Are you sure you want to delete this webhook? This action cannot "
-                                                   "be undone."),
-                    followed(*hook) ? utf8_literal("Unfollow") : utf8_literal("Delete"));
+            open_confirmation(form_webhook_delete, hook->id, bank.since(0),
+                              followed(*hook) ? utf8_literal("Are you sure you want to unfollow this channel? You can "
+                                                             "refollow it in the future by visiting the server it's "
+                                                             "from.")
+                                              : utf8_literal("Are you sure you want to delete this webhook? This action "
+                                                             "cannot be undone."),
+                              followed(*hook) ? utf8_literal("Unfollow") : utf8_literal("Delete"), form_confirmed);
         }
         return;
     } else if (id == control_remove_app && can_manage_guild() && !busy()) {
@@ -905,10 +870,10 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         Bank bank{owner->popup_text, sizeof(owner->popup_text), 0};
         bank.add("Remove ");
         bank.add({in->name, in->name_bytes});
-        confirm(form_app_remove, in->id, bank.since(0),
-                utf8_literal("Removing this integration will remove any apps (including bots and webhooks) on this "
-                             "page from your server. This action cannot be undone."),
-                utf8_literal("Remove App"));
+        open_confirmation(form_app_remove, in->id, bank.since(0),
+                          utf8_literal("Removing this integration will remove any apps (including bots and webhooks) on "
+                                       "this page from your server. This action cannot be undone."),
+                          utf8_literal("Remove App"), form_confirmed);
         return;
     } else if (!can_edit_permissions() || !permission_view() || !permissions_ready()) {
         return;
@@ -922,8 +887,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         const bool channels = id == control_all_channels;
         draft_set(channels ? all_channels_id() : everyone_id(),
                   channels ? guild_command_permission_channel : guild_command_permission_role, activation.value.checked);
-        ui_settings_scene_animate_toggle(&owner->scene, activation.value.target, activation.value.checked,
-                                         clock_monotonic_milliseconds());
+        animate_toggle(activation);
     } else if (id == control_add_role) {
         open_role_menu(activation.anchor);
         return;

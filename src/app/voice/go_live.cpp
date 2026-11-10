@@ -172,7 +172,7 @@ Utf8View audio_unavailable_reason() noexcept {
 }
 GoLiveSettings settings() noexcept {
     const auto q = resolved();
-    return {q.resolution, q.fps, preset(), !prefs().stream_muted && audio_available(), prefs().stream_hide_preview, {}};
+    return {q.resolution, q.fps, preset(), !prefs().stream_muted && audio_available(), {}};
 }
 
 // Labels.

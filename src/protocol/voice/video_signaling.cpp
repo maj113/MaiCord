@@ -89,17 +89,15 @@ u32 voice_video_offers(u32 decodable, u32 encodable, Slice<VoiceCodecOffer> outp
     static constexpr VoiceVideoCodec order[]{VoiceVideoCodec::av1, VoiceVideoCodec::h265, VoiceVideoCodec::h264};
     VoiceCodecOffer decodes[kVoiceVideoMaximumCodecs];
     const u32 decode_count = voice_video_decode_offers(decodable, {decodes, kVoiceVideoMaximumCodecs});
-    const auto decoded = [&](VoiceVideoCodec codec) noexcept {
-        for (u32 i = 0; i != decode_count; ++i)
-            if (decodes[i].codec == codec)
-                return true;
-        return false;
-    };
+    u32 decoded = 0;
+    for (u32 i = 0; i != decode_count; ++i)
+        decoded |= voice_video_codec_bit(decodes[i].codec);
     // Hardware codecs (encoded, or decoded without software) in Discord's order, then software-only decodes.
     u32 count = 0;
     for (u32 pass = 0; pass != 2; ++pass)
         for (const auto codec : order) {
-            const bool encode = (encodable & voice_video_codec_bit(codec)) != 0, decode = decoded(codec);
+            const bool encode = (encodable & voice_video_codec_bit(codec)) != 0,
+                       decode = (decoded & voice_video_codec_bit(codec)) != 0;
             const bool software = decode && (decodable & voice_video_software_bit(codec)) != 0;
             const bool hardware = encode || (decode && !software);
             if ((pass ? !hardware && decode : hardware) && count < output.count)
@@ -224,11 +222,10 @@ GatewayCommandWriteResult voice_gateway_write_video(const VoiceVideoState& state
             writer.put("{\"type\":\"video\",\"rid\":\"100\",\"ssrc\":", stream.ssrc, ",\"active\":", stream.active,
                        ",\"quality\":", stream.quality, ",\"rtx_ssrc\":", stream.rtx_ssrc, ",\"max_bitrate\":",
                        stream.max_bitrate, ",\"max_framerate\":", stream.max_framerate,
-                       ",\"max_resolution\":{\"type\":");
-            if (source)
-                writer.put("\"source\",\"width\":0,\"height\":0}}");
-            else
-                writer.put("\"fixed\",\"width\":", stream.max_width, ",\"height\":", stream.max_height, "}}");
+                       ",\"max_resolution\":{\"type\":",
+                       source ? Utf8View{"\"source\"", 8} : Utf8View{"\"fixed\"", 7}, ",\"width\":",
+                       source ? 0u : u32{stream.max_width}, ",\"height\":", source ? 0u : u32{stream.max_height},
+                       "}}");
         }
         writer.put("]}}");
     });

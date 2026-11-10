@@ -25,8 +25,6 @@ bool valid(const DaveReplay& replay, u64 counter) noexcept {
 }
 } // namespace
 bool dave_frame_counter(u32 oldest_generation, u32 truncated_nonce, DaveFrameCounter* output) noexcept {
-    if (!output)
-        return false;
     const u32 low = truncated_nonce >> 24;
     u64 generation = static_cast<u64>(oldest_generation & ~u32{255}) + low;
     if (low < (oldest_generation & 255))

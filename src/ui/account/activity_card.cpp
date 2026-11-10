@@ -336,8 +336,7 @@ bool ui_activity_card_timed(const UiActivityCard& c) noexcept {
     return c.clock != kUiActivityCardNone || c.bar != kUiActivityCardNone;
 }
 
-bool ui_activity_card_paint(const UiActivityCard& c, UiPoint o, const Theme& theme, PaintStream* paint,
-                            u32 hovered) noexcept {
+bool ui_activity_card_paint(const UiActivityCard& c, UiPoint o, const Theme& theme, PaintStream* paint) noexcept {
     UiPaint p{paint, theme};
     for (u32 i = 0; p && i < c.count; ++i) {
         const auto& item = c.items[i];
@@ -362,8 +361,7 @@ bool ui_activity_card_paint(const UiActivityCard& c, UiPoint o, const Theme& the
             break;
         }
         case Role::button:
-            p.rounded(r, hovered == i + 1 && !item.disabled ? theme.tokens.state.hover : theme.tokens.fill.muted,
-                      theme.scale.radius_sm);
+            p.rounded(r, theme.tokens.fill.muted, theme.scale.radius_sm);
             break;
         default:
             break;
@@ -394,13 +392,5 @@ bool ui_activity_card_text(const UiActivityCard& c, UiPoint o, const Theme& them
         }
     }
     return pen.ok();
-}
-u8 ui_activity_card_hit(const UiActivityCard& c, float x, float y) noexcept {
-    for (u32 i = c.count; i-- > 0;) {
-        const auto& item = c.items[i];
-        if ((item.action != Act::none || item.hint.bytes) && ui_rect_contains(item.rect, x, y))
-            return static_cast<u8>(i);
-    }
-    return kUiActivityCardNone;
 }
 } // namespace maicord

@@ -13,15 +13,6 @@ constexpr Utf8View kActions[]{utf8_literal("Sync Template"), utf8_literal("Previ
                               utf8_literal("Delete Template")};
 constexpr u32 kSync = 0, kPreview = 1;
 
-Utf8View trimmed(Utf8View text) noexcept {
-    while (text.bytes && ascii_is_space(text.data[0])) {
-        ++text.data;
-        --text.bytes;
-    }
-    while (text.bytes && ascii_is_space(text.data[text.bytes - 1]))
-        --text.bytes;
-    return text;
-}
 Utf8View title() noexcept {
     return editor_text(editor_name);
 }
@@ -55,8 +46,8 @@ bool dirty() noexcept {
     if (!s || !s->template_exists)
         return false;
     const auto& t = s->guild_template;
-    return !utf8_equal(trimmed(title()), {t.name, t.name_bytes}) ||
-           !utf8_equal(trimmed(description()), {t.description, t.description_bytes});
+    return !utf8_equal(ascii_trim(title()), {t.name, t.name_bytes}) ||
+           !utf8_equal(ascii_trim(description()), {t.description, t.description_bytes});
 }
 
 bool texts_valid() noexcept {
@@ -64,19 +55,18 @@ bool texts_valid() noexcept {
 }
 
 void project(Bank& bank) noexcept {
-    auto& p = *owner;
     auto* s = server_access_state();
     push_category(control_list_category, utf8_literal("Server Template"),
                   utf8_literal("A server template is an easy way to share your server setup and help anyone create "
                                "a server instantly."));
-    push_notice(utf8_literal("When someone uses your server template link, they create a new server pre-filled with "
-                             "the same channels, roles, permissions and settings as yours."));
-    push_notice(utf8_literal("Channels and channel topics · Roles and permissions · Default server settings"),
-                utf8_literal("Templates will copy:"));
-    push_notice(utf8_literal("Messages or any content · Members or bots · Your server icon, Boosts or other perks"),
-                utf8_literal("Templates will not copy:"));
+    push_notices("When someone uses your server template link, they create a new server pre-filled with the same "
+                 "channels, roles, permissions and settings as yours.\0\0"
+                 "Channels and channel topics · Roles and permissions · Default server settings\0"
+                 "Templates will copy:\0"
+                 "Messages or any content · Members or bots · Your server icon, Boosts or other perks\0"
+                 "Templates will not copy:");
     if (!s) {
-        push_error(utf8_literal("Couldn't open this page"), utf8_literal("MaiCord ran out of memory."));
+        push_no_memory();
         return;
     }
     if (!channels_visible()) {
@@ -85,15 +75,14 @@ void project(Bank& bank) noexcept {
         return;
     }
     if (s->templates_failed) {
-        push_error(utf8_literal("Couldn't load the server template"), p.status, utf8_literal("Try again"));
+        push_load_error(utf8_literal("Couldn't load the server template"));
         return;
     }
     if (!s->templates_loaded) {
         push_loading(utf8_literal("Loading the server template…"));
         return;
     }
-    if (p.failed && p.status.bytes)
-        push_error({}, p.status);
+    push_status_error();
     const bool edit = editable() && can_manage_guild();
     push_editor(control_name, utf8_literal("Template Title"), {}, UiSettingsControlKind::edit, edit, editor_name,
                 utf8_literal("Who is this server for? E.g. School Club, Artists' Community"));
@@ -141,38 +130,19 @@ bool delete_confirmed(TextFormOwnerKey key, Utf8View) noexcept {
 }
 
 void confirm_delete() noexcept {
-    ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Delete Template");
-    request.context = utf8_literal("Are you sure you want to delete your template? This will prevent anyone with the "
-                                   "link from using it.");
-    request.accept = utf8_literal("Delete Template");
-    request.danger = true;
-    request.owner = form_key(form_template_delete, 0);
-    request.valid = form_valid;
-    request.save = delete_confirmed;
-    request.confirmation_only = true;
-    application_text_form_open(request);
+    open_confirmation(form_template_delete, 0, utf8_literal("Delete Template"),
+                      utf8_literal("Are you sure you want to delete your template? This will prevent anyone with the "
+                                   "link from using it."),
+                      utf8_literal("Delete Template"), delete_confirmed);
 }
 
 // The snapshot the link creates: its channels and roles.
 void preview() noexcept {
     const auto& t = owner->server_access->guild_template;
-    ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Preview Template");
-    request.context = {t.name, t.name_bytes};
-    request.label = t.description_bytes ? Utf8View{t.description, t.description_bytes} : Utf8View{};
-    request.detail = t.preview_bytes ? Utf8View{t.preview, t.preview_bytes}
-                                     : utf8_literal("This template has no channels or roles.");
-    request.accept = utf8_literal("Close");
-    request.owner = form_key(form_template_delete, 1);
-    request.valid = form_valid;
-    request.save = [](TextFormOwnerKey, Utf8View) noexcept {
-        application_text_form_close();
-        return true;
-    };
-    request.confirmation_only = true;
-    request.single_action = true;
-    application_text_form_open(request);
+    open_preview(form_template_delete, 1, utf8_literal("Preview Template"), {t.name, t.name_bytes},
+                 t.description_bytes ? Utf8View{t.description, t.description_bytes} : Utf8View{},
+                 t.preview_bytes ? Utf8View{t.preview, t.preview_bytes}
+                                 : utf8_literal("This template has no channels or roles."));
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {

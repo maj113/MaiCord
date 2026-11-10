@@ -31,6 +31,9 @@
 
 namespace maicord {
 
+// The callback object, WGC's set-up and the Desktop Duplication set-up run once per capture: compiled for size. The
+// per-picture calls (wgc_frame, draw_cursor, deliver and the two loops) stay at full speed.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace capture_abi {
 namespace {
 HRESULT __stdcall callback_query(SignalCallback* self, const GUID* iid, void** out) noexcept {
@@ -222,6 +225,8 @@ bool wgc_open(WgcSession* w, GpuDevice* device, const CaptureSource& source, HAN
     return ok;
 }
 
+#pragma clang attribute pop
+
 // The texture, picture size and time of a frame; the texture is a new reference.
 bool wgc_frame(Object* frame, ID3D11Texture2D** texture, SizeInt32* content, i64* time_100ns) noexcept {
     Object* surface = nullptr;
@@ -237,6 +242,7 @@ bool wgc_frame(Object* frame, ID3D11Texture2D** texture, SizeInt32* content, i64
 
 // ---- Desktop Duplication ---------------------------------------------------------------------------------------------
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // The duplication of `monitor`'s output on the device's own adapter. DXGI_ERROR_UNSUPPORTED: duplication cannot serve
 // it (another adapter, a rotated mode); WGC takes over.
 HRESULT duplication_open(GpuDevice* device, HMONITOR monitor, IDXGIOutputDuplication** duplication, RECT* desktop) noexcept {
@@ -279,6 +285,8 @@ ID3D11Texture2D* gdi_texture(GpuDevice* device, u32 width, u32 height) noexcept 
     return texture;
 }
 
+#pragma clang attribute pop
+
 struct CursorCache {
     HCURSOR cursor;
     i32 hot_x, hot_y;
@@ -319,6 +327,7 @@ bool draw_cursor(ID3D11Texture2D* target, const RECT& desktop, CursorCache* cach
 
 // ---- Thumbnails -----------------------------------------------------------------------------------------------------
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool capture_reduce_to_rgba(GpuDevice* device, GpuTexture* source, u32 width, u32 height, u32 max_width,
                             u32 max_height, u8* rgba, u32* out_width, u32* out_height) noexcept {
     ID3D11DeviceContext* context = nullptr;
@@ -372,6 +381,8 @@ bool capture_reduce_to_rgba(GpuDevice* device, GpuTexture* source, u32 width, u3
     *out_height = level_height;
     return ok;
 }
+
+#pragma clang attribute pop
 
 namespace {
 
@@ -570,6 +581,9 @@ u32 capture_thread(void* parameter) noexcept {
     return 0;
 }
 
+// Teardown, the picker's source list and thumbnails, and the start run once per capture or per picker refresh:
+// compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 void free_runtime(Runtime* r) noexcept {
     if (r->thread)
         thread_close(r->thread);
@@ -793,3 +807,4 @@ void capture_stop(ScreenCapture* capture) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

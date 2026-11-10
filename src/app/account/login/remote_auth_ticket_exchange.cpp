@@ -218,22 +218,12 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
             break;
         }
         const u64 request_id = static_cast<u64>(attempt) + 1;
-        RestClientSubmitResult submitted{};
-        if (!captcha_key) {
-            submitted = rest_client_submit_user_auth(
-                &exchange->transport,
-                RestUserAuthRequest{&exchange->request, nullptr, nullptr, nullptr, request_id,
-                                    kTicketTimeoutMs, UserAuthOperation::remote_auth_ticket});
-        } else {
-            ReplaySubmitContext replay{exchange, captcha_key, request_id, {}, false};
-            if (!captcha_challenge_visit_replay_headers(&exchange->captcha, submit_replay, &replay) ||
-                !replay.called) {
-                submitted.error = RestClientSubmitError::invalid_input;
-            } else {
-                submitted = replay.result;
-            }
-        }
-        if (!submitted.ok()) {
+        // The first attempt carries no CAPTCHA headers; a replay carries the solution and the challenge's own.
+        ReplaySubmitContext replay{exchange, captcha_key, request_id, {}, false};
+        const bool visited = captcha_key ? captcha_challenge_visit_replay_headers(&exchange->captcha, submit_replay,
+                                                                                  &replay)
+                                         : submit_replay(&replay, nullptr, nullptr);
+        if (!visited || !replay.called || !replay.result.ok()) {
             result.error = RemoteAuthTicketExchangeError::transport;
             result.native_error = ERROR_INVALID_STATE;
             break;

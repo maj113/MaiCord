@@ -269,6 +269,8 @@ Color ui_call_tile_tint(const Theme&, u64 user_id) noexcept;
 bool ui_call_control_active(const UiCallScene&, UiCallControl) noexcept;
 // Tooltip text for a control at its current state.
 Utf8View ui_call_control_label(const UiCallScene&, UiCallControl) noexcept;
+// The screen-share button's label for what it offers (the call bar and the voice card).
+Utf8View ui_call_share_label(UiCallShare share) noexcept;
 Utf8View ui_call_scene_tooltip(const UiCallScene&, float x, float y, UiRect* anchor, u32* identity) noexcept;
 // A tile whose settled rectangle intersects its viewport.
 bool ui_call_scene_tile_visible(const UiCallScene&, u32 tile) noexcept;

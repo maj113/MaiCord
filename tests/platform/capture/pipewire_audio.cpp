@@ -34,7 +34,6 @@ struct Player {
     Hook hook;
     StreamEvents events;
     i16 level;
-    alignas(8) u8 format[256];
 };
 Player g_other, g_maicord;
 
@@ -90,8 +89,8 @@ bool player_start(Player* p, const Api* api, const char* name, u32 client_proces
     p->context = api->pw_context_new(api->pw_thread_loop_get_loop(p->loop), api->pw_properties_new_string(client), 0);
     p->core = p->context ? api->pw_context_connect(p->context, nullptr, 0) : nullptr;
     p->stream = p->core ? api->pw_stream_new(p->core, name, api->pw_properties_new_string(properties)) : nullptr;
-    const Pod* format = nullptr;
-    bool ok = p->stream && build_audio_format(p->format, sizeof(p->format), &format);
+    const Pod* format = audio_format();
+    bool ok = p->stream != nullptr;
     if (ok) {
         api->pw_stream_add_listener(p->stream, &p->hook, &p->events, p);
         ok = api->pw_stream_connect(p->stream, kDirectionOutput, kAnyId, kStreamMapBuffers, &format, 1) >= 0;

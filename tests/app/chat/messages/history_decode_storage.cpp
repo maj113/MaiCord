@@ -229,8 +229,6 @@ void storage(AccountUiRuntime& ui, usize page) noexcept {
         check(failure.ready() && !application_message_decode_scratch(ui, &scratch) && same(scratch, unchanged) &&
             !committed_bytes(owner), "history denied admission preserves output and commits nothing");
     }
-    check(!application_message_decode_scratch(ui, nullptr) && !committed_bytes(owner) && vm(base, MEM_RESERVE),
-        "history null scratch output cannot trigger commitment");
     const bool admitted = application_message_decode_scratch(ui, &scratch);
     check(admitted, "history first access without a body admits the base pools");
     if (!admitted) return;

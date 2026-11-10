@@ -17,10 +17,10 @@ namespace {
 
 inline constexpr u32 kMemberListRootId = 1;
 
-UiLayoutStyle row_style() noexcept {
+UiLayoutStyle row_style(float row_height) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fill();
-    style.height = ui_layout_fixed(member_list_row_height());
+    style.height = ui_layout_fixed(row_height);
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     return style;
 }
@@ -63,24 +63,24 @@ MemberListSceneResult failure(MemberListScene* scene, MemberListSceneError error
 }
 
 float clamp_scroll(const MemberListView& source, const UiRect& viewport,
-                   float requested) noexcept {
-    const float content = static_cast<float>(member_list_view_count(source)) * member_list_row_height();
+                   float requested, float row_height) noexcept {
+    const float content = static_cast<float>(member_list_view_count(source)) * row_height;
     const float maximum_scroll = maximum(0.0f, content - ui_rect_height(viewport));
     return minimum(maximum(requested, 0.0f), maximum_scroll);
 }
 
-UiVirtualRange member_virtual_range(u32 count, float scroll, float viewport_height) noexcept {
+UiVirtualRange member_virtual_range(u32 count, float scroll, float viewport_height, float row_height) noexcept {
     if (count == 0 || viewport_height <= 0.0f) {
         return UiVirtualRange{};
     }
-    const u32 first_visible = minimum(count - 1, static_cast<u32>(scroll / member_list_row_height()));
+    const u32 first_visible = minimum(count - 1, static_cast<u32>(scroll / row_height));
     const u32 first =
         first_visible > kMemberListSceneOverscanRows ? first_visible - kMemberListSceneOverscanRows : 0;
-    const float visible_rows_f = viewport_height / member_list_row_height();
+    const float visible_rows_f = viewport_height / row_height;
     const u32 visible_rows = static_cast<u32>(visible_rows_f) + 2u;
     const u32 requested = visible_rows + kMemberListSceneOverscanRows * 2u;
     return UiVirtualRange{first, minimum(requested, count - first),
-                          static_cast<float>(first) * member_list_row_height() - scroll};
+                          static_cast<float>(first) * row_height - scroll};
 }
 
 void clear_materialization(MemberListScene* scene) noexcept {
@@ -162,8 +162,10 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
         if (scene->viewport_changed) scene->viewport_changed(scene->viewport_context);
         return MemberListSceneResult{MemberListSceneError::none, 0, 0, 0.0f, changed};
     }
-    const float scroll = clamp_scroll(*source, viewport, requested_scroll_dips);
-    const UiVirtualRange range = member_virtual_range(member_list_view_count(*source), scroll, ui_rect_height(viewport));
+    const float row_height = member_list_row_height();
+    const float scroll = clamp_scroll(*source, viewport, requested_scroll_dips, row_height);
+    const UiVirtualRange range =
+        member_virtual_range(member_list_view_count(*source), scroll, ui_rect_height(viewport), row_height);
     const u32 required_widgets = 1 + range.count * kMemberListWidgetsPerRow;
     if (range.count > scene->rows.count &&
         (!scene->row_storage || !ui_virtual_row_storage_grow(scene->row_storage, range.count))) {
@@ -183,7 +185,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
                           (!source->authoritative || !source->source_members ||
                            source->source_member_revision == source->source_members->revision);
     const float local_scroll =
-        maximum(0.0f, scroll - static_cast<float>(range.first) * member_list_row_height());
+        maximum(0.0f, scroll - static_cast<float>(range.first) * row_height);
     if (retained) {
         if (ui_rect_equal(scene->viewport, viewport) && scene->scroll_dips == scroll)
             return MemberListSceneResult{MemberListSceneError::none, range.first, range.count, scroll, false};
@@ -214,6 +216,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
         return failure(scene, MemberListSceneError::widget);
     }
     scene->root = root.handle;
+    const UiLayoutStyle row_layout = row_style(row_height);
     for (u32 local = 0; local < range.count; ++local) {
         const u32 source_index = range.first + local;
         const auto* resolved = member_list_view_row(*source, source_index);
@@ -231,7 +234,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
             &scene->widgets, root.handle, id, UiWidgetKind::button,
             member_row ? static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable)
                        : static_cast<u16>(ui_widget_enabled),
-            "MemberRow", row_style());
+            "MemberRow", row_layout);
         const UiWidgetResult avatar =
             row.ok() ? ui_widget_manager_add_keyed(&scene->widgets, row.handle, id + 1, UiWidgetKind::image,
                                                    ui_widget_enabled, "MemberAvatar", avatar_style())
@@ -264,7 +267,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
     scene->state = state;
     scene->viewport = viewport;
     scene->focused_user_id = restore_focus;
-    scene->content_height = static_cast<float>(member_list_view_count(*source)) * member_list_row_height();
+    scene->content_height = static_cast<float>(member_list_view_count(*source)) * row_height;
     scene->scroll_dips = scroll;
     scene->source_revision = source->revision;
     scene->source_count = member_list_view_count(*source);
@@ -349,8 +352,6 @@ bool member_list_scene_focus_user(MemberListScene* scene, u64 user_id) noexcept 
 
 bool member_list_row_status(const MemberListScene& s, u32 index, const Slice<char>& storage,
                             UiActivityStatus* output) noexcept {
-    if (!output)
-        return false;
     reset_value(output);
     if (index >= s.count || !s.users || !s.source)
         return false;
@@ -648,8 +649,6 @@ void member_media_cache_reset(MemberMediaCache* cache) noexcept {
 
 bool member_media_place(const MemberListScene& s, u32 index, MemberMedia layer,
                         MemberMediaPlacement* out) noexcept {
-    if (!out)
-        return false;
     if (!s.media_cache) {
         ProfileMedia media{};
         if (!member_media_resolve(s, index, layer, &media))
@@ -671,8 +670,6 @@ bool member_media_place(const MemberListScene& s, u32 index, MemberMedia layer,
 }
 
 bool member_plain_avatar_place(const MemberListScene& s, u32 index, MemberMediaPlacement* out) noexcept {
-    if (!out)
-        return false;
     if (!s.media_cache) {
         AvatarMedia media;
         if (!member_plain_avatar_resolve(s, index, &media))

@@ -928,40 +928,47 @@ bool application_login_pump() noexcept {
         return true;
     }
     const auto& status = host.login_status;
-    const u64 trace[] = {static_cast<u64>(status.phase),
-                         static_cast<u64>(status.http_status),
-                         static_cast<u64>(status.error),
-                         static_cast<u64>(status.coordinator_error),
-                         static_cast<u64>(status.coordinator_decode_error),
-                         static_cast<u64>(status.coordinator_decode_error_offset),
-                         static_cast<u64>(status.coordinator_scan_error),
-                         static_cast<u64>(status.coordinator_read_error),
-                         static_cast<u64>(status.coordinator_transport_error),
-                         static_cast<u64>(status.coordinator_transition_error),
-                         static_cast<u64>(status.coordinator_response_bytes),
-                         static_cast<u64>(status.coordinator_response_kind),
-                         static_cast<u64>(status.coordinator_content_type),
-                         static_cast<u64>(status.coordinator_content_encoding),
-                         static_cast<u64>(status.coordinator_body_kind),
-                         static_cast<u64>(status.native_error),
-                         static_cast<u64>(status.error_code),
-                         static_cast<u64>(status.remote_event),
-                         static_cast<u64>(status.remote_error),
-                         static_cast<u64>(status.remote_handshake_error),
-                         static_cast<u64>(status.remote_handshake_stage),
-                         static_cast<u64>(status.remote_protocol_error),
-                         static_cast<u64>(status.remote_crypto_error),
-                         static_cast<u64>(status.remote_base64_error),
-                         static_cast<u64>(status.remote_ticket_response_bytes),
-                         static_cast<u64>(status.remote_ticket_response_kind),
-                         static_cast<u64>(status.remote_ticket_decode_error),
-                         static_cast<u64>(status.remote_ticket_decode_error_offset),
-                         static_cast<u64>(status.remote_ticket_scan_error),
-                         static_cast<u64>(status.remote_ticket_read_error),
-                         static_cast<u64>(status.remote_ticket_error_code),
-                         static_cast<u64>(status.remote_ticket_content_type),
-                         static_cast<u64>(status.remote_ticket_content_encoding),
-                         static_cast<u64>(status.remote_ticket_body_kind)};
+    // The traced fields in the order of their names below: each one's offset and size (all unsigned or
+    // non-negative, so the low bytes of a zeroed u64 hold each value).
+#define MAICORD_LOGIN_TRACE(field) {__builtin_offsetof(AccountLoginStatus, field), sizeof(AccountLoginStatus::field)}
+    static constexpr u8 kTrace[][2]{MAICORD_LOGIN_TRACE(phase),
+                                    MAICORD_LOGIN_TRACE(http_status),
+                                    MAICORD_LOGIN_TRACE(error),
+                                    MAICORD_LOGIN_TRACE(coordinator_error),
+                                    MAICORD_LOGIN_TRACE(coordinator_decode_error),
+                                    MAICORD_LOGIN_TRACE(coordinator_decode_error_offset),
+                                    MAICORD_LOGIN_TRACE(coordinator_scan_error),
+                                    MAICORD_LOGIN_TRACE(coordinator_read_error),
+                                    MAICORD_LOGIN_TRACE(coordinator_transport_error),
+                                    MAICORD_LOGIN_TRACE(coordinator_transition_error),
+                                    MAICORD_LOGIN_TRACE(coordinator_response_bytes),
+                                    MAICORD_LOGIN_TRACE(coordinator_response_kind),
+                                    MAICORD_LOGIN_TRACE(coordinator_content_type),
+                                    MAICORD_LOGIN_TRACE(coordinator_content_encoding),
+                                    MAICORD_LOGIN_TRACE(coordinator_body_kind),
+                                    MAICORD_LOGIN_TRACE(native_error),
+                                    MAICORD_LOGIN_TRACE(error_code),
+                                    MAICORD_LOGIN_TRACE(remote_event),
+                                    MAICORD_LOGIN_TRACE(remote_error),
+                                    MAICORD_LOGIN_TRACE(remote_handshake_error),
+                                    MAICORD_LOGIN_TRACE(remote_handshake_stage),
+                                    MAICORD_LOGIN_TRACE(remote_protocol_error),
+                                    MAICORD_LOGIN_TRACE(remote_crypto_error),
+                                    MAICORD_LOGIN_TRACE(remote_base64_error),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_response_bytes),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_response_kind),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_decode_error),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_decode_error_offset),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_scan_error),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_read_error),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_error_code),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_content_type),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_content_encoding),
+                                    MAICORD_LOGIN_TRACE(remote_ticket_body_kind)};
+#undef MAICORD_LOGIN_TRACE
+    u64 trace[sizeof(kTrace) / sizeof(kTrace[0])]{};
+    for (u32 i = 0; i < sizeof(kTrace) / sizeof(kTrace[0]); ++i)
+        copy_bytes(&trace[i], reinterpret_cast<const u8*>(&status) + kTrace[i][0], kTrace[i][1]);
     LogEvent("login_status")
         .fields("phase\0http_status\0error\0coord_error\0coord_decode_error\0coord_decode_offset\0coord_scan_error\0"
                 "coord_read_error\0coord_transport_error\0coord_transition_error\0coord_response_bytes\0"

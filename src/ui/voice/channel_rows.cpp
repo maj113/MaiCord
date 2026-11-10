@@ -1,4 +1,5 @@
 #include "maicord/ui/voice/channel_rows.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/voice/panel.hpp"
 
@@ -60,12 +61,7 @@ u32 ui_voice_duration_text(u64 elapsed_s, char* output, u32 capacity) noexcept {
             output[used++] = ',';
             output[used++] = ' ';
         }
-        char digits[20];
-        u32 count = 0;
-        for (u64 value = amounts[i]; value || !count; value /= 10)
-            digits[count++] = static_cast<char>('0' + value % 10);
-        while (count)
-            output[used++] = digits[--count];
+        used += decimal_write(output + used, amounts[i]);
         for (const char* unit = units[i]; *unit; ++unit)
             output[used++] = *unit;
         if (amounts[i] != 1)
