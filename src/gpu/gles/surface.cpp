@@ -27,13 +27,10 @@ bool load_wayland_egl() noexcept {
         log_write(LogLevel::error, "gpu", "libwayland-egl.so.1 is not available");
         return false;
     }
-    g_wayland_egl_api.create = reinterpret_cast<decltype(g_wayland_egl_api.create)>(
-        shared_library_symbol(g_wayland_egl, "wl_egl_window_create"));
-    g_wayland_egl_api.destroy = reinterpret_cast<decltype(g_wayland_egl_api.destroy)>(
-        shared_library_symbol(g_wayland_egl, "wl_egl_window_destroy"));
-    g_wayland_egl_api.resize = reinterpret_cast<decltype(g_wayland_egl_api.resize)>(
-        shared_library_symbol(g_wayland_egl, "wl_egl_window_resize"));
-    if (!g_wayland_egl_api.create || !g_wayland_egl_api.destroy || !g_wayland_egl_api.resize) {
+    // The three functions, in the order of WaylandEglApi's members.
+    static constexpr char kNames[] = "wl_egl_window_create\0wl_egl_window_destroy\0wl_egl_window_resize\0";
+    static_assert(shared_library_name_count(kNames) * sizeof(void*) == sizeof(WaylandEglApi));
+    if (shared_library_resolve(g_wayland_egl, &g_wayland_egl_api, sizeof(g_wayland_egl_api), kNames)) {
         g_wayland_egl_api = {};
         shared_library_close(&g_wayland_egl);
         log_write(LogLevel::error, "gpu", "libwayland-egl.so.1 lacks wl_egl_window_*");

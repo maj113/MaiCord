@@ -174,7 +174,7 @@ MessageInteractionHit message_interaction_hit_test(const MessageScene& scene,
         if (!ui_rect_contains(ui_rect_intersection(command.clip, scene.viewport), x, y) ||
             !command_row(scene, command))
             continue;
-        MessageInteractionLayout layout{};
+        MessageInteractionLayout layout;
         if (!message_interaction_layout(scene, command, users, cache, theme, &layout))
             continue;
         const auto at = [&](MessageInteractionTarget target, UiRect rectangle) noexcept -> MessageInteractionHit {
@@ -204,7 +204,7 @@ bool message_interaction_command_anchor(const MessageScene& scene, const Message
         const auto& command = text.commands[i];
         if (command.message_id != message_id || !command_row(scene, command))
             continue;
-        MessageInteractionLayout layout{};
+        MessageInteractionLayout layout;
         if (!message_interaction_layout(scene, command, users, cache, theme, &layout))
             continue;
         *anchor = ui_rect_has_area(layout.chip) ? layout.chip : layout.command.rectangle;

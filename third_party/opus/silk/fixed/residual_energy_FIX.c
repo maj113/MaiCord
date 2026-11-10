@@ -28,17 +28,14 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "main_FIX.h"
 
-/* Calculates residual energies of input subframes where all subframes have LPC_order   */
+/* Calculates residual energies of input subframes where all subframes have MAX_LPC_ORDER */
 /* of preceding samples                                                                 */
 void silk_residual_energy_FIX(
           opus_int32                nrgs[ MAX_NB_SUBFR ],                   /* O    Residual energy per subframe                                                */
           opus_int                  nrgsQ[ MAX_NB_SUBFR ],                  /* O    Q value per subframe                                                        */
     const opus_int16                x[],                                    /* I    Input signal                                                                */
           opus_int16                a_Q12[ 2 ][ MAX_LPC_ORDER ],            /* I    AR coefs for each frame half                                                */
-    const opus_int32                gains[ MAX_NB_SUBFR ],                  /* I    Quantization gains                                                          */
-    const opus_int                  subfr_length,                           /* I    Subframe length                                                             */
-    const opus_int                  nb_subfr,                               /* I    Number of subframes                                                         */
-    const opus_int                  LPC_order                               /* I    LPC order                                                                   */
+    const opus_int32                gains[ MAX_NB_SUBFR ]                   /* I    Quantization gains                                                          */
 )
 {
     opus_int         offset, i, j, rshift, lz1, lz2;
@@ -48,19 +45,18 @@ void silk_residual_energy_FIX(
     opus_int32       tmp32;
 
     x_ptr  = x;
-    offset = LPC_order + subfr_length;
+    offset = MAX_LPC_ORDER + MAX_SUB_FRAME_LENGTH;
 
     /* Filter input to create the LPC residual for each frame half, and measure subframe energies */
-    celt_assert( ( nb_subfr >> 1 ) * ( MAX_NB_SUBFR >> 1 ) == nb_subfr );
-    for( i = 0; i < nb_subfr >> 1; i++ ) {
+    for( i = 0; i < MAX_NB_SUBFR >> 1; i++ ) {
         /* Calculate half frame LPC residual signal including preceding samples */
-        silk_LPC_analysis_filter( LPC_res, x_ptr, a_Q12[ i ], ( MAX_NB_SUBFR >> 1 ) * offset, LPC_order );
+        silk_LPC_analysis_filter( LPC_res, x_ptr, a_Q12[ i ], ( MAX_NB_SUBFR >> 1 ) * offset, MAX_LPC_ORDER );
 
         /* Point to first subframe of the just calculated LPC residual signal */
-        LPC_res_ptr = LPC_res + LPC_order;
+        LPC_res_ptr = LPC_res + MAX_LPC_ORDER;
         for( j = 0; j < ( MAX_NB_SUBFR >> 1 ); j++ ) {
             /* Measure subframe energy */
-            silk_sum_sqr_shift( &nrgs[ i * ( MAX_NB_SUBFR >> 1 ) + j ], &rshift, LPC_res_ptr, subfr_length );
+            silk_sum_sqr_shift( &nrgs[ i * ( MAX_NB_SUBFR >> 1 ) + j ], &rshift, LPC_res_ptr, MAX_SUB_FRAME_LENGTH );
 
             /* Set Q values for the measured energy */
             nrgsQ[ i * ( MAX_NB_SUBFR >> 1 ) + j ] = -rshift;
@@ -73,7 +69,7 @@ void silk_residual_energy_FIX(
     }
 
     /* Apply the squared subframe gains */
-    for( i = 0; i < nb_subfr; i++ ) {
+    for( i = 0; i < MAX_NB_SUBFR; i++ ) {
         /* Fully upscale gains and energies */
         lz1 = silk_CLZ32( nrgs[  i ] ) - 1;
         lz2 = silk_CLZ32( gains[ i ] ) - 1;

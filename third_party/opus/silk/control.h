@@ -46,10 +46,7 @@ typedef struct {
     /* I:   Number of channels; 1/2                                                         */
     opus_int32 nChannelsInternal;
 
-    /* I:   Input signal sampling rate in Hertz; 8000/12000/16000/24000/32000/44100/48000   */
-    opus_int32 API_sampleRate;
-    /* I:   Number of samples per packet in milliseconds; 10/20/40/60                       */
-    opus_int payloadSize_ms;
+    /* Input: 48 kHz PCM, 960 samples per channel (one 20 ms frame per packet) */
 
     /* I:   Bitrate during active speech in bits/second; internally limited                 */
     opus_int32 bitRate;
@@ -63,14 +60,8 @@ typedef struct {
     /* I:   Flag to enable in-band Forward Error Correction (FEC); 0/1                      */
     opus_int useInBandFEC;
 
-    /* I:   Flag to enable in-band Deep REDundancy (DRED); 0/1                              */
-    opus_int useDRED;
-
     /* I:   Flag to actually code in-band Forward Error Correction (FEC) in the current packet; 0/1 */
     opus_int LBRR_coded;
-
-    /* I:   Flag to use constant bitrate                                                    */
-    opus_int useCBR;
 
     /* I:   Maximum number of bits allowed for the frame                                    */
     opus_int maxBits;

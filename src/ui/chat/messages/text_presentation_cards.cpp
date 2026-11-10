@@ -760,6 +760,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
     const auto* record = context.message;
     const auto* rich_store = context.rich_store;
     const auto* rich = context.rich;
+    MessageTextMeasurement& row_measurement = presentation->measurements[measurement_index];
     if (rich->attachment_count != 0) {
         for (u32 index = 0; index < rich->attachment_count; ++index) {
             set_failure_context(presentation, MessageTextPresentationStage::attachment,
@@ -796,7 +797,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             float required_extent = 42.0f;
             if (audio_height > 0) {
                 required_extent = audio_height + 6;
-                UiAudioControlsProjection projection{};
+                UiAudioControlsProjection projection;
                 const UiRect card{item_left, item_layout->rectangle.top, item_left + item_width,
                                   item_layout->rectangle.top + audio_height};
                 struct AudioTextContext {
@@ -869,16 +870,13 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             }
             const u32 slot = kMessageSceneAttachmentItemOffset + index;
             if (!ui_text_flow_ensure_extent(&flow, required_extent) ||
-                !finish_flow(
-                    presentation, flow,
-                    &presentation->measurements[measurement_index].rich_item_layout.heights[slot])) {
+                !finish_flow(presentation, flow, &row_measurement.rich_item_layout.heights[slot])) {
                 return fail(presentation, MessageTextPresentationError::layout);
             }
             saturating_accumulate(presentation->rich.attachments);
         }
-        presentation->measurements[measurement_index].rich_layout.attachments =
-            rich_item_total(presentation->measurements[measurement_index].rich_item_layout,
-                            kMessageSceneAttachmentItemOffset, rich->attachment_count);
+        row_measurement.rich_layout.attachments = rich_item_total(
+            row_measurement.rich_item_layout, kMessageSceneAttachmentItemOffset, rich->attachment_count);
     }
 
     if (rich->embed_count != 0 && message_rich_display().embeds) {
@@ -892,7 +890,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                 return fail(presentation, MessageTextPresentationError::layout);
             }
             const UiWidgetReference owner{&scene.widgets, item_widget};
-            MessageRichItemLayout& merged_items = presentation->measurements[measurement_index].rich_item_layout;
+            MessageRichItemLayout& merged_items = row_measurement.rich_item_layout;
             if (message_rich_embed_merge_host(*rich_store, *rich, index) != index) {
                 // A merged embed's image is drawn in the first embed's gallery.
                 merged_items.heights[kMessageSceneEmbedItemOffset + index] = 0.0f;
@@ -925,8 +923,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             }
             const u32 embed_command_begin = presentation->command_count;
             float natural_width = 0;
-            MessageRichItemLayout& measured_items =
-                presentation->measurements[measurement_index].rich_item_layout;
+            MessageRichItemLayout& measured_items = row_measurement.rich_item_layout;
             measured_items.embed_author_tops[index] = 0.0f;
             measured_items.embed_footer_tops[index] = 0.0f;
             const auto measure_from = [&](u32 first_command, float inset) noexcept {
@@ -1130,16 +1127,13 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             if (measured && retained_width <= 0)
                 measured_items.embed_widths[index] =
                     minimum(maximum_width, maximum(kMessageEmbedMinimumWidth, natural_width));
-            if (!finish_flow(
-                    presentation, flow,
-                    &presentation->measurements[measurement_index].rich_item_layout.heights[slot])) {
+            if (!finish_flow(presentation, flow, &row_measurement.rich_item_layout.heights[slot])) {
                 return false;
             }
             saturating_accumulate(presentation->rich.embeds);
         }
-        presentation->measurements[measurement_index].rich_layout.embeds =
-            rich_item_total(presentation->measurements[measurement_index].rich_item_layout,
-                            kMessageSceneEmbedItemOffset, rich->embed_count);
+        row_measurement.rich_layout.embeds = rich_item_total(row_measurement.rich_item_layout,
+                                                             kMessageSceneEmbedItemOffset, rich->embed_count);
     }
 
     return true;
@@ -1266,14 +1260,14 @@ __declspec(noinline) bool append_content_segments(
         }
         first_segment = false;
         const UiRect content_rectangle = line_rectangle(left, content_top, width);
-        if (!append_command(presentation, segment.text, segment.styles, segment.semantics,
-                            UiWidgetReference{&scene.widgets, row.content}, content_rectangle, row_clip,
-                            content_color, record, measurement_index,
-                            {.kind = MessageTextMeasurementKind::content,
-                             .gap_after = quote_gap_after(segments, segment_count, index, 0.0f),
-                             .themed = segment.styles.count != 0,
-                             .source_id = source_id},
-                            role_color)) {
+        if (!append_command_role(presentation, segment.text, segment.styles, segment.semantics,
+                                 UiWidgetReference{&scene.widgets, row.content}, content_rectangle, row_clip,
+                                 content_color, record, measurement_index,
+                                 {.kind = MessageTextMeasurementKind::content,
+                                  .gap_after = quote_gap_after(segments, segment_count, index, 0.0f),
+                                  .themed = segment.styles.count != 0,
+                                  .source_id = source_id},
+                                 role_color)) {
             return false;
         }
         const MessageTextCommand& command = presentation->commands[presentation->command_count - 1];

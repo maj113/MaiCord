@@ -215,72 +215,56 @@ const wl_pointer_listener kPointerListener = {
 
 // Cursor --------------------------------------------------------------------------------------------------------------
 
-// A UiCursor value, or kFrameCursorBase + a FrameHit (the resize cursors of the window's edges).
-u32 cursor_shape_of(u8 code) noexcept {
-    switch (code) {
-    case static_cast<u8>(UiCursor::hand):
-        return wp_cursor_shape_device_v1_shape_pointer;
-    case static_cast<u8>(UiCursor::ibeam):
-        return wp_cursor_shape_device_v1_shape_text;
-    case static_cast<u8>(UiCursor::resize_we):
-        return wp_cursor_shape_device_v1_shape_ew_resize;
-    case static_cast<u8>(UiCursor::move):
-        return wp_cursor_shape_device_v1_shape_move;
-    case kFrameCursorBase + static_cast<u8>(FrameHit::left):
-        return wp_cursor_shape_device_v1_shape_w_resize;
-    case kFrameCursorBase + static_cast<u8>(FrameHit::right):
-        return wp_cursor_shape_device_v1_shape_e_resize;
-    case kFrameCursorBase + static_cast<u8>(FrameHit::top):
-        return wp_cursor_shape_device_v1_shape_n_resize;
-    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom):
-        return wp_cursor_shape_device_v1_shape_s_resize;
-    case kFrameCursorBase + static_cast<u8>(FrameHit::top_left):
-        return wp_cursor_shape_device_v1_shape_nw_resize;
-    case kFrameCursorBase + static_cast<u8>(FrameHit::top_right):
-        return wp_cursor_shape_device_v1_shape_ne_resize;
-    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom_left):
-        return wp_cursor_shape_device_v1_shape_sw_resize;
-    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom_right):
-        return wp_cursor_shape_device_v1_shape_se_resize;
-    default:
-        return wp_cursor_shape_device_v1_shape_default;
-    }
-}
-
-// XCursor names, the CSS-style one first and the classic X11 ones after.
-struct CursorNames {
-    const char* names[3];
+// A UiCursor value, or kFrameCursorBase + a FrameHit (the resize cursors of the window's edges): the wp_cursor_shape
+// shape of each, and the XCursor names (the CSS-style one first, the classic X11 ones after) tried without it, three
+// to a row in kCursorNames, in the order of the rows. Any other code is the first row.
+struct CursorKind {
+    u8 code, shape;
 };
+#define MAICORD_FRAME_CURSOR(hit) kFrameCursorBase + static_cast<u8>(FrameHit::hit)
+constexpr CursorKind kCursors[] = {
+    {0xFF, wp_cursor_shape_device_v1_shape_default},
+    {static_cast<u8>(UiCursor::hand), wp_cursor_shape_device_v1_shape_pointer},
+    {static_cast<u8>(UiCursor::ibeam), wp_cursor_shape_device_v1_shape_text},
+    {static_cast<u8>(UiCursor::resize_we), wp_cursor_shape_device_v1_shape_ew_resize},
+    {static_cast<u8>(UiCursor::move), wp_cursor_shape_device_v1_shape_move},
+    {MAICORD_FRAME_CURSOR(left), wp_cursor_shape_device_v1_shape_w_resize},
+    {MAICORD_FRAME_CURSOR(right), wp_cursor_shape_device_v1_shape_e_resize},
+    {MAICORD_FRAME_CURSOR(top), wp_cursor_shape_device_v1_shape_n_resize},
+    {MAICORD_FRAME_CURSOR(bottom), wp_cursor_shape_device_v1_shape_s_resize},
+    {MAICORD_FRAME_CURSOR(top_left), wp_cursor_shape_device_v1_shape_nw_resize},
+    {MAICORD_FRAME_CURSOR(top_right), wp_cursor_shape_device_v1_shape_ne_resize},
+    {MAICORD_FRAME_CURSOR(bottom_left), wp_cursor_shape_device_v1_shape_sw_resize},
+    {MAICORD_FRAME_CURSOR(bottom_right), wp_cursor_shape_device_v1_shape_se_resize},
+};
+#undef MAICORD_FRAME_CURSOR
+constexpr char kCursorNames[] =
+    "default\0left_ptr\0arrow\0"
+    "pointer\0hand2\0hand1\0"
+    "text\0xterm\0ibeam\0"
+    "ew-resize\0sb_h_double_arrow\0h_double_arrow\0"
+    "move\0fleur\0all-scroll\0"
+    "w-resize\0left_side\0sb_h_double_arrow\0"
+    "e-resize\0right_side\0sb_h_double_arrow\0"
+    "n-resize\0top_side\0sb_v_double_arrow\0"
+    "s-resize\0bottom_side\0sb_v_double_arrow\0"
+    "nw-resize\0top_left_corner\0ul_angle\0"
+    "ne-resize\0top_right_corner\0ur_angle\0"
+    "sw-resize\0bottom_left_corner\0ll_angle\0"
+    "se-resize\0bottom_right_corner\0lr_angle";
+static_assert([]() constexpr {
+    u32 names = 0;
+    for (const char c : kCursorNames)
+        names += c == 0;
+    return names;
+}() == 3 * sizeof(kCursors) / sizeof(kCursors[0]), "three names to a row");
 
-CursorNames cursor_names_of(u8 code) noexcept {
-    switch (code) {
-    case static_cast<u8>(UiCursor::hand):
-        return {{"pointer", "hand2", "hand1"}};
-    case static_cast<u8>(UiCursor::ibeam):
-        return {{"text", "xterm", "ibeam"}};
-    case static_cast<u8>(UiCursor::resize_we):
-        return {{"ew-resize", "sb_h_double_arrow", "h_double_arrow"}};
-    case static_cast<u8>(UiCursor::move):
-        return {{"move", "fleur", "all-scroll"}};
-    case kFrameCursorBase + static_cast<u8>(FrameHit::left):
-        return {{"w-resize", "left_side", "sb_h_double_arrow"}};
-    case kFrameCursorBase + static_cast<u8>(FrameHit::right):
-        return {{"e-resize", "right_side", "sb_h_double_arrow"}};
-    case kFrameCursorBase + static_cast<u8>(FrameHit::top):
-        return {{"n-resize", "top_side", "sb_v_double_arrow"}};
-    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom):
-        return {{"s-resize", "bottom_side", "sb_v_double_arrow"}};
-    case kFrameCursorBase + static_cast<u8>(FrameHit::top_left):
-        return {{"nw-resize", "top_left_corner", "ul_angle"}};
-    case kFrameCursorBase + static_cast<u8>(FrameHit::top_right):
-        return {{"ne-resize", "top_right_corner", "ur_angle"}};
-    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom_left):
-        return {{"sw-resize", "bottom_left_corner", "ll_angle"}};
-    case kFrameCursorBase + static_cast<u8>(FrameHit::bottom_right):
-        return {{"se-resize", "bottom_right_corner", "lr_angle"}};
-    default:
-        return {{"default", "left_ptr", "arrow"}};
-    }
+// The row of `code` in kCursors.
+u32 cursor_row(u8 code) noexcept {
+    for (u32 row = 1; row < sizeof(kCursors) / sizeof(kCursors[0]); ++row)
+        if (kCursors[row].code == code)
+            return row;
+    return 0;
 }
 
 u32 parse_unsigned(const char* text) noexcept {
@@ -347,9 +331,11 @@ void apply_cursor_theme(u8 code) noexcept {
         return;
     }
     Cursor* shape = nullptr;
-    const CursorNames names = cursor_names_of(code);
-    for (const char* name : names.names) {
-        shape = api->theme_get_cursor(pointer.theme, name);
+    const char* candidate = kCursorNames;
+    for (u32 skip = 3 * cursor_row(code); skip; --skip)
+        candidate += c_string_length(candidate) + 1;
+    for (u32 tried = 0; tried < 3; ++tried, candidate += c_string_length(candidate) + 1) {
+        shape = api->theme_get_cursor(pointer.theme, candidate);
         if (shape && shape->image_count > 0)
             break;
         shape = nullptr;
@@ -466,7 +452,7 @@ void cursor_apply() noexcept {
     if (code == static_cast<u8>(UiCursor::hidden))
         wl_pointer_set_cursor(pointer.pointer, pointer.enter_serial, nullptr, 0, 0);
     else if (pointer.shape_device)
-        wp_cursor_shape_device_v1_set_shape(pointer.shape_device, pointer.enter_serial, cursor_shape_of(code));
+        wp_cursor_shape_device_v1_set_shape(pointer.shape_device, pointer.enter_serial, kCursors[cursor_row(code)].shape);
     else
         apply_cursor_theme(code);
     pointer.applied_cursor = pointer.desired_cursor;

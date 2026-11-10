@@ -128,13 +128,15 @@ struct Background {
     u64 gate_opened[16]; // servers whose rules opened on their own this session
     u32 gate_opened_count;
     u8 body[kGuildCommunityMaximumBodyBytes];
-    u32 scratch[16384];
 };
 
 extern Background* background;
 extern ScheduledEventStore* events;
 extern u32 published_events_revision;
 ChatStateStore& state() noexcept;
+// The UI thread's transient JSON scratch (AccountUiRuntime::message_history_page_structurals): every decode here
+// finishes before its caller returns.
+Slice<u32> json_scratch() noexcept;
 bool ensure_background() noexcept;
 bool ensure_events() noexcept;
 void events_changed() noexcept;

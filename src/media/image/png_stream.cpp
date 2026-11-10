@@ -1,6 +1,7 @@
 #include "maicord/media/image/png_stream.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/crc32.hpp"
 #include "png_common.hpp"
 
 namespace maicord {
@@ -81,7 +82,7 @@ bool assemble(void* opaque, ConstSlice<u8> bytes) noexcept {
 
 } // namespace
 
-// The chunk walk runs once per image, before the rows: compiled for size (png_crc32 stays at full speed).
+// The chunk walk runs once per image, before the rows: compiled for size.
 __attribute__((minsize))
 PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStreamLayout* layout) noexcept {
     PngParseResult result{};
@@ -109,7 +110,7 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
             return parse_failure(result, PngError::chunk_type);
         const u32 type = byte_load_be32(type_bytes);
         const u8* data = type_bytes + 4;
-        if (png_crc32(type_bytes, length + 4) != byte_load_be32(data + length))
+        if (crc32_extend(0, type_bytes, length + 4) != byte_load_be32(data + length))
             return parse_failure(result, PngError::chunk_crc);
         ++result.chunks;
         if (!header && type != kChunkIhdr)

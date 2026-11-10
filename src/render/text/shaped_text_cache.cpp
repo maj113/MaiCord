@@ -1,28 +1,12 @@
 #include "shaped_text_cache.hpp"
 
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 
 namespace maicord {
 namespace {
-
-// Word-at-a-time mixing; keys are compared exactly, so this only spreads buckets.
-u64 mix_bytes(u64 hash, const void* source, u32 bytes) noexcept {
-    const auto* input = static_cast<const u8*>(source);
-    constexpr u64 multiplier = 0x9E3779B97F4A7C15ull;
-    for (; bytes >= 8; bytes -= 8, input += 8) {
-        u64 word;
-        copy_bytes(&word, input, 8);
-        hash = (hash ^ word) * multiplier;
-        hash ^= hash >> 29;
-    }
-    u64 tail = bytes;
-    for (u32 index = 0; index < bytes; ++index)
-        tail = tail << 8 | input[index];
-    hash = (hash ^ tail) * multiplier;
-    return hash ^ (hash >> 32);
-}
 
 bool same_system(const TextSystem& left, const TextSystem& right) noexcept {
     return left.native_fonts == right.native_fonts &&
@@ -45,11 +29,11 @@ u64 request_hash(const ShapedTextCacheRequest& request) noexcept {
             static_cast<u64>(system.message_hit_policy) << 18,
     };
     float floats[4] = {system.em_size, system.tracking, request.maximum_width, request.maximum_height};
-    u64 hash = mix_bytes(0x243F6A8885A308D3ull, scalars, sizeof(scalars));
-    hash = mix_bytes(hash, floats, sizeof(floats));
-    hash = mix_bytes(hash, request.text.data, request.text.bytes);
-    hash = mix_bytes(hash, request.styles.data, request.styles.count * sizeof(TextStyleSpan));
-    return mix_bytes(hash, request.hits.data, request.hits.count * sizeof(TextHitSpan));
+    u64 hash = hash64_words(0x243F6A8885A308D3ull, scalars, sizeof(scalars));
+    hash = hash64_words(hash, floats, sizeof(floats));
+    hash = hash64_words(hash, request.text.data, request.text.bytes);
+    hash = hash64_words(hash, request.styles.data, request.styles.count * sizeof(TextStyleSpan));
+    return hash64_words(hash, request.hits.data, request.hits.count * sizeof(TextHitSpan));
 }
 
 bool entry_matches(const ShapedTextGeneration& generation, const ShapedTextCacheEntry& entry,

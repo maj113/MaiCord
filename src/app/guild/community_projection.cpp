@@ -40,6 +40,9 @@ namespace community_detail {
 ChatStateStore& state() noexcept {
     return g_app.account_ui->chat_state;
 }
+Slice<u32> json_scratch() noexcept {
+    return {g_app.account_ui->message_history_page_structurals, 16384};
+}
 bool ensure_background() noexcept {
     if (!g_app.account_ui)
         return false;

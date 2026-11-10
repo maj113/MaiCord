@@ -299,7 +299,7 @@ bool application_video_pointer(const WindowEvent& event) noexcept {
         if (inline_media_activation_consumed(source))
             return true;
         if (source.audio) {
-            UiAudioControlsProjection controls{};
+            UiAudioControlsProjection controls; // built whole by a successful projection, read only after one
             if (!ui_audio_attachment_project(g_app.account_ui->message_rich_store, rich->attachments[item_index],
                                              video ? video->session_epoch : 1, u64{source.revision} + 1,
                                              message_rich_record_voice(*rich), source.preview,
@@ -393,7 +393,7 @@ bool application_video_cursor(UiPoint point, UiCursor* cursor) noexcept {
         return true;
     }
     // An unselected card activates only Play and Download.
-    UiAudioControlsProjection controls{};
+    UiAudioControlsProjection controls; // built whole by a successful projection, read only after one
     const auto control =
         ui_audio_attachment_project(g_app.account_ui->message_rich_store, rich->attachments[item_index],
                                     video ? video->session_epoch : 1, u64{source.revision} + 1,

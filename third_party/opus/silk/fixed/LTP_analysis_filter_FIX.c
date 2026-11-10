@@ -28,15 +28,13 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "main_FIX.h"
 
+/* Each subframe is filtered together with the MAX_LPC_ORDER samples before it */
 void silk_LTP_analysis_filter_FIX(
-    opus_int16                      *LTP_res,                               /* O    LTP residual signal of length MAX_NB_SUBFR * ( pre_length + subfr_length )  */
+    opus_int16                      *LTP_res,                               /* O    LTP residual signal of length MAX_NB_SUBFR * ( MAX_LPC_ORDER + MAX_SUB_FRAME_LENGTH )  */
     const opus_int16                *x,                                     /* I    Pointer to input signal with at least max( pitchL ) preceding samples       */
     const opus_int16                LTPCoef_Q14[ LTP_ORDER * MAX_NB_SUBFR ],/* I    LTP_ORDER LTP coefficients for each MAX_NB_SUBFR subframe                   */
     const opus_int                  pitchL[ MAX_NB_SUBFR ],                 /* I    Pitch lag, one for each subframe                                            */
-    const opus_int32                invGains_Q16[ MAX_NB_SUBFR ],           /* I    Inverse quantization gains, one for each subframe                           */
-    const opus_int                  subfr_length,                           /* I    Length of each subframe                                                     */
-    const opus_int                  nb_subfr,                               /* I    Number of subframes                                                         */
-    const opus_int                  pre_length                              /* I    Length of the preceding samples starting at &x[0] for each subframe         */
+    const opus_int32                invGains_Q16[ MAX_NB_SUBFR ]            /* I    Inverse quantization gains, one for each subframe                           */
 )
 {
     const opus_int16 *x_ptr, *x_lag_ptr;
@@ -47,7 +45,7 @@ void silk_LTP_analysis_filter_FIX(
 
     x_ptr = x;
     LTP_res_ptr = LTP_res;
-    for( k = 0; k < nb_subfr; k++ ) {
+    for( k = 0; k < MAX_NB_SUBFR; k++ ) {
 
         x_lag_ptr = x_ptr - pitchL[ k ];
 
@@ -58,7 +56,7 @@ void silk_LTP_analysis_filter_FIX(
         Btmp_Q14[ 4 ] = LTPCoef_Q14[ k * LTP_ORDER + 4 ];
 
         /* LTP analysis FIR filter */
-        for( i = 0; i < subfr_length + pre_length; i++ ) {
+        for( i = 0; i < MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER; i++ ) {
             LTP_res_ptr[ i ] = x_ptr[ i ];
 
             /* Long-term prediction */
@@ -80,7 +78,7 @@ void silk_LTP_analysis_filter_FIX(
         }
 
         /* Update pointers */
-        LTP_res_ptr += subfr_length + pre_length;
-        x_ptr       += subfr_length;
+        LTP_res_ptr += MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER;
+        x_ptr       += MAX_SUB_FRAME_LENGTH;
     }
 }

@@ -32,11 +32,11 @@ ServerAccessState* server_access_state() noexcept {
         return nullptr;
     auto*& s = owner->server_access;
     if (!s)
-        s = static_cast<ServerAccessState*>(commit_pages(sizeof(ServerAccessState)));
-    if (s && s->lifetime != owner->lifetime) {
+        s = static_cast<ServerAccessState*>(commit_pages(sizeof(ServerAccessState))); // zeroed pages
+    else if (s->lifetime != owner->lifetime)
         reset_value(s);
+    if (s)
         s->lifetime = owner->lifetime;
-    }
     return s;
 }
 

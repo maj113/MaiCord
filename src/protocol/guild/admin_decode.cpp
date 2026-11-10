@@ -247,7 +247,7 @@ bool game_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
     auto& g = *reinterpret_cast<GuildAdminGame*>(r.base);
     switch (index) {
     case 0: return json_value_to_snowflake(value, &g.id) || json_value_to_u64(value, &g.id);
-    case 1: g.name_bytes = static_cast<u8>(copy_text_truncated<512>(value, g.name, kGuildAdminGameNameBytes)); break;
+    case 1: g.name_bytes = static_cast<u8>(clip_copy(value, g.name, kGuildAdminGameNameBytes, 512)); break;
     case 2:
     case 5:
         if (value.kind == JsonValueKind::string) {
@@ -329,17 +329,19 @@ MAICORD_FIELD_TABLE(kVanitySpec, kVanityDefs, nullptr, kCodes, kDepth);
 
 // Roles -------------------------------------------------------------------
 
-bool role_hook(ObjectReader& r, u32, const JsonValue& value) noexcept {
+// permissions (a decimal string), and the colour, which holds 24 bits.
+bool role_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& role = *reinterpret_cast<GuildAdminRole*>(r.base);
     JsonString text{};
-    return json_value_as_string(value, &text) &&
-           json_string_to_u64(text, &reinterpret_cast<GuildAdminRole*>(r.base)->permissions);
+    return index == 4 ? role.color <= 0xFFFFFFu
+                      : json_value_as_string(value, &text) && json_string_to_u64(text, &role.permissions);
 }
 constexpr FieldDef kRoleDefs[]{
     {"id", MAICORD_FIELD_SNOWFLAKE(GuildAdminRole, id)},
     {"name", MAICORD_FIELD_TEXT(GuildAdminRole, name, name_bytes)},
     {"permissions", MAICORD_FIELD_HOOK},
     {"position", MAICORD_FIELD_NUMBER(GuildAdminRole, position)},
-    {"color", MAICORD_FIELD_NUMBER24(GuildAdminRole, color)},
+    {"color", MAICORD_ROW(field_number, kFieldNotify, GuildAdminRole, color)},
     {"hoist", MAICORD_FIELD_BOOL(GuildAdminRole, hoist)},
     {"managed", MAICORD_FIELD_BOOL(GuildAdminRole, managed)},
     {"mentionable", MAICORD_FIELD_BOOL(GuildAdminRole, mentionable)},

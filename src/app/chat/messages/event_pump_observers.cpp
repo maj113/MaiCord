@@ -8,12 +8,6 @@ namespace {
 static_assert(sizeof(MessageEventPump) == 344 + sizeof(ReservedBytes));
 
 } // namespace
-namespace event_pump_detail {
-
-// Decode arrays of consume_with_message_source (single-threaded, never nested).
-MessageEventScratch g_message_scratch;
-
-} // namespace event_pump_detail
 namespace {
 
 // One presence record's activities (consume_presence and observe_member_extras: single-threaded, never

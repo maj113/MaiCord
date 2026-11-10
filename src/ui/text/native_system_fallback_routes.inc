@@ -4,7 +4,7 @@
 // user's language, when libfontconfig is available, then the table's own families that fontconfig did not name. The
 // list is built at the first scalar of the route and kept in the catalog's storage.
 constexpr u32 fallback_sorted_limit=6;
-const NativeFallbackCascade& fallback_policy(const NativeTextCatalogs& owner) noexcept {return system_fallback_policies.values[owner.fallback_locale];}
+const NativeFallbackCascade& fallback_policy(const NativeTextCatalogs&) noexcept {return system_fallback_policy;}
 const RouteFamilies* route_families(NativeTextCatalogs& owner,u32 route) noexcept {
     const auto& policy=fallback_policy(owner);
     if(route>=policy.ranges.count)return nullptr;
@@ -31,9 +31,10 @@ const RouteFamilies* route_families(NativeTextCatalogs& owner,u32 route) noexcep
     // The table's names are ASCII bytes; widened here into the route's own storage below.
     u16 wide[system_fallback_max_families][64];
     for(u32 i=0;i<range.count;++i){
-        const auto& name=system_fallback_families[policy.tokens[range.offset+i]];
-        for(u32 j=0;j<name.count;++j)wide[i][j]=static_cast<u8>(system_fallback_names[name.offset+j]);
-        push({wide[i],name.count});
+        const char* name=system_fallback_names+system_fallback_token(owner.fallback_locale,range.offset+i);
+        u32 length=0;
+        for(;name[length];++length)wide[i][length]=static_cast<u8>(name[length]);
+        push({wide[i],length});
     }
     auto* route_storage=static_cast<RouteFamilies*>(arena_allocate(&owner.storage,sizeof(RouteFamilies)+static_cast<usize>(units)*2,alignof(RouteFamilies)));
     if(!route_storage){catalog_failed(owner,0,{NativeFontError::capacity,SfntStatus::output_too_small,0});return nullptr;}

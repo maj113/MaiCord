@@ -114,9 +114,6 @@ void animation_visual_runtime_reset(AnimationVisualRuntime* runtime) noexcept {
     for (u32 index = 0; index < runtime->visual_storage.capacity; ++index) {
         reset_value<AnimationVisualState>(&runtime->visuals[index]);
     }
-    for (u32 index = 0; index < kAnimationPendingAdvanceCapacity; ++index) {
-        reset_value<AnimationFrameAdvance>(&runtime->pending_advances[index]);
-    }
     runtime->pending_advance_count = 0;
 }
 

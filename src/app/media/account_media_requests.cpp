@@ -156,7 +156,13 @@ static EmbedResolveResult load_collection(AccountMedia* media, const AccountMedi
     const bool apple = apple_music_collection_locator(request.url).id.bytes != 0;
     if (previous && (!youtube || request.collection_track != previous->count || !previous->continuation_bytes))
         return {EmbedPlayerError::none, UpdateTransportError::none, 0, 200};
-    u64 tracks[kMediaCollectionTracks]; SoundcloudCollection metadata{}; YoutubeCollectionPage page{};
+    // 85 KiB of track ids and one YouTube page: zeroed pages for this call, not a stack frame that is probed and cleared.
+    struct Scratch { u64 tracks[kMediaCollectionTracks]; YoutubeCollectionPage page; };
+    ScratchPages<Scratch> scratch;
+    if (!scratch.data) return {EmbedPlayerError::capacity};
+    u64* const tracks = scratch.data->tracks;
+    YoutubeCollectionPage& page = scratch.data->page;
+    SoundcloudCollection metadata{};
     struct Names {
         CollectionText text;
         u64* tracks;

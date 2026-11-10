@@ -4,10 +4,17 @@
 #include "maicord/core/byte_range.hpp"
 #include "../encoding/json_field_lists.hpp"
 #include "../encoding/json_helpers.hpp"
+#include "field_table.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
+using protocol_detail::ErrorCodes;
+using protocol_detail::FieldDef;
+using protocol_detail::kFieldNotify;
+using protocol_detail::kFieldNull;
+using protocol_detail::ObjectReader;
+using protocol_detail::read_member;
 bool text_valid(Utf8View text, bool name) noexcept {
     if (!byte_range_valid({reinterpret_cast<const u8*>(text.data), text.bytes}) ||
         text.bytes > (name ? kChannelOverviewNameBytes : kChannelOverviewTopicBytes))
@@ -22,65 +29,37 @@ bool text_valid(Utf8View text, bool name) noexcept {
             return false;
     return true;
 }
-struct Parse {
-    ChannelOverviewSnapshot value{};
-    u32 seen{};
-    u8 fields{};
-    ChannelOverviewError error{};
-};
-bool member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& parse = *static_cast<Parse*>(opaque);
-    // Bits: name 1, topic 2, slowmode 4, nsfw 8, then id 16, guild 32 and type 64.
-    const u32 bit = protocol_detail::member_bit<"name", "topic", "rate_limit_per_user", "nsfw", "id", "guild_id", "type">(name);
-    if (!bit)
+// The name (0), the topic (1) and the slowmode (2) must hold what they may; the type (6) is 0, a text channel's.
+bool snapshot_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    const auto& v = *reinterpret_cast<const ChannelOverviewSnapshot*>(r.base);
+    if (index == 0)
+        return text_valid({v.name, v.name_bytes}, true);
+    if (index == 1)
+        return text_valid({v.topic, v.topic_bytes}, false);
+    if (index == 2)
+        return v.slowmode_seconds <= kChannelOverviewMaximumSlowmodeSeconds;
+    u64 type = 0;
+    if (json_value_to_u64(value, &type) && type == 0)
         return true;
-    if (parse.seen & bit) {
-        parse.error = ChannelOverviewError::duplicate;
-        return false;
-    }
-    parse.seen |= bit;
-    bool valid = true;
-    u64 number = 0;
-    if (bit == 16)
-        valid = json_value_to_snowflake(value, &parse.value.channel_id);
-    else if (bit == 32)
-        valid = json_value_to_snowflake(value, &parse.value.guild_id);
-    else if (bit == 64) {
-        valid = json_value_to_u64(value, &number) && number == 0;
-        parse.value.type = static_cast<u8>(number);
-        if (!valid)
-            parse.error = ChannelOverviewError::type;
-    } else if (bit == channel_overview_name || bit == channel_overview_topic) {
-        char* destination = bit == channel_overview_name ? parse.value.name : parse.value.topic;
-        const u32 capacity =
-            bit == channel_overview_name ? kChannelOverviewNameBytes : kChannelOverviewTopicBytes;
-        u32& bytes = bit == channel_overview_name ? parse.value.name_bytes : parse.value.topic_bytes;
-        if (bit == channel_overview_topic && value.kind == JsonValueKind::null_value)
-            bytes = 0;
-        else {
-            JsonString encoded{};
-            valid = json_value_as_string(value, &encoded);
-            if (valid) {
-                const auto decoded = json_string_decode_utf8(encoded, {destination, capacity});
-                valid = decoded.ok();
-                bytes = decoded.bytes;
-            }
-        }
-        valid = valid && text_valid({destination, bytes}, bit == channel_overview_name);
-    } else if (bit == channel_overview_slowmode) {
-        valid = json_value_to_u64(value, &number) && number <= kChannelOverviewMaximumSlowmodeSeconds;
-        parse.value.slowmode_seconds = static_cast<u32>(number);
-    } else
-        valid = json_value_to_bool(value, &parse.value.nsfw);
-    if (!valid) {
-        if (parse.error == ChannelOverviewError::none)
-            parse.error = ChannelOverviewError::field;
-        return false;
-    }
-    if (bit <= channel_overview_nsfw)
-        parse.fields |= static_cast<u8>(bit);
-    return true;
+    r.error = static_cast<u8>(ChannelOverviewError::type);
+    return false;
 }
+// The members sit at their bits: name 1, topic 2, slowmode 4, nsfw 8, then id 16, guild 32 and type 64.
+constexpr FieldDef kSnapshotDefs[]{
+    {"name", MAICORD_TEXT_ROW(field_text, kFieldNotify, ChannelOverviewSnapshot, name, name_bytes)},
+    {"topic", MAICORD_TEXT_ROW(field_text, kFieldNull | kFieldNotify, ChannelOverviewSnapshot, topic, topic_bytes)},
+    {"rate_limit_per_user", MAICORD_ROW(field_number, kFieldNotify, ChannelOverviewSnapshot, slowmode_seconds)},
+    {"nsfw", MAICORD_FIELD_BOOL(ChannelOverviewSnapshot, nsfw)},
+    {"id", MAICORD_FIELD_SNOWFLAKE(ChannelOverviewSnapshot, channel_id)},
+    {"guild_id", MAICORD_FIELD_SNOWFLAKE(ChannelOverviewSnapshot, guild_id)},
+    {"type", MAICORD_FIELD_HOOK},
+};
+constexpr ErrorCodes kSnapshotCodes{static_cast<u8>(ChannelOverviewError::duplicate),
+                                    static_cast<u8>(ChannelOverviewError::field),
+                                    static_cast<u8>(ChannelOverviewError::json),
+                                    static_cast<u8>(ChannelOverviewError::identity),
+                                    static_cast<u8>(ChannelOverviewError::capacity)};
+MAICORD_FIELD_TABLE(kSnapshotSpec, kSnapshotDefs, snapshot_hook, kSnapshotCodes, 32);
 void write(const ChannelOverviewPatch& patch, protocol_detail::JsonBody& b) noexcept {
     b.begin_object();
     b.member_if(patch.fields & channel_overview_name, "name", json_text(patch.name));
@@ -114,15 +93,16 @@ ChannelOverviewResult channel_overview_decode(Utf8View input, ChannelOverviewSna
     if (!scanned.ok())
         return {0, scanned.error == JsonScanError::output_overflow ? ChannelOverviewError::capacity
                                                                    : ChannelOverviewError::json};
-    Parse parse{};
-    const auto parsed = json_visit_root_object(input, {offsets, scanned.count}, 32, member, &parse);
+    ChannelOverviewSnapshot value{};
+    ObjectReader reader{{nullptr, 0}, &kSnapshotSpec, reinterpret_cast<u8*>(&value), 0};
+    const auto parsed = json_visit_root_object(input, {offsets, scanned.count}, 32, read_member, &reader);
     if (!parsed.ok())
-        return {0, parse.error == ChannelOverviewError::none ? ChannelOverviewError::json : parse.error};
-    if ((parse.seen & (16 | 32 | 64 | 1)) != (16 | 32 | 64 | 1))
+        return {0, reader.error ? static_cast<ChannelOverviewError>(reader.error) : ChannelOverviewError::json};
+    if ((reader.seen & (16 | 32 | 64 | 1)) != (16 | 32 | 64 | 1))
         return {0, ChannelOverviewError::identity};
-    parse.value.known_fields = channel_overview_all;
-    *output = parse.value;
-    return {input.bytes, ChannelOverviewError::none, parse.fields};
+    value.known_fields = channel_overview_all;
+    *output = value;
+    return {input.bytes, ChannelOverviewError::none, static_cast<u8>(reader.seen & channel_overview_all)};
 }
 ChannelOverviewResult channel_overview_write_target(u64 channel_id, Slice<u8> output) noexcept {
     if (!channel_id || !byte_range_valid({output.data, output.count}))

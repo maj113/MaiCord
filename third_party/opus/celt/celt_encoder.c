@@ -43,7 +43,6 @@
 #include "stack_alloc.h"
 #include "mathops.h"
 #include "float_cast.h"
-#include <stdarg.h>
 #include "celt_lpc.h"
 #include "vq.h"
 
@@ -1135,70 +1134,25 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
 }
 
 
-int opus_custom_encoder_ctl(CELTEncoder * OPUS_RESTRICT st, int request, ...)
+const CELTMode *celt_encoder_mode(const CELTEncoder *st)
 {
-   va_list ap;
+   return st->mode;
+}
 
-   va_start(ap, request);
-   switch (request)
-   {
-      case OPUS_SET_COMPLEXITY_REQUEST:
-      {
-         int value = va_arg(ap, opus_int32);
-         if (value<0 || value>10)
-            goto bad_arg;
-         st->complexity = value;
-      }
-      break;
-      case OPUS_SET_PACKET_LOSS_PERC_REQUEST:
-      {
-         int value = va_arg(ap, opus_int32);
-         if (value<0 || value>100)
-            goto bad_arg;
-         st->loss_rate = value;
-      }
-      break;
-      case OPUS_SET_BITRATE_REQUEST:
-      {
-         opus_int32 value = va_arg(ap, opus_int32);
-         if (value<=500)
-            goto bad_arg;
-         value = IMIN(value, 750000*st->channels);
-         st->bitrate = value;
-      }
-      break;
-      case CELT_SET_CHANNELS_REQUEST:
-      {
-         opus_int32 value = va_arg(ap, opus_int32);
-         if (value<1 || value>2)
-            goto bad_arg;
-         st->stream_channels = value;
-      }
-      break;
-      case CELT_SET_SILK_INFO_REQUEST:
-      {
-         SILKInfo *info = va_arg(ap, SILKInfo *);
-         if (info)
-            OPUS_COPY(&st->silk_info, info, 1);
-      }
-      break;
-      case CELT_GET_MODE_REQUEST:
-      {
-         const CELTMode ** value = va_arg(ap, const CELTMode**);
-         if (value==0)
-            goto bad_arg;
-         *value=st->mode;
-      }
-      break;
-      default:
-         goto bad_request;
-   }
-   va_end(ap);
-   return OPUS_OK;
-bad_arg:
-   va_end(ap);
-   return OPUS_BAD_ARG;
-bad_request:
-   va_end(ap);
-   return OPUS_UNIMPLEMENTED;
+void celt_encoder_set_complexity(CELTEncoder *st, int complexity)
+{
+   st->complexity = complexity;
+}
+
+void celt_encoder_set_loss(CELTEncoder *st, int loss_percent)
+{
+   st->loss_rate = loss_percent;
+}
+
+void celt_encoder_prepare(CELTEncoder *st, int stream_channels, const SILKInfo *info, opus_int32 bitrate)
+{
+   st->stream_channels = stream_channels;
+   st->silk_info = *info;
+   if (bitrate > 500)
+      st->bitrate = IMIN(bitrate, 750000*st->channels);
 }

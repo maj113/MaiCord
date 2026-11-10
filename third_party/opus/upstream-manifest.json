@@ -75,9 +75,10 @@
         "celt_encoder_init() takes no sampling rate (48 kHz only); celt_preemphasis() is private to the encoder.",
         "celt_encode_with_ec() and celt_decode_with_ec() take the scratch arena (stack_alloc.h) as their last argument; CELT_ENCODER_SCRATCH_BYTES and CELT_DECODER_SCRATCH_BYTES state its worst case.",
         "celt_decoder_init() takes no sampling rate and resampling_factor() is removed (the decoder outputs 48 kHz only).",
-        "celt_encode_with_ec() takes no frame size or output buffer; CELT_SET_PREDICTION is removed; CELT_ENCODER_SCRATCH_BYTES is lower (no prefilter, importance or spreading weight arrays)."
+        "celt_encode_with_ec() takes no frame size or output buffer; CELT_SET_PREDICTION is removed; CELT_ENCODER_SCRATCH_BYTES is lower (no prefilter, importance or spreading weight arrays).",
+        "The ctl requests (CELT_SET_CHANNELS, CELT_SET_START_BAND, CELT_SET_END_BAND, CELT_GET_MODE, CELT_SET_SILK_INFO) and the celt_encoder_ctl and celt_decoder_ctl macros are replaced by plain accessors: celt_encoder_mode(), celt_encoder_set_complexity(), celt_encoder_set_loss(), celt_encoder_prepare(), celt_decoder_mode(), celt_decoder_set_channels(), celt_decoder_set_start(), celt_decoder_set_end(), celt_decoder_reset() and celt_decoder_final_range()."
       ],
-      "sha256": "35606555448a398ea0dfe3c9691eb8588da144cfadaa0238e7ad28b97773b109"
+      "sha256": "0a2bb6f600f6f1b5cf49f6f921526884a1611ba4116cbe1b80492e53da7d717b"
     },
     {
       "path": "celt/celt_decoder.c",
@@ -85,7 +86,7 @@
       "upstream_sha256": "a53393c70ae917d39229f34bce2c16ada535807e095cad00a4580aee48c9bfdb",
       "changes": [
         "No run-time architecture: the state has no arch field, opus_select_arch() is not called and no internal call passes one.",
-        "No custom signalling, decoder complexity (deep PLC only) or error flag; the ctl keeps start/end band, channels, mode, final range and reset.",
+        "No custom signalling, decoder complexity (deep PLC only) or error flag; opus_custom_decoder_ctl() is replaced by the accessors declared in celt.h (mode, channels, start and end band, reset and final range), without <stdarg.h> and without range checks: the Opus layer passes the constant bands of the 21-band mode and a channel count of 1 or 2.",
         "celt_decode_with_ec_dred() is celt_decode_with_ec(); the QEXT payload remnant and the neural PLC frame types are removed.",
         "Scratch comes from the caller's arena (stack_alloc.h): celt_decode_with_ec(), celt_decode_lost(), celt_plc_pitch_search(), prefilter_and_fold() and celt_synthesis() take it as their last argument.",
         "celt_plc_pitch_search() and celt_decode_lost() sit in a clang minsize attribute region (loss concealment runs only after a lost packet).",
@@ -93,7 +94,7 @@
         "48 kHz output only: no downsample state or paths, and celt_decoder_init() takes no sampling rate.",
         "deemphasis() is one SSE4.1 kernel for one or two channels, written or accumulated on top of the SILK output: the channels run in the even 32-bit lanes, four samples per step (pmuldq for MULT16_32_Q15()), bit-exact with the scalar loops, which are removed with deemphasis_stereo_simple() and the local buffer."
       ],
-      "sha256": "5e6bd4cab1e6cf98a875cec9a0fea4fdeccfdadd7094566874fb207d153368be"
+      "sha256": "0c8ca635b1a1c1ce3bf5b5bd983f696cc7fed1849c9b5053012f44512a61c2d5"
     },
     {
       "path": "celt/celt_encoder.c",
@@ -103,13 +104,13 @@
         "No run-time architecture: the state has no arch field and no internal call passes one; celt_encoder_init() takes none and does the work of opus_custom_encoder_init_arch() itself.",
         "Fixed to 48 kHz input (no upsampling) without custom signalling, LFE, surround energy mask or tonality analysis input; 16-bit input depth and enabled phase inversion are constants.",
         "Pre-emphasis keeps only the fixed-point path; dynalloc, trim, VBR and prefilter analysis lose their analysis and surround arguments; the unused pitch change estimate is removed.",
-        "The ctl drops the LSB depth, phase inversion, signalling, analysis, LFE, energy mask and final range requests; coarse energy quantization is called without the LFE flag.",
+        "opus_custom_encoder_ctl() is replaced by celt_encoder_mode(), celt_encoder_set_complexity(), celt_encoder_set_loss() and celt_encoder_prepare() (the channel count, SILK layer info and bitrate of a frame in one call; a bitrate of 500 bit/s or less leaves the previous one, as the ctl did); coarse energy quantization is called without the LFE flag.",
         "Scratch comes from the caller's arena (stack_alloc.h): celt_encode_with_ec(), transient_analysis(), compute_mdcts(), dynalloc_analysis() and tone_detect() take it as their last argument.",
         "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP.",
         "Codes only the CELT layer of a 20 ms hybrid frame (LM 3, bands 17-20, after the SILK layer, VBR from the per-frame bitrate): the pitch prefilter (run_prefilter(), its post-filter state and prefilter memory; the overlap history is in_mem), tf_analysis() and l1_metric(), patch_transient_decision(), alloc_trim_analysis() (the trim is 5), compute_vbr() and temporal VBR, the spreading decision and tapset state, stereo saving, constrained VBR and its reservoir, CBR, silent frames, the redundancy and prefill frames of other frame sizes, and the ctl requests for the band range, prediction, VBR, VBR constraint and reset are removed; celt_encode_with_ec() takes no frame size or output buffer.",
         "dynalloc_analysis() computes only the band boosts (no importance, spreading weights, maximum depth or total boost); transient_analysis() reports no tf channel; the CELT complexity is 1-10."
       ],
-      "sha256": "94425958042fb07c582c08088dae393d00d1f84ccc2d4ca2e3a80318b7cd52f1"
+      "sha256": "c15b9838a38c382dc2d2e6bf8573e796f61436770244bac1f41dd0d5d095e554"
     },
     {
       "path": "celt/celt_lpc.c",
@@ -517,11 +518,11 @@
       "status": "modified",
       "upstream_sha256": "00d2a2ff0d5228b2eeac4e1645531185537a07982cad2d2231cce287b8171acf",
       "changes": [
-        "silk_InitEncoder() and silk_Decode() take no run-time architecture argument.",
+        "silk_InitEncoder() takes the channel count only (it does not clear the state, which the caller cleared, and returns nothing: silk_QueryEncoder() is removed) and silk_Decode() takes no run-time architecture argument.",
         "SILK_DECODER_SCRATCH_BYTES and SILK_ENCODER_SCRATCH_BYTES, the sizes of the caller-owned scratch arena (proved by _Static_asserts in dec_API.c and enc_API.c); silk_Decode() and silk_Encode() take the arena as a trailing argument.",
-        "silk_Encode() takes no prefill flag."
+        "silk_Encode() codes one 20 ms frame of 48 kHz PCM per channel (no sample count, no prefill flag) and returns nothing: it cannot fail."
       ],
-      "sha256": "8aea1b129a8a7c9bbef217bc7378811e0424e32f575a742a4828e3f3b637d357"
+      "sha256": "504ecf3bf04c60fd9293b14994e36a58f8d0084ef837e04e11247ce75231f493"
     },
     {
       "path": "silk/CNG.c",
@@ -535,9 +536,12 @@
     },
     {
       "path": "silk/HP_variable_cutoff.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "e528fcf0eebc186dcb31e751e27892ea144c94af1f4fe5749890e7297f986184",
-      "sha256": "9bfa89e446527ac009c6370beda0883552dbfbcda7935f4d0012d9a5e8a02186"
+      "changes": [
+        "The internal rate is the constant MAX_FS_KHZ (16 kHz)."
+      ],
+      "sha256": "321c917df7f74c40cd7bd6860173ed4c2e62cb8a081dfeee928c6ec0b475fe5b"
     },
     {
       "path": "silk/Inlines.h",
@@ -670,21 +674,22 @@
       "status": "modified",
       "upstream_sha256": "37942e211d5ba6443a8da5841f374023f5bba4899d25134fe2dca62c4cac5cf9",
       "changes": [
-        "No run-time architecture: cpu_support.h (deleted) is not included; silk_biquad_alt_stride2() and silk_LPC_inverse_pred_gain() are declared directly (no _c names or dispatch macros); silk_LPC_analysis_filter(), silk_autocorr(), silk_pitch_analysis_core(), silk_NLSF2A(), silk_burg_modified() and silk_inner_prod_aligned() take no arch argument.",
+        "No run-time architecture: cpu_support.h (deleted) is not included; silk_biquad_alt_stride2() and silk_LPC_inverse_pred_gain() are declared directly (no _c names or dispatch macros); silk_LPC_analysis_filter(), silk_autocorr(), silk_NLSF2A(), silk_burg_modified() and silk_inner_prod_aligned() take no arch argument.",
         "No x86/SigProc_FIX_sse.h (deleted): SSE4.1 is required (no OPUS_X86_PRESUME_SSE4_1 check), and silk_burg_modified() and silk_inner_prod16() are the SSE4.1 kernels without dispatch macros.",
-        "silk_autocorr() and silk_resampler_down2_3() take the scratch arena; SILK_PITCH_SCRATCH_BYTES is the size silk_pitch_analysis_core() needs.",
+        "silk_autocorr() takes the scratch arena; SILK_PITCH_SCRATCH_BYTES is the size silk_pitch_analysis_core() needs, and that function takes no sampling rate or subframe count (16 kHz, four subframes). silk_resampler_down2_3() is removed (only the 12 kHz pitch analysis used it).",
         "silk_scale_vector32_Q26_lshift_18() (unused) removed."
       ],
-      "sha256": "99cb9d8e00ffc1058b5bc3e115d91c4a1615bea9864ffc735e918057664cc4c2"
+      "sha256": "92205d0d6ea97e5846218d454c944745c6a667443abf88cc3972873c97ea071f"
     },
     {
       "path": "silk/VAD.c",
       "status": "modified",
       "upstream_sha256": "710ca80daa272b7a3d2965caf335ab165bb1cc7c8260ef89d79ccf386c587ff4",
       "changes": [
-        "silk_VAD_GetSA_Q8_c() is removed: x86/VAD_sse4_1.c is the only implementation (the build requires SSE4.1). silk_VAD_GetNoiseLevels() is no longer static, because that file shares it."
+        "silk_VAD_GetSA_Q8_c() is removed: x86/VAD_sse4_1.c is the only implementation (the build requires SSE4.1). silk_VAD_GetNoiseLevels() is no longer static, because that file shares it.",
+        "silk_VAD_Init() returns nothing and does not clear the state (silk_init_encoder() already did)."
       ],
-      "sha256": "3936f7bbb1787ef25003cf5b34af5246e7cea150a3111cb968baf23f5746611e"
+      "sha256": "b10c21d3d1a8fd5cef8e54df69eea0c7a9a297fc10d7fcf20c5da8d16847874c"
     },
     {
       "path": "silk/ana_filt_bank_1.c",
@@ -734,15 +739,19 @@
       "upstream_sha256": "a9fc44c0719b6c3506695b2667d53f0093877fabb251bfac57edd2fb5e08a784",
       "changes": [
         "silk_DecControlStruct loses prevPitchLag and enable_deep_plc; silk_EncControlStruct loses reducedDependency and useDTX (no DTX).",
-        "silk_EncControlStruct loses the internal rate range and status (maxInternalSampleRate, minInternalSampleRate, desiredInternalSampleRate, internalSampleRate), opusCanSwitch, allowBandwidthSwitch, inWBmodeWithoutVariableLP and switchReady: the internal rate is always 16 kHz."
+        "silk_EncControlStruct loses the internal rate range and status (maxInternalSampleRate, minInternalSampleRate, desiredInternalSampleRate, internalSampleRate), opusCanSwitch, allowBandwidthSwitch, inWBmodeWithoutVariableLP and switchReady: the internal rate is always 16 kHz.",
+        "silk_EncControlStruct loses API_sampleRate, payloadSize_ms, useDRED and useCBR: the input is 48 kHz, a packet is one 20 ms frame and the rate is never constant."
       ],
-      "sha256": "82f1bced18ff5c1f8aa7a8254332b4ed888802573c3dacc3a6bcdcb79b2a9dee"
+      "sha256": "7ef21a8d58b548849e05cd3980b0bfc9fcb34425eb21483f5e0e6ae8ce182ba3"
     },
     {
       "path": "silk/control_SNR.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "4b6b102ebc8acdc0bd44c5beab07032b15b69b20631e933def5a3781f7a63808",
-      "sha256": "e68010769807d08a5cba48d3be160193a9785f3151d0e1999ce96ba05fb0d4b0"
+      "changes": [
+        "silk_control_SNR() has the wideband table only (the 8 and 12 kHz tables and the 10 ms rate adjustment are removed) and returns nothing."
+      ],
+      "sha256": "d55d2f1e2a3cec27182039997a1735819fe856b5157554a90209212ef16aa5f9"
     },
     {
       "path": "silk/control_codec.c",
@@ -750,9 +759,10 @@
       "upstream_sha256": "9c84153924c2033d1c539b97d1bb358d6c63a451883971745c6c9a550de2053b",
       "changes": [
         "No DTX: useDTX is not copied into the encoder state.",
-        "The internal rate is always 16 kHz and a packet one 20 ms frame: silk_control_encoder() takes only the channel number, prepares the 48 to 16 kHz resampler and sets the frame parameters once on a new state (silk_setup_fs() with constants), and silk_control_audio_bandwidth(), silk_setup_resamplers() and their rate-switch path are removed; silk_setup_complexity() has no complexity 0 tier (silk_NSQ_del_dec() is the only quantizer)."
+        "The internal rate is always 16 kHz and a packet one 20 ms frame: silk_control_encoder() takes the channel state and the control structure and sets the complexity, the packet loss rate and the LBRR usage before every packet. The frame parameters and the 48 to 16 kHz resampler are set once in silk_init_encoder() with constants; silk_setup_fs(), the per-packet control guard and silk_control_audio_bandwidth(), silk_setup_resamplers() and their rate-switch path are removed.",
+        "silk_setup_complexity() is a table of six rows (silk_complexity_table) indexed by the complexity 1-10; it has no complexity 0 tier (silk_NSQ_del_dec() is the only quantizer) and no limit of the pitch estimation order by the prediction order (always 16)."
       ],
-      "sha256": "dba75787eacdc58646b64e1bc19cfe4ba39c363aea719ca9f33520b1bd6aa566"
+      "sha256": "5b99397f34eadb29d236550f9ba7a989643b544a6d2f403a938ac2fd53eb00c3"
     },
     {
       "path": "silk/debug.h",
@@ -837,38 +847,45 @@
       "changes": [
         "No DTX: NB_SPEECH_FRAMES_BEFORE_DTX, MAX_CONSECUTIVE_DTX and DTX_ACTIVITY_THRESHOLD are removed.",
         "NLSF_MSVQ_MAX_SURVIVORS (16), the largest survivor count silk_setup_complexity() sets.",
-        "The transition filter constants (TRANSITION_*) are removed."
+        "The transition filter constants (TRANSITION_*) are removed.",
+        "LTP_MEM_LENGTH (the encoder's LTP memory in samples); MAX_FRAMES_PER_PACKET is the decoder's maximum, the encoder codes one frame."
       ],
-      "sha256": "6543bd6a18c45bc26bb127c20acdaef8868e41f72d705bde814e375d03b9945d"
+      "sha256": "002e619bf646fb4f7eaf273c5a73f406fa17e5ba36f019f80dbb5e25f75a158a"
     },
     {
       "path": "silk/enc_API.c",
       "status": "modified",
       "upstream_sha256": "3eb171190e2ad0488ef77d00eb7b20eaa1ebc3a2afde7274f8a4f7681e9f261d",
       "changes": [
-        "No DTX: the encoder status reports no DTX setting, the per-channel DTX flag is not set and silk_Encode() never returns zero bytes for DTXed channels.",
-        "silk_InitEncoder() and silk_init_encoder() take no run-time architecture argument.",
+        "No DTX: the per-channel DTX flag is not set and silk_Encode() never returns zero bytes for DTXed channels.",
+        "silk_InitEncoder() takes no status structure (silk_QueryEncoder() is removed) and does not clear the state, which the caller cleared; silk_init_encoder() takes no run-time architecture argument.",
         "silk_Encode() takes the scratch arena (SILK_ENCODER_SCRATCH_BYTES, proved by _Static_asserts over the three call paths); the per-frame scratch overlaps the input buffer, which is dead once the frame is resampled into the encoder state.",
-        "One 20 ms frame per call: multi-frame LBRR flags, per-block bit shaping, the in-packet bit balance, the prefill and the audio bandwidth switching state (allowBandwidthSwitch, timeSinceSwitchAllowed_ms) are removed.",
-        "No reduced-dependency mode.",
-        "check_control_input() is not called (and not kept): opus_encoder.c sets every control field within its range (48 kHz API rate, 20 ms, validated loss, FEC and complexity)."
+        "One 20 ms frame of 48 kHz PCM per call: multi-frame LBRR flags, per-block bit shaping, the in-packet bit balance, the prefill, the input buffering across calls (input index, frame counter, sample count and the input length checks) and the audio bandwidth switching state (allowBandwidthSwitch, timeSinceSwitchAllowed_ms) are removed. The LBRR flag is one bit per channel (LBRR_pending for the next packet, LBRR_flag for this one).",
+        "Every frame is coded independently of the previous one (conditional coding of gains, pitch lag and LTP scale is never selected), so there is no coding type and no side channel exception to it.",
+        "No reduced-dependency mode; no constant-bitrate flag.",
+        "check_control_input() is not called (and not kept): opus_encoder.c sets every control field within its range (validated loss, FEC and complexity).",
+        "A mono input is resampled from the caller's PCM without the intermediate copy; the resampler state copy at a mono to stereo transition and the unused high-pass filter state copy are removed (the transition copies the first channel's resampler state when the stereo branch starts). silk_Encode() and silk_InitEncoder() return nothing: neither can fail."
       ],
-      "sha256": "37eb4aaa8501e38ed85f9866f2f295744b099d2de4e1bdfce6ee4b43a9da98c5"
+      "sha256": "1c7b57f87f673ef60ec8ad5a660a24b01558b0fd1f9e817a3288eb4249d90f0a"
     },
     {
       "path": "silk/encode_indices.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "585e886a5e552b7645e20a9bc4139369f96aef254c01d4cbf89b757f6542e594",
-      "sha256": "f845416b98dc25a90a13af46a77a3ea8ec78cdbfbd7088e70f1adaae5bc203da"
+      "changes": [
+        "silk_encode_indices() takes only the LBRR flag: every frame is coded independently (the first gain, the absolute pitch lag and the LTP scale are always sent in full), the wideband NLSF codebook, pitch tables and four subframes are constants, and the previous pitch lag and signal type are not kept."
+      ],
+      "sha256": "8cd4569290d66ab845b9ee1b0583d9b6f7239375270096d87e923f06459b7a3a"
     },
     {
       "path": "silk/encode_pulses.c",
       "status": "modified",
       "upstream_sha256": "892ebd497ff473050344fbe5c9e03e3395fd6cbe07f33ee2770887ddd1b3f06f",
       "changes": [
-        "abs_pulses, sum_pulses and nRshifts are fixed local arrays sized for MAX_FRAME_LENGTH samples instead of ALLOCs (a frame has at most MAX_FRAME_LENGTH samples, so iter * SHELL_CODEC_FRAME_LENGTH fits)."
+        "abs_pulses, sum_pulses and nRshifts are fixed local arrays sized for MAX_FRAME_LENGTH samples instead of ALLOCs (a frame has at most MAX_FRAME_LENGTH samples, so iter * SHELL_CODEC_FRAME_LENGTH fits).",
+        "silk_encode_pulses() takes no frame length: a frame is MAX_FRAME_LENGTH samples, always MAX_NB_SHELL_BLOCKS shell blocks (the 10 ms 12 kHz padding is removed)."
       ],
-      "sha256": "ae8b810c2f4614cbfc76103f340c49dd7f9b81fd47ac6c222aef64854c558f1e"
+      "sha256": "89f8da58851c8bc93beb386a2d32fcbeb4ecc9139bf84728123f3e5bf88f2aeb"
     },
     {
       "path": "silk/errors.h",
@@ -877,15 +894,21 @@
     },
     {
       "path": "silk/fixed/LTP_analysis_filter_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "1ad8d9bb824efc851ff7b9988241bd69c96a7396d92409ad43693b9f38d0690e",
-      "sha256": "82a8fd407aa3334f0a1d6a18aa6f12b58e909198d9901dc9b3262988f8456624"
+      "changes": [
+        "silk_LTP_analysis_filter_FIX() takes no subframe length, count or pre-length: four subframes of MAX_SUB_FRAME_LENGTH, each with MAX_LPC_ORDER samples before it."
+      ],
+      "sha256": "063054c14307736f753f9eccb416e0beae7afe106db48e2902360717acdea111"
     },
     {
       "path": "silk/fixed/LTP_scale_ctrl_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "84b9867a55eccbea6964f55e32d1c8f063f822e798cf03e8a62adcd5e16bcdc8",
-      "sha256": "5247f59df93f4de84bd3e01c4f42f5945269c2cfc9492397b77e6a2aeed89c6e"
+      "changes": [
+        "silk_LTP_scale_ctrl_FIX() takes no coding type (every frame is independent, so the LTP scaling is always chosen from the loss rate) and counts one frame per packet."
+      ],
+      "sha256": "76480268788de13b74bc14f44bf1528c915895bab49c9646c11a570ab65941ee"
     },
     {
       "path": "silk/fixed/apply_sine_window_FIX.c",
@@ -917,31 +940,32 @@
       "status": "modified",
       "upstream_sha256": "4f2b91ba2cf8f000108028e796d1eb02d4aaee075865bb99317f4e73ba64daed",
       "changes": [
-        "No DTX: the VAD result sets only the VAD flags (no noSpeechCounter or inDTX).",
+        "No DTX: the VAD result sets only the VAD flag (no noSpeechCounter or inDTX).",
         "silk_encode_frame_FIX() and silk_LBRR_encode_FIX() take the scratch arena. The LBRR pass uses the rate loop's first NSQ state copy as its scratch NSQ state instead of an ALLOC: that copy is filled only after the LBRR call.",
         "silk_VAD_GetSA_Q8(), silk_NSQ_del_dec(), silk_find_pitch_lags_FIX() and silk_noise_shape_analysis_FIX() are called without the arch argument.",
-        "silk_NSQ_del_dec() is the only quantizer (complexity >= 1): the silk_NSQ() branches, the prefill path and the call of the variable low-pass filter are removed."
+        "silk_NSQ_del_dec() is the only quantizer (complexity >= 1): the silk_NSQ() branches, the prefill path and the call of the variable low-pass filter are removed.",
+        "Every frame is coded independently: no coding type and no constant-bitrate flag (the rate loop's margin is the VBR one), no saved previous pitch lag and signal type, and the LBRR pass keeps its previous gain index in a local; the frame, subframe and LTP memory lengths are constants."
       ],
-      "sha256": "65ba62a7c4e9a805addf92f53f65d1a1c84b57e5ac89ef4f11a7665b6e507bf8"
+      "sha256": "7293e9ec5c470a125cc4d1e581d757276f3f6e16bc01424637f8439cc2d8297c"
     },
     {
       "path": "silk/fixed/find_LPC_FIX.c",
       "status": "modified",
       "upstream_sha256": "9a805cb8cce47685da520f1237f8dc6f7040431e38a5c556c53306ac8bfb7a8e",
       "changes": [
-        "silk_burg_modified(), silk_NLSF2A() and silk_LPC_analysis_filter() are called without the arch argument.",
+        "silk_burg_modified(), silk_NLSF2A() and silk_LPC_analysis_filter() are called without the arch argument; the LPC order, subframe length and the four subframes are constants.",
         "LPC_res is a fixed local array of 2 * (MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER) samples instead of an ALLOC."
       ],
-      "sha256": "5f995757867e332083fb7848ddedb2f9c7653f1d3bf5a40d3bd89fe9db340b2c"
+      "sha256": "3c3025bf4067b7675350ff9269ec80ef7511be222860f609793239ebd7a2e278"
     },
     {
       "path": "silk/fixed/find_LTP_FIX.c",
       "status": "modified",
       "upstream_sha256": "3d3e6eb738707e0522caff41e866f3fbbd0f9827841ace1a20c4e7733e655c1c",
       "changes": [
-        "silk_find_LTP_FIX() takes no run-time architecture argument."
+        "silk_find_LTP_FIX() takes no run-time architecture argument and no subframe length or count (constants)."
       ],
-      "sha256": "9bd46c471f9e42c9efcf79ea5f701b50de580300e14c4ccbc010904028c952e0"
+      "sha256": "4e2110895233fbca2808d44ff896ebcacd852248e2aa33b0189bbdc373275ec5"
     },
     {
       "path": "silk/fixed/find_pitch_lags_FIX.c",
@@ -950,9 +974,9 @@
       "changes": [
         "silk_find_pitch_lags_FIX() takes no run-time architecture argument.",
         "Wsig is a fixed local array of FIND_PITCH_LPC_WIN_MAX samples instead of an ALLOC; the scratch arena goes to silk_autocorr() and silk_pitch_analysis_core().",
-        "silk_pitch_analysis_core() is called with the constants 16 (kHz) and MAX_NB_SUBFR, the encoder's only internal rate and frame size, so its other rate and 10 ms branches fold away."
+        "silk_pitch_analysis_core() is called without a sampling rate or subframe count (16 kHz, four subframes), and the buffer lengths are constants."
       ],
-      "sha256": "9c8e2eb79b5ed30cb4c4325c870552e85f92a69b4db343ac1c1b2194c11324df"
+      "sha256": "bbfa488d4c628de2540da775c147032622817b0f37ea124eeacdb3e303f0ef9c"
     },
     {
       "path": "silk/fixed/find_pred_coefs_FIX.c",
@@ -960,9 +984,10 @@
       "upstream_sha256": "7bd3ecb58c545780c26d841e084d284a8a5b0174e32b637322b5900b852775eb",
       "changes": [
         "silk_find_LTP_FIX(), silk_quant_LTP_gains() and silk_residual_energy_FIX() are called without the arch argument.",
-        "LPC_in_pre, xXLTP_Q17 and XXLTP_Q17 are fixed local arrays sized for the largest subframe count and LPC order instead of ALLOCs; the scratch arena is passed on."
+        "LPC_in_pre, xXLTP_Q17 and XXLTP_Q17 are fixed local arrays sized for the largest subframe count and LPC order instead of ALLOCs; the scratch arena is passed on.",
+        "No coding type (every frame is independent); the subframe count and length, LPC order and LTP memory are constants."
       ],
-      "sha256": "41e551af815f4df2f523076f338c63ce36fd8bf28ee9d4ed755c3d14cb7b4555"
+      "sha256": "48e697ccb914202a81d85eac67d0d583e438b119972604a1ae286200e9bc3eac"
     },
     {
       "path": "silk/fixed/k2a_FIX.c",
@@ -984,9 +1009,9 @@
         "silk_init_encoder(), silk_noise_shape_analysis_FIX(), silk_find_pitch_lags_FIX(), silk_find_LTP_FIX(), silk_residual_energy_FIX(), silk_corrMatrix_FIX() and silk_corrVector_FIX() take no run-time architecture argument.",
         "The prototypes of the encoder functions take the scratch arena.",
         "silk_warped_autocorrelation_FIX() is declared directly (the SSE4.1 kernel, no arch argument), without the _c name and the OVERRIDE_ dispatch macro.",
-        "silk_control_encoder() takes only the state, the control structure and the channel number."
+        "silk_control_encoder() takes the channel state and the control structure, silk_init_encoder() returns nothing, and the encoder functions take no coding type, constant-bitrate flag, subframe count, subframe length or order (silk_find_pred_coefs_FIX(), silk_process_gains_FIX(), silk_LTP_scale_ctrl_FIX(), silk_find_LTP_FIX(), silk_LTP_analysis_filter_FIX(), silk_residual_energy_FIX(), silk_encode_frame_FIX())."
       ],
-      "sha256": "8f4fbeb46388497d597491ba2b141dfb7989c868dbad5274fd8ee80415dc4493"
+      "sha256": "91a4cb3f1b6e387c2545950f9171788f162f1937f8319ad34b24ea88aa4a44fb"
     },
     {
       "path": "silk/fixed/noise_shape_analysis_FIX.c",
@@ -994,9 +1019,10 @@
       "upstream_sha256": "a3ba363cd3d3c1225cedf433b7d304540aea6acb8eda758aaed1acbdc7cd23fb",
       "changes": [
         "x_windowed is a fixed local array of SHAPE_LPC_WIN_MAX samples instead of an ALLOC; the scratch arena goes to silk_autocorr().",
-        "silk_noise_shape_analysis_FIX() takes no run-time architecture argument; silk_warped_autocorrelation_FIX() and silk_autocorr() are called without one."
+        "silk_noise_shape_analysis_FIX() takes no run-time architecture argument; silk_warped_autocorrelation_FIX() and silk_autocorr() are called without one.",
+        "The constant-bitrate branch, the rate, subframe count and subframe length are removed or constants."
       ],
-      "sha256": "b8ae6f6596ee3cabf9d78086e223a673622ccd9e284397ca377ab9338f47be97"
+      "sha256": "9c1ba2112901a8568ef6ea7f205ae7e7991d7b84438c96705ad2de6c3ef606e1"
     },
     {
       "path": "silk/fixed/pitch_analysis_core_FIX.c",
@@ -1005,15 +1031,18 @@
       "changes": [
         "silk_pitch_analysis_core(), silk_P_Ana_calc_corr_st3() and silk_P_Ana_calc_energy_st3() take no run-time architecture argument.",
         "silk_pitch_analysis_core() takes the scratch arena (SILK_PITCH_SCRATCH_BYTES, proved by a _Static_assert); the stage helpers' scratch_mem buffer is a fixed local array.",
-        "silk_resampler_down2_3() receives the scratch arena."
+        "The signal is always 16 kHz with four subframes: the 8 and 12 kHz resampling paths, the 10 ms codebooks and the sampling rate and subframe count arguments are removed."
       ],
-      "sha256": "f5d86a08799c01442c3f72d1bafdaa928ffb8a3afb7664ad58260f1e1171ad84"
+      "sha256": "8ef168ebb2bad1e615813b5050fd8387922a746facd53fd7391a1917d84cc5b6"
     },
     {
       "path": "silk/fixed/process_gains_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "92a25af5a23536cac6ec4216711ae82a680be46d5b0c3b0515a2a2fec9e6d495",
-      "sha256": "1e45da709f8b42ae5d7de36ee7818ebb5370cfcfc1b114c9bf3611e895f32332"
+      "changes": [
+        "silk_process_gains_FIX() takes no coding type (the first gain is always coded in full), and the subframe count and length are constants."
+      ],
+      "sha256": "5d74846c2a8f18e88e3de2c34489ed23782f16efd0f626792ffa6054ece17fc8"
     },
     {
       "path": "silk/fixed/residual_energy_FIX.c",
@@ -1021,9 +1050,10 @@
       "upstream_sha256": "637a8f4489ff09808ec1b614fe0748719a4220f63b42f001e853449107e113f2",
       "changes": [
         "silk_residual_energy_FIX() takes no run-time architecture argument.",
-        "LPC_res is a fixed local array of (MAX_NB_SUBFR / 2) * (MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER) samples instead of an ALLOC."
+        "LPC_res is a fixed local array of (MAX_NB_SUBFR / 2) * (MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER) samples instead of an ALLOC.",
+        "silk_residual_energy_FIX() takes no subframe length, subframe count or LPC order (constants)."
       ],
-      "sha256": "dfecd7e1a8bc3083bdc459adec52bb79d01988e9a5a2217ea4943c55d3d601cb"
+      "sha256": "84a4827bdd737e0012fa7625a0ca3dfcf2fdae0953423b7b91501268e4ecb247"
     },
     {
       "path": "silk/fixed/schur64_FIX.c",
@@ -1042,9 +1072,9 @@
       "status": "modified",
       "upstream_sha256": "08c48813c69bf53e433a2081beec8a475a3261a396b96693f60093fcf43a5226",
       "changes": [
-        "silk_encoder loses timeSinceSwitchAllowed_ms and allowBandwidthSwitch."
+        "silk_encoder loses timeSinceSwitchAllowed_ms, allowBandwidthSwitch and nChannelsAPI; silk_shape_state_FIX loses HarmBoost_smth_Q16 and silk_encoder_state_FIX loses resNrgSmth (written, never read)."
       ],
-      "sha256": "9fed6e58ecd0e0f72ca95e55cfdb8deed274a4ca65d0be6f1a794e5d0e4f6230"
+      "sha256": "baf124b8bce7128e4fe05fa18a1542973a88396594528c8b53e6e5d0b4b3f1ce"
     },
     {
       "path": "silk/fixed/vector_ops_FIX.c",
@@ -1086,9 +1116,12 @@
     },
     {
       "path": "silk/gain_quant.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "070223b7a20976d91c8f557c5552537db2c452e459483d886f78daf71c5d17b7",
-      "sha256": "25741d3091c983db6b184f96bd026d9b53d626c706b6853eea9209479bcaac18"
+      "changes": [
+        "silk_gains_quant() and silk_gains_ID() take no subframe count (four subframes) and silk_gains_quant() no coding flag: the first gain is always coded in full."
+      ],
+      "sha256": "034483e8f03b5c7687d3f27bb90cc7f18131be259a46da911beecea778a775b2"
     },
     {
       "path": "silk/init_decoder.c",
@@ -1104,9 +1137,9 @@
       "status": "modified",
       "upstream_sha256": "0c06e1afc8aea2828426b599578f9708b0ea00c6ba3d76d5c2e0d4117e21ddf6",
       "changes": [
-        "silk_init_encoder() takes no run-time architecture argument; cpu_support.h (deleted) is not included."
+        "silk_init_encoder() takes no run-time architecture argument (cpu_support.h, deleted, is not included), returns nothing and also prepares the fixed configuration once: the 48 to 16 kHz resampler and the non-zero initial values of the previous lag, gain index and NSQ state (formerly set at the first control call)."
       ],
-      "sha256": "5a349dd7215143320fa3ab3f17aaf8daaa953ac9a94b2024338a96683593cae8"
+      "sha256": "0306246688159b076f82046985138815e5ea5a56654feb9a9c86771865c8f3ed"
     },
     {
       "path": "silk/inner_prod_aligned.c",
@@ -1116,9 +1149,12 @@
     },
     {
       "path": "silk/interpolate.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "99eb0e43ca938348d5762b3d9c6f0f002933683363ab0e86bfcdcfccdeb93a86",
-      "sha256": "5f26d4ca99b20603b64dfcd78a769b3451b1cb2cc6cb2401d10dd61988327f0b"
+      "changes": [
+        "silk_interpolate() takes no order: it interpolates MAX_LPC_ORDER values."
+      ],
+      "sha256": "f6059af19a7e9263d785a1c6a2d97e713fbf99dfec17b5bfe204f120f24811e1"
     },
     {
       "path": "silk/lin2log.c",
@@ -1147,9 +1183,10 @@
         "No x86/main_sse.h (deleted): SSE4.1 is required (no OPUS_X86_PRESUME_SSE4_1 check), and silk_NSQ_del_dec(), silk_VQ_WMat_EC(), silk_VAD_GetSA_Q8() and silk_VAD_GetNoiseLevels() are declared directly, without the _c names, arch dispatch macros and OVERRIDE_ layers.",
         "silk_NSQ_del_dec() and silk_stereo_LR_to_MS() take the scratch arena; SILK_NSQ_SCRATCH_BYTES is the size silk_NSQ_del_dec() needs (proved by _Static_asserts in NSQ_del_dec_sse4_1.c and enc_API.c).",
         "check_control_input() is not declared (enc_API.c).",
-        "silk_NSQ(), silk_control_audio_bandwidth() and silk_LP_variable_cutoff() are not declared (removed)."
+        "silk_NSQ(), silk_control_audio_bandwidth() and silk_LP_variable_cutoff() are not declared (removed).",
+        "The encoder functions take no frame length, subframe count, order, rate or coding type (silk_stereo_LR_to_MS(), silk_stereo_find_predictor(), silk_encode_pulses(), silk_gains_quant(), silk_gains_ID(), silk_interpolate(), silk_quant_LTP_gains(), silk_VQ_WMat_EC(), silk_encode_indices()); silk_VAD_Init(), silk_VAD_GetSA_Q8() and silk_control_SNR() return nothing."
       ],
-      "sha256": "2ef8a878e9be3b52e9bc2b3a36ba95e2a9fd94c7f0c076d33a6a0d1868157765"
+      "sha256": "0112ccc1b11cbd77345dcfb9edab4b3bbd79686370dd9cc677f41ba4f7dd7ca3"
     },
     {
       "path": "silk/pitch_est_defines.h",
@@ -1167,18 +1204,19 @@
       "status": "modified",
       "upstream_sha256": "dfd4b5527fd6ff43d6eec50dacfd51a5819fe5ebca2a6797d25548d61c5dfb19",
       "changes": [
-        "silk_NLSF2A() is called without the arch argument."
+        "silk_NLSF2A() is called without the arch argument.",
+        "The wideband codebook, order 16 and the 20 ms rate weight are constants: no 10 ms adjustment, silk_interpolate() and the NLSF weights take no order."
       ],
-      "sha256": "e4d3b0a7b378336d0da67f0149c4138c8cd3b2e091a6d9949c9f187fbfcb5d77"
+      "sha256": "d8f933984817e3e7688c823aebf0e78727fc552a01b9fd3100b69aba9a71bd89"
     },
     {
       "path": "silk/quant_LTP_gains.c",
       "status": "modified",
       "upstream_sha256": "81b85acad8242d5e423377999300c15ab4ec789c52615fa3ff7ac59aa1d0c7fd",
       "changes": [
-        "silk_quant_LTP_gains() takes no run-time architecture argument and calls silk_VQ_WMat_EC() without one."
+        "silk_quant_LTP_gains() takes no run-time architecture argument, no subframe length or count (constants), and calls silk_VQ_WMat_EC() without one."
       ],
-      "sha256": "5535391887cd41efd7437b431f05a496f27f4a92c5e0ad023ad662c33b440667"
+      "sha256": "c135b30f52874f9f3e9e7556ec3719b03e5c0acc98658b62e3c2a9dbd683d526"
     },
     {
       "path": "silk/resampler.c",
@@ -1196,15 +1234,6 @@
       "status": "derived",
       "upstream_sha256": "0f988cdc80644b0dc0c25b84765bd0f11a2851b1913204db47eb064af6dd4cf1",
       "sha256": "22b628e99a4aea984400b354fe45885c61197948796cf94928a63697217d60ab"
-    },
-    {
-      "path": "silk/resampler_down2_3.c",
-      "status": "modified",
-      "upstream_sha256": "2ab8318bf4bc64de8491ac0272cdf19c79bf036725b17f21fc870e280b1ebc72",
-      "changes": [
-        "silk_resampler_down2_3() takes the scratch arena that its ALLOC draws from; the file is built into the encoder only, because only the pitch analysis uses it."
-      ],
-      "sha256": "df2ba07f589df54c5e3295a486bf6cdc33838a3e551e61260300c0e56e9d366f"
     },
     {
       "path": "silk/resampler_private.h",
@@ -1311,9 +1340,9 @@
       "status": "modified",
       "upstream_sha256": "36f67d3eff5c77522733bbc9d2c19c2ae3ae96e5b6ee4b4da84734edafe305e9",
       "changes": [
-        "silk_stereo_LR_to_MS() takes the scratch arena that its ALLOCs draw from."
+        "silk_stereo_LR_to_MS() takes the scratch arena that its ALLOCs draw from, no sampling rate or frame length (a 20 ms frame at 16 kHz) and keeps one prediction and one mid-only flag."
       ],
-      "sha256": "e317a8ca6cda8f557d9732f5ff7c56c977da49d59b67fc6a48acedc5ebd24329"
+      "sha256": "6d864d58d0324825b179c75203042540a825d0995efc49585e61bdcf400209f0"
     },
     {
       "path": "silk/stereo_MS_to_LR.c",
@@ -1335,9 +1364,12 @@
     },
     {
       "path": "silk/stereo_find_predictor.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "b77b33b43ab9f72947d6b853a282b639a633345b30e71e1817f122d487941fa1",
-      "sha256": "ee51ab57344b48d4aca1b2faa23e27be2374857d2f87908d3a232ffbed06fabc"
+      "changes": [
+        "silk_stereo_find_predictor() takes no length: a frame is MAX_FRAME_LENGTH samples."
+      ],
+      "sha256": "4e5ef6d716972ed788f78af378ace729aff045d4cb4c7420570fdf9c665bdfa5"
     },
     {
       "path": "silk/stereo_quant_pred.c",
@@ -1352,9 +1384,10 @@
       "changes": [
         "No run-time architecture field in silk_encoder_state or silk_decoder_state; no DTX state (useDTX, inDTX, noSpeechCounter) in silk_encoder_state.",
         "silk_PLC_struct loses enable_deep_plc.",
-        "silk_LP_state and the variable low-pass, bandwidth switching, internal rate range and prefill fields (sLP, allow_bandwidth_switch, prev_API_fs_Hz, maxInternal_fs_Hz, minInternal_fs_Hz, desiredInternal_fs_Hz, prefillFlag) are removed."
+        "silk_LP_state and the variable low-pass, bandwidth switching, internal rate range and prefill fields (sLP, allow_bandwidth_switch, prev_API_fs_Hz, maxInternal_fs_Hz, minInternal_fs_Hz, desiredInternal_fs_Hz, prefillFlag) are removed.",
+        "silk_encoder_state describes the one configuration the encoder runs (16 kHz internal rate, four 5 ms subframes, order 16, one frame per packet, independent coding): the sampling rate, frame, subframe and LTP memory lengths, pitch window, subframe count, packet size and frame count, prediction order, the codebook and iCDF pointers, constant-bitrate flag, input index, previous lag and signal type for delta coding and the saved control values (the API rate, channel counts, FEC flag and target rate) are removed; the per-frame arrays (VAD and LBRR flags, LBRR indices and pulses, stereo indices and mid-only flag) hold one frame; LBRR_flags is LBRR_pending."
       ],
-      "sha256": "692b7b40026e86c0df62a5f57da718540fbb3660005dd8f5eaaf33276548055a"
+      "sha256": "a2dcaeed5382b84d619b8996548016101f87561861c612bdf7e6191b418b7f29"
     },
     {
       "path": "silk/sum_sqr_shift.c",
@@ -1446,27 +1479,29 @@
         "silk_NSQ_del_dec_sse4_1() is renamed silk_NSQ_del_dec() and takes the scratch arena; the C twin NSQ_del_dec.c is deleted (the build requires SSE4.1, so it never ran).",
         "The quantizer decision is branchless: a per-frame table (silk_nsq_candidate_table) holds the q1, q2 and rate-distortion terms by q1_Q0, and dither and swap masks replace the sign and rd1 < rd2 branches; all values are the ones the upstream branches select.",
         "The warped shaping filter keeps its states side by side and sums the noise feedback as one vector dot product (AR coefficients zero past the order): same additions, reordered exactly within 32-bit wraparound.",
-        "The per-sample sample-state array is a fixed local array instead of an ALLOC."
+        "The per-sample sample-state array is a fixed local array instead of an ALLOC.",
+        "The subframe length, subframe count, LTP memory and the prediction order (16, so the order-10 branch is removed) are constants."
       ],
-      "sha256": "0f12548ef65c21628105e01727d73950976f8f1bb7614329f785bd4cadaa3866"
+      "sha256": "471ffa888c45eeb86dca6b6f0e7981dfdb55bf5369afd27f3ffbda284a280fe0"
     },
     {
       "path": "silk/x86/VAD_sse4_1.c",
       "status": "modified",
       "upstream_sha256": "1147c6602371ae0eaaf8fb7c960fc74b8340a12dd06c0a731b439e3ce0e4d60a",
       "changes": [
-        "silk_VAD_GetSA_Q8_sse4_1() is renamed silk_VAD_GetSA_Q8() and loses the arch argument; the band buffer X is a fixed local array of MAX_FRAME_LENGTH + MAX_FRAME_LENGTH / 4 samples instead of an ALLOC."
+        "silk_VAD_GetSA_Q8_sse4_1() is renamed silk_VAD_GetSA_Q8() and loses the arch argument; the band buffer X is a fixed local array of MAX_FRAME_LENGTH + MAX_FRAME_LENGTH / 4 samples instead of an ALLOC.",
+        "The frame is the constant 20 ms (MAX_FRAME_LENGTH): the 10 ms smoothing is removed, and the function returns nothing."
       ],
-      "sha256": "f79ad259482dbf94b3622323ed4be9e00e627b2fa9fad8f38b0a9303bd1349da"
+      "sha256": "c89ad35d483f94fb8ee3559270a02761ef276ecb745d65c0f76aa3f90ddb7de4"
     },
     {
       "path": "silk/x86/VQ_WMat_EC_sse4_1.c",
       "status": "modified",
       "upstream_sha256": "e3c21cd270f6a9bf6ace216c77c5c21175e551e6212c3c2b15f5ed8b0c240203",
       "changes": [
-        "silk_VQ_WMat_EC_sse4_1() is renamed silk_VQ_WMat_EC() and loses the arch argument; its C twin VQ_WMat_EC.c is deleted, because the build requires SSE4.1 and the C version never ran."
+        "silk_VQ_WMat_EC_sse4_1() is renamed silk_VQ_WMat_EC() and loses the arch argument; its C twin VQ_WMat_EC.c is deleted, because the build requires SSE4.1 and the C version never ran. It takes no subframe length (MAX_SUB_FRAME_LENGTH)."
       ],
-      "sha256": "ab7b704da50bdd728dd4d6f85b0639e102ae441a773e16a2de571cc04d15ccd5"
+      "sha256": "a2f50fe45cd74fd1edd84d3c39dfb0cec537e9a9c59f3ded74eb68450b4a2783"
     },
     {
       "path": "src/opus.c",
@@ -1487,9 +1522,10 @@
         "No create/destroy, opus_decode24(), DRED or packet extension parsing; opus_decode_native() is private.",
         "The decoded frame size checks use celt_packet_check(); the unreachable bandwidth fallback checks are removed (the TOC byte yields only NB/MB/WB for SILK-only and one of the five bandwidths otherwise).",
         "opus_decode() takes the caller's scratch (OPUS_SCRATCH_BYTES) and passes it through opus_decode_native() and opus_decode_frame() to SILK and CELT; a static assertion checks the decoder's worst case against OPUS_SCRATCH_BYTES.",
-        "48 kHz output only: opus_decoder_init() refuses other rates, the state has no sampling rate, and the frame sizes, smooth_fade() and the SILK and CELT setup use 48 kHz."
+        "48 kHz output only: opus_decoder_init() refuses other rates, the state has no sampling rate, and the frame sizes, smooth_fade() and the SILK and CELT setup use 48 kHz.",
+        "The CELT decoder's channels, band range, reset, mode and final range go through the celt.h accessors instead of the varargs ctl."
       ],
-      "sha256": "446dde1f0e7dcdfdf905ca51953ac65ee0bed46c52c99eb70777350610bfa215"
+      "sha256": "e446833edaad050d351f66b2487d27ff2fcfb43b4e1166ba55147a5fd135fbd0"
     },
     {
       "path": "src/opus_encoder.c",
@@ -1500,13 +1536,14 @@
         "Removed: multi-frame repacketizing, CBR padding, the AUDIO and restricted applications, forced mode, bandwidth and channels, signal and voice ratio hints, LFE, surround masking, tonality analysis, float and 24-bit input, create/destroy.",
         "Requests: bitrate, complexity, in-band FEC (0 or 1), packet loss and VBR constraint (all set only), and lookahead; no reset (OPUS_ENCODER_RESET_START is removed) and no final range.",
         "No DTX: every frame is coded; compute_frame_energy(), decide_dtx_mode(), the activity and peak energy tracking and the zero-byte SILK return are removed.",
-        "No run-time architecture field; silk_InitEncoder(), celt_encoder_init(), hp_cutoff() and silk_biquad_alt_stride2() take none.",
+        "No run-time architecture field; celt_encoder_init(), hp_cutoff() and silk_biquad_alt_stride2() take none. silk_InitEncoder() and silk_Encode() return nothing (they cannot fail), silk_Encode() takes no sample count, and the SILK settings structure has no input rate, payload size, DRED or constant-bitrate field.",
+        "The CELT encoder's complexity, loss rate and per-frame settings go through celt_encoder_set_complexity(), celt_encoder_set_loss(), celt_encoder_mode() and celt_encoder_prepare() instead of the varargs ctl.",
         "opus_encode() (opus_encode_native() and opus_encode_frame_native() merged) takes the caller's scratch (OPUS_SCRATCH_BYTES) and passes it to SILK and CELT; a static assertion checks the encoder's worst case against OPUS_SCRATCH_BYTES.",
         "Removed: CELT-only and SILK-only packets, the mode and audio bandwidth decisions (mode and bandwidth threshold tables, compute_stereo_width() and the stereo width state), SILK bandwidth switching, the CELT/SILK transition redundancy and prefill (compute_redundancy_bytes(), the 5 ms redundant frames, the CELT reset and prefill, prev_mode, silk_bw_switch, first), gen_toc() (the table of contents is constant: 0x78 plus the stereo bit), the plc frame for a buffer under 3 bytes, and the delay buffer beyond the 4 ms delay compensation.",
         "decide_fec() compares the rate with the full-band in-band FEC threshold only; upstream lowers the audio bandwidth until FEC fits, which this encoder never does.",
         "opus_encode() requires max_data_bytes = 1275; opus_encoder_ctl() takes a bitrate of 6000-510000 (no OPUS_AUTO or OPUS_BITRATE_MAX, no clamping) and a complexity of 1-10; OPUS_SET_VBR_CONSTRAINT is accepted and has no effect (hybrid frames are bounded by the SILK bit limit); the user and coded bitrate are one field."
       ],
-      "sha256": "ad2d25ae1263b8c964529397aa54c8f20695120e1d1d2535c2d5c415ddf9501e"
+      "sha256": "7f061ad8c26ea379c159e718cf17d9f6649430c87b6eb6e23c27e2a7ae15fda9"
     },
     {
       "path": "src/opus_private.h",

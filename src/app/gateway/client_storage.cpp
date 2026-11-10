@@ -728,7 +728,7 @@ void apply_go_live(GatewayClient* client, GatewayClientRuntime* runtime, u64 now
     GoLiveCommand commands[kGatewayGoLiveCommands];
     AcquireSRWLockExclusive(&runtime->voice_lock);
     if (runtime->go_live_backend_dirty) {
-        runtime->go_live.backend = runtime->go_live_backend;
+        runtime->go_live.backend_context = runtime->go_live_backend;
         runtime->go_live_backend_dirty = false;
     }
     const u32 count = runtime->go_live_command_count;

@@ -142,24 +142,25 @@ bool range_covers(Fixture& f, const NativeTextFontQuery& base, const char* text,
 void test_policy_table() noexcept {
     // Table invariants beyond the compile-time ones: lists fit, the unassigned and private use ranges name nothing and
     // the CJK families follow the language.
-    const NativeFallbackCascade& unspecified = system_fallback_policies.values[0];
+    const NativeFallbackCascade& unspecified = system_fallback_policy;
     bool lists_fit = true;
     for (u32 i = 0; i < unspecified.ranges.count; ++i)
         lists_fit = lists_fit && unspecified.ranges[i].count <= system_fallback_max_families;
     check(lists_fit, "policy_lists_fit");
     const auto first_family = [](u32 locale, u32 scalar, const char* expected, const char* name) noexcept {
-        const NativeFallbackCascade& policy = system_fallback_policies.values[locale];
+        const NativeFallbackCascade& policy = system_fallback_policy;
         const u32 route = native_fallback_cascade_find(policy, scalar);
         const NativeFallbackRange& range = policy.ranges[route];
         if (range.count == 0) {
             check(expected == nullptr, name);
             return;
         }
-        const SystemFallbackName& family = system_fallback_families[policy.tokens[range.offset]];
+        const char* family = system_fallback_names + system_fallback_token(locale, range.offset);
         bool same = expected != nullptr;
-        for (u32 i = 0; same && i < family.count; ++i)
-            same = expected[i] == system_fallback_names[family.offset + i];
-        same = same && expected && expected[family.count] == 0;
+        u32 i = 0;
+        for (; same && family[i]; ++i)
+            same = expected[i] == family[i];
+        same = same && expected && expected[i] == 0;
         check(same, name);
     };
     first_family(0, 'A', "Noto Sans", "policy_latin");

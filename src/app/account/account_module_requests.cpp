@@ -185,7 +185,7 @@ void ensure_video_frames(AccountModuleRuntime* runtime, GatewayClient* gateway) 
     if (!gateway)
         return;
     if (!gateway_client_has_go_live_backend(gateway))
-        gateway_client_set_go_live_backend(gateway, go_live_devices_backend(&runtime->go_live));
+        gateway_client_set_go_live_backend(gateway, &runtime->go_live);
     if (gateway_client_has_video_frames(gateway, &runtime->video))
         return;
     gateway_client_set_video_frames(
@@ -259,10 +259,9 @@ bool WINAPI module_go_live_preview(void* instance, VideoStreamFrame* output) noe
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !output)
         return false;
-    const auto backend = go_live_devices_backend(&runtime->go_live);
     GpuVideoFrame frame{};
     u32 sequence = 0;
-    if (!backend.preview(backend.context, &frame, &sequence))
+    if (!kGoLiveDevicesBackend.preview(&runtime->go_live, &frame, &sequence))
         return false;
     reset_value(output);
     output->gpu = frame;
@@ -558,13 +557,6 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
     pages_release(runtime);
     *instance = nullptr;
     return status;
-}
-
-// One host diagnostic sink for the module: REST traces and voice records
-// ("voice:" prefixed, routed by the host into the voice log category).
-void module_set_trace(RestTraceFunction trace) noexcept {
-    rest_client_set_trace(trace);
-    voice_log_set_sink(trace);
 }
 
 } // namespace account_module_detail

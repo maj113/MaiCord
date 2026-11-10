@@ -48,7 +48,6 @@ bool png_format_channels(u8 color_type, u8 bit_depth, u8* channels) noexcept;
 bool png_apply_palette(PngImage* image, const u8* data, u32 length) noexcept;
 bool png_apply_transparency(PngImage* image, const u8* data, u32 length) noexcept;
 
-u32 png_crc32(const u8* bytes, u32 count) noexcept;
 // Reconstructs one filtered scanline of count bytes in place (filter byte
 // excluded). previous is the reconstructed row above, or null for the first
 // row. Returns false for a filter type above 4.

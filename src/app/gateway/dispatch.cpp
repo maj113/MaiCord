@@ -3,6 +3,7 @@
 #include "maicord/model/user/activity.hpp"
 #include "maicord/app/chat/messages/event_scratch.hpp"
 #include "dispatch_common.hpp"
+#include "message_mailbox.hpp"
 #include "user_payload.hpp"
 #include "maicord/protocol/media/upload_allowance.hpp"
 #include "private_dispatch.hpp"
@@ -179,48 +180,59 @@ void copy_reaction(const GatewayMessageReactionEvent& source,
     destination->flags = source.animated ? 1u : 0u;
 }
 
-template <typename Value> bool append_packed(Slice<char> output, u32* cursor, const Value& value) noexcept {
-    if (*cursor > output.count || sizeof(Value) > output.count - *cursor) {
+// Writes a message's descriptor block behind its transient text. Every view it packs lies inside base[0, text_bytes),
+// which append_message_metadata has checked against capacity; at never passes capacity.
+struct Packer {
+    char* base;
+    u32 capacity;
+    u32 text_bytes;
+    u32* at;
+};
+
+__declspec(noinline) bool put_bytes(const Packer& packer, const void* value, u32 bytes) noexcept {
+    if (bytes > packer.capacity - *packer.at) {
         return false;
     }
-    copy_bytes(output.data + *cursor, &value, static_cast<u32>(sizeof(Value)));
-    *cursor += static_cast<u32>(sizeof(Value));
+    copy_bytes(packer.base + *packer.at, value, bytes);
+    *packer.at += bytes;
     return true;
 }
 
-bool pack_text_range(Slice<char> output, u32 transient_bytes, Utf8View value,
-                     GatewayClientMessageTextRange* range) noexcept {
-    if (transient_bytes > output.count || value.bytes > 0xFFFFu) {
-        return false;
+template <typename Value> bool put(const Packer& packer, const Value& value) noexcept {
+    return put_bytes(packer, &value, static_cast<u32>(sizeof(Value)));
+}
+
+// `count` adjacent views as `count` adjacent ranges (message_mailbox.hpp); the zeroed ranges stay empty for empty views.
+__declspec(noinline) bool put_texts(const Packer& packer, const Utf8View* views,
+                                    GatewayClientMessageTextRange* ranges, u32 count) noexcept {
+    const char* const end = packer.base + packer.text_bytes;
+    for (u32 index = 0; index < count; ++index) {
+        const Utf8View view = views[index];
+        if (view.bytes > 0xFFFFu) {
+            return false;
+        }
+        if (view.bytes == 0) {
+            continue;
+        }
+        if (!view.data || view.data < packer.base || view.data > end || view.bytes > static_cast<u32>(end - view.data)) {
+            return false;
+        }
+        ranges[index].offset = static_cast<u32>(view.data - packer.base);
+        ranges[index].bytes = static_cast<u16>(view.bytes);
     }
-    reset_value<GatewayClientMessageTextRange>(range);
-    if (value.bytes == 0) {
-        return true;
-    }
-    if (!value.data || value.data < output.data || value.data > output.data + transient_bytes ||
-        value.bytes > static_cast<u32>(output.data + transient_bytes - value.data)) {
-        return false;
-    }
-    range->offset = static_cast<u32>(value.data - output.data);
-    range->bytes = static_cast<u16>(value.bytes);
     return true;
 }
 
-bool pack_embed_media(Slice<char> output, u32 transient_bytes, const GatewayMessageEmbedMedia& source,
-                      GatewayClientMessageEmbedMediaMutation* destination) noexcept {
-    reset_value<GatewayClientMessageEmbedMediaMutation>(destination);
+__declspec(noinline) bool put_embed_media(const Packer& packer, const GatewayMessageEmbedMedia& source,
+                                          GatewayClientMessageEmbedMediaMutation* destination) noexcept {
     destination->width = source.width;
     destination->height = source.height;
     destination->flags = source.flags;
     destination->state = static_cast<u8>((source.has_width ? 1u : 0u) | (source.has_height ? 2u : 0u));
-    return pack_text_range(output, transient_bytes, source.url, &destination->url) &&
-           pack_text_range(output, transient_bytes, source.proxy_url, &destination->proxy_url) &&
-           pack_text_range(output, transient_bytes, source.content_type, &destination->content_type) &&
-           pack_text_range(output, transient_bytes, source.description, &destination->description);
+    return put_texts(packer, &source.url, &destination->url, 4);
 }
 
-bool append_poll_metadata(Slice<char> output, const GatewayMessageEvent& message, u32* cursor) noexcept {
-    const auto& poll = message.poll;
+bool put_poll(const Packer& packer, const GatewayMessagePoll& poll) noexcept {
     if (!gateway_message_poll_valid(poll))
         return false;
     GatewayClientMessagePollHeader header{};
@@ -232,8 +244,7 @@ bool append_poll_metadata(Slice<char> output, const GatewayMessageEvent& message
     header.flags = static_cast<u8>((poll.present ? 1 : 0) | (poll.expiry_null ? 2 : 0) |
                                    (poll.allow_multiselect ? 4 : 0) | (poll.results_known ? 8 : 0) |
                                    (poll.is_finalized ? 16 : 0));
-    if (!pack_text_range(output, message.transient_bytes, poll.question, &header.question) ||
-        !append_packed(output, cursor, header))
+    if (!put_texts(packer, &poll.question, &header.question, 1) || !put(packer, header))
         return false;
     for (u32 index = 0; index < poll.answers.count; ++index) {
         const auto& answer = poll.answers[index];
@@ -241,9 +252,8 @@ bool append_poll_metadata(Slice<char> output, const GatewayMessageEvent& message
         packed.answer_id = answer.answer_id;
         packed.emoji_id = answer.emoji_id;
         packed.flags = answer.emoji_animated ? 1 : 0;
-        if (!pack_text_range(output, message.transient_bytes, answer.text, &packed.text) ||
-            !pack_text_range(output, message.transient_bytes, answer.emoji_name, &packed.emoji_name) ||
-            !append_packed(output, cursor, packed))
+        if (!put_texts(packer, &answer.text, &packed.text, 1) ||
+            !put_texts(packer, &answer.emoji_name, &packed.emoji_name, 1) || !put(packer, packed))
             return false;
     }
     for (u32 index = 0; index < poll.answer_counts.count; ++index) {
@@ -252,7 +262,7 @@ bool append_poll_metadata(Slice<char> output, const GatewayMessageEvent& message
         packed.answer_id = count.answer_id;
         packed.count = count.count;
         packed.flags = count.me_voted ? 1 : 0;
-        if (!append_packed(output, cursor, packed))
+        if (!put(packer, packed))
             return false;
     }
     return true;
@@ -263,9 +273,6 @@ namespace dispatch_detail {
 
 bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent& message, u32* cursor,
                                   u32* rich_payload_bytes) noexcept {
-    if (*cursor > output.count) {
-        return false;
-    }
     *rich_payload_bytes = 0;
     if ((message.fields & kGatewayMessageRichFieldMask) == 0 && message.rich_truncations == 0) {
         return message.reactions.count == 0 && message.attachments.count == 0 &&
@@ -281,6 +288,7 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
         return false;
     }
     const u32 begin = *cursor;
+    const Packer packer{output.data, output.count, message.transient_bytes, cursor};
     GatewayClientMessageRichHeader header{};
     header.reference_message_id = message.reference.message_id;
     header.reference_channel_id = message.reference.channel_id;
@@ -301,19 +309,9 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
     header.interaction_id = message.interaction.id;
     header.interaction_user_id = message.interaction.user_id;
     header.interaction_type = message.interaction.type;
-    if (!pack_text_range(output, message.transient_bytes, message.reference.author_name,
-                         &header.reference_author_name) ||
-        !pack_text_range(output, message.transient_bytes, message.reference.author_avatar_hash,
-                         &header.reference_author_avatar_hash) ||
-        !pack_text_range(output, message.transient_bytes, message.reference.content,
-                         &header.reference_content) ||
-        !pack_text_range(output, message.transient_bytes, message.interaction.user_name,
-                         &header.interaction_user_name) ||
-        !pack_text_range(output, message.transient_bytes, message.interaction.user_avatar_hash,
-                         &header.interaction_user_avatar_hash) ||
-        !pack_text_range(output, message.transient_bytes, message.interaction.command_name,
-                         &header.interaction_command_name) ||
-        !append_packed(output, cursor, header)) {
+    if (!put_texts(packer, &message.reference.author_name, &header.reference_author_name, 3) ||
+        !put_texts(packer, &message.interaction.user_name, &header.interaction_user_name, 3) ||
+        !put(packer, header)) {
         return false;
     }
     for (u32 index = 0; index < message.reactions.count; ++index) {
@@ -325,8 +323,7 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
         packed.burst_count = source.burst_count;
         packed.flags = static_cast<u8>((source.me ? 1u : 0u) | (source.me_burst ? 2u : 0u) |
                                        (source.animated ? 4u : 0u));
-        if (!pack_text_range(output, message.transient_bytes, source.name, &packed.name) ||
-            !append_packed(output, cursor, packed)) {
+        if (!put_texts(packer, &source.name, &packed.name, 1) || !put(packer, packed)) {
             return false;
         }
     }
@@ -343,13 +340,8 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
                                        (source.ephemeral ? 4u : 0u) | (source.has_duration ? 8u : 0u));
         if (!gateway_message_waveform_valid(source.waveform) ||
             (!source.has_duration && source.duration_ms) ||
-            !pack_text_range(output, message.transient_bytes, source.waveform, &packed.waveform) ||
-            !pack_text_range(output, message.transient_bytes, source.filename, &packed.filename) ||
-            !pack_text_range(output, message.transient_bytes, source.title, &packed.title) ||
-            !pack_text_range(output, message.transient_bytes, source.description, &packed.description) ||
-            !pack_text_range(output, message.transient_bytes, source.content_type, &packed.content_type) ||
-            !pack_text_range(output, message.transient_bytes, source.url, &packed.url) ||
-            !append_packed(output, cursor, packed)) {
+            !put_texts(packer, &source.waveform, &packed.waveform, 1) ||
+            !put_texts(packer, &source.filename, &packed.filename, 5) || !put(packer, packed)) {
             return false;
         }
     }
@@ -364,20 +356,10 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
         packed.reserved[0] = source.flags;
         packed.timestamp_low = static_cast<u32>(source.timestamp_ms);
         packed.timestamp_high = static_cast<u32>(source.timestamp_ms >> 32u);
-        if (!pack_text_range(output, message.transient_bytes, source.title, &packed.title) ||
-            !pack_text_range(output, message.transient_bytes, source.description, &packed.description) ||
-            !pack_text_range(output, message.transient_bytes, source.url, &packed.url) ||
-            !pack_text_range(output, message.transient_bytes, source.author_name, &packed.author_name) ||
-            !pack_text_range(output, message.transient_bytes, source.footer_text, &packed.footer_text) ||
-            !pack_text_range(output, message.transient_bytes, source.author_url, &packed.author_url) ||
-            !pack_text_range(output, message.transient_bytes, source.author_icon, &packed.author_icon) ||
-            !pack_text_range(output, message.transient_bytes, source.footer_icon, &packed.footer_icon) ||
-            !pack_text_range(output, message.transient_bytes, source.provider_name, &packed.provider_name) ||
-            !pack_text_range(output, message.transient_bytes, source.provider_url, &packed.provider_url) ||
-            !pack_embed_media(output, message.transient_bytes, source.image, &packed.image) ||
-            !pack_embed_media(output, message.transient_bytes, source.thumbnail, &packed.thumbnail) ||
-            !pack_embed_media(output, message.transient_bytes, source.video, &packed.video) ||
-            !append_packed(output, cursor, packed)) {
+        if (!put_texts(packer, &source.title, &packed.title, 10) ||
+            !put_embed_media(packer, source.image, &packed.image) ||
+            !put_embed_media(packer, source.thumbnail, &packed.thumbnail) ||
+            !put_embed_media(packer, source.video, &packed.video) || !put(packer, packed)) {
             return false;
         }
     }
@@ -386,9 +368,7 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
         GatewayClientMessageEmbedFieldMutation packed{};
         packed.embed_index = source.embed_index;
         packed.flags = source.inline_field ? 1u : 0u;
-        if (!pack_text_range(output, message.transient_bytes, source.name, &packed.name) ||
-            !pack_text_range(output, message.transient_bytes, source.value, &packed.value) ||
-            !append_packed(output, cursor, packed)) {
+        if (!put_texts(packer, &source.name, &packed.name, 2) || !put(packer, packed)) {
             return false;
         }
     }
@@ -397,8 +377,7 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
         GatewayClientMessageStickerMutation packed{};
         packed.id = source.id;
         packed.format_type = source.format_type;
-        if (!pack_text_range(output, message.transient_bytes, source.name, &packed.name) ||
-            !append_packed(output, cursor, packed)) {
+        if (!put_texts(packer, &source.name, &packed.name, 1) || !put(packer, packed)) {
             return false;
         }
     }
@@ -417,12 +396,7 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
         packed.max_values = source.max_values;
         packed.component_flags = source.flags;
         if ((source.flags & ~kGatewayMessageComponentKnownFlags) != 0 ||
-            !pack_text_range(output, message.transient_bytes, source.label, &packed.label) ||
-            !pack_text_range(output, message.transient_bytes, source.content, &packed.content) ||
-            !pack_text_range(output, message.transient_bytes, source.custom_id, &packed.custom_id) ||
-            !pack_text_range(output, message.transient_bytes, source.url, &packed.url) ||
-            !pack_text_range(output, message.transient_bytes, source.emoji_name, &packed.emoji_name) ||
-            !append_packed(output, cursor, packed)) {
+            !put_texts(packer, &source.label, &packed.label, 5) || !put(packer, packed)) {
             return false;
         }
     }
@@ -431,10 +405,10 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
         call.ended_timestamp_ms = message.call.ended_timestamp_ms;
         call.flags = static_cast<u8>((message.call.present ? 1u : 0u) | (message.call.ended ? 2u : 0u) |
                                      (message.call.participated ? 4u : 0u));
-        if (!append_packed(output, cursor, call))
+        if (!put(packer, call))
             return false;
     }
-    if ((message.fields & gateway_message_field_poll) && !append_poll_metadata(output, message, cursor))
+    if ((message.fields & gateway_message_field_poll) && !put_poll(packer, message.poll))
         return false;
     if (message.fields & gateway_message_field_message_snapshots) {
         GatewayClientMessageSnapshotHeader snapshot{};
@@ -448,23 +422,23 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
             snapshot.fields = source.fields;
             snapshot.type = source.type;
             if (source.mention_users.count > kGatewayMessageMentionUserMaximum ||
-                !pack_text_range(output, message.transient_bytes, source.content, &snapshot.content))
+                !put_texts(packer, &source.content, &snapshot.content, 1))
                 return false;
             snapshot.mention_user_count = static_cast<u16>(source.mention_users.count);
         }
-        if (!append_packed(output, cursor, snapshot))
+        if (!put(packer, snapshot))
             return false;
         if (source.present) {
             for (u32 index = 0; index < source.mention_users.count; ++index) {
                 const auto& user = source.mention_users[index];
                 GatewayClientNamedUserMutation packed{};
                 GatewayClientMessageTextRange range{};
-                if (!user.id || !pack_text_range(output, message.transient_bytes, user.name, &range))
+                if (!user.id || !put_texts(packer, &user.name, &range, 1))
                     return false;
                 packed.id = user.id;
                 packed.name_offset = range.offset;
                 packed.name_bytes = range.bytes;
-                if (!append_packed(output, cursor, packed))
+                if (!put(packer, packed))
                     return false;
             }
             GatewayMessageEvent body{};

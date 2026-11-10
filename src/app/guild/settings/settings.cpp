@@ -539,7 +539,9 @@ bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
     u32 rgba = 0;
     if (id >= kRowBase && id < kRowBase + kRowCapacity) {
         const u32 row = static_cast<u32>(id - kRowBase);
-        rgba = choice == kUiSettingsAccentChoice ? p.row_accent[row] : choice < 4 ? p.chip_colors[row][choice] : 0;
+        rgba = choice == kUiSettingsAccentChoice ? p.row_accent[row]
+               : choice < 4 && row < kChipRows   ? p.chip_colors[row][choice]
+                                                 : 0;
     } else if (p.page == Page::roles && p.editing_role && id == control_header && choice == kUiSettingsAccentChoice)
         rgba = guild_role_color_rgba(p.role_draft.color);
     else if (p.page == Page::roles && p.editing_role && id == control_color && choice <= kGuildRoleColorCount)

@@ -35,6 +35,7 @@ struct MessageProfileHit {
 };
 
 // One header geometry for text, badge paint and its server icon.
+// `out` is reset when this returns true and untouched otherwise: callers declare it without `{}`.
 bool message_author_layout(const MessageScene& scene, const MessageTextCommand& command,
                            const ChatStateStore& state, const UserStore& users,
                            UiTextMeasureCache* cache, const Theme& theme,

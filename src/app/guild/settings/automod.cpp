@@ -46,7 +46,6 @@ struct AutoModState {
     // The word boxes as sent: one item per line.
     char words[kWordsBytes], patterns[kPatternsBytes], allowed[kWordsBytes];
     char pool[kRulePoolBytes];
-    u32 pool_used;
 };
 
 namespace {
@@ -924,7 +923,6 @@ void automod_response(const RestClientResponse& response, const Utf8View& body) 
             ok && automod_rules_decode(body, {owner->scratch, kScratchUnits}, {s.rules, kRuleCapacity}, &count, &pool).ok();
         if (decoded) {
             s.rule_count = count;
-            s.pool_used = pool.used;
             s.loaded = true;
             s.failed = false;
             // An edited rule removed elsewhere ends its edit.

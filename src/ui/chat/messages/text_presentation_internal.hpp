@@ -135,8 +135,14 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
                     const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
                     const UiWidgetReference& owner,
                     const UiRect& rectangle, const UiRect& clip, const Color& color,
-                    const MessageRecord* record, u16 measurement_index, const CommandLook& look,
-                    const Color& inline_role_color = kNoRoleColor) noexcept;
+                    const MessageRecord* record, u16 measurement_index, const CommandLook& look) noexcept;
+// append_command, then the command it appended (none for empty text) carries `inline_role_color`.
+bool append_command_role(MessageTextPresentation* presentation, const Utf8View& text,
+                         const ConstSlice<TextStyleSpan>& styles,
+                         const ConstSlice<MessageMarkdownSemantic>& semantics, const UiWidgetReference& owner,
+                         const UiRect& rectangle, const UiRect& clip, const Color& color,
+                         const MessageRecord* record, u16 measurement_index, const CommandLook& look,
+                         const Color& inline_role_color) noexcept;
 // Copies `text` into the retained text bank.
 bool retain_text(MessageTextPresentation* presentation, const Utf8View& text, Utf8View* output) noexcept;
 // Appends one command carrying `span` (none when its byte_count is 0) and `semantic` (none when null), both

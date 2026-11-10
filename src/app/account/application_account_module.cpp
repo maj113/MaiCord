@@ -926,19 +926,6 @@ bool application_account_module_load() noexcept {
             .error("native_error", static_cast<u32>(loaded.native_error))
             .write(LogLevel::error, "account");
     }
-    if (loaded.ok() && !g_app.account.instance && !g_app.account.login_instance)
-        g_app.account.api.set_rest_trace([](const char* record) noexcept {
-            // Voice records arrive as "voice:<I|W|E> <event> key=value ...".
-            if (record && record[0] == 'v' && record[1] == 'o' && record[2] == 'i' && record[3] == 'c' &&
-                record[4] == 'e' && record[5] == ':' && record[6] && record[7] == ' ') {
-                const LogLevel level = record[6] == 'E'   ? LogLevel::error
-                                       : record[6] == 'W' ? LogLevel::warning
-                                                          : LogLevel::info;
-                log_write(level, "voice", record + 8);
-                return;
-            }
-            log_write(LogLevel::info, "rest_trace", record);
-        });
     TraceRecord module_trace("module_load");
     module_trace.field("elapsed_us", clock_microseconds(g_app.clock, trace_start, clock_now()));
     module_trace.field("ok", static_cast<u64>(loaded.ok()));

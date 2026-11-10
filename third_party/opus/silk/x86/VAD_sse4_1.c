@@ -38,7 +38,7 @@ static const opus_int32 tiltWeights[ VAD_N_BANDS ] = { 30000, 6000, -12000, -120
 /***************************************/
 /* Get the speech activity level in Q8 */
 /***************************************/
-opus_int silk_VAD_GetSA_Q8(                                     /* O    Return value, 0 if success                  */
+void silk_VAD_GetSA_Q8(
     silk_encoder_state          *psEncC,            /* I/O  Encoder state                               */
     const opus_int16            pIn[]               /* I    PCM input                                   */
 )
@@ -54,20 +54,17 @@ opus_int silk_VAD_GetSA_Q8(                                     /* O    Return v
     opus_int32 NrgToNoiseRatio_Q8[ VAD_N_BANDS ];
     opus_int32 speech_nrg, x_tmp;
     opus_int   X_offset[ VAD_N_BANDS ];
-    opus_int   ret = 0;
     silk_VAD_state *psSilk_VAD = &psEncC->sVAD;
     /* Safety checks */
     silk_assert( VAD_N_BANDS == 4 );
-    celt_assert( MAX_FRAME_LENGTH >= psEncC->frame_length );
-    celt_assert( psEncC->frame_length <= 512 );
-    celt_assert( psEncC->frame_length == 8 * silk_RSHIFT( psEncC->frame_length, 3 ) );
+    celt_assert( MAX_FRAME_LENGTH == 8 * silk_RSHIFT( MAX_FRAME_LENGTH, 3 ) );
 
     /***********************/
     /* Filter and Decimate */
     /***********************/
-    decimated_framelength1 = silk_RSHIFT( psEncC->frame_length, 1 );
-    decimated_framelength2 = silk_RSHIFT( psEncC->frame_length, 2 );
-    decimated_framelength = silk_RSHIFT( psEncC->frame_length, 3 );
+    decimated_framelength1 = silk_RSHIFT( MAX_FRAME_LENGTH, 1 );
+    decimated_framelength2 = silk_RSHIFT( MAX_FRAME_LENGTH, 2 );
+    decimated_framelength = silk_RSHIFT( MAX_FRAME_LENGTH, 3 );
     /* Decimate into 4 bands:
        0       L      3L       L              3L                             5L
                -      --       -              --                             --
@@ -75,7 +72,7 @@ opus_int silk_VAD_GetSA_Q8(                                     /* O    Return v
 
        [0-1 kHz| temp. |1-2 kHz|    2-4 kHz    |            4-8 kHz           |
 
-       They're arranged to allow the minimal ( frame_length / 4 ) extra
+       They're arranged to allow the minimal ( MAX_FRAME_LENGTH / 4 ) extra
        scratch space during the downsampling process */
     X_offset[ 0 ] = 0;
     X_offset[ 1 ] = decimated_framelength + decimated_framelength2;
@@ -84,7 +81,7 @@ opus_int silk_VAD_GetSA_Q8(                                     /* O    Return v
 
     /* 0-8 kHz to 0-4 kHz and 4-8 kHz */
     silk_ana_filt_bank_1( pIn, &psSilk_VAD->AnaState[  0 ],
-        X, &X[ X_offset[ 3 ] ], psEncC->frame_length );
+        X, &X[ X_offset[ 3 ] ], MAX_FRAME_LENGTH );
 
     /* 0-4 kHz to 0-2 kHz and 2-4 kHz */
     silk_ana_filt_bank_1( X, &psSilk_VAD->AnaState1[ 0 ],
@@ -111,7 +108,7 @@ opus_int silk_VAD_GetSA_Q8(                                     /* O    Return v
     /*************************************/
     for( b = 0; b < VAD_N_BANDS; b++ ) {
         /* Find the decimated framelength in the non-uniformly divided bands */
-        decimated_framelength = silk_RSHIFT( psEncC->frame_length, silk_min_int( VAD_N_BANDS - b, VAD_N_BANDS - 1 ) );
+        decimated_framelength = silk_RSHIFT( MAX_FRAME_LENGTH, silk_min_int( VAD_N_BANDS - b, VAD_N_BANDS - 1 ) );
 
         /* Split length into subframe lengths */
         dec_subframe_length = silk_RSHIFT( decimated_framelength, VAD_INTERNAL_SUBFRAMES_LOG2 );
@@ -225,9 +222,8 @@ opus_int silk_VAD_GetSA_Q8(                                     /* O    Return v
         speech_nrg += ( b + 1 ) * silk_RSHIFT( Xnrg[ b ] - psSilk_VAD->NL[ b ], 4 );
     }
 
-    if( psEncC->frame_length == 20 * psEncC->fs_kHz ) {
-        speech_nrg = silk_RSHIFT32( speech_nrg, 1 );
-    }
+    /* The 20 ms frame has twice the energy of the 10 ms the thresholds are tuned for */
+    speech_nrg = silk_RSHIFT32( speech_nrg, 1 );
     /* Power scaling */
     if( speech_nrg <= 0 ) {
         SA_Q15 = silk_RSHIFT( SA_Q15, 1 );
@@ -248,10 +244,6 @@ opus_int silk_VAD_GetSA_Q8(                                     /* O    Return v
     /* Smoothing coefficient */
     smooth_coef_Q16 = silk_SMULWB( VAD_SNR_SMOOTH_COEF_Q18, silk_SMULWB( (opus_int32)SA_Q15, SA_Q15 ) );
 
-    if( psEncC->frame_length == 10 * psEncC->fs_kHz ) {
-        smooth_coef_Q16 >>= 1;
-    }
-
     for( b = 0; b < VAD_N_BANDS; b++ ) {
         /* compute smoothed energy-to-noise ratio per band */
         psSilk_VAD->NrgRatioSmth_Q8[ b ] = silk_SMLAWB( psSilk_VAD->NrgRatioSmth_Q8[ b ],
@@ -263,5 +255,4 @@ opus_int silk_VAD_GetSA_Q8(                                     /* O    Return v
         psEncC->input_quality_bands_Q15[ b ] = silk_sigm_Q15( silk_RSHIFT( SNR_Q7 - 16 * 128, 4 ) );
     }
 
-    return( ret );
 }

@@ -957,7 +957,7 @@ maicord_test(MaiCordTextFormConfirmationTests ONLY WINDOWS ENTRY maicord_text_fo
     TEST maicord_text_form_confirmation)
 maicord_test(MaiCordFriendsAccountTests ENTRY maicord_friends_account_entry
     SOURCES tests/app/account/account_relationships.cpp tests/protocol/http/rest_submit_hook.cpp src/app/account/account_relationships.cpp
-        src/app/chat/messages/account_message_ack.cpp
+        src/app/chat/messages/account_message_ack.cpp src/app/account/account_host.cpp
     BUNDLE MaiCordAccountRequestTests TEST maicord_friends_account)
 maicord_test(MaiCordFriendsStorageTests ONLY WINDOWS ENTRY maicord_friends_storage_entry
     SOURCES tests/app/account/friends_storage.cpp src/app/account/friends_storage.cpp
@@ -989,7 +989,7 @@ maicord_test(MaiCordVoiceTests ONLY WINDOWS ENTRY maicord_voice_tests_entry
         tests/app/voice/stream_watch.cpp tests/protocol/guild/stage_channel.cpp tests/protocol/voice/video_signaling.cpp tests/app/voice/dave/video_frames.cpp
         tests/app/voice/video_sink.cpp tests/protocol/gateway/stream.cpp tests/app/voice/send.cpp tests/app/voice/preferences.cpp
         tests/ui/voice/go_live_scene.cpp tests/app/voice/go_live_send.cpp tests/app/voice/go_live_thumbnails.cpp
-        src/app/voice/settings_binding.cpp
+        src/app/voice/settings_binding.cpp src/core/log.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_model kernel32 crypt32 ws2_32
         maicord_sspicli bcrypt maicord_ui maicord_media_codec ole32 maicord_client_preferences user32
     INCLUDES src/app
@@ -1401,7 +1401,8 @@ maicord_test(MaiCordGatewaySelfStatusRuntimeTests ENTRY maicord_gateway_self_sta
     SOURCES tests/app/gateway/self_status_runtime.cpp src/app/gateway/client.cpp
     INCLUDES src/app
     DEFINES MAICORD_GATEWAY_SELF_STATUS_TEST=1
-    WINDOWS LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model kernel32 user32
+    WINDOWS SOURCES src/core/log.cpp
+        LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model kernel32 user32
             ${maicord_tls_libs}
     LINUX LIBS maicord_app_net maicord_net maicord_crypto maicord_desktop_system maicord_protocol maicord_compression
             maicord_media_codec maicord_model maicord_core
@@ -1738,7 +1739,7 @@ maicord_test(MaiCordPasswordResetCoordinatorTests ENTRY maicord_password_reset_c
 maicord_test(MaiCordRestClientFixtureTests ONLY WINDOWS ENTRY maicord_rest_client_fixtures_entry
     SOURCES tests/app/net/rest_client_fixtures.cpp src/app/chat/messages/account_bulk_message_ack.cpp src/app/account/account_logout.cpp
         src/app/account/account_host.cpp src/media/image/png_common.cpp src/app/account/user_client_configuration.cpp
-        src/app/account/client_session_metadata.cpp src/app/net/signed_out_session.cpp
+        src/app/account/client_session_metadata.cpp src/app/net/signed_out_session.cpp src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ${maicord_tls_libs} ntdll
     TIMEOUT 15
     TEST maicord_reset_rest_storage reset-storage

@@ -64,11 +64,17 @@ struct Win32Hooks {
     bool (*shell)(void* context, HWND window, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept;
     bool (*input_blocked)(void* context) noexcept;
 };
+// The shipped window procedure runs the application's own tables, constants the whole-program link folds into direct
+// calls (defined in src/app/windows/platform_window.cpp); the code of tests and library twins (MAICORD_TEST_SEAMS)
+// runs the ones its window options carry instead, and none without.
+extern const Win32Hooks kWin32Hooks;
+extern const Win32CaptionOps kWin32CaptionOps;
 
 struct Win32WindowOptions {
     u32 extra_extended_style;          // WS_EX_* bits added to the application's own (probe windows)
-    const Win32Hooks* hooks;           // copied; may be null
-    const Win32CaptionOps* caption;    // copied; null: the system frame, client coordinates from the window's corner
+    const Win32Hooks* hooks;           // copied; may be null; ignored by the shipped procedure (kWin32Hooks)
+    const Win32CaptionOps* caption;    // copied; null: the system frame, client coordinates from the window's corner;
+                                       // ignored by the shipped procedure (kWin32CaptionOps)
     bool dark_frame;                   // the system frame follows the dark scheme
 };
 

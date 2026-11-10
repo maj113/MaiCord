@@ -51,10 +51,10 @@ void silk_find_pitch_lags_FIX(
     /******************************************/
     /* Set up buffer lengths etc based on Fs  */
     /******************************************/
-    buf_len = psEnc->sCmn.la_pitch + psEnc->sCmn.frame_length + psEnc->sCmn.ltp_mem_length;
+    buf_len = LA_PITCH_MAX + MAX_FRAME_LENGTH + LTP_MEM_LENGTH;
 
     /* Safety check */
-    celt_assert( buf_len >= psEnc->sCmn.pitch_LPC_win_length );
+    celt_assert( buf_len >= FIND_PITCH_LPC_WIN_MAX );
 
     /*************************************/
     /* Estimate LPC AR coefficients      */
@@ -63,22 +63,22 @@ void silk_find_pitch_lags_FIX(
     /* Calculate windowed signal */
 
     /* First LA_LTP samples */
-    x_ptr = x + buf_len - psEnc->sCmn.pitch_LPC_win_length;
+    x_ptr = x + buf_len - FIND_PITCH_LPC_WIN_MAX;
     Wsig_ptr  = Wsig;
-    silk_apply_sine_window( Wsig_ptr, x_ptr, 1, psEnc->sCmn.la_pitch );
+    silk_apply_sine_window( Wsig_ptr, x_ptr, 1, LA_PITCH_MAX );
 
     /* Middle un - windowed samples */
-    Wsig_ptr  += psEnc->sCmn.la_pitch;
-    x_ptr += psEnc->sCmn.la_pitch;
-    silk_memcpy( Wsig_ptr, x_ptr, ( psEnc->sCmn.pitch_LPC_win_length - silk_LSHIFT( psEnc->sCmn.la_pitch, 1 ) ) * sizeof( opus_int16 ) );
+    Wsig_ptr  += LA_PITCH_MAX;
+    x_ptr += LA_PITCH_MAX;
+    silk_memcpy( Wsig_ptr, x_ptr, ( FIND_PITCH_LPC_WIN_MAX - silk_LSHIFT( LA_PITCH_MAX, 1 ) ) * sizeof( opus_int16 ) );
 
     /* Last LA_LTP samples */
-    Wsig_ptr  += psEnc->sCmn.pitch_LPC_win_length - silk_LSHIFT( psEnc->sCmn.la_pitch, 1 );
-    x_ptr += psEnc->sCmn.pitch_LPC_win_length - silk_LSHIFT( psEnc->sCmn.la_pitch, 1 );
-    silk_apply_sine_window( Wsig_ptr, x_ptr, 2, psEnc->sCmn.la_pitch );
+    Wsig_ptr  += FIND_PITCH_LPC_WIN_MAX - silk_LSHIFT( LA_PITCH_MAX, 1 );
+    x_ptr += FIND_PITCH_LPC_WIN_MAX - silk_LSHIFT( LA_PITCH_MAX, 1 );
+    silk_apply_sine_window( Wsig_ptr, x_ptr, 2, LA_PITCH_MAX );
 
     /* Calculate autocorrelation sequence */
-    silk_autocorr( auto_corr, &scale, Wsig, psEnc->sCmn.pitch_LPC_win_length, psEnc->sCmn.pitchEstimationLPCOrder + 1, scratch );
+    silk_autocorr( auto_corr, &scale, Wsig, FIND_PITCH_LPC_WIN_MAX, psEnc->sCmn.pitchEstimationLPCOrder + 1, scratch );
 
     /* Add white noise, as fraction of energy */
     auto_corr[ 0 ] = silk_SMLAWB( auto_corr[ 0 ], auto_corr[ 0 ], SILK_FIX_CONST( FIND_PITCH_WHITE_NOISE_FRACTION, 16 ) ) + 1;
@@ -119,8 +119,7 @@ void silk_find_pitch_lags_FIX(
         /*****************************************/
         if( silk_pitch_analysis_core( res, psEncCtrl->pitchL, &psEnc->sCmn.indices.lagIndex, &psEnc->sCmn.indices.contourIndex,
                 &psEnc->LTPCorr_Q15, psEnc->sCmn.prevLag, psEnc->sCmn.pitchEstimationThreshold_Q16,
-                (opus_int)thrhld_Q13, 16, psEnc->sCmn.pitchEstimationComplexity, MAX_NB_SUBFR,
-                scratch) == 0 )
+                (opus_int)thrhld_Q13, psEnc->sCmn.pitchEstimationComplexity, scratch ) == 0 )
         {
             psEnc->sCmn.indices.signalType = TYPE_VOICED;
         } else {

@@ -38,7 +38,6 @@ POSSIBILITY OF SUCH DAMAGE.
 /********************************/
 typedef struct {
     opus_int8                   LastGainIndex;
-    opus_int32                  HarmBoost_smth_Q16;
     opus_int32                  HarmShapeGain_smth_Q16;
     opus_int32                  Tilt_smth_Q16;
 } silk_shape_state_FIX;
@@ -53,7 +52,6 @@ typedef struct {
     /* Buffer for find pitch and noise shape analysis */
     silk_DWORD_ALIGN opus_int16 x_buf[ 2 * MAX_FRAME_LENGTH + LA_SHAPE_MAX ];/* Buffer for find pitch and noise shape analysis  */
     opus_int                    LTPCorr_Q15;                            /* Normalized correlation from pitch lag estimator      */
-    opus_int32                    resNrgSmth;
 } silk_encoder_state_FIX;
 
 /************************/
@@ -95,7 +93,6 @@ typedef struct {
     stereo_enc_state            sStereo;
     opus_int32                  nBitsUsedLBRR;
     opus_int32                  nBitsExceeded;
-    opus_int                    nChannelsAPI;
     opus_int                    nChannelsInternal;
     opus_int                    nPrevChannelsInternal;
     opus_int                    prev_decode_only_middle;

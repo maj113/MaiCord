@@ -15,9 +15,8 @@ constexpr u32 kLines = 1024;
 constexpr u32 kShortLines = 128;
 constexpr u32 kShortWindows = 8;
 constexpr u32 kMaximumBands = 120; // 8 groups of at most 15 short bands, or 51 long ones
-constexpr u32 kTrieNodes = 1600;
 constexpr u32 kPowerEntries = 8192;
-constexpr u32 kScalefactorBook = 11; // the index of the scalefactor tree beside the eleven spectral ones
+constexpr u32 kScalefactorBook = 11; // the index of the scalefactor book beside the eleven spectral ones
 constexpr double kPi = 3.14159265358979323846;
 
 enum Window : u8 { kOnlyLong = 0, kLongStart = 1, kEightShort = 2, kLongStop = 3 };
@@ -191,54 +190,12 @@ struct AacLc {
     float short_post_re[kShortLines / 2], short_post_im[kShortLines / 2];
     u16 reverse_long[kLines / 2];
     u8 reverse_short[kShortLines / 2];
-    u16 trie[kTrieNodes][2];
-    u16 trie_root[12];
 };
 
 namespace {
 
 // ---- Tables ------------------------------------------------------------------------------------------------------
 // Run once per decoder: compiled for size.
-
-bool build_trie(AacLc& d, u32 book, u32& next, const u8* lengths, const u32* codes, u32 count) noexcept {
-    const u32 root = next++;
-    if (root >= kTrieNodes)
-        return false;
-    d.trie_root[book] = static_cast<u16>(root);
-    for (u32 symbol = 0; symbol < count; ++symbol) {
-        u32 node = root;
-        for (i32 bit = static_cast<i32>(lengths[symbol]) - 1; bit >= 0; --bit) {
-            const u32 value = (codes[symbol] >> bit) & 1u;
-            if (bit == 0) {
-                d.trie[node][value] = static_cast<u16>(0x8000u | symbol);
-            } else {
-                if (!d.trie[node][value]) {
-                    if (next >= kTrieNodes)
-                        return false;
-                    d.trie[node][value] = static_cast<u16>(next++);
-                }
-                node = d.trie[node][value];
-            }
-        }
-    }
-    return true;
-}
-
-bool build_tries(AacLc& d) noexcept {
-    u32 next = 1;
-    const u8* lengths = kAacSpectralBits;
-    const u16* codes = kAacSpectralCodes;
-    u32 wide[289];
-    for (u32 book = 0; book < 11; ++book) {
-        for (u32 i = 0; i < kAacSpectralSizes[book]; ++i)
-            wide[i] = codes[i];
-        if (!build_trie(d, book, next, lengths, wide, kAacSpectralSizes[book]))
-            return false;
-        lengths += kAacSpectralSizes[book];
-        codes += kAacSpectralSizes[book];
-    }
-    return build_trie(d, kScalefactorBook, next, kAacScalefactorBits, kAacScalefactorCodes, 121);
-}
 
 void build_transform(const u32 size, float* stage_re, float* stage_im, float* pre_re, float* pre_im, float* post_re,
                      float* post_im, void* reverse, bool wide_reverse, double scale) noexcept {
@@ -307,18 +264,23 @@ void build_windows(AacLc& d) noexcept {
 
 // ---- Entropy-coded data ------------------------------------------------------------------------------------------
 
-u32 huffman(const AacLc& d, u32 book, Bits& b) noexcept {
-    u32 node = d.trie_root[book];
-    for (;;) {
-        const u32 entry = d.trie[node][b.get1()];
-        if (entry & 0x8000u)
-            return entry & 0x7fffu;
-        if (!entry) {
-            b.error = true;
-            return 0;
+// The codebooks are canonical (aac_tables.inc): the codewords of one length are consecutive and the first follows the
+// last of the shorter lengths, so the code read so far is a symbol once it falls below `first + count` of its length.
+u32 huffman(u32 book, Bits& b) noexcept {
+    const u8* counts = kAacCodeCounts[book];
+    u32 code = 0, first = 0, rank = 0;
+    for (u32 length = 0; length < 19; ++length) {
+        code = (code << 1) | b.get1();
+        const u32 count = counts[length];
+        if (code - first < count) {
+            rank += code - first;
+            return book == 10 ? kAacSymbols16[rank] : kAacSymbols8[kAacSymbolBase[book] + rank];
         }
-        node = entry;
+        rank += count;
+        first = (first + count) << 1;
     }
+    b.error = true;
+    return 0;
 }
 
 // Side information, once per channel and frame: compiled for size.
@@ -341,7 +303,7 @@ AacLcError parse_ics_info(const AacLc& d, Bits& b, Ics& ics) noexcept {
         }
         ics.windows = 8;
         ics.num_swb = kAacShortBandCount[d.rate_index];
-        ics.bands = kAacShortBands[d.rate_index];
+        ics.bands = kAacShortBands[kAacShortBandRow[d.rate_index]];
         ics.tns_max_bands = kAacTnsMaxBandsShort[d.rate_index];
     } else {
         ics.max_sfb = static_cast<u8>(b.get(6));
@@ -351,7 +313,7 @@ AacLcError parse_ics_info(const AacLc& d, Bits& b, Ics& ics) noexcept {
         ics.group_length[0] = 1;
         ics.windows = 1;
         ics.num_swb = kAacLongBandCount[d.rate_index];
-        ics.bands = kAacLongBands[d.rate_index];
+        ics.bands = kAacLongBands[kAacLongBandRow[d.rate_index]];
         ics.tns_max_bands = kAacTnsMaxBandsLong[d.rate_index];
     }
     if (b.error)
@@ -388,7 +350,7 @@ AacLcError parse_sections(Bits& b, Channel& c) noexcept {
     return b.error ? AacLcError::truncated : AacLcError::none;
 }
 
-AacLcError parse_scalefactors(const AacLc& d, Bits& b, Channel& c, u32 global_gain) noexcept {
+AacLcError parse_scalefactors(Bits& b, Channel& c, u32 global_gain) noexcept {
     const Ics& ics = c.ics;
     i32 scale = static_cast<i32>(global_gain), noise = static_cast<i32>(global_gain) - 90, position = 0;
     bool first_noise = true;
@@ -399,19 +361,19 @@ AacLcError parse_scalefactors(const AacLc& d, Bits& b, Channel& c, u32 global_ga
             if (book == kZeroBook) {
                 c.value[index] = 0;
             } else if (book == kIntensityInPhase || book == kIntensityOutOfPhase) {
-                position += static_cast<i32>(huffman(d, kScalefactorBook, b)) - 60;
+                position += static_cast<i32>(huffman(kScalefactorBook, b)) - 60;
                 position = position < -155 ? -155 : position > 100 ? 100 : position;
                 c.value[index] = static_cast<i16>(position);
             } else if (book == kNoiseBook) {
                 if (first_noise)
                     noise += static_cast<i32>(b.get(9)) - 256;
                 else
-                    noise += static_cast<i32>(huffman(d, kScalefactorBook, b)) - 60;
+                    noise += static_cast<i32>(huffman(kScalefactorBook, b)) - 60;
                 first_noise = false;
                 noise = noise < -100 ? -100 : noise > 155 ? 155 : noise;
                 c.value[index] = static_cast<i16>(noise);
             } else {
-                scale += static_cast<i32>(huffman(d, kScalefactorBook, b)) - 60;
+                scale += static_cast<i32>(huffman(kScalefactorBook, b)) - 60;
                 if (scale < 0 || scale > 255)
                     return AacLcError::invalid_stream;
                 c.value[index] = static_cast<i16>(scale);
@@ -481,13 +443,13 @@ AacLcError parse_tns(Bits& b, Channel& c, AacLcStats& stats) noexcept {
 #pragma clang attribute pop
 
 // One band of spectral values into q; false on a malformed escape.
-bool read_band(const AacLc& d, Bits& b, u32 book, i32* q, u32 width, AacLcStats& stats) noexcept {
+bool read_band(Bits& b, u32 book, i32* q, u32 width, AacLcStats& stats) noexcept {
     static constexpr u8 kModulus[11] = {3, 3, 3, 3, 9, 9, 8, 8, 13, 13, 17};
     const bool is_signed = book <= 2 || book == 5 || book == 6;
     const u32 dimension = book <= 4 ? 4 : 2, modulus = kModulus[book - 1];
     const i32 offset = book <= 2 ? -1 : (book == 5 || book == 6) ? -4 : 0;
     for (u32 k = 0; k < width; k += dimension) {
-        u32 symbol = huffman(d, book - 1, b);
+        u32 symbol = huffman(book - 1, b);
         i32 magnitude[4];
         for (i32 i = static_cast<i32>(dimension) - 1; i >= 0; --i) {
             magnitude[i] = static_cast<i32>(symbol % modulus) + offset;
@@ -532,7 +494,7 @@ AacLcError read_spectrum(AacLc& d, Bits& b, Channel& c) noexcept {
                 continue;
             const u32 width = ics.bands[sfb + 1] - ics.bands[sfb];
             for (u32 w = 0; w < ics.group_length[g]; ++w)
-                if (!read_band(d, b, book, d.quantized + (window + w) * kShortLines * (ics.windows > 1) + ics.bands[sfb],
+                if (!read_band(b, book, d.quantized + (window + w) * kShortLines * (ics.windows > 1) + ics.bands[sfb],
                                width, d.stats))
                     return b.error ? AacLcError::truncated : AacLcError::invalid_stream;
         }
@@ -802,7 +764,7 @@ AacLcError read_channel(AacLc& d, Bits& b, Channel& c, bool common_window) noexc
         return error;
     if ((error = parse_sections(b, c)) != AacLcError::none)
         return error;
-    if ((error = parse_scalefactors(d, b, c, global_gain)) != AacLcError::none)
+    if ((error = parse_scalefactors(b, c, global_gain)) != AacLcError::none)
         return error;
     if ((error = parse_pulses(b, c)) != AacLcError::none)
         return error;
@@ -903,8 +865,6 @@ AacLc* aac_lc_initialize(void* memory, u32 sample_rate, u32 channels) noexcept {
     for (u32 i = 0; i < 13; ++i)
         if (kSampleRates[i] == sample_rate)
             d->rate_index = i;
-    if (!build_tries(*d))
-        return nullptr;
     for (u32 q = 0; q < kPowerEntries; ++q)
         d->power43[q] = static_cast<float>(q * cube_root(static_cast<double>(q)));
     build_windows(*d);

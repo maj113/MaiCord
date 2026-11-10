@@ -12,14 +12,11 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/protocol/messages/history.hpp"
 #include "maicord/ui/text/text.hpp"
-#include "maicord/app/account/account_module_version.hpp"
 #include "maicord/app/media/account_upload.hpp"
 #include "maicord/protocol/messages/poll.hpp"
 #include "maicord/protocol/user/private_conversation.hpp"
 #include "maicord/core/win32_exception.hpp"
 #include "maicord/protocol/user/relationships.hpp"
-
-extern "C" bool WINAPI maicord_account_get_api(maicord::u32, maicord::AccountModuleApi*) noexcept;
 
 namespace maicord {
 namespace {
@@ -517,6 +514,8 @@ void test_login_host_quarantine() noexcept {
     AccountHost host{};
     host.module = GetModuleHandleW(nullptr);
     host.login_instance = &login_host_quarantine;
+    const auto saved_notification = host.api.login_notification_handle;
+    const auto saved_pump = host.api.login_pump;
     host.api.login_notification_handle = quarantine_login_notification;
     host.api.login_pump = quarantine_login_pump;
     HANDLE handles[kAccountHostNotificationHandleCapacity]{};
@@ -531,6 +530,8 @@ void test_login_host_quarantine() noexcept {
         account_host_login_pump(&host).error == AccountLoginError::invalid_input &&
         login_host_quarantine.notifications == 1 && login_host_quarantine.pumps == 1,
         "login_host_failed_stop_quarantines_signaled_event_and_pump_without_entering_worker");
+    host.api.login_notification_handle = saved_notification;
+    host.api.login_pump = saved_pump;
     CloseHandle(login_host_quarantine.event); login_host_quarantine = {};
 }
 
@@ -538,20 +539,14 @@ void test_login_host_quarantine() noexcept {
 
 void test_account_host_contract() noexcept {
     test_login_host_quarantine();
-    AccountModuleApi empty_api{};
     AccountHost host{};
     const AccountHostResult loaded = account_host_load(&host);
     const HMODULE first_module = host.module;
-    const bool loaded_api_valid = account_host_api_valid(host.api);
-    AccountModuleApi incomplete_api = host.api;
-    incomplete_api.login_submit_captcha = nullptr;
-    const bool incomplete_api_rejected = !account_host_api_valid(incomplete_api);
     const AccountHostResult reused = account_host_load(&host);
     const bool reused_same_module = host.module == first_module;
     AccountHost unattached{};
     const bool attach_refuses_missing =
-        account_host_attach(&unattached, GetModuleHandleW(nullptr), nullptr).error == AccountHostError::invalid_input &&
-        !unattached.module;
+        account_host_attach(&unattached, nullptr).error == AccountHostError::invalid_input && !unattached.module;
     HANDLE handles[kAccountHostNotificationHandleCapacity] = {
         reinterpret_cast<HANDLE>(1), reinterpret_cast<HANDLE>(2), reinterpret_cast<HANDLE>(3)};
     const u32 empty_handles =
@@ -579,8 +574,8 @@ void test_account_host_contract() noexcept {
     const AccountLoginStatus invalid_login_stop = account_host_login_stop(&host, 1'000);
     const AccountHostStopResult stopped = account_host_stop(&host, 1'000, 1, 1);
 
-    expect(attach_refuses_missing && !account_host_api_valid(empty_api) &&
-               loaded.ok() && first_module == GetModuleHandleW(nullptr) && loaded_api_valid && incomplete_api_rejected && reused.ok() &&
+    expect(attach_refuses_missing &&
+               loaded.ok() && first_module == GetModuleHandleW(nullptr) && reused.ok() &&
                reused_same_module && host.module == nullptr && empty_handles == 0 &&
                handles[0] == reinterpret_cast<HANDLE>(1) &&
                first_observations == (account_host_observation_phase | account_host_observation_ready |
@@ -598,35 +593,15 @@ void test_account_host_contract() noexcept {
 }
 
 void test_account_module_contract() noexcept {
-    const auto get_api = maicord_account_get_api;
-    AccountModuleApi rejected{};
-    rejected.bytes = 0x12345678u;
-    expect(get_api && !get_api(kAccountModuleApiVersion + 1, &rejected) && rejected.bytes == 0x12345678u,
-           "account_module_reject_version_without_write");
-    AccountModuleApi previous_abi{};
-    previous_abi.version = kAccountModuleApiVersion - 1;
-    previous_abi.bytes = sizeof(previous_abi);
-    u8 previous_abi_bytes[sizeof(previous_abi)];
-    copy_bytes(previous_abi_bytes, &previous_abi, sizeof(previous_abi));
-    expect(get_api && !get_api(kAccountModuleApiVersion - 1, &previous_abi) &&
-               bytes_equal(&previous_abi, previous_abi_bytes, sizeof(previous_abi)),
-           "account_module_reject_previous_abi_without_any_output_write");
-    AccountModuleApi api{};
-    expect(get_api && get_api(kAccountModuleApiVersion, &api) && account_host_api_valid(api),
-           "account_module_api_contract");
-    AccountModuleApi previous_contract = api;
-    previous_contract.bytes -= sizeof(void*);
-    expect(!account_host_api_valid(previous_contract), "account_host_rejects_truncated_abi");
-    // Every entry after the version and size header is mandatory, except the optional profile lookup.
-    bool entries_required = (sizeof(AccountModuleApi) - 8) % sizeof(void*) == 0;
-    for (u32 offset = 8; entries_required && offset < sizeof(AccountModuleApi); offset += sizeof(void*)) {
-        if (offset == __builtin_offsetof(AccountModuleApi, profile_get)) continue;
-        AccountModuleApi missing = api;
-        void* const absent = nullptr;
-        copy_bytes(reinterpret_cast<u8*>(&missing) + offset, &absent, sizeof(absent));
-        entries_required = !account_host_api_valid(missing);
+    const AccountModuleApi& api = kAccountModuleApi;
+    // Every entry is mandatory: the host calls the linked module's table without checking it.
+    bool entries_complete = sizeof(AccountModuleApi) % sizeof(void*) == 0;
+    for (u32 offset = 0; entries_complete && offset < sizeof(AccountModuleApi); offset += sizeof(void*)) {
+        void* entry;
+        copy_bytes(&entry, reinterpret_cast<const u8*>(&api) + offset, sizeof(entry));
+        entries_complete = entry != nullptr;
     }
-    expect(entries_required, "account_host_requires_every_api_entry");
+    expect(entries_complete, "account_module_provides_every_api_entry");
     PollRequest dormant_poll{};
     dormant_poll.channel_id = 1;
     dormant_poll.message_id = 2;
@@ -701,7 +676,7 @@ void test_account_module_contract() noexcept {
                    missing.error == AccountModuleError::profile && missing.native_error != 0,
                "account_module_missing_profile_is_dormant");
     }
-    if (account_host_api_valid(api)) {
+    {
         GatewayClientEvent event{};
         u8 payload[1]{};
         MessageHistoryQuery query{0, 1, MessageHistoryPosition::latest};

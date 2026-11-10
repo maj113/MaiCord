@@ -45,7 +45,6 @@ struct InviteOwner {
     ApplicationActionCaptchaPhase captcha_phase;
 };
 InviteOwner g_invite{};
-u32 g_scratch[8192];
 
 // Nonzero key of the invite a CAPTCHA belongs to.
 u64 invite_subject() noexcept {
@@ -289,7 +288,7 @@ bool application_guild_invite_response(const RestClientResponse& response, Utf8V
     g_invite.request_id = 0;
     GuildInvite decoded{};
     auto outcome = response.transport_ok() ? guild_invite_decode_response(response.status_code, body,
-                                                                          {g_scratch, 8192}, &decoded)
+                                                                          {g_app.account_ui->message_history_page_structurals, 8192}, &decoded)
                                            : GuildInviteOutcome::unavailable;
     if (response.transport_ok() && response.rejection.captcha)
         outcome = GuildInviteOutcome::captcha;

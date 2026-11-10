@@ -1,6 +1,7 @@
 #include "maicord/media/image/png.hpp"
 #include "maicord/core/memory.hpp"
 
+#include "maicord/core/crc32.hpp"
 #include "png_common.hpp"
 
 #include "maicord/sys/simd.hpp"
@@ -168,7 +169,7 @@ bool validate_palette_indices(const PngImage& image,
 
 } // namespace
 
-// The chunk walk runs once per image, before the inflate: compiled for size (png_crc32 stays at full speed).
+// The chunk walk runs once per image, before the inflate: compiled for size.
 __attribute__((minsize))
 PngParseResult png_parse(ConstSlice<u8> encoded,
                          PngImage* image) noexcept {
@@ -212,7 +213,7 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
         const u32 type = byte_load_be32(type_bytes);
         const u8* data = type_bytes + 4;
         const u32 expected_crc = byte_load_be32(data + length);
-        if (png_crc32(type_bytes, length + 4) != expected_crc) {
+        if (crc32_extend(0, type_bytes, length + 4) != expected_crc) {
             return parse_failure(result, PngError::chunk_crc);
         }
         ++result.chunks;

@@ -3,8 +3,9 @@
 The Linux client draws and computes with the GLSL here. Each file is the **twin** of one HLSL file of `src/render/shaders`
 (`ui.glsl` of `ui.hlsl`), which stays the source of the Windows build and of every number a test compares against.
 `tools/build_gles_shader_pack.py` prunes the files for each packed shader (`cmake/generated_sources.cmake`, in `ShaderId`
-order), strips comments and whitespace, and packs the texts into one deflate stream (`src/gpu/gles/shader_pack.cpp`
-inflates it). No shader compiler runs in a client build. The plugin effects keep HLSL, DXC and SPIRV-Cross
+order), strips comments and whitespace, renames the variables, functions, structures and blocks it defines to short names
+(one set of names for all the shaders; `--dump` shows what the driver compiles), and packs the texts into one deflate
+stream (`src/gpu/gles/shader_pack.cpp` inflates it). No shader compiler runs in a client build. The plugin effects keep HLSL, DXC and SPIRV-Cross
 (`tools/glsl_translate.py`): nothing here is theirs.
 
 ## Keeping a twin in step

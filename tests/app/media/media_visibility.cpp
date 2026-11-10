@@ -191,6 +191,12 @@ void check(bool accepted, const char* label) noexcept {
 } // namespace media_visibility_detail
 
 namespace {
+// Overwrites the stack the callee below the caller just used, so text still pointing into a dead frame reads junk.
+__declspec(noinline) void clobber_stack() noexcept {
+    volatile char junk[2048];
+    for (u32 i = 0; i < sizeof(junk); ++i)
+        junk[i] = 0x5A;
+}
 
 AccountMediaRequestResult busy_result() noexcept {
     AccountMediaRequestResult result{};
@@ -979,11 +985,18 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     const UiRect slot = geometry.avatar;
     const auto placeholder_paint = [&](bool* placeholder, bool* initials) noexcept {
         static UiTextCommand commands[256];
+        static char owned[256];
         UiTextCommandStream text{};
         UiTextOutput text_output{&text, nullptr};
         PaintStream paint{};
-        const bool ok = ui_text_command_stream_initialize(&text, {commands, 256}) &&
-                        ui_settings_scene_text_output(scene, kDefaultTheme, &text_output) && paint_stream_initialize(&paint) &&
+        // The same page through the synchronous emitter (the renderer's path) publishes the same commands.
+        UiTextEmitter emitter{};
+        UiTextOutput emit_output{nullptr, &emitter};
+        const bool ok = ui_text_command_stream_initialize(&text, {commands, 256}, {owned, sizeof(owned)}) &&
+                        ui_settings_scene_text_output(scene, kDefaultTheme, &text_output) &&
+                        ui_text_emitter_initialize(&emitter) &&
+                        ui_settings_scene_text_output(scene, kDefaultTheme, &emit_output) &&
+                        emitter.signature == text.signature && paint_stream_initialize(&paint) &&
                         paint_stream_reset(&paint, 1280, 800) && ui_settings_scene_paint(scene, kDefaultTheme, &paint);
         const Color grey = kDefaultTheme.avatar_placeholder;
         *placeholder = *initials = false;
@@ -994,10 +1007,12 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
                                             q.fill.green == grey.green && q.fill.blue == grey.blue &&
                                             q.fill.alpha == grey.alpha);
         }
-        // The initials are the only text centred in the avatar circle (their
-        // characters live in the paint call's own storage).
+        // The initials are the only text centred in the avatar circle. They are read after the pass returned and its
+        // stack was overwritten: the command holds its own copy of the two letters.
+        clobber_stack();
         for (u32 i = 0; ok && i < text.count; ++i)
-            *initials = *initials || ui_rect_equal(commands[i].rectangle, slot);
+            *initials = *initials || (ui_rect_equal(commands[i].rectangle, slot) &&
+                                      utf8_equal(commands[i].text, utf8_literal("AL")));
         paint_stream_release(&paint);
         return ok;
     };

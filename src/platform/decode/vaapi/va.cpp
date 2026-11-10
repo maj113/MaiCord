@@ -33,29 +33,14 @@ bool env_is(const char* name, const char* value) noexcept {
         ++i;
     return have[i] == value[i];
 }
-// The function tables as data: each name NUL terminated, and where its pointer sits in the Api.
+// The function tables as data, in the order of the Api's members: each name NUL terminated.
 #define MAICORD_VA_NAME(ret, name, args) #name "\0"
-#define MAICORD_VA_SLOT(ret, name, args) static_cast<u16>(__builtin_offsetof(Api, name)),
 constexpr char kNames[] = MAICORD_VA_FUNCTIONS(MAICORD_VA_NAME);
-constexpr u16 kSlots[] = {MAICORD_VA_FUNCTIONS(MAICORD_VA_SLOT)};
 constexpr char kDrmNames[] = MAICORD_VA_DRM_FUNCTIONS(MAICORD_VA_NAME);
-constexpr u16 kDrmSlots[] = {MAICORD_VA_DRM_FUNCTIONS(MAICORD_VA_SLOT)};
 #undef MAICORD_VA_NAME
-#undef MAICORD_VA_SLOT
-
-// Stores every named function of `library` in its slot of `api`; false when any is missing.
-__declspec(noinline) bool resolve(const SharedLibrary& library, Api* api, const char* names, const u16* slots,
-                                  u32 count) noexcept {
-    bool complete = true;
-    for (u32 index = 0; index < count; ++index) {
-        void* function = shared_library_symbol(library, names);
-        copy_bytes(reinterpret_cast<u8*>(api) + slots[index], &function, sizeof(function));
-        complete = complete && function != nullptr;
-        while (*names++) {
-        }
-    }
-    return complete;
-}
+constexpr usize kFunctionBytes = shared_library_name_count(kNames) * sizeof(void*);
+constexpr usize kDrmFunctionBytes = shared_library_name_count(kDrmNames) * sizeof(void*);
+static_assert(kFunctionBytes + kDrmFunctionBytes == sizeof(Api));
 
 bool load_libraries(Api* api) noexcept {
     // Only the tests name another soname (the missing-library path); operators have MAICORD_LIBRARY_PATH.
@@ -70,8 +55,9 @@ bool load_libraries(Api* api) noexcept {
         shared_library_close(&g_libva);
         return false;
     }
-    const bool complete = resolve(g_libva, api, kNames, kSlots, sizeof(kSlots) / sizeof(kSlots[0])) &&
-                          resolve(g_libva_drm, api, kDrmNames, kDrmSlots, sizeof(kDrmSlots) / sizeof(kDrmSlots[0]));
+    const bool complete = !shared_library_resolve(g_libva, api, kFunctionBytes, kNames) &&
+                          !shared_library_resolve(g_libva_drm, reinterpret_cast<u8*>(api) + kFunctionBytes,
+                                                  kDrmFunctionBytes, kDrmNames);
     if (!complete) {
         note("libva lacks a function: no hardware video decode");
         shared_library_close(&g_libva_drm);

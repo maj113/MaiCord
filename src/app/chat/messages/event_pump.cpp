@@ -594,7 +594,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             pump->state->selected_channel_id != 0 &&
             event.message.channel_id == pump->state->selected_channel_id &&
             (pump->timeline->rich_store
-                 ? gateway_client_event_as_message(event, payload, g_message_scratch.view(false), &full_message)
+                 ? gateway_client_event_as_message(event, payload, g_message_event_scratch.view(false), &full_message)
                  : gateway_client_event_as_message(event, payload, &full_message)) &&
             gateway_client_event_message_system_target(event, payload, &full_message, &system_target))
             full = &full_message;

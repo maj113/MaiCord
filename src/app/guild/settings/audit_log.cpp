@@ -107,10 +107,10 @@ void open_audit_menu(Menu menu, const UiRect& anchor) noexcept {
     if (menu == Menu::audit_user) {
         Bank bank{p.popup_text, sizeof(p.popup_text), 0};
         item("All members", !p.audit_filter_user);
-        p.menu_users[0] = 0;
+        p.menu_channel[0] = 0;
         for (u32 i = 0; i < p.audit_user_count && count < kPopupCapacity; ++i) {
             const auto& u = p.audit_users[i];
-            p.menu_users[count] = u.id;
+            p.menu_channel[count] = u.id;
             item(bank.add(user_name(u)), u.id == p.audit_filter_user);
         }
     } else {
@@ -139,7 +139,7 @@ void choose(Menu menu, u32 action) noexcept {
         if (action < kMenuChoiceBase || index >= kPopupCapacity || busy())
             return;
         if (menu == Menu::audit_user)
-            p.audit_filter_user = p.menu_users[index];
+            p.audit_filter_user = p.menu_channel[index];
         else {
             p.audit_filter_action_set = index > 0 && index <= sizeof(kAuditFilters) / sizeof(kAuditFilters[0]);
             p.audit_filter_action = p.audit_filter_action_set ? kAuditFilters[index - 1] : 0;

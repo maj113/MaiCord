@@ -161,8 +161,8 @@ struct GuildMemberStoreResult {
     }
 };
 
-// `zeroed` is for zero-filled (freshly committed) arrays: it leaves their
-// contents unchanged, so record pages are touched only as slots fill.
+// `zeroed` is for a zero-filled (freshly committed) store and arrays: it leaves their contents unchanged, so record
+// pages are touched only as slots fill.
 bool guild_member_store_initialize(GuildMemberStore* store,
                                            Slice<GuildMemberRecord> records,
                                            Slice<u32> order, bool zeroed = false) noexcept;

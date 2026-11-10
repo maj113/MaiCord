@@ -114,9 +114,10 @@ namespace video_detail {
 
 bool video_session_available() noexcept {
     return g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed &&
-           !g_app.login.visible && g_app.account.api.video_select && g_app.account.api.video_control &&
-           g_app.account.api.video_status && g_app.account.api.video_take &&
-           g_app.account.api.video_acknowledge;
+           !g_app.login.visible &&
+           account_api_provides(&AccountModuleApi::video_select, &AccountModuleApi::video_control,
+                                &AccountModuleApi::video_status, &AccountModuleApi::video_take,
+                                &AccountModuleApi::video_acknowledge);
 }
 
 } // namespace video_detail

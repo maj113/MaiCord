@@ -71,7 +71,7 @@ struct ThumbnailJob {
 
 struct GoLiveUi {
     GoLiveSnapshot snapshot;
-    u64 snapshot_generation, polled_ms;
+    u64 polled_ms;
     bool snapshot_valid, start_pending, reported;
     // The dialog.
     bool open, busy, change_source;

@@ -24,10 +24,13 @@ list(FILTER maicord_perf_probe_sources EXCLUDE REGEX "/application_pch_[A-Za-z0-
 get_target_property(maicord_perf_probe_links MaiCord LINK_LIBRARIES)
 add_executable(MaiCordPerfProbe WIN32 ${maicord_perf_probe_sources} $<TARGET_OBJECTS:maicord_client_resources>
     tools/perf/perf_probe.cpp tools/perf/perf_probe_hooks.cpp tools/perf/perf_probe_report.cpp
-    tools/perf/perf_startup.cpp tools/perf/perf_owners.cpp tools/perf/perf_account_load.cpp)
+    tools/perf/perf_startup.cpp tools/perf/perf_owners.cpp tools/perf/perf_account_load.cpp
+    src/app/account/account_host.cpp)
 target_link_libraries(MaiCordPerfProbe PRIVATE ${maicord_perf_probe_links})
 target_include_directories(MaiCordPerfProbe PRIVATE "${MAICORD_GENERATED_DIRECTORY}" src/app)
-target_compile_definitions(MaiCordPerfProbe PRIVATE MAICORD_PERF_PROBE=1)
+# The probe calls the synthetic account module through the table its account_host_load fills from the DLL (account_host.hpp):
+# its own copy of account_host.cpp compiles in that mode, which the linked library's does not.
+target_compile_definitions(MaiCordPerfProbe PRIVATE MAICORD_PERF_PROBE=1 MAICORD_ACCOUNT_API_TABLE)
 # run_perf.ps1 resolves allocation call stacks through the map.
 target_link_options(MaiCordPerfProbe PRIVATE /ENTRY:maicord_entry /SUBSYSTEM:WINDOWS,6.02
     "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordPerfProbe.map" ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})

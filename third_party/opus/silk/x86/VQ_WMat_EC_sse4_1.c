@@ -43,7 +43,6 @@ void silk_VQ_WMat_EC(
     const opus_int8             *cb_Q7,                         /* I    codebook                                    */
     const opus_uint8            *cb_gain_Q7,                    /* I    codebook effective gain                     */
     const opus_uint8            *cl_Q5,                         /* I    code length for each codebook vector        */
-    const opus_int              subfr_len,                      /* I    number of samples per subframe              */
     const opus_int32            max_gain_Q7,                    /* I    maximum sum of absolute LTP coefficients    */
     const opus_int              L                               /* I    number of vectors in codebook               */
 )
@@ -124,7 +123,7 @@ void silk_VQ_WMat_EC(
         /* find best */
         if( sum1_Q15 >= 0 ) {
             /* Translate residual energy to bits using high-rate assumption (6 dB ==> 1 bit/sample) */
-            bits_res_Q8 = silk_SMULBB( subfr_len, silk_lin2log( sum1_Q15 + penalty) - (15 << 7) );
+            bits_res_Q8 = silk_SMULBB( MAX_SUB_FRAME_LENGTH, silk_lin2log( sum1_Q15 + penalty) - (15 << 7) );
             /* In the following line we reduce the codelength component by half ("-1"); seems to slightly improve quality */
             bits_tot_Q8 = silk_ADD_LSHIFT32( bits_res_Q8, cl_Q5[ k ], 3-1 );
             if( bits_tot_Q8 <= *rate_dist_Q8 ) {

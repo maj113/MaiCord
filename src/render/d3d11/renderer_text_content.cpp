@@ -690,7 +690,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         chat.face = ui_text_face_chat(chat.face);
         return append_content_text_command(renderer, chat, theme, atlas_invalidated, first, batch_clip);
     };
-    MessageInteractionLayout interaction{};
+    MessageInteractionLayout interaction;
     if (scene && users && message_interaction_layout(*scene, command, *users, cache, theme, &interaction)) {
         // "<user> used <command>" is laid out piece by piece: the name and
         // server tag chip muted, "used" and the command chip at full strength.
@@ -709,7 +709,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
                ui_badge_text(interaction.tag, scene->widgets, theme, &stream) &&
                append_content_text_command(renderer, tag_command, theme, atlas_invalidated, false, batch_clip);
     }
-    MessageAuthorLayout header{};
+    MessageAuthorLayout header;
     if (scene && renderer->chat_state && users &&
         message_author_layout(*scene, command, *renderer->chat_state, *users, cache, theme, &header,
                               presentation->guild_members)) {

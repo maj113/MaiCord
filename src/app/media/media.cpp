@@ -139,9 +139,9 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
         *repaint = false;
     }
     if (!application.account.instance || !application.account_ui || !application.renderer.media_atlas ||
-        !application.renderer.preview_media_atlas || !application.account.api.media_request ||
-        !application.account.api.media_guild_icon_request ||
-        !application.account.api.media_attachment_request || !application.account.api.media_take) {
+        !application.renderer.preview_media_atlas ||
+        !account_api_provides(&AccountModuleApi::media_request, &AccountModuleApi::media_guild_icon_request,
+                              &AccountModuleApi::media_attachment_request, &AccountModuleApi::media_take)) {
         return true;
     }
 #if !defined(_WIN32)

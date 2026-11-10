@@ -194,7 +194,7 @@ bool symbol(PaintStream* paint, const UiRect& bounds, UiVideoControl id, const U
     return ui_icon_paint(paint, icon, {left, top, left + size, top + size}, color);
 }
 u64 text_revision(const UiVideoScene& scene, const Theme& theme) noexcept {
-    u64 hash = hash64_bytes(kHash64Seed, &theme, sizeof(theme));
+    u64 hash = hash64_words(kHash64Seed, &theme, sizeof(theme));
     hash = hash64_bytes(hash, &scene.projection.bounds, sizeof(UiRect));
     hash = hash64_bytes(hash, &scene.clip, sizeof(UiRect));
     for (const auto& control : scene.projection.controls) {
@@ -217,7 +217,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
                             const UiVideoSceneStyle& style, const Theme& theme) noexcept {
     if (!scene)
         return false;
-    UiVideoControlsProjection projected_controls{};
+    UiVideoControlsProjection projected_controls;
     const float width = ui_rect_width(preview) - 2 * style.inset;
     const float height = ui_video_controls_height(controls, width, playback.collection_count != 0);
     const UiRect bounds{preview.left + style.inset, preview.bottom - style.inset - height,
@@ -406,7 +406,7 @@ bool ui_video_scene_project_play_only(UiVideoScene* scene, const UiVideoPlayback
         return false;
     const UiRect button = ui_video_play_affordance_rectangle(preview, affordance),
                  visible = ui_rect_overlap(preview, clip);
-    UiVideoControlsProjection validated{};
+    UiVideoControlsProjection validated;
     const float height = ui_video_controls_height(controls, controls.minimum_width, playback.collection_count != 0);
     if (!rectangle(clip) || !rectangle(button) || !rectangle(ui_rect_overlap(button, visible)) ||
         !ui_video_controls_project(playback, {0, 0, controls.minimum_width, height}, controls, theme,

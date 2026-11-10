@@ -169,6 +169,48 @@ UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, 
     return {};
 }
 namespace {
+// The row painter's pen: the pushes the rows repeat most are out of line, one copy of the pen's failure test and its
+// call, so a call site is only its arguments.
+class RowPen : public UiPaint {
+  public:
+    using UiPaint::UiPaint;
+    __declspec(noinline) RowPen& fill(const UiRect& r, const Color& color) noexcept {
+        UiPaint::fill(r, color);
+        return *this;
+    }
+    __declspec(noinline) RowPen& rounded(const UiRect& r, const Color& color, float radius) noexcept {
+        UiPaint::rounded(r, color, radius);
+        return *this;
+    }
+    __declspec(noinline) RowPen& rounded_border(const UiRect& r, const Color& fill, const Color& border, float radius,
+                                                float width) noexcept {
+        UiPaint::rounded_border(r, fill, border, radius, width);
+        return *this;
+    }
+    __declspec(noinline) RowPen& icon(UiIcon icon, const UiRect& r, const Color& color) noexcept {
+        UiPaint::icon(icon, r, color);
+        return *this;
+    }
+    // The same pushes in `color` at `alpha` (a disabled row's dimming).
+    __declspec(noinline) RowPen& rounded_alpha(const UiRect& r, const Color& color, float alpha, float radius) noexcept {
+        UiPaint::rounded(r, ui_settings_color_alpha(color, alpha), radius);
+        return *this;
+    }
+    __declspec(noinline) RowPen& icon_alpha(UiIcon icon, const UiRect& r, const Color& color, float alpha) noexcept {
+        UiPaint::icon(icon, r, ui_settings_color_alpha(color, alpha));
+        return *this;
+    }
+    // A settings button's plate and a focus ring.
+    __declspec(noinline) RowPen& button(const UiSettingsTokens& t, const UiRect& r, UiSettingsButtonVariant variant,
+                                        const UiControlState& state) noexcept {
+        UiPaint::use<ui_settings_button_paint>(t, r, variant, state);
+        return *this;
+    }
+    __declspec(noinline) RowPen& focus(const UiSettingsTokens& t, const UiRect& shape, float radius) noexcept {
+        UiPaint::use<ui_settings_focus_paint>(t, shape, radius);
+        return *this;
+    }
+};
 // A list row: hover fill, grip, lead glyph, lock, count glyph and the icon
 // buttons (on hover or focus), then a hairline before the next list row.
 __forceinline bool paint_list_row(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
@@ -179,7 +221,7 @@ __forceinline bool paint_list_row(const UiSettingsScene& scene, const Theme& the
     const float alpha = c.enabled ? 1.f : t.disabled_alpha;
     const auto parts = list_parts(t, scene.content, index, r.row);
     const u32 hovered_part = state.hovered ? scene.palette_hovered_index : ~0u;
-    UiPaint p{paint, theme};
+    RowPen p{paint, theme};
     if (item.style == UiSettingsListStyle::card) {
         const auto box = parts.content;
         const float radius = t.metric.control_radius;
@@ -187,17 +229,16 @@ __forceinline bool paint_list_row(const UiSettingsScene& scene, const Theme& the
         p.rounded_border(box, state.hovered && c.enabled ? tc.mod_normal : tc.mod_subtle, tc.border_subtle, radius, 1)
             .rounded(parts.icon, tc.mod_strong, maximum(radius - t.metric.notice_padding, theme.scale.radius_sm));
         if (item.lead != UiIcon::count)
-            p.icon(item.lead, ui_rect_shrink(parts.icon, (ui_rect_width(parts.icon) - t.metric.list_icon) * .5f),
-                   ui_settings_color_alpha(tc.text_strong, alpha));
-        p.icon(UiIcon::chevron_right, parts.chevron,
-               ui_settings_color_alpha(state.hovered ? tc.text_strong : tc.text_subtle, alpha));
+            p.icon_alpha(item.lead, ui_rect_shrink(parts.icon, (ui_rect_width(parts.icon) - t.metric.list_icon) * .5f),
+                         tc.text_strong, alpha);
+        p.icon_alpha(UiIcon::chevron_right, parts.chevron, state.hovered ? tc.text_strong : tc.text_subtle, alpha);
         if (state.focused)
-            p.use<ui_settings_focus_paint>(t, ui_rect_shrink(box, ring), maximum(0.f, radius - ring));
+            p.focus(t, ui_rect_shrink(box, ring), maximum(0.f, radius - ring));
         return p.ok();
     }
     if (!highlighted && state.hovered && c.enabled)
-        p.rounded({r.row.left, r.row.top + theme.scale.space_1, r.row.right, r.row.bottom - theme.scale.space_1},
-                  ui_settings_color_alpha(tc.mod_subtle, .7f), t.metric.control_radius);
+        p.rounded_alpha({r.row.left, r.row.top + theme.scale.space_1, r.row.right, r.row.bottom - theme.scale.space_1},
+                        tc.mod_subtle, .7f, t.metric.control_radius);
     // Draggable rows always show their handle; it brightens on hover.
     if (flags & ui_settings_presentation_grip)
         p.use<ui_admin_grip_paint>(t, UiRect{parts.content.left, r.row.top, parts.icon.left, r.row.bottom}, state.hovered,
@@ -213,10 +254,10 @@ __forceinline bool paint_list_row(const UiSettingsScene& scene, const Theme& the
                                                 ui_settings_color_alpha(ink, .35f * alpha), 0});
     }
     if (item.locked)
-        p.icon(UiIcon::lock, parts.lock, ui_settings_color_alpha(tc.text_subtle, alpha));
+        p.icon_alpha(UiIcon::lock, parts.lock, tc.text_subtle, alpha);
     if (item.count_icon != UiIcon::count)
-        p.icon(item.count_icon, list_count_icon(t, c, parts.column),
-               ui_settings_color_alpha(hovered_part == ui_settings_list_count ? tc.text_strong : tc.text_subtle, alpha));
+        p.icon_alpha(item.count_icon, list_count_icon(t, c, parts.column),
+                     hovered_part == ui_settings_list_count ? tc.text_strong : tc.text_subtle, alpha);
     // Icon buttons appear with the pointer or keyboard focus on the row.
     for (u32 i = 0; p && (state.hovered || state.focused) && i < kUiSettingsListActions; ++i) {
         if (item.actions[i] == UiIcon::count)
@@ -224,13 +265,13 @@ __forceinline bool paint_list_row(const UiSettingsScene& scene, const Theme& the
         const auto b = parts.actions[i];
         const bool hot = hovered_part == ui_settings_list_action + i;
         p.rounded(b, hot ? (state.pressed ? tc.mod_strong : tc.mod_normal) : tc.mod_subtle, t.metric.control_radius)
-            .icon(item.actions[i], ui_rect_shrink(b, (ui_rect_width(b) - t.metric.list_icon * .75f) * .5f),
-                  ui_settings_color_alpha(hot ? tc.text_strong : tc.text_default, alpha));
+            .icon_alpha(item.actions[i], ui_rect_shrink(b, (ui_rect_width(b) - t.metric.list_icon * .75f) * .5f),
+                        hot ? tc.text_strong : tc.text_default, alpha);
     }
     // The ring stays inside the row so the list's clip keeps all of it.
     if (state.focused) {
         const float ring = t.metric.focus_gap + t.metric.focus_width;
-        p.use<ui_settings_focus_paint>(t, ui_rect_shrink(r.row, ring), t.metric.control_radius);
+        p.focus(t, ui_rect_shrink(r.row, ring), t.metric.control_radius);
     }
     // Rows of one list are divided by hairlines inside their content edges.
     if (list_style(scene.content, index + 1, UiSettingsListStyle::row))
@@ -238,7 +279,7 @@ __forceinline bool paint_list_row(const UiSettingsScene& scene, const Theme& the
     return p.ok();
 }
 // The plate of a whole card, drawn once from the card's first row in view (the body clip trims it).
-__forceinline void paint_card(UiPaint& p, const UiSettingsScene& scene, const UiSettingsTokens& t, const RowLayout& r, u32 index,
+__forceinline void paint_card(RowPen& p, const UiSettingsScene& scene, const UiSettingsTokens& t, const RowLayout& r, u32 index,
                 u8 edges, const RowContext& context) noexcept {
     if (!(edges & card_member) || !((edges & card_first) || index == scene.rows_first))
         return;
@@ -250,7 +291,7 @@ __forceinline void paint_card(UiPaint& p, const UiSettingsScene& scene, const Ui
     p.rounded_border({r.row.left, top, r.row.right, bottom}, t.color.card_fill, t.color.card_border, t.metric.card_radius, 1);
 }
 // A fill over one row of a card that keeps the card's corners (hover, press).
-void paint_row_plate(UiPaint& p, const UiSettingsTokens& t, const UiRect& row, u8 edges, const Color& color) noexcept {
+void paint_row_plate(RowPen& p, const UiSettingsTokens& t, const UiRect& row, u8 edges, const Color& color) noexcept {
     const float radius = t.metric.card_radius - 1;
     const bool first = (edges & card_first) != 0, last = (edges & card_last) != 0;
     if (first && last) {
@@ -268,7 +309,7 @@ void paint_row_plate(UiPaint& p, const UiSettingsTokens& t, const UiRect& row, u
         .unclip();
 }
 // A bar: the track and, past zero, the brand fill from its start (at least as wide as it is high).
-void paint_bar(UiPaint& p, const UiSettingsTokens& t, const UiRect& bar, float fraction) noexcept {
+void paint_bar(RowPen& p, const UiSettingsTokens& t, const UiRect& bar, float fraction) noexcept {
     const float radius = ui_rect_height(bar) * .5f;
     p.rounded(bar, t.color.slider_track, radius);
     if (fraction > 0)
@@ -276,7 +317,7 @@ void paint_bar(UiPaint& p, const UiSettingsTokens& t, const UiRect& bar, float f
                   t.color.brand, radius);
 }
 // The status card's meter: a determinate bar, or a bar sliding along the track while a check runs.
-__forceinline void paint_meter(UiPaint& p, const UiSettingsScene& scene, const UiSettingsTokens& t, const UiRect& meter,
+__forceinline void paint_meter(RowPen& p, const UiSettingsScene& scene, const UiSettingsTokens& t, const UiRect& meter,
                  u16 level) noexcept {
     if (level != kUiSettingsIndeterminateMeter)
         return paint_bar(p, t, meter, meter_fraction(level));
@@ -291,26 +332,33 @@ bool glyph_picture_shown(const UiSettingsGlyphTile& glyph, const UiSettingsMedia
            residency->resident(residency->context, glyph.media.key);
 }
 
+// A row's layout and visible clip, owned by the pass that paints its rows: held outside the painter's frame, the
+// rectangles are reached through one register instead of far stack offsets.
+struct RowView {
+    RowLayout layout;
+    UiRect clip;
+};
 bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
-               UiWidgetHandle handle, const Entry& entry, u32 dpi, const UiSettingsMediaResidency* residency) noexcept {
+               UiWidgetHandle handle, const Entry& entry, u32 dpi, const UiSettingsMediaResidency* residency,
+               RowView& view) noexcept {
     const u32 index = entry.source_index;
     const auto& c = scene.content.controls[index];
-    RowLayout r;
-    UiRect clip;
+    RowLayout& r = view.layout;
+    UiRect& clip = view.clip;
     if (!row_layout_for(scene, t, handle, index, &r, &clip) || !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
         return true;
     const auto& tc = t.color;
     const auto state = widget_state(scene, handle, entry.target, c.enabled);
     const u32 hovered_option = state.hovered ? scene.palette_hovered_index : ~0u;
-    UiPaint p{paint, theme};
+    RowPen p{paint, theme};
     const auto context = row_context(scene);
     const u8 edges = card_edges(scene.content, index, context);
     const bool card = (edges & card_member) != 0;
     paint_card(p, scene, t, r, index, edges, context);
     // The flash covers the same box as the selection fill.
     if (scene.flash_control == c.id && scene.flash > 0)
-        p.rounded({r.row.left, r.row.top + theme.scale.space_1, r.row.right, r.row.bottom - theme.scale.space_1},
-                  ui_settings_color_alpha(tc.brand, .16f * scene.flash), t.metric.control_radius);
+        p.rounded_alpha({r.row.left, r.row.top + theme.scale.space_1, r.row.right, r.row.bottom - theme.scale.space_1},
+                        tc.brand, .16f * scene.flash, t.metric.control_radius);
     // A row whose whole area is its control (switch, dropdown, disclosure) shows its hover and press plate and,
     // for the keyboard, an inset ring on the row; its control then paints plain.
     const auto look = row_look(scene.content, index);
@@ -336,7 +384,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     // with its own button highlights just that button.
     else if (c.kind == UiSettingsControlKind::action && (look.flags & ui_settings_presentation_compact) &&
              !c.action_label.bytes && state.hovered && c.enabled && !item)
-        p.rounded(band, ui_settings_color_alpha(tc.mod_subtle, .7f), t.metric.control_radius);
+        p.rounded_alpha(band, tc.mod_subtle, .7f, t.metric.control_radius);
     if (scene.drop_row == index + 1 && !dragged) {
         const float y = scene.drop_after ? r.row.bottom - 1 : r.row.top + 1;
         p.rounded({r.row.left, y - 1.5f, r.row.right, y + 1.5f}, tc.brand, 1.5f);
@@ -440,10 +488,9 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 const auto tile = banner_tile_rect(t, r.control, i);
                 const float alpha = c.enabled ? 1.f : t.disabled_alpha;
                 if (upload && i + 1 == c.choices.count) {
-                    p.rounded(tile, ui_settings_color_alpha(tc.mod_normal, alpha), radius);
+                    p.rounded_alpha(tile, tc.mod_normal, alpha, radius);
                     if (!avatar_backed(scene.content, index)) {
-                        p.icon(UiIcon::image, centred(tile, t.metric.list_icon * .5f),
-                               ui_settings_color_alpha(tc.text_subtle, alpha));
+                        p.icon_alpha(UiIcon::image, centred(tile, t.metric.list_icon * .5f), tc.text_subtle, alpha);
                     }
                 } else {
                     Color fill = tc.mod_strong;
@@ -508,18 +555,17 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         if (c.selected_choice < c.choices.count && ui_rect_has_area(tab))
             p.rounded({tab.left, r.control.bottom - 2, tab.right, r.control.bottom}, tc.brand, theme.scale.radius_xs);
         if (state.focused && scene.focus_visible && ui_rect_has_area(tab))
-            p.use<ui_settings_focus_paint>(t,
-                                           UiRect{tab.left - theme.scale.space_2, tab.top, tab.right + theme.scale.space_2,
-                                                  tab.top + kUiSettingsLabelLine},
-                                           theme.scale.radius_sm);
+            p.focus(t,
+                    UiRect{tab.left - theme.scale.space_2, tab.top, tab.right + theme.scale.space_2,
+                           tab.top + kUiSettingsLabelLine},
+                    theme.scale.radius_sm);
         break;
     }
     case UiSettingsControlKind::buttons: {
         const auto others = other_buttons(look.variant);
         for (u32 i = 0; p && i < c.choices.count; ++i)
-            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, i, scene.measure),
-                                            i ? others : UiSettingsButtonVariant::primary,
-                                            choice_state(scene, state, c, i));
+            p.button(t, option_rect(t, c, r.control, i, scene.measure), i ? others : UiSettingsButtonVariant::primary,
+                     choice_state(scene, state, c, i));
         break;
     }
     case UiSettingsControlKind::colors:
@@ -540,9 +586,8 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                                               c.enabled ? 1.f : .3f));
         }
         if (c.action_label.bytes)
-            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, c.choices.count, scene.measure),
-                                            UiSettingsButtonVariant::secondary,
-                                            hover_option(scene, state, c.choices.count));
+            p.button(t, option_rect(t, c, r.control, c.choices.count, scene.measure), UiSettingsButtonVariant::secondary,
+                     hover_option(scene, state, c.choices.count));
         break;
     case UiSettingsControlKind::action:
         if (cell) {
@@ -553,10 +598,10 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 p.rounded(r.lead, theme.avatar_placeholder, radius);
             else
                 p.rounded(r.lead, tc.mod_subtle, radius)
-                    .icon(UiIcon::controller, centred(r.lead, t.metric.list_icon * .5f),
-                          ui_settings_color_alpha(tc.text_subtle, c.enabled ? 1.f : t.disabled_alpha));
+                    .icon_alpha(UiIcon::controller, centred(r.lead, t.metric.list_icon * .5f), tc.text_subtle,
+                                c.enabled ? 1.f : t.disabled_alpha);
         } else if (c.action_label.bytes)
-            p.use<ui_settings_button_paint>(t, r.control, button_variant(look.variant), state);
+            p.button(t, r.control, button_variant(look.variant), state);
         break;
     case UiSettingsControlKind::choice:
         p.use<ui_select_paint>(t, r.control, false, control_state, field_error(scene.content, index, look.variant));
@@ -576,7 +621,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         if (!cell && ui_rect_has_area(r.value)) {
             UiControlState button = hover_option(scene, state, 0);
             button.focused = false;
-            p.use<ui_settings_button_paint>(t, r.value, UiSettingsButtonVariant::primary, button);
+            p.button(t, r.value, UiSettingsButtonVariant::primary, button);
         }
         p.use<ui_input_shell_paint>(t, r.control, UiControlState{c.enabled, state.hovered, false, view.focused},
                                     field_error(scene.content, index, look.variant));
@@ -627,9 +672,8 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             const bool gradient = valid && colors.colors[0] != colors.colors[1];
             p.use<ui_swatch_paint>(t, swatch, fill, gradient ? &colors : nullptr, c.selected_choice == i, option_state);
             if (action) {
-                p.icon(action_icon, centred(swatch, 12),
-                       ui_settings_color_alpha(option_state.hovered ? tc.text_strong : tc.text_subtle,
-                                               c.enabled ? 1.f : t.disabled_alpha));
+                p.icon_alpha(action_icon, centred(swatch, 12), option_state.hovered ? tc.text_strong : tc.text_subtle,
+                             c.enabled ? 1.f : t.disabled_alpha);
             }
         }
         break;
@@ -647,7 +691,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         else
             p.rounded(box, fill, t.metric.control_radius);
         if (c.action_label.bytes)
-            p.use<ui_settings_button_paint>(t, r.control, UiSettingsButtonVariant::secondary, state);
+            p.button(t, r.control, UiSettingsButtonVariant::secondary, state);
         if (c.checked) {
             const float size = ui_rect_height(box) - theme.scale.space_4 * 2;
             const float side = minimum(size, 20.f), cy = (box.top + box.bottom) * .5f;
@@ -696,7 +740,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             if (filled)
                 p.use<ui_settings_button_progress_paint>(t, r.control, meter_fraction(scene.content.meters[index]), state);
             else
-                p.use<ui_settings_button_paint>(t, r.control, button, state);
+                p.button(t, r.control, button, state);
             // A running action keeps its place: a spinner leads the (disabled) button's label.
             if (c.checked)
                 p.spinner({r.control.left + 12, (r.control.top + r.control.bottom) * .5f - 8, r.control.left + 28,
@@ -724,7 +768,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             p.icon(UiIcon::info, r.lead, tc.text_subtle);
         // The link at the end keeps a ring for the keyboard.
         if (state.focused && ui_rect_has_area(r.control))
-            p.use<ui_settings_focus_paint>(t, ui_rect_shrink(r.control, -theme.scale.space_2), theme.scale.radius_sm);
+            p.focus(t, ui_rect_shrink(r.control, -theme.scale.space_2), theme.scale.radius_sm);
         break;
     case UiSettingsControlKind::error:
         break;
@@ -753,7 +797,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             for (u32 i = 0; i < 3; ++i)
                 p.rounded(preview_status_avatar(r, i), theme.avatar_placeholder, kPreviewStatusAvatar * .5f);
             if (ui_rect_has_area(r.control))
-                p.use<ui_settings_button_paint>(t, r.control, UiSettingsButtonVariant::primary, decltype(state){});
+                p.button(t, r.control, UiSettingsButtonVariant::primary, UiControlState{});
         }
         break;
     }
@@ -899,10 +943,12 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
         p.use<ui_settings_close_paint>(t, l.close, close_state);
     if (const auto* body = ui_widget_manager_layout_node(scene.widgets, scene.body); p && body) {
         p.clip(ui_rect_overlap(body->rectangle, body->clip_rectangle));
+        RowView view;
         for (u32 i = 0; p && i < scene.widgets.count; ++i) {
             const auto& entry = entries(scene)[i];
             if (entry.role == EntryRole::row &&
-                !paint_row(scene, theme, t, paint, {static_cast<u16>(i), scene.widgets.generation}, entry, dpi, residency))
+                !paint_row(scene, theme, t, paint, {static_cast<u16>(i), scene.widgets.generation}, entry, dpi, residency,
+                           view))
                 p.fail();
         }
         p.unclip();
@@ -1026,54 +1072,88 @@ bool ui_settings_scene_paint_cell_marks(const UiSettingsScene& scene, const Them
 
 namespace settings_scene_detail {
 namespace {
-__forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTokens& t, UiWidgetHandle handle,
-              const Entry& entry) noexcept {
+// The labels of one row: the pen, the row's visible clip and its widget, so a label is one call with its own fields.
+struct RowText {
+    UiTextPen<>& pen;
+    UiRect region;
+    UiWidgetHandle owner;
+    UiTextOutput* output;
+    const UiWidgetManager& widgets;
+    // A centred label whose text lives in the caller's buffer (initials): the output copies it, so the command
+    // outlives that buffer.
+    __declspec(noinline) void owned(const Utf8View& value, const UiRect& rect, const Color& color, u32 style) noexcept {
+        const UiRect clip = ui_rect_intersection(rect, region);
+        if (!pen.ok() || !value.bytes || !ui_rect_has_area(clip))
+            return;
+        if (!ui_text_output_push_owned(output, {value, {&widgets, owner}, rect, clip, color, style, UiTextAlignment::center,
+                                                UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis,
+                                                UiTextFace::normal}))
+            pen.fail();
+    }
+    __declspec(noinline) void operator()(const Utf8View& value, const UiRect& rect, const Color& color, u32 style = 0,
+                                         u32 mode = 0) noexcept {
+        pen.push(region, owner, value, rect, color, style, mode);
+    }
+    // The same label in `color` at `alpha` (a disabled row's dimming).
+    __declspec(noinline) void dimmed(const Utf8View& value, const UiRect& rect, const Color& color, float alpha,
+                                     u32 style = 0, u32 mode = 0) noexcept {
+        pen.push(region, owner, value, rect, ui_settings_color_alpha(color, alpha), style, mode);
+    }
+    // A button's label, centred, in the button's text colour for `variant` in `state`.
+    __declspec(noinline) void button(const Utf8View& value, const UiRect& rect, const UiSettingsTokens& t,
+                                     UiSettingsButtonVariant variant, const UiControlState& state) noexcept {
+        pen.push(region, owner, value, rect, ui_settings_button_text(t, variant, state), text_button, ui_text_center);
+    }
+};
+__declspec(noinline) void row_text(UiTextPen<>& pen, UiTextOutput* output, const UiSettingsScene& scene,
+                                   const UiSettingsTokens& t, UiWidgetHandle handle, const Entry& entry,
+                                   RowView& view) noexcept {
     const u32 index = entry.source_index;
     const auto& c = scene.content.controls[index];
-    RowLayout r;
-    UiRect clip;
+    RowLayout& r = view.layout;
+    UiRect& clip = view.clip;
     if (!row_layout_for(scene, t, handle, index, &r, &clip) || !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
         return;
-    auto text = pen.in(clip);
+    RowText text{pen, clip, handle, output, scene.widgets};
     const auto& tc = t.color;
     const auto state = widget_state(scene, handle, entry.target, c.enabled);
     const float dim = c.enabled ? 1.f : .5f;
     const auto look = row_look(scene.content, index);
     if (c.kind == UiSettingsControlKind::category) {
         if (c.choices.count && ui_rect_has_area(r.value))
-            text(handle, c.choices[0], r.value, tc.text_subtle, text_eyebrow);
-        text(handle, c.label, r.label,
+            text(c.choices[0], r.value, tc.text_subtle, text_eyebrow);
+        text(c.label, r.label,
              (look.flags & ui_settings_presentation_link) && state.hovered ? tc.text_strong
                                                                            : ui_settings_color_alpha(tc.text_strong, dim),
              text_heading);
         if (ui_rect_has_area(r.tag))
-            text(handle, c.detail, r.tag, tc.text_subtle, text_description);
-        text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_wrap);
+            text(c.detail, r.tag, tc.text_subtle, text_description);
+        text(c.description, r.description, tc.text_subtle, text_description, ui_text_wrap);
         return;
     }
     if (c.kind == UiSettingsControlKind::error) {
-        text(handle, c.label, r.label, tc.critical_text, text_description, ui_text_wrap);
+        text(c.label, r.label, tc.critical_text, text_description, ui_text_wrap);
         return;
     }
     if (c.kind == UiSettingsControlKind::status) {
-        text(handle, c.label, r.label, tc.text_strong, kUiKitTextHeading);
+        text(c.label, r.label, tc.text_strong, kUiKitTextHeading);
         if (look.more & ui_settings_more_meta_parts) {
             // Whole parts flow left to right; the identity leads in bold and the brighter ink.
             StatusMetaPart parts[kStatusMetaParts];
             u32 count = 0;
             status_meta_flow(scene.measure, c.description, r.description, parts, &count);
             for (u32 i = 0; i < count; ++i)
-                text(handle, parts[i].text, parts[i].rect, parts[i].lead ? tc.text_default : tc.text_subtle,
+                text(parts[i].text, parts[i].rect, parts[i].lead ? tc.text_default : tc.text_subtle,
                      parts[i].lead ? kUiKitTextSmallBold : text_description);
         } else
-            text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_wrap);
+            text(c.description, r.description, tc.text_subtle, text_description, ui_text_wrap);
         if (ui_rect_has_area(r.chips)) {
             UiRect chips[8];
             float height = 0;
             flow_chips(c, scene.measure, r.chips.left, r.chips.top, ui_rect_width(r.chips), chips, &height);
             for (u32 i = 0; i < c.choices.count && i < 8; ++i) {
                 const auto tone = chip_tone_of(chip_tone(scene.content, index, i));
-                text(handle, c.choices[i], ui_chip_label_rect(chips[i]), ui_chip_ink(t, tone),
+                text(c.choices[i], ui_chip_label_rect(chips[i]), ui_chip_ink(t, tone),
                      text_description);
             }
         }
@@ -1089,22 +1169,22 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
                 label = status_button_label(scene.measure, c.action_label, r.control, &glyph);
                 mode = 0;
             }
-            text(handle, c.action_label, label,
+            text(c.action_label, label,
                  filled ? ui_settings_color_alpha(tc.text_strong, dim)
                         : ui_settings_button_text(t, status_button(look.variant), state),
                  text_button, mode);
         }
-        text(handle, c.detail, r.value, tc.text_subtle, text_description, ui_text_end);
+        text(c.detail, r.value, tc.text_subtle, text_description, ui_text_end);
         return;
     }
     if (c.kind == UiSettingsControlKind::disclosure) {
         const bool plain = (look.more & ui_settings_more_plain) != 0;
-        text(handle, c.label, r.label, ui_settings_color_alpha(plain ? tc.text_default : tc.text_strong, dim),
-             plain ? kUiKitTextLabel : text_heading, plain ? ui_text_wrap : 0);
-        text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_end);
+        text.dimmed(c.label, r.label, plain ? tc.text_default : tc.text_strong, dim,
+                    plain ? kUiKitTextLabel : text_heading, plain ? ui_text_wrap : 0);
+        text(c.description, r.description, tc.text_subtle, text_description, ui_text_end);
         if (ui_rect_has_area(r.tag)) {
             const auto tone = tag_tone(look.variant);
-            text(handle, c.detail, ui_chip_label_rect(r.tag), ui_chip_ink(t, tone), text_description);
+            text(c.detail, ui_chip_label_rect(r.tag), ui_chip_ink(t, tone), text_description);
         }
         return;
     }
@@ -1112,7 +1192,7 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
         const auto& s = *scene.content.preview;
         const UiKitMeasure* m = scene.measure;
         const float em = s.text_size > 0 ? s.text_size : 16.f;
-        text(handle, c.label, r.label, tc.text_subtle, kUiKitTextBody);
+        text(c.label, r.label, tc.text_subtle, kUiKitTextBody);
         const Color name_ink = s.role_style == 0 && s.role_rgb ? color_from_rgb24(s.role_rgb) : tc.text_strong;
         const float dot = s.role_style == 1 && s.role_rgb ? 12.f : 0.f;
         const float name_width = ui_kit_chat_text_width(m, s.author, kUiKitTextBodyBold, em);
@@ -1121,14 +1201,14 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
         const auto runs = [&](const UiRect& line, bool named, const Utf8View* parts, u32 count, bool link_last) noexcept {
             float x = line.left;
             if (named) {
-                text(handle, s.author, {x + dot, line.top, minimum(line.right, x + dot + name_width + 2), line.bottom},
+                text(s.author, {x + dot, line.top, minimum(line.right, x + dot + name_width + 2), line.bottom},
                      name_ink, kUiKitTextBodyBold, ui_text_chat);
                 x += dot + name_width + 6;
             }
             for (u32 i = 0; i < count && x < line.right; ++i) {
                 const bool link = link_last && i + 1 == count;
                 const u32 style = kUiKitTextBody | (link && s.underline ? text_style_underline : 0u);
-                text(handle, parts[i], {x, line.top, line.right, line.bottom}, link ? tc.link : tc.text_default, style,
+                text(parts[i], {x, line.top, line.right, line.bottom}, link ? tc.link : tc.text_default, style,
                      ui_text_chat);
                 x += ui_kit_chat_text_width(m, parts[i], kUiKitTextBody, em);
             }
@@ -1142,7 +1222,7 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
                 const auto* parts = i ? second : first;
                 const u32 count = i ? 2 : 1;
                 if (s.compact) {
-                    text(handle, s.time, preview_header(r, i, true), tc.text_subtle, kUiKitTextSmall,
+                    text(s.time, preview_header(r, i, true), tc.text_subtle, kUiKitTextSmall,
                          ui_text_end | ui_text_chat);
                     runs(body, true, parts, count, i != 0);
                     continue;
@@ -1150,10 +1230,10 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
                 // Each message: the avatar's initial where no picture will draw, the name and time, the text.
                 const UiRect header = preview_header(r, i, false);
                 if (!picture)
-                    text(handle, ui_admin_initials(s.author, {storage, sizeof(storage)}), preview_avatar(r, i), tc.on_brand,
-                         kUiKitTextBodyBold, ui_text_center);
+                    text.owned(ui_admin_initials(s.author, {storage, sizeof(storage)}), preview_avatar(r, i), tc.on_brand,
+                               kUiKitTextBodyBold);
                 runs(header, true, nullptr, 0, false);
-                text(handle, s.time, {header.left + dot + name_width + 8, header.top, header.right, header.bottom},
+                text(s.time, {header.left + dot + name_width + 8, header.top, header.right, header.bottom},
                      tc.text_subtle, kUiKitTextSmall, ui_text_chat);
                 runs(body, false, parts, count, i != 0);
             }
@@ -1161,9 +1241,9 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
         // The reactions: 🥀 3 (yours) and 🪤 1. A reaction pill is a fixed box with a fixed count, as in the chat.
         constexpr Utf8View reactions[]{utf8_literal("\xF0\x9F\xA5\x80 3"), utf8_literal("\xF0\x9F\xAA\xA4 1")};
         for (u32 i = 0; ui_rect_has_area(r.chips) && i < 2; ++i)
-            text(handle, reactions[i], {r.chips.left + i * 56.f, r.chips.top, r.chips.left + i * 56.f + 52, r.chips.bottom},
+            text(reactions[i], {r.chips.left + i * 56.f, r.chips.top, r.chips.left + i * 56.f + 52, r.chips.bottom},
                  i ? tc.text_default : tc.emphasis_outline, kUiKitTextLabelBold, ui_text_center);
-        text(handle, c.action_label, r.control, tc.on_brand, kUiKitTextLabelBold, ui_text_center);
+        text(c.action_label, r.control, tc.on_brand, kUiKitTextLabelBold, ui_text_center);
         return;
     }
     if (c.kind == UiSettingsControlKind::markdown) {
@@ -1182,44 +1262,41 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
                 }
         }
         if (ui_rect_has_area(r.control))
-            text(handle, c.detail, r.control, tc.link, text_button);
+            text(c.detail, r.control, tc.link, text_button);
         return;
     }
     if (c.kind == UiSettingsControlKind::footnote) {
-        text(handle, c.label, r.label, tc.text_subtle, text_description, ui_text_wrap);
+        text(c.label, r.label, tc.text_subtle, text_description, ui_text_wrap);
         if (ui_rect_has_area(r.control))
-            text(handle, c.action_label, r.control, state.hovered ? tc.text_strong : tc.link, text_description);
+            text(c.action_label, r.control, state.hovered ? tc.text_strong : tc.link, text_description);
         return;
     }
     if (c.kind == UiSettingsControlKind::action && (look.more & ui_settings_more_cell)) {
         // A game tile's name under its cover, cut to one line.
-        text(handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), kUiKitTextSmallBold);
+        text.dimmed(c.label, r.label, tc.text_strong, dim, kUiKitTextSmallBold);
         return;
     }
     if (c.kind == UiSettingsControlKind::tabs) {
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto tab = option_rect(t, c, r.control, i, scene.measure);
             const bool hovered = state.hovered && scene.palette_hovered_index == i;
-            text(handle, c.choices[i], {tab.left, tab.top, tab.right, tab.top + kUiSettingsLabelLine},
-                 ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong
-                                         : hovered               ? tc.text_default
-                                                                 : tc.text_subtle,
-                                         dim),
-                 text_label, ui_text_center);
+            text.dimmed(c.choices[i], {tab.left, tab.top, tab.right, tab.top + kUiSettingsLabelLine},
+                        c.selected_choice == i ? tc.text_strong : hovered ? tc.text_default : tc.text_subtle, dim,
+                        text_label, ui_text_center);
         }
         return;
     }
     // List rows and cards (a header is a category row, done above).
     if (const auto* item = list_item(scene.content, index)) {
         const bool card = item->style == UiSettingsListStyle::card;
-        text(handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), card ? text_heading : text_label);
+        text.dimmed(c.label, r.label, tc.text_strong, dim, card ? text_heading : text_label);
         if (card)
-            text(handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim), text_description,
-                 ui_text_wrap);
+            text.dimmed(c.description, r.description, tc.text_subtle, dim, text_description,
+                        ui_text_wrap);
         else if (c.choices.count) {
             const bool count_hovered = state.hovered && scene.palette_hovered_index == ui_settings_list_count;
-            text(handle, c.choices[0], r.value,
-                 ui_settings_color_alpha(count_hovered ? tc.text_strong : tc.text_default, dim), text_label);
+            text.dimmed(c.choices[0], r.value, count_hovered ? tc.text_strong : tc.text_default, dim,
+                        text_label);
         }
         return;
     }
@@ -1228,36 +1305,36 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
         Color name = tc.text_strong;
         if (look.flags & ui_settings_presentation_accent)
             (void)resolve_color(scene, c.id, kUiSettingsAccentChoice, &name);
-        text(handle, c.label, r.label, name, text_heading);
+        text(c.label, r.label, name, text_heading);
         if (ui_rect_has_area(r.tag))
-            text(handle, c.detail,
+            text(c.detail,
                  {r.tag.left + kUiBadgeCompactPadding + kUiBadgeCompactIcon + kUiBadgeCompactIconGap, r.tag.top,
                   r.tag.right, r.tag.bottom},
                  tc.text_default, text_value);
-        text(handle, c.description, r.description, tc.text_default, text_description, ui_text_wrap);
+        text(c.description, r.description, tc.text_default, text_description, ui_text_wrap);
     } else {
-        text(handle, c.label, r.label,
+        text(c.label, r.label,
              c.kind == UiSettingsControlKind::notice && look.variant == UiSettingsVariant::critical
                  ? tc.critical_text
                  : ui_settings_color_alpha(tc.text_strong, dim),
              text_label);
-        text(handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim), text_description,
-             ui_text_wrap);
+        text.dimmed(c.description, r.description, tc.text_subtle, dim, text_description,
+                    ui_text_wrap);
     }
     // Initials only for avatar rows without an image to draw.
     if (c.kind == UiSettingsControlKind::action && (look.flags & ui_settings_presentation_avatar) &&
         !avatar_backed(scene.content, index)) {
         char storage[16];
-        text(handle, ui_admin_initials(c.label, {storage, sizeof(storage)}),
-             avatar_rect(t.metric, scene.content, index, r.lead), tc.on_brand, text_heading, ui_text_center);
+        text.owned(ui_admin_initials(c.label, {storage, sizeof(storage)}),
+                   avatar_rect(t.metric, scene.content, index, r.lead), tc.on_brand, text_heading);
     }
     if (ui_rect_has_area(r.chips)) {
         const bool dots = (look.flags & ui_settings_presentation_accent) != 0;
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto chip = ui_admin_chip_rect(t, c.choices, dots, r.chips, i);
             if (ui_rect_has_area(chip))
-                text(handle, c.choices[i], ui_admin_chip_label_rect(t, chip, ui_admin_chip_dot(c.choices[i], dots)),
-                     ui_settings_color_alpha(tc.text_default, dim), text_description);
+                text.dimmed(c.choices[i], ui_admin_chip_label_rect(t, chip, ui_admin_chip_dot(c.choices[i], dots)),
+                            tc.text_default, dim, text_description);
         }
     }
     switch (c.kind) {
@@ -1267,7 +1344,7 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
             const auto motion = segment_motion(scene, c);
             for (u32 i = 0; i < c.choices.count; ++i) {
                 const float shown = segment_selection(motion, c.selected_choice, i);
-                text(handle, c.choices[i], ui_segmented_option(t, r.control, c.choices.count, i),
+                text(c.choices[i], ui_segmented_option(t, r.control, c.choices.count, i),
                      ui_settings_color_alpha(shown <= 0   ? tc.text_default
                                              : shown >= 1 ? tc.text_strong
                                                           : ui_settings_color_mix(tc.text_default, tc.text_strong, shown),
@@ -1279,68 +1356,59 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
     case UiSettingsControlKind::buttons: {
         const auto others = other_buttons(look.variant);
         for (u32 i = 0; i < c.choices.count; ++i)
-            text(handle, c.choices[i], option_rect(t, c, r.control, i, scene.measure),
-                 ui_settings_button_text(t, i ? others : UiSettingsButtonVariant::primary,
-                                         hover_option(scene, state, i)),
-                 text_button, ui_text_center);
+            text.button(c.choices[i], option_rect(t, c, r.control, i, scene.measure), t,
+                        i ? others : UiSettingsButtonVariant::primary, hover_option(scene, state, i));
         break;
     }
     case UiSettingsControlKind::colors:
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto swatch = option_rect(t, c, r.control, i, scene.measure);
-            text(handle, c.choices[i], {swatch.left - 8, swatch.bottom + 4, swatch.right + 8, swatch.bottom + kColorCaption},
-                 ui_settings_color_alpha(tc.text_default, dim), text_description, ui_text_center);
+            text.dimmed(c.choices[i], {swatch.left - 8, swatch.bottom + 4, swatch.right + 8, swatch.bottom + kColorCaption},
+                        tc.text_default, dim, text_description, ui_text_center);
         }
         if (c.action_label.bytes)
-            text(handle, c.action_label, option_rect(t, c, r.control, c.choices.count, scene.measure),
-                 ui_settings_button_text(t, UiSettingsButtonVariant::secondary, hover_option(scene, state, c.choices.count)),
-                 text_button, ui_text_center);
+            text.button(c.action_label, option_rect(t, c, r.control, c.choices.count, scene.measure), t,
+                        UiSettingsButtonVariant::secondary, hover_option(scene, state, c.choices.count));
         break;
     case UiSettingsControlKind::action:
     case UiSettingsControlKind::notice:
         if (c.action_label.bytes && ui_rect_has_area(r.control))
-            text(handle, c.action_label, r.control,
-                 ui_settings_button_text(t,
-                                         c.kind == UiSettingsControlKind::notice ? UiSettingsButtonVariant::secondary
-                                                                                 : button_variant(look.variant),
-                                         state),
-                 text_button, ui_text_center);
+            text.button(c.action_label, r.control, t,
+                        c.kind == UiSettingsControlKind::notice ? UiSettingsButtonVariant::secondary
+                                                                : button_variant(look.variant),
+                        state);
         break;
     case UiSettingsControlKind::choice: {
         // An unselected dropdown shows the "Select…" placeholder.
         const bool none = c.selected_choice >= c.choices.count;
-        text(handle, none ? utf8_literal("Select\xE2\x80\xA6") : c.choices[c.selected_choice],
-             ui_select_text_rect(t, r.control), ui_settings_color_alpha(none ? tc.text_subtle : tc.text_strong, dim),
-             text_dropdown);
+        text.dimmed(none ? utf8_literal("Select\xE2\x80\xA6") : c.choices[c.selected_choice],
+                    ui_select_text_rect(t, r.control), none ? tc.text_subtle : tc.text_strong, dim, text_dropdown);
         break;
     }
     case UiSettingsControlKind::radio:
         for (u32 i = 0; i < c.choices.count; ++i)
-            text(handle, c.choices[i], ui_radio_label(t, ui_radio_option(t, r.control, i)),
-                 ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong : tc.text_default, dim), text_label);
+            text.dimmed(c.choices[i], ui_radio_label(t, ui_radio_option(t, r.control, i)),
+                        c.selected_choice == i ? tc.text_strong : tc.text_default, dim, text_label);
         break;
     case UiSettingsControlKind::slider:
         if ((look.flags & ui_settings_presentation_marks) && c.choices.count <= 32) {
             const auto g = ui_slider_geometry(t, r.control, c.choices.count, c.selected_choice, true);
             const u32 fallback = default_choice(scene.content, index);
             for (u32 i = 0; i < c.choices.count; ++i)
-                text(handle, c.choices[i], ui_slider_mark_label(t, g, c.choices.count, i),
-                     ui_settings_color_alpha(i == fallback                ? tc.positive
-                                             : i == c.selected_choice ? tc.text_strong
-                                                                      : tc.text_subtle,
-                                             dim),
-                     text_description, ui_text_center);
+                text.dimmed(c.choices[i], ui_slider_mark_label(t, g, c.choices.count, i),
+                            i == fallback ? tc.positive : i == c.selected_choice ? tc.text_strong : tc.text_subtle, dim,
+                            text_description, ui_text_center);
         } else if (c.selected_choice < c.choices.count)
-            text(handle, c.choices[c.selected_choice], r.value, ui_settings_color_alpha(tc.text_default, dim),
-                 text_value, ui_text_end);
+            text.dimmed(c.choices[c.selected_choice], r.value, tc.text_default, dim,
+                        text_value, ui_text_end);
         break;
     case UiSettingsControlKind::palette: {
         const u32 columns = ui_swatch_columns(t, ui_rect_width(r.control));
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto swatch = ui_swatch_rect(t, r.control, i, columns);
-            text(handle, c.choices[i], {swatch.left - 8, swatch.bottom + 6, swatch.right + 8, swatch.bottom + ui_swatch_label_height()},
-                 ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong : tc.text_subtle, dim), text_description,
-                 ui_text_wrap | ui_text_center);
+            text.dimmed(c.choices[i], {swatch.left - 8, swatch.bottom + 6, swatch.right + 8, swatch.bottom + ui_swatch_label_height()},
+                        c.selected_choice == i ? tc.text_strong : tc.text_subtle, dim, text_description,
+                        ui_text_wrap | ui_text_center);
         }
         break;
     }
@@ -1350,11 +1418,9 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
         if (cell) {
             // A trait's emoji sits on its button; the clear button is a glyph.
             if (c.detail.bytes)
-                text(handle, c.detail, r.lead, ui_settings_color_alpha(tc.text_strong, dim), text_label, ui_text_center);
+                text.dimmed(c.detail, r.lead, tc.text_strong, dim, text_label, ui_text_center);
         } else if (ui_rect_has_area(r.value) && c.action_label.bytes)
-            text(handle, c.action_label, r.value,
-                 ui_settings_button_text(t, UiSettingsButtonVariant::primary, hover_option(scene, state, 0)), text_button,
-                 ui_text_center);
+            text.button(c.action_label, r.value, t, UiSettingsButtonVariant::primary, hover_option(scene, state, 0));
         const auto& editor = *c.editor;
         if (!geometry_valid(editor.geometry)) {
             pen.fail();
@@ -1367,7 +1433,7 @@ __forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, cons
         const bool measured = entered && editor.geometry && ui_rect_has_area(editor.geometry->text);
         const auto text_clip = ui_rect_overlap(geometry.text, geometry.clip);
         if (c.kind == UiSettingsControlKind::multiline && scene.content.sectioned && c.action_label.bytes)
-            text(handle, c.action_label,
+            text(c.action_label,
                  {geometry.field.right - 14 - 64, geometry.field.bottom - 10 - kUiSettingsLabelLine,
                   geometry.field.right - 14, geometry.field.bottom - 10},
                  look.variant == UiSettingsVariant::critical ? tc.critical_text : tc.text_default,
@@ -1483,10 +1549,11 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
         text.in(description->clip_rectangle)(scene.description, scene.content.description, description->rectangle,
                                              tc.text_subtle, text_description, ui_text_wrap);
     }
+    RowView view;
     for (u32 i = 0; i < scene.widgets.count; ++i) {
         const auto& entry = entries(scene)[i];
         if (entry.role == EntryRole::row)
-            row_text(text, scene, t, {static_cast<u16>(i), scene.widgets.generation}, entry);
+            row_text(text, stream, scene, t, {static_cast<u16>(i), scene.widgets.generation}, entry, view);
     }
     UiRect aside_heading{}, aside_clip{};
     if (scene.content.aside_label.bytes && ui_settings_scene_aside(scene, &aside_heading, nullptr, &aside_clip))

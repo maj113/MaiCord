@@ -38,7 +38,8 @@ The build time is separate from the timeout for each launch.
   updates and instance forwarding (`MAICORD_ISOLATED_MAIN`). Unlike the client,
   the probe configuration keeps unwind tables (`MAICORD_UNWIND_TABLES`): the
   sampler and the allocation call stacks walk them.
-- **MaiCordPerfAccount.dll** implements the account module ABI offline: a
+- **MaiCordPerfAccount.dll** implements the account module's entry points offline (the probe calls them through a table
+  it fills from the library; the client calls its linked module directly): a
   deterministic READY (100 guilds, ~2,600 channels, 2,000 users, 300 friends,
   180 DMs) projected by the production Gateway routes, generated message history
   with mixed content, member list syncs for a 48,000-member guild, generated media

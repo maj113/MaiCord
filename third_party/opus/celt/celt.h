@@ -53,31 +53,6 @@ typedef struct {
    int offset;
 } SILKInfo;
 
-#define celt_check_mode_ptr_ptr(ptr) ((ptr) + ((ptr) - (const CELTMode**)(ptr)))
-
-#define celt_check_silkinfo_ptr(ptr) ((ptr) + ((ptr) - (const SILKInfo*)(ptr)))
-
-/* Encoder/decoder Requests */
-
-
-#define CELT_SET_CHANNELS_REQUEST    10008
-#define CELT_SET_CHANNELS(x) CELT_SET_CHANNELS_REQUEST, opus_check_int(x)
-
-
-/* Internal */
-#define CELT_SET_START_BAND_REQUEST    10010
-#define CELT_SET_START_BAND(x) CELT_SET_START_BAND_REQUEST, opus_check_int(x)
-
-#define CELT_SET_END_BAND_REQUEST    10012
-#define CELT_SET_END_BAND(x) CELT_SET_END_BAND_REQUEST, opus_check_int(x)
-
-#define CELT_GET_MODE_REQUEST    10015
-/** Get the CELTMode used by an encoder or decoder */
-#define CELT_GET_MODE(x) CELT_GET_MODE_REQUEST, celt_check_mode_ptr_ptr(x)
-
-#define CELT_SET_SILK_INFO_REQUEST    10028
-#define CELT_SET_SILK_INFO(x) CELT_SET_SILK_INFO_REQUEST, celt_check_silkinfo_ptr(x)
-
 
 static OPUS_INLINE opus_int32 bits_to_bitrate(opus_int32 bits, opus_int32 Fs, opus_int32 frame_size) {
    return bits*(6*Fs/frame_size)/6;
@@ -124,8 +99,22 @@ int celt_decode_with_ec(OpusCustomDecoder * OPUS_RESTRICT st, const unsigned cha
    decoder needs the same bound. */
 #define CELT_DECODER_SCRATCH_BYTES 15408
 
-#define celt_encoder_ctl opus_custom_encoder_ctl
-#define celt_decoder_ctl opus_custom_decoder_ctl
+/* The encoder's and decoder's settings between frames: plain functions (the encoder and decoder structures are private
+   to celt_encoder.c and celt_decoder.c), which the whole-program build inlines. Their arguments come from the Opus layer
+   within range: channel counts 1 or 2, bands of the 21-band mode, complexity 1-10, loss 0-100. */
+const CELTMode *celt_encoder_mode(const CELTEncoder *st);
+void celt_encoder_set_complexity(CELTEncoder *st, int complexity);
+void celt_encoder_set_loss(CELTEncoder *st, int loss_percent);
+/* The coded channel count, the SILK layer's signal type and offset, and the bitrate left for CELT (rates of 500 bit/s
+   or less leave the previous one) before celt_encode_with_ec() */
+void celt_encoder_prepare(CELTEncoder *st, int stream_channels, const SILKInfo *info, opus_int32 bitrate);
+
+const CELTMode *celt_decoder_mode(const CELTDecoder *st);
+void celt_decoder_set_channels(CELTDecoder *st, int stream_channels);
+void celt_decoder_set_start(CELTDecoder *st, int start_band);
+void celt_decoder_set_end(CELTDecoder *st, int end_band);
+void celt_decoder_reset(CELTDecoder *st);
+opus_uint32 celt_decoder_final_range(const CELTDecoder *st);
 
 
 #define OPUS_CUSTOM_NOSTATIC static OPUS_INLINE

@@ -37,6 +37,7 @@ POSSIBILITY OF SUCH DAMAGE.
 /* Number of decoder channels (1/2) */
 #define DECODER_NUM_CHANNELS                    2
 
+/* Most frames in a decoded packet; the encoder codes one 20 ms frame (four subframes at 16 kHz) per packet */
 #define MAX_FRAMES_PER_PACKET                   3
 
 /* Limits on bitrate */
@@ -82,6 +83,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 /* Number of samples per frame */
 #define LTP_MEM_LENGTH_MS                       20
+#define LTP_MEM_LENGTH                          ( LTP_MEM_LENGTH_MS * MAX_FS_KHZ )
 #define SUB_FRAME_LENGTH_MS                     5
 #define MAX_SUB_FRAME_LENGTH                    ( SUB_FRAME_LENGTH_MS * MAX_FS_KHZ )
 #define MAX_FRAME_LENGTH_MS                     ( SUB_FRAME_LENGTH_MS * MAX_NB_SUBFR )

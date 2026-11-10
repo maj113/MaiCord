@@ -11,15 +11,24 @@
 #include "maicord/core/json_scan.hpp"
 #include "../encoding/json_helpers.hpp"
 #include "../encoding/json_field_lists.hpp"
+#include "field_table.hpp"
 
 namespace maicord {
 namespace {
+using protocol_detail::FieldDef;
+using protocol_detail::kFieldNotify;
 using protocol_detail::member_index;
+using protocol_detail::ObjectReader;
+using protocol_detail::read_member;
+using protocol_detail::read_object;
 constexpr u32 kDepth = 32;
+using protocol_detail::kLenientCodes;
 
 // Decodes a JSON string into output, truncated at a code point boundary.
 u32 decode_text(const JsonValue& value, char* output, u32 capacity) noexcept {
-    return protocol_detail::copy_text_truncated<4096>(value, output, capacity);
+    u32 copied;
+    protocol_detail::clip_text(value, output, capacity, 4096, &copied);
+    return copied;
 }
 // A bounded text bank: decoded strings are appended and addressed by offset.
 struct Bank {
@@ -340,74 +349,50 @@ bool onboarding_member(void* opaque, JsonString name, JsonValue value) noexcept 
 
 // Scheduled events
 
-struct EventPass {
-    JsonIndexedDocument document;
-    ScheduledEvent* event;
-    bool bad;
-};
-bool timestamp(JsonValue value, u64* output) noexcept {
-    if (value.kind == JsonValueKind::null_value) {
-        *output = 0;
+// An event's entity_metadata may say where it takes place.
+constexpr FieldDef kMetadataDefs[]{{"location", MAICORD_FIELD_LABEL(ScheduledEvent, location, location_bytes)}};
+MAICORD_FIELD_TABLE(kMetadataSpec, kMetadataDefs, nullptr, kLenientCodes, kDepth, 0, 0, 0, 0, 16);
+// The hook reads entity_metadata (3) and, once its count is stored, notes that user_count (11) was read.
+bool event_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    if (index == 11) {
+        reinterpret_cast<ScheduledEvent*>(r.base)->user_count_known = true;
         return true;
     }
-    return json_value_to_timestamp(value, output);
+    if (value.kind != JsonValueKind::object)
+        return true;
+    ObjectReader metadata{{r.document, 0}, &kMetadataSpec, r.base, 0};
+    return read_object(metadata, value) == 0;
 }
-bool metadata_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<EventPass*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("location")))
-        p.event->location_bytes = static_cast<u8>(decode_text(value, p.event->location, kScheduledEventLocationBytes));
-    return true;
-}
-bool event_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<EventPass*>(opaque);
-    auto& e = *p.event;
-    u64 number = 0;
-    switch (member_index<"id", "guild_id", "channel_id", "name", "description", "image", "scheduled_start_time",
-                         "scheduled_end_time", "status", "entity_type", "user_count", "entity_metadata">(name)) {
-    case 0: p.bad = p.bad || !json_value_to_snowflake(value, &e.id); break;
-    case 1: p.bad = p.bad || !json_value_to_snowflake(value, &e.guild_id); break;
-    case 2:
-        if (value.kind != JsonValueKind::null_value)
-            json_value_to_snowflake(value, &e.channel_id);
-        break;
-    case 3: e.name_bytes = static_cast<u16>(decode_text(value, e.name, kScheduledEventNameBytes)); break;
-    case 4:
-        e.description_bytes = static_cast<u16>(decode_text(value, e.description, kScheduledEventDescriptionBytes));
-        break;
-    case 5: e.image_bytes = static_cast<u8>(decode_text(value, e.image, kScheduledEventImageBytes)); break;
-    case 6: p.bad = p.bad || !timestamp(value, &e.start_ms); break;
-    case 7: timestamp(value, &e.end_ms); break;
-    case 8:
-        if (json_value_to_u64(value, &number))
-            e.status = number >= 1 && number <= 4 ? static_cast<ScheduledEventStatus>(number) : ScheduledEventStatus::unknown;
-        break;
-    case 9:
-        if (json_value_to_u64(value, &number))
-            e.entity = number >= 1 && number <= 3 ? static_cast<ScheduledEventEntity>(number) : ScheduledEventEntity::unknown;
-        break;
-    case 10:
-        if (json_value_to_u64(value, &number)) {
-            e.user_count = static_cast<u32>(minimum<u64>(number, ~u32{0}));
-            e.user_count_known = true;
-        }
-        break;
-    case 11:
-        if (value.kind == JsonValueKind::object)
-            return json_visit_indexed_object(p.document, value, kDepth, metadata_member, &p).ok();
-        break;
-    default: break;
-    }
-    return true;
-}
-bool event_valid(const EventPass& pass) noexcept {
-    return !pass.bad && pass.event->id && pass.event->guild_id && pass.event->start_ms;
+// An id, the guild, the start and the metadata that does not read fail the event; status and entity are cut to 255
+// and then to what they name.
+constexpr FieldDef kEventDefs[]{
+    {"id", MAICORD_FIELD_SNOWFLAKE(ScheduledEvent, id)},
+    {"guild_id", MAICORD_FIELD_SNOWFLAKE(ScheduledEvent, guild_id)},
+    {"scheduled_start_time", MAICORD_FIELD_TIMESTAMP_OR_NULL(ScheduledEvent, start_ms)},
+    {"entity_metadata", MAICORD_FIELD_HOOK},
+    {"channel_id", MAICORD_FIELD_SNOWFLAKE(ScheduledEvent, channel_id)},
+    {"name", MAICORD_FIELD_LABEL(ScheduledEvent, name, name_bytes)},
+    {"description", MAICORD_FIELD_LABEL(ScheduledEvent, description, description_bytes)},
+    {"image", MAICORD_FIELD_LABEL(ScheduledEvent, image, image_bytes)},
+    {"scheduled_end_time", MAICORD_FIELD_TIMESTAMP_OR_NULL(ScheduledEvent, end_ms)},
+    {"status", MAICORD_FIELD_SATURATE(ScheduledEvent, status)},
+    {"entity_type", MAICORD_FIELD_SATURATE(ScheduledEvent, entity)},
+    {"user_count", MAICORD_ROW(field_saturate, kFieldNotify, ScheduledEvent, user_count)},
+};
+MAICORD_FIELD_TABLE(kEventSpec, kEventDefs, event_hook, kLenientCodes, kDepth, 1 | 2 | 4 | 8, 0, 0, 0, 16);
+bool event_valid(ScheduledEvent& e) noexcept {
+    if (static_cast<u8>(e.status) > static_cast<u8>(ScheduledEventStatus::canceled))
+        e.status = ScheduledEventStatus::unknown;
+    if (static_cast<u8>(e.entity) > static_cast<u8>(ScheduledEventEntity::external))
+        e.entity = ScheduledEventEntity::unknown;
+    return e.id && e.guild_id && e.start_ms;
 }
 bool decode_event(const JsonIndexedDocument& document, JsonValue value, ScheduledEvent* output) noexcept {
     if (value.kind != JsonValueKind::object)
         return false;
     ScheduledEvent decoded{};
-    EventPass pass{document, &decoded, false};
-    if (!json_visit_indexed_object(document, value, kDepth, event_member, &pass).ok() || !event_valid(pass))
+    ObjectReader r{{&document, 0}, &kEventSpec, reinterpret_cast<u8*>(&decoded), 0};
+    if (read_object(r, value) != 0 || !event_valid(decoded))
         return false;
     *output = decoded;
     return true;
@@ -948,9 +933,9 @@ bool scheduled_event_decode(const Utf8View& object, const Slice<u32>& scratch,
     if (!s.ok || !output)
         return false;
     ScheduledEvent decoded{};
-    EventPass pass{s.document, &decoded, false};
-    if (!json_visit_root_object(object, s.document.structurals, kDepth, event_member, &pass).ok() ||
-        !event_valid(pass))
+    ObjectReader r{{&s.document, 0}, &kEventSpec, reinterpret_cast<u8*>(&decoded), 0};
+    if (!json_visit_root_object(object, s.document.structurals, kDepth, read_member, &r).ok() ||
+        !event_valid(decoded))
         return false;
     *output = decoded;
     return true;
@@ -1081,9 +1066,8 @@ u32 scheduled_event_write_link(u64 guild_id, u64 event_id, Slice<char> output) n
 
 namespace {
 struct ProfileActivity;
-struct ProfileParse {
-    const JsonIndexedDocument* document;
-    GuildProfile* output;
+// The profile read, and the game_activity members kept until the games are known.
+struct ProfileReader : ObjectReader {
     ProfileActivity* activity;
 };
 // "#rrggbb" (the brand colour form) or a number; ~0u otherwise.
@@ -1180,29 +1164,11 @@ bool visit_profile_activity(void* context, JsonString key, JsonValue value) noex
     a.entries[a.count++] = game;
     return true;
 }
-bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<ProfileParse*>(opaque);
-    auto& o = *p.output;
-    u64 number = 0;
-    switch (member_index<"id", "name", "description", "icon_hash", "custom_banner_hash", "badge_hash", "tag",
-                         "online_count", "member_count", "brand_color_primary", "features", "traits",
-                         "premium_subscription_count", "premium_tier", "game_application_ids",
-                         "game_activity">(name)) {
-    case 0: json_value_to_snowflake(value, &o.id); break;
-    case 1: o.name_bytes = static_cast<u16>(decode_text(value, o.name, kGuildProfileNameBytes)); break;
-    case 2: o.description_bytes = static_cast<u16>(decode_text(value, o.description, kGuildProfileDescriptionBytes)); break;
-    case 3: o.icon_bytes = static_cast<u8>(decode_text(value, o.icon, kGuildProfileHashBytes)); break;
-    case 4: o.banner_bytes = static_cast<u8>(decode_text(value, o.banner, kGuildProfileHashBytes)); break;
-    case 5: o.badge_bytes = static_cast<u8>(decode_text(value, o.badge, kGuildProfileHashBytes)); break;
-    case 6: o.tag_bytes = static_cast<u8>(decode_text(value, o.tag, kGuildProfileTagBytes)); break;
-    case 7:
-        if (json_value_to_u64(value, &number))
-            o.online_count = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
-        break;
-    case 8:
-        if (json_value_to_u64(value, &number))
-            o.member_count = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
-        break;
+// The members that need more than a copy: the brand colour, the features, the traits, the games and their activity.
+bool profile_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& o = *reinterpret_cast<GuildProfile*>(r.base);
+    const bool array = value.kind == JsonValueKind::array;
+    switch (index) {
     case 9: {
         const u32 color = profile_color(value);
         o.has_brand_color = color != ~0u;
@@ -1210,43 +1176,56 @@ bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
         break;
     }
     case 10:
-        if (value.kind == JsonValueKind::array)
-            json_visit_indexed_array(*p.document, value, kDepth, visit_profile_feature, &o.features);
+        if (array)
+            json_visit_indexed_array(*r.document, value, kDepth, visit_profile_feature, &o.features);
         break;
     case 11:
-        if (value.kind == JsonValueKind::array) {
+        if (array) {
             // Up to five {label, position}, laid out by position.
-            ProfileTraits traits{p.document, {}};
-            json_visit_indexed_array(*p.document, value, kDepth, visit_profile_trait, &traits);
+            ProfileTraits traits{r.document, {}};
+            json_visit_indexed_array(*r.document, value, kDepth, visit_profile_trait, &traits);
             o.trait_count = 0;
             for (const auto& slot : traits.slots)
                 if (slot.label_bytes)
                     o.traits[o.trait_count++] = slot;
         }
         break;
-    case 12:
-        if (json_value_to_u64(value, &number))
-            o.premium_subscription_count = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
-        break;
-    case 13:
-        if (json_value_to_u64(value, &number))
-            o.premium_tier = static_cast<u8>(minimum<u64>(number, 3));
-        break;
     case 14:
         o.game_count = 0;
-        if (value.kind == JsonValueKind::array)
-            json_visit_indexed_array(*p.document, value, kDepth, visit_profile_game_id, &o);
+        if (array)
+            json_visit_indexed_array(*r.document, value, kDepth, visit_profile_game_id, &o);
         break;
-    case 15:
-        if (value.kind == JsonValueKind::object && p.activity) {
-            p.activity->count = 0;
-            json_visit_indexed_object(*p.document, value, kDepth, visit_profile_activity, p.activity);
+    default: {
+        auto* activity = static_cast<ProfileReader&>(r).activity;
+        if (value.kind == JsonValueKind::object) {
+            activity->count = 0;
+            json_visit_indexed_object(*r.document, value, kDepth, visit_profile_activity, activity);
         }
         break;
-    default: break;
+    }
     }
     return true;
 }
+// A member that does not fit is passed over; text reads up to 4096 bytes.
+constexpr FieldDef kProfileDefs[]{
+    {"id", MAICORD_FIELD_SNOWFLAKE(GuildProfile, id)},
+    {"name", MAICORD_FIELD_LABEL(GuildProfile, name, name_bytes)},
+    {"description", MAICORD_FIELD_LABEL(GuildProfile, description, description_bytes)},
+    {"icon_hash", MAICORD_FIELD_LABEL(GuildProfile, icon, icon_bytes)},
+    {"custom_banner_hash", MAICORD_FIELD_LABEL(GuildProfile, banner, banner_bytes)},
+    {"badge_hash", MAICORD_FIELD_LABEL(GuildProfile, badge, badge_bytes)},
+    {"tag", MAICORD_FIELD_LABEL(GuildProfile, tag, tag_bytes)},
+    {"online_count", MAICORD_FIELD_SATURATE(GuildProfile, online_count)},
+    {"member_count", MAICORD_FIELD_SATURATE(GuildProfile, member_count)},
+    {"brand_color_primary", MAICORD_FIELD_HOOK},
+    {"features", MAICORD_FIELD_HOOK},
+    {"traits", MAICORD_FIELD_HOOK},
+    {"premium_subscription_count", MAICORD_FIELD_SATURATE(GuildProfile, premium_subscription_count)},
+    {"premium_tier", MAICORD_FIELD_SATURATE(GuildProfile, premium_tier)},
+    {"game_application_ids", MAICORD_FIELD_HOOK},
+    {"game_activity", MAICORD_FIELD_HOOK},
+};
+MAICORD_FIELD_TABLE(kProfileSpec, kProfileDefs, profile_hook, kLenientCodes, kDepth, 0, 0, 0, 0, 16);
 } // namespace
 
 bool guild_profile_decode(Utf8View body, Slice<u32> scratch, GuildProfile* output) noexcept {
@@ -1257,8 +1236,11 @@ bool guild_profile_decode(Utf8View body, Slice<u32> scratch, GuildProfile* outpu
     if (!scanned.ok)
         return false;
     ProfileActivity activity{&scanned.document, {}, 0};
-    ProfileParse parse{&scanned.document, output, &activity};
-    if (!json_visit_root_object(body, scanned.document.structurals, kDepth, visit_profile, &parse).ok())
+    ProfileReader reader{{{&scanned.document, 0}, &kProfileSpec, reinterpret_cast<u8*>(output), 0}, &activity};
+    const bool read = json_visit_root_object(body, scanned.document.structurals, kDepth, read_member, &reader).ok();
+    // A boost level is 0-3.
+    output->premium_tier = minimum<u8>(output->premium_tier, 3);
+    if (!read)
         return false;
     // The games by activity score, highest first; a stable insertion sort keeps equal scores in their order.
     auto& games = output->games;

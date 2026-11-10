@@ -4,14 +4,19 @@
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "../encoding/json_helpers.hpp"
 #include "../encoding/json_field_lists.hpp"
+#include "field_table.hpp"
 
 namespace maicord {
 namespace {
+using protocol_detail::FieldDef;
 using protocol_detail::JsonBody;
+using protocol_detail::ObjectReader;
+using protocol_detail::read_member;
 using protocol_detail::member_index;
 using protocol_detail::name_text_valid;
 using protocol_detail::view_valid;
 constexpr u32 kDepth = 32;
+using protocol_detail::kLenientCodes;
 
 // The indexed document of a reply; template replies carry whole servers.
 bool scan(Utf8View body, Slice<u32> scratch, JsonIndexedDocument* document) noexcept {
@@ -48,7 +53,8 @@ const char* field_type_name(GuildVerificationFieldType type) noexcept {
 }
 
 template <typename Text> bool copy_string(JsonValue value, char* output, u32 capacity, Text* bytes) noexcept {
-    const u32 copied = protocol_detail::copy_text_truncated<4096>(value, output, capacity);
+    u32 copied;
+    protocol_detail::clip_text(value, output, capacity, 4096, &copied);
     *bytes = static_cast<Text>(copied);
     return value.kind == JsonValueKind::string;
 }
@@ -180,51 +186,46 @@ void decode_snapshot(const JsonIndexedDocument& document, JsonValue snapshot, Gu
     json_visit_indexed_object(document, snapshot, kDepth, snapshot_roles, &p);
 }
 
-struct TemplatePass {
-    const JsonIndexedDocument* document;
-    GuildTemplate* output;
+// The template read, and whether its code and name were good (the last of each counts).
+struct TemplateReader : ObjectReader {
     bool code, name;
 };
-bool template_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<TemplatePass*>(opaque);
-    auto& t = *p.output;
-    u64 number = 0;
-    switch (member_index<"code", "name", "description", "usage_count", "created_at", "updated_at", "is_dirty",
-                         "serialized_source_guild">(name)) {
-    case 0: {
+// The code (0), the name (1) and the snapshot of the server (7) need their own reads.
+bool template_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& p = static_cast<TemplateReader&>(r);
+    auto& t = *reinterpret_cast<GuildTemplate*>(r.base);
+    if (index == 0) {
         JsonString code{};
         const auto decoded = json_value_as_string(value, &code)
                                  ? json_string_decode_utf8(code, {t.code, sizeof(t.code)})
                                  : JsonStringDecodeResult{};
         p.code = decoded.ok() && guild_template_code_valid({t.code, decoded.bytes});
         t.code_bytes = p.code ? static_cast<u8>(decoded.bytes) : 0;
-        break;
-    }
-    case 1: p.name = copy_string(value, t.name, sizeof(t.name), &t.name_bytes); break;
-    case 2: copy_string(value, t.description, sizeof(t.description), &t.description_bytes); break;
-    case 3:
-        if (json_value_to_u64(value, &number))
-            t.usage_count = number > 0xFFFFFFFFull ? 0xFFFFFFFFu : static_cast<u32>(number);
-        break;
-    case 4: json_value_to_timestamp(value, &t.created_at_ms); break;
-    case 5: json_value_to_timestamp(value, &t.updated_at_ms); break;
-    case 6: json_value_to_bool(value, &t.dirty); break;
-    case 7:
-        if (value.kind == JsonValueKind::object)
-            decode_snapshot(*p.document, value, t);
-        break;
-    default: break;
+    } else if (index == 1) {
+        p.name = copy_string(value, t.name, sizeof(t.name), &t.name_bytes);
+    } else if (value.kind == JsonValueKind::object) {
+        decode_snapshot(*r.document, value, t);
     }
     return true;
 }
+constexpr FieldDef kTemplateDefs[]{
+    {"code", MAICORD_FIELD_HOOK},
+    {"name", MAICORD_FIELD_HOOK},
+    {"description", MAICORD_FIELD_LABEL(GuildTemplate, description, description_bytes)},
+    {"usage_count", MAICORD_FIELD_SATURATE(GuildTemplate, usage_count)},
+    {"created_at", MAICORD_FIELD_TIMESTAMP(GuildTemplate, created_at_ms)},
+    {"updated_at", MAICORD_FIELD_TIMESTAMP(GuildTemplate, updated_at_ms)},
+    {"is_dirty", MAICORD_FIELD_BOOL(GuildTemplate, dirty)},
+    {"serialized_source_guild", MAICORD_FIELD_HOOK},
+};
+MAICORD_FIELD_TABLE(kTemplateSpec, kTemplateDefs, template_hook, kLenientCodes, kDepth, 0, 0, 0, 0, 16);
 // One template object: the root of `document` when `object` is null.
 bool decode_template(const JsonIndexedDocument& document, const JsonValue* object, GuildTemplate* output) noexcept {
     static GuildTemplate decoded;
     reset_value(&decoded);
-    TemplatePass pass{&document, &decoded, false, false};
-    const auto read = object ? json_visit_indexed_object(document, *object, kDepth, template_member, &pass)
-                             : json_visit_root_object(document.input, document.structurals, kDepth,
-                                                      template_member, &pass);
+    TemplateReader pass{{{&document, 0}, &kTemplateSpec, reinterpret_cast<u8*>(&decoded), 0}, false, false};
+    const auto read = object ? json_visit_indexed_object(document, *object, kDepth, read_member, &pass)
+                             : json_visit_root_object(document.input, document.structurals, kDepth, read_member, &pass);
     if (!read.ok() || !pass.code || !pass.name)
         return false;
     copy_value(output, decoded);
@@ -233,47 +234,40 @@ bool decode_template(const JsonIndexedDocument& document, const JsonValue* objec
 
 // Discovery
 
-struct RequirementsPass {
-    GuildDiscoveryRequirements* output;
+// The requirements read, and whether `sufficient` was good (the last one counts).
+struct RequirementsReader : ObjectReader {
     bool sufficient;
 };
-bool requirements_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<RequirementsPass*>(opaque);
-    auto& r = *p.output;
-    u64 number = 0;
-    switch (member_index<"sufficient", "sufficient_without_grace_period", "safe_environment", "size", "age",
-                         "healthy", "health_score_pending", "protected", "minimum_size", "minimum_age",
-                         "nsfw_properties", "grace_period_end_date">(name)) {
-    case 0: p.sufficient = json_value_to_bool(value, &r.sufficient); break;
-    case 1: json_value_to_bool(value, &r.sufficient_without_grace_period); break;
-    case 2:
-        r.checklist = true;
-        json_value_to_bool(value, &r.safe_environment);
-        break;
-    case 3: json_value_to_bool(value, &r.size); break;
-    case 4: json_value_to_bool(value, &r.age); break;
-    case 5: json_value_to_bool(value, &r.healthy); break;
-    case 6: json_value_to_bool(value, &r.health_score_pending); break;
-    case 7: json_value_to_bool(value, &r.protected_moderation); break;
-    case 8:
-        if (json_value_to_u64(value, &number) && number <= 0xFFFFFFFFull)
-            r.minimum_size = static_cast<u32>(number);
-        break;
-    case 9:
-        if (json_value_to_u64(value, &number) && number <= 0xFFFFFFFFull)
-            r.minimum_age_days = static_cast<u32>(number);
-        break;
-    case 10:
+// sufficient (0), the checklist's first item (2) and the bad content (10) need their own reads.
+bool requirements_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& d = *reinterpret_cast<GuildDiscoveryRequirements*>(r.base);
+    if (index == 0) {
+        static_cast<RequirementsReader&>(r).sufficient = json_value_to_bool(value, &d.sufficient);
+    } else if (index == 2) {
+        d.checklist = true;
+        json_value_to_bool(value, &d.safe_environment);
+    } else if (value.kind == JsonValueKind::object) {
         // An object naming what was found; an empty one means nothing was.
-        if (value.kind == JsonValueKind::object)
-            for (u32 i = 0; i < value.source.bytes && !r.bad_content; ++i)
-                r.bad_content = value.source.data[i] == ':';
-        break;
-    case 11: json_value_to_timestamp(value, &r.grace_period_end_ms); break;
-    default: break;
+        for (u32 i = 0; i < value.source.bytes && !d.bad_content; ++i)
+            d.bad_content = value.source.data[i] == ':';
     }
     return true;
 }
+constexpr FieldDef kRequirementsDefs[]{
+    {"sufficient", MAICORD_FIELD_HOOK},
+    {"sufficient_without_grace_period", MAICORD_FIELD_BOOL(GuildDiscoveryRequirements, sufficient_without_grace_period)},
+    {"safe_environment", MAICORD_FIELD_HOOK},
+    {"size", MAICORD_FIELD_BOOL(GuildDiscoveryRequirements, size)},
+    {"age", MAICORD_FIELD_BOOL(GuildDiscoveryRequirements, age)},
+    {"healthy", MAICORD_FIELD_BOOL(GuildDiscoveryRequirements, healthy)},
+    {"health_score_pending", MAICORD_FIELD_BOOL(GuildDiscoveryRequirements, health_score_pending)},
+    {"protected", MAICORD_FIELD_BOOL(GuildDiscoveryRequirements, protected_moderation)},
+    {"minimum_size", MAICORD_FIELD_NUMBER(GuildDiscoveryRequirements, minimum_size)},
+    {"minimum_age", MAICORD_FIELD_NUMBER(GuildDiscoveryRequirements, minimum_age_days)},
+    {"nsfw_properties", MAICORD_FIELD_HOOK},
+    {"grace_period_end_date", MAICORD_FIELD_TIMESTAMP(GuildDiscoveryRequirements, grace_period_end_ms)},
+};
+MAICORD_FIELD_TABLE(kRequirementsSpec, kRequirementsDefs, requirements_hook, kLenientCodes, kDepth);
 
 struct MetadataPass {
     const JsonIndexedDocument* document;
@@ -528,9 +522,8 @@ bool guild_discovery_requirements_decode(Utf8View body, Slice<u32> scratch,
     if (!output || !scan(body, scratch, &document))
         return false;
     GuildDiscoveryRequirements decoded{};
-    RequirementsPass pass{&decoded, false};
-    if (!json_visit_root_object(body, document.structurals, kDepth, requirements_member, &pass).ok() ||
-        !pass.sufficient)
+    RequirementsReader pass{{{&document, 0}, &kRequirementsSpec, reinterpret_cast<u8*>(&decoded), 0}, false};
+    if (!json_visit_root_object(body, document.structurals, kDepth, read_member, &pass).ok() || !pass.sufficient)
         return false;
     copy_value(output, decoded);
     return true;

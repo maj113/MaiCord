@@ -52,10 +52,13 @@ Utf8View media_url_resolve(MediaUrlResolver* resolver, Utf8View source, u64 now_
     }
     if (!replace)
         return {};
-    reset_value<MediaUrlEntry>(replace);
+    // Only the used prefix of each URL buffer is ever read, so a reused entry needs no wipe of its 4 KB.
     copy_bytes(replace->original, source.data, source.bytes);
     replace->original_bytes = static_cast<u16>(source.bytes);
+    replace->refreshed_bytes = 0;
     replace->last_used_ms = now_ms;
+    replace->retry_at_ms = 0;
+    replace->attempts = 0;
     replace->state = MediaUrlState::queued;
     return {};
 }

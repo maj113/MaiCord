@@ -21,7 +21,6 @@
 #include "maicord/app/account/user_account_coordinator.hpp"
 #include "../../src/app/gateway/ready_projection.hpp"
 #include "maicord/app/media/account_media.hpp"
-#include "maicord/app/account/account_module_version.hpp"
 #include "maicord/protocol/messages/history.hpp"
 #include "maicord/app/voice/socket.hpp"
 #include "maicord/app/voice/udp_discovery.hpp"
@@ -1190,8 +1189,6 @@ bool WINAPI module_voice_video_frame(void* instance, u32 ssrc, VideoStreamFrame*
 
 bool fill_api(AccountModuleApi* api) noexcept {
     *api = {};
-    api->version = kAccountModuleApiVersion;
-    api->bytes = sizeof(AccountModuleApi);
     api->start = module_start;
     api->pump = module_pump;
     api->notification_handles = module_notification_handles;
@@ -1241,7 +1238,6 @@ bool fill_api(AccountModuleApi* api) noexcept {
     MC_STUB(24, login_stop);
     MC_STUB(25, profile_get);
     MC_STUB(26, application_command);
-    MC_STUB(27, set_rest_trace);
     MC_STUB(28, login_submit_verification);
     MC_STUB(29, relationships);
     MC_STUB(30, message_ack);
@@ -1376,9 +1372,8 @@ bool counters(PerfAccountCounters* output) noexcept {
 
 } // namespace maicord::perf
 
-extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
-                                               maicord::AccountModuleApi* api) noexcept {
-    return api && requested_version == maicord::kAccountModuleApiVersion && maicord::perf::fill_api(api);
+extern "C" bool WINAPI maicord_account_get_api(maicord::AccountModuleApi* api) noexcept {
+    return api && maicord::perf::fill_api(api);
 }
 extern "C" bool WINAPI maicord_perf_account_control(const maicord::perf::PerfAccountControl* control) noexcept {
     return maicord::perf::control(control);

@@ -93,10 +93,11 @@ struct SoundboardState {
     u64 notice_guild, notice_until_ms;
     char notice[128];
     u32 notice_bytes;
-    Picker picker;
     u32 revision;
 };
 SoundboardState board{};
+// Committed on the first open: writable image pages are charged to every session and most never open the picker.
+Picker* g_picker;
 StableStorage g_sound_storage;
 // JSON token scratch and decoded-list staging (~570 KB), committed on the first
 // soundboard payload rather than with the image: writable image pages are
@@ -363,17 +364,19 @@ Utf8View block_text(SoundboardBlock block) noexcept {
     }
 }
 bool query_matches(const SoundboardSound& sound) noexcept {
-    const auto& p = board.picker;
+    const auto& p = *g_picker;
     return ascii_contains_ignore_case({sound.name, sound.name_bytes}, {p.query, p.query_bytes});
 }
 // An error footer holds until its notice expires (default_footer leaves it alone).
 void set_footer(const Utf8View& text) noexcept {
-    auto& p = board.picker;
+    if (!g_picker)
+        return;
+    auto& p = *g_picker;
     p.footer_bytes = utf8_copy_truncated(p.footer, sizeof(p.footer), text);
     p.error_until_ms = now_ms() + kNoticeMs;
 }
 void default_footer(bool truncated) noexcept {
-    auto& p = board.picker;
+    auto& p = *g_picker;
     if (p.error_until_ms && now_ms() < p.error_until_ms)
         return;
     p.error_until_ms = 0;
@@ -389,7 +392,7 @@ void default_footer(bool truncated) noexcept {
 }
 // Rebuilds the popup rows: this server's sounds, other servers' (Nitro), then defaults.
 bool build_picker(bool open) noexcept {
-    auto& p = board.picker;
+    auto& p = *g_picker;
     u32 count = 0, sound_count = 0;
     bool truncated = false;
     const auto header = [&](Utf8View label) noexcept {
@@ -611,7 +614,9 @@ bool application_soundboard_toggle(u64 channel_id, UiRect anchor) noexcept {
     const auto* channel = voice_channel(channel_id);
     if (!channel || !application_soundboard_available(channel_id))
         return false;
-    auto& p = board.picker;
+    if (!g_picker && !(g_picker = commit_pages<Picker>()))
+        return false;
+    auto& p = *g_picker;
     p.channel_id = channel_id;
     p.guild_id = channel->guild_id;
     p.anchor = anchor;
@@ -641,7 +646,7 @@ bool application_soundboard_menu_action(u32 action) noexcept {
 bool application_soundboard_menu_activate(u32 action, bool preview) noexcept {
     if (!application_soundboard_menu_action(action))
         return false;
-    const auto* sound = find_sound(board.picker.sounds[action - kActionBase]);
+    const auto* sound = find_sound(g_picker->sounds[action - kActionBase]);
     if (!sound)
         return true;
     if (preview)
@@ -652,7 +657,7 @@ bool application_soundboard_menu_activate(u32 action, bool preview) noexcept {
 bool application_soundboard_menu_key(u32 key) noexcept {
     if (!picker_open() || window_key_down(nullptr, key::ctrl) || window_key_down(nullptr, key::alt))
         return false;
-    auto& p = board.picker;
+    auto& p = *g_picker;
     char typed = 0;
     if (key >= 'A' && key <= 'Z')
         typed = static_cast<char>(window_key_down(nullptr, key::shift) ? key : key + 32);
@@ -940,12 +945,12 @@ u64 application_soundboard_next_wake(bool lane_idle) noexcept {
         expired = true;
     } else if (board.notice_bytes)
         earliest(board.notice_until_ms);
-    if (board.picker.error_until_ms) {
-        if (now >= board.picker.error_until_ms) {
-            board.picker.error_until_ms = 0;
+    if (g_picker && g_picker->error_until_ms) {
+        if (now >= g_picker->error_until_ms) {
+            g_picker->error_until_ms = 0;
             refresh_picker();
         } else
-            earliest(board.picker.error_until_ms);
+            earliest(g_picker->error_until_ms);
     }
     if (expired)
         repaint();
@@ -960,5 +965,7 @@ void application_soundboard_release() noexcept {
         drop_head();
     // In place: the state is too large for a temporary.
     secure_clear_bytes(&board, sizeof(board));
+    if (g_picker)
+        secure_clear_bytes(g_picker, sizeof(Picker));
 }
 } // namespace maicord::app_detail

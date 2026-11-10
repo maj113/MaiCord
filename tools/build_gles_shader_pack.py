@@ -7,7 +7,8 @@ Windows build compiles: src/render/shaders/<x>.hlsl is src/render/shaders/gles/<
 README beside the GLSL; tools/check_shader_twins.py keeps the pair in step). Per shader:
 
   <x>.glsl --pruned for the shader's stage and defines, the binding manifest read from its declarations--> GLSL ES 3.10
-           --comments and whitespace stripped--> text --one solid deflate stream for all shaders--> pack
+           --comments and whitespace stripped, the names the shader defines made short--> text
+           --one solid deflate stream for all shaders--> pack
 
 No compiler runs here: the text is what the driver compiles (--validate also runs glslangValidator on each text when it
 is on PATH). The stream comes from tools/optimal_deflate.py and tools/deflate_cache.txt like every other shipped table
@@ -17,6 +18,7 @@ Usage: build_gles_shader_pack.py OUTPUT.inc [--validate] [--dump DIRECTORY]
 Writes OUTPUT.inc and maicord_shader_pack_gles.bin beside it (read by #embed). --dump also writes every shader's final
 text as DIRECTORY/<name>.<stage>.glsl.
 """
+import collections
 import pathlib
 import re
 import shutil
@@ -329,6 +331,114 @@ def assemble(shader, validate, work):
     return text, rows
 
 
+# ---- shorter names --------------------------------------------------------------------------------------------------
+
+# What no shader name may be or collide with: the keywords, reserved words, types, qualifiers and built-in functions of
+# GLSL ES 3.10 (the names inside layout(...) and the swizzles are found in the text, see shorten_names).
+KEPT = frozenset('''
+void bool int uint float double half fixed long short unsigned vec2 vec3 vec4 ivec2 ivec3 ivec4 uvec2 uvec3 uvec4 bvec2
+bvec3 bvec4 mat2 mat3 mat4 mat2x2 mat2x3 mat2x4 mat3x2 mat3x3 mat3x4 mat4x2 mat4x3 mat4x4 sampler2D isampler2D usampler2D
+sampler3D isampler3D usampler3D samplerCube sampler2DArray sampler2DShadow samplerCubeShadow sampler2DMS image2D iimage2D
+uimage2D image3D image2DArray imageCube uniform buffer shared layout in out inout flat smooth highp mediump lowp
+precision const struct return if else for while do break continue discard switch case default true false main readonly
+writeonly coherent volatile restrict centroid invariant precise attribute varying sample patch input output packed
+common partition active asm class union enum typedef template this resource goto inline noinline public static extern
+external interface superp namespace using sizeof cast filter radians degrees sin cos tan asin acos atan sinh cosh tanh
+asinh acosh atanh pow exp log exp2 log2 sqrt inversesqrt abs sign floor trunc round roundEven ceil fract mod modf min
+max clamp mix step smoothstep isnan isinf floatBitsToInt floatBitsToUint intBitsToFloat uintBitsToFloat packSnorm2x16
+unpackSnorm2x16 packUnorm2x16 unpackUnorm2x16 packHalf2x16 unpackHalf2x16 packUnorm4x8 packSnorm4x8 unpackUnorm4x8
+unpackSnorm4x8 length distance dot cross normalize faceforward reflect refract matrixCompMult outerProduct transpose
+determinant inverse lessThan lessThanEqual greaterThan greaterThanEqual equal notEqual any all not uaddCarry
+usubBorrow umulExtended imulExtended bitfieldExtract bitfieldInsert bitfieldReverse bitCount findLSB findMSB
+textureSize texture textureProj textureLod textureOffset texelFetch texelFetchOffset textureProjOffset
+textureLodOffset textureProjLod textureProjLodOffset textureGrad textureGradOffset textureProjGrad
+textureProjGradOffset textureGather imageLoad imageStore imageSize imageAtomicAdd imageAtomicMin imageAtomicMax
+imageAtomicAnd imageAtomicOr imageAtomicXor imageAtomicExchange imageAtomicCompSwap atomicAdd atomicMin atomicMax
+atomicAnd atomicOr atomicXor atomicExchange atomicCompSwap atomicCounter barrier memoryBarrier memoryBarrierShared
+memoryBarrierBuffer memoryBarrierImage groupMemoryBarrier memoryBarrierAtomicCounter dFdx dFdy fwidth length
+'''.split())
+SWIZZLE = re.compile(r'[xyzwrgbastpq]{1,4}$')
+IDENTIFIER = re.compile(r'[A-Za-z_]\w*$')
+LETTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+
+def new_names():
+    """Identifiers by length: a letter, then letters, digits and underscores."""
+    yield from LETTERS
+    for first in LETTERS:
+        for second in LETTERS + '0123456789_':
+            yield first + second
+    for first in LETTERS:
+        for second in LETTERS + '0123456789_':
+            for third in LETTERS + '0123456789_':
+                yield first + second + third
+
+
+def shorten_names(results):
+    """`results` with the names the shaders define (variables, functions, structures, blocks and their members)
+    renamed to the shortest names free, the most used first. The names are shared by all shaders, so the one solid
+    stream finds the same text in each. A name is kept when it is GLSL's (KEPT, gl_*), a qualifier of layout(...) or a
+    swizzle (xyzw, rgba, stpq): those cannot be told from a member and are never renamed, nor is a name that the text
+    uses and the table does not rename taken as a new one. Preprocessor lines are left alone."""
+    kept = set(KEPT)
+    bodies = []
+    for text, _ in results:
+        lines = text.decode('ascii').split('\n')
+        bodies.append(lines)
+        for line in lines:
+            if line.startswith('#'):
+                continue
+            tokens = TOKEN.findall(line)
+            for position, token in enumerate(tokens):
+                if token == 'layout' and tokens[position + 1:position + 2] == ['(']:
+                    end = tokens.index(')', position)
+                    kept.update(word for word in tokens[position + 2:end] if IDENTIFIER.match(word))
+    counts = collections.Counter()
+    for lines in bodies:
+        for line in lines:
+            if not line.startswith('#'):
+                counts.update(token for token in TOKEN.findall(line)
+                              if IDENTIFIER.match(token) and token not in kept and not token.startswith('gl_')
+                              and not SWIZZLE.match(token))
+    present = {token for lines in bodies for line in lines if not line.startswith('#')
+               for token in TOKEN.findall(line) if IDENTIFIER.match(token)}
+    free = (name for name in new_names() if name not in kept and name not in present - set(counts)
+            and not name.startswith('gl_'))
+    mapping = {}
+    for token, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
+        mapping[token] = next(free)
+    shortened = []
+    for (_, rows), lines in zip(results, bodies):
+        out = []
+        for line in lines:
+            if line.startswith('#'):
+                out.append(line)
+                continue
+            pieces, previous = [], ''
+            for token in TOKEN.findall(line):
+                token = mapping.get(token, token)
+                if previous and ((WORD.match(previous[-1]) and WORD.match(token[0])) or previous[-1] + token[0] in JOINS):
+                    pieces.append(' ')
+                pieces.append(token)
+                previous = token
+            out.append(''.join(pieces))
+        shortened.append(('\n'.join(out).encode('ascii'), rows))
+    return shortened
+
+
+def validate_final(shaders, results, work):
+    """glslangValidator on the text that is packed, when it is on PATH."""
+    validator = shutil.which('glslangValidator')
+    if not validator:
+        return
+    for (name, stage, _, _, _), (text, _) in zip(shaders, results):
+        scratch = pathlib.Path(work) / ('%s.packed.%s' % (name, STAGE_KIND[stage]))
+        scratch.write_bytes(text)
+        result = subprocess.run([validator, str(scratch)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if result.returncode != 0:
+            raise ShaderError('glslangValidator for %s (packed) failed:\n%s' % (name, result.stdout.strip()))
+
+
 def stream_order(shaders):
     """Indices of `shaders` in the order their text goes into the stream: pack order, except that a backend variant
     follows the shader it is made from (the 32 KiB window of deflate matches a variant only when it is near its base)."""
@@ -391,7 +501,9 @@ def main():
     shaders = shader_list()
     try:
         with tempfile.TemporaryDirectory() as scratch:
-            results = [assemble(shader, validate, scratch) for shader in shaders]
+            results = shorten_names([assemble(shader, validate, scratch) for shader in shaders])
+            if validate:
+                validate_final(shaders, results, scratch)
     except ShaderError as error:
         raise SystemExit('error: %s' % error)
     if dump:

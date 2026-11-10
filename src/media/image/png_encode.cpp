@@ -1,6 +1,7 @@
 #include "maicord/media/image/png_encode.hpp"
 
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/crc32.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "../compression/deflate_tables.hpp"
 #include "png_common.hpp"
@@ -590,7 +591,7 @@ u32 png_encode_rgba8(const u8* rgba, u32 width, u32 height, Slice<u8> workspace,
     ihdr[16] = 8;
     ihdr[17] = static_cast<u8>(opaque ? 2 : 6);
     ihdr[18] = ihdr[19] = ihdr[20] = 0;
-    byte_store_be32(ihdr + 21, png_crc32(ihdr + 4, 17));
+    byte_store_be32(ihdr + 21, crc32_extend(0, ihdr + 4, 17));
     u8* idat = ihdr + 25;
     const u32 room = output.count - (8 + 25 + 12 + 12);
     const u32 zlib = zlib_compress({filtered, filtered_bytes}, {workspace.data, kZlibCompressWorkspaceBytes},
@@ -598,10 +599,10 @@ u32 png_encode_rgba8(const u8* rgba, u32 width, u32 height, Slice<u8> workspace,
     if (!zlib)
         return 0;
     write_chunk_header(idat, zlib, "IDAT");
-    byte_store_be32(idat + 8 + zlib, png_crc32(idat + 4, zlib + 4));
+    byte_store_be32(idat + 8 + zlib, crc32_extend(0, idat + 4, zlib + 4));
     u8* iend = idat + 12 + zlib;
     write_chunk_header(iend, 0, "IEND");
-    byte_store_be32(iend + 8, png_crc32(iend + 4, 4));
+    byte_store_be32(iend + 8, crc32_extend(0, iend + 4, 4));
     return static_cast<u32>(iend + 12 - out);
 }
 

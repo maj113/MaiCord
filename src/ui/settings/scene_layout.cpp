@@ -1739,10 +1739,10 @@ u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& 
     hash = hash64_mix(hash, static_cast<u64>(scene.presentation));
     hash = hash64_mix(hash, scene.navigation_revision);
     hash = hash64_mix(hash, scene.navigation.count);
-    hash = hash64_bytes(hash, &style, sizeof(style));
+    hash = hash64_words(hash, &style, sizeof(style));
     hash = hash64_mix(hash, content.description.bytes);
     if (content.description.bytes)
-        hash = hash64_bytes(hash, content.description.data, content.description.bytes);
+        hash = hash64_words(hash, content.description.data, content.description.bytes);
     hash = hash64_mix(hash, content.sectioned);
     hash = hash64_bytes(hash, &content.aside_width, sizeof(content.aside_width));
     hash = hash64_bytes(hash, &content.aside_height, sizeof(content.aside_height));
@@ -1753,16 +1753,16 @@ u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& 
         hash = hash64_mix(hash, c.id);
         hash = hash64_mix(hash, static_cast<u32>(c.kind) | (c.enabled ? 0x100u : 0u));
         hash = hash64_mix(hash, c.choices.count);
-        hash = hash64_bytes(hash, c.label.data, c.label.bytes);
-        hash = hash64_bytes(hash, c.description.data, c.description.bytes);
-        hash = hash64_bytes(hash, c.action_label.data, c.action_label.bytes);
-        hash = hash64_bytes(hash, c.detail.data, c.detail.bytes);
+        hash = hash64_words(hash, c.label.data, c.label.bytes);
+        hash = hash64_words(hash, c.description.data, c.description.bytes);
+        hash = hash64_words(hash, c.action_label.data, c.action_label.bytes);
+        hash = hash64_words(hash, c.detail.data, c.detail.bytes);
         // The clipped state of a markdown row, and the texts of a status card's chips, change its height.
         if (c.kind == UiSettingsControlKind::markdown)
             hash = hash64_mix(hash, c.checked);
         if (c.kind == UiSettingsControlKind::status)
             for (u32 j = 0; j < c.choices.count; ++j)
-                hash = hash64_bytes(hash, c.choices[j].data, c.choices[j].bytes);
+                hash = hash64_words(hash, c.choices[j].data, c.choices[j].bytes);
         if (content.meters)
             hash = hash64_mix(hash, content.meters[i] != kUiSettingsNoMeter);
         if (content.presentation)
@@ -1771,7 +1771,7 @@ u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& 
             hash = hash64_bytes(hash, item, sizeof(UiSettingsListItem));
         if (chips(content, i))
             for (u32 j = 0; j < c.choices.count; ++j)
-                hash = hash64_bytes(hash, c.choices[j].data, c.choices[j].bytes);
+                hash = hash64_words(hash, c.choices[j].data, c.choices[j].bytes);
         // A multi-line field relayouts when its text grows or shrinks a line.
         if (c.kind == UiSettingsControlKind::multiline)
             hash = hash64_mix(hash, static_cast<u64>(multiline_height(style, c, row_width(scene, aside, i)) * 4));

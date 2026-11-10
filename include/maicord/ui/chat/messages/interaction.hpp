@@ -40,6 +40,7 @@ struct MessageInteractionHit {
     UiRect anchor;
 };
 
+// `out` is reset when this returns true and untouched otherwise: callers declare it without `{}`.
 bool message_interaction_layout(const MessageScene& scene, const MessageTextCommand& command,
                                 const UserStore& users, UiTextMeasureCache* cache, const Theme& theme,
                                 MessageInteractionLayout* out) noexcept;

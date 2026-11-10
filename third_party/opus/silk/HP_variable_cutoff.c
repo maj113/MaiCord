@@ -40,7 +40,7 @@ void silk_HP_variable_cutoff(
    /* Adaptive cutoff frequency: estimate low end of pitch frequency range */
    if( psEncC1->prevSignalType == TYPE_VOICED ) {
       /* difference, in log domain */
-      pitch_freq_Hz_Q16 = silk_DIV32_16( silk_LSHIFT( silk_MUL( psEncC1->fs_kHz, 1000 ), 16 ), psEncC1->prevLag );
+      pitch_freq_Hz_Q16 = silk_DIV32_16( silk_LSHIFT( silk_MUL( MAX_FS_KHZ, 1000 ), 16 ), psEncC1->prevLag );
       pitch_freq_log_Q7 = silk_lin2log( pitch_freq_Hz_Q16 ) - ( 16 << 7 );
 
       /* adjustment based on quality */

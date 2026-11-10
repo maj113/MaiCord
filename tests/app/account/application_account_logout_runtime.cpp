@@ -376,7 +376,7 @@ void run() noexcept {
     if (!wait_for_stop())
         return;
     check(!g_app.account.module && !g_app.account.instance && !g_app.account.login_instance &&
-              !g_app.account.api.logout && g_app.account_logout->stop_host.instance == &paths &&
+              g_app.account_logout->stop_host.instance == &paths &&
               g_app.account_logout->stop_host.module && !forgets && credentials_present() && exists(marker),
           "logout controller: public host is empty while private host retains live resources and "
           "credentials");

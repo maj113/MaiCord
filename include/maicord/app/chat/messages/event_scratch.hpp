@@ -45,6 +45,7 @@ struct MessageEventScratch {
         return scratch;
     }
 };
+extern MessageEventScratch g_message_event_scratch;
 
 // Everything one MESSAGE_CREATE/UPDATE route borrows: the rich arrays plus the mention user and member role
 // lists. The gateway worker owns one per client, so routing a message costs no stack probe.

@@ -201,6 +201,12 @@ set(maicord_sdk_includes "$<BOOL:$<TARGET_PROPERTY:MAICORD_SDK_INCLUDES>>")
 target_include_directories(maicord_compile_contract INTERFACE
     "$<$<NOT:${maicord_sdk_includes}>:${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/sys/libc>")
 target_compile_definitions(maicord_compile_contract INTERFACE "$<${maicord_sdk_includes}:MAICORD_SDK_INCLUDES>")
+# The tests' own objects and library twins (MAICORD_TEST_CODEGEN) call the account module through a table they can fill
+# (include/maicord/app/account/account_host.hpp), and reach the other in-process seams with one shipped implementation
+# (MAICORD_TEST_SEAMS: go_live_stream.hpp, ...) through a table or hook of their own; everything shipped calls them
+# through constant tables the whole-program link folds into direct calls.
+target_compile_definitions(maicord_compile_contract INTERFACE
+    "$<$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>:MAICORD_ACCOUNT_API_TABLE;MAICORD_TEST_SEAMS>")
 target_compile_options(maicord_compile_contract INTERFACE
     "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:${maicord_sdk_includes}>>:${maicord_clang}-nostdinc>")
 target_compile_features(maicord_compile_contract INTERFACE cxx_std_23)

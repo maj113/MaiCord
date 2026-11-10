@@ -8,20 +8,17 @@ namespace {
 SharedLibrary g_egl_library;
 SharedLibrary g_gles_library;
 
-// The function tables as data: every name after the last, NUL terminated, and where its pointer sits in the Api. The
-// loader is one loop over them, not a lookup, a check and a log line of code per function.
+// The function tables as data: every name after the last, NUL terminated, in the order of the Api's members (the
+// functions come first in each Api, the extension ones after them). The loader is one loop over them, not a lookup, a
+// check and a log line of code per function.
 #define MAICORD_EGL_NAME(result, name, arguments) #name "\0"
-#define MAICORD_EGL_SLOT(result, name, arguments) static_cast<u16>(__builtin_offsetof(egl::Api, name)),
 #define MAICORD_GLES_NAME(result, name, arguments) #name "\0"
-#define MAICORD_GLES_SLOT(result, name, arguments) static_cast<u16>(__builtin_offsetof(gl::Api, name)),
 constexpr char kEglNames[] = MAICORD_EGL_FUNCTIONS(MAICORD_EGL_NAME);
-constexpr u16 kEglSlots[] = {MAICORD_EGL_FUNCTIONS(MAICORD_EGL_SLOT)};
 constexpr char kGlesNames[] = MAICORD_GLES_FUNCTIONS(MAICORD_GLES_NAME);
-constexpr u16 kGlesSlots[] = {MAICORD_GLES_FUNCTIONS(MAICORD_GLES_SLOT)};
 #undef MAICORD_EGL_NAME
-#undef MAICORD_EGL_SLOT
 #undef MAICORD_GLES_NAME
-#undef MAICORD_GLES_SLOT
+static_assert(shared_library_name_count(kEglNames) * sizeof(void*) <= sizeof(egl::Api) &&
+              shared_library_name_count(kGlesNames) * sizeof(void*) <= sizeof(gl::Api));
 
 void fail(const char* message) noexcept {
     log_write(LogLevel::error, "gpu", message);
@@ -30,26 +27,19 @@ void fail(const char* message) noexcept {
         log_write(LogLevel::error, "gpu", detail);
 }
 
-// Stores each named function of `library` in its slot of `api` and logs "<lacks><name>" for every one it does not
-// have; false when any is missing.
-__declspec(noinline) bool resolve(const SharedLibrary& library, void* api, const char* names, const u16* slots,
-                                  u32 count, const char* lacks) noexcept {
-    char message[64];
-    const u32 prefix = c_string_length(lacks);
-    copy_bytes(message, lacks, prefix);
-    bool complete = true;
-    for (u32 index = 0; index < count; ++index) {
-        const u32 length = c_string_length(names) + 1;
-        void* function = shared_library_symbol(library, names);
-        copy_bytes(static_cast<u8*>(api) + slots[index], &function, sizeof(function));
-        if (!function) {
-            copy_bytes(message + prefix, names, length);
-            log_write(LogLevel::error, "gpu", message);
-            complete = false;
-        }
-        names += length;
+// Fills the first `bytes` of `api` from `library` and logs "<lacks><name>" for the first function it does not have;
+// false when any is missing.
+__declspec(noinline) bool resolve(const SharedLibrary& library, void* api, usize bytes, const char* names,
+                                  const char* lacks) noexcept {
+    const char* missing = shared_library_resolve(library, api, bytes, names);
+    if (missing) {
+        char message[64];
+        const u32 prefix = c_string_length(lacks);
+        copy_bytes(message, lacks, prefix);
+        copy_bytes(message + prefix, missing, c_string_length(missing) + 1);
+        log_write(LogLevel::error, "gpu", message);
     }
-    return complete;
+    return !missing;
 }
 
 } // namespace
@@ -66,10 +56,10 @@ GpuStatus load_libraries(GpuDevice* device) noexcept {
     }
     device->egl_library = g_egl_library.handle;
 
-    const bool egl_complete = resolve(g_egl_library, &device->egl, kEglNames, kEglSlots,
-                                      sizeof(kEglSlots) / sizeof(kEglSlots[0]), "libEGL.so.1 lacks ");
-    const bool complete = resolve(g_gles_library, &device->gl, kGlesNames, kGlesSlots,
-                                  sizeof(kGlesSlots) / sizeof(kGlesSlots[0]), "libGLESv2.so.2 lacks ") &&
+    const bool egl_complete = resolve(g_egl_library, &device->egl, shared_library_name_count(kEglNames) * sizeof(void*),
+                                      kEglNames, "libEGL.so.1 lacks ");
+    const bool complete = resolve(g_gles_library, &device->gl, shared_library_name_count(kGlesNames) * sizeof(void*),
+                                  kGlesNames, "libGLESv2.so.2 lacks ") &&
                           egl_complete;
     if (!complete) {
         unload_libraries(device);

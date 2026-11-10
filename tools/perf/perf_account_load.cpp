@@ -1,6 +1,7 @@
 // MaiCordPerfProbe's account_host_load: attaches MaiCordPerfAccount.dll from
-// beside the probe instead of the linked account module. The library stays
-// loaded for the process. Nothing here ships.
+// beside the probe instead of the linked account module, and fills the probe's
+// account table (account_host.hpp) with the library's entries. The library
+// stays loaded for the process. Nothing here ships.
 #include "perf_shared.hpp"
 
 #include "maicord/app/account/account_host.hpp"
@@ -22,9 +23,10 @@ AccountHostResult account_host_load(AccountHost* host) noexcept {
         module = LoadLibraryExW(path, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         if (!module) return {GetLastError(), AccountHostError::module_load};
     }
-    const auto get_api = reinterpret_cast<AccountModuleGetApiFunction>(GetProcAddress(module, "maicord_account_get_api"));
-    if (!get_api) return {GetLastError(), AccountHostError::module_symbol};
-    return account_host_attach(host, module, get_api);
+    using GetApi = bool(WINAPI*)(AccountModuleApi*) noexcept;
+    const auto get_api = reinterpret_cast<GetApi>(GetProcAddress(module, "maicord_account_get_api"));
+    if (!get_api || !get_api(&g_account_api)) return {GetLastError(), AccountHostError::module_symbol};
+    return account_host_attach(host, module);
 }
 
 } // namespace maicord

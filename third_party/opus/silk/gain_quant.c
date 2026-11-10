@@ -32,18 +32,17 @@ POSSIBILITY OF SUCH DAMAGE.
 #define SCALE_Q16               ( ( 65536 * ( N_LEVELS_QGAIN - 1 ) ) / ( ( ( MAX_QGAIN_DB - MIN_QGAIN_DB ) * 128 ) / 6 ) )
 #define INV_SCALE_Q16           ( ( 65536 * ( ( ( MAX_QGAIN_DB - MIN_QGAIN_DB ) * 128 ) / 6 ) ) / ( N_LEVELS_QGAIN - 1 ) )
 
-/* Gain scalar quantization with hysteresis, uniform on log scale */
+/* Gain scalar quantization with hysteresis, uniform on log scale; the first gain is coded in full (the encoder codes every
+   frame independently) */
 void silk_gains_quant(
     opus_int8                   ind[ MAX_NB_SUBFR ],            /* O    gain indices                                */
     opus_int32                  gain_Q16[ MAX_NB_SUBFR ],       /* I/O  gains (quantized out)                       */
-    opus_int8                   *prev_ind,                      /* I/O  last index in previous frame                */
-    const opus_int              conditional,                    /* I    first gain is delta coded if 1              */
-    const opus_int              nb_subfr                        /* I    number of subframes                         */
+    opus_int8                   *prev_ind                       /* I/O  last index in previous frame                */
 )
 {
     opus_int k, double_step_size_threshold;
 
-    for( k = 0; k < nb_subfr; k++ ) {
+    for( k = 0; k < MAX_NB_SUBFR; k++ ) {
         /* Convert to log scale, scale, floor() */
         ind[ k ] = silk_SMULWB( SCALE_Q16, silk_lin2log( gain_Q16[ k ] ) - OFFSET );
 
@@ -54,7 +53,7 @@ void silk_gains_quant(
         ind[ k ] = silk_LIMIT_int( ind[ k ], 0, N_LEVELS_QGAIN - 1 );
 
         /* Compute delta indices and limit */
-        if( k == 0 && conditional == 0 ) {
+        if( k == 0 ) {
             /* Full index */
             ind[ k ] = silk_LIMIT_int( ind[ k ], *prev_ind + MIN_DELTA_GAIN_QUANT, N_LEVELS_QGAIN - 1 );
             *prev_ind = ind[ k ];
@@ -123,15 +122,14 @@ void silk_gains_dequant(
 
 /* Compute unique identifier of gain indices vector */
 opus_int32 silk_gains_ID(                                       /* O    returns unique identifier of gains          */
-    const opus_int8             ind[ MAX_NB_SUBFR ],            /* I    gain indices                                */
-    const opus_int              nb_subfr                        /* I    number of subframes                         */
+    const opus_int8             ind[ MAX_NB_SUBFR ]             /* I    gain indices                                */
 )
 {
     opus_int   k;
     opus_int32 gainsID;
 
     gainsID = 0;
-    for( k = 0; k < nb_subfr; k++ ) {
+    for( k = 0; k < MAX_NB_SUBFR; k++ ) {
         gainsID = silk_ADD_LSHIFT32( ind[ k ], gainsID, 8 );
     }
 

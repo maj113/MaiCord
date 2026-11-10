@@ -103,11 +103,11 @@ void media_release(GoLiveMedia* media) noexcept {
 void stop_producers(GatewayGoLive& live) noexcept {
     auto& b = live.backend;
     if (live.capturing && b.capture_stop)
-        b.capture_stop(b.context);
+        b.capture_stop(live.backend_context);
     if (live.sounding && b.sound_stop)
-        b.sound_stop(b.context);
+        b.sound_stop(live.backend_context);
     if (live.encoding && b.encoder_stop)
-        b.encoder_stop(b.context);
+        b.encoder_stop(live.backend_context);
     live.capturing = live.sounding = live.encoding = false;
 }
 void free_buffers(GatewayGoLive& live) noexcept {
@@ -163,7 +163,8 @@ u32 sound_process(const CaptureSource& source) noexcept {
     return source.kind == CaptureSourceKind::window ? source.process_id : 0;
 }
 void start_sound(GatewayGoLive& live) noexcept {
-    live.sounding = live.backend.sound && live.backend.sound(live.backend.context, live.media, live.sound_process);
+    live.sounding = live.backend_context && live.backend.sound &&
+                    live.backend.sound(live.backend_context, live.media, live.sound_process);
 }
 
 // RTCP from the stream server (receiver reports, NACK, PLI/FIR, REMB, transport feedback).
@@ -205,8 +206,9 @@ bool ensure_encoder(GatewayGoLive& live) noexcept {
         return true; // Not yet: no picture, or the old codec's frame is still on the wire.
     auto& b = live.backend;
     if (live.encoding && b.encoder_stop)
-        b.encoder_stop(b.context);
-    live.encoding = b.encoder && b.encoder(b.context, live.media, codec, encoder_settings(live));
+        b.encoder_stop(live.backend_context);
+    live.encoding = live.backend_context && b.encoder &&
+                    b.encoder(live.backend_context, live.media, codec, encoder_settings(live));
     if (!live.encoding)
         return false;
     live.codec = codec;
@@ -234,7 +236,7 @@ bool attach(GatewayGoLive& live, u64 now_us) noexcept {
     live.speaking_sent = 0;
     // A new connection renegotiated the codec: the encoder starts again for it.
     if (live.encoding && live.backend.encoder_stop)
-        live.backend.encoder_stop(live.backend.context);
+        live.backend.encoder_stop(live.backend_context);
     live.encoding = false;
     return true;
 }
@@ -291,7 +293,7 @@ void media_events(GatewayGoLive& live) noexcept {
         live.capture_width = width;
         live.capture_height = height;
         if (live.encoding && live.backend.configure)
-            live.backend.configure(live.backend.context, encoder_settings(live));
+            live.backend.configure(live.backend_context, encoder_settings(live));
     }
 }
 void drain_video(GatewayGoLive& live, u64 now_ms) noexcept {
@@ -386,14 +388,14 @@ void live_media(GatewayGoLive& live, u64 now_ms) noexcept {
     if (live.awaiting_keyframe && now_ms - live.keyframe_request_ms >= kGoLiveKeyframeRetryMs)
         live.keyframe_wanted = true;
     if (live.keyframe_wanted && live.encoding && !live.paused && b.keyframe) {
-        b.keyframe(b.context);
+        b.keyframe(live.backend_context);
         live.keyframe_request_ms = now_ms;
         live.keyframe_wanted = false;
     }
     const u32 target = live.sender.bandwidth.target;
     if (live.encoding && b.bitrate && (target > live.bitrate_applied + live.bitrate_applied / 20 ||
                                        target + live.bitrate_applied / 20 < live.bitrate_applied)) {
-        b.bitrate(b.context, target);
+        b.bitrate(live.backend_context, target);
         live.bitrate_applied = target;
     }
     const u64 next_us = go_live_sender_pump(&live.sender, {&live, send_packet}, now_us);
@@ -488,7 +490,7 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
         if (!gateway_stream_key_valid(key) || !command.settings.fps)
             return false;
         bool known = false;
-        live->encodable = b.encodable ? b.encodable(b.context, &known) : 0;
+        live->encodable = live->backend_context && b.encodable ? b.encodable(live->backend_context, &known) : 0;
         live->settings = command.settings;
         live->sound_process = sound_process(command.source);
         live->user_paused = live->minimized = live->paused = false;
@@ -512,8 +514,9 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
         }
         live->video_timestamp_offset = random[0];
         live->audio_timestamp_base = random[1];
-        live->capturing = b.capture && b.capture(b.context, live->media, command.source, command.system_picker,
-                                                 command.settings.fps);
+        live->capturing = live->backend_context && b.capture &&
+                          b.capture(live->backend_context, live->media, command.source, command.system_picker,
+                                    command.settings.fps);
         if (!live->capturing) {
             free_buffers(*live);
             live->end = GoLiveEnd::capture_unavailable;
@@ -546,7 +549,7 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
             start_sound(*live);
         else if (!sound && live->sounding) {
             if (b.sound_stop)
-                b.sound_stop(b.context);
+                b.sound_stop(live->backend_context);
             live->sounding = false;
         }
         if (live->sender.history) {
@@ -556,20 +559,21 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
             live->bitrate_applied = target == live->sender.bandwidth.target ? live->bitrate_applied : 0;
         }
         if (live->encoding && b.configure)
-            b.configure(b.context, encoder_settings(*live));
+            b.configure(live->backend_context, encoder_settings(*live));
         return true;
     }
     case GoLiveCommandKind::change_source:
         if (!active(*live))
             return false;
         if (live->capturing && b.capture_stop)
-            b.capture_stop(b.context);
+            b.capture_stop(live->backend_context);
         if (live->sounding && b.sound_stop)
-            b.sound_stop(b.context);
+            b.sound_stop(live->backend_context);
         live->sounding = false;
         live->sound_process = sound_process(command.source);
-        live->capturing = b.capture && b.capture(b.context, live->media, command.source, command.system_picker,
-                                                 live->settings.fps);
+        live->capturing = live->backend_context && b.capture &&
+                          b.capture(live->backend_context, live->media, command.source, command.system_picker,
+                                    live->settings.fps);
         if (!live->capturing) {
             gateway_stream_stop(&live->control, GatewayStreamEnd::stopped);
             end_session(*live, GoLiveEnd::capture_unavailable);
@@ -665,7 +669,7 @@ bool gateway_go_live_publish(GatewayGoLive* live, GoLiveSnapshot* output) noexce
     s.key = live->control.key;
     s.viewer_count = active(*live) ? live->control.viewer_count : 0;
     copy_bytes(s.viewer_ids, live->control.viewer_ids, minimum(s.viewer_count, kGoLiveViewerIds) * 8u);
-    s.encodable = voice_bits(b.encodable ? b.encodable(b.context, &known) : 0);
+    s.encodable = voice_bits(live->backend_context && b.encodable ? b.encodable(live->backend_context, &known) : 0);
     s.encodable_known = known;
     s.settings = live->settings;
     s.state = live->state;

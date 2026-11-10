@@ -14,7 +14,6 @@ namespace event_pump_detail {}
 using namespace event_pump_detail;
 namespace event_pump_detail {
 
-extern MessageEventScratch g_message_scratch;
 ReadStateEntry read_model_entry(const GatewayClientReadStateMutation& record) noexcept;
 bool preflight_read_snapshot(const MessageEventPump& pump, const GatewayClientEvent& event,
                              ConstSlice<u8> payload, u32* required) noexcept;
@@ -78,9 +77,9 @@ template <class Consume>
 __declspec(noinline) MessageEventPumpConsumeResult
 consume_with_message_source(MessageEventPump* pump, const GatewayClientEvent& event, ConstSlice<u8> payload,
                             Consume consume) noexcept {
-    // The observer and canonical mutation borrow one decoded body, which lives
-    // in the pump's static scratch until the consumer returns.
-    const GatewayMessageRichScratch scratch = g_message_scratch.view(true);
+    // The observer and canonical mutation borrow one decoded body, which lives in the shared message scratch until
+    // the consumer returns.
+    const GatewayMessageRichScratch scratch = g_message_event_scratch.view(true);
     GatewayMessageEvent message;
     GatewayMessageNamedUser system_target;
     bool valid = gateway_client_event_as_message(event, payload, scratch, &message) &&

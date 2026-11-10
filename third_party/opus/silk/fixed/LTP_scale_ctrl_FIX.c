@@ -28,28 +28,21 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "main_FIX.h"
 
-/* Calculation of LTP state scaling */
+/* Calculation of LTP state scaling; every frame is coded independently, so it is always the first in its packet */
 void silk_LTP_scale_ctrl_FIX(
     silk_encoder_state_FIX          *psEnc,                                 /* I/O  encoder state                                                               */
-    silk_encoder_control_FIX        *psEncCtrl,                             /* I/O  encoder control                                                             */
-    opus_int                        condCoding                              /* I    The type of conditional coding to use                                       */
+    silk_encoder_control_FIX        *psEncCtrl                              /* I/O  encoder control                                                             */
 )
 {
     opus_int round_loss;
 
-    if( condCoding == CODE_INDEPENDENTLY ) {
-        /* Only scale if first frame in packet */
-        round_loss = psEnc->sCmn.PacketLoss_perc * psEnc->sCmn.nFramesPerPacket;
-        if ( psEnc->sCmn.LBRR_flag ) {
-            /* LBRR reduces the effective loss. In practice, it does not square the loss because
-               losses aren't independent, but that still seems to work best. We also never go below 2%. */
-            round_loss = 2 + silk_SMULBB( round_loss, round_loss ) / 100;
-        }
-        psEnc->sCmn.indices.LTP_scaleIndex = silk_SMULBB( psEncCtrl->LTPredCodGain_Q7, round_loss ) > silk_log2lin( 128*7 + 2900-psEnc->sCmn.SNR_dB_Q7 );
-        psEnc->sCmn.indices.LTP_scaleIndex += silk_SMULBB( psEncCtrl->LTPredCodGain_Q7, round_loss ) > silk_log2lin( 128*7 + 3900-psEnc->sCmn.SNR_dB_Q7 );
-    } else {
-        /* Default is minimum scaling */
-        psEnc->sCmn.indices.LTP_scaleIndex = 0;
+    round_loss = psEnc->sCmn.PacketLoss_perc;
+    if ( psEnc->sCmn.LBRR_flag ) {
+        /* LBRR reduces the effective loss. In practice, it does not square the loss because
+           losses aren't independent, but that still seems to work best. We also never go below 2%. */
+        round_loss = 2 + silk_SMULBB( round_loss, round_loss ) / 100;
     }
+    psEnc->sCmn.indices.LTP_scaleIndex = silk_SMULBB( psEncCtrl->LTPredCodGain_Q7, round_loss ) > silk_log2lin( 128*7 + 2900-psEnc->sCmn.SNR_dB_Q7 );
+    psEnc->sCmn.indices.LTP_scaleIndex += silk_SMULBB( psEncCtrl->LTPredCodGain_Q7, round_loss ) > silk_log2lin( 128*7 + 3900-psEnc->sCmn.SNR_dB_Q7 );
     psEncCtrl->LTP_scale_Q14 = silk_LTPScales_table_Q14[ psEnc->sCmn.indices.LTP_scaleIndex ];
 }

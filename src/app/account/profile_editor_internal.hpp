@@ -161,7 +161,6 @@ struct Owner : SettingsModal {
     // Backs `status` while it says a picked image is over the size limit.
     char size_error[192];
     u32 preview_serial;
-    u32 structurals[32 * 1024];
     char banks[2][4096];
     u32 bank_index;
 };
@@ -170,6 +169,9 @@ extern Owner* owner;
 extern u64 lifetime_serial;
 bool connected() noexcept;
 ChatStateStore& state() noexcept;
+// The UI thread's transient JSON scratch (AccountUiRuntime::message_history_page_structurals): a response is decoded
+// and applied before its handler returns.
+Slice<u32> json_scratch() noexcept;
 bool scope_current() noexcept;
 bool busy() noexcept;
 bool saving() noexcept;

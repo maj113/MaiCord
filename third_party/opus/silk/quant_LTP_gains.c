@@ -36,9 +36,7 @@ void silk_quant_LTP_gains(
     opus_int32                  *sum_log_gain_Q7,                           /* I/O  Cumulative max prediction gain  */
     opus_int                    *pred_gain_dB_Q7,                           /* O    LTP prediction gain             */
     const opus_int32            XX_Q17[ MAX_NB_SUBFR*LTP_ORDER*LTP_ORDER ], /* I    Correlation matrix in Q18       */
-    const opus_int32            xX_Q17[ MAX_NB_SUBFR*LTP_ORDER ],           /* I    Correlation vector in Q18       */
-    const opus_int              subfr_len,                                  /* I    Number of samples per subframe  */
-    const opus_int              nb_subfr                                    /* I    Number of subframes             */
+    const opus_int32            xX_Q17[ MAX_NB_SUBFR*LTP_ORDER ]            /* I    Correlation vector in Q18       */
 )
 {
     opus_int             j, k, cbk_size;
@@ -74,7 +72,7 @@ void silk_quant_LTP_gains(
         res_nrg_Q15 = 0;
         rate_dist_Q7 = 0;
         sum_log_gain_tmp_Q7 = *sum_log_gain_Q7;
-        for( j = 0; j < nb_subfr; j++ ) {
+        for( j = 0; j < MAX_NB_SUBFR; j++ ) {
             max_gain_Q7 = silk_log2lin( ( SILK_FIX_CONST( MAX_SUM_LOG_GAIN_DB / 6.0, 7 ) - sum_log_gain_tmp_Q7 )
                                         + SILK_FIX_CONST( 7, 7 ) ) - gain_safety;
             silk_VQ_WMat_EC(
@@ -87,7 +85,6 @@ void silk_quant_LTP_gains(
                 cbk_ptr_Q7,             /* I    codebook                                                */
                 cbk_gain_ptr_Q7,        /* I    codebook effective gains                                */
                 cl_ptr_Q5,              /* I    code length for each codebook vector                    */
-                subfr_len,              /* I    number of samples per subframe                          */
                 max_gain_Q7,            /* I    maximum sum of absolute LTP coefficients                */
                 cbk_size                /* I    number of vectors in codebook                           */
             );
@@ -104,23 +101,19 @@ void silk_quant_LTP_gains(
         if( rate_dist_Q7 <= min_rate_dist_Q7 ) {
             min_rate_dist_Q7 = rate_dist_Q7;
             *periodicity_index = (opus_int8)k;
-            silk_memcpy( cbk_index, temp_idx, nb_subfr * sizeof( opus_int8 ) );
+            silk_memcpy( cbk_index, temp_idx, MAX_NB_SUBFR * sizeof( opus_int8 ) );
             best_sum_log_gain_Q7 = sum_log_gain_tmp_Q7;
         }
     }
 
     cbk_ptr_Q7 = silk_LTP_vq_ptrs_Q7[ *periodicity_index ];
-    for( j = 0; j < nb_subfr; j++ ) {
+    for( j = 0; j < MAX_NB_SUBFR; j++ ) {
         for( k = 0; k < LTP_ORDER; k++ ) {
             B_Q14[ j * LTP_ORDER + k ] = silk_LSHIFT( cbk_ptr_Q7[ cbk_index[ j ] * LTP_ORDER + k ], 7 );
         }
     }
 
-    if( nb_subfr == 2 ) {
-        res_nrg_Q15 = silk_RSHIFT32( res_nrg_Q15, 1 );
-    } else {
-        res_nrg_Q15 = silk_RSHIFT32( res_nrg_Q15, 2 );
-    }
+    res_nrg_Q15 = silk_RSHIFT32( res_nrg_Q15, 2 );
 
     *sum_log_gain_Q7 = best_sum_log_gain_Q7;
     *pred_gain_dB_Q7 = (opus_int)silk_SMULBB( -3, silk_lin2log( res_nrg_Q15 ) - ( 15 << 7 ) );

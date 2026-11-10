@@ -6,10 +6,12 @@
 #include "maicord/model/chat/message_rich_store.hpp"
 
 namespace maicord {
-namespace {
 
-// Decode arrays of message_timeline_apply; applying never nests.
-MessageEventScratch g_event_scratch;
+// The decode arrays of every message event the UI thread applies (message_timeline_apply and the event pump). The
+// pump's decoded message is last read before the inactive-channel observer's snapshot cache applies into them again.
+MessageEventScratch g_message_event_scratch;
+
+namespace {
 
 MessageTimelineApplyResult timeline_error(MessageTimelineError error) noexcept {
     MessageTimelineApplyResult result{};
@@ -801,7 +803,7 @@ MessageTimelineApplyResult message_timeline_apply(
     if (event.dispatch_kind == GatewayClientDispatchKind::message_create ||
         event.dispatch_kind == GatewayClientDispatchKind::message_update) {
         GatewayMessageEvent message;
-        const GatewayMessageRichScratch rich_scratch = g_event_scratch.view(false);
+        const GatewayMessageRichScratch rich_scratch = g_message_event_scratch.view(false);
         GatewayMessageNamedUser system_target;
         const bool decoded = (timeline->rich_store
                                   ? gateway_client_event_as_message(event, payload, rich_scratch, &message)

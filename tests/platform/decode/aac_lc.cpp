@@ -21,9 +21,6 @@
 #include "maicord/platform/decode/aac_decoder.hpp"
 
 namespace maicord {
-namespace tables {
-#include "../../../src/media/audio/aac_tables.inc"
-} // namespace tables
 
 namespace {
 
@@ -376,7 +373,7 @@ void pulse_data() noexcept {
     w.put(0, 1);          // no predictor
     w.put(1, 4);          // codebook 1
     w.put(1, 5);          // section of one band
-    w.put(tables::kAacScalefactorCodes[60], tables::kAacScalefactorBits[60]); // delta 0
+    w.put(0, 1);          // delta 0: the scalefactor book's one-bit codeword
     w.put(1, 1);          // pulse data
     w.put(0, 2);          // one pulse
     w.put(0, 6);          // from band 0
@@ -384,7 +381,7 @@ void pulse_data() noexcept {
     w.put(5, 4);          // amplitude 5
     w.put(0, 1);          // no TNS
     w.put(0, 1);          // no gain control
-    w.put(tables::kAacSpectralCodes[40], tables::kAacSpectralBits[40]); // the quad (0, 0, 0, 0) of codebook 1
+    w.put(0, 1);          // the quad (0, 0, 0, 0) of codebook 1: its one-bit codeword
     w.put(7, 3);          // END
     usize bytes = 0;
     void* memory = aligned_state(&bytes);

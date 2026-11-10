@@ -656,6 +656,27 @@ void test_guild_profile() noexcept {
               guild_asset_error_code(utf8_literal(R"({"message":"Missing Access","code":50001})"),
                                      {scratch, 16384}) == kGuildProfilePrivateErrorCode,
           "guild profile: an identity-less body fails and 50001 names a private profile");
+    check(guild_profile_decode(utf8_literal(R"({"id":"7","name":"N","online_count":99999999999,"member_count":-1,)"
+                                            R"("premium_tier":9,"premium_subscription_count":4294967295,)"
+                                            R"("icon_hash":"ab"})"),
+                               {scratch, 16384}, &profile) &&
+              profile.online_count == 0xFFFFFFFFu && !profile.member_count && profile.premium_tier == 3 &&
+              profile.premium_subscription_count == 0xFFFFFFFFu && profile.icon_bytes == 2,
+          "guild profile: a count past 32 bits holds at 32, a negative one is skipped, a boost level stops at 3");
+    ScheduledEvent odd{};
+    check(scheduled_event_decode(utf8_literal(R"({"id":"5","guild_id":"6","status":9,"entity_type":7,"name":5,)"
+                                              R"("scheduled_start_time":"2026-03-01T10:00:00+00:00",)"
+                                              R"("user_count":99999999999})"),
+                                 {scratch, 16384}, &odd) &&
+              odd.status == ScheduledEventStatus::unknown && odd.entity == ScheduledEventEntity::unknown &&
+              odd.user_count == 0xFFFFFFFFu && odd.user_count_known && !odd.name_bytes &&
+              !scheduled_event_decode(utf8_literal(R"({"id":"5","guild_id":"6","scheduled_start_time":null})"),
+                                      {scratch, 16384}, &odd) &&
+              !scheduled_event_decode(utf8_literal(R"({"id":"5","guild_id":null,)"
+                                                   R"("scheduled_start_time":"2026-03-01T10:00:00+00:00"})"),
+                                      {scratch, 16384}, &odd),
+          "scheduled events: unknown status and entity read as unknown, the count holds at 32 bits, and an event "
+          "needs its id, guild and start");
 
     // The card: a ready profile lays out top to bottom inside 300 DIPs and
     // offers its action; private and loading phases carry no button.

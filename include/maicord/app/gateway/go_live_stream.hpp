@@ -19,11 +19,11 @@ namespace maicord {
 // hand over through GoLiveMedia; everything else is worker-only.
 struct GoLiveMedia;
 
-// What makes pictures and sound. Production: go_live_devices_backend
-// (capture, the GPU encoder, stream audio); tests: a synthetic producer.
+// What makes pictures and sound. Production: kGoLiveDevicesBackend (go_live_devices.hpp: capture, the GPU encoder,
+// stream audio), a constant table the whole-program link folds into direct calls, with the producers as the context
+// (GatewayGoLive::backend_context); tests (MAICORD_TEST_SEAMS) fill g_go_live_backend with a synthetic producer.
 // Every call is on the worker except preview (any thread).
 struct GoLiveBackend {
-    void* context;
     // gpu_stream_codec_bit set of the hardware encoders; *known is false
     // until there is a device to probe.
     u32 (*encodable)(void* context, bool* known) noexcept;
@@ -45,6 +45,12 @@ struct GoLiveBackend {
     bool (*preview)(void* context, GpuVideoFrame* output, u32* sequence) noexcept;
 };
 
+#if defined(MAICORD_TEST_SEAMS)
+inline GoLiveBackend g_go_live_backend{};
+#endif
+// The shipped producers (go_live_devices.cpp).
+extern const GoLiveBackend kGoLiveDevicesBackend;
+
 // Producer side, any thread. A unit that finds no free slot is dropped and
 // a keyframe is asked for.
 void go_live_media_unit(GoLiveMedia* media, const GpuStreamAccessUnit& unit) noexcept;
@@ -62,7 +68,13 @@ struct GatewayGoLive {
     GatewayStreamControl control;
     VoiceConnection connection;
     GoLiveSender sender;
-    GoLiveBackend backend;
+    // The table every producer call goes through (see GoLiveBackend), and the context it passes them.
+#if defined(MAICORD_TEST_SEAMS)
+    static constexpr GoLiveBackend& backend = g_go_live_backend;
+#else
+    static constexpr const GoLiveBackend& backend = kGoLiveDevicesBackend;
+#endif
+    void* backend_context;
     GoLiveMedia* media;
     u8* seal; // Video DAVE staging: prepared, then scratch.
     // Worker wake-up for producers (posted from their threads).

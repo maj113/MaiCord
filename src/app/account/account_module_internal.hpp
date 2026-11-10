@@ -275,7 +275,6 @@ AccountVideoPlaybackStatus WINAPI module_video_status(void* instance) noexcept;
 bool WINAPI module_video_take(void* instance, AccountVideoFrame* frame) noexcept;
 bool WINAPI module_video_acknowledge(void* instance, const AccountVideoFrame* frame) noexcept;
 AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64 unix_now_ms) noexcept;
-void module_set_trace(RestTraceFunction trace) noexcept;
 
 } // namespace account_module_detail
 } // namespace maicord

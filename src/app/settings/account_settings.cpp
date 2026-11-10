@@ -132,7 +132,6 @@ struct Bank {
     char message[512];
     u16 message_bytes;
     char date[64];
-    u8 date_bytes;
     char webauthn[4096];
     u32 webauthn_bytes;
     // Connected Apps' rows (connections and their display options, then authorized apps).

@@ -158,6 +158,24 @@ environment switches that only tests use (`include/maicord/core/test_hook.hpp`: 
 shipped, packaged or measured for size comes from a build without `--test`. A new test-only knob calls `test_hook()`, never
 `environment_get()`.
 
+**The account module is called directly; tests fake it through a table.** The shipped client calls the account module through
+`kAccountModuleApi` (`include/maicord/app/account/account_module_api.hpp`), a constant table the whole-program link folds into direct
+calls and drops the `host.api.entry &&` checks of. Test code (the tests' own objects and the library twins, the targets with
+`MAICORD_TEST_CODEGEN`) compiles with `MAICORD_ACCOUNT_API_TABLE`: `AccountHost::api` is then a mutable table, empty at the start, that
+a test fills with fakes (`g_app.account.api.message_ack = fake`); `g_account_api = kAccountModuleApi` installs the linked module's
+own entries. A call site that checks several entries at once asks `account_api_provides` (`account_host.hpp`).
+
+**One implementation in the shipped client means no function table.** A table of function pointers, a hook or a callback struct
+(`void* context` and entries) with a single shipped implementation costs an indirect call, a load and a null check per use, and
+keeps both sides from inlining; the shipped client is one image, so call the implementation: a `const` table the link folds
+(`extern const GoLiveBackend kGoLiveDevicesBackend`, `kWin32Hooks`, `kWin32CaptionOps`), or a global whose only writer is a test-only
+setter the client never references (`rest_client_set_trace`: the link drops the setter and folds the default). What tests need to
+fake compiles under `MAICORD_TEST_SEAMS` (the same targets as `MAICORD_ACCOUNT_API_TABLE`): a mutable table (`g_go_live_backend`), the
+window options' tables, `voice_log_set_sink`. Library code in a test's link that the test's own objects fake (Linux tests link the
+shipped libraries) is listed in that test's `SOURCES`, as `account_host.cpp` is. Seams with
+several implementations (text input targets, upload sources, settings pages, video sinks, the Linux decoder tiers) or whose
+implementation differs per system stay tables, and so do the `dlopen`/`GetProcAddress` tables, COM vtables and the plugin SDK ABI.
+
 **Environment overrides for users and operators** (documented, shipped):
 
 | Variable | Effect |

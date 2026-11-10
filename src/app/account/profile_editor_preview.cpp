@@ -36,6 +36,9 @@ bool connected() noexcept {
 ChatStateStore& state() noexcept {
     return g_app.account_ui->chat_state;
 }
+Slice<u32> json_scratch() noexcept {
+    return {g_app.account_ui->message_history_page_structurals, 32 * 1024};
+}
 bool scope_current() noexcept {
     if (!owner || !application_account_available() || owner->account_scope != g_app.plugin_account_scope_serial ||
         owner->profile_id != g_app.account.status.profile_id || state().self_user_id != owner->self_user_id)

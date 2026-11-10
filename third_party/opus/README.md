@@ -10,7 +10,11 @@ the changes and added files use the same terms):
   removed). Requests: reset, gain (set only) and the final range.
 - **Encoder: one voice profile.** 48 kHz mono or stereo PCM16, VOIP tuning, one
   20 ms VBR frame per packet, always coded as full-band hybrid (SILK wideband plus
-  CELT bands 17-20), no DTX. Bitrate (6-510 kbit/s), complexity (1-10), in-band FEC
+  CELT bands 17-20), no DTX. SILK runs at 16 kHz with one frame of four 5 ms
+  subframes at LPC order 16, coded independently of the previous frame; these are
+  constants (`MAX_FS_KHZ`, `MAX_NB_SUBFR`, `MAX_FRAME_LENGTH` and the like in
+  `silk/define.h`), not encoder state, so the 8 and 12 kHz, 10 ms and conditional
+  coding paths do not exist. Bitrate (6-510 kbit/s), complexity (1-10), in-band FEC
   and packet loss can be set (the VBR constraint is accepted and has no effect);
   the lookahead is the only query. Upstream libopus picks full-band hybrid for
   MaiCord's settings (mono 32 and 64 kbit/s, stereo 128 kbit/s, FEC with a loss
@@ -60,7 +64,9 @@ multistream and projection, tonality analysis, DNN/LPCNet/DRED/OSCE, custom
 modes, the float build, other architectures, build systems, tools and tests, and
 the encoder's other coding modes (CELT-only and SILK-only packets, audio bandwidth
 and mode switching, redundancy frames, the pitch prefilter, time-frequency
-analysis, the non-delayed-decision quantizer and the variable low-pass filter).
+analysis, the non-delayed-decision quantizer and the variable low-pass filter) and
+SILK's other internal rates, frame sizes and conditional coding (8 and 12 kHz, 10 ms
+frames, several frames per packet, delta-coded gains and pitch lags).
 
 ## Build
 

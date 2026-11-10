@@ -584,7 +584,6 @@ ApplicationMediaPump::remove_pending_animation(u32 index) noexcept {
         application.animations.pending_advances[index] =
             application.animations.pending_advances[application.animations.pending_advance_count];
     }
-    reset_value<AnimationFrameAdvance>(&application.animations.pending_advances[application.animations.pending_advance_count]);
     return removed;
 }
 

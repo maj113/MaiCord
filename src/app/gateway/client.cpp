@@ -830,12 +830,12 @@ bool gateway_client_go_live_snapshot(const GatewayClient* client, GoLiveSnapshot
     return true;
 }
 
-bool gateway_client_set_go_live_backend(GatewayClient* client, const GoLiveBackend& backend) noexcept {
+bool gateway_client_set_go_live_backend(GatewayClient* client, void* context) noexcept {
     auto* runtime = user_runtime(client);
     if (!runtime || !client->worker.thread)
         return false;
     AcquireSRWLockExclusive(&runtime->voice_lock);
-    runtime->go_live_backend = backend;
+    runtime->go_live_backend = context;
     runtime->go_live_backend_dirty = true;
     ReleaseSRWLockExclusive(&runtime->voice_lock);
     wake_worker(client, &runtime->voice_signal);
@@ -847,7 +847,7 @@ bool gateway_client_has_go_live_backend(const GatewayClient* client) noexcept {
         return false;
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
     AcquireSRWLockShared(&runtime->voice_lock);
-    const bool installed = runtime->go_live_backend.context != nullptr;
+    const bool installed = runtime->go_live_backend != nullptr;
     ReleaseSRWLockShared(&runtime->voice_lock);
     return installed;
 }

@@ -151,9 +151,9 @@ void image_value(Sink& s, GuildPreparedImage image) noexcept {
         s.literal("null");
 }
 
-template <usize N> void image_object(Sink& s, const char (&key)[N], GuildPreparedImage image) noexcept {
+__declspec(noinline) void image_object(Sink& s, const char* key, GuildPreparedImage image) noexcept {
     s.literal("{\"");
-    s.literal(key);
+    s.bytes(key, c_string_length(key));
     s.literal("\":");
     image_value(s, image);
     s.literal("}");
@@ -165,11 +165,11 @@ Utf8View sticker_extension(GuildImageKind kind) noexcept {
                                             : utf8_literal("png");
 }
 
-template <usize N> void part(Sink& s, ConstSlice<u8> boundary, const char (&name)[N], Utf8View value) noexcept {
+__declspec(noinline) void part(Sink& s, ConstSlice<u8> boundary, const char* name, Utf8View value) noexcept {
     s.literal("--");
     s.bytes(boundary.data, boundary.count);
     s.literal("\r\nContent-Disposition: form-data; name=\"");
-    s.literal(name);
+    s.bytes(name, c_string_length(name));
     s.literal("\"\r\n\r\n");
     s.text(value);
     s.literal("\r\n");

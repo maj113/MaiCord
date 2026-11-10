@@ -93,7 +93,7 @@ MessageContextControllerResult message_context_controller_open(
         for (u32 extra = 0; extra < extra_items.count; ++extra)
             if (media_items[media].action == extra_items[extra].action)
                 return reject(MessageContextControllerError::invalid_input);
-    MessageContextMenuModel menu{};
+    MessageContextMenuModel menu;
     const MessageContextMenuResult built = message_context_menu_build(
         &menu, message, can_edit_authoritative, can_delete_authoritative, has_reactions, preferences,
         can_message_author, can_pin_authoritative, can_forward_authoritative,

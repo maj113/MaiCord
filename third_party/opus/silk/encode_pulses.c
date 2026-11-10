@@ -57,8 +57,7 @@ void silk_encode_pulses(
     ec_enc                      *psRangeEnc,                    /* I/O  compressor data structure                   */
     const opus_int              signalType,                     /* I    Signal type                                 */
     const opus_int              quantOffsetType,                /* I    quantOffsetType                             */
-    opus_int8                   pulses[],                       /* I    quantization indices                        */
-    const opus_int              frame_length                    /* I    Frame length                                */
+    opus_int8                   pulses[]                        /* I    quantization indices                        */
 )
 {
     opus_int   i, k, j, iter, bit, nLS, scale_down, RateLevelIndex = 0;
@@ -77,14 +76,9 @@ void silk_encode_pulses(
     /****************************/
     /* Prepare for shell coding */
     /****************************/
-    /* Calculate number of shell blocks */
+    /* A frame is MAX_FRAME_LENGTH samples: a whole number of shell blocks */
     silk_assert( 1 << LOG2_SHELL_CODEC_FRAME_LENGTH == SHELL_CODEC_FRAME_LENGTH );
-    iter = silk_RSHIFT( frame_length, LOG2_SHELL_CODEC_FRAME_LENGTH );
-    if( iter * SHELL_CODEC_FRAME_LENGTH < frame_length ) {
-        celt_assert( frame_length == 12 * 10 ); /* Make sure only happens for 10 ms @ 12 kHz */
-        iter++;
-        silk_memset( &pulses[ frame_length ], 0, SHELL_CODEC_FRAME_LENGTH * sizeof(opus_int8));
-    }
+    iter = MAX_NB_SHELL_BLOCKS;
 
     /* Take the absolute value of the pulses */
     silk_assert( iter * SHELL_CODEC_FRAME_LENGTH <= MAX_FRAME_LENGTH );
@@ -194,5 +188,5 @@ void silk_encode_pulses(
     /****************/
     /* Encode signs */
     /****************/
-    silk_encode_signs( psRangeEnc, pulses, frame_length, signalType, quantOffsetType, sum_pulses );
+    silk_encode_signs( psRangeEnc, pulses, MAX_FRAME_LENGTH, signalType, quantOffsetType, sum_pulses );
 }

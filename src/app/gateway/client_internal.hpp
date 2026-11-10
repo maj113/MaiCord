@@ -182,7 +182,7 @@ struct GatewayClientRuntime {
     GoLiveCommand go_live_commands[kGatewayGoLiveCommands];
     u32 go_live_command_count;
     GoLiveSnapshot go_live_snapshot; // Under voice_lock.
-    GoLiveBackend go_live_backend;   // Under voice_lock until the worker installs it.
+    void* go_live_backend;           // The producers' context; under voice_lock until the worker installs it.
     bool go_live_backend_dirty;
     struct GatewayUserRuntime* user;
     GatewayClient* owner;

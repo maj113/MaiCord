@@ -58,6 +58,8 @@ constexpr UiPageKey page_key(Page page) noexcept {
 }
 constexpr u32 kControlCapacity = 2'400;
 constexpr u32 kRowCapacity = 2'000;
+// Rows that carry chips: a role per row on the roles page, one member page of rows (page_rows) on the members page.
+constexpr u32 kChipRows = kGuildRoleMaximum;
 constexpr u32 kBankBytes = 224 * 1024;
 constexpr u32 kChoicePool = 512;
 constexpr u32 kBanCapacity = 1'000;
@@ -506,7 +508,6 @@ struct Settings : SettingsModal {
     bool audit_requested, audit_complete, audit_filter_action_set, audit_failed;
     GuildAdminAuditEntry audit_page[kAuditPage];
     GuildAdminUser audit_page_users[kAuditPage * 2];
-    u64 menu_users[kPopupCapacity];
     // Picked images and the dialog that picks them.
     Picked icon, banner, role_icon, upload;
     NativeFilePicker picker;
@@ -551,20 +552,27 @@ struct Settings : SettingsModal {
     u32 choice_used;
     char popup_text[32 * 1024];
     PopupItem popup_items[kPopupCapacity];
+    // The glyph each Server Profile emoji picker row sets (empty: none); views into the catalog's pools.
+    Utf8View emoji_choices[kPopupCapacity];
+    u32 emoji_choice_count;
     // Projection scratch: the role colour names, member chips and popup sorting.
     Utf8View color_names[kGuildRoleColorCount + 1];
     u32 member_order[kGuildMemberSearchCapacity];
     // Packed RGBA for list-row accents, resolved through the palette source.
     u32 row_accent[kRowCapacity];
     u64 palette_revision;
-    Utf8View chips[kRowCapacity][4];
-    u32 chip_colors[kRowCapacity][4];
+    Utf8View chips[kChipRows][4];
+    u32 chip_colors[kChipRows][4];
     struct PopupRow {
         PopupItem item;
         const ChannelRecord* channel;
-    } popup_rows[kPopupCapacity];
+    };
     u8 feature_names[kFeatureNameBytes];
-    u32 scratch[kScratchUnits];
+    // Idle between calls: a response's JSON structurals, a request body, or the sort rows of a channel menu being built.
+    union {
+        u32 scratch[kScratchUnits];
+        PopupRow popup_rows[kPopupCapacity];
+    };
     GuildAdminRoleCount role_counts[kGuildRoleMaximum];
     GuildBanRecord ban_records[kBanCapacity];
     // AutoMod's word boxes (editor_words, editor_patterns, editor_allowed).
@@ -575,6 +583,7 @@ struct Settings : SettingsModal {
     // The Access, Community and Server Template pages' state, made on their first visit.
     struct ServerAccessState* server_access;
 };
+static_assert(sizeof(Settings::page_rows) / sizeof(Settings::page_rows[0]) <= kChipRows);
 
 extern Settings* owner;
 // The next expression form, opened on a later tick once menus have closed.

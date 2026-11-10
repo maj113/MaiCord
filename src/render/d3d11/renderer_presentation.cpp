@@ -806,8 +806,8 @@ u64 layout_signature(const D3D11Renderer& renderer) noexcept {
     static_assert(offsetof(D3D11Renderer, settings_backdrop) > offsetof(D3D11Renderer, media_overlay_paint_first_batch) &&
                   offsetof(D3D11Renderer, draw_layer_scale) > offsetof(D3D11Renderer, settings_backdrop_failed) &&
                   offsetof(D3D11Renderer, interaction_text_action_bar_revision) > offsetof(D3D11Renderer, draw_layer_scale));
-    u64 hash = hash64_bytes(kHash64Seed, first, static_cast<u32>(backdrop - first));
-    hash = hash64_bytes(hash, resume, static_cast<u32>(end - resume));
+    u64 hash = hash64_words(kHash64Seed, first, static_cast<u32>(backdrop - first));
+    hash = hash64_words(hash, resume, static_cast<u32>(end - resume));
     const u32 inline_range[] = {renderer.inline_media_first_batch, renderer.inline_media_last_batch,
                                 renderer.inline_media.count};
     hash = hash64_bytes(hash, inline_range, sizeof(inline_range));

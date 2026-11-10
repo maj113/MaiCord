@@ -37,10 +37,6 @@ struct ProfileCache {
     GuildAdminProfile profile;
 } cache;
 
-// The glyph each emoji picker row sets (empty: none); views into the catalog's pools.
-Utf8View emoji_choices[kPopupCapacity];
-u32 emoji_choice_count;
-
 bool has_icon() noexcept {
     const auto& d = owner->profile_draft;
     return d.icon == GuildProfileImageEdit::replace ||
@@ -286,7 +282,7 @@ void open_emoji_picker(u32 slot, const UiRect& anchor) noexcept {
             bank.add("  ");
         }
         bank.add(name);
-        emoji_choices[count] = glyph;
+        p.emoji_choices[count] = glyph;
         popup_row(count, bank.since(start), count, flags);
         ++count;
     };
@@ -327,7 +323,7 @@ void open_emoji_picker(u32 slot, const UiRect& anchor) noexcept {
             ++shown;
         }
     }
-    emoji_choice_count = count;
+    p.emoji_choice_count = count;
     if (!count)
         return;
     p.emoji_slot = slot;
@@ -393,10 +389,10 @@ void choose(Menu menu, u32 action) noexcept {
     if (menu != Menu::trait_emoji || !can_manage_guild() || action < kMenuChoiceBase)
         return;
     const u32 index = action - kMenuChoiceBase;
-    if (index >= emoji_choice_count)
+    if (index >= p.emoji_choice_count)
         return;
     // The trait keeps the emoji's name, as the official client sends it (emoji_name "video_game", not the glyph).
-    const auto glyph = emoji_choices[index];
+    const auto glyph = p.emoji_choices[index];
     char name[kGuildAdminProfileEmojiNameBytes];
     const u32 name_bytes = glyph.bytes ? emoji_shortcode_key(glyph, {name, sizeof(name)}) : 0;
     if (name_bytes)

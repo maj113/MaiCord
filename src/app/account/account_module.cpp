@@ -26,7 +26,6 @@
 #include "maicord/app/guild/account_guild_admin.hpp"
 #include "maicord/app/media/account_media_catalog.hpp"
 #include "maicord/app/chat/search/account_message_search.hpp"
-#include "maicord/app/account/account_module_version.hpp"
 #include "maicord/app/chat/messages/account_pinned_messages.hpp"
 #include "maicord/app/account/account_profile_edit.hpp"
 #include "maicord/app/voice/account_stage.hpp"
@@ -1126,16 +1125,8 @@ SecureBufferResult WINAPI module_login_copy_webauthn_challenge(void* instance,
 }
 
 } // namespace account_module_detail
-} // namespace maicord
 
-extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
-                                               maicord::AccountModuleApi* api) noexcept {
-    if (!api || requested_version != maicord::kAccountModuleApiVersion) {
-        return false;
-    }
-    static constexpr maicord::AccountModuleApi table{
-        maicord::kAccountModuleApiVersion,
-        sizeof(maicord::AccountModuleApi),
+const AccountModuleApi kAccountModuleApi{
         maicord::module_start,
         maicord::module_pump,
         maicord::module_notification_handles,
@@ -1177,7 +1168,6 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_login_stop,
         maicord::module_profile_get,
         maicord::module_application_command,
-        maicord::module_set_trace,
         maicord::module_login_submit_verification,
         maicord::RestEntry<maicord::account_relationship_submit>::call,
         maicord::RestEntry<maicord::account_message_ack_submit>::call,
@@ -1266,7 +1256,6 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_go_live,
         maicord::module_go_live_snapshot,
         maicord::module_go_live_preview,
-    };
-    maicord::copy_bytes(api, &table, sizeof(table));
-    return true;
-}
+};
+
+} // namespace maicord

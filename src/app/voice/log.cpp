@@ -1,11 +1,14 @@
 #include "maicord/app/voice/log.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
+#if defined(MAICORD_TEST_SEAMS)
 void* volatile g_sink = nullptr;
+#endif
 void append(char* line, u32 capacity, u32* used, const char* text) noexcept {
     while (text && *text && *used + 1 < capacity)
         line[(*used)++] = *text++;
@@ -17,26 +20,42 @@ void append_number(char* line, u32 capacity, u32* used, u64 value) noexcept {
 }
 } // namespace
 
+#if defined(MAICORD_TEST_SEAMS)
 void voice_log_set_sink(VoiceLogSink sink) noexcept {
     InterlockedExchangePointer(&g_sink, reinterpret_cast<void*>(sink));
 }
+#endif
 void voice_log_fields(VoiceLogLevel level, const char* event, ConstSlice<VoiceLogField> fields) noexcept {
+    char line[256];
+    u32 used = 0;
+#if defined(MAICORD_TEST_SEAMS)
     const auto sink = reinterpret_cast<VoiceLogSink>(g_sink); // an aligned pointer load; nothing else is ordered by it
     if (!sink || !event)
         return;
-    char line[256];
-    u32 used = 0;
-    append(line, sizeof(line), &used,
+    constexpr u32 capacity = sizeof(line);
+    append(line, capacity, &used,
            level == VoiceLogLevel::error ? "voice:E " : level == VoiceLogLevel::warning ? "voice:W " : "voice:I ");
-    append(line, sizeof(line), &used, event);
+#else
+    if (!event)
+        return;
+    constexpr u32 capacity = sizeof(line) - 8; // Cut where the "voice:<I|W|E> " record was (the prefix is 8 bytes).
+#endif
+    append(line, capacity, &used, event);
     for (u32 i = 0; i != fields.count; ++i) {
-        append(line, sizeof(line), &used, " ");
-        append(line, sizeof(line), &used, fields[i].key);
-        append(line, sizeof(line), &used, "=");
-        append_number(line, sizeof(line), &used, fields[i].value);
+        append(line, capacity, &used, " ");
+        append(line, capacity, &used, fields[i].key);
+        append(line, capacity, &used, "=");
+        append_number(line, capacity, &used, fields[i].value);
     }
     line[used] = 0;
+#if defined(MAICORD_TEST_SEAMS)
     sink(line);
+#else
+    log_write(level == VoiceLogLevel::error     ? LogLevel::error
+              : level == VoiceLogLevel::warning ? LogLevel::warning
+                                                : LogLevel::info,
+              "voice", line);
+#endif
 }
 void voice_log(VoiceLogLevel level, const char* event) noexcept {
     voice_log_fields(level, event, {});

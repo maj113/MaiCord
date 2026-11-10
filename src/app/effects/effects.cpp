@@ -108,7 +108,7 @@ struct Inputs {
 struct State {
     StateFile file;
     bool state_loaded, library_loaded, marker_opened;
-    Entry entries[kEffectLibraryCapacity];
+    Entry* entries; // kEffectLibraryCapacity of them, committed when the library first loads
     u32 count;
     u64 last_input_ms;
     EffectSettings settings; // as last sent to the renderer
@@ -486,11 +486,12 @@ void load_library() noexcept {
         return;
     g.library_loaded = true;
     InterlockedExchange(&g.dirty, 0);
-    reset_value(&g.entries);
+    if (!g.entries)
+        g.entries = commit_pages<Entry>(kEffectLibraryCapacity * sizeof(Entry));
     g.count = 0;
     auto* buffer = static_cast<u8*>(commit_pages(kMcfxMaximumBytes));
     ScratchPages<McfxWorkspace> workspace;
-    if (buffer && workspace.data) {
+    if (g.entries && buffer && workspace.data) {
         scan_folder(false, buffer, workspace.data);
         scan_folder(true, buffer, workspace.data);
     }

@@ -75,6 +75,7 @@ struct MessageContextQuickReaction {
 // Pin authority includes the caller's permission and mutation-in-flight gates.
 // Only authoritative messages expose pin actions; the retained pinned flag selects
 // one semantic Pin or Unpin action. Revalidate that state before dispatch.
+// A valid request resets `model` and builds into it: callers declare it without `{}`.
 MessageContextMenuResult message_context_menu_build(
     MessageContextMenuModel* model,
     const MessageRecord& message, bool can_edit_authoritative,

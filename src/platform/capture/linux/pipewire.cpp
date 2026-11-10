@@ -147,16 +147,9 @@ const Api* api() noexcept {
             log_write(LogLevel::info, "capture", "libpipewire_missing");
         } else {
             // Api is one function pointer per name.
-            u8* slot = reinterpret_cast<u8*>(&g_library.api);
-            const char* name = kFunctionNames;
-            for (; *name; name += c_string_length(name) + 1, slot += sizeof(void*)) {
-                void* const address = shared_library_symbol(g_library.library, name);
-                if (!address)
-                    break;
-                copy_bytes(slot, &address, sizeof(address));
-            }
-            if (*name) {
-                log_write(LogLevel::warning, "capture", name);
+            if (const char* missing = shared_library_resolve(g_library.library, &g_library.api, sizeof(Api),
+                                                             kFunctionNames)) {
+                log_write(LogLevel::warning, "capture", missing);
                 shared_library_close(&g_library.library);
             } else {
                 g_library.api.pw_init(nullptr, nullptr);

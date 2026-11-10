@@ -113,7 +113,6 @@ MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* mod
     if (!model || message.id == 0 || message.channel_id == 0) {
         return MessageContextMenuResult{0, MessageContextMenuError::invalid_input};
     }
-    MessageContextMenuModel candidate{};
     const bool failed = message.delivery == MessageDeliveryState::failed;
     // A local send in flight and a kept deleted message can only be copied.
     const bool pending = message.delivery == MessageDeliveryState::pending || message.delivery == MessageDeliveryState::retained;
@@ -133,71 +132,69 @@ MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* mod
         return MessageContextMenuResult{0, MessageContextMenuError::capacity};
     }
 
+    reset_value(model);
     if (failed) {
-        push(&candidate,
+        push(model,
              reply_target_deleted ? utf8_literal("Original message was deleted") : utf8_literal("Retry send"),
              MessageContextAction::retry_send, reply_target_deleted ? 0 : popup_item_enabled);
-        push(&candidate, utf8_literal("Copy text"), MessageContextAction::copy_text, popup_item_enabled);
-        push(&candidate, utf8_literal("Delete message"), MessageContextAction::discard_failed,
+        push(model, utf8_literal("Copy text"), MessageContextAction::copy_text, popup_item_enabled);
+        push(model, utf8_literal("Delete message"), MessageContextAction::discard_failed,
              popup_item_enabled | popup_item_danger | popup_item_separator_before);
-        decorate_context_actions(&candidate);
-        *model = candidate;
+        decorate_context_actions(model);
         return MessageContextMenuResult{model->count, MessageContextMenuError::none};
     }
     if (pending) {
-        push(&candidate, utf8_literal("Copy text"), MessageContextAction::copy_text, popup_item_enabled);
-        decorate_context_actions(&candidate);
-        *model = candidate;
+        push(model, utf8_literal("Copy text"), MessageContextAction::copy_text, popup_item_enabled);
+        decorate_context_actions(model);
         return MessageContextMenuResult{model->count, MessageContextMenuError::none};
     }
 
-    if (!append_quick_reactions(&candidate, preferences)) {
+    if (!append_quick_reactions(model, preferences)) {
         return MessageContextMenuResult{0, MessageContextMenuError::invalid_input};
     }
-    push(&candidate, utf8_literal("Add reaction"), MessageContextAction::add_reaction, popup_item_enabled);
+    push(model, utf8_literal("Add reaction"), MessageContextAction::add_reaction, popup_item_enabled);
     if (has_reactions)
-        push(&candidate, utf8_literal("View reactions"), MessageContextAction::view_reactions, popup_item_enabled);
+        push(model, utf8_literal("View reactions"), MessageContextAction::view_reactions, popup_item_enabled);
 
     if (can_edit_authoritative)
-        push(&candidate, utf8_literal("Edit message"), MessageContextAction::edit_message,
+        push(model, utf8_literal("Edit message"), MessageContextAction::edit_message,
              popup_item_enabled | popup_item_separator_before);
     if (can_message_author)
-        push(&candidate, utf8_literal("Message author"), MessageContextAction::message_author, popup_item_enabled);
+        push(model, utf8_literal("Message author"), MessageContextAction::message_author, popup_item_enabled);
     if (can_reply)
-        push(&candidate, utf8_literal("Reply"), MessageContextAction::reply,
+        push(model, utf8_literal("Reply"), MessageContextAction::reply,
              popup_item_enabled | (!can_edit_authoritative ? popup_item_separator_before : 0));
     if (can_forward_authoritative)
-        push(&candidate, utf8_literal("Forward"), MessageContextAction::forward_message, popup_item_enabled);
+        push(model, utf8_literal("Forward"), MessageContextAction::forward_message, popup_item_enabled);
     if (can_create_thread_authoritative)
-        push(&candidate, utf8_literal("Create thread"), MessageContextAction::create_thread, popup_item_enabled);
+        push(model, utf8_literal("Create thread"), MessageContextAction::create_thread, popup_item_enabled);
     if (can_pin_authoritative) {
         const bool pinned = (message.presentation_flags & message_presentation_pinned) != 0;
-        push(&candidate, pinned ? utf8_literal("Unpin message") : utf8_literal("Pin message"),
+        push(model, pinned ? utf8_literal("Unpin message") : utf8_literal("Pin message"),
              pinned ? MessageContextAction::unpin_message : MessageContextAction::pin_message, popup_item_enabled);
     }
     if (can_mark_unread_authoritative)
-        push(&candidate, utf8_literal("Mark unread"), MessageContextAction::mark_unread, popup_item_enabled);
+        push(model, utf8_literal("Mark unread"), MessageContextAction::mark_unread, popup_item_enabled);
     if (extras.remove_embeds)
-        push(&candidate, utf8_literal("Remove embeds"), MessageContextAction::remove_embeds, popup_item_enabled);
+        push(model, utf8_literal("Remove embeds"), MessageContextAction::remove_embeds, popup_item_enabled);
     if (extras.apps)
-        push(&candidate, utf8_literal("Apps"), MessageContextAction::apps_menu, popup_item_enabled);
-    push(&candidate, utf8_literal("Copy text"), MessageContextAction::copy_text,
+        push(model, utf8_literal("Apps"), MessageContextAction::apps_menu, popup_item_enabled);
+    push(model, utf8_literal("Copy text"), MessageContextAction::copy_text,
          popup_item_enabled | popup_item_separator_before);
-    push(&candidate, utf8_literal("Copy message link"), MessageContextAction::copy_message_link,
+    push(model, utf8_literal("Copy message link"), MessageContextAction::copy_message_link,
          popup_item_enabled);
     if (extras.speak)
-        push(&candidate, utf8_literal("Speak message"), MessageContextAction::speak_message, popup_item_enabled);
+        push(model, utf8_literal("Speak message"), MessageContextAction::speak_message, popup_item_enabled);
     if (can_delete_authoritative)
-        push(&candidate, utf8_literal("Delete message"), MessageContextAction::delete_message,
+        push(model, utf8_literal("Delete message"), MessageContextAction::delete_message,
              popup_item_enabled | popup_item_danger | popup_item_separator_before);
     if (extras.report)
-        push(&candidate, utf8_literal("Report message"), MessageContextAction::report_message,
+        push(model, utf8_literal("Report message"), MessageContextAction::report_message,
              popup_item_enabled | popup_item_danger | (can_delete_authoritative ? 0 : popup_item_separator_before));
     if (developer_mode)
-        push(&candidate, utf8_literal("Copy message ID"), MessageContextAction::copy_id,
+        push(model, utf8_literal("Copy message ID"), MessageContextAction::copy_id,
              popup_item_enabled | popup_item_separator_before);
-    decorate_context_actions(&candidate);
-    *model = candidate;
+    decorate_context_actions(model);
     return MessageContextMenuResult{model->count, MessageContextMenuError::none};
 }
 

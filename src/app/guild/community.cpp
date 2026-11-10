@@ -401,7 +401,7 @@ u32 build_body(const Request& request) noexcept {
         if (!rules_answers(answers))
             return 0;
         return guild_verification_write_submit({p.form_body, p.form_body_bytes},
-                                               {answers, p.form.field_count}, {b.scratch, 16384},
+                                               {answers, p.form.field_count}, json_scratch(),
                                                {b.body, sizeof(b.body)});
     }
     case GuildCommunityOperation::onboarding_submit:
@@ -455,10 +455,10 @@ void application_guild_community_gateway(const GatewayClientEvent& event, ConstS
         return;
     }
     if (kind < GatewayClientDispatchKind::guild_scheduled_event_snapshot ||
-        kind > GatewayClientDispatchKind::guild_scheduled_event_user_remove || !payload.data || !payload.count)
+        kind > GatewayClientDispatchKind::guild_scheduled_event_user_remove || !payload.data || !payload.count ||
+        !g_app.account_ui)
         return;
     const Utf8View json{reinterpret_cast<const char*>(payload.data), static_cast<u32>(payload.count)};
-    static u32 scratch[16384];
     if (kind == GatewayClientDispatchKind::guild_scheduled_event_snapshot) {
         // Nothing allocated for servers without events.
         if (!events && json.bytes <= 2)
@@ -466,21 +466,21 @@ void application_guild_community_gateway(const GatewayClientEvent& event, ConstS
         if (!ensure_events())
             return;
         scheduled_event_store_clear_guild(events, event.voice_states.guild_id);
-        scheduled_event_decode_list(json, {scratch, 16384}, upsert_listed, nullptr);
+        scheduled_event_decode_list(json, json_scratch(), upsert_listed, nullptr);
         events_changed();
         return;
     }
     if (kind == GatewayClientDispatchKind::guild_scheduled_event_user_add ||
         kind == GatewayClientDispatchKind::guild_scheduled_event_user_remove) {
         ScheduledEventUser user{};
-        if (events && g_app.account_ui && scheduled_event_decode_user(json, {scratch, 16384}, &user) &&
+        if (events && scheduled_event_decode_user(json, json_scratch(), &user) &&
             scheduled_event_store_user(events, user.event_id, user.user_id, state().self_user_id,
                                        kind == GatewayClientDispatchKind::guild_scheduled_event_user_add))
             events_changed();
         return;
     }
     ScheduledEvent decoded; // written in full by a successful decode, read only after one
-    if (!scheduled_event_decode(json, {scratch, 16384}, &decoded) || !ensure_events())
+    if (!scheduled_event_decode(json, json_scratch(), &decoded) || !ensure_events())
         return;
     const bool changed = kind == GatewayClientDispatchKind::guild_scheduled_event_delete
                              ? scheduled_event_store_remove(events, decoded.id)
@@ -934,7 +934,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         if (!same_modal || owner->mode != Mode::rules)
             break;
         if (body.bytes <= sizeof(owner->form_body) &&
-            guild_verification_decode(body, {b.scratch, 16384}, &owner->form)) {
+            guild_verification_decode(body, json_scratch(), &owner->form)) {
             copy_bytes(owner->form_body, body.data, body.bytes);
             owner->form_body_bytes = body.bytes;
             owner->phase = Phase::ready;
@@ -955,7 +955,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         repaint();
         break;
     case GuildCommunityOperation::verification_submit: {
-        const auto status = guild_verification_decode_status(body, {b.scratch, 16384});
+        const auto status = guild_verification_decode_status(body, json_scratch());
         if (same_modal && owner->mode == Mode::rules) {
             owner->phase = Phase::done;
             owner->status = status == GuildApplicationStatus::submitted
@@ -970,7 +970,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
     case GuildCommunityOperation::onboarding_get:
         if (!same_modal || (owner->mode != Mode::onboarding && owner->mode != Mode::channels_roles))
             break;
-        if (guild_onboarding_decode(body, {b.scratch, 16384}, &owner->onboarding)) {
+        if (guild_onboarding_decode(body, json_scratch(), &owner->onboarding)) {
             owner->flow_count = guild_onboarding_flow_prompts(owner->onboarding, {owner->flow, kGuildOnboardingPromptMaximum});
             owner->flow_count = minimum(owner->flow_count, kGuildOnboardingPromptMaximum);
             owner->step = 0;
@@ -1013,7 +1013,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         if (!ensure_events())
             break;
         scheduled_event_store_clear_guild(events, request.guild_id);
-        scheduled_event_decode_list(body, {b.scratch, 16384}, upsert_listed, nullptr);
+        scheduled_event_decode_list(body, json_scratch(), upsert_listed, nullptr);
         if (same_modal && owner->phase == Phase::loading)
             owner->phase = Phase::ready;
         enqueue(GuildCommunityOperation::event_rsvps, request.guild_id);
@@ -1024,7 +1024,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
     }
     case GuildCommunityOperation::event_get: {
         ScheduledEvent e; // read only after a successful decode wrote it
-        const bool decoded = scheduled_event_decode(body, {b.scratch, 16384}, &e) && ensure_events();
+        const bool decoded = scheduled_event_decode(body, json_scratch(), &e) && ensure_events();
         // Finished events are not kept; they stay missing for cards.
         forget_wanted(!decoded || !scheduled_event_listed(e));
         if (decoded)
@@ -1039,7 +1039,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
     case GuildCommunityOperation::event_rsvps:
         if (events) {
             scheduled_event_store_reset_interest(events, request.guild_id);
-            scheduled_event_decode_users(body, {b.scratch, 16384},
+            scheduled_event_decode_users(body, json_scratch(),
                                          +[](void*, const ScheduledEventUser& user) noexcept {
                                              scheduled_event_store_set_interest(events, user.event_id, true, false);
                                              return true;
@@ -1050,7 +1050,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         break;
     case GuildCommunityOperation::event_create: {
         ScheduledEvent e; // read only after a successful decode wrote it
-        if (scheduled_event_decode(body, {b.scratch, 16384}, &e) && ensure_events()) {
+        if (scheduled_event_decode(body, json_scratch(), &e) && ensure_events()) {
             scheduled_event_store_upsert(events, e);
             if (same_modal && owner->mode == Mode::create) {
                 owner->created_event_id = e.id;

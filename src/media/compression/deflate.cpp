@@ -1,8 +1,9 @@
 #include "maicord/media/compression/deflate.hpp"
 
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "deflate_tables.hpp"
-#include "../image/png_common.hpp"
+#include "maicord/core/crc32.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/heap.hpp"
@@ -938,7 +939,7 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
             if (input.count - cursor < 2)
                 return fail(ZlibInflateError::truncated);
             const u32 crc = input[cursor] | static_cast<u32>(input[cursor + 1]) << 8;
-            if ((png_crc32(input.data + header, cursor - header) & 0xffffu) != crc)
+            if ((crc32_extend(0, input.data + header, cursor - header) & 0xffffu) != crc)
                 return fail(ZlibInflateError::checksum);
             cursor += 2;
         }
@@ -957,7 +958,7 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
             return fail(ZlibInflateError::truncated);
         if (byte_load_le32(input.data + cursor + 4) != state.output_bytes)
             return fail(ZlibInflateError::output_size);
-        if (png_crc32(state.output.data, state.output_bytes) != byte_load_le32(input.data + cursor))
+        if (crc32_extend(0, state.output.data, state.output_bytes) != byte_load_le32(input.data + cursor))
             return fail(ZlibInflateError::checksum);
         cursor += 8;
         result.input_bytes = cursor;

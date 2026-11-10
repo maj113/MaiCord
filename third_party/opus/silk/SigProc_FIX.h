@@ -75,17 +75,6 @@ void silk_resampler_down2(
 );
 
 /*!
- * Downsample by a factor 2/3, low quality
-*/
-void silk_resampler_down2_3(
-    opus_int32                  *S,                 /* I/O  State vector [ 6 ]                                          */
-    opus_int16                  *out,               /* O    Output signal [ floor(2*inLen/3) ]                          */
-    const opus_int16            *in,                /* I    Input signal [ inLen ]                                      */
-    opus_int32                  inLen,              /* I    Number of input samples                                     */
-    char                        *scratch            /* I    Scratch arena                                               */
-);
-
-/*!
  * second order ARMA filter;
  * slower than biquad() but uses more precise coefficients
  * can handle (slowly) varying coefficients
@@ -239,8 +228,9 @@ void silk_decode_pitch(
     const opus_int              nb_subfr            /* I    number of sub frames                                        */
 );
 
+/* Pitch analysis of a 16 kHz signal: 20 ms of history and four 5 ms subframes (PE_MAX_FRAME_LENGTH samples) */
 opus_int silk_pitch_analysis_core(                  /* O    Voicing estimate: 0 voiced, 1 unvoiced                      */
-    const opus_int16            *frame,             /* I    Signal of length PE_FRAME_LENGTH_MS*Fs_kHz                  */
+    const opus_int16            *frame,             /* I    Signal of length PE_MAX_FRAME_LENGTH                        */
     opus_int                    *pitch_out,         /* O    4 pitch lag values                                          */
     opus_int16                  *lagIndex,          /* O    Lag Index                                                   */
     opus_int8                   *contourIndex,      /* O    Pitch contour Index                                         */
@@ -248,9 +238,7 @@ opus_int silk_pitch_analysis_core(                  /* O    Voicing estimate: 0 
     opus_int                    prevLag,            /* I    Last lag of previous frame; set to zero is unvoiced         */
     const opus_int32            search_thres1_Q16,  /* I    First stage threshold for lag candidates 0 - 1              */
     const opus_int              search_thres2_Q13,  /* I    Final threshold for lag candidates 0 - 1                    */
-    const opus_int              Fs_kHz,             /* I    Sample frequency (kHz)                                      */
     const opus_int              complexity,         /* I    Complexity setting, 0-2, where 2 is highest                 */
-    const opus_int              nb_subfr,           /* I    number of 5 ms subframes                                    */
     char                        *scratch            /* I    Scratch arena                                               */
 );
 

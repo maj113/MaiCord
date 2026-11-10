@@ -83,7 +83,7 @@ Utf8View failure(const RestClientResponse& response, const Utf8View& body) noexc
     auto& p = *owner;
     if (!response.transport_ok())
         return utf8_literal("Couldn't reach Discord. Try again.");
-    if (profile_edit_decode_errors(body, {p.structurals, sizeof(p.structurals) / sizeof(u32)}, &p.errors)) {
+    if (profile_edit_decode_errors(body, json_scratch(), &p.errors)) {
         if (p.errors.username)
             return utf8_literal("Your username is invalid or contains invalid characters. You must update your "
                                 "username before you can change other user settings.");
@@ -95,7 +95,7 @@ Utf8View failure(const RestClientResponse& response, const Utf8View& body) noexc
 void load_profile(const Utf8View& body) noexcept {
     auto& p = *owner;
     const u64 guild = p.tab == ProfileEditorTab::guild ? p.guild_id : 0;
-    const Slice<u32> structurals{p.structurals, sizeof(p.structurals) / sizeof(u32)};
+    const Slice<u32> structurals = json_scratch();
     if (!profile_edit_decode_profile(body, structurals, p.self_user_id, guild, &p.saved) ||
         !user_profile_decode(body, structurals, p.self_user_id, guild, &p.base_profile)) {
         p.load_failed = true;
@@ -552,7 +552,7 @@ bool application_profile_editor_response(const RestClientResponse& response, Utf
     if (!p.scene.active || !scope_current())
         return true;
     const bool ok = response.succeeded();
-    const Slice<u32> structurals{p.structurals, sizeof(p.structurals) / sizeof(u32)};
+    const Slice<u32> structurals = json_scratch();
     switch (p.op) {
     case Op::fetch:
         if (ok)

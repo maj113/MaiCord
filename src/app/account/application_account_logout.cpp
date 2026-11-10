@@ -29,7 +29,6 @@ enum class LogoutPhase : u8 {
 };
 constexpr u64 kLogoutDeadlineMilliseconds = 10'000;
 constexpr u64 kLogoutAdmissionRetryMilliseconds = 125;
-using LogoutCallback = decltype(AccountModuleApi::logout);
 bool startup_blocked{};
 u64 startup_retry_due{};
 } // namespace
@@ -40,7 +39,6 @@ struct ApplicationAccountLogout {
     AccountHost stop_host;
     const AccountUiRuntime* source_ui;
     void* source_instance;
-    LogoutCallback server;
     TextFormOwnerKey key;
     u64 actor_scope, deadline, admission_due, form_due, request_id, revision;
     Utf8View status;
@@ -59,7 +57,7 @@ bool source_current(const ApplicationAccountLogout& owner) noexcept {
     // Never call after ownership passes to the stop thread.
     return !account_logout_stop_owned(owner.stop) && g_app.account_ui && !g_app.login.visible &&
            g_app.account_ui == owner.source_ui && g_app.account.instance == owner.source_instance &&
-           !g_app.account.stop_failed && g_app.account.api.logout == owner.server &&
+           !g_app.account.stop_failed &&
            g_app.plugin_account_scope_serial == owner.actor_scope &&
            g_app.account.status.profile_id == owner.key.collection &&
            g_app.account_ui->chat_state.self_user_id == owner.key.item;
@@ -97,9 +95,9 @@ bool resolve_paths(ApplicationAccountLogout& owner) noexcept {
     return owner.paths_valid;
 }
 void cancel_server(ApplicationAccountLogout& owner) noexcept {
-    if (!owner.request_id || !owner.server || owner.cancelled)
+    if (!owner.request_id || owner.cancelled)
         return;
-    owner.server(owner.source_instance, AccountLogoutOperation::cancel, owner.request_id, nullptr);
+    g_app.account.api.logout(owner.source_instance, AccountLogoutOperation::cancel, owner.request_id, nullptr);
     owner.cancelled = true;
 }
 void start_stop(ApplicationAccountLogout& owner) noexcept {
@@ -302,7 +300,6 @@ bool application_account_logout_open() noexcept {
     initialize_key(owner, g_app.account.status.profile_id, g_app.account_ui->chat_state.self_user_id);
     owner.source_ui = g_app.account_ui;
     owner.source_instance = g_app.account.instance;
-    owner.server = g_app.account.api.logout;
     owner.actor_scope = g_app.plugin_account_scope_serial;
     owner.phase = LogoutPhase::confirmation;
     return open_form(owner);
@@ -355,8 +352,8 @@ void application_account_logout_pump() noexcept {
         }
     }
     if (owner->phase == LogoutPhase::admission && deadline_due(now, owner->admission_due)) {
-        const auto admitted = owner->server(owner->source_instance, AccountLogoutOperation::begin,
-                                            owner->request_id, nullptr);
+        const auto admitted = g_app.account.api.logout(owner->source_instance, AccountLogoutOperation::begin,
+                                                       owner->request_id, nullptr);
         if (admitted.submit_error == RestClientSubmitError::busy) {
             owner->admission_due = deadline_after(now, kLogoutAdmissionRetryMilliseconds);
             return;
@@ -371,8 +368,8 @@ void application_account_logout_pump() noexcept {
     }
     if (owner->phase == LogoutPhase::server && deadline_due(now, owner->admission_due)) {
         AccountLogoutResponse response{};
-        const auto taken = owner->server(owner->source_instance, AccountLogoutOperation::take,
-                                         owner->request_id, &response);
+        const auto taken = g_app.account.api.logout(owner->source_instance, AccountLogoutOperation::take,
+                                                    owner->request_id, &response);
         if (!taken.consumed) {
             owner->admission_due = deadline_after(now, kLogoutAdmissionRetryMilliseconds);
             return;

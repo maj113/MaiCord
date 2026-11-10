@@ -45,13 +45,11 @@ bool open_first(SharedLibrary* library, const char* override_name, const char* c
     return false;
 }
 
-// dav1d's function table as data: each name NUL terminated, and where its pointer sits in the Dav1dApi.
+// dav1d's function table as data, in the order of the Dav1dApi's members: each name NUL terminated.
 #define MAICORD_DAV1D_NAME(ret, name, args) #name "\0"
-#define MAICORD_DAV1D_SLOT(ret, name, args) static_cast<u16>(__builtin_offsetof(Dav1dApi, name)),
 constexpr char kDav1dNames[] = MAICORD_DAV1D_FUNCTIONS(MAICORD_DAV1D_NAME);
-constexpr u16 kDav1dSlots[] = {MAICORD_DAV1D_FUNCTIONS(MAICORD_DAV1D_SLOT)};
 #undef MAICORD_DAV1D_NAME
-#undef MAICORD_DAV1D_SLOT
+static_assert(shared_library_name_count(kDav1dNames) * sizeof(void*) == sizeof(Dav1dApi));
 
 bool load_dav1d() noexcept {
     static constexpr const char* names[]{"libdav1d.so.7", "libdav1d.so.6"};
@@ -59,22 +57,11 @@ bool load_dav1d() noexcept {
         log_unavailable("libdav1d is not installed: no software AV1 decode");
         return false;
     }
-    Dav1dApi api{};
-    bool complete = true;
-    const char* name = kDav1dNames;
-    for (u32 index = 0; index < sizeof(kDav1dSlots) / sizeof(kDav1dSlots[0]); ++index) {
-        void* function = shared_library_symbol(g_dav1d.library, name);
-        copy_bytes(reinterpret_cast<u8*>(&api) + kDav1dSlots[index], &function, sizeof(function));
-        complete = complete && function != nullptr;
-        while (*name++) {
-        }
-    }
-    if (!complete) {
+    if (shared_library_resolve(g_dav1d.library, &g_dav1d.api, sizeof(Dav1dApi), kDav1dNames)) {
         log_unavailable("libdav1d lacks a function: no software AV1 decode");
         shared_library_close(&g_dav1d.library);
         return false;
     }
-    g_dav1d.api = api;
     return true;
 }
 
@@ -84,17 +71,13 @@ bool load_openh264() noexcept {
         log_unavailable("libopenh264 is not installed: no software H.264 decode");
         return false;
     }
-    OpenH264Api api{};
-    api.WelsCreateDecoder = reinterpret_cast<decltype(api.WelsCreateDecoder)>(
-        shared_library_symbol(g_openh264.library, "WelsCreateDecoder"));
-    api.WelsDestroyDecoder = reinterpret_cast<decltype(api.WelsDestroyDecoder)>(
-        shared_library_symbol(g_openh264.library, "WelsDestroyDecoder"));
-    if (!api.WelsCreateDecoder || !api.WelsDestroyDecoder) {
+    static constexpr char kNames[] = "WelsCreateDecoder\0WelsDestroyDecoder\0";
+    static_assert(shared_library_name_count(kNames) * sizeof(void*) == sizeof(OpenH264Api));
+    if (shared_library_resolve(g_openh264.library, &g_openh264.api, sizeof(OpenH264Api), kNames)) {
         log_unavailable("libopenh264 lacks WelsCreateDecoder: no software H.264 decode");
         shared_library_close(&g_openh264.library);
         return false;
     }
-    g_openh264.api = api;
     return true;
 }
 

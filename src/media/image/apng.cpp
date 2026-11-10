@@ -1,6 +1,7 @@
 #include "maicord/media/image/apng.hpp"
 #include "maicord/core/memory.hpp"
 
+#include "maicord/core/crc32.hpp"
 #include "png_common.hpp"
 
 // The chunk walk runs once per image: compiled for size.
@@ -151,7 +152,7 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
         }
         const u32 type = byte_load_be32(type_bytes);
         const u8* data = type_bytes + 4;
-        if (png_crc32(type_bytes, length + 4) !=
+        if (crc32_extend(0, type_bytes, length + 4) !=
             byte_load_be32(data + length)) {
             return fail(result, ApngError::chunk_crc);
         }

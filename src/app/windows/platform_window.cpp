@@ -19,7 +19,7 @@
 namespace maicord::app_detail {
 namespace {
 
-bool input_blocked(void*) noexcept {
+inline bool input_blocked(void*) noexcept {
     return application_input_blocked();
 }
 
@@ -50,34 +50,34 @@ bool shell_hook(void*, HWND, UINT message, WPARAM wparam, LPARAM lparam, LRESULT
 }
 
 // The caption controller as the frame glue asks it.
-u32 caption_height(void*) noexcept {
+inline u32 caption_height(void*) noexcept {
     return g_app.renderer.caption_height;
 }
-bool caption_hidden(void*) noexcept {
+inline bool caption_hidden(void*) noexcept {
     return application_caption_hidden();
 }
-FrameHit caption_hit(void*, float x, float y) noexcept {
+inline FrameHit caption_hit(void*, float x, float y) noexcept {
     return application_caption_hit(x, y);
 }
-void caption_maximized(void*, bool maximized) noexcept {
+inline void caption_maximized(void*, bool maximized) noexcept {
     application_caption_maximized(maximized);
 }
-void caption_active(void*, bool active) noexcept {
+inline void caption_active(void*, bool active) noexcept {
     application_caption_active(active);
 }
-void caption_hover(void*, FrameHit part) noexcept {
+inline void caption_hover(void*, FrameHit part) noexcept {
     application_caption_hover(part);
 }
-void caption_leave(void*) noexcept {
+inline void caption_leave(void*) noexcept {
     application_caption_leave();
 }
-void caption_press(void*, FrameHit part) noexcept {
+inline void caption_press(void*, FrameHit part) noexcept {
     application_caption_press(part);
 }
-bool caption_release(void*, FrameHit part) noexcept {
+inline bool caption_release(void*, FrameHit part) noexcept {
     return application_caption_release(part);
 }
-bool caption_bar_rects(void*, FrameBarRects* rectangles) noexcept {
+inline bool caption_bar_rects(void*, FrameBarRects* rectangles) noexcept {
     return application_caption_bar_rects(rectangles);
 }
 
@@ -92,14 +92,11 @@ bool application_platform_window_create(Window* out, const char** failure) noexc
 #else
     constexpr u32 extended_style = 0;
 #endif
-    static const Win32Hooks hooks{nullptr, shell_hook, input_blocked};
-    static const Win32CaptionOps caption{nullptr,           caption_height, caption_hidden,   caption_hit,
-                                         caption_maximized, caption_active, caption_hover,    caption_leave,
-                                         caption_press,     caption_release, caption_bar_rects};
-    // The window keeps the system frame's outer size; the caption moves into the client (WM_NCCALCSIZE).
+    // The window keeps the system frame's outer size; the caption moves into the client (WM_NCCALCSIZE). The tables
+    // are the ones the window procedure folds (kWin32Hooks, kWin32CaptionOps); the options carry them for test code.
     return win32_window_create({utf8_literal("MaiCord"), {}, 1280, 800, false},
-                               {extended_style, &hooks, &caption, true}, application_window_event, nullptr, out,
-                               failure);
+                               {extended_style, &kWin32Hooks, &kWin32CaptionOps, true}, application_window_event,
+                               nullptr, out, failure);
 }
 
 void application_platform_window_show(ShowMode mode) noexcept {
@@ -114,3 +111,13 @@ void application_platform_window_show(ShowMode mode) noexcept {
 }
 
 } // namespace maicord::app_detail
+
+namespace maicord {
+const Win32Hooks kWin32Hooks{nullptr, app_detail::shell_hook, app_detail::input_blocked};
+const Win32CaptionOps kWin32CaptionOps{
+    nullptr,
+    app_detail::caption_height,    app_detail::caption_hidden,  app_detail::caption_hit,
+    app_detail::caption_maximized, app_detail::caption_active,  app_detail::caption_hover,
+    app_detail::caption_leave,     app_detail::caption_press,   app_detail::caption_release,
+    app_detail::caption_bar_rects};
+} // namespace maicord

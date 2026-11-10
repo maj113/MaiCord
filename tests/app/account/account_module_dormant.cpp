@@ -24,19 +24,7 @@ void test_account_module_dormant(void (*check)(bool, const char*) noexcept) noex
     if (!host.module)
         return;
     constexpr auto invalid = RestClientSubmitError::invalid_input;
-    const AccountModuleApi& api = host.api;
-
-    const AccountModuleApi complete = host.api;
-    host.api.thread_browser = nullptr;
-    check(account_host_start(&host, L"unused-profile", L"unused-session", 1, 1).error == AccountModuleError::invalid_input &&
-              !host.instance,
-          "dormant module: host refuses an incomplete API before creating an account owner");
-    host.api = complete;
-    host.api.version = 88;
-    check(account_host_start(&host, L"unused-profile", L"unused-session", 1, 1).error == AccountModuleError::invalid_input &&
-              !host.instance,
-          "dormant module: host refuses a previous ABI version before creating an account owner");
-    host.api = complete;
+    const AccountModuleApi& api = kAccountModuleApi;
 
     const BulkMessageAckEntry entry{1, 2, 0};
     check(api.bulk_message_ack(nullptr, &entry, 1, 1).error == invalid && api.bulk_message_ack(nullptr, nullptr, 0, 1).error == invalid,

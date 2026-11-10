@@ -426,9 +426,9 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
          endband = 21;
          break;
       }
-      MUST_SUCCEED(celt_decoder_ctl(celt_dec, CELT_SET_END_BAND(endband)));
+      celt_decoder_set_end(celt_dec, endband);
    }
-   MUST_SUCCEED(celt_decoder_ctl(celt_dec, CELT_SET_CHANNELS(st->stream_channels)));
+   celt_decoder_set_channels(celt_dec, st->stream_channels);
 
    /* Only allocation memory for redundancy if/when needed */
    redundant_audio_size = redundancy ? F5*st->channels : ALLOC_NONE;
@@ -442,25 +442,25 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
          stale at this point and the redundancy audio is not useful, however
          the final range is still needed (for testing), so the redundancy is
          always decoded but the decoded audio may not be used */
-      MUST_SUCCEED(celt_decoder_ctl(celt_dec, CELT_SET_START_BAND(0)));
+      celt_decoder_set_start(celt_dec, 0);
       celt_decode_with_ec(celt_dec, data+len, redundancy_bytes,
                           redundant_audio, F5, NULL, 0, scratch);
-      MUST_SUCCEED(celt_decoder_ctl(celt_dec, OPUS_GET_FINAL_RANGE(&redundant_rng)));
+      redundant_rng = celt_decoder_final_range(celt_dec);
    }
 
    /* MUST be after PLC */
-   MUST_SUCCEED(celt_decoder_ctl(celt_dec, CELT_SET_START_BAND(start_band)));
+   celt_decoder_set_start(celt_dec, start_band);
 
    if (mode != MODE_SILK_ONLY)
    {
       int celt_frame_size = IMIN(F20, frame_size);
       /* Make sure to discard any previous CELT state */
       if (mode != st->prev_mode && st->prev_mode > 0 && !st->prev_redundancy)
-         MUST_SUCCEED(celt_decoder_ctl(celt_dec, OPUS_RESET_STATE));
+         celt_decoder_reset(celt_dec);
       /* Decode CELT */
       celt_ret = celt_decode_with_ec(celt_dec, decode_fec ? NULL : data,
                                      len, pcm, celt_frame_size, &dec, celt_accum, scratch);
-      celt_decoder_ctl(celt_dec, OPUS_GET_FINAL_RANGE(&st->rangeFinal));
+      st->rangeFinal = celt_decoder_final_range(celt_dec);
    } else {
       unsigned char silence[2] = {0xFF, 0xFF};
       if (!celt_accum)
@@ -472,26 +472,22 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
          do a fade-out by decoding a silence frame */
       if (st->prev_mode == MODE_HYBRID && !(redundancy && celt_to_silk && st->prev_redundancy) )
       {
-         MUST_SUCCEED(celt_decoder_ctl(celt_dec, CELT_SET_START_BAND(0)));
+         celt_decoder_set_start(celt_dec, 0);
          celt_decode_with_ec(celt_dec, silence, 2, pcm, F2_5, NULL, celt_accum, scratch);
       }
       st->rangeFinal = dec.rng;
    }
 
-   {
-      const CELTMode *celt_mode;
-      MUST_SUCCEED(celt_decoder_ctl(celt_dec, CELT_GET_MODE(&celt_mode)));
-      window = celt_mode->window;
-   }
+   window = celt_decoder_mode(celt_dec)->window;
 
    /* 5 ms redundant frame for SILK->CELT */
    if (redundancy && !celt_to_silk)
    {
-      MUST_SUCCEED(celt_decoder_ctl(celt_dec, OPUS_RESET_STATE));
-      MUST_SUCCEED(celt_decoder_ctl(celt_dec, CELT_SET_START_BAND(0)));
+      celt_decoder_reset(celt_dec);
+      celt_decoder_set_start(celt_dec, 0);
 
       celt_decode_with_ec(celt_dec, data+len, redundancy_bytes, redundant_audio, F5, NULL, 0, scratch);
-      MUST_SUCCEED(celt_decoder_ctl(celt_dec, OPUS_GET_FINAL_RANGE(&redundant_rng)));
+      redundant_rng = celt_decoder_final_range(celt_dec);
       smooth_fade(pcm+st->channels*(frame_size-F2_5), redundant_audio+st->channels*F2_5,
                   pcm+st->channels*(frame_size-F2_5), F2_5, st->channels, window);
    }
@@ -697,7 +693,7 @@ int opus_decoder_ctl(OpusDecoder *st, int request, ...)
             sizeof(OpusDecoder)-
             ((char*)&st->OPUS_DECODER_RESET_START - (char*)st));
 
-      celt_decoder_ctl(celt_dec, OPUS_RESET_STATE);
+      celt_decoder_reset(celt_dec);
       silk_ResetDecoder( silk_dec );
       st->stream_channels = st->channels;
       st->frame_size = DECODER_FS/400;

@@ -32,12 +32,12 @@ POSSIBILITY OF SUCH DAMAGE.
 /*********************************/
 /* Initialize Silk Encoder state */
 /*********************************/
-opus_int silk_init_encoder(
+/* The input is always 48 kHz and the internal rate 16 kHz, with one 20 ms frame per packet. The channel states of a
+   mono-to-stereo transition are initialized again here. */
+void silk_init_encoder(
     silk_encoder_state_Fxx          *psEnc                                  /* I/O  Pointer to Silk FIX encoder state                                           */
 )
 {
-    opus_int ret = 0;
-
     /* Clear the entire encoder state */
     silk_memset( psEnc, 0, sizeof( silk_encoder_state_Fxx ) );
 
@@ -48,7 +48,15 @@ opus_int silk_init_encoder(
     psEnc->sCmn.first_frame_after_reset = 1;
 
     /* Initialize Silk VAD */
-    ret += silk_VAD_Init( &psEnc->sCmn.sVAD );
+    silk_VAD_Init( &psEnc->sCmn.sVAD );
 
-    return  ret;
+    /* Prepare the resampler from the 48 kHz input to the 16 kHz internal rate */
+    silk_resampler_init( &psEnc->sCmn.resampler_state, 48000, 16000, 1 );
+
+    /* Initialize non-zero parameters */
+    psEnc->sCmn.prevLag                     = 100;
+    psEnc->sShape.LastGainIndex             = 10;
+    psEnc->sCmn.sNSQ.lagPrev                = 100;
+    psEnc->sCmn.sNSQ.prev_gain_Q16          = 65536;
+    psEnc->sCmn.prevSignalType              = TYPE_NO_VOICE_ACTIVITY;
 }

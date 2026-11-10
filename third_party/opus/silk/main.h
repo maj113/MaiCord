@@ -53,8 +53,6 @@ void silk_stereo_LR_to_MS(
     opus_int32                  total_rate_bps,                 /* I    Total bitrate                               */
     opus_int                    prev_speech_act_Q8,             /* I    Speech activity level in previous frame     */
     opus_int                    toMono,                         /* I    Last frame before a stereo->mono transition */
-    opus_int                    fs_kHz,                         /* I    Sample rate (kHz)                           */
-    opus_int                    frame_length,                   /* I    Number of samples                           */
     char                        *scratch                        /* I    Scratch arena                               */
 );
 
@@ -74,7 +72,6 @@ opus_int32 silk_stereo_find_predictor(                          /* O    Returns 
     const opus_int16            x[],                            /* I    Basis signal                                */
     const opus_int16            y[],                            /* I    Target signal                               */
     opus_int32                  mid_res_amp_Q0[],               /* I/O  Smoothed mid, residual norms                */
-    opus_int                    length,                         /* I    Number of samples                           */
     opus_int                    smooth_coef_Q16                 /* I    Smoothing coefficient                       */
 );
 
@@ -129,7 +126,7 @@ void silk_decode_signs(
 );
 
 /* Control SNR of residual quantizer */
-opus_int silk_control_SNR(
+void silk_control_SNR(
     silk_encoder_state          *psEncC,                        /* I/O  Pointer to Silk encoder state               */
     opus_int32                  TargetRate_bps                  /* I    Target max bitrate (bps)                    */
 );
@@ -143,8 +140,7 @@ void silk_encode_pulses(
     ec_enc                      *psRangeEnc,                    /* I/O  compressor data structure                   */
     const opus_int              signalType,                     /* I    Signal type                                 */
     const opus_int              quantOffsetType,                /* I    quantOffsetType                             */
-    opus_int8                   pulses[],                       /* I    quantization indices                        */
-    const opus_int              frame_length                    /* I    Frame length                                */
+    opus_int8                   pulses[]                        /* I    quantization indices                        */
 );
 
 /* Shell encoder, operates on one shell code frame of 16 pulses */
@@ -160,13 +156,11 @@ void silk_shell_decoder(
     const opus_int              pulses4                         /* I    number of pulses per pulse-subframe         */
 );
 
-/* Gain scalar quantization with hysteresis, uniform on log scale */
+/* Gain scalar quantization with hysteresis, uniform on log scale; the first gain is coded in full */
 void silk_gains_quant(
     opus_int8                   ind[ MAX_NB_SUBFR ],            /* O    gain indices                                */
     opus_int32                  gain_Q16[ MAX_NB_SUBFR ],       /* I/O  gains (quantized out)                       */
-    opus_int8                   *prev_ind,                      /* I/O  last index in previous frame                */
-    const opus_int              conditional,                    /* I    first gain is delta coded if 1              */
-    const opus_int              nb_subfr                        /* I    number of subframes                         */
+    opus_int8                   *prev_ind                       /* I/O  last index in previous frame                */
 );
 
 /* Gains scalar dequantization, uniform on log scale */
@@ -180,8 +174,7 @@ void silk_gains_dequant(
 
 /* Compute unique identifier of gain indices vector */
 opus_int32 silk_gains_ID(                                       /* O    returns unique identifier of gains          */
-    const opus_int8             ind[ MAX_NB_SUBFR ],            /* I    gain indices                                */
-    const opus_int              nb_subfr                        /* I    number of subframes                         */
+    const opus_int8             ind[ MAX_NB_SUBFR ]             /* I    gain indices                                */
 );
 
 /* Interpolate two vectors */
@@ -189,8 +182,7 @@ void silk_interpolate(
     opus_int16                  xi[ MAX_LPC_ORDER ],            /* O    interpolated vector                         */
     const opus_int16            x0[ MAX_LPC_ORDER ],            /* I    first vector                                */
     const opus_int16            x1[ MAX_LPC_ORDER ],            /* I    second vector                               */
-    const opus_int              ifact_Q2,                       /* I    interp. factor, weight on 2nd vector        */
-    const opus_int              d                               /* I    number of parameters                        */
+    const opus_int              ifact_Q2                        /* I    interp. factor, weight on 2nd vector        */
 );
 
 /* LTP tap quantizer */
@@ -201,9 +193,7 @@ void silk_quant_LTP_gains(
     opus_int32                  *sum_gain_dB_Q7,                            /* I/O  Cumulative max prediction gain  */
     opus_int                    *pred_gain_dB_Q7,                           /* O    LTP prediction gain             */
     const opus_int32            XX_Q17[ MAX_NB_SUBFR*LTP_ORDER*LTP_ORDER ], /* I    Correlation matrix in Q18       */
-    const opus_int32            xX_Q17[ MAX_NB_SUBFR*LTP_ORDER ],           /* I    Correlation vector in Q18       */
-    const opus_int              subfr_len,                                  /* I    Number of samples per subframe  */
-    const opus_int              nb_subfr                                    /* I    Number of subframes             */
+    const opus_int32            xX_Q17[ MAX_NB_SUBFR*LTP_ORDER ]            /* I    Correlation vector in Q18       */
 );
 
 /* Entropy constrained matrix-weighted VQ, for a single input data vector */
@@ -217,7 +207,6 @@ void silk_VQ_WMat_EC(
     const opus_int8             *cb_Q7,                         /* I    codebook                                    */
     const opus_uint8            *cb_gain_Q7,                    /* I    codebook effective gain                     */
     const opus_uint8            *cl_Q5,                         /* I    code length for each codebook vector        */
-    const opus_int              subfr_len,                      /* I    number of samples per subframe              */
     const opus_int32            max_gain_Q7,                    /* I    maximum sum of absolute LTP coefficients    */
     const opus_int              L                               /* I    number of vectors in codebook               */
 );
@@ -250,12 +239,12 @@ void silk_NSQ_del_dec(
 /* Silk VAD */
 /************/
 /* Initialize the Silk VAD */
-opus_int silk_VAD_Init(                                         /* O    Return value, 0 if success                  */
+void silk_VAD_Init(
     silk_VAD_state              *psSilk_VAD                     /* I/O  Pointer to Silk VAD state                   */
 );
 
 /* Get speech activity level in Q8 */
-opus_int silk_VAD_GetSA_Q8(                                     /* O    Return value, 0 if success                  */
+void silk_VAD_GetSA_Q8(
     silk_encoder_state          *psEncC,                        /* I/O  Encoder state                               */
     const opus_int16            pIn[]                           /* I    PCM input                                   */
 );
@@ -414,9 +403,7 @@ void silk_CNG(
 void silk_encode_indices(
     silk_encoder_state          *psEncC,                        /* I/O  Encoder state                               */
     ec_enc                      *psRangeEnc,                    /* I/O  Compressor data structure                   */
-    opus_int                    FrameIndex,                     /* I    Frame number                                */
-    opus_int                    encode_LBRR,                    /* I    Flag indicating LBRR data is being encoded  */
-    opus_int                    condCoding                      /* I    The type of conditional coding to use       */
+    opus_int                    encode_LBRR                     /* I    Flag indicating LBRR data is being encoded  */
 );
 
 #endif

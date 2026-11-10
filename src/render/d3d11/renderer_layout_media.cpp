@@ -478,7 +478,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                 return layout_step_failed(__LINE__);
             for (u32 i = 0; i < renderer->message_text->command_count; ++i) {
                 const auto& command = renderer->message_text->commands[i];
-                MessageInteractionLayout interaction{};
+                MessageInteractionLayout interaction;
                 if (ui_rect_intersects(command.rectangle, message_scene->viewport) &&
                     message_interaction_layout(*message_scene, command, *renderer->user_store,
                                                renderer->message_measure_cache, theme, &interaction)) {
@@ -494,7 +494,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                         return layout_step_failed(__LINE__);
                     continue;
                 }
-                MessageAuthorLayout header{};
+                MessageAuthorLayout header;
                 if (!ui_rect_intersects(command.rectangle, message_scene->viewport) ||
                     !message_author_layout(*message_scene, command, *renderer->chat_state,
                                            *renderer->user_store, renderer->message_measure_cache, theme,

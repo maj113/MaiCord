@@ -43,7 +43,6 @@
 #include "stack_alloc.h"
 #include "mathops.h"
 #include "float_cast.h"
-#include <stdarg.h>
 #include "celt_lpc.h"
 #include "vq.h"
 #include <smmintrin.h>
@@ -153,7 +152,7 @@ OPUS_CUSTOM_NOSTATIC int opus_custom_decoder_init(CELTDecoder *st, const CELTMod
    st->end = st->mode->effEBands;
    st->disable_inv = channels == 1;
 
-   opus_custom_decoder_ctl(st, OPUS_RESET_STATE);
+   celt_decoder_reset(st);
 
    return OPUS_OK;
 }
@@ -1073,81 +1072,46 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
 }
 
 
-int opus_custom_decoder_ctl(CELTDecoder * OPUS_RESTRICT st, int request, ...)
+const CELTMode *celt_decoder_mode(const CELTDecoder *st)
 {
-   va_list ap;
+   return st->mode;
+}
 
-   va_start(ap, request);
-   switch (request)
-   {
-      case CELT_SET_START_BAND_REQUEST:
-      {
-         opus_int32 value = va_arg(ap, opus_int32);
-         if (value<0 || value>=st->mode->nbEBands)
-            goto bad_arg;
-         st->start = value;
-      }
-      break;
-      case CELT_SET_END_BAND_REQUEST:
-      {
-         opus_int32 value = va_arg(ap, opus_int32);
-         if (value<1 || value>st->mode->nbEBands)
-            goto bad_arg;
-         st->end = value;
-      }
-      break;
-      case CELT_SET_CHANNELS_REQUEST:
-      {
-         opus_int32 value = va_arg(ap, opus_int32);
-         if (value<1 || value>2)
-            goto bad_arg;
-         st->stream_channels = value;
-      }
-      break;
-      case OPUS_RESET_STATE:
-      {
-         int i;
-         celt_glog *oldBandE, *oldLogE, *oldLogE2;
-         int decode_buffer_size;
-         decode_buffer_size = DECODE_BUFFER_SIZE;
-         oldBandE = (celt_glog*)(st->_decode_mem+(decode_buffer_size+st->overlap)*st->channels);
-         oldLogE = oldBandE + 2*st->mode->nbEBands;
-         oldLogE2 = oldLogE + 2*st->mode->nbEBands;
-         OPUS_CLEAR((char*)&st->DECODER_RESET_START,
-               opus_custom_decoder_get_size(st->mode, st->channels)-
-               ((char*)&st->DECODER_RESET_START - (char*)st));
-         SHORT_LOOP
-         for (i=0;i<2*st->mode->nbEBands;i++)
-            oldLogE[i]=oldLogE2[i]=-GCONST(28.f);
-         st->skip_plc = 1;
-         st->last_frame_type = FRAME_NONE;
-      }
-      break;
-      case CELT_GET_MODE_REQUEST:
-      {
-         const CELTMode ** value = va_arg(ap, const CELTMode**);
-         if (value==0)
-            goto bad_arg;
-         *value=st->mode;
-      }
-      break;
-      case OPUS_GET_FINAL_RANGE_REQUEST:
-      {
-         opus_uint32 * value = va_arg(ap, opus_uint32 *);
-         if (value==0)
-            goto bad_arg;
-         *value=st->rng;
-      }
-      break;
-      default:
-         goto bad_request;
-   }
-   va_end(ap);
-   return OPUS_OK;
-bad_arg:
-   va_end(ap);
-   return OPUS_BAD_ARG;
-bad_request:
-      va_end(ap);
-  return OPUS_UNIMPLEMENTED;
+void celt_decoder_set_channels(CELTDecoder *st, int stream_channels)
+{
+   st->stream_channels = stream_channels;
+}
+
+void celt_decoder_set_start(CELTDecoder *st, int start_band)
+{
+   st->start = start_band;
+}
+
+void celt_decoder_set_end(CELTDecoder *st, int end_band)
+{
+   st->end = end_band;
+}
+
+void celt_decoder_reset(CELTDecoder *st)
+{
+   int i;
+   celt_glog *oldBandE, *oldLogE, *oldLogE2;
+   int decode_buffer_size;
+   decode_buffer_size = DECODE_BUFFER_SIZE;
+   oldBandE = (celt_glog*)(st->_decode_mem+(decode_buffer_size+st->overlap)*st->channels);
+   oldLogE = oldBandE + 2*st->mode->nbEBands;
+   oldLogE2 = oldLogE + 2*st->mode->nbEBands;
+   OPUS_CLEAR((char*)&st->DECODER_RESET_START,
+         opus_custom_decoder_get_size(st->mode, st->channels)-
+         ((char*)&st->DECODER_RESET_START - (char*)st));
+   SHORT_LOOP
+   for (i=0;i<2*st->mode->nbEBands;i++)
+      oldLogE[i]=oldLogE2[i]=-GCONST(28.f);
+   st->skip_plc = 1;
+   st->last_frame_type = FRAME_NONE;
+}
+
+opus_uint32 celt_decoder_final_range(const CELTDecoder *st)
+{
+   return st->rng;
 }

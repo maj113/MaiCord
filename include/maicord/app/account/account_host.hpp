@@ -17,7 +17,6 @@ enum class AccountHostError : u8 {
     module_path,
     module_load,
     module_symbol,
-    api_mismatch,
     active,
     login_stop,
     account_stop,
@@ -45,11 +44,22 @@ struct AccountHostStopResult {
     }
 };
 
+#if defined(MAICORD_ACCOUNT_API_TABLE)
+// Test and perf-probe builds call the module through a table of their own, empty until the code under test installs the
+// entries it needs (`g_account_api = kAccountModuleApi` installs the linked module's).
+inline AccountModuleApi g_account_api{};
+#endif
+
 struct AccountHost {
+    // The entry points of the account module: its constant table, which the whole-program link folds into direct calls.
+#if defined(MAICORD_ACCOUNT_API_TABLE)
+    static constexpr AccountModuleApi& api = g_account_api;
+#else
+    static constexpr const AccountModuleApi& api = kAccountModuleApi;
+#endif
     HMODULE module;
     void* instance;
     void* login_instance;
-    AccountModuleApi api;
     AccountModuleStatus status;
     AccountLoginStatus login_status;
     u32 last_ready;
@@ -59,12 +69,22 @@ struct AccountHost {
     bool stop_failed;
 };
 
-static_assert(sizeof(AccountHost) == 1280);
+static_assert(sizeof(AccountHost) == 232);
 
-bool account_host_api_valid(const AccountModuleApi& api) noexcept;
-// Admits module's API into an empty host; a loaded host keeps its API. A
-// refused API leaves the host empty.
-AccountHostResult account_host_attach(AccountHost* host, HMODULE module, AccountModuleGetApiFunction get_api) noexcept;
+// Whether the module provides every one of `entries`: the linked module's table is complete (so this is a constant), a test's
+// or the probe's leaves entries out. A chain of null checks on adjacent entries would otherwise load the table, which the
+// whole-program link would then keep.
+template <typename... Entries>
+constexpr bool account_api_provides([[maybe_unused]] Entries AccountModuleApi::*... entries) noexcept {
+#if defined(MAICORD_ACCOUNT_API_TABLE)
+    return (... && (AccountHost::api.*entries != nullptr));
+#else
+    return true;
+#endif
+}
+
+// Attaches `module` to an empty host; an attached host keeps its module.
+AccountHostResult account_host_attach(AccountHost* host, HMODULE module) noexcept;
 // Moves source's ownership to destination and leaves source empty.
 void account_host_move(AccountHost* destination, AccountHost* source) noexcept;
 // Attaches the account module linked into this image.

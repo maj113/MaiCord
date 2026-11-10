@@ -292,7 +292,7 @@ MessageProfileHit message_author_hit_test(const MessageScene& scene,
         const auto* row = command_row(scene, command);
         if (!row || command.message_revision != row->message_revision)
             continue;
-        MessageAuthorLayout header{};
+        MessageAuthorLayout header;
         if (!message_author_layout(scene, command, state, users, cache, theme, &header) ||
             !ui_rect_contains(ui_rect_intersection(header.name.rectangle, header.name.clip), x, y))
             continue;
@@ -316,7 +316,7 @@ MessageGuildTagHit message_author_guild_tag_hit_test(const MessageScene& scene, 
         const auto& command = text.commands[i];
         if (!command_row(scene, command))
             continue;
-        MessageAuthorLayout header{};
+        MessageAuthorLayout header;
         if (!message_author_layout(scene, command, state, users, cache, theme, &header) || !header.badge.leading ||
             header.badge.accent ||
             !header.badge.label.bytes || !header.appearance || !header.appearance->primary_guild_id ||
@@ -338,7 +338,7 @@ MessageAppCheckHit message_author_app_check_hit_test(const MessageScene& scene, 
         const auto* row = command_row(scene, command);
         if (!row || command.message_revision != row->message_revision)
             continue;
-        MessageAuthorLayout header{};
+        MessageAuthorLayout header;
         if (!message_author_layout(scene, command, state, users, cache, theme, &header))
             continue;
         const UiRect check = ui_rect_intersection(ui_app_badge_check(header.badge), command.clip);
@@ -359,7 +359,7 @@ MessagePluginSlotHit message_author_plugin_hit_test(const MessageScene& scene, c
         const auto* row = command_row(scene, command);
         if (!row)
             continue;
-        MessageAuthorLayout header{};
+        MessageAuthorLayout header;
         if (!message_author_layout(scene, command, state, users, cache, theme, &header) || !header.plugin.action_id ||
             !ui_rect_contains(ui_rect_intersection(header.plugin.badge.rectangle, command.clip), x, y))
             continue;

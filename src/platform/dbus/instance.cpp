@@ -51,10 +51,10 @@ Instance g;
 // The interface only: object_handle_standard (bus.cpp) adds the node and the standard interfaces.
 const char kApplicationIntrospection[] =
     "<interface name=\"org.freedesktop.Application\">"
-    "<method name=\"Activate\"><arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>"
-    "<method name=\"Open\"><arg type=\"as\" name=\"uris\" direction=\"in\"/><arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>"
-    "<method name=\"ActivateAction\"><arg type=\"s\" name=\"action_name\" direction=\"in\"/><arg type=\"av\" name=\"parameter\" direction=\"in\"/>"
-    "<arg type=\"a{sv}\" name=\"platform_data\" direction=\"in\"/></method>"
+    "<method name=\"Activate\"><arg type=\"a{sv}\" name=\"platform_data\"/></method>"
+    "<method name=\"Open\"><arg type=\"as\" name=\"uris\"/><arg type=\"a{sv}\" name=\"platform_data\"/></method>"
+    "<method name=\"ActivateAction\"><arg type=\"s\" name=\"action_name\"/><arg type=\"av\" name=\"parameter\"/>"
+    "<arg type=\"a{sv}\" name=\"platform_data\"/></method>"
     "</interface>";
 
 u64 hash_of(const char* a, const char* b) noexcept {

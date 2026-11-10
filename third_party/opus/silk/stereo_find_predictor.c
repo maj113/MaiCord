@@ -34,7 +34,6 @@ opus_int32 silk_stereo_find_predictor(                          /* O    Returns 
     const opus_int16            x[],                            /* I    Basis signal                                */
     const opus_int16            y[],                            /* I    Target signal                               */
     opus_int32                  mid_res_amp_Q0[],               /* I/O  Smoothed mid, residual norms                */
-    opus_int                    length,                         /* I    Number of samples                           */
     opus_int                    smooth_coef_Q16                 /* I    Smoothing coefficient                       */
 )
 {
@@ -42,14 +41,14 @@ opus_int32 silk_stereo_find_predictor(                          /* O    Returns 
     opus_int32 nrgx, nrgy, corr, pred_Q13, pred2_Q10;
 
     /* Find  predictor */
-    silk_sum_sqr_shift( &nrgx, &scale1, x, length );
-    silk_sum_sqr_shift( &nrgy, &scale2, y, length );
+    silk_sum_sqr_shift( &nrgx, &scale1, x, MAX_FRAME_LENGTH );
+    silk_sum_sqr_shift( &nrgy, &scale2, y, MAX_FRAME_LENGTH );
     scale = silk_max_int( scale1, scale2 );
     scale = scale + ( scale & 1 );          /* make even */
     nrgy = silk_RSHIFT32( nrgy, scale - scale2 );
     nrgx = silk_RSHIFT32( nrgx, scale - scale1 );
     nrgx = silk_max_int( nrgx, 1 );
-    corr = silk_inner_prod_aligned_scale( x, y, scale, length );
+    corr = silk_inner_prod_aligned_scale( x, y, scale, MAX_FRAME_LENGTH );
     pred_Q13 = silk_DIV32_varQ( corr, nrgx, 13 );
     pred_Q13 = silk_LIMIT( pred_Q13, -(1 << 14), 1 << 14 );
     pred2_Q10 = silk_SMULWB( pred_Q13, pred_Q13 );

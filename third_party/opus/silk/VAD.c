@@ -31,14 +31,12 @@ POSSIBILITY OF SUCH DAMAGE.
 /**********************************/
 /* Initialization of the Silk VAD */
 /**********************************/
-opus_int silk_VAD_Init(                                         /* O    Return value, 0 if success                  */
+/* The state is cleared by the caller (silk_init_encoder) */
+void silk_VAD_Init(
     silk_VAD_state              *psSilk_VAD                     /* I/O  Pointer to Silk VAD state                   */
 )
 {
-    opus_int b, ret = 0;
-
-    /* reset state memory */
-    silk_memset( psSilk_VAD, 0, sizeof( silk_VAD_state ) );
+    opus_int b;
 
     /* init noise levels */
     /* Initialize array with approx pink noise levels (psd proportional to inverse of frequency) */
@@ -58,7 +56,6 @@ opus_int silk_VAD_Init(                                         /* O    Return v
         psSilk_VAD->NrgRatioSmth_Q8[ b ] = 100 * 256;       /* 100 * 256 --> 20 dB SNR */
     }
 
-    return( ret );
 }
 
 /**************************/

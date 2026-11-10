@@ -188,7 +188,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
     p.form_body_bytes = rules.used;
     const bool large_rules =
         formed && guild_verification_decode({p.form_body, p.form_body_bytes},
-                                            {retry_background.scratch, 16384}, &p.form);
+                                            json_scratch(), &p.form);
     check(large_rules && !p.form.truncated && p.form.text_used > sizeof(p.banks[0]),
           "community complete Unicode rules fit the model but exceed the presentation bank");
     project_form();
@@ -213,7 +213,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
         R"({"version":"1","form_fields":[{"field_type":"TERMS","label":"Rules","required":true,"values":["Read this rule."]}]})");
     copy_bytes(p.form_body, complete_rules.data, complete_rules.bytes);
     p.form_body_bytes = complete_rules.bytes;
-    check(guild_verification_decode(complete_rules, {retry_background.scratch, 16384}, &p.form),
+    check(guild_verification_decode(complete_rules, json_scratch(), &p.form),
           "community complete rules fixture decodes");
     p.phase = Phase::ready;
     p.answers[0].agreed = false;
@@ -263,7 +263,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
         }
         ok = ok && protocol_writer_append_literal(&writer, "]}");
         return ok &&
-               guild_onboarding_decode({p.form_body, writer.used}, {retry_background.scratch, 16384},
+               guild_onboarding_decode({p.form_body, writer.used}, json_scratch(),
                                        &p.onboarding) &&
                !p.onboarding.truncated;
     };
@@ -299,7 +299,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
     }
     const auto complete_onboarding = utf8_literal(
         R"({"enabled":true,"responses":["101","202"],"prompts":[{"id":"1","title":"First","required":true,"in_onboarding":true,"options":[{"id":"101","title":"Choice"}]},{"id":"2","title":"Later","required":true,"in_onboarding":false,"options":[{"id":"202","title":"Saved"}]}]})");
-    check(guild_onboarding_decode(complete_onboarding, {retry_background.scratch, 16384}, &p.onboarding) &&
+    check(guild_onboarding_decode(complete_onboarding, json_scratch(), &p.onboarding) &&
               !p.onboarding.truncated,
           "community complete saved onboarding fixture decodes");
     p.mode = Mode::channels_roles;

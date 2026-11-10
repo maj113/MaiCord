@@ -13,8 +13,10 @@ enum class UserAuthOperation : u8;
 struct ClientSessionMetadata;
 
 using RestTraceFunction = void (*)(const char* record) noexcept;
-// Configure before creating any clients; callback remains valid until all
-// workers have joined. Receives metadata only, never request bodies.
+// Every request is traced into the log (category "rest_trace") unless a test or probe replaces the trace here (null
+// silences it): the shipped client never calls this, so the whole-program link folds the trace into direct calls.
+// Configure before creating any clients; callback remains valid until all workers have joined. Receives metadata
+// only, never request bodies.
 void rest_client_set_trace(RestTraceFunction trace) noexcept;
 
 // Room for a kick, whose audit reason travels percent-encoded in the query.

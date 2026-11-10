@@ -462,7 +462,8 @@ bool guild_member_store_initialize(GuildMemberStore* store,
         order.count != records.count) {
         return false;
     }
-    reset_value<GuildMemberStore>(store);
+    if (!zeroed)
+        reset_value<GuildMemberStore>(store);
     store->records = records.data;
     store->order = order.data;
     store->capacity = records.count;
@@ -524,7 +525,9 @@ void guild_member_store_reset_lists(GuildMemberStore* store) noexcept {
     store->pin_count = 0;
     reset_value(&store->visible);
     changed |= store->positions.count != 0;
-    reset_value(&store->positions);
+    // Only the scope bytes say which entries are live; the users and indexes behind them are read after that test.
+    clear_bytes(store->positions.scopes, sizeof(store->positions.scopes));
+    store->positions.count = store->positions.evicted_lists = 0;
     if (changed)
         note_store_change(store);
 }

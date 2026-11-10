@@ -180,8 +180,8 @@ maicord_library(maicord_unicode
     src/text/scripts/arabic_joining.cpp src/text/unicode/line_break.cpp
     src/text/unicode/thai_word_break.cpp src/text/unicode/thai_lexical.cpp src/text/unicode/thai_syllable.cpp
     src/text/unicode/bidi_tailored.cpp src/text/unicode/unicode.cpp src/text/unicode/canonical.cpp src/text/unicode/grapheme.cpp src/text/unicode/bidi.cpp
-    # unicode.cpp and thai_lexical.cpp inflate their tables; deflate.cpp checks gzip members with png_crc32.
-    LIBS maicord_core maicord_compression maicord_media_codec)
+    # unicode.cpp and thai_lexical.cpp inflate their tables.
+    LIBS maicord_core maicord_compression)
 if(MAICORD_LINUX)
     # The tables are #embedded (a C23 extension to clang's C++).
     target_compile_options(maicord_unicode PRIVATE -Wno-c23-extensions)
@@ -312,11 +312,10 @@ maicord_library(maicord_ui
     src/ui/widgets/toast.cpp windows:src/ui/theme/theme.cpp src/ui/theme/background_color_math.cpp src/ui/chat/search/message_result_card.cpp
     src/ui/text/pointer_selection.cpp src/ui/chat/messages/author.cpp src/ui/chat/messages/interaction.cpp
     src/ui/media/expression_card_scene.cpp
-    # The spell tokenizer classifies letters with the Unicode property tables;
-    # deflate.cpp checks gzip members with png_crc32 from maicord_media_codec.
+    # The spell tokenizer classifies letters with the Unicode property tables.
     # On Linux the text system entry points, the emoji presentation and the theme
     # typography are maicord_text_system's, the theme maicord_theme's.
-    LIBS maicord_core maicord_model maicord_media_core maicord_unicode maicord_compression maicord_media_codec
+    LIBS maicord_core maicord_model maicord_media_core maicord_unicode maicord_compression
         linux:maicord_theme
     INCLUDES linux:src "${MAICORD_GENERATED_DIRECTORY}"
     DEPENDS maicord_emoji_catalog_data maicord_icon_pack_data)

@@ -132,7 +132,7 @@ bool build_items(MessageActionBar* bar, const MessageRecord& message, const Reac
         if (own)
             push(bar, Action::reply, Kind::reply);
     } else {
-        MessageContextMenuModel context{};
+        MessageContextMenuModel context;
         const MessageContextMenuResult menu =
             message_context_menu_build(&context, message, false, false, false, preferences);
         if (!menu.ok() || context.count < kMessageActionBarQuickReactionCount) {

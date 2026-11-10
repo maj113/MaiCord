@@ -10,6 +10,7 @@
 #include "maicord/media/image/jpeg.hpp"
 #include "maicord/media/image/webp_thumbnail.hpp"
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
+#include "maicord/core/crc32.hpp"
 #include "../../../src/media/image/png_common.hpp"
 #include "../../support/media_fixture.hpp"
 #include "../../fixtures/webp_fixture.hpp"
@@ -381,7 +382,7 @@ u32 rechunk_idat(const u8* png, u32 bytes, u32 piece, u8* out, u32 capacity) noe
                     byte_store_be32(out + used, n);
                     copy_bytes(out + used + 4, "IDAT", 4);
                     copy_bytes(out + used + 8, idat + at, n);
-                    byte_store_be32(out + used + 8 + n, png_crc32(out + used + 4, n + 4));
+                    byte_store_be32(out + used + 8 + n, crc32_extend(0, out + used + 4, n + 4));
                     used += 12 + n;
                 }
                 written = true;
@@ -451,7 +452,7 @@ void test_png_streaming(Check check) noexcept {
         const u32 length = byte_load_be32(bad_filter + at);
         bad_filter[at + 8 + 7] = 9;
         byte_store_be32(bad_filter + at + 8 + length - 4, png_fixture_adler32({bad_filter + at + 8 + 7, length - 11}));
-        byte_store_be32(bad_filter + at + 8 + length, png_crc32(bad_filter + at + 4, length + 4));
+        byte_store_be32(bad_filter + at + 8 + length, crc32_extend(0, bad_filter + at + 4, length + 4));
         LocalThumbnailSink bad_sink{};
         filter_rejected = !decode({bad_filter, fixture.encoded_bytes}, &bad_sink);
     }

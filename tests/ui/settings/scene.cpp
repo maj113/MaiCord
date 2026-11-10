@@ -17,6 +17,8 @@
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
+// The owned text of the streams below: initials are copied into it, so they outlive the pass that made them.
+char g_owned_text[256];
 
 bool close_to(float a, float b) noexcept {
     return a - b < .01f && b - a < .01f;
@@ -968,7 +970,7 @@ void test_card_pages(Check check) noexcept {
     UiTextOutput output{&stream, nullptr};
     bool painted = paint_stream_initialize(&paint) && paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
                    ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr) &&
-                   ui_text_command_stream_initialize(&stream, {commands, 160}) &&
+                   ui_text_command_stream_initialize(&stream, {commands, 160}, {g_owned_text, sizeof(g_owned_text)}) &&
                    ui_settings_scene_text_output(scene, kDefaultTheme, &output);
     bool title = false, subtitle = false, hint = false, caption = false, tag = false, link = false, styled = false, eyebrow = false,
          esc = false, heading = false, button_rect = false, button_clip = false, segment_rect = false, lead_bold = false,
@@ -1263,7 +1265,7 @@ void test_segment_motion(Check check) noexcept {
     };
     // The colour and style word of the label `text`.
     const auto label = [&](const Utf8View& text, Color* color, u32* style) noexcept {
-        if (!ui_text_command_stream_initialize(&stream, {commands, 96}) ||
+        if (!ui_text_command_stream_initialize(&stream, {commands, 96}, {g_owned_text, sizeof(g_owned_text)}) ||
             !ui_settings_scene_text_output(scene, kDefaultTheme, &output))
             return false;
         for (u32 i = 0; i < stream.count; ++i)
@@ -1378,7 +1380,7 @@ void test_status_meta_wrap(Check check) noexcept {
         UiTextCommandStream stream{};
         UiTextOutput output{&stream, nullptr};
         invariants = invariants && ui_settings_scene_update(&scene, &registry, {0, 0, width, 900}) &&
-                     ui_text_command_stream_initialize(&stream, {commands, 160}) &&
+                     ui_text_command_stream_initialize(&stream, {commands, 160}, {g_owned_text, sizeof(g_owned_text)}) &&
                      ui_settings_scene_text_output(scene, kDefaultTheme, &output);
         const UiTextCommand* parts[3]{};
         float title_left = -1;
@@ -1474,7 +1476,7 @@ void test_preview_row(Check check) noexcept {
         UiTextCommand commands[160]{};
         UiTextCommandStream stream{};
         UiTextOutput output{&stream, nullptr};
-        if (!ui_text_command_stream_initialize(&stream, {commands, 160}) ||
+        if (!ui_text_command_stream_initialize(&stream, {commands, 160}, {g_owned_text, sizeof(g_owned_text)}) ||
             !ui_settings_scene_text_output(scene, kDefaultTheme, &output))
             return false;
         float time_left = -1, name_left = -1;
@@ -1510,7 +1512,7 @@ void test_preview_row(Check check) noexcept {
         UiTextCommandStream stream{};
         UiTextOutput output{&stream, nullptr};
         *out = {};
-        if (!ui_text_command_stream_initialize(&stream, {commands, 160}) ||
+        if (!ui_text_command_stream_initialize(&stream, {commands, 160}, {g_owned_text, sizeof(g_owned_text)}) ||
             !ui_settings_scene_text_output(scene, kDefaultTheme, &output))
             return false;
         for (u32 i = 0; i < stream.count; ++i) {
@@ -1561,7 +1563,7 @@ void test_preview_row(Check check) noexcept {
         *out = {};
         if (!ui_settings_scene_update(&scene, &registry, viewport) ||
             !ui_settings_scene_control_geometry(scene, target(1), &card) ||
-            !ui_text_command_stream_initialize(&stream, {commands, 160}) ||
+            !ui_text_command_stream_initialize(&stream, {commands, 160}, {g_owned_text, sizeof(g_owned_text)}) ||
             !ui_settings_scene_text_output(scene, kDefaultTheme, &output))
             return false;
         out->lines_fit = out->inside_card = out->others_interface = true;

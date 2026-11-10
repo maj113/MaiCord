@@ -32,8 +32,7 @@ POSSIBILITY OF SUCH DAMAGE.
 /* Processing of gains */
 void silk_process_gains_FIX(
     silk_encoder_state_FIX          *psEnc,                                 /* I/O  Encoder state                                                               */
-    silk_encoder_control_FIX        *psEncCtrl,                             /* I/O  Encoder control                                                             */
-    opus_int                        condCoding                              /* I    The type of conditional coding to use                                       */
+    silk_encoder_control_FIX        *psEncCtrl                              /* I/O  Encoder control                                                             */
 )
 {
     silk_shape_state_FIX *psShapeSt = &psEnc->sShape;
@@ -44,7 +43,7 @@ void silk_process_gains_FIX(
     if( psEnc->sCmn.indices.signalType == TYPE_VOICED ) {
         /*s = -0.5f * silk_sigmoid( 0.25f * ( psEncCtrl->LTPredCodGain - 12.0f ) ); */
         s_Q16 = -silk_sigm_Q15( silk_RSHIFT_ROUND( psEncCtrl->LTPredCodGain_Q7 - SILK_FIX_CONST( 12.0, 7 ), 4 ) );
-        for( k = 0; k < psEnc->sCmn.nb_subfr; k++ ) {
+        for( k = 0; k < MAX_NB_SUBFR; k++ ) {
             psEncCtrl->Gains_Q16[ k ] = silk_SMLAWB( psEncCtrl->Gains_Q16[ k ], psEncCtrl->Gains_Q16[ k ], s_Q16 );
         }
     }
@@ -52,9 +51,9 @@ void silk_process_gains_FIX(
     /* Limit the quantized signal */
     /* InvMaxSqrVal = pow( 2.0f, 0.33f * ( 21.0f - SNR_dB ) ) / subfr_length; */
     InvMaxSqrVal_Q16 = silk_DIV32_16( silk_log2lin(
-        silk_SMULWB( SILK_FIX_CONST( 21 + 16 / 0.33, 7 ) - psEnc->sCmn.SNR_dB_Q7, SILK_FIX_CONST( 0.33, 16 ) ) ), psEnc->sCmn.subfr_length );
+        silk_SMULWB( SILK_FIX_CONST( 21 + 16 / 0.33, 7 ) - psEnc->sCmn.SNR_dB_Q7, SILK_FIX_CONST( 0.33, 16 ) ) ), MAX_SUB_FRAME_LENGTH );
 
-    for( k = 0; k < psEnc->sCmn.nb_subfr; k++ ) {
+    for( k = 0; k < MAX_NB_SUBFR; k++ ) {
         /* Soft limit on ratio residual energy and squared gains */
         ResNrg     = psEncCtrl->ResNrg[ k ];
         ResNrgPart = silk_SMULWW( ResNrg, InvMaxSqrVal_Q16 );
@@ -84,12 +83,11 @@ void silk_process_gains_FIX(
     }
 
     /* Save unquantized gains and gain Index */
-    silk_memcpy( psEncCtrl->GainsUnq_Q16, psEncCtrl->Gains_Q16, psEnc->sCmn.nb_subfr * sizeof( opus_int32 ) );
+    silk_memcpy( psEncCtrl->GainsUnq_Q16, psEncCtrl->Gains_Q16, MAX_NB_SUBFR * sizeof( opus_int32 ) );
     psEncCtrl->lastGainIndexPrev = psShapeSt->LastGainIndex;
 
     /* Quantize gains */
-    silk_gains_quant( psEnc->sCmn.indices.GainsIndices, psEncCtrl->Gains_Q16,
-        &psShapeSt->LastGainIndex, condCoding == CODE_CONDITIONALLY, psEnc->sCmn.nb_subfr );
+    silk_gains_quant( psEnc->sCmn.indices.GainsIndices, psEncCtrl->Gains_Q16, &psShapeSt->LastGainIndex );
 
     /* Set quantizer offset for voiced signals. Larger offset when LTP coding gain is low or tilt is high (ie low-pass) */
     if( psEnc->sCmn.indices.signalType == TYPE_VOICED ) {

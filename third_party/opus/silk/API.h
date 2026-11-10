@@ -61,25 +61,23 @@ opus_int silk_Get_Encoder_Size(                         /* O    Returns error co
     opus_int                         channels           /* I    Number of channels                              */
 );
 
-/*************************/
-/* Init or reset encoder */
-/*************************/
-opus_int silk_InitEncoder(                              /* O    Returns error code                              */
-    void                            *encState,          /* I/O  State                                           */
-    int                              channels,          /* I    Number of channels                              */
-    silk_EncControlStruct           *encStatus          /* O    Encoder Status                                  */
+/*****************/
+/* Init encoder  */
+/*****************/
+void silk_InitEncoder(
+    void                            *encState,          /* I/O  State, zeroed by the caller                     */
+    int                              channels           /* I    Number of channels                              */
 );
 
 /**************************/
 /* Encode frame with Silk */
 /**************************/
-opus_int silk_Encode(                                   /* O    Returns error code                              */
+void silk_Encode(
     void                            *encState,          /* I/O  State                                           */
     silk_EncControlStruct           *encControl,        /* I    Control status                                  */
-    const opus_res                  *samplesIn,         /* I    Speech sample input vector                      */
-    opus_int                        nSamplesIn,         /* I    Number of samples in input vector               */
+    const opus_res                  *samplesIn,         /* I    One 20 ms frame of 48 kHz PCM per channel       */
     ec_enc                          *psRangeEnc,        /* I/O  Compressor data structure                       */
-    opus_int32                      *nBytesOut,         /* I/O  Number of bytes in payload (input: Max bytes)   */
+    opus_int32                      *nBytesOut,         /* O    Number of bytes in payload                      */
     int                             activity,           /* I    Decision of Opus voice activity detector        */
     char                            *scratch            /* I    Scratch arena                                   */
 );

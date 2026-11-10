@@ -8,7 +8,6 @@
 #include "maicord/gpu/gpu.hpp"
 
 namespace maicord {
-using RestTraceFunction = void (*)(const char* record) noexcept;
 struct AccountActionCaptchaRequest;
 enum class AccountDownloadOperation : u8;
 struct AccountDownloadResult;
@@ -403,8 +402,6 @@ using AccountModuleRelationshipsFunction =
                                     u64 user_id, Utf8View username, u64 request_id) noexcept;
 
 struct AccountModuleApi {
-    u32 version;
-    u32 bytes;
     AccountModuleStartFunction start;
     AccountModulePumpFunction pump;
     AccountModuleNotificationHandlesFunction notification_handles;
@@ -452,7 +449,6 @@ struct AccountModuleApi {
     RestClientSubmitResult(WINAPI* application_command)(void* instance, u64 channel_id, u64 guild_id,
                                                         u64 application_id, u64 nonce, Utf8View data,
                                                         u64 request_id, u8 operation) noexcept;
-    void (*set_rest_trace)(RestTraceFunction trace) noexcept;
     AccountModuleLoginSubmitVerificationFunction login_submit_verification;
     AccountModuleRelationshipsFunction relationships;
     RestClientSubmitResult(WINAPI* message_ack)(void* instance, u64 channel_id, u64 message_id,
@@ -687,62 +683,16 @@ struct AccountModuleApi {
     bool(WINAPI* go_live_preview)(void*, VideoStreamFrame*) noexcept;
 };
 
-// The account module's boundary, linked into MaiCord.exe (and a DLL only for
-// the perf probe's synthetic module). The module loads the DPAPI profile itself
-// and returns an opaque handle. Login copies caller-owned locked input into the
-// module's locked arena; neither plaintext nor internal worker pointers are
-// retained across the boundary. The Gateway source is borrowed only for immediate
-// UI-thread mailbox drains. Completed REST bodies are copied into caller-owned
-// output before stop. Decoded media frames are borrowed until the next media
-// request/pump and must be uploaded during the media_take call sequence before
-// the module is stopped.
+// The account module's entry points, one constant table: the whole-program link folds every call through it into a direct call
+// (AccountHost::api). The module loads the DPAPI profile itself and returns an opaque handle. Login copies caller-owned locked
+// input into the module's locked arena; neither plaintext nor internal worker pointers are retained across the boundary. The
+// Gateway source is borrowed only for immediate UI-thread mailbox drains. Completed REST bodies are copied into caller-owned
+// output before stop. Decoded media frames are borrowed until the next media request/pump and must be uploaded during the
+// media_take call sequence before the module is stopped.
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 120);
-static_assert(sizeof(AccountModuleApi) == 1048);
-static_assert(offsetof(AccountModuleApi, go_live_preview) == 1040);
-static_assert(offsetof(AccountModuleApi, go_live_snapshot) == 1032);
-static_assert(offsetof(AccountModuleApi, go_live) == 1024);
-static_assert(offsetof(AccountModuleApi, credential_replace) == 1016);
-static_assert(offsetof(AccountModuleApi, guild_automation) == 1008);
-static_assert(offsetof(AccountModuleApi, media_vp8_cpu) == 1000);
-static_assert(offsetof(AccountModuleApi, voice_video_notification) == 992);
-static_assert(offsetof(AccountModuleApi, client_focus) == 984);
-static_assert(offsetof(AccountModuleApi, channel_info) == 968);
-static_assert(offsetof(AccountModuleApi, guild_members_query_cancel) == 960);
-static_assert(offsetof(AccountModuleApi, guild_moderation) == 952);
-static_assert(offsetof(AccountModuleApi, poll) == 624);
-static_assert(offsetof(AccountModuleApi, guild_admin) == 632);
-static_assert(offsetof(AccountModuleApi, voice_snapshot) == 648);
-static_assert(offsetof(AccountModuleApi, voice_user_audio) == 688);
-static_assert(offsetof(AccountModuleApi, voice_audio_status) == 704);
-static_assert(offsetof(AccountModuleApi, guild_invite) == 712);
-static_assert(offsetof(AccountModuleApi, emoji_preferences) == 720);
-static_assert(offsetof(AccountModuleApi, account_settings) == 728);
-static_assert(offsetof(AccountModuleApi, action_captcha) == 736);
-static_assert(offsetof(AccountModuleApi, poll_create) == 744);
-static_assert(offsetof(AccountModuleApi, private_channel) == 752);
-static_assert(offsetof(AccountModuleApi, custom_status_snapshot) == 760);
-static_assert(offsetof(AccountModuleApi, mentions) == 784);
-static_assert(offsetof(AccountModuleApi, guild_assets) == 792);
-static_assert(offsetof(AccountModuleApi, voice_video_snapshot) == 800);
-static_assert(offsetof(AccountModuleApi, voice_video_wanted) == 808);
-static_assert(offsetof(AccountModuleApi, voice_video_device) == 816);
-static_assert(offsetof(AccountModuleApi, voice_video_frame) == 824);
-static_assert(offsetof(AccountModuleApi, stream_watch) == 832);
-static_assert(offsetof(AccountModuleApi, stream_snapshot) == 840);
-static_assert(offsetof(AccountModuleApi, stream_volume) == 848);
-static_assert(offsetof(AccountModuleApi, stream_preview) == 856);
-static_assert(offsetof(AccountModuleApi, stage) == 864);
-static_assert(offsetof(AccountModuleApi, message_interaction) == 872);
-static_assert(offsetof(AccountModuleApi, user_social) == 880);
-static_assert(offsetof(AccountModuleApi, guild_community) == 888);
-static_assert(offsetof(AccountModuleApi, local_presence) == 896);
-static_assert(offsetof(AccountModuleApi, activity_sharing) == 904);
-static_assert(offsetof(AccountModuleApi, voice_message) == 928);
-static_assert(offsetof(AccountModuleApi, soundboard) == 912);
-static_assert(offsetof(AccountModuleApi, soundboard_audio) == 920);
 
-using AccountModuleGetApiFunction = bool(WINAPI*)(u32 requested_version, AccountModuleApi* api) noexcept;
+extern const AccountModuleApi kAccountModuleApi;
 
 } // namespace maicord

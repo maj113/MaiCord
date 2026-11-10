@@ -291,7 +291,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         rich = nullptr; // the scene built no rich widgets for this row
     const MessageMediaPolicyResult media_policy =
         rich ? message_scene_media_policy(
-                   scene, message_media_owner(*record, message_rich_store_find(*rich_store, record->id)))
+                   scene,
+                   message_media_owner(*record, forwarded ? message_rich_store_find(*rich_store, record->id) : rich))
              : MessageMediaPolicyResult{MessageExplicitFilter::show, true};
     if (forwarded) {
         if (!rich)
@@ -417,12 +418,12 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         }
         {
             const MessageTextCommand& line = presentation->commands[presentation->command_count - 1];
-            presentation->measurements[measurement_index].rich_item_layout.reply_width =
+            row_measurement.rich_item_layout.reply_width =
                 reply_icon != MessageReplyIcon::none
                     ? minimum(line.measured_width, ui_rect_width(line.rectangle))
                     : 0.0f;
         }
-        if (!finish_flow(presentation, flow, &presentation->measurements[measurement_index].reply_height)) {
+        if (!finish_flow(presentation, flow, &row_measurement.reply_height)) {
             return false;
         }
         saturating_accumulate(presentation->rich.replies);
@@ -479,14 +480,14 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                                                        now_unix_seconds);
         if (name.bytes != 0 && !scene.display.compact && !result_card_header &&
             (header.text.bytes == 0 ||
-             !append_command(presentation, header.text, header.styles,
-                             kNoSemantics,
-                             UiWidgetReference{&scene.widgets, row.author}, author->content_rectangle,
-                             row_clip, author_color, record,
-                             kInvalidMessageTextMeasurement,
-                             kLookStartThemed,
-                             dot_rgb ? message_user_color(color_from_rgb24(dot_rgb), scene.display.user_color_desaturation)
-                                     : kNoRoleColor))) {
+             !append_command_role(presentation, header.text, header.styles,
+                                  kNoSemantics,
+                                  UiWidgetReference{&scene.widgets, row.author}, author->content_rectangle,
+                                  row_clip, author_color, record,
+                                  kInvalidMessageTextMeasurement,
+                                  kLookStartThemed,
+                                  dot_rgb ? message_user_color(color_from_rgb24(dot_rgb), scene.display.user_color_desaturation)
+                                          : kNoRoleColor))) {
             return false;
         }
     }
@@ -611,13 +612,12 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     if (rich->sticker_count != 0) {
         // Stickers draw no caption: the name is their tooltip's, popout's and
         // accessible name.
-        auto& measured = presentation->measurements[measurement_index];
         for (u32 index = 0; index < rich->sticker_count; ++index) {
-            measured.rich_item_layout.heights[kMessageSceneStickerItemOffset + index] =
+            row_measurement.rich_item_layout.heights[kMessageSceneStickerItemOffset + index] =
                 kDefaultMessageStickerLayoutMetrics.extent;
             saturating_accumulate(presentation->rich.stickers);
         }
-        measured.rich_layout.stickers = kDefaultMessageStickerLayoutMetrics.group_height(rich->sticker_count);
+        row_measurement.rich_layout.stickers = kDefaultMessageStickerLayoutMetrics.group_height(rich->sticker_count);
     }
 
     if (rich->component_count != 0) {
@@ -839,7 +839,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         const float components_available =
             components_region ? ui_rect_width(components_region->content_rectangle) : text_width;
         const u32 error_host = forwarded ? kMessageComponentNone : failed_component_host(scene, *record);
-        presentation->measurements[measurement_index].rich_layout.components = message_component_measure_tree(
+        row_measurement.rich_layout.components = message_component_measure_tree(
             *rich, &row_measurement.rich_item_layout, maximum(1.0f, components_available), error_host);
         // The failed control's error line: after the icon, in the space the
         // measure reserved under its row or section.
@@ -940,19 +940,14 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                               ui_background_muted_text_color(theme),
                               UiWidgetReference{&scene.widgets, item_widget}, *record,
                               measurement_index, MessageTextMeasurementKind::notice) ||
-            !finish_flow(presentation, flow,
-                         &presentation->measurements[measurement_index]
-                              .rich_item_layout.heights[kMessageSceneNoticeItemOffset])) {
+            !finish_flow(presentation, flow, &row_measurement.rich_item_layout.heights[kMessageSceneNoticeItemOffset])) {
             return false;
         }
-        presentation->measurements[measurement_index].rich_layout.notice =
-            presentation->measurements[measurement_index]
-                .rich_item_layout.heights[kMessageSceneNoticeItemOffset];
+        row_measurement.rich_layout.notice = row_measurement.rich_item_layout.heights[kMessageSceneNoticeItemOffset];
     }
     return append_annotations(presentation, scene, row, *record, theme, row_clip, measurement_index, forwarded,
                               rich->truncations != 0
-                                  ? presentation->measurements[measurement_index]
-                                        .rich_item_layout.heights[kMessageSceneNoticeItemOffset]
+                                  ? row_measurement.rich_item_layout.heights[kMessageSceneNoticeItemOffset]
                                   : 0.0f,
                               collapsed ? nullptr : decoration);
 }

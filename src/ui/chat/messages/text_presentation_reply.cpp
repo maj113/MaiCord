@@ -12,26 +12,8 @@ namespace maicord {
 using namespace text_presentation_detail;
 
 namespace text_presentation_detail {
-namespace {
-u64 source_fingerprint(const Utf8View& source) noexcept {
-    u64 hash = 0x9E3779B97F4A7C15ull ^ (static_cast<u64>(source.bytes) * 0xBF58476D1CE4E5B9ull);
-    u32 index = 0;
-    for (; index + 8u <= source.bytes; index += 8u) {
-        u64 word;
-        memcpy(&word, source.data + index, sizeof(word));
-        hash = (hash ^ word) * 0xFF51AFD7ED558CCDull;
-        hash ^= hash >> 29u;
-    }
-    u64 tail = 0;
-    for (u32 shift = 0; index < source.bytes; ++index, shift += 8u)
-        tail |= static_cast<u64>(static_cast<u8>(source.data[index])) << shift;
-    hash = (hash ^ tail) * 0xC4CEB9FE1A85EC53ull;
-    return hash ^ (hash >> 32u);
-}
-
-} // namespace
 u64 command_content_signature(const MessageTextCommand& command) noexcept {
-    u64 hash = source_fingerprint(command.text);
+    u64 hash = hash64_words(kHash64Seed, command.text.data, command.text.bytes);
     for (u32 index = 0; index < command.styles.count; ++index) {
         const TextStyleSpan& style = command.styles[index];
         hash = hash64_mix(hash, style.byte_offset);
@@ -259,7 +241,7 @@ u64 markdown_cache_key(Utf8View source, const MessageMarkdownOptions& options, M
                          u64{options.spoiler_revealed != nullptr} << 22u | u64{options.has_hover} << 23u |
                          static_cast<u64>(timestamp_hour_cycle()) << 24u |
                          static_cast<u64>(options.base_style) << 32u;
-    u64 key = hash64_mix(source_fingerprint(source), switches);
+    u64 key = hash64_mix(hash64_words(kHash64Seed, source.data, source.bytes), switches);
     if (options.has_hover)
         key = hash64_mix(hash64_mix(key, options.hovered_source_offset), static_cast<u8>(options.hovered_kind));
     return key ? key : 1u;
@@ -455,8 +437,7 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
                     const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
                     const UiWidgetReference& owner,
                     const UiRect& rectangle, const UiRect& clip, const Color& color,
-                    const MessageRecord* record, u16 measurement_index, const CommandLook& look,
-                    const Color& inline_role_color) noexcept {
+                    const MessageRecord* record, u16 measurement_index, const CommandLook& look) noexcept {
     if (text.bytes == 0) {
         return true;
     }
@@ -477,7 +458,7 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
                                  rectangle,
                                  clip,
                                  color,
-                                 inline_role_color,
+                                 kNoRoleColor,
                                  record ? record->id : 0,
                                  0,
                                  record ? record->revision : 0,
@@ -500,6 +481,21 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
     command.measured_height = measured.height;
     command.measured_width = measured.width;
     ++presentation->command_count;
+    return true;
+}
+
+bool append_command_role(MessageTextPresentation* presentation, const Utf8View& text,
+                         const ConstSlice<TextStyleSpan>& styles,
+                         const ConstSlice<MessageMarkdownSemantic>& semantics, const UiWidgetReference& owner,
+                         const UiRect& rectangle, const UiRect& clip, const Color& color,
+                         const MessageRecord* record, u16 measurement_index, const CommandLook& look,
+                         const Color& inline_role_color) noexcept {
+    const u32 before = presentation->command_count;
+    if (!append_command(presentation, text, styles, semantics, owner, rectangle, clip, color, record,
+                        measurement_index, look))
+        return false;
+    if (presentation->command_count != before)
+        presentation->commands[before].inline_role_color = inline_role_color;
     return true;
 }
 
@@ -932,15 +928,15 @@ bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& te
     // Bound shaping to one line (the box of one quoted line); the renderer applies character-granularity
     // ellipsis inside this retained width.
     rectangle.bottom = rectangle.top + line_height;
-    if (!append_command(presentation, text, styles, semantics, owner, rectangle,
-                        flow->clip_rectangle, color, &record, measurement_index,
-                        {.kind = MessageTextMeasurementKind::reply,
-                         .minimum_height = 16.0f,
-                         .gap_after = 6.0f,
-                         .themed = styles.count != 0,
-                         .wrapping = TextWrapping::no_wrap,
-                         .overflow = overflow},
-                        inline_role_color)) {
+    if (!append_command_role(presentation, text, styles, semantics, owner, rectangle,
+                             flow->clip_rectangle, color, &record, measurement_index,
+                             {.kind = MessageTextMeasurementKind::reply,
+                              .minimum_height = 16.0f,
+                              .gap_after = 6.0f,
+                              .themed = styles.count != 0,
+                              .wrapping = TextWrapping::no_wrap,
+                              .overflow = overflow},
+                             inline_role_color)) {
         return false;
     }
     return commit_last_command(presentation, flow);

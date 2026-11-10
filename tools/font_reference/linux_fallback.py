@@ -370,45 +370,60 @@ def emit(merged, ucd_hash, script_hash):
     for first, offset, count in ranges:
         lines.append('    {0x%x,%d,%d},' % (first, offset, count))
     lines.append('};')
-    lines.append('// One token list per CJK order (unspecified language, ja, ko, zh-cn, zh-tw, zh-hk); the lists have the same')
-    lines.append('// layout, so the ranges above serve all of them.')
-    lines.append('constexpr u16 system_fallback_tokens[%d][%d]{' % (len(LOCALES), len(tokens[0])))
+    # A token is the offset of its family's name in system_fallback_names (the name runs to its NUL). The six token
+    # lists (unspecified language, ja, ko, zh-cn, zh-tw, zh-hk) have the same layout, so the ranges above serve all of
+    # them, and they differ only in the CJK slots: one list holds the rest and the variants cover that span.
+    offsets = []
+    position = 0
+    for name in names:
+        offsets.append(position)
+        position += len(name) + 1
+    tokens = [[offsets[token] for token in row] for row in tokens]
+    differing = [i for i in range(len(tokens[0])) if any(row[i] != tokens[0][i] for row in tokens)]
+    variant_first, variant_end = differing[0], differing[-1] + 1
+    lines.append('constexpr u16 system_fallback_tokens[%d]{%s};' % (len(tokens[0]), ','.join(str(value) for value in tokens[0])))
+    lines.append('constexpr u32 system_fallback_variant_first=%d;' % variant_first)
+    lines.append('constexpr u32 system_fallback_variant_count=%d;' % (variant_end - variant_first))
+    lines.append('constexpr u16 system_fallback_variants[%d][%d]{' % (len(LOCALES), variant_end - variant_first))
     for locale_index, locale in enumerate(LOCALES):
-        body = ','.join(str(value) for value in tokens[locale_index])
+        body = ','.join(str(value) for value in tokens[locale_index][variant_first:variant_end])
         lines.append('    {%s}, // %s' % (body, locale))
     lines.append('};')
     lines.append('constexpr u32 system_fallback_locale_count=%d;' % len(LOCALES))
     lines.append('constexpr char system_fallback_names[]=')
-    offsets = []
-    position = 0
     for name in names:
         lines.append('    "%s\\0"' % name)
-        offsets.append((position, len(name)))
-        position += len(name) + 1
     lines.append('    ;')
-    lines.append('struct SystemFallbackName {u16 offset,count;};')
-    lines.append('constexpr SystemFallbackName system_fallback_families[]{')
-    for offset, count in offsets:
-        lines.append('    {%d,%d},' % (offset, count))
-    lines.append('};')
     lines.append('constexpr u32 system_fallback_max_families=%d;' % MAX_FAMILIES)
     lines.append('static_assert([]() constexpr {')
-    lines.append('    for(const auto& name:system_fallback_families) {')
-    lines.append('        if(!name.count||name.count>=64||name.offset+name.count>=sizeof(system_fallback_names)||system_fallback_names[name.offset+name.count])return false;')
-    lines.append('        for(u32 i=0;i<name.count;++i)if(static_cast<u8>(system_fallback_names[name.offset+i])>=128)return false;')
-    lines.append('    }return true;')
+    lines.append('    u32 run=0;')
+    lines.append('    for(u32 i=0;i+1<sizeof(system_fallback_names);++i) {')
+    lines.append('        const u8 c=static_cast<u8>(system_fallback_names[i]);')
+    lines.append('        if(c>=128)return false;')
+    lines.append('        if(c){if(++run>=64)return false;}else{if(!run)return false;run=0;}')
+    lines.append('    }return run==0;')
+    lines.append('}());')
+    lines.append('constexpr bool system_fallback_token_valid(u32 token) noexcept {')
+    lines.append('    return token<sizeof(system_fallback_names)-1&&system_fallback_names[token]&&(!token||!system_fallback_names[token-1]);')
+    lines.append('}')
+    lines.append('static_assert([]() constexpr {')
+    lines.append('    for(const u16 token:system_fallback_tokens)if(!system_fallback_token_valid(token))return false;')
+    lines.append('    for(const auto& row:system_fallback_variants)for(const u16 token:row)if(!system_fallback_token_valid(token))return false;')
+    lines.append('    return true;')
     lines.append('}());')
     lines.append('constexpr u32 system_fallback_range_count=%d;' % len(ranges))
     lines.append('constexpr u32 system_fallback_token_count=%d;' % len(tokens[0]))
-    lines.append('constexpr u32 system_fallback_family_count=%d;' % len(names))
-    lines.append('struct SystemFallbackPolicies {NativeFallbackCascade values[system_fallback_locale_count];};')
-    lines.append('constexpr SystemFallbackPolicies system_fallback_policies=[]() constexpr {')
-    lines.append('    SystemFallbackPolicies policies{};')
-    lines.append('    for(u32 i=0;i<system_fallback_locale_count;++i)')
-    lines.append('        native_fallback_cascade_open({system_fallback_ranges,system_fallback_range_count},{system_fallback_tokens[i],system_fallback_token_count},system_fallback_family_count,&policies.values[i]);')
-    lines.append('    return policies;')
+    lines.append('constexpr NativeFallbackCascade system_fallback_policy=[]() constexpr {')
+    lines.append('    NativeFallbackCascade policy{};')
+    lines.append('    native_fallback_cascade_open({system_fallback_ranges,system_fallback_range_count},{system_fallback_tokens,system_fallback_token_count},sizeof(system_fallback_names),&policy);')
+    lines.append('    return policy;')
     lines.append('}();')
-    lines.append('static_assert(system_fallback_policies.values[0].ranges.count==system_fallback_range_count);')
+    lines.append('static_assert(system_fallback_policy.ranges.count==system_fallback_range_count);')
+    lines.append('// The token at `index` of the lists of one CJK order.')
+    lines.append('constexpr u32 system_fallback_token(u32 locale,u32 index) noexcept {')
+    lines.append('    const u32 at=index-system_fallback_variant_first;')
+    lines.append('    return at<system_fallback_variant_count?system_fallback_variants[locale][at]:system_fallback_tokens[index];')
+    lines.append('}')
     return '\n'.join(lines) + '\n'
 
 

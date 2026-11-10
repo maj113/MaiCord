@@ -1,5 +1,4 @@
 #include "dispatch_internal.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/protocol/user/notification_settings.hpp"
 
 namespace maicord {
@@ -12,21 +11,17 @@ bool append_message_metadata(Slice<char> output, const GatewayMessageEvent& mess
     const u64 member_role_bytes = static_cast<u64>(message.member_roles.count) * sizeof(u64);
     const u64 user_bytes =
         static_cast<u64>(message.mention_users.count) * sizeof(GatewayClientNamedUserMutation);
-    if (!mutation || !payload || message.content.bytes > message.transient_bytes ||
+    if (message.content.bytes > message.transient_bytes ||
         message.transient_bytes > output.count || role_bytes > output.count - message.transient_bytes ||
         member_role_bytes > output.count - message.transient_bytes - role_bytes ||
         user_bytes > output.count - message.transient_bytes - role_bytes - member_role_bytes) {
         return false;
     }
     u32 cursor = message.transient_bytes;
-    for (u32 index = 0; index < role_ids.count; ++index) {
-        byte_store_le64(reinterpret_cast<u8*>(output.data + cursor + index * sizeof(u64)), role_ids[index]);
-    }
+    // The mailbox stores role ids as little-endian u64s, which is what this target's arrays hold.
+    copy_bytes(output.data + cursor, role_ids.data, static_cast<u32>(role_bytes));
     cursor += static_cast<u32>(role_bytes);
-    for (u32 index = 0; index < message.member_roles.count; ++index) {
-        byte_store_le64(reinterpret_cast<u8*>(output.data + cursor + index * sizeof(u64)),
-                        message.member_roles[index]);
-    }
+    copy_bytes(output.data + cursor, message.member_roles.data, static_cast<u32>(member_role_bytes));
     cursor += static_cast<u32>(member_role_bytes);
     for (u32 index = 0; index < message.mention_users.count; ++index) {
         const GatewayMessageNamedUser& user = message.mention_users[index];

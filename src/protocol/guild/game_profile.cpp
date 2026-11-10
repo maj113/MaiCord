@@ -3,6 +3,7 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "../encoding/json_helpers.hpp"
+#include "field_table.hpp"
 
 namespace maicord {
 namespace {
@@ -34,7 +35,7 @@ void append_name(GameProfile& g, bool publisher, const JsonValue& value) noexcep
     char* names = publisher ? g.publishers : g.developers;
     u16& bytes = publisher ? g.publishers_bytes : g.developers_bytes;
     char name[128];
-    const u32 length = copy_text_truncated<512>(value, name, sizeof(name));
+    const u32 length = clip_copy(value, name, sizeof(name), 512);
     if (!length || bytes + (bytes ? 2u : 0u) + length > kGameProfileNamesBytes)
         return;
     if (bytes) {

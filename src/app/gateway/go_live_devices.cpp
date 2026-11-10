@@ -195,10 +195,8 @@ void go_live_devices_set_device(GoLiveDevices* devices, GpuDevice* device) noexc
         gpu_release(previous);
 }
 
-GoLiveBackend go_live_devices_backend(GoLiveDevices* devices) noexcept {
-    return {devices,   encodable, capture,  capture_stop_all, sound,        sound_stop, encoder,
-            configure, bitrate,   keyframe, encoder_stop,     preview};
-}
+const GoLiveBackend kGoLiveDevicesBackend{encodable, capture,   capture_stop_all, sound,        sound_stop, encoder,
+                                           configure, bitrate,   keyframe,        encoder_stop, preview};
 
 void go_live_devices_release(GoLiveDevices* devices) noexcept {
     capture_stop_all(devices);

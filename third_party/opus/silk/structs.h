@@ -93,8 +93,8 @@ typedef struct {
     opus_int16                   smth_width_Q14;
     opus_int16                   width_prev_Q14;
     opus_int16                   silent_side_len;
-    opus_int8                    predIx[ MAX_FRAMES_PER_PACKET ][ 2 ][ 3 ];
-    opus_int8                    mid_only_flags[ MAX_FRAMES_PER_PACKET ];
+    opus_int8                    predIx[ 2 ][ 3 ];
+    opus_int8                    mid_only_flag;
 } stereo_enc_state;
 
 typedef struct {
@@ -120,85 +120,54 @@ typedef struct {
 /********************************/
 /* Encoder state                */
 /********************************/
+/* maiopus: the encoder runs one configuration: 16 kHz internal rate and one 20 ms frame of four 5 ms subframes
+   per packet at LPC order 16 (MAX_FS_KHZ, MAX_NB_SUBFR, MAX_FRAME_LENGTH, MAX_SUB_FRAME_LENGTH, LTP_MEM_LENGTH,
+   LA_PITCH_MAX, MAX_LPC_ORDER, FIND_PITCH_LPC_WIN_MAX), coded independently of the previous frame. */
 typedef struct {
-    opus_int32                   In_HP_State[ 2 ];                  /* High pass filter state                                           */
     opus_int32                   variable_HP_smth1_Q15;             /* State of first smoother                                          */
     opus_int32                   variable_HP_smth2_Q15;             /* State of second smoother                                         */
     silk_VAD_state               sVAD;                              /* Voice activity detector state                                    */
     silk_nsq_state               sNSQ;                              /* Noise Shape Quantizer State                                      */
     opus_int16                   prev_NLSFq_Q15[ MAX_LPC_ORDER ];   /* Previously quantized NLSF vector                                 */
     opus_int                     speech_activity_Q8;                /* Speech activity                                                  */
-    opus_int8                    LBRRprevLastGainIndex;
     opus_int8                    prevSignalType;
     opus_int                     prevLag;
-    opus_int                     pitch_LPC_win_length;
-    opus_int                     max_pitch_lag;                     /* Highest possible pitch lag (samples)                             */
-    opus_int32                   API_fs_Hz;                         /* API sampling frequency (Hz)                                      */
-    opus_int                     fs_kHz;                            /* Internal sampling frequency (kHz)                                */
-    opus_int                     nb_subfr;                          /* Number of 5 ms subframes in a frame                              */
-    opus_int                     frame_length;                      /* Frame length (samples)                                           */
-    opus_int                     subfr_length;                      /* Subframe length (samples)                                        */
-    opus_int                     ltp_mem_length;                    /* Length of LTP memory                                             */
-    opus_int                     la_pitch;                          /* Look-ahead for pitch analysis (samples)                          */
     opus_int                     la_shape;                          /* Look-ahead for noise shape analysis (samples)                    */
     opus_int                     shapeWinLength;                    /* Window length for noise shape analysis (samples)                 */
-    opus_int32                   TargetRate_bps;                    /* Target bitrate (bps)                                             */
-    opus_int                     PacketSize_ms;                     /* Number of milliseconds to put in each packet                     */
     opus_int                     PacketLoss_perc;                   /* Packet loss rate measured by farend                              */
     opus_int32                   frameCounter;
     opus_int                     Complexity;                        /* Complexity setting                                               */
     opus_int                     nStatesDelayedDecision;            /* Number of states in delayed decision quantization                */
     opus_int                     useInterpolatedNLSFs;              /* Flag for using NLSF interpolation                                */
     opus_int                     shapingLPCOrder;                   /* Filter order for noise shaping filters                           */
-    opus_int                     predictLPCOrder;                   /* Filter order for prediction filters                              */
     opus_int                     pitchEstimationComplexity;         /* Complexity level for pitch estimator                             */
     opus_int                     pitchEstimationLPCOrder;           /* Whitening filter order for pitch estimator                       */
     opus_int32                   pitchEstimationThreshold_Q16;      /* Threshold for pitch estimator                                    */
     opus_int32                   sum_log_gain_Q7;                   /* Cumulative max prediction gain                                   */
     opus_int                     NLSF_MSVQ_Survivors;               /* Number of survivors in NLSF MSVQ                                 */
     opus_int                     first_frame_after_reset;           /* Flag for deactivating NLSF interpolation, pitch prediction       */
-    opus_int                     controlled_since_last_payload;     /* Flag for ensuring codec_control only runs once per packet        */
     opus_int                     warping_Q16;                       /* Warping parameter for warped noise shaping                       */
-    opus_int                     useCBR;                            /* Flag to enable constant bitrate                                  */
-    const opus_uint8             *pitch_lag_low_bits_iCDF;          /* Pointer to iCDF table for low bits of pitch lag index            */
-    const opus_uint8             *pitch_contour_iCDF;               /* Pointer to iCDF table for pitch contour index                    */
-    const silk_NLSF_CB_struct    *psNLSF_CB;                        /* Pointer to NLSF codebook                                         */
     opus_int                     input_quality_bands_Q15[ VAD_N_BANDS ];
     opus_int                     input_tilt_Q15;
     opus_int                     SNR_dB_Q7;                         /* Quality setting                                                  */
 
-    opus_int8                    VAD_flags[ MAX_FRAMES_PER_PACKET ];
-    opus_int8                    LBRR_flag;
-    opus_int                     LBRR_flags[ MAX_FRAMES_PER_PACKET ];
+    opus_int8                    VAD_flag;
+    opus_int8                    LBRR_flag;                         /* This packet carries the previous packet's LBRR frame             */
+    opus_int                     LBRR_pending;                      /* This packet's LBRR frame is coded in the next packet             */
 
     SideInfoIndices              indices;
     opus_int8                    pulses[ MAX_FRAME_LENGTH ];
 
-    /* Input/output buffering */
+    /* Input buffering */
     opus_int16                   inputBuf[ MAX_FRAME_LENGTH + 2 ];  /* Buffer containing input signal                                   */
-    opus_int                     inputBufIx;
-    opus_int                     nFramesPerPacket;
-    opus_int                     nFramesEncoded;                    /* Number of frames analyzed in current packet                      */
-
-    opus_int                     nChannelsAPI;
-    opus_int                     nChannelsInternal;
-    opus_int                     channelNb;
-
-    /* Parameters For LTP scaling Control */
-    opus_int                     frames_since_onset;
-
-    /* Specifically for entropy coding */
-    opus_int                     ec_prevSignalType;
-    opus_int16                   ec_prevLagIndex;
 
     silk_resampler_state_struct resampler_state;
 
     /* Inband Low Bitrate Redundancy (LBRR) data */
-    opus_int                     useInBandFEC;                      /* Saves the API setting for query                                  */
     opus_int                     LBRR_enabled;                      /* Depends on useInBandFRC, bitrate and packet loss rate            */
     opus_int                     LBRR_GainIncreases;                /* Gains increment for coding LBRR frames                           */
-    SideInfoIndices              indices_LBRR[ MAX_FRAMES_PER_PACKET ];
-    opus_int8                    pulses_LBRR[ MAX_FRAMES_PER_PACKET ][ MAX_FRAME_LENGTH ];
+    SideInfoIndices              indices_LBRR;
+    opus_int8                    pulses_LBRR[ MAX_FRAME_LENGTH ];
 } silk_encoder_state;
 
 

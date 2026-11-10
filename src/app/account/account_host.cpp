@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/app/account/account_module_version.hpp"
 #include "maicord/platform/crypto/secure_buffer.hpp"
 
 namespace maicord {
@@ -40,38 +39,17 @@ bool login_startable(const AccountHost* host) noexcept {
 
 } // namespace
 
-bool account_host_api_valid(const AccountModuleApi& api) noexcept {
-    if (api.version != kAccountModuleApiVersion || api.bytes != sizeof(AccountModuleApi))
-        return false;
-    // Every entry after the version and size header is a function pointer and
-    // mandatory, except the optional profile lookup.
-    static_assert((sizeof(AccountModuleApi) - 8) % sizeof(void*) == 0);
-    for (usize offset = 8; offset < sizeof(AccountModuleApi); offset += sizeof(void*)) {
-        void* entry;
-        copy_bytes(&entry, reinterpret_cast<const u8*>(&api) + offset, sizeof(entry));
-        if (!entry && offset != __builtin_offsetof(AccountModuleApi, profile_get))
-            return false;
-    }
-    return true;
-}
-
-AccountHostResult account_host_attach(AccountHost* host, HMODULE module, AccountModuleGetApiFunction get_api) noexcept {
-    if (!host || !module || !get_api) {
+AccountHostResult account_host_attach(AccountHost* host, HMODULE module) noexcept {
+    if (!host || !module) {
         return failure(AccountHostError::invalid_input, ERROR_INVALID_PARAMETER);
     }
     if (host->module) {
-        return account_host_api_valid(host->api)
-                   ? AccountHostResult{}
-                   : failure(AccountHostError::api_mismatch, ERROR_INVALID_STATE);
+        return AccountHostResult{};
     }
     if (!host_empty(*host)) {
         return failure(AccountHostError::invalid_input, ERROR_INVALID_STATE);
     }
     clear_bytes(host, sizeof(*host));
-    if (!get_api(kAccountModuleApiVersion, &host->api) || !account_host_api_valid(host->api)) {
-        clear_bytes(host, sizeof(*host));
-        return failure(AccountHostError::api_mismatch, ERROR_REVISION_MISMATCH);
-    }
     host->module = module;
     host->last_phase = 0xff;
     host->last_ready = ~0u;
@@ -123,8 +101,7 @@ u32 account_host_observe(AccountHost* host, const AccountModuleStatus& status) n
 AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* profile_path,
                                             const wchar_t* session_path, u64 monotonic_now_ms,
                                             u64 unix_now_ms) noexcept {
-    if (!host || !host->module || host->instance || !profile_path || !session_path ||
-        !account_host_api_valid(host->api)) {
+    if (!host || !host->module || host->instance || !profile_path || !session_path) {
         AccountModuleStartResult invalid{};
         invalid.native_error = ERROR_INVALID_PARAMETER;
         invalid.error = AccountModuleError::invalid_input;

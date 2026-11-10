@@ -5,66 +5,78 @@
 #include "maicord/core/memory.hpp"
 
 #include "dispatch_common.hpp"
+#include "message_mailbox.hpp"
 
 namespace maicord {
 namespace {
 
-template <typename Value>
-bool read_packed(const ConstSlice<u8>& payload, u32 limit, u32* cursor, Value* value) noexcept {
-    if (!cursor || !value || limit > payload.count || *cursor > limit || sizeof(Value) > limit - *cursor) {
+using TextRange = GatewayClientMessageTextRange;
+
+// The descriptor block of one mailbox payload being read: ranges lie in data[0, text_limit), records in data[at, end).
+// Every Reader is built with text_limit <= count and at <= end <= count (message_payload_offsets proves them, a
+// nested block only narrows end) and a read advances at only within end, so reads never re-check either bound.
+struct Reader {
+    const u8* data;
+    u32 count;
+    u32 text_limit;
+    u32 end;
+    u32 at;
+};
+
+__declspec(noinline) bool read_bytes(Reader& reader, void* value, u32 bytes) noexcept {
+    if (bytes > reader.end - reader.at) {
         return false;
     }
-    copy_bytes(value, payload.data + *cursor, static_cast<u32>(sizeof(Value)));
-    *cursor += static_cast<u32>(sizeof(Value));
+    copy_bytes(value, reader.data + reader.at, bytes);
+    reader.at += bytes;
     return true;
 }
 
-bool unpack_text_range(const ConstSlice<u8>& payload_view, u32 transient_bytes, GatewayClientMessageTextRange range,
-                       Utf8View* value) noexcept {
-    const ConstSlice<u8> payload = payload_view; // *value is written below
-    if (range.reserved != 0 || transient_bytes > payload.count) {
-        return false;
-    }
-    reset_value<Utf8View>(value);
-    if (range.bytes == 0) {
-        return range.offset == 0;
-    }
-    if (range.offset > transient_bytes || range.bytes > transient_bytes - range.offset) {
-        return false;
-    }
-    *value = Utf8View{reinterpret_cast<const char*>(payload.data) + range.offset, range.bytes};
-    return utf8_validate(*value).valid;
+template <typename Value> bool read_packed(Reader& reader, Value* value) noexcept {
+    return read_bytes(reader, value, static_cast<u32>(sizeof(Value)));
 }
 
-bool reserved_zero(const u8* bytes, u32 count) noexcept {
-    if (!bytes && count != 0) {
-        return false;
-    }
+// `count` adjacent ranges as `count` adjacent views of the transient text (message_mailbox.hpp). An empty range
+// must have offset 0; any other lies inside the text and is UTF-8.
+__declspec(noinline) bool unpack_texts(const Reader& reader, const TextRange* ranges, Utf8View* views,
+                                       u32 count) noexcept {
+    const char* const text = reinterpret_cast<const char*>(reader.data);
     for (u32 index = 0; index < count; ++index) {
-        if (bytes[index] != 0) {
+        const TextRange range = ranges[index];
+        if (range.reserved != 0) {
+            return false;
+        }
+        views[index] = Utf8View{};
+        if (range.bytes == 0) {
+            if (range.offset != 0) {
+                return false;
+            }
+            continue;
+        }
+        if (range.offset > reader.text_limit || range.bytes > reader.text_limit - range.offset) {
+            return false;
+        }
+        views[index] = Utf8View{text + range.offset, range.bytes};
+        if (!utf8_validate(views[index]).valid) {
             return false;
         }
     }
     return true;
 }
 
-bool unpack_embed_media(ConstSlice<u8> payload, u32 text_limit,
-                        const GatewayClientMessageEmbedMediaMutation& source,
-                        GatewayMessageEmbedMedia* destination) noexcept {
-    if (!reserved_zero(source.reserved, sizeof(source.reserved)) ||
-        (source.state & ~3u) != 0) {
+// The destination is zero (a record reset, or a zeroed event) and receives its four texts.
+__declspec(noinline) bool unpack_embed_media(const Reader& reader,
+                                             const GatewayClientMessageEmbedMediaMutation& source,
+                                             GatewayMessageEmbedMedia* destination) noexcept {
+    if (!bytes_zero(source.reserved, sizeof(source.reserved)) || (source.state & ~3u) != 0) {
         return false;
     }
-    reset_value<GatewayMessageEmbedMedia>(destination);
     destination->width = source.width;
     destination->height = source.height;
     destination->flags = source.flags;
     destination->has_width = (source.state & 1u) != 0;
     destination->has_height = (source.state & 2u) != 0;
-    return unpack_text_range(payload, text_limit, source.url, &destination->url) &&
-           unpack_text_range(payload, text_limit, source.proxy_url, &destination->proxy_url) &&
-           unpack_text_range(payload, text_limit, source.content_type, &destination->content_type) &&
-           unpack_text_range(payload, text_limit, source.description, &destination->description);
+    return unpack_texts(reader, &source.url, &destination->url, 4);
 }
 
 bool message_payload_offsets(const GatewayClientEvent& event, const ConstSlice<u8>& payload, u32* role_offset,
@@ -120,34 +132,57 @@ bool message_event_offsets(const GatewayClientEvent& event, const ConstSlice<u8>
     return true;
 }
 
+// The six counts of a rich header, in the order of the descriptor arrays behind it: their largest values, the
+// message field that licenses each, and the bytes of one record.
+constexpr u8 kRichCountMaximum[6] = {kGatewayMessageReactionMaximum, kGatewayMessageAttachmentMaximum,
+                                     kGatewayMessageEmbedMaximum, kGatewayMessageEmbedFieldMaximum,
+                                     kGatewayMessageStickerMaximum, kGatewayMessageComponentMaximum};
+constexpr u32 kRichCountField[6] = {gateway_message_field_reactions,      gateway_message_field_attachments,
+                                    gateway_message_field_embeds,         gateway_message_field_embeds,
+                                    gateway_message_field_sticker_items, gateway_message_field_components};
+constexpr u8 kRichRecordBytes[6] = {sizeof(GatewayClientMessageReactionMutation),
+                                    sizeof(GatewayClientMessageAttachmentMutation),
+                                    sizeof(GatewayClientMessageEmbedMutation),
+                                    sizeof(GatewayClientMessageEmbedFieldMutation),
+                                    sizeof(GatewayClientMessageStickerMutation),
+                                    sizeof(GatewayClientMessageComponentMutation)};
+
+void rich_counts(const GatewayClientMessageRichHeader& header, u16 (&counts)[6]) noexcept {
+    copy_bytes(counts, &header.reaction_count, sizeof(counts));
+}
+
+// The bytes of the descriptor arrays behind a header whose counts are within their maxima.
+u32 rich_descriptor_bytes(const GatewayClientMessageRichHeader& header) noexcept {
+    u16 counts[6];
+    rich_counts(header, counts);
+    u32 bytes = 0;
+    for (u32 index = 0; index < 6; ++index) {
+        bytes += counts[index] * kRichRecordBytes[index];
+    }
+    return bytes;
+}
+
 bool rich_header_valid(const GatewayClientMessageRichHeader& header, u32 rich_fields) noexcept {
-    return !(
-        !reserved_zero(header.reserved, sizeof(header.reserved)) ||
-        header.reference_state > static_cast<u8>(GatewayMessageReferenceState::available) ||
-        header.reaction_count > kGatewayMessageReactionMaximum ||
-        header.attachment_count > kGatewayMessageAttachmentMaximum ||
-        header.embed_count > kGatewayMessageEmbedMaximum ||
-        header.embed_field_count > kGatewayMessageEmbedFieldMaximum ||
-        header.sticker_count > kGatewayMessageStickerMaximum ||
-        header.component_count > kGatewayMessageComponentMaximum ||
-        ((rich_fields & gateway_message_field_interaction) == 0 &&
-         (header.interaction_id != 0 || header.interaction_user_id != 0 || header.interaction_type != 0 ||
-          header.interaction_user_name.bytes != 0 || header.interaction_user_avatar_hash.bytes != 0 ||
-          header.interaction_command_name.bytes != 0)) ||
-        ((rich_fields &
-          (gateway_message_field_message_reference | gateway_message_field_referenced_message)) == 0 &&
-         (header.reference_state != 0 || header.reference_message_id != 0 ||
-          header.reference_channel_id != 0 || header.reference_guild_id != 0 ||
-          header.reference_author_id != 0 || header.reference_author_name.bytes != 0 ||
-          header.reference_author_avatar_hash.bytes != 0 || header.reference_content.bytes != 0 ||
-          header.reference_content_flags != 0 || header.reference_message_type != 0 ||
-          header.reference_quote_flags != 0)) ||
-        ((rich_fields & gateway_message_field_reactions) == 0 && header.reaction_count != 0) ||
-        ((rich_fields & gateway_message_field_attachments) == 0 && header.attachment_count != 0) ||
-        ((rich_fields & gateway_message_field_embeds) == 0 &&
-         (header.embed_count != 0 || header.embed_field_count != 0)) ||
-        ((rich_fields & gateway_message_field_sticker_items) == 0 && header.sticker_count != 0) ||
-        ((rich_fields & gateway_message_field_components) == 0 && header.component_count != 0));
+    u16 counts[6];
+    rich_counts(header, counts);
+    for (u32 index = 0; index < 6; ++index) {
+        if (counts[index] > kRichCountMaximum[index] ||
+            (counts[index] != 0 && (rich_fields & kRichCountField[index]) == 0)) {
+            return false;
+        }
+    }
+    return bytes_zero(header.reserved, sizeof(header.reserved)) &&
+           header.reference_state <= static_cast<u8>(GatewayMessageReferenceState::available) &&
+           ((rich_fields & gateway_message_field_interaction) != 0 ||
+            (header.interaction_id == 0 && header.interaction_user_id == 0 && header.interaction_type == 0 &&
+             header.interaction_user_name.bytes == 0 && header.interaction_user_avatar_hash.bytes == 0 &&
+             header.interaction_command_name.bytes == 0)) &&
+           ((rich_fields & (gateway_message_field_message_reference | gateway_message_field_referenced_message)) != 0 ||
+            (header.reference_state == 0 && header.reference_message_id == 0 && header.reference_channel_id == 0 &&
+             header.reference_guild_id == 0 && header.reference_author_id == 0 &&
+             header.reference_author_name.bytes == 0 && header.reference_author_avatar_hash.bytes == 0 &&
+             header.reference_content.bytes == 0 && header.reference_content_flags == 0 &&
+             header.reference_message_type == 0 && header.reference_quote_flags == 0));
 }
 
 bool poll_span_overlap(const void* left, u64 left_bytes, const void* right, u64 right_bytes) noexcept {
@@ -158,30 +193,29 @@ bool poll_span_overlap(const void* left, u64 left_bytes, const void* right, u64 
            right_bytes > ~static_cast<usize>(0) - b || (a < b + right_bytes && b < a + left_bytes);
 }
 
-bool read_poll_metadata(ConstSlice<u8> payload, u32 text_limit, u32 rich_end, u32* cursor,
-                        const GatewayMessagePollScratch* scratch = nullptr,
+// Reads a poll block at reader.at. With scratch and output it fills them (neither may overlap the other or the
+// payload); without, it only validates.
+bool read_poll_metadata(Reader& reader, const GatewayMessagePollScratch* scratch = nullptr,
                         GatewayMessagePoll* output = nullptr) noexcept {
-    if (!cursor || (!!scratch != !!output))
-        return false;
     if (scratch) {
-        const u64 answer_bytes =
-            static_cast<u64>(scratch->answers.count) * sizeof(GatewayMessagePollAnswer);
-        const u64 count_bytes =
-            static_cast<u64>(scratch->answer_counts.count) * sizeof(GatewayMessagePollAnswerCount);
-        if (poll_span_overlap(scratch->answers.data, answer_bytes, payload.data, payload.count) ||
-            poll_span_overlap(scratch->answer_counts.data, count_bytes, payload.data, payload.count) ||
-            poll_span_overlap(output, sizeof(*output), payload.data, payload.count) ||
-            poll_span_overlap(scratch->answers.data, answer_bytes, scratch->answer_counts.data,
-                              count_bytes) ||
-            poll_span_overlap(output, sizeof(*output), scratch->answers.data, answer_bytes) ||
-            poll_span_overlap(output, sizeof(*output), scratch->answer_counts.data, count_bytes))
-            return false;
+        struct Span {
+            const void* data;
+            u64 bytes;
+        };
+        const Span spans[4] = {
+            {scratch->answers.data, static_cast<u64>(scratch->answers.count) * sizeof(GatewayMessagePollAnswer)},
+            {scratch->answer_counts.data,
+             static_cast<u64>(scratch->answer_counts.count) * sizeof(GatewayMessagePollAnswerCount)},
+            {output, sizeof(*output)},
+            {reader.data, reader.count}};
+        for (u32 left = 0; left < 3; ++left)
+            for (u32 right = left + 1; right < 4; ++right)
+                if (poll_span_overlap(spans[left].data, spans[left].bytes, spans[right].data, spans[right].bytes))
+                    return false;
     }
-    u32 position = *cursor;
-    GatewayClientMessagePollHeader header{};
-    if (!read_packed(payload, rich_end, &position, &header) ||
-        !reserved_zero(header.reserved, sizeof(header.reserved)) || (header.flags & ~31u) ||
-        header.answer_count > kGatewayMessagePollMaximumAnswers ||
+    GatewayClientMessagePollHeader header;
+    if (!read_packed(reader, &header) || !bytes_zero(header.reserved, sizeof(header.reserved)) ||
+        (header.flags & ~31u) || header.answer_count > kGatewayMessagePollMaximumAnswers ||
         header.count_count > kGatewayMessagePollMaximumAnswers)
         return false;
     GatewayMessagePoll candidate{};
@@ -193,27 +227,27 @@ bool read_poll_metadata(ConstSlice<u8> payload, u32 text_limit, u32 rich_end, u3
     candidate.expiry_ms = header.expiry_ms;
     candidate.fields = header.fields;
     candidate.layout_type = header.layout_type;
-    if (!unpack_text_range(payload, text_limit, header.question, &candidate.question))
+    if (!unpack_texts(reader, &header.question, &candidate.question, 1))
         return false;
     GatewayMessagePollAnswer answers[kGatewayMessagePollMaximumAnswers]{};
     GatewayMessagePollAnswerCount counts[kGatewayMessagePollMaximumAnswers]{};
     for (u32 index = 0; index < header.answer_count; ++index) {
-        GatewayClientMessagePollAnswerMutation packed{};
-        if (!read_packed(payload, rich_end, &position, &packed) ||
-            !reserved_zero(packed.reserved, sizeof(packed.reserved)) || (packed.flags & ~1u))
+        GatewayClientMessagePollAnswerMutation packed;
+        if (!read_packed(reader, &packed) || !bytes_zero(packed.reserved, sizeof(packed.reserved)) ||
+            (packed.flags & ~1u))
             return false;
         auto& answer = answers[index];
         answer.answer_id = packed.answer_id;
         answer.emoji_id = packed.emoji_id;
         answer.emoji_animated = (packed.flags & 1) != 0;
-        if (!unpack_text_range(payload, text_limit, packed.text, &answer.text) ||
-            !unpack_text_range(payload, text_limit, packed.emoji_name, &answer.emoji_name))
+        if (!unpack_texts(reader, &packed.text, &answer.text, 1) ||
+            !unpack_texts(reader, &packed.emoji_name, &answer.emoji_name, 1))
             return false;
     }
     for (u32 index = 0; index < header.count_count; ++index) {
-        GatewayClientMessagePollCountMutation packed{};
-        if (!read_packed(payload, rich_end, &position, &packed) ||
-            !reserved_zero(packed.reserved, sizeof(packed.reserved)) || (packed.flags & ~1u))
+        GatewayClientMessagePollCountMutation packed;
+        if (!read_packed(reader, &packed) || !bytes_zero(packed.reserved, sizeof(packed.reserved)) ||
+            (packed.flags & ~1u))
             return false;
         counts[index] = {packed.answer_id, packed.count, (packed.flags & 1) != 0};
     }
@@ -236,8 +270,26 @@ bool read_poll_metadata(ConstSlice<u8> payload, u32 text_limit, u32 rich_end, u3
                                    header.count_count};
         *output = candidate;
     }
-    *cursor = position;
     return true;
+}
+
+// What a snapshot header says about itself: its message fields, and that an absent snapshot carries nothing.
+bool snapshot_header_valid(const GatewayClientMessageSnapshotHeader& snapshot) noexcept {
+    constexpr u32 allowed = gateway_message_field_content | gateway_message_field_timestamp |
+                            gateway_message_field_edited_timestamp | gateway_message_field_flags |
+                            gateway_message_field_type | gateway_message_field_mentions |
+                            gateway_message_field_mention_roles | gateway_message_field_mention_everyone |
+                            gateway_message_field_attachments | gateway_message_field_embeds |
+                            gateway_message_field_sticker_items | gateway_message_field_components;
+    return snapshot.present <= 1 && bytes_zero(snapshot.reserved, sizeof(snapshot.reserved)) &&
+           (snapshot.fields & ~allowed) == 0 && snapshot.mention_user_count <= kGatewayMessageMentionUserMaximum &&
+           (snapshot.present || !(snapshot.fields || snapshot.content.bytes || snapshot.timestamp_ms ||
+                                  snapshot.edited_timestamp_ms || snapshot.flags || snapshot.type ||
+                                  snapshot.mention_user_count || snapshot.rich_payload_bytes));
+}
+
+bool snapshot_user_valid(const GatewayClientNamedUserMutation& user) noexcept {
+    return user.id && !user.reserved && user.name_bytes <= kGatewayMessageUserNameMaximumBytes;
 }
 
 } // namespace
@@ -336,6 +388,21 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, const Cons
            utf8_validate(message->author_avatar_hash).valid;
 }
 
+// Reads the rich header at reader.at and steps over the descriptor arrays behind it and the call and poll blocks
+// that `fields` announce, validating the poll block. The header must be valid for `fields`.
+bool skip_rich_descriptors(Reader& reader, const GatewayClientMessageRichHeader& header, u32 fields) noexcept {
+    const u32 bytes = rich_descriptor_bytes(header);
+    if (bytes > reader.end - reader.at)
+        return false;
+    reader.at += bytes;
+    if (fields & gateway_message_field_call) {
+        if (sizeof(GatewayClientMessageCallMutation) > reader.end - reader.at)
+            return false;
+        reader.at += static_cast<u32>(sizeof(GatewayClientMessageCallMutation));
+    }
+    return !(fields & gateway_message_field_poll) || read_poll_metadata(reader);
+}
+
 bool gateway_client_event_message_interaction_user(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                    u64* user_id) noexcept {
     GatewayMessageEvent message;
@@ -353,45 +420,23 @@ bool gateway_client_event_message_interaction_user(const GatewayClientEvent& eve
     u32 text_limit{}, user_offset{}, cursor{};
     if (!message_payload_offsets(event, payload, &text_limit, &user_offset, &cursor))
         return false;
-    GatewayClientMessageRichHeader header{};
-    if (!read_packed(payload, payload.count, &cursor, &header) || !rich_header_valid(header, rich_fields))
-        return false;
+    Reader reader{payload.data, payload.count, text_limit, payload.count, cursor};
+    GatewayClientMessageRichHeader header;
     // Descriptor lengths are checked without decoding unrelated arrays. Only
     // validated scalar/header text can affect the activity notification gate.
-    const u64 end =
-        static_cast<u64>(cursor) +
-        static_cast<u64>(header.reaction_count) * sizeof(GatewayClientMessageReactionMutation) +
-        static_cast<u64>(header.attachment_count) * sizeof(GatewayClientMessageAttachmentMutation) +
-        static_cast<u64>(header.embed_count) * sizeof(GatewayClientMessageEmbedMutation) +
-        static_cast<u64>(header.embed_field_count) * sizeof(GatewayClientMessageEmbedFieldMutation) +
-        static_cast<u64>(header.sticker_count) * sizeof(GatewayClientMessageStickerMutation) +
-        static_cast<u64>(header.component_count) * sizeof(GatewayClientMessageComponentMutation);
-    if (end > payload.count)
+    if (!read_packed(reader, &header) || !rich_header_valid(header, rich_fields) ||
+        !skip_rich_descriptors(reader, header, rich_fields) || reader.at != reader.end)
         return false;
-    cursor = static_cast<u32>(end);
-    if ((rich_fields & gateway_message_field_call) && sizeof(GatewayClientMessageCallMutation) > payload.count - cursor)
-        return false;
-    if (rich_fields & gateway_message_field_call)
-        cursor += static_cast<u32>(sizeof(GatewayClientMessageCallMutation));
-    if ((rich_fields & gateway_message_field_poll) &&
-        !read_poll_metadata(payload, text_limit, payload.count, &cursor))
-        return false;
-    if (cursor != payload.count)
-        return false;
-    Utf8View text{};
-    if (!unpack_text_range(payload, text_limit, header.reference_author_name, &text) ||
-        !unpack_text_range(payload, text_limit, header.reference_author_avatar_hash, &text) ||
-        !unpack_text_range(payload, text_limit, header.reference_content, &text) ||
-        !unpack_text_range(payload, text_limit, header.interaction_user_name, &text) ||
-        !unpack_text_range(payload, text_limit, header.interaction_user_avatar_hash, &text) ||
-        !unpack_text_range(payload, text_limit, header.interaction_command_name, &text))
+    Utf8View text[3];
+    if (!unpack_texts(reader, &header.reference_author_name, text, 3) ||
+        !unpack_texts(reader, &header.interaction_user_name, text, 3))
         return false;
     *user_id = header.interaction_user_id;
     return true;
 }
 
-static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset, u32 cursor, u32 rich_end,
-                                         u32 rich_fields, const GatewayMessageRichScratch& rich_scratch,
+static bool unpack_message_rich_metadata(Reader& reader, u32 rich_fields,
+                                         const GatewayMessageRichScratch& rich_scratch,
                                          GatewayMessageEvent* message) noexcept {
     if ((!rich_scratch.reactions.data && rich_scratch.reactions.count != 0) ||
         (!rich_scratch.attachments.data && rich_scratch.attachments.count != 0) ||
@@ -401,8 +446,8 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
         (!rich_scratch.components.data && rich_scratch.components.count != 0)) {
         return false;
     }
-    GatewayClientMessageRichHeader header{};
-    if (!read_packed(payload, rich_end, &cursor, &header) || !rich_header_valid(header, rich_fields) ||
+    GatewayClientMessageRichHeader header;
+    if (!read_packed(reader, &header) || !rich_header_valid(header, rich_fields) ||
         header.reaction_count > rich_scratch.reactions.count ||
         header.attachment_count > rich_scratch.attachments.count ||
         header.embed_count > rich_scratch.embeds.count ||
@@ -424,25 +469,15 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
     message->interaction.user_id = header.interaction_user_id;
     message->interaction.type = header.interaction_type;
     message->rich_truncations = header.truncations;
-    if (!unpack_text_range(payload, role_offset, header.reference_author_name,
-                           &message->reference.author_name) ||
-        !unpack_text_range(payload, role_offset, header.reference_author_avatar_hash,
-                           &message->reference.author_avatar_hash) ||
-        !unpack_text_range(payload, role_offset, header.reference_content, &message->reference.content) ||
-        !unpack_text_range(payload, role_offset, header.interaction_user_name,
-                           &message->interaction.user_name) ||
-        !unpack_text_range(payload, role_offset, header.interaction_user_avatar_hash,
-                           &message->interaction.user_avatar_hash) ||
-        !unpack_text_range(payload, role_offset, header.interaction_command_name,
-                           &message->interaction.command_name)) {
+    if (!unpack_texts(reader, &header.reference_author_name, &message->reference.author_name, 3) ||
+        !unpack_texts(reader, &header.interaction_user_name, &message->interaction.user_name, 3)) {
         return false;
     }
 
     for (u32 index = 0; index < header.reaction_count; ++index) {
-        GatewayClientMessageReactionMutation packed{};
-        if (!read_packed(payload, rich_end, &cursor, &packed) ||
-            !reserved_zero(packed.reserved, sizeof(packed.reserved)) || (packed.flags & ~7u) != 0 ||
-            packed.count == 0 || packed.normal_count > packed.count ||
+        GatewayClientMessageReactionMutation packed;
+        if (!read_packed(reader, &packed) || !bytes_zero(packed.reserved, sizeof(packed.reserved)) ||
+            (packed.flags & ~7u) != 0 || packed.count == 0 || packed.normal_count > packed.count ||
             packed.burst_count > packed.count - packed.normal_count) {
             return false;
         }
@@ -455,16 +490,15 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
         destination.me = (packed.flags & 1u) != 0;
         destination.me_burst = (packed.flags & 2u) != 0;
         destination.animated = (packed.flags & 4u) != 0;
-        if (!unpack_text_range(payload, role_offset, packed.name, &destination.name) ||
+        if (!unpack_texts(reader, &packed.name, &destination.name, 1) ||
             (destination.emoji_id == 0 && destination.name.bytes == 0)) {
             return false;
         }
     }
     for (u32 index = 0; index < header.attachment_count; ++index) {
-        GatewayClientMessageAttachmentMutation packed{};
-        if (!read_packed(payload, rich_end, &cursor, &packed) ||
-            !reserved_zero(packed.reserved, sizeof(packed.reserved)) || packed.audio_reserved != 0 ||
-            packed.id == 0 || (packed.state & ~15u) != 0) {
+        GatewayClientMessageAttachmentMutation packed;
+        if (!read_packed(reader, &packed) || !bytes_zero(packed.reserved, sizeof(packed.reserved)) ||
+            packed.audio_reserved != 0 || packed.id == 0 || (packed.state & ~15u) != 0) {
             return false;
         }
         GatewayMessageAttachment& destination = rich_scratch.attachments[index];
@@ -479,21 +513,16 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
         destination.has_width = (packed.state & 1u) != 0;
         destination.has_height = (packed.state & 2u) != 0;
         destination.ephemeral = (packed.state & 4u) != 0;
-        if (!unpack_text_range(payload, role_offset, packed.filename, &destination.filename) ||
-            !unpack_text_range(payload, role_offset, packed.title, &destination.title) ||
-            !unpack_text_range(payload, role_offset, packed.description, &destination.description) ||
-            !unpack_text_range(payload, role_offset, packed.content_type, &destination.content_type) ||
-            !unpack_text_range(payload, role_offset, packed.url, &destination.url) ||
-            !unpack_text_range(payload, role_offset, packed.waveform, &destination.waveform) ||
+        if (!unpack_texts(reader, &packed.filename, &destination.filename, 5) ||
+            !unpack_texts(reader, &packed.waveform, &destination.waveform, 1) ||
             !gateway_message_waveform_valid(destination.waveform) ||
             (!destination.has_duration && destination.duration_ms)) {
             return false;
         }
     }
     for (u32 index = 0; index < header.embed_count; ++index) {
-        GatewayClientMessageEmbedMutation packed{};
-        if (!read_packed(payload, rich_end, &cursor, &packed) ||
-            packed.reserved[1] != 0 || (packed.flags & ~1u) != 0 ||
+        GatewayClientMessageEmbedMutation packed;
+        if (!read_packed(reader, &packed) || packed.reserved[1] != 0 || (packed.flags & ~1u) != 0 ||
             packed.type > static_cast<u8>(GatewayMessageEmbedType::components) ||
             packed.field_begin > header.embed_field_count ||
             packed.field_count > header.embed_field_count - packed.field_begin) {
@@ -508,57 +537,46 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
         destination.has_color = (packed.flags & 1u) != 0;
         destination.flags = packed.reserved[0];
         destination.timestamp_ms = (static_cast<u64>(packed.timestamp_high) << 32u) | packed.timestamp_low;
-        if (!unpack_text_range(payload, role_offset, packed.title, &destination.title) ||
-            !unpack_text_range(payload, role_offset, packed.description, &destination.description) ||
-            !unpack_text_range(payload, role_offset, packed.url, &destination.url) ||
-            !unpack_text_range(payload, role_offset, packed.author_name, &destination.author_name) ||
-            !unpack_text_range(payload, role_offset, packed.footer_text, &destination.footer_text) ||
-            !unpack_text_range(payload, role_offset, packed.author_url, &destination.author_url) ||
-            !unpack_text_range(payload, role_offset, packed.author_icon, &destination.author_icon) ||
-            !unpack_text_range(payload, role_offset, packed.footer_icon, &destination.footer_icon) ||
-            !unpack_text_range(payload, role_offset, packed.provider_name, &destination.provider_name) ||
-            !unpack_text_range(payload, role_offset, packed.provider_url, &destination.provider_url) ||
-            !unpack_embed_media(payload, role_offset, packed.image, &destination.image) ||
-            !unpack_embed_media(payload, role_offset, packed.thumbnail, &destination.thumbnail) ||
-            !unpack_embed_media(payload, role_offset, packed.video, &destination.video)) {
+        if (!unpack_texts(reader, &packed.title, &destination.title, 10) ||
+            !unpack_embed_media(reader, packed.image, &destination.image) ||
+            !unpack_embed_media(reader, packed.thumbnail, &destination.thumbnail) ||
+            !unpack_embed_media(reader, packed.video, &destination.video)) {
             return false;
         }
     }
     for (u32 index = 0; index < header.embed_field_count; ++index) {
-        GatewayClientMessageEmbedFieldMutation packed{};
-        if (!read_packed(payload, rich_end, &cursor, &packed) || packed.reserved != 0 ||
-            (packed.flags & ~1u) != 0 || packed.embed_index >= header.embed_count) {
+        GatewayClientMessageEmbedFieldMutation packed;
+        if (!read_packed(reader, &packed) || packed.reserved != 0 || (packed.flags & ~1u) != 0 ||
+            packed.embed_index >= header.embed_count) {
             return false;
         }
         GatewayMessageEmbedField& destination = rich_scratch.embed_fields[index];
         reset_value<GatewayMessageEmbedField>(&destination);
         destination.embed_index = packed.embed_index;
         destination.inline_field = (packed.flags & 1u) != 0;
-        if (!unpack_text_range(payload, role_offset, packed.name, &destination.name) ||
-            !unpack_text_range(payload, role_offset, packed.value, &destination.value)) {
+        if (!unpack_texts(reader, &packed.name, &destination.name, 2)) {
             return false;
         }
     }
     for (u32 index = 0; index < header.sticker_count; ++index) {
-        GatewayClientMessageStickerMutation packed{};
-        if (!read_packed(payload, rich_end, &cursor, &packed) ||
-            !reserved_zero(packed.reserved, sizeof(packed.reserved)) || packed.id == 0 ||
-            packed.format_type == 0 || packed.format_type > 4) {
+        GatewayClientMessageStickerMutation packed;
+        if (!read_packed(reader, &packed) || !bytes_zero(packed.reserved, sizeof(packed.reserved)) ||
+            packed.id == 0 || packed.format_type == 0 || packed.format_type > 4) {
             return false;
         }
         GatewayMessageSticker& destination = rich_scratch.stickers[index];
         reset_value<GatewayMessageSticker>(&destination);
         destination.id = packed.id;
         destination.format_type = packed.format_type;
-        if (!unpack_text_range(payload, role_offset, packed.name, &destination.name)) {
+        if (!unpack_texts(reader, &packed.name, &destination.name, 1)) {
             return false;
         }
     }
     for (u32 index = 0; index < header.component_count; ++index) {
-        GatewayClientMessageComponentMutation packed{};
-        if (!read_packed(payload, rich_end, &cursor, &packed) || packed.reserved != 0 ||
-            (packed.flags & ~3u) != 0 || (packed.component_flags & ~kGatewayMessageComponentKnownFlags) != 0 ||
-            packed.type == 0 || ((packed.flags & 2u) != 0 && packed.accent_color > 0xFFFFFFu) ||
+        GatewayClientMessageComponentMutation packed;
+        if (!read_packed(reader, &packed) || packed.reserved != 0 || (packed.flags & ~3u) != 0 ||
+            (packed.component_flags & ~kGatewayMessageComponentKnownFlags) != 0 || packed.type == 0 ||
+            ((packed.flags & 2u) != 0 && packed.accent_color > 0xFFFFFFu) ||
             (packed.parent != 0xFFFFu && packed.parent >= index) || packed.min_values > packed.max_values) {
             return false;
         }
@@ -576,65 +594,45 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
         destination.min_values = packed.min_values;
         destination.max_values = packed.max_values;
         destination.flags = packed.component_flags;
-        if (!unpack_text_range(payload, role_offset, packed.label, &destination.label) ||
-            !unpack_text_range(payload, role_offset, packed.content, &destination.content) ||
-            !unpack_text_range(payload, role_offset, packed.custom_id, &destination.custom_id) ||
-            !unpack_text_range(payload, role_offset, packed.url, &destination.url) ||
-            !unpack_text_range(payload, role_offset, packed.emoji_name, &destination.emoji_name)) {
+        if (!unpack_texts(reader, &packed.label, &destination.label, 5)) {
             return false;
         }
     }
     if (rich_fields & gateway_message_field_call) {
-        GatewayClientMessageCallMutation call{};
-        if (!read_packed(payload, rich_end, &cursor, &call) || (call.flags & ~7u) != 0 ||
-            !reserved_zero(call.reserved, sizeof(call.reserved)))
+        GatewayClientMessageCallMutation call;
+        if (!read_packed(reader, &call) || (call.flags & ~7u) != 0 ||
+            !bytes_zero(call.reserved, sizeof(call.reserved)))
             return false;
         message->call = {call.ended_timestamp_ms, (call.flags & 1u) != 0, (call.flags & 2u) != 0,
                          (call.flags & 4u) != 0};
     }
     if ((rich_fields & gateway_message_field_poll) &&
-        !read_poll_metadata(payload, role_offset, rich_end, &cursor, &rich_scratch.poll, &message->poll))
+        !read_poll_metadata(reader, &rich_scratch.poll, &message->poll))
         return false;
     if (rich_fields & gateway_message_field_message_snapshots) {
-        GatewayClientMessageSnapshotHeader snapshot{};
-        if (!read_packed(payload, rich_end, &cursor, &snapshot) || snapshot.present > 1 ||
-            !reserved_zero(snapshot.reserved, sizeof(snapshot.reserved)) ||
-            snapshot.mention_user_count > kGatewayMessageMentionUserMaximum ||
+        GatewayClientMessageSnapshotHeader snapshot;
+        if (!read_packed(reader, &snapshot) || !snapshot_header_valid(snapshot) ||
             snapshot.mention_user_count > rich_scratch.snapshot.mention_users.count)
             return false;
-        constexpr u32 allowed = gateway_message_field_content | gateway_message_field_timestamp |
-                                gateway_message_field_edited_timestamp | gateway_message_field_flags |
-                                gateway_message_field_type | gateway_message_field_mentions |
-                                gateway_message_field_mention_roles |
-                                gateway_message_field_mention_everyone | gateway_message_field_attachments |
-                                gateway_message_field_embeds | gateway_message_field_sticker_items |
-                                gateway_message_field_components;
-        if ((snapshot.fields & ~allowed) ||
-            (!snapshot.present &&
-             (snapshot.content.bytes || snapshot.timestamp_ms || snapshot.edited_timestamp_ms ||
-              snapshot.flags || snapshot.fields || snapshot.rich_payload_bytes || snapshot.type ||
-              snapshot.mention_user_count)))
-            return false;
         GatewayMessageEvent body{};
-        if (!unpack_text_range(payload, role_offset, snapshot.content, &body.content))
+        if (!unpack_texts(reader, &snapshot.content, &body.content, 1))
             return false;
         for (u32 index = 0; index < snapshot.mention_user_count; ++index) {
-            GatewayClientNamedUserMutation user{};
-            if (!read_packed(payload, rich_end, &cursor, &user) || !user.id || user.reserved ||
-                user.name_bytes > kGatewayMessageUserNameMaximumBytes ||
+            GatewayClientNamedUserMutation user;
+            if (!read_packed(reader, &user) || !snapshot_user_valid(user) ||
                 !rich_scratch.snapshot.mention_users.data)
                 return false;
             auto& target = rich_scratch.snapshot.mention_users[index];
             target.id = user.id;
-            if (!unpack_text_range(payload, role_offset, {user.name_offset, user.name_bytes, 0},
-                                   &target.name))
+            const TextRange name{user.name_offset, user.name_bytes, 0};
+            if (!unpack_texts(reader, &name, &target.name, 1))
                 return false;
             for (u32 earlier = 0; earlier < index; ++earlier)
                 if (rich_scratch.snapshot.mention_users[earlier].id == user.id)
                     return false;
         }
-        const u64 child_end = static_cast<u64>(cursor) + snapshot.rich_payload_bytes;
-        if (child_end > rich_end)
+        const u64 child_end = static_cast<u64>(reader.at) + snapshot.rich_payload_bytes;
+        if (child_end > reader.end)
             return false;
         const GatewayMessageRichScratch child{{},
                                               rich_scratch.snapshot.attachments,
@@ -644,12 +642,13 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
                                               rich_scratch.snapshot.components,
                                               {}};
         if (snapshot.rich_payload_bytes) {
-            if (!unpack_message_rich_metadata(payload, role_offset, cursor, static_cast<u32>(child_end),
-                                              snapshot.fields & kGatewayMessageRichFieldMask, child, &body))
+            Reader nested = reader;
+            nested.end = static_cast<u32>(child_end);
+            if (!unpack_message_rich_metadata(nested, snapshot.fields & kGatewayMessageRichFieldMask, child, &body))
                 return false;
         } else if (snapshot.fields & kGatewayMessageRichFieldMask)
             return false;
-        cursor = static_cast<u32>(child_end);
+        reader.at = static_cast<u32>(child_end);
         message->snapshot = {body.content,
                              snapshot.timestamp_ms,
                              snapshot.edited_timestamp_ms,
@@ -665,7 +664,7 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
                              snapshot.type,
                              snapshot.present != 0};
     }
-    if (cursor != rich_end) {
+    if (reader.at != reader.end) {
         return false;
     }
     message->reactions =
@@ -693,14 +692,14 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, const Cons
     if (!fields || !message_payload_offsets(event, payload, &role_offset, &user_offset, &cursor) ||
         static_cast<u64>(cursor) + event.message.rich_payload_bytes != payload.count)
         return false;
-    return unpack_message_rich_metadata(payload, role_offset, cursor, payload.count, fields, scratch,
-                                        message);
+    Reader reader{payload.data, payload.count, role_offset, payload.count, cursor};
+    return unpack_message_rich_metadata(reader, fields, scratch, message);
 }
 
 static bool snapshot_user_offsets(const GatewayClientEvent& event, ConstSlice<u8> payload, u32* users,
                                   u32* count, u32* text_limit) noexcept {
     GatewayMessageEvent message;
-    if (!users || !count || !text_limit || !gateway_client_event_as_message(event, payload, &message))
+    if (!gateway_client_event_as_message(event, payload, &message))
         return false;
     *count = 0;
     *users = 0;
@@ -711,71 +710,37 @@ static bool snapshot_user_offsets(const GatewayClientEvent& event, ConstSlice<u8
     if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &cursor) ||
         static_cast<u64>(cursor) + event.message.rich_payload_bytes != payload.count)
         return false;
-    GatewayClientMessageRichHeader outer{};
-    if (!read_packed(payload, payload.count, &cursor, &outer) ||
-        !rich_header_valid(outer, event.message.fields & kGatewayMessageRichFieldMask))
+    Reader reader{payload.data, payload.count, role_offset, payload.count, cursor};
+    GatewayClientMessageRichHeader outer;
+    if (!read_packed(reader, &outer) ||
+        !rich_header_valid(outer, event.message.fields & kGatewayMessageRichFieldMask) ||
+        !skip_rich_descriptors(reader, outer, event.message.fields))
         return false;
-    const u64 descriptors =
-        static_cast<u64>(outer.reaction_count) * sizeof(GatewayClientMessageReactionMutation) +
-        static_cast<u64>(outer.attachment_count) * sizeof(GatewayClientMessageAttachmentMutation) +
-        static_cast<u64>(outer.embed_count) * sizeof(GatewayClientMessageEmbedMutation) +
-        static_cast<u64>(outer.embed_field_count) * sizeof(GatewayClientMessageEmbedFieldMutation) +
-        static_cast<u64>(outer.sticker_count) * sizeof(GatewayClientMessageStickerMutation) +
-        static_cast<u64>(outer.component_count) * sizeof(GatewayClientMessageComponentMutation);
-    const u64 call_bytes =
-        (event.message.fields & gateway_message_field_call) ? sizeof(GatewayClientMessageCallMutation) : 0u;
-    if (descriptors + call_bytes > payload.count - cursor)
+    GatewayClientMessageSnapshotHeader snapshot;
+    Utf8View content;
+    if (!read_packed(reader, &snapshot) || !snapshot_header_valid(snapshot) ||
+        !unpack_texts(reader, &snapshot.content, &content, 1))
         return false;
-    cursor += static_cast<u32>(descriptors + call_bytes);
-    if ((event.message.fields & gateway_message_field_poll) &&
-        !read_poll_metadata(payload, role_offset, payload.count, &cursor))
-        return false;
-    GatewayClientMessageSnapshotHeader snapshot{};
-    Utf8View content{};
-    constexpr u32 allowed = gateway_message_field_content | gateway_message_field_timestamp |
-                            gateway_message_field_edited_timestamp | gateway_message_field_flags |
-                            gateway_message_field_type | gateway_message_field_mentions |
-                            gateway_message_field_mention_roles | gateway_message_field_mention_everyone |
-                            gateway_message_field_attachments | gateway_message_field_embeds |
-                            gateway_message_field_sticker_items | gateway_message_field_components;
-    if (!read_packed(payload, payload.count, &cursor, &snapshot) || snapshot.present > 1 ||
-        !reserved_zero(snapshot.reserved, sizeof(snapshot.reserved)) || (snapshot.fields & ~allowed) ||
-        snapshot.mention_user_count > kGatewayMessageMentionUserMaximum ||
-        !unpack_text_range(payload, role_offset, snapshot.content, &content) ||
-        (!snapshot.present && (snapshot.fields || snapshot.content.bytes || snapshot.timestamp_ms ||
-                               snapshot.edited_timestamp_ms || snapshot.flags || snapshot.type ||
-                               snapshot.mention_user_count || snapshot.rich_payload_bytes)))
-        return false;
-    const u32 begin = cursor;
+    const u32 begin = reader.at;
     for (u32 index = 0; index < snapshot.mention_user_count; ++index) {
-        GatewayClientNamedUserMutation user{};
-        Utf8View name{};
-        if (!read_packed(payload, payload.count, &cursor, &user) || !user.id || user.reserved ||
-            user.name_bytes > kGatewayMessageUserNameMaximumBytes ||
-            !unpack_text_range(payload, role_offset, {user.name_offset, user.name_bytes, 0}, &name))
+        GatewayClientNamedUserMutation user;
+        Utf8View name;
+        if (!read_packed(reader, &user) || !snapshot_user_valid(user))
             return false;
-        for (u32 previous = 0; previous < index; ++previous) {
-            GatewayClientNamedUserMutation earlier{};
-            u32 at = begin + previous * sizeof(earlier);
-            if (!read_packed(payload, payload.count, &at, &earlier) || earlier.id == user.id)
+        const TextRange name_range{user.name_offset, user.name_bytes, 0};
+        if (!unpack_texts(reader, &name_range, &name, 1))
+            return false;
+        for (u32 previous = 0; previous < index; ++previous)
+            if (byte_load_le64(payload.data + begin + previous * sizeof(user)) == user.id)
                 return false;
-        }
     }
-    if (static_cast<u64>(cursor) + snapshot.rich_payload_bytes != payload.count)
+    if (static_cast<u64>(reader.at) + snapshot.rich_payload_bytes != payload.count)
         return false;
     if (snapshot.rich_payload_bytes) {
-        GatewayClientMessageRichHeader child{};
-        if (!read_packed(payload, payload.count, &cursor, &child) ||
-            !rich_header_valid(child, snapshot.fields & kGatewayMessageRichFieldMask))
-            return false;
-        const u64 child_bytes =
-            static_cast<u64>(child.reaction_count) * sizeof(GatewayClientMessageReactionMutation) +
-            static_cast<u64>(child.attachment_count) * sizeof(GatewayClientMessageAttachmentMutation) +
-            static_cast<u64>(child.embed_count) * sizeof(GatewayClientMessageEmbedMutation) +
-            static_cast<u64>(child.embed_field_count) * sizeof(GatewayClientMessageEmbedFieldMutation) +
-            static_cast<u64>(child.sticker_count) * sizeof(GatewayClientMessageStickerMutation) +
-            static_cast<u64>(child.component_count) * sizeof(GatewayClientMessageComponentMutation);
-        if (static_cast<u64>(cursor) + child_bytes != payload.count)
+        GatewayClientMessageRichHeader child;
+        if (!read_packed(reader, &child) ||
+            !rich_header_valid(child, snapshot.fields & kGatewayMessageRichFieldMask) ||
+            static_cast<u64>(reader.at) + rich_descriptor_bytes(child) != payload.count)
             return false;
     } else if (snapshot.fields & kGatewayMessageRichFieldMask)
         return false;
@@ -791,12 +756,14 @@ bool gateway_client_event_visit_message_snapshot_mention_users(
     u32 offset = 0, count = 0, text_limit = 0;
     if (!visit || !snapshot_user_offsets(event, payload, &offset, &count, &text_limit))
         return false;
+    Reader reader{payload.data, payload.count, text_limit, payload.count, offset};
     for (u32 index = 0; index < count; ++index) {
-        GatewayClientNamedUserMutation user{};
-        Utf8View name{};
-        if (!read_packed(payload, payload.count, &offset, &user) ||
-            !unpack_text_range(payload, text_limit, {user.name_offset, user.name_bytes, 0}, &name) ||
-            !visit(context, user.id, name))
+        GatewayClientNamedUserMutation user;
+        Utf8View name;
+        if (!read_packed(reader, &user))
+            return false;
+        const TextRange range{user.name_offset, user.name_bytes, 0};
+        if (!unpack_texts(reader, &range, &name, 1) || !visit(context, user.id, name))
             return false;
     }
     return true;

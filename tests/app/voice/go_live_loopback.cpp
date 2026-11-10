@@ -357,8 +357,9 @@ int run() noexcept {
     if (!network_loop_initialize(&g->loop).ok())
         return 1;
     auto& live = g->live;
-    live.backend = {&g->producer, encodable, capture,   capture_stop, sound, sound_stop,
-                    encoder,      configure, bitrate,   keyframe,     encoder_stop, preview};
+    g_go_live_backend = {encodable, capture,   capture_stop, sound,        sound_stop, encoder,
+                         configure, bitrate,   keyframe,     encoder_stop, preview};
+    live.backend_context = &g->producer;
     live.decodable = decodable(nullptr);
     g->voice.setup.channel_id = kChannel;
     g->voice.setup.phase = VoiceSetupPhase::credentials_ready;

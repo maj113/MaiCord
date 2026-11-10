@@ -134,26 +134,21 @@ int opus_encoder_init(OpusEncoder* st, opus_int32 Fs, int channels, int applicat
     st->stream_channels = st->channels = channels;
 
     silk_enc = (char*)st+st->silk_enc_offset;
-    ret = silk_InitEncoder( silk_enc, st->channels, &st->silk_mode );
-    if(ret)return OPUS_INTERNAL_ERROR;
+    silk_InitEncoder( silk_enc, st->channels );
 
-    /* default SILK parameters: the internal rate is always 16 kHz (wideband), packets 20 ms */
+    /* default SILK parameters: the input is 48 kHz, the internal rate 16 kHz (wideband) and a packet one 20 ms frame */
     st->silk_mode.nChannelsAPI              = channels;
     st->silk_mode.nChannelsInternal         = channels;
-    st->silk_mode.API_sampleRate            = VOICE_FS;
-    st->silk_mode.payloadSize_ms            = 20;
     st->silk_mode.bitRate                   = 25000;
     st->silk_mode.packetLossPercentage      = 0;
     st->silk_mode.complexity                = 9;
     st->silk_mode.useInBandFEC              = 0;
-    st->silk_mode.useDRED                   = 0;
-    st->silk_mode.useCBR                    = 0;
 
     /* Create CELT encoder */
     celt_enc = (CELTEncoder*)((char*)st+st->celt_enc_offset);
     err = celt_encoder_init(celt_enc, channels);
     if(err!=OPUS_OK)return OPUS_INTERNAL_ERROR;
-    celt_encoder_ctl(celt_enc, OPUS_SET_COMPLEXITY(st->silk_mode.complexity));
+    celt_encoder_set_complexity(celt_enc, st->silk_mode.complexity);
 
     /* The bitrate OPUS_AUTO would have chosen. */
     st->bitrate_bps = 60*VOICE_FRAME_RATE + VOICE_FS*channels;
@@ -374,7 +369,7 @@ opus_int32 opus_encode(OpusEncoder *st, const opus_int16 *pcm, int frame_size,
 
     silk_enc = (char*)st+st->silk_enc_offset;
     celt_enc = (CELTEncoder*)((char*)st+st->celt_enc_offset);
-    celt_encoder_ctl(celt_enc, CELT_GET_MODE(&celt_mode));
+    celt_mode = celt_encoder_mode(celt_enc);
 
     if (is_digital_silence(pcm, st->channels))
        activity = 0;
@@ -449,13 +444,7 @@ opus_int32 opus_encode(OpusEncoder *st, const opus_int16 *pcm, int frame_size,
           st->silk_mode.LBRR_coded, st->stream_channels);
     st->silk_mode.maxBits = bitrate_to_bits(maxBitRate, VOICE_FS, VOICE_FRAME_SIZE);
 
-    ret = silk_Encode( silk_enc, &st->silk_mode, pcm_buf+DELAY_COMPENSATION*st->channels, VOICE_FRAME_SIZE, &enc, &nBytes, activity, scratch );
-    if( ret ) {
-       RESTORE_STACK;
-       return OPUS_INTERNAL_ERROR;
-    }
-
-    celt_encoder_ctl(celt_enc, CELT_SET_CHANNELS(st->stream_channels));
+    silk_Encode( silk_enc, &st->silk_mode, pcm_buf+DELAY_COMPENSATION*st->channels, &enc, &nBytes, activity, scratch );
 
     OPUS_COPY(st->delay_buffer, &pcm_buf[VOICE_FRAME_SIZE*st->channels], DELAY_COMPENSATION*st->channels);
     /* gain_fade() and stereo_fade() need to be after the buffer copying
@@ -497,8 +486,7 @@ opus_int32 opus_encode(OpusEncoder *st, const opus_int16 *pcm, int frame_size,
 
     info.signalType = st->silk_mode.signalType;
     info.offset = st->silk_mode.offset;
-    celt_encoder_ctl(celt_enc, CELT_SET_SILK_INFO(&info));
-    celt_encoder_ctl(celt_enc, OPUS_SET_BITRATE(st->bitrate_bps-st->silk_mode.bitRate));
+    celt_encoder_prepare(celt_enc, st->stream_channels, &info, st->bitrate_bps-st->silk_mode.bitRate);
 
     /* If false, we already busted the budget and we'll end up with a "PLC frame" */
     if (ec_tell(&enc) <= 8*nb_compr_bytes)
@@ -560,7 +548,7 @@ int opus_encoder_ctl(OpusEncoder *st, int request, ...)
                goto bad_arg;
             }
             st->silk_mode.complexity = value;
-            celt_encoder_ctl(celt_enc, OPUS_SET_COMPLEXITY(value));
+            celt_encoder_set_complexity(celt_enc, value);
         }
         break;
         case OPUS_SET_INBAND_FEC_REQUEST:
@@ -582,7 +570,7 @@ int opus_encoder_ctl(OpusEncoder *st, int request, ...)
                goto bad_arg;
             }
             st->silk_mode.packetLossPercentage = value;
-            celt_encoder_ctl(celt_enc, OPUS_SET_PACKET_LOSS_PERC(value));
+            celt_encoder_set_loss(celt_enc, value);
         }
         break;
         case OPUS_SET_VBR_CONSTRAINT_REQUEST:

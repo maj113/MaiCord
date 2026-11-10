@@ -16,7 +16,6 @@ namespace maicord {
 
 struct GatewayStreamKey;
 struct GatewayClientStreamSnapshot;
-struct GoLiveBackend;
 struct GoLiveCommand;
 struct GoLiveSnapshot;
 inline constexpr u32 kGatewayGoLiveCommands = 8;
@@ -195,9 +194,9 @@ bool gateway_client_stream_volume(GatewayClient* client, u32 percent) noexcept;
 // needs the local call in the command's channel.
 bool gateway_client_go_live(GatewayClient* client, const GoLiveCommand& command) noexcept;
 bool gateway_client_go_live_snapshot(const GatewayClient* client, GoLiveSnapshot* output) noexcept;
-// The producers (capture, encoder, stream audio) this runtime streams with;
-// they must outlive it. A new session starts without them.
-bool gateway_client_set_go_live_backend(GatewayClient* client, const GoLiveBackend& backend) noexcept;
+// The producers (capture, encoder, stream audio: GoLiveBackend's calls with this context) this runtime streams
+// with; they must outlive it. A new session starts without them.
+bool gateway_client_set_go_live_backend(GatewayClient* client, void* context) noexcept;
 bool gateway_client_has_go_live_backend(const GatewayClient* client) noexcept;
 // UI-thread request; transport teardown and fresh identify run on the worker.
 GatewayStateRecoveryResult gateway_client_request_fresh_state(GatewayClient* client) noexcept;

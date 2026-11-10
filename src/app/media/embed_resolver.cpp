@@ -6,6 +6,7 @@
 #include "maicord/protocol/media/embed_provider.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -516,7 +517,13 @@ EmbedResolveResult youtube_collection_resolve(EmbedResolver* r, Utf8View page, U
         }
         if (!r->music_version_bytes) return {E::malformed};
     }
-    u8 body[1024], target[50176]; ProtocolWriter writer{{body, sizeof(body)}, 0}, path{{target, sizeof(target)}, 0};
+    // The path holds a percent-encoded continuation (up to 48 KiB): zeroed pages for this call, not a probed stack frame.
+    struct Request { u8 body[1024], target[50176]; };
+    ScratchPages<Request> request;
+    if (!request.data) return {E::capacity};
+    u8 (&body)[1024] = request.data->body;
+    u8 (&target)[50176] = request.data->target;
+    ProtocolWriter writer{{body, sizeof(body)}, 0}, path{{target, sizeof(target)}, 0};
     bool ok = protocol_writer_append_literal(&writer, "{\"context\":{\"client\":{\"clientName\":\"WEB_REMIX\",\"clientVersion\":") &&
         protocol_writer_append_json_string(&writer, {r->music_version, r->music_version_bytes}) &&
         protocol_writer_append_literal(&writer, ",\"hl\":\"en\",\"gl\":\"US\"}},\"enablePersistentPlaylistPanel\":true,\"isAudioOnly\":true,\"playlistId\":") &&

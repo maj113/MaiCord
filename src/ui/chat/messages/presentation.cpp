@@ -271,7 +271,7 @@ __declspec(noinline) bool paint_audio_attachment(const MessageRichStore& store, 
                                                  const UiAudioControlsStyle& style, const UiWidgetReference& owner,
                                                  PaintStream* paint) noexcept {
     u8 waveform[kUiAudioWaveformMaximum]; // only the decoded prefix is read
-    UiAudioControlsProjection projection{};
+    UiAudioControlsProjection projection; // ui_audio_attachment_project resets it before it returns true
     return ui_audio_attachment_project(store, attachment, rich.message_id, rich.message_revision,
                                        message_rich_record_voice(rich), card, theme, {waveform, sizeof(waveform)},
                                        &projection) &&

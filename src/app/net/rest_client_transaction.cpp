@@ -11,7 +11,10 @@
 namespace maicord {
 namespace rest_client_detail {
 
-RestTraceFunction g_trace = nullptr;
+void rest_trace_record(const char* record) noexcept {
+    log_write(LogLevel::info, "rest_trace", record);
+}
+RestTraceFunction g_trace = rest_trace_record;
 volatile LONG g_trace_serial = 0;
 
 } // namespace rest_client_detail

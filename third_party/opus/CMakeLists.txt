@@ -154,7 +154,6 @@ add_library(${MAIOPUS_ENCODER_TARGET} STATIC
     silk/interpolate.c
     silk/process_NLSFs.c
     silk/quant_LTP_gains.c
-    silk/resampler_down2_3.c
     silk/sigm_Q15.c
     silk/stereo_LR_to_MS.c
     silk/stereo_encode_pred.c

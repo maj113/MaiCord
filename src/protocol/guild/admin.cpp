@@ -137,20 +137,71 @@ bool tag_write_valid(const GuildTagWrite& t) noexcept {
            brand_color_valid(t.badge_color_primary) && brand_color_valid(t.badge_color_secondary);
 }
 
-// Game routes belong to no guild or channel.
-bool game_route(Op op) noexcept {
-    return op == Op::game_search || op == Op::games_list;
-}
+// The operations ---------------------------------------------------------------------------------------------------------
 
-bool guild_major(Op op) noexcept {
-    return op != Op::channel_update && op != Op::channel_delete && op != Op::overwrite_put &&
-           op != Op::overwrite_delete && op != Op::invite_list_channel && op != Op::invite_create &&
-           op != Op::invite_delete && !game_route(op);
-}
+// What a request of an operation carries: the ids it needs (the guild's or the channel's is also what its rate limit
+// counts by), a body, a list of positions, an invite code, a message window, a game query or game ids; its method; and
+// which of the request's optional members (kSlotOffsets) it may carry and must carry.
+constexpr u32 kGuildId = 1, kChannelId = 2, kTargetId = 4, kBody = 8, kPositions = 16, kInviteCode = 32,
+              kDeleteSeconds = 64, kGameQuery = 128, kGameIds = 256;
+enum Slot : u8 {
+    slot_guild = 1, slot_role = 2, slot_member = 4, slot_profile = 8, slot_channel = 16, slot_overwrite = 32,
+    slot_invite = 64, slot_page = 128
+};
+constexpr u8 kSlotOffsets[]{
+    __builtin_offsetof(GuildAdminRequest, guild),   __builtin_offsetof(GuildAdminRequest, role),
+    __builtin_offsetof(GuildAdminRequest, member),  __builtin_offsetof(GuildAdminRequest, profile),
+    __builtin_offsetof(GuildAdminRequest, channel), __builtin_offsetof(GuildAdminRequest, overwrite),
+    __builtin_offsetof(GuildAdminRequest, invite),  __builtin_offsetof(GuildAdminRequest, page)};
 
-bool channel_major(Op op) noexcept {
-    return !guild_major(op) && op != Op::invite_delete && !game_route(op);
-}
+struct OperationRow {
+    u16 flags;
+    RestMethod method;
+    u8 may, must;
+};
+// One row for each GuildAdminOperation, in its order.
+constexpr OperationRow kOperations[]{
+    {kGuildId | kBody, RestMethod::patch, slot_guild, slot_guild},                         // guild_update
+    {kGuildId, RestMethod::get, 0, 0},                                                     // role_list
+    {kGuildId | kBody, RestMethod::post, slot_role, 0},                                    // role_create
+    {kGuildId | kTargetId | kBody, RestMethod::patch, slot_role, slot_role},               // role_update
+    {kGuildId | kTargetId, RestMethod::delete_method, 0, 0},                               // role_delete
+    {kGuildId | kBody | kPositions, RestMethod::patch, 0, 0},                              // role_reorder
+    {kGuildId, RestMethod::get, 0, 0},                                                     // role_member_counts
+    {kGuildId | kTargetId | kBody, RestMethod::patch, slot_member, slot_member},           // member_update
+    {kGuildId | kBody, RestMethod::patch, slot_member, slot_member},                       // member_update_self
+    {kGuildId | kTargetId, RestMethod::delete_method, 0, 0},                               // member_kick
+    {kGuildId, RestMethod::get, slot_page, 0},                                             // ban_list
+    {kGuildId | kTargetId | kBody | kDeleteSeconds, RestMethod::put, 0, 0},                // ban_add
+    {kGuildId | kTargetId, RestMethod::delete_method, 0, 0},                               // ban_remove
+    {kGuildId, RestMethod::get, slot_page, 0},                                             // audit_log
+    {kGuildId | kBody, RestMethod::post, slot_channel, slot_channel},                      // channel_create
+    {kChannelId | kBody, RestMethod::patch, slot_channel, slot_channel},                   // channel_update
+    {kChannelId, RestMethod::delete_method, 0, 0},                                         // channel_delete
+    {kGuildId | kBody | kPositions, RestMethod::patch, 0, 0},                              // channel_reorder
+    {kChannelId | kTargetId | kBody, RestMethod::put, slot_overwrite, slot_overwrite},     // overwrite_put
+    {kChannelId | kTargetId, RestMethod::delete_method, 0, 0},                             // overwrite_delete
+    {kGuildId, RestMethod::get, 0, 0},                                                     // invite_list_guild
+    {kChannelId, RestMethod::get, 0, 0},                                                   // invite_list_channel
+    {kChannelId | kBody, RestMethod::post, slot_invite, 0},                                // invite_create
+    {kInviteCode, RestMethod::delete_method, 0, 0},                                        // invite_delete
+    {kGuildId | kBody, RestMethod::delete_method, 0, 0},                                   // guild_leave
+    {kGuildId | kBody, RestMethod::patch, slot_profile, slot_profile},                     // member_profile_self
+    {kGuildId, RestMethod::get, 0, 0},                                                     // widget_get
+    {kGuildId | kBody, RestMethod::patch, slot_guild, slot_guild},                         // widget_update
+    {kGuildId, RestMethod::get, 0, 0},                                                     // profile_get
+    {kGuildId | kBody, RestMethod::patch, slot_guild, slot_guild},                         // profile_update
+    {kGuildId, RestMethod::get, 0, 0},                                                     // vanity_get
+    {kGuildId | kBody, RestMethod::patch, slot_guild, slot_guild},                         // vanity_update
+    {kGuildId | kTargetId, RestMethod::put, slot_member, slot_member},                     // member_role_add
+    {kGuildId | kTargetId, RestMethod::delete_method, slot_member, slot_member},           // member_role_remove
+    {kGuildId, RestMethod::get, 0, 0},                                                     // top_games
+    {kGameQuery, RestMethod::get, 0, 0},                                                   // game_search
+    {kGameIds, RestMethod::get, 0, 0},                                                     // games_list
+    {kGuildId | kBody, RestMethod::patch, slot_guild, slot_guild},                         // tag_update
+    {kGuildId | kBody, RestMethod::put, 0, 0},                                             // identity_adopt
+};
+static_assert(sizeof(kOperations) / sizeof(kOperations[0]) == static_cast<usize>(Op::count));
 
 // A complete run of non-empty names whose count matches.
 bool feature_names_valid(ConstSlice<u8> names, u16 count) noexcept {
@@ -678,126 +729,78 @@ void write_body(const GuildAdminRequest& r, JsonBody& b) noexcept {
 } // namespace
 
 RestMethod guild_admin_method(GuildAdminOperation op) noexcept {
-    switch (op) {
-    case Op::guild_update:
-    case Op::role_update:
-    case Op::role_reorder:
-    case Op::member_update:
-    case Op::member_update_self:
-    case Op::member_profile_self:
-    case Op::channel_update:
-    case Op::channel_reorder:
-    case Op::widget_update:
-    case Op::profile_update:
-    case Op::vanity_update:
-    case Op::tag_update:
-        return RestMethod::patch;
-    case Op::role_create:
-    case Op::channel_create:
-    case Op::invite_create:
-        return RestMethod::post;
-    case Op::ban_add:
-    case Op::overwrite_put:
-    case Op::member_role_add:
-    case Op::identity_adopt:
-        return RestMethod::put;
-    case Op::role_delete:
-    case Op::member_kick:
-    case Op::ban_remove:
-    case Op::channel_delete:
-    case Op::overwrite_delete:
-    case Op::invite_delete:
-    case Op::guild_leave:
-    case Op::member_role_remove:
-        return RestMethod::delete_method;
-    default:
-        return RestMethod::get;
-    }
+    return op < Op::count ? kOperations[static_cast<u32>(op)].method : RestMethod::get;
 }
 
 bool guild_admin_has_body(GuildAdminOperation op) noexcept {
-    if (op == Op::member_role_add)
-        return false;
-    const auto method = guild_admin_method(op);
-    return method == RestMethod::patch || method == RestMethod::post ||
-           method == RestMethod::put || op == Op::guild_leave;
+    return op < Op::count && (kOperations[static_cast<u32>(op)].flags & kBody);
 }
 
 bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
     if (r.operation >= Op::count || !reason_valid(r) || (!r.positions.data && r.positions.count))
         return false;
     const Op op = r.operation;
-    const bool needs_guild = guild_major(op);
-    const bool needs_channel = channel_major(op);
-    if ((needs_guild && !r.guild_id) || (needs_channel && !r.channel_id) || (!needs_guild && r.guild_id) ||
-        (!needs_channel && r.channel_id))
+    const auto& row = kOperations[static_cast<u32>(op)];
+    const u32 f = row.flags;
+    if ((r.guild_id != 0) != ((f & kGuildId) != 0) || (r.channel_id != 0) != ((f & kChannelId) != 0) ||
+        (r.target_id != 0) != ((f & kTargetId) != 0))
         return false;
-    const bool needs_target = op == Op::role_update || op == Op::role_delete || op == Op::member_update ||
-                              op == Op::member_kick || op == Op::ban_add || op == Op::ban_remove ||
-                              op == Op::overwrite_put || op == Op::overwrite_delete ||
-                              op == Op::member_role_add || op == Op::member_role_remove;
-    if (needs_target != (r.target_id != 0))
-        return false;
-    if ((op == Op::invite_delete) != (r.invite_code.bytes != 0) ||
+    // The optional members it carries are the ones its operation takes, and the ones it needs.
+    for (u32 i = 0; i < sizeof(kSlotOffsets); ++i) {
+        const void* member;
+        __builtin_memcpy(&member, reinterpret_cast<const u8*>(&r) + kSlotOffsets[i], sizeof(member));
+        if (member ? !(row.may >> i & 1) : (row.must >> i & 1))
+            return false;
+    }
+    if ((r.invite_code.bytes != 0) != ((f & kInviteCode) != 0) ||
         (r.invite_code.bytes && !guild_invite_code_valid(r.invite_code.data, r.invite_code.bytes)))
         return false;
-    if ((op == Op::ban_add) ? r.delete_message_seconds > kGuildAdminBanDeleteMaximumSeconds
-                            : r.delete_message_seconds != 0)
+    if ((f & kDeleteSeconds) ? r.delete_message_seconds > kGuildAdminBanDeleteMaximumSeconds
+                             : r.delete_message_seconds != 0)
         return false;
-    const bool positions = op == Op::role_reorder || op == Op::channel_reorder;
-    if (positions ? !positions_valid(r.positions, op == Op::channel_reorder) : r.positions.count != 0)
-        return false;
-    const bool guild_patch = op == Op::guild_update || op == Op::widget_update || op == Op::profile_update ||
-                             op == Op::vanity_update || op == Op::tag_update;
-    if (guild_patch != (r.guild != nullptr) || (r.guild && (op == Op::tag_update) != (r.guild->tag != nullptr)))
-        return false;
-    if (op == Op::tag_update) {
-        // The tag fields alone, without field bits.
-        if (r.guild->fields || r.guild->profile || r.guild->vanity_code.bytes || !tag_write_valid(*r.guild->tag))
-            return false;
-    } else if (r.guild && !guild_patch_valid(*r.guild))
+    if ((f & kPositions) ? !positions_valid(r.positions, op == Op::channel_reorder) : r.positions.count != 0)
         return false;
     if (r.guild) {
-        const u32 f = r.guild->fields;
+        if ((op == Op::tag_update) != (r.guild->tag != nullptr))
+            return false;
+        if (op == Op::tag_update) {
+            // The tag fields alone, without field bits.
+            if (r.guild->fields || r.guild->profile || r.guild->vanity_code.bytes || !tag_write_valid(*r.guild->tag))
+                return false;
+        } else if (!guild_patch_valid(*r.guild))
+            return false;
+        const u32 fields = r.guild->fields;
         const u32 own = op == Op::widget_update    ? guild_settings_patch_widget
                         : op == Op::profile_update ? guild_settings_patch_profile
                         : op == Op::vanity_update  ? guild_settings_patch_vanity
                                                    : 0;
         constexpr u32 alone =
             guild_settings_patch_widget | guild_settings_patch_profile | guild_settings_patch_vanity;
-        if (own ? f != own : (f & alone) != 0)
+        if (own ? fields != own : (fields & alone) != 0)
             return false;
     }
-    if (r.role && op != Op::role_create && op != Op::role_update)
-        return false;
-    if ((op == Op::role_update && !r.role) || (r.role && !role_patch_valid(*r.role, op == Op::role_create)))
+    if (r.role && !role_patch_valid(*r.role, op == Op::role_create))
         return false;
     const bool member_role = op == Op::member_role_add || op == Op::member_role_remove;
-    const bool member = op == Op::member_update || op == Op::member_update_self || member_role;
-    if (member != (r.member != nullptr) ||
-        (r.member && (member_role ? !member_role_patch_valid(*r.member)
-                                  : !member_patch_valid(*r.member, op == Op::member_update_self))))
+    if (r.member && (member_role ? !member_role_patch_valid(*r.member)
+                                 : !member_patch_valid(*r.member, op == Op::member_update_self)))
         return false;
-    if ((op == Op::member_profile_self) != (r.profile != nullptr) || (r.profile && !profile_patch_valid(*r.profile)))
+    if (r.profile && !profile_patch_valid(*r.profile))
         return false;
-    const bool channel = op == Op::channel_create || op == Op::channel_update;
-    if (channel != (r.channel != nullptr) || (r.channel && !channel_patch_valid(*r.channel, op == Op::channel_create)))
+    if (r.channel && !channel_patch_valid(*r.channel, op == Op::channel_create))
         return false;
-    if ((op == Op::overwrite_put) != (r.overwrite != nullptr) ||
-        (r.overwrite && (!overwrite_valid(*r.overwrite) || r.overwrite->id != r.target_id)))
+    if (r.overwrite && (!overwrite_valid(*r.overwrite) || r.overwrite->id != r.target_id))
         return false;
-    if (r.invite && (op != Op::invite_create || r.invite->max_age_seconds > 604'800 || r.invite->max_uses > 100))
-        return false;
-    if (r.page && op != Op::ban_list && op != Op::audit_log)
+    if (r.invite && (r.invite->max_age_seconds > 604'800 || r.invite->max_uses > 100))
         return false;
     // The search sends its normalized query; the games list 1-25 nonzero ids.
-    if (op == Op::game_search) {
+    if (f & kGameQuery) {
         char query[kGuildAdminGameQueryCodepoints * 4];
         if (!view_valid(r.game_query) || !guild_admin_game_query(r.game_query, {query, sizeof(query)}))
             return false;
     } else if (r.game_query.bytes)
         return false;
-    if (op == Op::games_list) {
+    if (f & kGameIds) {
         if (!r.game_ids.data || !r.game_ids.count || r.game_ids.count > kGuildAdminGamesListMaximum)
             return false;
         for (u32 i = 0; i < r.game_ids.count; ++i)
@@ -809,10 +812,11 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
 }
 
 RestRouteKey guild_admin_route(const GuildAdminRequest& r) noexcept {
-    const bool guild = guild_major(r.operation);
-    const bool channel = channel_major(r.operation);
+    const auto& row = kOperations[static_cast<u32>(r.operation)];
+    const bool guild = row.flags & kGuildId;
+    const bool channel = row.flags & kChannelId;
     return {kGuildAdminRouteBase + static_cast<u64>(r.operation), guild ? r.guild_id : channel ? r.channel_id : 0,
-            guild_admin_method(r.operation),
+            row.method,
             guild     ? RestMajorParameter::guild
             : channel ? RestMajorParameter::channel
                       : RestMajorParameter::none};
@@ -841,34 +845,36 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         w.put("games");
         for (u32 i = 0; i < r.game_ids.count; ++i)
             w.put(i ? "&game_ids=" : "?game_ids=", r.game_ids[i]);
-    } else if (channel_major(op)) {
-        w.put("channels/", r.channel_id);
-        if (op == Op::overwrite_put || op == Op::overwrite_delete) {
-            w.put("/permissions/", r.target_id);
-        } else if (op == Op::invite_list_channel || op == Op::invite_create)
-            w.put("/invites");
     } else {
-        w.put("guilds/", r.guild_id);
+        const u32 f = kOperations[static_cast<u32>(op)].flags;
+        if (f & kChannelId)
+            w.put("channels/", r.channel_id);
+        else
+            w.put("guilds/", r.guild_id);
         switch (op) {
         case Op::role_list:
         case Op::role_create:
         case Op::role_reorder: w.put("/roles"); break;
         case Op::role_update:
-        case Op::role_delete: w.put("/roles/", r.target_id); break;
+        case Op::role_delete: w.put("/roles/"); break;
         case Op::role_member_counts: w.put("/roles/member-counts"); break;
         case Op::member_update:
-        case Op::member_kick: w.put("/members/", r.target_id); break;
+        case Op::member_kick:
         case Op::member_role_add:
-        case Op::member_role_remove: w.put("/members/", r.target_id, "/roles/", r.member->role_ids[0]); break;
+        case Op::member_role_remove: w.put("/members/"); break;
         case Op::member_update_self: w.put("/members/@me"); break;
         case Op::member_profile_self: w.put("/profile/@me"); break;
         case Op::ban_list: w.put("/bans"); break;
         case Op::ban_add:
-        case Op::ban_remove: w.put("/bans/", r.target_id); break;
+        case Op::ban_remove: w.put("/bans/"); break;
         case Op::audit_log: w.put("/audit-logs"); break;
         case Op::channel_create:
         case Op::channel_reorder: w.put("/channels"); break;
-        case Op::invite_list_guild: w.put("/invites"); break;
+        case Op::invite_list_guild:
+        case Op::invite_list_channel:
+        case Op::invite_create: w.put("/invites"); break;
+        case Op::overwrite_put:
+        case Op::overwrite_delete: w.put("/permissions/"); break;
         case Op::widget_get:
         case Op::widget_update: w.put("/widget"); break;
         case Op::profile_get:
@@ -879,8 +885,12 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         case Op::top_games: w.put("/top-games"); break;
         default: break;
         }
-        // A kick's reason is a query parameter (encodeURIComponent), never
-        // the audit header; an empty reason still sends "?reason=".
+        if (f & kTargetId)
+            w.put(r.target_id);
+        if (op == Op::member_role_add || op == Op::member_role_remove)
+            w.put("/roles/", r.member->role_ids[0]);
+        // A kick's reason is a query parameter (encodeURIComponent), never the audit header; an empty reason still
+        // sends "?reason=".
         if (op == Op::member_kick && r.reason.data) {
             w.put("?reason=");
             const Slice<u8> room{target + w.writer.used, kGuildAdminMaximumTargetBytes - w.writer.used};
@@ -888,7 +898,7 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
             w.ok = encoded.ok;
             w.writer.used += w.ok ? encoded.bytes : 0;
         }
-        if ((op == Op::ban_list || op == Op::audit_log)) {
+        if (op == Op::ban_list || op == Op::audit_log) {
             const GuildAdminPageQuery none{};
             const auto& page = r.page ? *r.page : none;
             const u32 limit = page.limit ? page.limit : (op == Op::audit_log ? 50u : kGuildAdminPageMaximum);
@@ -1010,23 +1020,17 @@ namespace {
 void write_civil_time(u64 unix_seconds, const Slice<char>& output) noexcept {
     const auto date = civil_date_from_days(static_cast<i64>(unix_seconds / 86'400));
     const u32 seconds = static_cast<u32>(unix_seconds % 86'400);
-    const u32 year = static_cast<u32>(date.year), month = date.month, day = date.day;
-    const auto two = [&](u32 at, u32 value) noexcept {
-        output[at] = static_cast<char>('0' + value / 10 % 10);
-        output[at + 1] = static_cast<char>('0' + value % 10);
-    };
-    two(0, year / 100);
-    two(2, year % 100);
-    output[4] = '-';
-    two(5, month);
-    output[7] = '-';
-    two(8, day);
+    const u32 year = static_cast<u32>(date.year);
+    // Two digits each: the century and the year in it, the month, the day, the hour, the minute and the second.
+    const u32 fields[]{year / 100, year % 100, date.month, date.day, seconds / 3'600, seconds / 60 % 60, seconds % 60};
+    static constexpr u8 at[]{0, 2, 5, 8, 11, 14, 17};
+    for (u32 i = 0; i < 7; ++i) {
+        output[at[i]] = static_cast<char>('0' + fields[i] / 10 % 10);
+        output[at[i] + 1] = static_cast<char>('0' + fields[i] % 10);
+    }
+    output[4] = output[7] = '-';
     output[10] = 'T';
-    two(11, seconds / 3'600);
-    output[13] = ':';
-    two(14, seconds / 60 % 60);
-    output[16] = ':';
-    two(17, seconds % 60);
+    output[13] = output[16] = ':';
 }
 } // namespace
 
