@@ -44,8 +44,21 @@ struct Palette : TextPalette {
     Color accent, accent_hover, bubble, bubble_border, control, control_border, control_icon;
     Color badge_box, badge_box_hover, badge_box_border, game_plate, count_veil, connection_tile;
 };
+// The text colours of a card, which tone_color and card_theme read during text output as well.
+TextPalette text_palette(const ProfileScene& s, const Theme& theme) noexcept {
+    TextPalette c{};
+    const bool app_dark = theme.appearance == ThemeAppearance::dark;
+    const auto& tokens = (app_dark == s.theme_dark ? theme : s.theme_dark ? kDefaultTheme : kLightTheme).tokens.profile;
+    c.text = c.strong = s.themed ? tokens.text : theme.text_primary;
+    c.subtle = s.themed ? tokens.text_subtle : theme.text_secondary;
+    c.muted = s.themed ? tokens.text_muted : theme.tokens.text.muted;
+    c.border = s.themed ? tokens.border : theme.tokens.border.subtle;
+    c.on_accent = s.themed ? theme.tokens.text.on_accent : theme.tokens.emphasis.text;
+    return c;
+}
 Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     Palette c{};
+    static_cast<TextPalette&>(c) = text_palette(s, theme);
     const auto& own = theme.tokens.profile;
     c.control = own.control;
     c.control_border = own.control_border;
@@ -56,10 +69,6 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     if (!s.themed) {
         c.surface = c.primary = c.secondary = own.surface;
         c.modal = own.modal;
-        c.text = c.strong = theme.text_primary;
-        c.subtle = theme.text_secondary;
-        c.muted = theme.tokens.text.muted;
-        c.border = theme.tokens.border.subtle;
         c.hover = theme.tokens.state.hover;
         c.card = theme.tokens.fill.subtle;
         c.card_hover = theme.tokens.fill.muted;
@@ -68,7 +77,6 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
         c.button_hover = theme.tokens.state.pressed;
         c.accent = theme.tokens.emphasis.fill;
         c.accent_hover = mix(c.accent, theme.tokens.overlay.dense, .1f);
-        c.on_accent = theme.tokens.emphasis.text;
         c.bubble = theme.surface;
         c.bubble_border = theme.tokens.border.subtle;
         c.badge_box = theme.tokens.state.row_hover;
@@ -87,10 +95,6 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     c.overlay = tokens.overlay;
     c.surface = over(c.overlay, c.primary);
     c.modal = color_from_rgb24(profile_modal_background(s.theme_primary, s.theme_secondary, s.theme_dark));
-    c.text = c.strong = tokens.text;
-    c.subtle = tokens.text_subtle;
-    c.muted = tokens.text_muted;
-    c.border = tokens.border;
     c.hover = tokens.hover;
     c.card = tokens.card;
     c.card_hover = tokens.card_hover;
@@ -101,25 +105,12 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     // Hover: the accent mixed 10% toward the darkest (dark theme) or lightest surface.
     c.accent_hover = mix(c.accent, s.theme_dark ? kDefaultTheme.base_lowest : kLightTheme.surface, .1f);
     c.accent_hover.alpha = 1;
-    c.on_accent = theme.tokens.text.on_accent;
     c.bubble = over(tokens.card, c.surface);
     c.bubble_border = s.theme_dark ? theme.tokens.border.strong : tokens.border;
     c.badge_box = tokens.badge_box;
     c.badge_box_hover = tokens.badge_box_hover;
     c.badge_box_border = column.tokens.border.muted;
     c.game_plate = tokens.game_plate;
-    return c;
-}
-// Only the colors consumed by tone_color and card_theme during text output.
-TextPalette text_palette(const ProfileScene& s, const Theme& theme) noexcept {
-    TextPalette c{};
-    const bool app_dark = theme.appearance == ThemeAppearance::dark;
-    const auto& tokens = (app_dark == s.theme_dark ? theme : s.theme_dark ? kDefaultTheme : kLightTheme).tokens.profile;
-    c.text = c.strong = s.themed ? tokens.text : theme.text_primary;
-    c.subtle = s.themed ? tokens.text_subtle : theme.text_secondary;
-    c.muted = s.themed ? tokens.text_muted : theme.tokens.text.muted;
-    c.border = s.themed ? tokens.border : theme.tokens.border.subtle;
-    c.on_accent = s.themed ? theme.tokens.text.on_accent : theme.tokens.emphasis.text;
     return c;
 }
 // The application theme with the card's text colours, for shared widgets

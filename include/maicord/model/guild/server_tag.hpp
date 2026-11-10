@@ -71,6 +71,9 @@ void guild_tag_set_palette(GuildTagDraft*, u32 choice) noexcept;
 // The colours the badge shows: the draft's, else the badge's own.
 u32 guild_tag_primary(const GuildTagDraft&) noexcept;
 u32 guild_tag_secondary(const GuildTagDraft&) noexcept;
+// Whether a badge drawn as (type, primary, secondary) is the one `saved` names, in its colours: the server's own image
+// of its badge (the CDN's) then shows exactly what the page would draw. A one-colour badge has no secondary to match.
+bool guild_tag_badge_saved(const GuildTagDraft& saved, u8 type, u32 primary, u32 secondary) noexcept;
 // Whether the draft saves: off, or on with a valid tag.
 bool guild_tag_draft_valid(const GuildTagDraft&) noexcept;
 // The PATCH body of a draft; `colors` holds the "#rrggbb" texts the write

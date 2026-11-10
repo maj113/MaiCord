@@ -16,7 +16,7 @@ inline bool administrator() noexcept {
 void push_notices(const char* texts) noexcept;
 
 // A failed read: its heading over the layer's status, with the notice action that reads again.
-u32 push_load_error(const Utf8View& heading) noexcept;
+u32 push_load_error(Text heading) noexcept;
 // The layer's status as an error row while a request of the page has failed.
 void push_status_error() noexcept;
 // The page's state could not be made.
@@ -33,11 +33,12 @@ bool next_part(const Utf8View& text, u32* at, char separator, Utf8View* part) no
 u32 sorted_channels(u32 types, u32 room) noexcept;
 
 // A dangerous confirmation: `save` runs when it is accepted. `cancel` labels the way out when it is not "Cancel".
-void open_confirmation(u64 kind, u64 item, const Utf8View& title, const Utf8View& context, const Utf8View& accept,
-                       bool (*save)(TextFormOwnerKey key, Utf8View text) noexcept,
-                       const Utf8View& cancel = {}) noexcept;
+void open_confirmation(u64 kind, u64 item, Text title, Text context, Text accept,
+                       bool (*save)(TextFormOwnerKey key, Utf8View text) noexcept, Text cancel = {}) noexcept;
 // A read-only text (`detail`) under its title and `context`, closed by its one button.
-void open_preview(u64 kind, u64 item, const Utf8View& title, const Utf8View& context, const Utf8View& label,
-                  const Utf8View& detail) noexcept;
+void open_preview(u64 kind, u64 item, Text title, Text context, Text label, Text detail) noexcept;
+// A text form's texts and size limits (the rest of the request stays with the caller).
+void fill_form(ApplicationTextFormRequest& request, Text title, Text context, Text label, Text accept, u32 codepoints,
+               u32 bytes) noexcept;
 
 } // namespace maicord::app_detail::server_settings

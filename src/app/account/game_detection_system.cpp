@@ -152,8 +152,6 @@ u32 file_name(const PROCESSENTRY32W& entry, char* output) noexcept {
 } // namespace
 
 void game_detection_scan(const RegisteredGames& custom, const DetectableList& list, GameScan* scan) noexcept {
-    if (!scan)
-        return;
     scan->count = scan->foreground_pid = 0;
     const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE)
@@ -182,7 +180,9 @@ void game_detection_scan(const RegisteredGames& custom, const DetectableList& li
     CloseHandle(snapshot);
     if (!scan->count)
         return;
-    WindowOwners owners{};
+    WindowOwners owners; // only the first `count` pids are read
+    owners.count = 0;
+    owners.titled = false;
     EnumWindows(collect_window, reinterpret_cast<LPARAM>(&owners));
     for (u32 i = 0; i < scan->count; ++i)
         scan->processes[i].windowed = owns_window(owners, scan->processes[i].pid);
@@ -192,9 +192,8 @@ void game_detection_scan(const RegisteredGames& custom, const DetectableList& li
     scan->foreground_pid = foreground;
 }
 u32 game_detection_choices(Slice<char> storage, Slice<Utf8View> paths) noexcept {
-    if (!storage.data || !paths.data)
-        return 0;
-    WindowOwners owners{};
+    WindowOwners owners;
+    owners.count = 0;
     owners.titled = true;
     EnumWindows(collect_window, reinterpret_cast<LPARAM>(&owners));
     const DWORD self = process_id();
@@ -335,8 +334,6 @@ template <typename Visit> void each_process(Visit visit) noexcept {
 } // namespace
 
 void game_detection_scan(const RegisteredGames& custom, const DetectableList& list, GameScan* scan) noexcept {
-    if (!scan)
-        return;
     scan->count = scan->foreground_pid = 0;
     u32 used = 0;
     each_process([&](const char* pid_text, u32 pid, const ProcessName& process) noexcept {
@@ -352,8 +349,6 @@ void game_detection_scan(const RegisteredGames& custom, const DetectableList& li
     });
 }
 u32 game_detection_choices(Slice<char> storage, Slice<Utf8View> paths) noexcept {
-    if (!storage.data || !paths.data)
-        return 0;
     u32 count = 0, used = 0;
     each_process([&](const char*, u32, const ProcessName& process) noexcept {
         const Utf8View path{process.path, process.bytes};
@@ -438,11 +433,10 @@ u8* detectable_image_load(u32* bytes) noexcept {
     u8* image = file_size(file, &size) && size && size <= kDetectableGamesMaximumBytes
                     ? static_cast<u8*>(commit_pages(static_cast<usize>(size)))
                     : nullptr;
-    u32 read = 0, got = 0;
-    while (image && read < size && file_read(file, image + read, static_cast<u32>(size) - read, &got) && got)
-        read += got;
+    u32 error = 0;
+    const bool read = image && file_persistence_read_complete(file, {image, static_cast<u32>(size)}, &error);
     file_close(file);
-    if (image && read != size) {
+    if (image && !read) {
         pages_release(image, static_cast<usize>(size));
         image = nullptr;
     }
@@ -496,8 +490,6 @@ void detectable_refresh_cancel() noexcept {
 }
 
 bool registered_games_load(RegisteredGames* games) noexcept {
-    if (!games)
-        return false;
     reset_value(games);
     wchar_t path[kAccountProfileMaximumPathCharacters];
     if (!data_path(path, kAccountProfileMaximumPathCharacters, L"games.bin").ok())

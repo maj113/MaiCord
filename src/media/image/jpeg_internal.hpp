@@ -205,12 +205,9 @@ u32 scan_component_columns(const JpegImage& image, const JpegComponent& componen
 JpegError validate_progression(const JpegScan& scan, u8 progression[kJpegComponentMaximum][64]) noexcept;
 JpegError find_entropy_end(ConstSlice<u8> encoded, u32 start, JpegScan* scan, u32* next_marker) noexcept;
 void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegAcDecodeTable* ac) noexcept;
+// The block's coefficients in raster order; *end is one past the last (zigzag order) it read, set on success.
 bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegAcDecodeTable& ac_table,
-                  i32* predictor, JpegCoefficientBlock* block) noexcept;
-// decode_block in place at row *stored of `rows`, keeping its rows up to the last its coefficients reach (all eight
-// after a failure): writes its word and advances *stored past them.
-bool decode_block_rows(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegAcDecodeTable& ac_table,
-                       i32* predictor, u8* word, u8* rows, u32* stored) noexcept;
+                  i32* predictor, JpegCoefficientBlock* block, u32* end) noexcept;
 // The baseline scan into either layout of JpegCoefficientWorkspace (jpeg_decode_parsed_coefficients picks by size).
 JpegDecodeResult decode_baseline_coefficients(ConstSlice<u8> encoded, const JpegImage& image,
                                               JpegCoefficientWorkspace* coefficients, bool stored_rows) noexcept;

@@ -108,11 +108,6 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
           "tooltip: raw NaN anchor cannot become valid through viewport intersection");
     check(!ui_tooltip_offer(&scene, target, viewport, static_cast<UiTooltipTrigger>(2), 1700),
           "tooltip: invalid trigger cannot schedule a wake");
-    UiTooltipStyle invalid_height{};
-    invalid_height.maximum_height = 16;
-    invalid_height.padding_y = 8;
-    check(!ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 1700, invalid_height),
-          "tooltip: padding must leave positive measured height");
     UiTooltipStyle extreme{};
     extreme.padding_x = 0;
     extreme.margin = 32;

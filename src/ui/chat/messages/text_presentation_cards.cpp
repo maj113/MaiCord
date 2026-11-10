@@ -21,9 +21,6 @@ void set_failure_context(MessageTextPresentation* presentation, MessageTextPrese
                          MessageTextPresentationOperation operation,
                          u16 item_index,
                          UiTextFlowError flow_error) noexcept {
-    if (!presentation) {
-        return;
-    }
     presentation->failure_stage = stage;
     presentation->failure_operation = operation;
     presentation->failure_item_index = item_index;
@@ -190,17 +187,10 @@ bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObs
     const UiRect visible = ui_rect_intersection(clip, box);
     if (!ui_rect_has_area(box) || !ui_rect_has_area(visible) || box.right - box.left < 8.0f)
         return true;
-    ConstSlice<TextStyleSpan> styles{};
-    if (!notice) {
-        if (presentation->style_count >= presentation->styles.count)
-            return fail(presentation, MessageTextPresentationError::capacity);
-        auto& style = presentation->styles[presentation->style_count++];
-        style = {0, label.bytes, text_style_bold};
-        styles = {&style, 1};
-    }
-    return append_command(presentation, label, styles, kNoSemantics, owner, box, visible,
-                          notice ? ui_background_muted_text_color(theme) : theme.tokens.text.on_accent,
-                          &record, measurement, kLookNoticeCentered);
+    return append_marked(presentation, label, notice ? TextStyleSpan{} : TextStyleSpan{0, label.bytes, text_style_bold},
+                         nullptr, owner, box, visible,
+                         notice ? ui_background_muted_text_color(theme) : theme.tokens.text.on_accent, &record,
+                         measurement, kLookNoticeCentered);
 }
 
 namespace {
@@ -219,17 +209,11 @@ bool append_alt_badge(MessageTextPresentation* presentation, Utf8View descriptio
     const UiRect visible = ui_rect_intersection(clip, box);
     if (!ui_rect_has_area(visible))
         return true;
-    if (presentation->style_count >= presentation->styles.count ||
-        presentation->semantic_count >= presentation->semantics.count)
-        return fail(presentation, MessageTextPresentationError::capacity);
     constexpr Utf8View label = utf8_literal("ALT");
-    auto& style = presentation->styles[presentation->style_count++];
-    style = TextStyleSpan{0, label.bytes, text_style_bold, text_size_sm};
-    auto& semantic = presentation->semantics[presentation->semantic_count++];
-    semantic = MessageMarkdownSemantic{attachment | (snapshot ? kMessageAltSnapshot : 0ull), 0, label.bytes, 0, 0,
-                                       MessageMarkdownSemanticKind::alt_text, 0};
-    return append_command(presentation, label, {&style, 1}, {&semantic, 1}, owner, box, visible,
-                          theme.tokens.text.on_accent, &record, measurement, kLookMiddle);
+    const MessageMarkdownSemantic semantic{attachment | (snapshot ? kMessageAltSnapshot : 0ull), 0, label.bytes, 0, 0,
+                                           MessageMarkdownSemanticKind::alt_text, 0};
+    return append_marked(presentation, label, TextStyleSpan{0, label.bytes, text_style_bold, text_size_sm}, &semantic,
+                         owner, box, visible, theme.tokens.text.on_accent, &record, measurement, kLookMiddle);
 }
 // Message annotations below the content: a plugin card (an embed), the
 // failed-interaction notice and the ephemeral footer (an eye, "Only you can
@@ -252,35 +236,28 @@ bool append_plugin_accessories(MessageTextPresentation* presentation, const UiPl
         const Utf8View text = node.text.bytes ? node.text : node.tooltip;
         if (!text.bytes)
             continue;
-        if (presentation->style_count >= presentation->styles.count ||
-            presentation->semantic_count >= presentation->semantics.count)
-            return fail(presentation, MessageTextPresentationError::capacity);
         const bool button = node.kind == kUiPluginRenderButton;
         const bool link = node.kind == kUiPluginRenderLink;
-        TextStyleSpan* style = presentation->styles.data + presentation->style_count++;
-        *style = {0, text.bytes, button ? text_style_bold : link ? text_style_link : text_style_subtext};
-        ConstSlice<MessageMarkdownSemantic> semantics{};
-        if (button || link) {
-            MessageMarkdownSemantic* semantic = presentation->semantics.data + presentation->semantic_count++;
-            *semantic = {index + 1u, 0, text.bytes, scoped_source_offset(kUiPluginRenderGeneratedSource, 0), 0,
-                         MessageMarkdownSemanticKind::link, 0};
-            semantics = {semantic, 1};
-        }
+        const MessageMarkdownSemantic semantic{index + 1u, 0, text.bytes,
+                                               scoped_source_offset(kUiPluginRenderGeneratedSource, 0), 0,
+                                               MessageMarkdownSemanticKind::link, 0};
         const Color color = button ? ui_icon_role_color(theme, ui_plugin_slot_role(node.tone ? node.tone : 1))
                             : link ? theme.tokens.text.link
                                    : ui_background_muted_text_color(theme);
         const u32 before = presentation->command_count;
         if (!ui_rect_has_area(clip) ||
-            !append_command(presentation, text, {style, 1}, semantics, owner,
-                            {x, *top, x + line_width, *top + kAnnotationLineHeight}, clip, color, &record,
-                            measurement_index,
-                            {.kind = MessageTextMeasurementKind::notice,
-                             .themed = link,
-                             .vertical = UiTextAlignment::center,
-                             .wrapping = TextWrapping::no_wrap,
-                             .slot = static_cast<u8>(8u + index),
-                             .overflow = TextOverflow::ellipsis,
-                             .source_id = kUiPluginRenderGeneratedSource}))
+            !append_marked(presentation, text,
+                           {0, text.bytes, button ? text_style_bold : link ? text_style_link : text_style_subtext},
+                           button || link ? &semantic : nullptr, owner,
+                           {x, *top, x + line_width, *top + kAnnotationLineHeight}, clip, color, &record,
+                           measurement_index,
+                           {.kind = MessageTextMeasurementKind::notice,
+                            .themed = link,
+                            .vertical = UiTextAlignment::center,
+                            .wrapping = TextWrapping::no_wrap,
+                            .slot = static_cast<u8>(8u + index),
+                            .overflow = TextOverflow::ellipsis,
+                            .source_id = kUiPluginRenderGeneratedSource}))
             return !ui_rect_has_area(clip);
         auto& command = presentation->commands[before];
         // The measured width is known from the previous pass: wrap a node that
@@ -324,27 +301,18 @@ bool append_plugin_card(MessageTextPresentation* presentation, const UiPluginRen
         *placed = nullptr;
         if (!text.bytes || !ui_rect_has_area(clip))
             return true;
-        if (presentation->style_count >= presentation->styles.count ||
-            (target && presentation->semantic_count >= presentation->semantics.count))
-            return fail(presentation, MessageTextPresentationError::capacity);
-        TextStyleSpan* span = presentation->styles.data + presentation->style_count++;
-        *span = {0, text.bytes, style, size};
-        ConstSlice<MessageMarkdownSemantic> semantics{};
-        if (target) {
-            MessageMarkdownSemantic* semantic = presentation->semantics.data + presentation->semantic_count++;
-            *semantic = {target, 0, text.bytes, scoped_source_offset(kUiPluginRenderGeneratedSource, 0), 0,
-                         MessageMarkdownSemanticKind::link, 0};
-            semantics = {semantic, 1};
-        }
+        const MessageMarkdownSemantic semantic{target, 0, text.bytes,
+                                               scoped_source_offset(kUiPluginRenderGeneratedSource, 0), 0,
+                                               MessageMarkdownSemanticKind::link, 0};
         const u32 before = presentation->command_count;
-        if (!append_command(presentation, text, {span, 1}, semantics, owner, line_rectangle(x, y, column), clip, color,
-                            &record, measurement_index,
-                            {.kind = MessageTextMeasurementKind::notice,
-                             .themed = (style & text_style_link) != 0,
-                             .wrapping = wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
-                             .slot = slot,
-                             .overflow = wrap ? TextOverflow::clip : TextOverflow::ellipsis,
-                             .source_id = kUiPluginRenderGeneratedSource}))
+        if (!append_marked(presentation, text, {0, text.bytes, style, size}, target ? &semantic : nullptr, owner,
+                           line_rectangle(x, y, column), clip, color, &record, measurement_index,
+                           {.kind = MessageTextMeasurementKind::notice,
+                            .themed = (style & text_style_link) != 0,
+                            .wrapping = wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
+                            .slot = slot,
+                            .overflow = wrap ? TextOverflow::clip : TextOverflow::ellipsis,
+                            .source_id = kUiPluginRenderGeneratedSource}))
             return false;
         *placed = &presentation->commands[before];
         measured = measured && (*placed)->measured_height > 0.0f;
@@ -479,32 +447,25 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
         const auto notice_text =
             utf8_literal("\xE2\x80\x83\xE2\x80\x85\xE2\x80\x8DOnly you can see this \xE2\x80\xA2 ");
         const auto dismiss_text = utf8_literal("Dismiss message");
-        if (presentation->style_count + 2 > presentation->styles.count ||
-            presentation->semantic_count + 2 > presentation->semantics.count)
-            return fail(presentation, MessageTextPresentationError::capacity);
         const UiRect line{region.left, top, maximum(region.left + 1.0f, region.right), top + kAnnotationLineHeight};
         if (ui_rect_has_area(ui_rect_intersection(line, row_clip))) {
             // The footer is set in the small muted type.
-            TextStyleSpan* small = presentation->styles.data + presentation->style_count++;
-            *small = {0, notice_text.bytes, text_style_subtext};
-            MessageMarkdownSemantic* eye = presentation->semantics.data + presentation->semantic_count++;
-            *eye = {static_cast<u64>(MessageMarkdownChipIcon::ephemeral), 0, 3, 0, 0,
-                    MessageMarkdownSemanticKind::chip_icon, 0};
-            if (!append_command(presentation, notice_text, {small, 1}, {eye, 1}, owner, line, row_clip,
-                                ui_background_muted_text_color(theme), &record,
-                                measurement_index, kLookNotice))
+            const MessageMarkdownSemantic eye{static_cast<u64>(MessageMarkdownChipIcon::ephemeral), 0, 3, 0, 0,
+                                              MessageMarkdownSemanticKind::chip_icon, 0};
+            if (!append_marked(presentation, notice_text, {0, notice_text.bytes, text_style_subtext}, &eye, owner, line,
+                               row_clip, ui_background_muted_text_color(theme), &record, measurement_index,
+                               kLookNotice))
                 return false;
             const float notice_width = presentation->commands[presentation->command_count - 1].measured_width;
             if (notice_width > 0.0f && line.left + notice_width + 8.0f < line.right) {
-                TextStyleSpan* link = presentation->styles.data + presentation->style_count++;
-                *link = {0, dismiss_text.bytes, text_style_link | text_style_subtext};
-                MessageMarkdownSemantic* semantic = presentation->semantics.data + presentation->semantic_count++;
                 // The dismiss action is a message link to the ephemeral message itself.
-                *semantic = {record.id, 0, dismiss_text.bytes, 0, 0, MessageMarkdownSemanticKind::message_link, 0};
+                const MessageMarkdownSemantic semantic{record.id, 0, dismiss_text.bytes, 0, 0,
+                                                       MessageMarkdownSemanticKind::message_link, 0};
                 const UiRect dismiss{line.left + notice_width, line.top, line.right, line.bottom};
-                if (!append_command(presentation, dismiss_text, {link, 1}, {semantic, 1}, owner, dismiss, row_clip,
-                                    theme.tokens.text.link, &record, measurement_index,
-                                    kLookNoticeLink))
+                if (!append_marked(presentation, dismiss_text,
+                                   {0, dismiss_text.bytes, text_style_link | text_style_subtext}, &semantic, owner,
+                                   dismiss, row_clip, theme.tokens.text.link, &record, measurement_index,
+                                   kLookNoticeLink))
                     return false;
             }
         }
@@ -547,33 +508,15 @@ bool append_edited_tail(MessageTextPresentation* presentation, const MessageScen
 }
 
 namespace {
-bool retain_text(MessageTextPresentation* presentation, const Utf8View& text, Utf8View* output) noexcept {
-    if (text.bytes > presentation->utf8.count - presentation->utf8_count)
-        return fail(presentation, MessageTextPresentationError::capacity);
-    char* at = presentation->utf8.data + presentation->utf8_count;
-    copy_bytes(at, text.data, text.bytes);
-    presentation->utf8_count += text.bytes;
-    *output = {at, text.bytes};
-    return true;
-}
-
 bool append_card_line(MessageTextPresentation* presentation, const Utf8View& text, u32 style, const UiWidgetReference& owner,
                       const UiRect& rectangle, const UiRect& clip, const Color& color, const MessageRecord& record, u8 slot,
                       u16 measurement, UiTextAlignment alignment = UiTextAlignment::start) noexcept {
     const UiRect visible = ui_rect_intersection(clip, rectangle);
     if (!text.bytes || !ui_rect_has_area(rectangle) || !ui_rect_has_area(visible))
         return true;
-    ConstSlice<TextStyleSpan> styles{};
-    if (style) {
-        if (presentation->style_count >= presentation->styles.count)
-            return fail(presentation, MessageTextPresentationError::capacity);
-        auto& span = presentation->styles[presentation->style_count++];
-        span = {0, text.bytes, style};
-        styles = {&span, 1};
-    }
     // Measured (notice kind: no height contribution) so centred labels align.
-    return append_command(presentation, text, styles, kNoSemantics, owner, rectangle, visible, color, &record,
-                          measurement,
+    return append_marked(presentation, text, style ? TextStyleSpan{0, text.bytes, style} : TextStyleSpan{}, nullptr,
+                         owner, rectangle, visible, color, &record, measurement,
                           {.kind = MessageTextMeasurementKind::notice,
                            .horizontal = alignment,
                            .vertical = UiTextAlignment::center,
@@ -660,13 +603,14 @@ bool append_invite_cards(MessageTextPresentation* presentation, const MessageSce
         const u32 slot = kMessageRichInviteItemOffset + i;
         measurement->rich_item_layout.heights[slot] = kMessageInviteCardHeight;
         total += kMessageInviteCardHeight + (i ? kMessageInviteCardGap : 0.0f);
-        const UiLayoutNode* node = message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::invite, i);
+        const UiWidgetHandle item_widget = message_scene_rich_item_widget(row, MessageSceneRichItemKind::invite, i);
+        const UiLayoutNode* node = message_scene_layout_node(scene, item_widget);
         if (!node)
             return fail(presentation, MessageTextPresentationError::layout);
         const auto geometry = message_invite_card_geometry(node->rectangle);
         if (!ui_rect_has_area(ui_rect_intersection(geometry.card, row_clip)))
             continue;
-        const UiWidgetReference owner{&scene.widgets, message_scene_rich_item_widget(row, MessageSceneRichItemKind::invite, i)};
+        const UiWidgetReference owner{&scene.widgets, item_widget};
         if (invite_link_event(links[i])) {
             if (!append_event_card(presentation, scene, links[i], geometry, owner, record, state, theme, row_clip,
                                    static_cast<u8>(i), measurement_index, now_unix_seconds))
@@ -822,8 +766,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                                 MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
             const UiWidgetHandle item_widget =
                 message_scene_rich_item_widget(row, MessageSceneRichItemKind::attachment, index);
-            const UiLayoutNode* item_layout = message_scene_rich_item_layout_node(
-                scene, row, MessageSceneRichItemKind::attachment, index);
+            const UiLayoutNode* item_layout = message_scene_layout_node(scene, item_widget);
             if (!item_layout) {
                 return fail(presentation, MessageTextPresentationError::layout);
             }
@@ -866,16 +809,11 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                 const auto append_audio = +[](void* source, const UiTextCommand& command, u32) noexcept {
                     auto& audio = *static_cast<AudioTextContext*>(source);
                     auto* p = audio.presentation;
-                    if (command.text.bytes > p->utf8.count - p->utf8_count ||
-                        p->style_count >= p->styles.count)
-                        return fail(p, MessageTextPresentationError::capacity);
-                    const u32 offset = p->utf8_count;
-                    copy_bytes(p->utf8.data + offset, command.text.data, command.text.bytes);
-                    p->utf8_count += command.text.bytes;
-                    auto& span = p->styles[p->style_count++];
-                    span = {0, command.text.bytes, command.style_flags};
-                    return append_command(
-                        p, {p->utf8.data + offset, command.text.bytes}, {&span, 1}, kNoSemantics, command.owner,
+                    Utf8View retained{};
+                    if (!retain_text(p, command.text, &retained))
+                        return false;
+                    return append_marked(
+                        p, retained, {0, command.text.bytes, command.style_flags}, nullptr, command.owner,
                         command.rectangle, command.clip, command.color, audio.record,
                         audio.measurement,
                         {.kind = MessageTextMeasurementKind::attachment,
@@ -949,8 +887,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                                 MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
             const UiWidgetHandle item_widget =
                 message_scene_rich_item_widget(row, MessageSceneRichItemKind::embed, index);
-            const UiLayoutNode* item_layout =
-                message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::embed, index);
+            const UiLayoutNode* item_layout = message_scene_layout_node(scene, item_widget);
             if (!item_layout) {
                 return fail(presentation, MessageTextPresentationError::layout);
             }
@@ -1257,27 +1194,20 @@ __declspec(noinline) bool append_poll_text(MessageTextPresentation* presentation
     const auto append_poll = +[](void* source, const UiTextCommand& command, u32 ordinal) noexcept {
         const auto& poll_text = *static_cast<PollTextContext*>(source);
         auto* p = poll_text.presentation;
-        if (command.text.bytes > p->utf8.count - p->utf8_count ||
-            (command.style_flags != text_style_none && p->style_count >= p->styles.count))
-            return fail(p, MessageTextPresentationError::capacity);
-        const u32 offset = p->utf8_count;
-        copy_bytes(p->utf8.data + offset, command.text.data, command.text.bytes);
-        p->utf8_count += command.text.bytes;
-        ConstSlice<TextStyleSpan> poll_styles{};
-        if (command.style_flags != text_style_none) {
-            auto& span = p->styles[p->style_count++];
-            span = {0, command.text.bytes, command.style_flags};
-            poll_styles = {&span, 1};
-        }
-        return append_command(p, {p->utf8.data + offset, command.text.bytes}, poll_styles, kNoSemantics,
-                              command.owner, command.rectangle, command.clip, command.color,
-                              poll_text.record,
-                              kInvalidMessageTextMeasurement,
-                              {.horizontal = command.horizontal_alignment,
-                               .vertical = command.vertical_alignment,
-                               .wrapping = command.wrapping,
-                               .slot = static_cast<u8>(ordinal),
-                               .overflow = command.overflow});
+        Utf8View retained{};
+        if (!retain_text(p, command.text, &retained))
+            return false;
+        return append_marked(p, retained,
+                             command.style_flags != text_style_none ? TextStyleSpan{0, command.text.bytes, command.style_flags}
+                                                                    : TextStyleSpan{},
+                             nullptr, command.owner, command.rectangle, command.clip, command.color,
+                             poll_text.record,
+                             kInvalidMessageTextMeasurement,
+                             {.horizontal = command.horizontal_alignment,
+                              .vertical = command.vertical_alignment,
+                              .wrapping = command.wrapping,
+                              .slot = static_cast<u8>(ordinal),
+                              .overflow = command.overflow});
     };
     UiTextEmitter emitter{};
     UiTextOutput output{nullptr, &emitter};

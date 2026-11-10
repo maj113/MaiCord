@@ -180,6 +180,7 @@ static Utf8View g_theme_tiles[kInstalledThemeTiles + 1];
 // selected_choice carries a digest so a change repaints the page.
 UiSettingsPreview g_accessibility_preview{};
 char g_preview_author[kUserDisplayNameMaximumBytes], g_preview_time[48];
+UiSettingsAvatarMedia g_preview_avatars[4];
 u32 project_accessibility_preview() noexcept {
     auto& s = g_accessibility_preview;
     const auto& p = g_app.preferences;
@@ -204,11 +205,21 @@ u32 project_accessibility_preview() noexcept {
     s.group_gap = p.message_group_spacing ? spacings[p.message_group_spacing - 1] : s.compact ? 0.f : 16.f;
     const auto* styles = application_theme().styles;
     s.text_size = styles && styles->ready ? ui_theme_chat_size(styles->typography) : 16.f;
+    // The official preview shows the bare time ("11:55 AM"), not the chat's "Today at".
     const u64 now = clock_unix_milliseconds() / 1'000u;
-    const auto formatted = format_timestamp_local(now, 't', now, {g_preview_time + 9, sizeof(g_preview_time) - 9});
-    copy_bytes(g_preview_time, "Today at ", 9);
-    s.time = s.compact ? Utf8View{g_preview_time + 9, formatted.bytes} : Utf8View{g_preview_time, 9 + formatted.bytes};
-    u64 digest = hash64_bytes(kHash64Seed, s.author.data, s.author.bytes) ^ hash64_bytes(kHash64Seed, s.time.data, s.time.bytes);
+    s.time = {g_preview_time, format_timestamp_local(now, 't', now, {g_preview_time, sizeof(g_preview_time)}).bytes};
+    // Your avatar (the default one without a picture of your own), then the default avatars of the official
+    // examples: discriminators 2, 3 and 4 for idle, do not disturb and mobile online.
+    auto& avatars = g_preview_avatars;
+    avatars[0] = application_user_avatar_media(g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0);
+    if (!avatars[0].hash_bytes)
+        avatars[0] = application_listed_user_avatar_media(
+            g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0, {}, 0);
+    for (u16 i = 1; i < 4; ++i)
+        avatars[i] = application_listed_user_avatar_media(1, {}, i + 1);
+    s.avatars = avatars;
+    u64 digest = hash64_bytes(kHash64Seed, s.author.data, s.author.bytes) ^ hash64_bytes(kHash64Seed, s.time.data, s.time.bytes) ^
+                 hash64_bytes(kHash64Seed, avatars[0].hash, avatars[0].hash_bytes);
     digest ^= (static_cast<u64>(s.role_rgb) << 8) ^ (static_cast<u64>(s.role_style) << 40) ^
               (static_cast<u64>(s.compact) << 44) ^ (static_cast<u64>(s.reactions) << 45) ^
               (static_cast<u64>(s.underline) << 46) ^ (static_cast<u64>(s.group_gap) << 48) ^

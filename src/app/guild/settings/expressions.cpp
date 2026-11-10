@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../plugins/pipeline_host.hpp"
 #include "../../shell/state.hpp"
@@ -24,13 +24,12 @@ void project_emoji(Bank& bank) noexcept {
     bank.number(slots);
     bank.add(". PNG, GIF, JPEG or WebP up to 256 KB; larger PNGs are resized to 128×128.");
     const bool full = counts.static_count >= slots && counts.animated_count >= slots;
-    push_row(control_upload, utf8_literal("Emoji"), bank.since(start), UiSettingsControlKind::action,
-             can && !full, false, utf8_literal("Upload emoji"),
-             {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
+    push_action(control_upload, "Emoji", bank.since(start), "Upload emoji", can && !full,
+                {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
     if (p.failed && p.status.bytes)
         push_error({}, p.status);
-    push_editor(control_search, utf8_literal("Search emoji"), {}, UiSettingsControlKind::edit, editable(), editor_search,
-                utf8_literal("Search emoji"));
+    push_editor(control_search, "Search emoji", {}, UiSettingsControlKind::edit, editable(), editor_search,
+                "Search emoji");
     const auto query = editor_text(editor_search);
     const auto& s = state();
     p.row_count = 0;
@@ -41,10 +40,9 @@ void project_emoji(Bank& bank) noexcept {
         p.member_order[p.row_count] = i;
         p.row_ids[p.row_count++] = emoji.id;
     }
-    push_count_heading(bank, utf8_literal("Emoji — "), counts.static_count + counts.animated_count);
+    push_count_heading(bank, "Emoji — ", counts.static_count + counts.animated_count);
     if (!p.row_count)
-        push_notice(query.bytes ? utf8_literal("No emoji match this search.")
-                                : utf8_literal("This server has no custom emoji yet."));
+        push_notice(query.bytes ? "No emoji match this search." : "This server has no custom emoji yet.");
     for (u32 row = 0; row < p.row_count; ++row) {
         const CustomEmojiRecord* emoji = &s.emojis[p.member_order[row]];
         const u32 label = bank.used;
@@ -54,7 +52,7 @@ void project_emoji(Bank& bank) noexcept {
         const auto name = bank.since(label);
         const u32 detail = bank.used;
         const bool managed = emoji->flags & custom_emoji_managed;
-        bank.add(emoji->flags & custom_emoji_animated ? utf8_literal("Animated") : utf8_literal("Static"));
+        bank.add(text_view(emoji->flags & custom_emoji_animated ? "Animated" : "Static"));
         if (managed)
             bank.add(" · Managed by an integration");
         if (!(emoji->flags & custom_emoji_available))
@@ -63,11 +61,11 @@ void project_emoji(Bank& bank) noexcept {
             bank.add(" · Limited to some roles");
         const bool editable_row = p.access.manage_expressions && !managed;
         const u32 index =
-            push_row(kRowBase + row, name, bank.since(detail), UiSettingsControlKind::action, can && editable_row,
-                     false, editable_row ? utf8_literal("Edit") : Utf8View{},
-                     {UiSettingsVariant::standard,
-                      static_cast<u8>(ui_settings_presentation_compact | ui_settings_presentation_avatar),
-                      kUiSettingsNoDefault});
+            push_action(kRowBase + row, name, bank.since(detail), editable_row ? "Edit" : nullptr,
+                        can && editable_row,
+                        {UiSettingsVariant::standard,
+                         static_cast<u8>(ui_settings_presentation_compact | ui_settings_presentation_avatar),
+                         kUiSettingsNoDefault});
         // The emoji image in place of the row's avatar.
         if (index < kControlCapacity)
             p.avatar_media[index].key = media_asset_custom_emoji(emoji->id, (emoji->flags & custom_emoji_animated) != 0);
@@ -83,24 +81,23 @@ void project_stickers(Bank& bank) noexcept {
     bank.add(" of ");
     bank.number(slots);
     bank.add(" slots used. PNG, APNG, GIF or Lottie JSON, 320×320 and up to 512 KB.");
-    push_row(control_upload, utf8_literal("Stickers"), bank.since(start), UiSettingsControlKind::action,
-             can && p.stickers_loaded && p.sticker_count < slots, false, utf8_literal("Upload sticker"),
-             {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
+    push_action(control_upload, "Stickers", bank.since(start), "Upload sticker",
+                can && p.stickers_loaded && p.sticker_count < slots,
+                {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
     if (p.stickers_failed)
-        push_error(utf8_literal("Couldn't load stickers"), p.status, utf8_literal("Try again"));
+        push_error("Couldn't load stickers", p.status, "Try again");
     else if (p.failed && p.status.bytes)
         push_error({}, p.status);
     else if (!p.stickers_loaded)
-        push_loading(utf8_literal("Loading stickers…"));
-    push_count_heading(bank, utf8_literal("Stickers — "), p.sticker_count);
+        push_loading("Loading stickers…");
+    push_count_heading(bank, "Stickers — ", p.sticker_count);
     if (p.stickers_loaded && !p.sticker_count)
-        push_notice(utf8_literal("This server has no stickers yet."));
-    static constexpr Utf8View formats[]{{}, utf8_literal("PNG"), utf8_literal("APNG"), utf8_literal("Lottie"),
-                                 utf8_literal("GIF")};
+        push_notice("This server has no stickers yet.");
     for (u32 i = 0; i < p.sticker_count; ++i) {
         const auto& sticker = p.stickers[i];
         const u32 detail = bank.used;
-        bank.add(formats[sticker.format_type <= 4 ? sticker.format_type : 0]);
+        if (sticker.format_type && sticker.format_type <= 4)
+            bank.add(name_list_at("PNG\0APNG\0Lottie\0GIF", sticker.format_type - 1));
         if (sticker.tags_bytes) {
             bank.add(" · ");
             bank.add({sticker.tags, sticker.tags_bytes});
@@ -116,9 +113,9 @@ void project_stickers(Bank& bank) noexcept {
         // The row's label is appended after its detail text, which the detail range then covers.
         const Utf8View name = bank.add({sticker.name, sticker.name_bytes});
         const Utf8View description = bank.since(detail);
-        const u32 index = push_row(
-            kRowBase + i, name, description, UiSettingsControlKind::action, can && p.access.manage_expressions, false,
-            p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{},
+        const u32 index = push_action(
+            kRowBase + i, name, description, p.access.manage_expressions ? "Edit" : nullptr,
+            can && p.access.manage_expressions,
             {UiSettingsVariant::standard,
              static_cast<u8>(ui_settings_presentation_compact | (preview ? ui_settings_presentation_avatar : 0)),
              kUiSettingsNoDefault});
@@ -140,18 +137,18 @@ void project_soundboard(Bank& bank) noexcept {
     bank.add(" of ");
     bank.number(slots);
     bank.add(" slots used. MP3 or Ogg, up to 512 KB and 5.2 seconds.");
-    push_row(control_upload, utf8_literal("Soundboard"), bank.since(start), UiSettingsControlKind::action,
-             can && view.loaded && !view.busy && view.count < slots, false, utf8_literal("Upload sound"),
-             {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
+    push_action(control_upload, "Soundboard", bank.since(start), "Upload sound",
+                can && view.loaded && !view.busy && view.count < slots,
+                {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
     if (view.notice.bytes)
         push_error({}, view.notice);
     else if (view.busy)
-        push_notice(utf8_literal("Saving…"));
+        push_notice("Saving…");
     else if (!view.loaded)
-        push_notice(view.loading ? utf8_literal("Loading sounds…") : utf8_literal("Couldn't load sounds yet."));
-    push_count_heading(bank, utf8_literal("Sounds — "), view.count);
+        push_notice(view.loading ? "Loading sounds…" : "Couldn't load sounds yet.");
+    push_count_heading(bank, "Sounds — ", view.count);
     if (view.loaded && !view.count)
-        push_notice(utf8_literal("This server has no sounds yet."));
+        push_notice("This server has no sounds yet.");
     const u32 count = minimum(view.count, kRowCapacity);
     for (u32 i = 0; i < count; ++i) {
         const auto& sound = view.sounds[i];
@@ -167,10 +164,9 @@ void project_soundboard(Bank& bank) noexcept {
         p.row_ids[i] = sound.sound_id;
         const Utf8View name = bank.add({sound.name, sound.name_bytes});
         const Utf8View description = bank.since(detail);
-        push_row(kRowBase + i, name, description, UiSettingsControlKind::action,
-                 can && p.access.manage_expressions && !view.busy, false,
-                 p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{},
-                 {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        push_action(kRowBase + i, name, description, p.access.manage_expressions ? "Edit" : nullptr,
+                    can && p.access.manage_expressions && !view.busy,
+                    {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     }
     p.row_count = count;
 }
@@ -376,12 +372,10 @@ void open_expression_form(u64 kind, u64 item) noexcept {
     const auto* so = kind >= form_sound_name ? sound_of(item) : nullptr;
     switch (kind) {
     case form_sound_name: {
-        request.title = utf8_literal("Name your sound");
         const u32 start = bank.used;
         bank.add({p.upload_filename, p.upload_filename_bytes});
-        request.context = bank.since(start);
-        request.label = utf8_literal("Sound name");
-        request.accept = utf8_literal("Next");
+        fill_form(request, "Name your sound", bank.since(start), "Sound name", "Next", kSoundboardNameMaximum,
+                  kSoundboardNameBytes);
         // The file name without its extension, cut to the limit.
         u32 bytes = p.upload_filename_bytes;
         for (u32 i = bytes; i > 0; --i)
@@ -394,42 +388,29 @@ void open_expression_form(u64 kind, u64 item) noexcept {
         initial_bytes = minimum<u32>(initial_bytes, kSoundboardNameMaximum);
         while (initial_bytes && initial_bytes < copied && (static_cast<u8>(initial[initial_bytes]) & 0xc0) == 0x80)
             --initial_bytes;
-        request.maximum_codepoints = kSoundboardNameMaximum;
-        request.maximum_bytes = kSoundboardNameBytes;
         break;
     }
     case form_sound_emoji:
     case form_sound_emoji_edit:
         if (kind == form_sound_emoji_edit && !so)
             return;
-        request.title = utf8_literal("Sound emoji");
-        request.context = utf8_literal("Shown next to the sound. Optional.");
-        request.label = utf8_literal("Emoji");
-        request.accept = kind == form_sound_emoji ? utf8_literal("Upload") : utf8_literal("Save");
+        fill_form(request, "Sound emoji", "Shown next to the sound. Optional.", "Emoji",
+                  kind == form_sound_emoji ? "Upload" : "Save", 8, 32);
         if (so && !so->emoji_id)
             copy_initial({so->emoji_name, so->emoji_name_bytes});
-        request.maximum_codepoints = 8;
-        request.maximum_bytes = 32;
         break;
     case form_sound_rename:
         if (!so)
             return;
-        request.title = utf8_literal("Rename sound");
-        request.label = utf8_literal("Sound name");
-        request.accept = utf8_literal("Save");
+        fill_form(request, "Rename sound", {}, "Sound name", "Save", kSoundboardNameMaximum, kSoundboardNameBytes);
         copy_initial({so->name, so->name_bytes});
-        request.maximum_codepoints = kSoundboardNameMaximum;
-        request.maximum_bytes = kSoundboardNameBytes;
         break;
     case form_sound_volume: {
         if (!so)
             return;
-        request.title = utf8_literal("Sound volume");
-        request.context = utf8_literal("How loud the sound plays for everyone, from 0 to 100.");
-        request.label = utf8_literal("Volume (%)");
-        request.accept = utf8_literal("Save");
+        fill_form(request, "Sound volume", "How loud the sound plays for everyone, from 0 to 100.", "Volume (%)",
+                  "Save", 4, 4);
         initial_bytes = decimal_write(initial, (so->volume + 5) / 10);
-        request.maximum_codepoints = request.maximum_bytes = 4;
         break;
     }
     case form_sound_delete:
@@ -438,31 +419,24 @@ void open_expression_form(u64 kind, u64 item) noexcept {
         bank.add("Delete ");
         bank.add({so->name, so->name_bytes});
         bank.add("?");
-        request.title = bank.since(0);
-        request.context = utf8_literal("It's removed from everyone's soundboard. This can't be undone.");
-        request.accept = utf8_literal("Delete sound");
+        fill_form(request, bank.since(0), "It's removed from everyone's soundboard. This can't be undone.", {},
+                  "Delete sound", 0, 0);
         request.confirmation_only = request.danger = true;
         break;
     case form_emoji_create: {
-        request.title = utf8_literal("Name your emoji");
         const u32 start = bank.used;
         image_summary(bank, p.upload.info);
-        request.context = bank.since(start);
-        request.label = utf8_literal("Emoji name");
-        request.accept = utf8_literal("Upload");
+        fill_form(request, "Name your emoji", bank.since(start), "Emoji name", "Upload", kGuildEmojiNameMaximum,
+                  kGuildEmojiNameMaximum);
         initial_bytes = guild_emoji_name_from_filename({p.upload_filename, p.upload_filename_bytes},
                                                        {initial, sizeof(initial)});
-        request.maximum_codepoints = request.maximum_bytes = kGuildEmojiNameMaximum;
         break;
     }
     case form_emoji_rename:
         if (!em)
             return;
-        request.title = utf8_literal("Rename emoji");
-        request.label = utf8_literal("Emoji name");
-        request.accept = utf8_literal("Save");
+        fill_form(request, "Rename emoji", {}, "Emoji name", "Save", kGuildEmojiNameMaximum, kGuildEmojiNameMaximum);
         copy_initial({em->name, em->name_bytes});
-        request.maximum_codepoints = request.maximum_bytes = kGuildEmojiNameMaximum;
         break;
     case form_emoji_delete:
         if (!em)
@@ -470,54 +444,40 @@ void open_expression_form(u64 kind, u64 item) noexcept {
         bank.add("Delete :");
         bank.add({em->name, em->name_bytes});
         bank.add(":?");
-        request.title = bank.since(0);
-        request.context = utf8_literal("Messages that used it show its name instead. This can't be undone.");
-        request.accept = utf8_literal("Delete emoji");
+        fill_form(request, bank.since(0), "Messages that used it show its name instead. This can't be undone.", {},
+                  "Delete emoji", 0, 0);
         request.confirmation_only = request.danger = true;
         break;
     case form_sticker_name: {
-        request.title = utf8_literal("Name your sticker");
         const u32 start = bank.used;
         image_summary(bank, p.upload.info);
-        request.context = bank.since(start);
-        request.label = utf8_literal("Sticker name");
-        request.accept = utf8_literal("Next");
-        request.maximum_codepoints = kGuildStickerNameMaximum;
-        request.maximum_bytes = kGuildStickerNameBytes;
+        fill_form(request, "Name your sticker", bank.since(start), "Sticker name", "Next", kGuildStickerNameMaximum,
+                  kGuildStickerNameBytes);
         break;
     }
     case form_sticker_tags:
     case form_sticker_retag:
         if (kind == form_sticker_retag && !st)
             return;
-        request.title = utf8_literal("Related emoji");
-        request.context = utf8_literal("The emoji name that suggests this sticker, like smile or thumbsup.");
-        request.label = utf8_literal("Related emoji");
-        request.accept = kind == form_sticker_tags ? utf8_literal("Upload") : utf8_literal("Save");
+        fill_form(request, "Related emoji", "The emoji name that suggests this sticker, like smile or thumbsup.",
+                  "Related emoji", kind == form_sticker_tags ? "Upload" : "Save", kGuildStickerTagsMaximum,
+                  kGuildStickerTagsBytes);
         if (st)
             copy_initial({st->tags, st->tags_bytes});
-        request.maximum_codepoints = kGuildStickerTagsMaximum;
-        request.maximum_bytes = kGuildStickerTagsBytes;
         break;
     case form_sticker_rename:
         if (!st)
             return;
-        request.title = utf8_literal("Rename sticker");
-        request.label = utf8_literal("Sticker name");
-        request.accept = utf8_literal("Save");
+        fill_form(request, "Rename sticker", {}, "Sticker name", "Save", kGuildStickerNameMaximum,
+                  kGuildStickerNameBytes);
         copy_initial({st->name, st->name_bytes});
-        request.maximum_codepoints = kGuildStickerNameMaximum;
-        request.maximum_bytes = kGuildStickerNameBytes;
         break;
     case form_sticker_describe:
         if (!st)
             return;
-        request.title = utf8_literal("Sticker description");
-        request.label = utf8_literal("Description (optional)");
-        request.accept = utf8_literal("Save");
+        fill_form(request, "Sticker description", {}, "Description (optional)", "Save",
+                  kGuildStickerDescriptionMaximum, kGuildStickerDescriptionBytes);
         copy_initial({st->description, st->description_bytes});
-        request.maximum_codepoints = kGuildStickerDescriptionMaximum;
-        request.maximum_bytes = kGuildStickerDescriptionBytes;
         break;
     case form_sticker_delete:
         if (!st)
@@ -525,9 +485,8 @@ void open_expression_form(u64 kind, u64 item) noexcept {
         bank.add("Delete ");
         bank.add({st->name, st->name_bytes});
         bank.add("?");
-        request.title = bank.since(0);
-        request.context = utf8_literal("Members can no longer send it. This can't be undone.");
-        request.accept = utf8_literal("Delete sticker");
+        fill_form(request, bank.since(0), "Members can no longer send it. This can't be undone.", {},
+                  "Delete sticker", 0, 0);
         request.confirmation_only = request.danger = true;
         break;
     case form_delete_server: {
@@ -536,14 +495,11 @@ void open_expression_form(u64 kind, u64 item) noexcept {
             return;
         bank.add("Delete ");
         bank.add(chat_state_store_guild_name(state(), *guild));
-        request.title = bank.since(0);
-        request.context = utf8_literal("This permanently deletes the server with all of its channels and messages. "
-                                       "Type the server name to confirm.");
-        request.label = utf8_literal("Server name");
-        request.accept = utf8_literal("Delete server");
+        fill_form(request, bank.since(0),
+                  "This permanently deletes the server with all of its channels and messages. Type the server name "
+                  "to confirm.",
+                  "Server name", "Delete server", kGuildAdminNameCodepoints, kGuildAdminNameBytes);
         request.danger = true;
-        request.maximum_codepoints = kGuildAdminNameCodepoints;
-        request.maximum_bytes = kGuildAdminNameBytes;
         break;
     }
     default: return;
@@ -557,21 +513,20 @@ namespace {
 void open_expression_menu(Menu menu, u64 id, const UiRect& anchor) noexcept {
     auto& p = *owner;
     u32 count = 0;
-    const auto item = [&](const Utf8View& label, u32 action) noexcept { popup_row(count++, label, action); };
+    const auto item = [&](Text label, u32 action) noexcept { popup_row(count++, label, action); };
     if (menu == Menu::sound)
-        item(utf8_literal("Preview"), expression_preview);
-    item(utf8_literal("Rename"), expression_rename);
+        item("Preview", expression_preview);
+    item("Rename", expression_rename);
     if (menu == Menu::sticker) {
-        item(utf8_literal("Change related emoji"), expression_tags);
-        item(utf8_literal("Change description"), expression_description);
+        item("Change related emoji", expression_tags);
+        item("Change description", expression_description);
     } else if (menu == Menu::sound) {
-        item(utf8_literal("Change emoji"), expression_emoji);
-        item(utf8_literal("Change volume"), expression_volume);
+        item("Change emoji", expression_emoji);
+        item("Change volume", expression_volume);
     }
-    popup_row(count++, utf8_literal("Delete"), expression_delete, popup_item_danger | popup_item_separator_before);
-    p.menu = menu;
+    popup_row(count++, "Delete", expression_delete, popup_item_danger | popup_item_separator_before);
     p.menu_item = id;
-    settings_layer_open_choice(&p.layer, id, {p.popup_items, count}, anchor, 240);
+    open_popup(menu, id, count, anchor, 240);
 }
 
 // The Edit menu of an emoji or sticker row.

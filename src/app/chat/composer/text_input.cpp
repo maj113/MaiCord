@@ -246,14 +246,9 @@ bool point_geometry(void* opaque, SecureTextPoint client, bool round, u32* posit
     const auto& layout = edit_layout();
     const auto model = message_composer_text(edit_model());
     const bool plain = plain_edit();
-    if (!g_app.renderer.dpi)
-        return false;
-    POINT point{client.x, client.y};
-    application_client_to_content(&point);
-    const float scale = 96.0f / g_app.renderer.dpi;
     u32 hit = 0, byte = 0;
     const auto display = plain ? model : message_composer_scene_display_text(scene);
-    if (!text_edit_layout_point_geometry(layout, point.x * scale, point.y * scale, round, &hit, inside) ||
+    if (!text_store_point_geometry(layout, client, round, &hit, inside) ||
         !utf8_byte_offset_for_utf16_position(display, hit, &byte))
         return false;
     if (!plain)

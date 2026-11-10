@@ -9,8 +9,6 @@ inline constexpr u32 dave_key_package_capacity = 394;
 enum class DavePackageError : u8 {
     none,
     invalid_input,
-    not_initialized,
-    already_initialized,
     key_failure,
     key_reuse,
     encode_failure,

@@ -1,5 +1,6 @@
 #include "maicord/app/settings/client_theme_storage.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/text/edit_field.hpp"
 #include "maicord/ui/theme/styles.hpp"
@@ -42,6 +43,33 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(constexpr_matches && ui_theme_token_descriptors().count == static_cast<u32>(UiThemeToken::count),
           "theme tokens: constexpr built-in resolution equals the runtime resolver for every shipped theme");
+    // AMOLED is Discord's midnight theme: a black rail and Discord's surface-high (#0a0a0c) and surface-higher
+    // (#121214) greys for cards and fields; the settings plates, dialogs and edges follow from them. Dark and Light keep
+    // the values they shipped with, including the grey plate and the weaker edges.
+    const auto rgb = [](float r, float g, float b) noexcept { return Color{r, g, b, 1}; };
+    const auto byte = [](float value) noexcept { return value / 255.f; };
+    const UiSettingsThemeTokens dark(kDefaultTheme), light(kLightTheme), midnight(amoled);
+    const Color grey{151 / 255.f, 151 / 255.f, 159 / 255.f, 1};
+    const auto edge = [&](float alpha) noexcept { return Color{grey.red, grey.green, grey.blue, alpha}; };
+    check(same(amoled.base_lowest, rgb(0, 0, 0)) && same(amoled.surface, rgb(byte(10), byte(10), byte(12))) &&
+              same(amoled.surface_high, rgb(byte(18), byte(18), byte(20))) &&
+              same(amoled.tokens.background.input, rgb(byte(18), byte(18), byte(20))),
+          "theme: AMOLED surfaces equal Discord's midnight base and surface variables");
+    check(same(midnight.color.card_fill, amoled.surface) && same(midnight.color.modal_background, amoled.surface) &&
+              same(midnight.color.card_border, edge(.2f)) && same(midnight.color.border_normal, edge(.24f)) &&
+              same(midnight.color.input_border, edge(.24f)) && same(midnight.color.mod_subtle, edge(.122f)),
+          "theme: AMOLED cards and dialogs are near-black with stronger grey edges, the grey fills stay for controls");
+    check(same(kDefaultTheme.base_lowest, rgb(.0588f, .0588f, .0706f)) &&
+              same(kDefaultTheme.base_low, rgb(.1333f, .1333f, .1451f)) &&
+              same(kDefaultTheme.surface_high, rgb(.2078f, .2078f, .2275f)) &&
+              same(dark.color.card_fill, edge(.122f)) && same(dark.color.card_border, edge(.122f)) &&
+              same(dark.color.border_normal, edge(.2f)) && same(dark.color.input_border, edge(.2f)) &&
+              same(dark.color.modal_background, kDefaultTheme.base_low) &&
+              same(kLightTheme.base_lowest, rgb(.91f, .92f, .95f)) && same(kLightTheme.surface, rgb(1, 1, 1)) &&
+              same(light.color.card_fill, edge(.16f)) && same(light.color.card_border, edge(.24f)) &&
+              same(light.color.border_normal, edge(.36f)) && same(light.color.input_border, edge(.36f)) &&
+              same(light.color.modal_background, kLightTheme.surface),
+          "theme: Dark and Light palettes and settings tokens are unchanged");
 
     PaintStream paint{};
     bool presence = paint_stream_initialize(&paint);

@@ -29,4 +29,17 @@ __declspec(noinline) inline UiRect text_metrics_bounds(const TextEditMetric* met
     }
     return bounds;
 }
+// The UTF-16 position under a native text store's client point in `layout` (text_edit_layout_point_geometry).
+// Defined with the text form.
+bool text_store_point_geometry(const TextEditLayoutOwner& layout, SecureTextPoint client, bool round, u32* position,
+                               bool* inside) noexcept;
+// The editing keys of a SecureEdit shown in `layout`: Ctrl+Z/Y/A/C/X/V, Backspace, Delete, the arrows, Home and End.
+// True when *result is to be applied; false for any other key and for one with nothing to do. `history` is false
+// while a text service composes or the field is secret, `clipboard` false for a secret field. A paste takes at most
+// 8000 bytes, the edit's capacity if less. Defined with the text form.
+bool secure_edit_command_key(SecureEdit* edit, const TextEditLayoutOwner& layout, u32 code, bool control, bool shift,
+                             bool history, bool clipboard, SecureEditResult* result) noexcept;
+// A pointer press (or drag, with `extend`) at the content-DIP point: false when it hits no text.
+bool secure_edit_pointer_select(SecureEdit* edit, const TextEditLayoutOwner& layout, float x, float y, bool extend,
+                                SecureEditResult* result) noexcept;
 } // namespace maicord::app_detail

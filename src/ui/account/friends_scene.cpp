@@ -464,27 +464,42 @@ u32 actions(const UiFriendsRow& r, UiFriendsAction* out, bool hidden_view = fals
         out[n++] = UiFriendsAction::more;
     return n;
 }
+constexpr u32 bit(UiFriendsAction a) noexcept {
+    return 1u << static_cast<u32>(a);
+}
+// By UiFriendsKind: what a row of that kind offers as buttons, More-menu entries and its Profile.
+constexpr u32 kKindActions[]{
+    bit(UiFriendsAction::open_dm) | bit(UiFriendsAction::profile) | bit(UiFriendsAction::more) |
+        bit(UiFriendsAction::remove) | bit(UiFriendsAction::block) | bit(UiFriendsAction::nickname) |
+        bit(UiFriendsAction::voice_call),
+    bit(UiFriendsAction::accept) | bit(UiFriendsAction::decline) | bit(UiFriendsAction::profile) |
+        bit(UiFriendsAction::more) | bit(UiFriendsAction::block),
+    bit(UiFriendsAction::cancel) | bit(UiFriendsAction::profile) | bit(UiFriendsAction::more) |
+        bit(UiFriendsAction::block),
+    bit(UiFriendsAction::profile) | bit(UiFriendsAction::more),
+    bit(UiFriendsAction::open_dm) | bit(UiFriendsAction::profile) | bit(UiFriendsAction::ignore_dm) |
+        bit(UiFriendsAction::accept_dm)};
+// A busy row keeps these: opening its DM, its Profile and the More menu.
+constexpr u32 kBusyActions = bit(UiFriendsAction::open_dm) | bit(UiFriendsAction::profile) | bit(UiFriendsAction::more);
 bool allowed(const UiFriendsRow& r, UiFriendsAction a) noexcept {
-    if ((a == UiFriendsAction::more && r.kind != UiFriendsKind::message_request) || a == UiFriendsAction::profile ||
-        (a == UiFriendsAction::open_dm && r.kind == UiFriendsKind::message_request))
-        return true;
-    if (r.busy && a != UiFriendsAction::open_dm)
-        return false;
     if (a == UiFriendsAction::ignore || a == UiFriendsAction::unignore)
-        return a == UiFriendsAction::unignore ? r.ignored : !r.ignored;
-    if (r.kind == UiFriendsKind::friend_user &&
-        (a == UiFriendsAction::remove || a == UiFriendsAction::block || a == UiFriendsAction::nickname ||
-         a == UiFriendsAction::voice_call))
-        return true;
-    if ((r.kind == UiFriendsKind::incoming || r.kind == UiFriendsKind::outgoing) &&
-        a == UiFriendsAction::block)
-        return true;
+        return !r.busy && (a == UiFriendsAction::unignore ? r.ignored : !r.ignored);
+    return (kKindActions[static_cast<u32>(r.kind)] & bit(a)) && (!r.busy || (kBusyActions & bit(a)));
+}
+// The width a row's action buttons take, with their gaps (its lines stop before them).
+float actions_extent(const UiFriendsRow& r, bool hidden_view) noexcept {
     UiFriendsAction available[4]{};
-    const auto n = actions(r, available);
+    const u32 n = actions(r, available, hidden_view);
+    float width = 0;
     for (u32 i = 0; i < n; ++i)
-        if (a == available[i])
-            return true;
-    return false;
+        width += action_step(available[i]);
+    return width;
+}
+// What the edit fields paint themselves: the fields, the clear button without text and the Add Friend send button.
+bool in_field(const UiFriendsScene& s, const UiFriendsTarget& t) noexcept {
+    return t.action == UiFriendsAction::search || t.action == UiFriendsAction::note ||
+           (t.action == UiFriendsAction::clear_search && !s.content->search.text.bytes) ||
+           (t.action == UiFriendsAction::add_friend && adding(s));
 }
 // "Online — 3", "All friends — 12": the list's heading. Pending heads its
 // Received and Sent sections instead; an empty tab has none.
@@ -799,24 +814,22 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
     const bool active_visible = active_fits(active_now, viewport, modal);
     const bool active_collapsed = active_visible && active_now->collapsed;
     const bool same_column = scene->active_visible == active_visible && scene->active_collapsed == active_collapsed;
-    if (current(*scene) && scene->source == source && scene->tab == tab && scene->phase == phase &&
-        ui_rect_equal(scene->viewport, viewport) && ui_rect_equal(scene->toolbar, bar) &&
-        scene->status.bytes == status.bytes && scene->status.data == status.data && scene->content == content &&
-        scene->sections == sections && scene->active_now == active_now && same_column)
+    const bool same_frame = scene->source == source && scene->tab == tab && scene->phase == phase &&
+                            ui_rect_equal(scene->viewport, viewport) && ui_rect_equal(scene->toolbar, bar) &&
+                            scene->status.bytes == status.bytes && scene->status.data == status.data &&
+                            scene->sections == sections && same_column;
+    if (same_frame && current(*scene) && scene->content == content && scene->active_now == active_now)
         return true;
     // Cards are painted from the borrowed projection: a new projection needs
     // no list rebuild unless the column appears, disappears or changes width.
     scene->active_now = active_now;
     scene->active_now_revision = active_now ? active_now->revision : 0;
     const bool same_rows =
-        scene->active && scene->source == source &&
-        scene->source_revision == (source ? source->revision : 0) &&
-        scene->source_count == (source ? source->count : 0) && scene->tab == tab && scene->phase == phase &&
-        ui_rect_equal(scene->viewport, viewport) && ui_rect_equal(scene->toolbar, bar) && scene->status.bytes == status.bytes &&
-        scene->status.data == status.data && scene->search_active == (content && content->search.active) &&
-        scene->sections == sections && scene->sections_revision == (sections ? sections->revision : 0) &&
-        scene->badge == (content ? ui_friends_tab_requests(tab) ? content->spam_count : content->incoming_count : 0) &&
-        same_column;
+        same_frame && scene->active && scene->source_revision == (source ? source->revision : 0) &&
+        scene->source_count == (source ? source->count : 0) &&
+        scene->search_active == (content && content->search.active) &&
+        scene->sections_revision == (sections ? sections->revision : 0) &&
+        scene->badge == (content ? ui_friends_tab_requests(tab) ? content->spam_count : content->incoming_count : 0);
     if (same_rows) {
         scene->content = content;
         scene->content_revision = content ? content->revision : 0;
@@ -1220,9 +1233,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             continue;
         const UiWidgetHandle h{static_cast<u16>(i), s.widgets.generation};
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
-        if (e.target.action == UiFriendsAction::search || e.target.action == UiFriendsAction::note ||
-            (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes) ||
-            (e.target.action == UiFriendsAction::add_friend && adding(s)))
+        if (in_field(s, e.target))
             continue;
         if (!node || !ui_rect_intersects(node->rectangle, node->clip_rectangle))
             continue;
@@ -1333,13 +1344,8 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             p.rounded({r.left, top, r.left + avatar, top + avatar}, theme.interactive, avatar * .5f);
             UiActivityStatus activity{};
             if (!e.row.ignored && activity_line(s, e.row, {}, &activity) && activity.glyph != UiActivityGlyph::none) {
-                UiFriendsAction available[4]{};
-                const u32 n = actions(e.row, available, hidden(s));
-                float actions_width = 0;
-                for (u32 j = 0; j < n; ++j)
-                    actions_width += action_step(available[j]);
                 p.icon(ui_activity_glyph_icon(activity.glyph),
-                       ui_activity_glyph_rectangle(status_line(r, actions_width)), theme.text_secondary);
+                       ui_activity_glyph_rectangle(status_line(r, actions_extent(e.row, hidden(s)))), theme.text_secondary);
             }
         }
     }
@@ -1472,10 +1478,7 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
             // The characters left of the note's 120, red once none are.
             const u32 left = 120 - minimum(120u, utf8_validate(s.content->note.text).codepoints);
             char digits[4];
-            u32 used = 0;
-            if (left >= 100) digits[used++] = static_cast<char>('0' + left / 100);
-            if (left >= 10) digits[used++] = static_cast<char>('0' + left / 10 % 10);
-            digits[used++] = static_cast<char>('0' + left % 10);
+            const u32 used = decimal_write(digits, left);
             const UiRect clip = ui_rect_intersection(n.clear, panel);
             if (text.ok() && ui_rect_has_area(clip) &&
                 !ui_text_output_push_owned(stream, {{digits, used}, {&s.widgets, s.note_field}, n.clear, clip,
@@ -1538,19 +1541,12 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
             text.fail();
             break;
         }
-        if (e.target.action == UiFriendsAction::search || e.target.action == UiFriendsAction::note ||
-            (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes) ||
-            (e.target.action == UiFriendsAction::add_friend && adding(s)))
+        if (in_field(s, e.target))
             continue;
         if (e.row_label) {
-            UiFriendsAction available[4]{};
-            const u32 n = actions(e.row, available, hidden(s));
-            float actions_width = 0;
-            for (u32 j = 0; j < n; ++j)
-                actions_width += action_step(available[j]);
             auto r = node->content_rectangle;
             r.left += 44;
-            r.right = maximum(r.left, r.right - actions_width - 8);
+            r.right = maximum(r.left, r.right - actions_extent(e.row, hidden(s)) - 8);
             r.bottom = r.top + 22;
             const Utf8View name = e.row.display_name.bytes ? e.row.display_name : e.row.username;
             if (e.row.user_id == s.name_row && e.row.username.bytes && !utf8_equal(name, e.row.username)) {

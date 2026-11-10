@@ -23,13 +23,14 @@ Utf8View file_of(Utf8View path) noexcept {
         --start;
     return {path.data + start, path.bytes - start};
 }
-bool string_is(const JsonValue& value, Utf8View text) noexcept {
+template <usize Count> bool string_is(const JsonValue& value, const char (&text)[Count]) noexcept {
     JsonString string{};
-    return json_value_as_string(value, &string) && json_string_equals_ascii(string, text);
+    return json_value_as_string(value, &string) &&
+           json_string_equals_ascii_bytes(string.encoded.data, string.encoded.bytes, text, Count - 1);
 }
 // A JSON string decoded and folded to ASCII lowercase (and, for a path, '/' separators); 0 when it does not fit,
-// is empty or holds a control byte or one of `refused`.
-u32 decode_lower(const JsonValue& value, char* output, u32 capacity, Utf8View refused, bool path) noexcept {
+// is empty or holds a control byte or one of the `refused` characters.
+u32 decode_lower(const JsonValue& value, char* output, u32 capacity, const char* refused, bool path) noexcept {
     JsonString string{};
     if (!json_value_as_string(value, &string))
         return 0;
@@ -40,8 +41,8 @@ u32 decode_lower(const JsonValue& value, char* output, u32 capacity, Utf8View re
         char& c = output[i];
         if (static_cast<u8>(c) < 0x20)
             return 0;
-        for (u32 k = 0; k < refused.bytes; ++k)
-            if (c == refused.data[k])
+        for (const char* r = refused; *r; ++r)
+            if (c == *r)
                 return 0;
         c = path && c == '\\' ? '/' : ascii_lower(c);
     }
@@ -90,13 +91,12 @@ bool executable_item(void* opaque, u32, JsonValue value) noexcept {
         !json_visit_indexed_object(p.document, value, kDepth, executable_member, &p).ok())
         return false;
     // macOS bundles never run here; Wine and Proton run the Windows executables.
-    if (!string_is(p.exe_os, utf8_literal("win32")) && !string_is(p.exe_os, utf8_literal("linux")))
+    if (!string_is(p.exe_os, "win32") && !string_is(p.exe_os, "linux"))
         return true;
     char name[256], arguments[256];
-    const u32 name_bytes = decode_lower(p.exe_name, name, sizeof(name), utf8_literal("|?*"), true);
+    const u32 name_bytes = decode_lower(p.exe_name, name, sizeof(name), "|?*", true);
     const u32 argument_bytes = p.exe_arguments.kind == JsonValueKind::string
-                                   ? decode_lower(p.exe_arguments, arguments, sizeof(arguments), utf8_literal("|"),
-                                                  false)
+                                   ? decode_lower(p.exe_arguments, arguments, sizeof(arguments), "|", false)
                                    : 0;
     if (!name_bytes || (p.exe_arguments.kind == JsonValueKind::string && !argument_bytes))
         return true;
@@ -179,7 +179,7 @@ bool exclusion_item(void* opaque, u32, JsonValue value) noexcept {
     const u32 at = used + (used ? 1 : 0);
     if (at >= kExclusionTextBytes)
         return true;
-    const u32 bytes = decode_lower(value, output + at, kExclusionTextBytes - at, utf8_literal("|"), !p.pattern);
+    const u32 bytes = decode_lower(value, output + at, kExclusionTextBytes - at, "|", !p.pattern);
     if (!bytes || (p.pattern && !detectable_pattern_supported({output + at, bytes})))
         return true;
     if (used)
@@ -266,11 +266,9 @@ void fetch(const DetectableRefresh& r, Utf8View host, Utf8View target, Utf8View 
 } // namespace
 
 bool detectable_list_view(ConstSlice<u8> image, DetectableList* list) noexcept {
-    if (!list)
-        return false;
     *list = {};
     using H = DetectableImageHeader;
-    if (!image.data || image.count < sizeof(H) || (reinterpret_cast<usize>(image.data) & 7))
+    if (image.count < sizeof(H) || (reinterpret_cast<usize>(image.data) & 7))
         return false;
     const auto& h = *reinterpret_cast<const H*>(image.data);
     const u64 bytes = sizeof(H) + static_cast<u64>(h.game_count) * sizeof(DetectableGameRow) +
@@ -318,7 +316,9 @@ u32 detectable_list_build(const DetectableBuild& build, const DetectableBuildScr
         games.keys = h.key_count;
         games.text = h.games_text_bytes;
     }
-    ExclusionsParse exclusions{};
+    // The text buffers are read only up to their counts, so they are not cleared.
+    ExclusionsParse exclusions;
+    exclusions.executables_bytes = exclusions.patterns_bytes = 0;
     if (build.exclusions_json.bytes) {
         if (!scan(build.exclusions_json, scratch.structurals, &exclusions.document) ||
             !json_visit_root_object(build.exclusions_json, exclusions.document.structurals, kDepth,
@@ -348,7 +348,7 @@ u32 detectable_list_build(const DetectableBuild& build, const DetectableBuildScr
     const u32 text = games.text + exclusions.executables_bytes + exclusions.patterns_bytes;
     const u64 bytes = sizeof(H) + static_cast<u64>(games.rows) * sizeof(DetectableGameRow) +
                       static_cast<u64>(keys) * sizeof(DetectableKey) + text;
-    if (!image.data || bytes > image.count)
+    if (bytes > image.count)
         return 0;
     auto& h = *reinterpret_cast<H*>(image.data);
     reset_value(&h);
@@ -376,15 +376,13 @@ u32 detectable_list_build(const DetectableBuild& build, const DetectableBuildScr
 }
 
 DetectableRefreshResult detectable_refresh_run(const DetectableRefresh& r) noexcept {
-    if (!r.exchange)
-        return {};
+    DetectableRefreshResult result{};
     DetectableList previous{};
     detectable_list_view(r.previous, &previous);
     const DetectableImageHeader* p = previous.header;
     // The official desktop client reads the games from the CDN and the exclusions from the API.
     Body games{{}, 0, kDetectableGamesMaximumBytes};
     Body exclusions{{}, 0, kDetectableExclusionsMaximumBytes};
-    DetectableRefreshResult result{};
     if (reserved_bytes_initialize(&games.bytes, games.limit) &&
         reserved_bytes_initialize(&exclusions.bytes, exclusions.limit)) {
         Fetched g{}, e{};
@@ -401,12 +399,14 @@ DetectableRefreshResult detectable_refresh_run(const DetectableRefresh& r) noexc
             const u32 structurals = maximum(json, exclusions.used) / 2 + 64;
             const usize scratch_bytes = static_cast<usize>(structurals) * 4 + rows * sizeof(DetectableGameRow) +
                                         keys * sizeof(DetectableKey) + text;
-            const usize image_bytes = sizeof(DetectableImageHeader) + rows * sizeof(DetectableGameRow) +
-                                      keys * sizeof(DetectableKey) + text + 2 * kExclusionTextBytes;
-            // Committed pages cost memory only as the build touches them.
-            u8* scratch = static_cast<u8*>(commit_pages(scratch_bytes));
-            u8* image = static_cast<u8*>(commit_pages(image_bytes));
-            if (scratch && image) {
+            // The image first (8-aligned size), the build's scratch behind it. Committed pages cost memory only as
+            // the build touches them.
+            const usize image_bytes = (sizeof(DetectableImageHeader) + rows * sizeof(DetectableGameRow) +
+                                       keys * sizeof(DetectableKey) + text + 2 * kExclusionTextBytes + 7) &
+                                      ~usize{7};
+            u8* image = static_cast<u8*>(commit_pages(image_bytes + scratch_bytes));
+            if (image) {
+                u8* scratch = image + image_bytes;
                 auto* rows_at = reinterpret_cast<DetectableGameRow*>(scratch);
                 auto* keys_at = reinterpret_cast<DetectableKey*>(rows_at + rows);
                 auto* structurals_at = reinterpret_cast<u32*>(keys_at + keys);
@@ -429,10 +429,8 @@ DetectableRefreshResult detectable_refresh_run(const DetectableRefresh& r) noexc
                     result.bytes = built;
                 }
             }
-            if (scratch)
-                pages_release(scratch, scratch_bytes);
             if (image)
-                pages_release(image, image_bytes);
+                pages_release(image, image_bytes + scratch_bytes);
         }
     }
     reserved_bytes_release(&games.bytes);

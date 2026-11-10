@@ -1,4 +1,5 @@
 #include "community_internal.hpp"
+#include "control_rows.hpp"
 #include "maicord/os/text.hpp"
 #include "../chat/messages/history.hpp"
 #include "maicord/model/guild/settings_model.hpp"
@@ -303,17 +304,12 @@ void clear_editors() noexcept {
 } // namespace community_detail
 namespace {
 
-// Appends a control and returns it for the optional fields; past capacity the row lands in a scratch sink.
+// Appends a control and returns it for the optional fields.
 UiSettingsControl& add_control(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind,
                                bool enabled = true, bool checked = false,
                                UiSettingsVariant variant = UiSettingsVariant::standard) noexcept {
-    static UiSettingsControl overflow;
-    if (owner->control_count >= kControlCapacity)
-        return overflow;
-    const u32 index = owner->control_count++;
-    owner->presentation[index] = {variant, 0, kUiSettingsNoDefault};
-    owner->controls[index] = {id, label, description, kind, enabled, checked, {}, 0, {}, nullptr};
-    return owner->controls[index];
+    return control_row_add({owner->controls, owner->presentation, nullptr, &owner->control_count, kControlCapacity},
+                           id, label, description, kind, enabled, checked, {variant, 0, kUiSettingsNoDefault});
 }
 void notice(u64 id, const Utf8View& label, const Utf8View& description, const Utf8View& action = {}) noexcept {
     add_control(id, label, description, UiSettingsControlKind::notice).action_label = action;

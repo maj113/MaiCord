@@ -6,6 +6,8 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/widgets/badge.hpp"
+#include "maicord/media/core/asset.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/theme/styles.hpp"
@@ -1496,6 +1498,40 @@ void test_preview_row(Check check) noexcept {
     bool name = false, link = false, button = false, time_first = false;
     check(texts_of(&name, &link, &button, &time_first) && name && link && button && !time_first,
           "settings preview: cozy, the role-coloured name heads the messages, the link is underlined, the button shows");
+    // Two separate messages, each with its own name and time (no continuation line), beside the right column: the
+    // example button sits right-aligned under the status avatars, the card's padding (24 and its edge) from the card's
+    // right and bottom edge, and its text stops short of the column.
+    struct Groups {
+        u32 names, times;
+        float second_name_top, first_text_bottom, link_right, button_left;
+    };
+    const auto groups = [&](Groups* out) noexcept {
+        UiTextCommand commands[160]{};
+        UiTextCommandStream stream{};
+        UiTextOutput output{&stream, nullptr};
+        *out = {};
+        if (!ui_text_command_stream_initialize(&stream, {commands, 160}) ||
+            !ui_settings_scene_text_output(scene, kDefaultTheme, &output))
+            return false;
+        for (u32 i = 0; i < stream.count; ++i) {
+            const auto& c = commands[i];
+            if (utf8_equal(c.text, utf8_literal("Wumpus")) && out->names++ == 1)
+                out->second_name_top = c.rectangle.top;
+            out->times += utf8_equal(c.text, utf8_literal("4:20 PM"));
+            if (utf8_equal(c.text, texts[0]))
+                out->first_text_bottom = c.rectangle.bottom;
+            if (utf8_equal(c.text, texts[2]))
+                out->link_right = c.rectangle.right;
+            if (utf8_equal(c.text, utf8_literal("Example Button")))
+                out->button_left = c.rectangle.left;
+        }
+        return true;
+    };
+    Groups cozy{};
+    check(groups(&cozy) && cozy.names == 2 && cozy.times == 2 && cozy.second_name_top > cozy.first_text_bottom + 30 &&
+              cozy.button_left >= cozy.link_right + 7.9f && close_to(preview.control.right - preview.field.right, 33) &&
+              close_to(preview.control.bottom - preview.field.bottom, 25),
+          "settings preview: two messages with their own name and time, the example button bottom right");
     sample.compact = true;
     sample.underline = false;
     ++content.revision;
@@ -1503,6 +1539,10 @@ void test_preview_row(Check check) noexcept {
     check(ui_settings_scene_update(&scene, &registry, viewport) && texts_of(&name, &link, &button, &time_first) && name &&
               !link && time_first,
           "settings preview: compact, the time leads each line and the link follows Underline Links");
+    Groups compact{};
+    check(groups(&compact) && compact.names == 2 && compact.times == 2 &&
+              compact.second_name_top > compact.first_text_bottom + 30,
+          "settings preview: compact, each message keeps its own time and name line");
     // Text size in chat reaches the sample alone: at each size its lines hold their text in the chat face, inside the
     // card, and the rest of the page (the toggle's label, the example button) keeps the interface's size.
     struct SampleAtSize {
@@ -1551,12 +1591,102 @@ void test_preview_row(Check check) noexcept {
     check(at_size(12, &at12) && at_size(16, &at16) && at_size(24, &at24) && at12.chat_commands >= 5 &&
               at16.chat_commands == at12.chat_commands && at24.chat_commands == at12.chat_commands &&
               at12.lines_fit && at16.lines_fit && at24.lines_fit && at12.inside_card && at16.inside_card &&
-              at24.inside_card && at12.card_height < at16.card_height && at16.card_height < at24.card_height,
-          "settings preview: at 12, 16 and 24 the sample's lines hold their text in the chat face, inside the card");
+              at24.inside_card && at12.card_height <= at16.card_height && at16.card_height < at24.card_height,
+          "settings preview: at 12, 16 and 24 the sample's lines hold their text in the chat face, inside the card, "
+          "which grows once the messages outgrow the column");
     check(at12.others_interface && at16.others_interface && at24.others_interface && at24.toggle_label > 0 &&
               close_to(at12.toggle_label, at24.toggle_label) && at24.button > 0 &&
               close_to(at12.button, at24.button),
           "settings preview: Text size in chat leaves every other text on the page at the interface's size");
+    ui_settings_scene_release(&scene);
+}
+
+bool resident_key(const void* context, const MediaAssetKey& key) noexcept {
+    return media_asset_key_equal(*static_cast<const MediaAssetKey*>(context), key);
+}
+bool resident_none(const void*, const MediaAssetKey&) noexcept {
+    return false;
+}
+bool resident_all(const void*, const MediaAssetKey&) noexcept {
+    return true;
+}
+MediaAssetKey picture_key(u64 id) noexcept {
+    auto key = media_asset_embed(id, 1, 0, MediaEmbedResource::image, MediaAttachmentFormat::png, false,
+                                 MediaResolutionTier::px512);
+    key.kind = MediaAssetKind::profile_image;
+    return key;
+}
+// A glyph tile that names a picture by URL (UiSettingsGlyphTile::media) is that picture once the renderer holds it: the
+// avatar iterator exposes it at the size its tile or the name tag chip draws it at, and the scene paints the glyph
+// until then; a tile without a URL (no hash to build one from) always keeps its glyph.
+void test_glyph_pictures(Check check) noexcept {
+    static constexpr Utf8View names[]{utf8_literal("Leaf"), utf8_literal("Sword"), utf8_literal("Heart")};
+    static constexpr Utf8View url =
+        utf8_literal("https://cdn.discordapp.com/clan-badges/1/0123456789abcdef0123456789abcdef.png?size=32");
+    static UiSettingsControl controls[2];
+    static UiSettingsControlPresentation looks[2];
+    static UiSettingsGlyphTile tiles[4];
+    static UiSettingsPageContent content{};
+    static UiPage pages[1];
+    const MediaAssetKey tile_key = picture_key(11), chip_key = picture_key(12), bare_key = picture_key(13);
+    tiles[0] = {0x7fb134, 0x7fb134, UiIcon::leaf, UiIcon::count};
+    tiles[1] = tiles[0];
+    tiles[1].icon = UiIcon::sword;
+    tiles[1].media = {tile_key, 0, {}, url};
+    // A key without a URL: nothing to request, so nothing to show in place of the glyph.
+    tiles[2] = tiles[0];
+    tiles[2].media = {bare_key, 0, {}, {}};
+    tiles[3] = tiles[1];
+    tiles[3].media = {chip_key, 0, {}, url};
+    controls[0] = {1, utf8_literal("Choose Badge"), {}, UiSettingsControlKind::swatches, true, false, {names, 3}, 1};
+    controls[1] = {2, utf8_literal("Ari"), utf8_literal("check out my tag!"), UiSettingsControlKind::action, true,
+                   false, {}, 0, {}, nullptr, utf8_literal("WUMP")};
+    looks[0] = {UiSettingsVariant::standard, 0, 0, 0, 0, ui_settings_more_glyphs};
+    looks[1] = {UiSettingsVariant::standard, ui_settings_presentation_avatar | ui_settings_presentation_accent, 3, 0, 0,
+                ui_settings_more_name_tag};
+    content = {utf8_literal("Server Tag"), {}, {controls, 2}, 1};
+    content.presentation = looks;
+    content.glyph_tiles = tiles;
+    content.glyph_tile_count = 4;
+    UiPageRegistry registry{};
+    UiSettingsScene scene{};
+    const UiRect viewport{0, 0, 1440, 900};
+    const bool built = ui_page_registry_initialize(&registry, {pages, 1}) &&
+                       ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Server Tag"), &content}).ok() &&
+                       ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
+                       ui_settings_scene_update(&scene, &registry, viewport);
+    UiSettingsAvatarGeometry tile{}, chip{}, extra{};
+    u32 cursor = 0;
+    const bool found = built && ui_settings_scene_next_avatar(scene, &cursor, &tile) &&
+                       ui_settings_scene_next_avatar(scene, &cursor, &chip);
+    check(found && !ui_settings_scene_next_avatar(scene, &cursor, &extra) && tile.media == &tiles[1].media &&
+              chip.media == &tiles[3].media,
+          "settings glyph tiles: the tiles with a picture URL expose it, the bare and plain ones expose nothing");
+    check(found && close_to(ui_rect_width(tile.avatar), kUiSettingsGlyphImageDips) &&
+              close_to(ui_rect_height(tile.avatar), kUiSettingsGlyphImageDips) &&
+              close_to(ui_rect_width(chip.avatar), kUiBadgeCompactIcon) &&
+              close_to(ui_rect_height(chip.avatar), kUiBadgeCompactIcon) && tile.tile && !tile.cover &&
+              tile.radius == 0 && tile.opacity == 1.f && ui_rect_has_area(tile.clip) && ui_rect_has_area(chip.clip),
+          "settings glyph tiles: a picture is a square, 32 DIP on a tile and 12 on the chip, plain over its tile");
+    const auto paint_count = [&](const UiSettingsMediaResidency* residency, u32* count) noexcept {
+        PaintStream paint{};
+        const bool ok = paint_stream_initialize(&paint) && paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
+                        ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr, residency);
+        *count = paint.count;
+        paint_stream_release(&paint);
+        return ok;
+    };
+    const UiSettingsMediaResidency none{resident_none, nullptr}, tile_only{resident_key, &tile_key},
+        chip_only{resident_key, &chip_key}, bare_only{resident_key, &bare_key}, all{resident_all, nullptr};
+    u32 glyphs = 0, loading = 0, tile_shown = 0, chip_shown = 0, bare_shown = 0, both_shown = 0;
+    check(paint_count(nullptr, &glyphs) && paint_count(&none, &loading) && glyphs > 0 && loading == glyphs,
+          "settings glyph tiles: while a picture is loading (or no residency is known) every glyph is painted");
+    check(paint_count(&tile_only, &tile_shown) && paint_count(&chip_only, &chip_shown) &&
+              paint_count(&all, &both_shown) && tile_shown < glyphs && chip_shown < glyphs &&
+              both_shown < tile_shown && both_shown < chip_shown,
+          "settings glyph tiles: a held picture takes the place of its tile's or chip's glyph, each on its own");
+    check(paint_count(&bare_only, &bare_shown) && bare_shown == glyphs,
+          "settings glyph tiles: a tile without a picture URL keeps its glyph even when its key is held");
     ui_settings_scene_release(&scene);
 }
 } // namespace
@@ -1573,5 +1703,6 @@ void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_status_meta_wrap(check);
     test_sidebar_follows_selection(check);
     test_preview_row(check);
+    test_glyph_pictures(check);
 }
 } // namespace maicord

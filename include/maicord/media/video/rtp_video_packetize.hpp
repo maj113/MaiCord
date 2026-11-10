@@ -37,4 +37,11 @@ bool rtp_packetizer_begin(RtpVideoPacketizer* packetizer, RtpVideoPacketCodec co
 // returns its size; 0 once the frame is done or on failure (failed set).
 // *marker is set on the frame's last packet.
 u32 rtp_packetizer_next(RtpVideoPacketizer* packetizer, Slice<u8> output, bool* marker) noexcept;
+// Helpers the packetizers share with the receive path, DAVE's frame preparation and the encoder's unit rewriting.
+// The first start code prefix (00 00 01) at or after from: *start is where its zeros begin (a fourth zero included),
+// the result where the unit after it begins; both are data.count when there is none.
+u32 annexb_next_unit(ConstSlice<u8> data, u32 from, u32* start) noexcept;
+// The shortest LEB128 form of a value (an AV1 obu_size): its length, and writing it.
+u32 leb128_bytes(u32 value) noexcept;
+u32 leb128_write(u8* output, u32 value) noexcept;
 } // namespace maicord

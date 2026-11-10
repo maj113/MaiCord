@@ -5,8 +5,8 @@
 
 namespace maicord::app_detail::server_settings {
 
-u32 push_load_error(const Utf8View& heading) noexcept {
-    return push_error(heading, owner->status, utf8_literal("Try again"));
+u32 push_load_error(Text heading) noexcept {
+    return push_error(heading, owner->status, "Try again");
 }
 
 void push_status_error() noexcept {
@@ -15,7 +15,7 @@ void push_status_error() noexcept {
 }
 
 void push_no_memory() noexcept {
-    push_error(utf8_literal("Couldn't open this page"), utf8_literal("MaiCord ran out of memory."));
+    push_error("Couldn't open this page", "MaiCord ran out of memory.");
 }
 
 void push_notices(const char* texts) noexcept {
@@ -23,7 +23,7 @@ void push_notices(const char* texts) noexcept {
         const u32 description = c_string_length(texts);
         const char* heading = texts + description + 1;
         const u32 heading_bytes = c_string_length(heading);
-        push_notice({texts, description}, {heading, heading_bytes});
+        push_notice(Utf8View{texts, description}, Utf8View{heading, heading_bytes});
         texts = heading + heading_bytes + 1;
     }
 }
@@ -61,13 +61,21 @@ u32 sorted_channels(u32 types, u32 room) noexcept {
     return count;
 }
 
-void open_confirmation(u64 kind, u64 item, const Utf8View& title, const Utf8View& context, const Utf8View& accept,
-                       bool (*save)(TextFormOwnerKey key, Utf8View text) noexcept, const Utf8View& cancel) noexcept {
+void fill_form(ApplicationTextFormRequest& request, Text title, Text context, Text label, Text accept, u32 codepoints,
+               u32 bytes) noexcept {
+    request.title = text_view(title);
+    request.context = text_view(context);
+    request.label = text_view(label);
+    request.accept = text_view(accept);
+    request.maximum_codepoints = codepoints;
+    request.maximum_bytes = bytes;
+}
+
+void open_confirmation(u64 kind, u64 item, Text title, Text context, Text accept,
+                       bool (*save)(TextFormOwnerKey key, Utf8View text) noexcept, Text cancel) noexcept {
     ApplicationTextFormRequest request{};
-    request.title = title;
-    request.context = context;
-    request.accept = accept;
-    request.cancel = cancel;
+    fill_form(request, title, context, {}, accept, 0, 0);
+    request.cancel = text_view(cancel);
     request.danger = request.confirmation_only = true;
     request.owner = form_key(kind, item);
     request.valid = form_valid;
@@ -75,14 +83,10 @@ void open_confirmation(u64 kind, u64 item, const Utf8View& title, const Utf8View
     application_text_form_open(request);
 }
 
-void open_preview(u64 kind, u64 item, const Utf8View& title, const Utf8View& context, const Utf8View& label,
-                  const Utf8View& detail) noexcept {
+void open_preview(u64 kind, u64 item, Text title, Text context, Text label, Text detail) noexcept {
     ApplicationTextFormRequest request{};
-    request.title = title;
-    request.context = context;
-    request.label = label;
-    request.detail = detail;
-    request.accept = utf8_literal("Close");
+    fill_form(request, title, context, label, "Close", 0, 0);
+    request.detail = text_view(detail);
     request.owner = form_key(kind, item);
     request.valid = form_valid;
     request.save = [](TextFormOwnerKey, Utf8View) noexcept {

@@ -1,5 +1,6 @@
 #include "maicord/ui/account/login_scene.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/ui/core/widget_builder.hpp"
 
 namespace maicord {
@@ -9,87 +10,44 @@ constexpr u32 login_element_id(LoginElement element) noexcept {
     return static_cast<u32>(element) + 1;
 }
 
+// Every control is focusable: none clears the focus.
 bool focusable(LoginControl control) noexcept {
-    return control == LoginControl::none || control == LoginControl::login ||
-           control == LoginControl::password || control == LoginControl::submit ||
-           control == LoginControl::forgot_password || control == LoginControl::back ||
-           control == LoginControl::qr || control == LoginControl::mfa_totp ||
-           control == LoginControl::mfa_sms || control == LoginControl::mfa_backup ||
-           control == LoginControl::mfa_webauthn || control == LoginControl::phone_code ||
-           control == LoginControl::phone_resend || control == LoginControl::browser_sign_in;
+    return control <= LoginControl::browser_sign_in;
 }
 
+// The controls of the MFA methods and their capability bits share one order.
+static_assert(login_mfa_capability_totp == 1 && login_mfa_capability_sms == 2 &&
+              login_mfa_capability_backup == 4 && login_mfa_capability_webauthn == 8);
 u8 capability_for_control(LoginControl control) noexcept {
-    switch (control) {
-    case LoginControl::mfa_totp:
-        return login_mfa_capability_totp;
-    case LoginControl::mfa_sms:
-        return login_mfa_capability_sms;
-    case LoginControl::mfa_backup:
-        return login_mfa_capability_backup;
-    case LoginControl::mfa_webauthn:
-        return login_mfa_capability_webauthn;
-    default:
-        return login_mfa_capability_none;
-    }
+    return control >= LoginControl::mfa_totp && control <= LoginControl::mfa_webauthn
+               ? static_cast<u8>(1u << (static_cast<u32>(control) - static_cast<u32>(LoginControl::mfa_totp)))
+               : static_cast<u8>(login_mfa_capability_none);
 }
 
+// By LoginControl: its widget (Forgot and Back, the password and phone code, SMS and Resend share one).
+constexpr LoginElement kControlElements[]{
+    LoginElement::count,           LoginElement::login_field,   LoginElement::password_field,
+    LoginElement::submit,          LoginElement::forgot_password, LoginElement::qr,
+    LoginElement::mfa_totp,        LoginElement::mfa_sms,       LoginElement::mfa_backup,
+    LoginElement::mfa_webauthn,    LoginElement::forgot_password, LoginElement::password_field,
+    LoginElement::mfa_sms,         LoginElement::browser_sign_in};
 LoginElement element_for_control(LoginControl control) noexcept {
-    switch (control) {
-    case LoginControl::login:
-        return LoginElement::login_field;
-    case LoginControl::password:
-    case LoginControl::phone_code:
-        return LoginElement::password_field;
-    case LoginControl::submit:
-        return LoginElement::submit;
-    case LoginControl::forgot_password:
-    case LoginControl::back:
-        return LoginElement::forgot_password;
-    case LoginControl::qr:
-        return LoginElement::qr;
-    case LoginControl::browser_sign_in:
-        return LoginElement::browser_sign_in;
-    case LoginControl::mfa_totp:
-        return LoginElement::mfa_totp;
-    case LoginControl::mfa_sms:
-    case LoginControl::phone_resend:
-        return LoginElement::mfa_sms;
-    case LoginControl::mfa_backup:
-        return LoginElement::mfa_backup;
-    case LoginControl::mfa_webauthn:
-        return LoginElement::mfa_webauthn;
-    case LoginControl::none:
-        return LoginElement::count;
-    }
-    return LoginElement::count;
+    return static_cast<u32>(control) < sizeof(kControlElements) / sizeof(kControlElements[0])
+               ? kControlElements[static_cast<u32>(control)]
+               : LoginElement::count;
 }
 
+// By LoginElement (the elements that are not controls mean none).
+constexpr LoginControl kElementControls[static_cast<u32>(LoginElement::count)]{
+    LoginControl::none,  LoginControl::none,     LoginControl::none,         LoginControl::none,
+    LoginControl::none,  LoginControl::none,     LoginControl::none,         LoginControl::login,
+    LoginControl::none,  LoginControl::password, LoginControl::none,         LoginControl::forgot_password,
+    LoginControl::mfa_totp, LoginControl::mfa_sms, LoginControl::mfa_backup, LoginControl::mfa_webauthn,
+    LoginControl::submit, LoginControl::none,    LoginControl::none,         LoginControl::none,
+    LoginControl::none,  LoginControl::qr,       LoginControl::none,         LoginControl::none,
+    LoginControl::browser_sign_in};
 LoginControl control_for_element(LoginElement element) noexcept {
-    switch (element) {
-    case LoginElement::login_field:
-        return LoginControl::login;
-    case LoginElement::password_field:
-        return LoginControl::password;
-    case LoginElement::submit:
-        return LoginControl::submit;
-    case LoginElement::forgot_password:
-        return LoginControl::forgot_password;
-    case LoginElement::qr:
-        return LoginControl::qr;
-    case LoginElement::browser_sign_in:
-        return LoginControl::browser_sign_in;
-    case LoginElement::mfa_totp:
-        return LoginControl::mfa_totp;
-    case LoginElement::mfa_sms:
-        return LoginControl::mfa_sms;
-    case LoginElement::mfa_backup:
-        return LoginControl::mfa_backup;
-    case LoginElement::mfa_webauthn:
-        return LoginControl::mfa_webauthn;
-    default:
-        return LoginControl::none;
-    }
+    return element < LoginElement::count ? kElementControls[static_cast<u32>(element)] : LoginControl::none;
 }
 
 // Forgot/Back share one widget, as do the password/phone-code and
@@ -105,62 +63,14 @@ LoginControl semantic_control(const LoginScene& scene, LoginControl control) noe
     return control;
 }
 
+// By LoginElement, the widget names.
+constexpr char kElementNames[] =
+    "Login\0Card\0ContentRow\0Form\0Heading\0Subtitle\0LoginLabel\0LoginField\0PasswordLabel\0PasswordField\0"
+    "Auxiliary\0ForgotPassword\0MfaTotp\0MfaSms\0MfaBackup\0MfaWebAuthn\0Submit\0Status\0StatusMessage\0"
+    "StatusAccount\0QrColumn\0QrCode\0QrTitle\0QrSubtitle\0BrowserSignIn\0";
+static_assert(name_list_count(kElementNames) == static_cast<u32>(LoginElement::count));
 Utf8View element_name(LoginElement element) noexcept {
-    switch (element) {
-    case LoginElement::root:
-        return utf8_literal("Login");
-    case LoginElement::card:
-        return utf8_literal("Card");
-    case LoginElement::content_row:
-        return utf8_literal("ContentRow");
-    case LoginElement::form:
-        return utf8_literal("Form");
-    case LoginElement::heading:
-        return utf8_literal("Heading");
-    case LoginElement::subtitle:
-        return utf8_literal("Subtitle");
-    case LoginElement::login_label:
-        return utf8_literal("LoginLabel");
-    case LoginElement::login_field:
-        return utf8_literal("LoginField");
-    case LoginElement::password_label:
-        return utf8_literal("PasswordLabel");
-    case LoginElement::password_field:
-        return utf8_literal("PasswordField");
-    case LoginElement::auxiliary:
-        return utf8_literal("Auxiliary");
-    case LoginElement::forgot_password:
-        return utf8_literal("ForgotPassword");
-    case LoginElement::mfa_totp:
-        return utf8_literal("MfaTotp");
-    case LoginElement::mfa_sms:
-        return utf8_literal("MfaSms");
-    case LoginElement::mfa_backup:
-        return utf8_literal("MfaBackup");
-    case LoginElement::mfa_webauthn:
-        return utf8_literal("MfaWebAuthn");
-    case LoginElement::submit:
-        return utf8_literal("Submit");
-    case LoginElement::status:
-        return utf8_literal("Status");
-    case LoginElement::status_message:
-        return utf8_literal("StatusMessage");
-    case LoginElement::status_account:
-        return utf8_literal("StatusAccount");
-    case LoginElement::qr_column:
-        return utf8_literal("QrColumn");
-    case LoginElement::qr:
-        return utf8_literal("QrCode");
-    case LoginElement::qr_title:
-        return utf8_literal("QrTitle");
-    case LoginElement::qr_subtitle:
-        return utf8_literal("QrSubtitle");
-    case LoginElement::browser_sign_in:
-        return utf8_literal("BrowserSignIn");
-    case LoginElement::count:
-        return Utf8View{};
-    }
-    return Utf8View{};
+    return name_list_at(kElementNames, static_cast<u32>(element));
 }
 
 // UiWidgetBuilder stops at its first error, so these report nothing: a failed add leaves
@@ -675,9 +585,6 @@ bool login_scene_focus(LoginScene* scene, LoginControl control) noexcept {
         return ui_widget_manager_focus(&scene->widgets, ui_widget_invalid_handle());
     }
     const LoginElement element = element_for_control(control);
-    if (element == LoginElement::count) {
-        return false;
-    }
     const UiWidgetHandle widget = scene->elements[static_cast<u32>(element)];
     if (!ui_widget_manager_focus(&scene->widgets, widget)) {
         return false;

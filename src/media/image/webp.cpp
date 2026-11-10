@@ -88,6 +88,8 @@ struct SmallHuffmanCode {
     u8 table[1u << 7];
 };
 
+// Once per Huffman code: compiled for size.
+
 // Counts the code lengths; only a single-symbol code or a complete prefix code is admitted.
 bool count_code(const u8* lengths, u32 alphabet_size, u16* counts, u16* symbol_count,
                 u16* single_symbol) noexcept {
@@ -183,6 +185,7 @@ bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* co
     return true;
 }
 
+
 // The next code-length symbol: the table decode of decode_canonical's codeword.
 bool decode_length_symbol(BitReader* reader, const SmallHuffmanCode& code, u16* symbol) noexcept {
     if (code.symbol_count == 1) {
@@ -234,6 +237,8 @@ bool decode_canonical(BitReader* reader, const u16* counts, u32 symbol_count, u1
     reader->bit_position += 15;
     return false;
 }
+
+// Once per Huffman code: compiled for size.
 
 // Index width of the second-level table that opens at codeword length
 // `length`: the length at which the codes still to place (`left`) fill the
@@ -369,6 +374,7 @@ bool build_simple_code(Vp8lWorkspace* workspace, u32 first, u32 second, Vp8lHuff
     return true;
 }
 
+
 // The pixel loop's view of the reader: the next `available` bits of the
 // stream at bit_position, refilled from memory only when it runs low, so a
 // decode does not wait on a load. available is exact near the end.
@@ -437,6 +443,8 @@ __forceinline bool window_decode(BitReader* reader, BitWindow* window, const Vp8
     window_fill(*reader, window);
     return decoded;
 }
+
+// Once per Huffman code: compiled for size.
 
 inline constexpr u8 kCodeLengthOrder[19] = {
     17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
@@ -510,6 +518,7 @@ bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* work
     }
     return build_code(workspace, alphabet_size, code);
 }
+
 
 } // namespace
 
@@ -980,6 +989,40 @@ void predict_left_run(u32* pixels, u32 begin, u32 end) noexcept {
     }
 }
 
+// Pixel p of a run of mode Mode, given the final pixel to its left; stores and returns it.
+template <u32 Mode> __forceinline u32 predict_pixel(u32* pixels, u32 p, u32 width, u32 left) noexcept {
+    const u32 top = pixels[p - width];
+    u32 predicted = 0;
+    if constexpr (Mode == 0) {
+        predicted = 0xFF000000u;
+    } else if constexpr (Mode == 2) {
+        predicted = top;
+    } else if constexpr (Mode == 3) {
+        predicted = pixels[p - width + 1];
+    } else if constexpr (Mode == 4) {
+        predicted = pixels[p - width - 1];
+    } else if constexpr (Mode == 5) {
+        predicted = average_pixels(average_pixels(left, pixels[p - width + 1]), top);
+    } else if constexpr (Mode == 6) {
+        predicted = average_pixels(left, pixels[p - width - 1]);
+    } else if constexpr (Mode == 7) {
+        predicted = average_pixels(left, top);
+    } else if constexpr (Mode == 8) {
+        predicted = average_pixels(pixels[p - width - 1], top);
+    } else if constexpr (Mode == 9) {
+        predicted = average_pixels(top, pixels[p - width + 1]);
+    } else if constexpr (Mode == 10) {
+        predicted = average_pixels(average_pixels(left, pixels[p - width - 1]),
+                                   average_pixels(top, pixels[p - width + 1]));
+    } else {
+        static_assert(Mode == 13, "mode 1 runs in predict_left_run, 11 and 12 in predict_run");
+        predicted = clamp_add_half(average_pixels(left, top), pixels[p - width - 1]);
+    }
+    left = add_pixels(pixels[p], predicted);
+    pixels[p] = left;
+    return left;
+}
+
 // One run of pixels sharing a predictor mode; top_right of the last pixel in a
 // row is the first pixel of the current row, which is pixels[p - width + 1].
 // The left pixel stays in a register from one pixel to the next.
@@ -1035,36 +1078,16 @@ void predict_run(u32* pixels, u32 begin, u32 end, u32 width) noexcept {
         }
     } else {
         u32 left = pixels[p - 1];
-        for (; p < end; ++p) {
-            const u32 top = pixels[p - width];
-            u32 predicted = 0;
-            if constexpr (Mode == 0) {
-                predicted = 0xFF000000u;
-            } else if constexpr (Mode == 2) {
-                predicted = top;
-            } else if constexpr (Mode == 3) {
-                predicted = pixels[p - width + 1];
-            } else if constexpr (Mode == 4) {
-                predicted = pixels[p - width - 1];
-            } else if constexpr (Mode == 5) {
-                predicted = average_pixels(average_pixels(left, pixels[p - width + 1]), top);
-            } else if constexpr (Mode == 6) {
-                predicted = average_pixels(left, pixels[p - width - 1]);
-            } else if constexpr (Mode == 7) {
-                predicted = average_pixels(left, top);
-            } else if constexpr (Mode == 8) {
-                predicted = average_pixels(pixels[p - width - 1], top);
-            } else if constexpr (Mode == 9) {
-                predicted = average_pixels(top, pixels[p - width + 1]);
-            } else if constexpr (Mode == 10) {
-                predicted = average_pixels(average_pixels(left, pixels[p - width - 1]),
-                                           average_pixels(top, pixels[p - width + 1]));
-            } else {
-                static_assert(Mode == 13, "mode 1 runs in predict_left_run, 11 and 12 above");
-                predicted = clamp_add_half(average_pixels(left, top), pixels[p - width - 1]);
+        // The four-wide modes leave at most three pixels: no vector loop for them.
+        if constexpr (Mode == 0 || Mode == 2 || Mode == 3 || Mode == 4 || Mode == 8 || Mode == 9) {
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+            for (; p < end; ++p) {
+                left = predict_pixel<Mode>(pixels, p, width, left);
             }
-            left = add_pixels(pixels[p], predicted);
-            pixels[p] = left;
+        } else {
+            for (; p < end; ++p) {
+                left = predict_pixel<Mode>(pixels, p, width, left);
+            }
         }
     }
 }

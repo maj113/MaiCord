@@ -1,5 +1,4 @@
 #include "maicord/app/voice/dave/receive_epoch.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -62,15 +61,6 @@ void cleanup(DaveReceiveEpoch& epoch, u64 now) noexcept {
     epoch.cleanup_pending = false;
 }
 } // namespace
-bool dave_receive_epoch_aliases(const DaveReceiveEpoch& epoch, ConstSlice<u8> span) noexcept {
-    if (byte_ranges_overlap(span, {epoch.storage.data, epoch.storage.capacity}))
-        return true;
-    const auto* data = reinterpret_cast<const Entry*>(epoch.storage.data + 32);
-    for (u32 i = 0; i != epoch.count; ++i)
-        if (byte_ranges_overlap(span, {data[i].key.storage.data, data[i].key.storage.capacity}))
-            return true;
-    return false;
-}
 KdfResult dave_receive_epoch_initialize(DaveReceiveEpoch* epoch, ConstSlice<u8> seed, u64 now) noexcept {
     if (!grow(*epoch, 1))
         return {0, 0, KdfError::storage};

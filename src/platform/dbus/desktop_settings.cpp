@@ -185,12 +185,89 @@ ColorScheme scheme_of_number(i64 number) noexcept {
     return number == 1 ? ColorScheme::dark : number == 2 ? ColorScheme::light : ColorScheme::no_preference;
 }
 
+// The namespaces the settings portal is asked for (ReadAll's filter), in the order of Setting::space.
+constexpr const char* kNamespaces[] = {"org.freedesktop.appearance", "org.gnome.desktop.interface",
+                                       "org.gnome.desktop.wm.preferences", "org.gnome.desktop.peripherals.mouse",
+                                       "org.kde.kdeglobals.KDE"};
+enum : u8 { space_appearance, space_interface, space_preferences, space_mouse, space_kde };
+
+// A setting that is one field of DesktopSettings, read as `kind` and, when it changes, raising `area`.
+struct Setting {
+    const char* key;
+    u8 space;
+    enum Kind : u8 { number, flag, boolean, text } kind;
+    u16 area;
+    u16 offset;  // of the field in DesktopSettings
+    u16 low;     // number: the least accepted value; text: the field's capacity
+    u16 high;    // number: the greatest
+};
+
+#define MAICORD_SETTING(space, key, kind, field, area, low, high) \
+    Setting{key, space, Setting::kind, area, static_cast<u16>(__builtin_offsetof(DesktopSettings, field)), low, high}
+constexpr Setting kSettings[] = {
+    // contrast and reduced-motion: u, 1 for on
+    MAICORD_SETTING(space_appearance, "contrast", flag, more_contrast, desktop_contrast, 0, 1),
+    MAICORD_SETTING(space_appearance, "reduced-motion", flag, reduced_motion, desktop_motion, 0, 1),
+    MAICORD_SETTING(space_interface, "enable-animations", boolean, animations, desktop_motion, 0, 0),
+    MAICORD_SETTING(space_interface, "cursor-blink", boolean, cursor_blink, desktop_caret, 0, 0),
+    MAICORD_SETTING(space_interface, "cursor-blink-time", number, cursor_blink_ms, desktop_caret, 100, 20000),
+    MAICORD_SETTING(space_interface, "cursor-size", number, cursor_size, desktop_cursor, 1, 512),
+    MAICORD_SETTING(space_interface, "cursor-theme", text, cursor_theme, desktop_cursor, 0, 64),
+    MAICORD_SETTING(space_interface, "font-name", text, ui_font, desktop_fonts, 0, 96),
+    MAICORD_SETTING(space_interface, "document-font-name", text, document_font, desktop_fonts, 0, 96),
+    MAICORD_SETTING(space_interface, "monospace-font-name", text, monospace_font, desktop_fonts, 0, 96),
+    MAICORD_SETTING(space_preferences, "titlebar-font", text, titlebar_font, desktop_fonts, 0, 96),
+    MAICORD_SETTING(space_mouse, "double-click", number, double_click_ms, desktop_pointer, 50, 5000),
+};
+#undef MAICORD_SETTING
+
+bool integer_in(const Value& v, i64 low, i64 high) noexcept {
+    return (v.type == 'i' || v.type == 'u' || v.type == 'x' || v.type == 'n' || v.type == 'q' || v.type == 'y' ||
+            v.type == 't') &&
+           v.integer >= low && v.integer <= high;
+}
+
+// Applies a setting of kSettings to `s`; the areas that changed.
+u32 apply_field(DesktopSettings* s, u32 space, const char* key, const Value& v) noexcept {
+    for (const Setting& row : kSettings) {
+        if (row.space != space || !c_string_equal(row.key, key))
+            continue;
+        u8* field = reinterpret_cast<u8*>(s) + row.offset;
+        bool changed = false;
+        switch (row.kind) {
+        case Setting::number:
+            if (integer_in(v, row.low, row.high))
+                changed = set_value(reinterpret_cast<u32*>(field), static_cast<u32>(v.integer));
+            break;
+        case Setting::flag:
+            if (integer_in(v, row.low, row.high))
+                changed = set_value(reinterpret_cast<bool*>(field), v.integer == 1);
+            break;
+        case Setting::boolean:
+            if (v.type == 'b')
+                changed = set_value(reinterpret_cast<bool*>(field), v.boolean);
+            break;
+        case Setting::text:
+            if (v.type == 's')
+                changed = set_text(reinterpret_cast<char*>(field), row.high, v.text, v.text_length);
+            break;
+        }
+        return changed ? row.area : 0;
+    }
+    return 0;
+}
+
 // Applies one setting to `s`; the areas that changed.
 u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, const Value& v) noexcept {
+    u32 space = 0;
+    while (space < sizeof(kNamespaces) / sizeof(kNamespaces[0]) && !c_string_equal(ns, kNamespaces[space]))
+        ++space;
+    if (const u32 areas = apply_field(s, space, key, v))
+        return areas;
     u32 areas = 0;
-    const auto integer_in = [&](i64 low, i64 high) { return (v.type == 'i' || v.type == 'u' || v.type == 'x' || v.type == 'n' || v.type == 'q' || v.type == 'y' || v.type == 't') && v.integer >= low && v.integer <= high; };
-    if (c_string_equal(ns, "org.freedesktop.appearance")) {
-        if (c_string_equal(key, "color-scheme") && integer_in(0, 2)) {
+    // What is more than one field or reads another way.
+    if (space == space_appearance) {
+        if (c_string_equal(key, "color-scheme") && integer_in(v, 0, 2)) {
             state->portal_scheme_seen = true;
             const ColorScheme next = scheme_of_number(v.integer);
             if (s->color_scheme != next)
@@ -208,39 +285,9 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
             s->accent[0] = r;
             s->accent[1] = g2;
             s->accent[2] = b;
-        } else if (c_string_equal(key, "contrast") && integer_in(0, 1)) {
-            if (set_value(&s->more_contrast, v.integer == 1))
-                areas |= desktop_contrast;
-        } else if (c_string_equal(key, "reduced-motion") && integer_in(0, 1)) {
-            if (set_value(&s->reduced_motion, v.integer == 1))
-                areas |= desktop_motion;
         }
-    } else if (c_string_equal(ns, "org.gnome.desktop.interface")) {
-        if (c_string_equal(key, "enable-animations") && v.type == 'b') {
-            if (set_value(&s->animations, v.boolean))
-                areas |= desktop_motion;
-        } else if (c_string_equal(key, "cursor-blink") && v.type == 'b') {
-            if (set_value(&s->cursor_blink, v.boolean))
-                areas |= desktop_caret;
-        } else if (c_string_equal(key, "cursor-blink-time") && integer_in(100, 20000)) {
-            if (set_value(&s->cursor_blink_ms, static_cast<u32>(v.integer)))
-                areas |= desktop_caret;
-        } else if (c_string_equal(key, "cursor-size") && integer_in(1, 512)) {
-            if (set_value(&s->cursor_size, static_cast<u32>(v.integer)))
-                areas |= desktop_cursor;
-        } else if (c_string_equal(key, "cursor-theme") && v.type == 's') {
-            if (set_text(s->cursor_theme, sizeof(s->cursor_theme), v.text, v.text_length))
-                areas |= desktop_cursor;
-        } else if (c_string_equal(key, "font-name") && v.type == 's') {
-            if (set_text(s->ui_font, sizeof(s->ui_font), v.text, v.text_length))
-                areas |= desktop_fonts;
-        } else if (c_string_equal(key, "document-font-name") && v.type == 's') {
-            if (set_text(s->document_font, sizeof(s->document_font), v.text, v.text_length))
-                areas |= desktop_fonts;
-        } else if (c_string_equal(key, "monospace-font-name") && v.type == 's') {
-            if (set_text(s->monospace_font, sizeof(s->monospace_font), v.text, v.text_length))
-                areas |= desktop_fonts;
-        } else if (c_string_equal(key, "text-scaling-factor") && v.type == 'd' && v.real >= 0.5 && v.real <= 3.0) {
+    } else if (space == space_interface) {
+        if (c_string_equal(key, "text-scaling-factor") && v.type == 'd' && v.real >= 0.5 && v.real <= 3.0) {
             const float next = static_cast<float>(v.real);
             if (s->text_scale != next)
                 areas |= desktop_fonts;
@@ -253,7 +300,7 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
                 areas |= desktop_scheme;
             s->color_scheme = next;
         }
-    } else if (c_string_equal(ns, "org.gnome.desktop.wm.preferences")) {
+    } else if (space == space_preferences) {
         if (c_string_equal(key, "button-layout") && v.type == 's') {
             char layout[128];
             const u32 length = v.text_length < sizeof(layout) - 1 ? v.text_length : sizeof(layout) - 1;
@@ -265,22 +312,14 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
                 areas |= desktop_caption;
             s->caption_known = known;
             s->caption = parsed;
-        } else if (c_string_equal(key, "titlebar-font") && v.type == 's') {
-            if (set_text(s->titlebar_font, sizeof(s->titlebar_font), v.text, v.text_length))
-                areas |= desktop_fonts;
         }
-    } else if (c_string_equal(ns, "org.gnome.desktop.peripherals.mouse")) {
-        if (c_string_equal(key, "double-click") && integer_in(50, 5000)) {
-            if (set_value(&s->double_click_ms, static_cast<u32>(v.integer)))
-                areas |= desktop_pointer;
-        }
-    } else if (c_string_equal(ns, "org.kde.kdeglobals.KDE")) {
+    } else if (space == space_kde) {
         if (c_string_equal(key, "DoubleClickInterval")) {
             i64 interval = 0;
             if (v.type == 's') {
                 for (u32 i = 0; i < v.text_length && v.text[i] >= '0' && v.text[i] <= '9' && interval < 100000; ++i)
                     interval = interval * 10 + (v.text[i] - '0');
-            } else if (integer_in(0, 100000)) {
+            } else if (integer_in(v, 0, 100000)) {
                 interval = v.integer;
             }
             if (interval >= 50 && interval <= 5000 && set_value(&s->double_click_ms, static_cast<u32>(interval)))
@@ -363,11 +402,8 @@ void request_settings(Connection* c) noexcept {
     Builder body;
     builder_init(&body);
     builder_open_array(&body, "s");
-    builder_string(&body, "org.freedesktop.appearance");
-    builder_string(&body, "org.gnome.desktop.interface");
-    builder_string(&body, "org.gnome.desktop.wm.preferences");
-    builder_string(&body, "org.gnome.desktop.peripherals.mouse");
-    builder_string(&body, "org.kde.kdeglobals.KDE");
+    for (const char* ns : kNamespaces)
+        builder_string(&body, ns);
     builder_close_array(&body);
     g.read_finished = false;
     const CallTarget target{kPortalName, kPortalPath, kSettingsInterface, "ReadAll"};

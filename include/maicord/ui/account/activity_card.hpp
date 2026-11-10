@@ -78,7 +78,9 @@ struct UiActivityCardItem {
     bool wrap;   // the text takes more than one line
     bool disabled;
 };
-inline constexpr u32 kUiActivityCardItems = 28;
+// The most items a card lays out (a full or popout card: the heading, the art and its badge, the title, two lines,
+// three chips of two items, the progress bar's three and two buttons of at most two items, or one of three).
+inline constexpr u32 kUiActivityCardItems = 19;
 inline constexpr u8 kUiActivityCardNone = 0xFF;
 // Text size in DIPs: one line's width, or with wrap the height at width.
 using UiActivityCardMeasure = UiSize (*)(void* context, Utf8View text, u32 flags, float width, bool wrap) noexcept;
@@ -110,7 +112,7 @@ struct UiActivityCard {
     // The ticking items (kUiActivityCardNone when absent).
     u8 clock, clock_glyph, elapsed, bar;
 };
-// False for a custom status (not a card) or a null output.
+// False for a custom status (not a card).
 bool ui_activity_card_layout(const UserActivity&, const UiActivityCardInput&, UiActivityCard*) noexcept;
 // Advances the timer chip and progress bar to now in place. relayout: a time
 // changed its length or a timer ended.

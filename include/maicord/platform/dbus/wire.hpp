@@ -24,6 +24,10 @@ enum MessageFlag : u8 {
     flag_no_auto_start = 2,
 };
 
+// Makes the heap buffer *data (`used` bytes in use, *capacity bytes long) hold `needed` bytes: the capacity doubles from
+// `initial`, the bytes are copied and the old buffer wiped and freed. False, nothing changed, when memory is short.
+bool buffer_reserve(u8** data, u32 used, u32* capacity, u32 needed, u32 initial) noexcept;
+
 // Builder ------------------------------------------------------------------------------------------------------------
 
 struct Builder {

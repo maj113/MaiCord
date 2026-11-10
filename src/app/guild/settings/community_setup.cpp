@@ -5,12 +5,6 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-constexpr Utf8View kIntro[]{utf8_literal("Get Started"), utf8_literal("Cancel")};
-constexpr Utf8View kEnable[]{utf8_literal("Enable"), utf8_literal("Back")};
-constexpr Utf8View kNext[]{utf8_literal("Next"), utf8_literal("Back")};
-constexpr Utf8View kFinish[]{utf8_literal("Finish Setup"), utf8_literal("Back")};
-constexpr Utf8View kBack[]{utf8_literal("Back")};
-constexpr Utf8View kStart[]{utf8_literal("Enable Community")};
 
 GuildSettings guild_values() noexcept {
     const auto* guild = chat_state_store_find_guild(state(), owner->guild_id);
@@ -48,7 +42,7 @@ SetupStep previous_step(SetupStep step) noexcept {
     }
 }
 // A step's Next/Back buttons, labelled "Step n of m" (the steps already met are skipped).
-void step_buttons(Bank& bank, u64 id, SetupStep step, bool enabled, ConstSlice<Utf8View> choices) noexcept {
+void step_buttons(Bank& bank, u64 id, SetupStep step, bool enabled, const char* names, u32 shown) noexcept {
     u32 number = 0, total = 0;
     for (SetupStep s = next_step(SetupStep::intro); s != SetupStep::none; s = next_step(s)) {
         ++total;
@@ -60,16 +54,16 @@ void step_buttons(Bank& bank, u64 id, SetupStep step, bool enabled, ConstSlice<U
     bank.number(number);
     bank.add(" of ");
     bank.number(total);
-    push_choices(id, bank.since(start), {}, UiSettingsControlKind::buttons, enabled, choices);
+    push_buttons(id, bank.since(start), {}, enabled, names, shown);
 }
 
 void project_upsell(bool edit) noexcept {
-    push_category(control_list_category, utf8_literal("Are you building a Community?"),
-                  utf8_literal("Convert to a Community Server to access additional administrative tools that help "
-                               "you moderate and grow your server."));
-    push_choices(community_enable_button, utf8_literal("Convert to a Community Server"),
-                 administrator() ? Utf8View{} : utf8_literal("Only server administrators are allowed to do this"),
-                 UiSettingsControlKind::buttons, edit && administrator(), {kStart, 1});
+    push_category(control_list_category, "Are you building a Community?",
+                  "Convert to a Community Server to access additional administrative tools that help you moderate and "
+                  "grow your server.");
+    push_buttons(community_enable_button, "Convert to a Community Server",
+                 administrator() ? nullptr : "Only server administrators are allowed to do this",
+                 edit && administrator(), "Enable Community", 1);
     // The fixed notices, each a description then its heading (none: a lone NUL).
     push_notices("Community Servers are larger spaces where people with shared interests can come together.\0\0"
                  "Enabling Community does not make your server visible on Server Discovery.\0\0"
@@ -83,59 +77,52 @@ void project_upsell(bool edit) noexcept {
 }
 
 void project_wizard(Bank& bank, ServerAccessState& s, bool edit) noexcept {
-    auto& p = *owner;
     const bool idle = edit && !busy();
     push_status_error();
     switch (s.setup) {
     case SetupStep::intro:
-        push_category(control_list_category, utf8_literal("Enable Community"),
-                      utf8_literal("Community Servers are larger spaces built around shared interests. Enabling "
-                                   "Community requires setting up safety settings, Rules and Updates channels and "
-                                   "moderation settings."));
-        push_choices(community_wizard, utf8_literal("Set up your Community Server"), {},
-                     UiSettingsControlKind::buttons, idle, {kIntro, 2});
+        push_category(control_list_category, "Enable Community",
+                      "Community Servers are larger spaces built around shared interests. Enabling Community requires "
+                      "setting up safety settings, Rules and Updates channels and moderation settings.");
+        push_buttons(community_wizard, "Set up your Community Server", {}, idle, "Get Started\0Cancel", 2);
         return;
     case SetupStep::safety: {
         const auto g = guild_values();
-        push_category(control_list_category, utf8_literal("Keep your community safe"),
-                      utf8_literal("To ensure user safety, Community Servers must have the following moderation "
-                                   "settings enabled."));
+        push_category(control_list_category, "Keep your community safe",
+                      "To ensure user safety, Community Servers must have the following moderation settings enabled.");
         if (!g.verification_level)
-            push_notice(utf8_literal("To minimise spam, members of the server must have a verified email before they "
-                                     "can send messages. This does not apply to members with roles."),
-                        utf8_literal("Verified email required"));
+            push_notice("To minimise spam, members of the server must have a verified email before they can send "
+                        "messages. This does not apply to members with roles.",
+                        "Verified email required");
         if (g.explicit_content_filter != 2)
-            push_notice(utf8_literal("Discord will automatically scan and delete media sent in this server that "
-                                     "contain explicit content (excludes age-restricted channels)."),
-                        utf8_literal("Explicit Media Content Filter"));
-        step_buttons(bank, community_wizard, s.setup, idle, {kEnable, 2});
+            push_notice("Discord will automatically scan and delete media sent in this server that contain explicit "
+                        "content (excludes age-restricted channels).",
+                        "Explicit Media Content Filter");
+        step_buttons(bank, community_wizard, s.setup, idle, "Enable\0Back", 2);
         return;
     }
     case SetupStep::basics: {
-        push_category(control_list_category, utf8_literal("Set up the basics"),
-                      utf8_literal("Tell us which channel has your server rules and which channel we should send "
-                                   "announcements to!"));
-        p.system_choice[0] = access_channel_label(bank, s.community.rules_channel_id);
-        push_choices(community_rules_channel, utf8_literal("Rules or Guidelines Channel"),
-                     utf8_literal("Community Servers must have clearly posted server rules and/or guidelines for "
-                                  "members. Please select the channel that hosts this."),
-                     UiSettingsControlKind::choice, idle, {p.system_choice, 1});
-        p.afk_choice[0] = access_channel_label(bank, s.community.public_updates_channel_id);
-        push_choices(community_updates_channel, utf8_literal("Community Updates Channel"),
-                     utf8_literal("This is the channel where Discord will send relevant updates for Community admins "
-                                  "and moderators. As some info might be sensitive, we recommend selecting a "
-                                  "role-restricted channel."),
-                     UiSettingsControlKind::choice, idle, {p.afk_choice, 1});
-        step_buttons(bank, community_wizard, s.setup, idle, {kNext, 2});
+        push_category(control_list_category, "Set up the basics",
+                      "Tell us which channel has your server rules and which channel we should send announcements "
+                      "to!");
+        push_choice(community_rules_channel, "Rules or Guidelines Channel",
+                    "Community Servers must have clearly posted server rules and/or guidelines for members. Please "
+                    "select the channel that hosts this.",
+                    idle, access_channel_label(bank, s.community.rules_channel_id));
+        push_choice(community_updates_channel, "Community Updates Channel",
+                    "This is the channel where Discord will send relevant updates for Community admins and "
+                    "moderators. As some info might be sensitive, we recommend selecting a role-restricted channel.",
+                    idle, access_channel_label(bank, s.community.public_updates_channel_id));
+        step_buttons(bank, community_wizard, s.setup, idle, "Next\0Back", 2);
         return;
     }
     case SetupStep::defaults: {
-        push_category(control_list_category, utf8_literal("Update default settings"));
+        push_category(control_list_category, "Update default settings");
         if (guild_values().default_message_notifications != 1)
-            push_notice(utf8_literal("Because Community Servers tend to have a lot of people talking at once, "
-                                     "defaulting Server Notifications for members to Mentions Only can help reduce "
-                                     "members leaving. Members can always override this option."),
-                        utf8_literal("Set default settings to Mentions Only"));
+            push_notice("Because Community Servers tend to have a lot of people talking at once, defaulting Server "
+                        "Notifications for members to Mentions Only can help reduce members leaving. Members can "
+                        "always override this option.",
+                        "Set default settings to Mentions Only");
         const PermissionSet risky = everyone() & kGuildCommunityRiskyPermissions;
         if (risky) {
             const u32 start = bank.used;
@@ -151,71 +138,61 @@ void project_wizard(Bank& bank, ServerAccessState& s, bool edit) noexcept {
                 bank.add(entry.label);
                 first = false;
             }
-            push_notice(bank.since(start), utf8_literal("Disable risky permissions for @everyone"));
-            push_notice(utf8_literal("Enable takes Administrator, Manage Server, Manage Channels, Manage Roles, Kick "
-                                     "Members, Ban Members, Manage Messages and Mention @everyone from @everyone."));
+            push_notice(bank.since(start), "Disable risky permissions for @everyone");
+            push_notice("Enable takes Administrator, Manage Server, Manage Channels, Manage Roles, Kick Members, Ban "
+                        "Members, Manage Messages and Mention @everyone from @everyone.");
         }
-        step_buttons(bank, community_wizard, s.setup, idle, {kEnable, 2});
+        step_buttons(bank, community_wizard, s.setup, idle, "Enable\0Back", 2);
         return;
     }
     case SetupStep::rules:
-        push_category(control_list_category, utf8_literal("One last step"));
-        push_notice(utf8_literal("By setting your server as a Community Server, you agree that your server complies "
-                                 "with our Community Server Guidelines."),
-                    utf8_literal("Follow the rules"));
-        push_row(community_agree, utf8_literal("I agree and understand"), {}, UiSettingsControlKind::toggle, idle,
-                 s.policy_accepted);
+        push_category(control_list_category, "One last step");
+        push_notice("By setting your server as a Community Server, you agree that your server complies with our "
+                    "Community Server Guidelines.",
+                    "Follow the rules");
+        push_toggle(community_agree, "I agree and understand", {}, idle, s.policy_accepted);
         if (s.policy_accepted)
-            step_buttons(bank, community_wizard, s.setup, idle && administrator(), {kFinish, 2});
+            step_buttons(bank, community_wizard, s.setup, idle && administrator(), "Finish Setup\0Back", 2);
         else
-            step_buttons(bank, community_wizard + 64, s.setup, idle, {kBack, 1});
+            step_buttons(bank, community_wizard + 64, s.setup, idle, "Back", 1);
         return;
     default: return;
     }
 }
 
 void project_overview(Bank& bank, ServerAccessState& s, bool edit) noexcept {
-    auto& p = *owner;
     auto& d = s.overview_draft;
     const bool manage = edit && can_manage_guild();
     const bool admin = edit && administrator();
-    push_category(control_list_category, utf8_literal("Community Settings"));
+    push_category(control_list_category, "Community Settings");
     push_status_error();
-    p.system_choice[0] = access_channel_label(bank, d.rules_channel_id);
-    push_choices(community_rules_channel, utf8_literal("Rules or guidelines channel"),
-                 utf8_literal("Please select the channel that hosts your rules. This channel will by default start "
-                              "from the top and will feature a special header."),
-                 UiSettingsControlKind::choice, manage, {p.system_choice, 1});
-    p.afk_choice[0] = access_channel_label(bank, d.public_updates_channel_id);
-    push_choices(community_updates_channel, utf8_literal("Community Updates Channel"),
-                 utf8_literal("This is the channel where Discord will send relevant updates for Community admins and "
-                              "moderators. As some info might be sensitive, we recommend selecting a role-restricted "
-                              "channel."),
-                 UiSettingsControlKind::choice, admin, {p.afk_choice, 1});
-    p.widget_choice[0] = access_channel_label(bank, d.safety_alerts_channel_id);
-    push_choices(community_safety_channel, utf8_literal("Safety Notifications Channel"),
-                 utf8_literal("This is the channel where Discord will send you important safety updates about your "
-                              "server. As some info might be sensitive, we recommend selecting a role-restricted "
-                              "channel."),
-                 UiSettingsControlKind::choice, manage, {p.widget_choice, 1});
-    p.audit_user_choice[0] = access_locale_label({d.locale, d.locale_bytes});
-    push_choices(access_locale, utf8_literal("Server Primary Language"),
-                 utf8_literal("This helps Discord customise features for you and your members."),
-                 UiSettingsControlKind::choice, manage, {p.audit_user_choice, 1});
-    push_editor(control_description, utf8_literal("Server Description"),
-                utf8_literal("Describe your community. This description will be displayed in external embeds of this "
-                             "server's invite link."),
-                UiSettingsControlKind::multiline, manage, editor_description,
-                utf8_literal("Tell the world a bit about this server."));
+    push_choice(community_rules_channel, "Rules or guidelines channel",
+                "Please select the channel that hosts your rules. This channel will by default start from the top "
+                "and will feature a special header.",
+                manage, access_channel_label(bank, d.rules_channel_id));
+    push_choice(community_updates_channel, "Community Updates Channel",
+                "This is the channel where Discord will send relevant updates for Community admins and moderators. As "
+                "some info might be sensitive, we recommend selecting a role-restricted channel.",
+                admin, access_channel_label(bank, d.public_updates_channel_id));
+    push_choice(community_safety_channel, "Safety Notifications Channel",
+                "This is the channel where Discord will send you important safety updates about your server. As some "
+                "info might be sensitive, we recommend selecting a role-restricted channel.",
+                manage, access_channel_label(bank, d.safety_alerts_channel_id));
+    push_choice(access_locale, "Server Primary Language",
+                "This helps Discord customise features for you and your members.", manage,
+                access_locale_label({d.locale, d.locale_bytes}));
+    push_editor(control_description, "Server Description",
+                "Describe your community. This description will be displayed in external embeds of this server's "
+                "invite link.",
+                UiSettingsControlKind::multiline, manage, editor_description, "Tell the world a bit about this server.");
     if (d.community)
-        push_row(community_disable, utf8_literal("Disable Community"),
-                 admin ? utf8_literal("This will remove specific features for Community Servers, like Server Discovery "
-                                      "and Server Insights.")
-                       : utf8_literal("Only server administrators are allowed to do this"),
-                 UiSettingsControlKind::action, admin, false, utf8_literal("Disable Community"),
-                 {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_action(community_disable, "Disable Community",
+                    admin ? "This will remove specific features for Community Servers, like Server Discovery and "
+                            "Server Insights."
+                          : "Only server administrators are allowed to do this",
+                    "Disable Community", admin, {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     else
-        push_notice(utf8_literal("Community will be turned off when you save."));
+        push_notice("Community will be turned off when you save.");
 }
 
 void load() noexcept {
@@ -317,9 +294,9 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         access_open_locales({d.locale, d.locale_bytes}, activation.anchor);
     else if (id == community_disable && administrator()) {
         if (guild_features() & guild_feature_discoverable) {
-            open_confirmation(form_community_disable, 0, utf8_literal("Are you sure?"),
-                              utf8_literal("Disabling Community will also remove your server from Server Discovery."),
-                              utf8_literal("Confirm"), disable_confirmed, utf8_literal("Never Mind"));
+            open_confirmation(form_community_disable, 0, "Are you sure?",
+                              "Disabling Community will also remove your server from Server Discovery.", "Confirm",
+                              disable_confirmed, "Never Mind");
             return;
         }
         guild_community_overview_disable(&d);
@@ -378,8 +355,8 @@ Op next_save() noexcept {
     return Op::server_access;
 }
 
-Utf8View invalid() noexcept {
-    return access_features_known() ? Utf8View{} : utf8_literal("The server's features haven't arrived yet.");
+const char* invalid() noexcept {
+    return access_features_known() ? nullptr : "The server's features haven't arrived yet.";
 }
 
 // The Gateway's server update: a clean overview follows it; Community turning

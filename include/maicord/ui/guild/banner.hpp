@@ -43,6 +43,12 @@ bool ui_guild_splash_media(u64 guild_id, Utf8View hash, bool discovery, u32 size
 inline constexpr u32 kUiGuildCardBannerRequestDips = 512;
 bool ui_guild_card_banner_media(u64 guild_id, Utf8View custom_banner, bool discoverable, u32 dpi,
                                 UiGuildImageMedia* output) noexcept;
+// The server tag's badge as the saved profile names it: a PNG at ui_media_proxy_size(size_dips * dpr), a square the
+// badge is drawn in on a tile (a badge picker tile, the tag chip):
+//   https://cdn.discordapp.com/clan-badges/{guild}/{hash}.png?size=N
+// False for a malformed hash, which leaves the caller its own drawing of the badge.
+bool ui_guild_tag_badge_media(u64 guild_id, const Utf8View& hash, u32 size_dips, u32 dpi,
+                              UiGuildImageMedia* output) noexcept;
 
 // Channel-list header banner height and scroll pinning: the banner fades and
 // slides up over 88 DIP of scroll; the channel list gains an 84 DIP top inset.

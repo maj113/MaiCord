@@ -150,6 +150,38 @@ void packetization(Check check) noexcept {
     RtpVideoPacketizer packetizer;
     check(!rtp_packetizer_begin(&packetizer, RtpVideoPacketCodec::h264, {broken, 5}, false, 1100),
           "Go Live RTP: a NAL unit with the forbidden bit is refused before anything is sent");
+    // The shared Annex B scanner against a plain byte-by-byte search, on inputs of four distinct bytes.
+    u32 state = 12345;
+    const auto next = [&state]() noexcept { return (state = state * 1664525u + 1013904223u) >> 16; };
+    bool scans = true;
+    for (u32 round = 0; scans && round != 5000; ++round) {
+        u8 bytes[24];
+        const u32 count = next() % 24;
+        for (u32 i = 0; i != count; ++i)
+            bytes[i] = static_cast<u8>(next() % 4);
+        const u32 from = next() % (count + 1);
+        u32 expected_start = count, expected_next = count;
+        for (u32 i = from; i + 2 < count; ++i)
+            if (!bytes[i] && !bytes[i + 1] && bytes[i + 2] == 1) {
+                expected_start = i > from && !bytes[i - 1] ? i - 1 : i;
+                expected_next = i + 3;
+                break;
+            }
+        u32 start = 0;
+        scans = annexb_next_unit({bytes, count}, from, &start) == expected_next && start == expected_start;
+    }
+    check(scans, "Go Live RTP: the Annex B scanner finds each start code and its fourth zero as a plain search does");
+    static constexpr u32 kValues[]{0, 1, 127, 128, 16383, 16384, 0x0fffffff, 0xffffffff};
+    bool leb = true;
+    for (const u32 value : kValues) {
+        u8 bytes[5];
+        const u32 length = leb128_write(bytes, value);
+        u64 decoded = 0;
+        for (u32 i = 0; i != length; ++i)
+            decoded |= u64{bytes[i] & 0x7fu} << (7 * i);
+        leb = leb && length == leb128_bytes(value) && decoded == value && !(bytes[length - 1] & 0x80);
+    }
+    check(leb, "Go Live RTP: LEB128 sizes are written in their shortest form");
 }
 
 bool start_code_in(ConstSlice<u8> bytes) noexcept {

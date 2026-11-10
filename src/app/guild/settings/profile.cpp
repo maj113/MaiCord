@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "../../settings/settings.hpp"
@@ -27,7 +27,7 @@ constexpr u32 kSearchTiles = 8;
 constexpr u32 kCoverDips = 128, kGameIconDips = 24;
 // The emoji picker: what the trait's label finds, then each category's first emoji.
 constexpr u32 kEmojiMatches = 24, kEmojiPerCategory = 56;
-constexpr Utf8View kIconChoices[]{utf8_literal("Change Server Icon"), utf8_literal("Remove Icon")};
+constexpr char kIconChoices[] = "Change Server Icon\0Remove Icon";
 
 // Kept across openings, like the official client's profile store.
 struct ProfileCache {
@@ -101,10 +101,12 @@ void push_game(u64 id, bool chosen, bool enabled, u32* covers) noexcept {
     game_lookup_want(id);
     const auto* record = game_lookup_find(id);
     const bool known = record && record->state == GameState::known && record->game.name_bytes;
-    const Utf8View name = known ? Utf8View{record->game.name, record->game.name_bytes}
-                          : record && record->state == GameState::unknown ? utf8_literal("Unknown Game")
-                                                                          : utf8_literal("Loading\xE2\x80\xA6");
-    const u32 row = push_row(id, name, {}, UiSettingsControlKind::action, enabled, chosen, {}, cell(kGameColumns, true));
+    const Utf8View name = known ? Utf8View{record->game.name, record->game.name_bytes} : Utf8View{};
+    const u32 row = push_row(id,
+                             known ? Text(name)
+                             : record && record->state == GameState::unknown ? Text("Unknown Game")
+                                                                              : Text("Loading\xE2\x80\xA6"),
+                             {}, UiSettingsControlKind::action, enabled, chosen, {}, cell(kGameColumns, true));
     if (row == ~0u || !known || *covers >= sizeof(p.covers) / sizeof(p.covers[0]))
         return;
     auto& cover = p.covers[*covers];
@@ -117,8 +119,8 @@ void push_game(u64 id, bool chosen, bool enabled, u32* covers) noexcept {
 
 void project_traits(Bank& bank, bool edit) noexcept {
     auto& p = *owner;
-    push_category(control_traits_category, utf8_literal("Traits"),
-                  utf8_literal("Add up to 5 traits to show off your server\xE2\x80\x99s interests and personality."));
+    push_category(control_traits_category, "Traits",
+                  "Add up to 5 traits to show off your server\xE2\x80\x99s interests and personality.");
     for (u32 slot = 0; slot < kGuildAdminProfileTraits; ++slot) {
         const auto& t = p.profile_draft.profile.traits[slot];
         const bool filled = t.label_bytes || t.emoji_name_bytes || t.emoji_id;
@@ -127,8 +129,7 @@ void project_traits(Bank& bank, bool edit) noexcept {
         bank.add("Trait ");
         bank.number(slot + 1);
         const u32 row = push_editor(control_trait + slot, bank.since(start), {}, UiSettingsControlKind::edit, edit,
-                                    static_cast<Editor>(editor_trait + slot), {},
-                                    filled ? utf8_literal("Clear") : Utf8View{});
+                                    static_cast<Editor>(editor_trait + slot), {}, filled ? "Clear" : nullptr);
         if (row == ~0u)
             continue;
         // The emoji button shows a standard emoji's glyph, or a server emoji's picture from the CDN.
@@ -143,8 +144,8 @@ void project_games(bool edit) noexcept {
     auto& p = *owner;
     const auto& d = p.profile_draft.profile;
     const bool room = d.game_count < kGuildAdminProfileGameMaximum;
-    push_editor(control_games_search, utf8_literal("Games"), utf8_literal("What games does your server play?"),
-                UiSettingsControlKind::edit, edit && room, editor_game_search, utf8_literal("Search for a game..."));
+    push_editor(control_games_search, "Games", "What games does your server play?", UiSettingsControlKind::edit,
+                edit && room, editor_game_search, "Search for a game...");
     u32 covers = 0;
     for (u32 i = 0; i < d.game_count; ++i)
         push_game(d.game_application_ids[i], true, edit, &covers);
@@ -155,9 +156,9 @@ void project_games(bool edit) noexcept {
         const auto results = game_lookup_results(typed);
         if (!results.count) {
             if (results.loading)
-                push_loading(utf8_literal("Searching\xE2\x80\xA6"), control_games_suggested);
+                push_loading("Searching\xE2\x80\xA6", control_games_suggested);
             else
-                push_notice(utf8_literal("No games found."));
+                push_notice("No games found.");
             return;
         }
         for (u32 i = 0, shown = 0; i < results.count && shown < kSearchTiles; ++i) {
@@ -184,7 +185,7 @@ void project_games(bool edit) noexcept {
         }
     if (!count)
         return;
-    push_category(control_games_suggested, utf8_literal("Your Members Play"));
+    push_category(control_games_suggested, "Your Members Play");
     for (u32 i = 0; i < count; ++i)
         push_game(order[i]->application_id, false, edit && room, &covers);
 }
@@ -195,34 +196,33 @@ void project(Bank& bank) noexcept {
         bool settled = false;
         server_profile(&settled);
         if (settled && !read_pending())
-            push_error(utf8_literal("Something went wrong"), utf8_literal("We couldn't load the profile for this server."),
-                       utf8_literal("Retry"));
+            push_error("Something went wrong", "We couldn't load the profile for this server.", "Retry");
         else
-            push_loading(utf8_literal("Loading the server profile…"));
+            push_loading("Loading the server profile…");
         return;
     }
     const bool edit = can_edit();
     auto& d = p.profile_draft;
-    push_editor(control_name, utf8_literal("Name"), {}, UiSettingsControlKind::edit, edit, editor_name,
-                utf8_literal("Name"));
+    push_editor(control_name, "Name", {}, UiSettingsControlKind::edit, edit, editor_name, "Name");
 
     // Icon: Change Server Icon, and Remove Icon while there is one.
-    const Utf8View icon_text =
-        d.icon == GuildProfileImageEdit::remove ? utf8_literal("Removed when you save.")
-        : d.icon == GuildProfileImageEdit::replace
-            ? [&]() noexcept {
-                  const u32 start = bank.used;
-                  bank.add("New: ");
-                  bank.number(p.icon_info.width);
-                  bank.add("×");
-                  bank.number(p.icon_info.height);
-                  bank.add(". Save to apply.");
-                  return bank.since(start);
-              }()
-            : utf8_literal("We recommend an image of at least 512x512.");
+    Text icon_text = "We recommend an image of at least 512x512.";
+    Utf8View icon_new{};
+    if (d.icon == GuildProfileImageEdit::remove)
+        icon_text = "Removed when you save.";
+    else if (d.icon == GuildProfileImageEdit::replace) {
+        const u32 start = bank.used;
+        bank.add("New: ");
+        bank.number(p.icon_info.width);
+        bank.add("×");
+        bank.number(p.icon_info.height);
+        bank.add(". Save to apply.");
+        icon_new = bank.since(start);
+        icon_text = icon_new;
+    }
     // Remove Icon is the official critical-secondary button (red text on the secondary plate).
-    push_choices(control_icon_buttons, utf8_literal("Icon"), icon_text, UiSettingsControlKind::buttons, edit,
-                 {kIconChoices, has_icon() ? 2u : 1u}, 0, {}, {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+    push_buttons(control_icon_buttons, "Icon", icon_text, edit, kIconChoices, has_icon() ? 2u : 1u,
+                 {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
 
     // Banner: "Server Icon Colour" and the presets as banner tiles, and for a Discoverable server the upload tile
     // (its custom banner, shown and selected while set; a preset removes it, as on the official page).
@@ -253,24 +253,22 @@ void project(Bank& bank) noexcept {
 
     project_traits(bank, edit);
 
-    push_editor(control_description, utf8_literal("Description"),
-                utf8_literal("How did your server get started? Why should people join?"),
-                UiSettingsControlKind::multiline, edit, editor_description,
-                utf8_literal("Tell the world a bit about this server."));
+    push_editor(control_description, "Description", "How did your server get started? Why should people join?",
+                UiSettingsControlKind::multiline, edit, editor_description, "Tell the world a bit about this server.");
 
     project_games(edit);
 
     // Discoverable servers stay public: the switch is off and a note links to Access.
     const bool discoverable = d.profile.discoverable;
-    push_row(control_private, utf8_literal("Private Profile"),
-             utf8_literal("When enabled, only server members can view profile content. Non-members won\xE2\x80\x99t be "
-                          "able to see this content unless they have an invite."),
-             UiSettingsControlKind::toggle, edit && !discoverable, guild_server_profile_private(d));
+    push_toggle(control_private, "Private Profile",
+                "When enabled, only server members can view profile content. Non-members won\xE2\x80\x99t be able to "
+                "see this content unless they have an invite.",
+                edit && !discoverable, guild_server_profile_private(d));
     if (discoverable)
         push_row(control_private_access,
-                 utf8_literal("Discoverable servers cannot have their content hidden. You can change this setting in"),
-                 {}, UiSettingsControlKind::footnote, page_allowed(Page::access), false,
-                 page_allowed(Page::access) ? utf8_literal("Access") : Utf8View{});
+                 "Discoverable servers cannot have their content hidden. You can change this setting in", {},
+                 UiSettingsControlKind::footnote, page_allowed(Page::access), false,
+                 page_allowed(Page::access) ? "Access" : nullptr);
 }
 
 // The emoji picker of trait `slot`: its label's matches, then the categories; "No Emoji" removes one.
@@ -333,8 +331,7 @@ void open_emoji_picker(u32 slot, const UiRect& anchor) noexcept {
     if (!count)
         return;
     p.emoji_slot = slot;
-    p.menu = Menu::trait_emoji;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 280);
+    open_popup(Menu::trait_emoji, p.guild_id, count, anchor, 280);
 }
 
 void clear_trait(u32 slot) noexcept {
@@ -372,8 +369,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         clear_trait(slot);
     } else if (id == control_private && !d.profile.discoverable) {
         guild_server_profile_set_private(&d, p.profile_base.profile, activation.value.checked);
-        ui_settings_scene_animate_toggle(&p.scene, activation.value.target, activation.value.checked,
-                                         clock_monotonic_milliseconds());
+        animate_toggle(activation);
     } else if (id == control_banner_colors && (guild_features() & guild_feature_discoverable) &&
                choice == kGuildProfileBannerColorCount + 1) {
         // The upload tile opens the file dialog; the picked file becomes the custom banner (Pick::custom_banner).
@@ -456,8 +452,8 @@ void notice_action() noexcept {
         ensure_data();
 }
 
-Utf8View invalid() noexcept {
-    return name_valid() ? Utf8View{} : utf8_literal("Server names need 2–100 characters.");
+const char* invalid() noexcept {
+    return name_valid() ? nullptr : "Server names need 2–100 characters.";
 }
 
 // The new icon's data URI, cropped as the official client's cropper does by

@@ -22,24 +22,21 @@ UiSettingsAvatarMedia audit_avatar(u64 user_id) noexcept {
 
 void project_audit(Bank& bank) noexcept {
     auto& p = *owner;
-    p.audit_user_choice[0] = p.audit_filter_user ? bank.add(user_label(p.audit_filter_user)) : utf8_literal("All members");
-    if (!p.audit_user_choice[0].bytes)
-        p.audit_user_choice[0] = utf8_literal("Selected member");
+    const Utf8View member = p.audit_filter_user ? bank.add(user_label(p.audit_filter_user)) : Utf8View{};
     const auto filter = p.audit_filter_action_set ? audit_action(p.audit_filter_action) : AuditAction{};
-    p.audit_action_choice[0] = filter.verb.bytes ? filter.verb : utf8_literal("All actions");
-    push_choices(control_filter_user, utf8_literal("Filter by member"), {}, UiSettingsControlKind::choice, editable(),
-                 {p.audit_user_choice, 1});
-    push_choices(control_filter_action, utf8_literal("Filter by action"), {}, UiSettingsControlKind::choice,
-                 editable(), {p.audit_action_choice, 1});
+    push_choice(control_filter_user, "Filter by member", {}, editable(),
+                !p.audit_filter_user ? Text("All members") : member.bytes ? Text(member) : Text("Selected member"));
+    push_choice(control_filter_action, "Filter by action", {}, editable(),
+                filter.verb.bytes ? Text(filter.verb) : Text("All actions"));
     if (p.audit_failed)
-        push_error(utf8_literal("Couldn't load the audit log"), p.status, utf8_literal("Try again"));
+        push_error("Couldn't load the audit log", p.status, "Try again");
     else if (p.failed && p.status.bytes)
         push_error({}, p.status);
     else if (!p.audit_complete && !p.audit_count)
-        push_loading(utf8_literal("Loading the audit log…"));
-    push_category(control_list_category, utf8_literal("Recent actions"));
+        push_loading("Loading the audit log…");
+    push_category(control_list_category, "Recent actions");
     if (p.audit_complete && !p.audit_count)
-        push_notice(utf8_literal("No matching actions."));
+        push_notice("No matching actions.");
     const u64 now = clock_unix_milliseconds();
     for (u32 i = 0; i < p.audit_count; ++i) {
         const auto& entry = p.audit[i];
@@ -77,19 +74,19 @@ void project_audit(Bank& bank) noexcept {
             bank.add({entry.reason, entry.reason_bytes});
         }
         const auto description = bank.since(detail);
-        const u32 row = push_row(kRowBase + i, label, description, UiSettingsControlKind::action, true, false, {},
-                                 {UiSettingsVariant::standard,
-                                  static_cast<u8>(ui_settings_presentation_avatar |
-                                                  ui_settings_presentation_compact |
-                                                  ui_settings_presentation_accent),
-                                  kUiSettingsNoDefault});
+        const u32 row = push_action(kRowBase + i, label, description, {}, true,
+                                    {UiSettingsVariant::standard,
+                                     static_cast<u8>(ui_settings_presentation_avatar |
+                                                     ui_settings_presentation_compact |
+                                                     ui_settings_presentation_accent),
+                                     kUiSettingsNoDefault});
         if (row < kControlCapacity)
             p.avatar_media[row] = audit_avatar(entry.user_id);
         p.row_accent[i] = guild_person_color(entry.user_id);
     }
     // Older actions load when this row scrolls into view.
     if (p.audit_count && !p.audit_complete)
-        push_loading(utf8_literal("Loading older actions…"), control_more);
+        push_loading("Loading older actions…", control_more);
 }
 
 void reset_audit() noexcept {
@@ -102,14 +99,14 @@ void reset_audit() noexcept {
 void open_audit_menu(Menu menu, const UiRect& anchor) noexcept {
     auto& p = *owner;
     u32 count = 0;
-    const auto item = [&](Utf8View label, bool checked) noexcept {
+    const auto item = [&](Text label, bool checked) noexcept {
         popup_row(count, label, count,
                   (checked ? popup_item_checked : 0) | (count == 1 ? popup_item_separator_before : 0));
         ++count;
     };
     if (menu == Menu::audit_user) {
         Bank bank{p.popup_text, sizeof(p.popup_text), 0};
-        item(utf8_literal("All members"), !p.audit_filter_user);
+        item("All members", !p.audit_filter_user);
         p.menu_users[0] = 0;
         for (u32 i = 0; i < p.audit_user_count && count < kPopupCapacity; ++i) {
             const auto& u = p.audit_users[i];
@@ -117,15 +114,14 @@ void open_audit_menu(Menu menu, const UiRect& anchor) noexcept {
             item(bank.add(user_name(u)), u.id == p.audit_filter_user);
         }
     } else {
-        item(utf8_literal("All actions"), !p.audit_filter_action_set);
+        item("All actions", !p.audit_filter_action_set);
         for (const u16 type : kAuditFilters) {
             const auto action = audit_action(type);
-            item(action.verb.bytes ? action.verb : utf8_literal("Other"),
+            item(action.verb.bytes ? Text(action.verb) : Text("Other"),
                  p.audit_filter_action_set && p.audit_filter_action == type);
         }
     }
-    p.menu = menu;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 300);
+    open_popup(menu, p.guild_id, count, anchor, 300);
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {

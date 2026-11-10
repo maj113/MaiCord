@@ -61,8 +61,7 @@ maicord_library(maicord_media_codec
     src/media/containers/mp4_demux.cpp src/media/containers/mp4_audio_demux.cpp src/media/core/progressive_source.cpp src/media/image/png.cpp
     src/media/image/png_stream.cpp src/media/image/png_encode.cpp src/media/image/png_common.cpp src/media/image/vp8.cpp
     src/media/image/webp.cpp src/media/image/webp_thumbnail.cpp src/media/image/webp_alpha.cpp src/media/image/animated_webp.cpp
-    src/media/video/rtp_h264.cpp src/media/video/rtp_h265.cpp src/media/video/hevc_stream.cpp
-    src/media/video/rtp_video_packetize.cpp
+    src/media/video/rtp_nal.cpp src/media/video/hevc_stream.cpp src/media/video/rtp_video_packetize.cpp
     src/media/video/rtp_av1.cpp src/media/video/av1.cpp src/media/containers/mp4_fragment.cpp src/media/containers/mp4_fragment_track.cpp
     src/media/containers/mp4_fragment_source.cpp
     src/media/containers/mp4_fragment_audio.cpp

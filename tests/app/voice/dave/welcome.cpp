@@ -101,12 +101,6 @@ void crypto_cases(Check check, KdfSha256Workspace& workspace, const P256Key& ini
                       candidate.group_info.serialized.count == ni && candidate.storage.bytes == ns + ni &&
                       bytes_equal(expected, candidate.group_info.serialized.data, ni),
                   "Welcome GroupInfo matches independent plaintext in same allocation");
-            u8 snapshot[sizeof(candidate)];
-            copy_bytes(snapshot, &candidate, sizeof(candidate));
-            check(dave_welcome_decrypt(workspace, init, reference, {wire, n}, &candidate).error ==
-                          DaveWelcomeError::already_initialized &&
-                      bytes_equal(snapshot, &candidate, sizeof(candidate)),
-                  "Welcome cannot overwrite a live decrypted candidate");
         } else
             check(!result.bytes && filled(&candidate, sizeof(candidate)),
                   "Failed Welcome preserves empty output owner and publishes no secrets");
@@ -147,25 +141,6 @@ void failures(Check check, KdfSha256Workspace& workspace, const P256Key& init, C
               DaveWelcomeError::hpke_authentication_failed,
           "Welcome rejects a different init private key");
     p256_release(&wrong);
-    check(dave_welcome_decrypt(workspace, init, entry.new_member, {wire, n}, &candidate).error ==
-              DaveWelcomeError::invalid_input,
-          "Welcome reference cannot be inferred from its own wire input");
-    check(dave_welcome_decrypt(workspace, init, reference, {wire, n},
-                               reinterpret_cast<DaveWelcomeCandidate*>(wire))
-                  .error == DaveWelcomeError::invalid_input,
-          "Welcome output cannot overwrite input wire");
-    check(dave_welcome_decrypt(workspace, init, reference, {wire, n},
-                               reinterpret_cast<DaveWelcomeCandidate*>(&workspace))
-                  .error == DaveWelcomeError::invalid_input,
-          "Welcome output cannot overwrite KDF workspace owner");
-    check(dave_welcome_decrypt(workspace, init, reference, {wire, n},
-                               reinterpret_cast<DaveWelcomeCandidate*>(workspace.storage.data))
-                  .error == DaveWelcomeError::invalid_input,
-          "Welcome output cannot overwrite KDF workspace storage");
-    check(dave_welcome_decrypt(workspace, init, reference, {wire, n},
-                               reinterpret_cast<DaveWelcomeCandidate*>(const_cast<P256Key*>(&init)))
-                  .error == DaveWelcomeError::invalid_input,
-          "Welcome output cannot overwrite pending private key owner");
     const u32 capacity = workspace.storage.capacity;
     workspace.storage.capacity = 1;
     check(dave_welcome_decrypt(workspace, init, reference, {wire, n}, &candidate).error ==
@@ -232,18 +207,7 @@ void test_dave_welcome(Check check) noexcept {
     check(p256_import_private(&init, P256Kind::ecdh, {scalar, 32}).ok(),
           "Published Welcome init private key");
     KdfSha256Workspace workspace{};
-    DaveWelcomeCandidate empty{};
-    check(dave_welcome_decrypt(workspace, init, {reference, 32}, {}, &empty).error ==
-                  DaveWelcomeError::not_initialized &&
-              filled(&empty, sizeof(empty)),
-          "Welcome needs initialized worker workspace");
     check(kdf_sha256_initialize(&workspace).ok(), "Welcome workspace");
-    check(dave_welcome_decrypt(workspace, init, {reference, 31}, {}, &empty).error ==
-                  DaveWelcomeError::invalid_input &&
-              dave_welcome_decrypt(workspace, init, {reference, 32}, {nullptr, 1}, &empty).error ==
-                  DaveWelcomeError::invalid_input &&
-              filled(&empty, sizeof(empty)),
-          "Welcome rejects malformed input/reference spans");
     crypto_cases(check, workspace, init, {reference, 32}, buffers, buffers + 65536);
     failures(check, workspace, init, {reference, 32}, buffers);
     guards(check, workspace, init, {reference, 32}, buffers);

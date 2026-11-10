@@ -96,15 +96,7 @@ VoiceUdpMediaSend voice_udp_media_send(VoiceUdpMedia* media, u64 generation,
         return VoiceUdpMediaSend::invalid;
     if (media->discovery->socket.send_pending)
         return VoiceUdpMediaSend::busy;
-    // Caller input cannot borrow a pending read, owner metadata, or retained
-    // output: these can be overwritten while encrypting or polling completion.
-    if (!byte_range_valid(plaintext) ||
-        byte_ranges_overlap(plaintext, {media->receive_buffer.data, media->receive_buffer.count}) ||
-        byte_ranges_overlap(plaintext, {media->send_buffer.data, media->send_buffer.count}) ||
-        byte_ranges_overlap(plaintext, {reinterpret_cast<const u8*>(media), sizeof(*media)}) ||
-        byte_ranges_overlap(plaintext,
-                            {reinterpret_cast<const u8*>(media->discovery), sizeof(*media->discovery)}))
-        return VoiceUdpMediaSend::invalid;
+    // The caller's packet is its own buffer, never the media's reads, owner or retained output.
     const auto sealed = voice_packet_seal(*media->crypto, generation, plaintext, media->send_buffer);
     if (sealed.error == VoicePacketError::crypto || sealed.error == VoicePacketError::nonce_exhausted ||
         sealed.error == VoicePacketError::not_initialized) {

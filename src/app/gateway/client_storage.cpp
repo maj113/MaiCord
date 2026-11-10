@@ -484,6 +484,17 @@ void publish_event(GatewayClientRuntime* runtime, const GatewayClientEvent& even
         runtime->notify_pending = true;
 }
 
+GatewayClientEvent bare_event(GatewayClientEventKind kind, u64 now_ms) noexcept {
+    GatewayClientEvent event{};
+    event.timestamp_ms = now_ms;
+    event.kind = kind;
+    return event;
+}
+
+void publish_marker(GatewayClientRuntime* runtime, GatewayClientEventKind kind, u64 now_ms) noexcept {
+    publish_event(runtime, bare_event(kind, now_ms));
+}
+
 void notify_consumer(GatewayClient* client, GatewayClientRuntime* runtime) noexcept {
     if (runtime->notify_pending) {
         runtime->notify_pending = false;

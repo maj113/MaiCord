@@ -3,6 +3,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -294,14 +295,12 @@ bool profile_activity_content(const UserActivity& a, bool bot, bool self, Profil
         put(&c.hint, utf8_literal(" is not detected"));
     } else if (a.type == UserActivityType::streaming) {
         const auto url = text(a, F::url);
-        const Utf8View prefixes[] = {utf8_literal("https://twitch.tv/"), utf8_literal("https://www.twitch.tv/"),
-                                     utf8_literal("http://twitch.tv/"), utf8_literal("http://www.twitch.tv/"),
-                                     utf8_literal("https://youtube.com/watch?v="),
-                                     utf8_literal("https://www.youtube.com/watch?v="),
-                                     utf8_literal("http://youtube.com/watch?v="),
-                                     utf8_literal("http://www.youtube.com/watch?v=")};
-        for (const auto& prefix : prefixes)
-            if (utf8_starts_with(url, prefix) && (url.bytes > prefix.bytes || prefix.data[prefix.bytes - 1] == '='))
+        static constexpr char prefixes[] =
+            "https://twitch.tv/\0https://www.twitch.tv/\0http://twitch.tv/\0http://www.twitch.tv/\0"
+            "https://youtube.com/watch?v=\0https://www.youtube.com/watch?v=\0http://youtube.com/watch?v=\0"
+            "http://www.youtube.com/watch?v=\0";
+        for (NameList names{prefixes}; names; names.next())
+            if (utf8_starts_with(url, names.name()) && (url.bytes > names.bytes || names.at[names.bytes - 1] == '='))
                 c.action = ProfileActivityAction::watch;
     }
     return true;

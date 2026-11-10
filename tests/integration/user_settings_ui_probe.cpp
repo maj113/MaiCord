@@ -11,6 +11,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/widgets/kit.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/text/form.hpp"
 #include "maicord/core/log.hpp"
@@ -432,6 +433,160 @@ bool show_interval_menu(Fixture& f, D3D11Renderer& renderer, UiRect viewport, Ui
            probe_present(&renderer, kDefaultTheme) && renderer.interaction_text_popup_revision == m.popup.revision &&
            capture(L"updates-interval-menu.bmp");
 }
+
+// Typography commits back to back, as dragging Text size in chat (or changing the theme's fonts) makes them: after each
+// one the settings page, whose sample line is chat text beside the interface's own text, rebuilds to the same text,
+// nothing is rejected, and a second round of the same commits adds no atlas entry or font face.
+bool commit_typography(D3D11Renderer& renderer, const UiThemeTypography& value) noexcept {
+    RendererTypographyCandidate candidate{};
+    const bool applied = renderer_prepare_typography(&renderer, value, &candidate) &&
+                         renderer_commit_typography(&renderer, &candidate);
+    renderer_discard_typography(&candidate);
+    return applied;
+}
+UiSettingsPreview g_churn_preview;
+bool typography_churn(Fixture& f, D3D11Renderer& renderer, UiTextMeasureCache& cache, UiRect viewport,
+                      UiPageKey page) noexcept {
+    const auto live = renderer_text_system(&renderer, UiTextFace::normal);
+    const UiThemeTypography original = live.typography ? live.typography->value : UiThemeTypography{};
+    const u32 panel = static_cast<u32>(SettingsPanel::accessibility);
+    struct Restore {
+        D3D11Renderer& renderer;
+        Fixture& f;
+        UiThemeTypography original;
+        u32 panel;
+        ~Restore() noexcept {
+            commit_typography(renderer, original);
+            f.contents[panel].preview = &kPreview;
+            ++f.contents[panel].revision;
+        }
+    } restore{renderer, f, original, panel};
+    g_churn_preview = kPreview;
+    f.contents[panel].preview = &g_churn_preview;
+    const auto settle = [&]() noexcept {
+        ui_text_measure_cache_invalidate(&cache);
+        ++f.contents[panel].revision;
+        return ui_page_registry_select(&f.registry, page).ok() &&
+               ui_settings_scene_update(&f.scene, &f.registry, viewport) &&
+               renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme);
+    };
+    if (!settle() || !renderer.content_text)
+        return false;
+    const u32 baseline = renderer.content_text->quad_count, rejected = renderer.content_text->rejected;
+    if (!baseline)
+        return false;
+    struct Step {
+        float body, chat;
+        UiTextFace face;
+    };
+    const Step steps[]{{0, 20, UiTextFace::normal},  {0, 12, UiTextFace::normal}, {0, 24, UiTextFace::normal},
+                       {0, 0, UiTextFace::normal},   {0, 18, UiTextFace::normal}, {0, 14, UiTextFace::normal},
+                       {18, 0, UiTextFace::normal},  {18, 20, UiTextFace::normal}, {0, 24, UiTextFace::serif},
+                       {0, 0, UiTextFace::normal},   {0, 20, UiTextFace::normal}, {0, 20, UiTextFace::normal}};
+    u32 entries_after_first = 0, faces_after_first = 0;
+    for (u32 round = 0; round < 2; ++round) {
+        for (const auto& step : steps) {
+            auto value = original;
+            if (step.body)
+                value.body_size = step.body;
+            value.chat_size = step.chat;
+            value.body_face = step.face;
+            g_churn_preview.text_size = value.chat_size ? value.chat_size : value.body_size;
+            if (!commit_typography(renderer, value) || !settle())
+                return false;
+            const auto interface_system = renderer_text_system(&renderer, UiTextFace::normal);
+            const auto chat_system = renderer_text_system(&renderer, ui_text_face_chat(UiTextFace::normal));
+            const auto& storage = *renderer.content_text;
+            // The page keeps its text (every line executed), nothing was rejected, and the two systems hold the
+            // sizes asked for.
+            if (storage.quad_count < baseline * 85 / 100 || storage.quad_count > baseline * 115 / 100 ||
+                storage.rejected != rejected || storage.last_error != RendererTextBuildError::none ||
+                interface_system.em_size != value.body_size || !interface_system.native_format ||
+                chat_system.em_size != (value.chat_size ? value.chat_size : value.body_size) ||
+                !chat_system.native_format)
+                return false;
+        }
+        if (!round) {
+            entries_after_first = renderer.glyph_text.allocator.entry_count;
+            faces_after_first = renderer.glyph_text.font_face_count;
+        }
+    }
+    log_u64(LogLevel::info, "probe", "typography_churn_atlas_entries", renderer.glyph_text.allocator.entry_count);
+    return renderer.glyph_text.allocator.entry_count <= entries_after_first + 16 &&
+           renderer.glyph_text.font_face_count <= faces_after_first + 1 && commit_typography(renderer, original) &&
+           settle() && renderer.content_text->quad_count >= baseline * 95 / 100 &&
+           renderer.content_text->quad_count <= baseline * 105 / 100;
+}
+
+// A rebuild that fails (here: a DPI the atlas key cannot hold, which every glyph run refuses) leaves the text layer
+// empty; the next refresh must notice and rebuild within the same frame. Settings' own check ("is my revision the
+// one the text was built for?") used to say yes, which left the page without text until a resize changed its
+// revision. Then rebuilds at a high rate over text that keeps naming new glyphs, until the atlas evicts and resets:
+// the text layer is never empty after a frame.
+char g_pressure_text[256];
+bool text_drop_recovery(Fixture& f, D3D11Renderer& renderer, UiTextMeasureCache& cache, UiRect viewport,
+                        UiPageKey page) noexcept {
+    const u32 panel = static_cast<u32>(SettingsPanel::accessibility);
+    const Utf8View original_description = f.contents[panel].description;
+    struct Restore {
+        Fixture& f;
+        u32 panel;
+        Utf8View description;
+        ~Restore() noexcept {
+            f.contents[panel].description = description;
+            ++f.contents[panel].revision;
+        }
+    } restore{f, panel, original_description};
+    const auto settle = [&]() noexcept {
+        ++f.contents[panel].revision;
+        return ui_page_registry_select(&f.registry, page).ok() &&
+               ui_settings_scene_update(&f.scene, &f.registry, viewport) &&
+               renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme);
+    };
+    if (!settle() || !renderer.content_text || !renderer.content_text->quad_count ||
+        renderer.interaction_text_settings_revision != f.scene.revision)
+        return false;
+    const u32 baseline = renderer.content_text->quad_count, rejected = renderer.content_text->rejected;
+    // The failure: the build is refused, the layer is dropped and the committed state no longer matches the page.
+    const u32 dpi = renderer.dpi;
+    renderer.dpi = 0x4000;
+    const bool refused = !renderer_rebuild_content_text(&renderer, kDefaultTheme);
+    renderer.dpi = dpi;
+    if (!refused || renderer.content_text->rejected == rejected || renderer.content_text->quad_count ||
+        renderer.interaction_text_settings_revision == f.scene.revision)
+        return false;
+    // One refresh later the text is back.
+    if (!renderer_refresh_interaction_text(&renderer, kDefaultTheme) || renderer.content_text->quad_count < baseline / 2 ||
+        renderer.interaction_text_settings_revision != f.scene.revision)
+        return false;
+    // Pressure: 64 new CJK glyphs a frame, 300 frames, each a rebuild.
+    const u32 resets = renderer.glyph_text.allocator.full_resets, evictions = renderer.glyph_text.allocator.evicted_entries;
+    u32 recovered = 0;
+    for (u32 frame = 0; frame < 300; ++frame) {
+        u32 bytes = 0;
+        for (u32 glyph = 0; glyph < 64; ++glyph) {
+            const u32 code = 0x4E00u + (frame * 64u + glyph) % 0x4000u;
+            g_pressure_text[bytes++] = static_cast<char>(0xE0u | (code >> 12));
+            g_pressure_text[bytes++] = static_cast<char>(0x80u | ((code >> 6) & 0x3Fu));
+            g_pressure_text[bytes++] = static_cast<char>(0x80u | (code & 0x3Fu));
+        }
+        f.contents[panel].description = {g_pressure_text, bytes};
+        ui_text_measure_cache_invalidate(&cache);
+        bool built = settle();
+        // A frame whose rebuild failed recovers at once, as the sync after it does.
+        if (!built || !renderer.content_text->quad_count) {
+            ++recovered;
+            built = renderer_refresh_interaction_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme);
+        }
+        if (!built || renderer.content_text->quad_count < baseline / 2)
+            return false;
+    }
+    log_u64(LogLevel::info, "probe", "text_drop_pressure_recovered_frames", recovered);
+    log_u64(LogLevel::info, "probe", "text_drop_pressure_atlas_resets", renderer.glyph_text.allocator.full_resets - resets);
+    log_u64(LogLevel::info, "probe", "text_drop_pressure_atlas_evictions",
+            renderer.glyph_text.allocator.evicted_entries - evictions);
+    return true;
+}
 } // namespace
 
 bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
@@ -548,6 +703,12 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
         stage = __LINE__;
     valid = valid &&
             show(f, renderer, page(SettingsPanel::accessibility), viewport, L"user-settings-accessibility.bmp", capture);
+    if (valid)
+        stage = __LINE__;
+    valid = valid && typography_churn(f, renderer, cache, viewport, page(SettingsPanel::accessibility));
+    if (valid)
+        stage = __LINE__;
+    valid = valid && text_drop_recovery(f, renderer, cache, viewport, page(SettingsPanel::accessibility));
     if (valid)
         stage = __LINE__;
     valid = valid &&

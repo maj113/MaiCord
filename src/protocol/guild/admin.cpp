@@ -345,16 +345,106 @@ bool reason_valid(const GuildAdminRequest& request) noexcept {
 
 // Body writers ------------------------------------------------------------
 
+// A body member that a patch's field bit selects: where its value sits in the patch and how it is written.
+enum class Json : u8 { text, optional_text, optional_snowflake, snowflake, number8, number32, boolean };
+struct MemberRow {
+    u32 field;
+    u16 offset;
+    Json kind;
+    const char* name;
+};
+#define MAICORD_ROW(patch, bit, member, kind, name) \
+    {bit, static_cast<u16>(__builtin_offsetof(patch, member)), Json::kind, name}
+void write_rows(JsonBody& b, const void* patch, u32 fields, const MemberRow* rows, u32 count) noexcept {
+    for (u32 i = 0; i < count; ++i) {
+        const MemberRow& r = rows[i];
+        if (!(fields & r.field))
+            continue;
+        b.key(r.name);
+        const u8* value = static_cast<const u8*>(patch) + r.offset;
+        switch (r.kind) {
+        case Json::text: b.put_json(*reinterpret_cast<const Utf8View*>(value)); break;
+        case Json::optional_text: {
+            const auto& text = *reinterpret_cast<const Utf8View*>(value);
+            b.put_optional_json(text.bytes != 0, text);
+            break;
+        }
+        case Json::optional_snowflake: {
+            const u64 id = *reinterpret_cast<const u64*>(value);
+            b.put_optional_snowflake(id != 0, id);
+            break;
+        }
+        case Json::snowflake: b.put_snowflake(*reinterpret_cast<const u64*>(value)); break;
+        case Json::number8: b.put_number(*value); break;
+        case Json::number32: b.put_number(*reinterpret_cast<const u32*>(value)); break;
+        case Json::boolean: b.put_text(*value ? "true" : "false"); break;
+        }
+    }
+}
+constexpr MemberRow kGuildRowsBeforeFeatures[]{
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_name, name, text, "name"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_icon, icon, optional_text, "icon"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_splash, splash, optional_text, "splash"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_banner, banner, optional_text, "banner"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_discovery_splash, discovery_splash, optional_text,
+                "discovery_splash"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_description, description, optional_text, "description"),
+};
+// The order Enable Community sends: features, then its two channels.
+constexpr MemberRow kGuildRowsAfterFeatures[]{
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_rules_channel, rules_channel_id, optional_snowflake,
+                "rules_channel_id"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_public_updates_channel, public_updates_channel_id,
+                optional_snowflake, "public_updates_channel_id"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_safety_alerts_channel, safety_alerts_channel_id,
+                optional_snowflake, "safety_alerts_channel_id"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_preferred_locale, preferred_locale, text, "preferred_locale"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_content_level, owner_configured_content_level, number8,
+                "owner_configured_content_level"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_afk_channel, afk_channel_id, optional_snowflake,
+                "afk_channel_id"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_afk_timeout, afk_timeout_seconds, number32, "afk_timeout"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_system_channel, system_channel_id, optional_snowflake,
+                "system_channel_id"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_verification_level, verification_level, number8,
+                "verification_level"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_default_notifications, default_message_notifications,
+                number8, "default_message_notifications"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_explicit_content_filter, explicit_content_filter, number8,
+                "explicit_content_filter"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_system_channel_flags, system_channel_flags, number32,
+                "system_channel_flags"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_progress_bar, premium_progress_bar_enabled, boolean,
+                "premium_progress_bar_enabled"),
+};
+constexpr MemberRow kRoleRows[]{
+    MAICORD_ROW(RolePatch, role_patch_name, name, text, "name"),
+    MAICORD_ROW(RolePatch, role_patch_permissions, permissions, snowflake, "permissions"),
+    MAICORD_ROW(RolePatch, role_patch_color, color, number32, "color"),
+    MAICORD_ROW(RolePatch, role_patch_hoist, hoist, boolean, "hoist"),
+    MAICORD_ROW(RolePatch, role_patch_mentionable, mentionable, boolean, "mentionable"),
+    MAICORD_ROW(RolePatch, role_patch_icon, icon, optional_text, "icon"),
+    MAICORD_ROW(RolePatch, role_patch_unicode_emoji, unicode_emoji, optional_text, "unicode_emoji"),
+};
+constexpr MemberRow kChannelRows[]{
+    MAICORD_ROW(ChannelPatch, channel_patch_name, name, text, "name"),
+    MAICORD_ROW(ChannelPatch, channel_patch_type, type, number8, "type"),
+    MAICORD_ROW(ChannelPatch, channel_patch_topic, topic, optional_text, "topic"),
+    MAICORD_ROW(ChannelPatch, channel_patch_parent, parent_id, optional_snowflake, "parent_id"),
+    MAICORD_ROW(ChannelPatch, channel_patch_position, position, number32, "position"),
+    MAICORD_ROW(ChannelPatch, channel_patch_nsfw, nsfw, boolean, "nsfw"),
+    MAICORD_ROW(ChannelPatch, channel_patch_slowmode, slowmode_seconds, number32, "rate_limit_per_user"),
+    MAICORD_ROW(ChannelPatch, channel_patch_bitrate, bitrate, number32, "bitrate"),
+    MAICORD_ROW(ChannelPatch, channel_patch_user_limit, user_limit, number32, "user_limit"),
+};
+#undef MAICORD_ROW
+static_assert(sizeof(PermissionSet) == sizeof(u64));
+
 // Key order is fixed, whichever fields are set.
 void write_guild(JsonBody& b, const GuildSettingsPatch& p) noexcept {
     const u32 f = p.fields;
     b.begin_object();
-    b.member_if(f & guild_settings_patch_name, "name", json_text(p.name));
-    b.member_if(f & guild_settings_patch_icon, "icon", nullable_json(p.icon));
-    b.member_if(f & guild_settings_patch_splash, "splash", nullable_json(p.splash));
-    b.member_if(f & guild_settings_patch_banner, "banner", nullable_json(p.banner));
-    b.member_if(f & guild_settings_patch_discovery_splash, "discovery_splash", nullable_json(p.discovery_splash));
-    b.member_if(f & guild_settings_patch_description, "description", nullable_json(p.description));
+    write_rows(b, &p, f, kGuildRowsBeforeFeatures, sizeof(kGuildRowsBeforeFeatures) / sizeof(kGuildRowsBeforeFeatures[0]));
     if (f & guild_settings_patch_features) {
         b.begin_array("features");
         for (u32 cursor = 0; cursor < p.feature_names.count;) {
@@ -365,24 +455,7 @@ void write_guild(JsonBody& b, const GuildSettingsPatch& p) noexcept {
         b.end_array();
     }
     // The order Enable Community sends: features, then its two channels.
-    b.member_if(f & guild_settings_patch_rules_channel, "rules_channel_id", nullable_snowflake(p.rules_channel_id));
-    b.member_if(f & guild_settings_patch_public_updates_channel, "public_updates_channel_id",
-                nullable_snowflake(p.public_updates_channel_id));
-    b.member_if(f & guild_settings_patch_safety_alerts_channel, "safety_alerts_channel_id",
-                nullable_snowflake(p.safety_alerts_channel_id));
-    b.member_if(f & guild_settings_patch_preferred_locale, "preferred_locale", json_text(p.preferred_locale));
-    b.member_if(f & guild_settings_patch_content_level, "owner_configured_content_level",
-                p.owner_configured_content_level);
-    b.member_if(f & guild_settings_patch_afk_channel, "afk_channel_id", nullable_snowflake(p.afk_channel_id));
-    b.member_if(f & guild_settings_patch_afk_timeout, "afk_timeout", p.afk_timeout_seconds);
-    b.member_if(f & guild_settings_patch_system_channel, "system_channel_id", nullable_snowflake(p.system_channel_id));
-    b.member_if(f & guild_settings_patch_verification_level, "verification_level", p.verification_level);
-    b.member_if(f & guild_settings_patch_default_notifications, "default_message_notifications",
-                p.default_message_notifications);
-    b.member_if(f & guild_settings_patch_explicit_content_filter, "explicit_content_filter", p.explicit_content_filter);
-    b.member_if(f & guild_settings_patch_system_channel_flags, "system_channel_flags", p.system_channel_flags);
-    b.member_if(f & guild_settings_patch_progress_bar, "premium_progress_bar_enabled",
-                json_bool(p.premium_progress_bar_enabled));
+    write_rows(b, &p, f, kGuildRowsAfterFeatures, sizeof(kGuildRowsAfterFeatures) / sizeof(kGuildRowsAfterFeatures[0]));
     b.end_object();
 }
 
@@ -418,13 +491,7 @@ void write_server_profile(JsonBody& b, const GuildServerProfileWrite& p) noexcep
 
 void write_role(JsonBody& b, const RolePatch& p) noexcept {
     b.begin_object();
-    b.member_if(p.fields & role_patch_name, "name", json_text(p.name));
-    b.member_if(p.fields & role_patch_permissions, "permissions", snowflake_text(p.permissions));
-    b.member_if(p.fields & role_patch_color, "color", p.color);
-    b.member_if(p.fields & role_patch_hoist, "hoist", json_bool(p.hoist));
-    b.member_if(p.fields & role_patch_mentionable, "mentionable", json_bool(p.mentionable));
-    b.member_if(p.fields & role_patch_icon, "icon", nullable_json(p.icon));
-    b.member_if(p.fields & role_patch_unicode_emoji, "unicode_emoji", nullable_json(p.unicode_emoji));
+    write_rows(b, &p, p.fields, kRoleRows, sizeof(kRoleRows) / sizeof(kRoleRows[0]));
     b.end_object();
 }
 
@@ -492,15 +559,7 @@ void write_overwrite(JsonBody& b, const PermissionOverwriteWrite& o) noexcept {
 
 void write_channel(JsonBody& b, const ChannelPatch& p) noexcept {
     b.begin_object();
-    b.member_if(p.fields & channel_patch_name, "name", json_text(p.name));
-    b.member_if(p.fields & channel_patch_type, "type", p.type);
-    b.member_if(p.fields & channel_patch_topic, "topic", nullable_json(p.topic));
-    b.member_if(p.fields & channel_patch_parent, "parent_id", nullable_snowflake(p.parent_id));
-    b.member_if(p.fields & channel_patch_position, "position", p.position);
-    b.member_if(p.fields & channel_patch_nsfw, "nsfw", json_bool(p.nsfw));
-    b.member_if(p.fields & channel_patch_slowmode, "rate_limit_per_user", p.slowmode_seconds);
-    b.member_if(p.fields & channel_patch_bitrate, "bitrate", p.bitrate);
-    b.member_if(p.fields & channel_patch_user_limit, "user_limit", p.user_limit);
+    write_rows(b, &p, p.fields, kChannelRows, sizeof(kChannelRows) / sizeof(kChannelRows[0]));
     if (p.fields & channel_patch_overwrites) {
         b.begin_array("permission_overwrites");
         for (u32 i = 0; i < p.overwrites.count; ++i) {

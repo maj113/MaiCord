@@ -41,9 +41,17 @@ bool search_fresh(const GameSearchEntry& entry, u64 now_ms) noexcept {
            now_ms - entry.stored_at < (entry.failed ? kGameSearchFailureStaleMs : kGameSearchStaleMs);
 }
 
-const GameSearchEntry* settled(const GameStore& store, Utf8View query, u64 now_ms) noexcept {
-    const GameSearchEntry* entry = game_store_search_find(store, query, now_ms);
-    return entry && !entry->pending && !entry->failed ? entry : nullptr;
+// The fresh, finished entry whose query is the longest prefix of `query` of at most `limit` bytes.
+const GameSearchEntry* longest_prefix(const GameStore& store, Utf8View query, u32 limit, u64 now_ms) noexcept {
+    const GameSearchEntry* best = nullptr;
+    for (u32 i = 0; i < store.search_count; ++i) {
+        const GameSearchEntry& entry = store.searches[i];
+        if (entry.query_bytes <= limit && (!best || entry.query_bytes > best->query_bytes) && !entry.pending &&
+            !entry.failed && now_ms - entry.stored_at < kGameSearchStaleMs &&
+            bytes_equal(entry.query, query.data, entry.query_bytes))
+            best = &entry;
+    }
+    return best;
 }
 
 constexpr u64 kExcluded[] = {
@@ -91,7 +99,7 @@ Utf8View game_store_name(const GameStore& store, u64 id) noexcept {
 }
 
 bool game_store_want(GameStore* store, u64 id, u64 now_ms) noexcept {
-    if (!store || !id)
+    if (!id)
         return false;
     GameRecord* record = find(store, id);
     if (record) {
@@ -115,17 +123,16 @@ bool game_store_want(GameStore* store, u64 id, u64 now_ms) noexcept {
     return true;
 }
 
-bool game_store_batch_due(const GameStore& store, u64) noexcept {
+bool game_store_batch_due(const GameStore& store) noexcept {
     for (u32 i = 0; i < store.count; ++i)
         if (store.records[i].state == GameState::wanted || store.records[i].upgrade == 1)
             return true;
     return false;
 }
 
-u32 game_store_take_batch(GameStore* store, Slice<u64> ids, u64) noexcept {
+u32 game_store_take_batch(GameStore* store, Slice<u64> ids) noexcept {
     u32 count = 0;
-    const u32 limit = minimum(ids.count, kGameLookupBatchMaximum);
-    for (u32 i = 0; store && ids.data && i < store->count && count < limit; ++i) {
+    for (u32 i = 0; i < store->count && count < ids.count; ++i) {
         GameRecord& record = store->records[i];
         if (record.state == GameState::wanted)
             record.state = GameState::pending;
@@ -139,7 +146,7 @@ u32 game_store_take_batch(GameStore* store, Slice<u64> ids, u64) noexcept {
 }
 
 void game_store_put(GameStore* store, const GuildAdminGame& game, bool full, u64) noexcept {
-    if (!store || !game.id)
+    if (!game.id)
         return;
     GameRecord* record = find(store, game.id);
     if (record && record->full && !full)
@@ -158,7 +165,7 @@ void game_store_put(GameStore* store, const GuildAdminGame& game, bool full, u64
 }
 
 void game_store_settle(GameStore* store, ConstSlice<u64> asked, bool ok, u64 now_ms) noexcept {
-    for (u32 i = 0; store && i < asked.count; ++i) {
+    for (u32 i = 0; i < asked.count; ++i) {
         GameRecord* record = find(store, asked[i]);
         if (record && record->upgrade == 2)
             record->upgrade = 3;
@@ -171,7 +178,7 @@ void game_store_settle(GameStore* store, ConstSlice<u64> asked, bool ok, u64 now
 }
 
 void game_store_return(GameStore* store, ConstSlice<u64> asked) noexcept {
-    for (u32 i = 0; store && i < asked.count; ++i) {
+    for (u32 i = 0; i < asked.count; ++i) {
         GameRecord* record = find(store, asked[i]);
         if (record && record->upgrade == 2)
             record->upgrade = 1;
@@ -186,24 +193,20 @@ const GameSearchEntry* game_store_search_find(const GameStore& store, Utf8View q
 }
 
 const GameSearchEntry* game_store_search_closest(const GameStore& store, Utf8View query, u64 now_ms) noexcept {
-    for (u32 bytes = query.bytes; bytes; --bytes)
-        if (const GameSearchEntry* entry = settled(store, {query.data, bytes}, now_ms))
-            return entry;
-    return nullptr;
+    return longest_prefix(store, query, query.bytes, now_ms);
 }
 
 bool game_store_search_suppressed(const GameStore& store, Utf8View query, u64 now_ms) noexcept {
-    for (u32 bytes = query.bytes ? query.bytes - 1 : 0; bytes; --bytes)
-        if (const GameSearchEntry* entry = settled(store, {query.data, bytes}, now_ms))
-            return !entry->count && bytes >= 7;
-    return false;
+    const GameSearchEntry* entry = longest_prefix(store, query, query.bytes ? query.bytes - 1 : 0, now_ms);
+    return entry && !entry->count && entry->query_bytes >= 7;
 }
 
 bool game_store_search_begin(GameStore* store, Utf8View query, u64 now_ms) noexcept {
-    if (!store || !query.bytes || query.bytes > kGameSearchQueryBytes ||
-        game_store_search_find(*store, query, now_ms))
+    if (!query.bytes || query.bytes > kGameSearchQueryBytes)
         return false;
     GameSearchEntry* entry = search_find(store, query);
+    if (entry && search_fresh(*entry, now_ms))
+        return false;
     if (!entry && store->search_count < store->searches.count)
         entry = &store->searches[store->search_count++];
     for (u32 i = 0; !entry && i < store->search_count; ++i)
@@ -221,7 +224,7 @@ bool game_store_search_begin(GameStore* store, Utf8View query, u64 now_ms) noexc
 
 void game_store_search_finish(GameStore* store, Utf8View query, ConstSlice<u64> ids, bool failed,
                               u64 now_ms) noexcept {
-    GameSearchEntry* entry = store ? search_find(store, query) : nullptr;
+    GameSearchEntry* entry = search_find(store, query);
     if (!entry)
         return;
     entry->pending = false;
@@ -250,7 +253,7 @@ bool game_store_search_excluded(u64 id) noexcept {
 u32 game_mention_write(u64 id, Slice<char> output) noexcept {
     char digits[20];
     const u32 count = id ? decimal_write(digits, id) : 0;
-    if (!count || !output.data || output.count < count + 4)
+    if (!count || output.count < count + 4)
         return 0;
     copy_bytes(output.data, "<@$", 3);
     copy_bytes(output.data + 3, digits, count);
@@ -265,15 +268,14 @@ bool starts(Utf8View text, u32 at, const char* literal, u32 bytes) noexcept {
 } // namespace
 
 bool game_token_at(Utf8View text, u32 offset, GameToken* token) noexcept {
-    if (!text.data || !starts(text, offset, kGameTokenHead, kGameTokenHeadBytes))
+    if (!starts(text, offset, kGameTokenHead, kGameTokenHeadBytes))
         return false;
     const u32 query = offset + kGameTokenHeadBytes;
     for (u32 at = query; at < text.bytes && text.data[at] != '\n'; ++at) {
         if (starts(text, at, kGameTokenHead, 3))
             return false;
         if (starts(text, at, kGameTokenEnd, kGameTokenEndBytes)) {
-            if (token)
-                *token = {offset, query, at, at + kGameTokenEndBytes};
+            *token = {offset, query, at, at + kGameTokenEndBytes};
             return true;
         }
     }

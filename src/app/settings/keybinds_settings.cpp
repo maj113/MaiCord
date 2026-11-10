@@ -55,7 +55,7 @@ Utf8View chord_chip(Chips& chips, u32 slot, ShortcutChord chord) noexcept {
     const u32 bytes = shortcut_chord_label(chord, {chips.text[slot], kChipBytes});
     return chips.views[slot] = {chips.text[slot], bytes};
 }
-Utf8View key_chip(Chips& chips, u8 key) noexcept {
+__forceinline Utf8View key_chip(Chips& chips, u8 key) noexcept {
     const u32 bytes = shortcut_key_label(key, {chips.text[0], kChipBytes});
     return chips.views[0] = {chips.text[0], bytes};
 }
@@ -78,7 +78,7 @@ void start_draft(CustomKeybindAction action, u32 editing) noexcept {
     ui.error = CustomKeybindError::none;
     ui.recorder.active = false;
 }
-u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresentation> presentation) noexcept {
+__forceinline u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresentation> presentation) noexcept {
     ensure_loaded();
     u32 count = 0;
     const auto emit = [&](const UiSettingsControl& control, UiSettingsVariant variant) noexcept {
@@ -131,7 +131,7 @@ u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresen
          UiSettingsVariant::standard);
     return count;
 }
-u32 default_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresentation> presentation) noexcept {
+__forceinline u32 default_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresentation> presentation) noexcept {
     const u32 listed = shortcut_listing({}, {ui.listing, kDefaultRows});
     u32 count = 0;
     for (u32 i = 0; i < listed && count < controls.count; ++i) {
@@ -151,7 +151,7 @@ u32 default_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPrese
     }
     return count;
 }
-void commit(ShortcutChord chord) noexcept {
+__forceinline void commit(ShortcutChord chord) noexcept {
     auto next = ui.keybinds;
     if (ui.editing < next.count)
         custom_keybinds_remove(&next, ui.editing);

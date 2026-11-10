@@ -1,4 +1,5 @@
 #include "maicord/core/shared_library.hpp"
+#include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
 #include "maicord/sys/linux/libc.hpp"
@@ -80,6 +81,29 @@ bool shared_library_open(SharedLibrary* library, const char* name) noexcept {
 
 void* shared_library_symbol(const SharedLibrary& library, const char* name) noexcept {
     return library.handle && name ? dlsym(library.handle, name) : nullptr;
+}
+
+const char* shared_library_resolve(const SharedLibrary& library, void* table, usize table_bytes,
+                                   const char* names) noexcept {
+    for (usize offset = 0; offset < table_bytes; offset += sizeof(void*)) {
+        void* const address = dlsym(library.handle, names);
+        if (!address)
+            return names;
+        copy_bytes(static_cast<u8*>(table) + offset, &address, sizeof(address));
+        names += c_string_length(names) + 1;
+    }
+    return nullptr;
+}
+
+void shared_library_log_missing(const char* component, const char* soname, const char* symbol) noexcept {
+    char message[128];
+    u32 length = 0;
+    const char* const parts[] = {soname, ": no symbol ", symbol};
+    for (const char* part : parts)
+        for (; *part && length + 1 < sizeof(message); ++part)
+            message[length++] = *part;
+    message[length] = 0;
+    log_write(LogLevel::warning, component, message);
 }
 
 void shared_library_close(SharedLibrary* library) noexcept {

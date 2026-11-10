@@ -1,6 +1,5 @@
 #include "maicord/app/voice/dave/welcome.hpp"
 #include "maicord/app/voice/dave/key_derivation.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "../../shell/byte_views.hpp"
 
 #include "maicord/core/memory.hpp"
@@ -126,24 +125,6 @@ void dave_welcome_release(DaveWelcomeCandidate* candidate) noexcept {
 DaveWelcomeResult dave_welcome_decrypt(KdfSha256Workspace& workspace, const P256Key& key,
                                        ConstSlice<u8> reference, ConstSlice<u8> input,
                                        DaveWelcomeCandidate* output) noexcept {
-    if (!output || !byte_range_valid(object_bytes(*output)) || reference.count != 32 ||
-        !byte_range_valid(reference) || !byte_range_valid(input) ||
-        byte_ranges_overlap(object_bytes(*output), input) ||
-        byte_ranges_overlap(object_bytes(*output), reference) || byte_ranges_overlap(input, reference))
-        return failure(DaveWelcomeError::invalid_input);
-    const ConstSlice<u8> spans[]{input, reference, object_bytes(*output), object_bytes(key)};
-    for (const auto span : spans)
-        if (aliases_workspace(workspace, span))
-            return failure(DaveWelcomeError::invalid_input);
-    for (u32 i = 0; i != 3; ++i)
-        if (byte_ranges_overlap(spans[i], object_bytes(key)))
-            return failure(DaveWelcomeError::invalid_input);
-    if (!workspace.storage.data || !workspace.storage.locked)
-        return failure(DaveWelcomeError::not_initialized);
-    if (!key.handle || key.kind != P256Kind::ecdh || !key.has_private)
-        return failure(DaveWelcomeError::invalid_input);
-    if (output->storage.data || output->storage.locked)
-        return failure(DaveWelcomeError::already_initialized);
     DaveWelcomeCandidate candidate{};
     const auto result = open_candidate(workspace, key, reference, input, candidate);
     if (result.ok()) {

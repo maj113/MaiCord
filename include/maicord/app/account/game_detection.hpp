@@ -201,7 +201,8 @@ void detectable_refresh_cancel() noexcept;
 // %LOCALAPPDATA%\MaiCord\games.bin; a missing file loads as empty.
 bool registered_games_load(RegisteredGames*) noexcept;
 bool registered_games_save(const RegisteredGames&) noexcept;
-// Portable record codec used by load/save (and tests); decodes the older added-programs-only record too.
+// Record codec used by load/save (and tests); decodes the older added-programs-only record too. Decode clears
+// *output first and leaves what it read when it returns false.
 u32 registered_games_encode(const RegisteredGames&, Slice<u8> output) noexcept;
 bool registered_games_decode(ConstSlice<u8> input, RegisteredGames*) noexcept;
 } // namespace maicord

@@ -454,19 +454,20 @@ const Api* library() noexcept {
         log_write(LogLevel::info, "fido2", "libfido2.so.1 is not installed: security keys are unavailable");
         return nullptr;
     }
-    SharedLibraryResolver resolve{g_library, nullptr};
-    Api api{};
-#define MAICORD_FIDO2_RESOLVE(result, name, arguments) resolve(&api.name, #name);
-    MAICORD_FIDO2_FUNCTIONS(MAICORD_FIDO2_RESOLVE)
-#undef MAICORD_FIDO2_RESOLVE
-    if (const char* missing = resolve.missing) {
+    // The functions' names in the order of Api's members.
+    static constexpr char kNames[] =
+#define MAICORD_FIDO2_NAME(result, name, arguments) #name "\0"
+        MAICORD_FIDO2_FUNCTIONS(MAICORD_FIDO2_NAME)
+#undef MAICORD_FIDO2_NAME
+        ;
+    static_assert(shared_library_name_count(kNames) * sizeof(void*) == sizeof(Api));
+    if (const char* missing = shared_library_resolve(g_library, &g_api, sizeof(g_api), kNames)) {
         // libfido2 lacks a function: security keys are unavailable.
         LogEvent("library_incomplete").field("missing", missing).write(LogLevel::warning, "fido2");
         shared_library_close(&g_library);
         return nullptr;
     }
-    api.fido_init(0);
-    g_api = api;
+    g_api.fido_init(0);
     g_state = 1;
     return &g_api;
 }

@@ -2281,6 +2281,8 @@ int run_probe() noexcept {
         }
         valid = valid && video_scene_ui_probe(g_probe.renderer, probe_capture_frame);
         valid = valid && theme_typography_ui_probe(g_probe.renderer);
+        valid = valid && chat_text_size_churn_ui_probe(g_probe.renderer, g_probe.message_scene,
+                                                       g_probe.text_measure_cache, rebuild_probe_content_text);
         valid = valid && audio_scene_ui_probe(g_probe.renderer);
         valid = valid && poll_scene_ui_probe(g_probe.renderer, probe_capture_frame);
         valid = valid && navigation_gaps_ui_probe(g_probe.renderer, &g_probe.navigation, g_probe.chat_state,

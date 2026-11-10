@@ -381,8 +381,9 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
                 const JpegComponent& component = image.components[component_index];
                 for (u32 vertical = 0; vertical < component.vertical_sampling; ++vertical)
                     for (u32 horizontal = 0; horizontal < component.horizontal_sampling; ++horizontal) {
+                        u32 end;
                         if (!decode_block(&reader, dc_decode[component.dc_table],
-                                          ac_decode[component.ac_table], &predictor[component_index], &block)) {
+                                          ac_decode[component.ac_table], &predictor[component_index], &block, &end)) {
                             result.error = reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                             return result;
                         }

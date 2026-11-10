@@ -60,6 +60,28 @@ struct RowLayout {
     UiRect row, label, description, control, lead, chips, value, tag, icon, meter, body;
     float height;
 };
+// The preview row (kind preview): body is the card; lead (cozy), tag and description the first message's avatar,
+// header (compact: the time column) and text line; chips its reactions; value the second message's text line; icon
+// the column of status avatars; control the example button. The rest follows from those.
+inline constexpr float kPreviewPadding = 24, kPreviewAvatar = 40, kPreviewReaction = 30, kPreviewStatusAvatar = 32,
+                       kPreviewStatusPitch = 38;
+inline UiRect preview_header(const RowLayout& r, u32 message, bool compact) noexcept {
+    const UiRect& text = message ? r.value : r.description;
+    return compact ? UiRect{r.tag.left, text.top, r.tag.right, text.bottom}
+                   : UiRect{text.left, text.top - ui_rect_height(text), text.right, text.top};
+}
+// The line a message's name starts: its header (cozy) or its text line (compact).
+inline UiRect preview_name_line(const RowLayout& r, u32 message, bool compact) noexcept {
+    return compact ? (message ? r.value : r.description) : preview_header(r, message, false);
+}
+inline UiRect preview_avatar(const RowLayout& r, u32 message) noexcept {
+    const float top = preview_header(r, message, false).top + 2;
+    return {r.lead.left, top, r.lead.right, top + ui_rect_height(r.lead)};
+}
+inline UiRect preview_status_avatar(const RowLayout& r, u32 index) noexcept {
+    const float top = r.icon.top + static_cast<float>(index) * kPreviewStatusPitch;
+    return {r.icon.left, top, r.icon.right, top + kPreviewStatusAvatar};
+}
 // Parts of a list row or card, from its row rectangle.
 struct ListParts {
     UiRect content, icon, lock, column, chevron;
@@ -107,6 +129,8 @@ bool link(const UiSettingsPageContent& content, u32 index) noexcept;
 bool has_flag(const UiSettingsPageContent& content, u32 index, u8 flag) noexcept;
 bool accent(const UiSettingsPageContent& content, u32 index) noexcept;
 bool avatar_backed(const UiSettingsPageContent& content, u32 index) noexcept;
+// A hashed user avatar, guild icon or default avatar (its CDN path as the hash) the host can request.
+bool avatar_media_ready(const UiSettingsAvatarMedia& media) noexcept;
 UiRect avatar_rect(const UiSettingsMetrics& m, const UiSettingsPageContent& content, u32 index, const UiRect& lead) noexcept;
 const UiSettingsListItem* list_item(const UiSettingsPageContent& content, u32 index) noexcept;
 bool list_style(const UiSettingsPageContent& content, u32 index, UiSettingsListStyle style) noexcept;
@@ -156,6 +180,11 @@ float glyph_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width
 u32 glyph_tile_hit(const UiSettingsLayoutTokens& t, const UiRect& field, u32 count, float x, float y) noexcept;
 // The glyph tile a row names at default_choice + offset, or null.
 const UiSettingsGlyphTile* glyph_tile(const UiSettingsPageContent& content, u32 index, u32 offset) noexcept;
+// A glyph tile's picture (UiSettingsGlyphTile::media) when it names one, and where it sits: kUiSettingsGlyphImageDips
+// in the middle of a Choose tile, kUiBadgeCompactIcon leading the name tag chip's (`tag`) label.
+bool glyph_image(const UiSettingsGlyphTile* glyph) noexcept;
+UiRect glyph_image_rect(const UiRect& tile) noexcept;
+UiRect glyph_chip_image_rect(const UiRect& tag) noexcept;
 // An edit cell's leading (emoji) button and trailing clear button inside its field.
 UiRect cell_lead_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept;
 UiRect cell_clear_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept;

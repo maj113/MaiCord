@@ -95,10 +95,19 @@ __declspec(noinline) void add_transform(const i16* in, u8* dst) noexcept {
 // ---- Intra prediction (section 12) ------------------------------------------
 // dst points at the block's first pixel; dst[-kWork..] is the row above
 // (including four above-right samples), dst[-1 + k * kWork] the left column.
+// size is 4, 8 or 16: one store per row.
 void fill(u8* dst, u32 size, u8 value) noexcept {
-    for (u32 y = 0; y < size; ++y)
-        for (u32 x = 0; x < size; ++x)
-            dst[y * kWork + x] = value;
+    const __m128i pattern = _mm_set1_epi8(static_cast<char>(value));
+#pragma clang loop unroll(disable)
+    for (u32 y = 0; y < size; ++y) {
+        u8* const row = dst + y * kWork;
+        if (size == 16)
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(row), pattern);
+        else if (size == 8)
+            _mm_storel_epi64(reinterpret_cast<__m128i*>(row), pattern);
+        else
+            _mm_storeu_si32(row, pattern);
+    }
 }
 void predict_dc(u8* dst, u32 size, bool top, bool left) noexcept {
     u32 sum = 0;

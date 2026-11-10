@@ -170,12 +170,11 @@ bool application_game_lookup_pending(u64 now) noexcept {
         return false;
     if (l->search_due && now >= l->due_at)
         invoke(*l, now);
-    return l->sent_bytes || (l->profile_id && l->profile_due) || game_store_batch_due(l->store, now);
+    return l->sent_bytes || l->profile_due || game_store_batch_due(l->store);
 }
 
+// Only called after application_game_lookup_pending reported work.
 bool application_game_lookup_submit(u64 request_id, u64 now) noexcept {
-    if (!application_game_lookup_pending(now))
-        return false;
     Lookup& l = *g_lookup;
     GuildAdminRequest request{};
     Request kind = Request::batch;
@@ -184,12 +183,12 @@ bool application_game_lookup_submit(u64 request_id, u64 now) noexcept {
         kind = Request::search;
         request.operation = GuildAdminOperation::game_search;
         request.game_query = view(l.sent, l.sent_bytes);
-    } else if (l.profile_id && l.profile_due) {
+    } else if (l.profile_due) {
         kind = Request::profile;
         request.operation = GuildAdminOperation::games_list;
         request.game_ids = {&l.profile_id, 1};
     } else {
-        l.asked_count = game_store_take_batch(&l.store, {l.asked, kGameLookupBatchMaximum}, now);
+        l.asked_count = game_store_take_batch(&l.store, {l.asked, kGameLookupBatchMaximum});
         if (!l.asked_count)
             return false;
         request.operation = GuildAdminOperation::games_list;
@@ -258,7 +257,7 @@ bool application_game_lookup_response(const RestClientResponse& response, Utf8Vi
         const u64 id = l->profile_id;
         if (good && !decoded.count && game_store_want(&l->store, id, now)) {
             u64 asked[1]{};
-            game_store_take_batch(&l->store, {asked, 1}, now);
+            game_store_take_batch(&l->store, {asked, 1});
             game_store_settle(&l->store, {asked, 1}, true, now);
         }
         application_game_profile_response(id, good, body);
@@ -274,8 +273,7 @@ u64 application_game_lookup_next_wake() noexcept {
     u64 wake = 0;
     if (l->search_due)
         wake = maximum<u64>(1, l->due_at);
-    if (l->sent_bytes || (l->profile_id && l->profile_due) ||
-        game_store_batch_due(l->store, clock_monotonic_milliseconds()))
+    if (l->sent_bytes || l->profile_due || game_store_batch_due(l->store))
         wake = 1;
     return wake && l->retry_at > wake ? l->retry_at : wake;
 }

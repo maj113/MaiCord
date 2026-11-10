@@ -21,19 +21,15 @@ void connection_unwatch_name(Connection* connection, u32 id) noexcept;
 
 // Properties and introspection -----------------------------------------------------------------------------------------
 
-struct ExportedProperty {
-    const char* interface;
-    const char* name;
-};
+// Writes the variant (open_variant, the value, close_variant) of the property at `index` of the object's list to `body`.
+using PropertyWriter = void (*)(u32 index, Builder* body) noexcept;
 
-// Writes the property's variant (open_variant, the value, close_variant) to `body`; false for an unknown property.
-using PropertyWriter = bool (*)(void* context, const char* interface, const char* name, Builder* body) noexcept;
-
+// `properties` names those of `interface`, NUL-terminated end to end with an empty name after the last (the string literal
+// "A\0B\0" is that), in the order `write` takes its index.
 struct ExportedObject {
-    const ExportedProperty* properties;
-    u32 property_count;
+    const char* interface;
+    const char* properties;  // null for none
     PropertyWriter write;
-    void* context;
     const char* introspection;  // the object's own interfaces as XML (the node and standard interfaces are added); null for none
 };
 

@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/chat/chat_state.hpp"
@@ -6,43 +6,41 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-static constexpr Utf8View kVerificationChoices[]{utf8_literal("None"), utf8_literal("Low"), utf8_literal("Medium"),
-                                          utf8_literal("High"), utf8_literal("Highest")};
-static_assert(sizeof(kVerificationChoices) / sizeof(kVerificationChoices[0]) == kGuildVerificationLevels);
-constexpr Utf8View kVerificationDetails[]{
-    utf8_literal("Unrestricted."),
-    utf8_literal("Members need a verified email."),
-    utf8_literal("Members need a verified email and an account older than 5 minutes."),
-    utf8_literal("Members also need to have been in the server for 10 minutes."),
-    utf8_literal("Members need a verified phone number.")};
-constexpr Utf8View kFilterChoices[]{utf8_literal("Don't scan any media"),
-                                    utf8_literal("Scan media from members without roles"),
-                                    utf8_literal("Scan media from all members")};
-static_assert(sizeof(kFilterChoices) / sizeof(kFilterChoices[0]) == kGuildContentFilterLevels);
+constexpr char kVerificationChoices[] = "None\0Low\0Medium\0High\0Highest\0";
+static_assert(name_list_count(kVerificationChoices) == kGuildVerificationLevels);
+constexpr char kVerificationDetails[] =
+    "Unrestricted.\0"
+    "Members need a verified email.\0"
+    "Members need a verified email and an account older than 5 minutes.\0"
+    "Members also need to have been in the server for 10 minutes.\0"
+    "Members need a verified phone number.";
+constexpr char kFilterChoices[] =
+    "Don't scan any media\0Scan media from members without roles\0Scan media from all members\0";
+static_assert(name_list_count(kFilterChoices) == kGuildContentFilterLevels);
 
 void project_safety(Bank& bank) noexcept {
     auto& p = *owner;
     const bool edit = editable() && page_allowed(Page::safety);
     auto& d = p.safety_draft;
-    push_category(control_list_category, utf8_literal("Verification level"),
-                  utf8_literal("Members must meet this before they can send messages or start conversations."));
-    push_choices(control_verification, utf8_literal("Verification level"), kVerificationDetails[d.verification_level],
-                 UiSettingsControlKind::radio, edit, {kVerificationChoices, kGuildVerificationLevels},
-                 d.verification_level);
-    push_category(control_display_category, utf8_literal("Explicit image filter"),
-                  utf8_literal("Automatically scan and delete explicit images and embeds."));
-    push_choices(control_content_filter, utf8_literal("Explicit image filter"), {}, UiSettingsControlKind::radio, edit,
-                 {kFilterChoices, kGuildContentFilterLevels}, d.explicit_content_filter);
+    push_category(control_list_category, "Verification level",
+                  "Members must meet this before they can send messages or start conversations.");
+    push_names(control_verification, "Verification level",
+               name_list_at(kVerificationDetails, d.verification_level), UiSettingsControlKind::radio, edit,
+               kVerificationChoices, kGuildVerificationLevels, d.verification_level);
+    push_category(control_display_category, "Explicit image filter",
+                  "Automatically scan and delete explicit images and embeds.");
+    push_names(control_content_filter, "Explicit image filter", {}, UiSettingsControlKind::radio, edit,
+               kFilterChoices, kGuildContentFilterLevels, d.explicit_content_filter);
     // Community servers set up AutoMod here (the official client routes it into Safety Setup).
     automod_safety_entry(bank);
-    push_category(control_delete_category, utf8_literal("Moderation"));
+    push_category(control_delete_category, "Moderation");
     const bool can_mfa = guild_settings_can_set_mfa(p.access);
     const bool self_mfa = state().self_mfa != SelfMfaState::disabled;
-    push_row(control_mfa, utf8_literal("Require 2FA for moderator actions"),
-             !can_mfa    ? utf8_literal("Only the server owner can change this.")
-             : !self_mfa ? utf8_literal("Turn on two-factor authentication for your account first.")
-                         : utf8_literal("Moderators must have two-factor authentication to ban, kick or delete messages."),
-             UiSettingsControlKind::toggle, edit && can_mfa && (self_mfa || d.mfa_level), d.mfa_level != 0);
+    push_toggle(control_mfa, "Require 2FA for moderator actions",
+                !can_mfa    ? "Only the server owner can change this."
+                : !self_mfa ? "Turn on two-factor authentication for your account first."
+                            : "Moderators must have two-factor authentication to ban, kick or delete messages.",
+                edit && can_mfa && (self_mfa || d.mfa_level), d.mfa_level != 0);
 }
 
 bool patch_pending() noexcept {
@@ -67,8 +65,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         d.explicit_content_filter = static_cast<u8>(activation.value.selected_choice);
     else if (id == control_mfa && guild_settings_can_set_mfa(p.access)) {
         d.mfa_level = activation.value.checked ? 1 : 0;
-        ui_settings_scene_animate_toggle(&p.scene, target, activation.value.checked,
-                                         clock_monotonic_milliseconds());
+        animate_toggle(activation);
     }
     repaint();
 }

@@ -7,7 +7,7 @@ namespace maicord::app_detail {
 //   Streamer Mode: "Streamer Mode is enabled." with Disable; the X hides it until Streamer Mode turns on again.
 //   Application Test Mode: "Test mode is currently active for **{application}**. ..." on the warning tint; the X
 //   ends test mode, as the official notice's.
-enum class ApplicationNoticeSource : u8 { streamer_mode, test_mode, count };
+enum class ApplicationNoticeSource : u8 { none, streamer_mode, test_mode };
 // Re-reads the sources and, when the shown notice or its expansion changed, lays the shell out again. Cheap when
 // nothing changed; the main loop calls it every frame.
 void application_notice_synchronize(u64 now_ms) noexcept;

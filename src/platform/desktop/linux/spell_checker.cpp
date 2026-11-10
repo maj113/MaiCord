@@ -82,18 +82,16 @@ int compare_bytes(const char* a, const char* b, u32 count) noexcept {
 bool open_hunspell(Backend* backend) noexcept {
     // Only the tests name another soname (the missing-library path).
     const char* soname = test_hook("MAICORD_HUNSPELL_LIBRARY");
-    if (!shared_library_open(&backend->library, soname && *soname ? soname : "libhunspell-1.7.so.0"))
+    if (!soname || !*soname)
+        soname = "libhunspell-1.7.so.0";
+    if (!shared_library_open(&backend->library, soname))
         return false;
-    SharedLibraryResolver resolve{backend->library, nullptr};
-    HunspellApi& api = backend->hunspell;
-    resolve(&api.create, "Hunspell_create");
-    resolve(&api.destroy, "Hunspell_destroy");
-    resolve(&api.spell, "Hunspell_spell");
-    resolve(&api.suggest, "Hunspell_suggest");
-    resolve(&api.add, "Hunspell_add");
-    resolve(&api.free_list, "Hunspell_free_list");
-    resolve(&api.encoding, "Hunspell_get_dic_encoding");
-    if (resolve.missing) {
+    // The functions of HunspellApi, in member order.
+    static constexpr char kNames[] =
+        "Hunspell_create\0Hunspell_destroy\0Hunspell_spell\0Hunspell_suggest\0Hunspell_add\0Hunspell_free_list\0"
+        "Hunspell_get_dic_encoding\0";
+    static_assert(shared_library_name_count(kNames) * sizeof(void*) == sizeof(HunspellApi));
+    if (shared_library_resolve(backend->library, &backend->hunspell, sizeof(HunspellApi), kNames)) {
         shared_library_close(&backend->library);
         return false;
     }
@@ -103,23 +101,19 @@ bool open_hunspell(Backend* backend) noexcept {
 
 bool open_enchant(Backend* backend) noexcept {
     const char* soname = test_hook("MAICORD_ENCHANT_LIBRARY");
-    if (!shared_library_open(&backend->library, soname && *soname ? soname : "libenchant-2.so.2"))
+    if (!soname || !*soname)
+        soname = "libenchant-2.so.2";
+    if (!shared_library_open(&backend->library, soname))
         return false;
-    SharedLibraryResolver resolve{backend->library, nullptr};
-    EnchantApi& api = backend->enchant;
-    resolve(&api.broker_init, "enchant_broker_init");
-    resolve(&api.broker_free, "enchant_broker_free");
-    resolve(&api.request_dict, "enchant_broker_request_dict");
-    resolve(&api.free_dict, "enchant_broker_free_dict");
-    resolve(&api.dict_exists, "enchant_broker_dict_exists");
-    resolve(&api.check, "enchant_dict_check");
-    resolve(&api.suggest, "enchant_dict_suggest");
-    resolve(&api.free_list, "enchant_dict_free_string_list");
-    resolve(&api.add, "enchant_dict_add");
-    resolve(&api.add_to_session, "enchant_dict_add_to_session");
+    // The functions of EnchantApi, in member order.
+    static constexpr char kNames[] =
+        "enchant_broker_init\0enchant_broker_free\0enchant_broker_request_dict\0enchant_broker_free_dict\0"
+        "enchant_broker_dict_exists\0enchant_dict_check\0enchant_dict_suggest\0enchant_dict_free_string_list\0"
+        "enchant_dict_add\0enchant_dict_add_to_session\0";
+    static_assert(shared_library_name_count(kNames) * sizeof(void*) == sizeof(EnchantApi));
     void* broker = nullptr;
-    if (!resolve.missing)
-        broker = api.broker_init();
+    if (!shared_library_resolve(backend->library, &backend->enchant, sizeof(EnchantApi), kNames))
+        broker = backend->enchant.broker_init();
     if (!broker) {
         shared_library_close(&backend->library);
         return false;

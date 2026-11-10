@@ -252,21 +252,11 @@ struct Policy {
     const SfntGdef* gdef;const Shaper* shaper;const u8* meta;const u16* original;const u8* types;const u32* starts;
     u16* snapshot;u32 snapshot_nodes,count,clusters,units;SfntComponentForest* forest;bool rphf,pref;u32 snapshot_used=0;
 };
-// The first component of a glyph carries its metadata (HarfBuzz keeps the first component's properties on a
-// ligature); an expansion output left without components takes the metadata of the output before it.
-struct Glyphs {
-    SfntComponentForest& forest;Slice<SfntComponentGlyph> g;Work& work;SfntStatus status=SfntStatus::ok;
-    u32 owner(u32 i) const noexcept {u32 j=i;while(j&&g[j].component==nil)--j;
-        if(g[j].component==nil)while(j+1<g.count&&g[j].component==nil)++j;return g[j].component;}
-    SfntComponentNode* first(u32 i) noexcept {u32 node=owner(i);if(node==nil)return nullptr;
-        while(node<forest.nodes.count){if(!work.spend(1)){status=SfntStatus::resource_limit;return nullptr;}
-            auto& n=forest.nodes[node];if((n.flags&1)||n.left==nil)return &n;node=n.left;}
-        status=SfntStatus::invalid_input;return nullptr;}
-    u8 meta(u32 i) noexcept {const auto* n=first(i);return n?static_cast<u8>(n->reserved>>8):0;}
+// The syllabic shapers' view of the shared accessors: the category in the low bits of a glyph's metadata.
+struct Glyphs : script_work::Glyphs {
+    Glyphs(SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,Work& work) noexcept : script_work::Glyphs{forest,glyphs,work} {}
     U use(u32 i) noexcept {return static_cast<U>(meta(i)&category_bits);}
     void set(u32 i,U c) noexcept {if(auto* n=first(i))n->reserved=static_cast<u16>((n->reserved&~(static_cast<u16>(category_bits)<<8))|static_cast<u16>(c)<<8);}
-    bool ligated(u32 i) const noexcept {const u32 node=owner(i);return node<forest.nodes.count&&forest.nodes[node].count>=2;}
-    void move(u32 from,u32 before) noexcept {if(status==SfntStatus::ok)status=script_work::move_before(g,from,before,work);}
 };
 // Visits each syllable's glyphs: the glyphs whose sources lie in one initial cluster.
 template<class Visit> SfntStatus syllables(const Policy& p,Slice<SfntComponentGlyph> glyphs,Work& work,const Visit& visit) noexcept {
@@ -321,20 +311,17 @@ SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap
     if(!p.shaper->use||stage<2||stage>5)return SfntStatus::ok;
     if(!work.spend(minimum(p.snapshot_nodes,static_cast<u32>(forest->nodes.count))+count))return SfntStatus::resource_limit;
     Glyphs s{*forest,glyphs,work};
-    if(stage==3&&p.rphf)status=syllables(p,glyphs,work,[&](u32 start,u32 end,u32) noexcept {
+    const bool rphf_pass=stage==3&&p.rphf;
+    if(rphf_pass||(stage==4&&p.pref)||stage==5)status=syllables(p,glyphs,work,[&](u32 start,u32 end,u32 syllable) noexcept {
+        if(stage==5){const u8 type=p.types[syllable];
+            if(end-start>1&&(type==use_virama||type==use_sakot||type==use_standard||type==use_symbol||type==use_broken))use_reorder(s,start,end);}
         // A substituted glyph among the rphf-masked ones at the start becomes a repha.
-        for(u32 i=start;i<end&&(glyphs[i].glyph.reserved&sfnt_use_rphf);++i)if(substituted(p,glyphs[i])){s.set(i,U::r);break;}
-        return s.status;});
-    if(stage==4&&p.pref)status=syllables(p,glyphs,work,[&](u32 start,u32 end,u32) noexcept {
+        else if(rphf_pass){for(u32 i=start;i<end&&(glyphs[i].glyph.reserved&sfnt_use_rphf);++i)if(substituted(p,glyphs[i])){s.set(i,U::r);break;}}
         // A substituted pref glyph behaves like a pre-base vowel.
-        for(u32 i=start;i<end;++i)if(substituted(p,glyphs[i])){s.set(i,U::vpre);break;}
+        else for(u32 i=start;i<end;++i)if(substituted(p,glyphs[i])){s.set(i,U::vpre);break;}
         return s.status;});
     if(status!=SfntStatus::ok)return status;
     if((stage==2&&p.rphf)||(stage==3&&p.pref))snapshot(p,glyphs);
-    if(stage==5)status=syllables(p,glyphs,work,[&](u32 start,u32 end,u32 syllable) noexcept {
-        const u8 type=p.types[syllable];
-        if(end-start>1&&(type==use_virama||type==use_sakot||type==use_standard||type==use_symbol||type==use_broken))use_reorder(s,start,end);
-        return s.status;});
     return status;
 }
 // Final classes, mark zeroing and the default ignorables HarfBuzz hides: those substitution left alone keep their

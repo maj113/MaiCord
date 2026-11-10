@@ -7,10 +7,9 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-constexpr Utf8View kGenerate[]{utf8_literal("Generate Template")};
-// Sync shows only while the server has unsynced changes.
-constexpr Utf8View kActions[]{utf8_literal("Sync Template"), utf8_literal("Preview Template"),
-                              utf8_literal("Delete Template")};
+// Sync shows only while the server has unsynced changes (the list then starts after it).
+constexpr char kActions[] = "Sync Template\0Preview Template\0Delete Template";
+constexpr u32 kSyncBytes = sizeof("Sync Template");
 constexpr u32 kSync = 0, kPreview = 1;
 
 Utf8View title() noexcept {
@@ -56,9 +55,9 @@ bool texts_valid() noexcept {
 
 void project(Bank& bank) noexcept {
     auto* s = server_access_state();
-    push_category(control_list_category, utf8_literal("Server Template"),
-                  utf8_literal("A server template is an easy way to share your server setup and help anyone create "
-                               "a server instantly."));
+    push_category(control_list_category, "Server Template",
+                  "A server template is an easy way to share your server setup and help anyone create a server "
+                  "instantly.");
     push_notices("When someone uses your server template link, they create a new server pre-filled with the same "
                  "channels, roles, permissions and settings as yours.\0\0"
                  "Channels and channel topics · Roles and permissions · Default server settings\0"
@@ -70,45 +69,43 @@ void project(Bank& bank) noexcept {
         return;
     }
     if (!channels_visible()) {
-        push_notice(utf8_literal("You must be able to see all channels in this server to view or create server "
-                                 "templates."));
+        push_notice("You must be able to see all channels in this server to view or create server templates.");
         return;
     }
     if (s->templates_failed) {
-        push_load_error(utf8_literal("Couldn't load the server template"));
+        push_load_error("Couldn't load the server template");
         return;
     }
     if (!s->templates_loaded) {
-        push_loading(utf8_literal("Loading the server template…"));
+        push_loading("Loading the server template…");
         return;
     }
     push_status_error();
     const bool edit = editable() && can_manage_guild();
-    push_editor(control_name, utf8_literal("Template Title"), {}, UiSettingsControlKind::edit, edit, editor_name,
-                utf8_literal("Who is this server for? E.g. School Club, Artists' Community"));
+    push_editor(control_name, "Template Title", {}, UiSettingsControlKind::edit, edit, editor_name,
+                "Who is this server for? E.g. School Club, Artists' Community");
     if (title().bytes && !guild_template_title_valid(title()))
-        push_row(template_title_error, utf8_literal("Name must be at least 2 characters long"), {},
-                 UiSettingsControlKind::error, true);
-    push_editor(control_description, utf8_literal("Template Description"), {}, UiSettingsControlKind::multiline, edit,
-                editor_description, utf8_literal("What can people do in this server?"));
+        push_row(template_title_error, "Name must be at least 2 characters long", {}, UiSettingsControlKind::error,
+                 true);
+    push_editor(control_description, "Template Description", {}, UiSettingsControlKind::multiline, edit,
+                editor_description, "What can people do in this server?");
     if (!guild_template_description_valid(description()))
-        push_row(template_description_error, utf8_literal("Descriptions can be up to 120 characters."), {},
+        push_row(template_description_error, "Descriptions can be up to 120 characters.", {},
                  UiSettingsControlKind::error, true);
     if (!s->template_exists) {
-        push_choices(template_create_button, utf8_literal("Create a template link"),
-                     utf8_literal("Anyone with the link can create a new server from this one's setup."),
-                     UiSettingsControlKind::buttons, edit && !busy() && texts_valid(), {kGenerate, 1});
+        push_buttons(template_create_button, "Create a template link",
+                     "Anyone with the link can create a new server from this one's setup.",
+                     edit && !busy() && texts_valid(), "Generate Template", 1);
         return;
     }
     const auto& t = s->guild_template;
     const u32 start = bank.used;
     bank.add("https://discord.new/");
     bank.add({t.code, t.code_bytes});
-    push_row(template_link, utf8_literal("Template Link"), bank.since(start), UiSettingsControlKind::action, true,
-             false, utf8_literal("Copy"));
+    push_action(template_link, "Template Link", bank.since(start), "Copy");
     if (t.dirty) {
-        push_notice(utf8_literal("* You have unsynced changes. Update the channels, roles and permissions in your "
-                                 "template by syncing."));
+        push_notice("* You have unsynced changes. Update the channels, roles and permissions in your template by "
+                    "syncing.");
         if (t.updated_at_ms) {
             const u32 since = bank.used;
             bank.add("Last sync: ");
@@ -116,8 +113,8 @@ void project(Bank& bank) noexcept {
             push_notice(bank.since(since));
         }
     }
-    push_choices(template_actions, utf8_literal("Manage template"), {}, UiSettingsControlKind::buttons,
-                 edit && !busy(), t.dirty ? ConstSlice<Utf8View>{kActions, 3} : ConstSlice<Utf8View>{kActions + 1, 2});
+    push_buttons(template_actions, "Manage template", {}, edit && !busy(), t.dirty ? kActions : kActions + kSyncBytes,
+                 t.dirty ? 3u : 2u);
 }
 
 bool delete_confirmed(TextFormOwnerKey key, Utf8View) noexcept {
@@ -130,19 +127,18 @@ bool delete_confirmed(TextFormOwnerKey key, Utf8View) noexcept {
 }
 
 void confirm_delete() noexcept {
-    open_confirmation(form_template_delete, 0, utf8_literal("Delete Template"),
-                      utf8_literal("Are you sure you want to delete your template? This will prevent anyone with the "
-                                   "link from using it."),
-                      utf8_literal("Delete Template"), delete_confirmed);
+    open_confirmation(form_template_delete, 0, "Delete Template",
+                      "Are you sure you want to delete your template? This will prevent anyone with the link from "
+                      "using it.",
+                      "Delete Template", delete_confirmed);
 }
 
 // The snapshot the link creates: its channels and roles.
 void preview() noexcept {
     const auto& t = owner->server_access->guild_template;
-    open_preview(form_template_delete, 1, utf8_literal("Preview Template"), {t.name, t.name_bytes},
+    open_preview(form_template_delete, 1, "Preview Template", Utf8View{t.name, t.name_bytes},
                  t.description_bytes ? Utf8View{t.description, t.description_bytes} : Utf8View{},
-                 t.preview_bytes ? Utf8View{t.preview, t.preview_bytes}
-                                 : utf8_literal("This template has no channels or roles."));
+                 t.preview_bytes ? Text(Utf8View{t.preview, t.preview_bytes}) : Text("This template has no channels or roles."));
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {
@@ -205,12 +201,12 @@ void notice() noexcept {
     ensure_data();
 }
 
-Utf8View invalid() noexcept {
+const char* invalid() noexcept {
     if (!guild_template_title_valid(title()))
-        return utf8_literal("Name must be at least 2 characters long");
+        return "Name must be at least 2 characters long";
     if (!guild_template_description_valid(description()))
-        return utf8_literal("Descriptions can be up to 120 characters.");
-    return {};
+        return "Descriptions can be up to 120 characters.";
+    return nullptr;
 }
 
 // A template reply carries the whole server: its index takes a bank sized to it.

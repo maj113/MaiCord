@@ -6,7 +6,6 @@
 namespace maicord {
 enum class VoicePacketError : u8 {
     none,
-    invalid_input,
     not_initialized,
     stale_generation,
     malformed_packet,
@@ -38,8 +37,8 @@ AeadResult voice_packet_initialize(VoicePacketCrypto* crypto, u64 generation, u3
                                    XChaChaBackend backend = XChaChaBackend::automatic) noexcept;
 void voice_packet_release(VoicePacketCrypto* crypto) noexcept;
 
-// Input/output are full packets. Seal appends a 16-byte tag and 4-byte BE nonce.
-// Exact in-place operation is allowed; partial overlaps and key aliases are not.
+// Input/output are full packets, the callers' own buffers. Seal appends a 16-byte tag and 4-byte BE nonce.
+// Exact in-place operation is allowed; partial overlaps and key aliases are not (the ciphers reject them).
 // Invalid/short/stale packets do not consume a nonce. Once encryption starts a
 // nonce is consumed even if crypto or the subsequent UDP send fails. Never wrap.
 // Rejected authentication/malformed decrypted framing clears the attempted

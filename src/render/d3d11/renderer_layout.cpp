@@ -875,14 +875,16 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
     }
     if (!dialog && renderer->settings_scene) {
         // The Server Profile page: its live preview card (a pinned guild card in the aside) and the marks over the
-        // page's grid cells (a chosen game's check) and upload tile (its hover shade), above the page's media.
+        // page's grid cells (a chosen game's check) and upload tile (its hover shade), and Accessibility's example
+        // avatars (their status badges), above the page's media.
         const auto* card = renderer->settings_guild_preview;
         const bool shown = card && card->active;
         bool cells = false;
-        for (u32 i = 0; !cells && i < renderer->settings_scene->content.controls.count; ++i)
-            cells = renderer->settings_scene->content.presentation &&
-                    (renderer->settings_scene->content.presentation[i].more &
-                     (ui_settings_more_cell | ui_settings_more_upload_tile));
+        const auto& content = renderer->settings_scene->content;
+        for (u32 i = 0; !cells && i < content.controls.count; ++i)
+            cells = content.controls[i].kind == UiSettingsControlKind::preview ||
+                    (content.presentation && (content.presentation[i].more &
+                                              (ui_settings_more_cell | ui_settings_more_upload_tile)));
         if (shown || cells) {
             const auto viewport = shown ? card->viewport : renderer->settings_scene->viewport;
             const auto section = [&](auto&& emit) noexcept {

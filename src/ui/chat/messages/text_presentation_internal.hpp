@@ -137,6 +137,14 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
                     const UiRect& rectangle, const UiRect& clip, const Color& color,
                     const MessageRecord* record, u16 measurement_index, const CommandLook& look,
                     const Color& inline_role_color = kNoRoleColor) noexcept;
+// Copies `text` into the retained text bank.
+bool retain_text(MessageTextPresentation* presentation, const Utf8View& text, Utf8View* output) noexcept;
+// Appends one command carrying `span` (none when its byte_count is 0) and `semantic` (none when null), both
+// retained in the banks.
+bool append_marked(MessageTextPresentation* presentation, const Utf8View& text, const TextStyleSpan& span,
+                   const MessageMarkdownSemantic* semantic, const UiWidgetReference& owner, const UiRect& rectangle,
+                   const UiRect& clip, const Color& color, const MessageRecord* record, u16 measurement_index,
+                   const CommandLook& look) noexcept;
 bool begin_flow_item_clamped(UiTextFlowLayout* flow, float left_inset, float right_inset,
                              UiRect* rectangle) noexcept;
 bool begin_item(MessageTextPresentation* presentation, UiTextFlowLayout* flow, float left_inset,

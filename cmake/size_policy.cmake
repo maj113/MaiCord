@@ -95,7 +95,7 @@ maicord_compact_sources(
         src/app/chat/account_private_channel.cpp src/app/chat/search/account_message_search.cpp
         src/app/guild/account_guild_invite.cpp src/app/settings/account_settings_rest.cpp
         src/app/media/account_media_catalog.cpp src/app/chat/polls/account_message_poll.cpp
-        src/app/voice/mls/hpke_derivation.cpp src/app/voice/mls/hpke_context.cpp src/app/voice/mls/hpke.cpp
+        src/app/voice/mls/hpke_derivation.cpp src/app/voice/mls/hpke.cpp
         src/app/voice/mls/key_schedule.cpp src/app/voice/mls/key_package.cpp src/app/voice/mls/signature.cpp
         src/app/voice/mls/exporter.cpp src/app/voice/dave/key_package.cpp src/app/voice/dave/welcome.cpp
         src/app/voice/dave/receive_epoch.cpp src/app/voice/connection_setup.cpp src/app/voice/media_setup.cpp

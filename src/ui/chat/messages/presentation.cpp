@@ -143,13 +143,14 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
     const u32 count = minimum<u32>(row.invite_item_count,
                                    message_scene_invite_codes(scene, record, {links, kMessageInviteCardMaximum}));
     for (u32 i = 0; i < count; ++i) {
-        const UiLayoutNode* node = message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::invite, i);
+        const UiWidgetHandle item_widget = message_scene_rich_item_widget(row, MessageSceneRichItemKind::invite, i);
+        const UiLayoutNode* node = message_scene_layout_node(scene, item_widget);
         if (!node)
             return false;
         const auto geometry = message_invite_card_geometry(node->rectangle);
         if (!ui_rect_intersects(geometry.card, row_clip))
             continue;
-        const UiWidgetReference owner{&scene.widgets, message_scene_rich_item_widget(row, MessageSceneRichItemKind::invite, i)};
+        const UiWidgetReference owner{&scene.widgets, item_widget};
         const UiRect glyph{geometry.icon.left + 13.0f, geometry.icon.top + 13.0f,
                            geometry.icon.right - 13.0f, geometry.icon.bottom - 13.0f};
         // The card's cover or guild icon is media keyed by its URL; the View or Join button follows it.
@@ -457,8 +458,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
     for (u32 index = 0; index < rich->attachment_count; ++index) {
         const UiWidgetHandle item_widget =
             message_scene_rich_item_widget(row, MessageSceneRichItemKind::attachment, index);
-        const UiLayoutNode* item_layout =
-            message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::attachment, index);
+        const UiLayoutNode* item_layout = message_scene_layout_node(scene, item_widget);
         if (!item_layout) {
             return false;
         }
@@ -525,8 +525,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
     for (u32 index = 0; message_rich_display().embeds && index < rich->embed_count; ++index) {
         const UiWidgetHandle item_widget =
             message_scene_rich_item_widget(row, MessageSceneRichItemKind::embed, index);
-        const UiLayoutNode* item_layout =
-            message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::embed, index);
+        const UiLayoutNode* item_layout = message_scene_layout_node(scene, item_widget);
         if (!item_layout) {
             return false;
         }
@@ -658,8 +657,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
     for (u32 index = 0; index < rich->sticker_count; ++index) {
         const UiWidgetHandle item_widget =
             message_scene_rich_item_widget(row, MessageSceneRichItemKind::sticker, index);
-        const UiLayoutNode* item_layout =
-            message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::sticker, index);
+        const UiLayoutNode* item_layout = message_scene_layout_node(scene, item_widget);
         if (!item_layout) {
             return false;
         }
@@ -684,8 +682,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             continue;
         const UiWidgetHandle item_widget =
             message_scene_rich_item_widget(row, MessageSceneRichItemKind::component, index);
-        const UiLayoutNode* item_layout =
-            message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, index);
+        const UiLayoutNode* item_layout = message_scene_layout_node(scene, item_widget);
         if (!item_layout) {
             return false;
         }

@@ -61,11 +61,15 @@ void on_owner_reply(void* context, Status status, const Message*) noexcept {
 
 // Properties ------------------------------------------------------------------------------------------------------------
 
-bool owns_property(const ExportedObject& object, const char* interface, const char* name) noexcept {
-    for (u32 i = 0; i < object.property_count; ++i)
-        if (c_string_equal(object.properties[i].interface, interface) && c_string_equal(object.properties[i].name, name))
-            return true;
-    return false;
+// The position of the property `name` of `interface` in the object's list, or ~0u when it has none such.
+u32 property_index(const ExportedObject& object, const char* interface, const char* name) noexcept {
+    if (!object.properties || !c_string_equal(object.interface, interface))
+        return ~0u;
+    u32 index = 0;
+    for (const char* property = object.properties; *property; property += c_string_length(property) + 1, ++index)
+        if (c_string_equal(property, name))
+            return index;
+    return ~0u;
 }
 
 // Portal requests ---------------------------------------------------------------------------------------------------------
@@ -168,7 +172,7 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
         char text[3072];
         u32 used = 0;
         const char* const parts[] = {"<node>", object.introspection,
-                                     object.property_count ? "<interface name=\"org.freedesktop.DBus.Properties\"/>" : "",
+                                     object.properties ? "<interface name=\"org.freedesktop.DBus.Properties\"/>" : "",
                                      "<interface name=\"org.freedesktop.DBus.Introspectable\"/></node>"};
         for (const char* part : parts) {
             const u32 length = c_string_length(part);
@@ -199,8 +203,10 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
         }
         Builder body;
         builder_init(&body);
-        if (!owns_property(object, interface, name) || !object.write(object.context, interface, name, &body) ||
-            !builder_ok(body)) {
+        const u32 index = property_index(object, interface, name);
+        if (index != ~0u)
+            object.write(index, &body);
+        if (index == ~0u || !builder_ok(body)) {
             builder_release(&body);
             connection_reply_error(c, call, "org.freedesktop.DBus.Error.UnknownProperty", "no such property");
             return true;
@@ -217,14 +223,14 @@ bool object_handle_standard(Connection* c, const Message& call, const ExportedOb
         Builder body;
         builder_init(&body);
         builder_open_array(&body, "{sv}");
-        for (u32 i = 0; i < object.property_count; ++i) {
-            if (!c_string_equal(object.properties[i].interface, interface))
-                continue;
-            builder_open_entry(&body);
-            builder_string(&body, object.properties[i].name);
-            if (!object.write(object.context, interface, object.properties[i].name, &body))
-                body.failed = true;
-            builder_close_entry(&body);
+        if (object.properties && c_string_equal(object.interface, interface)) {
+            u32 index = 0;
+            for (const char* property = object.properties; *property; property += c_string_length(property) + 1, ++index) {
+                builder_open_entry(&body);
+                builder_string(&body, property);
+                object.write(index, &body);
+                builder_close_entry(&body);
+            }
         }
         builder_close_array(&body);
         if (!builder_ok(body)) {

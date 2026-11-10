@@ -52,9 +52,7 @@ SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyph
     if(!defer_output)status=sfnt_position_finalize({s.positions.data,count},{s.flags.data,count},em,plan.units_per_em,{s.placements.data,count},limits.stage_work,plan.retain_zero_positioning);
     return status;
 }
-namespace {
-// Runs with per-cluster steps take the scoped instantiation; every other run keeps the plain one.
-template<bool scoped> __attribute__((always_inline)) inline SfntStatus shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph> input,
+SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph> input,
     u32 units,ConstSlice<u32> boundaries,bool rtl,float em,const SfntShapeStorage& s,
     SfntShapeRunResult* result,SfntShapeLimits limits,ConstSlice<SfntLookupStep> steps,ConstSlice<u32> input_order,SfntShapeGlyphPolicy policy,const SfntShapeInputPolicy* initial,const SfntShapeStagePolicy* stages,bool defer_output) noexcept {
     if(!result)return SfntStatus::invalid_input;
@@ -67,8 +65,10 @@ template<bool scoped> __attribute__((always_inline)) inline SfntStatus shape_run
        ((plan.substitution_roots.count||steps.count)&&!plan.substitutions)||(plan.positioning_roots.count&&!plan.positioning)||
        (steps.count&&plan.substitution_roots.count)||(input_order.count && input_order.count!=input.count))
         return SfntStatus::invalid_input;
+    // Runs with per-cluster steps (the Indic and syllabic shapers) take the scoped path of the root loop.
+    const bool scoped=stages&&stages->per_cluster.count;
     if(stages&&(!stages->prepare||!stages->count||stages->count>256||plan.substitution_roots.count))return SfntStatus::invalid_input;
-    if constexpr(scoped)if(!stages->per_cluster.data||stages->per_cluster.count<(static_cast<u64>(steps.count)+63)/64)return SfntStatus::invalid_input;
+    if(scoped&&(!stages->per_cluster.data||stages->per_cluster.count<(static_cast<u64>(steps.count)+63)/64))return SfntStatus::invalid_input;
     if(input.count>limits.stage_work||steps.count>limits.stage_work||plan.substitution_roots.count>limits.stage_work||
        plan.positioning_roots.count>limits.stage_work)return SfntStatus::resource_limit;
     if(input.count>s.glyphs.count||units>s.character_glyphs.count||s.glyphs.count>0xffffffffu/sizeof(SfntComponentGlyph))
@@ -139,14 +139,10 @@ template<bool scoped> __attribute__((always_inline)) inline SfntStatus shape_run
         const u32 end=sfnt_glyph_count(sfnt_glyph_buffer_view(buffer));const u8 mask=steps.count?steps[index].feature_mask:0;
         // Single-glyph inputs (types 1, 2, 3 and 8) cannot cross a cluster, so only ligature and contextual
         // lookups need the initial clusters as segments (validated by the cluster map).
-        if constexpr(scoped)if(((stages->per_cluster[index>>6]>>(index&63))&1)&&prepared->type>=4&&prepared->type<=6&&boundaries.count){
-            status=validated?sfnt_gsub_execute_validated_lookup(*program,*prepared,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask,boundaries):
-                sfnt_gsub_execute_lookup(*program,root,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask,boundaries);
-            result->lookup_operations+=execution.operations;result->substitution_edits+=execution.edits;
-            work-=execution.operations;if(status!=SfntStatus::ok)return status;bounds_current=bounds_current&&!execution.edits;validated=true;
-            refresh=plan.refresh_substitution_classes&&execution.edits!=0;continue;}
-        status=validated?sfnt_gsub_execute_validated_lookup(*program,*prepared,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask):
-            sfnt_gsub_execute_lookup(*program,root,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask);
+        ConstSlice<u32> segments{};
+        if(scoped&&((stages->per_cluster[index>>6]>>(index&63))&1)&&prepared->type>=4&&prepared->type<=6)segments=boundaries;
+        status=validated?sfnt_gsub_execute_validated_lookup(*program,*prepared,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask,segments):
+            sfnt_gsub_execute_lookup(*program,root,&buffer,0,end,0,s.substitutions,{work,limits.match_work},&execution,&clusters,&forest,mask,segments);
         result->lookup_operations+=execution.operations;result->substitution_edits+=execution.edits;
         work-=execution.operations;if(status!=SfntStatus::ok)return status;bounds_current=bounds_current&&!execution.edits;validated=true;
         refresh=plan.refresh_substitution_classes&&execution.edits!=0;
@@ -202,13 +198,5 @@ template<bool scoped> __attribute__((always_inline)) inline SfntStatus shape_run
     status=shape_position_prepared(plan,glyphs,glyph_bounds,mark_bounds,targets,em,rtl,s,result,limits,work,defer_output,joined);
     if(status==SfntStatus::ok){result->glyph_count=count;result->source_units=units;result->target_count=targets;}
     return status;
-}
-}
-SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph> input,
-    u32 units,ConstSlice<u32> boundaries,bool rtl,float em,const SfntShapeStorage& s,
-    SfntShapeRunResult* result,SfntShapeLimits limits,ConstSlice<SfntLookupStep> steps,ConstSlice<u32> input_order,SfntShapeGlyphPolicy policy,const SfntShapeInputPolicy* initial,const SfntShapeStagePolicy* stages,bool defer_output) noexcept {
-    return stages&&stages->per_cluster.count?
-        shape_run<true>(plan,input,units,boundaries,rtl,em,s,result,limits,steps,input_order,policy,initial,stages,defer_output):
-        shape_run<false>(plan,input,units,boundaries,rtl,em,s,result,limits,steps,input_order,policy,initial,stages,defer_output);
 }
 }

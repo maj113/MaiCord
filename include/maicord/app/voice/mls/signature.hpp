@@ -5,9 +5,6 @@
 namespace maicord {
 enum class MlsSignatureError : u8 {
     none,
-    invalid_input,
-    not_initialized,
-    output_capacity,
     malformed_signature,
     hash_failure,
     key_failure,
@@ -24,17 +21,14 @@ struct MlsSignatureResult {
 // SHA-256 SignContent: canonical vector("MLS 1.0 " + label), vector(a||b).
 // Two borrowed content spans avoid a concatenation allocation. Full MLS vector
 // lengths supported; no fixed label scratch limit. RefHash has NO added prefix.
-// Hash/output failures preserve output; tails are untouched. External inputs/
-// outputs must not overlap the workspace (owner or storage), or each other.
+// The digest buffer holds at least 32 bytes. A hash failure preserves the output.
 KdfResult mls_signature_hash(KdfSha256Workspace& workspace, const ConstSlice<u8>& label,
                              const ConstSlice<u8>& a, const ConstSlice<u8>& b,
                              const Slice<u8>& digest) noexcept;
 KdfResult mls_reference_hash(KdfSha256Workspace& workspace, const ConstSlice<u8>& label,
                              const ConstSlice<u8>& value, const Slice<u8>& digest) noexcept;
-// Ciphersuite 2 ECDSA. Sign requires maximum DER capacity (72 bytes) before
-// doing cryptographic work. Only result.bytes is the signature, no outer MLS
-// vector length. Every failure preserves output. Inputs/output cannot overlap
-// the key owner. Caller authenticates the key and serialized content/label.
+// Ciphersuite 2 ECDSA. Sign takes the maximum DER capacity (72 bytes). Only result.bytes is the signature,
+// no outer MLS vector length. Caller authenticates the key and serialized content/label.
 MlsSignatureResult mls_sign_with_label(KdfSha256Workspace& workspace, const P256Key& key,
                                        const ConstSlice<u8>& label, const ConstSlice<u8>& a,
                                        const ConstSlice<u8>& b, const Slice<u8>& signature) noexcept;

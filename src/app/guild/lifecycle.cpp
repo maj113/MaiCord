@@ -1,4 +1,5 @@
 #include "lifecycle.hpp"
+#include "control_rows.hpp"
 #include "../shell/toast.hpp"
 #include "channel_overview.hpp"
 #include "../chat/composer/text_input.hpp"
@@ -329,13 +330,14 @@ void default_server_name(Bank& bank) noexcept {
         bank.add("My server");
 }
 
-void push(const UiSettingsControl& control,
-          UiSettingsControlPresentation presentation = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault}) noexcept {
-    if (owner->control_count >= kControlCapacity)
-        return;
-    owner->presentation[owner->control_count] = presentation;
-    reset_value(&owner->avatar_media[owner->control_count]);
-    owner->controls[owner->control_count++] = control;
+// Appends a control and returns it for the optional fields.
+UiSettingsControl& add_control(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind,
+                               bool enabled, bool checked = false,
+                               UiSettingsControlPresentation presentation = {UiSettingsVariant::standard, 0,
+                                                                             kUiSettingsNoDefault}) noexcept {
+    return control_row_add({owner->controls, owner->presentation, owner->avatar_media, &owner->control_count,
+                            kControlCapacity},
+                           id, label, description, kind, enabled, checked, presentation);
 }
 bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
     if (!owner || !theme || id != control_color || choice > kGuildRoleColorCount)
@@ -376,16 +378,19 @@ void project_invite(Bank& bank) noexcept {
                           : application_streamer_hide_invites() ? utf8_literal("Hidden; Use copy button")
                                                                 : invite_link(bank);
     const bool copied = p.copied_until && clock_monotonic_milliseconds() < p.copied_until;
-    push({control_link, link, p.invite_valid ? expiry_sentence(bank) : Utf8View{}, UiSettingsControlKind::action,
-          p.invite_valid, false, {}, 0, copied ? utf8_literal("Copied") : utf8_literal("Copy"), nullptr},
-         {copied ? UiSettingsVariant::positive : UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
-    push({control_expiry, utf8_literal("Expire after"), {}, UiSettingsControlKind::choice, edit, false,
-          {kExpiryLabels, kGuildInviteExpiryCount}, p.expiry, {}, nullptr});
-    push({control_uses, utf8_literal("Max number of uses"), {}, UiSettingsControlKind::choice, edit, false,
-          {kUsesLabels, kGuildInviteUsesCount}, p.uses, {}, nullptr});
-    push({control_temporary, utf8_literal("Grant temporary membership"),
-          utf8_literal("Temporary members leave when they go offline unless they get a role."),
-          UiSettingsControlKind::toggle, edit, p.temporary, {}, 0, {}, nullptr});
+    const Utf8View sentence = p.invite_valid ? expiry_sentence(bank) : Utf8View{};
+    add_control(control_link, link, sentence, UiSettingsControlKind::action, p.invite_valid, false,
+                {copied ? UiSettingsVariant::positive : UiSettingsVariant::primary, 0, kUiSettingsNoDefault})
+        .action_label = copied ? utf8_literal("Copied") : utf8_literal("Copy");
+    auto& expiry = add_control(control_expiry, utf8_literal("Expire after"), {}, UiSettingsControlKind::choice, edit);
+    expiry.choices = {kExpiryLabels, kGuildInviteExpiryCount};
+    expiry.selected_choice = p.expiry;
+    auto& uses = add_control(control_uses, utf8_literal("Max number of uses"), {}, UiSettingsControlKind::choice, edit);
+    uses.choices = {kUsesLabels, kGuildInviteUsesCount};
+    uses.selected_choice = p.uses;
+    add_control(control_temporary, utf8_literal("Grant temporary membership"),
+                utf8_literal("Temporary members leave when they go offline unless they get a role."),
+                UiSettingsControlKind::toggle, edit, p.temporary);
     p.footer = {footer_status(bank), utf8_literal("Generate a new link"), utf8_literal("Close"), true,
                 connected() && !busy() && options_changed(), busy(), p.failed};
     const auto* channel = chat_state_store_find_channel(state(), p.channel_id);
@@ -412,20 +417,21 @@ void project_create(Bank& bank) noexcept {
     }
     const Utf8View icon_text = p.icon.data ? bank.since(start)
                                            : utf8_literal("Optional. PNG, GIF, JPEG or WebP; square works best.");
-    push({control_icon, utf8_literal("Server icon"), icon_text, UiSettingsControlKind::action,
-          edit && connected() && !p.picker.runtime, false, {}, 0,
-          p.icon.data ? utf8_literal("Change") : utf8_literal("Upload"), nullptr});
+    add_control(control_icon, utf8_literal("Server icon"), icon_text, UiSettingsControlKind::action,
+                edit && connected() && !p.picker.runtime)
+        .action_label = p.icon.data ? utf8_literal("Change") : utf8_literal("Upload");
     if (p.icon.data)
-        push({control_icon_remove, utf8_literal("Remove icon"), {}, UiSettingsControlKind::action, edit, false, {}, 0,
-              utf8_literal("Remove"), nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        add_control(control_icon_remove, utf8_literal("Remove icon"), {}, UiSettingsControlKind::action, edit, false,
+                    {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault})
+            .action_label = utf8_literal("Remove");
     p.editor = settings_layer_editor_view(&p.layer, control_name, p.model, utf8_literal("Server name"), edit);
-    push({control_name, utf8_literal("Server name"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-          &p.editor});
-    push({control_join_category, utf8_literal("Have an invite already?"), {}, UiSettingsControlKind::category, true,
-          false, {}, 0, {}, nullptr});
-    push({control_join, utf8_literal("Join a server"), utf8_literal("Enter an invite link to join a server you were invited to."),
-          UiSettingsControlKind::action, edit, false, {}, 0, utf8_literal("Join a server"), nullptr});
+    add_control(control_name, utf8_literal("Server name"), {}, UiSettingsControlKind::edit, edit).editor = &p.editor;
+    add_control(control_join_category, utf8_literal("Have an invite already?"), {}, UiSettingsControlKind::category,
+                true);
+    add_control(control_join, utf8_literal("Join a server"),
+                utf8_literal("Enter an invite link to join a server you were invited to."),
+                UiSettingsControlKind::action, edit)
+        .action_label = utf8_literal("Join a server");
     const auto name = editor_text();
     const auto valid = utf8_validate(name);
     bool visible = false;
@@ -446,13 +452,13 @@ void project_folder(Bank& bank) noexcept {
                                           known ? bank.add({folder.placeholder, folder.placeholder_bytes})
                                                 : utf8_literal("Folder name"),
                                           known);
-    push({control_name, utf8_literal("Folder name"), {}, UiSettingsControlKind::edit, known, false, {}, 0, {},
-          &p.editor});
+    add_control(control_name, utf8_literal("Folder name"), {}, UiSettingsControlKind::edit, known).editor = &p.editor;
     p.color_labels[0] = utf8_literal("Default");
     for (u32 i = 0; i < kGuildRoleColorCount; ++i)
         p.color_labels[i + 1] = utf8_literal("Colour");
-    push({control_color, utf8_literal("Folder colour"), {}, UiSettingsControlKind::swatches, known, false,
-          {p.color_labels, kGuildRoleColorCount + 1}, p.color_index, {}, nullptr});
+    auto& colors = add_control(control_color, utf8_literal("Folder colour"), {}, UiSettingsControlKind::swatches, known);
+    colors.choices = {p.color_labels, kGuildRoleColorCount + 1};
+    colors.selected_choice = p.color_index;
     p.footer = {footer_status(bank), utf8_literal("Done"), utf8_literal("Cancel"), true, known && connected(), false,
                 p.failed};
     reset_value(&p.content.description);
@@ -474,19 +480,18 @@ void project_privacy(Bank& bank) noexcept {
     p.settings_revision = application_user_settings_revision();
     const bool ready = application_user_settings_ready() && connected();
     const bool dms = privacy_allowed(control_privacy_dms);
-    push({control_privacy_dms, utf8_literal("Direct messages"),
-          utf8_literal("Allow direct messages from other members in this server."), UiSettingsControlKind::toggle,
-          ready, dms, {}, 0, {}, nullptr});
-    push({control_privacy_requests, utf8_literal("Message requests"),
-          utf8_literal("If direct messages are enabled, filter messages from server members you may not know."),
-          UiSettingsControlKind::toggle, ready && dms, dms && privacy_allowed(control_privacy_requests), {}, 0, {},
-          nullptr});
-    push({control_privacy_activity, utf8_literal("Activity status"),
-          utf8_literal("Share your activity status in this server."), UiSettingsControlKind::toggle, ready,
-          privacy_allowed(control_privacy_activity), {}, 0, {}, nullptr});
-    push({control_privacy_joining, utf8_literal("Activity joining"),
-          utf8_literal("Allow users to join your activity in this server."), UiSettingsControlKind::toggle, ready,
-          privacy_allowed(control_privacy_joining), {}, 0, {}, nullptr});
+    add_control(control_privacy_dms, utf8_literal("Direct messages"),
+                utf8_literal("Allow direct messages from other members in this server."),
+                UiSettingsControlKind::toggle, ready, dms);
+    add_control(control_privacy_requests, utf8_literal("Message requests"),
+                utf8_literal("If direct messages are enabled, filter messages from server members you may not know."),
+                UiSettingsControlKind::toggle, ready && dms, dms && privacy_allowed(control_privacy_requests));
+    add_control(control_privacy_activity, utf8_literal("Activity status"),
+                utf8_literal("Share your activity status in this server."), UiSettingsControlKind::toggle, ready,
+                privacy_allowed(control_privacy_activity));
+    add_control(control_privacy_joining, utf8_literal("Activity joining"),
+                utf8_literal("Allow users to join your activity in this server."), UiSettingsControlKind::toggle,
+                ready, privacy_allowed(control_privacy_joining));
     const Utf8View failure = application_user_settings_failure();
     const Utf8View status = p.failed && p.status.bytes ? p.status
                             : failure.bytes            ? failure

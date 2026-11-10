@@ -30,8 +30,6 @@ struct HeaderUi {
     // The popout was opened by keyboard focus (it closes when focus leaves, not when the pointer does).
     bool by_focus;
     UiRect anchor;
-    // The initials the card's rows borrow while it projects.
-    char initials[kUiNamesCardRows][kUiNamesCardIcons][8];
 };
 // Zero-filled in the PE (.bss), as the stream card: the entrance is reset with its scope before it ticks.
 HeaderUi header{.card = {{.entrance = {.style = {0, UiMotionCurve::linear}}}}};
@@ -54,12 +52,13 @@ void close_card() noexcept {
     if (g_app.renderer.names_card_scene == &header.card)
         g_app.renderer.names_card_scene = nullptr;
 }
-bool identity_at(float x, float y, UiPrivateHeaderIdentity* identity) noexcept {
+bool current_identity(UiPrivateHeaderIdentity* identity) noexcept {
     const auto* rows = application_private_channel_rows();
-    const u64 channel = g_app.account_ui->chat_state.selected_channel_id;
-    if (!rows || !channel || !ui_private_header_identity(g_app.shell_scene, *rows, channel, identity))
-        return false;
-    return ui_rect_contains(identity->avatar, x, y) || ui_rect_contains(identity->name, x, y);
+    const u64 channel = g_app.account_ui ? g_app.account_ui->chat_state.selected_channel_id : 0;
+    return rows && channel && ui_private_header_identity(g_app.shell_scene, *rows, channel, identity);
+}
+bool identity_at(float x, float y, UiPrivateHeaderIdentity* identity) noexcept {
+    return current_identity(identity) && (ui_rect_contains(identity->avatar, x, y) || ui_rect_contains(identity->name, x, y));
 }
 // The other nicknames of header.user in the servers both of you are in, one row per nickname (the server
 // icons it is used in); the popout's rows, skipping the display name itself.
@@ -95,9 +94,7 @@ bool project(u64 now) noexcept {
             // A server without a picture shows its name's first character.
             const Utf8View name = chat_state_store_guild_name(ui.chat_state, guild);
             const auto first = name.bytes ? utf8_decode_one(name.data, name.bytes) : Utf8DecodeResult{};
-            r.initials[icon] = {header.initials[row][icon], first.valid ? first.width : 0u};
-            if (first.valid)
-                copy_bytes(header.initials[row][icon], name.data, first.width);
+            r.initials[icon] = {name.data, first.valid ? first.width : 0u};
         }
         ++r.server_count;
     }
@@ -118,11 +115,6 @@ bool focused_identity() noexcept {
     const auto handle = g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::private_identity)];
     return handle.generation && g_app.context_focus == &g_app.shell_scene.widgets &&
            ui_widget_handle_equal(g_app.shell_scene.widgets.focused, handle);
-}
-bool current_identity(UiPrivateHeaderIdentity* identity) noexcept {
-    const auto* rows = application_private_channel_rows();
-    const u64 channel = g_app.account_ui ? g_app.account_ui->chat_state.selected_channel_id : 0;
-    return rows && channel && ui_private_header_identity(g_app.shell_scene, *rows, channel, identity);
 }
 void open_card(const UiPrivateHeaderIdentity& identity, u64 now) noexcept {
     header.user = identity.user;
@@ -221,12 +213,8 @@ bool application_private_header_window_event(const WindowEvent& event) noexcept 
         }
         if (over) {
             header.leave_ms = 0;
-            if (header.user != identity.user) {
-                header.user = identity.user;
-                header.channel_id = g_app.account_ui->chat_state.selected_channel_id;
-                header.anchor = identity.avatar;
-                project(now);
-            }
+            if (header.user != identity.user)
+                open_card(identity, now);
         } else if (header.card.active && !header.leave_ms && !header.by_focus) {
             header.leave_ms = now;
             application_request_frame();

@@ -478,21 +478,18 @@ void parse_macroblock_mode(WindowReader* state, const Vp8ControlHeader& header, 
     }
     if (window_read(reader, 145) == 0) {
         mode.luma = Vp8IntraMode::subblocks;
+        // The mode above each column's next block, then the one to the left of it.
+        Vp8SubblockMode above[4];
+        for (u32 block_x = 0; block_x < 4; ++block_x) {
+            above[block_x] = above_modes ? above_modes[block_x] : Vp8SubblockMode::dc;
+        }
+#pragma clang loop unroll(disable)
         for (u32 block_y = 0; block_y < 4; ++block_y) {
+            Vp8SubblockMode left = left_mode ? left_mode->luma_subblock[block_y * 4u + 3u] : Vp8SubblockMode::dc;
+#pragma clang loop unroll(disable)
             for (u32 block_x = 0; block_x < 4; ++block_x) {
-                Vp8SubblockMode above = Vp8SubblockMode::dc;
-                if (block_y != 0) {
-                    above = mode.luma_subblock[(block_y - 1u) * 4u + block_x];
-                } else if (above_modes) {
-                    above = above_modes[block_x];
-                }
-                Vp8SubblockMode left = Vp8SubblockMode::dc;
-                if (block_x != 0) {
-                    left = mode.luma_subblock[block_y * 4u + block_x - 1u];
-                } else if (left_mode) {
-                    left = left_mode->luma_subblock[block_y * 4u + 3u];
-                }
-                mode.luma_subblock[block_y * 4u + block_x] = read_subblock_mode(reader, above, left);
+                left = above[block_x] = mode.luma_subblock[block_y * 4u + block_x] =
+                    read_subblock_mode(reader, above[block_x], left);
             }
         }
     } else {

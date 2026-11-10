@@ -5,23 +5,16 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-constexpr Utf8View kJoinChoices[]{utf8_literal("Invite Only"), utf8_literal("Apply to Join"),
-                                  utf8_literal("Discoverable")};
-constexpr Utf8View kJoinBodies[]{
-    utf8_literal("People can join your server directly with an invite"),
-    utf8_literal("People must submit an application and be approved to join"),
-    utf8_literal("Anyone can join your server directly through Server Discovery")};
-constexpr Utf8View kRowActions[]{utf8_literal("Edit"), utf8_literal("Remove")};
-constexpr Utf8View kAddQuestion[]{utf8_literal("Short Answer"), utf8_literal("Paragraph"),
-                                  utf8_literal("Multiple Choice"), utf8_literal("Server Rules")};
+constexpr char kJoinChoices[] = "Invite Only\0Apply to Join\0Discoverable";
+constexpr char kJoinBodies[] = "People can join your server directly with an invite\0"
+                               "People must submit an application and be approved to join\0"
+                               "Anyone can join your server directly through Server Discovery";
+constexpr char kRowActions[] = "Edit\0Remove";
+constexpr char kAddQuestion[] = "Short Answer\0Paragraph\0Multiple Choice\0Server Rules";
 constexpr GuildVerificationFieldType kAddTypes[]{GuildVerificationFieldType::text_input,
                                                  GuildVerificationFieldType::paragraph,
                                                  GuildVerificationFieldType::multiple_choice};
-constexpr Utf8View kExamples[]{utf8_literal("Do you play any of the same games as us?"),
-                               utf8_literal("How did you find us?"), utf8_literal("What makes you unique?")};
-constexpr Utf8View kAddRule[]{utf8_literal("Add a rule")};
-constexpr Utf8View kBannerActions[]{utf8_literal("Upload Image"), utf8_literal("Remove")};
-constexpr Utf8View kPreviewAction[]{utf8_literal("Preview")};
+constexpr char kExamples[] = "Do you play any of the same games as us?\0How did you find us?\0What makes you unique?";
 constexpr u32 kTermsRow = 15;
 
 // The parts of a save, in the order they are sent.
@@ -43,11 +36,11 @@ bool join_allowed(GuildJoinType type) noexcept {
         return community() && (listed || administrator());
     return !listed || administrator();
 }
-Utf8View join_problem(GuildJoinType type) noexcept {
+const char* join_problem(GuildJoinType type) noexcept {
     if (type == GuildJoinType::discoverable)
-        return community() ? utf8_literal("Only server administrators can turn on Server Discovery")
-                           : utf8_literal("Enable Community to access Server Discovery");
-    return utf8_literal("Only server administrators can turn off Server Discovery");
+        return community() ? "Only server administrators can turn on Server Discovery"
+                           : "Enable Community to access Server Discovery";
+    return "Only server administrators can turn off Server Discovery";
 }
 GuildDiscoveryStanding standing() noexcept {
     return guild_discovery_standing(st().features_base, st().requirements, clock_unix_milliseconds());
@@ -127,32 +120,31 @@ bool listing_complete() noexcept {
            s.metadata_draft.keyword_count;
 }
 
-Utf8View problem() noexcept {
+const char* problem() noexcept {
     auto& s = st();
     if (!s.form_loaded)
-        return {};
+        return nullptr;
     if (s.form_base.unsupported && (s.join_draft == GuildJoinType::apply || verification_dirty()))
-        return utf8_literal("This server's application has questions MaiCord can't edit.");
+        return "This server's application has questions MaiCord can't edit.";
     switch (guild_access_check(s.form_draft, s.join_draft, s.require_rules_draft)) {
-    case GuildAccessProblem::rules_missing: return utf8_literal("You need to add one or more rules.");
-    case GuildAccessProblem::question_missing:
-        return utf8_literal("Add a non-server rules question to enable Apply to Join.");
+    case GuildAccessProblem::rules_missing: return "You need to add one or more rules.";
+    case GuildAccessProblem::question_missing: return "Add a non-server rules question to enable Apply to Join.";
     default: break;
     }
     if (!join_allowed(s.join_draft))
         return join_problem(s.join_draft);
     if (s.join_draft == GuildJoinType::discoverable) {
         if (!discovery_ready())
-            return utf8_literal("Discovery settings are still loading.");
+            return "Discovery settings are still loading.";
         if (!eligible())
-            return utf8_literal("You cannot set your server to Discoverable because it does not meet the requirements.");
+            return "You cannot set your server to Discoverable because it does not meet the requirements.";
         if (standing() == GuildDiscoveryStanding::eligible_disabled && !listing_complete())
-            return utf8_literal("Fill in the required information to list on Discovery.");
+            return "Fill in the required information to list on Discovery.";
     }
     if ((save_plan() & (part(AccessStep::leave_discovery) | part(AccessStep::discovery_guild))) &&
         !access_features_known())
-        return utf8_literal("The server's features haven't arrived yet.");
-    return {};
+        return "The server's features haven't arrived yet.";
+    return nullptr;
 }
 
 // Rows -----------------------------------------------------------------------
@@ -161,43 +153,39 @@ void project_rules(Bank& bank, bool edit, bool apply) noexcept {
     auto& s = st();
     const auto& f = s.form_draft;
     if (!apply) {
-        push_row(access_require_rules, utf8_literal("Server Rules"),
-                 utf8_literal("Members must agree to rules before they can chat or interact in the server."),
-                 UiSettingsControlKind::toggle, edit, s.require_rules_draft);
+        push_toggle(access_require_rules, "Server Rules",
+                    "Members must agree to rules before they can chat or interact in the server.", edit,
+                    s.require_rules_draft);
         if (!s.require_rules_draft)
             return;
     } else if (!f.rule_count)
         return;
-    push_category(control_display_category, utf8_literal("Rules"));
+    push_category(control_display_category, "Rules");
     for (u32 i = 0; i < f.rule_count; ++i) {
         const u32 start = bank.used;
         bank.number(i + 1);
         bank.add(". ");
         bank.add(guild_access_text(f.rules[i]));
-        push_choices(access_rule_row + i, bank.since(start), {}, UiSettingsControlKind::buttons, edit,
-                     {kRowActions, 2}, 0, {}, {UiSettingsVariant::standard, ui_settings_presentation_compact,
-                                               kUiSettingsNoDefault});
+        push_buttons(access_rule_row + i, bank.since(start), {}, edit, kRowActions, 2,
+                     {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     }
     const bool room = f.rule_count < kGuildVerificationRuleMaximum &&
                       (f.rule_count || guild_access_field_count(f) < kGuildVerificationEditFieldMaximum);
     if (room)
-        push_choices(access_rule_add, utf8_literal("New rule"), {}, UiSettingsControlKind::buttons, edit, {kAddRule, 1});
+        push_buttons(access_rule_add, "New rule", {}, edit, "Add a rule", 1);
 }
 
 Utf8View question_kind(GuildVerificationFieldType type) noexcept {
-    switch (type) {
-    case GuildVerificationFieldType::paragraph: return kAddQuestion[1];
-    case GuildVerificationFieldType::multiple_choice: return kAddQuestion[2];
-    default: return kAddQuestion[0];
-    }
+    return name_list_at(kAddQuestion, type == GuildVerificationFieldType::paragraph          ? 1
+                                      : type == GuildVerificationFieldType::multiple_choice ? 2
+                                                                                             : 0);
 }
 
 void project_questions(Bank& bank, bool edit) noexcept {
     const auto& f = st().form_draft;
-    push_category(control_list_category, utf8_literal("Join Application"),
-                  utf8_literal("Add questions to your application. People don't join your server until you approve "
-                               "their application. You'll have the option to DM applicants before approving or "
-                               "denying them."));
+    push_category(control_list_category, "Join Application",
+                  "Add questions to your application. People don't join your server until you approve their "
+                  "application. You'll have the option to DM applicants before approving or denying them.");
     const u32 fields = guild_access_field_count(f);
     u32 start = bank.used;
     bank.add("Questions (");
@@ -210,10 +198,10 @@ void project_questions(Bank& bank, bool edit) noexcept {
         if (i == f.terms_position && f.rule_count) {
             start = bank.used;
             bank.number(f.rule_count);
-            bank.add(f.rule_count == 1 ? utf8_literal(" rule") : utf8_literal(" rules"));
-            push_row(access_question_row + kTermsRow, guild_access_text(f.terms_label), bank.since(start),
-                     UiSettingsControlKind::action, false, false, {},
-                     {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+            bank.add(text_view(f.rule_count == 1 ? " rule" : " rules"));
+            push_action(access_question_row + kTermsRow, guild_access_text(f.terms_label), bank.since(start), {},
+                        false,
+                        {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
         }
         if (i == f.question_count)
             break;
@@ -221,32 +209,30 @@ void project_questions(Bank& bank, bool edit) noexcept {
         start = bank.used;
         bank.add(question_kind(q.type));
         for (u32 c = 0; c < q.choice_count; ++c) {
-            bank.add(c ? utf8_literal(", ") : utf8_literal(": "));
+            bank.add(text_view(c ? ", " : ": "));
             bank.add(guild_access_choice(q, c));
         }
-        push_choices(access_question_row + i, guild_access_text(q.label), bank.since(start),
-                     UiSettingsControlKind::buttons, edit, {kRowActions, fields > 1 ? 2u : 1u}, 0, {},
+        push_buttons(access_question_row + i, guild_access_text(q.label), bank.since(start), edit, kRowActions,
+                     fields > 1 ? 2u : 1u,
                      {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     }
     project_rules(bank, edit, true);
     // Apply from Profile needs a profile others can see.
     const u8 visibility = visibility_base();
     const bool visible = visibility == 1 || visibility == 3;
-    push_row(access_apply_profile, utf8_literal("Apply from Profile"),
-             visible ? utf8_literal("Allow people who see your server profile to apply.")
-                     : utf8_literal("Allow people who see your server profile to apply. You can't enable Apply from "
-                                    "Profile if your server has 'Private Profile' enabled. You can change this "
-                                    "setting in the Server Profile tab."),
-             UiSettingsControlKind::toggle, edit && visible, apply_from_profile());
+    push_toggle(access_apply_profile, "Apply from Profile",
+                visible ? "Allow people who see your server profile to apply."
+                        : "Allow people who see your server profile to apply. You can't enable Apply from Profile if "
+                          "your server has 'Private Profile' enabled. You can change this setting in the Server "
+                          "Profile tab.",
+                edit && visible, apply_from_profile());
     if (fields >= kGuildVerificationEditFieldMaximum)
         return;
-    push_choices(access_question_add, utf8_literal("Add a question"), {}, UiSettingsControlKind::buttons, edit,
-                 {kAddQuestion, f.rule_count ? 3u : 4u});
-    push_choices(access_question_examples, utf8_literal("Example questions"), {}, UiSettingsControlKind::buttons,
-                 edit, {kExamples, 3});
+    push_buttons(access_question_add, "Add a question", {}, edit, kAddQuestion, f.rule_count ? 3u : 4u);
+    push_buttons(access_question_examples, "Example questions", {}, edit, kExamples, 3);
 }
 
-void checklist_row(bool passed, Utf8View pass, Utf8View fail, Utf8View detail, bool failed_only) noexcept {
+void checklist_row(bool passed, Text pass, Text fail, Text detail, bool failed_only) noexcept {
     if (passed && failed_only)
         return;
     push_row(control_notice + 0, passed ? pass : fail, detail, UiSettingsControlKind::notice, true, false, {},
@@ -257,9 +243,8 @@ void project_checklist(Bank& bank, bool failed_only) noexcept {
     const auto& r = st().requirements;
     if (!r.checklist)
         return;
-    checklist_row(r.safe_environment, utf8_literal("Safe Environment"), utf8_literal("Flagged by Trust and Safety"),
-                  utf8_literal("Thanks for abiding by our Community Guidelines and keeping your server safe!"),
-                  failed_only);
+    checklist_row(r.safe_environment, "Safe Environment", "Flagged by Trust and Safety",
+                  "Thanks for abiding by our Community Guidelines and keeping your server safe!", failed_only);
     u32 start = bank.used;
     bank.number(r.minimum_size);
     bank.add("+ Members");
@@ -278,30 +263,27 @@ void project_checklist(Bank& bank, bool failed_only) noexcept {
     const u32 weeks = (r.minimum_age_days + 6) / 7;
     bank.add("Servers in Discovery have to be at least ");
     bank.number(weeks);
-    bank.add(weeks == 1 ? utf8_literal(" week old.") : utf8_literal(" weeks old."));
-    checklist_row(r.age, utf8_literal("Meets Age Requirement"), utf8_literal("Server Too Young"), bank.since(start),
-                  failed_only);
+    bank.add(text_view(weeks == 1 ? " week old." : " weeks old."));
+    checklist_row(r.age, "Meets Age Requirement", "Server Too Young", bank.since(start), failed_only);
     if (r.health_score_pending)
-        push_notice(utf8_literal("Servers in Discovery must meet certain activity requirements. This takes time to "
-                                 "calculate for newer or smaller servers, so check back in about a week."),
-                    utf8_literal("Waiting on Server Activity Metrics"));
+        push_notice("Servers in Discovery must meet certain activity requirements. This takes time to calculate for "
+                    "newer or smaller servers, so check back in about a week.",
+                    "Waiting on Server Activity Metrics");
     else
-        checklist_row(r.healthy, utf8_literal("Passed Server Activity Requirements"),
-                      utf8_literal("Failed Server Activity Requirements"),
-                      r.healthy ? utf8_literal("Your community metrics look good! Your server has enough members that "
-                                               "regularly visit and talk.")
-                                : utf8_literal("Uh-oh, your server does not currently pass our activity "
-                                               "requirements."),
+        checklist_row(r.healthy, "Passed Server Activity Requirements", "Failed Server Activity Requirements",
+                      r.healthy ? "Your community metrics look good! Your server has enough members that regularly "
+                                  "visit and talk."
+                                : "Uh-oh, your server does not currently pass our activity requirements.",
                       failed_only);
-    checklist_row(!r.bad_content, utf8_literal("No Bad Content"), utf8_literal("Bad Content Found"),
-                  r.bad_content ? utf8_literal("Change the server name, description or channel names that use words "
-                                               "Discovery doesn't allow.")
-                                : utf8_literal("Your server assets look appropriate for Discovery!"),
+    checklist_row(!r.bad_content, "No Bad Content", "Bad Content Found",
+                  r.bad_content ? "Change the server name, description or channel names that use words Discovery "
+                                  "doesn't allow."
+                                : "Your server assets look appropriate for Discovery!",
                   failed_only);
-    checklist_row(r.protected_moderation, utf8_literal("2FA Requirement for Moderation Enabled"),
-                  utf8_literal("Please Enable the 2FA Requirement for Moderation Setting"),
-                  utf8_literal("Members with moderation powers (e.g. admins or mods) are required to have 2FA "
-                               "enabled to perform moderation actions. Enable it at the bottom of Safety Setup."),
+    checklist_row(r.protected_moderation, "2FA Requirement for Moderation Enabled",
+                  "Please Enable the 2FA Requirement for Moderation Setting",
+                  "Members with moderation powers (e.g. admins or mods) are required to have 2FA enabled to perform "
+                  "moderation actions. Enable it at the bottom of Safety Setup.",
                   failed_only);
 }
 
@@ -318,62 +300,51 @@ void project_discovery(Bank& bank, bool edit) noexcept {
     auto& p = *owner;
     auto& s = st();
     if (s.requirements_failed || s.metadata_failed) {
-        push_load_error(utf8_literal("Couldn't load Server Discovery"));
+        push_load_error("Couldn't load Server Discovery");
         return;
     }
     if (!discovery_ready()) {
-        push_loading(utf8_literal("Checking if your server meets requirements..."));
+        push_loading("Checking if your server meets requirements...");
         return;
     }
     const auto at = standing();
     if (at == GuildDiscoveryStanding::ineligible) {
         push_category(control_banner_category,
-                      utf8_literal("Your server currently does not meet the requirements for Server Discovery"));
+                      "Your server currently does not meet the requirements for Server Discovery");
         project_checklist(bank, false);
         return;
     }
     if (at == GuildDiscoveryStanding::disqualified) {
-        push_category(control_banner_category, utf8_literal("Your server has been removed from Discovery."),
-                      utf8_literal("Your server failed to meet the requirements below. Don't worry, you can rejoin "
-                                   "once the server meets all the requirements again. Activity requirements are "
-                                   "recalculated weekly."));
+        push_category(control_banner_category, "Your server has been removed from Discovery.",
+                      "Your server failed to meet the requirements below. Don't worry, you can rejoin once the server "
+                      "meets all the requirements again. Activity requirements are recalculated weekly.");
         project_checklist(bank, true);
         return;
     }
     const bool required = at == GuildDiscoveryStanding::eligible_disabled;
     auto& m = s.metadata_draft;
-    push_category(control_banner_category, utf8_literal("Profile"),
-                  utf8_literal("This is how your server will look in Discovery."));
+    push_category(control_banner_category, "Profile", "This is how your server will look in Discovery.");
     const auto* record = guild_details();
     const bool banner = !s.discovery_splash_clear && (p.splash.set || (record && record->discovery_splash_bytes));
-    push_choices(access_discovery_banner, utf8_literal("Banner"),
+    push_buttons(access_discovery_banner, "Banner",
                  picked_text(bank, p.splash,
-                             banner ? utf8_literal("The background of your server in Discovery. Recommended size: "
-                                                   "1920x1080.")
-                                    : utf8_literal("Recommended minimum size: 1920x1080.")),
-                 UiSettingsControlKind::buttons, edit, {kBannerActions, banner ? 2u : 1u});
-    push_editor(control_description, required ? utf8_literal("Description *") : utf8_literal("Description"),
-                utf8_literal("How did your server get started and what makes your crew special?"),
-                UiSettingsControlKind::multiline, edit, editor_description,
-                utf8_literal("Tell the world a bit about this server."));
-    push_category(control_summaries_category, utf8_literal("Server Category"),
-                  utf8_literal("Help people find your server in search results"));
-    p.system_choice[0] = category_name(m.primary_category_id);
-    push_choices(access_discovery_category, required ? utf8_literal("Category *") : utf8_literal("Category"),
-                 utf8_literal("Choose a subject area that best fits your server."), UiSettingsControlKind::choice,
-                 edit, {p.system_choice, 1});
-    push_category(control_messages_category, utf8_literal("Subcategories"),
-                  utf8_literal("Get more specific if you want. You can add up to 5."));
+                             banner ? "The background of your server in Discovery. Recommended size: 1920x1080."
+                                    : "Recommended minimum size: 1920x1080."),
+                 edit, "Upload Image\0Remove", banner ? 2u : 1u);
+    push_editor(control_description, required ? "Description *" : "Description",
+                "How did your server get started and what makes your crew special?", UiSettingsControlKind::multiline,
+                edit, editor_description, "Tell the world a bit about this server.");
+    push_category(control_summaries_category, "Server Category", "Help people find your server in search results");
+    push_choice(access_discovery_category, required ? "Category *" : "Category",
+                "Choose a subject area that best fits your server.", edit, category_name(m.primary_category_id));
+    push_category(control_messages_category, "Subcategories",
+                  "Get more specific if you want. You can add up to 5.");
     const auto& listed = s.metadata_base;
     for (u32 i = 0; i < listed.subcategory_count; ++i)
-        push_row(access_subcategory_row + i, category_name(listed.subcategories[i]), {},
-                 UiSettingsControlKind::action, edit && !busy(), false, utf8_literal("Remove"),
-                 {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-    if (listed.subcategory_count < kGuildDiscoverySubcategoryMaximum) {
-        p.widget_choice[0] = utf8_literal("Choose a subcategory");
-        push_choices(access_subcategory_add, utf8_literal("Add a subcategory"), {}, UiSettingsControlKind::choice,
-                     edit && !busy(), {p.widget_choice, 1});
-    }
+        push_action(access_subcategory_row + i, category_name(listed.subcategories[i]), {}, "Remove", edit && !busy(),
+                    {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+    if (listed.subcategory_count < kGuildDiscoverySubcategoryMaximum)
+        push_choice(access_subcategory_add, "Add a subcategory", {}, edit && !busy(), "Choose a subcategory");
     // The tags so far, then what they are for.
     const u32 start = bank.used;
     for (u32 i = 0; i < m.keyword_count; ++i) {
@@ -384,18 +355,14 @@ void project_discovery(Bank& bank, bool edit) noexcept {
     if (m.keyword_count)
         bank.add(" · ");
     bank.add("In Server Discovery, you can search by name, description and tags. You can add up to 10.");
-    push_row(access_discovery_tags, required ? utf8_literal("Tags *") : utf8_literal("Tags"), bank.since(start),
-             UiSettingsControlKind::action, edit, false, utf8_literal("Edit"));
-    push_row(access_discovery_emoji, utf8_literal("Show Emoji/Sticker Info When Clicked"),
-             utf8_literal("This allows info to appear when clicking on a custom emoji or sticker from your server in "
-                          "any chat. Users will be able to see and join your server via the information that is "
-                          "displayed."),
-             UiSettingsControlKind::toggle, edit, m.emoji_discoverability_enabled);
-    p.afk_choice[0] = access_locale_label({s.discovery_draft.locale, s.discovery_draft.locale_bytes});
-    push_choices(access_locale, utf8_literal("Server Primary Language"),
-                 utf8_literal("Discord will prioritise this server in search to users who speak the selected "
-                              "language."),
-                 UiSettingsControlKind::choice, edit, {p.afk_choice, 1});
+    push_action(access_discovery_tags, required ? "Tags *" : "Tags", bank.since(start), "Edit", edit);
+    push_toggle(access_discovery_emoji, "Show Emoji/Sticker Info When Clicked",
+                "This allows info to appear when clicking on a custom emoji or sticker from your server in any chat. "
+                "Users will be able to see and join your server via the information that is displayed.",
+                edit, m.emoji_discoverability_enabled);
+    push_choice(access_locale, "Server Primary Language",
+                "Discord will prioritise this server in search to users who speak the selected language.", edit,
+                access_locale_label({s.discovery_draft.locale, s.discovery_draft.locale_bytes}));
 }
 
 void project(Bank& bank) noexcept {
@@ -407,39 +374,37 @@ void project(Bank& bank) noexcept {
     const bool edit = editable() && can_manage_guild();
     if (!s.form_failed && !s.requirements_failed && !s.metadata_failed)
         push_status_error();
-    push_category(control_list_category, utf8_literal("How can people join your server?"),
-                  utf8_literal("Keep your server private or open it up for more people to join."));
+    push_category(control_list_category, "How can people join your server?",
+                  "Keep your server private or open it up for more people to join.");
     const u32 join = static_cast<u32>(s.join_draft);
     u32 start = bank.used;
-    bank.add(kJoinBodies[join]);
+    bank.add(name_list_at(kJoinBodies, join));
     for (u32 i = 0; i < 3; ++i) {
         const auto type = static_cast<GuildJoinType>(i);
         if (!join_allowed(type) && (i == join || type == GuildJoinType::discoverable)) {
             bank.add(". ");
-            bank.add(join_problem(type));
+            bank.add(text_view(join_problem(type)));
             break;
         }
     }
-    push_choices(access_join, utf8_literal("Join access"), bank.since(start), UiSettingsControlKind::radio, edit,
-                 {kJoinChoices, 3}, join);
+    push_names(access_join, "Join access", bank.since(start), UiSettingsControlKind::radio, edit, kJoinChoices, 3,
+               join);
     const auto* record = guild_details();
     const bool nsfw_locked = record && record->nsfw_level == 3 && record->owner_configured_content_level != 3;
-    push_row(access_age, utf8_literal("Age-Restricted Server"),
-             utf8_literal("Users will need to confirm that they are over the legal age to view the content in this "
-                          "server."),
-             UiSettingsControlKind::toggle, edit && s.join_draft != GuildJoinType::discoverable && !nsfw_locked,
-             age_restricted());
+    push_toggle(access_age, "Age-Restricted Server",
+                "Users will need to confirm that they are over the legal age to view the content in this server.",
+                edit && s.join_draft != GuildJoinType::discoverable && !nsfw_locked, age_restricted());
     if (s.form_failed) {
-        push_load_error(utf8_literal("Couldn't load the membership form"));
+        push_load_error("Couldn't load the membership form");
         return;
     }
     if (!s.form_loaded) {
-        push_loading(utf8_literal("Loading the membership form…"));
+        push_loading("Loading the membership form…");
         return;
     }
     if (s.form_base.unsupported)
-        push_notice(utf8_literal("This server's application has questions MaiCord can't edit. Use Discord in your "
-                                 "browser to change it."));
+        push_notice("This server's application has questions MaiCord can't edit. Use Discord in your browser to "
+                    "change it.");
     switch (s.join_draft) {
     case GuildJoinType::invite: project_rules(bank, edit, false); break;
     case GuildJoinType::apply: project_questions(bank, edit); break;
@@ -453,9 +418,8 @@ void project(Bank& bank) noexcept {
     const auto& f = s.form_draft;
     const bool apply = s.join_draft == GuildJoinType::apply;
     if ((f.rule_count && (apply || s.require_rules_draft)) || (apply && f.question_count))
-        push_choices(access_preview, utf8_literal("Preview"),
-                     utf8_literal("See the form new members fill in before they can talk."),
-                     UiSettingsControlKind::buttons, true, {kPreviewAction, 1});
+        push_buttons(access_preview, "Preview", "See the form new members fill in before they can talk.", true,
+                     "Preview", 1);
 }
 
 // Text forms ----------------------------------------------------------------
@@ -477,17 +441,14 @@ bool rule_saved(TextFormOwnerKey key, Utf8View text) noexcept {
 void open_rule(u32 index) noexcept {
     const auto& f = st().form_draft;
     ApplicationTextFormRequest request{};
-    request.title = index < f.rule_count ? utf8_literal("Edit rule") : utf8_literal("Add a rule");
-    request.label = utf8_literal("Rule");
-    request.accept = utf8_literal("Save");
+    fill_form(request, index < f.rule_count ? "Edit rule" : "Add a rule", {}, "Rule", "Save",
+              kGuildVerificationLabelCodepoints, kGuildAccessLabelBytes);
     request.placeholder = utf8_literal("Be respectful");
     request.initial = index < f.rule_count ? guild_access_text(f.rules[index]) : Utf8View{};
     request.owner = form_key(form_access_rule, index);
     request.valid = form_valid;
     request.save = rule_saved;
     request.single_line = true;
-    request.maximum_codepoints = kGuildVerificationLabelCodepoints;
-    request.maximum_bytes = kGuildAccessLabelBytes;
     application_text_form_open(request);
 }
 
@@ -522,16 +483,12 @@ void open_choices() noexcept {
             initial.add(guild_access_choice(f.questions[s.question_index], i));
         }
     ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Multiple Choice");
-    request.context = utf8_literal("One answer a line, up to 8 answers of 150 characters.");
-    request.label = utf8_literal("Answers");
-    request.accept = utf8_literal("Save");
+    fill_form(request, "Multiple Choice", "One answer a line, up to 8 answers of 150 characters.", "Answers", "Save",
+              kGuildVerificationChoiceMaximum * (kGuildVerificationChoiceCodepoints + 1), sizeof(s.form_text));
     request.initial = initial.since(0);
     request.owner = form_key(form_access_choices, s.question_index);
     request.valid = form_valid;
     request.save = choices_saved;
-    request.maximum_codepoints = kGuildVerificationChoiceMaximum * (kGuildVerificationChoiceCodepoints + 1);
-    request.maximum_bytes = sizeof(s.form_text);
     application_text_form_open(request);
 }
 
@@ -559,17 +516,14 @@ void open_question(u32 index, GuildVerificationFieldType type) noexcept {
     s.question_index = static_cast<u8>(index);
     s.question_type = type;
     ApplicationTextFormRequest request{};
-    request.title = index < f.question_count ? utf8_literal("Edit question") : question_kind(type);
-    request.label = utf8_literal("Question");
-    request.accept = type == GuildVerificationFieldType::multiple_choice ? utf8_literal("Next")
-                                                                          : utf8_literal("Save");
+    fill_form(request, index < f.question_count ? Text("Edit question") : Text(question_kind(type)), {}, "Question",
+              type == GuildVerificationFieldType::multiple_choice ? "Next" : "Save",
+              kGuildVerificationLabelCodepoints, kGuildAccessLabelBytes);
     request.initial = index < f.question_count ? guild_access_text(f.questions[index].label) : Utf8View{};
     request.owner = form_key(form_access_question, index);
     request.valid = form_valid;
     request.save = question_saved;
     request.single_line = true;
-    request.maximum_codepoints = kGuildVerificationLabelCodepoints;
-    request.maximum_bytes = kGuildAccessLabelBytes;
     application_text_form_open(request);
 }
 
@@ -602,17 +556,13 @@ void open_tags() noexcept {
         initial.add({s.metadata_draft.keywords[i], s.metadata_draft.keyword_bytes[i]});
     }
     ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Tags");
-    request.context = utf8_literal("Up to 10 tags of 30 characters, separated by commas.");
-    request.label = utf8_literal("Tags");
-    request.accept = utf8_literal("Save");
+    fill_form(request, "Tags", "Up to 10 tags of 30 characters, separated by commas.", "Tags", "Save",
+              kGuildDiscoveryKeywordMaximum * (kGuildDiscoveryKeywordCodepoints + 2), sizeof(s.form_text));
     request.initial = initial.since(0);
     request.owner = form_key(form_access_tags, 0);
     request.valid = form_valid;
     request.save = tags_saved;
     request.single_line = true;
-    request.maximum_codepoints = kGuildDiscoveryKeywordMaximum * (kGuildDiscoveryKeywordCodepoints + 2);
-    request.maximum_bytes = sizeof(s.form_text);
     application_text_form_open(request);
 }
 
@@ -640,12 +590,10 @@ void confirm_bulk() noexcept {
     auto& s = st();
     Bank bank{s.form_text, sizeof(s.form_text), 0};
     bank.number(s.pending_requests);
-    bank.add(s.pending_requests == 1 ? utf8_literal(" application is") : utf8_literal(" applications are"));
+    bank.add(text_view(s.pending_requests == 1 ? " application is" : " applications are"));
     bank.add(" still waiting. They are approved when Apply to Join turns off.");
     ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Pending applications");
-    request.context = bank.since(0);
-    request.accept = utf8_literal("Save");
+    fill_form(request, "Pending applications", bank.since(0), {}, "Save", 0, 0);
     request.option = utf8_literal("Reject them instead");
     request.save_option = bulk_chosen;
     request.owner = form_key(form_access_bulk, 0);
@@ -824,7 +772,8 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         else
             open_question(f.question_count, kAddTypes[choice]);
     } else if (id == access_question_examples && choice < 3)
-        guild_access_set_question(&f, f.question_count, GuildVerificationFieldType::text_input, kExamples[choice], {});
+        guild_access_set_question(&f, f.question_count, GuildVerificationFieldType::text_input,
+                                  name_list_at(kExamples, choice), {});
     else if (id == access_discovery_category || id == access_subcategory_add) {
         auto& p = *owner;
         const bool primary = id == access_discovery_category;
@@ -838,12 +787,11 @@ void activate(const SettingsLayerActivation& activation) noexcept {
             // 0 stands for no category.
             if (!c.id || (primary ? !c.primary : chosen))
                 continue;
-            popup_row(count, {c.name, c.name_bytes}, i, primary && chosen ? popup_item_checked : 0);
+            popup_row(count, Utf8View{c.name, c.name_bytes}, i, primary && chosen ? popup_item_checked : 0);
             ++count;
         }
-        p.menu = Menu::server_access;
         s.menu = primary ? AccessMenu::category : AccessMenu::subcategory;
-        settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, activation.anchor, 280);
+        open_popup(Menu::server_access, p.guild_id, count, activation.anchor, 280);
         return;
     } else if (id >= access_subcategory_row && id < access_subcategory_row + s.metadata_base.subcategory_count &&
                !busy()) {
@@ -899,7 +847,7 @@ bool dirty() noexcept {
 }
 
 bool can_save() noexcept {
-    return dirty() && can_manage_guild() && !problem().bytes && save_plan();
+    return dirty() && can_manage_guild() && !problem() && save_plan();
 }
 
 Op next_save() noexcept {
@@ -922,8 +870,8 @@ Op next_save() noexcept {
     return Op::none;
 }
 
-Utf8View invalid() noexcept {
-    return owner->server_access ? problem() : Utf8View{};
+const char* invalid() noexcept {
+    return owner->server_access ? problem() : nullptr;
 }
 
 // The server update that follows a save, or another client's change: clean drafts follow it.

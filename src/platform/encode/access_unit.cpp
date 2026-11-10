@@ -4,24 +4,18 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/media/video/av1.hpp"
+#include "maicord/media/video/rtp_video_packetize.hpp"
 
 namespace maicord {
 namespace {
 
 // One NAL unit of an Annex B stream at *offset (its bytes without the start code and trailing zeros); advances past it.
 bool next_nal(ConstSlice<u8> data, u32* offset, ConstSlice<u8>* nal) noexcept {
-    u32 i = *offset;
-    // The start code: two or more zeros and a one.
-    while (i + 2 < data.count && !(data.data[i] == 0 && data.data[i + 1] == 0 && data.data[i + 2] == 1))
-        ++i;
-    if (i + 2 >= data.count)
+    u32 end = 0;
+    const u32 begin = annexb_next_unit(data, *offset, &end);
+    if (begin >= data.count)
         return false;
-    const u32 begin = i + 3;
-    u32 end = begin;
-    while (end + 2 < data.count && !(data.data[end] == 0 && data.data[end + 1] == 0 && data.data[end + 2] <= 1))
-        ++end;
-    if (end + 2 >= data.count)
-        end = data.count;
+    annexb_next_unit(data, begin, &end);
     *offset = end;
     while (end > begin && data.data[end - 1] == 0)
         --end;
@@ -71,16 +65,12 @@ bool has_sequence_parameters(GpuStreamCodec codec, ConstSlice<u8> input) noexcep
 constexpr u8 kAv1ObuPadding = 15;
 
 bool append_obu(const Av1Obu& obu, EncodedUnitBuffer* output) noexcept {
-    u8 header[2 + 8];
+    u8 header[2 + 5];
     u32 bytes = 0;
     header[bytes++] = static_cast<u8>(obu.type << 3 | (obu.extension ? 0x04 : 0) | 0x02);
     if (obu.extension)
         header[bytes++] = static_cast<u8>(obu.temporal_id << 5 | obu.spatial_id << 3);
-    u32 size = obu.payload.count;
-    do {
-        header[bytes++] = static_cast<u8>((size & 0x7F) | (size > 0x7F ? 0x80 : 0));
-        size >>= 7;
-    } while (size);
+    bytes += leb128_write(header + bytes, obu.payload.count);
     return append(output, header, bytes) && append(output, obu.payload.data, obu.payload.count);
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/core/base.hpp"
 
 // System libraries loaded at run time (Linux; Windows images use delay-loaded imports and LoadLibrary). A Linux image
 // links only libc; every other library (libwayland-client, libEGL, libxkbcommon, ...) is
@@ -23,22 +24,23 @@ void* shared_library_symbol(const SharedLibrary& library, const char* name) noex
 
 void shared_library_close(SharedLibrary* library) noexcept;
 
-// Resolves the functions of a table one by one, remembering the first name that is missing (and resolving no more).
-struct SharedLibraryResolver {
-    const SharedLibrary& library;
-    const char* missing;
+// Fills a table of function pointers from `library`: `table` is a struct of nothing but function pointers
+// (`table_bytes` long) and `names` the symbol of each in member order, NUL-terminated names one after another with an
+// empty one after the last (an X-macro list of `#name "\0"` makes them). The first symbol the library lacks ends the
+// load and is returned (the later members stay as they were); null when every member is filled. One loop serves every
+// table, where a call per member cost 36 bytes each.
+const char* shared_library_resolve(const SharedLibrary& library, void* table, usize table_bytes,
+                                   const char* names) noexcept;
+// The warning for a symbol a library lacks: "<soname>: no symbol <name>", under `component`.
+void shared_library_log_missing(const char* component, const char* soname, const char* symbol) noexcept;
 
-    template <typename Function> void operator()(Function* slot, const char* name) noexcept {
-        if (missing)
-            return;
-        void* address = shared_library_symbol(library, name);
-        if (!address) {
-            missing = name;
-            return;
-        }
-        *slot = reinterpret_cast<Function>(address);
-    }
-};
+// The number of names in such a pool, for a static_assert that it has one name per member of its table.
+template <usize N> constexpr usize shared_library_name_count(const char (&names)[N]) noexcept {
+    usize count = 0;
+    for (usize index = 0; index < N; ++index)
+        count += names[index] == 0;
+    return count - 1;
+}
 
 // The loader's message for the last failed open or lookup on this thread, or null.
 const char* shared_library_error() noexcept;

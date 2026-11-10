@@ -6,8 +6,6 @@
 namespace maicord {
 KdfResult mls_expand_label(KdfSha256Workspace& workspace, ConstSlice<u8> secret, ConstSlice<u8> label,
                            ConstSlice<u8> context, Slice<u8> output) noexcept {
-    if (label.count > 0x3fffffff - 8 || context.count > 0x3fffffff || output.count > 255 * 32)
-        return {0, 0, KdfError::invalid_input};
     static constexpr u8 prefix[]{'M', 'L', 'S', ' ', '1', '.', '0', ' '};
     u8 header[6]{static_cast<u8>(output.count >> 8), static_cast<u8>(output.count)}, context_length[4];
     const u32 header_bytes = 2 + mls_vector_length(label.count + 8, header + 2);

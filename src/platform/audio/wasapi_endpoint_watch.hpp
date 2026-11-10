@@ -123,6 +123,78 @@ struct PinnedEndpointNotify final : EndpointNotifyBase<PinnedEndpointNotify> {
     }
 };
 
+// The media and notification playback threads share the life of their pinned observer. Each owns the observer
+// (*callback), its device enumerator and, under `lock`, a count of the wake-event duplicates the observers hold
+// (*handles). One out-of-line body of each serves both threads.
+
+// Unregisters and releases the observer.
+__declspec(noinline) inline void pinned_endpoint_close(IMMDeviceEnumerator* enumerator, PinnedEndpointNotify** callback,
+                                                       SRWLOCK* lock, u32* handles) noexcept {
+    PinnedEndpointNotify* const pinned = *callback;
+    const bool attached = pinned && pinned->event;
+    if (pinned)
+        InterlockedExchange(&pinned->active, 0);
+    if (enumerator && pinned)
+        enumerator->UnregisterEndpointNotificationCallback(pinned);
+    com_release(*callback);
+    if (attached) {
+        AcquireSRWLockExclusive(lock);
+        --*handles;
+        ReleaseSRWLockExclusive(lock);
+    }
+}
+
+// Pins the observer to the endpoint `*id` (taking over the ID's memory), unless it already is; its wake event is a
+// duplicate of `wake`.
+__declspec(noinline) inline HRESULT pinned_endpoint_refresh(IMMDeviceEnumerator* enumerator,
+                                                            PinnedEndpointNotify** callback, HANDLE wake, SRWLOCK* lock,
+                                                            u32* handles, LPWSTR* id) noexcept {
+    if (!*id || !**id)
+        return E_UNEXPECTED;
+    if (*callback && (*callback)->matches(*id))
+        return S_OK;
+    pinned_endpoint_close(enumerator, callback, lock, handles);
+    void* memory = CoTaskMemAlloc(sizeof(PinnedEndpointNotify));
+    if (!memory)
+        return E_OUTOFMEMORY;
+    auto* pinned = new (memory) PinnedEndpointNotify;
+    *callback = pinned;
+    pinned->id = *id;
+    *id = nullptr;
+    // GetId supplies a terminated full opaque ID; no guessed truncation/hash.
+    while (pinned->id[pinned->id_chars])
+        ++pinned->id_chars;
+    HRESULT h = S_OK;
+    if (!DuplicateHandle(GetCurrentProcess(), wake, GetCurrentProcess(), &pinned->event, 0, FALSE,
+                         DUPLICATE_SAME_ACCESS)) {
+        h = HRESULT_FROM_WIN32(GetLastError());
+    } else {
+        AcquireSRWLockExclusive(lock);
+        ++*handles;
+        ReleaseSRWLockExclusive(lock);
+    }
+    if (SUCCEEDED(h))
+        h = enumerator->RegisterEndpointNotificationCallback(pinned);
+    if (FAILED(h))
+        pinned_endpoint_close(enumerator, callback, lock, handles);
+    return h;
+}
+
+// Whether the console render default is no longer the endpoint the observer is pinned to (the notification of the
+// change is advisory: revalidated on the worker before an unchanged stream is disturbed).
+__declspec(noinline) inline bool pinned_endpoint_default_changed(IMMDeviceEnumerator* enumerator,
+                                                                 const PinnedEndpointNotify* callback) noexcept {
+    IMMDevice* device = nullptr;
+    LPWSTR id = nullptr;
+    HRESULT h = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+    if (SUCCEEDED(h))
+        h = device->GetId(&id);
+    const bool changed = FAILED(h) || !callback || !callback->matches(id);
+    CoTaskMemFree(id);
+    com_release(device);
+    return changed;
+}
+
 // Creates the device enumerator and registers an observer that signals wake
 // on device arrival and state changes and, with follow_default, when the
 // default flow/role endpoint changes. On failure the caller still releases

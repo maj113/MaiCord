@@ -1,37 +1,10 @@
 #include "maicord/app/voice/mls/hpke.hpp"
-#include "maicord/core/byte_range.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/voice/mls_encoding.hpp"
 #include "../../shell/byte_views.hpp"
 
 namespace maicord {
 namespace {
-HpkeResult preflight(const KdfSha256Workspace& workspace, const ConstSlice<u8>& point,
-                     const ConstSlice<u8>& label, const ConstSlice<u8>& context,
-                     const ConstSlice<u8>& payload, const Slice<u8>& output, const Slice<u8>& enc,
-                     bool encrypt) noexcept {
-    if (!workspace.storage.data || !workspace.storage.locked)
-        return {0, 0, HpkeError::not_initialized};
-    if (point.count != 65 || label.count > 0x3fffffff - 8 || context.count > 0x3fffffff ||
-        (encrypt ? payload.count > ~u32{0} - 16 : payload.count < 16))
-        return {0, 0, HpkeError::invalid_input};
-    const ConstSlice<u8> spans[]{
-        point, label, context, payload, {output.data, output.count}, {enc.data, enc.count}};
-    for (auto span : spans)
-        if (!byte_range_valid(span) || aliases_workspace(workspace, span))
-            return {0, 0, HpkeError::invalid_input};
-    const u32 wanted = encrypt ? payload.count + 16 : payload.count - 16;
-    if (output.count < wanted || (encrypt && enc.count < 65))
-        return {0, 0, HpkeError::output_capacity};
-    const ConstSlice<u8> destination{output.data, wanted}, encapsulation{enc.data, encrypt ? 65u : 0u};
-    if (byte_ranges_overlap(destination, point) || byte_ranges_overlap(destination, label) ||
-        byte_ranges_overlap(destination, context) || byte_ranges_overlap(destination, encapsulation) ||
-        (payload.data != output.data && byte_ranges_overlap(destination, payload)))
-        return {0, 0, HpkeError::invalid_input};
-    for (u32 i = 0; i != 4; ++i)
-        if (byte_ranges_overlap(encapsulation, spans[i]))
-            return {0, 0, HpkeError::invalid_input};
-    return {};
-}
 struct Framing {
     u8 label_length[4], context_length[4];
     ConstSlice<u8> parts[5];
@@ -46,49 +19,75 @@ void frame(Framing& framing, ConstSlice<u8> label, ConstSlice<u8> context) noexc
     framing.parts[3] = {framing.context_length, nc};
     framing.parts[4] = context;
 }
+// One step's outcome, whichever result type reports it.
+struct Step {
+    bool ok;
+    i32 status;
+};
+template <typename Result> Step step(const Result& result) noexcept {
+    return {result.ok(), result.native_status};
+}
+// The key schedule of the framed info over `shared`, and the one AEAD operation of the message.
+HpkeResult crypt(KdfSha256Workspace& workspace, const Framing& framing, const u8* shared, ConstSlice<u8> input,
+                 Slice<u8> output, bool seal) noexcept {
+    u8 info_hash[32];
+    HpkeBaseSecrets secrets;
+    AesGcmKey cipher{};
+    AeadResult aead{};
+    const u32 payload = seal ? input.count : input.count - 16;
+    auto done = step(hpke_info_hash(workspace, {framing.parts, 5}, {info_hash, 32}));
+    if (done.ok)
+        done = step(hpke_base_key_schedule_hashed_info(workspace, {shared, 32}, {info_hash, 32}, &secrets));
+    if (done.ok)
+        done = step(aes_gcm_initialize(&cipher, {secrets.key, 16}));
+    if (done.ok) {
+        aead = seal ? aes_gcm_encrypt(cipher, {secrets.base_nonce, 12}, {}, input, {output.data, payload},
+                                      {output.data + payload, 16})
+                    : aes_gcm_decrypt(cipher, {secrets.base_nonce, 12}, {}, {input.data, payload},
+                                      {input.data + payload, 16}, {output.data, payload});
+        done = step(aead);
+    }
+    aes_gcm_release(&cipher);
+    hpke_base_secrets_clear(&secrets);
+    secure_clear_bytes(info_hash, 32);
+    if (done.ok)
+        return {seal ? payload + 16 : payload, 0, HpkeError::none};
+    return {0, done.status,
+            aead.error == AeadError::authentication_failed ? HpkeError::authentication_failed : HpkeError::failure};
+}
 } // namespace
 HpkeResult mls_encrypt_with_label(KdfSha256Workspace& workspace, ConstSlice<u8> recipient,
                                   ConstSlice<u8> label, ConstSlice<u8> context, ConstSlice<u8> plaintext,
                                   Slice<u8> encapsulated, Slice<u8> ciphertext) noexcept {
-    auto result =
-        preflight(workspace, recipient, label, context, plaintext, ciphertext, encapsulated, true);
-    if (!result.ok())
-        return result;
     Framing framing;
     frame(framing, label, context);
-    HpkeContext hpke{};
-    u8 enc[65];
-    result = hpke_setup_sender_parts(&hpke, workspace, recipient, {framing.parts, 5}, {enc, 65});
-    if (result.ok())
-        result = hpke_seal(hpke, {}, plaintext, ciphertext);
+    P256Key ephemeral{};
+    u8 enc[65], shared[32];
+    // A fresh ephemeral key for every encapsulation.
+    auto done = step(p256_generate(&ephemeral, P256Kind::ecdh));
+    if (done.ok)
+        done = step(hpke_encap(workspace, ephemeral, recipient, {enc, 65}, {shared, 32}));
+    p256_release(&ephemeral);
+    HpkeResult result{0, done.status, HpkeError::failure};
+    if (done.ok)
+        result = crypt(workspace, framing, shared, plaintext, ciphertext, true);
     if (result.ok())
         copy_bytes(encapsulated.data, enc, 65);
-    hpke_release(&hpke);
+    secure_clear_bytes(shared, 32);
     return result;
 }
 HpkeResult mls_decrypt_with_label(KdfSha256Workspace& workspace, const P256Key& recipient,
                                   ConstSlice<u8> label, ConstSlice<u8> context, ConstSlice<u8> encapsulated,
                                   ConstSlice<u8> ciphertext, Slice<u8> plaintext) noexcept {
-    auto result = preflight(workspace, encapsulated, label, context, ciphertext, plaintext, {}, false);
-    if (!result.ok())
-        return result;
-    const ConstSlice<u8> spans[]{label,
-                                 context,
-                                 encapsulated,
-                                 ciphertext,
-                                 {plaintext.data, plaintext.count},
-                                 object_bytes(workspace),
-                                 {workspace.storage.data, workspace.storage.capacity}};
-    for (auto span : spans)
-        if (byte_ranges_overlap(span, object_bytes(recipient)))
-            return {0, 0, HpkeError::invalid_input};
     Framing framing;
     frame(framing, label, context);
-    HpkeContext hpke{};
-    result = hpke_setup_recipient_parts(&hpke, workspace, recipient, encapsulated, {framing.parts, 5});
-    if (result.ok())
-        result = hpke_open(hpke, {}, ciphertext, plaintext);
-    hpke_release(&hpke);
+    u8 shared[32];
+    const auto decapsulated = hpke_decap(workspace, recipient, encapsulated, {shared, 32});
+    HpkeResult result{0, decapsulated.native_status, HpkeError::failure};
+    // The ciphertext comes from the network: it must hold the tag, and its plaintext must fit.
+    if (decapsulated.ok() && ciphertext.count >= 16 && plaintext.count >= ciphertext.count - 16)
+        result = crypt(workspace, framing, shared, ciphertext, plaintext, false);
+    secure_clear_bytes(shared, 32);
     return result;
 }
 } // namespace maicord

@@ -62,39 +62,18 @@ void close_stream(Runtime& r,Engine& e) noexcept {
         if(notification_audio_record_stream_failure(&r.status,closed_epoch,static_cast<u32>(h)))notify_locked(r);
         ReleaseSRWLockExclusive(&r.lock);}
 }
-void close_callback(Runtime& r,Engine& e) noexcept {
-    const bool duplicate=e.callback&&e.callback->event;
-    if(e.callback)InterlockedExchange(&e.callback->active,0);
-    if(e.enumerator&&e.callback)e.enumerator->UnregisterEndpointNotificationCallback(e.callback);
-    com_release(e.callback);
-    if(duplicate){AcquireSRWLockExclusive(&r.lock);--r.callback_handles;ReleaseSRWLockExclusive(&r.lock);}
+__forceinline void close_callback(Runtime& r,Engine& e) noexcept {
+    pinned_endpoint_close(e.enumerator,&e.callback,&r.lock,&r.callback_handles);
 }
 void close_engine(Runtime& r,Engine& e) noexcept {
     close_callback(r,e);close_stream(r,e);com_release(e.enumerator);
 }
 HRESULT refresh_callback(Runtime& r,Engine& e,LPWSTR* id) noexcept {
-    if(!*id||!**id)return E_UNEXPECTED;
-    if(e.callback&&e.callback->matches(*id))return S_OK;
-    close_callback(r,e);
-    auto* memory=CoTaskMemAlloc(sizeof(PinnedEndpointNotify));if(!memory)return E_OUTOFMEMORY;
-    e.callback=new(memory)PinnedEndpointNotify;e.callback->id=*id;*id=nullptr;
-    // GetId supplies a terminated full opaque ID; no guessed truncation/hash.
-    while(e.callback->id[e.callback->id_chars])++e.callback->id_chars;
-    HRESULT h=S_OK;
-    if(!DuplicateHandle(GetCurrentProcess(),r.command,GetCurrentProcess(),&e.callback->event,0,FALSE,DUPLICATE_SAME_ACCESS))h=HRESULT_FROM_WIN32(thread_last_error());
-    else {AcquireSRWLockExclusive(&r.lock);++r.callback_handles;ReleaseSRWLockExclusive(&r.lock);}
-    if(SUCCEEDED(h))h=e.enumerator->RegisterEndpointNotificationCallback(e.callback);
-    if(FAILED(h))close_callback(r,e);return h;
+    return pinned_endpoint_refresh(e.enumerator,&e.callback,r.command,&r.lock,&r.callback_handles,id);
 }
-bool default_endpoint_changed(Engine& e) noexcept {
-    // The default-role notification is advisory. Revalidate the actual render
-    // endpoint on the worker before disturbing an otherwise unchanged stream.
-    IMMDevice* device=nullptr;LPWSTR id=nullptr;
-    HRESULT h=e.enumerator->GetDefaultAudioEndpoint(eRender,eConsole,&device);
-    if(SUCCEEDED(h))h=device->GetId(&id);
-    const bool changed=FAILED(h)||!e.callback||!e.callback->matches(id);
-    CoTaskMemFree(id);com_release(device);return changed;
-}
+// The default-role notification is advisory. Revalidate the actual render
+// endpoint on the worker before disturbing an otherwise unchanged stream.
+bool default_endpoint_changed(Engine& e) noexcept {return pinned_endpoint_default_changed(e.enumerator,e.callback);}
 HRESULT open_engine(Runtime& r,Engine& e,u32 rate) noexcept {
     HRESULT h=S_OK;
     if(!e.enumerator){

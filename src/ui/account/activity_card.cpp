@@ -33,17 +33,17 @@ UiRect offset(const UiRect& r, UiPoint o) noexcept {
 struct Builder {
     UiActivityCard& c;
     const UiActivityCardInput& in;
-    // Takes the items a full card cannot hold.
-    UiActivityCardItem spare;
 
+    // kUiActivityCardItems holds the most a layout adds.
     UiActivityCardItem* add(Role role, const UiRect& r, Utf8View text = {}, u32 flags = 0,
                             Tone tone = Tone::normal) noexcept {
-        auto* item = c.count < kUiActivityCardItems ? &c.items[c.count++] : &spare;
+        auto* item = &c.items[c.count++];
         *item = {r, text, {}, flags, role, tone, Act::none, 0, UiIcon::count, false, false};
         return item;
     }
+    // The item added last.
     u8 last() const noexcept {
-        return c.count ? static_cast<u8>(c.count - 1) : kUiActivityCardNone;
+        return static_cast<u8>(c.count - 1);
     }
     UiSize measure(Utf8View text, u32 flags, float width, bool wrap) const noexcept {
         if (in.measure)
@@ -112,8 +112,6 @@ Color tone_color(const Theme& theme, Tone tone) noexcept {
 } // namespace
 
 bool ui_activity_card_layout(const UserActivity& a, const UiActivityCardInput& in, UiActivityCard* out) noexcept {
-    if (!out)
-        return false;
     reset_value(out);
     auto& c = *out;
     if (!profile_activity_content(a, in.bot, in.self, &c.content))
@@ -122,7 +120,7 @@ bool ui_activity_card_layout(const UserActivity& a, const UiActivityCardInput& i
     const auto& t = c.content;
     const auto m = metrics(in.size);
     const bool compact = in.size == UiActivityCardSize::compact, full = in.size == UiActivityCardSize::full;
-    Builder b{c, in, {}};
+    Builder b{c, in};
     const float left = m.pad, right = maximum(left + 1, in.width - m.pad);
     float y = m.pad;
     if (!compact && t.heading.bytes) {
@@ -296,8 +294,6 @@ bool ui_activity_card_layout(const UserActivity& a, const UiActivityCardInput& i
 }
 
 UiActivityCardTick ui_activity_card_tick(UiActivityCard* c, const UserActivity& a, u64 now_ms) noexcept {
-    if (!c)
-        return UiActivityCardTick::unchanged;
     bool changed = false, relayout = false;
     // Same-length text is rewritten in place (digits keep their width).
     const auto rewrite = [&](ProfileString<16>* stored, Utf8View text) noexcept {

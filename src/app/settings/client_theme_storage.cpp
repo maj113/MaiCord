@@ -152,7 +152,7 @@ ClientThemeStorageResult install_file(const wchar_t* directory, u32 length, cons
     return write_result(file_persistence_write_atomic(target, units, bytes));
 }
 // A picked file joins the installed themes under its own name; one picked from that directory is already there.
-ClientThemeStorageResult install_copy(const wchar_t* directory, const wchar_t* source, ConstSlice<u8> bytes) noexcept {
+__forceinline ClientThemeStorageResult install_copy(const wchar_t* directory, const wchar_t* source, ConstSlice<u8> bytes) noexcept {
     u32 length = 0, source_units = 0;
     if (!path_length(directory, &length) || !path_length(source, &source_units))
         return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);

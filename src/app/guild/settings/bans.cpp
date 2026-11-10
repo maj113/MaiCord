@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../settings/settings.hpp"
 
@@ -56,11 +56,11 @@ void push_ban_row(Bank& bank, u64 user_id, const Utf8View& name, const Utf8View&
                             : reason.bytes ? bank.add(reason)
                                            : utf8_literal("No reason provided");
     const u32 index =
-        push_row(kRowBase + p.row_count, label, detail, UiSettingsControlKind::action, can_unban, false, {},
-                 {UiSettingsVariant::standard,
-                  static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_compact |
-                                  ui_settings_presentation_accent),
-                  kUiSettingsNoDefault});
+        push_action(kRowBase + p.row_count, label, detail, {}, can_unban,
+                    {UiSettingsVariant::standard,
+                     static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_compact |
+                                     ui_settings_presentation_accent),
+                     kUiSettingsNoDefault});
     if (index < kControlCapacity)
         p.avatar_media[index] = avatar.bytes || discriminator
                                     ? application_listed_user_avatar_media(user_id, avatar, discriminator)
@@ -71,21 +71,20 @@ void push_ban_row(Bank& bank, u64 user_id, const Utf8View& name, const Utf8View&
 
 void project_bans(Bank& bank) noexcept {
     auto& p = *owner;
-    push_category(control_list_category, utf8_literal("Server Ban List"),
-                  utf8_literal("Bans by default are by account and IP. A user can circumvent an IP ban by using a "
-                               "proxy. Ban circumvention can be made very hard by enabling phone verification in "
-                               "Safety Setup."));
+    push_category(control_list_category, "Server Ban List",
+                  "Bans by default are by account and IP. A user can circumvent an IP ban by using a proxy. Ban "
+                  "circumvention can be made very hard by enabling phone verification in Safety Setup.");
     // The search field with its Search button beside it.
     push_editor(control_search, {}, {}, UiSettingsControlKind::edit, editable(), editor_search,
-                utf8_literal("Search Bans by User Id or Username"), utf8_literal("Search"));
+                "Search Bans by User Id or Username", "Search");
     const bool searching = busy() && p.request.op == Op::ban_search;
     const auto& store = p.bans;
     if (p.bans_failed)
-        push_error(utf8_literal("Couldn't load bans"), p.status, utf8_literal("Try again"));
+        push_error("Couldn't load bans", p.status, "Try again");
     else if (!store.complete)
-        push_loading(utf8_literal("Loading bans…"));
+        push_loading("Loading bans…");
     else if (searching)
-        push_loading(utf8_literal("Searching bans…"));
+        push_loading("Searching bans…");
     // Typing filters the loaded bans at once; Enter or Search also asks the server.
     const Utf8View typed = guild_member_search_trim(editor_text(editor_search));
     const BanQuery query = parse(typed);
@@ -107,8 +106,7 @@ void project_bans(Bank& bank) noexcept {
                      {ban.user.avatar, ban.user.avatar_bytes}, ban.user.discriminator);
     }
     if (store.complete && !p.row_count)
-        push_notice(utf8_literal("You haven't banned anybody... but if and when you must, do not hesitate!"),
-                    utf8_literal("No Bans"));
+        push_notice("You haven't banned anybody... but if and when you must, do not hesitate!", "No Bans");
 }
 
 // The ban's details, as the official dialog shows them: its reason, Revoke
@@ -133,17 +131,7 @@ void open_ban(u64 user) noexcept {
     context_bank.add("Ban Reason\n");
     context_bank.add(reason.bytes ? reason : utf8_literal("No reason provided"));
     // A plain confirmation: lifting a ban sends no reason.
-    ApplicationTextFormRequest request{};
-    request.title = title_bank.since(0);
-    request.context = context_bank.since(0);
-    request.accept = utf8_literal("Revoke Ban");
-    request.cancel = utf8_literal("Done");
-    request.owner = form_key(form_unban, user);
-    request.valid = form_valid;
-    request.save = form_save;
-    request.confirmation_only = true;
-    request.danger = true;
-    application_text_form_open(request);
+    open_confirmation(form_unban, user, title_bank.since(0), context_bank.since(0), "Revoke Ban", form_save, "Done");
 }
 
 void search() noexcept {

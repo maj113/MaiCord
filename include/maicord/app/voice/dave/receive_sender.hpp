@@ -87,9 +87,9 @@ DaveSenderError dave_receive_sender_collect(DaveReceiveSender& sender, DaveRecei
 // transport/participant state; revalidate deferred work before calling. A match
 // here compares identity only; it does not establish MLS or SFU authorization.
 // In-place output is allowed with body-sized scratch. The written output and
-// scratch prefixes must be valid spans outside every owned epoch and the KDF
-// workspace and may not overlap each other or the frame (except output equal
-// to the frame); violations are rejected. The frame is only read.
+// scratch prefixes are the caller's own buffers: outside every owned epoch and the KDF
+// workspace and not overlapping each other or the frame (except output equal
+// to the frame). The frame is only read.
 // Only outer success permits plaintext use; revision identifies the successful
 // epoch. Failed attempts preserve ciphertext. Plaintext passthrough and Opus
 // silence are separate negotiated policy, not a fallback from this function.

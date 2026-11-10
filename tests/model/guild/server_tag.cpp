@@ -88,6 +88,23 @@ void test_draft() noexcept {
     draft.primary_set = true;
     check(guild_tag_palette_choice(draft) == kGuildTagPaletteCustom,
           "draft: a colour outside the presets selects the custom tile");
+    // The server's own image of its badge stands in for exactly the tile that shows the saved badge in its saved colours.
+    auto sword = base;
+    sword.badge = 0;
+    auto plain = base;
+    guild_tag_set_palette(&plain, kGuildTagPaletteDefault);
+    const auto* leaf = guild_tag_badge(6);
+    check(guild_tag_badge_saved(base, 6, 0x32a070, 0x57b59e) && guild_tag_badge_saved(base, 6, 0x32a070, 0) &&
+              !guild_tag_badge_saved(base, 6, 0x32a071, 0x57b59e) && !guild_tag_badge_saved(base, 0, 0x32a070, 0x57b59e) &&
+              !guild_tag_badge_saved(base, 15, 0x32a070, 0x57b59e),
+          "saved badge: the same badge in the same primary colour, and no other badge or colour (a one-colour badge has no "
+          "secondary to match)");
+    check(guild_tag_badge_saved(sword, 0, 0x32a070, 0x57b59e) && !guild_tag_badge_saved(sword, 0, 0x32a070, 0x57b59f) &&
+              !guild_tag_badge_saved(sword, 0, 0x32a071, 0x57b59e),
+          "saved badge: a two-colour badge matches only with both colours");
+    check(guild_tag_badge_saved(plain, 6, leaf->primary, leaf->primary) && !guild_tag_badge_saved(plain, 6, 0x32a070, 0x57b59e) &&
+              !guild_tag_badge_saved(plain, 7, guild_tag_badge(7)->primary, 0),
+          "saved badge: a badge saved in its own colours matches its default tile, not a palette's");
 
     GuildAdminProfile none{};
     check(decode(R"({"name":"Plain","badge":15})", &none), "draft: deprecated badge fixture decodes");

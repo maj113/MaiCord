@@ -1,6 +1,8 @@
 #pragma once
 
 #include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/ui/chat/messages/scene.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -224,5 +226,66 @@ inline bool theme_typography_ui_probe(D3D11Renderer& renderer) noexcept {
             "original typography restored"))
         return false;
     return true;
+}
+
+// Text size in chat and other typography commits back to back (a slider drag), each followed by the real rebuild of
+// the shell's text and the messages' (author lines and bodies in the chat face): the build is accepted every time,
+// nothing is rejected, the text stays, and a second round of the same commits adds no glyph-atlas entry or face.
+inline bool chat_text_size_churn_ui_probe(D3D11Renderer& renderer, MessageScene& scene, UiTextMeasureCache& cache,
+                                          bool (*rebuild)() noexcept) noexcept {
+    const auto live = renderer_text_system(&renderer, UiTextFace::normal);
+    const UiThemeTypography original = live.typography ? live.typography->value : UiThemeTypography{};
+    static UiResolvedThemeStyles bank;
+    struct Restore {
+        D3D11Renderer& renderer;
+        MessageScene& scene;
+        UiThemeTypography original;
+        ~Restore() noexcept {
+            RendererTypographyCandidate candidate{};
+            const bool applied = renderer_prepare_typography(&renderer, original, &candidate) &&
+                                 renderer_commit_typography(&renderer, &candidate);
+            renderer_discard_typography(&candidate);
+            theme_typography_probe_require(applied, "chat size churn restore");
+            message_scene_bind_theme_styles(&scene, nullptr);
+        }
+    } restore{renderer, scene, original};
+    if (!theme_typography_probe_require(rebuild() && renderer.content_text && renderer.content_text->quad_count,
+                                        "chat size churn baseline text"))
+        return false;
+    const u32 baseline = renderer.content_text->quad_count, rejected = renderer.content_text->rejected;
+    constexpr float sizes[]{20, 12, 24, 0, 18, 14, 0, 24, 20, 20};
+    u32 entries = 0, faces = 0;
+    for (u32 round = 0; round < 2; ++round) {
+        for (const float size : sizes) {
+            auto value = original;
+            value.chat_size = size;
+            RendererTypographyCandidate candidate{};
+            const bool applied = renderer_prepare_typography(&renderer, value, &candidate) &&
+                                 renderer_commit_typography(&renderer, &candidate);
+            renderer_discard_typography(&candidate);
+            bank = {};
+            ui_text_measure_cache_invalidate(&cache);
+            const bool bound = ui_theme_styles_apply(&bank, value, UiThemeMetrics{}).ok();
+            message_scene_bind_theme_styles(&scene, &bank);
+            const bool built = applied && bound && rebuild();
+            const auto chat = renderer_text_system(&renderer, ui_text_face_chat(UiTextFace::normal));
+            const auto interface_text = renderer_text_system(&renderer, UiTextFace::normal);
+            if (!theme_typography_probe_require(
+                    built && renderer.content_text->quad_count >= baseline / 3 &&
+                        renderer.content_text->rejected == rejected &&
+                        renderer.content_text->last_error == RendererTextBuildError::none &&
+                        interface_text.em_size == original.body_size && interface_text.native_format &&
+                        chat.em_size == (size ? size : original.body_size) && chat.native_format,
+                    "chat size churn rebuild keeps every line"))
+                return false;
+        }
+        if (!round) {
+            entries = renderer.glyph_text.allocator.entry_count;
+            faces = renderer.glyph_text.font_face_count;
+        }
+    }
+    return theme_typography_probe_require(renderer.glyph_text.allocator.entry_count <= entries + 16 &&
+                                              renderer.glyph_text.font_face_count <= faces + 1,
+                                          "chat size churn keeps the glyph atlas bounded");
 }
 } // namespace maicord

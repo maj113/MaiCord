@@ -135,7 +135,7 @@ bool content_confirmation_open(TextFormOwnerKey key, Utf8View) noexcept {
 void release_bank() noexcept {
     owner_release(g_owner.bank);
 }
-bool ensure_bank() noexcept {
+__forceinline bool ensure_bank() noexcept {
     if (g_owner.bank)
         return true;
     if (!owner_ensure(g_owner.bank))
@@ -159,7 +159,7 @@ void scope() noexcept {
     g_owner.self_user_id = self;
 }
 u64 read_number(UserSettingsField field, u64 fallback) noexcept {
-    UserSettingsValue value{};
+    UserSettingsValue value;
     return store() && user_settings_store_read(*store(), field, &value) ? value.number : fallback;
 }
 struct ExplicitOptions {
@@ -173,20 +173,20 @@ ExplicitOptions explicit_options(SettingBinding binding) noexcept {
     return {restricted ? 1u : 0u, guild ? (restricted ? 1u : 2u) : (restricted ? 2u : 3u),
             !(policy.flags & account_content_parent_managed) && !(guild && restricted)};
 }
-MessageMediaContext explicit_context(SettingBinding binding) noexcept {
+__forceinline MessageMediaContext explicit_context(SettingBinding binding) noexcept {
     return binding == SettingBinding::explicit_friends ? MessageMediaContext::friend_dm
            : binding == SettingBinding::explicit_others ? MessageMediaContext::other_dm
                                                         : MessageMediaContext::guild;
 }
-UserSettingsField explicit_field(SettingBinding binding) noexcept {
+__forceinline UserSettingsField explicit_field(SettingBinding binding) noexcept {
     return binding == SettingBinding::explicit_friends ? kExplicitFriends
            : binding == SettingBinding::explicit_others ? kExplicitOthers : kExplicitGuilds;
 }
 bool present(UserSettingsField field) noexcept {
-    UserSettingsValue value{};
+    UserSettingsValue value;
     return store() && user_settings_store_read(*store(), field, &value);
 }
-bool write(UserSettingsField field, UserSettingsValue value) noexcept {
+bool write(UserSettingsField field, const UserSettingsValue& value) noexcept {
     auto* s = store();
     if (!s || !user_settings_store_set(s, field, value, clock_monotonic_milliseconds()))
         return false;
@@ -195,6 +195,9 @@ bool write(UserSettingsField field, UserSettingsValue value) noexcept {
     application_user_settings_apply_display();
     application_request_frame();
     return true;
+}
+bool write_number(UserSettingsField field, u64 number) noexcept {
+    return write(field, user_settings_number(number));
 }
 u32 index_of(const u8* values, u32 count, u64 value, u32 fallback) noexcept {
     for (u32 i = 0; i < count; ++i)
@@ -210,7 +213,7 @@ bool restricted_account() noexcept {
 }
 // dm_spam_filter_v2 when unset: restricted accounts filter all; others follow
 // the legacy explicit_content_filter (0 off, 1 non-friends, 2 all; unset 1).
-u64 spam_filter() noexcept {
+__forceinline u64 spam_filter() noexcept {
     const u64 value = read_number(kSpam, 0);
     if (value >= 1 && value <= 3)
         return value;
@@ -226,7 +229,7 @@ u64 activity_servers() noexcept {
     return value >= 1 && value <= 3 ? value : restricted_account() ? 2 : 1;
 }
 u32 spoiler_choice() noexcept {
-    UserSettingsValue value{};
+    UserSettingsValue value;
     if (store() && user_settings_store_read(*store(), kSpoilers, &value))
         for (u32 i = 0; i < 3; ++i)
             if (utf8_equal({value.text, value.text_bytes}, kSpoilerValues[i]))
@@ -260,7 +263,7 @@ bool synced_toggle(SettingBinding binding, SyncedToggle* toggle) noexcept {
     }
 }
 // Unset fields keep the service defaults: everything shown and animated.
-MessageRichDisplay chat_display() noexcept {
+__forceinline MessageRichDisplay chat_display() noexcept {
     MessageRichDisplay display{};
     if (!loaded())
         return display;
@@ -351,8 +354,7 @@ bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept {
         user_settings_store_begin(s, {g_owner.bank->partial, kUserSettingsPartialMaximumBytes}, &required, &pinned);
     if (!bytes) {
         // Unserializable (oversized) groups: drop the edits rather than loop.
-        UserSettingsEdit cleared[kUserSettingsEditCapacity]{};
-        copy_bytes(s->dirty, cleared, sizeof(cleared));
+        clear_bytes(s->dirty, sizeof(s->dirty));
         s->dirty_count = 0;
         s->due_ms = 0;
         mark_failed(utf8_literal("Couldn't save your settings."));
@@ -488,7 +490,7 @@ void application_user_settings_apply_display() noexcept {
 }
 
 bool application_user_settings_set_developer_mode(bool on) noexcept {
-    return loaded() && write(kDeveloperMode, user_settings_number(on));
+    return loaded() && write_number(kDeveloperMode, on);
 }
 
 bool application_user_settings_game_mentions_autocomplete() noexcept {
@@ -612,7 +614,7 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
         return notice();
     case SettingBinding::language: {
         // Unset is the default locale, en-US; one this list doesn't name selects nothing.
-        UserSettingsValue locale{};
+        UserSettingsValue locale;
         control->selected_choice = kLocaleUnitedStates;
         if (store() && user_settings_store_read(*store(), kLocale, &locale) && locale.present) {
             control->selected_choice = kUiSettingsNoChoice;
@@ -746,9 +748,9 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
     switch (binding) {
     case SettingBinding::dm_from_members:
         // The official switch writes default_guilds_restricted_v2 alone.
-        return write(kDmRestrictedV2, user_settings_number(!checked));
+        return write_number(kDmRestrictedV2, !checked);
     case SettingBinding::message_requests:
-        return !dm_restricted() && write(kMessageRequests, user_settings_number(!checked));
+        return !dm_restricted() && write_number(kMessageRequests, !checked);
     case SettingBinding::nsfw_commands:
     case SettingBinding::nsfw_guilds:
         if (restricted_account())
@@ -757,12 +759,11 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
             application_user_settings_request_content_confirmation();
             return true;
         }
-        return write(binding == SettingBinding::nsfw_commands ? kNsfwCommands : kNsfwGuilds,
-                     user_settings_number(checked));
+        return write_number(binding == SettingBinding::nsfw_commands ? kNsfwCommands : kNsfwGuilds, checked);
     case SettingBinding::dm_spam_filter:
-        return choice < 3 && write(kSpam, user_settings_number(kSpamValues[choice]));
+        return choice < 3 && write_number(kSpam, kSpamValues[choice]);
     case SettingBinding::activity_servers:
-        return choice < 3 && write(kActivityServers, user_settings_number(kActivityServerValues[choice]));
+        return choice < 3 && write_number(kActivityServers, kActivityServerValues[choice]);
     case SettingBinding::explicit_friends:
     case SettingBinding::explicit_others:
     case SettingBinding::explicit_guilds: {
@@ -774,7 +775,7 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
             application_user_settings_request_content_confirmation();
             return true;
         }
-        return write(explicit_field(binding), user_settings_number(value));
+        return write_number(explicit_field(binding), value);
     }
     case SettingBinding::friend_everyone:
     case SettingBinding::friend_mutual_friends:
@@ -786,36 +787,36 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
             const u64 bit = binding == SettingBinding::friend_mutual_friends ? kFriendsOfFriends : kServerMembers;
             flags = checked ? flags | bit : flags & ~(bit | kEveryone);
         }
-        return write(kFriendFlags, user_settings_number(flags));
+        return write_number(kFriendFlags, flags);
     }
     case SettingBinding::profile_visibility:
-        return choice < 3 && write(kVisibility, user_settings_number(kVisibilityValues[choice]));
+        return choice < 3 && write_number(kVisibility, kVisibilityValues[choice]);
     case SettingBinding::profile_updates:
-        return write(kProfileUpdates, user_settings_number(checked));
+        return write_number(kProfileUpdates, checked);
     case SettingBinding::message_display:
-        return choice < 2 && write(kCompact, user_settings_number(choice));
+        return choice < 2 && write_number(kCompact, choice);
     case SettingBinding::time_format:
-        return choice < 3 && write(kHourCycle, user_settings_number(choice));
+        return choice < 3 && write_number(kHourCycle, choice);
     case SettingBinding::animate_stickers:
-        return choice < 3 && write(kAnimateStickers, user_settings_number(choice));
+        return choice < 3 && write_number(kAnimateStickers, choice);
     case SettingBinding::render_spoilers:
         return choice < 3 && write(kSpoilers, user_settings_text(kSpoilerValues[kSpoilerChoices[choice]]));
     case SettingBinding::language:
         return choice < sizeof(kLocales) / sizeof(kLocales[0]) && write(kLocale, user_settings_text(kLocales[choice]));
     case SettingBinding::notify_reactions:
-        return choice < 3 && write(kReactionNotifications, user_settings_number(choice));
+        return choice < 3 && write_number(kReactionNotifications, choice);
     case SettingBinding::mobile_push_delay:
-        return choice < 10 && write(kAfkTimeout, user_settings_number((choice + 1) * 60));
+        return choice < 10 && write_number(kAfkTimeout, (choice + 1) * 60);
     case SettingBinding::compact_avatars:
-        return read_number(kCompact, 0) != 0 && write(kCompactAvatars, user_settings_number(checked));
+        return read_number(kCompact, 0) != 0 && write_number(kCompactAvatars, checked);
     case SettingBinding::ui_density:
-        return choice < 3 && write(kUiDensity, user_settings_number(kUiDensityValues[choice]));
+        return choice < 3 && write_number(kUiDensity, kUiDensityValues[choice]);
     default: {
         SyncedToggle toggle{};
         if (synced_toggle(binding, &toggle))
-            return write(toggle.field, user_settings_number(checked != toggle.inverted));
+            return write_number(toggle.field, checked != toggle.inverted);
         UserSettingsField field{};
-        return chat_toggle(binding, &field) && write(field, user_settings_number(checked));
+        return chat_toggle(binding, &field) && write_number(field, checked);
     }
     }
 }

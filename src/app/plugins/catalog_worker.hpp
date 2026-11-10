@@ -27,9 +27,9 @@ struct CatalogJob {
     u8 floor_digest[32];
     CatalogBlob blob;          // download and asset
     u64 owner;                 // delete_data
-    u32 path_characters;       // copy
-    wchar_t path[520];
 };
+// The longest source path of a Developer Mode copy job, terminator included.
+inline constexpr u32 kCatalogCopyPathCharacters = 520;
 struct CatalogJobResult {
     CatalogJobKind kind;
     u64 serial;
@@ -54,8 +54,9 @@ bool catalog_worker_start(const CatalogWorkerOptions&) noexcept;
 // Cancels the request in flight and joins the thread; results not taken are freed.
 void catalog_worker_stop() noexcept;
 HANDLE catalog_worker_notification() noexcept;
-// False when the queue is full or the worker is not running.
-bool catalog_worker_submit(const CatalogJob&) noexcept;
+// False when the queue is full or the worker is not running. A copy job's source path is held by the worker until the
+// job's result is taken: the service starts one copy at a time (nothing starts while an operation is in progress).
+bool catalog_worker_submit(const CatalogJob&, ConstSlice<wchar_t> path = {}) noexcept;
 bool catalog_worker_take(CatalogJobResult*) noexcept;
 // The download in flight: bytes received of total.
 void catalog_worker_progress(u64* bytes, u64* total) noexcept;

@@ -1181,7 +1181,7 @@ struct Writer {
             return;
         }
         const i32 power = exponent ? static_cast<i32>(exponent) - 150 : -149;
-        u8 digits[192]{};
+        u8 digits[192];
         u32 count{};
         do {
             digits[count++] = static_cast<u8>(mantissa % 10);

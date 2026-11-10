@@ -1,5 +1,6 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "caption.hpp"
 #include "state.hpp"
@@ -290,29 +291,37 @@ bool composer_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* t
     return widget_target(scene.widgets, handle, scope, g_app.account_ui->active_channel_id,
                          scene.reply_message_id, 0x100u + static_cast<u32>(control), label, target);
 }
+// Labels by action: each list runs over consecutive enum values from the first named one (name_list.hpp; an action
+// outside the run has no label and no tooltip).
+constexpr char kActionBarLabels[] = "Add reaction\0Reply\0More\0Forward\0Edit\0Copy message link\0Mark unread\0Pin message\0"
+                                    "Unpin message\0Delete message\0Copy message ID\0Retry send\0";
+static_assert(name_list_count(kActionBarLabels) ==
+              static_cast<u32>(MessageActionBarAction::retry) - static_cast<u32>(MessageActionBarAction::add_reaction) + 1);
+constexpr char kSearchLabels[] = "Search messages\0Search\0Close search\0Search filters\0Previous results\0Next results\0"
+                                 "Newest first\0Oldest first\0Most relevant\0Jump to message\0";
+static_assert(name_list_count(kSearchLabels) ==
+              static_cast<u32>(UiSearchAction::result) - static_cast<u32>(UiSearchAction::edit) + 1);
+constexpr char kPinnedLabels[] = "Close pins\0Refresh pins\0Jump to message\0Unpin message\0Newer pins\0Older pins\0Retry loading pins\0";
+static_assert(name_list_count(kPinnedLabels) ==
+              static_cast<u32>(UiPinnedMessagesAction::retry) - static_cast<u32>(UiPinnedMessagesAction::close) + 1);
+// close..retry; open_thread (its label depends on the browser) and create_post (none) follow.
+constexpr char kBrowserLabels[] = "Close thread browser\0Active threads\0Archived threads\0Previous threads\0Next threads\0"
+                                  "Retry loading threads\0";
+static_assert(name_list_count(kBrowserLabels) ==
+              static_cast<u32>(UiThreadBrowserAction::retry) - static_cast<u32>(UiThreadBrowserAction::close) + 1);
+constexpr char kForumLabels[] = "Sort by\0List\0Gallery\0Filter by tag\0";
+static_assert(name_list_count(kForumLabels) ==
+              static_cast<u32>(UiThreadBrowserAction::forum_tag) - static_cast<u32>(UiThreadBrowserAction::forum_sort) + 1);
 bool message_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept {
     const auto& bar = g_app.message_action_bar;
     if (application_friends_active() || application_thread_browser_read_blocked() || !bar.active || bar.owner.manager != &g_app.message_scene.widgets)
         return false;
     const auto hit = message_action_bar_hit_test(bar, point.x, point.y);
-    Utf8View label{};
-    switch (hit.action) {
-    case MessageActionBarAction::reply: label = utf8_literal("Reply"); break;
-    case MessageActionBarAction::forward: label = utf8_literal("Forward"); break;
-    case MessageActionBarAction::add_reaction: label = utf8_literal("Add reaction"); break;
-    case MessageActionBarAction::more: label = utf8_literal("More"); break;
-    case MessageActionBarAction::edit: label = utf8_literal("Edit"); break;
-    case MessageActionBarAction::copy_link: label = utf8_literal("Copy message link"); break;
-    case MessageActionBarAction::mark_unread: label = utf8_literal("Mark unread"); break;
-    case MessageActionBarAction::pin: label = utf8_literal("Pin message"); break;
-    case MessageActionBarAction::unpin: label = utf8_literal("Unpin message"); break;
-    case MessageActionBarAction::delete_message: label = utf8_literal("Delete message"); break;
-    case MessageActionBarAction::copy_id: label = utf8_literal("Copy message ID"); break;
-    case MessageActionBarAction::retry: label = utf8_literal("Retry send"); break;
-    case MessageActionBarAction::plugin_0:
-    case MessageActionBarAction::plugin_1: label = application_plugins_hover_label(hit.catalog_index); break;
-    default: break;
-    }
+    const Utf8View label =
+        hit.action == MessageActionBarAction::plugin_0 || hit.action == MessageActionBarAction::plugin_1
+            ? application_plugins_hover_label(hit.catalog_index)
+            : name_list_at(kActionBarLabels,
+                           static_cast<u32>(hit.action) - static_cast<u32>(MessageActionBarAction::add_reaction));
     if (!label.bytes)
         return false;
     const auto* message = application_message_record(bar.message_id);
@@ -495,44 +504,11 @@ bool search_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* tar
     if (!handle.generation || handle.slot >= 48)
         return false;
     const auto source = scene->targets[handle.slot];
-    Utf8View label{};
-    switch (source.action) {
-    case UiSearchAction::edit:
-        label = utf8_literal("Search messages");
-        break;
-    case UiSearchAction::submit:
-        label = utf8_literal("Search");
-        break;
-    case UiSearchAction::close:
-        label = utf8_literal("Close search");
-        break;
-    case UiSearchAction::filters:
-        label = utf8_literal("Search filters");
-        break;
-    case UiSearchAction::previous:
-        label = utf8_literal("Previous results");
-        break;
-    case UiSearchAction::next:
-        label = utf8_literal("Next results");
-        break;
-    case UiSearchAction::newest:
-        label = utf8_literal("Newest first");
-        break;
-    case UiSearchAction::oldest:
-        label = utf8_literal("Oldest first");
-        break;
-    case UiSearchAction::relevance:
-        label = utf8_literal("Most relevant");
-        break;
-    case UiSearchAction::result:
-        label = utf8_literal("Jump to message");
-        break;
-    case UiSearchAction::scope:
-        label = utf8_literal("Search the whole server");
-        break;
-    default:
+    const Utf8View label = source.action == UiSearchAction::scope
+                ? utf8_literal("Search the whole server")
+                : name_list_at(kSearchLabels, static_cast<u32>(source.action) - static_cast<u32>(UiSearchAction::edit));
+    if (!label.bytes)
         return false;
-    }
     return widget_target(manager, handle, scope,
                          source.message_id ? source.message_id : static_cast<u64>(source.action),
                          scene->source_revision, 0x400u + static_cast<u32>(source.action), label, target);
@@ -543,17 +519,9 @@ bool pinned_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* tar
     const auto handle = keyboard ? scene->widgets.focused
                                 : ui_widget_manager_hit_test(scene->widgets, point.x, point.y);
     const auto source = ui_pinned_messages_scene_target(*scene, handle);
-    Utf8View label{};
-    switch (source.action) {
-    case UiPinnedMessagesAction::close: label = utf8_literal("Close pins"); break;
-    case UiPinnedMessagesAction::refresh: label = utf8_literal("Refresh pins"); break;
-    case UiPinnedMessagesAction::jump: label = utf8_literal("Jump to message"); break;
-    case UiPinnedMessagesAction::unpin: label = utf8_literal("Unpin message"); break;
-    case UiPinnedMessagesAction::previous: label = utf8_literal("Newer pins"); break;
-    case UiPinnedMessagesAction::next: label = utf8_literal("Older pins"); break;
-    case UiPinnedMessagesAction::retry: label = utf8_literal("Retry loading pins"); break;
-    default: return false;
-    }
+    const Utf8View label = name_list_at(kPinnedLabels, static_cast<u32>(source.action) - static_cast<u32>(UiPinnedMessagesAction::close));
+    if (!label.bytes)
+        return false;
     return widget_target(scene->widgets, handle, scope,
                          source.message_id ? source.message_id : source.channel_id,
                          scene->source_revision, 0x900u + static_cast<u32>(source.action), label, target);
@@ -565,23 +533,13 @@ bool browser_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* ta
                                 : ui_widget_manager_hit_test(scene->widgets, point.x, point.y);
     const auto source = ui_thread_browser_scene_target(*scene, handle);
     if (!ui_thread_browser_scene_target_current(*scene, source)) return false;
-    Utf8View label{};
-    switch (source.action) {
-    case UiThreadBrowserAction::close: label = utf8_literal("Close thread browser"); break;
-    case UiThreadBrowserAction::active: label = utf8_literal("Active threads"); break;
-    case UiThreadBrowserAction::archived: label = utf8_literal("Archived threads"); break;
-    case UiThreadBrowserAction::previous: label = utf8_literal("Previous threads"); break;
-    case UiThreadBrowserAction::next: label = utf8_literal("Next threads"); break;
-    case UiThreadBrowserAction::retry: label = utf8_literal("Retry loading threads"); break;
-    case UiThreadBrowserAction::open_thread:
-        label = scene->forum ? utf8_literal("Open post") : utf8_literal("Open thread");
-        break;
-    case UiThreadBrowserAction::forum_sort: label = utf8_literal("Sort by"); break;
-    case UiThreadBrowserAction::forum_list: label = utf8_literal("List"); break;
-    case UiThreadBrowserAction::forum_gallery: label = utf8_literal("Gallery"); break;
-    case UiThreadBrowserAction::forum_tag: label = utf8_literal("Filter by tag"); break;
-    default: return false;
-    }
+    const Utf8View label = source.action == UiThreadBrowserAction::open_thread
+                ? (scene->forum ? utf8_literal("Open post") : utf8_literal("Open thread"))
+            : source.action >= UiThreadBrowserAction::forum_sort
+                ? name_list_at(kForumLabels, static_cast<u32>(source.action) - static_cast<u32>(UiThreadBrowserAction::forum_sort))
+                : name_list_at(kBrowserLabels, static_cast<u32>(source.action) - static_cast<u32>(UiThreadBrowserAction::close));
+    if (!label.bytes)
+        return false;
     return widget_target(scene->widgets, handle, scope,
                          source.thread_id ? source.thread_id : static_cast<u64>(source.action),
                          source.source_publication, 0xb00u + static_cast<u32>(source.action), label, target);

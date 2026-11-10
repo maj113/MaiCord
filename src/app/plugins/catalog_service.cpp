@@ -151,28 +151,31 @@ bool ensure_worker() noexcept {
     g->worker = catalog_worker_start(options);
     return g->worker;
 }
-u64 submit(CatalogJob job) noexcept {
+// Stamps the job with its serial and the replay floor and queues it; the serial, or 0 when it could not be queued.
+u64 submit(CatalogJob& job, ConstSlice<wchar_t> path = {}) noexcept {
     if (!ensure_worker()) return 0;
     job.serial = ++g->serial;
     job.floor_sequence = g->state.sequence;
     copy_bytes(job.floor_digest, g->state.digest, 32);
-    return catalog_worker_submit(job) ? job.serial : 0;
+    return catalog_worker_submit(job, path) ? job.serial : 0;
 }
 void load_cache() noexcept {
     if (g->index || g->cache_job || !configured()) return;
-    g->cache_job = submit({CatalogJobKind::load_cache});
+    CatalogJob job{CatalogJobKind::load_cache};
+    g->cache_job = submit(job);
 }
-bool check() noexcept {
+__declspec(noinline) bool check() noexcept {
     if (!configured()) return false;
     if (g->check_job) return true;
-    g->check_job = submit({CatalogJobKind::check});
+    CatalogJob job{CatalogJobKind::check};
+    g->check_job = submit(job);
     g->view.fetching = g->check_job != 0;
     bump();
     return g->check_job != 0;
 }
 
 // ---- the runtime -------------------------------------------------------------------------------------
-Runtime* runtime() noexcept {
+__declspec(noinline) Runtime* runtime() noexcept {
     if (g->runtime && g->runtime->open) return g->runtime;
     if (!g->runtime && !(g->runtime = commit_pages<Runtime>())) return nullptr;
     wchar_t plugins[600], data[600], ledger[600];
@@ -223,7 +226,7 @@ bool disable(CatalogStateEntry& e) noexcept {
     sync_hosts(e);
     return plugin_runtime_disable(&g->runtime->runtime, b);
 }
-CatalogError enable(CatalogStateEntry& e) noexcept {
+__declspec(noinline) CatalogError enable(CatalogStateEntry& e) noexcept {
     g->last_enable = {};
     if (e.kind != CatalogKind::plugin) return CatalogError::none;
     if (binding_of(e.owner_id)) return CatalogError::none;
@@ -239,7 +242,7 @@ CatalogError enable(CatalogStateEntry& e) noexcept {
         .field("load", static_cast<u8>(enabled.load.error)).field("problem", static_cast<u8>(enabled.load.problem)).write(LogLevel::warning);
     return enabled.load.error == PluginLoadError::digest ? CatalogError::digest : CatalogError::enable_failed;
 }
-void delete_plugin_file(const u8 (&sha256)[32]) noexcept {
+__declspec(noinline) void delete_plugin_file(const u8 (&sha256)[32]) noexcept {
     // Content-addressed: another entry may still name the same build.
     for (u32 i = 0; i < g->state.count; ++i) {
         const CatalogStateEntry& e = g->state.entries[i];
@@ -253,7 +256,7 @@ void delete_plugin_file(const u8 (&sha256)[32]) noexcept {
     }
 }
 // Plugin files nothing names any more: a crash between writing a file and recording it leaves one behind.
-void delete_unreferenced_plugins() noexcept {
+__declspec(noinline) void delete_unreferenced_plugins() noexcept {
     wchar_t directory[600];
     if (!catalog_path(base(), L"plugins\\", directory)) return;
     DirIter scan{};
@@ -283,15 +286,22 @@ void delete_unreferenced_plugins() noexcept {
 u32 item_of(CatalogKind kind, const Utf8View& slug) noexcept {
     return g->index ? catalog_index_find(*g->index, kind, slug) : kCatalogNone;
 }
+// A listed file that no revocation of the index forbids: malicious and broken builds are never offered again.
+bool installable_file(const u8 (&sha256)[32]) noexcept {
+    const auto severity = catalog_index_revocation(*g->index, sha256);
+    return severity == CatalogRevocationSeverity::none || severity == CatalogRevocationSeverity::withdrawn;
+}
+// The index limits a version to MC_NETWORK_HOSTS_MAX hosts (catalog_index.cpp host_entry).
+static_assert(kCatalogIndexMaximumHosts == MC_NETWORK_HOSTS_MAX);
 ConstSlice<Utf8View> version_hosts(const CatalogVersion& v, Utf8View (&hosts)[MC_NETWORK_HOSTS_MAX]) noexcept {
-    for (u32 i = 0; i < v.host_count && i < MC_NETWORK_HOSTS_MAX; ++i) hosts[i] = catalog_text(*g->index, g->index->hosts[v.first_host + i]);
-    return {hosts, minimum<u32>(v.host_count, MC_NETWORK_HOSTS_MAX)};
+    for (u32 i = 0; i < v.host_count; ++i) hosts[i] = catalog_text(*g->index, g->index->hosts[v.first_host + i]);
+    return {hosts, v.host_count};
 }
 bool needs_review(const CatalogStateEntry& e, const CatalogVersion& v) noexcept {
     if (e.kind != CatalogKind::plugin) return false;
     Utf8View hosts[MC_NETWORK_HOSTS_MAX];
     const auto list = version_hosts(v, hosts);
-    const u32 all = list.count ? (1u << list.count) - 1 : 0;
+    const u32 all = (1u << list.count) - 1;
     return (v.permissions & ~e.approved_permissions) || catalog_state_approved_hosts(e, list) != all;
 }
 // What revocations say about installed items: malicious builds never run again, broken ones are turned off.
@@ -573,7 +583,7 @@ bool review_plugin() noexcept {
     PluginConsentRequest request = plugin_consent_request(image, g->consent_hosts);
     request.approved_permissions = e ? e->approved_permissions : 0;
     request.approved_hosts = e ? catalog_state_approved_hosts(*e, request.hosts) : 0;
-    const u32 all = request.hosts.count ? (1u << request.hosts.count) - 1 : 0;
+    const u32 all = (1u << request.hosts.count) - 1;
     // Updates within the approval apply at once, and so does a rebuild of a plugin the user already allowed
     // (Developer Mode); installs and first sideloads always ask.
     const bool within = !(request.permissions & ~request.approved_permissions) && request.approved_hosts == all;
@@ -622,7 +632,7 @@ void downloaded(const CatalogJobResult& r) noexcept {
 }
 
 // The next automatic update, one at a time.
-void auto_update() noexcept {
+__declspec(noinline) void auto_update() noexcept {
     if (!g->auto_due || busy() || !g->index || !g->view.installable) return;
     const bool plugins_off = g->state.flags & kCatalogStateAutoUpdateOff;
     for (u32 i = 0; i < g->state.count; ++i) {
@@ -643,7 +653,7 @@ void auto_update() noexcept {
     g->auto_due = false;
 }
 
-void take_results() noexcept {
+__declspec(noinline) void take_results() noexcept {
     CatalogJobResult r{};
     while (catalog_worker_take(&r)) {
         switch (r.kind) {
@@ -713,9 +723,7 @@ bool sideload_file(const wchar_t* path, u32 characters, u32 file) noexcept {
             g->op.dev_name[g->op.dev_name_bytes++] = name[i] < 0x80 ? static_cast<char>(name[i]) : '?';
     }
     CatalogJob job{CatalogJobKind::copy};
-    copy_bytes(job.path, path, characters * 2);
-    job.path_characters = characters;
-    g->op.job = submit(job);
+    g->op.job = submit(job, {path, characters});
     if (!g->op.job) return finish(CatalogError::busy);
     g->view.operation.phase = CatalogPhase::downloading;
     bump();
@@ -740,7 +748,7 @@ u32 dev_utf8(const wchar_t* path, u32 length, char (&text)[1440]) noexcept {
 }
 
 // plugins\dev, or %MAICORD_PLUGIN_DEV%.
-bool dev_folder_resolve() noexcept {
+__declspec(noinline) bool dev_folder_resolve() noexcept {
     wchar_t path[600];
     u32 length = 0;
     if (!dev_folder_path(L"MAICORD_PLUGIN_DEV", L"plugins", L"plugins\\dev", path, &length)) return false;
@@ -752,7 +760,7 @@ bool dev_folder_resolve() noexcept {
 
 // effects\dev, or %MAICORD_EFFECT_DEV%: the effects module lists its .mcfx files; a settled change only has to
 // tell it to scan again (a rebuilt effect keeps its selection and its knob values there).
-bool dev_effects_watch() noexcept {
+__declspec(noinline) bool dev_effects_watch() noexcept {
     wchar_t path[600];
     u32 length = 0;
     if (!dev_folder_path(L"MAICORD_EFFECT_DEV", L"effects", L"effects\\dev", path, &length)) return false;
@@ -771,7 +779,7 @@ bool dev_dll(const wchar_t* name, u32 length) noexcept {
 }
 
 // The DLLs in the folder: new ones and ones whose time or size changed are pending (everything when force).
-void dev_scan(bool force) noexcept {
+__declspec(noinline) void dev_scan(bool force) noexcept {
     u32 length = g->dev_folder_characters;
     if (!length || length >= 600) return;
     DevFile seen[8]{};
@@ -803,7 +811,7 @@ void dev_scan(bool force) noexcept {
 }
 
 // The next pending build, once nothing else is in progress.
-void dev_next() noexcept {
+__declspec(noinline) void dev_next() noexcept {
     for (u32 i = 0; i < g->dev_count && !busy(); ++i) {
         DevFile& file = g->dev_files[i];
         if (!file.pending) continue;
@@ -908,8 +916,7 @@ u32 application_catalog_installable_version(u32 item) noexcept {
     for (u32 i = 0; i < it.version_count; ++i) {
         const CatalogVersion& v = g->index->versions[it.first_version + i];
         if (!version_runs(it, v)) continue;
-        const auto severity = catalog_index_revocation(*g->index, v.file.sha256);
-        if (severity == CatalogRevocationSeverity::none || severity == CatalogRevocationSeverity::withdrawn) return it.first_version + i;
+        if (installable_file(v.file.sha256)) return it.first_version + i;
     }
     return kCatalogNone;
 }
@@ -1141,9 +1148,7 @@ u32 reviewed_version() noexcept {
     for (u32 i = 0; i < it.version_count; ++i) {
         const CatalogVersion& v = g->index->versions[it.first_version + i];
         if (!bytes_equal(v.file.sha256, g->op.sha256, 32)) continue;
-        const auto severity = catalog_index_revocation(*g->index, v.file.sha256);
-        const bool installable = severity == CatalogRevocationSeverity::none || severity == CatalogRevocationSeverity::withdrawn;
-        return installable && version_runs(it, v) && listing_matches(g->consent_image, v) ? it.first_version + i : kCatalogNone;
+        return installable_file(v.file.sha256) && version_runs(it, v) && listing_matches(g->consent_image, v) ? it.first_version + i : kCatalogNone;
     }
     return kCatalogNone;
 }
@@ -1183,7 +1188,7 @@ bool application_catalog_consent_answer(bool accepted, bool enable_now) noexcept
         g->op.version = version;
     }
     const PluginConsentRequest& request = g->consent_request;
-    const u32 all = request.hosts.count ? (1u << request.hosts.count) - 1 : 0;
+    const u32 all = (1u << request.hosts.count) - 1;
     // Allowing allows everything the dialog listed.
     return apply_plugin(request.permissions, all, enable_now);
 }

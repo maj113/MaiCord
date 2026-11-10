@@ -1,3 +1,4 @@
+#include "maicord/model/chat/forwarded_input.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/window_state.hpp"
 #include "../shell/surface_motion.hpp"
@@ -208,6 +209,20 @@ void sort_snapshot(ApplicationFriends& friends) noexcept {
         if (friends.candidate[i - 1].user_id == friends.candidate[i].user_id) friends.snapshot_failed = true;
     friends.snapshot_sorted = true;
 }
+// The status line of a row, in the order of status_text's chain below.
+constexpr char kStatusTexts[] = "Ignored\0Potential spam\0Incoming friend request\0Outgoing friend request\0Blocked\0"
+                                "Online\0Idle\0Do Not Disturb\0Offline\0Status unavailable\0";
+Utf8View status_text(const RelationshipRecord& record, bool hidden) noexcept {
+    const u32 index = hidden ? (record.ignored ? 0u : 1u)
+                      : record.type == RelationshipType::incoming ? 2u
+                      : record.type == RelationshipType::outgoing ? 3u
+                      : record.type == RelationshipType::blocked ? 4u
+                      : record.presence == RelationshipPresence::online ? 5u
+                      : record.presence == RelationshipPresence::idle ? 6u
+                      : record.presence == RelationshipPresence::dnd ? 7u
+                      : record.presence == RelationshipPresence::offline ? 8u : 9u;
+    return name_list_at(kStatusTexts, index);
+}
 bool resolve_record(const ApplicationFriends& friends, u32 index, UiFriendsRow* row, bool hidden) noexcept {
     if (!g_app.account_ui || index >= friends.store.count) return false;
     const auto& record = friends.records[index];
@@ -215,15 +230,7 @@ bool resolve_record(const ApplicationFriends& friends, u32 index, UiFriendsRow* 
     const auto* user = user_store_find(users, record.user_id);
     const auto name = relationship_display_name(record, users);
     *row = {record.user_id, name.bytes ? name : utf8_literal("Unknown user"),
-        user ? user_store_username(users, *user) : Utf8View{},
-        hidden ? record.ignored ? utf8_literal("Ignored") : utf8_literal("Potential spam") :
-        record.type == RelationshipType::incoming ? utf8_literal("Incoming friend request") :
-        record.type == RelationshipType::outgoing ? utf8_literal("Outgoing friend request") :
-        record.type == RelationshipType::blocked ? utf8_literal("Blocked") :
-        record.presence == RelationshipPresence::online ? utf8_literal("Online") :
-        record.presence == RelationshipPresence::idle ? utf8_literal("Idle") :
-        record.presence == RelationshipPresence::dnd ? utf8_literal("Do Not Disturb") :
-        record.presence == RelationshipPresence::offline ? utf8_literal("Offline") : utf8_literal("Status unavailable"),
+        user ? user_store_username(users, *user) : Utf8View{}, status_text(record, hidden),
         presence_dot(record.presence), record.type == RelationshipType::incoming ? UiFriendsKind::incoming :
         record.type == RelationshipType::outgoing ? UiFriendsKind::outgoing :
         record.type == RelationshipType::blocked ? UiFriendsKind::blocked : UiFriendsKind::friend_user,
@@ -1066,21 +1073,10 @@ bool activate(const UiFriendsTarget& target) noexcept {
         checked.action == UiFriendsAction::block ? RelationshipOperation::block : RelationshipOperation::remove;
     return queue(operation, checked.user_id, {}, friends->requests_visible);
 }
-TextInputTarget search_delegate(const TextInputTarget& target) noexcept {
-    auto delegate = message_composer_input_target(static_cast<MessageComposer*>(target.context));
-    delegate.identity = target.identity;return delegate;
+bool search_host_ready(const TextInputTarget& target) noexcept {
+    return application_friends_search_focused() && target.context == application_friends_search_model();
 }
-bool search_ready(const TextInputTarget& target) noexcept {
-    return application_friends_search_focused() && target.context == application_friends_search_model() &&
-        text_input_ready(search_delegate(target));
-}
-u32 search_revision(const TextInputTarget& target) noexcept { return text_input_revision(search_delegate(target)); }
-TextInputResult search_length(const TextInputTarget& target, u32* length) noexcept { return text_input_length(search_delegate(target), length); }
-TextInputResult search_selection(const TextInputTarget& target, TextInputSelection* selection) noexcept { return text_input_selection(search_delegate(target), selection); }
-TextInputResult search_select(const TextInputTarget& target, TextInputSelection selection) noexcept { return text_input_select(search_delegate(target), selection); }
-TextInputResult search_copy(const TextInputTarget& target, u32 a, u32 b, Slice<u16> output, u32* length, u32* next) noexcept {
-    return text_input_copy(search_delegate(target), a, b, output, length, next);
-}
+using SearchInput = ForwardedInput<search_host_ready, text_input_single_line_forbidden, true>;
 TextInputResult search_replace(const TextInputTarget& target, u32 a, u32 b, ConstSlice<u16> input, TextInputChange* change) noexcept {
     if (!change || a > b || (!input.data && input.count)) return TextInputResult::invalid_input;
     auto* model = static_cast<MessageComposer*>(target.context);
@@ -1114,14 +1110,13 @@ TextInputResult search_replace(const TextInputTarget& target, u32 a, u32 b, Cons
     }
     return result == MessageComposerResult::capacity ? TextInputResult::capacity : TextInputResult::invalid_input;
 }
-void search_cancel(const TextInputTarget& target) noexcept { text_input_cancel(search_delegate(target)); }
-bool search_begin(const TextInputTarget& target) noexcept {
-    auto* model = static_cast<MessageComposer*>(target.context);
-    return (model->history || message_composer_enable_history(model, 2048)) && text_input_begin_group(search_delegate(target));
-}
-void search_end(const TextInputTarget& target) noexcept { text_input_end_group(search_delegate(target)); }
-constexpr TextInputOperations search_operations{search_ready, search_revision, search_length, search_selection, search_select,
-    search_copy, search_replace, search_cancel, search_begin, search_end};
+// Everything but the replacement forwards to the composer's own operations (the shared table), as the other single-line
+// fields do; this field decodes its text itself.
+constexpr TextInputOperations search_operations = [] {
+    TextInputOperations operations = SearchInput::operations;
+    operations.replace = search_replace;
+    return operations;
+}();
 // Add Friend's note takes at most 120 characters: what replacing the selection with `added` would leave.
 bool note_fits(const ApplicationFriends& friends, const MessageComposer& model, u32 added) noexcept {
     if (&model != &friends.search.note) return true;

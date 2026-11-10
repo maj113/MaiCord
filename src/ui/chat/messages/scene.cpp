@@ -15,7 +15,6 @@ using namespace message_scene_detail;
 namespace {
 inline constexpr u32 kMessageRootWidgetId = 1;
 MessageSceneResult scene_error(MessageScene* scene, MessageSceneError error) noexcept {
-    saturating_increment_if(scene, scene->rejected);
     return MessageSceneResult{error, scene ? scene->first : 0, scene ? scene->count : 0, false};
 }
 

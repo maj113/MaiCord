@@ -1,4 +1,3 @@
-#include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/font/system_font_locator.hpp"
 #include "maicord/sys/linux/path.hpp"
@@ -42,16 +41,30 @@ struct CharSetGuard {
     }
 };
 
-void log_missing(const char* symbol) noexcept {
-    char message[96];
-    const char* const parts[] = {kLibrary, ": no symbol ", symbol};
-    u32 length = 0;
-    for (const char* part : parts)
-        for (; *part && length + 1 < sizeof(message); ++part)
-            message[length++] = *part;
-    message[length] = 0;
-    log_write(LogLevel::warning, "fonts", message);
-}
+// The symbol of each fc::Api member, in member order.
+constexpr char kSymbols[] =
+    "FcInit\0"
+    "FcFini\0"
+    "FcPatternCreate\0"
+    "FcPatternDestroy\0"
+    "FcPatternAddString\0"
+    "FcPatternAddInteger\0"
+    "FcPatternAddBool\0"
+    "FcPatternAddCharSet\0"
+    "FcPatternGetString\0"
+    "FcPatternGetInteger\0"
+    "FcPatternGetBool\0"
+    "FcPatternGetCharSet\0"
+    "FcConfigSubstitute\0"
+    "FcDefaultSubstitute\0"
+    "FcFontMatch\0"
+    "FcFontSort\0"
+    "FcFontSetDestroy\0"
+    "FcCharSetCreate\0"
+    "FcCharSetDestroy\0"
+    "FcCharSetAddChar\0"
+    "FcCharSetHasChar\0";
+static_assert(shared_library_name_count(kSymbols) * sizeof(void*) == sizeof(fc::Api), "one symbol per fc::Api member");
 
 // Opens libfontconfig and initializes it, once per use of it. False when it is not installed or unusable (then the
 // directory scan answers, and nothing tries the library again).
@@ -65,43 +78,20 @@ bool open_fontconfig(SystemFontLocator* locator) noexcept {
         locator->state = 3;
         return false;
     }
-    SharedLibraryResolver resolve{library, nullptr};
-    fc::Api api{};
-    resolve(&api.init, "FcInit");
-    resolve(&api.fini, "FcFini");
-    resolve(&api.pattern_create, "FcPatternCreate");
-    resolve(&api.pattern_destroy, "FcPatternDestroy");
-    resolve(&api.pattern_add_string, "FcPatternAddString");
-    resolve(&api.pattern_add_integer, "FcPatternAddInteger");
-    resolve(&api.pattern_add_bool, "FcPatternAddBool");
-    resolve(&api.pattern_add_char_set, "FcPatternAddCharSet");
-    resolve(&api.pattern_get_string, "FcPatternGetString");
-    resolve(&api.pattern_get_integer, "FcPatternGetInteger");
-    resolve(&api.pattern_get_bool, "FcPatternGetBool");
-    resolve(&api.pattern_get_char_set, "FcPatternGetCharSet");
-    resolve(&api.config_substitute, "FcConfigSubstitute");
-    resolve(&api.default_substitute, "FcDefaultSubstitute");
-    resolve(&api.font_match, "FcFontMatch");
-    resolve(&api.font_sort, "FcFontSort");
-    resolve(&api.font_set_destroy, "FcFontSetDestroy");
-    resolve(&api.char_set_create, "FcCharSetCreate");
-    resolve(&api.char_set_destroy, "FcCharSetDestroy");
-    resolve(&api.char_set_add_char, "FcCharSetAddChar");
-    resolve(&api.char_set_has_char, "FcCharSetHasChar");
-    if (resolve.missing) {
-        log_missing(resolve.missing);
+    // Resolved in place: the table is read only in state 1.
+    if (const char* missing = shared_library_resolve(library, &locator->api, sizeof(locator->api), kSymbols)) {
+        shared_library_log_missing("fonts", kLibrary, missing);
         shared_library_close(&library);
         locator->state = 3;
         return false;
     }
-    if (!api.init()) {
-        api.fini();
+    if (!locator->api.init()) {
+        locator->api.fini();
         shared_library_close(&library);
         locator->state = 3;
         return false;
     }
     locator->library = library;
-    locator->api = api;
     locator->state = 1;
     return true;
 }

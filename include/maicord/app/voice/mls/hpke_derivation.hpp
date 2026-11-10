@@ -5,12 +5,7 @@
 namespace maicord {
 enum class HpkeDerivationError : u8 {
     none,
-    invalid_input,
-    not_initialized,
-    output_capacity,
-    key_failure,
-    kdf_failure,
-    rejection_limit
+    failed
 };
 struct HpkeDerivationResult {
     u32 bytes;
@@ -21,13 +16,13 @@ struct HpkeDerivationResult {
     }
 };
 // DHKEM(P-256, HKDF-SHA256), KEM 0x0010. Keeps the derived key in CNG.
-// Output must be an empty, worker-exclusive object. Caller supplies IKM
-// with sufficient entropy; this deterministic primitive is not an RNG.
+// Output must be an empty object. Caller supplies IKM with sufficient entropy;
+// this deterministic primitive is not an RNG. Callers pass the 65-byte encapsulation, 65-byte recipient point
+// and 32-byte shared secret buffers; a failure leaves the outputs undefined.
 HpkeDerivationResult hpke_derive_key_pair(KdfSha256Workspace& workspace, ConstSlice<u8> ikm,
                                           P256Key* output) noexcept;
 // The sender MUST use a fresh ephemeral key for each independent encapsulation.
-// No ephemeral scalar is exported. Both outputs are written together only after
-// success. Decapsulation binds the received encapsulation and recipient point.
+// No ephemeral scalar is exported. Decapsulation binds the received encapsulation and recipient point.
 HpkeDerivationResult hpke_encap(KdfSha256Workspace& workspace, const P256Key& ephemeral,
                                 ConstSlice<u8> recipient_point, Slice<u8> encapsulated,
                                 Slice<u8> shared_secret) noexcept;
@@ -44,15 +39,10 @@ void hpke_base_secrets_clear(HpkeBaseSecrets* secrets) noexcept;
 // Segments avoid copying arbitrary protocol framing/labels/context.
 KdfResult hpke_info_hash(KdfSha256Workspace& workspace, const ConstSlice<ConstSlice<u8>>& info,
                          const Slice<u8>& output) noexcept;
-// Trusted prehashed input from hpke_info_hash (exactly 32 bytes). The output
-// is written atomically and must not overlap the inputs or the workspace.
+// Trusted prehashed input from hpke_info_hash (exactly 32 bytes) with a 32-byte shared secret. Temporaries holding
+// private scalars, shared secrets or derived material are erased.
 HpkeDerivationResult hpke_base_key_schedule_hashed_info(KdfSha256Workspace& workspace,
                                                         ConstSlice<u8> shared_secret,
                                                         ConstSlice<u8> info_hash,
                                                         HpkeBaseSecrets* output) noexcept;
-// Derive/encap/decap/schedule stage results; ALL failures preserve output.
-// Success writes only required prefixes (65/32). Schedule may replace input
-// storage; other outputs must not overlap inputs or each other. All external
-// spans must avoid the workspace, key handles and the output key handle. Temporaries
-// holding private scalars, shared secrets or derived material are erased.
 } // namespace maicord

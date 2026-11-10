@@ -39,15 +39,15 @@ constexpr Theme ui_theme_default_preset() noexcept {
     });
 }
 
-// The AMOLED base: the dark preset with near-black surfaces. Tokens still
-// derive from the palette afterwards (ui_theme_resolve_defaults, or
-// ui_theme_tokens_resolve at run time); theme.cpp builds it on demand.
+// The AMOLED base: the dark preset with a black rail and near-black panels, and Discord's midnight card surfaces
+// (background-surface-high #0a0a0c, surface-higher #121214). Tokens still derive from the palette afterwards
+// (ui_theme_resolve_defaults, or ui_theme_tokens_resolve at run time); theme.cpp builds it on demand.
 constexpr void ui_theme_amoled_surfaces(Theme& theme) noexcept {
     theme.base_lowest = {0, 0, 0, 1};
     theme.base_lower = {.02f, .02f, .025f, 1};
     theme.base_low = {.035f, .035f, .045f, 1};
-    theme.surface = {.06f, .06f, .075f, 1};
-    theme.surface_high = {.105f, .105f, .125f, 1};
+    theme.surface = {10 / 255.f, 10 / 255.f, 12 / 255.f, 1};
+    theme.surface_high = {18 / 255.f, 18 / 255.f, 20 / 255.f, 1};
 }
 
 constexpr Theme ui_theme_light_preset() noexcept {

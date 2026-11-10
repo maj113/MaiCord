@@ -268,13 +268,9 @@ bool geometry(void* context, SecureTextStoreGeometry* output) noexcept {
 }
 bool point_geometry(void* context, SecureTextPoint client, bool round, u32* position, bool* inside) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
-    if (!current_layout(field) || !g_app.renderer.dpi)
+    if (!current_layout(field))
         return false;
-    POINT point{client.x, client.y};
-    application_client_to_content(&point);
-    const float scale = 96.f / g_app.renderer.dpi;
-    return text_edit_layout_point_geometry(field->owner->surface.layouts[field->index], point.x * scale,
-                                             point.y * scale, round, position, inside);
+    return text_store_point_geometry(field->owner->surface.layouts[field->index], client, round, position, inside);
 }
 bool range_geometry(void* context, u32 first, u32 last, SecureTextRect* rectangle, bool* clipped) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
@@ -512,18 +508,9 @@ bool apply(ApplicationForumForm* f, u32 field_index, SecureEditResult result) no
     return true;
 }
 bool pointer(ApplicationForumForm* f, u32 index, float x, float y, bool extend) noexcept {
-    if (!f->editable)
-        return false;
-    auto& edit = f->fields[index].edit;
-    u32 position = 0;
-    SecureEditUtf16Selection selection{};
-    if (!text_edit_layout_hit_test(f->surface.layouts[index], x, y, &position) ||
-        secure_edit_utf16_selection(edit, &selection) != SecureEditResult::unchanged)
-        return false;
-    if (!extend)
-        selection.anchor = position;
-    selection.caret = position;
-    return apply(f, index, secure_edit_set_utf16_selection(&edit, selection));
+    SecureEditResult result;
+    return f->editable && secure_edit_pointer_select(&f->fields[index].edit, f->surface.layouts[index], x, y, extend, &result) &&
+           apply(f, index, result);
 }
 } // namespace
 bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexcept {
@@ -772,63 +759,11 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
     }
     if (kind != UiInputKind::key_down)
         return true;
-    if (ctrl && (code == 'Z' || code == 'Y'))
-        return field.composition.active
-                   ? true
-                   : apply(f, index,
-                           code == 'Y' || shift ? secure_edit_redo(&edit) : secure_edit_undo(&edit));
-    if (ctrl && code == 'A')
-        return apply(f, index, secure_edit_select_all(&edit));
-    if (ctrl && (code == 'C' || code == 'X')) {
-        secure_edit_break_history_run(&edit);
-        const auto first = minimum(edit.anchor, edit.caret), last = maximum(edit.anchor, edit.caret);
-        if (first != last &&
-            clipboard_write_utf8({reinterpret_cast<const char*>(edit.storage.data + first), last - first}) &&
-            code == 'X')
-            return apply(f, index, secure_edit_delete_forward(&edit));
-        return true;
-    }
-    if (ctrl && code == 'V') {
-        char pasted[kApplicationForumBodyBytes];
-        const auto read = clipboard_read_utf8({pasted, sizeof(pasted)});
-        const auto result = read.ok() ? secure_edit_insert_utf8(&edit, {pasted, read.bytes})
-                            : read.error == ClipboardTextError::capacity ? SecureEditResult::capacity
-                                                                         : SecureEditResult::unchanged;
-        SecureZeroMemory(pasted, sizeof(pasted));
-        return apply(f, index, result);
-    }
-    switch (code) {
-    case key::backspace:
-        return apply(f, index, secure_edit_backspace(&edit, clock_monotonic_milliseconds()));
-    case key::del:
-        return apply(f, index, secure_edit_delete_forward(&edit, clock_monotonic_milliseconds()));
-    case key::left:
-        return apply(f, index, secure_edit_move(&edit, SecureEditMove::previous, shift));
-    case key::right:
-        return apply(f, index, secure_edit_move(&edit, SecureEditMove::next, shift));
-    case key::home:
-        return apply(
-            f, index,
-            secure_edit_move(&edit, ctrl ? SecureEditMove::home : SecureEditMove::line_home, shift));
-    case key::end:
-        return apply(f, index,
-                     secure_edit_move(&edit, ctrl ? SecureEditMove::end : SecureEditMove::line_end, shift));
-    case key::up:
-    case key::down: {
-        u32 position = 0;
-        SecureEditUtf16Selection selection{};
-        if (text_edit_layout_move_vertical(f->surface.layouts[index], code == key::down, &position) &&
-            secure_edit_utf16_selection(edit, &selection) == SecureEditResult::unchanged) {
-            if (!shift)
-                selection.anchor = position;
-            selection.caret = position;
-            return apply(f, index, secure_edit_set_utf16_selection(&edit, selection));
-        }
-        return true;
-    }
-    default:
-        return true;
-    }
+    SecureEditResult result;
+    if (secure_edit_command_key(&edit, f->surface.layouts[index], code, ctrl, shift, !field.composition.active, true,
+                                &result))
+        apply(f, index, result);
+    return true;
 }
 bool application_forum_form_filter(const WindowEvent& event) noexcept {
     UiInputEvent held{};

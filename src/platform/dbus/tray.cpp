@@ -166,46 +166,62 @@ void write_empty_pixmaps(Builder* b) noexcept {
     builder_close_variant(b);
 }
 
-const ExportedProperty kItemProperties[] = {
-    {kItemInterface, "Category"},          {kItemInterface, "Id"},
-    {kItemInterface, "Title"},             {kItemInterface, "Status"},
-    {kItemInterface, "WindowId"},          {kItemInterface, "IconThemePath"},
-    {kItemInterface, "Menu"},              {kItemInterface, "ItemIsMenu"},
-    {kItemInterface, "IconName"},          {kItemInterface, "IconPixmap"},
-    {kItemInterface, "OverlayIconName"},   {kItemInterface, "OverlayIconPixmap"},
-    {kItemInterface, "AttentionIconName"}, {kItemInterface, "AttentionIconPixmap"},
-    {kItemInterface, "AttentionMovieName"}, {kItemInterface, "ToolTip"},
-};
+#define TRAY_ENUMERATOR(name) name,
+#define TRAY_NAME(name) #name "\0"
 
-bool write_item_property(void*, const char*, const char* name, Builder* b) noexcept {
-    if (c_string_equal(name, "Category")) {
+// The properties in the order the writer takes their index: the enumerators are the positions in the name pool.
+#define TRAY_ITEM_PROPERTIES(M)                                                                                      \
+    M(Category) M(Id) M(Title) M(Status) M(WindowId) M(IconThemePath) M(Menu) M(ItemIsMenu) M(IconName)               \
+    M(IconPixmap) M(OverlayIconName) M(OverlayIconPixmap) M(AttentionIconName) M(AttentionIconPixmap)                \
+    M(AttentionMovieName) M(ToolTip)
+enum class ItemProperty : u32 { TRAY_ITEM_PROPERTIES(TRAY_ENUMERATOR) };
+constexpr char kItemPropertyNames[] = TRAY_ITEM_PROPERTIES(TRAY_NAME);
+
+void write_item_property(u32 index, Builder* b) noexcept {
+    using enum ItemProperty;
+    switch (static_cast<ItemProperty>(index)) {
+    case Category:
         variant_text(b, "s", "ApplicationStatus");
-    } else if (c_string_equal(name, "Id")) {
+        break;
+    case Id:
         variant_text(b, "s", g.id);
-    } else if (c_string_equal(name, "Title")) {
+        break;
+    case Title:
         variant_text(b, "s", g.title);
-    } else if (c_string_equal(name, "Status")) {
+        break;
+    case Status:
         variant_text(b, "s", g.attention ? "NeedsAttention" : "Active");
-    } else if (c_string_equal(name, "WindowId")) {
+        break;
+    case WindowId:
         builder_open_variant(b, "u");
         builder_u32(b, 0);
         builder_close_variant(b);
-    } else if (c_string_equal(name, "IconThemePath") || c_string_equal(name, "IconName") || c_string_equal(name, "OverlayIconName") ||
-               c_string_equal(name, "AttentionIconName") || c_string_equal(name, "AttentionMovieName")) {
+        break;
+    case IconThemePath:
+    case IconName:
+    case OverlayIconName:
+    case AttentionIconName:
+    case AttentionMovieName:
         variant_text(b, "s", "");
-    } else if (c_string_equal(name, "Menu")) {
+        break;
+    case Menu:
         builder_open_variant(b, "o");
         builder_object_path(b, kMenuPath);
         builder_close_variant(b);
-    } else if (c_string_equal(name, "ItemIsMenu")) {
+        break;
+    case ItemIsMenu:
         builder_open_variant(b, "b");
         builder_bool(b, false);
         builder_close_variant(b);
-    } else if (c_string_equal(name, "IconPixmap") || c_string_equal(name, "AttentionIconPixmap")) {
+        break;
+    case IconPixmap:
+    case AttentionIconPixmap:
         write_pixmaps(b);
-    } else if (c_string_equal(name, "OverlayIconPixmap")) {
+        break;
+    case OverlayIconPixmap:
         write_empty_pixmaps(b);
-    } else if (c_string_equal(name, "ToolTip")) {
+        break;
+    case ToolTip:
         // (icon name, icon pixmaps, title, description)
         builder_open_variant(b, "(sa(iiay)ss)");
         builder_open_struct(b, "(sa(iiay)ss)");
@@ -216,15 +232,12 @@ bool write_item_property(void*, const char*, const char* name, Builder* b) noexc
         builder_string(b, g.tooltip);
         builder_close_struct(b);
         builder_close_variant(b);
-    } else {
-        return false;
+        break;
     }
-    return true;
 }
 
 ExportedObject item_object() noexcept {
-    return ExportedObject{kItemProperties, static_cast<u32>(sizeof(kItemProperties) / sizeof(kItemProperties[0])),
-                          write_item_property, nullptr, kItemIntrospection};
+    return ExportedObject{kItemInterface, kItemPropertyNames, write_item_property, kItemIntrospection};
 }
 
 bool item_call(void*, Connection* c, const Message& call) noexcept {
@@ -258,63 +271,94 @@ bool item_call(void*, Connection* c, const Message& call) noexcept {
 
 // dbusmenu --------------------------------------------------------------------------------------------------------------
 
-const ExportedProperty kMenuProperties[] = {
-    {kMenuInterface, "Version"},
-    {kMenuInterface, "TextDirection"},
-    {kMenuInterface, "Status"},
-    {kMenuInterface, "IconThemePath"},
-};
+#define TRAY_MENU_PROPERTIES(M) M(Version) M(TextDirection) M(Status) M(IconThemePath)
+enum class MenuProperty : u32 { TRAY_MENU_PROPERTIES(TRAY_ENUMERATOR) };
+constexpr char kMenuPropertyNames[] = TRAY_MENU_PROPERTIES(TRAY_NAME);
 
-bool write_menu_property(void*, const char*, const char* name, Builder* b) noexcept {
-    if (c_string_equal(name, "Version")) {
+void write_menu_property(u32 index, Builder* b) noexcept {
+    using enum MenuProperty;
+    switch (static_cast<MenuProperty>(index)) {
+    case Version:
         builder_open_variant(b, "u");
         builder_u32(b, 3);
         builder_close_variant(b);
-    } else if (c_string_equal(name, "TextDirection")) {
+        break;
+    case TextDirection:
         variant_text(b, "s", "ltr");
-    } else if (c_string_equal(name, "Status")) {
+        break;
+    case Status:
         variant_text(b, "s", "normal");
-    } else if (c_string_equal(name, "IconThemePath")) {
+        break;
+    case IconThemePath:
         builder_open_variant(b, "as");
         builder_open_array(b, "s");
         builder_close_array(b);
         builder_close_variant(b);
-    } else {
-        return false;
+        break;
     }
-    return true;
 }
 
 ExportedObject menu_object() noexcept {
-    return ExportedObject{kMenuProperties, static_cast<u32>(sizeof(kMenuProperties) / sizeof(kMenuProperties[0])),
-                          write_menu_property, nullptr, kMenuIntrospection};
+    return ExportedObject{kMenuInterface, kMenuPropertyNames, write_menu_property, kMenuIntrospection};
 }
 
 const Item* item_by_id(i32 id) noexcept {
     return id >= 1 && static_cast<u32>(id) <= g.item_count ? &g.items[id - 1] : nullptr;
 }
 
-// a{sv} of one item (id 0 is the root menu).
-void write_item_properties(Builder* b, i32 id) noexcept {
-    builder_open_array(b, "{sv}");
+// One property of an item as dbusmenu has it: a name and a string, boolean or integer value.
+struct Property {
+    const char* name;
+    char kind;  // 's', 'b' or 'i'
+    const char* text;
+    i32 number;
+};
+constexpr u32 kMaxProperties = 5;
+
+// The properties of an item (id 0 is the root menu); how many.
+u32 item_properties(i32 id, Property (&out)[kMaxProperties]) noexcept {
+    u32 count = 0;
     if (id == 0) {
-        builder_open_dict_entry(b, "children-display", "s");
-        builder_string(b, "submenu");
-        builder_close_dict_entry(b);
+        out[count++] = {"children-display", 's', "submenu", 0};
     } else if (const Item* item = item_by_id(id)) {
         if (item->separator) {
-            builder_dict_string(b, "type", "separator");
+            out[count++] = {"type", 's', "separator", 0};
         } else {
-            builder_dict_string(b, "label", item->label);
-            builder_dict_bool(b, "enabled", true);
-            builder_dict_bool(b, "visible", true);
+            out[count++] = {"label", 's', item->label, 0};
+            out[count++] = {"enabled", 'b', nullptr, 1};
+            out[count++] = {"visible", 'b', nullptr, 1};
             if (item->checkable) {
-                builder_dict_string(b, "toggle-type", "checkmark");
-                builder_open_dict_entry(b, "toggle-state", "i");
-                builder_i32(b, item->checked ? 1 : 0);
-                builder_close_dict_entry(b);
+                out[count++] = {"toggle-type", 's', "checkmark", 0};
+                out[count++] = {"toggle-state", 'i', nullptr, item->checked ? 1 : 0};
             }
         }
+    }
+    return count;
+}
+
+// The variant holding a property's value.
+void write_property_value(Builder* b, const Property& property) noexcept {
+    const char signature[2] = {property.kind, 0};
+    builder_open_variant(b, signature);
+    if (property.kind == 's')
+        builder_string(b, property.text);
+    else if (property.kind == 'b')
+        builder_bool(b, property.number != 0);
+    else
+        builder_i32(b, property.number);
+    builder_close_variant(b);
+}
+
+// a{sv} of one item.
+void write_item_properties(Builder* b, i32 id) noexcept {
+    Property properties[kMaxProperties];
+    const u32 count = item_properties(id, properties);
+    builder_open_array(b, "{sv}");
+    for (u32 i = 0; i < count; ++i) {
+        builder_open_entry(b);
+        builder_string(b, properties[i].name);
+        write_property_value(b, properties[i]);
+        builder_close_entry(b);
     }
     builder_close_array(b);
 }
@@ -342,6 +386,13 @@ void menu_clicked(i32 id) noexcept {
         emit_event(TrayEventKind::command, 0, 0, item->command);
 }
 
+// An InvalidArgs error for `call`, dropping the reply body being built.
+bool reject(Connection* c, const Message& call, Builder* body, const char* text) noexcept {
+    builder_release(body);
+    connection_reply_error(c, call, "org.freedesktop.DBus.Error.InvalidArgs", text);
+    return true;
+}
+
 bool menu_call(void*, Connection* c, const Message& call) noexcept {
     if (object_handle_standard(c, call, menu_object()))
         return true;
@@ -356,11 +407,8 @@ bool menu_call(void*, Connection* c, const Message& call) noexcept {
         i32 parent = 0;
         i32 depth = 0;
         ok = reader_i32(&r, &parent) && reader_i32(&r, &depth);
-        if (!ok || (parent != 0 && !item_by_id(parent))) {
-            builder_release(&body);
-            connection_reply_error(c, call, "org.freedesktop.DBus.Error.InvalidArgs", "no such menu item");
-            return true;
-        }
+        if (!ok || (parent != 0 && !item_by_id(parent)))
+            return reject(c, call, &body, "no such menu item");
         builder_u32(&body, g.revision);
         write_layout(&body, parent, depth);
     } else if (c_string_equal(call.member, "GetGroupProperties")) {
@@ -391,53 +439,16 @@ bool menu_call(void*, Connection* c, const Message& call) noexcept {
         }
         builder_close_array(&body);
     } else if (c_string_equal(call.member, "GetProperty")) {
-        // The one property asked for, taken out of the item's full set.
         i32 id = 0;
         const char* name = nullptr;
-        ok = reader_i32(&r, &id) && reader_string(&r, &name, nullptr);
-        Builder all;
-        builder_init(&all);
-        write_item_properties(&all, id);
-        Reader a;
-        reader_init(&a, all.data, all.size, "a{sv}", nullptr, 0);
-        bool found = false;
-        if (ok && reader_enter_array(&a)) {
-            while (!found && reader_more(a)) {
-                const char* key = nullptr;
-                ok = reader_enter_struct(&a) && reader_string(&a, &key, nullptr);
-                if (ok && c_string_equal(key, name)) {
-                    // Copy the variant by re-reading: only strings, booleans and integers occur.
-                    const char* signature = nullptr;
-                    ok = reader_enter_variant(&a, &signature);
-                    if (ok) {
-                        builder_open_variant(&body, signature);
-                        if (signature[0] == 's') {
-                            const char* text = nullptr;
-                            ok = reader_string(&a, &text, nullptr);
-                            builder_string(&body, text ? text : "");
-                        } else if (signature[0] == 'b') {
-                            bool value = false;
-                            ok = reader_bool(&a, &value);
-                            builder_bool(&body, value);
-                        } else {
-                            i32 value = 0;
-                            ok = reader_i32(&a, &value);
-                            builder_i32(&body, value);
-                        }
-                        builder_close_variant(&body);
-                        found = ok;
-                    }
-                    break;
-                }
-                ok = ok && reader_leave(&a);
-            }
-        }
-        builder_release(&all);
-        if (!found) {
-            builder_release(&body);
-            connection_reply_error(c, call, "org.freedesktop.DBus.Error.InvalidArgs", "no such property");
-            return true;
-        }
+        Property properties[kMaxProperties];
+        const u32 count = reader_i32(&r, &id) && reader_string(&r, &name, nullptr) ? item_properties(id, properties) : 0;
+        u32 found = 0;
+        while (found < count && !c_string_equal(properties[found].name, name))
+            ++found;
+        if (found == count)
+            return reject(c, call, &body, "no such property");
+        write_property_value(&body, properties[found]);
     } else if (c_string_equal(call.member, "Event")) {
         i32 id = 0;
         const char* event = nullptr;
@@ -466,11 +477,8 @@ bool menu_call(void*, Connection* c, const Message& call) noexcept {
         builder_release(&body);
         return false;
     }
-    if (!ok || !builder_ok(body)) {
-        builder_release(&body);
-        connection_reply_error(c, call, "org.freedesktop.DBus.Error.InvalidArgs", "malformed arguments");
-        return true;
-    }
+    if (!ok || !builder_ok(body))
+        return reject(c, call, &body, "malformed arguments");
     connection_reply(c, call, &body);
     builder_release(&body);
     return true;

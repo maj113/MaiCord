@@ -69,7 +69,7 @@ struct GatewayGoLive {
     void (*wake)(void* context) noexcept;
     void* wake_context;
     GoLiveSettings settings;
-    CaptureSource source;
+    u32 sound_process; // The shared window's process, which stream audio follows (0: every process).
     GoLiveSnapshot published; // Last snapshot; its generation bumps on change.
     u64 media_revision, last_keyframe_ms, keyframe_request_ms, pump_due_ms;
     u32 encodable, decodable; // gpu_stream_codec_bit encoders; voice_video_codec_bit decoders (offered too).
@@ -79,7 +79,7 @@ struct GatewayGoLive {
     GpuStreamCodec codec;
     GoLiveState state;
     GoLiveEnd end;
-    bool system_picker, capturing, sounding, encoding, user_paused, minimized, paused;
+    bool capturing, sounding, encoding, user_paused, minimized, paused;
     bool keyframe_wanted, awaiting_keyframe, dave_ready;
     u8 receive_buffer[kVoiceUdpMediaReceiveSlots * 2048];
     u8 send_buffer[2048];

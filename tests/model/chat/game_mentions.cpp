@@ -48,23 +48,23 @@ void test_store(Check check) noexcept {
     check(s.initialize(), "game store: initializes over caller storage");
     auto& store = s.store;
     check(game_store_want(&store, 10, 0) && game_store_want(&store, 11, 0) && !game_store_want(&store, 10, 0) &&
-              game_store_batch_due(store, 0),
+              game_store_batch_due(store),
           "game store: a new id is wanted once");
     u64 ids[kGameLookupBatchMaximum]{};
-    check(game_store_take_batch(&store, {ids, kGameLookupBatchMaximum}, 0) == 2 && ids[0] == 10 && ids[1] == 11 &&
-              !game_store_batch_due(store, 0) && game_store_find(store, 10)->state == GameState::pending,
+    check(game_store_take_batch(&store, {ids, kGameLookupBatchMaximum}) == 2 && ids[0] == 10 && ids[1] == 11 &&
+              !game_store_batch_due(store) && game_store_find(store, 10)->state == GameState::pending,
           "game store: a batch takes the wanted ids");
     game_store_put(&store, game(10, "Starfall Tactics"), true, 0);
     game_store_settle(&store, {ids, 2}, true, 0);
     check(utf8_equal(game_store_name(store, 10), utf8_literal("Starfall Tactics")) &&
               game_store_find(store, 11)->state == GameState::unknown && !game_store_name(store, 11).bytes,
           "game store: a batch's games are known and the ids it leaves out unknown");
-    check(game_store_want(&store, 12, 0) && game_store_take_batch(&store, {ids, 1}, 0) == 1, "game store: one more");
+    check(game_store_want(&store, 12, 0) && game_store_take_batch(&store, {ids, 1}) == 1, "game store: one more");
     game_store_settle(&store, {ids, 1}, false, 1'000);
     check(game_store_find(store, 12)->state == GameState::failed && !game_store_want(&store, 12, 2'000) &&
               game_store_want(&store, 12, 1'000 + kGameLookupFailureRetryMs),
           "game store: a failed batch is asked again after 15 s");
-    game_store_take_batch(&store, {ids, 1}, 0);
+    game_store_take_batch(&store, {ids, 1});
     game_store_return(&store, {ids, 1});
     check(game_store_find(store, 12)->state == GameState::wanted, "game store: an unsent batch is wanted again");
     // A search result is not the game object: it is fetched once for the cover, and never replaces one.

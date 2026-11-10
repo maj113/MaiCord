@@ -88,7 +88,7 @@ bool project_choice(ApplicationSettingsChoice choice) noexcept {
         close_choice();
         return false;
     }
-    PopupItem items[kUiSettingsChoiceMaximumItems]{};
+    PopupItem items[kUiSettingsChoiceMaximumItems];
     const u32 count = ui_settings_choice_items(*control, choice.first, {items, kUiSettingsChoiceMaximumItems});
     if (!count || !popup_scene_open(&g_app.popup_scene, PopupKind::settings_choice, choice.control_id, {items, count},
                                     choice.anchor, application_viewport_dips(), maximum(220.f, ui_rect_width(choice.anchor)),

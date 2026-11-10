@@ -272,22 +272,8 @@ void disconnect(Connection* c) noexcept {
 bool queue_output(Connection* c, const u8* bytes, u32 count) noexcept {
     if (count > kMaxOutputBytes || c->output_used > kMaxOutputBytes - count)
         return false;
-    if (c->output_capacity - c->output_used < count) {
-        u32 capacity = c->output_capacity ? c->output_capacity : 4096;
-        while (capacity < c->output_used + count)
-            capacity *= 2;
-        u8* grown = static_cast<u8*>(heap_allocate(capacity));
-        if (!grown)
-            return false;
-        if (c->output_used)
-            copy_bytes(grown, c->output, c->output_used);
-        if (c->output) {
-            secure_clear_bytes(c->output, c->output_used);
-            heap_free(c->output);
-        }
-        c->output = grown;
-        c->output_capacity = capacity;
-    }
+    if (!buffer_reserve(&c->output, c->output_used, &c->output_capacity, c->output_used + count, 4096))
+        return false;
     copy_bytes(c->output + c->output_used, bytes, count);
     c->output_used += count;
     return true;
@@ -469,23 +455,7 @@ void dispatch(Connection* c, const Message& message) noexcept {
 }
 
 bool grow_input(Connection* c, u32 needed) noexcept {
-    if (c->input_capacity >= needed)
-        return true;
-    u32 capacity = c->input_capacity ? c->input_capacity : 8192;
-    while (capacity < needed)
-        capacity *= 2;
-    u8* grown = static_cast<u8*>(heap_allocate(capacity));
-    if (!grown)
-        return false;
-    if (c->input_used)
-        copy_bytes(grown, c->input, c->input_used);
-    if (c->input) {
-        secure_clear_bytes(c->input, c->input_used);
-        heap_free(c->input);
-    }
-    c->input = grown;
-    c->input_capacity = capacity;
-    return true;
+    return buffer_reserve(&c->input, c->input_used, &c->input_capacity, needed, 8192);
 }
 
 // Takes complete messages out of the input buffer and dispatches each.
@@ -930,7 +900,9 @@ u32 connection_subscribe(Connection* c, const SignalMatch& match, SignalHandler 
     }
     if (slot == kMaxSubscriptions)
         return 0;
-    Subscription s{};
+    // Built in its slot, which stays inactive until the bus has taken the rule.
+    Subscription& s = c->subscriptions[slot];
+    s = Subscription{};
     s.handler = handler;
     s.context = context;
     const auto store = [](char* destination, u32 capacity, const char* value) {
@@ -988,7 +960,6 @@ u32 connection_subscribe(Connection* c, const SignalMatch& match, SignalHandler 
     if (!sent)
         return 0;
     s.active = true;
-    c->subscriptions[slot] = s;
     if (slot == c->subscription_count)
         ++c->subscription_count;
     return slot + 1;

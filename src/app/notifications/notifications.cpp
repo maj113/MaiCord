@@ -750,6 +750,9 @@ void application_notifications_selection(Application* a) noexcept {
     }
     n.focused=window_focused;
 }
+static bool row_audio_ready(const ApplicationNotifications& n,const DesktopNotificationQueueRow& row) noexcept {
+    return !row.sound_id || row.sound_epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n) || audio_capacity(n,1);
+}
 void application_notifications_drain(Application* a) noexcept {
     if(!a || !a->notifications) return;
     auto& n=*a->notifications;
@@ -764,14 +767,12 @@ void application_notifications_drain(Application* a) noexcept {
         const auto invocation=notification_sound_throttle_timer(&n.sound_throttle,now,n.audio_epoch);
         if(invocation.invoke) sound_submit(n,invocation.request.kind==NotificationSoundKind::message3?2:1,invocation.request.generation);
     }
-    const auto audio_ready=[&](const DesktopNotificationQueueRow& row) noexcept {
-        return !row.sound_id || row.sound_epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n) || audio_capacity(n,1);
-    };
-    DesktopNotificationQueueRow front{};
     const bool display_pending=n.display && desktop_notification_queue_pending(&n.display->queue);
-    const bool has_front=n.display && desktop_notification_queue_front(&n.display->queue,&front);
-    const bool display_audio_ready=!has_front || audio_ready(front);
     if(!n.work_pending && !n.pending.message_id && !display_pending && !desktop_notifications_history_pending(&n.native)) return;
+    // Only now the queue's front row: an idle turn never copies it.
+    DesktopNotificationQueueRow front{};
+    const bool has_front=n.display && desktop_notification_queue_front(&n.display->queue,&front);
+    const bool display_audio_ready=!has_front || row_audio_ready(n,front);
     n.work_pending=false;
     for(u32 i=0;i<n.deferred_removal_count;++i)
         if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_channel(&n.native,n.profile,n.deferred_removals[i]));
@@ -870,7 +871,7 @@ void application_notifications_drain(Application* a) noexcept {
     DesktopNotificationQueueRow next{};
     const bool next_pending=n.display && desktop_notification_queue_pending(&n.display->queue);
     const bool next_front=n.display && desktop_notification_queue_front(&n.display->queue,&next);
-    const bool display_can_progress=next_pending && (!next_front || audio_ready(next));
+    const bool display_can_progress=next_pending && (!next_front || row_audio_ready(n,next));
     if(display_can_progress || desktop_notifications_history_pending(&n.native) || audio_can_resume ||
         (n.backpressured && !n.audio_backpressured)) post_continuation(*a,n);
     if(!n.pending.message_id || !n.ready || !a->account_ui || a->login.visible) return;
@@ -1007,6 +1008,53 @@ static bool invalidates_previews(GatewayClientDispatchKind kind) noexcept {
         return true;
     default:
         return false;
+    }
+}
+// The trailing sidecar of a settings event (scopes, age gates, thread rows): rare, so out of line, which keeps the
+// per-event function above it free of this frame.
+__declspec(noinline) static void apply_sidecar(ApplicationNotifications* n,const GatewayClientEvent& event,ConstSlice<u8> payload) noexcept {
+    const auto kind=event.dispatch_kind;
+    GatewayClientEvent normal{}; ConstSlice<u8> normal_payload{};
+    if(!gateway_client_notification_trim(event,payload,&normal,&normal_payload)) {
+        message_notifications_mark_incomplete(&n->settings,0); return;
+    }
+    if(normal_payload.count==payload.count) return;
+    GatewayClientNotificationSidecar side{}; ConstSlice<u8> rows{};
+    if(!gateway_client_notification_sidecar({payload.data+normal_payload.count,payload.count-normal_payload.count},&side,&rows)) return;
+    if(side.flags&gateway_notification_incomplete) {
+        scope_admission_failed(*n,side.guild_id);
+        if(auto* scope=find_scope(n->channel_scopes,n->channel_scope_count,side.channel_id))
+            scope->known_gates&=~notification_gate_age_access;
+    }
+    const bool guild=kind==GatewayClientDispatchKind::guild_create || kind==GatewayClientDispatchKind::guild_update;
+    if(kind==GatewayClientDispatchKind::user_snapshot && (side.flags&gateway_notification_incomplete))
+        n->global_known_gates&=~notification_gate_restricted_hours;
+    if(guild) {
+        if((side.flags&gateway_notification_channel_age_baseline_complete) && !(side.flags&gateway_notification_incomplete))
+            for(u32 i=0;i<n->channel_scope_count;++i) {
+                auto& scope=stable_storage_data<Scope>(n->channel_scopes)[i];
+                if(scope.guild==side.guild_id) { scope.known_gates&=~notification_gate_age_access; scope.gates&=~notification_gate_age_access; }
+            }
+        if(!scope_apply(n->guild_scopes,n->guild_scope_count,side.guild_id,side.guild_id,side.flags,side.known_gates,side.gates))
+            message_notifications_mark_incomplete(&n->settings,side.guild_id);
+    }
+    else if(side.channel_id) {
+        if(!scope_apply(n->channel_scopes,n->channel_scope_count,side.channel_id,side.guild_id,side.flags,side.known_gates,side.gates))
+            scope_admission_failed(*n,side.guild_id);
+    }
+    else {
+        n->global_gates=(n->global_gates&~side.known_gates)|side.gates;
+        n->global_known_gates|=side.known_gates;
+    }
+    for(u32 i=0;i<side.thread_count;++i) {
+        GatewayClientNotificationThreadRecord row{};
+        if(!gateway_client_notification_thread_at(rows,i,&row)) { message_notifications_mark_incomplete(&n->settings,side.guild_id); return; }
+        if(row.flags&gateway_notification_channel_metadata) {
+            if(!scope_apply(n->channel_scopes,n->channel_scope_count,row.thread.thread_id,row.thread.guild_id,0,row.known_gates,row.gates))
+                scope_admission_failed(*n,row.thread.guild_id);
+        } else if(row.flags&gateway_notification_thread_remove) message_notifications_remove_thread(&n->settings,row.thread.thread_id);
+        else if(message_notifications_upsert_thread(&n->settings,row.thread)!=MessageNotificationApplyError::none)
+            message_notifications_mark_incomplete(&n->settings,side.guild_id);
     }
 }
 void application_notifications_gateway(Application* a,const GatewayClientEvent& event,ConstSlice<u8> payload) noexcept {
@@ -1149,50 +1197,8 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
             n->settings.thread_count=kept; ++n->settings.revision;
         }
     }
-    // Only a trailing sidecar changes the settings below; without one the trim returns the event unchanged.
-    if(!event.notification_payload_bytes) return;
-    GatewayClientEvent normal{}; ConstSlice<u8> normal_payload{};
-    if(!gateway_client_notification_trim(event,payload,&normal,&normal_payload)) {
-        message_notifications_mark_incomplete(&n->settings,0); return;
-    }
-    if(normal_payload.count==payload.count) return;
-    GatewayClientNotificationSidecar side{}; ConstSlice<u8> rows{};
-    if(!gateway_client_notification_sidecar({payload.data+normal_payload.count,payload.count-normal_payload.count},&side,&rows)) return;
-    if(side.flags&gateway_notification_incomplete) {
-        scope_admission_failed(*n,side.guild_id);
-        if(auto* scope=find_scope(n->channel_scopes,n->channel_scope_count,side.channel_id))
-            scope->known_gates&=~notification_gate_age_access;
-    }
-    const bool guild=kind==GatewayClientDispatchKind::guild_create || kind==GatewayClientDispatchKind::guild_update;
-    if(kind==GatewayClientDispatchKind::user_snapshot && (side.flags&gateway_notification_incomplete))
-        n->global_known_gates&=~notification_gate_restricted_hours;
-    if(guild) {
-        if((side.flags&gateway_notification_channel_age_baseline_complete) && !(side.flags&gateway_notification_incomplete))
-            for(u32 i=0;i<n->channel_scope_count;++i) {
-                auto& scope=stable_storage_data<Scope>(n->channel_scopes)[i];
-                if(scope.guild==side.guild_id) { scope.known_gates&=~notification_gate_age_access; scope.gates&=~notification_gate_age_access; }
-            }
-        if(!scope_apply(n->guild_scopes,n->guild_scope_count,side.guild_id,side.guild_id,side.flags,side.known_gates,side.gates))
-            message_notifications_mark_incomplete(&n->settings,side.guild_id);
-    }
-    else if(side.channel_id) {
-        if(!scope_apply(n->channel_scopes,n->channel_scope_count,side.channel_id,side.guild_id,side.flags,side.known_gates,side.gates))
-            scope_admission_failed(*n,side.guild_id);
-    }
-    else {
-        n->global_gates=(n->global_gates&~side.known_gates)|side.gates;
-        n->global_known_gates|=side.known_gates;
-    }
-    for(u32 i=0;i<side.thread_count;++i) {
-        GatewayClientNotificationThreadRecord row{};
-        if(!gateway_client_notification_thread_at(rows,i,&row)) { message_notifications_mark_incomplete(&n->settings,side.guild_id); return; }
-        if(row.flags&gateway_notification_channel_metadata) {
-            if(!scope_apply(n->channel_scopes,n->channel_scope_count,row.thread.thread_id,row.thread.guild_id,0,row.known_gates,row.gates))
-                scope_admission_failed(*n,row.thread.guild_id);
-        } else if(row.flags&gateway_notification_thread_remove) message_notifications_remove_thread(&n->settings,row.thread.thread_id);
-        else if(message_notifications_upsert_thread(&n->settings,row.thread)!=MessageNotificationApplyError::none)
-            message_notifications_mark_incomplete(&n->settings,side.guild_id);
-    }
+    // Only a trailing sidecar changes the scopes, gates and threads; without one the event is fully applied.
+    if(event.notification_payload_bytes) apply_sidecar(n,event,payload);
 }
 MessageReadBadge application_notifications_read_badge(void* context,const GatewayClientEvent& event,
                                                       ConstSlice<u8> payload) noexcept {

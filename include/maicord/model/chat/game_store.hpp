@@ -71,10 +71,10 @@ Utf8View game_store_name(const GameStore& store, u64 id) noexcept;
 // Asks for a game: true when it is wanted now (new, or failed and due).
 bool game_store_want(GameStore* store, u64 id, u64 now_ms) noexcept;
 // True when a wanted game is waiting for a batch.
-bool game_store_batch_due(const GameStore& store, u64 now_ms) noexcept;
-// Moves up to ids.count (at most kGameLookupBatchMaximum) wanted games to
-// pending and lists them; returns how many.
-u32 game_store_take_batch(GameStore* store, Slice<u64> ids, u64 now_ms) noexcept;
+bool game_store_batch_due(const GameStore& store) noexcept;
+// Moves up to ids.count wanted games to pending and lists them; returns how many (the caller sizes ids to at most
+// kGameLookupBatchMaximum).
+u32 game_store_take_batch(GameStore* store, Slice<u64> ids) noexcept;
 // A game object (full) or a search result: a search result never replaces a
 // game object's data.
 void game_store_put(GameStore* store, const GuildAdminGame& game, bool full, u64 now_ms) noexcept;

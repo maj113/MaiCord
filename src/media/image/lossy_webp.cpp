@@ -1,4 +1,6 @@
 #include "maicord/media/image/lossy_webp.hpp"
+// Once per image, around the entropy decode of vp8.cpp: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -103,3 +105,4 @@ LossyWebpDecodeResult lossy_webp_decode_frame_keyframe(
 }
 
 } // namespace maicord
+#pragma clang attribute pop

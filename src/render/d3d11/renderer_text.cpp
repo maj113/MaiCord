@@ -15,6 +15,7 @@
 #include "maicord/platform/font/default_fonts.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/log_event.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 struct RendererTypographyOwner {
@@ -226,6 +227,22 @@ bool d3d11_renderer_restore_login_form_base(D3D11Renderer* renderer) noexcept {
 }
 
 namespace renderer_text_detail {
+// One diagnostic per kind every five seconds (the rest only counted): a failing rebuild repeats once per frame.
+bool text_diagnostic_due(TextDiagnostic kind, u32* suppressed) noexcept {
+    static u64 last[static_cast<u32>(TextDiagnostic::count)];
+    static u32 held[static_cast<u32>(TextDiagnostic::count)];
+    const u32 index = static_cast<u32>(kind);
+    const u64 now = clock_monotonic_milliseconds();
+    if (last[index] && now - last[index] < 5000) {
+        if (held[index] != ~0u)
+            ++held[index];
+        return false;
+    }
+    last[index] = now ? now : 1;
+    *suppressed = held[index];
+    held[index] = 0;
+    return true;
+}
 
 bool append_text_batch(RendererTextStorage* storage, const UiRect* clip, u32 first_quad,
                        bool force_new_batch, const UiRect* batch_clip) noexcept {
@@ -1230,6 +1247,66 @@ void d3d11_renderer_commit_interaction_text_state(D3D11Renderer* renderer) noexc
     }
 }
 
+namespace {
+// The text layer was dropped or left short: nothing the interaction sources committed describes it any more, so
+// every "is the text current?" check (a settings page's revision, the stale-overlay suppression, the account
+// refresh) fails and the next one rebuilds. Without this a failed build left the settings page "current" with an
+// empty text layer until something changed its revision (a resize).
+void invalidate_interaction_text_state(D3D11Renderer* renderer) noexcept {
+    u64 values[kInteractionTextSourceCount];
+    const u64 used = interaction_text_source_values(*renderer, values);
+    for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
+        if (!(used >> i & 1u))
+            continue;
+        u8* field = reinterpret_cast<u8*>(renderer) + kInteractionTextSourceOffsets[i];
+        if (kInteractionTextWideSources >> i & 1u)
+            *reinterpret_cast<u64*>(field) = ~values[i];
+        else
+            *reinterpret_cast<u32*>(field) = ~static_cast<u32>(values[i]);
+    }
+}
+
+// A rebuild that could not finish: marks the text stale (above) and writes one rate-limited line with the failure's
+// counts and capacities, never text.
+void text_rebuild_failed(D3D11Renderer* renderer, TextDiagnostic kind, u32 attempts) noexcept {
+    invalidate_interaction_text_state(renderer);
+    u32 suppressed = 0;
+    if (!text_diagnostic_due(kind, &suppressed))
+        return;
+    const auto& s = *renderer->content_text;
+    const auto& a = renderer->glyph_text.allocator;
+    const u64 values[]{static_cast<u64>(kind),
+                       static_cast<u64>(s.last_error),
+                       static_cast<u64>(s.last_shape_error),
+                       d3d11_glyph_text_append_failure(),
+                       attempts,
+                       suppressed,
+                       s.quad_count,
+                       s.quad_capacity,
+                       s.batch_count,
+                       s.batch_capacity,
+                       s.content_semantic_count,
+                       s.content_semantic_capacity,
+                       s.content_hit_region_count,
+                       s.content_hit_region_capacity,
+                       a.entry_count,
+                       a.entry_capacity,
+                       a.row_count,
+                       a.row_capacity,
+                       a.evicted_entries,
+                       a.full_resets,
+                       s.rejected,
+                       s.substitutions};
+    LogEvent("content_text_rebuild_failed")
+        .fields("kind\0build_error\0shape_error\0append_failure\0attempts\0suppressed\0quads\0quad_capacity\0batches\0"
+                "batch_capacity\0semantics\0semantic_capacity\0hit_regions\0hit_capacity\0atlas_entries\0"
+                "atlas_entry_capacity\0atlas_rows\0atlas_row_capacity\0atlas_evictions\0atlas_resets\0rejected\0"
+                "substitutions",
+                values)
+        .write(LogLevel::error, "render");
+}
+} // namespace
+
 bool d3d11_renderer_interaction_text_state_current(const D3D11Renderer& renderer) noexcept {
     u64 values[kInteractionTextSourceCount];
     u64 used = interaction_text_source_values(renderer, values);
@@ -1498,17 +1575,20 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
             // interaction overlays are tied to short-lived widget handles; drop
             // them so no stale hover/popup emoji batch outlives its owner.
             discard_retained_overlay_text(renderer);
+            text_rebuild_failed(renderer, TextDiagnostic::rebuild_rejected, attempt + 1);
             return false;
         }
         // A content rebuild writes retained buffers in place; after a
         // capacity, shape or composer failure the partial command stream is
         // dropped so a retry cannot see stale indices.
         discard_content_text(renderer);
+        text_rebuild_failed(renderer, TextDiagnostic::rebuild_discarded, attempt + 1);
         return false;
     }
     ++renderer->content_text->rejected;
     renderer->content_text->last_error = RendererTextBuildError::atlas;
     discard_content_text(renderer);
+    text_rebuild_failed(renderer, TextDiagnostic::rebuild_atlas, 8);
     return false;
 }
 

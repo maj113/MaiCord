@@ -16,7 +16,7 @@ SettingsModal* g_exiting;
 UiMotionTransition g_exit_motion;
 u64 g_exit_generation;
 constexpr u64 kExitMotionOwner = 0x534d'4f44'4558'4954ull; // "SMODEXIT"
-bool exit_allowed(const SettingsModal& modal) noexcept {
+__forceinline bool exit_allowed(const SettingsModal& modal) noexcept {
     return g_app.window && !application_reduced_motion() && !g_app.renderer.live_resize &&
            application_window_shown() && g_app.renderer.settings_scene == &modal.scene && modal.scene.active &&
            modal.scene.presentation != UiSettingsPresentation::layer;

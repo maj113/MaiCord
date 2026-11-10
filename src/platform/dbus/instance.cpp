@@ -108,7 +108,7 @@ void read_platform_data(Reader* r, char (&token)[kLaunchTokenCapacity]) noexcept
 }
 
 bool application_call(void*, Connection* c, const Message& call) noexcept {
-    const ExportedObject object{nullptr, 0, nullptr, nullptr, kApplicationIntrospection};
+    const ExportedObject object{nullptr, nullptr, nullptr, kApplicationIntrospection};
     if (object_handle_standard(c, call, object))
         return true;
     if (!call.interface || !c_string_equal(call.interface, kApplicationInterface))

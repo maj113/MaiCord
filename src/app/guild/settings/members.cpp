@@ -23,37 +23,25 @@ constexpr u64 kHourMs = 3'600'000ull, kDayMs = 86'400'000ull;
 constexpr u32 kMemberQuarantined = 1u << 7;
 constexpr u64 kUserSpammer = 1ull << 20;
 
+// A date preset: the span behind a name of kDateLabels.
 struct DatePreset {
-    Utf8View label;
     u32 amount;
     // h hours, d days, w weeks, M calendar months.
     char unit;
 };
-constexpr DatePreset kDatePresets[]{
-    {utf8_literal("All"), 0, 0},           {utf8_literal("Past 1 hr"), 1, 'h'},
-    {utf8_literal("Past 24 hrs"), 24, 'h'}, {utf8_literal("Past 7 days"), 7, 'd'},
-    {utf8_literal("Past 2 weeks"), 2, 'w'}, {utf8_literal("Past 4 weeks"), 4, 'w'},
-    {utf8_literal("Past 3 months"), 3, 'M'},
-};
+constexpr char kDateLabels[] = "All\0Past 1 hr\0Past 24 hrs\0Past 7 days\0Past 2 weeks\0Past 4 weeks\0Past 3 months";
+constexpr DatePreset kDatePresets[]{{0, 0}, {1, 'h'}, {24, 'h'}, {7, 'd'}, {2, 'w'}, {4, 'w'}, {3, 'M'}};
 constexpr u32 kDatePresetCount = sizeof(kDatePresets) / sizeof(kDatePresets[0]);
-constexpr Utf8View kSignals[]{utf8_literal("Unusual DM Activity"), utf8_literal("Timed Out"),
-                              utf8_literal("Unusual Account Activity"), utf8_literal("Quarantined")};
-constexpr Utf8View kSorts[]{utf8_literal("Member Since (Newest first)"), utf8_literal("Member Since (Oldest first)"),
-                            utf8_literal("Joined Discord (Newest first)"),
-                            utf8_literal("Joined Discord (Oldest first)")};
-struct JoinType {
-    u8 type;
-    Utf8View label;
-};
-// The "Other Join Methods" entries, in the official order.
-constexpr JoinType kJoinTypes[]{
-    {3, utf8_literal("Server Discovery")}, {6, utf8_literal("Vanity URL")}, {1, utf8_literal("Bot Invite")},
-    {4, utf8_literal("Student Hub")},      {7, utf8_literal("Manual Verification")},
-    {8, utf8_literal("Linked Channel")},
-};
-constexpr Utf8View kPageSizes[]{utf8_literal("12"), utf8_literal("25"), utf8_literal("50"), utf8_literal("100")};
-constexpr Utf8View kBulkButtons[]{utf8_literal("Ban Members"), utf8_literal("Clear selection")};
-constexpr Utf8View kPageButtons[]{utf8_literal("Previous"), utf8_literal("Next")};
+constexpr char kSignals[] = "Unusual DM Activity\0Timed Out\0Unusual Account Activity\0Quarantined";
+constexpr char kSorts[] = "Member Since (Newest first)\0Member Since (Oldest first)\0Joined Discord (Newest first)\0"
+                          "Joined Discord (Oldest first)";
+// The "Other Join Methods" entries, in the official order: their types and names.
+constexpr u8 kJoinTypes[]{3, 6, 1, 4, 7, 8};
+constexpr char kJoinTypeNames[] =
+    "Server Discovery\0Vanity URL\0Bot Invite\0Student Hub\0Manual Verification\0Linked Channel";
+constexpr char kPageSizes[] = "12\0" "25\0" "50\0" "100";
+constexpr char kBulkButtons[] = "Ban Members\0Clear selection";
+constexpr char kPageButtons[] = "Previous\0Next";
 
 // The checkbox column: member safety access plus Manage Server and Ban Members.
 bool bulk_allowed() noexcept {
@@ -257,14 +245,14 @@ void load() noexcept {
 Utf8View filter_value(Bank& bank, Menu menu) noexcept {
     auto& p = *owner;
     switch (menu) {
-    case Menu::member_since: return kDatePresets[p.filter_joined].label;
-    case Menu::joined_discord: return kDatePresets[p.filter_created].label;
+    case Menu::member_since: return name_list_at(kDateLabels, p.filter_joined);
+    case Menu::joined_discord: return name_list_at(kDateLabels, p.filter_created);
     case Menu::join_method:
         if (p.filter_invite_bytes)
             return bank.add({p.filter_invite, p.filter_invite_bytes});
-        for (const auto& type : kJoinTypes)
-            if (p.filter_join_type_set && type.type == p.filter_join_type)
-                return type.label;
+        for (u32 i = 0; i < sizeof(kJoinTypes); ++i)
+            if (p.filter_join_type_set && kJoinTypes[i] == p.filter_join_type)
+                return name_list_at(kJoinTypeNames, i);
         return utf8_literal("All");
     case Menu::member_roles:
     case Menu::signals: {
@@ -281,34 +269,32 @@ Utf8View filter_value(Bank& bank, Menu menu) noexcept {
         bank.add(" selected");
         return bank.since(start);
     }
-    default: return kSorts[p.filter_sort ? p.filter_sort - 1 : 0];
+    default: return name_list_at(kSorts, p.filter_sort ? p.filter_sort - 1 : 0);
     }
 }
 
-void push_filter(Bank& bank, u32 slot, u64 id, const Utf8View& label, Menu menu, bool enabled) noexcept {
-    auto& p = *owner;
-    p.filter_choice[slot][0] = filter_value(bank, menu);
-    push_choices(id, label, {}, UiSettingsControlKind::choice, enabled, {p.filter_choice[slot], 1});
+void push_filter(Bank& bank, u64 id, Text label, Menu menu, bool enabled) noexcept {
+    push_choice(id, label, {}, enabled, filter_value(bank, menu));
 }
 
 void project_members(Bank& bank) noexcept {
     auto& p = *owner;
     if (!ensure_bank()) {
-        push_error({}, utf8_literal("Couldn't open the member list."));
+        push_error({}, "Couldn't open the member list.");
         return;
     }
     const bool edit = editable();
     const u64 now = clock_unix_milliseconds();
-    push_editor(control_search, utf8_literal("Search members"), {}, UiSettingsControlKind::edit, edit, editor_search,
-                utf8_literal("Search by username or id"));
+    push_editor(control_search, "Search members", {}, UiSettingsControlKind::edit, edit, editor_search,
+                "Search by username or id");
     if (can_manage_guild()) {
-        push_filter(bank, 0, control_filter_joined, utf8_literal("Member Since"), Menu::member_since, edit);
-        push_filter(bank, 1, control_filter_created, utf8_literal("Joined Discord"), Menu::joined_discord, edit);
-        push_filter(bank, 2, control_filter_method, utf8_literal("Join Method"), Menu::join_method, edit);
+        push_filter(bank, control_filter_joined, "Member Since", Menu::member_since, edit);
+        push_filter(bank, control_filter_created, "Joined Discord", Menu::joined_discord, edit);
+        push_filter(bank, control_filter_method, "Join Method", Menu::join_method, edit);
     }
-    push_filter(bank, 3, control_filter_roles, utf8_literal("Roles"), Menu::member_roles, edit);
-    push_filter(bank, 4, control_filter_signals, utf8_literal("Signals"), Menu::signals, edit);
-    push_filter(bank, 5, control_filter_sort, utf8_literal("Sort"), Menu::sort, edit);
+    push_filter(bank, control_filter_roles, "Roles", Menu::member_roles, edit);
+    push_filter(bank, control_filter_signals, "Signals", Menu::signals, edit);
+    push_filter(bank, control_filter_sort, "Sort", Menu::sort, edit);
 
     auto& s = p.search;
     p.page_row_count = guild_member_search_page_rows(s, p.filter_sort, {p.member_order, kGuildMemberSearchCapacity},
@@ -327,29 +313,28 @@ void project_members(Bank& bank) noexcept {
     if (bulk && p.selected_count) {
         const u32 start = bank.used;
         bank.number(p.selected_count);
-        bank.add(p.selected_count == 1 ? utf8_literal(" member selected") : utf8_literal(" members selected"));
-        push_choices(control_bulk, bank.since(start), {}, UiSettingsControlKind::buttons, edit, {kBulkButtons, 2});
+        bank.add(text_view(p.selected_count == 1 ? " member selected" : " members selected"));
+        push_buttons(control_bulk, bank.since(start), {}, edit, kBulkButtons, 2);
     }
     if (p.bulk_notice.bytes)
         push_row(control_notice, {}, p.bulk_notice, UiSettingsControlKind::notice, true, false, {},
                  {p.bulk_failed ? UiSettingsVariant::critical : UiSettingsVariant::positive, 0, kUiSettingsNoDefault});
-    push_category(control_list_category,
-                  default_filters() ? utf8_literal("Recent Members") : utf8_literal("Search Results"));
+    push_category(control_list_category, default_filters() ? "Recent Members" : "Search Results");
     if (bulk) {
         u32 actionable, chosen;
         page_selection(&actionable, &chosen);
-        push_row(control_select_page, utf8_literal("Select all members on this page"),
-                 actionable ? Utf8View{} : utf8_literal("There are no actionable members"),
-                 UiSettingsControlKind::toggle, edit && actionable, actionable && chosen == actionable);
+        push_toggle(control_select_page, "Select all members on this page",
+                    actionable ? nullptr : "There are no actionable members", edit && actionable,
+                    actionable && chosen == actionable);
     }
     if (!p.page_row_count) {
         const auto phase = s.phase;
         if (phase == GuildMemberSearchPhase::indexing)
-            push_loading(utf8_literal("Before searching, we need to index this server. Give us a bit."));
+            push_loading("Before searching, we need to index this server. Give us a bit.");
         else if (phase == GuildMemberSearchPhase::loading || phase == GuildMemberSearchPhase::idle)
-            push_loading(utf8_literal("Loading members…"));
+            push_loading("Loading members…");
         else
-            push_notice(utf8_literal("No members match these search results."));
+            push_notice("No members match these search results.");
     }
     auto& chips = p.chips;
     auto& chip_colors = p.chip_colors;
@@ -403,7 +388,7 @@ void project_members(Bank& bank) noexcept {
         if (bulk && selected(m.user_id))
             flags |= ui_settings_presentation_selected;
         const u32 index = push_choices(kRowBase + row, name, description, UiSettingsControlKind::action, true,
-                                       {chips[row], chip_count}, 0, utf8_literal("More Options"),
+                                       {chips[row], chip_count}, 0, "More Options",
                                        {UiSettingsVariant::standard, flags, kUiSettingsNoDefault});
         if (index < kControlCapacity)
             p.avatar_media[index] =
@@ -424,13 +409,13 @@ void project_members(Bank& bank) noexcept {
             bank.add("...");
         else
             bank.number(count);
-        push_choices(control_page_size, utf8_literal("Showing"), bank.since(start), UiSettingsControlKind::segments,
-                     edit, {kPageSizes, 4}, size_index);
+        push_names(control_page_size, "Showing", bank.since(start), UiSettingsControlKind::segments, edit, kPageSizes, 4,
+                   size_index);
     } else if (p.page_row_count) {
         const u32 start = bank.used;
         bank.add("Showing ");
         bank.number(count);
-        bank.add(count == 1 ? utf8_literal(" member") : utf8_literal(" members"));
+        bank.add(text_view(count == 1 ? " member" : " members"));
         push_notice(bank.since(start));
     }
     if (count > s.page_size || s.phase == GuildMemberSearchPhase::loading) {
@@ -440,8 +425,7 @@ void project_members(Bank& bank) noexcept {
         bank.number(s.page);
         bank.add(" of ");
         bank.number(pages);
-        push_choices(control_pages, bank.since(start), {}, UiSettingsControlKind::buttons,
-                     edit && (s.page > 1 || s.page < pages), {kPageButtons, 2});
+        push_buttons(control_pages, bank.since(start), {}, edit && (s.page > 1 || s.page < pages), kPageButtons, 2);
     }
 }
 
@@ -453,16 +437,15 @@ void open_member_menu(u64 user, const UiRect& anchor) noexcept {
     if (!count)
         return;
     p.popup_items[0].flags = static_cast<u16>(p.popup_items[0].flags & ~popup_item_separator_before);
-    p.menu = Menu::member;
     p.menu_user = user;
-    settings_layer_open_choice(&p.layer, user, {p.popup_items, count}, anchor, 240);
+    open_popup(Menu::member, user, count, anchor, 240);
 }
 
 void open_menu(Menu menu, const UiRect& anchor) noexcept {
     auto& p = *owner;
     Bank bank{p.popup_text, sizeof(p.popup_text), 0};
     u32 count = 0;
-    const auto item = [&](const Utf8View& label, bool checked, bool separator = false) noexcept {
+    const auto item = [&](Text label, bool checked, bool separator = false) noexcept {
         if (count >= kPopupCapacity)
             return;
         popup_row(count, label, count,
@@ -474,20 +457,20 @@ void open_menu(Menu menu, const UiRect& anchor) noexcept {
     case Menu::joined_discord: {
         const u8 current = menu == Menu::member_since ? p.filter_joined : p.filter_created;
         for (u32 i = 0; i < kDatePresetCount; ++i)
-            item(kDatePresets[i].label, current == i);
+            item(name_list_at(kDateLabels, i), current == i);
         break;
     }
     case Menu::join_method:
-        item(utf8_literal("All"), !p.filter_invite_bytes && !p.filter_join_type_set);
+        item("All", !p.filter_invite_bytes && !p.filter_join_type_set);
         for (u32 i = 0; i < p.invite_count && i < 64; ++i) {
             const Utf8View code{p.invites[i].code, p.invites[i].code_bytes};
             item(bank.add(code), p.filter_invite_bytes == code.bytes && bytes_equal(p.filter_invite, code.data, code.bytes),
                  i == 0);
             p.menu_channel[count - 1] = i;
         }
-        for (u32 i = 0; i < sizeof(kJoinTypes) / sizeof(kJoinTypes[0]); ++i) {
-            Utf8View label = kJoinTypes[i].label;
-            if (kJoinTypes[i].type == 6) {
+        for (u32 i = 0; i < sizeof(kJoinTypes); ++i) {
+            Utf8View label = name_list_at(kJoinTypeNames, i);
+            if (kJoinTypes[i] == 6) {
                 const auto* record = guild_details();
                 const auto vanity = record ? guild_detail_store_vanity_url_code(details(), *record) : Utf8View{};
                 if (vanity.bytes) {
@@ -497,7 +480,7 @@ void open_menu(Menu menu, const UiRect& anchor) noexcept {
                     label = bank.since(start);
                 }
             }
-            item(label, p.filter_join_type_set && p.filter_join_type == kJoinTypes[i].type, i == 0);
+            item(label, p.filter_join_type_set && p.filter_join_type == kJoinTypes[i], i == 0);
         }
         break;
     case Menu::member_roles: {
@@ -516,18 +499,17 @@ void open_menu(Menu menu, const UiRect& anchor) noexcept {
     }
     case Menu::signals:
         for (u32 i = 0; i < 4; ++i)
-            item(kSignals[i], (p.filter_signals >> i) & 1);
+            item(name_list_at(kSignals, i), (p.filter_signals >> i) & 1);
         break;
     case Menu::sort:
         for (u32 i = 0; i < 4; ++i)
-            item(kSorts[i], p.filter_sort ? p.filter_sort == i + 1 : i == 0);
+            item(name_list_at(kSorts, i), p.filter_sort ? p.filter_sort == i + 1 : i == 0);
         break;
     default: return;
     }
     if (!count)
         return;
-    p.menu = menu;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 280);
+    open_popup(menu, p.guild_id, count, anchor, 280);
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {
@@ -624,8 +606,7 @@ void choose(Menu menu, u32 action) noexcept {
         }
         if (action == kModerationActions.timeout) {
             const u32 count = member_context_timeout_choices(kModerationActions, {p.popup_items, 16});
-            p.menu = Menu::timeout;
-            settings_layer_open_choice(&p.layer, user, {p.popup_items, count}, g_app.popup_scene.anchor, 240);
+            open_popup(Menu::timeout, user, count, g_app.popup_scene.anchor, 240);
             return;
         }
         const u8 bit = action == kModerationActions.nickname      ? moderation_action_nickname
@@ -673,8 +654,8 @@ void choose(Menu menu, u32 action) noexcept {
             p.filter_invite_bytes = invite.code_bytes;
             copy_bytes(p.filter_invite, invite.code, invite.code_bytes);
             p.filter_join_type_set = false;
-        } else if (index - codes - 1 < sizeof(kJoinTypes) / sizeof(kJoinTypes[0])) {
-            const u8 type = kJoinTypes[index - codes - 1].type;
+        } else if (index - codes - 1 < sizeof(kJoinTypes)) {
+            const u8 type = kJoinTypes[index - codes - 1];
             const bool same = p.filter_join_type_set && p.filter_join_type == type;
             p.filter_join_type_set = !same;
             p.filter_join_type = same ? 0 : type;

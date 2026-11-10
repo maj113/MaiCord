@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../shell/toast.hpp"
 #include "../../account/account_presentation.hpp"
@@ -20,7 +20,7 @@ enum RoleTab : u8 {
     role_tab_display,
     role_tab_permissions,
 };
-constexpr Utf8View kRoleTabs[]{utf8_literal("Display"), utf8_literal("Permissions")};
+constexpr char kRoleTabs[] = "Display\0Permissions";
 
 bool role_dirty() noexcept {
     return owner->editing_role &&
@@ -52,16 +52,13 @@ bool role_patch_pending() noexcept {
 bool order_matches_store() noexcept {
     return !guild_settings_order_changed(state(), owner->guild_id, {owner->order, owner->order_count});
 }
-Utf8View lock_text(GuildRoleLock lock) noexcept {
+const char* lock_text(GuildRoleLock lock) noexcept {
     switch (lock) {
-    case GuildRoleLock::no_permission:
-        return utf8_literal("Role is locked because you don't have the Manage Roles permission.");
+    case GuildRoleLock::no_permission: return "Role is locked because you don't have the Manage Roles permission.";
     case GuildRoleLock::highest:
-        return utf8_literal("Role is locked because it is your highest role. Ask a higher role or the owner.");
-    case GuildRoleLock::above:
-        return utf8_literal("Role is locked because it ranks above your highest role.");
-    default:
-        return {};
+        return "Role is locked because it is your highest role. Ask a higher role or the owner.";
+    case GuildRoleLock::above: return "Role is locked because it ranks above your highest role.";
+    default: return nullptr;
     }
 }
 u32 member_count(u64 role_id) noexcept {
@@ -80,33 +77,31 @@ void project_role_list(Bank& bank) noexcept {
         const u32 start = bank.used;
         bank.add(chat_state_store_role_name(state(), *everyone));
         bank.add(" · applies to all server members");
-        const u32 index = push_row(control_everyone, utf8_literal("Default permissions"), bank.since(start),
-                                   UiSettingsControlKind::action, true);
+        const u32 index = push_action(control_everyone, "Default permissions", bank.since(start), {});
         if (index != ~0u)
             owner->list_items[index] = {UiSettingsListStyle::card, UiIcon::members, UiIcon::count,
                                         {UiIcon::count, UiIcon::count}, false};
     }
-    push_editor(control_search, {}, {}, UiSettingsControlKind::edit, editable(), editor_search,
-                utf8_literal("Search roles"), manage && !owner->order_dirty ? utf8_literal("Create Role") : Utf8View{});
+    push_editor(control_search, {}, {}, UiSettingsControlKind::edit, editable(), editor_search, "Search roles",
+                manage && !owner->order_dirty ? "Create Role" : nullptr);
     u32 listed = 0;
     for (u32 i = 0; i < owner->order_count; ++i)
         listed += owner->order[i] != owner->guild_id && role(owner->order[i]);
-    static const Utf8View members_column[]{utf8_literal("MEMBERS")};
     const u32 heading = bank.used;
     bank.add("ROLES — ");
     bank.number(listed);
-    const u32 header = push_choices(control_list_category, bank.since(heading),
-                                    manage ? utf8_literal("Members use the colour of the highest role they have on this "
-                                                          "list. Drag roles to reorder them.")
-                                           : Utf8View{},
-                                    UiSettingsControlKind::category, true, {members_column, 1});
+    const u32 header = push_names(control_list_category, bank.since(heading),
+                                  manage ? "Members use the colour of the highest role they have on this list. Drag "
+                                           "roles to reorder them."
+                                         : nullptr,
+                                  UiSettingsControlKind::category, true, "MEMBERS", 1);
     if (header != ~0u)
         owner->list_items[header] = {UiSettingsListStyle::header, UiIcon::count, UiIcon::count,
                                      {UiIcon::count, UiIcon::count}, false};
     if (owner->status.bytes && owner->failed)
         push_error({}, owner->status);
     else if (busy() && owner->request.op == Op::role_create)
-        push_loading(utf8_literal("Creating role…"));
+        push_loading("Creating role…");
     // Row ids follow the draft order so drops and activation map back to it.
     u32 shown = 0;
     for (u32 i = 0; i < owner->order_count; ++i) {
@@ -138,30 +133,26 @@ void project_role_list(Bank& bank) noexcept {
         ++shown;
     }
     if (!shown)
-        push_notice(query.bytes ? utf8_literal("No roles match your search.")
-                                : utf8_literal("Create a role to group members and give them permissions."));
+        push_notice(query.bytes ? "No roles match your search." : "Create a role to group members and give them "
+                                                                    "permissions.");
 }
 
-Utf8View permission_lock_text(GuildPermissionLock lock) noexcept {
-    return lock == GuildPermissionLock::missing ? utf8_literal("You can't change this: none of your roles have it.")
-           : lock == GuildPermissionLock::self  ? utf8_literal("You can't change this: removing it would remove it "
-                                                               "from you.")
-                                                : Utf8View{};
+const char* permission_lock_text(GuildPermissionLock lock) noexcept {
+    return lock == GuildPermissionLock::missing ? "You can't change this: none of your roles have it."
+           : lock == GuildPermissionLock::self  ? "You can't change this: removing it would remove it from you."
+                                                : nullptr;
 }
 
 // Permissions tab: search, Clear permissions and the grouped switches. A
 // switch the account may not change is disabled with its reason.
 void project_permissions(Bank& bank, bool writable) noexcept {
     auto& d = owner->role_draft;
-    push_editor(control_search, {}, {}, UiSettingsControlKind::edit, true, editor_search,
-                utf8_literal("Search permissions"));
+    push_editor(control_search, {}, {}, UiSettingsControlKind::edit, true, editor_search, "Search permissions");
     const bool clearable = writable && guild_role_can_clear(state(), owner->access, d);
-    push_row(control_clear, utf8_literal("Clear permissions"),
-             d.permissions && writable && !clearable
-                 ? utf8_literal("You can't clear these: it would remove permissions from you.")
-                 : utf8_literal("Turns off every permission of this role."),
-             UiSettingsControlKind::action, clearable, false, utf8_literal("Clear"),
-             {UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
+    push_action(control_clear, "Clear permissions",
+                d.permissions && writable && !clearable ? "You can't clear these: it would remove permissions from you."
+                                                        : "Turns off every permission of this role.",
+                "Clear", clearable, {UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
     const auto query = editor_text(editor_search);
     const auto entries = permission_grid_entries();
     const PermissionSet grantable = guild_settings_grantable(owner->access);
@@ -187,23 +178,23 @@ void project_permissions(Bank& bank, bool writable) noexcept {
                 const u32 start = bank.used;
                 bank.add(entry.description);
                 bank.add(" ");
-                bank.add(permission_lock_text(lock));
+                bank.add(text_view(permission_lock_text(lock)));
                 description = bank.since(start);
             }
-            push_row(control_permission + i, entry.label, description, UiSettingsControlKind::toggle,
-                     writable && lock == GuildPermissionLock::none && (on || (grantable & entry.bit) == entry.bit),
-                     on);
+            push_toggle(control_permission + i, entry.label, description,
+                        writable && lock == GuildPermissionLock::none && (on || (grantable & entry.bit) == entry.bit),
+                        on);
             ++found;
         }
     }
     if (!found)
-        push_notice(utf8_literal("No permissions found."));
+        push_notice("No permissions found.");
 }
 
 void project_display(Bank& bank, const RoleRecord* r, bool writable) noexcept {
     auto& d = owner->role_draft;
-    push_editor(control_name, utf8_literal("Role name"), {}, UiSettingsControlKind::edit,
-                writable && !(r && r->managed), editor_name, utf8_literal("Role name"));
+    push_editor(control_name, "Role name", {}, UiSettingsControlKind::edit, writable && !(r && r->managed),
+                editor_name, "Role name");
     auto& color_names = owner->color_names;
     color_names[0] = utf8_literal("Default");
     u32 selected = d.color ? kUiSettingsNoChoice : 0;
@@ -212,46 +203,38 @@ void project_display(Bank& bank, const RoleRecord* r, bool writable) noexcept {
         if (kGuildRoleColors[i] == d.color)
             selected = i + 1;
     }
-    push_choices(control_color, utf8_literal("Role colour"),
-                 utf8_literal("Members use the colour of the highest role they have on the roles list."),
+    push_choices(control_color, "Role colour", "Members use the colour of the highest role they have on the roles list.",
                  UiSettingsControlKind::swatches, writable, {color_names, kGuildRoleColorCount + 1}, selected, {},
                  {UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
     // Any other colour through the colour picker; its swatch shows the role's colour.
-    static constexpr Utf8View kCustom[]{utf8_literal("Custom")};
-    push_choices(control_hex, utf8_literal("Custom colour"), {}, UiSettingsControlKind::colors, writable, {kCustom, 1},
-                 kUiSettingsNoChoice);
-    push_row(control_hoist, utf8_literal("Show members separately"),
-             utf8_literal("List members with this role in their own group in the member list."),
-             UiSettingsControlKind::toggle, writable, d.hoist);
-    push_row(control_mentionable, utf8_literal("Allow anyone to @mention this role"),
-             utf8_literal("Members with the right permission can always mention it."), UiSettingsControlKind::toggle,
-             writable, d.mentionable);
+    push_names(control_hex, "Custom colour", {}, UiSettingsControlKind::colors, writable, "Custom", 1,
+               kUiSettingsNoChoice);
+    push_toggle(control_hoist, "Show members separately",
+                "List members with this role in their own group in the member list.", writable, d.hoist);
+    push_toggle(control_mentionable, "Allow anyone to @mention this role",
+                "Members with the right permission can always mention it.", writable, d.mentionable);
     if (guild_role_icons_available(premium_tier(), guild_features())) {
         const bool has_icon = r && r->has_icon;
-        push_row(control_role_icon, utf8_literal("Role icon"),
-                 picked_text(bank, owner->role_icon,
-                             utf8_literal("Shown next to member names. PNG, JPEG or WebP, at least 64×64.")),
-                 UiSettingsControlKind::action, writable && connected() && !(r && r->managed), false,
-                 utf8_literal("Upload icon"));
+        push_action(control_role_icon, "Role icon",
+                    picked_text(bank, owner->role_icon, "Shown next to member names. PNG, JPEG or WebP, at least 64×64."),
+                    "Upload icon", writable && connected() && !(r && r->managed));
         if (has_icon || pending(owner->role_icon))
-            push_row(control_role_icon_remove, utf8_literal("Remove role icon"), {}, UiSettingsControlKind::action,
-                     writable && (owner->role_icon.set || (has_icon && !owner->role_icon.clear)), false,
-                     owner->role_icon.set && !has_icon ? utf8_literal("Discard") : utf8_literal("Remove"),
-                     {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+            push_action(control_role_icon_remove, "Remove role icon", {},
+                        owner->role_icon.set && !has_icon ? "Discard" : "Remove",
+                        writable && (owner->role_icon.set || (has_icon && !owner->role_icon.clear)),
+                        {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     }
     if (r && guild_settings_can_view_as_role(owner->access, *r)) {
-        push_category(control_display_category, utf8_literal("View Server as Role"));
-        push_row(control_view_as, utf8_literal("Preview this role"),
-                 utf8_literal("Test what this role can do and which channels it can see. Voice restrictions such "
-                              "as priority speaker aren't reflected."),
-                 UiSettingsControlKind::action, true, false, utf8_literal("View Server as Role"));
+        push_category(control_display_category, "View Server as Role");
+        push_action(control_view_as, "Preview this role",
+                    "Test what this role can do and which channels it can see. Voice restrictions such as priority "
+                    "speaker aren't reflected.",
+                    "View Server as Role");
     }
     if (r && guild_settings_role_deletable(owner->access, *r)) {
-        push_category(control_delete_category, utf8_literal("Delete role"));
-        push_row(control_delete, utf8_literal("Delete this role"),
-                 utf8_literal("Members lose the role and its permissions. This can't be undone."),
-                 UiSettingsControlKind::action, writable, false, utf8_literal("Delete role"),
-                 {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_category(control_delete_category, "Delete role");
+        push_action(control_delete, "Delete this role", "Members lose the role and its permissions. This can't be undone.",
+                    "Delete role", writable, {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     }
 }
 
@@ -263,7 +246,7 @@ void project_role_editor(Bank& bank) noexcept {
     if (owner->role_missing)
         bank.add("This role was deleted.");
     else if (r && !role_writable())
-        bank.add(lock_text(guild_settings_role_lock(owner->access, *r)));
+        bank.add(text_view(lock_text(guild_settings_role_lock(owner->access, *r))));
     else if (everyone)
         bank.add("Default permissions for all server members.");
     else if (r && r->managed)
@@ -272,19 +255,16 @@ void project_role_editor(Bank& bank) noexcept {
         bank.add("Editing role");
     const auto header_description = bank.since(start);
     const auto header_name = bank.add({owner->role_draft.name, owner->role_draft.name_bytes});
-    push_row(control_header, header_name, header_description, UiSettingsControlKind::action, true, false,
-             utf8_literal("Back to roles"),
-             {UiSettingsVariant::standard, static_cast<u8>(everyone ? 0 : ui_settings_presentation_accent),
-              kUiSettingsNoDefault});
+    push_action(control_header, header_name, header_description, "Back to roles", true,
+                {UiSettingsVariant::standard, static_cast<u8>(everyone ? 0 : ui_settings_presentation_accent),
+                 kUiSettingsNoDefault});
     if (owner->role_conflict)
-        push_error(utf8_literal("Changed elsewhere"),
-                   utf8_literal("Someone else updated this role. Load the latest values or keep editing."),
-                   utf8_literal("Load latest"));
+        push_error("Changed elsewhere", "Someone else updated this role. Load the latest values or keep editing.",
+                   "Load latest");
     // @everyone has permissions only.
     const u8 tab = everyone ? role_tab_permissions : owner->role_tab;
     if (!everyone)
-        push_choices(control_role_tabs, utf8_literal("Role settings"), {}, UiSettingsControlKind::tabs, true,
-                     {kRoleTabs, 2}, tab);
+        push_names(control_role_tabs, "Role settings", {}, UiSettingsControlKind::tabs, true, kRoleTabs, 2, tab);
     if (tab == role_tab_permissions)
         project_permissions(bank, writable);
     else
@@ -328,16 +308,7 @@ void confirm_delete_role(u64 role_id) noexcept {
     bank.add("Are you sure you want to delete the ");
     bank.add(chat_state_store_role_name(state(), *r));
     bank.add(" role? This action cannot be undone.");
-    ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Delete Role");
-    request.context = bank.since(0);
-    request.accept = utf8_literal("Delete");
-    request.owner = form_key(form_role_delete, r->id);
-    request.valid = form_valid;
-    request.save = form_save;
-    request.confirmation_only = true;
-    request.danger = true;
-    application_text_form_open(request);
+    open_confirmation(form_role_delete, r->id, "Delete Role", bank.since(0), "Delete", form_save);
 }
 // Closes Server Settings into the view; the settings owner is gone after.
 void view_as(u64 role_id) noexcept {
@@ -353,19 +324,17 @@ void open_role_menu(u64 role_id, const UiRect& anchor) noexcept {
         return;
     u32 count = 0;
     const bool editable_role = page_allowed(Page::roles) && guild_settings_role_editable(p.access, *r);
-    popup_row(count++, editable_role ? utf8_literal("Edit Role") : utf8_literal("View Role"), role_action_edit);
+    popup_row(count++, editable_role ? "Edit Role" : "View Role", role_action_edit);
     if (guild_settings_can_view_as_role(p.access, *r))
-        popup_row(count++, utf8_literal("View Server as Role"), role_action_view_as);
+        popup_row(count++, "View Server as Role", role_action_view_as);
     if (g_app.preferences.developer_mode)
-        popup_row(count++, utf8_literal("Copy Role ID"), role_action_copy_id);
+        popup_row(count++, "Copy Role ID", role_action_copy_id);
     if (page_allowed(Page::roles) && guild_settings_role_deletable(p.access, *r)) {
-        popup_row(count, utf8_literal("Delete Role"), role_action_delete,
-                  popup_item_danger | popup_item_separator_before);
+        popup_row(count, "Delete Role", role_action_delete, popup_item_danger | popup_item_separator_before);
         ++count;
     }
-    p.menu = Menu::role;
     p.menu_item = role_id;
-    settings_layer_open_choice(&p.layer, role_id, {p.popup_items, count}, anchor, 240);
+    open_popup(Menu::role, role_id, count, anchor, 240);
 }
 
 void load() noexcept {
@@ -514,7 +483,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
             return;
     }
     if (activation.value.kind == UiSettingsControlKind::toggle)
-        ui_settings_scene_animate_toggle(&p.scene, target, activation.value.checked, clock_monotonic_milliseconds());
+        animate_toggle(activation);
     repaint();
 }
 
@@ -589,12 +558,12 @@ void notice_action() noexcept {
             load_role_editor(*r);
 }
 
-Utf8View invalid() noexcept {
+const char* invalid() noexcept {
     const auto& p = *owner;
     return p.editing_role && p.editing_role != p.guild_id &&
                    !guild_role_name_valid({p.role_draft.name, p.role_draft.name_bytes})
-               ? utf8_literal("Role names need 1–100 characters.")
-               : Utf8View{};
+               ? "Role names need 1–100 characters."
+               : nullptr;
 }
 
 } // namespace

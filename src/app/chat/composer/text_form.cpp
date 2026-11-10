@@ -115,92 +115,76 @@ bool project(ApplicationTextForm* form) noexcept {
     text_form_bind_theme_styles(&form->scene, application_theme().styles);
     text_form_bind_measure_revision(&form->scene, renderer_text_measure_revision(g_app.renderer));
     const auto& request = form->request;
-    const Utf8View cancel = request.cancel.bytes ? request.cancel : utf8_literal("Cancel");
-    if (request.confirmation_only) {
-        TextFormContent content{request.title,
-                                request.context,
-                                request.label,
-                                form->status,
-                                cancel,
-                                form->progress_accept.bytes ? form->progress_accept : request.accept,
-                                {},
-                                0,
-                                0,
-                                form->can_accept,
-                                false,
-                                {},
-                                g_app.keyboard_focus_visible,
-                                true,
-                                form->editable,
-                                request.single_line,
-                                form->can_cancel,
-                                request.danger};
+    const bool confirmation = request.confirmation_only;
+    Utf8View shown{};
+    SecureEditUtf16Selection selection{};
+    if (!confirmation) {
+        // Only ordinary fields may lend their stable model bytes to presentation; a secret field shows its bullets.
+        // The scene/renderer are detached before this model is released.
+        if (form->edit.password != request.secret || form->edit.storage.bytes > form->edit.storage.capacity ||
+            form->edit.storage.capacity > kApplicationTextFormBytes)
+            return false;
+        if (request.secret) {
+            SecureEditRenderWindow window{};
+            if (secure_edit_render_window(form->edit, kApplicationTextFormSecretCodepoints,
+                                          {form->mask, sizeof(form->mask)}, &shown.bytes,
+                                          &window) != SecureEditResult::unchanged)
+                return false;
+            shown.data = form->mask;
+            selection = {window.anchor, window.caret};
+        } else {
+            const auto text = secure_edit_view(form->edit);
+            if (text.count != form->edit.storage.bytes || (!text.data && text.count) ||
+                secure_edit_utf16_selection(form->edit, &selection) != SecureEditResult::unchanged)
+                return false;
+            shown = {reinterpret_cast<const char*>(text.data), text.count};
+            secure_text_store_composition(form->store, &form->composition);
+        }
+    }
+    TextFormContent content{request.title,
+                            request.context,
+                            request.label,
+                            form->status,
+                            confirmation && request.cancel.bytes ? request.cancel : utf8_literal("Cancel"),
+                            form->progress_accept.bytes ? form->progress_accept : request.accept,
+                            shown,
+                            form->editable ? selection.anchor : selection.caret,
+                            selection.caret,
+                            form->can_accept,
+                            !confirmation && form->caret_visible,
+                            {confirmation ? nullptr : form->composition.spans,
+                             confirmation ? 0u : form->composition.span_count},
+                            g_app.keyboard_focus_visible,
+                            confirmation,
+                            form->editable,
+                            request.single_line,
+                            form->can_cancel,
+                            request.danger};
+    if (confirmation) {
         content.option = request.option;
         content.option_checked = form->option_checked;
         content.detail = request.detail;
         content.single_action = request.single_action;
-        return text_form_update(&form->scene, content, application_viewport_dips(), form->measure);
-    }
-    // Only ordinary fields may lend their stable model bytes to presentation; a secret field shows its bullets.
-    // The scene/renderer are detached before this model is released.
-    if (form->edit.password != request.secret || form->edit.storage.bytes > form->edit.storage.capacity ||
-        form->edit.storage.capacity > kApplicationTextFormBytes)
-        return false;
-    Utf8View shown{};
-    SecureEditUtf16Selection selection{};
-    if (request.secret) {
-        SecureEditRenderWindow window{};
-        if (secure_edit_render_window(form->edit, kApplicationTextFormSecretCodepoints, {form->mask, sizeof(form->mask)},
-                                      &shown.bytes, &window) != SecureEditResult::unchanged)
-            return false;
-        shown.data = form->mask;
-        selection = {window.anchor, window.caret};
     } else {
-        const auto text = secure_edit_view(form->edit);
-        if (text.count != form->edit.storage.bytes || (!text.data && text.count) ||
-            secure_edit_utf16_selection(form->edit, &selection) != SecureEditResult::unchanged)
-            return false;
-        shown = {reinterpret_cast<const char*>(text.data), text.count};
-        secure_text_store_composition(form->store, &form->composition);
-    }
-    TextFormContent content{request.title,
-                             request.context,
-                             request.label,
-                             form->status,
-                             utf8_literal("Cancel"),
-                             form->progress_accept.bytes ? form->progress_accept : request.accept,
-                             shown,
-                             form->editable ? selection.anchor : selection.caret,
-                             selection.caret,
-                             form->can_accept,
-                             form->caret_visible,
-                             {form->composition.spans, form->composition.span_count},
-                             g_app.keyboard_focus_visible,
-                             false,
-                             form->editable,
-                             request.single_line,
-                             form->can_cancel,
-                             request.danger,
-                             {},
-                             false};
-    content.choices_label = request.choices_label;
-    content.choices = {form->choices, request.choices.count};
-    content.choice_selected = form->choice_selected;
-    content.choice_editor = request.choice_editor - 1;
-    content.select_label = request.select_label;
-    content.select_options = {form->options, request.select_options.count};
-    content.select_selected = form->select_selected;
-    content.select_expanded = form->select_expanded;
-    content.placeholder = request.placeholder;
-    content.error = form->error;
-    content.swatch = request.swatch;
-    content.swatch_rgba = form->swatch_rgba;
-    content.picker = request.picker;
-    content.qr = request.qr;
-    if (request.picker) {
-        content.color = form->color;
-        content.color.eyedropper = !g_eyedropper_unavailable;
-        content.color.picking = form->color_picking;
+        content.choices_label = request.choices_label;
+        content.choices = {form->choices, request.choices.count};
+        content.choice_selected = form->choice_selected;
+        content.choice_editor = request.choice_editor - 1;
+        content.select_label = request.select_label;
+        content.select_options = {form->options, request.select_options.count};
+        content.select_selected = form->select_selected;
+        content.select_expanded = form->select_expanded;
+        content.placeholder = request.placeholder;
+        content.error = form->error;
+        content.swatch = request.swatch;
+        content.swatch_rgba = form->swatch_rgba;
+        content.picker = request.picker;
+        content.qr = request.qr;
+        if (request.picker) {
+            content.color = form->color;
+            content.color.eyedropper = !g_eyedropper_unavailable;
+            content.color.picking = form->color_picking;
+        }
     }
     return text_form_update(&form->scene, content, application_viewport_dips(), form->measure);
 }
@@ -323,16 +307,12 @@ bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
 }
 bool point_geometry(void* opaque, SecureTextPoint client, bool round, u32* position, bool* inside) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
-    if (form != g_app.text_form || !g_app.renderer.dpi || !form->surface.layout.active ||
+    if (form != g_app.text_form || !form->surface.layout.active ||
         form->surface.layout.text_signature !=
             text_edit_signature(
                 {reinterpret_cast<const char*>(form->edit.storage.data), form->edit.storage.bytes}))
         return false;
-    POINT point{client.x, client.y};
-    application_client_to_content(&point);
-    const float scale = 96.0f / g_app.renderer.dpi;
-    return text_edit_layout_point_geometry(form->surface.layout, point.x * scale, point.y * scale, round,
-                                             position, inside);
+    return text_store_point_geometry(form->surface.layout, client, round, position, inside);
 }
 void changed(void* opaque) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
@@ -488,30 +468,111 @@ bool apply(ApplicationTextForm* form, SecureEditResult result) noexcept {
     refresh(form);
     return true;
 }
-// Its own frame: the clipboard buffer must not weigh on every input event.
-__declspec(noinline) bool paste_clipboard(ApplicationTextForm* form) noexcept {
-    char pasted[kApplicationTextFormBytes];
-    const auto read = clipboard_read_utf8({pasted, sizeof(pasted)});
-    const auto result = read.ok() ? secure_edit_insert_utf8(&form->edit, {pasted, read.bytes})
-                        : read.error == ClipboardTextError::capacity ? SecureEditResult::capacity
-                                                                     : SecureEditResult::unchanged;
-    SecureZeroMemory(pasted, sizeof(pasted));
-    return apply(form, result);
-}
 bool pointer_position(ApplicationTextForm* form, float x, float y, bool extend) noexcept {
-    if (form->request.confirmation_only || !form->editable)
-        return false;
-    u32 position = 0;
+    SecureEditResult result;
+    return !form->request.confirmation_only && form->editable &&
+           secure_edit_pointer_select(&form->edit, form->surface.layout, x, y, extend, &result) && apply(form, result);
+}
+} // namespace
+
+namespace {
+// Moves the caret, and the anchor unless extending, to a UTF-16 position.
+bool select_to(SecureEdit* edit, u32 position, bool extend, SecureEditResult* result) noexcept {
     SecureEditUtf16Selection selection{};
-    if (!text_edit_layout_hit_test(form->surface.layout, x, y, &position) ||
-        secure_edit_utf16_selection(form->edit, &selection) != SecureEditResult::unchanged)
+    if (secure_edit_utf16_selection(*edit, &selection) != SecureEditResult::unchanged)
         return false;
     if (!extend)
         selection.anchor = position;
     selection.caret = position;
-    return apply(form, secure_edit_set_utf16_selection(&form->edit, selection));
+    *result = secure_edit_set_utf16_selection(edit, selection);
+    return true;
+}
+// Its own frame: the clipboard buffer must not weigh on every input event.
+__declspec(noinline) SecureEditResult paste_clipboard(SecureEdit* edit) noexcept {
+    char pasted[8000];
+    const auto read = clipboard_read_utf8({pasted, minimum<u32>(edit->storage.capacity, sizeof(pasted))});
+    const auto result = read.ok() ? secure_edit_insert_utf8(edit, {pasted, read.bytes})
+                        : read.error == ClipboardTextError::capacity ? SecureEditResult::capacity
+                                                                     : SecureEditResult::unchanged;
+    SecureZeroMemory(pasted, sizeof(pasted));
+    return result;
 }
 } // namespace
+
+bool text_store_point_geometry(const TextEditLayoutOwner& layout, SecureTextPoint client, bool round, u32* position,
+                               bool* inside) noexcept {
+    if (!g_app.renderer.dpi)
+        return false;
+    POINT point{client.x, client.y};
+    application_client_to_content(&point);
+    const float scale = 96.0f / g_app.renderer.dpi;
+    return text_edit_layout_point_geometry(layout, point.x * scale, point.y * scale, round, position, inside);
+}
+
+bool secure_edit_pointer_select(SecureEdit* edit, const TextEditLayoutOwner& layout, float x, float y, bool extend,
+                                SecureEditResult* result) noexcept {
+    u32 position = 0;
+    return text_edit_layout_hit_test(layout, x, y, &position) && select_to(edit, position, extend, result);
+}
+
+bool secure_edit_command_key(SecureEdit* edit, const TextEditLayoutOwner& layout, u32 code, bool control, bool shift,
+                             bool history, bool clipboard, SecureEditResult* result) noexcept {
+    if (control && (code == 'Z' || code == 'Y')) {
+        // A text service owns its active composition. Let it finish before replaying model history; consumed
+        // native keys never reach this path.
+        if (!history)
+            return false;
+        *result = code == 'Y' || shift ? secure_edit_redo(edit) : secure_edit_undo(edit);
+        return true;
+    }
+    if (control && code == 'A') {
+        *result = secure_edit_select_all(edit);
+        return true;
+    }
+    if (control && (code == 'C' || code == 'X')) {
+        if (!clipboard)
+            return false;
+        secure_edit_break_history_run(edit);
+        const auto first = minimum(edit->anchor, edit->caret), last = maximum(edit->anchor, edit->caret);
+        if (first == last || code != 'X' ||
+            !clipboard_write_utf8({reinterpret_cast<const char*>(edit->storage.data + first), last - first}))
+            return false;
+        *result = secure_edit_delete_forward(edit);
+        return true;
+    }
+    if (control && code == 'V') {
+        *result = paste_clipboard(edit);
+        return true;
+    }
+    switch (code) {
+    case key::backspace:
+        *result = secure_edit_backspace(edit, clock_monotonic_milliseconds());
+        return true;
+    case key::del:
+        *result = secure_edit_delete_forward(edit, clock_monotonic_milliseconds());
+        return true;
+    case key::left:
+        *result = secure_edit_move(edit, SecureEditMove::previous, shift);
+        return true;
+    case key::right:
+        *result = secure_edit_move(edit, SecureEditMove::next, shift);
+        return true;
+    case key::home:
+        *result = secure_edit_move(edit, control ? SecureEditMove::home : SecureEditMove::line_home, shift);
+        return true;
+    case key::end:
+        *result = secure_edit_move(edit, control ? SecureEditMove::end : SecureEditMove::line_end, shift);
+        return true;
+    case key::up:
+    case key::down: {
+        u32 position = 0;
+        return text_edit_layout_move_vertical(layout, code == key::down, &position) &&
+               select_to(edit, position, shift, result);
+    }
+    default:
+        return false;
+    }
+}
 
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept {
     const bool parent = request.forum_parent.serial != 0;
@@ -966,61 +1027,12 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
         }
         return true;
     }
-    if (ctrl && (code == 'Z' || code == 'Y')) {
-        // A text service owns its active composition. Let it finish before
-        // replaying model history; consumed native keys never reach this path.
-        // A secret field keeps no history.
-        if (form->composition.active || form->request.secret)
-            return true;
-        return apply(form,
-                     code == 'Y' || shift ? secure_edit_redo(&form->edit) : secure_edit_undo(&form->edit));
-    }
-    if (ctrl && code == 'A')
-        return apply(form, secure_edit_select_all(&form->edit));
-    if (ctrl && (code == 'C' || code == 'X') && !form->request.secret) {
-        secure_edit_break_history_run(&form->edit);
-        const auto first = minimum(form->edit.anchor, form->edit.caret),
-                   last = maximum(form->edit.anchor, form->edit.caret);
-        if (first != last &&
-            clipboard_write_utf8({reinterpret_cast<const char*>(form->edit.storage.data + first), last - first}) &&
-            code == 'X')
-            return apply(form, secure_edit_delete_forward(&form->edit));
-        return true;
-    }
-    if (ctrl && code == 'V')
-        return paste_clipboard(form);
-    switch (code) {
-    case key::backspace:
-        return apply(form, secure_edit_backspace(&form->edit, clock_monotonic_milliseconds()));
-    case key::del:
-        return apply(form, secure_edit_delete_forward(&form->edit, clock_monotonic_milliseconds()));
-    case key::left:
-        return apply(form, secure_edit_move(&form->edit, SecureEditMove::previous, shift));
-    case key::right:
-        return apply(form, secure_edit_move(&form->edit, SecureEditMove::next, shift));
-    case key::home:
-        return apply(
-            form,
-            secure_edit_move(&form->edit, ctrl ? SecureEditMove::home : SecureEditMove::line_home, shift));
-    case key::end:
-        return apply(form, secure_edit_move(&form->edit,
-                                            ctrl ? SecureEditMove::end : SecureEditMove::line_end, shift));
-    case key::up:
-    case key::down: {
-        u32 position = 0;
-        SecureEditUtf16Selection selection{};
-        if (text_edit_layout_move_vertical(form->surface.layout, code == key::down, &position) &&
-            secure_edit_utf16_selection(form->edit, &selection) == SecureEditResult::unchanged) {
-            if (!shift)
-                selection.anchor = position;
-            selection.caret = position;
-            return apply(form, secure_edit_set_utf16_selection(&form->edit, selection));
-        }
-        return true;
-    }
-    default:
-        return true;
-    }
+    // Editing keys; a secret field keeps no history and no clipboard copy, a composition owns undo.
+    SecureEditResult result;
+    if (secure_edit_command_key(&form->edit, form->surface.layout, code, ctrl, shift,
+                                !form->composition.active && !form->request.secret, !form->request.secret, &result))
+        apply(form, result);
+    return true;
 }
 
 bool application_text_form_filter(const WindowEvent& event) noexcept {

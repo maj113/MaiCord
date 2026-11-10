@@ -401,14 +401,14 @@ void start_chevron_turn(u64 category, bool collapsed) noexcept {
 
 // Home reopens what it showed when a server was last opened from it: Friends
 // or its last conversation.
-bool home_shows_friends = true;
+bool home_shows_conversation;
 
 bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexcept {
     if (!g_app.account_ui)
         return false;
     if (home && g_app.preferences.folders_close_on_home)
         application_guild_folders_close_all();
-    if (home && (home_shows_friends || !g_app.account_ui->chat_state.last_private_channel_id))
+    if (home && (!home_shows_conversation || !g_app.account_ui->chat_state.last_private_channel_id))
         return application_friends_show();
     if (!guild && navigation_events_row(id))
         return application_guild_community_open_events(g_app.account_ui->chat_state.selected_guild_id) || true;
@@ -449,7 +449,7 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
         return true;
     }
     if (leaving_home)
-        home_shows_friends = was_friends;
+        home_shows_conversation = !was_friends;
     application_thread_browser_close();
     application_friends_hide();
     const u64 selected_channel_id = g_app.account_ui->chat_state.selected_channel_id;

@@ -155,7 +155,7 @@ maicord_library(maicord_app_core
     src/app/voice/connection.cpp src/app/voice/udp_discovery.cpp src/app/voice/media_setup.cpp
     src/app/voice/packet_crypto.cpp src/app/voice/dave/frame_crypto.cpp src/app/voice/dave/key_derivation.cpp
     src/app/voice/mls/exporter.cpp src/app/voice/mls/key_schedule.cpp src/app/voice/mls/signature.cpp src/app/voice/mls/hpke_derivation.cpp
-    src/app/voice/mls/hpke_context.cpp src/app/voice/mls/hpke.cpp src/app/voice/mls/key_package.cpp src/app/voice/dave/key_package.cpp
+    src/app/voice/mls/hpke.cpp src/app/voice/mls/key_package.cpp src/app/voice/dave/key_package.cpp
     src/app/voice/dave/welcome.cpp src/app/voice/dave/receive_epoch.cpp src/app/voice/dave/receive_sender.cpp
     src/app/voice/udp_media.cpp src/app/voice/participants.cpp src/app/voice/socket.cpp
     src/app/gateway/voice_control.cpp src/app/gateway/voice_dispatch.cpp src/app/gateway/stage_dispatch.cpp

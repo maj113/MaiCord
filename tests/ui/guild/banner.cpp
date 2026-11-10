@@ -82,6 +82,39 @@ void test_urls() noexcept {
           "urls: splashes are JPEG at the surface's size up to 512 px; malformed hashes build nothing");
 }
 
+// The server tag's saved badge: the CDN's clan-badges PNG at the size the surface draws it at (a 32 DIP picker tile, the
+// 12 DIP chip), from the profile's badge hash.
+void test_tag_badge_urls() noexcept {
+    UiGuildImageMedia tile{}, chip{}, tile_hidpi{}, chip_hidpi{}, bad{};
+    const bool built = ui_guild_tag_badge_media(222333444555666777ull, kStill, 32, 96, &tile) &&
+                       ui_guild_tag_badge_media(222333444555666777ull, kStill, 12, 96, &chip) &&
+                       ui_guild_tag_badge_media(222333444555666777ull, kStill, 32, 144, &tile_hidpi) &&
+                       ui_guild_tag_badge_media(222333444555666777ull, kStill, 12, 144, &chip_hidpi);
+    check(built &&
+              utf8_equal(tile.url_view(), utf8_literal("https://cdn.discordapp.com/clan-badges/222333444555666777/"
+                                                       "0123456789abcdef0123456789abcdef.png?size=32")) &&
+              utf8_equal(chip.url_view(), utf8_literal("https://cdn.discordapp.com/clan-badges/222333444555666777/"
+                                                       "0123456789abcdef0123456789abcdef.png?size=16")) &&
+              utf8_equal(tile_hidpi.url_view(),
+                         utf8_literal("https://cdn.discordapp.com/clan-badges/222333444555666777/"
+                                      "0123456789abcdef0123456789abcdef.png?size=48")) &&
+              utf8_equal(chip_hidpi.url_view(),
+                         utf8_literal("https://cdn.discordapp.com/clan-badges/222333444555666777/"
+                                      "0123456789abcdef0123456789abcdef.png?size=20")),
+          "tag badge: clan-badges/{guild}/{hash}.png at the proxy size covering the tile or chip in device pixels");
+    check(tile.key.kind == MediaAssetKind::profile_image && media_asset_key_valid(tile.key) &&
+              media_asset_embed_format(tile.key) == MediaAttachmentFormat::png &&
+              !(tile.key.flags & media_asset_flag_animated) && !media_asset_key_equal(tile.key, chip.key) &&
+              !media_asset_key_equal(tile.key, tile_hidpi.key),
+          "tag badge: each size is its own profile_image PNG identity");
+    check(!ui_guild_tag_badge_media(222333444555666777ull, {}, 32, 96, &bad) &&
+              !ui_guild_tag_badge_media(222333444555666777ull, utf8_literal("zz"), 32, 96, &bad) &&
+              !ui_guild_tag_badge_media(0, kStill, 32, 96, &bad) &&
+              !ui_guild_tag_badge_media(222333444555666777ull, kStill, 0, 96, &bad) &&
+              !ui_guild_tag_badge_media(222333444555666777ull, kStill, 32, 96, nullptr),
+          "tag badge: no hash, a malformed one, no guild or no size builds nothing (the glyph stays)");
+}
+
 void test_geometry() noexcept {
     const UiRect sidebar{72, 0, 340, 800}, header{72, 0, 340, 48};
     const auto rest = ui_guild_banner_geometry(sidebar, header, 0, false);
@@ -536,6 +569,7 @@ void test_card() noexcept {
 
 void run() noexcept {
     test_urls();
+    test_tag_badge_urls();
     test_geometry();
     test_animation();
     test_gateway();

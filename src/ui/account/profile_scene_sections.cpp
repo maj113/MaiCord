@@ -601,6 +601,13 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         glyph->media = ProfileMediaKind::guild_icon;
         glyph->target = a.primary_guild_id;
     }
+    // A badge's 20 DIP image at (bx, by); its description is the tooltip.
+    const auto badge = [&](float bx, float by, u32 i) noexcept {
+        auto* b = blank(s, owner, {bx, by, bx + 20, by + 20}, ProfileAction::badge);
+        b->media = ProfileMediaKind::badge;
+        b->source = static_cast<u16>(i);
+        b->hint = p.badges[i].description.view();
+    };
     if (p.badge_count && !bot(*s)) {
         // The boxed badge list: the first six 20 DIP badges 2 apart, then "+N" for the rest, padded 1x3 in a box
         // whose edge sits 1 DIP outside the padding (the row keeps 1 DIP above and below for it).
@@ -615,11 +622,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
             const float bx = row.left + 3 + i * 22.f;
             if (bx + 20 > left + width)
                 break;
-            // The description is the tooltip.
-            auto* b = blank(s, owner, {bx, row.top + 2, bx + 20, row.top + 22}, ProfileAction::badge);
-            b->media = ProfileMediaKind::badge;
-            b->source = static_cast<u16>(i);
-            b->hint = p.badges[i].description.view();
+            badge(bx, row.top + 2, i);
         }
         if (hidden) {
             const float mx = row.left + 3 + shown * 22.f;
@@ -637,11 +640,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
             const float bx = block.left + (i % per_row) * 22.f, by = block.top + 1 + (i / per_row) * 22.f;
             if (bx + 20 > left + width)
                 continue;
-            // Bare 20 DIP images, 2 apart; the description is the tooltip.
-            auto* b = blank(s, owner, {bx, by, bx + 20, by + 20}, ProfileAction::badge);
-            b->media = ProfileMediaKind::badge;
-            b->source = static_cast<u16>(i);
-            b->hint = p.badges[i].description.view();
+            badge(bx, by, i);
         }
     }
     return row_top + row_height - top;

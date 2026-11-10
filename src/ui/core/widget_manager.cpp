@@ -12,6 +12,23 @@ bool widget_focusable(const UiWidgetManager& manager, const UiWidget& widget) no
         manager, {static_cast<u16>(&widget - manager.storage.data), manager.generation});
 }
 
+// Focus, hover and capture share one rule: an invalid handle clears; otherwise the widget must carry `required` and
+// take input.
+bool assign_input_handle(UiWidgetManager* manager, UiWidgetHandle handle, UiWidgetHandle UiWidgetManager::*field,
+                         u16 required) noexcept {
+    if (!manager)
+        return false;
+    if (handle.generation == 0) {
+        manager->*field = ui_widget_invalid_handle();
+        return true;
+    }
+    const UiWidget* widget = ui_widget_manager_resolve(*manager, handle);
+    if (!widget || (widget->flags & required) != required || !ui_widget_manager_input_enabled(*manager, handle))
+        return false;
+    manager->*field = handle;
+    return true;
+}
+
 UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const UiWidgetDesc& description,
                           bool id_prevalidated) noexcept {
     if (!manager || !manager->storage.data || description.id == 0) {
@@ -254,19 +271,7 @@ UiWidgetHandle ui_widget_manager_hit_test(const UiWidgetManager& manager, float 
 }
 
 bool ui_widget_manager_focus(UiWidgetManager* manager, UiWidgetHandle handle) noexcept {
-    if (!manager) {
-        return false;
-    }
-    if (handle.generation == 0) {
-        manager->focused = ui_widget_invalid_handle();
-        return true;
-    }
-    const UiWidget* widget = ui_widget_manager_resolve(*manager, handle);
-    if (!widget || !widget_focusable(*manager, *widget)) {
-        return false;
-    }
-    manager->focused = handle;
-    return true;
+    return assign_input_handle(manager, handle, &UiWidgetManager::focused, ui_widget_focusable);
 }
 
 bool ui_widget_manager_context_anchor(const UiWidgetManager& manager, UiRect* anchor) noexcept {
@@ -287,21 +292,11 @@ bool ui_widget_manager_context_anchor(const UiWidgetManager& manager, UiRect* an
 }
 
 bool ui_widget_manager_hover(UiWidgetManager* manager, UiWidgetHandle handle) noexcept {
-    if (!manager) {
+    const bool changed = manager && (manager->hovered.slot != handle.slot || manager->hovered.generation != handle.generation);
+    if (!assign_input_handle(manager, handle, &UiWidgetManager::hovered, ui_widget_hit_test))
         return false;
-    }
-    if (handle.generation == 0) {
-        manager->hovered = ui_widget_invalid_handle();
-        return true;
-    }
-    const UiWidget* widget = ui_widget_manager_resolve(*manager, handle);
-    if (!widget || (widget->flags & ui_widget_hit_test) == 0 ||
-        !ui_widget_manager_input_enabled(*manager, handle)) {
-        return false;
-    }
-    if (manager->hovered.slot != handle.slot || manager->hovered.generation != handle.generation)
+    if (changed && handle.generation != 0)
         manager->hover_started_ms = clock_monotonic_milliseconds();
-    manager->hovered = handle;
     return true;
 }
 
@@ -366,18 +361,7 @@ bool ui_widget_manager_block_input(UiWidgetManager* manager, UiWidgetHandle hand
 }
 
 bool ui_widget_manager_capture(UiWidgetManager* manager, UiWidgetHandle handle) noexcept {
-    if (!manager)
-        return false;
-    if (!handle.generation) {
-        manager->captured = ui_widget_invalid_handle();
-        return true;
-    }
-    const auto* widget = ui_widget_manager_resolve(*manager, handle);
-    if (!widget || !(widget->flags & ui_widget_hit_test) ||
-        !ui_widget_manager_input_enabled(*manager, handle))
-        return false;
-    manager->captured = handle;
-    return true;
+    return assign_input_handle(manager, handle, &UiWidgetManager::captured, ui_widget_hit_test);
 }
 
 UiWidgetHandle ui_widget_manager_pointer_target(UiWidgetManager* manager, float x, float y) noexcept {

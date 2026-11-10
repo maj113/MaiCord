@@ -127,7 +127,7 @@ struct UiMotionTransition {
     UiMotionScope scope{};
     u64 started_ms{}, sampled_ms{};
     float value{}, from{}, target{};
-    UiMotionStyle style{};
+    UiMotionStyle style{0, UiMotionCurve::linear};
     bool active{};
 };
 

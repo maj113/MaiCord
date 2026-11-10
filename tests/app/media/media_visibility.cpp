@@ -1075,6 +1075,81 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
               media_asset_key_equal(picker_requested_keys[1], sticker_key),
           "settings avatar: Server Settings emoji and sticker previews stay current and request their images");
     observe_picker_requests = false;
+    // Accessibility's preview: your avatar at each of the two messages and the three default avatars of the status
+    // examples (embed/avatars/2.png to 4.png) are requested through the same paths, once the card is cozy.
+    static constexpr Utf8View preview_texts[]{utf8_literal("what happened to all the beans"),
+                                              utf8_literal("here's a link "),
+                                              utf8_literal("https://discord.com/accessibility")};
+    UiSettingsControl preview_row[1]{{3, utf8_literal("Preview"), {}, UiSettingsControlKind::preview, false, false,
+                                      {preview_texts, 3}, 0, utf8_literal("Example Button"), nullptr}};
+    UiSettingsControlPresentation preview_look[1]{{UiSettingsVariant::standard, 0, kUiSettingsNoDefault}};
+    UiSettingsAvatarMedia pictures[4]{};
+    const auto mine = media_asset_user_avatar(996, user_avatar_variant(hash), false);
+    pictures[0].key = mine;
+    pictures[0].hash_bytes = static_cast<u8>(hash.bytes);
+    copy_bytes(pictures[0].hash, hash.data, hash.bytes);
+    for (u32 i = 1; i < 4; ++i) {
+        char path[kDefaultAvatarPathBytes];
+        default_avatar_path(i + 1, path);
+        pictures[i].key = default_avatar_key(i + 1);
+        pictures[i].hash_bytes = static_cast<u8>(kDefaultAvatarPathBytes);
+        copy_bytes(pictures[i].hash, path, kDefaultAvatarPathBytes);
+    }
+    UiSettingsPreview sample{utf8_literal("Ada"), utf8_literal("11:55 AM"), 0xdd80f4, 0, false, true, true, 16, 16,
+                             pictures};
+    UiSettingsPageContent preview_content{utf8_literal("Accessibility"), {}, {preview_row, 1}, 1};
+    preview_content.presentation = preview_look;
+    preview_content.preview = &sample;
+    UiPage preview_page{};
+    UiPageRegistry preview_registry{};
+    valid = ui_page_registry_initialize(&preview_registry, {&preview_page, 1}) &&
+            ui_page_registry_register(&preview_registry, {{1, 5}, utf8_literal("Accessibility"), &preview_content}).ok() &&
+            ui_settings_scene_update(&scene, &preview_registry, {0, 0, 1280, 800});
+    MediaAssetKey shown[8]{};
+    UiRect shown_rect[8]{};
+    const auto collect = [&]() noexcept {
+        u32 count = 0;
+        cursor = 0;
+        for (; count < 8 && ui_settings_scene_next_avatar(scene, &cursor, &geometry); ++count) {
+            shown[count] = geometry.media->key;
+            shown_rect[count] = geometry.avatar;
+        }
+        return count;
+    };
+    const u32 cozy_count = valid ? collect() : 0;
+    check(cozy_count == 5 && media_asset_key_equal(shown[0], mine) && media_asset_key_equal(shown[1], mine) &&
+              media_asset_key_equal(shown[2], default_avatar_key(2)) &&
+              media_asset_key_equal(shown[3], default_avatar_key(3)) &&
+              media_asset_key_equal(shown[4], default_avatar_key(4)),
+          "settings preview avatars: your avatar leads both messages, then default avatars 2, 3 and 4");
+    const auto near_to = [](float value, float expected) noexcept { return value > expected - .01f && value < expected + .01f; };
+    bool placed = cozy_count == 5 && near_to(ui_rect_width(shown_rect[0]), 40) && near_to(ui_rect_height(shown_rect[0]), 40) &&
+                  shown_rect[0].left == shown_rect[1].left && shown_rect[1].top > shown_rect[0].bottom &&
+                  shown_rect[2].left > shown_rect[0].right + 40 && shown_rect[2].left == shown_rect[3].left &&
+                  shown_rect[3].left == shown_rect[4].left;
+    for (u32 i = 2; placed && i < 5; ++i)
+        placed = near_to(ui_rect_width(shown_rect[i]), 32) && near_to(ui_rect_height(shown_rect[i]), 32) &&
+                 (i == 2 || near_to(shown_rect[i].top - shown_rect[i - 1].top, 38));
+    check(placed, "settings preview avatars: 40 DIP avatars at the messages, 32 DIP ones stacked 38 DIP apart on the right");
+    const u32 identities = identity_requests, attachments = attachment_requests;
+    pump.uploads = 0;
+    bool preview_repaint = false;
+    // A queued identity request (not a ready frame) leaves the scan going to the default avatars behind it.
+    identity_requests_queue = true;
+    const bool requested = pump.pass(1000, 1100, 0, &preview_repaint).request_settings_avatars();
+    identity_requests_queue = false;
+    check(requested && identity_requests > identities && media_asset_key_equal(last_identity_key, mine),
+          "settings preview avatars: your avatar is requested through the user-avatar path");
+    check(attachment_requests == attachments + 3 && media_asset_key_equal(last_attachment_key, default_avatar_key(4)),
+          "settings preview avatars: the three status avatars' defaults are requested by their CDN paths");
+    check(pump.media_key_is_current(mine) && pump.media_key_is_current(default_avatar_key(2)) &&
+              pump.media_key_is_current(default_avatar_key(4)),
+          "settings preview avatars: the card keeps its avatars current");
+    sample.compact = true;
+    ++preview_content.revision;
+    check(ui_settings_scene_update(&scene, &preview_registry, {0, 0, 1280, 800}) && collect() == 3 &&
+              media_asset_key_equal(shown[0], default_avatar_key(2)),
+          "settings preview avatars: compact messages carry no avatar, the status column stays");
     g_app.renderer.settings_scene = previous;
     check(!pump.media_key_is_current(key), "settings avatar: closed Settings no longer admits its avatar");
     ui_settings_scene_release(&scene);

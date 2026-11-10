@@ -976,7 +976,7 @@ maicord_test(MaiCordVoiceTests ONLY WINDOWS ENTRY maicord_voice_tests_entry
         tests/app/voice/protocol_selection.cpp tests/app/voice/udp_media.cpp tests/app/voice/participants.cpp
         tests/app/voice/media_dispatch.cpp tests/protocol/voice/dave_replay.cpp tests/protocol/voice/dave_frame.cpp tests/app/voice/dave/frame_crypto.cpp
         tests/app/voice/dave/key_derivation.cpp tests/app/voice/mls/exporter.cpp tests/app/voice/mls/key_schedule.cpp tests/app/voice/mls/signature.cpp
-        tests/app/voice/mls/hpke_derivation.cpp tests/app/voice/mls/hpke_context.cpp tests/app/voice/mls/hpke.cpp tests/protocol/voice/mls_objects.cpp
+        tests/app/voice/mls/hpke_derivation.cpp tests/app/voice/mls/hpke.cpp tests/protocol/voice/mls_objects.cpp
         tests/protocol/voice/mls_join_messages.cpp tests/app/voice/dave/key_package.cpp tests/app/voice/dave/welcome.cpp tests/app/voice/mls/dave_package_policy.cpp
         tests/platform/crypto/p256.cpp tests/platform/crypto/kdf_sha256.cpp tests/platform/crypto/random.cpp
         tests/platform/crypto/hash_stream.cpp tests/app/voice/dave/receive_epoch.cpp tests/app/voice/dave/receive_sender.cpp tests/voice_setup_entry.cpp

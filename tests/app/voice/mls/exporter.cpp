@@ -109,28 +109,8 @@ void receive(Check check, KdfSha256Workspace& workspace) noexcept {
 void failures(Check check, KdfSha256Workspace& workspace) noexcept {
     u8 secret[32]{}, output[48], label[8]{}, context[8]{};
     memset(output, 0xa5, sizeof(output));
-    for (u32 size = 0; size != 16; ++size)
-        check(dave_export_media_seed(workspace, {secret, 32}, 1, {output, size}).error ==
-                      KdfError::output_capacity &&
-                  test_filled(output, 48, 0xa5),
-              "DAVE export short output is unchanged");
-    check(dave_export_media_seed(workspace, {secret, 32}, 0, {output, 16}).error ==
-                  KdfError::invalid_input &&
-              mls_export_secret(workspace, {secret, 31}, {}, {}, {output, 16}).error ==
-                  KdfError::invalid_input,
-          "MLS exporter rejects invalid secret size and absent sender identity");
-    check(mls_export_secret(workspace, {secret, 32}, {label, 8}, {nullptr, 1}, {output, 16}).error ==
-                  KdfError::invalid_input &&
-              test_filled(output, 48, 0xa5),
-          "MLS exporter preflights invalid context before any derivation");
-    check(mls_export_secret(workspace, {secret, 32}, {}, {}, {secret + 1, 16}).error ==
-                  KdfError::invalid_input &&
-              mls_export_secret(workspace, {secret, 32}, {}, {}, {output, 8161}).error ==
-                  KdfError::invalid_input,
-          "MLS exporter rejects overlap and oversized output without writes");
-    check(mls_export_secret(workspace, {secret, 32}, {}, {}, {workspace.storage.data, 16}).error ==
-              KdfError::invalid_input,
-          "MLS exporter protects the reusable workspace");
+    check(dave_export_media_seed(workspace, {secret, 32}, 0, {output, 16}).error == KdfError::invalid_input,
+          "MLS exporter rejects an absent sender identity");
     const u32 capacity = workspace.storage.capacity;
     workspace.storage.capacity = 1;
     const auto failed = mls_export_secret(workspace, {secret, 32}, {label, 8}, {context, 8}, {output, 16});

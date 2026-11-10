@@ -425,9 +425,9 @@ void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept {
           "audio controls: oversized waveform refuses projection transactionally");
     state = playback();
     state.voice = true;
-    style.minimum_width = 1;
+    style.minimum_width = 200;
     check(!project(160) && bytes_equal(&previous, &projection, sizeof(previous)),
-          "audio controls: invalid themed geometry refuses before changing the previous projection");
+          "audio controls: a card narrower than the style's minimum refuses before changing the previous projection");
     style = {};
     WidgetFixture fixture{};
     UiAudioScene scene{};

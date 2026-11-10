@@ -22,11 +22,8 @@ SfntStatus gsub_subtable_match(const SfntGsubSubtable&,const SfntGdef&,const Sfn
 // and start/end range-checked. Substitutions keep records, component references
 // and source indices valid, but the caller must refresh glyph bounds; a script
 // callback that changes the run requires another public lookup first. Every
-// lookup action is still executed and budgeted. The segmented overload needs
-// segments already valid for this run (see sfnt_gsub_execute_lookup).
-SfntStatus sfnt_gsub_execute_validated_lookup(const SfntGsubProgram&,const SfntGsubExecutableLookup&,
-    SfntGlyphBuffer*,u32,u32,u32,SfntGsubExecutionScratch,SfntGsubExecutionLimits,
-    SfntGsubExecutionResult*,SfntClusterMap*,SfntComponentForest*,u8) noexcept;
+// lookup action is still executed and budgeted. Empty segments run the plain lookup; otherwise segments must
+// already be valid for this run (see sfnt_gsub_execute_lookup).
 SfntStatus sfnt_gsub_execute_validated_lookup(const SfntGsubProgram&,const SfntGsubExecutableLookup&,
     SfntGlyphBuffer*,u32,u32,u32,SfntGsubExecutionScratch,SfntGsubExecutionLimits,
     SfntGsubExecutionResult*,SfntClusterMap*,SfntComponentForest*,u8,ConstSlice<u32> segments) noexcept;

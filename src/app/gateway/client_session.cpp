@@ -134,9 +134,7 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
         // identify again later. The growing floor keeps a READY that
         // fails the same way every time far below the server's daily
         // IDENTIFY budget.
-        GatewayClientEvent diagnostic{};
-        diagnostic.timestamp_ms = now_ms;
-        diagnostic.kind = GatewayClientEventKind::reconnecting;
+        GatewayClientEvent diagnostic = bare_event(GatewayClientEventKind::reconnecting, now_ms);
         diagnostic.error = GatewayClientError::session;
         diagnostic.failure_stage = stage;
         note_route_error(&diagnostic, projection.route);
@@ -157,9 +155,7 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
     if (projection.degraded_guilds) {
         // Guilds left unavailable are reported with their first
         // categorical failure; the rest of READY was applied.
-        GatewayClientEvent degraded{};
-        degraded.timestamp_ms = now_ms;
-        degraded.kind = GatewayClientEventKind::dispatch;
+        GatewayClientEvent degraded = bare_event(GatewayClientEventKind::dispatch, now_ms);
         degraded.dispatch_kind = GatewayClientDispatchKind::unknown;
         degraded.failure_stage = GatewayClientFailureStage::ready_guild_route;
         note_route_error(&degraded, projection.degraded_route);
@@ -217,10 +213,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
         if (event.kind == GatewaySessionEventKind::opened || event.kind == GatewaySessionEventKind::pong) {
             if (event.kind == GatewaySessionEventKind::opened) {
                 runtime->last_ack_ms = now_ms;
-                GatewayClientEvent opened{};
-                opened.timestamp_ms = now_ms;
-                opened.kind = GatewayClientEventKind::websocket_opened;
-                publish_event(runtime, opened);
+                publish_marker(runtime, GatewayClientEventKind::websocket_opened, now_ms);
             }
             continue;
         }
@@ -236,10 +229,8 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             continue;
         }
         if (event.kind == GatewaySessionEventKind::hello && event.hello.heartbeat_interval_ms != 0) {
-            GatewayClientEvent hello{};
-            hello.timestamp_ms = now_ms;
+            GatewayClientEvent hello = bare_event(GatewayClientEventKind::hello, now_ms);
             hello.heartbeat_interval_ms = event.hello.heartbeat_interval_ms;
-            hello.kind = GatewayClientEventKind::hello;
             publish_event(runtime, hello);
             InterlockedExchange64(&client->hello_elapsed_us,
                                   static_cast<LONG64>(clock_microseconds(
@@ -269,11 +260,8 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             return drive_queued_actions(client, runtime, now_ms);
         }
         if (event.kind == GatewaySessionEventKind::heartbeat_acknowledged) {
-            GatewayClientEvent acknowledged{};
-            acknowledged.timestamp_ms = now_ms;
-            acknowledged.kind = GatewayClientEventKind::heartbeat_acknowledged;
             runtime->last_ack_ms = now_ms;
-            publish_event(runtime, acknowledged);
+            publish_marker(runtime, GatewayClientEventKind::heartbeat_acknowledged, now_ms);
             continue;
         }
         if (event.kind == GatewaySessionEventKind::ready) {
@@ -291,9 +279,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             publish_voice_snapshot(client, runtime);
             runtime->deadline_ms = 0;
             gateway_reconnect_reset(&runtime->reconnect_backoff);
-            GatewayClientEvent resumed{};
-            resumed.timestamp_ms = now_ms;
-            resumed.kind = GatewayClientEventKind::resumed;
+            GatewayClientEvent resumed = bare_event(GatewayClientEventKind::resumed, now_ms);
             resumed.sequence = runtime->session.lifecycle.last_sequence;
             resumed.has_sequence = runtime->session.lifecycle.has_sequence;
             publish_event(runtime, resumed);
@@ -455,10 +441,8 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                         return resume_reconnect(client, runtime, now_ms);
                 }
                 if (routed.ok()) {
-                    GatewayClientEvent complete{};
-                    complete.kind = GatewayClientEventKind::dispatch;
+                    GatewayClientEvent complete = bare_event(GatewayClientEventKind::dispatch, now_ms);
                     complete.dispatch_kind = GatewayClientDispatchKind::supplemental_state_complete;
-                    complete.timestamp_ms = now_ms;
                     complete.sequence = event.envelope.sequence;
                     complete.has_sequence = event.envelope.has_sequence;
                     if (!publish_event_payload(client, runtime, complete, {}))
@@ -554,9 +538,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             continue;
         }
         if (event.kind == GatewaySessionEventKind::closed) {
-            GatewayClientEvent closed{};
-            closed.timestamp_ms = now_ms;
-            closed.kind = GatewayClientEventKind::closed;
+            GatewayClientEvent closed = bare_event(GatewayClientEventKind::closed, now_ms);
             closed.close_code = event.close_code;
             InterlockedExchange(&client->close_code, event.close_code);
             publish_event(runtime, closed);
@@ -589,12 +571,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             const GatewayLifecycleStep retry = gateway_lifecycle_session_retry(&runtime->session.lifecycle);
             if (!retry.ok() || !gateway_outbound_enqueue(&runtime->outbound, retry.action))
                 return fail_plaintext(runtime, GatewayClientFailureStage::invalid_session_reconnect);
-            GatewayClientEvent retrying{};
-            retrying.timestamp_ms = now_ms;
-            retrying.kind = GatewayClientEventKind::reconnecting;
-            retrying.has_sequence = runtime->resume.valid;
-            retrying.sequence = static_cast<u64>(ReadAcquire64(&runtime->resume_sequence));
-            publish_event(runtime, retrying);
+            publish_reconnecting(runtime, now_ms);
             runtime->deadline_ms = now_ms + kPhaseTimeoutMs;
             return drive_queued_actions(client, runtime, now_ms);
         }

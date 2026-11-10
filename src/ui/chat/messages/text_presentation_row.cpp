@@ -34,9 +34,6 @@ constexpr CommandLook kLookDividerLabel{.horizontal = UiTextAlignment::end,
 bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTextFlowLayout* flow,
                       const Color& color, const UiWidgetReference& owner, const MessageRecord& record,
                       u16 measurement_index, MessageTextMeasurementKind measurement_kind) noexcept {
-    if (!text.data && text.bytes != 0) {
-        return fail(presentation, MessageTextPresentationError::model);
-    }
     if (text.bytes == 0) {
         return true;
     }
@@ -79,7 +76,7 @@ struct RetainedAuthorHeader {
 
 RetainedAuthorHeader retain_author_header(MessageTextPresentation* presentation, Utf8View name,
                                           u64 timestamp_ms, u64 now_unix_seconds) noexcept {
-    if (!presentation || name.bytes == 0 || !name.data) {
+    if (name.bytes == 0) {
         return RetainedAuthorHeader{};
     }
     char timestamp_storage[kMessageMarkdownTimestampMaximumBytes];
@@ -114,7 +111,7 @@ RetainedAuthorHeader retain_author_header(MessageTextPresentation* presentation,
 }
 
 RetainedAuthorHeader retain_styled_text(MessageTextPresentation* presentation, const Utf8View& text, u32 flags) noexcept {
-    if (!presentation || text.bytes == 0 || !text.data ||
+    if (text.bytes == 0 ||
         text.bytes > presentation->utf8.count - presentation->utf8_count ||
         presentation->style_count >= presentation->styles.count)
         return RetainedAuthorHeader{};
@@ -631,6 +628,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             const MessageComponentKind kind = message_component_kind(component);
             const u32 slot = kMessageSceneComponentItemOffset + index;
             auto& measured_items = row_measurement.rich_item_layout;
+            const UiWidgetHandle item_widget =
+                message_scene_rich_item_widget(row, MessageSceneRichItemKind::component, index);
+            const UiWidgetReference owner{&scene.widgets, item_widget};
             const bool text_leaf = kind == MessageComponentKind::text || kind == MessageComponentKind::button ||
                                    kind == MessageComponentKind::select || kind == MessageComponentKind::file;
             // Inside an unrevealed spoiler container, text is clipped away
@@ -650,14 +650,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             // Parents are folded from their measured children below; media
             // leaves and separators have fixed extents.
             if (!text_leaf) {
-                const UiLayoutNode* node =
-                    message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, index);
+                const UiLayoutNode* node = message_scene_layout_node(scene, item_widget);
                 if (kind == MessageComponentKind::container && concealed != MessageMediaObscure::none && node &&
-                    !append_obscure_label(
-                        presentation, concealed, node->rectangle,
-                        {&scene.widgets,
-                         message_scene_rich_item_widget(row, MessageSceneRichItemKind::component, index)},
-                        row_clip, theme, *record, measurement_index))
+                    !append_obscure_label(presentation, concealed, node->rectangle, owner, row_clip, theme, *record,
+                                          measurement_index))
                     return false;
                 if (!hidden && (kind == MessageComponentKind::thumbnail || kind == MessageComponentKind::gallery_item)) {
                     const MessageMediaObscure obscure = message_scene_media_obscure(
@@ -666,11 +662,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                                  row.forwarded_snapshot),
                         message_rich_component_spoiler(component), false);
                     if (node && obscure != MessageMediaObscure::none &&
-                        !append_obscure_label(
-                            presentation, obscure, node->rectangle,
-                            {&scene.widgets, message_scene_rich_item_widget(row, MessageSceneRichItemKind::component,
-                                                                            index)},
-                            row_clip, theme, *record, measurement_index))
+                        !append_obscure_label(presentation, obscure, node->rectangle, owner, row_clip, theme,
+                                              *record, measurement_index))
                         return false;
                 }
                 measured_items.heights[slot] = message_component_leaf_height(component);
@@ -679,8 +672,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 if (kind != MessageComponentKind::thumbnail && kind != MessageComponentKind::separator)
                     saturating_accumulate(presentation->rich.skipped_components);
                 if (kind == MessageComponentKind::gallery) {
-                    const UiLayoutNode* gallery =
-                        message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, index);
+                    const UiLayoutNode* gallery = node;
                     const UiLayoutNode* region = message_scene_layout_node(scene, row.components);
                     const float available = region ? ui_rect_width(region->content_rectangle)
                                             : gallery ? ui_rect_width(gallery->rectangle)
@@ -699,14 +691,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 }
                 continue;
             }
-            const UiWidgetHandle item_widget =
-                message_scene_rich_item_widget(row, MessageSceneRichItemKind::component, index);
-            const UiLayoutNode* item_layout =
-                message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, index);
+            const UiLayoutNode* item_layout = message_scene_layout_node(scene, item_widget);
             if (!item_layout) {
                 return fail(presentation, MessageTextPresentationError::layout);
             }
-            const UiWidgetReference owner{&scene.widgets, item_widget};
             const UiRect box = item_layout->rectangle;
             const UiRect item_clip = ui_rect_intersection(component_clip, box);
             const u32 command_begin = presentation->command_count;
@@ -855,10 +843,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             *rich, &row_measurement.rich_item_layout, maximum(1.0f, components_available), error_host);
         // The failed control's error line: after the icon, in the space the
         // measure reserved under its row or section.
-        const UiLayoutNode* host =
-            error_host != kMessageComponentNone
-                ? message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, error_host)
-                : nullptr;
+        const UiWidgetHandle host_widget =
+            message_scene_rich_item_widget(row, MessageSceneRichItemKind::component, error_host);
+        const UiLayoutNode* host = message_scene_layout_node(scene, host_widget);
         if (host && ui_rect_height(host->rectangle) >= kMessageComponentErrorHeight) {
             const float bottom = host->rectangle.bottom - 4.0f;
             const UiRect line{host->rectangle.left + kMessageComponentErrorIconExtent + kMessageComponentErrorIconGap,
@@ -869,8 +856,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                               bottom};
             if (ui_rect_has_area(ui_rect_intersection(line, row_clip)) &&
                 !append_command(presentation, utf8_literal("This interaction failed"), kNoStyles, kNoSemantics,
-                                {&scene.widgets, message_scene_rich_item_widget(row, MessageSceneRichItemKind::component,
-                                                                                error_host)},
+                                {&scene.widgets, host_widget},
                                 line, row_clip, theme.tokens.text.danger, record, kInvalidMessageTextMeasurement,
                                 kLookMiddle))
                 return false;
@@ -926,24 +912,17 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         char detail[96];
         const u32 detail_bytes = message_thread_card_detail(rich->thread, {detail, sizeof(detail)});
         const Utf8View meta = detail_bytes ? Utf8View{detail, detail_bytes} : utf8_literal("Open thread");
-        if (meta.bytes > presentation->utf8.count - presentation->utf8_count ||
-            presentation->style_count >= presentation->styles.count)
-            return fail(presentation, MessageTextPresentationError::capacity);
-        const u32 offset = presentation->utf8_count;
-        copy_bytes(presentation->utf8.data + offset, meta.data, meta.bytes);
-        presentation->utf8_count += meta.bytes;
-        auto& bold = presentation->styles[presentation->style_count++];
-        bold = {0, name.bytes, text_style_bold};
         const bool single = !detail_bytes && !rich->thread.name.bytes;
-        if (!append_command(presentation, name, {&bold, 1}, kNoSemantics, owner,
-                            {left, card.top + (single ? 16.0f : 8.0f), right, card.top + (single ? 34.0f : 26.0f)},
-                            row_clip, theme.text_primary, record,
-                            kInvalidMessageTextMeasurement, kLookMiddle) ||
+        Utf8View retained{};
+        if (!single && !retain_text(presentation, meta, &retained))
+            return false;
+        if (!append_marked(presentation, name, TextStyleSpan{0, name.bytes, text_style_bold}, nullptr, owner,
+                           {left, card.top + (single ? 16.0f : 8.0f), right, card.top + (single ? 34.0f : 26.0f)},
+                           row_clip, theme.text_primary, record, kInvalidMessageTextMeasurement, kLookMiddle) ||
             (!single &&
-             !append_command(presentation, {presentation->utf8.data + offset, meta.bytes}, kNoStyles, kNoSemantics, owner,
+             !append_command(presentation, retained, kNoStyles, kNoSemantics, owner,
                              {left, card.top + 27.0f, right, card.top + 43.0f}, row_clip, theme.text_secondary,
-                             record, kInvalidMessageTextMeasurement,
-                             kLookMiddleSecond)))
+                             record, kInvalidMessageTextMeasurement, kLookMiddleSecond)))
             return false;
     }
     if (rich->truncations != 0) {
@@ -951,8 +930,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                             MessageTextPresentationOperation::resolve_layout, 0);
         const UiWidgetHandle item_widget =
             message_scene_rich_item_widget(row, MessageSceneRichItemKind::notice, 0);
-        const UiLayoutNode* item_layout =
-            message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::notice, 0);
+        const UiLayoutNode* item_layout = message_scene_layout_node(scene, item_widget);
         UiTextFlowLayout flow{};
         if (!item_layout ||
             !initialize_flow(presentation, *item_layout, item_layout->content_rectangle.left,

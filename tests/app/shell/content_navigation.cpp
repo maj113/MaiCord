@@ -46,7 +46,7 @@ bool reset() noexcept {
     SecureZeroMemory(&g_app, sizeof(g_app));
     history_calls = selections = stops = friends_shown = 0;
     friends_visible = false;
-    home_shows_friends = true;
+    home_shows_conversation = false;
     native_hit = {};
     typed_links = captured_sources = 0;
     captured_source = {};

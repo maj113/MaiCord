@@ -3,6 +3,7 @@
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/widgets/kit.hpp"
 #include "maicord/ui/widgets/badge.hpp"
+#include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/guild/card_scene.hpp"
 
@@ -96,6 +97,9 @@ bool avatar_backed(const UiSettingsPageContent& content, u32 index) noexcept {
     // A profile image may name its picture by URL (a game's cover).
     if (media.key.kind == MediaAssetKind::profile_image && media.url.bytes)
         return media.key.id != 0;
+    return avatar_media_ready(media);
+}
+bool avatar_media_ready(const UiSettingsAvatarMedia& media) noexcept {
     return (media.key.kind == MediaAssetKind::user_avatar || media.key.kind == MediaAssetKind::guild_icon ||
             media.key.kind == MediaAssetKind::profile_image) &&
            media.key.id && media.hash_bytes && media.hash_bytes <= kUiSettingsAvatarHashBytes;
@@ -126,7 +130,7 @@ __forceinline float meter_fraction(u16 level) noexcept {
     return static_cast<float>(minimum<u16>(level, 1000)) / 1000.f;
 }
 // The count column's glyph after its text.
-UiRect list_count_icon(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& column) noexcept {
+__forceinline UiRect list_count_icon(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& column) noexcept {
     const float size = t.metric.list_icon * .75f, cy = (column.top + column.bottom) * .5f;
     const float text = c.choices.count ? ui_settings_text_width(c.choices[0], kUiSettingsLabelEm) * 1.04f : 0;
     const float left = minimum(column.left + text + t.metric.chip_gap, column.right - size);
@@ -167,7 +171,7 @@ UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, 
 namespace {
 // A list row: hover fill, grip, lead glyph, lock, count glyph and the icon
 // buttons (on hover or focus), then a hairline before the next list row.
-bool paint_list_row(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
+__forceinline bool paint_list_row(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
                     const RowLayout& r, u32 index, const UiSettingsListItem& item, UiControlState state,
                     bool highlighted, u8 flags) noexcept {
     const auto& c = scene.content.controls[index];
@@ -234,7 +238,7 @@ bool paint_list_row(const UiSettingsScene& scene, const Theme& theme, const UiSe
     return p.ok();
 }
 // The plate of a whole card, drawn once from the card's first row in view (the body clip trims it).
-void paint_card(UiPaint& p, const UiSettingsScene& scene, const UiSettingsTokens& t, const RowLayout& r, u32 index,
+__forceinline void paint_card(UiPaint& p, const UiSettingsScene& scene, const UiSettingsTokens& t, const RowLayout& r, u32 index,
                 u8 edges, const RowContext& context) noexcept {
     if (!(edges & card_member) || !((edges & card_first) || index == scene.rows_first))
         return;
@@ -272,7 +276,7 @@ void paint_bar(UiPaint& p, const UiSettingsTokens& t, const UiRect& bar, float f
                   t.color.brand, radius);
 }
 // The status card's meter: a determinate bar, or a bar sliding along the track while a check runs.
-void paint_meter(UiPaint& p, const UiSettingsScene& scene, const UiSettingsTokens& t, const UiRect& meter,
+__forceinline void paint_meter(UiPaint& p, const UiSettingsScene& scene, const UiSettingsTokens& t, const UiRect& meter,
                  u16 level) noexcept {
     if (level != kUiSettingsIndeterminateMeter)
         return paint_bar(p, t, meter, meter_fraction(level));
@@ -281,9 +285,14 @@ void paint_meter(UiPaint& p, const UiSettingsScene& scene, const UiSettingsToken
     p.rounded(meter, t.color.slider_track, radius);
     p.clip(meter).rounded({at, meter.top, at + bar, meter.bottom}, t.color.brand, radius).unclip();
 }
+// Whether a glyph tile's picture replaces its glyph: the renderer holds it, and draws it over the tile.
+bool glyph_picture_shown(const UiSettingsGlyphTile& glyph, const UiSettingsMediaResidency* residency) noexcept {
+    return residency && residency->resident && glyph_image(&glyph) &&
+           residency->resident(residency->context, glyph.media.key);
+}
 
 bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
-               UiWidgetHandle handle, const Entry& entry, u32 dpi) noexcept {
+               UiWidgetHandle handle, const Entry& entry, u32 dpi, const UiSettingsMediaResidency* residency) noexcept {
     const u32 index = entry.source_index;
     const auto& c = scene.content.controls[index];
     RowLayout r;
@@ -362,10 +371,9 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     if (p && c.kind == UiSettingsControlKind::action && ui_rect_has_area(r.tag) && (look.more & ui_settings_more_name_tag)) {
         // The author line's compact chip: the muted fill and the badge leading the tag.
         p.rounded(r.tag, theme.tokens.fill.muted, theme.scale.radius_sm);
-        if (const auto* glyph = glyph_tile(scene.content, index, 0)) {
-            const float cy = (r.tag.top + r.tag.bottom) * .5f, x = r.tag.left + kUiBadgeCompactPadding;
-            p.use<ui_icon_paint_styled>(glyph->icon, UiRect{x, cy - kUiBadgeCompactIcon * .5f, x + kUiBadgeCompactIcon,
-                                                            cy + kUiBadgeCompactIcon * .5f},
+        if (const auto* glyph = glyph_tile(scene.content, index, 0); glyph && !glyph_picture_shown(*glyph, residency)) {
+            const auto icon = glyph_chip_image_rect(r.tag);
+            p.use<ui_icon_paint_styled>(glyph->icon, icon,
                                         UiIconStyle{color_from_rgb24(glyph->ink), color_from_rgb24(glyph->fill), 0});
         }
     }
@@ -456,7 +464,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         }
         if (look.more & ui_settings_more_glyphs) {
             // Badge tiles: the glyph in its two colours on a neutral tile, the chosen one ringed; a locked set dims
-            // its tiles and marks each with a lock.
+            // its tiles and marks each with a lock. A tile whose picture the renderer holds leaves its glyph to it.
             const float radius = t.metric.control_radius, ring = theme.scale.space_1 * .5f;
             const float alpha = c.enabled ? 1.f : t.disabled_alpha;
             const float inset = (kGlyphTile - kGlyphTileIcon) * .5f, mark_size = kGlyphTile * .4f;
@@ -468,10 +476,11 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 const auto* glyph = glyph_tile(scene.content, index, i);
                 if (!glyph)
                     continue;
-                p.use<ui_icon_paint_styled>(glyph->icon, ui_rect_shrink(tile, inset),
-                                            UiIconStyle{ui_settings_color_alpha(color_from_rgb24(glyph->ink), alpha),
-                                                        ui_settings_color_alpha(color_from_rgb24(glyph->fill), alpha),
-                                                        0});
+                if (!glyph_picture_shown(*glyph, residency))
+                    p.use<ui_icon_paint_styled>(glyph->icon, ui_rect_shrink(tile, inset),
+                                                UiIconStyle{ui_settings_color_alpha(color_from_rgb24(glyph->ink), alpha),
+                                                            ui_settings_color_alpha(color_from_rgb24(glyph->fill), alpha),
+                                                            0});
                 const UiIcon mark = glyph->mark;
                 if (mark != UiIcon::count) {
                     const UiRect corner{tile.right - mark_size, tile.top, tile.right, tile.top + mark_size};
@@ -602,26 +611,20 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         break;
     case UiSettingsControlKind::palette: {
         const u32 columns = ui_swatch_columns(t, ui_rect_width(r.control));
-        const auto palette = scene.palette;
         const UiIcon action_icon = row_icon(scene.content, index, UiIcon::count);
         for (u32 i = 0; p && i < c.choices.count; ++i) {
             const auto swatch = ui_swatch_rect(t, r.control, i, columns);
             BackgroundTheme colors{};
-            const u32 before_resolve = scene.revision;
-            const bool resolved = palette.resolve && palette.resolve(palette.context, c.id, i, &colors);
-            if (palette.resolve &&
-                (!current(scene) || scene.palette.context != palette.context ||
-                 scene.palette.resolve != palette.resolve || scene.palette.revision != palette.revision ||
-                 scene.revision != before_resolve))
-                return false;
+            // The host's resolver only reads its own state: it cannot change the scene it paints for.
+            const bool resolved = scene.palette.resolve && scene.palette.resolve(scene.palette.context, c.id, i, &colors);
+            const bool valid = resolved && background_theme_valid(colors);
             UiControlState option_state = hover_option(scene, state, i);
             option_state.focused = state.focused && c.selected_choice == i;
             const bool action = !resolved && i + 1 == c.choices.count && action_icon != UiIcon::count;
             Color fill = action ? tc.mod_normal : theme.base_lowest;
-            if (resolved && background_theme_valid(colors) && colors.color_count >= 2 &&
-                colors.colors[0] == colors.colors[1])
+            if (valid && colors.color_count >= 2 && colors.colors[0] == colors.colors[1])
                 fill = color_from_rgb24(colors.colors[0]);
-            const bool gradient = resolved && background_theme_valid(colors) && colors.colors[0] != colors.colors[1];
+            const bool gradient = valid && colors.colors[0] != colors.colors[1];
             p.use<ui_swatch_paint>(t, swatch, fill, gradient ? &colors : nullptr, c.selected_choice == i, option_state);
             if (action) {
                 p.icon(action_icon, centred(swatch, 12),
@@ -727,18 +730,18 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         break;
     case UiSettingsControlKind::preview:
         if (const auto* s = scene.content.preview) {
-            p.rounded_border(r.body, tc.card_fill, tc.card_border, t.metric.card_radius, 1);
-            if (ui_rect_has_area(r.lead))
-                p.rounded(r.lead, tc.brand, ui_rect_width(r.lead) * .5f);
-            // Role Colors "Next to names": an 8-DIP dot before each name.
-            if (s->role_style == 1 && s->role_rgb) {
-                const Color dot = color_from_rgb24(s->role_rgb);
-                const UiRect lines[]{s->compact ? r.description : r.tag, s->compact ? r.value : UiRect{}};
-                for (const auto& line : lines)
-                    if (ui_rect_has_area(line)) {
-                        const float middle = (line.top + line.bottom) * .5f;
-                        p.rounded({line.left, middle - 4, line.left + 8, middle + 4}, dot, 4);
-                    }
+            // The card: a card's plate and edge with the official preview's small corners.
+            p.rounded_border(r.body, tc.card_fill, tc.card_border, theme.scale.radius_sm, 1);
+            const bool ready = s->avatars && avatar_media_ready(s->avatars[0]);
+            for (u32 i = 0; i < 2; ++i) {
+                // Your avatar over the brand plate (the initial is its fallback), under the image the host draws.
+                if (!s->compact)
+                    p.rounded(preview_avatar(r, i), ready ? theme.avatar_placeholder : tc.brand, kPreviewAvatar * .5f);
+                // Role Colors "Next to names": an 8-DIP dot before the name.
+                if (const UiRect line = preview_name_line(r, i, s->compact); s->role_style == 1 && s->role_rgb) {
+                    const float middle = (line.top + line.bottom) * .5f;
+                    p.rounded({line.left, middle - 4, line.left + 8, middle + 4}, color_from_rgb24(s->role_rgb), 4);
+                }
             }
             // The first message's reactions: yours (highlighted) and another.
             for (u32 i = 0; ui_rect_has_area(r.chips) && i < 2; ++i) {
@@ -746,15 +749,9 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 p.rounded_border(pill, i ? tc.mod_subtle : tc.emphasis_selected, i ? tc.card_border : tc.emphasis_outline,
                                  theme.scale.radius_md, 1);
             }
-            // Example avatars (idle, do not disturb, online) with their status dots.
-            const Color fills[]{tc.brand, tc.mod_strong, tc.positive};
-            const Color statuses[]{theme.tokens.status.idle, theme.tokens.status.dnd, theme.tokens.status.online};
-            for (u32 i = 0; ui_rect_has_area(r.icon) && i < 3; ++i) {
-                const UiRect avatar{r.icon.left + i * 40.f, r.icon.top, r.icon.left + i * 40.f + 32, r.icon.bottom};
-                p.rounded(avatar, fills[i], 16)
-                    .rounded({avatar.right - 12, avatar.bottom - 12, avatar.right + 2, avatar.bottom + 2}, tc.card_fill, 7)
-                    .rounded({avatar.right - 9, avatar.bottom - 9, avatar.right - 1, avatar.bottom - 1}, statuses[i], 4);
-            }
+            // The status avatars' plates under their pictures (their badges: ui_settings_scene_paint_cell_marks).
+            for (u32 i = 0; i < 3; ++i)
+                p.rounded(preview_status_avatar(r, i), theme.avatar_placeholder, kPreviewStatusAvatar * .5f);
             if (ui_rect_has_area(r.control))
                 p.use<ui_settings_button_paint>(t, r.control, UiSettingsButtonVariant::primary, decltype(state){});
         }
@@ -827,7 +824,7 @@ bool paint_nav(const UiSettingsScene& scene, const Theme& theme, const UiSetting
 } // namespace settings_scene_detail
 
 bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, PaintStream* paint, u32 dpi,
-                             UiSettingsPaintRanges* ranges) noexcept {
+                             UiSettingsPaintRanges* ranges, const UiSettingsMediaResidency* residency) noexcept {
     if (ranges)
         *ranges = {paint ? paint->count : 0, paint ? paint->count : 0};
     if (!scene.active)
@@ -904,8 +901,8 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
         p.clip(ui_rect_overlap(body->rectangle, body->clip_rectangle));
         for (u32 i = 0; p && i < scene.widgets.count; ++i) {
             const auto& entry = entries(scene)[i];
-            if (entry.role == EntryRole::row && entry.source_index < scene.content.controls.count &&
-                !paint_row(scene, theme, t, paint, {static_cast<u16>(i), scene.widgets.generation}, entry, dpi))
+            if (entry.role == EntryRole::row &&
+                !paint_row(scene, theme, t, paint, {static_cast<u16>(i), scene.widgets.generation}, entry, dpi, residency))
                 p.fail();
         }
         p.unclip();
@@ -992,6 +989,22 @@ bool ui_settings_scene_paint_cell_marks(const UiSettingsScene& scene, const Them
                       ui_surface_foreground(theme, tc.scrim));
             continue;
         }
+        if (c.kind == UiSettingsControlKind::preview) {
+            // The example avatars' status badges (idle, do not disturb, mobile online) over their pictures, cut from the
+            // card's colour: its fill over the modal's, as the plate under the picture is.
+            if (!scene.content.preview || !row_layout_for(scene, t, handle, index, &r, &clip))
+                continue;
+            Color card = tc.card_fill;
+            card.alpha = 1;
+            const Color ground = ui_settings_color_mix(tc.modal_background, card, tc.card_fill.alpha);
+            constexpr UiPresence statuses[]{UiPresence::idle, UiPresence::busy, UiPresence::online};
+            for (u32 part = 0; p && part < 3; ++part) {
+                const UiRect avatar = preview_status_avatar(r, part);
+                p.use<ui_presence_paint>(UiRect{avatar.right - 10, avatar.bottom - 10, avatar.right, avatar.bottom},
+                                         statuses[part], ground, theme, part == 2);
+            }
+            continue;
+        }
         if (c.kind != UiSettingsControlKind::action || !more(scene.content, index, ui_settings_more_cell))
             continue;
         if (!row_layout_for(scene, t, handle, index, &r, &clip) || !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
@@ -1013,7 +1026,7 @@ bool ui_settings_scene_paint_cell_marks(const UiSettingsScene& scene, const Them
 
 namespace settings_scene_detail {
 namespace {
-void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTokens& t, UiWidgetHandle handle,
+__forceinline void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTokens& t, UiWidgetHandle handle,
               const Entry& entry) noexcept {
     const u32 index = entry.source_index;
     const auto& c = scene.content.controls[index];
@@ -1122,18 +1135,27 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
         };
         if (c.choices.count >= 3) {
             const Utf8View first[]{c.choices[0]}, second[]{c.choices[1], c.choices[2]};
-            if (s.compact) {
-                text(handle, s.time, r.tag, tc.text_subtle, kUiKitTextSmall, ui_text_end | ui_text_chat);
-                runs(r.description, true, first, 1, false);
-                runs(r.value, true, second, 2, true);
-            } else {
-                const char initial[2]{s.author.bytes ? s.author.data[0] : '?', 0};
-                text(handle, {initial, 1}, r.lead, tc.on_brand, kUiKitTextBodyBold, ui_text_center);
-                runs(r.tag, true, nullptr, 0, false);
-                text(handle, s.time, {r.tag.left + dot + name_width + 8, r.tag.top, r.tag.right, r.tag.bottom},
+            char storage[16];
+            const bool picture = s.avatars && avatar_media_ready(s.avatars[0]);
+            for (u32 i = 0; i < 2; ++i) {
+                const auto& body = i ? r.value : r.description;
+                const auto* parts = i ? second : first;
+                const u32 count = i ? 2 : 1;
+                if (s.compact) {
+                    text(handle, s.time, preview_header(r, i, true), tc.text_subtle, kUiKitTextSmall,
+                         ui_text_end | ui_text_chat);
+                    runs(body, true, parts, count, i != 0);
+                    continue;
+                }
+                // Each message: the avatar's initial where no picture will draw, the name and time, the text.
+                const UiRect header = preview_header(r, i, false);
+                if (!picture)
+                    text(handle, ui_admin_initials(s.author, {storage, sizeof(storage)}), preview_avatar(r, i), tc.on_brand,
+                         kUiKitTextBodyBold, ui_text_center);
+                runs(header, true, nullptr, 0, false);
+                text(handle, s.time, {header.left + dot + name_width + 8, header.top, header.right, header.bottom},
                      tc.text_subtle, kUiKitTextSmall, ui_text_chat);
-                runs(r.description, false, first, 1, false);
-                runs(r.value, false, second, 2, true);
+                runs(body, false, parts, count, i != 0);
             }
         }
         // The reactions: 🥀 3 (yours) and 🪤 1. A reaction pill is a fixed box with a fixed count, as in the chat.
@@ -1463,7 +1485,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
     }
     for (u32 i = 0; i < scene.widgets.count; ++i) {
         const auto& entry = entries(scene)[i];
-        if (entry.role == EntryRole::row && entry.source_index < scene.content.controls.count)
+        if (entry.role == EntryRole::row)
             row_text(text, scene, t, {static_cast<u16>(i), scene.widgets.generation}, entry);
     }
     UiRect aside_heading{}, aside_clip{};

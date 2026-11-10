@@ -142,6 +142,25 @@ void pump_after_event(void*) noexcept {
     application_downloads_pump();
 }
 
+// The loop's per-turn work that is not on the usual path, kept out of line: link-time inlining would otherwise
+// fold the catalog service (its dev-folder scan, consent and sideload) and the renderer's cache trims into the
+// loop's own frame and code.
+__declspec(noinline) void poll_catalog() noexcept {
+    application_catalog_poll();
+}
+__declspec(noinline) u32 catalog_wait_timeout(u64 now_ms) noexcept {
+    return application_catalog_wait_timeout(now_ms);
+}
+// Media atlas recency clock and idle trims (one wake per upload burst).
+__declspec(noinline) void maintain_renderer_caches(u64 now_ms) noexcept {
+    renderer_media_maintain(&g_app.renderer, now_ms);
+    if (renderer_glyph_atlas_take_stale(&g_app.renderer)) {
+        // An idle trim moved glyph rows: retained quads must be built again.
+        refresh_account_text(true);
+        application_repaint();
+    }
+}
+
 // Once, at startup: compiled for size with the setup it inlines.
 __attribute__((minsize)) bool initialize_ui_runtime() noexcept {
     u64 stage = 1;
@@ -508,7 +527,7 @@ int run_application() noexcept {
             timeout = minimum(timeout, application_forum_attachments_wait_timeout(wait_now_ms));
         }
         timeout = minimum(timeout, application_plugins_wait_timeout(wait_now_ms));
-        timeout = minimum(timeout, application_catalog_wait_timeout(wait_now_ms));
+        timeout = minimum(timeout, catalog_wait_timeout(wait_now_ms));
         if (retained_frame_permit)
             timeout = 0;
         if (frame_handle_index != 0xFFFFFFFFu) {
@@ -549,7 +568,7 @@ int run_application() noexcept {
         application_media_auth_poll();
         application_custom_theme_poll();
         application_plugins_poll();
-        application_catalog_poll();
+        poll_catalog();
         application_packages_poll();
         application_downloads_pump();
         if (application_updates_poll() && g_app.window) {
@@ -758,13 +777,7 @@ int run_application() noexcept {
         if (!logout_blocked)
             application_login_tick_caret(restart_now_ms);
         application_text_form_tick(restart_now_ms);
-        // Media atlas recency clock and idle trims (one wake per upload burst).
-        renderer_media_maintain(&g_app.renderer, restart_now_ms);
-        if (renderer_glyph_atlas_take_stale(&g_app.renderer)) {
-            // An idle trim moved glyph rows: retained quads must be built again.
-            refresh_account_text(true);
-            application_repaint();
-        }
+        maintain_renderer_caches(restart_now_ms);
         if (!logout_blocked) {
             application_forum_form_tick(restart_now_ms);
             application_friends_tick(restart_now_ms);

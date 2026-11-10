@@ -258,15 +258,16 @@ void load_settings(PluginBinding& binding) noexcept {
         u32 bytes = 0;
         const u8* value = has_value(defs[i].type) ? kv_find(table, defs[i].key, &bytes) : nullptr;
         if (!value) continue;
-        u8 plain[kSecretBytes];
         if (defs[i].type == MC_SET_SECRET && bytes) {
             // A secret that cannot be unsealed (another user, another machine) keeps its default.
-            if (!plugin_secret_unseal(binding.owner_id, defs[i].key, {value, bytes}, {plain, sizeof(plain)}, &bytes)) continue;
-            value = plain;
+            u8 plain[kSecretBytes];
+            if (plugin_secret_unseal(binding.owner_id, defs[i].key, {value, bytes}, {plain, sizeof(plain)}, &bytes))
+                write_setting(binding, i, plain, bytes, true);
+            secure_clear_bytes(plain, sizeof(plain));
+            continue;
         }
         // A value the schema no longer accepts keeps its default.
         write_setting(binding, i, value, bytes, true);
-        secure_clear_bytes(plain, sizeof(plain));
     }
     kv_close(&table);
 }

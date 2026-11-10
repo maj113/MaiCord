@@ -1,5 +1,7 @@
 #include "maicord/protocol/voice/dave_codec.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/media/video/av1.hpp"
+#include "maicord/media/video/rtp_video_packetize.hpp"
 
 namespace maicord {
 namespace {
@@ -33,18 +35,6 @@ struct Builder {
         bytes += n;
     }
 };
-// The next start code prefix at or after from: *start is where its zeros
-// begin (a fourth leading zero included), the return value where the NAL
-// unit after it begins; count when there is none.
-u32 next_nal(const u8* data, u32 count, u32 from, u32* start) noexcept {
-    for (u32 i = from; i + 2 < count; ++i)
-        if (!data[i] && !data[i + 1] && data[i + 2] == 1) {
-            *start = i > from && !data[i - 1] ? i - 1 : i;
-            return i + 3;
-        }
-    *start = count;
-    return count;
-}
 // Bytes (after the NAL header) holding first_mb_in_slice, slice_type and
 // pic_parameter_set_id, three ue(v); 0 when the unit is too short.
 u32 h264_slice_header_bytes(const u8* data, u32 count) noexcept {
@@ -72,14 +62,14 @@ u32 h264_slice_header_bytes(const u8* data, u32 count) noexcept {
 void prepare_h26x(Builder& b, bool h265, ConstSlice<u8> frame) noexcept {
     static constexpr u8 kStartCode[]{0, 0, 0, 1};
     u32 start = 0;
-    u32 nal = next_nal(frame.data, frame.count, 0, &start);
+    u32 nal = annexb_next_unit(frame, 0, &start);
     if (start != 0 && !(start == 1 && !frame[0])) {
         b.ok = false; // Annex B starts with a start code.
         return;
     }
     while (b.ok && nal < frame.count) {
         u32 end = 0;
-        const u32 following = next_nal(frame.data, frame.count, nal, &end);
+        const u32 following = annexb_next_unit(frame, nal, &end);
         const u8* unit = frame.data + nal;
         const u32 size = end - nal, header = h265 ? 2u : 1u;
         b.clear(kStartCode, 4);
@@ -104,77 +94,44 @@ void prepare_h26x(Builder& b, bool h265, ConstSlice<u8> frame) noexcept {
         nal = following;
     }
 }
-bool read_leb128(ConstSlice<u8> data, u32* at, u64* value) noexcept {
-    *value = 0;
-    for (u32 i = 0; i != 8 && *at < data.count; ++i) {
-        const u8 byte = data[(*at)++];
-        *value |= u64{byte & 0x7fu} << (7 * i);
-        if (!(byte & 0x80))
-            return true;
-    }
-    return false;
-}
-struct Obu {
-    u32 header, payload, size; // Offsets of the header and payload, payload bytes.
-    u8 type;
-    bool extension, kept;
-};
-// The OBU at *at, which moves past it; false when the frame is malformed.
-bool next_obu(ConstSlice<u8> frame, u32* at, Obu* obu) noexcept {
-    const u8 first = frame[*at];
-    *obu = {*at, 0, 0, static_cast<u8>((first >> 3) & 15), (first & 4) != 0, false};
-    if (first & 0x80)
-        return false;
-    *at += obu->extension ? 2 : 1;
-    u64 size = frame.count - (*at < frame.count ? *at : frame.count);
-    if (*at > frame.count || ((first & 2) && !read_leb128(frame, at, &size)) || size > frame.count - *at)
-        return false;
-    obu->payload = *at;
-    obu->size = static_cast<u32>(size);
-    obu->kept = obu->type != 2 && obu->type != 8 && obu->type != 15; // TD, tile list, padding.
-    *at += obu->size;
-    return true;
+// Temporal delimiters, tile lists and padding are dropped.
+bool kept(u8 type) noexcept {
+    return type != 2 && type != 8 && type != 15;
 }
 void prepare_av1(Builder& b, ConstSlice<u8> frame) noexcept {
-    Obu obu;
+    Av1Obu obu;
     u32 last = ~u32{0};
     for (u32 at = 0; at < frame.count;) {
-        if (!next_obu(frame, &at, &obu)) {
+        const u32 header = at;
+        if (av1_next_obu(frame, &at, &obu) != Av1Status::ok) {
             b.ok = false;
             return;
         }
-        if (obu.kept)
-            last = obu.header;
+        if (kept(obu.type))
+            last = header;
     }
     b.ok = last != ~u32{0};
     for (u32 at = 0; b.ok && at < frame.count;) {
-        next_obu(frame, &at, &obu);
-        if (!obu.kept)
+        const u32 header = at;
+        av1_next_obu(frame, &at, &obu);
+        if (!kept(obu.type))
             continue;
-        const bool final = obu.header == last;
-        const u8 header = static_cast<u8>(final ? frame[obu.header] & ~2u : frame[obu.header] | 2u);
-        b.clear(&header, 1);
+        const bool final = header == last;
+        const u8 first = static_cast<u8>(final ? frame[header] & ~2u : frame[header] | 2u);
+        b.clear(&first, 1);
         if (obu.extension)
-            b.clear(frame.data + obu.header + 1, 1);
+            b.clear(frame.data + header + 1, 1);
         if (!final) {
-            u8 size[8];
-            u32 n = 0;
-            u32 value = obu.size;
-            do {
-                size[n] = static_cast<u8>((value & 0x7f) | (value >= 0x80 ? 0x80 : 0));
-                value >>= 7;
-                ++n;
-            } while (value);
-            b.clear(size, n);
+            u8 size[5];
+            b.clear(size, leb128_write(size, obu.payload.count));
         }
-        b.encrypted(frame.data + obu.payload, obu.size);
+        b.encrypted(obu.payload.data, obu.payload.count);
     }
 }
 bool has_start_code(ConstSlice<u8> data, u32 from, u32 to) noexcept {
-    for (u32 i = from; i + 2 < to; ++i)
-        if (!data[i] && !data[i + 1] && data[i + 2] == 1)
-            return true;
-    return false;
+    u32 start = 0;
+    annexb_next_unit({data.data, to}, from, &start);
+    return start != to;
 }
 } // namespace
 

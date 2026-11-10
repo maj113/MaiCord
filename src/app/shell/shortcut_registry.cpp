@@ -103,63 +103,74 @@ u32 put_decimal(Slice<char> output, u32 at, u32 value) noexcept {
         at = put_char(output, at, static_cast<char>('0' + value / 10));
     return put_char(output, at, static_cast<char>('0' + value % 10));
 }
+// The fixed key names, one blob: each entry is the key's code byte, its text and a NUL, a second NUL ends the list.
+// A switch of Utf8View literals spends code, a pointer and a length per name; this spends only the text.
+#define KEY_NAME(code, text) code text "\0"
+constexpr char kKeyNames[] =
+    KEY_NAME("\x26", "\xE2\x86\x91")  // up
+    KEY_NAME("\x28", "\xE2\x86\x93")  // down
+    KEY_NAME("\x25", "\xE2\x86\x90")  // left
+    KEY_NAME("\x27", "\xE2\x86\x92")  // right
+    KEY_NAME("\x1B", "Esc")
+    KEY_NAME("\x0D", "Enter")
+    KEY_NAME("\x09", "Tab")
+    KEY_NAME("\x20", "Space")
+    KEY_NAME("\x08", "Backspace")
+    KEY_NAME("\x2E", "Delete")
+    KEY_NAME("\x2D", "Insert")
+    KEY_NAME("\x24", "Home")
+    KEY_NAME("\x23", "End")
+    KEY_NAME("\x21", "Page Up")
+    KEY_NAME("\x22", "Page Down")
+    KEY_NAME("\x13", "Pause")
+    KEY_NAME("\x91", "Scroll Lock")
+    KEY_NAME("\x14", "Caps Lock")
+    KEY_NAME("\x90", "Num Lock")
+    KEY_NAME("\x2C", "Print Screen")
+    KEY_NAME("\x5D", "Menu")
+    KEY_NAME("\x6A", "Num *")
+    KEY_NAME("\x6B", "Num +")
+    KEY_NAME("\x6D", "Num -")
+    KEY_NAME("\x6E", "Num .")
+    KEY_NAME("\x6F", "Num /")
+    KEY_NAME("\xBA", ";")
+    KEY_NAME("\xBB", "+")
+    KEY_NAME("\xBC", ",")
+    KEY_NAME("\xBD", "-")
+    KEY_NAME("\xBE", ".")
+    KEY_NAME("\xBF", "/")
+    KEY_NAME("\xC0", "`")
+    KEY_NAME("\xDB", "[")
+    KEY_NAME("\xDC", "\\")
+    KEY_NAME("\xDD", "]")
+    KEY_NAME("\xDE", "'")
+    KEY_NAME("\x10", "Shift")
+    KEY_NAME("\xA0", "Left Shift")
+    KEY_NAME("\xA1", "Right Shift")
+    KEY_NAME("\x11", "Ctrl")
+    KEY_NAME("\xA2", "Left Ctrl")
+    KEY_NAME("\xA3", "Right Ctrl")
+    KEY_NAME("\x12", "Alt")
+    KEY_NAME("\xA4", "Left Alt")
+    KEY_NAME("\xA5", "Right Alt")
+    KEY_NAME("\x01", "Left mouse")
+    KEY_NAME("\x02", "Right mouse")
+    KEY_NAME("\x04", "Middle mouse")
+    KEY_NAME("\x05", "Mouse 4")
+    KEY_NAME("\x06", "Mouse 5");
+#undef KEY_NAME
 Utf8View named_key(u8 key) noexcept {
-    switch (key) {
-    case key::up: return utf8_literal("\xE2\x86\x91");
-    case key::down: return utf8_literal("\xE2\x86\x93");
-    case key::left: return utf8_literal("\xE2\x86\x90");
-    case key::right: return utf8_literal("\xE2\x86\x92");
-    case key::escape: return utf8_literal("Esc");
-    case key::enter: return utf8_literal("Enter");
-    case key::tab: return utf8_literal("Tab");
-    case key::space: return utf8_literal("Space");
-    case key::backspace: return utf8_literal("Backspace");
-    case key::del: return utf8_literal("Delete");
-    case key::insert: return utf8_literal("Insert");
-    case key::home: return utf8_literal("Home");
-    case key::end: return utf8_literal("End");
-    case key::page_up: return utf8_literal("Page Up");
-    case key::page_down: return utf8_literal("Page Down");
-    case key::pause: return utf8_literal("Pause");
-    case key::scroll_lock: return utf8_literal("Scroll Lock");
-    case key::caps_lock: return utf8_literal("Caps Lock");
-    case key::num_lock: return utf8_literal("Num Lock");
-    case key::print_screen: return utf8_literal("Print Screen");
-    case key::menu: return utf8_literal("Menu");
-    case key::multiply: return utf8_literal("Num *");
-    case key::add: return utf8_literal("Num +");
-    case key::subtract: return utf8_literal("Num -");
-    case key::decimal: return utf8_literal("Num .");
-    case key::divide: return utf8_literal("Num /");
-    case key::semicolon: return utf8_literal(";");
-    case key::equals: return utf8_literal("+");
-    case key::comma: return utf8_literal(",");
-    case key::minus: return utf8_literal("-");
-    case key::period: return utf8_literal(".");
-    case key::slash: return utf8_literal("/");
-    case key::grave: return utf8_literal("`");
-    case key::left_bracket: return utf8_literal("[");
-    case key::backslash: return utf8_literal("\\");
-    case key::right_bracket: return utf8_literal("]");
-    case key::quote: return utf8_literal("'");
-    case key::shift: return utf8_literal("Shift");
-    case key::left_shift: return utf8_literal("Left Shift");
-    case key::right_shift: return utf8_literal("Right Shift");
-    case key::ctrl: return utf8_literal("Ctrl");
-    case key::left_ctrl: return utf8_literal("Left Ctrl");
-    case key::right_ctrl: return utf8_literal("Right Ctrl");
-    case key::alt: return utf8_literal("Alt");
-    case key::left_alt: return utf8_literal("Left Alt");
-    case key::right_alt: return utf8_literal("Right Alt");
-    case key::left_super: return MAICORD_OS_TEXT("Left Windows", "Left Super");
-    case key::right_super: return MAICORD_OS_TEXT("Right Windows", "Right Super");
-    case key::lbutton: return utf8_literal("Left mouse");
-    case key::rbutton: return utf8_literal("Right mouse");
-    case key::mbutton: return utf8_literal("Middle mouse");
-    case key::xbutton1: return utf8_literal("Mouse 4");
-    case key::xbutton2: return utf8_literal("Mouse 5");
-    default: return {};
+    if (key == key::left_super)
+        return MAICORD_OS_TEXT("Left Windows", "Left Super");
+    if (key == key::right_super)
+        return MAICORD_OS_TEXT("Right Windows", "Right Super");
+    for (const char* at = kKeyNames; *at;) {
+        const u32 bytes = c_string_length(at + 1);
+        if (static_cast<u8>(*at) == key)
+            return {at + 1, bytes};
+        at += bytes + 2;
     }
+    return {};
 }
 
 // Word-prefix matching, ASCII case-insensitive (the settings search rule).

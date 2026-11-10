@@ -26,6 +26,25 @@ bool equal(const char* a, const char* b) noexcept {
     return *a == *b;
 }
 
+// The methods and properties of each interface, as an enumeration and a pool of their names in one list: the
+// enumerators are the positions in the pool, and a call is found by name once, then switched on.
+#define ATSPI_ENUMERATOR(name) name,
+#define ATSPI_NAME(name) #name "\0"
+
+// The position of `name` among NUL-terminated names end to end (an empty one ends them), or ~0u.
+u32 name_index(const char* names, const char* name) noexcept {
+    for (u32 index = 0; *names; ++index, names += c_string_length(names) + 1)
+        if (equal(names, name))
+            return index;
+    return ~0u;
+}
+
+const char* name_at(const char* names, u32 index) noexcept {
+    for (; index; --index)
+        names += c_string_length(names) + 1;
+    return names;
+}
+
 // One call being answered: who it is for, the arguments left to read and where the answer goes.
 struct Request {
     Endpoint* endpoint;
@@ -52,6 +71,16 @@ Outcome done(Request& r) noexcept {
     if (r.args.failed || !builder_ok(*r.out))
         return invalid(r);
     return Outcome::replied;
+}
+
+// Reads the arguments `types` names ('i' an i32, 'u' a u32) into `words` in order; false when one is missing or of
+// another type, as the typed readers say.
+bool take(Request& r, const char* types, u32 (&words)[8]) noexcept {
+    for (u32 index = 0; types[index]; ++index)
+        if (!(types[index] == 'i' ? reader_i32(&r.args, reinterpret_cast<i32*>(&words[index]))
+                                  : reader_u32(&r.args, &words[index])))
+            return false;
+    return true;
 }
 
 void put_text(Builder* b, Utf8View text) noexcept {
@@ -96,16 +125,25 @@ struct Extent {
     i32 x, y, width, height;
 };
 
+// The area a node covers: what is visible of it, else its rectangle.
+const UiRect& area_of(const UiAccessNode& node) noexcept {
+    return ui_rect_has_area(node.visible) ? node.visible : node.rectangle;
+}
+
+// How far the caption lies above the snapshot's origin.
+float content_top(const Endpoint& endpoint) noexcept {
+    return endpoint.host.content_top ? endpoint.host.content_top(endpoint.host.context) : 0.0f;
+}
+
 // The node's bounds in window coordinates (the caption lies above the snapshot's origin); in parent coordinates when
 // `relative` and the node has a parent.
 Extent extent_of(Request& r, const UiAccessNode& node, bool relative) noexcept {
-    const float top = r.endpoint->host.content_top ? r.endpoint->host.content_top(r.endpoint->host.context) : 0.0f;
-    const UiRect& area = ui_rect_has_area(node.visible) ? node.visible : node.rectangle;
+    const float top = content_top(*r.endpoint);
+    const UiRect& area = area_of(node);
     Extent extent{round_to_integer(area.left), round_to_integer(area.top + top),
                   round_to_integer(ui_rect_width(area)), round_to_integer(ui_rect_height(area))};
     if (relative && node.parent != kUiAccessNone) {
-        const UiAccessNode& parent = r.tree->nodes[node.parent];
-        const UiRect& parent_area = ui_rect_has_area(parent.visible) ? parent.visible : parent.rectangle;
+        const UiRect& parent_area = area_of(r.tree->nodes[node.parent]);
         extent.x -= round_to_integer(parent_area.left);
         extent.y -= round_to_integer(parent_area.top + top);
     }
@@ -114,11 +152,9 @@ Extent extent_of(Request& r, const UiAccessNode& node, bool relative) noexcept {
 
 // A point in the given coordinate type (1 window, 2 parent; 0 screen is the window's own) as a snapshot point.
 UiPoint snapshot_point(Request& r, i32 x, i32 y, u32 coordinates) noexcept {
-    const float top = r.endpoint->host.content_top ? r.endpoint->host.content_top(r.endpoint->host.context) : 0.0f;
-    float px = static_cast<float>(x), py = static_cast<float>(y) - top;
+    float px = static_cast<float>(x), py = static_cast<float>(y) - content_top(*r.endpoint);
     if (coordinates == 2 && r.node && r.node->parent != kUiAccessNone) {
-        const UiAccessNode& parent = r.tree->nodes[r.node->parent];
-        const UiRect& area = ui_rect_has_area(parent.visible) ? parent.visible : parent.rectangle;
+        const UiRect& area = area_of(r.tree->nodes[r.node->parent]);
         px += area.left;
         py += area.top;
     }
@@ -126,8 +162,7 @@ UiPoint snapshot_point(Request& r, i32 x, i32 y, u32 coordinates) noexcept {
 }
 
 bool contains(const UiAccessNode& node, UiPoint point) noexcept {
-    const UiRect& area = ui_rect_has_area(node.visible) ? node.visible : node.rectangle;
-    return ui_rect_contains(area, point.x, point.y);
+    return ui_rect_contains(area_of(node), point.x, point.y);
 }
 
 u32 child_at(Request& r, i32 position) noexcept {
@@ -162,28 +197,31 @@ bool editable(const UiAccessNode& node) noexcept {
 
 // Property tables --------------------------------------------------------------------------------------------------
 
+#define ATSPI_PROPERTIES(M)                                                                                          \
+    M(Name) M(Description) M(Parent) M(ChildCount) M(Locale) M(AccessibleId) M(HelpText)                              \
+    M(ToolkitName) M(Version) M(AtspiVersion) M(Id)                                                                    \
+    M(NActions)                                                                                                        \
+    M(CharacterCount) M(CaretOffset)                                                                                   \
+    M(MinimumValue) M(MaximumValue) M(MinimumIncrement) M(CurrentValue)                                                \
+    M(NSelectedChildren)
+
+enum class Property : u32 { ATSPI_PROPERTIES(ATSPI_ENUMERATOR) };
+constexpr char kPropertyNames[] = ATSPI_PROPERTIES(ATSPI_NAME);
+
+// The properties of an interface are the `count` from `first` in the list above.
 struct PropertyGroup {
-    const char* interface;
     u32 bit;  // 0 for the Application interface of the root
-    const char* const* names;
+    u32 first;
     u32 count;
 };
 
-constexpr const char* kAccessibleProperties[] = {"Name", "Description", "Parent", "ChildCount", "Locale",
-                                                 "AccessibleId", "HelpText"};
-constexpr const char* kApplicationProperties[] = {"ToolkitName", "Version", "AtspiVersion", "Id"};
-constexpr const char* kActionProperties[] = {"NActions"};
-constexpr const char* kTextProperties[] = {"CharacterCount", "CaretOffset"};
-constexpr const char* kValueProperties[] = {"MinimumValue", "MaximumValue", "MinimumIncrement", "CurrentValue"};
-constexpr const char* kSelectionProperties[] = {"NSelectedChildren"};
-
 constexpr PropertyGroup kGroups[] = {
-    {"org.a11y.atspi.Accessible", interface_accessible, kAccessibleProperties, 7},
-    {kApplicationInterface, 0, kApplicationProperties, 4},
-    {"org.a11y.atspi.Action", interface_action, kActionProperties, 1},
-    {"org.a11y.atspi.Text", interface_text, kTextProperties, 2},
-    {"org.a11y.atspi.Value", interface_value, kValueProperties, 4},
-    {"org.a11y.atspi.Selection", interface_selection, kSelectionProperties, 1},
+    {interface_accessible, static_cast<u32>(Property::Name), 7},
+    {0, static_cast<u32>(Property::ToolkitName), 4},
+    {interface_action, static_cast<u32>(Property::NActions), 1},
+    {interface_text, static_cast<u32>(Property::CharacterCount), 2},
+    {interface_value, static_cast<u32>(Property::MinimumValue), 4},
+    {interface_selection, static_cast<u32>(Property::NSelectedChildren), 1},
 };
 
 u32 interfaces_of(Request& r) noexcept {
@@ -193,7 +231,7 @@ u32 interfaces_of(Request& r) noexcept {
 const PropertyGroup* group_named(Request& r, const char* interface) noexcept {
     const u32 present = interfaces_of(r);
     for (const PropertyGroup& group : kGroups) {
-        if (!equal(group.interface, interface))
+        if (!equal(group.bit ? interface_name(group.bit) : kApplicationInterface, interface))
             continue;
         if (group.bit ? (present & group.bit) == 0 : r.node != nullptr)
             return nullptr;
@@ -218,80 +256,78 @@ u32 caret_characters(Request& r) noexcept {
     return r.node ? text_character_offset(text_of(r), r.node->placement.selection_caret) : 0u;
 }
 
-// Writes the variant of one property; false when the object has no such property.
-bool write_property(Request& r, const PropertyGroup& group, const char* name) noexcept {
+// Writes the variant of one property of a group the object has.
+void write_property(Request& r, Property property) noexcept {
     Builder* b = r.out;
     const UiAccessNode* node = r.node;
-    if (group.bit == interface_accessible) {
-        if (equal(name, "Name"))
-            put_text_variant(b, name_of(r));
-        else if (equal(name, "Description") || equal(name, "HelpText"))
-            put_text_variant(b, node ? ui_access_help(*r.tree, r.index) : Utf8View{});
-        else if (equal(name, "Parent")) {
-            builder_open_variant(b, "(so)");
-            if (!node)
-                append_reference(b, r.endpoint->parent_name, r.endpoint->parent_name[0] ? r.endpoint->parent_path
-                                                                                       : kNullPath);
-            else if (node->parent == kUiAccessNone)
-                put_application(r);
-            else
-                put_node(r, node->parent);
-            builder_close_variant(b);
-        } else if (equal(name, "ChildCount"))
-            put_integer_variant(b, static_cast<i32>(child_count(r)));
-        else if (equal(name, "Locale"))
-            put_text_variant(b, utf8_literal("en_US"));
-        else if (equal(name, "AccessibleId"))
-            put_text_variant(b, node ? ui_access_automation_id(*r.tree, r.index) : Utf8View{});
+    using enum Property;
+    switch (property) {
+    case Name:
+        put_text_variant(b, name_of(r));
+        break;
+    case Description:
+    case HelpText:
+        put_text_variant(b, node ? ui_access_help(*r.tree, r.index) : Utf8View{});
+        break;
+    case Parent:
+        builder_open_variant(b, "(so)");
+        if (!node)
+            append_reference(b, r.endpoint->parent_name, r.endpoint->parent_name[0] ? r.endpoint->parent_path
+                                                                                    : kNullPath);
+        else if (node->parent == kUiAccessNone)
+            put_application(r);
         else
-            return false;
-        return true;
-    }
-    if (group.bit == 0) {
-        if (equal(name, "ToolkitName"))
-            put_text_variant(b, utf8_literal("MaiCord"));
-        else if (equal(name, "Version"))
-            put_text_variant(b, utf8_literal("1.0"));
-        else if (equal(name, "AtspiVersion"))
-            put_text_variant(b, utf8_literal("2.1"));
-        else if (equal(name, "Id"))
-            put_integer_variant(b, r.endpoint->id);
-        else
-            return false;
-        return true;
-    }
-    if (group.bit == interface_action && equal(name, "NActions")) {
+            put_node(r, node->parent);
+        builder_close_variant(b);
+        break;
+    case ChildCount:
+        put_integer_variant(b, static_cast<i32>(child_count(r)));
+        break;
+    case Locale:
+        put_text_variant(b, utf8_literal("en_US"));
+        break;
+    case AccessibleId:
+        put_text_variant(b, node ? ui_access_automation_id(*r.tree, r.index) : Utf8View{});
+        break;
+    case ToolkitName:
+        put_text_variant(b, utf8_literal("MaiCord"));
+        break;
+    case Version:
+        put_text_variant(b, utf8_literal("1.0"));
+        break;
+    case AtspiVersion:
+        put_text_variant(b, utf8_literal("2.1"));
+        break;
+    case Id:
+        put_integer_variant(b, r.endpoint->id);
+        break;
+    case NActions: {
         ActionEntry entries[kActionMaximum];
         put_integer_variant(b, static_cast<i32>(actions_for(*node, entries)));
-        return true;
+        break;
     }
-    if (group.bit == interface_text) {
-        if (equal(name, "CharacterCount"))
-            put_integer_variant(b, static_cast<i32>(text_character_count(text_of(r))));
-        else if (equal(name, "CaretOffset"))
-            put_integer_variant(b, static_cast<i32>(caret_characters(r)));
-        else
-            return false;
-        return true;
-    }
-    if (group.bit == interface_value) {
-        if (equal(name, "MinimumValue"))
-            put_double_variant(b, node->range.minimum);
-        else if (equal(name, "MaximumValue"))
-            put_double_variant(b, node->range.maximum);
-        else if (equal(name, "MinimumIncrement"))
-            put_double_variant(b, node->range.step);
-        else if (equal(name, "CurrentValue"))
-            put_double_variant(b, node->range.value);
-        else
-            return false;
-        return true;
-    }
-    if (group.bit == interface_selection && equal(name, "NSelectedChildren")) {
+    case CharacterCount:
+        put_integer_variant(b, static_cast<i32>(text_character_count(text_of(r))));
+        break;
+    case CaretOffset:
+        put_integer_variant(b, static_cast<i32>(caret_characters(r)));
+        break;
+    case MinimumValue:
+        put_double_variant(b, node->range.minimum);
+        break;
+    case MaximumValue:
+        put_double_variant(b, node->range.maximum);
+        break;
+    case MinimumIncrement:
+        put_double_variant(b, node->range.step);
+        break;
+    case CurrentValue:
+        put_double_variant(b, node->range.value);
+        break;
+    case NSelectedChildren:
         put_integer_variant(b, static_cast<i32>(selected_children(r)));
-        return true;
+        break;
     }
-    return false;
 }
 
 Outcome properties_call(Request& r, const char* member) noexcept {
@@ -301,8 +337,11 @@ Outcome properties_call(Request& r, const char* member) noexcept {
         if (!reader_string(&r.args, &interface, nullptr) || !reader_string(&r.args, &name, nullptr))
             return invalid(r);
         const PropertyGroup* group = group_named(r, interface);
-        if (!group || !write_property(r, *group, name))
+        const u32 property = name_index(kPropertyNames, name);
+        // Not found is ~0u: one unsigned compare also rejects a property of another interface.
+        if (!group || property - group->first >= group->count)
             return invalid(r);
+        write_property(r, static_cast<Property>(property));
         return done(r);
     }
     if (equal(member, "GetAll")) {
@@ -312,8 +351,8 @@ Outcome properties_call(Request& r, const char* member) noexcept {
         builder_open_array(r.out, "{sv}");
         for (u32 i = 0; group && i < group->count; ++i) {
             builder_open_entry(r.out);
-            builder_string(r.out, group->names[i]);
-            write_property(r, *group, group->names[i]);
+            builder_string(r.out, name_at(kPropertyNames, group->first + i));
+            write_property(r, static_cast<Property>(group->first + i));
             builder_close_entry(r.out);
         }
         builder_close_array(r.out);
@@ -328,14 +367,16 @@ Outcome properties_call(Request& r, const char* member) noexcept {
         const char* signature = nullptr;
         if (!reader_enter_variant(&r.args, &signature))
             return invalid(r);
-        if (group->bit == 0 && equal(name, "Id") && signature && equal(signature, "i")) {
+        const u32 property = name_index(kPropertyNames, name);
+        if (group->bit == 0 && property == static_cast<u32>(Property::Id) && signature && equal(signature, "i")) {
             i32 id = 0;
             if (!reader_i32(&r.args, &id))
                 return invalid(r);
             r.endpoint->id = id;
             return done(r);
         }
-        if (group->bit == interface_value && equal(name, "CurrentValue") && signature && equal(signature, "d")) {
+        if (group->bit == interface_value && property == static_cast<u32>(Property::CurrentValue) && signature &&
+            equal(signature, "d")) {
             double value = 0;
             if (!reader_double(&r.args, &value))
                 return invalid(r);
@@ -366,19 +407,29 @@ u32 index_in_parent(Request& r) noexcept {
     return index;
 }
 
+#define ATSPI_ACCESSIBLE_METHODS(M)                                                                                  \
+    M(GetChildAtIndex) M(GetChildren) M(GetIndexInParent) M(GetRelationSet) M(GetRole) M(GetRoleName)                 \
+    M(GetLocalizedRoleName) M(GetState) M(GetAttributes) M(GetApplication) M(GetInterfaces)
+enum class AccessibleMethod : u32 { ATSPI_ACCESSIBLE_METHODS(ATSPI_ENUMERATOR) };
+constexpr char kAccessibleMethods[] = ATSPI_ACCESSIBLE_METHODS(ATSPI_NAME);
+
 Outcome accessible_call(Request& r, const char* member) noexcept {
     Builder* b = r.out;
     const UiAccessNode* node = r.node;
-    if (equal(member, "GetChildAtIndex")) {
-        i32 position = 0;
-        if (!reader_i32(&r.args, &position))
+    u32 a[8];
+    using enum AccessibleMethod;
+    switch (static_cast<AccessibleMethod>(name_index(kAccessibleMethods, member))) {
+    case GetChildAtIndex: {
+        if (!take(r, "i", a))
             return invalid(r);
-        const u32 child = child_at(r, position);
+        const u32 child = child_at(r, static_cast<i32>(a[0]));
         if (child == kUiAccessNone)
             put_null_reference(b);
         else
             put_node(r, child);
-    } else if (equal(member, "GetChildren")) {
+        break;
+    }
+    case GetChildren:
         builder_open_array(b, "(so)");
         if (!node && r.tree->count)
             put_node(r, 0);
@@ -386,16 +437,22 @@ Outcome accessible_call(Request& r, const char* member) noexcept {
             for (u32 child = node->first_child; child != kUiAccessNone; child = r.tree->nodes[child].next_sibling)
                 put_node(r, child);
         builder_close_array(b);
-    } else if (equal(member, "GetIndexInParent")) {
+        break;
+    case GetIndexInParent:
         builder_i32(b, static_cast<i32>(index_in_parent(r)));
-    } else if (equal(member, "GetRelationSet")) {
+        break;
+    case GetRelationSet:
         builder_open_array(b, "(ua(so))");
         builder_close_array(b);
-    } else if (equal(member, "GetRole")) {
+        break;
+    case GetRole:
         builder_u32(b, node ? role_for(*node) : static_cast<u32>(role_application));
-    } else if (equal(member, "GetRoleName") || equal(member, "GetLocalizedRoleName")) {
+        break;
+    case GetRoleName:
+    case GetLocalizedRoleName:
         builder_string(b, role_name(node ? role_for(*node) : static_cast<u32>(role_application)));
-    } else if (equal(member, "GetState")) {
+        break;
+    case GetState: {
         u32 words[2]{};
         if (node)
             states_for(*node, r.endpoint->host.window_active(r.endpoint->host.context), words);
@@ -405,7 +462,9 @@ Outcome accessible_call(Request& r, const char* member) noexcept {
         builder_u32(b, words[0]);
         builder_u32(b, words[1]);
         builder_close_array(b);
-    } else if (equal(member, "GetAttributes")) {
+        break;
+    }
+    case GetAttributes:
         builder_open_array(b, "{ss}");
         put_attribute(b, "toolkit", utf8_literal("MaiCord"));
         if (node) {
@@ -421,9 +480,11 @@ Outcome accessible_call(Request& r, const char* member) noexcept {
                 put_attribute(b, "live", utf8_literal("polite"));
         }
         builder_close_array(b);
-    } else if (equal(member, "GetApplication")) {
+        break;
+    case GetApplication:
         put_application(r);
-    } else if (equal(member, "GetInterfaces")) {
+        break;
+    case GetInterfaces: {
         const u32 present = interfaces_of(r);
         builder_open_array(b, "s");
         for (u32 bit = 1; bit <= interface_selection; bit <<= 1)
@@ -432,7 +493,9 @@ Outcome accessible_call(Request& r, const char* member) noexcept {
         if (!node)
             builder_string(b, kApplicationInterface);
         builder_close_array(b);
-    } else {
+        break;
+    }
+    default:
         return Outcome::unhandled;
     }
     return done(r);
@@ -454,16 +517,25 @@ Outcome application_call(Request& r, const char* member) noexcept {
 
 // Component ---------------------------------------------------------------------------------------------------------
 
+#define ATSPI_COMPONENT_METHODS(M)                                                                                   \
+    M(Contains) M(GetAccessibleAtPoint) M(GetExtents) M(GetPosition) M(GetSize) M(GetLayer) M(GetMDIZOrder)          \
+    M(GetAlpha) M(GrabFocus) M(ScrollTo) M(ScrollToPoint) M(SetExtents) M(SetPosition) M(SetSize)
+enum class ComponentMethod : u32 { ATSPI_COMPONENT_METHODS(ATSPI_ENUMERATOR) };
+constexpr char kComponentMethods[] = ATSPI_COMPONENT_METHODS(ATSPI_NAME);
+
 Outcome component_call(Request& r, const char* member) noexcept {
     Builder* b = r.out;
     const UiAccessNode& node = *r.node;
-    if (equal(member, "Contains") || equal(member, "GetAccessibleAtPoint")) {
-        i32 x = 0, y = 0;
-        u32 coordinates = 0;
-        if (!reader_i32(&r.args, &x) || !reader_i32(&r.args, &y) || !reader_u32(&r.args, &coordinates))
+    u32 a[8];
+    using enum ComponentMethod;
+    const auto method = static_cast<ComponentMethod>(name_index(kComponentMethods, member));
+    switch (method) {
+    case Contains:
+    case GetAccessibleAtPoint: {
+        if (!take(r, "iiu", a))
             return invalid(r);
-        const UiPoint point = snapshot_point(r, x, y, coordinates);
-        if (equal(member, "Contains")) {
+        const UiPoint point = snapshot_point(r, static_cast<i32>(a[0]), static_cast<i32>(a[1]), a[2]);
+        if (method == Contains) {
             builder_bool(b, contains(node, point));
         } else {
             u32 hit = ui_access_hit_test(*r.tree, point.x, point.y);
@@ -476,53 +548,66 @@ Outcome component_call(Request& r, const char* member) noexcept {
             else
                 put_node(r, hit);
         }
-    } else if (equal(member, "GetExtents")) {
-        u32 coordinates = 0;
-        if (!reader_u32(&r.args, &coordinates))
+        break;
+    }
+    case GetExtents: {
+        if (!take(r, "u", a))
             return invalid(r);
-        const Extent e = extent_of(r, node, coordinates == 2);
+        const Extent e = extent_of(r, node, a[0] == 2);
         builder_open_struct(b, "(iiii)");
         builder_i32(b, e.x);
         builder_i32(b, e.y);
         builder_i32(b, e.width);
         builder_i32(b, e.height);
         builder_close_struct(b);
-    } else if (equal(member, "GetPosition")) {
-        u32 coordinates = 0;
-        if (!reader_u32(&r.args, &coordinates))
+        break;
+    }
+    case GetPosition: {
+        if (!take(r, "u", a))
             return invalid(r);
-        const Extent e = extent_of(r, node, coordinates == 2);
+        const Extent e = extent_of(r, node, a[0] == 2);
         builder_i32(b, e.x);
         builder_i32(b, e.y);
-    } else if (equal(member, "GetSize")) {
+        break;
+    }
+    case GetSize: {
         const Extent e = extent_of(r, node, false);
         builder_i32(b, e.width);
         builder_i32(b, e.height);
-    } else if (equal(member, "GetLayer")) {
+        break;
+    }
+    case GetLayer:
         builder_u32(b, node.role == UiAccessRole::window ? kLayerWindow : kLayerWidget);
-    } else if (equal(member, "GetMDIZOrder")) {
+        break;
+    case GetMDIZOrder:
         builder_i16(b, 0);
-    } else if (equal(member, "GetAlpha")) {
+        break;
+    case GetAlpha:
         builder_double(b, 1.0);
-    } else if (equal(member, "GrabFocus")) {
+        break;
+    case GrabFocus: {
         const bool focusable = (node.actions & ui_access_action_focus) != 0;
         builder_bool(b, focusable && r.endpoint->host.act(r.endpoint->host.context, node.key, UiAccessAction::focus, 0, {}));
-    } else if (equal(member, "ScrollTo")) {
-        u32 type = 0;
-        if (!reader_u32(&r.args, &type))
+        break;
+    }
+    case ScrollTo:
+        if (!take(r, "u", a))
             return invalid(r);
         builder_bool(b, (node.actions & ui_access_action_scroll_item) &&
                             r.endpoint->host.act(r.endpoint->host.context, node.key, UiAccessAction::scroll_into_view, 0, {}));
-    } else if (equal(member, "ScrollToPoint")) {
-        u32 type = 0;
-        i32 x = 0, y = 0;
-        if (!reader_u32(&r.args, &type) || !reader_i32(&r.args, &x) || !reader_i32(&r.args, &y))
+        break;
+    case ScrollToPoint:
+        if (!take(r, "uii", a))
             return invalid(r);
         builder_bool(b, false);
-    } else if (equal(member, "SetExtents") || equal(member, "SetPosition") || equal(member, "SetSize")) {
+        break;
+    case SetExtents:
+    case SetPosition:
+    case SetSize:
         // The window is the compositor's; nothing inside it is placed by a client of this interface.
         builder_bool(b, false);
-    } else {
+        break;
+    default:
         return Outcome::unhandled;
     }
     return done(r);
@@ -530,11 +615,19 @@ Outcome component_call(Request& r, const char* member) noexcept {
 
 // Action ------------------------------------------------------------------------------------------------------------
 
+#define ATSPI_ACTION_METHODS(M) M(GetActions) M(DoAction) M(GetName) M(GetLocalizedName) M(GetDescription) M(GetKeyBinding)
+enum class ActionMethod : u32 { ATSPI_ACTION_METHODS(ATSPI_ENUMERATOR) };
+constexpr char kActionMethods[] = ATSPI_ACTION_METHODS(ATSPI_NAME);
+
 Outcome action_call(Request& r, const char* member) noexcept {
     Builder* b = r.out;
     ActionEntry entries[kActionMaximum];
     const u32 count = actions_for(*r.node, entries);
-    if (equal(member, "GetActions")) {
+    u32 a[8];
+    using enum ActionMethod;
+    const auto method = static_cast<ActionMethod>(name_index(kActionMethods, member));
+    switch (method) {
+    case GetActions:
         builder_open_array(b, "(sss)");
         for (u32 i = 0; i < count; ++i) {
             builder_open_struct(b, "(sss)");
@@ -544,22 +637,28 @@ Outcome action_call(Request& r, const char* member) noexcept {
             builder_close_struct(b);
         }
         builder_close_array(b);
-        return done(r);
+        break;
+    case DoAction:
+    case GetName:
+    case GetLocalizedName:
+    case GetDescription:
+    case GetKeyBinding: {
+        if (!take(r, "i", a))
+            return Outcome::unhandled;
+        const i32 position = static_cast<i32>(a[0]);
+        const bool known = position >= 0 && static_cast<u32>(position) < count;
+        if (method == DoAction)
+            builder_bool(b, known && r.endpoint->host.act(r.endpoint->host.context, r.node->key,
+                                                          entries[position].action, 0, {}));
+        else if (method == GetDescription)
+            builder_string(b, known ? entries[position].description : "");
+        else if (method == GetKeyBinding)
+            builder_string(b, "");
+        else
+            builder_string(b, known ? entries[position].name : "");
+        break;
     }
-    i32 position = 0;
-    if (!reader_i32(&r.args, &position))
-        return Outcome::unhandled;
-    const bool known = position >= 0 && static_cast<u32>(position) < count;
-    if (equal(member, "DoAction")) {
-        builder_bool(b, known && r.endpoint->host.act(r.endpoint->host.context, r.node->key,
-                                                      entries[position].action, 0, {}));
-    } else if (equal(member, "GetName") || equal(member, "GetLocalizedName")) {
-        builder_string(b, known ? entries[position].name : "");
-    } else if (equal(member, "GetDescription")) {
-        builder_string(b, known ? entries[position].description : "");
-    } else if (equal(member, "GetKeyBinding")) {
-        builder_string(b, "");
-    } else {
+    default:
         return Outcome::unhandled;
     }
     return done(r);
@@ -590,7 +689,7 @@ Extent text_extent(Request& r, u32 start, u32 end) noexcept {
         all.right = maximum(all.right, lines[i].right);
         all.bottom = maximum(all.bottom, lines[i].bottom);
     }
-    const float top = host.content_top ? host.content_top(host.context) : 0.0f;
+    const float top = content_top(*r.endpoint);
     return {round_to_integer(all.left), round_to_integer(all.top + top), round_to_integer(ui_rect_width(all)),
             round_to_integer(ui_rect_height(all))};
 }
@@ -623,142 +722,151 @@ Outcome select_characters(Request& r, i32 first, i32 last) noexcept {
     return done(r);
 }
 
+#define ATSPI_TEXT_METHODS(M)                                                                                        \
+    M(GetText) M(SetCaretOffset) M(GetCharacterAtOffset) M(GetStringAtOffset) M(GetTextAtOffset)                     \
+    M(GetTextBeforeOffset) M(GetTextAfterOffset) M(GetAttributeValue) M(GetAttributes) M(GetAttributeRun)            \
+    M(GetDefaultAttributes) M(GetDefaultAttributeSet) M(GetCharacterExtents) M(GetRangeExtents)                      \
+    M(GetOffsetAtPoint) M(GetBoundedRanges) M(GetNSelections) M(GetSelection) M(AddSelection) M(SetSelection)        \
+    M(RemoveSelection) M(ScrollSubstringTo) M(ScrollSubstringToPoint)
+enum class TextMethod : u32 { ATSPI_TEXT_METHODS(ATSPI_ENUMERATOR) };
+constexpr char kTextMethods[] = ATSPI_TEXT_METHODS(ATSPI_NAME);
+
 Outcome text_call(Request& r, const char* member) noexcept {
     Builder* b = r.out;
     const UiAccessNode& node = *r.node;
     const Utf8View text = text_of(r);
-    if (equal(member, "GetText")) {
-        i32 first = 0, last = 0;
-        if (!reader_i32(&r.args, &first) || !reader_i32(&r.args, &last))
+    u32 a[8];
+    u32 start = 0, end = 0;
+    using enum TextMethod;
+    const auto method = static_cast<TextMethod>(name_index(kTextMethods, member));
+    switch (method) {
+    case GetText:
+        if (!take(r, "ii", a))
             return invalid(r);
-        u32 start = 0, end = 0;
-        character_range(text, first, last, &start, &end);
+        character_range(text, static_cast<i32>(a[0]), static_cast<i32>(a[1]), &start, &end);
         put_text(b, {text.data + start, end - start});
-    } else if (equal(member, "SetCaretOffset")) {
-        i32 offset = 0;
-        if (!reader_i32(&r.args, &offset))
+        break;
+    case SetCaretOffset:
+        if (!take(r, "i", a))
             return invalid(r);
-        return select_characters(r, offset, offset);
-    } else if (equal(member, "GetCharacterAtOffset")) {
-        i32 offset = 0;
-        if (!reader_i32(&r.args, &offset))
+        return select_characters(r, static_cast<i32>(a[0]), static_cast<i32>(a[0]));
+    case GetCharacterAtOffset:
+        if (!take(r, "i", a))
             return invalid(r);
-        builder_i32(b, offset < 0 ? -1 : static_cast<i32>(text_scalar_at(text, text_byte_offset(text, static_cast<u32>(offset)))));
-    } else if (equal(member, "GetStringAtOffset")) {
-        i32 offset = 0;
-        u32 granularity = 0;
-        if (!reader_i32(&r.args, &offset) || !reader_u32(&r.args, &granularity) || offset < 0 || granularity > 4)
+        builder_i32(b, static_cast<i32>(a[0]) < 0 ? -1 : static_cast<i32>(text_scalar_at(text, text_byte_offset(text, a[0]))));
+        break;
+    case GetStringAtOffset:
+        if (!take(r, "iu", a) || static_cast<i32>(a[0]) < 0 || a[1] > 4)
             return invalid(r);
-        u32 start = 0, end = 0;
-        text_span(text, text_byte_offset(text, static_cast<u32>(offset)), static_cast<TextGranularity>(granularity), 0,
-                  &start, &end);
+        text_span(text, text_byte_offset(text, a[0]), static_cast<TextGranularity>(a[1]), 0, &start, &end);
         put_span(r, text, start, end);
-    } else if (equal(member, "GetTextAtOffset") || equal(member, "GetTextBeforeOffset") ||
-               equal(member, "GetTextAfterOffset")) {
+        break;
+    case GetTextAtOffset:
+    case GetTextBeforeOffset:
+    case GetTextAfterOffset: {
         // The boundary types of the older calls: character, word start and end, sentence start and end, line start and end.
-        i32 offset = 0;
-        u32 boundary = 0;
-        if (!reader_i32(&r.args, &offset) || !reader_u32(&r.args, &boundary) || offset < 0 || boundary > 6)
+        if (!take(r, "iu", a) || static_cast<i32>(a[0]) < 0 || a[1] > 6)
             return invalid(r);
-        const TextGranularity granularity = boundary == 0   ? TextGranularity::character
-                                            : boundary <= 2 ? TextGranularity::word
-                                            : boundary <= 4 ? TextGranularity::sentence
-                                                            : TextGranularity::line;
-        const i32 direction = equal(member, "GetTextAtOffset") ? 0 : equal(member, "GetTextBeforeOffset") ? -1 : 1;
-        u32 start = 0, end = 0;
-        text_span(text, text_byte_offset(text, static_cast<u32>(offset)), granularity, direction, &start, &end);
+        const TextGranularity granularity = a[1] == 0   ? TextGranularity::character
+                                            : a[1] <= 2 ? TextGranularity::word
+                                            : a[1] <= 4 ? TextGranularity::sentence
+                                                        : TextGranularity::line;
+        const i32 direction = method == GetTextAtOffset ? 0 : method == GetTextBeforeOffset ? -1 : 1;
+        text_span(text, text_byte_offset(text, a[0]), granularity, direction, &start, &end);
         put_span(r, text, start, end);
-    } else if (equal(member, "GetAttributeValue")) {
-        i32 offset = 0;
+        break;
+    }
+    case GetAttributeValue: {
         const char* name = nullptr;
-        if (!reader_i32(&r.args, &offset) || !reader_string(&r.args, &name, nullptr))
+        if (!take(r, "i", a) || !reader_string(&r.args, &name, nullptr))
             return invalid(r);
         builder_string(b, "");
-    } else if (equal(member, "GetAttributes") || equal(member, "GetAttributeRun")) {
-        i32 offset = 0;
-        if (!reader_i32(&r.args, &offset))
+        break;
+    }
+    case GetAttributes:
+    case GetAttributeRun: {
+        bool include_defaults = false;
+        if (!take(r, "i", a) || (method == GetAttributeRun && !reader_bool(&r.args, &include_defaults)))
             return invalid(r);
-        if (equal(member, "GetAttributeRun")) {
-            bool include_defaults = false;
-            if (!reader_bool(&r.args, &include_defaults))
-                return invalid(r);
-        }
         // Three out arguments: the attributes, and the range they hold over.
         builder_open_array(b, "{ss}");
         builder_close_array(b);
         builder_i32(b, 0);
         builder_i32(b, static_cast<i32>(text_character_count(text)));
-    } else if (equal(member, "GetDefaultAttributes") || equal(member, "GetDefaultAttributeSet")) {
+        break;
+    }
+    case GetDefaultAttributes:
+    case GetDefaultAttributeSet:
         builder_open_array(b, "{ss}");
         builder_close_array(b);
-    } else if (equal(member, "GetCharacterExtents")) {
-        i32 offset = 0;
-        u32 coordinates = 0;
-        if (!reader_i32(&r.args, &offset) || !reader_u32(&r.args, &coordinates) || offset < 0)
+        break;
+    case GetCharacterExtents: {
+        if (!take(r, "iu", a) || static_cast<i32>(a[0]) < 0)
             return invalid(r);
-        const u32 start = text_byte_offset(text, static_cast<u32>(offset));
-        u32 end = start;
+        start = text_byte_offset(text, a[0]);
+        end = start;
         u32 unused = start;
         ui_access_text_expand(text, UiAccessTextUnit::character, &unused, &end);
         put_extents(b, text_extent(r, start, end));
-    } else if (equal(member, "GetRangeExtents")) {
-        i32 first = 0, last = 0;
-        u32 coordinates = 0;
-        if (!reader_i32(&r.args, &first) || !reader_i32(&r.args, &last) || !reader_u32(&r.args, &coordinates))
+        break;
+    }
+    case GetRangeExtents:
+        if (!take(r, "iiu", a))
             return invalid(r);
-        u32 start = 0, end = 0;
-        character_range(text, first, last, &start, &end);
+        character_range(text, static_cast<i32>(a[0]), static_cast<i32>(a[1]), &start, &end);
         put_extents(b, text_extent(r, start, end));
-    } else if (equal(member, "GetOffsetAtPoint")) {
-        i32 x = 0, y = 0;
-        u32 coordinates = 0;
-        if (!reader_i32(&r.args, &x) || !reader_i32(&r.args, &y) || !reader_u32(&r.args, &coordinates))
+        break;
+    case GetOffsetAtPoint:
+        if (!take(r, "iiu", a))
             return invalid(r);
         builder_i32(b, -1);
-    } else if (equal(member, "GetBoundedRanges")) {
-        i32 x = 0, y = 0, width = 0, height = 0;
-        u32 coordinates = 0, x_clip = 0, y_clip = 0;
-        if (!reader_i32(&r.args, &x) || !reader_i32(&r.args, &y) || !reader_i32(&r.args, &width) ||
-            !reader_i32(&r.args, &height) || !reader_u32(&r.args, &coordinates) || !reader_u32(&r.args, &x_clip) ||
-            !reader_u32(&r.args, &y_clip))
+        break;
+    case GetBoundedRanges:
+        if (!take(r, "iiiiuuu", a))
             return invalid(r);
         builder_open_array(b, "(iisv)");
         builder_close_array(b);
-    } else if (equal(member, "GetNSelections")) {
+        break;
+    case GetNSelections:
         builder_i32(b, node.placement.selection_anchor != node.placement.selection_caret ? 1 : 0);
-    } else if (equal(member, "GetSelection")) {
-        i32 number = 0;
-        if (!reader_i32(&r.args, &number))
+        break;
+    case GetSelection: {
+        if (!take(r, "i", a))
             return invalid(r);
-        if (number != 0 || node.placement.selection_anchor == node.placement.selection_caret)
+        if (a[0] != 0 || node.placement.selection_anchor == node.placement.selection_caret)
             return fail(r, kInvalidArguments, "no such selection");
         const u32 low = minimum(node.placement.selection_anchor, node.placement.selection_caret);
         const u32 high = maximum(node.placement.selection_anchor, node.placement.selection_caret);
         builder_i32(b, static_cast<i32>(text_character_offset(text, low)));
         builder_i32(b, static_cast<i32>(text_character_offset(text, high)));
-    } else if (equal(member, "AddSelection") || equal(member, "SetSelection")) {
-        i32 number = 0, first = 0, last = 0;
-        if (equal(member, "SetSelection") && !reader_i32(&r.args, &number))
+        break;
+    }
+    case AddSelection:
+    case SetSelection: {
+        // SetSelection names the selection (only the first exists) before the range.
+        const u32 shift = method == SetSelection ? 1u : 0u;
+        if (!take(r, shift ? "iii" : "ii", a))
             return invalid(r);
-        if (!reader_i32(&r.args, &first) || !reader_i32(&r.args, &last))
-            return invalid(r);
-        if (number != 0) {
+        if (shift && a[0] != 0) {
             builder_bool(b, false);
-            return done(r);
+            break;
         }
-        return select_characters(r, first, last);
-    } else if (equal(member, "RemoveSelection")) {
-        i32 number = 0;
-        if (!reader_i32(&r.args, &number))
+        return select_characters(r, static_cast<i32>(a[shift]), static_cast<i32>(a[shift + 1]));
+    }
+    case RemoveSelection:
+        if (!take(r, "i", a))
             return invalid(r);
-        if (number != 0)
+        if (a[0] != 0) {
             builder_bool(b, false);
-        else
-            return select_characters(r, static_cast<i32>(caret_characters(r)), static_cast<i32>(caret_characters(r)));
-    } else if (equal(member, "ScrollSubstringTo") || equal(member, "ScrollSubstringToPoint")) {
+            break;
+        }
+        return select_characters(r, static_cast<i32>(caret_characters(r)), static_cast<i32>(caret_characters(r)));
+    case ScrollSubstringTo:
+    case ScrollSubstringToPoint:
+        // The arguments are not used: nothing scrolls inside a text node.
         builder_bool(b, false);
-        // the arguments are not used: nothing scrolls inside a text node
-    } else {
+        break;
+    default:
         return Outcome::unhandled;
     }
     return done(r);
@@ -824,41 +932,59 @@ Outcome editable_text_call(Request& r, const char* member) noexcept {
 
 // Value and Selection -----------------------------------------------------------------------------------------------
 
+#define ATSPI_SELECTION_METHODS(M)                                                                                   \
+    M(GetSelectedChild) M(SelectChild) M(IsChildSelected) M(DeselectChild) M(DeselectSelectedChild) M(SelectAll)     \
+    M(ClearSelection)
+enum class SelectionMethod : u32 { ATSPI_SELECTION_METHODS(ATSPI_ENUMERATOR) };
+constexpr char kSelectionMethods[] = ATSPI_SELECTION_METHODS(ATSPI_NAME);
+
 Outcome selection_call(Request& r, const char* member) noexcept {
     Builder* b = r.out;
-    i32 position = 0;
-    if (equal(member, "GetSelectedChild")) {
-        if (!reader_i32(&r.args, &position))
+    u32 a[8];
+    using enum SelectionMethod;
+    const auto method = static_cast<SelectionMethod>(name_index(kSelectionMethods, member));
+    switch (method) {
+    case GetSelectedChild: {
+        if (!take(r, "i", a))
             return invalid(r);
         i32 seen = 0;
         u32 found = kUiAccessNone;
         for (u32 child = r.node->first_child; child != kUiAccessNone && found == kUiAccessNone;
              child = r.tree->nodes[child].next_sibling)
-            if ((r.tree->nodes[child].state & ui_access_selected) && seen++ == position)
+            if ((r.tree->nodes[child].state & ui_access_selected) && seen++ == static_cast<i32>(a[0]))
                 found = child;
         if (found == kUiAccessNone)
             put_null_reference(b);
         else
             put_node(r, found);
-    } else if (equal(member, "SelectChild") || equal(member, "IsChildSelected") || equal(member, "DeselectChild")) {
-        if (!reader_i32(&r.args, &position))
+        break;
+    }
+    case SelectChild:
+    case IsChildSelected:
+    case DeselectChild: {
+        if (!take(r, "i", a))
             return invalid(r);
-        const u32 child = child_at(r, position);
-        if (equal(member, "IsChildSelected"))
+        const u32 child = child_at(r, static_cast<i32>(a[0]));
+        if (method == IsChildSelected)
             builder_bool(b, child != kUiAccessNone && (r.tree->nodes[child].state & ui_access_selected));
-        else if (equal(member, "SelectChild"))
+        else if (method == SelectChild)
             builder_bool(b, child != kUiAccessNone &&
                                 r.endpoint->host.act(r.endpoint->host.context, r.tree->nodes[child].key,
                                                      UiAccessAction::select, 0, {}));
         else
             builder_bool(b, false);
-    } else if (equal(member, "DeselectSelectedChild")) {
-        if (!reader_i32(&r.args, &position))
+        break;
+    }
+    case DeselectSelectedChild:
+        if (!take(r, "i", a))
             return invalid(r);
         builder_bool(b, false);
-    } else if (equal(member, "SelectAll") || equal(member, "ClearSelection")) {
+        break;
+    case SelectAll:
+    case ClearSelection:
         builder_bool(b, false);
-    } else {
+        break;
+    default:
         return Outcome::unhandled;
     }
     return done(r);
@@ -911,24 +1037,32 @@ Outcome answer_call(Endpoint* endpoint, const Message& call, Builder* reply, Fai
     const char* member = call.member;
     if (equal(interface, kProperties))
         return properties_call(r, member);
-    const u32 present = interfaces_of(r);
-    if (equal(interface, "org.a11y.atspi.Accessible"))
-        return accessible_call(r, member);
     if (equal(interface, kApplicationInterface))
         return !r.node ? application_call(r, member) : Outcome::unhandled;
-    if (!r.node)
+    u32 bit = interface_accessible;
+    while (bit <= interface_selection && !equal(interface, interface_name(bit)))
+        bit <<= 1;
+    if (bit == interface_accessible)
+        return accessible_call(r, member);
+    if (!r.node || bit > interface_selection)
         return Outcome::unhandled;
-    if (equal(interface, "org.a11y.atspi.Component"))
+    // The other interfaces answer for the nodes that have them (every node has the Component one).
+    if (bit != interface_component && !(interfaces_of(r) & bit))
+        return Outcome::unhandled;
+    switch (bit) {
+    case interface_component:
         return component_call(r, member);
-    if (equal(interface, "org.a11y.atspi.Action"))
-        return (present & interface_action) ? action_call(r, member) : Outcome::unhandled;
-    if (equal(interface, "org.a11y.atspi.Text"))
-        return (present & interface_text) ? text_call(r, member) : Outcome::unhandled;
-    if (equal(interface, "org.a11y.atspi.EditableText"))
-        return (present & interface_editable_text) ? editable_text_call(r, member) : Outcome::unhandled;
-    if (equal(interface, "org.a11y.atspi.Selection"))
-        return (present & interface_selection) ? selection_call(r, member) : Outcome::unhandled;
-    return Outcome::unhandled;
+    case interface_action:
+        return action_call(r, member);
+    case interface_text:
+        return text_call(r, member);
+    case interface_editable_text:
+        return editable_text_call(r, member);
+    case interface_selection:
+        return selection_call(r, member);
+    default:  // Value has properties only
+        return Outcome::unhandled;
+    }
 }
 
 } // namespace maicord::atspi

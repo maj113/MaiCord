@@ -162,6 +162,12 @@ u32 guild_tag_secondary(const GuildTagDraft& draft) noexcept {
     return draft.secondary_set ? draft.secondary : badge.tints > 1 ? badge.secondary : badge.primary;
 }
 
+bool guild_tag_badge_saved(const GuildTagDraft& saved, u8 type, u32 primary, u32 secondary) noexcept {
+    const auto* badge = guild_tag_badge(type);
+    return badge && type == saved.badge && primary == guild_tag_primary(saved) &&
+           (badge->tints < 2 || secondary == guild_tag_secondary(saved));
+}
+
 bool guild_tag_draft_valid(const GuildTagDraft& draft) noexcept {
     return guild_tag_badge(draft.badge) && (!draft.enabled || guild_tag_text_valid({draft.tag, draft.tag_bytes}));
 }

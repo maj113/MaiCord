@@ -20,7 +20,7 @@ constexpr UiMotionScope kSegmentScope{1, 1};
 constexpr u8 kSegmentNone = 0xFF;
 // Remembers which option each plain segments row of the page shows selected. A row whose option changed since the
 // last projection starts its plate sliding from the one it left (one row at a time; none under reduced motion).
-void track_segments(UiSettingsScene* scene, bool keep) noexcept {
+__forceinline void track_segments(UiSettingsScene* scene, bool keep) noexcept {
     auto& segment = scene->segment;
     const auto& controls = scene->content.controls;
     u64 ids[kUiSettingsSegmentMemory];
@@ -52,13 +52,13 @@ void track_segments(UiSettingsScene* scene, bool keep) noexcept {
     copy_bytes(segment.memory_choices, choices, count);
     segment.memory_count = static_cast<u8>(count);
 }
-bool option_kind(UiSettingsControlKind kind) noexcept {
+__forceinline bool option_kind(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
            kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
            kind == UiSettingsControlKind::colors;
 }
 // The part of a list row under a point (UiSettingsListPart), or ~0u.
-u32 list_part(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index, const UiRect& row, float x,
+__forceinline u32 list_part(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index, const UiRect& row, float x,
               float y) noexcept {
     const auto* item = list_item(content, index);
     if (!item || !ui_rect_contains(row, x, y))
@@ -909,7 +909,7 @@ bool ui_settings_scene_button_hit(const UiSettingsScene& scene, const UiSettings
            ui_settings_scene_control_geometry(scene, target, &geometry) && ui_rect_contains(geometry.clip, x, y);
 }
 namespace {
-u32 option_hit(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, float x, float y,
+__forceinline u32 option_hit(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, float x, float y,
                const UiKitMeasure* measure) noexcept {
     const u32 count = c.choices.count + (c.kind == UiSettingsControlKind::colors && c.action_label.bytes ? 1u : 0u);
     for (u32 i = 0; i < count; ++i)
@@ -1017,7 +1017,7 @@ bool ui_settings_scene_drop_target(const UiSettingsScene& scene, float y, u64* c
     bool found = false;
     for (u32 i = 0; i < scene.widgets.count; ++i) {
         const auto& entry = entries(scene)[i];
-        if (entry.role != EntryRole::row || entry.source_index >= scene.content.controls.count)
+        if (entry.role != EntryRole::row)
             continue;
         RowLayout row;
         UiRect clip;
@@ -1143,42 +1143,89 @@ bool ui_settings_scene_spinner_visible(const UiSettingsScene& scene) noexcept {
     return false;
 }
 
+// The cursor of ui_settings_scene_next_avatar: a row's entry index shifted up kMediaPhaseBits over the phase inside
+// it, 0 the row's avatar and 1 + i the picture of its glyph tile i (a choice of a glyph swatch row, or the name tag
+// row's chip).
+constexpr u32 kMediaPhaseBits = 8, kMediaPhaseMask = (1u << kMediaPhaseBits) - 1;
+
 bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
                                    UiSettingsAvatarGeometry* output) noexcept {
-    if (!cursor || !output || !current(scene) || !scene.content.avatar_media)
+    const auto& content = scene.content;
+    if (!cursor || !output || !current(scene) || (!content.avatar_media && !content.glyph_tiles && !content.preview))
         return false;
     const SceneTokens t(scene);
-    for (; *cursor < scene.widgets.count; ++*cursor) {
-        const auto& entry = entries(scene)[*cursor];
+    u32 phase = *cursor & kMediaPhaseMask;
+    for (u32 at = *cursor >> kMediaPhaseBits; at < scene.widgets.count; ++at, phase = 0) {
+        const auto& entry = entries(scene)[at];
         const u32 index = entry.source_index;
-        if (entry.role != EntryRole::row || index >= scene.content.controls.count ||
-            !avatar_backed(scene.content, index))
+        if (entry.role != EntryRole::row || index >= content.controls.count)
             continue;
-        const auto& media = scene.content.avatar_media[index];
-        const UiWidgetHandle handle{static_cast<u16>(*cursor), scene.widgets.generation};
+        const auto& c = content.controls[index];
+        const bool tiles = content.glyph_tiles && c.kind == UiSettingsControlKind::swatches &&
+                           more(content, index, ui_settings_more_glyphs);
+        const bool chip = content.glyph_tiles && c.kind == UiSettingsControlKind::action &&
+                          more(content, index, ui_settings_more_name_tag);
+        const bool avatar_row = avatar_backed(content, index);
+        const bool preview = c.kind == UiSettingsControlKind::preview && content.preview && content.preview->avatars;
+        if (!avatar_row && !tiles && !chip && !preview)
+            continue;
+        const UiWidgetHandle handle{static_cast<u16>(at), scene.widgets.generation};
         RowLayout r;
         UiRect clip;
         if (!row_layout_for(scene, t, handle, index, &r, &clip))
             continue;
-        // A banner row's upload tile (its last) shows the picture covering it.
-        const bool upload = more(scene.content, index, ui_settings_more_upload_tile);
-        const auto& c = scene.content.controls[index];
-        if (upload ? !c.choices.count : !ui_rect_has_area(r.lead))
+        if (preview) {
+            // Accessibility's preview: your avatar at each cozy message, then the status column's three, one phase each.
+            const auto& s = *content.preview;
+            for (u32 part = phase; part < 5; ++part) {
+                const bool column = part > 1;
+                const auto& media = s.avatars[column ? part - 1 : 0];
+                const UiRect avatar = column ? preview_status_avatar(r, part - 2) : preview_avatar(r, part);
+                const UiRect visible = ui_rect_overlap(avatar, clip);
+                if ((s.compact && !column) || !avatar_media_ready(media) || !ui_rect_has_area(visible))
+                    continue;
+                *output = {&media, {&scene.widgets, handle}, avatar, visible, false, false, 0.f, 1.f};
+                *cursor = at << kMediaPhaseBits | (part + 1);
+                return true;
+            }
             continue;
-        // Same circle as paint_row's loading placeholder.
-        const UiRect avatar = upload ? banner_tile_rect(t, r.control, c.choices.count - 1)
-                                     : avatar_rect(t.metric, scene.content, index, r.lead);
-        const UiRect visible = ui_rect_overlap(avatar, clip);
-        if (!ui_rect_has_area(visible))
-            continue;
-        // Game tiles round their covers; a trait's custom emoji keeps its own shape.
-        const bool tile = upload || (more(scene.content, index, ui_settings_more_cell) &&
-                                     c.kind == UiSettingsControlKind::action);
-        *output = {&media, {&scene.widgets, handle}, avatar, visible, tile, upload,
-                   tile ? t.metric.control_radius : 0.f};
-        ++*cursor;
-        return true;
+        }
+        if (avatar_row && !phase) {
+            // A banner row's upload tile (its last) shows the picture covering it.
+            const bool upload = more(content, index, ui_settings_more_upload_tile);
+            if (upload ? c.choices.count : ui_rect_has_area(r.lead)) {
+                // Same circle as paint_row's loading placeholder.
+                const UiRect avatar = upload ? banner_tile_rect(t, r.control, c.choices.count - 1)
+                                             : avatar_rect(t.metric, content, index, r.lead);
+                const UiRect visible = ui_rect_overlap(avatar, clip);
+                if (ui_rect_has_area(visible)) {
+                    // Game tiles round their covers; a trait's custom emoji keeps its own shape.
+                    const bool tile = upload || (more(content, index, ui_settings_more_cell) &&
+                                                 c.kind == UiSettingsControlKind::action);
+                    *output = {&content.avatar_media[index], {&scene.widgets, handle}, avatar, visible, tile, upload,
+                               tile ? t.metric.control_radius : 0.f, 1.f};
+                    *cursor = at << kMediaPhaseBits | 1;
+                    return true;
+                }
+            }
+        }
+        const u32 count = tiles ? c.choices.count : chip && ui_rect_has_area(r.tag) ? 1u : 0u;
+        for (u32 i = phase ? phase - 1 : 0; i < count && i + 2 <= kMediaPhaseMask; ++i) {
+            const auto* glyph = glyph_tile(content, index, i);
+            if (!glyph_image(glyph))
+                continue;
+            const UiRect picture = tiles ? glyph_image_rect(glyph_tile_rect(t, r.control, i))
+                                         : glyph_chip_image_rect(r.tag);
+            const UiRect visible = ui_rect_overlap(picture, clip);
+            if (!ui_rect_has_area(visible))
+                continue;
+            *output = {&glyph->media, {&scene.widgets, handle}, picture, visible, true, false, 0.f,
+                       tiles && !c.enabled ? t.disabled_alpha : 1.f};
+            *cursor = at << kMediaPhaseBits | (i + 2);
+            return true;
+        }
     }
+    *cursor = scene.widgets.count << kMediaPhaseBits;
     return false;
 }
 

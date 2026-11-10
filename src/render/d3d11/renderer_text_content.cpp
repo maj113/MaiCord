@@ -8,6 +8,7 @@
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/ui/text/inline_flag_projection.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/log_event.hpp"
 
 namespace maicord {
 namespace renderer_text_detail {
@@ -238,6 +239,15 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
             return shape_failed(shaped);
         }
         if (storage->scratch.glyph_count > remaining_quads) {
+            // The line is dropped without a failure: the budget is spent (counts only, never text).
+            u32 suppressed = 0;
+            if (text_diagnostic_due(TextDiagnostic::quad_budget, &suppressed)) {
+                const u64 values[]{storage->scratch.glyph_count, remaining_quads, storage->quad_capacity,
+                                   storage->quad_count, suppressed};
+                LogEvent("content_text_quad_budget_spent")
+                    .fields("glyphs\0remaining\0quad_capacity\0quads\0suppressed", values)
+                    .write(LogLevel::error, "render");
+            }
             shaped_text_reset(&storage->scratch);
             return true;
         }

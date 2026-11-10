@@ -236,7 +236,7 @@ inline void application_cursor_refresh(Window window) noexcept {
 }
 
 // The step that rejected the last frame, logged with the failure count.
-const char* g_present_rejected_stage = "";
+const char* g_present_rejected_stage;
 bool present_rejected(const char* stage) noexcept {
     g_present_rejected_stage = stage;
     return false;
@@ -480,7 +480,7 @@ void application_record_presentation_failure(const char* stage) noexcept {
         LogEvent line(stage);
         line.field("presentation_failures", count);
         // The frame step that rejected (call, panels, renderer, ...).
-        if (g_present_rejected_stage[0])
+        if (g_present_rejected_stage)
             line.field("stage", g_present_rejected_stage);
         line.write(LogLevel::error, "render");
     }

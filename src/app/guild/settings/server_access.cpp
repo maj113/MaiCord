@@ -110,40 +110,14 @@ void server_access_release() noexcept {
 }
 
 void access_open_channels(AccessMenu menu, u64 current, bool none_row, bool create_row, const UiRect& anchor) noexcept {
-    auto& p = *owner;
     auto* s = server_access_state();
     if (!s)
         return;
-    Bank bank{p.popup_text, sizeof(p.popup_text), 0};
-    u32 count = 0;
-    if (none_row) {
-        popup_row(count, utf8_literal("None"), count, !current ? popup_item_checked : 0);
-        p.menu_channel[count++] = 0;
-    }
-    if (create_row) {
-        popup_row(count, utf8_literal("Create one for me"), count,
-                  current == kGuildCommunityNewChannel ? popup_item_checked : 0);
-        p.menu_channel[count++] = kGuildCommunityNewChannel;
-    }
-    const auto& st = state();
-    const u32 first = count;
-    const u32 listed = sorted_channels(1u << 0, kPopupCapacity - first);
-    for (u32 i = 0; i < listed; ++i) {
-        const auto* channel = p.popup_rows[i].channel;
-        const u32 start = bank.used;
-        bank.add("#");
-        bank.add(chat_state_store_channel_name(st, *channel));
-        popup_row(first + i, bank.since(start), first + i,
-                  (channel->id == current ? popup_item_checked : 0) | (i == 0 && first ? popup_item_separator_before : 0));
-        p.menu_channel[first + i] = channel->id;
-    }
-    p.menu = Menu::server_access;
     s->menu = menu;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, first + listed}, anchor, 280);
+    open_channel_menu(Menu::server_access, 1u << 0, current, none_row ? "None" : nullptr, 0, anchor, create_row);
 }
 
 void access_open_locales(Utf8View current, const UiRect& anchor) noexcept {
-    auto& p = *owner;
     auto* s = server_access_state();
     if (!s)
         return;
@@ -151,9 +125,8 @@ void access_open_locales(Utf8View current, const UiRect& anchor) noexcept {
         const auto locale = guild_locale(i);
         popup_row(i, locale.name, i, utf8_equal(current, locale.code) ? popup_item_checked : 0);
     }
-    p.menu = Menu::server_access;
     s->menu = AccessMenu::locale;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, kGuildLocaleCount}, anchor, 240);
+    open_popup(Menu::server_access, owner->guild_id, kGuildLocaleCount, anchor, 240);
 }
 
 Utf8View access_channel_label(Bank& bank, u64 channel_id) noexcept {

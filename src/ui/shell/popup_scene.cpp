@@ -554,17 +554,11 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, con
         (picker && !discovery && category_scroll_fraction != 0)) {
         return failure(PopupSceneError::invalid_input);
     }
-    UiPopupFeedback admitted_feedback = feedback ? *feedback : UiPopupFeedback{};
-    if (feedback && admitted_feedback.style.height == 0 && admitted_feedback.style.text_inset == 0)
-        admitted_feedback.style = ui_popup_feedback_style();
-    if (feedback &&
-        (picker || kind == PopupKind::autocomplete || (!feedback->text.data && feedback->text.bytes) ||
-         feedback->text.bytes > 256 || !utf8_validate(feedback->text).valid ||
-         !ui_coordinate_valid(admitted_feedback.style.height) || admitted_feedback.style.height < 24 ||
-         admitted_feedback.style.height > 96 || !ui_coordinate_valid(admitted_feedback.style.text_inset) ||
-         admitted_feedback.style.text_inset < 0 ||
-         admitted_feedback.style.text_inset * 2 >= admitted_feedback.style.height))
+    // Hosts always pass a feedback style (ui_popup_feedback_style() or the volume footer's constants).
+    if (feedback && (picker || kind == PopupKind::autocomplete || (!feedback->text.data && feedback->text.bytes) ||
+                     feedback->text.bytes > 256 || !utf8_validate(feedback->text).valid))
         return failure(PopupSceneError::invalid_input);
+    const UiPopupFeedback admitted_feedback = feedback ? *feedback : UiPopupFeedback{};
     const float feedback_height = feedback ? admitted_feedback.style.height : 0;
     // Command autocomplete adds independent rail/body viewports. Preflight the
     // whole tree before resetting a retained popup or materializing its arrays.

@@ -158,10 +158,12 @@ void apply_pause(GatewayGoLive& live) noexcept {
     if (!paused)
         live.awaiting_keyframe = live.keyframe_wanted = true;
 }
-bool start_sound(GatewayGoLive& live) noexcept {
-    const u32 process = live.source.kind == CaptureSourceKind::window ? live.source.process_id : 0;
-    live.sounding = live.backend.sound && live.backend.sound(live.backend.context, live.media, process);
-    return live.sounding;
+// The process stream audio follows: the shared window's, none for a screen (every process).
+u32 sound_process(const CaptureSource& source) noexcept {
+    return source.kind == CaptureSourceKind::window ? source.process_id : 0;
+}
+void start_sound(GatewayGoLive& live) noexcept {
+    live.sounding = live.backend.sound && live.backend.sound(live.backend.context, live.media, live.sound_process);
 }
 
 // RTCP from the stream server (receiver reports, NACK, PLI/FIR, REMB, transport feedback).
@@ -488,8 +490,7 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
         bool known = false;
         live->encodable = b.encodable ? b.encodable(b.context, &known) : 0;
         live->settings = command.settings;
-        live->source = command.source;
-        live->system_picker = command.system_picker;
+        live->sound_process = sound_process(command.source);
         live->user_paused = live->minimized = live->paused = false;
         live->media_revision = 0;
         live->capture_width = command.system_picker ? 0 : command.source.width;
@@ -566,8 +567,7 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
         if (live->sounding && b.sound_stop)
             b.sound_stop(b.context);
         live->sounding = false;
-        live->source = command.source;
-        live->system_picker = command.system_picker;
+        live->sound_process = sound_process(command.source);
         live->capturing = b.capture && b.capture(b.context, live->media, command.source, command.system_picker,
                                                  live->settings.fps);
         if (!live->capturing) {

@@ -86,15 +86,7 @@ void cut(Slice<u32> pixels, u32 extent, float cx, float cy, float radius) noexce
             p = (static_cast<u32>(channel(p, 24) * keep * 255.f + .5f) << 24) | (p & 0x00FFFFFFu);
         }
 }
-void disc(Slice<u32> pixels, u32 extent, float cx, float cy, float radius, u32 color) noexcept {
-    for (u32 y = 0; y < extent; ++y)
-        for (u32 x = 0; x < extent; ++x) {
-            const float dx = static_cast<float>(x) + .5f - cx, dy = static_cast<float>(y) + .5f - cy;
-            const float coverage = clamp_unit(radius - taskbar_attention_root(dx * dx + dy * dy) + .5f);
-            if (coverage > 0)
-                pixels[y * extent + x] = over(pixels[y * extent + x], color | 0xFF000000u, coverage);
-        }
-}
+// A segment's coverage, `half` wide, over the pixels; a segment of no length is a disc of radius `half`.
 void stroke(Slice<u32> pixels, u32 extent, float ax, float ay, float bx, float by, float half, u32 color) noexcept {
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
@@ -216,11 +208,11 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
     cut(pixels, extent, cx, cy, radius + e * .07f);
     const u32 fill = state == TrayIconState::connected || state == TrayIconState::speaking ? palette.success
                                                                                              : palette.danger;
-    disc(pixels, extent, cx, cy, radius, fill);
+    stroke(pixels, extent, cx, cy, cx, cy, radius, fill);
     const float half = maximum(e * .045f, .7f), arm = radius * .5f;
     switch (state) {
     case TrayIconState::speaking:
-        disc(pixels, extent, cx, cy, radius * .42f, palette.glyph);
+        stroke(pixels, extent, cx, cy, cx, cy, radius * .42f, palette.glyph);
         break;
     case TrayIconState::muted:
         stroke(pixels, extent, cx - arm, cy + arm, cx + arm, cy - arm, half, palette.glyph);

@@ -77,25 +77,10 @@ bool ensure(Builder* b, u32 extra) noexcept {
         b->failed = true;
         return false;
     }
-    const u32 needed = b->size + extra;
-    if (needed <= b->capacity)
-        return true;
-    u32 capacity = b->capacity ? b->capacity : 256;
-    while (capacity < needed)
-        capacity *= 2;
-    u8* grown = static_cast<u8*>(heap_allocate(capacity));
-    if (!grown) {
+    if (!buffer_reserve(&b->data, b->size, &b->capacity, b->size + extra, 256)) {
         b->failed = true;
         return false;
     }
-    if (b->size)
-        copy_bytes(grown, b->data, b->size);
-    if (b->data) {
-        secure_clear_bytes(b->data, b->size);
-        heap_free(b->data);
-    }
-    b->data = grown;
-    b->capacity = capacity;
     return true;
 }
 
@@ -208,6 +193,26 @@ bool signature_valid(const char* signature) noexcept {
             return false;
         signature += length;
     }
+    return true;
+}
+
+bool buffer_reserve(u8** data, u32 used, u32* capacity, u32 needed, u32 initial) noexcept {
+    if (needed <= *capacity)
+        return true;
+    u32 grown_capacity = *capacity ? *capacity : initial;
+    while (grown_capacity < needed)
+        grown_capacity *= 2;
+    u8* grown = static_cast<u8*>(heap_allocate(grown_capacity));
+    if (!grown)
+        return false;
+    if (used)
+        copy_bytes(grown, *data, used);
+    if (*data) {
+        secure_clear_bytes(*data, used);
+        heap_free(*data);
+    }
+    *data = grown;
+    *capacity = grown_capacity;
     return true;
 }
 
@@ -735,31 +740,31 @@ void field_u32(Builder* b, u8 code, u32 value) noexcept {
     builder_close_struct(b);
 }
 
-} // namespace
-
-bool message_serialize(const MessageHeader& header, const Builder& body, u8** block, u32* bytes) noexcept {
-    if (body.failed || body.depth != 0 || header.type == MessageType::invalid)
-        return false;
-    switch (header.type) {
+// Whether a message of `type` has the header fields that type requires.
+bool fields_present(MessageType type, const char* path, const char* interface, const char* member, const char* error_name,
+                    u32 reply_serial) noexcept {
+    switch (type) {
     case MessageType::method_call:
-        if (!header.path || !header.member)
-            return false;
-        break;
+        return path && member;
     case MessageType::signal:
-        if (!header.path || !header.interface || !header.member)
-            return false;
-        break;
+        return path && interface && member;
     case MessageType::error:
-        if (!header.error_name)
+        if (!error_name)
             return false;
         [[fallthrough]];
     case MessageType::method_return:
-        if (header.reply_serial == 0)
-            return false;
-        break;
+        return reply_serial != 0;
     default:
         return false;
     }
+}
+
+} // namespace
+
+bool message_serialize(const MessageHeader& header, const Builder& body, u8** block, u32* bytes) noexcept {
+    if (body.failed || body.depth != 0 ||
+        !fields_present(header.type, header.path, header.interface, header.member, header.error_name, header.reply_serial))
+        return false;
     Builder h;
     builder_init(&h);
     // The fixed part: byte order, type, flags, version, body length (patched), serial; then the field array.
@@ -907,27 +912,9 @@ bool message_parse(Message* message, u8* buffer, u32 size) noexcept {
     if (!message->signature || !signature_valid(message->signature) || declared_fds > kMaxFds)
         return fail();
     message->fd_count = declared_fds;  // the connection fills the descriptors in
-    switch (message->type) {
-    case MessageType::method_call:
-        if (!message->path || !message->member)
-            return fail();
-        break;
-    case MessageType::signal:
-        if (!message->path || !message->interface || !message->member)
-            return fail();
-        break;
-    case MessageType::error:
-        if (!message->error_name)
-            return fail();
-        [[fallthrough]];
-    case MessageType::method_return:
-        if (message->reply_serial == 0)
-            return fail();
-        break;
-    default:
-        return fail();
-    }
-    return true;
+    return fields_present(message->type, message->path, message->interface, message->member, message->error_name,
+                          message->reply_serial) ||
+           fail();
 }
 
 void message_release(Message* message) noexcept {

@@ -10,6 +10,22 @@
 
 namespace maicord {
 
+// One author-line measurement (a name, a badge or a decoration label), keyed by the author; `salt` tells the runs apart.
+static bool measure_author_text(UiTextMeasureCache* cache, u64 author_id, Utf8View text,
+                                const ConstSlice<TextStyleSpan>& spans, float width, u16 salt, UiTextFace face,
+                                UiTextMeasureValue* value) noexcept {
+    return cache && ui_text_measure_cache_measure(
+                        cache,
+                        {{author_id, hash64_bytes(kHash64Seed, text.data, text.bytes), 0, salt, 0},
+                         text,
+                         spans,
+                         {width, 64},
+                         true,
+                         face},
+                        value)
+                        .ok();
+}
+
 bool message_author_layout(const MessageScene& scene, const MessageTextCommand& command,
                            const ChatStateStore& state, const UserStore& users,
                            UiTextMeasureCache* cache, const Theme& theme,
@@ -46,17 +62,9 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
             return 0.0f;
         const TextStyleSpan span{0, text.bytes, text_style_subtext};
         UiTextMeasureValue value{};
-        const bool measured =
-            cache && ui_text_measure_cache_measure(
-                         cache,
-                         {{record->author_id, hash64_bytes(kHash64Seed, text.data, text.bytes), 0, salt, 0},
-                          text,
-                          {&span, 1},
-                          {maximum(1.f, ui_rect_width(command.rectangle)), 64},
-                          true,
-                          ui_text_face_chat(UiTextFace::normal)},
-                         &value)
-                         .ok();
+        const bool measured = measure_author_text(cache, record->author_id, text, {&span, 1},
+                                                  maximum(1.f, ui_rect_width(command.rectangle)), salt,
+                                                  ui_text_face_chat(UiTextFace::normal), &value);
         return minimum(ui_rect_width(command.rectangle) * 0.25f, (measured ? value.size.width : text.bytes * 7.f) + 2);
     };
     const float prefix_width = decoration ? decoration_width(decoration->name_prefix, 0x4850) : 0.0f;
@@ -81,16 +89,7 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
     UiTextMeasureValue measured{};
     const TextStyleSpan bold{0, name.bytes, text_style_bold};
     const bool have_measure =
-        cache && ui_text_measure_cache_measure(
-                     cache,
-                     {{record->author_id, hash64_bytes(kHash64Seed, name.data, name.bytes), 0, 0x4844, 0},
-                      name,
-                      {&bold, 1},
-                      {name_limit, 64},
-                      true,
-                      face},
-                     &measured)
-                     .ok();
+        measure_author_text(cache, record->author_id, name, {&bold, 1}, name_limit, 0x4844, face, &measured);
     auto bounds = command.rectangle;
     if (prefix_width) {
         const Color color = message_author_decoration_color(theme, decoration->name_tone, command.color);
@@ -231,19 +230,6 @@ MessageProfileHit message_author_compact_hit(const MessageScene& scene, const Me
     const Utf8View name{command.text.data + command.styles[name_span].byte_offset, command.styles[name_span].byte_count};
     if (!record || !record->author_id || !name.bytes)
         return {};
-    const auto width = [&](Utf8View text, u32 flags, u16 salt, UiTextMeasureValue* value) noexcept {
-        const TextStyleSpan span{0, text.bytes, flags};
-        return cache && ui_text_measure_cache_measure(
-                            cache,
-                            {{record->author_id, hash64_bytes(kHash64Seed, text.data, text.bytes), 0, salt, 0},
-                             text,
-                             {&span, 1},
-                             {maximum(1.f, ui_rect_width(command.rectangle)), 64},
-                             true,
-                             ui_text_face_chat(UiTextFace::normal)},
-                            value)
-                            .ok();
-    };
     auto bounds = command.rectangle;
     // A leading avatar cell (hair space, em space) is part of the click target, as the client's compact avatar opens
     // the profile too.
@@ -255,22 +241,19 @@ MessageProfileHit message_author_compact_hit(const MessageScene& scene, const Me
         UiTextMeasureValue prefix{};
         const Utf8View lead{command.text.data, lead_bytes};
         const bool measured_lead =
-            cache && ui_text_measure_cache_measure(
-                         cache,
-                         {{record->author_id, hash64_bytes(kHash64Seed, lead.data, lead.bytes), 0, 0x4851, 0},
-                          lead,
-                          {command.styles.data, name_span},
-                          {maximum(1.f, ui_rect_width(command.rectangle)), 64},
-                          true,
-                          ui_text_face_chat(UiTextFace::normal)},
-                         &prefix)
-                         .ok();
+            measure_author_text(cache, record->author_id, lead, {command.styles.data, name_span},
+                                maximum(1.f, ui_rect_width(command.rectangle)), 0x4851,
+                                ui_text_face_chat(UiTextFace::normal), &prefix);
         name_left = minimum(bounds.right, bounds.left + (measured_lead ? prefix.size.width : lead.bytes * 7.f));
     }
     if (!avatar)
         bounds.left = name_left;
     UiTextMeasureValue measured{};
-    const bool have_measure = width(name, text_style_bold, 0x4843, &measured);
+    const TextStyleSpan bold{0, name.bytes, text_style_bold};
+    const bool have_measure =
+        measure_author_text(cache, record->author_id, name, {&bold, 1},
+                            maximum(1.f, ui_rect_width(command.rectangle)), 0x4843,
+                            ui_text_face_chat(UiTextFace::normal), &measured);
     bounds.right = minimum(bounds.right, name_left + (have_measure ? measured.size.width + 2 : name.bytes * 8.f));
     bounds.bottom = minimum(bounds.bottom, bounds.top + (have_measure ? measured.size.height : 20.f));
     if (!ui_rect_contains(ui_rect_intersection(bounds, command.clip), x, y))

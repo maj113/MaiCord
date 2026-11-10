@@ -1,5 +1,6 @@
 #include "page_common.hpp"
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/core/name_list.hpp"
 
 // AutoMod: the server's rules by trigger, in the official page's sections
 // (Members, Content), each set up, edited, switched on or off and deleted in
@@ -89,57 +90,53 @@ enum : u64 {
 constexpr u8 kTriggers[]{automod_trigger_member_profile, automod_trigger_mention_spam, automod_trigger_spam,
                          automod_trigger_keyword_preset, automod_trigger_keyword};
 constexpr u32 kDurations[]{60, 300, 600, 3'600, 86'400, 604'800};
-constexpr Utf8View kDurationNames[]{utf8_literal("60 seconds"), utf8_literal("5 minutes"), utf8_literal("10 minutes"),
-                                    utf8_literal("1 hour"),     utf8_literal("1 day"),     utf8_literal("1 week")};
+constexpr char kDurationNames[] = "60 seconds\0" "5 minutes\0" "10 minutes\0" "1 hour\0" "1 day\0" "1 week\0";
 
 AutoModState* am() noexcept {
     return owner->automod;
 }
 
-Utf8View trigger_name(u8 trigger) noexcept {
+const char* trigger_name(u8 trigger) noexcept {
     switch (trigger) {
-    case automod_trigger_keyword: return utf8_literal("Block Custom Words");
-    case automod_trigger_spam: return utf8_literal("Block Suspected Spam Content");
-    case automod_trigger_keyword_preset: return utf8_literal("Block Commonly Flagged Words");
-    case automod_trigger_mention_spam: return utf8_literal("Block Mention Spam");
-    case automod_trigger_member_profile: return utf8_literal("Block Words in Member Profile Names");
-    default: return utf8_literal("Other Rule");
+    case automod_trigger_keyword: return "Block Custom Words";
+    case automod_trigger_spam: return "Block Suspected Spam Content";
+    case automod_trigger_keyword_preset: return "Block Commonly Flagged Words";
+    case automod_trigger_mention_spam: return "Block Mention Spam";
+    case automod_trigger_member_profile: return "Block Words in Member Profile Names";
+    default: return "Other Rule";
     }
 }
-Utf8View trigger_description(u8 trigger) noexcept {
+const char* trigger_description(u8 trigger) noexcept {
     switch (trigger) {
-    case automod_trigger_keyword: return utf8_literal("Create your own filter to block specific language from your server.");
+    case automod_trigger_keyword: return "Create your own filter to block specific language from your server.";
     case automod_trigger_spam:
-        return utf8_literal("Monitor messages, Forum posts and threads for potentially spammy content or activity. "
-                            "(Support for English only)");
+        return "Monitor messages, Forum posts and threads for potentially spammy content or activity. (Support for "
+               "English only)";
     case automod_trigger_keyword_preset:
-        return utf8_literal("Flag messages that contain profanity and more. (Support for English only)");
-    case automod_trigger_mention_spam: return utf8_literal("Block messages with an excessive # of role and user mentions");
-    case automod_trigger_member_profile: return utf8_literal("Block specific language in your members’ usernames.");
-    default: return utf8_literal("This rule is managed by Discord or an app.");
+        return "Flag messages that contain profanity and more. (Support for English only)";
+    case automod_trigger_mention_spam: return "Block messages with an excessive # of role and user mentions";
+    case automod_trigger_member_profile: return "Block specific language in your members’ usernames.";
+    default: return "This rule is managed by Discord or an app.";
     }
 }
 Utf8View action_name(u32 bit) noexcept {
-    static constexpr Utf8View names[]{utf8_literal("Block message"), utf8_literal("Send alert"),
-                                      utf8_literal("Time out member"), utf8_literal("Block member interactions")};
-    return names[bit];
+    return name_list_at("Block message\0" "Send alert\0" "Time out member\0" "Block member interactions", bit);
 }
-Utf8View action_description(u32 bit, u8 trigger) noexcept {
+const char* action_description(u32 bit, u8 trigger) noexcept {
     switch (bit) {
     case 0:
-        return trigger == automod_trigger_mention_spam ? utf8_literal("Block messages with an excessive # of unique mentions.")
-               : trigger == automod_trigger_spam
-                   ? utf8_literal("Block messages with spam-like content from being posted.")
-                   : utf8_literal("Block messages containing these words from being posted.");
-    case 1: return utf8_literal("Sends an alert containing the flagged message to a chosen channel.");
-    case 2: return utf8_literal("Temporarily disables a member’s ability to send messages or join voice channels.");
-    default: return utf8_literal("Prevents a member from using text, voice or other interactions.");
+        return trigger == automod_trigger_mention_spam ? "Block messages with an excessive # of unique mentions."
+               : trigger == automod_trigger_spam       ? "Block messages with spam-like content from being posted."
+                                                       : "Block messages containing these words from being posted.";
+    case 1: return "Sends an alert containing the flagged message to a chosen channel.";
+    case 2: return "Temporarily disables a member’s ability to send messages or join voice channels.";
+    default: return "Prevents a member from using text, voice or other interactions.";
     }
 }
 Utf8View duration_name(u32 seconds) noexcept {
     for (u32 i = 0; i < 6; ++i)
         if (kDurations[i] == seconds)
-            return kDurationNames[i];
+            return name_list_at(kDurationNames, i);
     return {};
 }
 bool can_moderate() noexcept {
@@ -209,7 +206,7 @@ void start_edit(const AutoModRule* rule, u8 trigger) noexcept {
             d.mention_limit = kAutoModMentionLimitDefault;
             d.raid = community();
         }
-        name = trigger_name(trigger);
+        name = text_view(trigger_name(trigger));
         const u32 existing = rules_of(trigger);
         if (existing) {
             Bank bank{s.base_name, sizeof(s.base_name), 0};
@@ -317,30 +314,29 @@ void rule_write(const AutoModRule& r, bool enabled, AutoModRuleWrite* w) noexcep
     w->enabled = enabled;
 }
 
-Utf8View problem_text(AutoModRuleProblem problem) noexcept {
+const char* problem_text(AutoModRuleProblem problem) noexcept {
     using P = AutoModRuleProblem;
     switch (problem) {
-    case P::none: return {};
-    case P::name: return utf8_literal("Enter a rule name.");
-    case P::keyword_required: return utf8_literal("Please enter at least one keyword or one regex pattern.");
-    case P::keyword_count: return utf8_literal("Please enter no more than 1000 keywords.");
-    case P::keyword_length: return utf8_literal("Keywords must be between 1 and 60 characters.");
-    case P::regex_count: return utf8_literal("Please enter no more than 10 regex patterns.");
-    case P::regex_length: return utf8_literal("Regex patterns must be between 1 and 260 characters.");
+    case P::none: return nullptr;
+    case P::name: return "Enter a rule name.";
+    case P::keyword_required: return "Please enter at least one keyword or one regex pattern.";
+    case P::keyword_count: return "Please enter no more than 1000 keywords.";
+    case P::keyword_length: return "Keywords must be between 1 and 60 characters.";
+    case P::regex_count: return "Please enter no more than 10 regex patterns.";
+    case P::regex_length: return "Regex patterns must be between 1 and 260 characters.";
     case P::allow_count:
-        return am()->editing_trigger == automod_trigger_keyword_preset
-                   ? utf8_literal("Please enter no more than 1000 allowed words.")
-                   : utf8_literal("Please enter no more than 100 allowed words.");
-    case P::allow_length: return utf8_literal("Allowed words must be between 1 and 60 characters.");
-    case P::mention_limit: return utf8_literal("Enter a number between 1 and 50.");
-    case P::action_required: return utf8_literal("Please add at least one action to this rule.");
-    case P::alert_channel: return utf8_literal("Please select a channel.");
-    case P::timeout: return utf8_literal("Choose a timeout duration.");
-    case P::custom_message: return utf8_literal("Custom messages hold at most 300 characters.");
-    case P::exemptions: return utf8_literal("Up to 20 roles and 50 channels can be allowed.");
+        return am()->editing_trigger == automod_trigger_keyword_preset ? "Please enter no more than 1000 allowed words."
+                                                                       : "Please enter no more than 100 allowed words.";
+    case P::allow_length: return "Allowed words must be between 1 and 60 characters.";
+    case P::mention_limit: return "Enter a number between 1 and 50.";
+    case P::action_required: return "Please add at least one action to this rule.";
+    case P::alert_channel: return "Please select a channel.";
+    case P::timeout: return "Choose a timeout duration.";
+    case P::custom_message: return "Custom messages hold at most 300 characters.";
+    case P::exemptions: return "Up to 20 roles and 50 channels can be allowed.";
     default:
-        return am()->editing_trigger == automod_trigger_keyword_preset ? utf8_literal("Select the type of language.")
-                                                                       : utf8_literal("This rule can't be saved.");
+        return am()->editing_trigger == automod_trigger_keyword_preset ? "Select the type of language."
+                                                                       : "This rule can't be saved.";
     }
 }
 
@@ -369,9 +365,9 @@ Utf8View actions_text(Bank& bank, const AutoModRule& r) noexcept {
     return bank.since(start);
 }
 
-Utf8View list_count(Bank& bank, const Utf8View& prefix, u32 count, u32 maximum) noexcept {
+Utf8View list_count(Bank& bank, Text prefix, u32 count, u32 maximum) noexcept {
     const u32 start = bank.used;
-    bank.add(prefix);
+    bank.add(text_view(prefix));
     bank.number(count);
     bank.add(" / ");
     bank.number(maximum);
@@ -410,109 +406,94 @@ void project_editor(Bank& bank) noexcept {
         push_category(control_editing, bank.since(start));
     }
     if (trigger == automod_trigger_keyword)
-        push_editor(control_name, utf8_literal("Rule Name"), {}, UiSettingsControlKind::edit, edit, editor_name,
-                    utf8_literal("Enter a rule name"));
+        push_editor(control_name, "Rule Name", {}, UiSettingsControlKind::edit, edit, editor_name, "Enter a rule name");
     AutoModList list{};
     const bool words = trigger == automod_trigger_keyword || trigger == automod_trigger_member_profile;
     if (words) {
-        push_category(control_words_heading, utf8_literal("Choose your words"));
+        push_category(control_words_heading, "Choose your words");
         automod_split_keywords(editor_text(editor_words), {s.words, kWordsBytes}, &list);
-        push_editor(control_words,
-                    list_count(bank, utf8_literal("Block words — "), list.count, kAutoModKeywordMaximum),
-                    utf8_literal("Separate words or phrases with a comma (dog, cat, tiger) or new line. For each word, "
-                                 "use * at the beginning, end or both for partial matching."),
-                    UiSettingsControlKind::multiline, edit, editor_words,
-                    utf8_literal("Enter 1 or more words or phrases"));
+        push_editor(control_words, list_count(bank, "Block words — ", list.count, kAutoModKeywordMaximum),
+                    "Separate words or phrases with a comma (dog, cat, tiger) or new line. For each word, use * at the "
+                    "beginning, end or both for partial matching.",
+                    UiSettingsControlKind::multiline, edit, editor_words, "Enter 1 or more words or phrases");
         automod_split_lines(editor_text(editor_patterns), {s.patterns, kPatternsBytes}, &list);
         push_editor(control_patterns,
-                    list_count(bank, utf8_literal("Use regex patterns for advanced matching (optional) — "), list.count,
+                    list_count(bank, "Use regex patterns for advanced matching (optional) — ", list.count,
                                kAutoModRegexMaximum),
-                    utf8_literal("Use a new line for each regex pattern. Case-insensitive and global flags are applied "
-                                 "by default (and other flags are not supported)."),
-                    UiSettingsControlKind::multiline, edit, editor_patterns, utf8_literal("^b(a|@)d$"));
+                    "Use a new line for each regex pattern. Case-insensitive and global flags are applied by default "
+                    "(and other flags are not supported).",
+                    UiSettingsControlKind::multiline, edit, editor_patterns, "^b(a|@)d$");
     }
     if (trigger == automod_trigger_keyword_preset) {
-        push_category(control_presets_heading, utf8_literal("Select the type of language"));
-        static constexpr Utf8View names[]{utf8_literal("Severe Profanity"), utf8_literal("Sexual Content"),
-                                          utf8_literal("Insults & Slurs")};
-        static constexpr Utf8View descriptions[]{
-            utf8_literal("Extreme forms of swearing or cursing"),
-            utf8_literal("Terms that refer to sexually explicit behaviour or activity"),
-            utf8_literal("Personally insulting terms and terms that may be considered hate speech")};
-        for (u32 i = 0; i < 3; ++i)
-            push_row(control_preset + i, names[i], descriptions[i], UiSettingsControlKind::toggle, edit,
-                     (d.presets & (1u << i)) != 0);
+        push_category(control_presets_heading, "Select the type of language");
+        push_toggle(control_preset, "Severe Profanity", "Extreme forms of swearing or cursing", edit,
+                    (d.presets & 1u) != 0);
+        push_toggle(control_preset + 1, "Sexual Content", "Terms that refer to sexually explicit behaviour or activity",
+                    edit, (d.presets & 2u) != 0);
+        push_toggle(control_preset + 2, "Insults & Slurs",
+                    "Personally insulting terms and terms that may be considered hate speech", edit,
+                    (d.presets & 4u) != 0);
     }
     if (words || trigger == automod_trigger_keyword_preset) {
         automod_split_keywords(editor_text(editor_allowed), {s.allowed, kWordsBytes}, &list);
         push_editor(control_allowed,
-                    list_count(bank, utf8_literal("Allow words and phrases (optional) — "), list.count,
+                    list_count(bank, "Allow words and phrases (optional) — ", list.count,
                                trigger == automod_trigger_keyword_preset ? kAutoModAllowPresetMaximum
                                                                          : kAutoModAllowKeywordMaximum),
-                    utf8_literal("Add words or phrases members are allowed to use, separated by a comma (cat, happy "
-                                 "puppy, cookie)"),
-                    UiSettingsControlKind::multiline, edit, editor_allowed, utf8_literal("cat, happy puppy, cookie"));
+                    "Add words or phrases members are allowed to use, separated by a comma (cat, happy puppy, cookie)",
+                    UiSettingsControlKind::multiline, edit, editor_allowed, "cat, happy puppy, cookie");
     }
     if (trigger == automod_trigger_mention_spam) {
         static Utf8View limits[kAutoModMentionLimitMaximum];
         for (u32 i = 0; i < kAutoModMentionLimitMaximum; ++i)
             limits[i] = bank.number(i + 1);
-        push_choices(control_mention_limit, utf8_literal("Unique mentions (role + user) per message"),
-                     utf8_literal("Limit the number of unique mentions in each message."),
-                     UiSettingsControlKind::slider, edit, {limits, kAutoModMentionLimitMaximum},
-                     d.mention_limit ? d.mention_limit - 1u : 0u);
-        push_row(control_raid, utf8_literal("Enable mention raid detection"),
-                 utf8_literal("Allow automatic detection of mention raids in the server."), UiSettingsControlKind::toggle,
-                 edit, d.raid);
+        push_choices(control_mention_limit, "Unique mentions (role + user) per message",
+                     "Limit the number of unique mentions in each message.", UiSettingsControlKind::slider, edit,
+                     {limits, kAutoModMentionLimitMaximum}, d.mention_limit ? d.mention_limit - 1u : 0u);
+        push_toggle(control_raid, "Enable mention raid detection",
+                    "Allow automatic detection of mention raids in the server.", edit, d.raid);
     }
-    push_category(control_response_heading, utf8_literal("Choose a response"));
+    push_category(control_response_heading, "Choose a response");
     const u8 allowed = automod_actions_allowed(trigger);
     for (u32 bit = 0; bit < 4; ++bit) {
         if (!(allowed & (1u << bit)))
             continue;
         const bool needs_moderate = bit >= 2;
         const bool permitted = !needs_moderate || can_moderate();
-        push_row(control_action + bit, action_name(bit),
-                 permitted ? action_description(bit, trigger)
-                           : utf8_literal("Time out Members permission is required to configure this action."),
-                 UiSettingsControlKind::toggle, edit && permitted, (d.actions & (1u << bit)) != 0);
+        push_toggle(control_action + bit, action_name(bit),
+                    permitted ? action_description(bit, trigger)
+                              : "Time out Members permission is required to configure this action.",
+                    edit && permitted, (d.actions & (1u << bit)) != 0);
         if (!(d.actions & (1u << bit)))
             continue;
-        if (bit == 0)
-            push_row(control_custom_message, utf8_literal("Custom message"),
-                     d.custom_message_bytes ? Utf8View{d.custom_message, d.custom_message_bytes}
-                                            : utf8_literal("Shown to members whenever their message is blocked."),
-                     UiSettingsControlKind::action, edit, false, utf8_literal("Edit Custom Message"));
-        else if (bit == 1) {
-            static Utf8View channel[1];
-            channel[0] = channel_label(bank, d.alert_channel, utf8_literal("Select a text channel"));
-            push_choices(control_alert_channel, utf8_literal("Alert channel"),
-                         utf8_literal("Anyone with access to this text channel will see the alert."),
-                         UiSettingsControlKind::choice, edit, {channel, 1});
-        } else if (bit == 2) {
-            static Utf8View duration[1];
-            duration[0] = d.timeout_seconds ? duration_name(d.timeout_seconds) : utf8_literal("Choose duration");
-            push_choices(control_timeout_duration, utf8_literal("Timeout duration"),
-                         utf8_literal("Members in timeout are temporarily not allowed to chat, react in text channels "
-                                      "or connect to voice or Stage channels."),
-                         UiSettingsControlKind::choice, edit, {duration, 1});
+        if (bit == 0) {
+            const Utf8View message{d.custom_message, d.custom_message_bytes};
+            push_action(control_custom_message, "Custom message",
+                        message.bytes ? Text(message) : Text("Shown to members whenever their message is blocked."),
+                        "Edit Custom Message", edit);
+        } else if (bit == 1)
+            push_choice(control_alert_channel, "Alert channel",
+                        "Anyone with access to this text channel will see the alert.", edit,
+                        channel_label(bank, d.alert_channel, "Select a text channel"));
+        else if (bit == 2) {
+            const Utf8View duration = d.timeout_seconds ? duration_name(d.timeout_seconds) : Utf8View{};
+            push_choice(control_timeout_duration, "Timeout duration",
+                        "Members in timeout are temporarily not allowed to chat, react in text channels or connect to "
+                        "voice or Stage channels.",
+                        edit, d.timeout_seconds ? Text(duration) : Text("Choose duration"));
         }
     }
-    push_category(control_exempt_heading, utf8_literal("Allow certain roles or channels (optional)"),
-                  utf8_literal("Pssst – members with Admin and Manage Server permissions are always excluded from "
-                               "filter rules."));
-    push_row(control_exempt_roles, utf8_literal("Roles"), ids_text(bank, d.exempt_roles, d.exempt_role_count, true),
-             UiSettingsControlKind::action, edit, false, utf8_literal("Edit Roles"));
+    push_category(control_exempt_heading, "Allow certain roles or channels (optional)",
+                  "Pssst – members with Admin and Manage Server permissions are always excluded from filter rules.");
+    push_action(control_exempt_roles, "Roles", ids_text(bank, d.exempt_roles, d.exempt_role_count, true), "Edit Roles",
+                edit);
     if (trigger != automod_trigger_member_profile)
-        push_row(control_exempt_channels, utf8_literal("Channels"),
-                 ids_text(bank, d.exempt_channels, d.exempt_channel_count, false), UiSettingsControlKind::action, edit,
-                 false, utf8_literal("Edit Channels"));
-    static constexpr Utf8View kButtons[]{utf8_literal("Cancel"), utf8_literal("Delete Rule")};
+        push_action(control_exempt_channels, "Channels",
+                    ids_text(bank, d.exempt_channels, d.exempt_channel_count, false), "Edit Channels", edit);
     // The mention spam rule of a community server can only be disabled.
     const bool deletable = s.editing_id && !(trigger == automod_trigger_mention_spam && community());
-    push_choices(control_editor_buttons, utf8_literal("Done with this rule?"),
-                 utf8_literal("Save keeps your changes; Cancel discards them."), UiSettingsControlKind::buttons, !busy(),
-                 {kButtons, deletable ? 2u : 1u});
+    push_buttons(control_editor_buttons, "Done with this rule?", "Save keeps your changes; Cancel discards them.",
+                 !busy(), "Cancel\0Delete Rule", deletable ? 2u : 1u);
 }
 
 void project_rule(Bank& bank, u32 index) noexcept {
@@ -527,29 +508,25 @@ void project_rule(Bank& bank, u32 index) noexcept {
     if (r.trigger_type == automod_trigger_keyword) {
         bank.add(" (");
         bank.number(r.keyword_count);
-        bank.add(r.keyword_count == 1 ? utf8_literal(" word") : utf8_literal(" words"));
+        bank.add(text_view(r.keyword_count == 1 ? " word" : " words"));
         if (r.regex_count) {
             bank.add(", ");
             bank.number(r.regex_count);
-            bank.add(r.regex_count == 1 ? utf8_literal(" regex") : utf8_literal(" regexes"));
+            bank.add(text_view(r.regex_count == 1 ? " regex" : " regexes"));
         }
         bank.add(")");
     }
     const Utf8View label = bank.since(start);
     start = bank.used;
-    bank.add(r.enabled ? utf8_literal("On · ") : utf8_literal("Off · "));
+    bank.add(text_view(r.enabled ? "On · " : "Off · "));
     actions_text(bank, r);
     const Utf8View description = bank.since(start);
     const bool deletable = !(r.trigger_type == automod_trigger_mention_spam && community());
-    static constexpr Utf8View kOn[]{utf8_literal("Edit"), utf8_literal("Disable"), utf8_literal("Delete Rule")};
-    static constexpr Utf8View kOff[]{utf8_literal("Edit"), utf8_literal("Enable"), utf8_literal("Delete Rule")};
-    static constexpr Utf8View kForeign[]{utf8_literal("Delete Rule")};
     if (r.foreign)
-        push_choices(kRowBase + index, label, trigger_description(r.trigger_type), UiSettingsControlKind::buttons,
-                     editable(), {kForeign, 1});
+        push_buttons(kRowBase + index, label, trigger_description(r.trigger_type), editable(), "Delete Rule", 1);
     else
-        push_choices(kRowBase + index, label, description, UiSettingsControlKind::buttons, editable() && !s.editing,
-                     {r.enabled ? kOn : kOff, deletable ? 3u : 2u});
+        push_buttons(kRowBase + index, label, description, editable() && !s.editing,
+                     r.enabled ? "Edit\0Disable\0Delete Rule" : "Edit\0Enable\0Delete Rule", deletable ? 3u : 2u);
 }
 
 void project(Bank& bank) noexcept {
@@ -558,24 +535,23 @@ void project(Bank& bank) noexcept {
     auto& s = *am();
     // In a community server AutoMod is a part of Safety Setup.
     if (community() && page_allowed(Page::safety))
-        push_row(control_safety_back, utf8_literal("Safety Setup"), utf8_literal("AutoMod"),
-                 UiSettingsControlKind::action, true, false, utf8_literal("Back"));
-    push_notice(utf8_literal("Give your mods a break while keeping your server safe! Set up filters to moderate content "
-                             "and automate a custom response when they’re found and AutoMod will make it happen."));
+        push_action(control_safety_back, "Safety Setup", "AutoMod", "Back");
+    push_notice("Give your mods a break while keeping your server safe! Set up filters to moderate content and "
+                "automate a custom response when they’re found and AutoMod will make it happen.");
     if (s.failed) {
-        push_load_error(utf8_literal("Couldn't load AutoMod rules"));
+        push_load_error("Couldn't load AutoMod rules");
         return;
     }
     if (!s.loaded) {
-        push_loading(utf8_literal("Loading AutoMod rules…"), control_loading);
+        push_loading("Loading AutoMod rules…", control_loading);
         return;
     }
     push_status_error();
     for (const u8 trigger : kTriggers) {
         if (trigger == automod_trigger_member_profile)
-            push_category(control_section_members, utf8_literal("Members"));
+            push_category(control_section_members, "Members");
         else if (trigger == automod_trigger_mention_spam)
-            push_category(control_section_content, utf8_literal("Content"));
+            push_category(control_section_content, "Content");
         u32 count = 0;
         for (u32 i = 0; i < s.rule_count; ++i)
             if (s.rules[i].trigger_type == trigger) {
@@ -583,17 +559,14 @@ void project(Bank& bank) noexcept {
                 ++count;
             }
         const bool editing_new = s.editing && !s.editing_id && s.editing_trigger == trigger;
-        static constexpr Utf8View kSetUp[]{utf8_literal("Set Up")};
-        static constexpr Utf8View kCreate[]{utf8_literal("Create")};
         if (!count && !editing_new)
-            push_choices(control_setup + trigger, trigger_name(trigger), trigger_description(trigger),
-                         UiSettingsControlKind::buttons, editable() && !s.editing, {kSetUp, 1});
+            push_buttons(control_setup + trigger, trigger_name(trigger), trigger_description(trigger),
+                         editable() && !s.editing, "Set Up", 1);
         else if (count && !editing_new && count < automod_rule_maximum(trigger)) {
             const u32 start = bank.used;
             bank.add("Create ");
-            bank.add(trigger_name(trigger));
-            push_choices(control_create + trigger, bank.since(start), {}, UiSettingsControlKind::buttons,
-                         editable() && !s.editing, {kCreate, 1});
+            bank.add(text_view(trigger_name(trigger)));
+            push_buttons(control_create + trigger, bank.since(start), {}, editable() && !s.editing, "Create", 1);
         }
         if (editing_new)
             project_editor(bank);
@@ -607,7 +580,7 @@ void project(Bank& bank) noexcept {
         if (listed)
             continue;
         if (!other)
-            push_category(control_section_content + 100, utf8_literal("Other rules"));
+            push_category(control_section_content + 100, "Other rules");
         other = true;
         project_rule(bank, i);
     }
@@ -643,14 +616,11 @@ bool form_saved(TextFormOwnerKey key, Utf8View text) noexcept {
 void open_custom_message() noexcept {
     auto& d = am()->draft;
     ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Edit Custom Message");
-    request.context = utf8_literal("Your custom message will be shown when AutoMod blocks a member’s message. This is a "
-                                   "chance to help members understand your server’s guidelines!");
-    request.label = utf8_literal("Custom message");
-    request.accept = utf8_literal("Save");
+    fill_form(request, "Edit Custom Message",
+              "Your custom message will be shown when AutoMod blocks a member’s message. This is a chance to help "
+              "members understand your server’s guidelines!",
+              "Custom message", "Save", kAutoModCustomMessageCodepoints, kAutoModCustomMessageBytes);
     request.initial = {d.custom_message, d.custom_message_bytes};
-    request.maximum_codepoints = kAutoModCustomMessageCodepoints;
-    request.maximum_bytes = kAutoModCustomMessageBytes;
     request.owner = form_key(form_custom_message, 0);
     request.valid = form_valid;
     request.save = form_saved;
@@ -662,8 +632,7 @@ void confirm_delete(const AutoModRule& r) noexcept {
     bank.add("Are you sure you want to remove the ‘");
     bank.add({r.name, r.name_bytes});
     bank.add("’ AutoMod rule?");
-    open_confirmation(form_rule_delete, r.id, utf8_literal("Delete Rule"), bank.since(0),
-                      utf8_literal("Delete Rule"), form_saved);
+    open_confirmation(form_rule_delete, r.id, "Delete Rule", bank.since(0), "Delete Rule", form_saved);
 }
 
 bool contains(const u64* ids, u32 count, u64 id) noexcept {
@@ -690,8 +659,8 @@ void open_menu(Pending kind, const UiRect& anchor) noexcept {
     auto& d = am()->draft;
     u32 count = 0;
     if (kind == Pending::duration) {
-        for (u32 i = 0; i < 6; ++i)
-            popup_row(count++, kDurationNames[i], i, kDurations[i] == d.timeout_seconds ? popup_item_checked : 0);
+        for (NameList names{kDurationNames}; names; names.next(), ++count)
+            popup_row(count, names.name(), count, kDurations[count] == d.timeout_seconds ? popup_item_checked : 0);
     } else if (kind == Pending::exempt_roles) {
         const RoleRecord* roles[kGuildRoleMaximum];
         const u32 total = guild_settings_sorted_roles(state(), p.guild_id, {roles, kGuildRoleMaximum});
@@ -722,8 +691,7 @@ void open_menu(Pending kind, const UiRect& anchor) noexcept {
     if (!count)
         return;
     am()->menu = kind;
-    p.menu = Menu::automation;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 280);
+    open_popup(Menu::automation, p.guild_id, count, anchor, 280);
 }
 
 void editor_activate(const SettingsLayerActivation& activation) noexcept {
@@ -754,7 +722,7 @@ void editor_activate(const SettingsLayerActivation& activation) noexcept {
         return;
     } else if (id == control_alert_channel) {
         s.menu = Pending::alert_channel;
-        open_channel_menu(Menu::automation, (1u << 0) | (1u << 5), d.alert_channel, utf8_literal("Select a text channel"),
+        open_channel_menu(Menu::automation, (1u << 0) | (1u << 5), d.alert_channel, "Select a text channel",
                           kPermissionViewChannel, activation.anchor);
         return;
     } else if (id == control_timeout_duration) {
@@ -871,17 +839,17 @@ bool dirty() noexcept {
     return am() && editing_dirty();
 }
 
-Utf8View invalid() noexcept {
+const char* invalid() noexcept {
     if (!am() || !am()->editing)
-        return {};
+        return nullptr;
     AutoModRuleWrite w{};
     if (!draft_write(&w))
-        return utf8_literal("A word box holds more than its list can take.");
+        return "A word box holds more than its list can take.";
     return problem_text(automod_rule_problem(w));
 }
 
 bool can_save() noexcept {
-    return dirty() && !invalid().bytes;
+    return dirty() && !invalid();
 }
 
 Op next_save() noexcept {

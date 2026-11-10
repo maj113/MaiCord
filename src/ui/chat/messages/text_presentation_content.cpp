@@ -81,9 +81,6 @@ u16 identify_rich_source(const BuildContext& context, const Utf8View& source) no
 
 bool spoiler_revealed(void* opaque, u32 source_offset) noexcept {
     auto* context = static_cast<BuildContext*>(opaque);
-    if (!context || !context->presentation || !context->message) {
-        return false;
-    }
     context->trace.spoilers = true;
     const MessageTextPresentation& presentation = *context->presentation;
     if (presentation.reveal_spoilers)
@@ -128,8 +125,7 @@ bool compact_content(MessageTextPresentation* presentation, BuildContext* contex
     const u32 prefix = lead + name.bytes + tail + 1u;
     const u32 leading_spans = 1u + (name_prefix.bytes ? 1u : 0u) + (tail ? 1u : 0u);
     const u32 leading_semantics = (avatar ? 1u : 0u) + (dot ? 1u : 0u);
-    if (presentation->utf8_count > presentation->utf8.count ||
-        prefix > presentation->utf8.count - presentation->utf8_count ||
+    if (prefix > presentation->utf8.count - presentation->utf8_count ||
         leading_spans > presentation->styles.count - presentation->style_count ||
         leading_semantics > presentation->semantics.count - presentation->semantic_count) {
         return fail(presentation, MessageTextPresentationError::capacity);
@@ -286,13 +282,7 @@ bool append_edited_label(MessageTextPresentation* presentation, u64 edited_unix_
 bool parse_content(MessageTextPresentation* presentation, BuildContext* context, const Utf8View& source,
                    Utf8View* text, ConstSlice<TextStyleSpan>* styles,
                    ConstSlice<MessageMarkdownSemantic>* semantics, u32 base_style, u8 base_size) noexcept {
-    if (!presentation || !context || !text || !styles || !semantics) {
-        return fail(presentation, MessageTextPresentationError::model);
-    }
-    if (presentation->utf8_count > presentation->utf8.count ||
-        presentation->style_count > presentation->styles.count ||
-        presentation->semantic_count > presentation->semantics.count ||
-        source.bytes > presentation->measurement_history_offset) {
+    if (source.bytes > presentation->measurement_history_offset) {
         return fail(presentation, MessageTextPresentationError::capacity);
     }
     const u32 text_begin = presentation->utf8_count;
@@ -510,10 +500,7 @@ bool append_rich_markdown_line(BuildContext* context, const Utf8View& source, Ui
                                const UiWidgetReference& owner, u16 measurement_index,
                                MessageTextMeasurementKind measurement_kind, float gap_after,
                                u32 base_style, u8 base_size) noexcept {
-    MessageTextPresentation* const presentation = context ? context->presentation : nullptr;
-    if (!presentation || !context->message || !flow || (!source.data && source.bytes != 0)) {
-        return fail(presentation, MessageTextPresentationError::model);
-    }
+    MessageTextPresentation* const presentation = context->presentation;
     if (source.bytes == 0) {
         return true;
     }
@@ -602,9 +589,7 @@ bool append_embed_plain_line(BuildContext* context, const Utf8View& text, UiText
                              const UiWidgetReference& owner, u16 measurement_index, u32 flags,
                              const Utf8View& link, u16 link_source, float minimum_height,
                              u16 source_id, u8 size) noexcept {
-    MessageTextPresentation* const presentation = context ? context->presentation : nullptr;
-    if (!presentation || !context->message || !flow || (!text.data && text.bytes != 0))
-        return fail(presentation, MessageTextPresentationError::model);
+    MessageTextPresentation* const presentation = context->presentation;
     if (text.bytes == 0)
         return true;
     const bool linked = link.bytes != 0 && link_source != 0 && link.bytes <= 0xFFFFu;
@@ -691,10 +676,7 @@ bool append_embed_fields(BuildContext* context, const MessageRichStore& store, c
                          const MessageRichEmbed& embed, UiTextFlowLayout* flow, const Color& name_color,
                          const Color& value_color, const UiWidgetReference& owner, u16 measurement_index,
                          float* natural_width, bool markdown) noexcept {
-    MessageTextPresentation* const presentation = context ? context->presentation : nullptr;
-    if (!presentation || !flow) {
-        return false;
-    }
+    MessageTextPresentation* const presentation = context->presentation;
     const u32 field_end =
         minimum(static_cast<u32>(rich.embed_field_count),
                 static_cast<u32>(embed.field_begin) + static_cast<u32>(embed.field_count));

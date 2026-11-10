@@ -5,6 +5,7 @@
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/widgets/color_picker.hpp"
+#include "maicord/ui/widgets/badge.hpp"
 #include "../../shell/state.hpp"
 
 // Server Settings > Server Tag: the tag fields of PATCH /guilds/{g}/profile
@@ -66,15 +67,25 @@ UiIcon badge_icon(u8 type) noexcept {
 
 // The badge in a pair of colours: a two-colour badge fills with the primary
 // and outlines with the secondary; a one-colour badge outlines with a darker
-// shade of its colour.
-UiSettingsGlyphTile badge_tile(u8 type, u32 primary, u32 secondary, UiIcon mark = UiIcon::count) noexcept {
+// shade of its colour. The badge the server has saved, in its saved colours,
+// is the server's own image of it instead (the one on a name tag chip when
+// `chip`), until that picture is held the glyph shows; a tile with a corner
+// mark keeps its glyph, which the picture would cover.
+UiSettingsGlyphTile badge_tile(u8 type, u32 primary, u32 secondary, UiIcon mark = UiIcon::count,
+                               bool chip = false) noexcept {
     const auto* badge = guild_tag_badge(type);
     const auto shade = [](u32 rgb) noexcept {
         const u32 r = (rgb >> 16 & 0xff) * 3 / 5, g = (rgb >> 8 & 0xff) * 3 / 5, b = (rgb & 0xff) * 3 / 5;
         return r << 16 | g << 8 | b;
     };
     const bool two = badge && badge->tints > 1;
-    return {two ? secondary : shade(primary), primary, badge_icon(type), mark};
+    UiSettingsGlyphTile tile{two ? secondary : shade(primary), primary, badge_icon(type), mark};
+    const auto& p = *owner;
+    if (p.tag_images && mark == UiIcon::count && guild_tag_badge_saved(p.tag_base, type, primary, secondary)) {
+        const auto& image = chip ? p.tag_chip_image : p.tag_tile_image;
+        tile.media = {image.key, 0, {}, image.url_view()};
+    }
+    return tile;
 }
 
 u32 add_tile(const UiSettingsGlyphTile& tile) noexcept {
@@ -87,7 +98,21 @@ u32 add_tile(const UiSettingsGlyphTile& tile) noexcept {
 
 // A draft's badge as the chip shows it.
 UiSettingsGlyphTile draft_tile(const GuildTagDraft& d) noexcept {
-    return badge_tile(d.badge, guild_tag_primary(d), guild_tag_secondary(d));
+    return badge_tile(d.badge, guild_tag_primary(d), guild_tag_secondary(d), UiIcon::count, true);
+}
+
+// Whether the saved badge's image is known for the draft's base: the profile read is the one the base came from (a
+// save the reply of which did not decode leaves the base ahead of it) and names a badge hash. The tile and chip
+// requests are the same CDN image at the size each is drawn at.
+void load_saved_images(const GuildAdminProfile* profile) noexcept {
+    auto& p = *owner;
+    const u32 dpi = g_app.renderer.dpi;
+    p.tag_images = profile && p.tag_loaded && profile->badge_hash_bytes &&
+                   guild_tag_draft_equal(guild_tag_draft(*profile), p.tag_base) &&
+                   ui_guild_tag_badge_media(p.guild_id, {profile->badge_hash, profile->badge_hash_bytes},
+                                            static_cast<u32>(kUiSettingsGlyphImageDips), dpi, &p.tag_tile_image) &&
+                   ui_guild_tag_badge_media(p.guild_id, {profile->badge_hash, profile->badge_hash_bytes},
+                                            static_cast<u32>(kUiBadgeCompactIcon), dpi, &p.tag_chip_image);
 }
 
 bool eligible() noexcept {
@@ -179,22 +204,22 @@ bool dirty() noexcept {
 }
 
 // A row of glyph tiles (one per choice) with its first tile.
-u32 push_glyphs(u64 id, const Utf8View& label, const Utf8View& description, bool enabled,
-                ConstSlice<Utf8View> choices, u32 selected, u32 first_tile) noexcept {
+u32 push_glyphs(u64 id, Text label, Text description, bool enabled, ConstSlice<Utf8View> choices, u32 selected,
+                u32 first_tile) noexcept {
     return push_choices(id, label, description, UiSettingsControlKind::swatches, enabled, choices, selected, {},
                         {UiSettingsVariant::standard, 0, static_cast<u16>(first_tile), 0, 0, ui_settings_more_glyphs});
 }
 
 // A name in the preview: an initials avatar in its colour, the name and, with
 // a tag, its chip led by the badge tile; the message under it.
-u32 push_name(u64 id, const Utf8View& name, const Utf8View& message, const Utf8View& tag, u32 tile,
-              const Utf8View& action = {}, bool action_enabled = true) noexcept {
+u32 push_name(u64 id, Text name, Text message, Text tag, u32 tile, Text action = {},
+              bool action_enabled = true) noexcept {
     const u32 row = push_row(id, name, message, UiSettingsControlKind::action, action_enabled, false, action,
                              {UiSettingsVariant::standard,
                               static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_accent),
                               static_cast<u16>(tile == ~0u ? 0 : tile), 0, 0, ui_settings_more_name_tag});
     if (row != ~0u && tile != ~0u)
-        owner->controls[row].detail = tag;
+        owner->controls[row].detail = text_view(tag);
     return row;
 }
 
@@ -214,9 +239,8 @@ void project_badges(bool edit) noexcept {
         // As the official picker: each badge in its own colours.
         add_tile(badge_tile(badge.type, badge.primary, badge.tints > 1 ? badge.secondary : badge.primary));
     }
-    push_glyphs(control_tag_badges, utf8_literal("Choose Badge"),
-                utf8_literal("Changing just the badge won't remove the Server Tag from members."), edit,
-                {p.tag_unlocked_names, unlocked}, selected, first);
+    push_glyphs(control_tag_badges, "Choose Badge", "Changing just the badge won't remove the Server Tag from members.",
+                edit, {p.tag_unlocked_names, unlocked}, selected, first);
     for (const auto& badge : kGuildTagBadges)
         if (!guild_tag_badge_unlocked(badge, features)) {
             p.tag_locked[locked] = badge.type;
@@ -224,10 +248,9 @@ void project_badges(bool edit) noexcept {
         }
     if (!locked)
         return;
-    push_row(control_tag_show_locked, utf8_literal("Badge packs"), {},
-             UiSettingsControlKind::action, true, false,
-             p.tag_show_locked ? utf8_literal("Hide locked badges") : utf8_literal("Show all badges"),
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+    push_action(control_tag_show_locked, "Badge packs", {},
+                p.tag_show_locked ? "Hide locked badges" : "Show all badges", true,
+                {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     if (!p.tag_show_locked)
         return;
     first = p.glyph_tile_count;
@@ -236,9 +259,9 @@ void project_badges(bool edit) noexcept {
         add_tile(badge_tile(badge->type, badge->primary, badge->tints > 1 ? badge->secondary : badge->primary,
                             UiIcon::lock));
     }
-    push_glyphs(control_tag_locked_badges, utf8_literal("Locked badges"),
-                utf8_literal("These come with badge packs (Pets, Flex, Plant and Creepy Crawlies), which a server "
-                             "unlocks with Boosts."),
+    push_glyphs(control_tag_locked_badges, "Locked badges",
+                "These come with badge packs (Pets, Flex, Plant and Creepy Crawlies), which a server unlocks with "
+                "Boosts.",
                 false, {p.tag_locked_names, locked}, kUiSettingsNoChoice, first);
 }
 
@@ -257,15 +280,14 @@ void project_colors(bool edit) noexcept {
     add_tile(badge_tile(d.badge, guild_tag_primary(d), guild_tag_secondary(d), UiIcon::palette));
     p.tag_palette_names[kGuildTagPaletteDefault] = utf8_literal("Reset to default colors");
     p.tag_palette_names[kGuildTagPaletteCustom] = utf8_literal("Custom colors");
-    push_glyphs(control_tag_colors, utf8_literal("Choose Color"),
-                utf8_literal("These preset color pairs set your badge's primary and secondary colors."), edit,
+    push_glyphs(control_tag_colors, "Choose Color",
+                "These preset color pairs set your badge's primary and secondary colors.", edit,
                 {p.tag_palette_names, kGuildTagPaletteCount + 2}, guild_tag_palette_choice(d), first);
     if (!p.tag_custom_open && guild_tag_palette_choice(d) != kGuildTagPaletteCustom)
         return;
     // "Custom Colors": a swatch per colour the badge takes; each opens the colour picker.
-    static constexpr Utf8View kSlots[]{utf8_literal("Primary"), utf8_literal("Accent")};
-    push_choices(control_tag_custom, utf8_literal("Custom Colors"), {}, UiSettingsControlKind::colors, edit,
-                 {kSlots, badge && badge->tints > 1 ? 2u : 1u});
+    push_names(control_tag_custom, "Custom Colors", {}, UiSettingsControlKind::colors, edit, "Primary\0Accent",
+               badge && badge->tints > 1 ? 2u : 1u);
 }
 
 void project(Bank& bank) noexcept {
@@ -275,69 +297,63 @@ void project(Bank& bank) noexcept {
         bool settled = false;
         server_profile(&settled);
         if (settled && !read_pending())
-            push_error(utf8_literal("Something went wrong"),
-                       utf8_literal("We couldn't load the Server Tag of this server."), utf8_literal("Retry"));
+            push_error("Something went wrong", "We couldn't load the Server Tag of this server.", "Retry");
         else
-            push_loading(utf8_literal("Loading the Server Tag…"));
+            push_loading("Loading the Server Tag…");
         return;
     }
     const auto* profile = server_profile();
+    load_saved_images(profile);
     const bool can = eligible(), edit = editable() && can_manage_guild() && can;
     auto& d = p.tag_draft;
     // As the official page: everything under the switch is inert while the tag is off.
     const bool fields = edit && d.enabled;
     push_row(control_tag_intro, {},
-             utf8_literal("Create a tag that your server members can display next to their name! Anyone outside your "
-                          "server can view your Server Profile through the Server Tag."),
-             UiSettingsControlKind::notice, true, false, page_allowed(Page::profile) ? utf8_literal("Server Profile")
-                                                                                    : Utf8View{});
+             "Create a tag that your server members can display next to their name! Anyone outside your server can "
+             "view your Server Profile through the Server Tag.",
+             UiSettingsControlKind::notice, true, false, page_allowed(Page::profile) ? "Server Profile" : nullptr);
     if (profile && !profile_visible(*profile))
         push_row(control_tag_private, {},
-                 utf8_literal("Your Server Profile is private. Users will not be able to see it from a Server Tag."),
-                 UiSettingsControlKind::notice, true, false,
-                 page_allowed(Page::profile) ? utf8_literal("Edit Setting") : Utf8View{});
+                 "Your Server Profile is private. Users will not be able to see it from a Server Tag.",
+                 UiSettingsControlKind::notice, true, false, page_allowed(Page::profile) ? "Edit Setting" : nullptr);
     if (!can)
-        push_row(control_tag_locked, utf8_literal("Unlock Server Tags"),
-                 utf8_literal("Server Tags are a Boost perk: this server needs the Guild Tags perk, which 3 Boosts "
-                              "unlock, before it can have a tag."),
-                 UiSettingsControlKind::notice, true, false,
-                 page_allowed(Page::boost_perks) ? utf8_literal("Boost Perks") : Utf8View{});
+        push_row(control_tag_locked, "Unlock Server Tags",
+                 "Server Tags are a Boost perk: this server needs the Guild Tags perk, which 3 Boosts unlock, before "
+                 "it can have a tag.",
+                 UiSettingsControlKind::notice, true, false, page_allowed(Page::boost_perks) ? "Boost Perks" : nullptr);
     else
-        push_row(control_tag_enable, utf8_literal("Enable Server Tag"), {}, UiSettingsControlKind::toggle, edit,
-                 d.enabled);
+        push_toggle(control_tag_enable, "Enable Server Tag", {}, edit, d.enabled);
 
     // The chat preview: two plain lines and one wearing the tag.
-    push_category(control_tag_preview_category, utf8_literal("Preview"));
+    push_category(control_tag_preview_category, "Preview");
     const Utf8View shown = d.tag_bytes ? bank.add({d.tag, d.tag_bytes}) : kPlaceholderTag;
     const u32 chip = add_tile(draft_tile(d));
     for (u32 i = 0; i < kSampleCount; ++i)
         push_name(control_tag_preview + i, kSamples[i].name, kSamples[i].message, shown,
                   i + 1 == kSampleCount ? chip : ~0u);
 
-    push_category(control_tag_name_category, utf8_literal("Choose Name"));
-    push_editor(control_tag_text, {}, utf8_literal("You may use max 4 characters, alphabet and numbers."),
+    push_category(control_tag_name_category, "Choose Name");
+    push_editor(control_tag_text, {}, "You may use max 4 characters, alphabet and numbers.",
                 UiSettingsControlKind::edit, fields, editor_tag, kPlaceholderTag);
     if (d.enabled && d.tag_bytes && !guild_tag_text_valid({d.tag, d.tag_bytes}))
-        push_row(control_tag_text_error, utf8_literal("Server tags are 2–4 letters or numbers."), {},
-                 UiSettingsControlKind::error, true, false, {}, {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_row(control_tag_text_error, "Server tags are 2–4 letters or numbers.", {}, UiSettingsControlKind::error,
+                 true, false, {}, {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     if (d.enabled && profile && profile->tag_bytes && guild_tag_renamed(d, *profile))
-        push_notice(utf8_literal("Updating your Server Tag will require all of your members to manually reapply the "
-                                 "tag to their profile. We do this to prevent abuse."));
+        push_notice("Updating your Server Tag will require all of your members to manually reapply the tag to their "
+                    "profile. We do this to prevent abuse.");
     project_badges(fields);
     project_colors(fields);
 
     // Adopting the saved tag as one's own (PUT /users/@me/clan).
     if (can && p.tag_base.enabled) {
-        push_category(control_tag_adopt_category, utf8_literal("Your Server Tag"));
+        push_category(control_tag_adopt_category, "Your Server Tag");
         const bool mine = adopted();
         const u32 saved = add_tile(draft_tile(p.tag_base));
         const Utf8View self = user_label(p.self_user_id);
-        push_name(control_tag_adopt, self.bytes ? self : utf8_literal("You"),
-                  mine ? utf8_literal("You're currently using this Server Tag. This is how people will see you.")
-                       : utf8_literal("You don't have this Server Tag on your own profile yet. Would you like to "
-                                      "adopt it?"),
-                  bank.add({p.tag_base.tag, p.tag_base.tag_bytes}), saved, utf8_literal("Adopt Tag"),
-                  editable() && !mine);
+        push_name(control_tag_adopt, self.bytes ? Text(self) : Text("You"),
+                  mine ? "You're currently using this Server Tag. This is how people will see you."
+                       : "You don't have this Server Tag on your own profile yet. Would you like to adopt it?",
+                  bank.add({p.tag_base.tag, p.tag_base.tag_bytes}), saved, "Adopt Tag", editable() && !mine);
     }
 }
 
@@ -428,11 +444,11 @@ void notice_action() noexcept {
     queue(Op::profile_get);
 }
 
-Utf8View invalid() noexcept {
+const char* invalid() noexcept {
     const auto& d = owner->tag_draft;
     if (dirty() && d.enabled && !guild_tag_text_valid({d.tag, d.tag_bytes}))
-        return utf8_literal("Server tags are 2–4 letters or numbers.");
-    return {};
+        return "Server tags are 2–4 letters or numbers.";
+    return nullptr;
 }
 
 } // namespace

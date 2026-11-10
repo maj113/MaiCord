@@ -99,6 +99,21 @@ bool ui_guild_card_banner_media(u64 guild_id, Utf8View custom_banner, bool disco
            ui_guild_splash_media(guild_id, custom_banner, true, kUiGuildCardBannerRequestDips, dpi, output);
 }
 
+bool ui_guild_tag_badge_media(u64 guild_id, const Utf8View& hash, u32 size_dips, u32 dpi,
+                              UiGuildImageMedia* output) noexcept {
+    if (!output || !guild_id || !size_dips || !hash_valid(hash))
+        return false;
+    reset_value(output);
+    TextWriter w{{output->url, kUiGuildImageUrlBytes}};
+    w.add("https://cdn.discordapp.com/clan-badges/");
+    w.number(guild_id);
+    w.add("/");
+    w.add(hash);
+    w.add(".png?size=");
+    w.number(request_size(size_dips, dpi));
+    return finish(w, MediaAttachmentFormat::png, false, output);
+}
+
 UiGuildBannerGeometry ui_guild_banner_geometry(const UiRect& sidebar, const UiRect& header, float scroll,
                                                bool header_hovered) noexcept {
     UiGuildBannerGeometry g{};

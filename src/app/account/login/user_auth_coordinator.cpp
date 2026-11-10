@@ -285,6 +285,29 @@ RestClientSubmitResult submit_prepared(UserAuthCoordinator* coordinator,
     return submitted;
 }
 
+// A request that is one secret string (the login to recover, a verification link's token), from an idle owner.
+UserAuthCoordinatorResult submit_text(UserAuthCoordinator* coordinator, const SecureBuffer* text, u32 maximum,
+                                      UserAuthTransitionResult (*begin)(UserAuthState*) noexcept,
+                                      UserAuthWriteResult (*write)(Utf8View, Slice<u8>) noexcept,
+                                      UserAuthOperation operation) noexcept {
+    auto* runtime = runtime_of(coordinator);
+    if (!runtime || runtime->reset_owner || runtime->transport_stopped || runtime->active_request_id ||
+        !locked_input(text, maximum))
+        return fail(coordinator, UserAuthCoordinatorError::invalid_input);
+    UserAuthState next = runtime->flow;
+    if (!begin(&next).ok()) return fail(coordinator, UserAuthCoordinatorError::state);
+    const auto written = write(secure_utf8(*text), {secret(runtime, kScratchOffset), runtime->request_capacity});
+    if (!written.ok()) { clear_request(runtime); return fail(coordinator, UserAuthCoordinatorError::request_write); }
+    const auto submitted = submit_prepared(coordinator, runtime, next, operation, written.bytes, nullptr,
+                                           claim_request_id(coordinator));
+    if (!submitted.ok()) {
+        clear_request(runtime);
+        return submit_failed(coordinator, submitted.error);
+    }
+    clear_retained(runtime);
+    return coordinator->state;
+}
+
 } // namespace
 
 static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordinator, bool reset) noexcept {
@@ -460,23 +483,8 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_password(
 
 UserAuthCoordinatorResult user_auth_coordinator_submit_recovery(
     UserAuthCoordinator* coordinator, const SecureBuffer* login) noexcept {
-    auto* runtime = runtime_of(coordinator);
-    if (!runtime || runtime->reset_owner || runtime->transport_stopped || runtime->active_request_id ||
-        !locked_input(login, kUserAuthMaximumLoginBytes))
-        return fail(coordinator, UserAuthCoordinatorError::invalid_input);
-    UserAuthState next = runtime->flow;
-    if (!user_auth_state_begin_recovery(&next).ok()) return fail(coordinator, UserAuthCoordinatorError::state);
-    const auto written = user_auth_write_recovery_request(secure_utf8(*login),
-        {secret(runtime, kScratchOffset), runtime->request_capacity});
-    if (!written.ok()) { clear_request(runtime); return fail(coordinator, UserAuthCoordinatorError::request_write); }
-    const auto submitted = submit_prepared(coordinator, runtime, next, UserAuthOperation::recovery,
-        written.bytes, nullptr, claim_request_id(coordinator));
-    if (!submitted.ok()) {
-        clear_request(runtime);
-        return submit_failed(coordinator, submitted.error);
-    }
-    clear_retained(runtime);
-    return coordinator->state;
+    return submit_text(coordinator, login, kUserAuthMaximumLoginBytes, user_auth_state_begin_recovery,
+                       user_auth_write_recovery_request, UserAuthOperation::recovery);
 }
 
 static UserAuthCoordinatorResult submit_phone(UserAuthCoordinator* coordinator, const SecureBuffer* code,
@@ -542,30 +550,8 @@ SecureBufferResult user_auth_coordinator_take_phone_reset_token(UserAuthCoordina
 
 UserAuthCoordinatorResult user_auth_coordinator_submit_verification(
     UserAuthCoordinator* coordinator, const SecureBuffer* link_token) noexcept {
-    UserAuthCoordinatorRuntime* runtime = runtime_of(coordinator);
-    if (!runtime || runtime->reset_owner || runtime->transport_stopped ||
-        !locked_input(link_token, kLoginVerificationMaximumTokenBytes) ||
-        runtime->active_request_id != 0) {
-        return fail(coordinator, UserAuthCoordinatorError::invalid_input);
-    }
-    UserAuthState next = runtime->flow;
-    const UserAuthTransitionResult transition = user_auth_state_begin_verification(&next);
-    if (!transition.ok()) return fail(coordinator, UserAuthCoordinatorError::state);
-    const UserAuthWriteResult written = login_verification_write_request(
-        secure_utf8(*link_token), {secret(runtime, kScratchOffset), runtime->request_capacity});
-    if (!written.ok()) {
-        clear_request(runtime);
-        return fail(coordinator, UserAuthCoordinatorError::request_write);
-    }
-    const RestClientSubmitResult submitted = submit_prepared(
-        coordinator, runtime, next, UserAuthOperation::verification, written.bytes,
-        nullptr, claim_request_id(coordinator));
-    if (!submitted.ok()) {
-        clear_request(runtime);
-        return submit_failed(coordinator, submitted.error);
-    }
-    clear_retained(runtime);
-    return coordinator->state;
+    return submit_text(coordinator, link_token, kLoginVerificationMaximumTokenBytes, user_auth_state_begin_verification,
+                       login_verification_write_request, UserAuthOperation::verification);
 }
 
 UserAuthCoordinatorResult user_auth_coordinator_submit_browser_handoff_exchange(

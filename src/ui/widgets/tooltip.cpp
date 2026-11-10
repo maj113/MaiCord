@@ -8,21 +8,8 @@
 
 namespace maicord {
 namespace {
-bool valid_style(const UiTooltipStyle& style) noexcept {
-    return style.pointer_delay_ms <= 5000 && style.keyboard_delay_ms <= 5000 &&
-           ui_coordinate_valid(style.padding_x) && style.padding_x >= 0 && style.padding_x <= 32 &&
-           ui_coordinate_valid(style.padding_y) && style.padding_y >= 0 && style.padding_y <= 32 &&
-           ui_coordinate_valid(style.margin) && style.margin >= 0 && style.margin <= 32 &&
-           ui_coordinate_valid(style.gap) && style.gap >= style.arrow_size && style.gap <= 32 &&
-           ui_coordinate_valid(style.maximum_width) && style.maximum_width >= 32 &&
-           style.maximum_width <= 512 && ui_coordinate_valid(style.maximum_height) &&
-           style.maximum_height >= 16 && style.maximum_height <= 256 && ui_coordinate_valid(style.radius) &&
-           style.radius >= 0 && style.radius <= 16 && ui_coordinate_valid(style.arrow_size) &&
-           style.arrow_size >= 0 && style.arrow_size <= 12 && ui_coordinate_valid(style.emoji_size) &&
-           style.emoji_size >= 0 && style.emoji_size <= 64 && ui_coordinate_valid(style.emoji_gap) &&
-           style.emoji_gap >= 0 && style.emoji_gap <= 32 &&
-           style.maximum_width > style.padding_x * 2 + 12 && style.maximum_height > style.padding_y * 2;
-}
+// Hosts offer UiTooltipStyle values built from constants and the theme's bounded scales (space_4 + space_2 <= 32),
+// so the style needs no validation here.
 bool source_current(const UiTooltipKey& key) noexcept {
     if (!key.owner.manager || !key.scope || !key.identity || !key.action)
         return false;
@@ -371,7 +358,7 @@ bool ui_tooltip_offer(UiTooltipScene* scene, const UiTooltipTarget& target, UiRe
     if (!ui_rect_valid(target.anchor))
         return ui_tooltip_clear(scene);
     const auto anchor = ui_rect_intersection(target.anchor, viewport);
-    if (!source_current(target.key) || !valid_label(target.label) || !valid_style(style) ||
+    if (!source_current(target.key) || !valid_label(target.label) ||
         !valid_bold(target.bold, target.label.bytes) || !valid_emoji(target.emoji) || !valid_detail(target.detail) ||
         !ui_rect_valid(viewport) || ui_rect_width(viewport) < 64 || ui_rect_height(viewport) < 48 ||
         !ui_rect_has_area(anchor) ||

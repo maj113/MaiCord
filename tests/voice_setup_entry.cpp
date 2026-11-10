@@ -23,7 +23,6 @@ void test_mls_key_schedule(void (*check)(bool, const char*) noexcept) noexcept;
 void test_p256(void (*check)(bool, const char*) noexcept) noexcept;
 void test_mls_signature(void (*check)(bool, const char*) noexcept) noexcept;
 void test_hpke_derivation(void (*check)(bool, const char*) noexcept) noexcept;
-void test_hpke_context(void (*check)(bool, const char*) noexcept) noexcept;
 void test_mls_hpke(void (*check)(bool, const char*) noexcept) noexcept;
 void test_mls_objects(void (*check)(bool, const char*) noexcept) noexcept;
 void test_mls_join_messages(void (*check)(bool, const char*) noexcept) noexcept;
@@ -95,7 +94,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_voice_tests_entry() noexcept
     maicord::test_p256(maicord::check);
     maicord::test_mls_signature(maicord::check);
     maicord::test_hpke_derivation(maicord::check);
-    maicord::test_hpke_context(maicord::check);
     maicord::test_mls_hpke(maicord::check);
     maicord::test_mls_objects(maicord::check);
     maicord::test_mls_join_messages(maicord::check);

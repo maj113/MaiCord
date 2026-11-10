@@ -35,10 +35,8 @@ void notify_locked(Runtime& r) noexcept {
     if(!r.wake_pending&&r.config.wake.window){r.wake_pending=window_post(r.config.wake,0,0);
         if(!r.wake_pending)r.status.wake_error=GetLastError();}r.last_notified=r.status;
 }
-void close_callback(Runtime& r,Engine& e) noexcept {
-    const bool attached=e.callback&&e.callback->event;if(e.callback)InterlockedExchange(&e.callback->active,0);
-    if(e.enumerator&&e.callback)e.enumerator->UnregisterEndpointNotificationCallback(e.callback);com_release(e.callback);
-    if(attached){AcquireSRWLockExclusive(&r.lock);--r.callback_handles;ReleaseSRWLockExclusive(&r.lock);}
+__forceinline void close_callback(Runtime& r,Engine& e) noexcept {
+    pinned_endpoint_close(e.enumerator,&e.callback,&r.lock,&r.callback_handles);
 }
 HRESULT close_client(Engine& e) noexcept {
     HRESULT h=S_OK;if(e.client){if(e.started)h=e.client->Stop();const HRESULT reset=e.client->Reset();if(SUCCEEDED(h))h=reset;}
@@ -53,19 +51,9 @@ void failure(Runtime& r,Engine& e,u64 epoch,u64 serial,Error error,HRESULT nativ
     ReleaseSRWLockExclusive(&r.lock);
 }
 HRESULT callback(Runtime& r,Engine& e,LPWSTR* id) noexcept {
-    if(!*id||!**id)return E_UNEXPECTED;if(e.callback&&e.callback->matches(*id))return S_OK;
-    close_callback(r,e);void* memory=CoTaskMemAlloc(sizeof(PinnedEndpointNotify));if(!memory)return E_OUTOFMEMORY;
-    e.callback=new(memory)PinnedEndpointNotify;e.callback->id=*id;*id=nullptr;while(e.callback->id[e.callback->id_chars])++e.callback->id_chars;
-    if(!DuplicateHandle(GetCurrentProcess(),r.command,GetCurrentProcess(),&e.callback->event,0,FALSE,DUPLICATE_SAME_ACCESS))return HRESULT_FROM_WIN32(GetLastError());
-    AcquireSRWLockExclusive(&r.lock);++r.callback_handles;ReleaseSRWLockExclusive(&r.lock);
-    const HRESULT h=e.enumerator->RegisterEndpointNotificationCallback(e.callback);
-    if(FAILED(h))close_callback(r,e);return h;
+    return pinned_endpoint_refresh(e.enumerator,&e.callback,r.command,&r.lock,&r.callback_handles,id);
 }
-bool changed(Engine& e) noexcept {
-    IMMDevice* device=nullptr;LPWSTR id=nullptr;HRESULT h=e.enumerator->GetDefaultAudioEndpoint(eRender,eConsole,&device);
-    if(SUCCEEDED(h))h=device->GetId(&id);const bool different=FAILED(h)||!e.callback||!e.callback->matches(id);
-    CoTaskMemFree(id);com_release(device);return different;
-}
+bool changed(Engine& e) noexcept {return pinned_endpoint_default_changed(e.enumerator,e.callback);}
 HRESULT open(Runtime& r,Engine& e) noexcept {
     HRESULT h=S_OK;if(!e.enumerator)h=CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_INPROC_SERVER,__uuidof(IMMDeviceEnumerator),reinterpret_cast<void**>(&e.enumerator));
     IMMDevice* device=nullptr;LPWSTR id=nullptr;if(SUCCEEDED(h))h=e.enumerator->GetDefaultAudioEndpoint(eRender,eConsole,&device);

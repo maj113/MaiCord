@@ -2,6 +2,7 @@
 
 #include "access_unit.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/sys/d3d11.hpp"
@@ -72,27 +73,22 @@ struct Api {
     HRESULT(WINAPI* device_manager)(UINT*, IMFDXGIDeviceManager**);
 };
 
-template <typename T> void load(HMODULE library, const char* name, T* function) noexcept {
-    *function = reinterpret_cast<T>(GetProcAddress(library, name));
-}
+// Api's members' names, in order.
+constexpr char kFunctionNames[] = "MFStartup\0MFShutdown\0MFTEnum2\0MFCreateAttributes\0MFCreateMediaType\0"
+                                  "MFCreateSample\0MFCreateMemoryBuffer\0MFCreateDXGISurfaceBuffer\0"
+                                  "MFCreateDXGIDeviceManager\0";
 
 // MFStartup on success; api_close undoes it.
 bool api_open(Api* api) noexcept {
     api->library = LoadLibraryExW(L"mfplat.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!api->library)
         return false;
-    load(api->library, "MFStartup", &api->startup);
-    load(api->library, "MFShutdown", &api->shutdown);
-    load(api->library, "MFTEnum2", &api->enumerate);
-    load(api->library, "MFCreateAttributes", &api->attributes);
-    load(api->library, "MFCreateMediaType", &api->media_type);
-    load(api->library, "MFCreateSample", &api->sample);
-    load(api->library, "MFCreateMemoryBuffer", &api->memory_buffer);
-    load(api->library, "MFCreateDXGISurfaceBuffer", &api->surface_buffer);
-    load(api->library, "MFCreateDXGIDeviceManager", &api->device_manager);
-    if (api->startup && api->shutdown && api->enumerate && api->attributes && api->media_type && api->sample &&
-        api->memory_buffer && api->surface_buffer && api->device_manager &&
-        SUCCEEDED(api->startup(MF_VERSION, MFSTARTUP_LITE)))
+    // Api is one function pointer per name.
+    void** slot = reinterpret_cast<void**>(&api->startup);
+    bool found = true;
+    for (NameList names{kFunctionNames}; found && names; names.next(), ++slot)
+        found = (*slot = reinterpret_cast<void*>(GetProcAddress(api->library, names.at))) != nullptr;
+    if (found && SUCCEEDED(api->startup(MF_VERSION, MFSTARTUP_LITE)))
         return true;
     FreeLibrary(api->library);
     api->library = nullptr;
@@ -444,14 +440,17 @@ bool slot_create(GpuStreamEncoder* e, Slot* slot) noexcept {
 // preview holds, the pending one, or one the transform has not finished with.
 Slot* free_slot(GpuStreamEncoder* e) noexcept {
     // Surfaces that exist first; a new one only when all of them are taken.
-    for (u32 pass = 0; pass < 2; ++pass)
-        for (u8 i = 0; i < kSlots; ++i) {
-            Slot& slot = e->slots[i];
-            if (i == e->newest || i == e->held || i == e->pending || slot.in_flight || !slot.texture != (pass == 1))
-                continue;
-            return slot.texture || slot_create(e, &slot) ? &slot : nullptr;
-        }
-    return nullptr;
+    Slot* fresh = nullptr;
+    for (u8 i = 0; i < kSlots; ++i) {
+        Slot& slot = e->slots[i];
+        if (i == e->newest || i == e->held || i == e->pending || slot.in_flight)
+            continue;
+        if (slot.texture)
+            return &slot;
+        if (!fresh)
+            fresh = &slot;
+    }
+    return fresh && slot_create(e, fresh) ? fresh : nullptr;
 }
 
 bool convert(GpuStreamEncoder* e, const CaptureFrame& frame, Slot* slot) noexcept {

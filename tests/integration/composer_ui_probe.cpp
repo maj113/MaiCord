@@ -1139,6 +1139,67 @@ bool member_query_transitions() noexcept {
     return message_composer_restore(&g_app.message_composer, kSource, {}, 0, 0) && project();
 }
 
+// Text size in chat and other typography commits back to back (a slider drag) with the draft, the messages and the
+// shell showing: after each, the composer lays its draft out at the chat size, the whole text build is accepted and
+// keeps its text, nothing is rejected, and a second round of the same commits adds no glyph-atlas entry or face.
+bool chat_size_churn() noexcept {
+    auto& r = g_app.renderer;
+    auto& ui = *g_app.account_ui;
+    const auto live = renderer_text_system(&r, UiTextFace::normal);
+    const UiThemeTypography original = live.typography ? live.typography->value : UiThemeTypography{};
+    static UiResolvedThemeStyles bank;
+    const auto commit = [&](const UiThemeTypography& value) noexcept {
+        RendererTypographyCandidate candidate{};
+        const bool applied = renderer_prepare_typography(&r, value, &candidate) &&
+                             renderer_commit_typography(&r, &candidate);
+        renderer_discard_typography(&candidate);
+        return applied;
+    };
+    struct Restore {
+        decltype(commit)& commit;
+        UiThemeTypography original;
+        ~Restore() noexcept {
+            commit(original);
+            message_scene_bind_theme_styles(&g_app.message_scene, nullptr);
+            message_composer_scene_bind_theme_styles(&g_app.message_composer_scene, nullptr);
+            ui_text_measure_cache_invalidate(&g_app.account_ui->text_measure_cache);
+            g_app.message_composer_scene.measured_row_height = 0;
+        }
+    } restore{commit, original};
+    if (!require(project() && r.content_text && r.content_text->quad_count && r.composer_layout.active, 360,
+                 "chat_churn_baseline"))
+        return false;
+    const u32 baseline = r.content_text->quad_count, rejected = r.content_text->rejected;
+    constexpr float sizes[]{20, 12, 24, 0, 18, 14, 0, 24, 20, 20};
+    u32 entries = 0, faces = 0;
+    for (u32 round = 0; round < 2; ++round) {
+        for (const float size : sizes) {
+            auto value = original;
+            value.chat_size = size;
+            bank = {};
+            ui_text_measure_cache_invalidate(&ui.text_measure_cache);
+            const bool bound = commit(value) && ui_theme_styles_apply(&bank, value, UiThemeMetrics{}).ok();
+            message_scene_bind_theme_styles(&g_app.message_scene, &bank);
+            message_composer_scene_bind_theme_styles(&g_app.message_composer_scene, &bank);
+            g_app.message_composer_scene.measured_row_height = 0;
+            const bool built = bound && project();
+            const float chat_em = size ? size : original.body_size;
+            if (!require(built && r.content_text->quad_count >= baseline / 3 && r.content_text->rejected == rejected &&
+                             r.content_text->last_error == RendererTextBuildError::none &&
+                             r.composer_layout.active && r.composer_layout.em_size == chat_em &&
+                             r.glyph_text.system.em_size == original.body_size,
+                         361, "chat_churn_rebuild"))
+                return false;
+        }
+        if (!round) {
+            entries = r.glyph_text.allocator.entry_count;
+            faces = r.glyph_text.font_face_count;
+        }
+    }
+    return require(r.glyph_text.allocator.entry_count <= entries + 16 && r.glyph_text.font_face_count <= faces + 1, 362,
+                   "chat_churn_atlas_bounded");
+}
+
 bool scenarios() noexcept {
     if (!member_query_transitions())
         return false;
@@ -1165,6 +1226,8 @@ bool scenarios() noexcept {
                          g_app.renderer.composer_layout.em_size &&
                      warm(1),
                  5))
+        return false;
+    if (!require(chat_size_churn(), 360))
         return false;
     if (!require(resize(240, 600, 96, 160) && text(utf8_literal("Živjo 😀"), L"Živjo 😀") &&
                      compact160_routes() && capture(L"composer-compact160-dark96.bmp"),

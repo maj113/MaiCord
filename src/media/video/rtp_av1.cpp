@@ -2,6 +2,7 @@
 #include "rtp_video_assembly_detail.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/media/video/rtp_video_packetize.hpp"
 
 namespace maicord {
 namespace {
@@ -32,15 +33,6 @@ bool read_leb128(ConstSlice<u8> data, u32* offset, u32* value) noexcept {
     return false;
 }
 
-u32 leb128_bytes(u32 value) noexcept {
-    u32 bytes = 1;
-    while (value >= 0x80) {
-        value >>= 7;
-        ++bytes;
-    }
-    return bytes;
-}
-
 // Gives the open OBU a minimal obu_size unless it already carries one, which
 // must then match its payload. An empty or truncated OBU damages the unit.
 bool close_obu(RtpVideoAssembly& a) noexcept {
@@ -63,9 +55,7 @@ bool close_obu(RtpVideoAssembly& a) noexcept {
     if (!fits(a, extra))
         return false;
     copy_bytes(obu + header + extra, obu + header, payload); // memmove.
-#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-    for (u32 i = 0; i < extra; ++i, payload >>= 7)
-        obu[header + i] = static_cast<u8>((payload & 0x7f) | (i + 1 < extra ? 0x80 : 0));
+    leb128_write(obu + header, payload);
     obu[0] |= kSizeBit;
     a.bytes += extra;
     return true;

@@ -256,10 +256,6 @@ void crypto(Check check, u8* buffer) noexcept {
                   "MLS rejects every single-byte signed package tamper atomically");
             buffer[i] ^= 1;
         }
-        check(mls_key_package_check_crypto(workspace, {buffer, n},
-                                           reinterpret_cast<MlsSignedKeyPackage*>(buffer))
-                      .error == MlsPackageCryptoError::invalid_input,
-              "MLS package cannot overwrite its signed backing bytes");
         const u32 capacity = workspace.storage.capacity;
         workspace.storage.capacity = 1;
         check(mls_key_package_check_crypto(workspace, {buffer, n}, &unchanged).error ==

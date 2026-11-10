@@ -770,11 +770,9 @@ bool mfa_method_member(void* opaque, JsonString name, JsonValue value) noexcept 
     auto& c = *static_cast<MfaContext*>(opaque);
     JsonString text{};
     if (json_string_equals_ascii(name, utf8_literal("type")) && json_value_as_string(value, &text)) {
-        constexpr Utf8View kTypes[]{utf8_literal("password"), utf8_literal("webauthn"), utf8_literal("totp"),
-                                    utf8_literal("sms"), utf8_literal("backup")};
-        for (u32 i = 0; i < 5; ++i)
-            if (json_string_equals_ascii(text, kTypes[i]))
-                c.challenge.methods = static_cast<u8>(c.challenge.methods | (1u << i));
+        const u32 type = member_index<"password", "webauthn", "totp", "sms", "backup">(text);
+        if (type < 5)
+            c.challenge.methods = static_cast<u8>(c.challenge.methods | (1u << type));
     } else if (json_string_equals_ascii(name, utf8_literal("challenge")) && json_value_as_string(value, &text)) {
         const auto decoded = json_string_decode_utf8(text, c.webauthn);
         c.webauthn_bytes = decoded.ok() ? decoded.bytes : 0;

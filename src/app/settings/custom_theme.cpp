@@ -174,7 +174,7 @@ Utf8View document_name(const ClientThemeDocument& d) noexcept {
     return d.name_bytes ? Utf8View{d.name, d.name_bytes} : utf8_literal("Imported theme");
 }
 // "<Name> (edited)": the copy an edit makes of an installed theme, so the installed file stays as it was.
-void fork(ClientThemeDocument& d) noexcept {
+__forceinline void fork(ClientThemeDocument& d) noexcept {
     if (forked(d))
         return;
     const Utf8View base = document_name(d);
@@ -202,7 +202,7 @@ void activate_document(ClientThemeStorageSnapshot& snapshot) noexcept {
     if (index < kBackgroundEffectProfileCount)
         snapshot.effect_profiles[index] = background_effect_settings(snapshot.custom.theme.background);
 }
-void document_failure(CustomThemeOwner& o, u32 offset) noexcept {
+__forceinline void document_failure(CustomThemeOwner& o, u32 offset) noexcept {
     constexpr auto prefix = utf8_literal("Theme error at byte ");
     constexpr auto suffix = utf8_literal(".");
     copy_bytes(o.diagnostic, prefix.data, prefix.bytes);
@@ -280,7 +280,7 @@ bool preview_candidate(CustomThemeOwner& o) noexcept {
     return true;
 }
 // Applies the loaded candidate directly: no preview state in between.
-bool apply_candidate(CustomThemeOwner& o) noexcept {
+__forceinline bool apply_candidate(CustomThemeOwner& o) noexcept {
     if (!o.candidate_ready)
         return false;
     activate_document(o.candidate);

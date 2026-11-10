@@ -737,6 +737,34 @@ bool ui_guild_card_paint_overlay(const UiGuildCardScene& s, const Theme& theme, 
     return p.end();
 }
 
+// The ready card's plain lines: where each one's text, byte count and panel-relative rectangle sit in the scene,
+// its colour (strong, muted, the "+N" overlay's), its sideways inset, text style and text mode.
+struct TextLine {
+    u16 text, bytes, rect;
+    u8 color, inset;
+    u32 style, mode;
+};
+enum : u8 { line_strong, line_muted, line_overlay };
+#define MAICORD_CARD_AT(member) static_cast<u16>(__builtin_offsetof(UiGuildCardScene, member))
+#define MAICORD_CARD_LINE(text, bytes, rect, color, inset, style, mode) \
+    {MAICORD_CARD_AT(text), MAICORD_CARD_AT(bytes), MAICORD_CARD_AT(rect), color, inset, style, mode}
+// Before the trait chips (the first six) and after them.
+constexpr TextLine kTextLines[]{
+    MAICORD_CARD_LINE(name_text, name_bytes, name, line_strong, 0, kNameStyle, 0),
+    MAICORD_CARD_LINE(tag, tag_bytes, tag_text, line_strong, 0, kTagStyle, 0),
+    MAICORD_CARD_LINE(online_text, online_bytes, online, line_muted, 0, kInfoStyle, 0),
+    MAICORD_CARD_LINE(members_text, members_bytes, members, line_muted, 0, kInfoStyle, 0),
+    MAICORD_CARD_LINE(established_text, established_bytes, established, line_muted, 0, kInfoStyle, 0),
+    MAICORD_CARD_LINE(description_text, description_bytes, description, line_muted, 0, kInfoStyle, ui_text_wrap),
+    MAICORD_CARD_LINE(game_name_text, game_name_bytes, game_name, line_strong, 0, kInfoStyle, 0),
+    MAICORD_CARD_LINE(games_more_text, games_more_bytes, games_more, line_overlay, 0, kTextStyleSizeCodeXs,
+                      ui_text_center),
+    MAICORD_CARD_LINE(overflow_text, overflow_bytes, overflow, line_strong, static_cast<u8>(kTraitInset), kInfoStyle, 0),
+};
+#undef MAICORD_CARD_LINE
+#undef MAICORD_CARD_AT
+constexpr u32 kLinesBeforeTraits = 6;
+
 bool ui_guild_card_text_output(const UiGuildCardScene& s, const Theme& theme, UiTextOutput* out) noexcept {
     if (!s.active)
         return true;
@@ -767,12 +795,15 @@ bool ui_guild_card_text_output(const UiGuildCardScene& s, const Theme& theme, Ui
     }
     if (s.phase != UiGuildCardPhase::ready)
         return text.ok();
-    text(owner, {s.name_text, s.name_bytes}, at(s, s.name), strong, kNameStyle);
-    text(owner, {s.tag, s.tag_bytes}, at(s, s.tag_text), strong, kTagStyle);
-    text(owner, {s.online_text, s.online_bytes}, at(s, s.online), muted, kInfoStyle);
-    text(owner, {s.members_text, s.members_bytes}, at(s, s.members), muted, kInfoStyle);
-    text(owner, {s.established_text, s.established_bytes}, at(s, s.established), muted, kInfoStyle);
-    text(owner, {s.description_text, s.description_bytes}, at(s, s.description), muted, kInfoStyle, ui_text_wrap);
+    const Color colors[]{strong, muted, ui_theme_color_alpha(theme.tokens.overlay.text, a)};
+    const auto* base = reinterpret_cast<const u8*>(&s);
+    const auto line = [&](const TextLine& row) noexcept {
+        const UiRect r = at(s, *reinterpret_cast<const UiRect*>(base + row.rect));
+        text(owner, {reinterpret_cast<const char*>(base + row.text), *reinterpret_cast<const u32*>(base + row.bytes)},
+             {r.left + row.inset, r.top, r.right - row.inset, r.bottom}, colors[row.color], row.style, row.mode);
+    };
+    for (u32 i = 0; i < kLinesBeforeTraits; ++i)
+        line(kTextLines[i]);
     for (u32 i = 0; i < s.visible_traits; ++i) {
         const auto r = at(s, s.traits[i]);
         const float lead = trait_has_emoji(s, i) ? kEmoji + kEmojiGap : 0;
@@ -783,16 +814,8 @@ bool ui_guild_card_text_output(const UiGuildCardScene& s, const Theme& theme, Ui
         text(owner, {s.trait_text[i], s.trait_bytes[i]},
              {r.left + kTraitInset + lead, r.top, r.right - kTraitInset, r.bottom}, strong, kInfoStyle);
     }
-    if (ui_rect_has_area(s.game_name))
-        text(owner, {s.game_name_text[0], s.game_name_bytes[0]}, at(s, s.game_name), strong, kInfoStyle);
-    if (s.games_more_bytes)
-        text(owner, {s.games_more_text, s.games_more_bytes}, at(s, s.games_more),
-             ui_theme_color_alpha(theme.tokens.overlay.text, a), kTextStyleSizeCodeXs, ui_text_center);
-    if (s.overflow_bytes) {
-        const auto r = at(s, s.overflow);
-        text(owner, {s.overflow_text, s.overflow_bytes},
-             {r.left + kTraitInset, r.top, r.right - kTraitInset, r.bottom}, strong, kInfoStyle);
-    }
+    for (u32 i = kLinesBeforeTraits; i < sizeof(kTextLines) / sizeof(kTextLines[0]); ++i)
+        line(kTextLines[i]);
     return text(owner, action_label(s.action), at(s, s.button), ui_theme_color_alpha(theme.tokens.text.on_accent, a),
                 text_style_bold, ui_text_center)
         .ok();

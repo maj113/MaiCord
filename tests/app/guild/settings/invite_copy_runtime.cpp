@@ -154,29 +154,54 @@ u32 push(const UiSettingsControl& control, UiSettingsControlPresentation) noexce
         invite_copy_test::rows[invite_copy_test::row_count++] = control;
     return invite_copy_test::row_count;
 }
-u32 push_category(u64 id, const Utf8View& label, const Utf8View&) noexcept {
-    return push({id, label, {}, UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr}, {});
+Utf8View text_view(Text text) noexcept {
+    if (text.bits & Text::kViewBit)
+        return *reinterpret_cast<const Utf8View*>(text.bits & ~Text::kViewBit);
+    const char* chars = reinterpret_cast<const char*>(text.bits);
+    return {chars, c_string_length(chars)};
 }
-u32 push_notice(const Utf8View& description, const Utf8View& label) noexcept {
-    return push({1, label, description, UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr}, {});
+u32 push_category(u64 id, Text label, Text) noexcept {
+    return push({id, text_view(label), {}, UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr}, {});
 }
-u32 push_error(const Utf8View& label, const Utf8View& description, const Utf8View& action) noexcept {
-    return push({1, label, description, UiSettingsControlKind::notice, true, false, {}, 0, action, nullptr}, {});
+u32 push_notice(Text description, Text label) noexcept {
+    return push({1, text_view(label), text_view(description), UiSettingsControlKind::notice, true, false, {}, 0, {},
+                 nullptr},
+                {});
 }
-u32 push_choices(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
-                 const ConstSlice<Utf8View>& choices, u32 selected, const Utf8View& action,
+u32 push_error(Text label, Text description, Text action) noexcept {
+    return push({1, text_view(label), text_view(description), UiSettingsControlKind::notice, true, false, {}, 0,
+                 text_view(action), nullptr},
+                {});
+}
+u32 push_buttons(u64 id, Text label, Text description, bool enabled, const char* names, u32 shown,
                  UiSettingsControlPresentation presentation) noexcept {
-    UiSettingsControl control{id, label, description, kind, enabled, false, choices, selected, action, nullptr};
+    static Utf8View choices[16][4];
+    Utf8View* row = choices[invite_copy_test::row_count < 16 ? invite_copy_test::row_count : 15];
+    NameList list{names};
+    for (u32 i = 0; i < shown; ++i) {
+        if (i)
+            list.next();
+        row[i] = list.name();
+    }
+    UiSettingsControl control{id, text_view(label), text_view(description), UiSettingsControlKind::buttons, enabled,
+                              false, {row, shown}, 0, {}, nullptr};
     return push(control, presentation);
 }
-u32 push_loading(const Utf8View& description, u64) noexcept {
+u32 push_loading(Text description, u64) noexcept {
     return push_notice(description, {});
 }
-u32 push_count_heading(Bank& bank, const Utf8View& title, u32 count) noexcept {
+u32 push_count_heading(Bank& bank, Text title, u32 count) noexcept {
     const u32 start = bank.used;
-    bank.add(title);
+    bank.add(text_view(title));
     bank.number(count);
     return push_category(control_list_category, bank.since(start), {});
+}
+void open_confirmation(u64 kind, u64 item, Text, Text, Text, bool (*)(TextFormOwnerKey, Utf8View) noexcept,
+                       Text) noexcept {
+    ApplicationTextFormRequest request{};
+    request.danger = request.confirmation_only = true;
+    request.owner = form_key(kind, item);
+    application_text_form_open(request);
 }
 const ChatStateStore& state() noexcept {
     return invite_copy_test::chat;

@@ -11,6 +11,7 @@
 #include "maicord/ui/voice/audio_presentation.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/ui/shell/presentation.hpp"
+#include "maicord/ui/settings/scene.hpp"
 #include "maicord/render/media/inline_media.hpp"
 
 #include "renderer_interaction_state.hpp"
@@ -67,6 +68,8 @@ bool find_user_avatar(const D3D11Renderer& renderer, const UserRecord& user,
                       MediaAtlasResult* allocation) noexcept;
 void reveal_media_underlay(D3D11Renderer& renderer, u32 media_before, const UiRect& rectangle,
                            const Color& fallback) noexcept;
+// The settings page's view of the media atlas: whether a glyph tile's picture is held (and drawn by build_settings_page).
+UiSettingsMediaResidency settings_media_residency(const D3D11Renderer* renderer) noexcept;
 bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, const UiRect& r, const UiRect& clip,
                   const Color& placeholder, bool first = false) noexcept;
 bool queue_header_tag_icon(D3D11Renderer* renderer, const MessageScene& scene, const MessageTextCommand& command,

@@ -5,7 +5,6 @@
 #include "maicord/model/user/store.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/model/chat/game_store.hpp"
-#include "maicord/core/decimal.hpp"
 
 namespace maicord {
 using namespace profile_scene_detail;
@@ -549,12 +548,9 @@ void tag_row(ProfileScene* s, UiWidgetHandle owner, float left, float top, float
         x += w + 4;
     }
     if (hidden) {
-        char digits[12];
-        more->bytes = 0;
-        append(more, utf8_literal("+"));
-        append(more, {digits, decimal_write(digits, hidden)});
-        const float w = text_width(s, more->view(), width, kXs) + 16;
-        add(s, owner, {x, top, x + w, top + 20}, more->view(), ProfileAction::none, kXs, ProfileLook::pill);
+        const auto text = plus_count(more, hidden);
+        const float w = text_width(s, text, width, kXs) + 16;
+        add(s, owner, {x, top, x + w, top + 20}, text, ProfileAction::none, kXs, ProfileLook::pill);
     }
 }
 // A detailed game: the cover in the grid's first column, then its name (its

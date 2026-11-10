@@ -85,6 +85,7 @@ struct UiSettingsFooter {
     Utf8View status, save_label, reset_label;
     bool visible, can_save, saving, failed;
 };
+struct UiSettingsAvatarMedia;
 inline constexpr u32 kUiSettingsMaterializedWidgetLimit = 512;
 // The scrolling body runs from the form column to this inset from the
 // panel's right edge, so its scrollbar sits in a lane right of the column.
@@ -112,6 +113,9 @@ struct UiSettingsPreview {
     bool underline;  // Always underline links
     float group_gap; // Space Between Message Groups, DIPs
     float text_size; // Text size in chat, DIPs (the chat em); 0 is 16
+    // Null, or four avatars drawn over the sample's plain plates: yours (both messages), then the default avatars
+    // of the idle, do-not-disturb and mobile-online examples. An unusable entry keeps its placeholder.
+    const UiSettingsAvatarMedia* avatars;
 };
 struct UiSettingsControl {
     u64 id;
@@ -252,10 +256,16 @@ struct UiSettingsListItem {
 
 // One glyph tile (ui_settings_more_glyphs, the name tag chip's badge): an icon
 // stroked in ink (0xRRGGBB) over closed shapes filled with fill, and a mark
-// (UiIcon::count for none) in the tile's top end corner.
+// (UiIcon::count for none) in the tile's top end corner. A tile whose media names
+// a picture by URL (a profile_image key with its url) is that picture instead of
+// the icon once the renderer holds it (UiSettingsMediaResidency): a square
+// kUiSettingsGlyphImageDips wide on a tile, kUiBadgeCompactIcon on the chip.
+// Until then, and for a picture that fails, the icon shows.
+inline constexpr float kUiSettingsGlyphImageDips = 32;
 struct UiSettingsGlyphTile {
     u32 ink, fill;
     UiIcon icon, mark;
+    UiSettingsAvatarMedia media;
 };
 
 inline constexpr u32 kUiSettingsPageFormat = 0x53544731u;
@@ -621,23 +631,32 @@ bool ui_settings_scene_page_owner(const UiSettingsScene&, UiWidgetReference) noe
 // two-column layout. False when the page has none or it is out of view.
 bool ui_settings_scene_aside(const UiSettingsScene&, UiRect* heading, UiRect* card, UiRect* clip,
                              bool* beside = nullptr) noexcept;
-// Visible avatar rows with media, in page coordinates (before the modal layer
-// transform). *cursor starts at 0 and advances; false after the last one.
+// Visible avatar rows with media and glyph tiles with a picture (UiSettingsGlyphTile::media), in page coordinates
+// (before the modal layer transform). *cursor starts at 0 and advances; false after the last one.
 struct UiSettingsAvatarGeometry {
     const UiSettingsAvatarMedia* media;
     UiWidgetReference owner;
     UiRect avatar, clip;
     // A cell's cover: a rounded rectangle (radius) instead of a circle; cover: the picture fills the rectangle
-    // keeping its aspect, cropped to it (a banner upload tile).
+    // keeping its aspect, cropped to it (a banner upload tile). A glyph tile's picture is a tile with no radius.
     bool tile, cover;
     float radius;
+    // 1, or a disabled row's dimming (a glyph tile's picture).
+    float opacity;
 };
 bool ui_settings_scene_next_avatar(const UiSettingsScene&, u32* cursor, UiSettingsAvatarGeometry*) noexcept;
 // What sits over the avatar media of grid cells and an upload tile (drawn after it): a game tile's hover outline or
 // focus ring and the check of a chosen one; the upload tile's shade and pencil.
 bool ui_settings_scene_paint_cell_marks(const UiSettingsScene& scene, const Theme& theme, PaintStream* paint) noexcept;
+// Whether the renderer holds the picture of a key (as ui_settings_scene_next_avatar's consumers draw it). A glyph
+// tile whose picture is held leaves its icon out; without a source every tile shows its icon.
+struct UiSettingsMediaResidency {
+    bool (*resident)(const void* context, const MediaAssetKey& key);
+    const void* context;
+};
 bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, PaintStream* paint,
-                             u32 dpi = 96, UiSettingsPaintRanges* ranges = nullptr) noexcept;
+                             u32 dpi = 96, UiSettingsPaintRanges* ranges = nullptr,
+                             const UiSettingsMediaResidency* residency = nullptr) noexcept;
 bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& theme,
                                    UiTextOutput* stream) noexcept;
 

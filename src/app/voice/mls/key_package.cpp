@@ -1,7 +1,6 @@
 #include "maicord/app/voice/mls/key_package.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/voice/mls_reader.hpp"
 #include "../../shell/byte_views.hpp"
 
@@ -81,14 +80,6 @@ MlsPackageCryptoError dave_profile(const MlsKeyPackageView& view, u64 expected_u
 }
 MlsPackageCryptoResult check_package(KdfSha256Workspace& workspace, ConstSlice<u8> input,
                                      MlsSignedKeyPackage* output, u64 expected_user_id) noexcept {
-    if (!output || !byte_range_valid(input) || byte_ranges_overlap(input, object_bytes(*output)))
-        return {0, 0, {}, MlsPackageCryptoError::invalid_input};
-    if (!workspace.storage.data || !workspace.storage.locked)
-        return {0, 0, {}, MlsPackageCryptoError::not_initialized};
-    const ConstSlice<u8> spans[]{input, object_bytes(*output)};
-    for (auto span : spans)
-        if (aliases_workspace(workspace, span))
-            return {0, 0, {}, MlsPackageCryptoError::invalid_input};
     MlsSignedKeyPackage candidate{};
     const auto wire = mls_key_package_decode(input, &candidate.view);
     if (!wire.ok())

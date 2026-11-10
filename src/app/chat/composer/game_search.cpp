@@ -92,7 +92,7 @@ bool show(const GameSearchResults& results, Utf8View query) noexcept {
     PopupItem items[kRows + 1];
     u32 count = 0;
     s.shown_count = 0;
-    for (u32 i = 0; games && i < results.count && s.shown_count < kRows; ++i) {
+    for (u32 i = 0; i < results.count && s.shown_count < kRows; ++i) {
         const GameRecord* record = game_store_find(*games, results.ids[i]);
         if (!record || record->state != GameState::known || !record->game.name_bytes)
             continue;

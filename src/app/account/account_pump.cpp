@@ -519,7 +519,7 @@ void drain_terminal_gateway_diagnostics() noexcept {
 }
 
 // The drain stage that stopped the account, for its log line.
-const char* g_drain_failure = "event_drain_failed";
+const char* g_drain_failure;
 bool drain_failed(const char* stage) noexcept {
     g_drain_failure = stage;
     return false;

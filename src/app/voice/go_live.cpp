@@ -92,7 +92,7 @@ struct GoLiveUi {
     // Menus.
     Menu menu;
     UiRect menu_anchor;
-    char labels[8][64];
+    char labels[3][64];
 };
 GoLiveUi ui{};
 
@@ -368,6 +368,19 @@ PopupItem row(Utf8View label, u32 action, u16 flags, Utf8View detail = {}) noexc
 u16 checked(bool on) noexcept {
     return static_cast<u16>(popup_item_enabled | (on ? popup_item_checked : 0));
 }
+// A quality choice of a menu: a checked row, or a disabled one asking for Nitro where the account's tier lacks it.
+PopupItem quality_row(Utf8View label, u32 action, StreamQuality quality, bool selected, u8 premium, u8 tier) noexcept {
+    return stream_quality_allowed(StreamPreset::custom, quality, premium, tier)
+               ? row(label, action, checked(selected))
+               : row(label, action, popup_item_none, utf8_literal("Nitro"));
+}
+// Without sound sharing the row stays, disabled, and says why.
+PopupItem audio_row(Utf8View label, u32 action, bool on) noexcept {
+    return audio_available() ? row(label, action, checked(on))
+                             : row(label, action, popup_item_none, audio_unavailable_reason());
+}
+constexpr Utf8View kResolutions[]{utf8_literal("480p"), utf8_literal("720p"), utf8_literal("1080p"),
+                                  utf8_literal("1440p"), utf8_literal("Source")};
 bool show_menu(Menu menu, const UiRect& anchor, ConstSlice<PopupItem> items, bool above) noexcept {
     const auto opened = popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, kMenuOwner, items, anchor,
                                          application_viewport_dips(), 248.0f, above);
@@ -400,31 +413,17 @@ bool open_options(const UiRect& anchor) noexcept {
     items[n++] = row(preset_name(StreamPreset::custom), kPresetCustom, checked(preset() == StreamPreset::custom));
     if (preset() == StreamPreset::custom) {
         // The dialog offers 720p and up, as the official client's; 1080p and up need Nitro or the server's boosts.
-        static constexpr Utf8View kResolutions[]{utf8_literal("480p"), utf8_literal("720p"), utf8_literal("1080p"),
-                                                 utf8_literal("1440p"), utf8_literal("Source")};
         items[n++] = row(utf8_literal("Screen Resolution"), kTitleFirst + 1, popup_item_separator_before);
-        for (u32 i = 1; i < 5; ++i) {
-            const bool allowed =
-                stream_quality_allowed(StreamPreset::custom, {kStreamResolutions[i], q.fps}, premium, tier);
-            items[n++] = row(kResolutions[i], kResolutionFirst + i,
-                             allowed ? checked(q.resolution == kStreamResolutions[i]) : u16{popup_item_none},
-                             allowed ? Utf8View{} : utf8_literal("Nitro"));
-        }
+        for (u32 i = 1; i < 5; ++i)
+            items[n++] = quality_row(kResolutions[i], kResolutionFirst + i, {kStreamResolutions[i], q.fps},
+                                     q.resolution == kStreamResolutions[i], premium, tier);
         static constexpr Utf8View kRates[]{utf8_literal("15fps"), utf8_literal("30fps"), utf8_literal("60fps")};
         items[n++] = row(utf8_literal("Frame Rate"), kTitleFirst + 2, popup_item_separator_before);
-        for (u32 i = 0; i < 3; ++i) {
-            const bool allowed =
-                stream_quality_allowed(StreamPreset::custom, {q.resolution, kStreamFrameRates[i]}, premium, tier);
-            items[n++] = row(kRates[i], kFpsFirst + i,
-                             allowed ? checked(q.fps == kStreamFrameRates[i]) : u16{popup_item_none},
-                             allowed ? Utf8View{} : utf8_literal("Nitro"));
-        }
+        for (u32 i = 0; i < 3; ++i)
+            items[n++] = quality_row(kRates[i], kFpsFirst + i, {q.resolution, kStreamFrameRates[i]},
+                                     q.fps == kStreamFrameRates[i], premium, tier);
     }
-    // Without sound sharing the row stays, disabled, and says why.
-    PopupItem mute =
-        audio_available()
-            ? row(utf8_literal("Mute stream audio"), kMuteAudio, checked(prefs().stream_muted))
-            : row(utf8_literal("Mute stream audio"), kMuteAudio, popup_item_none, audio_unavailable_reason());
+    PopupItem mute = audio_row(utf8_literal("Mute stream audio"), kMuteAudio, prefs().stream_muted);
     mute.flags |= popup_item_separator_before;
     items[n++] = mute;
     items[n++] = row(utf8_literal("Hide stream preview"), kHidePreview, checked(prefs().stream_hide_preview),
@@ -446,29 +445,18 @@ bool open_manage(const UiRect& anchor) noexcept {
         change.presentation = ui_menu_row_presentation(UiIcon::screen_share);
         items[n++] = change;
     }
-    items[n++] = audio_available()
-                     ? row(utf8_literal("Share Stream Audio"), kShareAudio, checked(s.sound))
-                     : row(utf8_literal("Share Stream Audio"), kShareAudio, popup_item_none, audio_unavailable_reason());
+    items[n++] = audio_row(utf8_literal("Share Stream Audio"), kShareAudio, s.sound);
     static constexpr Utf8View kRates[]{utf8_literal("15 FPS"), utf8_literal("30 FPS"), utf8_literal("60 FPS")};
     items[n++] = row(utf8_literal("Frame Rate"), kTitleFirst, popup_item_separator_before);
-    for (u32 i = 0; i < 3; ++i) {
-        const bool allowed = stream_quality_allowed(StreamPreset::custom, {s.resolution, kStreamFrameRates[i]}, premium,
-                                                    tier);
-        items[n++] = row(kRates[i], kLiveFpsFirst + i, allowed ? checked(s.fps == kStreamFrameRates[i]) : u16{0},
-                         allowed ? Utf8View{} : utf8_literal("Nitro"));
-    }
-    static constexpr Utf8View kResolutions[]{utf8_literal("480p"), utf8_literal("720p"), utf8_literal("1080p"),
-                                             utf8_literal("1440p"), utf8_literal("Source")};
+    for (u32 i = 0; i < 3; ++i)
+        items[n++] = quality_row(kRates[i], kLiveFpsFirst + i, {s.resolution, kStreamFrameRates[i]},
+                                 s.fps == kStreamFrameRates[i], premium, tier);
     items[n++] = row(utf8_literal("Resolution"), kTitleFirst + 1, popup_item_separator_before);
     // The text preset's 5 fps keeps Source at 30 fps on the list, as the official client does.
     const u8 fps = s.preset == StreamPreset::text ? 30 : s.fps;
-    for (u32 i = 0; i < 5; ++i) {
-        const bool allowed =
-            stream_quality_allowed(StreamPreset::custom, {kStreamResolutions[i], fps}, premium, tier);
-        items[n++] = row(kResolutions[i], kLiveResolutionFirst + i,
-                         allowed ? checked(s.resolution == kStreamResolutions[i]) : u16{0},
-                         allowed ? Utf8View{} : utf8_literal("Nitro"));
-    }
+    for (u32 i = 0; i < 5; ++i)
+        items[n++] = quality_row(kResolutions[i], kLiveResolutionFirst + i, {kStreamResolutions[i], fps},
+                                 s.resolution == kStreamResolutions[i], premium, tier);
     return show_menu(Menu::manage, anchor, {items, n}, true);
 }
 

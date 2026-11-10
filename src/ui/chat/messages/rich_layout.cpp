@@ -173,51 +173,25 @@ bool message_rich_item_layout_equal(const MessageRichItemLayout& left,
 }
 
 bool message_rich_item_slot(MessageRichItemKind kind, u32 index, u32* slot) noexcept {
-    if (!slot) {
+    // The first slot and the number of slots of each kind, in enumerator order. A poll is one independent
+    // optional row root, not a rich-item array.
+    static constexpr struct {
+        u16 first, count;
+    } kSlots[]{{kMessageRichAttachmentItemOffset, kGatewayMessageAttachmentMaximum},
+               {kMessageRichEmbedItemOffset, kGatewayMessageEmbedMaximum},
+               {kMessageRichStickerItemOffset, kGatewayMessageStickerMaximum},
+               {kMessageRichComponentItemOffset, kGatewayMessageComponentMaximum},
+               {kMessageRichNoticeItemOffset, 1},
+               {0, 0},
+               {kMessageRichInviteItemOffset, kMessageInviteCardMaximum}};
+    static_assert(static_cast<u32>(MessageRichItemKind::invite) + 1 == sizeof(kSlots) / sizeof(kSlots[0]) &&
+                  static_cast<u32>(MessageRichItemKind::notice) == 4 &&
+                  static_cast<u32>(MessageRichItemKind::poll) == 5);
+    const u32 kind_index = static_cast<u32>(kind);
+    if (kind_index >= sizeof(kSlots) / sizeof(kSlots[0]) || index >= kSlots[kind_index].count)
         return false;
-    }
-    switch (kind) {
-    case MessageRichItemKind::attachment:
-        if (index < kGatewayMessageAttachmentMaximum) {
-            *slot = kMessageRichAttachmentItemOffset + index;
-            return true;
-        }
-        break;
-    case MessageRichItemKind::embed:
-        if (index < kGatewayMessageEmbedMaximum) {
-            *slot = kMessageRichEmbedItemOffset + index;
-            return true;
-        }
-        break;
-    case MessageRichItemKind::sticker:
-        if (index < kGatewayMessageStickerMaximum) {
-            *slot = kMessageRichStickerItemOffset + index;
-            return true;
-        }
-        break;
-    case MessageRichItemKind::component:
-        if (index < kGatewayMessageComponentMaximum) {
-            *slot = kMessageRichComponentItemOffset + index;
-            return true;
-        }
-        break;
-    case MessageRichItemKind::notice:
-        if (index == 0) {
-            *slot = kMessageRichNoticeItemOffset;
-            return true;
-        }
-        break;
-    case MessageRichItemKind::invite:
-        if (index < kMessageInviteCardMaximum) {
-            *slot = kMessageRichInviteItemOffset + index;
-            return true;
-        }
-        break;
-    case MessageRichItemKind::poll:
-        // Polls have one independent optional row root, not rich-item arrays.
-        break;
-    }
-    return false;
+    *slot = kSlots[kind_index].first + index;
+    return true;
 }
 
 MediaAttachmentFormat message_rich_attachment_format(const MessageRichStore& store,

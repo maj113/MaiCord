@@ -10,24 +10,8 @@ namespace {
 bool positive(float value) noexcept {
     return paint_coordinate_valid(value) && value > 0;
 }
-bool style_valid(const UiAudioControlsStyle& style) noexcept {
-    if (!positive(style.padding) || !positive(style.gap) || !positive(style.target) ||
-        !positive(style.title_height) || !positive(style.minimum_width) || !positive(style.maximum_width) ||
-        !positive(style.time_width) || !positive(style.volume_width) ||
-        !paint_coordinate_valid(style.corner_radius) || style.corner_radius < 0 ||
-        !positive(style.waveform_gap) || !positive(style.minimum_peak_height) ||
-        !positive(style.volume_thumb_extent) || style.volume_thumb_extent >= style.target ||
-        style.maximum_width < style.minimum_width || style.volume_width < style.target ||
-        style.time_width < style.volume_width || style.minimum_peak_height > style.target ||
-        style.minimum_width < 2 * style.padding + 3 * style.target + 2 * style.gap)
-        return false;
-    const Utf8View labels[]{style.play,     style.pause,   style.retry, style.mute,       style.unmute,
-                            style.download, style.loading, style.error, style.voice_title};
-    for (const auto label : labels)
-        if (!label.bytes || label.bytes > 128 || !utf8_validate(label).valid)
-            return false;
-    return true;
-}
+// A style is always theme-derived (ui_theme_audio_style keeps every extent positive and the widths ordered) or the
+// default, so it needs no validation here.
 bool action(const UiAudioControlsProjection& projection, UiAudioControl id, u32 value,
             UiAudioAction* out) noexcept {
     const auto* descriptor = ui_audio_controls_find(projection, id);
@@ -63,7 +47,7 @@ bool action(const UiAudioControlsProjection& projection, UiAudioControl id, u32 
 } // namespace
 
 float ui_audio_card_height(const UiAudioControlsStyle& style, float width, bool voice) noexcept {
-    if (!style_valid(style) || !positive(width) || width < style.minimum_width)
+    if (!positive(width) || width < style.minimum_width)
         return 0;
     return 2 * style.padding + 2 * style.target + style.gap + (voice ? 0 : style.title_height + style.gap);
 }

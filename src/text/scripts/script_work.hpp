@@ -22,4 +22,20 @@ inline SfntStatus move_before(const Slice<SfntComponentGlyph>& view,u32 from,u32
     const auto saved=glyphs[from];if(from<to)for(u32 i=from;i<to;++i)glyphs[i]=glyphs[i+1];
     else for(u32 i=from;i>to;--i)glyphs[i]=glyphs[i-1];glyphs[to]=saved;return SfntStatus::ok;
 }
+// A glyph run read through its component forest: the first component of a glyph carries its metadata (HarfBuzz keeps
+// the first component's properties on a ligature); an expansion output left without components takes the metadata of
+// the output before it. The two walks stay out of line: the reordering code calls them from dozens of sites.
+struct Glyphs {
+    SfntComponentForest& forest;Slice<SfntComponentGlyph> g;Work& work;SfntStatus status=SfntStatus::ok;
+    static constexpr u32 nil=0xffffffffu;
+    u32 owner(u32 i) const noexcept {u32 j=i;while(j&&g[j].component==nil)--j;
+        if(g[j].component==nil)while(j+1<g.count&&g[j].component==nil)++j;return g[j].component;}
+    __attribute__((noinline)) SfntComponentNode* first(u32 i) noexcept {u32 node=owner(i);if(node==nil)return nullptr;
+        while(node<forest.nodes.count){if(!work.spend(1)){status=SfntStatus::resource_limit;return nullptr;}
+            auto& n=forest.nodes[node];if((n.flags&1)||n.left==nil)return &n;node=n.left;}
+        status=SfntStatus::invalid_input;return nullptr;}
+    u8 meta(u32 i) noexcept {const auto* n=first(i);return n?static_cast<u8>(n->reserved>>8):0;}
+    __attribute__((noinline)) bool ligated(u32 i) const noexcept {const u32 node=owner(i);return node<forest.nodes.count&&forest.nodes[node].count>=2;}
+    void move(u32 from,u32 before) noexcept {if(status==SfntStatus::ok)status=move_before(g,from,before,work);}
+};
 }

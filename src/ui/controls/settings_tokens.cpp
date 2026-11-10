@@ -110,6 +110,10 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
     UiSettingsTokens& t = *output;
     const auto& s = settings_style(theme.styles);
     const bool light = theme.appearance == ThemeAppearance::light;
+    // Discord's midnight theme (a pure black rail, AMOLED) keeps cards, fields and dialogs on the near-black
+    // surface and shows their edges: one step stronger greys instead of the other themes' grey fills.
+    const bool midnight = theme.base_lowest.red + theme.base_lowest.green + theme.base_lowest.blue == 0.f &&
+                          !ui_background_active(theme);
     constexpr Color white{1, 1, 1, 1}, black{0, 0, 0, 1};
     // Palette fields below and set_layout_tokens initialize the complete result.
     t.light = light;
@@ -118,13 +122,13 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
     c.text_strong = pick(s.text_strong, ui_settings_color_mix(theme.text_primary, light ? black : white, .6f));
     c.text_subtle = pick(s.text_subtle, ui_settings_color_mix(theme.text_secondary, theme.text_primary, .2f));
     c.nav_header = pick(s.nav_header, ui_settings_color_mix(theme.text_secondary, theme.base_low, .28f));
-    c.border_subtle = pick(s.border_subtle, neutral(light ? .24f : .122f));
-    c.border_normal = pick(s.border_normal, neutral(light ? .36f : .2f));
+    c.border_subtle = pick(s.border_subtle, neutral(light ? .24f : midnight ? .2f : .122f));
+    c.border_normal = pick(s.border_normal, neutral(light ? .36f : midnight ? .24f : .2f));
     c.mod_subtle = pick(s.mod_subtle, neutral(light ? .16f : .122f));
     c.mod_normal = pick(s.mod_normal, neutral(light ? .22f : .161f));
     c.mod_strong = pick(s.mod_strong, neutral(light ? .28f : .2f));
     c.input_background = pick(s.input_background, ui_settings_color_alpha(black, light ? .04f : .122f));
-    c.input_border = pick(s.input_border, neutral(light ? .36f : .2f));
+    c.input_border = pick(s.input_border, neutral(light ? .36f : midnight ? .24f : .2f));
     // Accent treatment: emphasis tokens follow a gradient theme's palette.
     c.brand = theme.tokens.emphasis.fill;
     c.brand_hover = pick(s.brand_hover, scaled(c.brand, .77f));
@@ -151,12 +155,12 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
         pick(s.slider_track, ui_settings_color_mix(theme.base_low, theme.text_secondary, light ? .35f : .25f));
     c.radio_border = pick(s.radio_border, neutral(.64f));
     c.radio_border_hover = neutral(.8f);
-    c.modal_background = pick(s.modal_background, light ? theme.surface : theme.base_low);
+    c.modal_background = pick(s.modal_background, light || midnight ? theme.surface : theme.base_low);
     c.sidebar_background = pick(s.sidebar_background, theme.base_lower);
     c.nav_selected = ui_background_active(theme) ? theme.tokens.emphasis.selected : c.mod_strong;
     c.separator = !s.border_subtle && ui_background_active(theme) ? ui_separator_color(theme) : c.border_subtle;
     const auto& tokens = theme.tokens;
-    c.card_fill = pick(s.card_fill, c.mod_subtle);
+    c.card_fill = pick(s.card_fill, midnight ? theme.surface : c.mod_subtle);
     c.card_border = pick(s.card_border, c.border_subtle);
     c.row_hover = pick(s.row_hover, ui_settings_color_alpha(tokens.state.hover, light ? .5f : .35f));
     c.hairline = tokens.border.subtle;

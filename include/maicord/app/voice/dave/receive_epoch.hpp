@@ -35,15 +35,9 @@ constexpr bool dave_epoch_attempted(DaveEpochError error) noexcept {
 KdfResult dave_receive_epoch_initialize(DaveReceiveEpoch* epoch, ConstSlice<u8> exported_seed,
                                         u64 now_ms) noexcept;
 void dave_receive_epoch_release(DaveReceiveEpoch* epoch) noexcept;
-// Read-only check for parent controllers: reports whether a borrowed buffer
-// overlaps this epoch's locked allocations (secrets and keys), before cleanup or
-// authentication can modify them. The epoch object itself is the parent's to
-// check; an initialized epoch always holds storage.
-bool dave_receive_epoch_aliases(const DaveReceiveEpoch& epoch, ConstSlice<u8> span) noexcept;
 // Monotonic non-decreasing milliseconds, same clock as initialization. The
-// parent (dave_receive_sender_open) owns argument validation and epoch expiry:
-// it parsed the frame, bounded and de-aliased output/scratch against this
-// owner, its locked allocations and the worker KDF workspace, and drops an
+// parent (dave_receive_sender_open) owns epoch expiry: it parsed the frame, checked the capacity of output/scratch
+// (the caller's own buffers, distinct from this owner and the KDF workspace), and drops an
 // expired epoch before calling. Frame output/scratch rules follow
 // dave_frame_open. Keys derived on a failed attempt may be kept;
 // only authentication advances newest_generation and replay or expires old keys.

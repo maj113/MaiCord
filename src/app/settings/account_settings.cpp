@@ -306,7 +306,7 @@ void clear_flow() noexcept {
     end_ceremony();
     g_owner.form = Form::none;
 }
-TextFormOwnerKey form_key() noexcept {
+__forceinline TextFormOwnerKey form_key() noexcept {
     return {g_owner.lifetime, static_cast<u64>(g_owner.form), g_owner.form_serial};
 }
 bool form_valid(TextFormOwnerKey key) noexcept {
@@ -377,7 +377,7 @@ void begin(Form form, SettingsPanel panel) noexcept {
 }
 
 // Appends the key to `detail` grouped in fours, lowercase, as the official client shows a TOTP key.
-Utf8View grouped_secret() noexcept {
+__forceinline Utf8View grouped_secret() noexcept {
     auto& b = *g_owner.bank;
     const Utf8View secret = field(field_extra);
     u32 at = 0;
@@ -409,7 +409,7 @@ bool generate_secret() noexcept {
 }
 // The official client's authenticator link: otpauth://totp/Discord:<email>?secret=<key>&issuer=Discord, the email
 // escaped as encodeURI escapes it. 0 when it does not fit `output`.
-u32 totp_uri(Utf8View email, Utf8View key, Slice<char> output) noexcept {
+__forceinline u32 totp_uri(Utf8View email, Utf8View key, Slice<char> output) noexcept {
     u32 at = 0;
     bool fits = true;
     const auto put = [&](Utf8View text) noexcept {
@@ -435,7 +435,7 @@ u32 totp_uri(Utf8View email, Utf8View key, Slice<char> output) noexcept {
     return fits ? at : 0;
 }
 // The backup codes as the official client lists them: "abcd-efgh", used ones marked.
-Utf8View codes_detail() noexcept {
+__forceinline Utf8View codes_detail() noexcept {
     auto& b = *g_owner.bank;
     b.detail_bytes = 0;
     for (u32 i = 0; i < g_owner.code_count; ++i) {
@@ -460,7 +460,7 @@ constexpr u8 kMfaChoiceMethods[]{kAccountAuthenticatorTotp, kAccountAuthenticato
 constexpr const char* kMfaChoiceTypes[]{"totp", "sms", "backup", "webauthn"};
 Utf8View g_mfa_choices[4];
 u8 g_mfa_choice_methods[4];
-u32 mfa_choices() noexcept {
+__forceinline u32 mfa_choices() noexcept {
     u32 count = 0;
     const u8 methods = g_owner.bank->mfa.methods;
     for (u32 i = 0; i < 4; ++i) {
@@ -814,7 +814,7 @@ Utf8View key_failure_text(KeyFailure failure, bool registering) noexcept {
 #if defined(_WIN32)
 // Registers a key through Windows (the OS prompt the loop waits in): the credential JSON for the second request goes
 // into field_token2.
-bool register_key_windows(KeyFailure* failure) noexcept {
+__forceinline bool register_key_windows(KeyFailure* failure) noexcept {
     auto& b = *g_owner.bank;
     *failure = KeyFailure::generic;
     auto* creation = static_cast<WebAuthnMfaCreationOptions*>(pages_allocate(sizeof(WebAuthnMfaCreationOptions)));
@@ -1218,6 +1218,10 @@ bool form_save_choices(TextFormOwnerKey key, Utf8View text, bool, u32 choice, u3
 
 // ---- Rows ---------------------------------------------------------------------------------------------------------
 
+// A row's texts are read only up to their lengths: emptying it needs no wipe of the buffers.
+void clear_row(Row& row) noexcept {
+    row.label_bytes = row.description_bytes = 0;
+}
 void append_row(Row& row, bool description, const Utf8View& text) noexcept {
     if (description)
         append(row.description, row.description_bytes, text);
@@ -1236,12 +1240,12 @@ bool current_session(const AccountSession& session) noexcept {
     const Utf8View hash = application_user_settings_session_hash();
     return hash.bytes && hash.bytes == session.id_hash_bytes && bytes_equal(hash.data, session.id_hash, hash.bytes);
 }
-Utf8View relative_time(u64 unix_ms, char (&output)[64]) noexcept {
+__forceinline Utf8View relative_time(u64 unix_ms, char (&output)[64]) noexcept {
     const auto formatted = format_timestamp_local(unix_ms / 1000, 'R', clock_unix_milliseconds() / 1000, {output, 64});
     return formatted.ok ? Utf8View{output, formatted.bytes} : Utf8View{};
 }
 void build_session_row(Row& row, const AccountSession& session, bool current) noexcept {
-    reset_value(&row);
+    clear_row(row);
     append_row(row, false, session.os_bytes ? view(session.os, session.os_bytes) : utf8_literal("Unknown device"));
     if (session.platform_bytes) {
         append_row(row, false, utf8_literal(" · "));
@@ -1309,7 +1313,7 @@ bool project_notice(SettingsPanel panel, u16 loads, UiSettingsControl* control,
     }
     return false;
 }
-void update_masks() noexcept {
+__forceinline void update_masks() noexcept {
     auto& b = *g_owner.bank;
     b.email_mask_bytes = static_cast<u8>(account_settings_mask_email(view(b.self.email, b.self.email_bytes),
                                                                      {b.email_mask, sizeof(b.email_mask)}));
@@ -1426,7 +1430,7 @@ bool harvest_binding(SettingBinding binding) noexcept {
 
 // Messaging Permissions' blocked (list 0) or ignored (list 1) accounts, each with its Unblock or Unignore button; then
 // how many more there are, or a line saying there are none.
-u32 relation_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
+__forceinline u32 relation_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
                   Slice<UiSettingsControlPresentation> presentation) noexcept {
     auto& b = *g_owner.bank;
     const u32 list = binding == SettingBinding::ignored_list ? 1 : 0;
@@ -1443,7 +1447,7 @@ u32 relation_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
             continue;
         }
         Row& row = rows[count];
-        reset_value(&row);
+        clear_row(row);
         const Utf8View name = relationship_display_name(record, g_app.account_ui->user_store);
         append_row(row, false, name.bytes ? name : utf8_literal("Unknown user"));
         b.relation_ids[list][count] = record.user_id;
@@ -1454,7 +1458,7 @@ u32 relation_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
     if (count >= controls.count || (count && !more))
         return count;
     Row& note = rows[kRelationRows];
-    reset_value(&note);
+    clear_row(note);
     if (more) {
         char text[32];
         copy_bytes(text, "And ", 4);
@@ -1746,7 +1750,7 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
                 build_session_row(row, b->sessions[i], current);
             } else {
                 const auto& app = b->apps[i];
-                reset_value(&row);
+                clear_row(row);
                 append_row(row, false, app.name_bytes ? view(app.name, app.name_bytes) : utf8_literal("Unknown app"));
                 append_row(row, true, view(app.scopes, app.scopes_bytes));
             }
@@ -2148,7 +2152,7 @@ bool keep_member(Utf8View body, Slice<u32> structurals, Utf8View name, Field f) 
     return bytes != ~0u && bytes;
 }
 // A successful answer to the flow's request: the next dialog, or the flow's result.
-void action_succeeded(Op op, Utf8View body, Slice<u32> structurals) noexcept {
+__forceinline void action_succeeded(Op op, Utf8View body, Slice<u32> structurals) noexcept {
     auto& b = *g_owner.bank;
     switch (op) {
     case Op::mfa_finish:

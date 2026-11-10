@@ -119,6 +119,12 @@ MessageComposerRequest* empty_request(MessageComposerController* controller) noe
     return nullptr;
 }
 
+// Whether bytes at `data` lie in the request bank: compaction would move them.
+bool overlaps_bank(const MessageComposerController* controller, const void* data, usize bytes) noexcept {
+    const u64 begin = reinterpret_cast<u64>(data), bank = reinterpret_cast<u64>(controller->request_text);
+    return bytes && begin < bank + controller->request_text_capacity && begin + bytes > bank;
+}
+
 bool compact_requests(MessageComposerController* controller) noexcept {
     u32 write_offset = 0;
     u32 previous_source = 0;
@@ -151,6 +157,13 @@ bool compact_requests(MessageComposerController* controller) noexcept {
     controller->request_text_wasted = 0;
     ++controller->compactions;
     return true;
+}
+
+// Room for `bytes` more request text, compacting the bank when only erased requests are in the way.
+bool reserve_request_text(MessageComposerController* controller, u32 bytes) noexcept {
+    const u32 capacity = controller->request_text_capacity;
+    return bytes <= capacity - (controller->request_text_used - controller->request_text_wasted) &&
+           (bytes <= capacity - controller->request_text_used || compact_requests(controller));
 }
 
 void erase_request(MessageComposerController* controller, MessageComposerRequest* request) noexcept {
@@ -373,19 +386,14 @@ MessageComposerControllerResult queue_send(
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     // prepare_submit views borrow this bank; reject them as new send inputs
     // before compaction can invalidate a source pointer.
-    const u64 bank_begin = reinterpret_cast<u64>(controller->request_text);
-    const u64 bank_end = bank_begin + controller->request_text_capacity;
-    const u64 sizes_begin = reinterpret_cast<u64>(attachment_sizes.data);
-    if (attachment_sizes.count && sizes_begin < bank_end && sizes_begin + attachment_sizes.count * sizeof(u64) > bank_begin)
+    if (overlaps_bank(controller, attachment_sizes.data, attachment_sizes.count * sizeof(u64)))
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     for (u32 i = 0; i < attachments.count; ++i) {
         const Utf8View strings[]{attachments[i].filename, attachments[i].uploaded_filename, attachments[i].description,
                                  attachments[i].waveform};
-        for (const auto text : strings) {
-            const u64 begin = reinterpret_cast<u64>(text.data);
-            if (text.bytes && begin < bank_end && begin + text.bytes > bank_begin)
+        for (const auto text : strings)
+            if (overlaps_bank(controller, text.data, text.bytes))
                 return controller_error(controller, MessageComposerControllerError::invalid_input);
-        }
     }
     MessageComposerRequest* const request = empty_request(controller);
     Utf8View content = message_composer_text(*composer);
@@ -393,22 +401,15 @@ MessageComposerControllerResult queue_send(
     const bool suppress_notifications = message_silent_prefix(content, &content) || silent;
     if (suppress_notifications && !content.bytes && !attachments.count && !sticker_ids.count)
         return controller_error(controller, MessageComposerControllerError::invalid_input);
-    const u64 content_begin = reinterpret_cast<u64>(content.data);
-    if (content.bytes && content_begin < bank_end && content_begin + content.bytes > bank_begin)
+    if (overlaps_bank(controller, content.data, content.bytes))
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     if (!request) {
         return controller_error(controller, MessageComposerControllerError::request_capacity);
     }
-    const u32 live_bytes = controller->request_text_used - controller->request_text_wasted;
     const u32 payload_bytes = content.bytes + attachment_bytes;
     const u32 storage_bytes = payload_bytes ? payload_bytes : 1;
-    if (storage_bytes > controller->request_text_capacity - live_bytes) {
+    if (!reserve_request_text(controller, storage_bytes))
         return controller_error(controller, MessageComposerControllerError::text_capacity);
-    }
-    if (storage_bytes > controller->request_text_capacity - controller->request_text_used &&
-        !compact_requests(controller)) {
-        return controller_error(controller, MessageComposerControllerError::text_capacity);
-    }
     const Utf8View display_content = !content.bytes && sticker_ids.count ? kStickerPlaceholder : content;
     if (!active_source && !detached && reply_message_id) {
         const auto saved = save_active_draft(controller);
@@ -598,17 +599,12 @@ MessageComposerControllerResult message_composer_controller_queue_forward(
     if (!validation.valid || validation.codepoints > kMessageComposerDefaultMaximumCodepoints)
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     // Compaction must not invalidate a caption borrowed from an older submit.
-    const u64 caption_begin = reinterpret_cast<u64>(caption.data);
-    const u64 bank_begin = reinterpret_cast<u64>(controller->request_text);
-    if (caption.bytes && caption_begin < bank_begin + controller->request_text_capacity &&
-        caption_begin + caption.bytes > bank_begin)
+    if (overlaps_bank(controller, caption.data, caption.bytes))
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     auto* request = empty_request(controller);
     if (!request) return controller_error(controller, MessageComposerControllerError::request_capacity);
     const u32 storage_bytes = caption.bytes ? caption.bytes : 1;
-    const u32 live_bytes = controller->request_text_used - controller->request_text_wasted;
-    if (storage_bytes > controller->request_text_capacity - live_bytes ||
-        (storage_bytes > controller->request_text_capacity - controller->request_text_used && !compact_requests(controller)))
+    if (!reserve_request_text(controller, storage_bytes))
         return controller_error(controller, MessageComposerControllerError::text_capacity);
     const auto begun = message_send_tracker_begin(&controller->sends, controller->timeline,
         destination_channel_id, author_id, caption.bytes ? caption : kForwardPlaceholder,

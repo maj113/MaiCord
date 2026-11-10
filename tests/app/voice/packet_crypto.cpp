@@ -167,18 +167,6 @@ void lifecycle(Check check, u32 mode, XChaChaBackend backend) noexcept {
           "invalid outbound framing does not consume nonce");
     plain[0] ^= 0x40;
     copy_bytes(packet, plain, bytes);
-    check(voice_packet_seal(crypto, 11, {packet, bytes}, {packet + 1, sizeof(packet) - 1}).error ==
-                  VoicePacketError::invalid_input &&
-              !crypto.next_nonce && bytes_equal(packet, plain, bytes),
-          "voice seal rejects partial overlap before writing");
-    auto* storage =
-        mode == voice_transport_aes256_gcm_rtpsize ? crypto.aes.object.data : crypto.xchacha.storage.data;
-    check(voice_packet_seal(crypto, 11, {plain, bytes}, {storage, bytes + 20}).error ==
-                  VoicePacketError::invalid_input &&
-              voice_packet_seal(crypto, 11, {storage, 12}, {packet, sizeof(packet)}).error ==
-                  VoicePacketError::invalid_input &&
-              !crypto.next_nonce,
-          "voice packet input/output cannot alias cipher storage");
     const auto sealed = voice_packet_seal(crypto, 11, {packet, bytes}, {packet, sizeof(packet)});
     check(sealed.ok() && sealed.nonce == 0 && crypto.next_nonce == 1,
           "voice seal supports exact in-place output");

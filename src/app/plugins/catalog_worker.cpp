@@ -37,6 +37,7 @@ struct Worker {
     SrwLock lock;
     // Guarded by lock.
     CatalogJob jobs[kQueue];
+    wchar_t copy_path[kCatalogCopyPathCharacters]; // the source of the one copy job in flight, terminated
     u32 job_first, job_count;
     CatalogJobResult results[kQueue];
     u32 result_first, result_count;
@@ -433,12 +434,9 @@ void delete_data(const Worker& w, const CatalogJob& job) noexcept {
     }
     dir_remove(directory);
 }
-void copy(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
-    wchar_t source[521];
-    copy_bytes(source, job.path, job.path_characters * 2);
-    source[job.path_characters] = 0;
+void copy(Worker& w, CatalogJobResult& r) noexcept {
     u32 count = 0;
-    u8* bytes = read_file(source, kPluginDllMaximumBytes, &count);
+    u8* bytes = read_file(w.copy_path, kPluginDllMaximumBytes, &count);
     Crypto crypto{};
     wchar_t path[600], leaf[69];
     FileStat present{};
@@ -462,7 +460,7 @@ void run(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     case CatalogJobKind::download: download(w, job, r); break;
     case CatalogJobKind::asset: asset(w, job, r); break;
     case CatalogJobKind::delete_data: delete_data(w, job); break;
-    case CatalogJobKind::copy: copy(w, job, r); break;
+    case CatalogJobKind::copy: copy(w, r); break;
     default: break;
     }
 }
@@ -577,12 +575,18 @@ void catalog_worker_stop() noexcept {
 
 HANDLE catalog_worker_notification() noexcept { return g_worker ? g_worker->notify : nullptr; }
 
-bool catalog_worker_submit(const CatalogJob& job) noexcept {
+bool catalog_worker_submit(const CatalogJob& job, ConstSlice<wchar_t> path) noexcept {
     Worker* w = g_worker;
-    if (!w) return false;
+    if (!w || path.count >= kCatalogCopyPathCharacters) return false;
     AcquireSRWLockExclusive(w->lock.native());
     const bool room = w->job_count < kQueue;
-    if (room) w->jobs[(w->job_first + w->job_count++) % kQueue] = job;
+    if (room) {
+        w->jobs[(w->job_first + w->job_count++) % kQueue] = job;
+        if (path.count) {
+            copy_bytes(w->copy_path, path.data, path.count * 2);
+            w->copy_path[path.count] = 0;
+        }
+    }
     ReleaseSRWLockExclusive(w->lock.native());
     if (room) event_set(w->wake);
     return room;

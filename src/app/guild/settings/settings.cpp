@@ -10,6 +10,8 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/name_list.hpp"
+#include "maicord/model/guild/community_settings.hpp"
 #include "maicord/app/account/account_profile_edit.hpp"
 #include "../../account/account_access.hpp"
 #include "maicord/core/test_hook.hpp"
@@ -293,33 +295,64 @@ u32 claim_control(UiSettingsControlPresentation presentation) noexcept {
     reset_value(&owner->list_items[owner->control_count]);
     return owner->control_count++;
 }
+// The next `count` views of this projection's choice pool, or null when it is full.
+Utf8View* claim_choices(u32 count) noexcept {
+    auto& p = *owner;
+    if (count > kChoicePool - p.choice_used)
+        return nullptr;
+    Utf8View* views = p.choice_pool[p.bank_index] + p.choice_used;
+    p.choice_used += count;
+    return views;
+}
 
 } // namespace
 
-void popup_row(u32 index, const Utf8View& label, u32 action, u32 flags) noexcept {
-    popup_item_set(&owner->popup_items[index], label, kMenuChoiceBase + action,
+// One cold function for every text a row takes.
+__declspec(noinline) void store_text(Utf8View* output, Text text) noexcept {
+    if (text.bits & Text::kViewBit) {
+        *output = *reinterpret_cast<const Utf8View*>(text.bits & ~Text::kViewBit);
+        return;
+    }
+    const char* chars = reinterpret_cast<const char*>(text.bits);
+    *output = {chars, c_string_length(chars)};
+}
+Utf8View text_view(Text text) noexcept {
+    Utf8View view;
+    store_text(&view, text);
+    return view;
+}
+
+void popup_row(u32 index, Text label, u32 action, u32 flags) noexcept {
+    popup_item_set(&owner->popup_items[index], text_view(label), kMenuChoiceBase + action,
                    static_cast<u16>(popup_item_enabled | flags));
 }
-u32 push_row(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
-             bool checked, const Utf8View& action, UiSettingsControlPresentation presentation) noexcept {
+u32 push_row(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled, bool checked, Text action,
+             UiSettingsControlPresentation presentation) noexcept {
     const u32 index = claim_control(presentation);
     if (index == ~0u)
         return index;
     auto& control = owner->controls[index];
     control.id = id;
-    control.label = label;
-    control.description = description;
+    store_text(&control.label, label);
+    store_text(&control.description, description);
     control.kind = kind;
     control.enabled = enabled;
     control.checked = checked;
     control.choices = {};
     control.selected_choice = 0;
-    control.action_label = action;
+    store_text(&control.action_label, action);
     control.editor = nullptr;
     return index;
 }
-u32 push_choices(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
-                 const ConstSlice<Utf8View>& choices, u32 selected, const Utf8View& action,
+u32 push_toggle(u64 id, Text label, Text description, bool enabled, bool checked) noexcept {
+    return push_row(id, label, description, UiSettingsControlKind::toggle, enabled, checked);
+}
+u32 push_action(u64 id, Text label, Text description, Text action, bool enabled,
+                UiSettingsControlPresentation presentation) noexcept {
+    return push_row(id, label, description, UiSettingsControlKind::action, enabled, false, action, presentation);
+}
+u32 push_choices(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled,
+                 const ConstSlice<Utf8View>& choices, u32 selected, Text action,
                  UiSettingsControlPresentation presentation) noexcept {
     const u32 index = push_row(id, label, description, kind, enabled, false, action, presentation);
     if (index != ~0u) {
@@ -328,37 +361,67 @@ u32 push_choices(u64 id, const Utf8View& label, const Utf8View& description, UiS
     }
     return index;
 }
-u32 push_editor(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
-                Editor index, const Utf8View& placeholder, const Utf8View& action) noexcept {
-    const UiSettingsEditor* view = Editors::view(index, id, placeholder, enabled);
+u32 push_names(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled, const char* names,
+               u32 shown, u32 selected, UiSettingsControlPresentation presentation) noexcept {
+    const u32 row = push_row(id, label, description, kind, enabled, false, {}, presentation);
+    Utf8View* views = row != ~0u ? claim_choices(shown) : nullptr;
+    if (views) {
+        NameList list{names};
+        for (u32 i = 0; i < shown; ++i) {
+            if (i)
+                list.next();
+            views[i] = list.name();
+        }
+        const u32 count = shown;
+        owner->controls[row].choices = {views, count};
+        owner->controls[row].selected_choice = selected;
+    }
+    return row;
+}
+u32 push_buttons(u64 id, Text label, Text description, bool enabled, const char* names, u32 shown,
+                 UiSettingsControlPresentation presentation) noexcept {
+    return push_names(id, label, description, UiSettingsControlKind::buttons, enabled, names, shown, 0, presentation);
+}
+u32 push_choice(u64 id, Text label, Text description, bool enabled, Text current) noexcept {
+    const u32 row = push_row(id, label, description, UiSettingsControlKind::choice, enabled);
+    Utf8View* view = row != ~0u ? claim_choices(1) : nullptr;
+    if (view) {
+        *view = text_view(current);
+        owner->controls[row].choices = {view, 1};
+    }
+    return row;
+}
+u32 push_editor(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled, Editor index,
+                Text placeholder, Text action) noexcept {
+    const UiSettingsEditor* view = Editors::view(index, id, text_view(placeholder), enabled);
     const u32 row = push_row(id, label, description, kind, enabled, false, action);
     if (row != ~0u)
         owner->controls[row].editor = view;
     return row;
 }
-u32 push_category(u64 id, const Utf8View& label, const Utf8View& description) noexcept {
+u32 push_category(u64 id, Text label, Text description) noexcept {
     return push_row(id, label, description, UiSettingsControlKind::category, true);
 }
-u32 push_notice(const Utf8View& description, const Utf8View& label) noexcept {
+u32 push_notice(Text description, Text label) noexcept {
     return push_row(control_notice, label, description, UiSettingsControlKind::notice, true);
 }
-u32 push_error(const Utf8View& label, const Utf8View& description, const Utf8View& action) noexcept {
+u32 push_error(Text label, Text description, Text action) noexcept {
     return push_row(control_notice, label, description, UiSettingsControlKind::notice, true, false, action,
                     {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
 }
-u32 push_loading(const Utf8View& description, u64 id) noexcept {
+u32 push_loading(Text description, u64 id) noexcept {
     return push_row(id, {}, description, UiSettingsControlKind::notice, true, true);
 }
-u32 push_count_heading(Bank& bank, const Utf8View& title, u32 count) noexcept {
+u32 push_count_heading(Bank& bank, Text title, u32 count) noexcept {
     const u32 start = bank.used;
-    bank.add(title);
+    bank.add(text_view(title));
     bank.number(count);
     return push_category(control_list_category, bank.since(start));
 }
-Utf8View channel_label(Bank& bank, u64 channel_id, const Utf8View& none) noexcept {
+Utf8View channel_label(Bank& bank, u64 channel_id, Text none) noexcept {
     const auto* channel = channel_id ? chat_state_store_find_channel(state(), channel_id) : nullptr;
     if (!channel)
-        return none;
+        return text_view(none);
     const u32 start = bank.used;
     bank.add(channel->type == 2 ? utf8_literal("") : utf8_literal("#"));
     bank.add(chat_state_store_channel_name(state(), *channel));
@@ -395,11 +458,11 @@ void image_summary(Bank& bank, const GuildImageInfo& info) noexcept {
     }
 }
 // Description of an image row: the pending change, or the current state.
-Utf8View picked_text(Bank& bank, const Picked& picked, const Utf8View& current) noexcept {
+Utf8View picked_text(Bank& bank, const Picked& picked, Text current) noexcept {
     if (picked.clear)
         return utf8_literal("Removed when you save.");
     if (!picked.set)
-        return current;
+        return text_view(current);
     const u32 start = bank.used;
     bank.add("New: ");
     image_summary(bank, picked.info);
@@ -449,9 +512,8 @@ Utf8View footer_status() noexcept {
     if (owner->failed && owner->status.bytes)
         return owner->status;
     if (ops().invalid) {
-        const auto invalid = ops().invalid();
-        if (invalid.bytes)
-            return invalid;
+        if (const char* invalid = ops().invalid())
+            return text_view(invalid);
     }
     return utf8_literal("Careful — you have unsaved changes!");
 }
@@ -510,7 +572,7 @@ bool project_page() noexcept {
     auto& p = *owner;
     p.bank_index ^= 1;
     Bank bank{p.banks[p.bank_index], kBankBytes, 0};
-    p.control_count = 0;
+    p.control_count = p.choice_used = 0;
     p.glyph_tile_count = 0;
     ops().project(bank);
     const bool dirty = page_dirty(), saving = p.request_id && mutation_pending();
@@ -985,13 +1047,25 @@ void poll_picker() noexcept {
 
 } // namespace guild_settings_detail
 
-void open_channel_menu(Menu menu, u32 types, u64 current, const Utf8View& none, PermissionSet required,
-                       const UiRect& anchor) noexcept {
+void open_popup(Menu menu, u64 subject, u32 count, const UiRect& anchor, u32 width) noexcept {
+    auto& p = *owner;
+    p.menu = menu;
+    settings_layer_open_choice(&p.layer, subject, {p.popup_items, count}, anchor, static_cast<float>(width));
+}
+
+void open_channel_menu(Menu menu, u32 types, u64 current, Text none, PermissionSet required, const UiRect& anchor,
+                       bool create_row) noexcept {
     auto& p = *owner;
     Bank bank{p.popup_text, sizeof(p.popup_text), 0};
     u32 count = 0;
-    popup_row(count, none, 0, !current ? popup_item_checked : 0);
-    p.menu_channel[count++] = 0;
+    if (none.bits) {
+        popup_row(count, none, count, !current ? popup_item_checked : 0);
+        p.menu_channel[count++] = 0;
+    }
+    if (create_row) {
+        popup_row(count, "Create one for me", count, current == kGuildCommunityNewChannel ? popup_item_checked : 0);
+        p.menu_channel[count++] = kGuildCommunityNewChannel;
+    }
     const auto& s = state();
     const u32 first = count;
     const u32 slots = chat_state_store_channel_slot_bound(s);
@@ -1026,11 +1100,10 @@ void open_channel_menu(Menu menu, u32 types, u64 current, const Utf8View& none, 
         p.popup_items[i] = rows[i - first].item;
         p.popup_items[i].action = kMenuChoiceBase + i;
         p.popup_items[i].flags = static_cast<u16>((p.popup_items[i].flags & ~popup_item_separator_before) |
-                                                  (i == first ? popup_item_separator_before : 0));
+                                                  (first && i == first ? popup_item_separator_before : 0));
         p.menu_channel[i] = rows[i - first].channel ? rows[i - first].channel->id : 0;
     }
-    p.menu = menu;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 280);
+    open_popup(menu, p.guild_id, count, anchor, 280);
 }
 
 namespace {

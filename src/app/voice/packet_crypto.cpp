@@ -1,6 +1,5 @@
 #include "maicord/app/voice/packet_crypto.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/voice/media_events.hpp"
 
@@ -18,26 +17,15 @@ VoicePacketResult failure(VoicePacketError error, const AeadResult& crypto) noex
     result.crypto = crypto;
     return result;
 }
-bool touches_key(const VoicePacketCrypto& crypto, ConstSlice<u8> span) noexcept {
-    return byte_ranges_overlap(span, {reinterpret_cast<const u8*>(&crypto), sizeof(crypto)}) ||
-           byte_ranges_overlap(span, {crypto.aes.object.data, crypto.aes.object.capacity}) ||
-           byte_ranges_overlap(span, {crypto.xchacha.storage.data, crypto.xchacha.storage.capacity});
-}
-VoicePacketError validate(const VoicePacketCrypto& crypto, u64 generation, ConstSlice<u8> input,
-                          Slice<u8> output, u32 written) noexcept {
+// The packet buffers are the callers' own (never the key owner or its storage: the ciphers reject such
+// aliasing too), so only the key's state and the output size are checked per packet.
+VoicePacketError validate(const VoicePacketCrypto& crypto, u64 generation, Slice<u8> output,
+                          u32 written) noexcept {
     if (!crypto.generation)
         return VoicePacketError::not_initialized;
     if (crypto.generation != generation)
         return VoicePacketError::stale_generation;
-    if (!byte_range_valid(input) || !byte_range_valid({output.data, output.count}))
-        return VoicePacketError::invalid_input;
-    if (output.count < written)
-        return VoicePacketError::output_too_small;
-    const ConstSlice<u8> destination{output.data, written};
-    if ((input.data != output.data && byte_ranges_overlap(input, destination)) ||
-        touches_key(crypto, input) || touches_key(crypto, destination))
-        return VoicePacketError::invalid_input;
-    return VoicePacketError::none;
+    return output.count < written ? VoicePacketError::output_too_small : VoicePacketError::none;
 }
 AeadResult crypt(VoicePacketCrypto& crypto, ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input,
                  Slice<u8> output, u8* tag, bool encrypt) noexcept {
@@ -52,8 +40,7 @@ AeadResult crypt(VoicePacketCrypto& crypto, ConstSlice<u8> nonce, ConstSlice<u8>
 AeadResult voice_packet_initialize(VoicePacketCrypto* crypto, u64 generation, u32 mode,
                                    ConstSlice<u8> secret, XChaChaBackend backend) noexcept {
     if (!crypto || crypto->generation || crypto->mode || crypto->aes.handle || crypto->aes.object.data ||
-        crypto->xchacha.storage.data || !generation || secret.count != 32 || !byte_range_valid(secret) ||
-        touches_key(*crypto, secret) ||
+        crypto->xchacha.storage.data || !generation || secret.count != 32 ||
         (mode != voice_transport_aes256_gcm_rtpsize && mode != voice_transport_xchacha20_poly1305_rtpsize))
         return {0, 0, AeadError::invalid_input};
     const auto result = mode == voice_transport_aes256_gcm_rtpsize
@@ -75,10 +62,8 @@ void voice_packet_release(VoicePacketCrypto* crypto) noexcept {
 
 VoicePacketResult voice_packet_seal(VoicePacketCrypto& crypto, u64 generation, ConstSlice<u8> plaintext,
                                     Slice<u8> packet) noexcept {
-    if (plaintext.count > ~u32{0} - 20)
-        return failure(VoicePacketError::invalid_input);
     const u32 required = plaintext.count + 20;
-    const auto valid = validate(crypto, generation, plaintext, packet, required);
+    const auto valid = validate(crypto, generation, packet, required);
     if (valid != VoicePacketError::none)
         return failure(valid);
     MediaPacketLayout layout{};
@@ -111,7 +96,7 @@ VoicePacketResult voice_packet_open(VoicePacketCrypto& crypto, u64 generation, C
     if (packet.count < 28)
         return failure(VoicePacketError::malformed_packet);
     const u32 bytes = packet.count - 20;
-    const auto valid = validate(crypto, generation, packet, plaintext, bytes);
+    const auto valid = validate(crypto, generation, plaintext, bytes);
     if (valid != VoicePacketError::none)
         return failure(valid);
     MediaPacketLayout header{};

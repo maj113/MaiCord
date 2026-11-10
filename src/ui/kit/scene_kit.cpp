@@ -3,21 +3,20 @@
 #include "maicord/ui/theme/surface_elevation.hpp"
 
 namespace maicord {
-template <UiTextClip Policy>
-UiTextPen<Policy>& UiTextPen<Policy>::push(const UiRect& region, UiWidgetHandle owner, const Utf8View& value,
-                                           const UiRect& r, const Color& color, u32 style, u32 mode) noexcept {
+void UiTextPenBase::push_region(const UiRect& region, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
+                                const Color& color, u32 style, u32 mode) noexcept {
     if (!ok_ || !value.bytes)
-        return *this;
+        return;
     UiRect clip = region;
-    if constexpr (Policy == UiTextClip::intersect) {
+    if (policy_ == UiTextClip::intersect) {
         clip = ui_rect_intersection(r, region);
         if (!ui_rect_has_area(clip))
-            return *this;
-    } else if constexpr (Policy == UiTextClip::region) {
+            return;
+    } else if (policy_ == UiTextClip::region) {
         if (!ui_rect_has_area(r))
-            return *this;
+            return;
     } else if (!ui_rect_intersects(r, region)) {
-        return *this;
+        return;
     }
     const bool wrap = mode & ui_text_wrap;
     ok_ = ui_text_output_push(out_, {value, {widgets_, owner}, r, clip, color, style,
@@ -26,11 +25,7 @@ UiTextPen<Policy>& UiTextPen<Policy>::push(const UiRect& region, UiWidgetHandle 
                                      wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
                                      (mode & ui_text_clip) ? TextOverflow::clip : TextOverflow::ellipsis,
                                      (mode & ui_text_chat) ? ui_text_face_chat(UiTextFace::normal) : UiTextFace::normal});
-    return *this;
 }
-template class UiTextPen<UiTextClip::intersect>;
-template class UiTextPen<UiTextClip::region>;
-template class UiTextPen<UiTextClip::label>;
 
 UiPaint& UiPaint::look(const UiRect& r, const UiLook& look, u8 state) noexcept {
     if (!ok_ || ((look.flags & ui_look_hot_only) && !state))

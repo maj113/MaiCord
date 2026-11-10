@@ -50,6 +50,46 @@ void on_wm_base_ping(void*, xdg_wm_base* base, u32 serial) noexcept {
 
 const xdg_wm_base_listener kWmBaseListener = {on_wm_base_ping};
 
+// The globals bound as the registry announces them, once each, in the order disconnect destroys them: the newest version
+// bound, the oldest taken, the opcode of the request that destroys the proxy (kPlainDestroy: it has none, the proxy is just
+// freed) and the member of Backend the proxy goes in. The fractional-scale pair is left out by
+// MAICORD_WAYLAND_NO_FRACTIONAL=1 (the integer scale path, wl_surface buffer scale, for testing it where the compositor
+// offers both).
+constexpr u8 kPlainDestroy = 0xFF;
+
+struct Binding {
+    const Interface* interface;
+    u16 slot;
+    u8 version;
+    u8 oldest;
+    u8 destroy;
+    bool fractional;
+};
+
+#define MAICORD_BINDING(protocol, member, version, oldest, destroy, fractional) \
+    Binding{&protocol##_interface, static_cast<u16>(__builtin_offsetof(Backend, member)), version, oldest, destroy, fractional}
+
+constexpr Binding kBindings[] = {
+    MAICORD_BINDING(wl_data_device_manager, data_manager, 3, 1, kPlainDestroy, false),
+    MAICORD_BINDING(zwp_primary_selection_device_manager_v1, primary_manager, 1, 1, 2, false),
+    MAICORD_BINDING(zwp_text_input_manager_v3, text_input_manager, 1, 1, 0, false),
+    MAICORD_BINDING(xdg_activation_v1, activation_manager, 1, 1, 0, false),
+    MAICORD_BINDING(zwp_idle_inhibit_manager_v1, idle_manager, 1, 1, 0, false),
+    MAICORD_BINDING(zxdg_exporter_v2, exporter_manager, 1, 1, 0, false),
+    MAICORD_BINDING(ext_idle_notifier_v1, idle_notifier, 2, 1, 0, false),
+    MAICORD_BINDING(xdg_system_bell_v1, bell, 1, 1, 0, false),
+    MAICORD_BINDING(xdg_toplevel_icon_manager_v1, icon_manager, 1, 1, 0, false),
+    MAICORD_BINDING(wl_seat, seat, kSeatVersion, 1, 3, false),  // wl_seat.release, from version 5
+    MAICORD_BINDING(zxdg_decoration_manager_v1, decoration_manager, 1, 1, 0, false),
+    MAICORD_BINDING(wp_cursor_shape_manager_v1, cursor_shape_manager, 1, 1, 0, false),
+    MAICORD_BINDING(wp_fractional_scale_manager_v1, fractional_manager, 1, 1, 0, true),
+    MAICORD_BINDING(wp_viewporter, viewporter, 1, 1, 0, true),
+    MAICORD_BINDING(xdg_wm_base, wm_base, kWmBaseVersion, 1, 0, false),
+    MAICORD_BINDING(wl_shm, shm, 1, 1, kPlainDestroy, false),  // wl_shm.release exists from version 2; this binds 1
+    MAICORD_BINDING(wl_compositor, compositor, kCompositorVersion, 4, kPlainDestroy, false),
+};
+#undef MAICORD_BINDING
+
 void on_global(void*, wl_registry* registry, u32 name, const char* interface, u32 version) noexcept {
     if (g.global_count < kMaxGlobals) {
         GlobalName& entry = g.globals[g.global_count++];
@@ -59,80 +99,29 @@ void on_global(void*, wl_registry* registry, u32 name, const char* interface, u3
         entry.name[length] = 0;
         entry.version = version;
     }
-    if (c_string_equal(interface, "wl_compositor")) {
-        if (version >= 4 && !g.compositor)
-            g.compositor = static_cast<wl_compositor*>(
-                wl_registry_bind(registry, name, &wl_compositor_interface, minimum(version, kCompositorVersion)));
-    } else if (c_string_equal(interface, "wl_shm")) {
-        if (!g.shm)
-            g.shm = static_cast<wl_shm*>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
-    } else if (c_string_equal(interface, "xdg_wm_base")) {
-        if (!g.wm_base) {
-            g.wm_base = static_cast<xdg_wm_base*>(
-                wl_registry_bind(registry, name, &xdg_wm_base_interface, minimum(version, kWmBaseVersion)));
+    for (const Binding& binding : kBindings) {
+        if (!c_string_equal(interface, binding.interface->name))
+            continue;
+        // The slot is a member of another pointer type: read and written as bytes.
+        u8* const slot = reinterpret_cast<u8*>(&g) + binding.slot;
+        void* proxy;
+        copy_bytes(&proxy, slot, sizeof(proxy));
+        if (proxy || version < binding.oldest || (binding.fractional && test_hook("MAICORD_WAYLAND_NO_FRACTIONAL")))
+            return;
+        const u32 bound = minimum(version, static_cast<u32>(binding.version));
+        proxy = wl_registry_bind(registry, name, binding.interface, bound);
+        copy_bytes(slot, &proxy, sizeof(proxy));
+        if (binding.interface == &xdg_wm_base_interface) {
             xdg_wm_base_add_listener(g.wm_base, &kWmBaseListener, nullptr);
-        }
-    } else if (c_string_equal(interface, "wl_seat")) {
-        if (!g.seat) {
-            g.seat_version = minimum(version, kSeatVersion);
-            g.seat = static_cast<wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, g.seat_version));
+        } else if (binding.interface == &wl_seat_interface) {
+            g.seat_version = bound;
             wl_seat_add_listener(g.seat, &kSeatListener, nullptr);
+        } else if (binding.interface == &ext_idle_notifier_v1_interface) {
+            g.idle_notifier_version = bound;
         }
-    } else if (c_string_equal(interface, "wp_viewporter")) {
-        if (!g.viewporter && !test_hook("MAICORD_WAYLAND_NO_FRACTIONAL"))
-            g.viewporter = static_cast<wp_viewporter*>(wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
-    } else if (c_string_equal(interface, "wp_fractional_scale_manager_v1")) {
-        // MAICORD_WAYLAND_NO_FRACTIONAL=1 ignores this protocol and viewporter: the integer scale path (wl_surface
-        // buffer scale), for testing it where the compositor offers both.
-        if (!g.fractional_manager && !test_hook("MAICORD_WAYLAND_NO_FRACTIONAL"))
-            g.fractional_manager = static_cast<wp_fractional_scale_manager_v1*>(
-                wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1));
-    } else if (c_string_equal(interface, "wp_cursor_shape_manager_v1")) {
-        if (!g.cursor_shape_manager)
-            g.cursor_shape_manager = static_cast<wp_cursor_shape_manager_v1*>(
-                wl_registry_bind(registry, name, &wp_cursor_shape_manager_v1_interface, 1));
-    } else if (c_string_equal(interface, "zxdg_decoration_manager_v1")) {
-        if (!g.decoration_manager)
-            g.decoration_manager = static_cast<zxdg_decoration_manager_v1*>(
-                wl_registry_bind(registry, name, &zxdg_decoration_manager_v1_interface, 1));
-    } else if (c_string_equal(interface, "wl_data_device_manager")) {
-        if (!g.data_manager)
-            g.data_manager = static_cast<wl_data_device_manager*>(
-                wl_registry_bind(registry, name, &wl_data_device_manager_interface, minimum(version, 3u)));
-    } else if (c_string_equal(interface, "zwp_primary_selection_device_manager_v1")) {
-        if (!g.primary_manager)
-            g.primary_manager = static_cast<zwp_primary_selection_device_manager_v1*>(
-                wl_registry_bind(registry, name, &zwp_primary_selection_device_manager_v1_interface, 1));
-    } else if (c_string_equal(interface, "zwp_text_input_manager_v3")) {
-        if (!g.text_input_manager)
-            g.text_input_manager = static_cast<zwp_text_input_manager_v3*>(
-                wl_registry_bind(registry, name, &zwp_text_input_manager_v3_interface, 1));
-    } else if (c_string_equal(interface, "xdg_activation_v1")) {
-        if (!g.activation_manager)
-            g.activation_manager = static_cast<xdg_activation_v1*>(
-                wl_registry_bind(registry, name, &xdg_activation_v1_interface, 1));
-    } else if (c_string_equal(interface, "zwp_idle_inhibit_manager_v1")) {
-        if (!g.idle_manager)
-            g.idle_manager = static_cast<zwp_idle_inhibit_manager_v1*>(
-                wl_registry_bind(registry, name, &zwp_idle_inhibit_manager_v1_interface, 1));
-    } else if (c_string_equal(interface, "zxdg_exporter_v2")) {
-        if (!g.exporter_manager)
-            g.exporter_manager = static_cast<zxdg_exporter_v2*>(
-                wl_registry_bind(registry, name, &zxdg_exporter_v2_interface, 1));
-    } else if (c_string_equal(interface, "ext_idle_notifier_v1")) {
-        if (!g.idle_notifier) {
-            g.idle_notifier_version = minimum(version, 2u);
-            g.idle_notifier = static_cast<ext_idle_notifier_v1*>(
-                wl_registry_bind(registry, name, &ext_idle_notifier_v1_interface, g.idle_notifier_version));
-        }
-    } else if (c_string_equal(interface, "xdg_system_bell_v1")) {
-        if (!g.bell)
-            g.bell = static_cast<xdg_system_bell_v1*>(wl_registry_bind(registry, name, &xdg_system_bell_v1_interface, 1));
-    } else if (c_string_equal(interface, "xdg_toplevel_icon_manager_v1")) {
-        if (!g.icon_manager)
-            g.icon_manager = static_cast<xdg_toplevel_icon_manager_v1*>(
-                wl_registry_bind(registry, name, &xdg_toplevel_icon_manager_v1_interface, 1));
-    } else if (c_string_equal(interface, "wl_output")) {
+        return;
+    }
+    if (c_string_equal(interface, "wl_output")) {
         // Version 2 reports the integer scale; the output is only tracked when the window needs it.
         if (version >= 2)
             extras_output_added(static_cast<wl_output*>(
@@ -349,44 +338,16 @@ void disconnect() noexcept {
     text_shutdown();
     keyboard_shutdown();
     pointer_detach();
-    if (g.data_manager)
-        g_client.proxy_destroy(reinterpret_cast<Proxy*>(g.data_manager));
-    if (g.primary_manager)
-        zwp_primary_selection_device_manager_v1_destroy(g.primary_manager);
-    if (g.text_input_manager)
-        zwp_text_input_manager_v3_destroy(g.text_input_manager);
-    if (g.activation_manager)
-        xdg_activation_v1_destroy(g.activation_manager);
-    if (g.idle_manager)
-        zwp_idle_inhibit_manager_v1_destroy(g.idle_manager);
-    if (g.exporter_manager)
-        zxdg_exporter_v2_destroy(g.exporter_manager);
-    if (g.idle_notifier)
-        ext_idle_notifier_v1_destroy(g.idle_notifier);
-    if (g.bell)
-        xdg_system_bell_v1_destroy(g.bell);
-    if (g.icon_manager)
-        xdg_toplevel_icon_manager_v1_destroy(g.icon_manager);
-    if (g.seat) {
-        if (g.seat_version >= wl_seat_release_since)
-            wl_seat_release(g.seat);
+    for (const Binding& binding : kBindings) {
+        Proxy* proxy;
+        copy_bytes(&proxy, reinterpret_cast<u8*>(&g) + binding.slot, sizeof(proxy));
+        if (!proxy)
+            continue;
+        if (binding.destroy == kPlainDestroy || (binding.interface == &wl_seat_interface && g.seat_version < wl_seat_release_since))
+            g_client.proxy_destroy(proxy);
         else
-            g_client.proxy_destroy(reinterpret_cast<Proxy*>(g.seat));
+            g_client.proxy_marshal_array_flags(proxy, binding.destroy, nullptr, 0, kMarshalFlagDestroy, nullptr);
     }
-    if (g.decoration_manager)
-        zxdg_decoration_manager_v1_destroy(g.decoration_manager);
-    if (g.cursor_shape_manager)
-        wp_cursor_shape_manager_v1_destroy(g.cursor_shape_manager);
-    if (g.fractional_manager)
-        wp_fractional_scale_manager_v1_destroy(g.fractional_manager);
-    if (g.viewporter)
-        wp_viewporter_destroy(g.viewporter);
-    if (g.wm_base)
-        xdg_wm_base_destroy(g.wm_base);
-    if (g.shm)
-        g_client.proxy_destroy(reinterpret_cast<Proxy*>(g.shm));  // wl_shm.release exists from version 2; this binds 1
-    if (g.compositor)
-        g_client.proxy_destroy(reinterpret_cast<Proxy*>(g.compositor));
     if (g.registry)
         wl_registry_destroy(g.registry);
     if (g.display) {

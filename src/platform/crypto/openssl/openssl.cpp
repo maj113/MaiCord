@@ -1,5 +1,4 @@
 #include "openssl.hpp"
-#include "maicord/core/log.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -39,50 +38,30 @@ bool soname(char (&name)[32], const char* stem, const char* suffix) noexcept {
     return true;
 }
 
-void log_missing(const char* library, const char* symbol) noexcept {
-    char message[96];
-    const char* const parts[] = {library, ": no symbol ", symbol};
-    u32 length = 0;
-    for (const char* part : parts)
-        for (; *part && length + 1 < sizeof(message); ++part)
-            message[length++] = *part;
-    message[length] = 0;
-    log_write(LogLevel::warning, "openssl", message);
-}
+// The symbol of each member of Crypto and (after its Crypto) of Ssl, in member order.
+#define MAICORD_OPENSSL_SYMBOL(ret, name, args) #name "\0"
+constexpr char kCryptoSymbols[] = MAICORD_OPENSSL_CRYPTO_FUNCTIONS(MAICORD_OPENSSL_SYMBOL);
+constexpr char kSslSymbols[] = MAICORD_OPENSSL_SSL_FUNCTIONS(MAICORD_OPENSSL_SYMBOL);
+#undef MAICORD_OPENSSL_SYMBOL
+static_assert(shared_library_name_count(kCryptoSymbols) * sizeof(void*) == sizeof(Crypto), "one symbol per Crypto member");
+static_assert(shared_library_name_count(kSslSymbols) * sizeof(void*) == sizeof(Ssl) - sizeof(Crypto),
+              "one symbol per Ssl member after its Crypto");
 
 // Resolves every function of a table, or none: the first missing name fails the whole load.
-struct Resolver {
-    const SharedLibrary& library;
-    const char* library_name;
-    bool failed;
-
-    template <typename Function> void operator()(Function* slot, const char* name) noexcept {
-        if (failed)
-            return;
-        void* address = shared_library_symbol(library, name);
-        if (!address) {
-            log_missing(library_name, name);
-            failed = true;
-            return;
-        }
-        *slot = reinterpret_cast<Function>(address);
-    }
-};
+bool resolve(const SharedLibrary& library, const char* library_name, void* table, usize table_bytes,
+             const char* names) noexcept {
+    const char* missing = shared_library_resolve(library, table, table_bytes, names);
+    if (missing)
+        shared_library_log_missing("openssl", library_name, missing);
+    return !missing;
+}
 
 bool resolve_crypto(const SharedLibrary& library, const char* library_name, Crypto* table) noexcept {
-    Resolver resolve{library, library_name, false};
-#define MAICORD_OPENSSL_RESOLVE(ret, name, args) resolve(&table->name, #name);
-    MAICORD_OPENSSL_CRYPTO_FUNCTIONS(MAICORD_OPENSSL_RESOLVE)
-#undef MAICORD_OPENSSL_RESOLVE
-    return !resolve.failed;
+    return resolve(library, library_name, table, sizeof(*table), kCryptoSymbols);
 }
 
 bool resolve_ssl(const SharedLibrary& library, const char* library_name, Ssl* table) noexcept {
-    Resolver resolve{library, library_name, false};
-#define MAICORD_OPENSSL_RESOLVE(ret, name, args) resolve(&table->name, #name);
-    MAICORD_OPENSSL_SSL_FUNCTIONS(MAICORD_OPENSSL_RESOLVE)
-#undef MAICORD_OPENSSL_RESOLVE
-    return !resolve.failed;
+    return resolve(library, library_name, &table->crypto + 1, sizeof(*table) - sizeof(table->crypto), kSslSymbols);
 }
 
 // Opens libcrypto.so.<suffix> into `library` and fills `table`; *failure says why not. The soname is the version: .3 is

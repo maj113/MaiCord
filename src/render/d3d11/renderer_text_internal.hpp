@@ -137,6 +137,10 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
                           TextOverlayBoundaries* boundaries) noexcept;
 bool raster_text_command(void* context, const UiTextCommand& command, u32 ordinal) noexcept;
 u32 overlay_boundary(const TextOverlayBoundaries& boundaries, const OverlayBatchBoundary& entry) noexcept;
+// A failure kind's diagnostic is written at most once every five seconds; `*suppressed` is how many of its kind were
+// held back since the last one.
+enum class TextDiagnostic : u8 { rebuild_rejected, rebuild_discarded, rebuild_atlas, quad_budget, count };
+bool text_diagnostic_due(TextDiagnostic kind, u32* suppressed) noexcept;
 u32& overlay_batch(D3D11Renderer* renderer, const OverlayBatchBoundary& entry) noexcept;
 
 } // namespace renderer_text_detail

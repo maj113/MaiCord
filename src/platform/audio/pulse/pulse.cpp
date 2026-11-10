@@ -18,16 +18,15 @@ LONG load_state() noexcept {
     return InterlockedCompareExchange(&g_state, 0, 0);
 }
 
-void log_unavailable(const char* what, const char* name) noexcept {
-    char message[160];
-    u32 length = 0;
-    const char* const parts[] = {what, name};
-    for (const char* part : parts)
-        for (; part && *part && length + 1 < sizeof(message); ++part)
-            message[length++] = *part;
-    message[length] = 0;
-    log_write(LogLevel::warning, "audio", message);
+void log_unavailable(const char* what) noexcept {
+    log_write(LogLevel::warning, "audio", what);
 }
+
+// Every symbol of Api, in member order.
+#define MAICORD_PULSE_SYMBOL(ret, name, args) #name "\0"
+constexpr char kSymbols[] = MAICORD_PULSE_FUNCTIONS(MAICORD_PULSE_SYMBOL);
+#undef MAICORD_PULSE_SYMBOL
+static_assert(shared_library_name_count(kSymbols) * sizeof(void*) == sizeof(Api), "one symbol per Api member");
 
 bool load() noexcept {
     // A test can name another soname (the no-libpulse path); users and operators have MAICORD_LIBRARY_PATH.
@@ -35,20 +34,15 @@ bool load() noexcept {
     if (!soname || !*soname)
         soname = "libpulse.so.0";
     if (!shared_library_open(&g_library, soname)) {
-        log_unavailable("libpulse.so.0 is not installed: audio is unavailable", "");
+        log_unavailable("libpulse.so.0 is not installed: audio is unavailable");
         return false;
     }
-    SharedLibraryResolver resolve{g_library, nullptr};
-    Api api{};
-#define MAICORD_PULSE_RESOLVE(ret, name, args) resolve(&api.name, #name);
-    MAICORD_PULSE_FUNCTIONS(MAICORD_PULSE_RESOLVE)
-#undef MAICORD_PULSE_RESOLVE
-    if (const char* missing = resolve.missing) {
-        log_unavailable("libpulse.so.0: no symbol ", missing);
+    // The symbols fill g_api in place: it is read only once g_state says loaded.
+    if (const char* missing = shared_library_resolve(g_library, &g_api, sizeof(g_api), kSymbols)) {
+        shared_library_log_missing("audio", soname, missing);
         shared_library_close(&g_library);
         return false;
     }
-    g_api = api;
     return true;
 }
 

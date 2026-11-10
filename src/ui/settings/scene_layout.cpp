@@ -42,13 +42,13 @@ bool side_control(UiSettingsControlKind kind) noexcept {
            kind == UiSettingsControlKind::segments;
 }
 // Kinds that share a card with their neighbours, and kinds that are a card of their own.
-bool grouped_kind(UiSettingsControlKind kind) noexcept {
+__forceinline bool grouped_kind(UiSettingsControlKind kind) noexcept {
     return kind != UiSettingsControlKind::category && kind != UiSettingsControlKind::notice &&
            kind != UiSettingsControlKind::tabs && kind != UiSettingsControlKind::error &&
            kind != UiSettingsControlKind::status && kind != UiSettingsControlKind::footnote &&
            kind != UiSettingsControlKind::preview;
 }
-bool solo_kind(UiSettingsControlKind kind) noexcept {
+__forceinline bool solo_kind(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::status;
 }
 } // namespace
@@ -243,7 +243,7 @@ float slider_label_width(const Utf8View& label) noexcept {
 }
 // The value label of a slider without marks sits at the end of its label
 // line, as wide as its widest end or current label.
-float slider_value_width(const UiSettingsControl& c) noexcept {
+__forceinline float slider_value_width(const UiSettingsControl& c) noexcept {
     if (!c.choices.count)
         return 0;
     const Utf8View ends[]{c.choices[0], c.choices[c.choices.count - 1],
@@ -336,7 +336,7 @@ float text_block(const UiSettingsMetrics& m, const Utf8View& label, const Utf8Vi
     return height;
 }
 // The trailing dropdown of a choice row: as wide as its current value, within the select width and 40% of the row.
-float dropdown_width(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, float row_width,
+__forceinline float dropdown_width(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, float row_width,
                      const UiKitMeasure* measure) noexcept {
     const Utf8View value = c.selected_choice < c.choices.count ? c.choices[c.selected_choice] : utf8_literal("Select\xE2\x80\xA6");
     return ui_dropdown_width(t, 0, ui_kit_text_width(measure, value, kUiKitTextLabel), minimum(320.f, row_width * .4f));
@@ -356,7 +356,7 @@ void shift_rows(RowLayout* r, float dy) noexcept {
         if (ui_rect_has_area(*rect))
             rect->top += dy, rect->bottom += dy;
 }
-float swatch_rows_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept {
+__forceinline float swatch_rows_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept {
     const u32 columns = ui_swatch_columns(t, width);
     const u32 rows = (count + columns - 1) / columns;
     return rows ? rows * (t.metric.swatch + ui_swatch_label_height()) + (rows - 1) * t.metric.swatch_gap * .5f + 4
@@ -449,6 +449,17 @@ const UiSettingsGlyphTile* glyph_tile(const UiSettingsPageContent& content, u32 
         return nullptr;
     const u32 at = content.presentation[index].default_choice + offset;
     return at < content.glyph_tile_count ? &content.glyph_tiles[at] : nullptr;
+}
+bool glyph_image(const UiSettingsGlyphTile* glyph) noexcept {
+    return glyph && glyph->media.key.kind == MediaAssetKind::profile_image && glyph->media.key.id &&
+           glyph->media.url.bytes;
+}
+UiRect glyph_image_rect(const UiRect& tile) noexcept {
+    return ui_rect_shrink(tile, (kGlyphTile - kUiSettingsGlyphImageDips) * .5f);
+}
+UiRect glyph_chip_image_rect(const UiRect& tag) noexcept {
+    const float cy = (tag.top + tag.bottom) * .5f, x = tag.left + kUiBadgeCompactPadding;
+    return {x, cy - kUiBadgeCompactIcon * .5f, x + kUiBadgeCompactIcon, cy + kUiBadgeCompactIcon * .5f};
 }
 UiRect cell_lead_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept {
     const float size = t.metric.chip_height, cy = (field.top + field.bottom) * .5f;
@@ -649,40 +660,45 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         return r;
     }
     if (c.kind == UiSettingsControlKind::preview && content.preview) {
-        // Accessibility's preview: its title, then a card holding two example messages (cozy: a 40-DIP avatar and
-        // the name over the first; compact: a time column, then the name and the text on each line), the first's
-        // reactions and, under them, three example avatars beside an example button. The sample is chat text: its
-        // lines, time column and reaction pills follow the chat size, the rest of the card keeps the interface's.
+        // Accessibility's preview, as the official card: its title, then a card (24 DIP of padding) of two messages
+        // beside a column, 8 DIP apart. Each message is its own group (cozy: a 40 DIP avatar, the name and time
+        // over the text; compact: a time column, then the name and the text on one line), the first with its
+        // reactions. The column right-aligns three status avatars (32 DIP, 6 apart) over the example button, 20
+        // apart. The sample is chat text: its lines, time column and reaction pills follow the chat size, the rest
+        // of the card keeps the interface's.
         const auto& s = *content.preview;
         const float em = s.text_size > 0 ? s.text_size : 16.f, scale = em / 16.f;
-        const float pad = m.card_inset, line = em * 1.375f, right = left + width - pad;
+        const float line = em * 1.375f, button = ui_kit_text_width(measure, c.action_label, kUiKitTextLabelBold) + 32;
         const bool cozy = !s.compact;
         r.label = {left, top, left + width, top + kUiSettingsLabelLine};
-        const float card_top = r.label.bottom + 8, inner = left + pad;
+        const float card_top = r.label.bottom + 8, inner = left + 1 + kPreviewPadding;
+        const float edge = left + width - 1 - kPreviewPadding - 8, y0 = card_top + 1 + kPreviewPadding;
         const float text_left = cozy ? inner + 56 : inner + 60 * scale;
-        float y = card_top + pad;
-        if (cozy) {
-            r.lead = {inner, y, inner + 40, y + 40};
-            r.tag = {text_left, y, right, y + line};
+        const float text_right = maximum(text_left + 1, edge - maximum(kPreviewStatusAvatar, button) - 8);
+        r.icon = {edge - kPreviewStatusAvatar, y0, edge, y0 + 2 * kPreviewStatusPitch + kPreviewStatusAvatar};
+        r.control = {edge - button, r.icon.bottom + 20, edge, r.icon.bottom + 20 + m.button_small};
+        float y = y0;
+        // A message: 2 DIP of padding, its header line (cozy), its text line.
+        const auto message = [&](UiRect* text) noexcept {
+            y += 2 + (cozy ? line : 0.f);
+            *text = {text_left, y, text_right, y + line};
             y += line;
+        };
+        message(&r.description);
+        if (cozy) {
+            r.tag = {text_left, r.description.top - line, text_right, r.description.top};
+            r.lead = {inner, r.tag.top + 2, inner + kPreviewAvatar, r.tag.top + 2 + kPreviewAvatar};
         } else {
-            r.tag = {inner, y, text_left - 8, y + line};
+            r.tag = {inner, r.description.top, text_left - 8, r.description.bottom};
         }
-        r.description = {text_left, y, right, y + line};
-        y += line;
         if (s.reactions) {
-            r.chips = {text_left, y + 4, right, y + 4 + 24};
-            y = r.chips.bottom;
+            r.chips = {text_left, y + 4, text_right, y + 4 + kPreviewReaction};
+            y = r.chips.bottom + 2;
         }
-        if (cozy)
-            y = maximum(y, r.lead.bottom);
-        y += s.group_gap;
-        r.value = {text_left, y, right, y + line};
-        y = r.value.bottom + 16;
-        r.icon = {inner, y, inner + 3 * 32 + 2 * 8, y + 32};
-        const float button = ui_kit_text_width(measure, c.action_label, kUiKitTextLabelBold) + 32;
-        r.control = {r.icon.right + 16, y, r.icon.right + 16 + button, y + 32};
-        r.body = {left, card_top, left + width, r.icon.bottom + pad};
+        // The group's padding and min-height (44 cozy), then the gap before the next group.
+        y = maximum(y + 2, y0 + (cozy ? 44.f : 0.f)) + s.group_gap;
+        message(&r.value);
+        r.body = {left, card_top, left + width, maximum(y + 2, r.control.bottom) + kPreviewPadding + 1};
         r.height = r.body.bottom - top;
         r.row = {left, top, left + width, top + r.height};
         return r;
@@ -945,7 +961,7 @@ u32 nav_count(const UiSettingsScene& scene) noexcept {
     return count;
 }
 // Pinned rows, which a modal sidebar keeps in its foot.
-u32 pinned_count(const UiSettingsScene& scene) noexcept {
+__forceinline u32 pinned_count(const UiSettingsScene& scene) noexcept {
     if (scene.presentation != UiSettingsPresentation::modal)
         return 0;
     u32 count = 0;
@@ -1001,7 +1017,7 @@ float dialog_footer_height(const UiSettingsMetrics& m) noexcept {
 }
 namespace {
 // The subtitle's text height: one or two lines at 13/18, at most 560 wide in the modal.
-float description_text_height(const UiSettingsScene& scene) noexcept {
+__forceinline float description_text_height(const UiSettingsScene& scene) noexcept {
     if (!scene.content.description.bytes || scene.content.host)
         return 0;
     const bool modal = scene.presentation == UiSettingsPresentation::modal;
@@ -1172,7 +1188,7 @@ constexpr ChoiceRule kChoiceRules[]{
     {UiSettingsControlKind::tabs, 2, 8, false},       {UiSettingsControlKind::buttons, 1, 4, true},
     {UiSettingsControlKind::colors, 1, 4, true},
 };
-const ChoiceRule* choice_rule(UiSettingsControlKind kind) noexcept {
+__forceinline const ChoiceRule* choice_rule(UiSettingsControlKind kind) noexcept {
     for (const auto& rule : kChoiceRules)
         if (rule.kind == kind)
             return &rule;
@@ -1258,7 +1274,7 @@ const UiSettingsControl* find_control(const UiSettingsScene& scene, const UiSett
         return nullptr;
     for (u32 i = 0; i < scene.widgets.count; ++i) {
         const auto& entry = entries(scene)[i];
-        if (!ui_settings_target_equal(entry.target, target) || entry.source_index >= scene.content.controls.count)
+        if (!ui_settings_target_equal(entry.target, target))
             continue;
         const auto& control = scene.content.controls[entry.source_index];
         if (control.id != target.control_id)
@@ -1647,7 +1663,7 @@ bool build(UiSettingsScene* scene) noexcept {
 bool row_layout_for(const UiSettingsScene& scene, const UiSettingsLayoutTokens& t, UiWidgetHandle handle, u32 source,
                     RowLayout* layout, UiRect* clip) noexcept {
     const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
-    if (!node || source >= scene.content.controls.count)
+    if (!node)
         return false;
     *layout = row_layout(t, scene.style, scene.content, source, node->rectangle.left, node->rectangle.top,
                          ui_rect_width(node->rectangle), row_context(scene));
@@ -1666,8 +1682,7 @@ bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHan
     if (handle.slot >= scene.widgets.count)
         return false;
     const auto& entry = entries(scene)[handle.slot];
-    if (entry.role != EntryRole::row || entry.target.kind != UiSettingsTargetKind::control ||
-        entry.source_index >= scene.content.controls.count)
+    if (entry.role != EntryRole::row || entry.target.kind != UiSettingsTargetKind::control)
         return true;
     const u32 index = entry.source_index;
     const auto& c = scene.content.controls[index];

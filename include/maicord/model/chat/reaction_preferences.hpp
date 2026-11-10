@@ -105,8 +105,6 @@ struct ReactionPreferenceStore {
     u32 favorite_edit_count;
     u32 next_sequence;
     u32 revision;
-    // Revision of local changes still unsent (uses or favorite edits).
-    u32 unsynced_revision;
     ReactionPreferenceTable tables[kReactionPreferenceKindCount];
     // Read only below their counts, so initialize, release and a remote snapshot leave the rest untouched and
     // these pages stay out of memory until an account fills them. They stay last: see the initializer.

@@ -76,7 +76,7 @@ u32 glide(Theme* palette, const Theme& from, u64 start_ms, u32 ease_ms, u64 now)
 }
 bool publish(const ClientThemeDocument* document, u32 glide_ms) noexcept;
 // One frame of a glide: only the colours and the background change; the published styles and fonts stay.
-void glide_frame(ThemePublication& p, const ClientThemeDocument* document) noexcept {
+__forceinline void glide_frame(ThemePublication& p, const ClientThemeDocument* document) noexcept {
     const u64 now = glide_now();
     Theme palette = look(p, document, nullptr);
     theme_desaturate(&palette, 100u - g_app.preferences.desaturation);

@@ -226,7 +226,7 @@ bool visit_item(void* opaque, u32, JsonValue value) noexcept {
 } // namespace
 
 bool game_profile_decode(Utf8View body, Slice<u32> scratch, u64 id, GameProfile* output) noexcept {
-    if (!output || !id)
+    if (!id)
         return false;
     enum class Error : u8 { none, input, capacity, json };
     const auto scanned = scan_json<Error>(body, scratch);

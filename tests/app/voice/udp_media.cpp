@@ -193,10 +193,8 @@ void loopback(Check check, u32 index, i32 family, u32 mode, XChaChaBackend backe
                 // Synthetic counters are set to the independent oracle values.
                 key.next_nonce = vector.counter;
                 check(voice_udp_media_send(&media, 8, {plain, plain_bytes}) == VoiceUdpMediaSend::invalid &&
-                          voice_udp_media_send(&media, 9, {rx, plain_bytes}) ==
-                              VoiceUdpMediaSend::invalid &&
                           key.next_nonce == vector.counter,
-                      "UDP media stale/aliased send cannot consume nonce or pending read storage");
+                      "UDP media stale send cannot consume nonce");
                 check(
                     voice_udp_media_send(&media, 9, {plain, plain_bytes}) == VoiceUdpMediaSend::accepted &&
                         discovery.socket.receive_pending && discovery.socket.send_pending &&

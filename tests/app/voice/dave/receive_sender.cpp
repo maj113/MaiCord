@@ -106,7 +106,6 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
     check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
           "DAVE boundary sender init");
     transition(check, sender, 0, 65535, 0, 10);
-    const auto* old_node = sender.newest;
     transition(check, sender, 1, 65536, 1, 10);
     u8 frame[64], output[64], scratch[64], material[16];
     wire(check, 0, 1, frame);
@@ -126,11 +125,6 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
                   DaveSenderError::stale_transition &&
               sender.next_expiry_ms == expires,
           "DAVE duplicate revision cannot refresh grace or create a fresh replay owner");
-    check(dave_receive_sender_open(sender, identity, workspace, {frame, 64}, 12, {scratch, 64},
-                                   {reinterpret_cast<u8*>(const_cast<DaveReceiveNode*>(old_node)), 64})
-                      .error == DaveSenderError::invalid_input &&
-              sender.count == 2,
-          "DAVE protects every old node before cleanup can free aliased caller storage");
     for (u32 size = 0; size != 48; ++size) {
         check(dave_receive_sender_open(sender, identity, workspace, {frame, 64}, 2, {scratch, 64},
                                        {output, size})
@@ -141,10 +135,6 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
                   test_filled(output, 64, 0xa5),
               "DAVE short shared buffers fail before trying any epoch");
     }
-    check(dave_receive_sender_open(sender, identity, workspace, {frame, 64}, 2, {scratch, 64},
-                                   {frame + 1, 63})
-                  .error == DaveSenderError::invalid_input,
-          "DAVE sender rejects partial frame/output overlap");
     u8 original[64];
     copy_bytes(original, frame, 64);
     const auto in_place =

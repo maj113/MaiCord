@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "../../shell/toast.hpp"
 #include "maicord/core/time.hpp"
 #include "../../settings/streamer_mode.hpp"
@@ -6,7 +6,7 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 // Each row: Copy Link for everyone, Revoke for managers.
-constexpr Utf8View kInviteActions[]{utf8_literal("Copy Link"), utf8_literal("Revoke")};
+constexpr char kInviteActions[] = "Copy Link\0Revoke";
 constexpr u32 kInviteCopy = 0, kInviteRevoke = 1;
 // The code, or its mask while Streamer Mode hides invite links (Copy Link still copies it).
 Utf8View invite_code(const GuildAdminInvite& invite) noexcept {
@@ -17,14 +17,14 @@ Utf8View invite_code(const GuildAdminInvite& invite) noexcept {
 void project_invites(Bank& bank) noexcept {
     auto& p = *owner;
     if (p.invites_failed)
-        push_error(utf8_literal("Couldn't load invites"), p.status, utf8_literal("Try again"));
+        push_error("Couldn't load invites", p.status, "Try again");
     else if (p.failed && p.status.bytes)
         push_error({}, p.status);
     else if (!p.invites_loaded)
-        push_loading(utf8_literal("Loading invites…"));
-    push_count_heading(bank, utf8_literal("Active invites — "), p.invite_count);
+        push_loading("Loading invites…");
+    push_count_heading(bank, "Active invites — ", p.invite_count);
     if (p.invites_loaded && !p.invite_count)
-        push_notice(utf8_literal("No active invites."));
+        push_notice("No active invites.");
     const u64 now = clock_unix_milliseconds();
     for (u32 i = 0; i < p.invite_count; ++i) {
         const auto& invite = p.invites[i];
@@ -46,15 +46,14 @@ void project_invites(Bank& bank) noexcept {
             bank.add("/");
             bank.number(invite.max_uses);
         }
-        bank.add(invite.uses == 1 && !invite.max_uses ? utf8_literal(" use · ") : utf8_literal(" uses · "));
+        bank.add(text_view(invite.uses == 1 && !invite.max_uses ? " use · " : " uses · "));
         if (invite.expires_at_ms) {
             bank.add("expires ");
             relative_time(bank, invite.expires_at_ms, now, true);
         } else
             bank.add("never expires");
         const auto description = bank.since(start);
-        push_choices(kRowBase + i, code, description, UiSettingsControlKind::buttons, true,
-                     {kInviteActions, editable() ? 2u : 1u}, 0, {},
+        push_buttons(kRowBase + i, code, description, true, kInviteActions, editable() ? 2u : 1u,
                      {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     }
 }
@@ -68,16 +67,8 @@ void confirm_revoke_invite(u32 index) noexcept {
     bank.add(invite_code(owner->invites[index]));
     bank.add("?");
     // A plain confirmation: revoking sends no reason.
-    ApplicationTextFormRequest request{};
-    request.title = bank.since(0);
-    request.context = utf8_literal("The link stops working for everyone.");
-    request.accept = utf8_literal("Revoke");
-    request.danger = true;
-    request.owner = form_key(form_invite_revoke, index);
-    request.valid = form_valid;
-    request.save = form_save;
-    request.confirmation_only = true;
-    application_text_form_open(request);
+    open_confirmation(form_invite_revoke, index, bank.since(0), "The link stops working for everyone.", "Revoke",
+                      form_save);
 }
 
 // The invite's full link, as the Invite People modal copies it.

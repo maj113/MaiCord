@@ -1,6 +1,5 @@
 #include "maicord/app/voice/dave/key_package.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/voice/mls_encoding.hpp"
 #include "../../shell/byte_views.hpp"
 
@@ -87,19 +86,9 @@ void dave_key_package_release(DaveKeyPackage* package) noexcept {
 }
 DavePackageResult dave_key_package_create(KdfSha256Workspace& workspace, const P256Key& signing,
                                           u64 user_id, DaveKeyPackage* output) noexcept {
-    if (!output || !user_id || byte_ranges_overlap(object_bytes(*output), object_bytes(signing)) ||
-        byte_ranges_overlap(object_bytes(*output), object_bytes(workspace)) ||
-        byte_ranges_overlap(object_bytes(signing), object_bytes(workspace)))
-        return {0, 0, DavePackageError::invalid_input};
-    if (!workspace.storage.data || !workspace.storage.locked)
-        return {0, 0, DavePackageError::not_initialized};
-    const ConstSlice<u8> storage{workspace.storage.data, workspace.storage.capacity};
-    if (byte_ranges_overlap(object_bytes(*output), storage) ||
-        byte_ranges_overlap(object_bytes(signing), storage))
-        return {0, 0, DavePackageError::invalid_input};
-    if (output->init_key.handle || output->leaf_key.handle || output->bytes || output->user_id)
-        return {0, 0, DavePackageError::already_initialized};
-    if (!signing.handle || !signing.has_private || signing.kind != P256Kind::ecdsa)
+    // The session creates one package at a time into its own released owner, with its initialized workspace and
+    // its private ECDSA key; the key and hash primitives reject anything else.
+    if (!user_id)
         return {0, 0, DavePackageError::invalid_input};
     DaveKeyPackage candidate{};
     const auto result = produce(workspace, signing, user_id, candidate);

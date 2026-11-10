@@ -4,6 +4,7 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/core/name_list.hpp"
 #include "../encoding/json_fields.hpp"
 
 namespace maicord {
@@ -261,27 +262,22 @@ bool connection_item(void* opaque, u32 i, JsonValue v) noexcept {
     ++c.profile->connection_count;
     return true;
 }
-// The index of `text` among `names`, or `count` when it is none of them.
-u32 name_index(Utf8View text, const Utf8View* names, u32 count) noexcept {
+// The index of `text` among the names of `list` (a NameList string), or the number of names when it is none of them.
+u32 name_index(Utf8View text, const char* list) noexcept {
     u32 i = 0;
-    while (i < count && !utf8_equal(text, names[i]))
+    for (NameList names{list}; names && !utf8_equal(text, names.name()); names.next())
         ++i;
     return i;
 }
-constexpr Utf8View kWidgetKinds[]{utf8_literal("favorite_games"), utf8_literal("played_games"),
-                                  utf8_literal("current_games"), utf8_literal("want_to_play_games"),
-                                  utf8_literal("application")};
-constexpr Utf8View kWidgetTags[profile_widget_tag_count]{
-    utf8_literal("noob"),           utf8_literal("learning_the_ropes"), utf8_literal("casual"),
-    utf8_literal("getting_good"),   utf8_literal("intermediate"),       utf8_literal("expert"),
-    utf8_literal("better_than_you"), utf8_literal("obsessed"),          utf8_literal("love_it"),
-    utf8_literal("kind_of_love_it"), utf8_literal("kind_of_hate_it"),   utf8_literal("rage_quitting"),
-    utf8_literal("like_it"),        utf8_literal("frustrated"),         utf8_literal("too_easy"),
-    utf8_literal("looking_for_group"), utf8_literal("open_to_play"),    utf8_literal("looking_for_tips"),
-    utf8_literal("open_to_teach"),  utf8_literal("looking_to_discuss")};
+constexpr char kWidgetKinds[] = "favorite_games\0played_games\0current_games\0want_to_play_games\0application\0";
+constexpr char kWidgetTags[] =
+    "noob\0learning_the_ropes\0casual\0getting_good\0intermediate\0expert\0better_than_you\0obsessed\0love_it\0"
+    "kind_of_love_it\0kind_of_hate_it\0rage_quitting\0like_it\0frustrated\0too_easy\0looking_for_group\0"
+    "open_to_play\0looking_for_tips\0open_to_teach\0looking_to_discuss\0";
+static_assert(name_list_count(kWidgetKinds) == 5 && name_list_count(kWidgetTags) == profile_widget_tag_count);
 bool widget_tag(void* opaque, u32, JsonValue v) noexcept {
     char text[32];
-    const u32 tag = name_index(short_text(v, text, sizeof(text)), kWidgetTags, profile_widget_tag_count);
+    const u32 tag = name_index(short_text(v, text, sizeof(text)), kWidgetTags);
     if (tag < profile_widget_tag_count)
         *static_cast<u32*>(opaque) |= 1u << tag;
     return true;
@@ -320,7 +316,7 @@ bool widget_item(void* opaque, u32, JsonValue v) noexcept {
     char text[32];
     if (!object(*c.doc, v, f) || !object(*c.doc, f[1].value, d))
         return true;
-    const u32 kind = name_index(short_text(d[0].value, text, sizeof(text)), kWidgetKinds, 5);
+    const u32 kind = name_index(short_text(d[0].value, text, sizeof(text)), kWidgetKinds);
     auto& w = p.widgets[p.widget_count];
     reset_value(&w);
     if (kind == 5 || !number(f[0].value, &w.id) || !number(d[2].value, &w.application_id))

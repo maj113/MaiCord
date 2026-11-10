@@ -50,14 +50,14 @@ void replace_groups(Broker& p, u8* groups, u32 bytes, const EmojiPreferencesSnap
     if (!groups)
         p.snapshot.favorites = p.snapshot.frecency = p.snapshot.reaction_frecency = p.snapshot.sticker_frecency = {};
 }
-void clear_scope(Broker& p) noexcept {
+__forceinline void clear_scope(Broker& p) noexcept {
     p.generation = next_generation(p.generation);
     replace_groups(p, nullptr, 0, {});
     p.authoritative = p.stale = p.fetch_wanted = p.terminal_rate_limit = false;
     p.attempts = 0;
     p.retry_at = 0;
 }
-void bind_scope(Broker& p) noexcept {
+__forceinline void bind_scope(Broker& p) noexcept {
     broker_bind(p);
     // Fetched lazily: on the first picker open or before the first write.
     p.fetch_wanted = false;
@@ -73,7 +73,7 @@ Broker* ensure() noexcept {
 }
 
 // Base64 settings to an owned group bank; false on any malformed input.
-bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPreferencesSnapshot* snapshot) noexcept {
+__forceinline bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPreferencesSnapshot* snapshot) noexcept {
     const auto measured = base64_decode(settings, {});
     if (measured.error != Base64Error::output_too_small && !measured.ok())
         return false;
@@ -106,7 +106,7 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
     *group_bytes = size.group_bytes;
     return true;
 }
-bool decode_response(Utf8View body, bool* out_of_date, u8** groups, u32* group_bytes,
+__forceinline bool decode_response(Utf8View body, bool* out_of_date, u8** groups, u32* group_bytes,
                      EmojiPreferencesSnapshot* snapshot) noexcept {
     struct Target {
         u8** groups;
@@ -156,7 +156,7 @@ bool visit_frecency(void* context, Utf8View key, const EmojiFrecencyItem& item) 
         target.recent_uses[i] = item.recent_uses[item.recent_count - target.recent_count + i];
     return true;
 }
-void apply_snapshot(Broker& p) noexcept {
+__forceinline void apply_snapshot(Broker& p) noexcept {
     auto* preferences = store();
     if (!preferences)
         return;
@@ -180,7 +180,7 @@ u64 preference_identity(Utf8View key) noexcept {
     const auto emoji = reaction_emoji_from_settings_key(key);
     return !emoji.valid() ? 0 : emoji.custom() ? emoji.custom_id : (1ull << 63) | emoji.catalog_index;
 }
-bool use_pending(const ReactionPreferenceStore& preferences, u32 kind, ReactionEmojiRef emoji) noexcept {
+__forceinline bool use_pending(const ReactionPreferenceStore& preferences, u32 kind, ReactionEmojiRef emoji) noexcept {
     for (u32 i = 0; i < preferences.pending_use_count; ++i)
         if (static_cast<u32>(preferences.pending_uses[i].kind) == kind && preferences.pending_uses[i].emoji == emoji)
             return true;

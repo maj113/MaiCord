@@ -81,7 +81,7 @@ UiSize previous_measurement(MessageTextPresentation* presentation, u64 identity)
 
 } // namespace
 bool fail(MessageTextPresentation* presentation, MessageTextPresentationError error) noexcept {
-    if (presentation && presentation->last_error == MessageTextPresentationError::none) {
+    if (presentation->last_error == MessageTextPresentationError::none) {
         presentation->last_error = error;
     }
     return false;
@@ -90,9 +90,6 @@ bool fail(MessageTextPresentation* presentation, MessageTextPresentationError er
 void set_failure_operation(MessageTextPresentation* presentation,
                            MessageTextPresentationOperation operation,
                            UiTextFlowError flow_error) noexcept {
-    if (!presentation) {
-        return;
-    }
     presentation->failure_operation = operation;
     presentation->failure_flow_error = flow_error;
 }
@@ -121,23 +118,19 @@ Utf8View member_nickname(const MessageTextPresentation& presentation, const Chat
 
 namespace {
 Utf8View resolve_entity_name(const BuildContext* context, MessageMarkdownEntityKind kind, u64 id) noexcept {
-    if (!context || !context->state || !context->navigation || id == 0) {
+    if (id == 0) {
         return Utf8View{};
     }
     if (kind == MessageMarkdownEntityKind::game)
-        return context->presentation && context->presentation->games
-                   ? game_store_name(*context->presentation->games, id)
-                   : Utf8View{};
+        return context->presentation->games ? game_store_name(*context->presentation->games, id) : Utf8View{};
     if (kind == MessageMarkdownEntityKind::user) {
         if (!context->users) {
             return Utf8View{};
         }
-        if (context->presentation && context->message) {
-            const Utf8View nickname =
-                member_nickname(*context->presentation, *context->state, context->message->channel_id, id);
-            if (nickname.bytes)
-                return nickname;
-        }
+        const Utf8View nickname =
+            member_nickname(*context->presentation, *context->state, context->message->channel_id, id);
+        if (nickname.bytes)
+            return nickname;
         const UserRecord* user = user_store_find(*context->users, id);
         return user ? user_store_name(*context->users, *user) : Utf8View{};
     }
@@ -156,10 +149,8 @@ Utf8View resolve_entity_name(const BuildContext* context, MessageMarkdownEntityK
 Utf8View resolve_entity(void* opaque, MessageMarkdownEntityKind kind, u64 id) noexcept {
     auto* context = static_cast<BuildContext*>(opaque);
     const Utf8View name = resolve_entity_name(context, kind, id);
-    if (context) {
-        context->trace.entities = true;
-        note_emission(&context->trace, name.bytes + kMarkdownLabelMargin);
-    }
+    context->trace.entities = true;
+    note_emission(&context->trace, name.bytes + kMarkdownLabelMargin);
     return name;
 }
 
@@ -190,8 +181,6 @@ MessageMarkdownChipIcon chip_channel_icon(const ChatStateStore& state, const Cha
 // server (named when it is not the message's own) and a forum post's forum.
 bool resolve_channel(void* opaque, u64 guild_id, u64 channel_id, MessageMarkdownChannelTarget* target) noexcept {
     auto* context = static_cast<BuildContext*>(opaque);
-    if (!context || !context->state || !target)
-        return false;
     const ChatStateStore& state = *context->state;
     context->trace.entities = true;
     const ChannelRecord* channel = chat_state_store_find_channel(state, channel_id);
@@ -227,8 +216,7 @@ bool resolve_channel(void* opaque, u64 guild_id, u64 channel_id, MessageMarkdown
         target->guild_id = guild->id;
         target->guild_name = chat_state_store_guild_name(state, *guild);
         target->guild_icon = chat_state_store_guild_icon_hash(*guild).bytes != 0 && guild->icon_variant != 0;
-        const ChannelRecord* own =
-            context->message ? chat_state_store_find_channel(state, context->message->channel_id) : nullptr;
+        const ChannelRecord* own = chat_state_store_find_channel(state, context->message->channel_id);
         if (own && own->guild_id == guild->id)
             flags |= message_markdown_channel_same_guild;
     }
@@ -243,8 +231,6 @@ bool resolve_channel(void* opaque, u64 guild_id, u64 channel_id, MessageMarkdown
 TimestampFormatResult format_timestamp(void* opaque, u64 unix_seconds, char style,
                                               Slice<char> output) noexcept {
     auto* context = static_cast<BuildContext*>(opaque);
-    if (!context)
-        return TimestampFormatResult{};
     const TimestampFormatResult formatted =
         format_timestamp_local(unix_seconds, style, context->now_unix_seconds, output);
     context->trace.timestamps = true;
@@ -475,22 +461,13 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
         return true;
     }
     set_failure_operation(presentation, MessageTextPresentationOperation::append_command);
-    if (!presentation || !presentation->commands.data || (!text.data && text.bytes != 0) ||
-        (!styles.data && styles.count != 0) || (!semantics.data && semantics.count != 0)) {
-        return fail(presentation, MessageTextPresentationError::model);
-    }
     if (presentation->command_count >= presentation->commands.count) {
         return fail(presentation, MessageTextPresentationError::capacity);
     }
-    const UiWidget* owner_widget =
-        owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
+    const UiWidget* owner_widget = ui_widget_manager_resolve(*owner.manager, owner.handle);
     if (!owner_widget || !ui_rect_has_area(rectangle) || !ui_rect_has_area(clip) || look.minimum_height < 0.0f ||
         look.gap_after < 0.0f) {
         return fail(presentation, MessageTextPresentationError::layout);
-    }
-    if (look.kind != MessageTextMeasurementKind::none &&
-        measurement_index >= presentation->measurement_count) {
-        return fail(presentation, MessageTextPresentationError::measurement);
     }
     MessageTextCommand& command = presentation->commands[presentation->command_count];
     command = MessageTextCommand{text,
@@ -526,9 +503,42 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
     return true;
 }
 
+bool retain_text(MessageTextPresentation* presentation, const Utf8View& text, Utf8View* output) noexcept {
+    if (text.bytes > presentation->utf8.count - presentation->utf8_count)
+        return fail(presentation, MessageTextPresentationError::capacity);
+    char* at = presentation->utf8.data + presentation->utf8_count;
+    copy_bytes(at, text.data, text.bytes);
+    presentation->utf8_count += text.bytes;
+    *output = {at, text.bytes};
+    return true;
+}
+
+bool append_marked(MessageTextPresentation* presentation, const Utf8View& text, const TextStyleSpan& span,
+                   const MessageMarkdownSemantic* semantic, const UiWidgetReference& owner, const UiRect& rectangle,
+                   const UiRect& clip, const Color& color, const MessageRecord* record, u16 measurement_index,
+                   const CommandLook& look) noexcept {
+    if ((span.byte_count && presentation->style_count >= presentation->styles.count) ||
+        (semantic && presentation->semantic_count >= presentation->semantics.count))
+        return fail(presentation, MessageTextPresentationError::capacity);
+    ConstSlice<TextStyleSpan> styles{};
+    ConstSlice<MessageMarkdownSemantic> semantics{};
+    if (span.byte_count) {
+        TextStyleSpan* retained = presentation->styles.data + presentation->style_count++;
+        *retained = span;
+        styles = {retained, 1};
+    }
+    if (semantic) {
+        MessageMarkdownSemantic* retained = presentation->semantics.data + presentation->semantic_count++;
+        *retained = *semantic;
+        semantics = {retained, 1};
+    }
+    return append_command(presentation, text, styles, semantics, owner, rectangle, clip, color, record,
+                          measurement_index, look);
+}
+
 bool begin_flow_item_clamped(UiTextFlowLayout* flow, float left_inset, float right_inset,
                              UiRect* rectangle) noexcept {
-    if (!flow || !rectangle || !ui_extent_valid(left_inset) || !ui_extent_valid(right_inset)) {
+    if (!ui_extent_valid(left_inset) || !ui_extent_valid(right_inset)) {
         return false;
     }
     const float width = ui_rect_width(flow->content_rectangle);
@@ -552,9 +562,7 @@ bool begin_item(MessageTextPresentation* presentation, UiTextFlowLayout* flow, f
     if (begin_flow_item_clamped(flow, left_inset, right_inset, rectangle)) {
         return true;
     }
-    if (presentation) {
-        presentation->failure_flow_error = flow->last_error;
-    }
+    presentation->failure_flow_error = flow->last_error;
     return fail(presentation, MessageTextPresentationError::layout);
 }
 
@@ -624,10 +632,6 @@ __declspec(noinline) RetainedReplySummary
 retain_reply_summary(MessageTextPresentation* presentation, BuildContext* context, Utf8View author,
                      Utf8View content, bool available, u8 content_flags, u8 message_type,
                      Utf8View poll_question, u8 quote_flags, u64 sent_unix_seconds) noexcept {
-    if (!presentation || !context || (!author.data && author.bytes != 0) ||
-        (!content.data && content.bytes != 0) || (!poll_question.data && poll_question.bytes != 0)) {
-        return RetainedReplySummary{};
-    }
 
     // The reply preview: the referenced text through the inline reply rules
     // (code fences inline, ```ansi escapes dropped, no block quotes), every
@@ -919,9 +923,6 @@ bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& te
                        u16 measurement_index, TextOverflow overflow,
                        float right_inset, float left_inset,
                        ConstSlice<MessageMarkdownSemantic> semantics, float line_height) noexcept {
-    if (!presentation || !flow || text.bytes == 0) {
-        return false;
-    }
     UiRect rectangle{};
     // Reserve the leading 16-DIP referenced-author avatar plus a 4-DIP gap,
     // and room for a trailing 20-DIP icon (4-DIP gap) when one follows.
@@ -953,16 +954,14 @@ bool initialize_flow(MessageTextPresentation* presentation, const UiLayoutNode& 
     if (ui_text_flow_initialize(flow, content, clip)) {
         return true;
     }
-    if (presentation && flow) {
-        presentation->failure_flow_error = flow->last_error;
-    }
+    presentation->failure_flow_error = flow->last_error;
     return fail(presentation, MessageTextPresentationError::layout);
 }
 
 bool finish_flow(MessageTextPresentation* presentation, const UiTextFlowLayout& flow,
                  float* height) noexcept {
     set_failure_operation(presentation, MessageTextPresentationOperation::finish_flow, flow.last_error);
-    if (!height || !flow.active || flow.item_open || flow.last_error != UiTextFlowError::none) {
+    if (!flow.active || flow.item_open || flow.last_error != UiTextFlowError::none) {
         return fail(presentation, MessageTextPresentationError::layout);
     }
     *height = ui_text_flow_required_height(flow);

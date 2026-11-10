@@ -24,7 +24,8 @@ to three calls, and a destructor then took the display lock a second time in `wl
 2068 to 2036 (246 requests), input 2490 to 2470 (599); a destructor (`wl_surface_destroy`, `wl_data_offer_destroy`, an
 activation token) 89 fewer; the resize step (`surface_sync`: viewport, opaque region) 1838 to 1813; the cursor 1871 to 1859.
 The test program's own code grew by 308 Ir over the lifecycle run (1.3 per request), and the client by 64 bytes. A new
-global is bound in `on_global` (`window.cpp`), kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
+global is a row of `kBindings` (`window.cpp`: interface, newest and oldest version, the `Backend` member that holds it),
+kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 
 ## Rules
 

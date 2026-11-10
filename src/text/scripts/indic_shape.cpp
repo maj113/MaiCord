@@ -145,28 +145,18 @@ struct Policy {
     const SfntGdef* gdef;const Font* font;const SfntCmap* cmap;const u8* metadata;u32 count;const u32* starts;u32 syllables,units;
     SfntComponentForest* forest;bool init;u16 space;bool space_known;
 };
-// The first component of a glyph carries its metadata (the first component's, as HarfBuzz keeps the
-// first component's properties on a ligature). An expansion output left without components takes the
-// metadata of the output before it (HarfBuzz copies the expanded glyph's properties to every output).
-struct Glyphs {
-    SfntComponentForest& forest;Slice<SfntComponentGlyph> g;Work& work;SfntStatus status=SfntStatus::ok;
-    u32 owner(u32 i) const noexcept {u32 j=i;while(j&&g[j].component==nil)--j;
-        if(g[j].component==nil)while(j+1<g.count&&g[j].component==nil)++j;return g[j].component;}
-    SfntComponentNode* first(u32 i) noexcept {u32 node=owner(i);if(node==nil)return nullptr;
-        while(node<forest.nodes.count){if(!work.spend(1)){status=SfntStatus::resource_limit;return nullptr;}
-            auto& n=forest.nodes[node];if((n.flags&1)||n.left==nil)return &n;node=n.left;}
-        status=SfntStatus::invalid_input;return nullptr;}
-    u8 meta(u32 i) noexcept {const auto* n=first(i);return n?static_cast<u8>(n->reserved>>8):0;}
+// Indic's view of the shared accessors: the class in the high nibble of a glyph's metadata and the reordering
+// position in the low one (HarfBuzz copies the expanded glyph's properties to every output).
+struct Glyphs : script_work::Glyphs {
+    Glyphs(SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,Work& work) noexcept : script_work::Glyphs{forest,glyphs,work} {}
     u8 cls(u32 i) noexcept {return meta(i)>>4;}
     P pos(u32 i) noexcept {return static_cast<P>(meta(i)&15);}
     void set_pos(u32 i,P p) noexcept {if(auto* n=first(i))n->reserved=static_cast<u16>((n->reserved&0xf0ffu)|static_cast<u16>(p)<<8);}
-    bool ligated(u32 i) const noexcept {const u32 node=owner(i);return node<forest.nodes.count&&forest.nodes[node].count>=2;}
     // HarfBuzz is_one_of: a ligature is none of the classes.
     bool is(u32 i,u32 classes) noexcept {return !ligated(i)&&((classes>>cls(i))&1u);}
     bool halant(u32 i) noexcept {return is(i,1u<<Class::halant);}
     bool joiner(u32 i) noexcept {return is(i,1u<<Class::zwj|1u<<Class::zwnj);}
     bool consonant(u32 i) noexcept {return is(i,1u<<Class::consonant|1u<<Class::consonant_break);}
-    void move(u32 from,u32 before) noexcept {if(status==SfntStatus::ok)status=script_work::move_before(g,from,before,work);}
 };
 // Final reordering of one Indic syllable after the basic forms (HarfBuzz final_reordering_syllable_indic).
 void final_reordering(Policy& p,Glyphs& s,u32 count) noexcept {

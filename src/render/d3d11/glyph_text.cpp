@@ -605,10 +605,21 @@ bool d3d11_glyph_text_append_solid(const TextDecoration& decoration, float origi
 
 #pragma float_control(pop)
 
+// Why the last d3d11_glyph_text_append returned false (0: it did not): the rebuild's failure log names it.
+u32 g_append_failure;
+bool append_fail(u32 cause) noexcept {
+    g_append_failure = cause;
+    return false;
+}
+u32 d3d11_glyph_text_append_failure() noexcept {
+    return g_append_failure;
+}
+
 // Caller-owned glyph buffers lend their reserved storage to effect preparation.
 // No geometry or cluster-map field changes, and no submitted quad keeps a tag.
 bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                              const D3D11GlyphTextAppendRequest& request) noexcept {
+    g_append_failure = 0;
     if (!owner || !context || !request.text || !request.output || !request.count ||
         !request.atlas_invalidated || *request.count > request.capacity) {
         return false;
@@ -663,7 +674,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         }
         if (!d3d11_glyph_text_append_solid(decoration, origin_x, origin_y, decoration_color,
                                            request.output, request.capacity, request.count)) {
-            return false;
+            return append_fail(1);
         }
     }
     if (request.selection_active) {
@@ -678,7 +689,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                                            region.bottom, 0,          TextDecorationKind::background};
             if (!d3d11_glyph_text_append_solid(highlight, origin_x, origin_y, selected,
                                                request.output, request.capacity, request.count))
-                return false;
+                return append_fail(2);
         }
     }
     // ansi colours are drawn as authored in every theme; a readability adjustment
@@ -706,13 +717,13 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         }
         const u16 face_id = retain_run_font(owner, *request.text, run);
         if (face_id == 0 || !(run.em_size > 0.0f) || run.em_size > 256.0f) {
-            return false;
+            return append_fail(3);
         }
         const u32 em_fixed = static_cast<u32>(run.em_size * 64.0f + 0.5f);
         // Atlas key: face, DPI (14 bits) above the subpixel bin, em size and glyph. The
         // bin sits in bits 32-33, which the atlas index hash spreads across its buckets.
         if (em_fixed == 0 || em_fixed > 0xFFFFu || request.dpi > 0x3FFFu) {
-            return false;
+            return append_fail(4);
         }
         const u64 run_key = (static_cast<u64>(face_id) << 48) |
                             (static_cast<u64>(request.dpi) << (32 + kSubpixelShift)) |
@@ -725,9 +736,9 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         }
         if (retained_font_face_is_color(owner, face_id)) {
             if (!raster.finish())
-                return false;
+                return append_fail(5);
             if (!append_color_glyph_run(owner, context, request, run, foreground, origin_x, origin_y))
-                return false;
+                return append_fail(6);
             continue;
         }
         const float pixels_per_em = run.em_size * pixel_scale;
@@ -736,7 +747,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         for (u32 offset = 0; offset < run.glyph_count; ++offset) {
             const u32 glyph_index = run.first_glyph + offset;
             if (glyph_index >= request.text->glyph_count) {
-                return false;
+                return append_fail(7);
             }
             const TextGlyph& glyph = request.text->glyphs[glyph_index];
             auto& face_cache = owner->font_faces[face_id - 1u];
@@ -769,7 +780,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                     glyph_outline_reset(&outline);
                     if (!native_glyph_outline(&owner->native_outlines, face_id, glyph.index, &outline,
                                               owner->system.native_fonts, run.native_face))
-                        return false;
+                        return append_fail(8);
                     if (!outline.has_bounds || outline.count == 0) {
                         face_cache.empty_glyph_plus_one = static_cast<u32>(glyph.index) + 1u;
                         advance += glyph.advance;
@@ -778,13 +789,13 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                     const float shift = pen_offset / pixels_per_em;
                     if (!glyph_raster_bounds(outline.minimum_x + shift, outline.minimum_y, outline.maximum_x + shift,
                                              outline.maximum_y, pixels_per_em, 1, &bounds)) {
-                        return false;
+                        return append_fail(9);
                     }
                     allocation = allocate_glyph(owner, context, key, bounds.width, bounds.height);
                     if (!allocation.ok()) {
                         log_u64(LogLevel::error, "render", "glyph_allocation_error",
                                 static_cast<u64>(allocation.error));
-                        return false;
+                        return append_fail(10);
                     }
                     if (!allocation.cached) {
                         const GlyphAtlasGpuResult rasterized = raster.add(
@@ -793,7 +804,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                             raster.cancel();
                             glyph_atlas_reset(&owner->allocator);
                             *request.atlas_invalidated = true;
-                            return false;
+                            return append_fail(11);
                         }
                         ++owner->cache_builds;
                     }
@@ -803,7 +814,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                         if (!raster.finish())
                             glyph_atlas_reset(&owner->allocator);
                         *request.atlas_invalidated = true;
-                        return false;
+                        return append_fail(12);
                     }
                 }
                 recent.key = key;
@@ -817,7 +828,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                                static_cast<float>(allocation.y + allocation.height) * texel.v};
             }
             if (*request.count >= request.capacity) {
-                return false;
+                return append_fail(13);
             }
             const GlyphTile& tile = recent.tile;
             const float baseline_x = (origin_x_pixels + static_cast<float>(whole)) * inverse_scale;
@@ -848,7 +859,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         }
     }
     if (!raster.finish())
-        return false;
+        return append_fail(14);
     if (effect_glyphs) {
         struct EffectContext {
             D3D11GlyphTextOwner* owner;
@@ -868,7 +879,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         // cluster counts are bounded by the renderer's storage capacities,
         // which stay below the 16-bit ordinal range.
         if (!glyph_effect_prepare(*request.text, request.source, colored, &effect))
-            return false;
+            return append_fail(15);
         for (u32 i = first_quad; i < *request.count; ++i) {
             auto& quad = request.output[i];
             // Decorations have negative u; color atlas tiles start at u=2.
@@ -892,7 +903,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         }
         if (!d3d11_glyph_text_append_solid(decoration, origin_x, origin_y, decoration_color,
                                            request.output, request.capacity, request.count)) {
-            return false;
+            return append_fail(16);
         }
     }
     return true;

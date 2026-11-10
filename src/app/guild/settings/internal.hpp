@@ -6,6 +6,7 @@
 #include "../../settings/modal.hpp"
 #include "../../chat/composer/text_form.hpp"
 #include "maicord/core/text_bank.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/model/guild/ban_store.hpp"
 #include "maicord/model/guild/settings_model.hpp"
 #include "maicord/model/guild/server_tag.hpp"
@@ -58,6 +59,7 @@ constexpr UiPageKey page_key(Page page) noexcept {
 constexpr u32 kControlCapacity = 2'400;
 constexpr u32 kRowCapacity = 2'000;
 constexpr u32 kBankBytes = 224 * 1024;
+constexpr u32 kChoicePool = 512;
 constexpr u32 kBanCapacity = 1'000;
 // One GET /bans?limit=1000; after= only continues.
 constexpr u32 kBanPage = kGuildAdminPageMaximum;
@@ -423,8 +425,12 @@ struct Settings : SettingsModal {
     // custom colour rows and the locked badges show, and whether the tag
     // was adopted this visit. The glyph tiles back its badge grids and name
     // previews (UiSettingsPageContent::glyph_tiles); the badge grids list
-    // badge types by choice.
+    // badge types by choice. tag_images is whether the saved badge's CDN image
+    // (clan-badges) is known for this draft base, at the size of a tile and of
+    // the preview chip; a tile showing exactly that badge draws it.
     GuildTagDraft tag_base, tag_draft;
+    bool tag_images;
+    UiGuildImageMedia tag_tile_image, tag_chip_image;
     bool tag_loaded, tag_custom_open, tag_show_locked, tag_adopted;
     char tag_text[kGuildAdminTagBytes], tag_error[192];
     UiSettingsGlyphTile glyph_tiles[96];
@@ -475,7 +481,6 @@ struct Settings : SettingsModal {
     Utf8View bulk_notice;
     bool bulk_failed;
     u32 page_row_count;
-    Utf8View filter_choice[6][1];
     // Members and bans.
     u64 row_ids[kRowCapacity];
     u32 row_count;
@@ -502,7 +507,6 @@ struct Settings : SettingsModal {
     GuildAdminAuditEntry audit_page[kAuditPage];
     GuildAdminUser audit_page_users[kAuditPage * 2];
     u64 menu_users[kPopupCapacity];
-    Utf8View audit_user_choice[1], audit_action_choice[1];
     // Picked images and the dialog that picks them.
     Picked icon, banner, role_icon, upload;
     NativeFilePicker picker;
@@ -542,10 +546,13 @@ struct Settings : SettingsModal {
     // until the scene has taken the next one.
     char banks[2][kBankBytes];
     u32 bank_index;
+    // The choice lists of the buttons and drop-downs of the projection, per bank like the labels.
+    Utf8View choice_pool[2][kChoicePool];
+    u32 choice_used;
     char popup_text[32 * 1024];
     PopupItem popup_items[kPopupCapacity];
-    // Projection scratch: choice labels, member chips and popup sorting.
-    Utf8View system_choice[1], afk_choice[1], widget_choice[1], color_names[kGuildRoleColorCount + 1];
+    // Projection scratch: the role colour names, member chips and popup sorting.
+    Utf8View color_names[kGuildRoleColorCount + 1];
     u32 member_order[kGuildMemberSearchCapacity];
     // Packed RGBA for list-row accents, resolved through the palette source.
     u32 row_accent[kRowCapacity];
@@ -592,8 +599,8 @@ struct PageOps {
     bool (*ensure_data)() noexcept;
     // The page's notice action ("Load latest", "Try again").
     void (*notice)() noexcept;
-    // Footer text when the draft cannot be saved; empty otherwise.
-    Utf8View (*invalid)() noexcept;
+    // Footer text when the draft cannot be saved; null otherwise.
+    const char* (*invalid)() noexcept;
     // Right-click or the menu key on a control.
     void (*context)(const SettingsLayerActivation&) noexcept;
 };
@@ -639,37 +646,62 @@ Utf8View editor_text(Editor index) noexcept;
 void start_pick(Pick pick) noexcept;
 
 // Projection helpers.
+// A row's text. A string literal costs its address at the call site (the engine measures it); text made at run time
+// is a Utf8View that outlives the call. Null is empty. A parameter type only: never kept.
+struct Text {
+    static constexpr usize kViewBit = 1ull << 63;
+    usize bits;
+    constexpr Text() noexcept : bits(0) {}
+    Text(const char* literal) noexcept : bits(reinterpret_cast<usize>(literal)) {}
+    Text(const Utf8View& view) noexcept : bits(reinterpret_cast<usize>(&view) | kViewBit) {}
+};
+Utf8View text_view(Text text) noexcept;
 // Fills popup row `index` (enabled plus `flags`); the action is kMenuChoiceBase + action.
-void popup_row(u32 index, const Utf8View& label, u32 action, u32 flags = 0) noexcept;
+void popup_row(u32 index, Text label, u32 action, u32 flags = 0) noexcept;
+// Opens the popup of the first `count` rows as menu `menu`, owned by `subject` (a guild, user or role id).
+void open_popup(Menu menu, u64 subject, u32 count, const UiRect& anchor, u32 width) noexcept;
 // A control with no choices or editor: an optional action button label.
-u32 push_row(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
-             bool checked = false, const Utf8View& action = {}, UiSettingsControlPresentation presentation = {}) noexcept;
+u32 push_row(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled, bool checked = false,
+             Text action = {}, UiSettingsControlPresentation presentation = {}) noexcept;
+// A switch row.
+u32 push_toggle(u64 id, Text label, Text description, bool enabled, bool checked) noexcept;
+// A row with a button labelled `action`.
+u32 push_action(u64 id, Text label, Text description, Text action, bool enabled = true,
+                UiSettingsControlPresentation presentation = {}) noexcept;
 // A row with a choice list (choice, radio, swatches, tabs, buttons, segments) and the selected choice.
-u32 push_choices(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
-                 const ConstSlice<Utf8View>& choices, u32 selected = 0, const Utf8View& action = {},
+u32 push_choices(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled,
+                 const ConstSlice<Utf8View>& choices, u32 selected = 0, Text action = {},
                  UiSettingsControlPresentation presentation = {}) noexcept;
+// The same over the first `shown` of `names` (each name followed by "\0", the literal's own end ending the list).
+u32 push_names(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled, const char* names,
+               u32 shown, u32 selected = 0, UiSettingsControlPresentation presentation = {}) noexcept;
+// A row of buttons over `names`.
+u32 push_buttons(u64 id, Text label, Text description, bool enabled, const char* names, u32 shown,
+                 UiSettingsControlPresentation presentation = {}) noexcept;
+// A drop-down showing `current` (its one entry).
+u32 push_choice(u64 id, Text label, Text description, bool enabled, Text current) noexcept;
 // An edit or multiline row over the editor `index`; `action` labels the button beside the field.
-u32 push_editor(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
-                Editor index, const Utf8View& placeholder, const Utf8View& action = {}) noexcept;
-u32 push_category(u64 id, const Utf8View& label, const Utf8View& description = {}) noexcept;
+u32 push_editor(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled, Editor index,
+                Text placeholder, Text action = {}) noexcept;
+u32 push_category(u64 id, Text label, Text description = {}) noexcept;
 // A plain notice row.
-u32 push_notice(const Utf8View& description, const Utf8View& label = {}) noexcept;
+u32 push_notice(Text description, Text label = {}) noexcept;
 // A critical notice; `action` labels its retry button.
-u32 push_error(const Utf8View& label, const Utf8View& description, const Utf8View& action = {}) noexcept;
+u32 push_error(Text label, Text description, Text action = {}) noexcept;
 // A notice with the loading spinner.
-u32 push_loading(const Utf8View& description, u64 id = control_notice) noexcept;
+u32 push_loading(Text description, u64 id = control_notice) noexcept;
 // The list heading "<title><count>".
-u32 push_count_heading(Bank& bank, const Utf8View& title, u32 count) noexcept;
-Utf8View channel_label(Bank& bank, u64 channel_id, const Utf8View& none) noexcept;
+u32 push_count_heading(Bank& bank, Text title, u32 count) noexcept;
+Utf8View channel_label(Bank& bank, u64 channel_id, Text none) noexcept;
 void image_summary(Bank& bank, const GuildImageInfo& info) noexcept;
-Utf8View picked_text(Bank& bank, const Picked& picked, const Utf8View& current) noexcept;
+Utf8View picked_text(Bank& bank, const Picked& picked, Text current) noexcept;
 void relative_time(Bank& bank, u64 then_ms, u64 now_ms, bool future) noexcept;
 Utf8View user_label(u64 id) noexcept;
 Utf8View user_name(const GuildAdminUser& user) noexcept;
-// Channels of `types` (a bit per channel type) in channel-list order behind a
-// first "none" row; menu_channel holds the matching ids.
-void open_channel_menu(Menu menu, u32 types, u64 current, const Utf8View& none, PermissionSet required,
-                       const UiRect& anchor) noexcept;
+// Channels of `types` (a bit per channel type) in channel-list order behind a first row labelled `none` (null: no
+// such row) and, with `create_row`, the "Create one for me" row; menu_channel holds the matching ids.
+void open_channel_menu(Menu menu, u32 types, u64 current, Text none, PermissionSet required, const UiRect& anchor,
+                       bool create_row = false) noexcept;
 
 // Roles: a dragged row dropped before or after another, and the draft
 // order with deleted roles skipped.

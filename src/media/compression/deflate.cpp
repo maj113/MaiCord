@@ -88,6 +88,9 @@ u32 symbol_entry(TableKind kind, u32 symbol) noexcept {
     return make_entry(0, kEntryBadSymbol, 0, 0);
 }
 
+// Once per dynamic block: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 // A complete canonical code, codewords sorted by (length, symbol). Each root
 // codeword is stored once at its bit-reversed index, and the filled prefix is
 // doubled whenever the length grows, so a root entry costs one store or one
@@ -218,6 +221,8 @@ bool build_table(const u8* lengths, u32 symbol_count, TableKind kind, u32 table_
     }
     return true;
 }
+
+#pragma clang attribute pop
 
 void build_fixed_tables(DeflateTables* tables) noexcept {
     u8 lengths[kDeflateLiteralSymbolCapacity + kDeflateDistanceSymbolCapacity];
@@ -597,6 +602,9 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
     }
 }
 
+// Once per dynamic block: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 bool build_dynamic_tables(InflateState* state) noexcept {
     BitReader* reader = &state->reader;
     DeflateTables* tables = &state->workspace->tables;
@@ -678,6 +686,8 @@ bool build_dynamic_tables(InflateState* state) noexcept {
     }
     return true;
 }
+
+#pragma clang attribute pop
 
 bool decode_stored_block(InflateState* state) noexcept {
     align_reader(&state->reader);

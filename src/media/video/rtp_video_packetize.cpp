@@ -1,7 +1,38 @@
 #include "maicord/media/video/rtp_video_packetize.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/media/video/av1.hpp"
 
 namespace maicord {
+u32 annexb_next_unit(ConstSlice<u8> data, u32 from, u32* start) noexcept {
+    // Nothing begins a start code at i, i + 1 or i + 2 while the third byte is above one.
+    for (u32 i = from; i + 2 < data.count;) {
+        if (data[i + 2] > 1) {
+            i += 3;
+            continue;
+        }
+        if (!data[i] && !data[i + 1] && data[i + 2] == 1) {
+            *start = i > from && !data[i - 1] ? i - 1 : i;
+            return i + 3;
+        }
+        ++i;
+    }
+    *start = data.count;
+    return data.count;
+}
+u32 leb128_bytes(u32 value) noexcept {
+    u32 bytes = 1;
+    for (; value >= 0x80; value >>= 7)
+        ++bytes;
+    return bytes;
+}
+u32 leb128_write(u8* output, u32 value) noexcept {
+    u32 n = 0;
+    do {
+        output[n++] = static_cast<u8>((value & 0x7f) | (value >= 0x80 ? 0x80 : 0));
+        value >>= 7;
+    } while (value);
+    return n;
+}
 namespace {
 constexpr u8 kStapA = 24, kFuA = 28, kH265Aggregation = 48, kH265Fragmentation = 49;
 constexpr u32 kAv1MaximumElements = 63; // The depacketizer reads at most 64 per packet.
@@ -12,51 +43,16 @@ bool h265(const RtpVideoPacketizer& p) noexcept {
 u32 nal_header_bytes(const RtpVideoPacketizer& p) noexcept {
     return h265(p) ? 2 : 1;
 }
-// The next start code prefix at or after from: *start is where its zeros
-// begin (a fourth zero included); returns where the unit after it begins.
-u32 next_nal(ConstSlice<u8> data, u32 from, u32* start) noexcept {
-    for (u32 i = from; i + 2 < data.count; ++i)
-        if (!data[i] && !data[i + 1] && data[i + 2] == 1) {
-            *start = i > from && !data[i - 1] ? i - 1 : i;
-            return i + 3;
-        }
-    *start = data.count;
-    return data.count;
-}
-bool read_leb128(ConstSlice<u8> data, u32* at, u64* value) noexcept {
-    *value = 0;
-    for (u32 i = 0; i != 8 && *at < data.count; ++i) {
-        const u8 byte = data[(*at)++];
-        *value |= u64{byte & 0x7fu} << (7 * i);
-        if (!(byte & 0x80))
-            return true;
-    }
-    return false;
-}
-u32 leb128_bytes(u32 value) noexcept {
-    u32 bytes = 1;
-    for (; value >= 0x80; value >>= 7)
-        ++bytes;
-    return bytes;
-}
-u32 write_leb128(u8* output, u32 value) noexcept {
-    u32 n = 0;
-    do {
-        output[n++] = static_cast<u8>((value & 0x7f) | (value >= 0x80 ? 0x80 : 0));
-        value >>= 7;
-    } while (value);
-    return n;
-}
 // Finds the unit at or after from into p; false when there is none (or the frame is malformed: failed).
 bool locate(RtpVideoPacketizer& p, u32 from) noexcept {
     const auto& frame = p.frame;
     if (p.codec != RtpVideoPacketCodec::av1) {
         u32 start = 0;
-        const u32 begin = next_nal(frame, from, &start);
+        const u32 begin = annexb_next_unit(frame, from, &start);
         if (begin >= frame.count)
             return false;
         u32 end = 0;
-        next_nal(frame, begin, &end);
+        annexb_next_unit(frame, begin, &end);
         if (end - begin < nal_header_bytes(p) || (frame[begin] & 0x80)) {
             p.failed = true;
             return false;
@@ -67,29 +63,20 @@ bool locate(RtpVideoPacketizer& p, u32 from) noexcept {
         return true;
     }
     for (u32 at = from; at < frame.count;) {
-        const u8 header = frame[at];
-        u32 payload = at + ((header & 4) ? 2 : 1);
-        u64 size = 0;
-        if ((header & 0x80) || payload > frame.count) {
+        Av1Obu obu;
+        u32 next = at;
+        if (av1_next_obu(frame, &next, &obu) != Av1Status::ok) {
             p.failed = true;
             return false;
         }
-        if (header & 2) {
-            if (!read_leb128(frame, &payload, &size) || size > frame.count - payload) {
-                p.failed = true;
-                return false;
-            }
-        } else
-            size = frame.count - payload;
-        const u8 type = (header >> 3) & 15;
-        const u32 end = payload + static_cast<u32>(size);
-        if (type == 2 || type == 8 || type == 15) { // Temporal delimiter, tile list and padding are not sent.
-            at = end;
+        // A temporal delimiter, tile list or padding OBU is not sent.
+        if (obu.type == 2 || obu.type == 8 || obu.type == 15) {
+            at = next;
             continue;
         }
         p.unit = at;
-        p.payload = payload;
-        p.unit_end = p.next_unit = end;
+        p.payload = static_cast<u32>(obu.payload.data - frame.data);
+        p.unit_end = p.next_unit = next;
         return true;
     }
     return false;
@@ -140,10 +127,17 @@ u32 h26x_next(RtpVideoPacketizer& p, u8* out) noexcept {
     // Aggregate the following small units while they fit (STAP-A / AP).
     const u32 header = nal_header_bytes(p);
     u32 total = header + 2 + size, units = 1;
+    // The aggregate's header takes the highest NRI and the lowest TID of its units.
+    const u8* first = p.frame.data + p.unit;
+    u32 nri = first[0] & 0x60u, tid = h265(p) ? first[1] & 7u : 7u;
     RtpVideoPacketizer peek = p;
     while (locate(peek, peek.next_unit) && total + 2 + (peek.unit_end - peek.unit) <= p.max_payload) {
         total += 2 + (peek.unit_end - peek.unit);
         ++units;
+        const u8* unit = p.frame.data + peek.unit;
+        nri = maximum<u32>(nri, unit[0] & 0x60u);
+        if (h265(p))
+            tid = minimum<u32>(tid, unit[1] & 7u);
     }
     if (peek.failed) {
         p.failed = true;
@@ -155,17 +149,9 @@ u32 h26x_next(RtpVideoPacketizer& p, u8* out) noexcept {
         return size;
     }
     u32 at = 0;
-    u8 nri = 0, tid = 7;
-    peek = p;
-    for (u32 i = 0; i != units; ++i, locate(peek, peek.next_unit)) {
-        const u8* unit = p.frame.data + peek.unit;
-        nri = (unit[0] & 0x60) > nri ? (unit[0] & 0x60) : nri;
-        if (h265(p))
-            tid = (unit[1] & 7) < tid ? (unit[1] & 7) : tid;
-    }
     if (h265(p)) {
         out[at++] = static_cast<u8>(kH265Aggregation << 1);
-        out[at++] = tid;
+        out[at++] = static_cast<u8>(tid);
     } else
         out[at++] = static_cast<u8>(nri | kStapA);
     for (u32 i = 0; i != units; ++i) {
@@ -196,7 +182,7 @@ u32 av1_next(RtpVideoPacketizer& p, u8* out) noexcept {
     while (!done(p) && elements != kAv1MaximumElements) {
         const u32 remaining = element_bytes(p) - p.sent, room = p.max_payload - at;
         if (leb128_bytes(remaining) + remaining <= room) {
-            at += write_leb128(out + at, remaining);
+            at += leb128_write(out + at, remaining);
             element_copy(p, out + at, p.sent, remaining);
             at += remaining;
             ++elements;
@@ -209,7 +195,7 @@ u32 av1_next(RtpVideoPacketizer& p, u8* out) noexcept {
         u32 take = room - leb128_bytes(room);
         if (!take)
             break;
-        at += write_leb128(out + at, take);
+        at += leb128_write(out + at, take);
         element_copy(p, out + at, p.sent, take);
         at += take;
         p.sent += take;

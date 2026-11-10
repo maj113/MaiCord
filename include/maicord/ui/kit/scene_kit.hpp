@@ -254,12 +254,31 @@ inline constexpr UiRect kUiNoRect{};
 // (or body, with ui_text_in_body) or to an explicit region through in(). The
 // panel and body are borrowed; empty text pushes nothing. Every call is
 // skipped after the first failure. A call passes the pen and the label, so a
-// call site is one direct call with no branch.
-template <UiTextClip Policy = UiTextClip::intersect> class UiTextPen {
+// call site is one direct call with no branch. The clip policy is a member, so one out-of-line body serves every
+// pen type.
+class UiTextPenBase {
+  protected:
+    UiTextPenBase(UiTextOutput* out, const UiWidgetManager& widgets, const UiRect& panel, const UiRect& body,
+                  UiTextClip policy) noexcept
+        : out_(out), widgets_(&widgets), panel_(&panel), body_(&body), ok_(ui_text_output_valid(out)),
+          policy_(policy) {}
+    // A label clipped to `region` instead of the pen's panel/body. Every label goes through here: kept free of
+    // machine-outlined fragments (calls the size build would otherwise add to each label).
+    [[clang::no_outline]] void push_region(const UiRect& region, UiWidgetHandle owner, const Utf8View& value,
+                                           const UiRect& r, const Color& color, u32 style, u32 mode) noexcept;
+
+    UiTextOutput* out_;
+    const UiWidgetManager* widgets_;
+    const UiRect* panel_;
+    const UiRect* body_;
+    bool ok_;
+    UiTextClip policy_;
+};
+template <UiTextClip Policy = UiTextClip::intersect> class UiTextPen : public UiTextPenBase {
   public:
     UiTextPen(UiTextOutput* out, const UiWidgetManager& widgets, const UiRect& panel,
               const UiRect& body = kUiNoRect) noexcept
-        : out_(out), widgets_(&widgets), panel_(&panel), body_(&body), ok_(ui_text_output_valid(out)) {}
+        : UiTextPenBase(out, widgets, panel, body, Policy) {}
 
     bool ok() const noexcept { return ok_; }
     // Records the failure of output pushed outside the pen (an edit field's text), stopping later labels.
@@ -275,10 +294,11 @@ template <UiTextClip Policy = UiTextClip::intersect> class UiTextPen {
                                         const Color& color, u32 style = 0, u32 mode = 0) noexcept {
         return push((mode & ui_text_in_body) ? *body_ : *panel_, owner, value, r, color, style, mode);
     }
-    // A label clipped to `region` instead of the pen's panel/body. Every label goes through here: kept free of
-    // machine-outlined fragments (calls the size build would otherwise add to each label).
-    [[clang::no_outline]] UiTextPen& push(const UiRect& region, UiWidgetHandle owner, const Utf8View& value,
-                                          const UiRect& r, const Color& color, u32 style, u32 mode) noexcept;
+    __forceinline UiTextPen& push(const UiRect& region, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
+                                  const Color& color, u32 style, u32 mode) noexcept {
+        push_region(region, owner, value, r, color, style, mode);
+        return *this;
+    }
     struct Clipped {
         UiTextPen* pen;
         UiRect region;
@@ -296,17 +316,7 @@ template <UiTextClip Policy = UiTextClip::intersect> class UiTextPen {
             ok_ = false;
         return {this, node ? node->clip_rectangle : UiRect{}};
     }
-
-  private:
-    UiTextOutput* out_;
-    const UiWidgetManager* widgets_;
-    const UiRect* panel_;
-    const UiRect* body_;
-    bool ok_;
 };
-extern template class UiTextPen<UiTextClip::intersect>;
-extern template class UiTextPen<UiTextClip::region>;
-extern template class UiTextPen<UiTextClip::label>;
 
 // Builds a scene-owned label in a fixed buffer and its u8 length: `label << utf8_literal("Page ") << n`.
 // A piece that does not fit is dropped whole.

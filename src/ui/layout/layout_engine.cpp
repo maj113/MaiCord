@@ -94,6 +94,40 @@ UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport)
     return UiLayoutError::none;
 }
 
+struct WrapRowMetrics {
+    u16 next;
+    u32 count;
+    float width;
+    float height;
+};
+
+WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float available_width,
+                                float gap) noexcept {
+    WrapRowMetrics row{first, 0, 0.0f, 0.0f};
+    u16 slot = first;
+    while (slot != kInvalidUiLayoutSlot) {
+        const UiLayoutNode& child = engine.storage[slot];
+        const u16 next = child.next_sibling;
+        if (!has_flag(child.spec.style, ui_layout_node_visible)) {
+            slot = next;
+            row.next = slot;
+            continue;
+        }
+        const float width = outer_width(child);
+        const float candidate = row.count == 0 ? width : row.width + gap + width;
+        if (row.count != 0 && candidate > available_width + kLayoutEpsilon) {
+            row.next = slot;
+            break;
+        }
+        row.width = candidate;
+        row.height = maximum(row.height, outer_height(child));
+        ++row.count;
+        slot = next;
+        row.next = slot;
+    }
+    return row;
+}
+
 void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
     UiLayoutNode& node = engine->storage[index];
     const UiLayoutStyle& style = node.spec.style;
@@ -105,41 +139,17 @@ void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
         if (!ui_extent_valid(available) || available <= 0.0f) {
             available = kMaximumUiCoordinate;
         }
-        float row_width = 0.0f;
-        float row_height = 0.0f;
-        float committed_height = 0.0f;
-        u32 row_count = 0;
-        for (u16 child_slot = node.first_child; child_slot != kInvalidUiLayoutSlot;
-             child_slot = engine->storage[child_slot].next_sibling) {
-            const UiLayoutNode& child = engine->storage[child_slot];
-            if (!has_flag(child.spec.style, ui_layout_node_visible)) {
-                continue;
+        for (u16 first = node.first_child; first != kInvalidUiLayoutSlot;) {
+            const WrapRowMetrics row = measure_wrap_row(*engine, first, available, style.gap);
+            if (row.count == 0) {
+                break;
             }
-            const float child_width = outer_width(child);
-            const float child_height = outer_height(child);
-            const float candidate = row_count == 0 ? child_width : row_width + style.gap + child_width;
-            if (row_count != 0 && candidate > available + kLayoutEpsilon) {
-                children_width = maximum(children_width, row_width);
-                if (committed_height != 0.0f) {
-                    committed_height += style.gap;
-                }
-                committed_height += row_height;
-                row_width = child_width;
-                row_height = child_height;
-                row_count = 1;
-            } else {
-                row_width = candidate;
-                row_height = maximum(row_height, child_height);
-                ++row_count;
+            children_width = maximum(children_width, row.width);
+            if (children_height != 0.0f) {
+                children_height += style.gap;
             }
-            ++child_count;
-        }
-        if (row_count != 0) {
-            children_width = maximum(children_width, row_width);
-            if (committed_height != 0.0f) {
-                committed_height += style.gap;
-            }
-            children_height = committed_height + row_height;
+            children_height += row.height;
+            first = row.next;
         }
     } else {
         for (u16 child_slot = node.first_child; child_slot != kInvalidUiLayoutSlot;
@@ -347,40 +357,6 @@ void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool h
             cursor += parent.spec.style.gap;
         }
     }
-}
-
-struct WrapRowMetrics {
-    u16 next;
-    u32 count;
-    float width;
-    float height;
-};
-
-WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float available_width,
-                                float gap) noexcept {
-    WrapRowMetrics row{first, 0, 0.0f, 0.0f};
-    u16 slot = first;
-    while (slot != kInvalidUiLayoutSlot) {
-        const UiLayoutNode& child = engine.storage[slot];
-        const u16 next = child.next_sibling;
-        if (!has_flag(child.spec.style, ui_layout_node_visible)) {
-            slot = next;
-            row.next = slot;
-            continue;
-        }
-        const float width = outer_width(child);
-        const float candidate = row.count == 0 ? width : row.width + gap + width;
-        if (row.count != 0 && candidate > available_width + kLayoutEpsilon) {
-            row.next = slot;
-            break;
-        }
-        row.width = candidate;
-        row.height = maximum(row.height, outer_height(child));
-        ++row.count;
-        slot = next;
-        row.next = slot;
-    }
-    return row;
 }
 
 void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {

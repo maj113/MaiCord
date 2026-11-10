@@ -232,35 +232,24 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
-    if (part.media == ProfileMediaKind::widget_game) {
-        // The game's cover (its icon without one), rounded like activity artwork.
+    if (part.media == ProfileMediaKind::widget_game || part.media == ProfileMediaKind::collection_game) {
+        // A game's cover (its icon without one), rounded like activity artwork; or its icon on the 24 DIP
+        // collection plate, at half opacity under the row's "+N".
+        const bool cover = part.media == ProfileMediaKind::widget_game;
         const auto* record = scene.games ? game_store_find(*scene.games, part.target) : nullptr;
         GameImageMedia image;
         const u32 size = static_cast<u32>(ui_rect_width(result.rectangle) + .5f);
         const u32 dpi = scene.media_dpi ? scene.media_dpi : 96;
         if (!record || record->state != GameState::known ||
-            !(game_cover_media(record->game, size, dpi, &image) || game_icon_media(record->game, size, dpi, &image)) ||
+            !((cover && game_cover_media(record->game, size, dpi, &image)) ||
+              game_icon_media(record->game, size, dpi, &image)) ||
             !append(&result.url, image.url_view()))
             return false;
         result.key = image.key;
         result.mask = result.rectangle;
-        result.mask_radius = scene.activity_art_radius;
-        copy_value(out, result);
-        return media_asset_key_valid(result.key);
-    }
-    if (part.media == ProfileMediaKind::collection_game) {
-        // The game's icon on its 24 DIP plate, at half opacity under the row's "+N".
-        const auto* record = scene.games ? game_store_find(*scene.games, part.target) : nullptr;
-        GameImageMedia image;
-        const u32 size = static_cast<u32>(ui_rect_width(result.rectangle) + .5f);
-        if (!record || record->state != GameState::known ||
-            !game_icon_media(record->game, size, scene.media_dpi ? scene.media_dpi : 96, &image) ||
-            !append(&result.url, image.url_view()))
-            return false;
-        result.key = image.key;
-        result.mask = result.rectangle;
-        result.mask_radius = scene.game_icon_radius;
-        result.opacity = part.style ? .5f : 0.f;
+        result.mask_radius = cover ? scene.activity_art_radius : scene.game_icon_radius;
+        if (!cover)
+            result.opacity = part.style ? .5f : 0.f;
         copy_value(out, result);
         return media_asset_key_valid(result.key);
     }

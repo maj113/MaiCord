@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -14,7 +14,7 @@ const GuildRecord* guild() noexcept {
     return chat_state_store_find_guild(state(), owner->guild_id);
 }
 // The custom invite link shows only to administrators.
-bool administrator() noexcept {
+bool link_admin() noexcept {
     return owner->access.owner || permission_has(owner->access.permissions, kPermissionAdministrator);
 }
 bool vanity_feature() noexcept {
@@ -59,61 +59,58 @@ void load() noexcept {
     set_editor(editor_vanity, {p.vanity_base, p.vanity_base_bytes});
 }
 
-void image_rows(Bank& bank, u64 id, u64 remove_id, const Utf8View& label, const Utf8View& description, u64 feature,
-                const Utf8View& level, GuildProfileImageEdit edit, const Picked& picked, bool stored_image,
-                Utf8View* chip) noexcept {
+void image_rows(Bank& bank, u64 id, u64 remove_id, Text label, Text description, u64 feature, Text level,
+                GuildProfileImageEdit edit, const Picked& picked, bool stored_image, Utf8View* chip) noexcept {
     const bool unlocked = guild_features() & feature;
     const bool allowed = editable() && can_manage_guild();
     // "Unlocked" when the feature is present, else the boost level that brings it.
-    *chip = unlocked ? utf8_literal("Unlocked") : level;
+    *chip = unlocked ? utf8_literal("Unlocked") : text_view(level);
     push_choices(id, label,
-                 edit == GuildProfileImageEdit::remove ? utf8_literal("Removed when you save.")
-                                                       : picked_text(bank, picked, description),
+                 edit == GuildProfileImageEdit::remove ? Text("Removed when you save.")
+                                                       : Text(picked_text(bank, picked, description)),
                  UiSettingsControlKind::action, allowed && unlocked && connected(), {chip, 1}, 0,
-                 unlocked ? utf8_literal("Upload Background") : utf8_literal("Unlock with Boosting"));
+                 unlocked ? "Upload Background" : "Unlock with Boosting");
     const bool shown = edit == GuildProfileImageEdit::replace || (stored_image && edit == GuildProfileImageEdit::keep);
     if (shown)
-        push_row(remove_id, utf8_literal("Remove"), {}, UiSettingsControlKind::action, allowed, false,
-                 edit == GuildProfileImageEdit::replace && !stored_image ? utf8_literal("Discard")
-                                                                         : utf8_literal("Remove"),
-                 {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        push_action(remove_id, "Remove", {},
+                    edit == GuildProfileImageEdit::replace && !stored_image ? "Discard" : "Remove", allowed,
+                    {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
 }
 
 void project(Bank& bank) noexcept {
     auto& p = *owner;
     auto& d = p.boost_draft;
     const bool edit = editable() && can_manage_guild();
-    push_row(control_progress_bar, utf8_literal("Show Boost progress bar"),
-             utf8_literal("Servers with the Boost progress bar enabled get more Boosts. This progress bar will display "
-                          "in your channel list, attached to your server name (or server banner if you have one set)."),
-             UiSettingsControlKind::toggle, edit, d.progress_bar);
+    push_toggle(control_progress_bar, "Show Boost progress bar",
+                "Servers with the Boost progress bar enabled get more Boosts. This progress bar will display in your "
+                "channel list, attached to your server name (or server banner if you have one set).",
+                edit, d.progress_bar);
     static Utf8View chips[2];
-    image_rows(bank, control_banner, control_banner_remove, utf8_literal("Server Banner Background"),
-               utf8_literal("This image will display at the top of your channels list. The recommended minimum size "
-                            "is 960x540 and recommended aspect ratio is 16:9."),
-               guild_feature_banner, utf8_literal("LVL 2"), d.banner, p.banner, stored_banner().bytes != 0, &chips[0]);
-    image_rows(bank, control_splash, control_splash_remove, utf8_literal("Server Invite Background"),
-               utf8_literal("This image will display when your server invite is viewed in a browser, as well as in "
-                            "invite confirmation screens and Server Onboarding. The recommended minimum size is "
-                            "1920x1080 and recommended aspect ratio is 16:9."),
-               guild_feature_invite_splash, utf8_literal("LVL 1"), d.splash, p.splash, stored_splash().bytes != 0,
-               &chips[1]);
-    if (!administrator())
+    image_rows(bank, control_banner, control_banner_remove, "Server Banner Background",
+               "This image will display at the top of your channels list. The recommended minimum size is 960x540 and "
+               "recommended aspect ratio is 16:9.",
+               guild_feature_banner, "LVL 2", d.banner, p.banner, stored_banner().bytes != 0, &chips[0]);
+    image_rows(bank, control_splash, control_splash_remove, "Server Invite Background",
+               "This image will display when your server invite is viewed in a browser, as well as in invite "
+               "confirmation screens and Server Onboarding. The recommended minimum size is 1920x1080 and "
+               "recommended aspect ratio is 16:9.",
+               guild_feature_invite_splash, "LVL 1", d.splash, p.splash, stored_splash().bytes != 0, &chips[1]);
+    if (!link_admin())
         return;
-    push_category(control_vanity_category, utf8_literal("Custom Invite Link"),
-                  utf8_literal("Bring others to your server easily with your own customized invite link. Heads up "
-                               "though, anyone with the link can join and you'll need at least one text channel that "
-                               "is open to all server members."));
+    push_category(control_vanity_category, "Custom Invite Link",
+                  "Bring others to your server easily with your own customized invite link. Heads up though, anyone "
+                  "with the link can join and you'll need at least one text channel that is open to all server "
+                  "members.");
     if (!vanity_feature()) {
-        push_notice(utf8_literal("A custom invite link needs boost level 3."), utf8_literal("Unlock with Boosting"));
+        push_notice("A custom invite link needs boost level 3.", "Unlock with Boosting");
         return;
     }
     if (p.vanity_failed) {
-        push_error(utf8_literal("Couldn't load the custom invite link"), {}, utf8_literal("Try again"));
+        push_error("Couldn't load the custom invite link", {}, "Try again");
         return;
     }
     if (!p.vanity_loaded) {
-        push_loading(utf8_literal("Loading the custom invite link…"));
+        push_loading("Loading the custom invite link…");
         return;
     }
     const u32 start = bank.used;
@@ -122,17 +119,15 @@ void project(Bank& bank) noexcept {
     if (p.vanity_base_bytes) {
         bank.add(" · ");
         bank.number(p.vanity_uses);
-        bank.add(p.vanity_uses == 1 ? utf8_literal(" use") : utf8_literal(" uses"));
+        bank.add(text_view(p.vanity_uses == 1 ? " use" : " uses"));
     }
-    push_editor(control_vanity, utf8_literal("Invite URL"), bank.since(start), UiSettingsControlKind::edit, edit,
-                editor_vanity, {});
+    push_editor(control_vanity, "Invite URL", bank.since(start), UiSettingsControlKind::edit, edit, editor_vanity, {});
     if (p.vanity_error)
         push_row(control_notice, guild_vanity_error_text(p.vanity_error_code), {}, UiSettingsControlKind::error, true,
                  false, {}, {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     if (p.vanity_base_bytes)
-        push_row(control_vanity_remove, utf8_literal("Remove Custom Invite Link"), {}, UiSettingsControlKind::action,
-                 edit, false, utf8_literal("Remove"),
-                 {UiSettingsVariant::critical, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        push_action(control_vanity_remove, "Remove Custom Invite Link", {}, "Remove", edit,
+                    {UiSettingsVariant::critical, ui_settings_presentation_compact, kUiSettingsNoDefault});
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {
@@ -143,8 +138,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     const u64 id = activation.value.target.control_id;
     if (id == control_progress_bar) {
         d.progress_bar = activation.value.checked;
-        ui_settings_scene_animate_toggle(&p.scene, activation.value.target, activation.value.checked,
-                                         clock_monotonic_milliseconds());
+        animate_toggle(activation);
     } else if (id == control_banner && (guild_features() & guild_feature_banner)) {
         start_pick(Pick::banner);
         return;
@@ -160,7 +154,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
             release_uri(&p.splash_uri, &p.splash_uri_bytes);
         const bool stored_image = (banner ? stored_banner() : stored_splash()).bytes != 0;
         (banner ? d.banner : d.splash) = stored_image ? GuildProfileImageEdit::remove : GuildProfileImageEdit::keep;
-    } else if (id == control_vanity_remove && administrator() && p.vanity_loaded) {
+    } else if (id == control_vanity_remove && link_admin() && p.vanity_loaded) {
         // The draft becomes "" and saves with the page's bar.
         set_editor(editor_vanity, {});
         p.vanity_error = false;
@@ -174,12 +168,12 @@ bool dirty() noexcept {
 }
 
 bool can_save() noexcept {
-    return can_manage_guild() && dirty() && (!vanity_dirty() || (administrator() && vanity_feature()));
+    return can_manage_guild() && dirty() && (!vanity_dirty() || (link_admin() && vanity_feature()));
 }
 
 // The vanity PATCH first; the guild PATCH follows only when it succeeded.
 Op next_save() noexcept {
-    return vanity_dirty() && administrator() ? Op::vanity_update : guild_dirty() ? Op::boost_update : Op::none;
+    return vanity_dirty() && link_admin() ? Op::vanity_update : guild_dirty() ? Op::boost_update : Op::none;
 }
 
 bool reconcile(u64 now) noexcept {
@@ -199,7 +193,7 @@ bool reconcile(u64 now) noexcept {
 // The custom invite link is read once per settings visit.
 bool ensure_data() noexcept {
     auto& p = *owner;
-    return administrator() && request_read(p.vanity_requested, p.vanity_failed, Op::vanity_get);
+    return link_admin() && request_read(p.vanity_requested, p.vanity_failed, Op::vanity_get);
 }
 
 void notice_action() noexcept {
@@ -280,7 +274,7 @@ void boost_vanity_loaded(const GuildAdminVanity* vanity) noexcept {
 }
 
 bool boost_vanity_patch(GuildSettingsPatch* patch) noexcept {
-    if (!administrator() || !vanity_dirty())
+    if (!link_admin() || !vanity_dirty())
         return false;
     reset_value(patch);
     patch->fields = guild_settings_patch_vanity;

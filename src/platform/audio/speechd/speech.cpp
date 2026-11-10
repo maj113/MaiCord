@@ -22,6 +22,12 @@ u32 g_state;
 SharedLibrary g_library;
 Api g_api;
 
+// Every symbol of Api, in member order.
+#define MAICORD_SPEECHD_SYMBOL(result, name, arguments) #name "\0"
+constexpr char kSymbols[] = MAICORD_SPEECHD_FUNCTIONS(MAICORD_SPEECHD_SYMBOL);
+#undef MAICORD_SPEECHD_SYMBOL
+static_assert(shared_library_name_count(kSymbols) * sizeof(void*) == sizeof(Api), "one symbol per Api member");
+
 } // namespace
 
 const Api* library() noexcept {
@@ -38,18 +44,12 @@ const Api* library() noexcept {
         log_write(LogLevel::warning, "speech", "libspeechd.so.2 is not installed: text-to-speech is unavailable");
         return nullptr;
     }
-    SharedLibraryResolver resolve{g_library, nullptr};
-    Api api{};
-#define MAICORD_SPEECHD_RESOLVE(result, name, arguments) resolve(&api.name, #name);
-    MAICORD_SPEECHD_FUNCTIONS(MAICORD_SPEECHD_RESOLVE)
-#undef MAICORD_SPEECHD_RESOLVE
-    if (const char* missing = resolve.missing) {
-        // libspeechd lacks a function: text-to-speech is unavailable.
+    // libspeechd lacks a function: text-to-speech is unavailable. g_api is read only once g_state says loaded.
+    if (const char* missing = shared_library_resolve(g_library, &g_api, sizeof(g_api), kSymbols)) {
         LogEvent("library_incomplete").field("missing", missing).write(LogLevel::warning, "speech");
         shared_library_close(&g_library);
         return nullptr;
     }
-    g_api = api;
     g_state = 1;
     return &g_api;
 }

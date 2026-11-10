@@ -133,6 +133,14 @@ void finish_close(GatewayClientRuntime* runtime) noexcept {
     clear_user_transport(runtime);
 }
 
+// The reconnecting event: the sequence a resume would continue from, when there is one.
+void publish_reconnecting(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+    GatewayClientEvent event = bare_event(GatewayClientEventKind::reconnecting, now_ms);
+    event.has_sequence = runtime->resume.valid;
+    event.sequence = static_cast<u64>(ReadAcquire64(&runtime->resume_sequence));
+    publish_event(runtime, event);
+}
+
 bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, GatewayLifecycleAction action,
                         u64 now_ms, u32 delay_ms, u32 close_code) noexcept {
     runtime->mailbox_deadline_ms = 0;
@@ -152,12 +160,7 @@ bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, Ga
     runtime->qos.has_immediate = false;
     close_transport(runtime, close_code, now_ms);
     publish_phase(client, GatewayClientPhase::reconnect_wait);
-    GatewayClientEvent reconnecting{};
-    reconnecting.timestamp_ms = now_ms;
-    reconnecting.kind = GatewayClientEventKind::reconnecting;
-    reconnecting.has_sequence = runtime->resume.valid;
-    reconnecting.sequence = static_cast<u64>(ReadAcquire64(&runtime->resume_sequence));
-    publish_event(runtime, reconnecting);
+    publish_reconnecting(runtime, now_ms);
     return true;
 }
 
@@ -210,10 +213,8 @@ NetworkWorkerStep fail_and_drain(GatewayClient* client, GatewayClientRuntime* ru
         runtime->failure_stage = GatewayClientFailureStage::application_output;
     }
     runtime->failed = true;
-    GatewayClientEvent event{};
-    event.timestamp_ms = clock_monotonic_milliseconds();
+    GatewayClientEvent event = bare_event(GatewayClientEventKind::failed, clock_monotonic_milliseconds());
     event.native_error = native_error;
-    event.kind = GatewayClientEventKind::failed;
     event.error = error;
     event.failure_stage = runtime->failure_stage;
     event.session_error = runtime->session_error;
@@ -602,8 +603,7 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
         return OutboundDrive::failed;
     runtime->rate_deadline_ms = 0;
 
-    GatewayClientEvent event{};
-    event.timestamp_ms = now_ms;
+    GatewayClientEvent event = bare_event(GatewayClientEventKind{}, now_ms);
     if (next.action == GatewayLifecycleAction::send_identify) {
         event.kind = GatewayClientEventKind::identifying;
         publish_phase(client, GatewayClientPhase::identifying);

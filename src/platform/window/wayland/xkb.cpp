@@ -12,52 +12,56 @@ XkbApi g_api;
 bool g_tried;
 bool g_loaded;
 
+constexpr char kSoname[] = "libxkbcommon.so.0";
+
+// The symbol of each XkbApi member, in member order.
+constexpr char kSymbols[] =
+    "xkb_context_new\0"
+    "xkb_context_unref\0"
+    "xkb_context_set_log_level\0"
+    "xkb_keymap_new_from_buffer\0"
+    "xkb_keymap_new_from_names\0"
+    "xkb_keymap_unref\0"
+    "xkb_keymap_get_as_string\0"
+    "xkb_keymap_key_repeats\0"
+    "xkb_keymap_key_get_syms_by_level\0"
+    "xkb_keymap_mod_get_index\0"
+    "xkb_state_new\0"
+    "xkb_state_unref\0"
+    "xkb_state_update_mask\0"
+    "xkb_state_update_key\0"
+    "xkb_state_serialize_mods\0"
+    "xkb_state_serialize_layout\0"
+    "xkb_state_key_get_one_sym\0"
+    "xkb_state_key_get_utf32\0"
+    "xkb_state_key_get_layout\0"
+    "xkb_state_mod_name_is_active\0"
+    "xkb_compose_table_new_from_locale\0"
+    "xkb_compose_table_unref\0"
+    "xkb_compose_state_new\0"
+    "xkb_compose_state_unref\0"
+    "xkb_compose_state_feed\0"
+    "xkb_compose_state_get_status\0"
+    "xkb_compose_state_get_utf8\0"
+    "xkb_compose_state_reset\0";
+static_assert(shared_library_name_count(kSymbols) * sizeof(void*) == sizeof(XkbApi), "one symbol per XkbApi member");
+
 } // namespace
 
 const XkbApi* xkb_api() noexcept {
     if (g_tried)
         return g_loaded ? &g_api : nullptr;
     g_tried = true;
-    if (!shared_library_open(&g_library, "libxkbcommon.so.0")) {
+    if (!shared_library_open(&g_library, kSoname)) {
         log_write(LogLevel::warning, "wayland", "libxkbcommon.so.0 is not installed");
         return nullptr;
     }
-    SharedLibraryResolver resolve{g_library, nullptr};
-    XkbApi api{};
-    resolve(&api.context_new, "xkb_context_new");
-    resolve(&api.context_unref, "xkb_context_unref");
-    resolve(&api.context_set_log_level, "xkb_context_set_log_level");
-    resolve(&api.keymap_new_from_buffer, "xkb_keymap_new_from_buffer");
-    resolve(&api.keymap_new_from_names, "xkb_keymap_new_from_names");
-    resolve(&api.keymap_unref, "xkb_keymap_unref");
-    resolve(&api.keymap_get_as_string, "xkb_keymap_get_as_string");
-    resolve(&api.keymap_key_repeats, "xkb_keymap_key_repeats");
-    resolve(&api.keymap_key_get_syms_by_level, "xkb_keymap_key_get_syms_by_level");
-    resolve(&api.keymap_mod_get_index, "xkb_keymap_mod_get_index");
-    resolve(&api.state_new, "xkb_state_new");
-    resolve(&api.state_unref, "xkb_state_unref");
-    resolve(&api.state_update_mask, "xkb_state_update_mask");
-    resolve(&api.state_update_key, "xkb_state_update_key");
-    resolve(&api.state_serialize_mods, "xkb_state_serialize_mods");
-    resolve(&api.state_serialize_layout, "xkb_state_serialize_layout");
-    resolve(&api.state_key_get_one_sym, "xkb_state_key_get_one_sym");
-    resolve(&api.state_key_get_utf32, "xkb_state_key_get_utf32");
-    resolve(&api.state_key_get_layout, "xkb_state_key_get_layout");
-    resolve(&api.state_mod_name_is_active, "xkb_state_mod_name_is_active");
-    resolve(&api.compose_table_new_from_locale, "xkb_compose_table_new_from_locale");
-    resolve(&api.compose_table_unref, "xkb_compose_table_unref");
-    resolve(&api.compose_state_new, "xkb_compose_state_new");
-    resolve(&api.compose_state_unref, "xkb_compose_state_unref");
-    resolve(&api.compose_state_feed, "xkb_compose_state_feed");
-    resolve(&api.compose_state_get_status, "xkb_compose_state_get_status");
-    resolve(&api.compose_state_get_utf8, "xkb_compose_state_get_utf8");
-    resolve(&api.compose_state_reset, "xkb_compose_state_reset");
-    if (resolve.missing) {
-        log_missing_symbol("libxkbcommon.so.0", resolve.missing);
+    // Resolved in place: g_api is read only once g_loaded says it is complete.
+    if (const char* missing = shared_library_resolve(g_library, &g_api, sizeof(g_api), kSymbols)) {
+        shared_library_log_missing("wayland", kSoname, missing);
         shared_library_close(&g_library);
         return nullptr;
     }
-    g_api = api;
     g_loaded = true;
     return &g_api;
 }

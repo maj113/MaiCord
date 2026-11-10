@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "../../shell/toast.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
@@ -15,25 +15,22 @@ constexpr u32 kInviteChannels = (1u << 0) | (1u << 2) | (1u << 5) | (1u << 6) | 
                                 (1u << 15) | (1u << 16);
 constexpr u8 kVisibilityPublic = 1, kVisibilityPublicWithRecruitment = 3;
 
-struct Message {
-    u32 bit;
-    Utf8View label;
-};
-constexpr Message kMessages[]{
-    {guild_system_suppress_join, utf8_literal("Send a random welcome message when someone joins this server.")},
-    {guild_system_suppress_join_replies, utf8_literal("Prompt members to reply to welcome messages with a sticker.")},
-    {guild_system_suppress_boost, utf8_literal("Send a message when someone boosts this server.")},
-    {guild_system_suppress_setup_tips, utf8_literal("Send helpful tips for server setup.")},
-    {guild_system_suppress_subscription,
-     utf8_literal("Send a message when someone purchases a Server Product or Server Subscription")},
-    {guild_system_suppress_subscription_replies,
-     utf8_literal("Prompt members to reply to Server Subscription congratulation messages with a sticker")},
-    {guild_system_suppress_voice_session, utf8_literal("Send a message when a voice hangout has started.")},
-};
-constexpr Utf8View kNotificationChoices[]{utf8_literal("All Messages"), utf8_literal("Only @mentions")};
-constexpr Utf8View kAfkLabels[]{utf8_literal("1 minute"), utf8_literal("5 minutes"), utf8_literal("15 minutes"),
-                                utf8_literal("30 minutes"), utf8_literal("1 hour")};
-static_assert(sizeof(kAfkLabels) / sizeof(kAfkLabels[0]) == sizeof(kGuildAfkTimeouts) / sizeof(u32));
+// The system message toggles: the suppress bit of each, and its label in kMessageLabels in the same order.
+constexpr u32 kMessageBits[]{guild_system_suppress_join,         guild_system_suppress_join_replies,
+                             guild_system_suppress_boost,        guild_system_suppress_setup_tips,
+                             guild_system_suppress_subscription, guild_system_suppress_subscription_replies,
+                             guild_system_suppress_voice_session};
+constexpr char kMessageLabels[] =
+    "Send a random welcome message when someone joins this server.\0"
+    "Prompt members to reply to welcome messages with a sticker.\0"
+    "Send a message when someone boosts this server.\0"
+    "Send helpful tips for server setup.\0"
+    "Send a message when someone purchases a Server Product or Server Subscription\0"
+    "Prompt members to reply to Server Subscription congratulation messages with a sticker\0"
+    "Send a message when a voice hangout has started.\0";
+constexpr char kNotificationChoices[] = "All Messages\0Only @mentions";
+constexpr char kAfkLabels[] = "1 minute\0" "5 minutes\0" "15 minutes\0" "30 minutes\0" "1 hour\0";
+static_assert(name_list_count(kAfkLabels) == sizeof(kGuildAfkTimeouts) / sizeof(u32));
 
 // Subscription rows need a monetizable server; voice session messages are
 // offered only where the bit is already set. Either way a set bit shows.
@@ -86,8 +83,7 @@ void load() noexcept {
 }
 
 void toggle(const SettingsLayerActivation& activation) noexcept {
-    ui_settings_scene_animate_toggle(&owner->scene, activation.value.target, activation.value.checked,
-                                     clock_monotonic_milliseconds());
+    animate_toggle(activation);
 }
 
 // The server ID, or with `json` the widget's JSON API address.
@@ -109,70 +105,66 @@ void project(Bank& bank) noexcept {
     const bool features = edit && names_available();
     const u64 stored_features = guild_features();
     if (p.engagement_conflict)
-        push_error(utf8_literal("Changed elsewhere"),
-                   utf8_literal("Someone else updated these settings. Load the latest values or keep editing."),
-                   utf8_literal("Load latest"));
+        push_error("Changed elsewhere", "Someone else updated these settings. Load the latest values or keep editing.",
+                   "Load latest");
     if (stored_features & guild_feature_summaries_ga) {
-        push_category(control_summaries_category, utf8_literal("Channel Summaries"),
-                      utf8_literal("Members can see the topics being discussed in text channels and who is "
-                                   "taking part, to catch up quickly."));
-        push_row(control_summaries, utf8_literal("Enable Channel Summaries"), utf8_literal("Beta"),
-                 UiSettingsControlKind::toggle, features, (d.features & guild_feature_summaries_enabled) != 0);
+        push_category(control_summaries_category, "Channel Summaries",
+                      "Members can see the topics being discussed in text channels and who is taking part, to catch "
+                      "up quickly.");
+        push_toggle(control_summaries, "Enable Channel Summaries", "Beta", features,
+                    (d.features & guild_feature_summaries_enabled) != 0);
     }
-    push_category(control_messages_category, utf8_literal("System Messages"),
-                  utf8_literal("Configure the system event messages sent to your server."));
+    push_category(control_messages_category, "System Messages",
+                  "Configure the system event messages sent to your server.");
     // Without a channel no system message is sent; the flags stay as they are.
     const bool messages = edit && d.system_channel_id;
-    for (const auto& message : kMessages)
-        if (message_shown(message.bit))
-            push_row(control_message + lowest_set_bit(message.bit), message.label, {}, UiSettingsControlKind::toggle,
-                     messages, guild_engagement_message_enabled(d, message.bit));
-    p.system_choice[0] = channel_label(bank, d.system_channel_id, utf8_literal("No System Messages"));
-    push_choices(control_system_channel, utf8_literal("System Messages Channel"),
-                 utf8_literal("The channel system event messages are posted to."), UiSettingsControlKind::choice,
-                 edit, {p.system_choice, 1});
+    NameList label{kMessageLabels};
+    for (const u32 bit : kMessageBits) {
+        if (message_shown(bit))
+            push_toggle(control_message + lowest_set_bit(bit), label.name(), {}, messages,
+                        guild_engagement_message_enabled(d, bit));
+        label.next();
+    }
+    push_choice(control_system_channel, "System Messages Channel", "The channel system event messages are posted to.",
+                edit, channel_label(bank, d.system_channel_id, "No System Messages"));
 
-    push_category(control_activity_category, utf8_literal("Activity Feed Settings"),
-                  utf8_literal("A feed of activity from games and connected apps in this server."));
+    push_category(control_activity_category, "Activity Feed Settings",
+                  "A feed of activity from games and connected apps in this server.");
     u32 members = 0;
     const bool count_known = member_count(&members);
-    push_row(control_activity_feed, utf8_literal("Display Activity Feed in this server"),
-             edit && !names_available() ? utf8_literal("Available once Discord sends this server's details again.")
-                                        : Utf8View{},
-             UiSettingsControlKind::toggle, features, guild_engagement_activity_feed(d, members, count_known));
+    push_toggle(control_activity_feed, "Display Activity Feed in this server",
+                edit && !names_available() ? "Available once Discord sends this server's details again." : nullptr,
+                features, guild_engagement_activity_feed(d, members, count_known));
 
-    push_category(control_notifications_category, utf8_literal("Default Notification Settings"),
-                  utf8_literal("Whether members who haven't chosen their own notification settings are notified "
-                               "for every message in this server or only for mentions."));
-    push_choices(control_notifications, utf8_literal("Default notifications"),
-                 count_known && members >= kGuildLargeNotificationMembers
-                     ? utf8_literal("Only @mentions is recommended for Community servers. With this many members, "
-                                    "non-mention messages don't send mobile push notifications.")
-                     : utf8_literal("Only @mentions is recommended for Community servers."),
-                 UiSettingsControlKind::radio, edit, {kNotificationChoices, 2}, d.default_notifications);
+    push_category(control_notifications_category, "Default Notification Settings",
+                  "Whether members who haven't chosen their own notification settings are notified for every message "
+                  "in this server or only for mentions.");
+    push_names(control_notifications, "Default notifications",
+               count_known && members >= kGuildLargeNotificationMembers
+                   ? "Only @mentions is recommended for Community servers. With this many members, non-mention "
+                     "messages don't send mobile push notifications."
+                   : "Only @mentions is recommended for Community servers.",
+               UiSettingsControlKind::radio, edit, kNotificationChoices, 2, d.default_notifications);
 
-    p.afk_choice[0] = channel_label(bank, d.afk_channel_id, utf8_literal("No Inactive Channel"));
-    push_choices(control_afk_channel, utf8_literal("Inactive Channel"), {}, UiSettingsControlKind::choice, edit,
-                 {p.afk_choice, 1});
+    push_choice(control_afk_channel, "Inactive Channel", {}, edit,
+                channel_label(bank, d.afk_channel_id, "No Inactive Channel"));
     u32 timeout = kUiSettingsNoChoice;
     for (u32 i = 0; i < sizeof(kGuildAfkTimeouts) / sizeof(u32); ++i)
         if (kGuildAfkTimeouts[i] == d.afk_timeout_seconds)
             timeout = i;
-    push_choices(control_afk_timeout, utf8_literal("Inactive Timeout"),
-                 utf8_literal("Members idle for longer than the timeout are moved to this channel and muted. This "
-                              "doesn't affect browsers."),
-                 UiSettingsControlKind::choice, edit && d.afk_channel_id,
-                 {kAfkLabels, sizeof(kAfkLabels) / sizeof(kAfkLabels[0])}, timeout);
+    push_names(control_afk_timeout, "Inactive Timeout",
+               "Members idle for longer than the timeout are moved to this channel and muted. This doesn't affect "
+               "browsers.",
+               UiSettingsControlKind::choice, edit && d.afk_channel_id, kAfkLabels, name_list_count(kAfkLabels), timeout);
 
     if (!manage)
         return;
-    push_category(control_widget_category, utf8_literal("Server Widget"),
-                  utf8_literal("Embed an HTML widget on your website showing online members, voice channels and an "
-                               "invite link."));
+    push_category(control_widget_category, "Server Widget",
+                  "Embed an HTML widget on your website showing online members, voice channels and an invite link.");
     if (p.widget_failed)
-        push_error(utf8_literal("Couldn't load the widget"), {}, utf8_literal("Try again"));
+        push_error("Couldn't load the widget", {}, "Try again");
     else if (!p.widget_loaded)
-        push_loading(utf8_literal("Loading the widget…"));
+        push_loading("Loading the widget…");
     // A failed read settles too: the notice then assumes a private profile.
     bool visibility_settled = false;
     const auto* profile = server_profile(&visibility_settled);
@@ -181,33 +173,29 @@ void project(Bank& bank) noexcept {
                           profile->visibility == kVisibilityPublicWithRecruitment);
     if (p.widget_loaded && visibility_settled && !visible && !d.widget_enabled)
         push_row(control_widget_notice, {},
-                 utf8_literal("Turning on the widget makes your server profile visible to people outside the server. "
-                              "Profile privacy is part of the Server Profile settings."),
+                 "Turning on the widget makes your server profile visible to people outside the server. Profile "
+                 "privacy is part of the Server Profile settings.",
                  UiSettingsControlKind::notice, true);
-    push_row(control_widget, utf8_literal("Enable Server Widget"), {}, UiSettingsControlKind::toggle,
-             edit && p.widget_loaded, d.widget_enabled);
+    push_toggle(control_widget, "Enable Server Widget", {}, edit && p.widget_loaded, d.widget_enabled);
     if (!d.widget_enabled)
         return;
-    p.widget_choice[0] = channel_label(bank, d.widget_channel_id, utf8_literal("No Invite"));
-    push_choices(control_widget_channel, utf8_literal("Invite Channel"),
-                 utf8_literal("With a channel selected, the widget offers an invite link to it."),
-                 UiSettingsControlKind::choice, edit, {p.widget_choice, 1});
-    push_row(control_widget_id, utf8_literal("Server ID"), widget_text(bank, false), UiSettingsControlKind::action,
-             true, false, utf8_literal("Copy"),
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-    push_row(control_widget_json, utf8_literal("JSON API"), widget_text(bank, true), UiSettingsControlKind::action,
-             true, false, utf8_literal("Copy"),
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+    push_choice(control_widget_channel, "Invite Channel",
+                "With a channel selected, the widget offers an invite link to it.", edit,
+                channel_label(bank, d.widget_channel_id, "No Invite"));
+    push_action(control_widget_id, "Server ID", widget_text(bank, false), "Copy", true,
+                {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+    push_action(control_widget_json, "JSON API", widget_text(bank, true), "Copy", true,
+                {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
 }
 
 void open_timeout_menu(const UiRect& anchor) noexcept {
     auto& p = *owner;
     constexpr u32 count = sizeof(kGuildAfkTimeouts) / sizeof(u32);
-    for (u32 i = 0; i < count; ++i)
-        popup_row(i, kAfkLabels[i], i,
+    u32 i = 0;
+    for (NameList names{kAfkLabels}; names; names.next(), ++i)
+        popup_row(i, names.name(), i,
                   kGuildAfkTimeouts[i] == p.engagement_draft.afk_timeout_seconds ? popup_item_checked : 0);
-    p.menu = Menu::afk_timeout;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 240);
+    open_popup(Menu::afk_timeout, p.guild_id, count, anchor, 240);
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {
@@ -242,11 +230,11 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     } else if (id == control_notifications && activation.value.selected_choice < 2)
         d.default_notifications = static_cast<u8>(activation.value.selected_choice);
     else if (id == control_system_channel) {
-        open_channel_menu(Menu::system_channel, kTextChannels, d.system_channel_id,
-                          utf8_literal("No System Messages"), kPermissionViewChannel, activation.anchor);
+        open_channel_menu(Menu::system_channel, kTextChannels, d.system_channel_id, "No System Messages",
+                          kPermissionViewChannel, activation.anchor);
         return;
     } else if (id == control_afk_channel) {
-        open_channel_menu(Menu::afk_channel, kVoiceChannels, d.afk_channel_id, utf8_literal("No Inactive Channel"),
+        open_channel_menu(Menu::afk_channel, kVoiceChannels, d.afk_channel_id, "No Inactive Channel",
                           kPermissionViewChannel, activation.anchor);
         return;
     } else if (id == control_afk_timeout) {
@@ -256,7 +244,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         d.widget_enabled = checked;
         toggle(activation);
     } else if (id == control_widget_channel) {
-        open_channel_menu(Menu::widget_channel, kInviteChannels, d.widget_channel_id, utf8_literal("No Invite"),
+        open_channel_menu(Menu::widget_channel, kInviteChannels, d.widget_channel_id, "No Invite",
                           kPermissionViewChannel | kPermissionCreateInvite, activation.anchor);
         return;
     } else

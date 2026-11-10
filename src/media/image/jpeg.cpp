@@ -753,6 +753,24 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
                                         image.coefficient_blocks >= kJpegStoredRowsMinimumBlocks);
 }
 
+namespace {
+// By the end of a block's coefficients in zigzag order: the raster rows up to the last any of them lies in.
+struct RowsThrough {
+    u8 values[65];
+};
+constexpr RowsThrough rows_through() noexcept {
+    RowsThrough table{};
+    u32 last_row = 0;
+    for (u32 end = 1; end <= 64; ++end) {
+        const u32 row = kZigzagToRaster[end - 1] >> 3;
+        last_row = row > last_row ? row : last_row;
+        table.values[end] = static_cast<u8>(last_row + 1);
+    }
+    return table;
+}
+constexpr RowsThrough kRowsThrough = rows_through();
+} // namespace
+
 // The baseline scan: stored_rows writes the words and each block's rows in decode order, else whole blocks in
 // block order (JpegCoefficientWorkspace).
 JpegDecodeResult jpeg_detail::decode_baseline_coefficients(ConstSlice<u8> encoded, const JpegImage& image,
@@ -796,12 +814,20 @@ JpegDecodeResult jpeg_detail::decode_baseline_coefficients(ConstSlice<u8> encode
                     const u32 block_y = mcu_y * component.vertical_sampling + vertical;
                     const u32 block_index =
                         component.block_offset + block_y * component.block_columns + block_x;
-                    const bool decoded =
-                        block_index < image.coefficient_blocks &&
-                        (stored_rows ? decode_block_rows(&reader, dc, ac, &predictor[component_index],
-                                                         words + block_index * 4u, rows, &stored)
-                                     : decode_block(&reader, dc, ac, &predictor[component_index],
-                                                    reinterpret_cast<JpegCoefficientBlock*>(rows) + block_index));
+                    bool decoded = block_index < image.coefficient_blocks;
+                    if (decoded) {
+                        u32 end = 64;
+                        auto* const block = reinterpret_cast<JpegCoefficientBlock*>(
+                            stored_rows ? rows + stored * 16u : rows + block_index * sizeof(JpegCoefficientBlock));
+                        decoded = decode_block(&reader, dc, ac, &predictor[component_index], block, &end);
+                        if (stored_rows) {
+                            // The rows up to the last the block's coefficients reach (all eight after a failure).
+                            const u32 count = decoded ? kRowsThrough.values[end] : 8u;
+                            const u32 packed = stored << 8 | count;
+                            memcpy(words + block_index * 4u, &packed, sizeof(packed));
+                            stored += count;
+                        }
+                    }
                     if (!decoded) {
                         coefficients->stored_rows = stored;
                         result.error =

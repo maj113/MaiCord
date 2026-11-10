@@ -88,18 +88,6 @@ void test_dave_package_policy(Check check) noexcept {
                   MlsPackageCryptoError::identity_mismatch &&
               filled(&unchanged, sizeof(unchanged)),
           "DAVE expected identity is external, not inferred from the signed credential");
-    check(mls_key_package_check_dave(workspace, {buffer, count}, 42,
-                                     reinterpret_cast<MlsSignedKeyPackage*>(buffer))
-                  .error == MlsPackageCryptoError::invalid_input,
-          "DAVE profile API rejects output overlapping signed input");
-    check(mls_key_package_check_dave(workspace, {workspace.storage.data, count}, 42, &unchanged).error ==
-                  MlsPackageCryptoError::invalid_input &&
-              filled(&unchanged, sizeof(unchanged)),
-          "DAVE profile API rejects erased workspace input");
-    check(mls_key_package_check_dave(workspace, {buffer, count}, 42,
-                                     reinterpret_cast<MlsSignedKeyPackage*>(&workspace))
-                  .error == MlsPackageCryptoError::invalid_input,
-          "DAVE profile API rejects workspace owner output");
     const u32 capacity = workspace.storage.capacity;
     workspace.storage.capacity = 1;
     check(mls_key_package_check_dave(workspace, {buffer, count}, 42, &unchanged).error ==

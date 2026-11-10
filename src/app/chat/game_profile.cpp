@@ -20,6 +20,9 @@ constexpr u64 kPageOwner = 0x4D41474D50524F46ull; // "MAGMPROF"
 constexpr UiPageKey kPage{kPageOwner, 1};
 constexpr u32 kControlCapacity = 64;
 constexpr u32 kFriendMaximum = 32;
+// The most controls one projection adds: the cover, the summary, the details (a header, five lines, the links'
+// header, the links and the credit) and the friends (a header and their rows).
+static_assert(kControlCapacity >= 1 + 1 + 1 + 5 + 1 + kGameProfileLinkMaximum + 1 + 1 + kFriendMaximum);
 constexpr u32 kTextBytes = 2048;
 constexpr u32 kCoverDips = 160;
 constexpr u32 kCoverColumns = 3;
@@ -106,26 +109,17 @@ constexpr Platform kPlatforms[] = {{(1u << 0) | (1u << 6) | (1u << 7), "Desktop"
 
 // Website categories the official client shows, in its order, then its store links: App Store (iPhone, then
 // iPad) and Play Store (Android), each only on the store's own host.
+constexpr char kLinkTitles[] = "Official web page\0Facebook\0X (Twitter)\0Instagram\0YouTube\0Bluesky\0Reddit\0Twitch\0"
+                               "Roblox\0App Store\0Play Store";
+constexpr char kStoreHosts[] = "apps.apple.com\0itunes.apple.com\0play.google.com";
 struct LinkKind {
     u8 category;
-    const char* title;
-    const char* host; // stores: the URL must be on this host
+    u8 title; // an entry of kLinkTitles
+    u8 host;  // stores: 1 + the entry of kStoreHosts the URL must be on; 0 for the others
 };
-constexpr LinkKind kLinkKinds[] = {{1, "Official web page", nullptr},
-                                   {4, "Facebook", nullptr},
-                                   {5, "X (Twitter)", nullptr},
-                                   {8, "Instagram", nullptr},
-                                   {9, "YouTube", nullptr},
-                                   {19, "Bluesky", nullptr},
-                                   {14, "Reddit", nullptr},
-                                   {6, "Twitch", nullptr},
-                                   {22, "Roblox", nullptr},
-                                   {10, "App Store", "apps.apple.com"},
-                                   {10, "App Store", "itunes.apple.com"},
-                                   {11, "App Store", "apps.apple.com"},
-                                   {11, "App Store", "itunes.apple.com"},
-                                   {12, "Play Store", "play.google.com"}};
-constexpr u32 kFirstStore = 9;
+constexpr LinkKind kLinkKinds[] = {{1, 0, 0},  {4, 1, 0},  {5, 2, 0},  {8, 3, 0},  {9, 4, 0},
+                                   {19, 5, 0}, {14, 6, 0}, {6, 7, 0},  {22, 8, 0}, {10, 9, 1},
+                                   {10, 9, 2}, {11, 9, 1}, {11, 9, 2}, {12, 10, 3}};
 
 Utf8View literal(const char* text) noexcept {
     return {text, c_string_length(text)};
@@ -138,12 +132,11 @@ bool web_url(Utf8View url) noexcept {
     return (url.bytes > 8 && bytes_equal(url.data, "https://", 8)) ||
            (url.bytes > 7 && bytes_equal(url.data, "http://", 7));
 }
-bool on_host(Utf8View url, const char* host) noexcept {
+bool on_host(Utf8View url, Utf8View host) noexcept {
     const u32 scheme = url.bytes > 8 && bytes_equal(url.data, "https://", 8) ? 8u : 7u;
-    const u32 length = c_string_length(host);
-    return url.bytes >= scheme + length && bytes_equal(url.data + scheme, host, length) &&
-           (url.bytes == scheme + length || url.data[scheme + length] == '/' || url.data[scheme + length] == '?' ||
-            url.data[scheme + length] == ':');
+    return url.bytes >= scheme + host.bytes && bytes_equal(url.data + scheme, host.data, host.bytes) &&
+           (url.bytes == scheme + host.bytes || url.data[scheme + host.bytes] == '/' ||
+            url.data[scheme + host.bytes] == '?' || url.data[scheme + host.bytes] == ':');
 }
 
 // The links in the official client's order: listed categories by kLinkKinds, then at most one store link each.
@@ -154,12 +147,13 @@ void order_links() noexcept {
     bool app_store = false;
     for (u32 k = 0; k < sizeof(kLinkKinds) / sizeof(kLinkKinds[0]); ++k) {
         const auto& kind = kLinkKinds[k];
-        const bool store = k >= kFirstStore;
+        const bool store = kind.host != 0;
         if (store && kind.category != 12 && app_store)
             continue;
         for (u32 i = 0; i < g.link_count; ++i) {
             const Utf8View url = view(g.links[i].url, g.links[i].url_bytes);
-            if (g.links[i].category != kind.category || !web_url(url) || (kind.host && !on_host(url, kind.host)))
+            if (g.links[i].category != kind.category || !web_url(url) ||
+                (store && !on_host(url, entry(kStoreHosts, kind.host - 1))))
                 continue;
             p.links[p.link_count++] = static_cast<u8>(i);
             app_store |= kind.category != 12 && store;
@@ -171,7 +165,7 @@ void order_links() noexcept {
 Utf8View link_title(const GameProfileLink& link) noexcept {
     for (const auto& kind : kLinkKinds)
         if (kind.category == link.category)
-            return literal(kind.title);
+            return entry(kLinkTitles, kind.title);
     return {};
 }
 
@@ -179,8 +173,6 @@ Utf8View link_title(const GameProfileLink& link) noexcept {
 Utf8View release_text(u64 ms) noexcept {
     auto& bank = owner->bank;
     const CivilDate date = civil_date_from_days(static_cast<i64>(ms / 86'400'000));
-    if (date.month < 1 || date.month > 12 || date.year < 0)
-        return {};
     const u32 start = bank.used;
     bank.add(entry(kMonthNames, date.month - 1));
     bank.add(" ");
@@ -190,8 +182,8 @@ Utf8View release_text(u64 ms) noexcept {
     return bank.since(start);
 }
 
-const GameRecord* known_game() noexcept {
-    const GameRecord* record = owner ? game_lookup_find(owner->game_id) : nullptr;
+const GameRecord* known_game(u64 id) noexcept {
+    const GameRecord* record = game_lookup_find(id);
     return record && record->state == GameState::known ? record : nullptr;
 }
 
@@ -226,13 +218,11 @@ void collect_friends() noexcept {
     }
 }
 
-// Appends a control; ~0u past capacity.
+// Appends a control (kControlCapacity holds every projection) and returns its index.
 u32 add(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind,
         const Utf8View& action_label = {},
         UiSettingsControlPresentation presentation = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault}) noexcept {
     auto& p = *owner;
-    if (p.control_count >= kControlCapacity)
-        return ~0u;
     p.presentation[p.control_count] = presentation;
     reset_value(&p.avatar_media[p.control_count]);
     p.controls[p.control_count] = {id, label, description, kind, true, false, {}, 0, action_label, nullptr};
@@ -291,17 +281,15 @@ bool project() noexcept {
     auto& p = *owner;
     p.control_count = 0;
     p.bank = {p.text, kTextBytes, 0};
-    const GameRecord* record = known_game();
+    const GameRecord* record = known_game(p.game_id);
     p.games_revision = game_lookup_revision();
     // The cover art leads, captioned with the game's name.
     if (record && game_cover_media(record->game, kCoverDips, g_app.renderer.dpi, &p.cover)) {
         const u32 index = add(control_cover, view(p.title, p.title_bytes), {}, UiSettingsControlKind::action, {},
                               {UiSettingsVariant::standard, ui_settings_presentation_avatar, kCoverColumns, 0, 0,
                                ui_settings_more_cell});
-        if (index != ~0u) {
-            p.avatar_media[index].key = p.cover.key;
-            p.avatar_media[index].url = p.cover.url_view();
-        }
+        p.avatar_media[index].key = p.cover.key;
+        p.avatar_media[index].url = p.cover.url_view();
     }
     switch (p.phase) {
     case Phase::loading:
@@ -330,8 +318,7 @@ bool project() noexcept {
                                   user ? user_store_name(users, *user) : utf8_literal("A friend"),
                                   utf8_literal("Playing Now"), UiSettingsControlKind::action, {},
                                   {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
-            if (index != ~0u)
-                p.avatar_media[index] = application_user_avatar_media(p.friends[i]);
+            p.avatar_media[index] = application_user_avatar_media(p.friends[i]);
         }
     }
     p.content.controls = {p.controls, p.control_count};
@@ -411,8 +398,8 @@ bool open_not_found() noexcept {
 } // namespace
 
 bool application_game_profile_open(u64 game_id) noexcept {
-    const GameRecord* record = game_lookup_find(game_id);
-    if (!record || record->state != GameState::known)
+    const GameRecord* record = known_game(game_id);
+    if (!record)
         return open_not_found();
     if (!application_account_available() || !g_app.renderer_ready || g_app.text_form ||
         application_channel_overview_active())
@@ -483,7 +470,7 @@ void application_game_profile_response(u64 game_id, bool ok, Utf8View body) noex
     if (ok && game_profile_decode(body, scratch, game_id, &p.game)) {
         p.phase = Phase::loaded;
         order_links();
-    } else if (ok && !known_game()) {
+    } else if (ok && !known_game(game_id)) {
         // The server no longer knows the game: the official client's not-found dialog instead.
         application_game_profile_close(false);
         open_not_found();

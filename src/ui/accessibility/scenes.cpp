@@ -932,10 +932,11 @@ void mount_viewer_media(void* context, UiAccessTree* tree, u32 node) noexcept {
     if (v.item_count > 1)
         g_name.add(" ").number(v.item + 1u).add(" of ").number(v.item_count);
     media.name = g_name.view();
-    UiAccessNameBuilder help{};
+    UiAccessNameBuilder help; // composed from clear() below; the bytes beyond its length are never read
     // 100% is one source pixel per device pixel.
     if (!v.video && v.zoom > 0) {
-        help.add("Zoom ")
+        help.clear()
+            .add("Zoom ")
             .number(static_cast<u64>(v.zoom / ui_image_viewer_actual_zoom(v) * 100.0f + 0.5f))
             .add("%");
         media.help = help.view();
@@ -1279,7 +1280,7 @@ void mount_call(void* context, UiAccessTree* tree, u32 node) noexcept {
             if (tile.participant >= s.participant_count)
                 continue;
             const auto& participant = s.participants[tile.participant];
-            UiAccessNameBuilder name{};
+            UiAccessNameBuilder name; // call_tile_name clears it first
             call_tile_name(participant, &name);
             const u16 state = static_cast<u16>(ui_access_selectable | (tile.focused ? ui_access_selected : 0));
             const u32 item = add_synthetic(tree, list, surface, 0x100000000ull ^ tile.user_id, UiAccessRole::list_item,

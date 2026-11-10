@@ -300,7 +300,6 @@ struct MessageScene {
     u32 layout_passes;
     u32 data_updates;
     u32 measurement_updates;
-    u32 rejected;
     u64 unread_channel_id, unread_last_read_message_id, unread_first_message_id;
     UiUnreadDividerStyle unread_divider_style;
     float pixel_scale; // dpi / 96 for device-pixel hairlines; 0 leaves DIP geometry

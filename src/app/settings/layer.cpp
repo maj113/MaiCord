@@ -95,7 +95,7 @@ bool focused_editor(SettingsLayer* layer, MessageComposer** model, BoundedEdit**
         *control = target.control_id;
     return true;
 }
-float keyframe_shift(float t) noexcept {
+__forceinline float keyframe_shift(float t) noexcept {
     static constexpr float at[]{0, .1f, .3f, .5f, .7f, .9f, 1};
     static constexpr float value[]{0, -1, 1, -1, 1, -.6f, 0};
     for (u32 i = 1; i < 7; ++i)
@@ -186,7 +186,7 @@ void dispatch(SettingsLayer* layer, const UiSettingsActivation& value, bool poin
     }
     layer->hooks->activate(layer, activation);
 }
-bool choose_pointer(SettingsLayer* layer, PointerStep step, float x, float y) noexcept {
+__forceinline bool choose_pointer(SettingsLayer* layer, PointerStep step, float x, float y) noexcept {
     const auto hit = popup_scene_hit_test(g_app.popup_scene, x, y);
     if (step == PointerStep::move) {
         bool changed = false;

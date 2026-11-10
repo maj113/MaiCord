@@ -86,58 +86,48 @@ void limit_frame_rate(u32& timeout, u64 now_us) noexcept {
         timeout = minimum(timeout, static_cast<u32>(((next > now_us ? next - now_us : 0) + 999) / 1'000));
 }
 
+// The owners with a deadline of their own and nothing to be told: one table walked by one loop instead of a call
+// and a merge each. The merge ignores order.
+using WakeSource = u64 (*)() noexcept;
+constexpr WakeSource kWakeSources[]{
+    application_profile_next_wake,       application_commands_next_wake,      application_friends_next_wake,
+    application_forum_preview_next_wake, application_composer_preview_next_wake, application_search_next_wake,
+    application_media_picker_next_wake,  application_gif_favorites_next_wake, application_emoji_preferences_next_wake,
+    application_action_captcha_next_wake, application_self_status_next_wake, application_user_settings_next_wake,
+    application_guild_folders_request_wake, application_custom_status_next_wake, application_activity_next_wake,
+    application_notification_controls_next_wake, application_message_components_next_wake,
+    application_invite_cards_next_wake,  application_channel_overview_next_wake, application_read_state_next_wake,
+    application_scoped_read_next_wake,   application_voice_next_wake,         application_presence_next_wake,
+    application_account_reconnect_next_wake, application_message_reaction_next_wake,
+    application_thread_actions_next_wake, application_search_navigation_next_wake,
+    application_channel_prefetch_next_wake, application_startup_history_next_wake,
+    application_startup_shell_next_wake, application_author_hydration_next_wake,
+    application_mention_member_query_next_wake};
+constexpr WakeSource kDetailsWakeSources[]{
+    application_pinned_messages_next_wake, application_thread_browser_next_wake, application_thread_creation_next_wake,
+    application_forum_post_next_wake,      application_poll_next_wake,            application_member_moderation_next_wake,
+    application_account_settings_next_wake, application_game_lookup_next_wake,   application_inbox_next_wake,
+    application_stream_preview_next_wake,  application_private_channel_next_wake};
+
 u64 application_next_wake_at_ms() noexcept {
     if (application_account_logout_blocked())
         return application_account_logout_next_wake();
     u64 wake_at = 0;
     const auto add = [&](u64 wake) noexcept { wake_at = earliest_deadline(wake_at, wake); };
     const bool details_idle = g_app.details_request_owner == MessageHistoryRequestOwner::none;
-    add(application_profile_next_wake());
-    add(application_commands_next_wake());
-    add(application_friends_next_wake());
-    add(application_forum_preview_next_wake());
-    add(application_composer_preview_next_wake());
-    add(composer_spellcheck_next_wake(g_app.composer_spellcheck));
-    add(application_search_next_wake());
+    for (const WakeSource wake : kWakeSources)
+        add(wake());
+    // The detail lanes' owners wait while a details request is in flight; a queued DM action (accepting a message
+    // request, renaming a group) goes out on the details lane once free.
     if (details_idle) {
-        add(application_pinned_messages_next_wake());
-        add(application_thread_browser_next_wake());
-        add(application_thread_creation_next_wake());
-        add(application_forum_post_next_wake());
-        add(application_poll_next_wake());
-        add(application_member_moderation_next_wake());
-        add(application_account_settings_next_wake());
+        for (const WakeSource wake : kDetailsWakeSources)
+            add(wake());
         add(g_app.dm_profile_wake_ms);
-        add(application_game_lookup_next_wake());
     }
-    add(application_media_picker_next_wake());
-    add(application_gif_favorites_next_wake());
-    add(application_emoji_preferences_next_wake());
-    add(application_action_captcha_next_wake());
-    add(application_self_status_next_wake());
-    add(application_user_settings_next_wake());
-    add(application_guild_folders_request_wake());
-    add(application_custom_status_next_wake());
-    add(application_activity_next_wake());
-    add(application_notification_controls_next_wake());
-    if (details_idle) {
-        add(application_inbox_next_wake());
-        add(application_stream_preview_next_wake());
-    }
+    add(composer_spellcheck_next_wake(g_app.composer_spellcheck));
     add(application_stage_next_wake(details_idle));
     add(application_soundboard_next_wake(details_idle));
-    add(application_message_components_next_wake());
-    add(application_invite_cards_next_wake());
-    add(application_channel_overview_next_wake());
-    add(application_read_state_next_wake());
-    add(application_scoped_read_next_wake());
     add(application_notifications_next_wake(&g_app));
-    // A queued DM action (accepting a message request, renaming a group) goes out on the details lane once free.
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        add(application_private_channel_next_wake());
-    add(application_voice_next_wake());
-    add(application_presence_next_wake());
-    add(application_account_reconnect_next_wake());
     if (!application_thread_browser_read_blocked())
         add(media_url_next_wake(g_app.media_urls));
     if (g_app.account_ui) {
@@ -167,15 +157,7 @@ u64 application_next_wake_at_ms() noexcept {
         add(g_app.message_delete.retry_at_ms);
     if (g_app.message_edit.message_id != 0 && g_app.message_edit.phase == MessageEditRequestPhase::retry_wait)
         add(g_app.message_edit.retry_at_ms);
-    add(application_message_reaction_next_wake());
-    add(application_thread_actions_next_wake());
-    add(application_search_navigation_next_wake());
-    add(application_channel_prefetch_next_wake());
-    add(application_startup_history_next_wake());
-    add(application_startup_shell_next_wake());
     add(g_app.member_list_subscription.retry_at_ms);
-    add(application_author_hydration_next_wake());
-    add(application_mention_member_query_next_wake());
     add(g_app.thread_member_list_subscription.retry_at_ms);
     add(reaction_viewer_controller_next_wake_at(g_app.reaction_viewer_controller));
     if (!application_thread_browser_read_blocked())

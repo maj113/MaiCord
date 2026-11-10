@@ -6,7 +6,6 @@ namespace maicord {
 enum class MlsPackageCryptoError : u8 {
     none,
     invalid_input,
-    not_initialized,
     decode_failure,
     unsupported_suite,
     invalid_leaf_source,

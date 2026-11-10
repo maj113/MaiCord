@@ -25,9 +25,9 @@ struct Notice {
     float laid_out;
     char text[320];
 };
-Notice g_notice{.source = ApplicationNoticeSource::count};
+Notice g_notice;
 
-// The highest-priority notice that applies (ui_notice_band_select); count when none does.
+// The highest-priority notice that applies (ui_notice_band_select); none when none does.
 ApplicationNoticeSource choose(u64* signature) noexcept {
     const bool streamer = application_streamer_mode_active();
     if (!streamer)
@@ -35,7 +35,8 @@ ApplicationNoticeSource choose(u64* signature) noexcept {
     // In ApplicationNoticeSource order: the official client's priority.
     const UiNoticeRequest requests[]{{0, streamer, g_notice.streamer_dismissed},
                                      {1, g_app.preferences.test_mode_application != 0, false}};
-    const auto source = static_cast<ApplicationNoticeSource>(ui_notice_band_select({requests, 2}));
+    const u32 chosen = ui_notice_band_select({requests, 2});
+    const auto source = chosen == 2 ? ApplicationNoticeSource::none : static_cast<ApplicationNoticeSource>(chosen + 1);
     *signature = 0;
     if (source == ApplicationNoticeSource::streamer_mode)
         *signature = 1;
@@ -76,7 +77,7 @@ void application_notice_synchronize(u64 now_ms) noexcept {
         return;
     u64 signature = 0;
     const auto source = choose(&signature);
-    const bool shown = source != ApplicationNoticeSource::count;
+    const bool shown = source != ApplicationNoticeSource::none;
     if (source != g_notice.source || signature != g_notice.signature) {
         // A notice replacing another keeps the band open and swaps its content; none collapses the last one.
         if (shown)
@@ -105,7 +106,7 @@ const UiNoticeBand* application_notice_band() noexcept {
 }
 
 bool application_notice_activate(UiNoticeBandPart part) noexcept {
-    if (!application_notice_band() || g_notice.source == ApplicationNoticeSource::count)
+    if (!application_notice_band() || g_notice.source == ApplicationNoticeSource::none)
         return false;
     // Disable turns the switch off; Streamer Mode a streaming tool turned on stays while it runs, so its notice hides.
     if (part == UiNoticeBandPart::action && g_notice.source == ApplicationNoticeSource::streamer_mode) {

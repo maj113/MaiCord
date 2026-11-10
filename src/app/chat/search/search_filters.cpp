@@ -263,12 +263,6 @@ void choice_add(SearchFilterChoices& b, u64 id, u8 rank, const Utf8View& label, 
                         choice_copy(b, b.values[position], 24, value), avatar_hash};
     b.ranks[position] = rank;
     b.source.rows = {b.rows, count};
-    for (u32 i = 0; i < count; ++i) {
-        b.rows[i].label.data = b.labels[i];
-        b.rows[i].detail.data = b.details[i];
-        b.rows[i].value.data = b.values[i];
-        b.rows[i].avatar_hash.data = b.avatars[i];
-    }
 }
 bool choice_match(const Utf8View& prefix, const Utf8View& name, const Utf8View& alias,
                   const Utf8View& value) noexcept {
@@ -479,6 +473,13 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         kind != UiSearchFilterKind::file_name)
         b.source.hint = b.capacity_limited ? utf8_literal("Up to four values per filter.")
                                            : utf8_literal("No matches. Keep typing.");
+    // Each row's views point at its own storage; inserting shifted the views, not the storage.
+    for (u32 i = 0; i < b.source.rows.count; ++i) {
+        b.rows[i].label.data = b.labels[i];
+        b.rows[i].detail.data = b.details[i];
+        b.rows[i].value.data = b.values[i];
+        b.rows[i].avatar_hash.data = b.avatars[i];
+    }
     choices_publish(b);
     b.source.selected = b.source.rows.count ? 0 : kUiSearchFilterNoSelection;
     if (preserve_selection)

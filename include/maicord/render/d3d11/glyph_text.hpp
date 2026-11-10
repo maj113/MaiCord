@@ -134,6 +134,11 @@ bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, GpuContext* cont
                                     bool reset_atlas) noexcept;
 bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                              const D3D11GlyphTextAppendRequest& request) noexcept;
+// Why the last append failed: 1/2/16 quad capacity for a decoration; 3 no font face or a size out of range; 4 size or
+// DPI outside the atlas key; 5/6 colour glyph run; 7 glyph index outside the shaped text; 8 outline; 9 raster bounds;
+// 10 atlas allocation; 11 raster upload; 12 atlas eviction or reset (the build retries); 13 quad capacity; 14 raster
+// submit; 15 effect preparation. 0 when the last call succeeded.
+u32 d3d11_glyph_text_append_failure() noexcept;
 bool d3d11_glyph_text_append_solid(const TextDecoration& decoration, float origin_x, float origin_y,
                                    const Color& color, GlyphQuad* output, u32 capacity,
                                    u32* count) noexcept;

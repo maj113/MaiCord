@@ -1,8 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/voice/dave/receive_sender.hpp"
 #include "maicord/app/voice/mls/exporter.hpp"
-#include "maicord/core/byte_range.hpp"
-#include "../../shell/byte_views.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -25,17 +23,6 @@ DaveSenderError validate(const DaveReceiveSender& sender, DaveReceiveIdentity id
         identity.user_id != sender.identity.user_id)
         return DaveSenderError::identity_mismatch;
     return now < sender.last_now_ms ? DaveSenderError::invalid_time : DaveSenderError::none;
-}
-bool touches(const DaveReceiveSender& sender, ConstSlice<u8> span) noexcept {
-    if (byte_ranges_overlap(span, object_bytes(sender)))
-        return true;
-    for (const auto* node = sender.newest; node; node = node->older)
-        if (byte_ranges_overlap(span, object_bytes(*node)) || dave_receive_epoch_aliases(node->epoch, span))
-            return true;
-    return false;
-}
-bool external(const DaveReceiveSender& sender, ConstSlice<u8> span) noexcept {
-    return byte_range_valid(span) && !touches(sender, span);
 }
 void destroy(DaveReceiveNode* node) noexcept {
     dave_receive_epoch_release(&node->epoch);
@@ -101,7 +88,7 @@ DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sen
         return {{}, 0, valid};
     if (!revision || revision <= sender.latest_revision)
         return {{}, 0, DaveSenderError::stale_transition};
-    if (seed.count != 16 || !external(sender, seed))
+    if (seed.count != 16)
         return {{}, 0, DaveSenderError::invalid_input};
     auto* node = static_cast<DaveReceiveNode*>(
         commit_pages(sizeof(DaveReceiveNode)));
@@ -130,9 +117,6 @@ DaveSenderTransitionResult dave_receive_sender_transition_exporter(
         return {{}, 0, valid};
     if (!revision || revision <= sender.latest_revision)
         return {{}, 0, DaveSenderError::stale_transition};
-    if (!external(sender, exporter_secret) || !external(sender, object_bytes(workspace)) ||
-        !external(sender, {workspace.storage.data, workspace.storage.capacity}))
-        return {{}, 0, DaveSenderError::invalid_input};
     u8 seed[16];
     const auto exported = dave_export_media_seed(workspace, exporter_secret, identity.user_id, {seed, 16});
     auto result = exported.ok() ? dave_receive_sender_transition(sender, identity, revision, {seed, 16},
@@ -181,15 +165,6 @@ DaveSenderOpenResult dave_receive_sender_open(DaveReceiveSender& sender, DaveRec
     const u32 needed = view.clear_bytes || frame.data == output.data ? view.body_bytes : 0;
     if (scratch.count < needed)
         return fail(DaveSenderError::scratch_capacity);
-    // The bytes this call writes (output and scratch prefixes) must stay clear of
-    // everything owned and of each other; the frame is only read. A frame that
-    // sat in owned memory could only fail authentication, never corrupt state.
-    const ConstSlice<u8> written{output.data, view.body_bytes}, temporary{scratch.data, needed};
-    if (touches(sender, written) || aliases_workspace(workspace, written) ||
-        (byte_ranges_overlap(written, frame) && frame.data != output.data) ||
-        (needed && (touches(sender, temporary) || aliases_workspace(workspace, temporary) ||
-                    byte_ranges_overlap(temporary, frame) || byte_ranges_overlap(temporary, written))))
-        return fail(DaveSenderError::invalid_input);
     collect(sender, now);
     auto result = fail(sender.newest ? DaveSenderError::rejected : DaveSenderError::no_epoch);
     for (auto* node = sender.newest; node; node = node->older) {

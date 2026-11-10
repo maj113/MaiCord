@@ -569,28 +569,22 @@ bool message_item(void* opaque, u32 index, JsonValue value) noexcept {
 }
 bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& c = *static_cast<ErrorContext*>(opaque);
-    static constexpr Utf8View names[] = {
-        utf8_literal("global_name"),          utf8_literal("nick"),
-        utf8_literal("pronouns"),             utf8_literal("avatar"),
-        utf8_literal("banner"),               utf8_literal("bio"),
-        utf8_literal("display_name_font_id"), utf8_literal("display_name_effect_id"),
-        utf8_literal("display_name_colors"),  utf8_literal("nameplate_sku_id"),
-        utf8_literal("collectibles")};
     using F = ProfileEditErrorField;
+    // By the position of the member's name in the list below.
     static constexpr F slots[] = {F::global_name, F::nick,       F::pronouns,   F::avatar,    F::banner,   F::bio,
                                   F::name_style,  F::name_style, F::name_style, F::nameplate, F::nameplate};
-    static_assert(sizeof(names) / sizeof(names[0]) == sizeof(slots) / sizeof(slots[0]));
     u32 slot = static_cast<u32>(ProfileEditErrorField::misc);
     if (json_string_equals_ascii(key, utf8_literal("username"))) {
         // A per-server username error is reported under nick.
         c.out->username = true;
         slot = static_cast<u32>(ProfileEditErrorField::nick);
-    } else if (!json_string_equals_ascii(key, utf8_literal("_errors")))
-        for (u32 i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
-            if (json_string_equals_ascii(key, names[i])) {
-                slot = static_cast<u32>(slots[i]);
-                break;
-            }
+    } else if (!json_string_equals_ascii(key, utf8_literal("_errors"))) {
+        const u32 i = member_index<"global_name", "nick", "pronouns", "avatar", "banner", "bio",
+                                   "display_name_font_id", "display_name_effect_id", "display_name_colors",
+                                   "nameplate_sku_id", "collectibles">(key);
+        if (i < sizeof(slots) / sizeof(slots[0]))
+            slot = static_cast<u32>(slots[i]);
+    }
     auto& target = c.out->fields[slot];
     if (target.bytes)
         return true;

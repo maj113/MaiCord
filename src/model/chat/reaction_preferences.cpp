@@ -253,7 +253,6 @@ ReactionPreferenceResult reaction_preferences_track_emoji(ReactionPreferenceStor
     if (pending) {
         for (u32 use = 0; use < minimum(uses, kReactionPreferenceRecentUseCapacity); ++use)
             push_pending(store, kind, emoji, timestamp_ms);
-        saturating_increment(store->unsynced_revision);
     }
     saturating_increment(store->revision);
     u32 favorite = 0;
@@ -272,7 +271,6 @@ ReactionPreferenceResult reaction_preferences_toggle_favorite_emoji(ReactionPref
         return ReactionPreferenceResult{ReactionPreferenceError::capacity, false, !favorite};
     apply_favorite(store, emoji, favorite);
     store->favorite_edits[store->favorite_edit_count++] = {emoji, favorite};
-    saturating_increment(store->unsynced_revision);
     saturating_increment(store->revision);
     return ReactionPreferenceResult{ReactionPreferenceError::none, true, favorite};
 }

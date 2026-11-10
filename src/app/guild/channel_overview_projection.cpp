@@ -1,4 +1,5 @@
 #include "channel_overview_internal.hpp"
+#include "control_rows.hpp"
 #include "../settings/settings.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/settings_model.hpp"
@@ -208,18 +209,13 @@ Utf8View status() noexcept {
 namespace {
 
 constexpr UiSettingsControlPresentation kCriticalRow{UiSettingsVariant::critical, 0, kUiSettingsNoDefault};
-// Appends a control and returns it for the optional fields; past capacity the row lands in a scratch sink.
+// Appends a control and returns it for the optional fields.
 UiSettingsControl& add_control(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind,
                                bool enabled = true, bool checked = false,
                                UiSettingsControlPresentation presentation = {}) noexcept {
-    static UiSettingsControl overflow;
-    if (owner->control_count >= kControlCapacity)
-        return overflow;
-    const u32 index = owner->control_count++;
-    owner->controls[index] = {id, label, description, kind, enabled, checked, {}, 0, {}, nullptr};
-    owner->presentation[index] = presentation;
-    reset_value(&owner->avatar_media[index]);
-    return owner->controls[index];
+    return control_row_add({owner->controls, owner->presentation, owner->avatar_media, &owner->control_count,
+                            kControlCapacity},
+                           id, label, description, kind, enabled, checked, presentation);
 }
 u32 slowmode_index(u32 seconds) noexcept {
     for (u32 i = 0; i < 14; ++i)

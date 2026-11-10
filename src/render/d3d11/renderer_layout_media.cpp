@@ -859,6 +859,14 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
     return true;
 }
 
+UiSettingsMediaResidency settings_media_residency(const D3D11Renderer* renderer) noexcept {
+    return {[](const void* context, const MediaAssetKey& key) noexcept {
+                const auto& r = *static_cast<const D3D11Renderer*>(context);
+                return r.media_atlas && r.media_gpu.texture_view && media_atlas_peek(r.media_atlas, key).ok();
+            },
+            renderer};
+}
+
 bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
     // The shell beneath is the backdrop texture; keep what it shows resident.
     renderer_pin_settings_backdrop_media(renderer);
@@ -877,8 +885,9 @@ bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
     renderer->form_paint_first_batch = 0;
     UiSettingsPaintRanges ranges{};
     // Split in ascending quad order so earlier batch indices stay valid.
+    const auto residency = settings_media_residency(renderer);
     if (!ui_settings_scene_paint(*renderer->settings_scene, theme, &renderer->paint_stream,
-                                 renderer->dpi, &ranges) ||
+                                 renderer->dpi, &ranges, &residency) ||
         !split_paint_quad_boundary(&renderer->paint_stream, ranges.modal_first_quad,
                                    &renderer->settings_modal_paint_first_batch) ||
         !split_paint_quad_boundary(&renderer->paint_stream, ranges.modal_end_quad,
@@ -904,7 +913,7 @@ bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
             const bool round = !avatar.tile && kind != MediaAssetKind::custom_emoji && kind != MediaAssetKind::sticker;
             if (!queue_media_quad(renderer, allocation, r, avatar.clip, round, first,
                                   avatar.cover  ? MediaQuadStyle{avatar.avatar, 1.f, 0.f, avatar.radius, 0.f, 0}
-                                  : avatar.tile ? MediaQuadStyle{{}, 1.f, avatar.radius, 0.f, 0.f, 0}
+                                  : avatar.tile ? MediaQuadStyle{{}, avatar.opacity, avatar.radius, 0.f, 0.f, 0}
                                                 : kPlainMediaQuad))
                 return layout_step_failed(__LINE__);
             reveal_media_underlay(*renderer, before, avatar.avatar, theme.avatar_placeholder);

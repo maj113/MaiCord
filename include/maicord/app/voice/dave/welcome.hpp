@@ -5,9 +5,6 @@
 namespace maicord {
 enum class DaveWelcomeError : u8 {
     none,
-    invalid_input,
-    not_initialized,
-    already_initialized,
     decode_failure,
     unsupported_suite,
     missing_reference,
@@ -49,10 +46,9 @@ void dave_welcome_release(DaveWelcomeCandidate* candidate) noexcept;
 // GroupInfo), derives the no-PSK welcome key/nonce and authenticates GroupInfo
 // AEAD, then checks plaintext framing/version/suite. Nonempty PSKs fail with
 // psk_unavailable: there is no PSK store/resolver, and they are never ignored.
-// Requires an empty output. Failure preserves output, wipes/frees local
+// The output is empty on entry (the caller's own zeroed owner), the workspace is initialized and none of
+// the buffers overlap. Failure preserves output, wipes/frees local
 // candidate plaintext and releases crypto handles. Does not consume init_key.
-// Input/reference/output/key buffers must not overlap the workspace; output must
-// not overlap any input or key buffer. Reference must not borrow the input Welcome.
 DaveWelcomeResult dave_welcome_decrypt(KdfSha256Workspace& workspace, const P256Key& init_key,
                                        ConstSlice<u8> reference, ConstSlice<u8> input,
                                        DaveWelcomeCandidate* output) noexcept;

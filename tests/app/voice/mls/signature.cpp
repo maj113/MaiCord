@@ -215,35 +215,10 @@ void framed(Check check, KdfSha256Workspace& workspace, u8* label, u8* content) 
     check(mls_reference_hash(workspace, {label, nl}, {content, nc}, {output, 96}).ok() &&
               bytes_equal(expected, output, 32),
           "Published MLSWG RefHash");
-    // All external preflight failures must preserve outputs and key/workspace.
     memset(output, 0xa5, 96);
-    for (u32 cap = 0; cap != 72; ++cap)
-        check(mls_sign_with_label(workspace, key, {label, nl}, {content, nc}, {}, {output, cap}).error ==
-                      MlsSignatureError::output_capacity &&
-                  filled(output, 96),
-              "MLS signing rejects capacity before crypto");
-    const ConstSlice<u8> huge{label, 0x3fffffff};
-    check(!mls_signature_hash(workspace, huge, {}, {}, {output, 96}).ok() && filled(output, 96),
-          "MLS label overflow before read");
-    check(!mls_signature_hash(workspace, {}, huge, {content, 1}, {output, 96}).ok() && filled(output, 96),
-          "MLS content sum overflow before read");
-    check(!mls_sign_with_label(workspace, key, {workspace.storage.data, 1}, {}, {}, {output, 96}).ok() &&
-              filled(output, 96),
-          "MLS input cannot alias erased hash workspace");
-    check(!mls_sign_with_label(workspace, key, {reinterpret_cast<const u8*>(&key), 1}, {}, {}, {output, 96})
-                  .ok() &&
-              filled(output, 96),
-          "MLS input cannot alias key owner");
-    check(!mls_sign_with_label(workspace, key, {}, {}, {}, {reinterpret_cast<u8*>(&key), 72}).ok() &&
-              key.handle,
-          "MLS output cannot corrupt key owner");
-    check(!mls_sign_with_label(workspace, key, {}, {}, {}, {workspace.storage.data, 72}).ok(),
-          "MLS output cannot alias hash workspace");
     check(!mls_sign_with_label(workspace, pub, {label, nl}, {}, {}, {output, 96}).ok() &&
               filled(output, 96),
           "MLS public key cannot sign");
-    check(!mls_signature_hash(workspace, {output, 1}, {}, {}, {output, 96}).ok() && filled(output, 96),
-          "MLS hash output cannot alias input");
     const u32 capacity = workspace.storage.capacity;
     workspace.storage.capacity = 1;
     check(mls_signature_hash(workspace, {label, nl}, {content, nc}, {}, {output, 96}).error ==

@@ -75,6 +75,7 @@ bool png_apply_palette(PngImage* image, const u8* data, u32 length) noexcept {
     if (image->color_type == 3 && entries > (1u << image->bit_depth)) {
         return false;
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < entries; ++index) {
         image->palette_rgba[index] = static_cast<u32>(data[index * 3]) |
                                      static_cast<u32>(data[index * 3 + 1]) << 8 |
@@ -100,6 +101,7 @@ bool png_apply_transparency(PngImage* image, const u8* data, u32 length) noexcep
             return false;
         }
     } else if (image->color_type == 3 && length != 0 && length <= image->palette_count) {
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (u32 index = 0; index < length; ++index) {
             image->palette_rgba[index] =
                 (image->palette_rgba[index] & 0x00FFFFFFu) | static_cast<u32>(data[index]) << 24;

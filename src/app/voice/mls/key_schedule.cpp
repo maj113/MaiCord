@@ -7,18 +7,6 @@
 namespace maicord {
 namespace {
 constexpr u8 zero[32]{};
-KdfResult validate(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> inputs,
-                   MlsEpochSecrets* output) noexcept {
-    if (!workspace.storage.data || !workspace.storage.locked)
-        return {0, 0, KdfError::not_initialized};
-    const ConstSlice<u8> destination{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    if (!byte_range_valid(destination) || aliases_workspace(workspace, destination))
-        return {0, 0, KdfError::invalid_input};
-    for (u32 i = 0; i != inputs.count; ++i)
-        if (!byte_range_valid(inputs.data[i]) || aliases_workspace(workspace, inputs.data[i]))
-            return {0, 0, KdfError::invalid_input};
-    return {};
-}
 KdfResult expand(KdfSha256Workspace& workspace, const ConstSlice<u8>& secret, const ConstSlice<u8>& label,
                  const ConstSlice<u8>& context, u8* output) noexcept {
     return mls_expand_label(workspace, secret, label, context, {output, 32});
@@ -58,14 +46,9 @@ KdfResult finish(KdfSha256Workspace& workspace, MlsEpochSecrets& next, ConstSlic
 KdfResult derive(KdfSha256Workspace& workspace, const ConstSlice<u8>& initial, const ConstSlice<u8>& commit,
                  const ConstSlice<u8>& psk, const ConstSlice<u8>& confirmed, const ConstSlice<u8>& context,
                  MlsEpochSecrets* output, bool from_joiner) noexcept {
-    if (initial.count != 32 || psk.count != 32 || (!from_joiner && commit.count != 32) ||
-        (confirmed.count != 0 && confirmed.count != 32) || context.count > 0x3fffffff)
-        return {0, 0, KdfError::invalid_input};
-    const ConstSlice<u8> inputs[]{initial, commit, psk, confirmed, context};
-    auto result = validate(workspace, {inputs, 5}, output);
-    if (!result.ok())
-        return result;
-    MlsEpochSecrets next{};
+    // Every secret is written before it is copied out, and a failure clears the whole candidate.
+    MlsEpochSecrets next;
+    KdfResult result{};
     if (from_joiner) {
         copy_bytes(next.joiner_secret, initial.data, 32);
     } else {
@@ -97,8 +80,6 @@ KdfResult mls_epoch_next(KdfSha256Workspace& workspace, ConstSlice<u8> init_secr
                          ConstSlice<u8> commit_secret, ConstSlice<u8> psk_secret,
                          ConstSlice<u8> confirmed_hash, ConstSlice<u8> context,
                          MlsEpochSecrets* output) noexcept {
-    if (confirmed_hash.count != 32)
-        return {0, 0, KdfError::invalid_input};
     return derive(workspace, init_secret, commit_secret, psk_secret, confirmed_hash, context, output,
                   false);
 }
@@ -109,16 +90,11 @@ KdfResult mls_epoch_from_joiner(KdfSha256Workspace& workspace, ConstSlice<u8> jo
 }
 KdfResult mls_transcript_interim(KdfSha256Workspace& workspace, ConstSlice<u8> confirmed_hash,
                                  ConstSlice<u8> confirmation_tag, Slice<u8> output) noexcept {
-    if ((confirmed_hash.count != 0 && confirmed_hash.count != 32) || confirmation_tag.count != 32)
-        return {0, 0, KdfError::invalid_input};
     constexpr u8 length = 32;
     const ConstSlice<u8> parts[]{confirmed_hash, {&length, 1}, confirmation_tag};
     return sha256(workspace, {parts, 3}, output);
 }
 bool mls_confirmation_matches(const ConstSlice<u8>& expected, const ConstSlice<u8>& received) noexcept {
-    if (expected.count != 32 || received.count != 32 || !byte_range_valid(expected) ||
-        !byte_range_valid(received))
-        return false;
     const volatile u8* left = expected.data;
     const volatile u8* right = received.data;
     u32 difference = 0;

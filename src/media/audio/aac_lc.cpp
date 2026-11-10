@@ -27,6 +27,8 @@ enum Element : u32 { kSingle = 0, kPair = 1, kCoupling = 2, kLowFrequency = 3, k
 constexpr u32 kSampleRates[13] = {96000, 88200, 64000, 48000, 44100, 32000, 24000,
                                   22050, 16000, 12000, 11025, 8000,  7350};
 
+// Run once per decoder (tables, windows, transforms): compiled for size.
+
 // ---- Mathematics without a library: the tables are built once per decoder, in double precision -----------------
 
 void cos_sin(double angle, double* cosine, double* sine) noexcept {
@@ -87,6 +89,7 @@ double bessel_i0(double x) noexcept {
     }
     return sum;
 }
+
 
 // 2^(exponent / 4) as a float, for exponents the bitstream can produce (about -160 .. 160 quarters of an octave).
 float power_quarters(i32 quarters) noexcept {
@@ -195,6 +198,7 @@ struct AacLc {
 namespace {
 
 // ---- Tables ------------------------------------------------------------------------------------------------------
+// Run once per decoder: compiled for size.
 
 bool build_trie(AacLc& d, u32 book, u32& next, const u8* lengths, const u32* codes, u32 count) noexcept {
     const u32 root = next++;
@@ -300,6 +304,7 @@ void build_windows(AacLc& d) noexcept {
     }
 }
 
+
 // ---- Entropy-coded data ------------------------------------------------------------------------------------------
 
 u32 huffman(const AacLc& d, u32 book, Bits& b) noexcept {
@@ -315,6 +320,9 @@ u32 huffman(const AacLc& d, u32 book, Bits& b) noexcept {
         node = entry;
     }
 }
+
+// Side information, once per channel and frame: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 AacLcError parse_ics_info(const AacLc& d, Bits& b, Ics& ics) noexcept {
     b.get(1);
@@ -469,6 +477,8 @@ AacLcError parse_tns(Bits& b, Channel& c, AacLcStats& stats) noexcept {
     }
     return AacLcError::none;
 }
+
+#pragma clang attribute pop
 
 // One band of spectral values into q; false on a malformed escape.
 bool read_band(const AacLc& d, Bits& b, u32 book, i32* q, u32 width, AacLcStats& stats) noexcept {
@@ -782,6 +792,9 @@ void synthesize(AacLc& d, u32 ch, const Channel& c) noexcept {
 
 // ---- Elements ----------------------------------------------------------------------------------------------------
 
+// Element and channel glue, once per frame: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 AacLcError read_channel(AacLc& d, Bits& b, Channel& c, bool common_window) noexcept {
     const u32 global_gain = b.get(8);
     AacLcError error = common_window ? AacLcError::none : parse_ics_info(d, b, c.ics);
@@ -859,6 +872,8 @@ AacLcError read_pair(AacLc& d, Bits& b, u32 first) noexcept {
     ++d.stats.pair_elements;
     return AacLcError::none;
 }
+
+#pragma clang attribute pop
 
 } // namespace
 

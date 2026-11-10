@@ -97,12 +97,15 @@ u64 qpc_us(i64 ticks) noexcept {
     return clock_microseconds(clock_initialize(), 0, ticks);
 }
 
-template <usize N> Object* activation_factory(const wchar_t (&name)[N], const GUID& iid) noexcept {
-    StringReference reference(name);
+__declspec(noinline) Object* activation_factory(const wchar_t* name, u32 length, const GUID& iid) noexcept {
+    StringReference reference(name, length);
     Object* factory = nullptr;
     if (FAILED(RoGetActivationFactory(reference.get(), iid, reinterpret_cast<void**>(&factory))))
         return nullptr;
     return factory;
+}
+template <usize N> Object* activation_factory(const wchar_t (&name)[N], const GUID& iid) noexcept {
+    return activation_factory(name, N - 1, iid);
 }
 // IClosable::Close, then the reference.
 void close_object(Object*& object) noexcept {
