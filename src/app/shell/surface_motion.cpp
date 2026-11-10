@@ -135,7 +135,7 @@ ObservedSurface observe(RendererLayerSurface surface, bool allowed) noexcept {
                 allowed && !form};
     }
     if (surface == RendererLayerSurface::gallery) {
-        if (!d3d11_renderer_media_picker_visible(renderer))
+        if (!d3d11_renderer_shows<d3d11_surface_media_picker>(renderer))
             return {};
         const auto* gallery = renderer.media_picker_scene;
         const bool covered =
@@ -148,18 +148,21 @@ ObservedSurface observe(RendererLayerSurface surface, bool allowed) noexcept {
         return {{reinterpret_cast<u64>(renderer.download_scene), g_app.plugin_account_scope_serial,
                  g_app.downloads_lifetime_serial, 0x444C4F41u}, allowed && !form};
     // The dialog keeps the layer while its options menu is open over it: the menu does not fade the dialog again.
-    if (surface == RendererLayerSurface::popup && d3d11_renderer_go_live_visible(renderer))
-        return {{reinterpret_cast<u64>(renderer.go_live_scene), g_app.plugin_account_scope_serial,
-                 renderer.go_live_scene->opens, 0x474c4956u}, allowed && !form};
-    if (surface == RendererLayerSurface::popup && d3d11_renderer_message_forward_visible(renderer))
-        return {{reinterpret_cast<u64>(renderer.message_forward_scene), g_app.plugin_account_scope_serial,
-                 g_app.message_forward_lifetime_serial, 0x465744u}, allowed && !form};
-    if (surface == RendererLayerSurface::popup && d3d11_renderer_quick_switcher_visible(renderer))
-        return {{reinterpret_cast<u64>(renderer.quick_switcher_scene), g_app.plugin_account_scope_serial,
-                 g_app.quick_switcher_lifetime_serial, 0x51554943u}, allowed && !form};
-    if (surface == RendererLayerSurface::popup && d3d11_renderer_inbox_visible(renderer))
-        return {{reinterpret_cast<u64>(renderer.inbox_scene), g_app.plugin_account_scope_serial,
-                 application_inbox_opens(), 0x494e4258u}, allowed && !form};
+    if (surface == RendererLayerSurface::popup) {
+        const u32 shown = d3d11_renderer_shown<d3d11_surfaces_popup>(renderer);
+        if (shown & d3d11_surface_go_live)
+            return {{reinterpret_cast<u64>(renderer.go_live_scene), g_app.plugin_account_scope_serial,
+                     renderer.go_live_scene->opens, 0x474c4956u}, allowed && !form};
+        if (shown & d3d11_surface_message_forward)
+            return {{reinterpret_cast<u64>(renderer.message_forward_scene), g_app.plugin_account_scope_serial,
+                     g_app.message_forward_lifetime_serial, 0x465744u}, allowed && !form};
+        if (shown & d3d11_surface_quick_switcher)
+            return {{reinterpret_cast<u64>(renderer.quick_switcher_scene), g_app.plugin_account_scope_serial,
+                     g_app.quick_switcher_lifetime_serial, 0x51554943u}, allowed && !form};
+        if (shown & d3d11_surface_inbox)
+            return {{reinterpret_cast<u64>(renderer.inbox_scene), g_app.plugin_account_scope_serial,
+                     application_inbox_opens(), 0x494e4258u}, allowed && !form};
+    }
     if (!popup || !popup->active || renderer.login_visible)
         return {};
     const bool choice = popup->kind == PopupKind::settings_choice;

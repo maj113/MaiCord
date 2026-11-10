@@ -11,7 +11,6 @@
 namespace maicord {
 struct PluginRuntime;
 struct PluginConsentRequest; // maicord/app/plugins/consent.hpp
-struct PluginPipelineSink;   // maicord/app/plugins/pipeline.hpp
 namespace app_detail {
 
 enum class CatalogStatus : u8 {
@@ -151,11 +150,6 @@ struct CatalogServiceHost {
     void (*library_changed)() noexcept;
     // A theme or effect was revoked (keep: switch it off) or removed (delete its file and switch it off).
     void (*package_removed)(CatalogKind, Utf8View slug, bool keep_file) noexcept;
-    // The runtime's toast sink (PluginRuntime::toast).
-    void (*plugin_toast)(void* context, u64 owner_id, Utf8View text, u32 tone) noexcept;
-    // The client's side of the actions plugins take (plugin_pipeline_set_sink), installed with the runtime
-    // so every plugin can act, whatever hooks it has.
-    const PluginPipelineSink* pipeline;
 };
 struct CatalogServiceOptions {
     ConstSlice<wchar_t> base;            // %LOCALAPPDATA%\MaiCord, no trailing separator

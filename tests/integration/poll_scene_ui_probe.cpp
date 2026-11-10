@@ -249,7 +249,7 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
                                      *renderer.navigation_view, theme, 0)
                                          .ok() &&
                                      renderer_bind_poll_scene(&renderer, &f.card) &&
-                                     d3d11_renderer_poll_scene_visible(renderer) &&
+                                     (d3d11_renderer_frame_surfaces(renderer) & d3d11_surface_poll) &&
                                      renderer_rebuild_content_text(&renderer, theme),
                                  8);
         renderer.retained_presentation.valid = false;
@@ -326,7 +326,7 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
         }
         const auto live = f.card.owner.handle;
         ++f.card.owner.handle.generation;
-        valid = valid && require(!d3d11_renderer_poll_scene_visible(renderer) &&
+        valid = valid && require(!(d3d11_renderer_frame_surfaces(renderer) & d3d11_surface_poll) &&
                                      !ui_poll_scene_key(&f.card, UiPollKey::activate).action_requested,
                                  11);
         f.card.owner.handle = live;
@@ -344,14 +344,16 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
                                                               renderer.message_measure_cache, 1),
                                  12);
         valid = valid && require(renderer_bind_poll_voters_scene(&renderer, &f.inspector) &&
-                                     d3d11_renderer_poll_voters_visible(renderer) &&
-                                     !d3d11_renderer_poll_scene_visible(renderer) &&
+                                     (d3d11_renderer_surfaces(renderer) & d3d11_surface_poll_voters) &&
+                                     !(d3d11_renderer_frame_surfaces(renderer) & d3d11_surface_poll) &&
                                      renderer_rebuild_content_text(&renderer, theme),
                                  13);
         renderer.focus_owner = &f.messages.widgets;
-        valid = valid && require(!d3d11_renderer_visible_focus_owner(renderer), 18);
+        valid = valid && require(!d3d11_renderer_visible_focus_owner(renderer, d3d11_renderer_surfaces(renderer)), 18);
         renderer.focus_owner = &f.inspector_owner;
-        valid = valid && require(d3d11_renderer_visible_focus_owner(renderer) == &f.inspector_owner, 19);
+        valid = valid && require(d3d11_renderer_visible_focus_owner(renderer, d3d11_renderer_surfaces(renderer)) ==
+                                     &f.inspector_owner,
+                                 19);
         UiTooltipScene tooltip{};
         const UiTooltipTarget tooltip_target{{root, 1, 1, 1, 1},
                                              f.card.projection.geometry.question,
@@ -366,7 +368,7 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
                     ui_tooltip_visible(tooltip),
                 20);
         renderer.tooltip_scene = &tooltip;
-        valid = valid && require(!d3d11_renderer_tooltip_visible(renderer), 21);
+        valid = valid && require(!(d3d11_renderer_surfaces(renderer) & d3d11_surface_tooltip), 21);
         renderer.retained_presentation.valid = false;
         valid = valid && require(probe_present(&renderer, theme), 14) &&
                 require(probe_capture_frame(compact ? L"poll-voters-compact.bmp" : L"poll-voters.bmp", theme), 28);

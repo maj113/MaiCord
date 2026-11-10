@@ -32,21 +32,24 @@ bool ctrl_only() noexcept {
 // sits over the point. The toolbar's published occluders are the banner's own.
 bool timeline_front(UiPoint point) noexcept {
     const auto& renderer = g_app.renderer;
-    if (!application_panel_uncovered() || !d3d11_renderer_zoom_lens_allowed(renderer))
+    if (!application_panel_uncovered() || !renderer.zoom_lens)
+        return false;
+    const u32 shown = d3d11_renderer_surfaces(renderer);
+    if (!d3d11_renderer_zoom_lens_allowed(renderer, shown))
         return false;
     for (const UiRect& occluder : g_app.message_action_bar.occluders)
         if (ui_rect_contains(occluder, point.x, point.y))
             return false;
     if (message_action_bar_hit_test(g_app.message_action_bar, point.x, point.y).inside)
         return false;
-    if (d3d11_renderer_search_visible(renderer) && ui_rect_contains(renderer.search_scene->panel, point.x, point.y))
+    if ((shown & d3d11_surface_search) && ui_rect_contains(renderer.search_scene->panel, point.x, point.y))
         return false;
-    if (d3d11_renderer_pinned_messages_visible(renderer)) {
+    if (shown & d3d11_surface_pinned_messages) {
         const auto& pins = *renderer.pinned_messages_scene;
         if (pins.overlay || ui_rect_contains(pins.panel, point.x, point.y))
             return false;
     }
-    return !(d3d11_renderer_inbox_visible(renderer) &&
+    return !((shown & d3d11_surface_inbox) &&
              ui_rect_contains(renderer.inbox_scene->panel, point.x, point.y));
 }
 // A hovered chat preview that would open in the viewer; spoilers and

@@ -339,11 +339,10 @@ void test_login_scene() noexcept {
     LoginView ready_mfa_view = local_mfa_error_view;
     ready_mfa_view.status = LoginStatus::mfa_required;
     ready_mfa_view.mfa_code_ready = true;
-    scene.submit_disabled = login_view_submit_disabled(ready_mfa_view);
+    login_scene_apply_view(&scene, ready_mfa_view);
     const u32 mfa_layout_passes = scene.layout_passes;
     expect(login_scene_layout(&scene, 830.0f, 720.0f) && scene.layout_passes == mfa_layout_passes &&
                login_view_valid(ready_mfa_view) && !login_view_submit_disabled(ready_mfa_view) &&
-               login_view_matches_scene(ready_mfa_view, &scene) &&
                login_scene_hit_test(scene, local_mfa_submit.left + 1.0f, local_mfa_submit.top + 1.0f) ==
                    LoginControl::submit,
            "login_valid_mfa_enables_submit_without_relayout");
@@ -539,6 +538,75 @@ void test_login_scene() noexcept {
     expect(login_scene_layout(&scene, 240.0f, 320.0f) && scene.widgets.count > 1 &&
                login_scene_element(scene, LoginElement::submit),
            "login_scene_failed_rebuild_can_restore_prior_layout");
+    // The accessibility tree builds its heading and status from the login state without any credential text. The
+    // scene's flags come from the full view, so a view that differs only in what the flags never read (the typed text,
+    // the reveal, the ready flags) must still produce the text. Used to yield no text while a password was revealed,
+    // a code was ready, a cooldown ran or a phone code was complete.
+    {
+        LoginScene bare_scene{};
+        UiTextCommand bare_commands[kMaximumLoginTextCommands]{};
+        UiTextCommandStream bare_text{};
+        const auto bare_has = [&](LoginElement element, Utf8View text) noexcept {
+            for (u32 index = 0; index < bare_text.count; ++index)
+                if (bare_text.storage[index].owner.handle.slot ==
+                        bare_scene.elements[static_cast<u32>(element)].slot &&
+                    utf8_equal(bare_text.storage[index].text, text))
+                    return true;
+            return false;
+        };
+        const auto bare_build = [&](const LoginView& full) noexcept {
+            LoginView bare = full;
+            bare.login = {};
+            bare.password_mask = {};
+            bare.password_revealed = bare.mfa_code_ready = bare.phone_code_ready = false;
+            login_scene_apply_view(&bare_scene, full);
+            const bool laid_out = login_scene_layout(&bare_scene, 830.0f, 720.0f);
+            bare.focus = bare_scene.focus;
+            return laid_out && login_view_valid(full) && login_view_valid(bare) &&
+                   ui_text_command_stream_initialize(&bare_text,
+                                                     Slice<UiTextCommand>{bare_commands, kMaximumLoginTextCommands}) &&
+                   login_text_presentation_build(bare_scene, bare, kDefaultTheme, &bare_text);
+        };
+        LoginView revealed = login_text_view;
+        revealed.status = LoginStatus::idle;
+        revealed.focus = LoginControl::password;
+        revealed.password_mask = utf8_literal("hunter2");
+        revealed.password_revealed = true;
+        expect(bare_build(revealed) && bare_scene.password_revealed &&
+                   bare_has(LoginElement::heading, utf8_literal("Log in to MaiCord")) &&
+                   bare_has(LoginElement::submit, utf8_literal("Log in")),
+               "login_accessible_text_while_password_revealed");
+        LoginView ready = login_text_view;
+        ready.status = LoginStatus::mfa_required;
+        ready.focus = LoginControl::password;
+        ready.mfa_capabilities = ready.selected_mfa_capability = login_mfa_capability_totp;
+        ready.password_mask = utf8_literal("123456");
+        ready.mfa_code_ready = true;
+        expect(bare_build(ready) && !bare_scene.submit_disabled &&
+                   bare_has(LoginElement::status_message, utf8_literal("Choose a verification method.")) &&
+                   bare_has(LoginElement::submit, utf8_literal("Verify")),
+               "login_accessible_text_with_mfa_code_ready");
+        LoginView limited = login_text_view;
+        limited.status = LoginStatus::idle;
+        limited.focus = LoginControl::login;
+        limited.auth_rate_limited = true;
+        expect(bare_build(limited) && bare_scene.action_disabled &&
+                   bare_has(LoginElement::status_message, utf8_literal("Too many attempts. Wait before retrying.")) &&
+                   bare_has(LoginElement::submit, utf8_literal("Please wait")),
+               "login_accessible_text_during_rate_limit_cooldown");
+        LoginView phone = login_text_view;
+        phone.status = LoginStatus::recovery_phone_required;
+        phone.focus = LoginControl::phone_code;
+        phone.login = {};
+        phone.password_mask = utf8_literal("123456");
+        phone.phone_code_ready = true;
+        expect(bare_build(phone) && !bare_scene.submit_disabled &&
+                   bare_has(LoginElement::heading, utf8_literal("Phone recovery")) &&
+                   bare_has(LoginElement::status_message, utf8_literal("Enter the 6-digit code.")) &&
+                   bare_has(LoginElement::submit, utf8_literal("Verify")),
+               "login_accessible_text_with_phone_code_ready");
+        login_scene_release(&bare_scene);
+    }
     login_scene_release(&scene);
     expect(!scene.storage.arena.base && !scene.widgets.storage.data, "login_scene_owned_storage_release");
 }

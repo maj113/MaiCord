@@ -10,6 +10,7 @@
 #include "fake_transport.hpp"
 #include "../../support/test_output.hpp"
 #include "plugin_fixture.hpp"
+#include "fake_actions.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -651,12 +652,10 @@ u64 index_number(const char* json, u32 bytes, const char* key) noexcept {
     }
     return 0;
 }
-Utf8View g_inserted;
-char g_inserted_text[128];
-mc_status capture_insert(Utf8View text) noexcept {
-    g_inserted = {g_inserted_text, text.bytes < sizeof(g_inserted_text) ? text.bytes : 0};
-    copy_bytes(g_inserted_text, text.data, g_inserted.bytes);
-    return MC_OK;
+// What the translation inserted into the composer (the actions fake, fake_actions.cpp).
+auto& fake_actions = plugin_fake_actions::recorded;
+mc_str inserted() noexcept {
+    return {fake_actions.inserted, fake_actions.inserted_bytes, 0};
 }
 
 // The Translate sample end to end: /tr -> POST to the translation host -> completion -> composer insert,
@@ -669,23 +668,20 @@ void test_translate(PluginRuntime* runtime, const Root& root) noexcept {
     const PluginEnableResult enabled = plugin_runtime_enable(runtime, {L"translate.dll", length(L"translate.dll")}, MC_PERM_KNOWN, 1);
     check(enabled.ok(), "the translate sample is enabled with its first host approved");
     if (!enabled.ok()) return;
-    PluginPipelineSink sink{};
-    sink.composer_insert = capture_insert;
-    plugin_pipeline_set_sink(&sink);
     static char json[4096];
     const u32 bytes = plugin_command_index_json({json, sizeof(json)});
     const u64 application = index_number(json, bytes, "\"application_id\":");
     const u64 command = index_number(json, bytes, "\"application_commands\":[{\"id\":");
     static u32 scratch[256];
     const Utf8View options = utf8_literal("[{\"name\":\"text\",\"type\":3,\"value\":\"Hello world\"}]");
-    g_inserted = {};
+    fake_actions = {};
     const PluginCommandResult ran = plugin_command_run(application, command, 1, 2, options, {scratch, 256});
     check(application && command && ran.outcome == PluginCommandOutcome::none, "/tr runs and waits for the network");
     check(pump(runtime, 1) == 1, "the translation completes");
     check(g_network.post && same({g_network.host, length(g_network.host), 0}, "translate.googleapis.com") && g_network.content_type &&
               g_network.body_bytes > 2 && g_network.body[0] == 'q' && g_network.body[1] == '=',
           "the request went to the translation host as a form POST");
-    check(same({g_inserted.data, g_inserted.bytes, 0}, "Hallo Welt"),
+    check(same(inserted(), "Hallo Welt"),
           "the translation reaches the composer through the command's inherited gesture");
     // DeepL with a free-plan key: its own host, the key as an Authorization header, JSON back.
     const u32 service = 1;
@@ -693,15 +689,14 @@ void test_translate(PluginRuntime* runtime, const Root& root) noexcept {
     check(plugin_binding_set_setting(enabled.binding, 2, &service, 4) == MC_OK &&
               plugin_binding_set_setting(enabled.binding, 3, "abc:fx", 6) == MC_OK,
           "the DeepL service and key are set");
-    g_inserted = {};
+    fake_actions = {};
     g_network.deepl_authorization = false;
     check(plugin_command_run(application, command, 1, 2, options, {scratch, 256}).outcome == PluginCommandOutcome::none &&
               pump(runtime, 1) == 1,
           "/tr asks DeepL");
     check(g_network.deepl_authorization && same({g_network.host, length(g_network.host), 0}, "api-free.deepl.com") &&
-              same({g_inserted.data, g_inserted.bytes, 0}, "Hallo Welt"),
+              same(inserted(), "Hallo Welt"),
           "the secret key travels as the plugin's Authorization header to the free-plan host");
-    plugin_pipeline_set_sink(nullptr);
     check(plugin_runtime_disable(runtime, enabled.binding), "the translate sample is disabled");
 }
 

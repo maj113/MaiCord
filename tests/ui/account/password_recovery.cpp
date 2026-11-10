@@ -82,13 +82,10 @@ void test_password_recovery(void (*check)(bool, const char*) noexcept) noexcept 
     for (float width : widths) for (auto status : states) {
         LoginView view{}; view.visible = true; view.status = status;
         view.focus = login_recovery_editable(status) ? LoginControl::login : LoginControl::back;
-        scene.recovery_mode = true; scene.back_only = login_requires_back(status, LoginRemoteStatus::idle);
-        scene.recovery_disabled = login_view_recovery_disabled(view);
-        scene.credential_fields_hidden = true; scene.focus = view.focus;
-        scene.action_disabled = login_view_action_disabled(view); scene.submit_disabled = login_view_submit_disabled(view);
+        login_scene_apply_view(&scene, view);
         check(login_scene_layout(&scene, width, 700) && !scene.qr_visible &&
             !login_scene_element(scene, LoginElement::password_field) &&
-            login_view_matches_scene(view, &scene) && login_text_presentation_build(scene, view, kDefaultTheme, &stream),
+            login_view_valid(view) && login_text_presentation_build(scene, view, kDefaultTheme, &stream),
             "recovery native editing pending terminal and cooldown scenes render within ordinary responsive widget owner");
         const auto heading = login_scene_rectangle(scene, LoginElement::heading);
         const auto subtitle = login_scene_rectangle(scene, LoginElement::subtitle);
@@ -104,16 +101,12 @@ void test_password_recovery(void (*check)(bool, const char*) noexcept) noexcept 
     const LoginStatus availability[]{LoginStatus::idle, LoginStatus::profile_save_failed, LoginStatus::idle};
     for (auto status : availability) {
         LoginView view{}; view.visible = true; view.status = status;
-        scene.recovery_mode = false; scene.back_only = false; scene.focus = LoginControl::none;
-        scene.credential_fields_hidden = false; scene.mfa_capabilities = 0;
-        scene.action_disabled = login_view_action_disabled(view);
-        scene.submit_disabled = login_view_submit_disabled(view);
-        scene.recovery_disabled = login_view_recovery_disabled(view);
+        login_scene_apply_view(&scene, view);
         const bool ready = login_scene_layout(&scene, 500, 700);
         const auto forgot = login_scene_rectangle(scene, LoginElement::forgot_password);
         const auto submit = login_scene_rectangle(scene, LoginElement::submit);
         const auto expected_control = status == LoginStatus::profile_save_failed ? LoginControl::none : LoginControl::forgot_password;
-        check(ready && login_view_matches_scene(view, &scene) &&
+        check(ready && login_view_valid(view) &&
             login_scene_hit_test(scene, forgot.left + 1, forgot.top + 1) == expected_control &&
             login_scene_hit_test(scene, submit.left + 1, submit.top + 1) == LoginControl::submit,
             "native Forgot eligibility follows actual shared action through same-layout profile-save and restored-idle changes while Retry saving stays enabled");

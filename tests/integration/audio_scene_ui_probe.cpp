@@ -538,7 +538,7 @@ bool audio_scene_ui_probe(D3D11Renderer& renderer) noexcept {
             ui_audio_scene_focus(&fixture.audio, UiAudioControl::play_pause, true);
         }
         valid = valid && require(renderer_bind_audio_scene(&renderer, &fixture.audio), 101) &&
-                require(d3d11_renderer_audio_scene_visible(renderer), 102) &&
+                require(d3d11_renderer_surfaces(renderer) & d3d11_surface_audio, 102) &&
                 require(renderer_rebuild_content_text(&renderer, theme), 103);
         renderer.retained_presentation.valid = false;
         valid = valid && require(probe_present(&renderer, theme), 11);
@@ -636,7 +636,7 @@ bool audio_scene_ui_probe(D3D11Renderer& renderer) noexcept {
         ++fixture.audio.owner.handle.generation;
         const auto center = UiPoint{geometry.play_pause.left + 16, geometry.play_pause.top + 16};
         valid =
-            valid && require(!d3d11_renderer_audio_scene_visible(renderer) &&
+            valid && require(!(d3d11_renderer_surfaces(renderer) & d3d11_surface_audio) &&
                                  ui_audio_scene_hit(fixture.audio, center) == UiAudioControl::none &&
                                  !ui_audio_scene_key(&fixture.audio, UiAudioKey::activate).action_requested,
                              13);

@@ -57,6 +57,11 @@ extern MediaAssetKey picker_requested_keys[8];
 
 void check(bool accepted, const char* label) noexcept;
 
+// The pump reads the surface mask as its pass began: a check after the fixture changed the scenes starts a new pass.
+inline ApplicationMediaPump& repass(ApplicationMediaPump& pump) noexcept {
+    return pump.pass(pump.now_ms, pump.now_seconds, pump.now_us, pump.repaint);
+}
+
 AccountMediaRequestResult WINAPI request_static(void*, MediaAssetKey key, u64, u64) noexcept;
 
 extern MediaAssetKey previous_identity_key;

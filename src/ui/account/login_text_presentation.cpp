@@ -357,8 +357,8 @@ template <u32 N> Say line(const Say (&table)[N], u32 at) noexcept {
 Say cooldown_copy(const LoginView& view) noexcept {
     return view.auth_retry_time_unknown ? Say::no_retry_time : Say::too_many_attempts;
 }
-Say cooldown_action(const LoginView& view) noexcept {
-    return login_view_auth_retry_resume(view) ? Say::resume_sign_in : Say::please_wait;
+Say cooldown_action(const LoginScene& scene) noexcept {
+    return scene.auth_retry_resume ? Say::resume_sign_in : Say::please_wait;
 }
 
 // Where each command goes: its element, in the order the commands are pushed. A slot a mode leaves without text
@@ -452,7 +452,7 @@ Role status_role(bool wrapped, bool error) noexcept {
     return Role::status + (wrapped ? 1 : 0) + (error ? 2 : 0);
 }
 
-void plan_browser(Plan& plan, const LoginView& view) noexcept {
+void plan_browser(Plan& plan, const LoginScene& scene, const LoginView& view) noexcept {
     const S status = view.status;
     const Say message = view.auth_rate_limited              ? cooldown_copy(view)
                         : status == S::browser_starting         ? Say::opening_browser
@@ -463,7 +463,7 @@ void plan_browser(Plan& plan, const LoginView& view) noexcept {
     plan.set(slot_heading, Say::browser_heading, Role::heading);
     plan.set(slot_forgot, Say::back_to_sign_in, Role::link_accent);
     plan.set(slot_submit,
-             view.auth_rate_limited          ? cooldown_action(view)
+             view.auth_rate_limited          ? cooldown_action(scene)
              : status == S::browser_expired ? Say::browser_expired_action
              : status == S::browser_failed  ? Say::browser_failed_action
                                             : Say::browser_waiting_action,
@@ -486,7 +486,7 @@ void plan_phone(Plan& plan, const LoginScene& scene, const LoginView& view) noex
     plan.set(slot_password_label, Say::sms_code_label, Role::label);
     plan.set(slot_forgot, Say::back_to_sign_in, Role::link_accent);
     plan.set(slot_resend, Say::resend_code, scene.phone_resend_disabled ? Role::resend_muted : Role::resend);
-    plan.set(slot_submit, view.auth_rate_limited ? cooldown_action(view) : captcha ? kCaptchaAction[cs] : Say::verify,
+    plan.set(slot_submit, view.auth_rate_limited ? cooldown_action(scene) : captcha ? kCaptchaAction[cs] : Say::verify,
              Role::submit);
     plan.set(slot_status, status, status_role(true, error));
 }
@@ -497,10 +497,10 @@ void plan_form(Plan& plan, const LoginScene& scene, const LoginView& view) noexc
     plan.view[1] = visible_text_tail(view.password_mask, 48);
     plan.view[2] = visible_text_tail(view.remote_user, 32);
     const bool login = plan.view[0].bytes != 0, password = plan.view[1].bytes != 0;
-    const bool blocked = login_requires_back(status, view.remote_status);
+    const bool blocked = scene.back_only;
     const bool signed_out = in(view, kSignedOut);
-    const bool recovery = login_recovery_mode(status);
-    const bool reset = view.reset_mode;
+    const bool recovery = scene.recovery_mode;
+    const bool reset = scene.reset_mode;
     const bool recovery_result = recovery && blocked;
     const u8 selected_mfa = blocked ? static_cast<u8>(login_mfa_capability_none) : view.selected_mfa_capability;
     const bool webauthn = !blocked && in(view, kWebauthn);
@@ -521,7 +521,7 @@ void plan_form(Plan& plan, const LoginScene& scene, const LoginView& view) noexc
 
     // The submit button's label, by the same precedence.
     const Say action =
-        limited                            ? cooldown_action(view)
+        limited                            ? cooldown_action(scene)
         : captcha                          ? kCaptchaAction[cs]
         : in(view, kResetting)             ? Say::resetting_password
         : resetting_submit                 ? Say::signing_in
@@ -631,8 +631,7 @@ void plan_form(Plan& plan, const LoginScene& scene, const LoginView& view) noexc
     }
     if (!mfa || reset)
         plan.set(slot_forgot, reset || recovery || blocked ? Say::back_to_sign_in : Say::forgot_password,
-                 reset || recovery || blocked || !login_view_recovery_disabled(view) ? Role::link_accent
-                                                                                      : Role::link_muted);
+                 reset || recovery || blocked || !scene.recovery_disabled ? Role::link_accent : Role::link_muted);
     plan.set(slot_submit, action, Role::submit);
     plan.set(slot_status, text, status_role(wrapped, error));
     if (mobile_pending)
@@ -658,8 +657,7 @@ void plan_form(Plan& plan, const LoginScene& scene, const LoginView& view) noexc
 
 bool login_text_presentation_build(const LoginScene& scene, const LoginView& view, const Theme& theme,
                                    UiTextCommandStream* stream) noexcept {
-    if (!stream || !stream->storage.data || stream->storage.count < kMaximumLoginTextCommands ||
-        !login_view_matches_scene(view, &scene)) {
+    if (!stream || !stream->storage.data || stream->storage.count < kMaximumLoginTextCommands) {
         saturating_increment_if(stream, stream->rejected);
         return false;
     }
@@ -675,7 +673,7 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
     Plan plan{};
 
     if (scene.browser_mode) {
-        plan_browser(plan, view);
+        plan_browser(plan, scene, view);
         return emit(out, plan);
     }
     if (scene.phone_mode) {

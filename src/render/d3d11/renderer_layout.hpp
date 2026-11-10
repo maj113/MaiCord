@@ -7,6 +7,7 @@ struct LoginView;
 struct RendererPresentationStamp;
 struct RendererShellSegment;
 struct Theme;
+struct UiTextCommandStream;
 
 
 bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
@@ -15,8 +16,7 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
 bool d3d11_renderer_build_paint(D3D11Renderer* renderer, const Theme& theme) noexcept;
 void d3d11_renderer_shell_segment_release(RendererShellSegment* segment) noexcept;
 void d3d11_renderer_layout_release(D3D11Renderer* renderer) noexcept;
-bool d3d11_renderer_rebuild_login_text(D3D11Renderer* renderer, const LoginView& view,
-                                       const Theme& theme) noexcept;
+bool d3d11_renderer_rebuild_login_text(D3D11Renderer* renderer, const UiTextCommandStream& stream) noexcept;
 bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& theme,
                                       bool include_messages) noexcept;
 

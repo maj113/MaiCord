@@ -1,6 +1,4 @@
 #include "catalog_service.hpp"
-#include "pipeline_host.hpp"
-#include "ui_host.hpp"
 #include "../packages/packages.hpp"
 #include "../shell/state.hpp"
 #include "../shell/toast.hpp"
@@ -78,8 +76,7 @@ bool application_catalog_initialize_default() noexcept {
     options.base = {base, located.length};
     options.repository = repository;
     options.keys = {key_list, key_count};
-    options.host = {developer_mode, toast, validate_package, application_packages_library_changed, package_removed,
-                    application_plugins_ui_toast, application_plugins_pipeline_sink()};
+    options.host = {developer_mode, toast, validate_package, application_packages_library_changed, package_removed};
     return application_catalog_initialize(options);
 }
 

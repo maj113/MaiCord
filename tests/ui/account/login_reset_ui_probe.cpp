@@ -42,13 +42,7 @@ bool login_reset_ui_probe(D3D11Renderer& renderer,
             if (i == 3) view.backup_acknowledgement_seconds = 10;
         }
         if (i == 0) view.password_mask = utf8_literal("************");
-        scene.reset_mode = view.reset_mode; scene.recovery_mode = false;
-        scene.restoring_session = false; scene.back_only = login_requires_back(view.status, {});
-        scene.mfa_capabilities = view.mfa_capabilities; scene.selected_mfa_capability = view.selected_mfa_capability;
-        scene.credential_fields_hidden = login_credential_fields_hidden(view.status, view.remote_status, view.reset_mode);
-        scene.focus = view.focus; scene.focus_visible = true;
-        scene.action_disabled = login_view_action_disabled(view); scene.submit_disabled = login_view_submit_disabled(view);
-        scene.recovery_disabled = login_view_recovery_disabled(view);
+        login_scene_apply_view(&scene, view); scene.focus_visible = true;
         valid = valid && login_scene_layout(&scene, renderer.width / pixels, renderer.height / pixels);
         view.focus = scene.focus;
         UiTextCommand commands[kMaximumLoginTextCommands]{}; UiTextCommandStream stream{};

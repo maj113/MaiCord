@@ -9,6 +9,7 @@
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "../../plugins/plugin_fixture.hpp"
+#include "../../plugins/fake_ui_host.hpp"
 
 // Plugin slash commands in the composer: the picker lists the plugin as an app section, option chips and
 // their validation come from its typed arguments, Enter runs the command and its reply lands where it
@@ -36,31 +37,8 @@ u32 length(const wchar_t* text) noexcept {
 using plugin_fixture::join;
 using plugin_fixture::remove_tree;
 
-// What the application side of the plugin UI was asked to show.
-struct Shown {
-    u32 notices, toasts;
-    u64 notice_channel;
-    u32 tone;
-    char notice[128], toast[128];
-};
-Shown shown;
-template <u32 N> void keep(char (&storage)[N], Utf8View text) noexcept {
-    const u32 bytes = text.bytes < N - 1 ? text.bytes : N - 1;
-    copy_bytes(storage, text.data, bytes);
-    storage[bytes] = 0;
-}
-bool host_notice(u64 channel, Utf8View text, u64*) noexcept {
-    ++shown.notices;
-    shown.notice_channel = channel;
-    keep(shown.notice, text);
-    return true;
-}
-void host_toast(u64, Utf8View text, u32 tone) noexcept {
-    ++shown.toasts;
-    shown.tone = tone;
-    keep(shown.toast, text);
-}
-const PluginUiHost kHost{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, host_notice, host_toast};
+// What the application side of the plugin UI was asked to show (tests/app/plugins/fake_ui_host.cpp).
+auto& shown = plugin_fake_ui::recorded;
 
 bool equals(const char* text, const char* expected) noexcept {
     u32 at = 0;
@@ -129,7 +107,6 @@ void plugin_cases() noexcept {
         check(opened, "the plugin fixture is installed");
     }
     if (opened) {
-        plugin_ui_host_install(&kHost);
         const wchar_t leaf[] = L"ui.dll";
         const auto enabled = plugin_runtime_enable(&runtime, {leaf, length(leaf)}, MC_PERM_KNOWN);
         binding = enabled.binding;
@@ -194,7 +171,7 @@ void plugin_cases() noexcept {
         shown = {};
         bool flagged = pick(utf8_literal("/flag"), utf8_literal("/flag on:true")) && application_commands_key(key::enter);
         if (!shown.toasts) flagged = flagged && application_commands_key(key::enter);
-        check(flagged && shown.toasts == 1 && equals(shown.toast, "flag:1:0:0") && shown.tone == MC_TONE_POSITIVE,
+        check(flagged && shown.toasts == 1 && equals(shown.toast, "flag:1:0:0") && shown.toast_tone == MC_TONE_POSITIVE,
               "a toast reply reaches the application with its tone");
 
         // A failing command keeps the draft and says so.
@@ -214,7 +191,6 @@ void plugin_cases() noexcept {
     if (opened) {
         if (binding) plugin_runtime_disable(&runtime, binding);
         plugin_runtime_close(&runtime);
-        plugin_ui_host_install(nullptr);
         remove_tree(base);
     }
     message_composer_clear(&composer);

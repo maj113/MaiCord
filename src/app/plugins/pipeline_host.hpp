@@ -4,16 +4,12 @@
 #include "maicord/platform/window/event.hpp"
 
 // The application's side of the plugin message pipeline (include/maicord/app/plugins/pipeline.hpp):
-// it feeds gateway changes, clicks and typing to the hooks, answers the actions plugins take, and keeps
-// the kept messages (keep.hpp) on screen.
+// it feeds gateway changes, clicks and typing to the hooks, answers the actions plugins take (the plugin_host_*
+// functions of pipeline.hpp, defined in pipeline_host.cpp), and keeps the kept messages (keep.hpp) on screen.
 namespace maicord {
 struct GatewayClientEvent;
-struct PluginPipelineSink;
 namespace app_detail {
 
-// The actions plugins take (sends, edits, local messages, the composer); the catalog service installs it
-// with the plugin runtime (CatalogServiceHost::pipeline).
-const PluginPipelineSink* application_plugins_pipeline_sink() noexcept;
 // Idempotent: turns on the live timeline's tombstone query, once a plugin keeps or listens.
 void application_plugins_pipeline_install() noexcept;
 // One popped Gateway event, before the stores apply it: MESSAGE_DELETED and MESSAGE_EDITED hooks see the

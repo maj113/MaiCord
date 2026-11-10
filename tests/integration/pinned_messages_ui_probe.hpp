@@ -134,7 +134,7 @@ inline bool pinned_messages_ui_probe(D3D11Renderer& renderer,
     const auto visible = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
     fixture.current = false;
     const auto stale = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
-    if (d3d11_renderer_pinned_messages_visible(renderer) ||
+    if ((d3d11_renderer_surfaces(renderer) & d3d11_surface_pinned_messages) ||
         pinned_messages_avatar_media_current(scene, avatar.key) ||
         renderer_presentation_stamp_equal(visible, stale) ||
         !renderer_rebuild_content_text(&renderer, kDefaultTheme) ||

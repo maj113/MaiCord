@@ -108,7 +108,8 @@ PaneResizeKind pane_resize_hit(float x, float y) noexcept {
     const UiLayoutNode* members =
         ui_scene_node(g_app.shell_scene, UiSemantic::member_sidebar);
     // Search results and the DM profile take the member slot at a fixed width; no grip there.
-    if (members && !d3d11_renderer_search_visible(g_app.renderer) && !g_app.shell_scene.side_panel_profile &&
+    if (members && !d3d11_renderer_shows<d3d11_surface_search>(g_app.renderer) &&
+        !g_app.shell_scene.side_panel_profile &&
         ui_splitter_hit(members->rectangle, UiSplitterEdge::left, x, y))
         return PaneResizeKind::members;
     return PaneResizeKind::none;

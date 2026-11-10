@@ -274,7 +274,7 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
         renderer.video_scene = &scene;
         renderer.video_scene_viewer = true;
         renderer.retained_presentation.valid = false;
-        valid = valid && require(d3d11_renderer_viewer_video_visible(renderer) &&
+        valid = valid && require((d3d11_renderer_surfaces(renderer) & d3d11_surface_viewer_video) &&
                                      renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                                      probe_present(&renderer, kDefaultTheme) &&
                                      capture(L"video-expanded-viewer.bmp"),
@@ -418,7 +418,8 @@ bool status_under_older_messages_bar(D3D11Renderer& renderer, UiVideoPlaybackSta
     renderer.video_scene = &scene;
     stage = 4;
     if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) || !probe_present(&renderer, kDefaultTheme) ||
-        !d3d11_renderer_unread_banner_visible(renderer) || !d3d11_renderer_timeline_video_visible(renderer))
+        !(d3d11_renderer_surfaces(renderer) & d3d11_surface_unread_banner) ||
+        !d3d11_renderer_timeline_video_visible(renderer, d3d11_renderer_surfaces(renderer)))
         return fail();
     // Glyphs over the bar's interior are message-layer glyphs drawn before its
     // card, or its own labels; the video's label must be among the former.
@@ -553,7 +554,8 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
         }
     renderer.video_scene = &scene;
     u32 stage = __LINE__;
-    bool valid = project(minimum(640.f, available)) && d3d11_renderer_video_scene_visible(renderer) &&
+    bool valid = project(minimum(640.f, available)) &&
+                 (d3d11_renderer_surfaces(renderer) & d3d11_surface_video) &&
                  !scene.projection.compact && renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                  probe_present(&renderer, kDefaultTheme) &&
                  renderer.interaction_text_video_revision == ui_video_scene_text_paint_revision(scene) &&

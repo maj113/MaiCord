@@ -59,15 +59,7 @@ mc_status MC_CALL api_toast(mc_ctx* ctx, mc_str text, uint32_t tone, uint32_t fl
     PluginBinding* binding = active(ctx);
     if (!binding) return MC_E_INACTIVE;
     if (flags || tone > MC_TONE_CRITICAL || !notice_text(text, MC_TOAST_TEXT_MAX)) return MC_E_INVALID;
-    const PluginRuntime* runtime = binding->runtime;
-    if (runtime->toast) {
-        runtime->toast(runtime->sink_context, binding->owner_id, {text.data, text.bytes}, tone);
-        return MC_OK;
-    }
-    // Without a runtime sink the application's host shows it.
-    const PluginUiHost* host = plugin_ui_host();
-    if (!host || !host->toast) return MC_E_UNSUPPORTED;
-    host->toast(binding->owner_id, {text.data, text.bytes}, tone);
+    plugin_host_toast(binding->owner_id, {text.data, text.bytes}, tone);
     return MC_OK;
 }
 mc_status MC_CALL api_http(mc_ctx* ctx, const mc_http_request* request, uint64_t tag) noexcept {

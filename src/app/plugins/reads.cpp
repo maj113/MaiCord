@@ -1,5 +1,5 @@
 // mc_api's cache reads (read_user, read_channel, read_guild, read_permissions, read_voice_channel and
-// read_shared_group_dms): copies from MaiCord's cache through the application's reader (surfaces.hpp).
+// read_shared_group_dms): copies from MaiCord's cache through plugin_host_read_* (surfaces.hpp).
 // Nothing here fetches.
 #include "surfaces_internal.hpp"
 #include "maicord/app/plugins/text.hpp"
@@ -51,33 +51,27 @@ void fill_channel(const PluginChannelInput& in, mc_channel* out) noexcept {
 }
 
 mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept {
-    const PluginReader* reader = g_plugin_reader;
     if (!out || !user_id) return MC_E_INVALID;
-    if (!reader || !reader->user) return MC_E_UNSUPPORTED;
     PluginUserInput in{};
-    if (!reader->user(user_id, guild_id, &in)) return MC_E_NOT_FOUND;
+    if (!plugin_host_read_user(user_id, guild_id, &in)) return MC_E_NOT_FOUND;
     *out = {};
     fill_user(in, out);
     return MC_OK;
 }
 
 mc_status read_channel(u64 channel_id, mc_channel* out) noexcept {
-    const PluginReader* reader = g_plugin_reader;
     if (!out || !channel_id) return MC_E_INVALID;
-    if (!reader || !reader->channel) return MC_E_UNSUPPORTED;
     PluginChannelInput in{};
-    if (!reader->channel(channel_id, &in)) return MC_E_NOT_FOUND;
+    if (!plugin_host_read_channel(channel_id, &in)) return MC_E_NOT_FOUND;
     *out = {};
     fill_channel(in, out);
     return MC_OK;
 }
 
 mc_status read_guild(u64 guild_id, mc_guild* out) noexcept {
-    const PluginReader* reader = g_plugin_reader;
     if (!out || !guild_id) return MC_E_INVALID;
-    if (!reader || !reader->guild) return MC_E_UNSUPPORTED;
     PluginGuildInput in{};
-    if (!reader->guild(guild_id, &in)) return MC_E_NOT_FOUND;
+    if (!plugin_host_read_guild(guild_id, &in)) return MC_E_NOT_FOUND;
     *out = {};
     out->guild_id = in.guild_id;
     out->owner_id = in.owner_id;
@@ -97,27 +91,20 @@ mc_status read_guild(u64 guild_id, mc_guild* out) noexcept {
 }
 
 mc_status read_permissions(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) noexcept {
-    const PluginReader* reader = g_plugin_reader;
     if (!bits || !guild_id || !user_id) return MC_E_INVALID;
     *bits = 0;
-    if (!reader || !reader->permissions) return MC_E_UNSUPPORTED;
-    return reader->permissions(guild_id, channel_id, user_id, bits) ? MC_OK : MC_E_NOT_FOUND;
+    return plugin_host_read_permissions(guild_id, channel_id, user_id, bits) ? MC_OK : MC_E_NOT_FOUND;
 }
 
 mc_status read_voice_channel(u64 user_id, u64 guild_id, u64* channel) noexcept {
-    const PluginReader* reader = g_plugin_reader;
     if (!channel || !user_id) return MC_E_INVALID;
     *channel = 0;
-    if (!reader || !reader->voice_channel) return MC_E_UNSUPPORTED;
-    return reader->voice_channel(user_id, guild_id, channel) && *channel ? MC_OK : MC_E_NOT_FOUND;
+    return plugin_host_read_voice_channel(user_id, guild_id, channel) && *channel ? MC_OK : MC_E_NOT_FOUND;
 }
 
 mc_status read_shared_group_dms(u64 user_id, u64* out, u32 capacity, u32* count) noexcept {
-    const PluginReader* reader = g_plugin_reader;
     if (!count || !user_id || (capacity && !out)) return MC_E_INVALID;
-    *count = 0;
-    if (!reader || !reader->shared_group_dms) return MC_E_UNSUPPORTED;
-    *count = reader->shared_group_dms(user_id, {out, capacity});
+    *count = plugin_host_read_shared_group_dms(user_id, {out, capacity});
     return *count ? MC_OK : MC_E_NOT_FOUND;
 }
 

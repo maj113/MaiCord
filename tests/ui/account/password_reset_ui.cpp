@@ -32,17 +32,12 @@ void test_password_reset_ui(void (*check)(bool, const char*) noexcept) noexcept 
         if (status == LoginStatus::mfa_backup_acknowledgement) {
             view.backup_acknowledgement_seconds = 10; view.focus = LoginControl::back;
         }
-        scene.reset_mode = true; scene.recovery_mode = false;
-        scene.back_only = login_requires_back(status, {}); scene.focus = view.focus;
-        scene.mfa_capabilities = view.mfa_capabilities; scene.selected_mfa_capability = view.selected_mfa_capability;
-        scene.credential_fields_hidden = login_credential_fields_hidden(view.status, view.remote_status, view.reset_mode);
-        scene.recovery_disabled = true; scene.action_disabled = login_view_action_disabled(view);
-        scene.submit_disabled = login_view_submit_disabled(view);
+        login_scene_apply_view(&scene, view);
         check(login_scene_layout(&scene, width, height), "reset all responsive native states lay out");
         view.focus = scene.focus;
         check(!scene.qr_visible && !login_scene_element(scene, LoginElement::login_field) &&
             !login_scene_element(scene, LoginElement::login_label) && scene.widgets.count <= kMaximumLoginWidgets &&
-            login_view_matches_scene(view, &scene) && login_text_presentation_build(scene, view, kDefaultTheme, &stream),
+            login_view_valid(view) && login_text_presentation_build(scene, view, kDefaultTheme, &stream),
             "reset presentation hides identifier and QR within fixed native widget budget");
         const auto back = login_scene_rectangle(scene, LoginElement::forgot_password);
         check(ui_rect_has_area(back) && login_scene_hit_test(scene, (back.left + back.right) / 2,

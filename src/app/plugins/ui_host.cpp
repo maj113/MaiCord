@@ -1,4 +1,3 @@
-#include "ui_host.hpp"
 #include "plugins.hpp"
 #include "../shell/state.hpp"
 #include "../shell/toast.hpp"
@@ -56,7 +55,13 @@ void modal_closed(TextFormOwnerKey key) noexcept {
     secure_clear_bytes(&g_answer, sizeof(g_answer));
 }
 
-bool open_modal(const PluginModalRequest& modal) noexcept {
+} // namespace
+} // namespace maicord::app_detail
+
+namespace maicord {
+using namespace app_detail;
+
+bool plugin_host_open_modal(const PluginModalRequest& modal) noexcept {
     if (!plugin_account_ready() || g_app.text_form) return false;
     g_answer = {};
     ++g_serial;
@@ -109,34 +114,34 @@ bool open_modal(const PluginModalRequest& modal) noexcept {
     return application_text_form_open(request);
 }
 
-void close_modal() noexcept {
+void plugin_host_close_modal() noexcept {
     application_text_form_cancel_owner(modal_valid);
 }
 
 // ---- Banner and actions --------------------------------------------------------------------
 
-void banner_changed() noexcept {
+void plugin_host_banner_changed() noexcept {
     application_request_frame();
 }
 
-PluginUiStatus open_url(Utf8View url) noexcept {
+PluginUiStatus plugin_host_open_url(Utf8View url) noexcept {
     if (!plugin_account_ready()) return PluginUiStatus::busy;
     // Not trusted text: a host the user hasn't trusted asks first.
     return application_link_open(url, false) ? PluginUiStatus::ok : PluginUiStatus::denied;
 }
 
-PluginUiStatus copy_text(Utf8View text) noexcept {
+PluginUiStatus plugin_host_copy_text(Utf8View text) noexcept {
     return application_copy_text(text, utf8_literal("Copied"), kToastCopyFailed) ? PluginUiStatus::ok
                                                                                   : PluginUiStatus::busy;
 }
 
-PluginUiStatus open_channel(u64 channel_id) noexcept {
+PluginUiStatus plugin_host_open_channel(u64 channel_id) noexcept {
     if (!plugin_account_ready()) return PluginUiStatus::busy;
     if (!chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id)) return PluginUiStatus::not_found;
     return application_navigate_known_message(channel_id, 0) ? PluginUiStatus::ok : PluginUiStatus::denied;
 }
 
-PluginUiStatus open_profile(u64 user_id, u64) noexcept {
+PluginUiStatus plugin_host_open_profile(u64 user_id, u64) noexcept {
     if (!plugin_account_ready()) return PluginUiStatus::busy;
     // No on-screen source: the card opens at the middle of the window.
     const UiRect viewport = application_viewport_dips();
@@ -146,26 +151,12 @@ PluginUiStatus open_profile(u64 user_id, u64) noexcept {
                : PluginUiStatus::busy;
 }
 
-void toast(u64 owner_id, Utf8View text, u32 tone) noexcept {
-    application_plugins_ui_toast(nullptr, owner_id, text, tone);
-}
-
-const PluginUiHost kHost{open_modal,  banner_changed, close_modal, open_url,
-                         copy_text,   open_channel,   open_profile, application_plugins_local_notice,
-                         toast};
-
-} // namespace
-
-void application_plugins_ui_install() noexcept {
-    plugin_ui_host_install(&kHost);
-}
-
-void application_plugins_ui_toast(void*, u64, Utf8View text, u32 tone) noexcept {
+void plugin_host_toast(u64, Utf8View text, u32 tone) noexcept {
     application_toast_show(tone == 2 ? UiToastKind::success : tone == 4 ? UiToastKind::failure : UiToastKind::message,
                            text);
 }
 
-bool application_plugins_local_notice(u64 channel_id, Utf8View text, u64* message_id) noexcept {
+bool plugin_host_local_notice(u64 channel_id, Utf8View text, u64* message_id) noexcept {
     if (!g_app.account_ui || !text.bytes) return false;
     if (!channel_id) channel_id = g_app.account_ui->active_channel_id;
     if (!channel_id || g_app.account_ui->active_channel_id != channel_id) return false;
@@ -185,4 +176,4 @@ bool application_plugins_local_notice(u64 channel_id, Utf8View text, u64* messag
     return true;
 }
 
-} // namespace maicord::app_detail
+} // namespace maicord

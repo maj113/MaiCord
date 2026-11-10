@@ -7,7 +7,7 @@ namespace maicord {
 
 // Rendering visibility only: Settings authority/read barriers remain active.
 inline bool renderer_theme_editor_visible(const D3D11Renderer& renderer) noexcept {
-    return !renderer.login_visible && renderer.theme_editor_scene &&
+    return !renderer.login_visible && renderer.theme_editor_scene && renderer.theme_editor_scene->active &&
            ui_theme_editor_current(*renderer.theme_editor_scene);
 }
 inline bool renderer_settings_page_visible(const D3D11Renderer& renderer) noexcept {

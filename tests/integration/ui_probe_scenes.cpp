@@ -2385,7 +2385,7 @@ bool probe_friends_requests_scene() noexcept {
         return false;
     const auto stamp = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
     g_probe.renderer.focus_owner = &main.widgets;
-    if (d3d11_renderer_visible_focus_owner(renderer) ||
+    if (d3d11_renderer_visible_focus_owner(renderer, d3d11_renderer_surfaces(renderer)) ||
         renderer_presentation_stamp_equal(stamp,
                                           renderer_capture_presentation_stamp(renderer, kDefaultTheme)))
         return false;
@@ -2419,7 +2419,7 @@ bool probe_friends_requests_scene() noexcept {
         g_probe.renderer.popup_media_first_batch < g_probe.renderer.friends_requests_media_end_batch ||
         g_probe.renderer.profile_foreground_first_batch <
             g_probe.renderer.friends_requests_paint_end_batch ||
-        d3d11_renderer_visible_focus_owner(renderer) != &profile.widgets)
+        d3d11_renderer_visible_focus_owner(renderer, d3d11_renderer_surfaces(renderer)) != &profile.widgets)
         return false;
     UiTextCommand profile_commands[128]{};
     UiTextCommandStream profile_text{};
@@ -2460,7 +2460,7 @@ bool probe_friends_requests_scene() noexcept {
         g_probe.renderer.focus_owner = &menu.widgets;
         if (!paint() ||
             g_probe.renderer.menu_paint_first_batch < g_probe.renderer.friends_requests_paint_end_batch ||
-            d3d11_renderer_visible_focus_owner(renderer) != &menu.widgets ||
+            d3d11_renderer_visible_focus_owner(renderer, d3d11_renderer_surfaces(renderer)) != &menu.widgets ||
             !probe_capture_frame(L"friends-requests-menu.bmp"))
             return false;
     }
@@ -2481,7 +2481,7 @@ bool probe_friends_requests_scene() noexcept {
     renderer_bind_text_form(&g_probe.renderer, &form_surface);
     g_probe.renderer.focus_owner = &form.widgets;
     if (!paint() || form_surface.layout.active ||
-        d3d11_renderer_visible_focus_owner(renderer) != &form.widgets ||
+        d3d11_renderer_visible_focus_owner(renderer, d3d11_renderer_surfaces(renderer)) != &form.widgets ||
         g_probe.renderer.form_paint_first_batch < g_probe.renderer.friends_requests_paint_end_batch ||
         !probe_capture_frame(L"friends-requests-confirmation.bmp"))
         return false;

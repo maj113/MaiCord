@@ -653,15 +653,6 @@ bool evaluate(PluginDecoratePass* pass, u32 kind, u64 key, u64 scope, u32 revisi
     return complete;
 }
 
-bool prepare_message(PluginDecoratePass* pass, const PluginMessageInput& m) noexcept {
-    mc_message in{};
-    fill_message(m, &in);
-    const u32 facts = (m.guild_id ? MC_FILTER_GUILD_ONLY : MC_FILTER_DM_ONLY) |
-                      ((m.flags & MC_MESSAGE_MEDIA) ? MC_FILTER_HAS_MEDIA : 0u) |
-                      ((m.flags & MC_MESSAGE_OWN) ? 0u : MC_FILTER_NOT_OWN);
-    return evaluate(pass, kKindMessage, m.message_id, 0, m.revision, facts, &in);
-}
-
 // A user's revision is derived from what the hooks see, so a presence or name change asks again; a profile's
 // opening time too, so every opening asks again.
 u32 user_revision(const PluginUserInput& u) noexcept {
@@ -673,72 +664,11 @@ u32 user_revision(const PluginUserInput& u) noexcept {
     for (u32 i = 0; i < u.name.bytes; ++i) h = hash64_mix(h, static_cast<u8>(u.name.data[i]));
     return static_cast<u32>(h >> 32);
 }
-bool prepare_user(PluginDecoratePass* pass, const PluginUserInput& u) noexcept {
-    mc_user in{};
-    fill_user(u, &in);
-    in.where = u.where;
-    // The author's name affixes ride on the message's decoration, found through this memo.
-    if (u.where == kPluginUserMessageAuthor && u.message_id) author_slot(u.message_id) = {u.message_id, u.user_id};
-    return evaluate(pass, kKindUser, u.user_id, u.where, user_revision(u), 1u << u.where, &in);
-}
 
 u32 entity_revision(u64 a, u64 b, u64 c, u64 d, Utf8View name) noexcept {
     u64 h = hash64_mix(hash64_mix(hash64_mix(hash64_mix(kHash64Seed, a), b), c), d);
     for (u32 i = 0; i < name.bytes; ++i) h = hash64_mix(h, static_cast<u8>(name.data[i]));
     return static_cast<u32>(h >> 32);
-}
-bool prepare_channel(PluginDecoratePass* pass, const PluginChannelInput& c) noexcept {
-    mc_channel in{};
-    fill_channel(c, &in);
-    return evaluate(pass, kKindChannel, c.channel_id, 0,
-                    entity_revision(c.guild_id, c.self_permissions, (static_cast<u64>(c.type) << 32) | c.flags,
-                                    c.mention_count, c.name),
-                    0, &in);
-}
-bool prepare_guild(PluginDecoratePass* pass, const PluginGuildInput& g) noexcept {
-    mc_guild in{};
-    in.guild_id = g.guild_id;
-    in.owner_id = g.owner_id;
-    in.self_permissions = g.self_permissions;
-    in.flags = g.flags;
-    in.mention_count = g.mention_count;
-    in.member_count = g.member_count;
-    in.online_count = g.online_count;
-    in.name = {g.name.data, g.name.bytes, 0};
-    return evaluate(pass, kKindGuild, g.guild_id, 0,
-                    entity_revision(g.owner_id, g.self_permissions, (static_cast<u64>(g.flags) << 32) | g.mention_count,
-                                    (static_cast<u64>(g.member_count) << 32) | g.online_count, g.name),
-                    0, &in);
-}
-bool prepare_header(PluginDecoratePass* pass, const PluginHeaderInput& h) noexcept {
-    mc_header in{};
-    in.channel_id = h.channel_id;
-    in.guild_id = h.guild_id;
-    in.where = h.where;
-    in.member_count = h.member_count;
-    in.online_count = h.online_count;
-    in.name = {h.name.data, h.name.bytes, 0};
-    return evaluate(pass, kKindHeader, h.where, 0,
-                    entity_revision(h.channel_id, h.guild_id, (static_cast<u64>(h.member_count) << 32) | h.online_count,
-                                    h.where, h.name),
-                    0, &in);
-}
-
-void refresh_all() noexcept {
-    for (u32 i = 0; i < g_plugin_count; ++i)
-        for (u32 k = 0; k < kKinds; ++k) ++g_plugins[i].generation[k];
-}
-
-bool reveal(u64 message_id) noexcept {
-    if (!message_id || revealed(message_id)) return false;
-    if (g_reveal_count < kReveals) {
-        g_reveals[g_reveal_count++] = message_id;
-    } else {
-        g_reveals[g_reveal_cursor] = message_id;
-        g_reveal_cursor = (g_reveal_cursor + 1) % kReveals;
-    }
-    changed(true);
-    return true;
 }
 
 // ---- Node actions -----------------------------------------------------------------------------------------------
@@ -782,7 +712,81 @@ struct ActionCall {
     }
 };
 
-bool activate(u64 owner_id, const PluginSurfaceTarget& target, u64 action_id, const PluginMessageInput* message) noexcept {
+} // namespace
+
+using namespace plugin_surfaces_detail;
+
+bool plugin_decorate_message(PluginDecoratePass* pass, const PluginMessageInput& m) noexcept {
+    mc_message in{};
+    fill_message(m, &in);
+    const u32 facts = (m.guild_id ? MC_FILTER_GUILD_ONLY : MC_FILTER_DM_ONLY) |
+                      ((m.flags & MC_MESSAGE_MEDIA) ? MC_FILTER_HAS_MEDIA : 0u) |
+                      ((m.flags & MC_MESSAGE_OWN) ? 0u : MC_FILTER_NOT_OWN);
+    return evaluate(pass, kKindMessage, m.message_id, 0, m.revision, facts, &in);
+}
+
+bool plugin_decorate_user(PluginDecoratePass* pass, const PluginUserInput& u) noexcept {
+    mc_user in{};
+    fill_user(u, &in);
+    in.where = u.where;
+    // The author's name affixes ride on the message's decoration, found through this memo.
+    if (u.where == kPluginUserMessageAuthor && u.message_id) author_slot(u.message_id) = {u.message_id, u.user_id};
+    return evaluate(pass, kKindUser, u.user_id, u.where, user_revision(u), 1u << u.where, &in);
+}
+
+bool plugin_decorate_channel(PluginDecoratePass* pass, const PluginChannelInput& c) noexcept {
+    mc_channel in{};
+    fill_channel(c, &in);
+    return evaluate(pass, kKindChannel, c.channel_id, 0,
+                    entity_revision(c.guild_id, c.self_permissions, (static_cast<u64>(c.type) << 32) | c.flags,
+                                    c.mention_count, c.name),
+                    0, &in);
+}
+
+bool plugin_decorate_guild(PluginDecoratePass* pass, const PluginGuildInput& g) noexcept {
+    mc_guild in{};
+    in.guild_id = g.guild_id;
+    in.owner_id = g.owner_id;
+    in.self_permissions = g.self_permissions;
+    in.flags = g.flags;
+    in.mention_count = g.mention_count;
+    in.member_count = g.member_count;
+    in.online_count = g.online_count;
+    in.name = {g.name.data, g.name.bytes, 0};
+    return evaluate(pass, kKindGuild, g.guild_id, 0,
+                    entity_revision(g.owner_id, g.self_permissions, (static_cast<u64>(g.flags) << 32) | g.mention_count,
+                                    (static_cast<u64>(g.member_count) << 32) | g.online_count, g.name),
+                    0, &in);
+}
+
+bool plugin_decorate_header(PluginDecoratePass* pass, const PluginHeaderInput& h) noexcept {
+    mc_header in{};
+    in.channel_id = h.channel_id;
+    in.guild_id = h.guild_id;
+    in.where = h.where;
+    in.member_count = h.member_count;
+    in.online_count = h.online_count;
+    in.name = {h.name.data, h.name.bytes, 0};
+    return evaluate(pass, kKindHeader, h.where, 0,
+                    entity_revision(h.channel_id, h.guild_id, (static_cast<u64>(h.member_count) << 32) | h.online_count,
+                                    h.where, h.name),
+                    0, &in);
+}
+
+bool plugin_surfaces_reveal(u64 message_id) noexcept {
+    if (!message_id || revealed(message_id)) return false;
+    if (g_reveal_count < kReveals) {
+        g_reveals[g_reveal_count++] = message_id;
+    } else {
+        g_reveals[g_reveal_cursor] = message_id;
+        g_reveal_cursor = (g_reveal_cursor + 1) % kReveals;
+    }
+    changed(true);
+    return true;
+}
+
+bool plugin_surfaces_activate(u64 owner_id, const PluginSurfaceTarget& target, u64 action_id,
+                              const PluginMessageInput* message) noexcept {
     if (!action_id) return false;
     if (action_id & kButtonAction) return buttons_activate(owner_id, target, action_id, message);
     Plugin* plugin = find_plugin(owner_id);
@@ -824,25 +828,6 @@ bool activate(u64 owner_id, const PluginSurfaceTarget& target, u64 action_id, co
     }
     return false;
 }
-
-const PluginSurfaceHost g_host{
-    .wants = 0,
-    .message_needs = 0,
-    .message = prepare_message,
-    .user = prepare_user,
-    .channel = prepare_channel,
-    .guild = prepare_guild,
-    .header = prepare_header,
-    .popover = buttons_popover,
-    .activate = activate,
-    .overflow = buttons_overflow,
-    .refresh = refresh_all,
-    .refresh_buttons = buttons_refresh,
-    .reveal = reveal,
-};
-PluginSurfaceHost g_published;
-
-} // namespace
 
 namespace plugin_surfaces_detail {
 
@@ -905,9 +890,8 @@ void republish() noexcept {
         if (plugin.hooks[kKindMessage]) needs |= plugin.hooks[kKindMessage]->flags & (MC_NEED_CONTENT | MC_NEED_AUTHOR);
         pushed |= plugin.pushed;
     }
-    g_published = g_host;
-    g_published.wants = wants;
-    g_published.message_needs = needs;
+    g_plugin_surface_wants = wants;
+    g_plugin_message_needs = needs;
     const u32 decorated = wants | pushed;
     u32 mask = button_surfaces();
     if (decorated & (1u << kKindUser))
@@ -919,11 +903,11 @@ void republish() noexcept {
         mask |= (1u << kUiPluginSlotHeaderToolbar) | (1u << kUiPluginSlotMemberListHeader);
     g_ui_plugin_slot_surfaces = mask;
     if (g_plugin_count) {
-        g_plugin_surfaces = &g_published;
+        g_plugin_surfaces_active = true;
         g_ui_plugin_render_query = render_query;
         g_ui_plugin_slot_query = slot_query;
     } else {
-        if (g_plugin_surfaces == &g_published) g_plugin_surfaces = nullptr;
+        g_plugin_surfaces_active = false;
         if (g_ui_plugin_render_query == render_query) g_ui_plugin_render_query = nullptr;
         if (g_ui_plugin_slot_query == slot_query) g_ui_plugin_slot_query = nullptr;
         g_ui_plugin_slot_surfaces = ~0u;

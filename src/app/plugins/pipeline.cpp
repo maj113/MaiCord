@@ -14,7 +14,6 @@ namespace plugin_runtime_detail {
 namespace {
 
 PluginPipelineStats g_stats;
-const PluginPipelineSink* g_sink;
 PluginSide g_sides[kPluginMaximumBindings];
 
 struct BucketPolicy {
@@ -52,9 +51,6 @@ bool plugin_take(PluginBinding* binding, PluginBucket bucket) noexcept {
     return true;
 }
 
-const PluginPipelineSink* plugin_sink() noexcept {
-    return g_sink;
-}
 PluginPipelineStats& plugin_stats() noexcept {
     return g_stats;
 }
@@ -70,10 +66,6 @@ bool plugin_subscribed(const PluginBinding* binding, PluginHook hook) noexcept {
 } // namespace plugin_runtime_detail
 
 using namespace plugin_runtime_detail;
-
-void plugin_pipeline_set_sink(const PluginPipelineSink* sink) noexcept {
-    g_sink = sink;
-}
 
 const PluginPipelineStats& plugin_pipeline_stats() noexcept {
     return g_stats;
@@ -359,9 +351,7 @@ void plugin_pipeline_remove(PluginBinding* binding) noexcept {
     if (PluginSide* side = plugin_side(binding, false)) reset_value(side);
     recompute_events();
     // An activity the plugin set goes with it, however it stopped (disabled, struck out, crashed, reloaded).
-    const PluginPipelineSink* sink = plugin_sink();
-    if ((binding->permissions & MC_PERM_ACT_PRESENCE) && sink && sink->set_activity)
-        sink->set_activity(binding->owner_id, nullptr);
+    if (binding->permissions & MC_PERM_ACT_PRESENCE) plugin_host_set_activity(binding->owner_id, nullptr);
 }
 
 } // namespace maicord

@@ -3,7 +3,6 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
-#include "maicord/protocol/gateway/client_status.hpp"
 #include "maicord/protocol/gateway/message_events.hpp"
 #include "dispatch_common.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
@@ -14,85 +13,7 @@ bool reject(GatewayEventDecodeError* error, GatewayEventDecodeError value = Gate
     if (*error == GatewayEventDecodeError::none) *error = value;
     return false;
 }
-bool visit_object(JsonValue value, const JsonIndexedDocument& document, u32 depth,
-    JsonMemberVisitor visitor, void* context, GatewayEventDecodeError* error) noexcept {
-    if (value.kind != JsonValueKind::object) return reject(error);
-    const auto read = json_visit_indexed_object(document, value, depth, visitor, context);
-    return read.ok() || reject(error, GatewayEventDecodeError::invalid_json);
-}
-struct MemberObject {
-    JsonValue user;
-    JsonValue roles;
-    JsonValue presence;
-    JsonString nickname;
-    GatewayEventDecodeError error;
-    bool user_seen;
-    bool roles_seen;
-    bool presence_seen;
-    bool nickname_seen;
-    bool nickname_null;
-};
-
 using UserObject = GatewayMemberUser;
-
-struct PresenceObject {
-    JsonValue user;
-    JsonString status;
-    GatewayEventDecodeError error;
-    bool status_seen;
-    bool user_seen;
-    bool client_status_seen;
-    u8 client_status;
-};
-
-bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<MemberObject*>(opaque);
-    switch (protocol_detail::member_index<"user", "roles", "presence", "nick">(name)) {
-    case 0:
-        return gateway_keep_member(&context->error, &context->user_seen, &context->user, value,
-                                   value.kind == JsonValueKind::object);
-    case 1:
-        return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value,
-                                   value.kind == JsonValueKind::array);
-    case 2:
-        return gateway_keep_member(&context->error, &context->presence_seen, &context->presence, value,
-                                   value.kind == JsonValueKind::object);
-    case 3:
-        if (context->nickname_seen) {
-            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
-        }
-        context->nickname_seen = true;
-        context->nickname_null = value.kind == JsonValueKind::null_value;
-        if (!context->nickname_null && !json_value_as_string(value, &context->nickname)) {
-            return reject(&context->error);
-        }
-        break;
-    default: break;
-    }
-    return true;
-}
-
-bool visit_presence(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<PresenceObject*>(opaque);
-    switch (protocol_detail::member_index<"user", "status", "client_status">(name)) {
-    case 0:
-        if (context->user_seen || value.kind != JsonValueKind::object) return reject(&context->error);
-        context->user = value; context->user_seen = true;
-        break;
-    case 1:
-        if (context->status_seen || !json_value_as_string(value, &context->status))
-            return reject(&context->error, gateway_field_error(context->status_seen));
-        context->status_seen = true;
-        break;
-    case 2:
-        if (context->client_status_seen) return reject(&context->error, GatewayEventDecodeError::duplicate_field);
-        context->client_status_seen = true;
-        if (!client_status_decode(value, &context->client_status)) context->client_status = 0;
-        break;
-    default: break;
-    }
-    return true;
-}
 
 struct Outer {
     u64 user_id, thread_id, join_ms;
@@ -128,15 +49,6 @@ bool visit_outer(void* opaque, JsonString key, JsonValue value) noexcept {
     default: break;
     }
     return true;
-}
-struct Roles {
-    u64 ids[256]; u32 count;
-};
-bool visit_role(void* opaque, u32 index, JsonValue value) noexcept {
-    auto& r = *static_cast<Roles*>(opaque);
-    if (index >= 256 || !json_value_to_snowflake(value, &r.ids[index])) return false;
-    for (u32 i = 0; i < index; ++i) if (r.ids[i] == r.ids[index]) return false;
-    r.count = index + 1; return true;
 }
 struct Root {
     u64 guild, thread;
@@ -205,12 +117,13 @@ void merge_appearance(UserAppearance* target, const UserAppearance& other) noexc
 }
 bool append_record(Array* a, u64 id, JsonValue member_value, bool has_member,
     JsonValue presence_value, bool has_presence) noexcept {
-    MemberObject member{}; UserObject user{}, presence_user{}; PresenceObject presence{};
-    if (has_member && !visit_object(member_value, *a->document, a->depth, visit_member, &member, &member.error)) return reject(&a->error, member.error);
-    if (member.user_seen && (!visit_object(member.user, *a->document, a->depth, gateway_visit_member_user, &user, &user.error) || !user.id_seen || user.id != id)) return reject(&a->error);
+    GatewayMemberObject member{}; UserObject user{}, presence_user{}; GatewayMemberPresence presence{};
+    member.thread = presence.thread = true;
+    if (has_member && !gateway_visit_object(member_value, *a->document, a->depth, gateway_visit_member_object, &member, &member.error)) return reject(&a->error, member.error);
+    if (member.user_seen && (!gateway_visit_object(member.user, *a->document, a->depth, gateway_visit_member_user, &user, &user.error) || !user.id_seen || user.id != id)) return reject(&a->error);
     if (has_presence && presence_value.kind == JsonValueKind::object) {
-        if (!visit_object(presence_value, *a->document, a->depth, visit_presence, &presence, &presence.error)) return reject(&a->error);
-        if (presence.user_seen && (!visit_object(presence.user, *a->document, a->depth, gateway_visit_member_user, &presence_user, &presence_user.error) || !presence_user.id_seen || presence_user.id != id)) return reject(&a->error);
+        if (!gateway_visit_object(presence_value, *a->document, a->depth, gateway_visit_member_presence, &presence, &presence.error)) return reject(&a->error);
+        if (presence.user_seen && (!gateway_visit_object(presence.user, *a->document, a->depth, gateway_visit_member_user, &presence_user, &presence_user.error) || !presence_user.id_seen || presence_user.id != id)) return reject(&a->error);
         if (presence.status_seen && gateway_member_status(presence.status_seen, presence.status) == GatewayClientMemberListStatus::unknown) return reject(&a->error);
         if (!member.user_seen) user = presence_user;
         else {
@@ -220,9 +133,9 @@ bool append_record(Array* a, u64 id, JsonValue member_value, bool has_member,
             if (!user.avatar_seen && presence_user.avatar_seen) { user.avatar_hash = presence_user.avatar_hash; user.avatar_seen = true; user.avatar_null = presence_user.avatar_null; }
         }
     }
-    Roles roles;
-    roles.count = 0;
-    if (member.roles_seen && !json_visit_indexed_array(*a->document, member.roles, a->depth, visit_role, &roles).ok()) return reject(&a->error);
+    u64 role_ids[256];
+    GatewayMemberRoles roles{role_ids, 256, 0, GatewayEventDecodeError::none};
+    if (member.roles_seen && !json_visit_indexed_array(*a->document, member.roles, a->depth, gateway_visit_member_roles, &roles).ok()) return reject(&a->error);
     GatewayClientMemberListMutation m{};
     m.user_id = id; m.operation = a->operation; m.role_count = static_cast<u16>(roles.count);
     m.status = gateway_member_status(presence.status_seen, presence.status);
@@ -240,13 +153,15 @@ bool append_record(Array* a, u64 id, JsonValue member_value, bool has_member,
         (user.username_seen && (!gateway_member_string_size(user.username, &m.username_bytes) || !gateway_member_string_size(display, &m.display_name_bytes))) ||
         (user.avatar_seen && !user.avatar_null && !gateway_member_string_size(user.avatar_hash, &m.avatar_hash_bytes)) || m.avatar_hash_bytes > kUserAvatarHashMaximumBytes) return reject(&a->error);
     if (user.username_seen && !m.display_name_bytes) { display = user.username; m.display_name_bytes = m.username_bytes; }
-    UserAppearance global{}, guild{}, extra_global{};
-    if (member.user_seen && !user_appearance_decode(*a->document, member.user, id, 0, &global)) return reject(&a->error);
+    UserAppearance global, guild, extra_global; // each is assigned whole before it is read: by its decode, else cleared
+    if (!member.user_seen) reset_value(&global);
+    else if (!user_appearance_decode(*a->document, member.user, id, 0, &global)) return reject(&a->error);
     if (presence.user_seen) {
         if (!user_appearance_decode(*a->document, presence.user, id, 0, &extra_global)) return reject(&a->error);
         merge_appearance(&global, extra_global);
     }
-    if (has_member && !user_appearance_decode(*a->document, member_value, id, a->guild, &guild)) return reject(&a->error);
+    if (!has_member) reset_value(&guild);
+    else if (!user_appearance_decode(*a->document, member_value, id, a->guild, &guild)) return reject(&a->error);
     if (has_presence && presence_value.kind == JsonValueKind::object && !activity_decode(*a->document, presence_value, &guild)) return reject(&a->error);
     if (!guild.user_id) { guild.user_id = id; guild.guild_id = a->guild; }
     u8 global_bytes[1024], guild_bytes[1024];
@@ -254,7 +169,7 @@ bool append_record(Array* a, u64 id, JsonValue member_value, bool has_member,
     m.member_appearance_bytes = static_cast<u16>(user_appearance_write(guild, {guild_bytes, sizeof(guild_bytes)}));
     if ((global.fields && !m.user_appearance_bytes) || (guild.fields && !m.member_appearance_bytes)) return reject(&a->error);
     if (!gateway_payload_append(&a->writer, &m, sizeof(m))) return reject(&a->error, GatewayEventDecodeError::message_content_capacity);
-    for (u32 i = 0; i < roles.count; ++i) if (!gateway_payload_append_u64(&a->writer, roles.ids[i])) return reject(&a->error, GatewayEventDecodeError::message_content_capacity);
+    for (u32 i = 0; i < roles.count; ++i) if (!gateway_payload_append_u64(&a->writer, role_ids[i])) return reject(&a->error, GatewayEventDecodeError::message_content_capacity);
     if (!gateway_append_json_string(&a->writer, member.nickname, m.nickname_bytes) || !gateway_append_json_string(&a->writer, display, m.display_name_bytes) ||
         !gateway_append_json_string(&a->writer, user.avatar_hash, m.avatar_hash_bytes) || !gateway_append_json_string(&a->writer, user.username, m.username_bytes) ||
         !gateway_payload_append(&a->writer, global_bytes, m.user_appearance_bytes) || !gateway_payload_append(&a->writer, guild_bytes, m.member_appearance_bytes)) return reject(&a->error, GatewayEventDecodeError::message_content_capacity);
@@ -267,13 +182,14 @@ bool visit_entry(void* opaque, u32, JsonValue value) noexcept {
         return json_value_to_snowflake(value, &id) ? append_record(a, id, {}, false, {}, false) : reject(&a->error);
     }
     if (a->operation == GatewayClientMemberListOperation::update) {
-        PresenceObject p{}; UserObject user{};
-        if (!visit_object(value, *a->document, a->depth, visit_presence, &p, &p.error) || !p.user_seen ||
-            !visit_object(p.user, *a->document, a->depth, gateway_visit_member_user, &user, &user.error) || !user.id_seen) return reject(&a->error);
+        GatewayMemberPresence p{}; UserObject user{};
+        p.thread = true;
+        if (!gateway_visit_object(value, *a->document, a->depth, gateway_visit_member_presence, &p, &p.error) || !p.user_seen ||
+            !gateway_visit_object(p.user, *a->document, a->depth, gateway_visit_member_user, &user, &user.error) || !user.id_seen) return reject(&a->error);
         return append_record(a, user.id, {}, false, value, true);
     }
     Outer o{};
-    if (!visit_object(value, *a->document, a->depth, visit_outer, &o, &o.error) || !o.id_seen) return reject(&a->error);
+    if (!gateway_visit_object(value, *a->document, a->depth, visit_outer, &o, &o.error) || !o.id_seen) return reject(&a->error);
     if (o.thread_seen && o.thread_id != a->thread) return reject(&a->error);
     if (a->self && o.user_id == a->self && o.join_ms) a->self_join_ms = o.join_ms;
     return append_record(a, o.user_id, o.member, o.member_seen, o.presence, o.presence_seen);

@@ -105,35 +105,39 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
     // paint-only field the application frame clock owns. Each entry is the
     // phase of a panel whose spinner is on screen, null otherwise.
     const auto phase = [](auto* scene) noexcept -> u8* { return scene ? &scene->spinner_phase : nullptr; };
+    const u32 surfaces =
+        d3d11_renderer_shown<d3d11_surface_pinned_messages | d3d11_surface_inbox | d3d11_surface_thread_browser |
+                             d3d11_surface_call | d3d11_surface_stream_card | d3d11_surface_guild_card |
+                             d3d11_surface_settings_page | d3d11_surface_media_picker>(renderer);
     u8* const phases[]{
-        phase(d3d11_renderer_pinned_messages_visible(renderer) &&
+        phase((surfaces & d3d11_surface_pinned_messages) &&
                       ui_pinned_messages_scene_spinner_visible(*renderer.pinned_messages_scene)
                   ? const_cast<UiPinnedMessagesScene*>(renderer.pinned_messages_scene)
                   : nullptr),
-        phase(d3d11_renderer_inbox_visible(renderer) && ui_inbox_scene_spinner_visible(*renderer.inbox_scene)
+        phase((surfaces & d3d11_surface_inbox) && ui_inbox_scene_spinner_visible(*renderer.inbox_scene)
                   ? const_cast<UiInboxScene*>(renderer.inbox_scene)
                   : nullptr),
-        phase(d3d11_renderer_thread_browser_visible(renderer) &&
+        phase((surfaces & d3d11_surface_thread_browser) &&
                       ui_thread_browser_scene_spinner_visible(*renderer.thread_browser_scene)
                   ? renderer.thread_browser_scene
                   : nullptr),
         // Stream tiles (connecting, reconnecting) and the stream card's thumbnail.
-        phase(d3d11_renderer_call_visible(renderer) && ui_call_scene_spinner_visible(*renderer.call_scene)
+        phase((surfaces & d3d11_surface_call) && ui_call_scene_spinner_visible(*renderer.call_scene)
                   ? const_cast<UiCallScene*>(renderer.call_scene)
                   : nullptr),
-        phase(d3d11_renderer_stream_card_visible(renderer) ? application_stream_card_spinner_scene() : nullptr),
-        phase(d3d11_renderer_guild_card_visible(renderer) ? application_guild_card_spinner_scene() : nullptr),
+        phase((surfaces & d3d11_surface_stream_card) ? application_stream_card_spinner_scene() : nullptr),
+        phase((surfaces & d3d11_surface_guild_card) ? application_guild_card_spinner_scene() : nullptr),
         // Settings pages' loading notices.
-        phase(renderer_settings_page_visible(renderer) && renderer.settings_scene &&
+        phase((surfaces & d3d11_surface_settings_page) &&
                       ui_settings_scene_spinner_visible(*renderer.settings_scene)
                   ? const_cast<UiSettingsScene*>(renderer.settings_scene)
                   : nullptr),
         // The Plugins, Themes and Effects pages' busy buttons and the install dialog's check.
-        phase(renderer_settings_page_visible(renderer) ? application_store_spinner_scene() : nullptr),
+        phase((surfaces & d3d11_surface_settings_page) ? application_store_spinner_scene() : nullptr),
         // The media viewer while neither of its image tiers is resident.
         phase(ui_image_viewer_spinner_visible(g_app.image_viewer.scene) ? &g_app.image_viewer.scene : nullptr),
         // The composer's inline /gif results while their search loads.
-        phase(d3d11_renderer_media_picker_visible(renderer) &&
+        phase((surfaces & d3d11_surface_media_picker) &&
                       ui_media_picker_scene_spinner_visible(*renderer.media_picker_scene)
                   ? const_cast<UiMediaPickerScene*>(renderer.media_picker_scene)
                   : nullptr),
@@ -164,7 +168,7 @@ void synchronize_typing_dots(u64 now_ms) noexcept {
     const bool visible = g_app.renderer_ready && !renderer.live_resize && !d3d11_renderer_page_open(renderer) &&
                          renderer.message_composer_scene == &scene && scene.active && scene.typing_dots &&
                          scene.typing_label_bytes && !application_friends_active() &&
-                         !d3d11_renderer_thread_browser_visible(renderer);
+                         !d3d11_renderer_shows<d3d11_surface_thread_browser>(renderer);
     ui_typing_dots_clock_tick(&g_typing_dots, now_ms, visible, typing_dots_animate());
     scene.typing_phase = g_typing_dots.phase;
 }

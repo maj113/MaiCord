@@ -96,9 +96,9 @@ UiRect available_video_clip(UiRect clip) noexcept {
         return {};
     if (renderer.quick_switcher_scene && renderer.quick_switcher_scene->active)
         return {};
-    if (d3d11_renderer_search_visible(renderer) && renderer.search_scene->content->panel)
+    if (d3d11_renderer_shows<d3d11_surface_search>(renderer) && renderer.search_scene->content->panel)
         clip = clip_video_panel(clip, renderer.search_scene->panel);
-    if (d3d11_renderer_pinned_messages_visible(renderer)) {
+    if (d3d11_renderer_shows<d3d11_surface_pinned_messages>(renderer)) {
         const auto& pins = *renderer.pinned_messages_scene;
         // Compact pins own the whole viewport as a modal overlay. A docked
         // panel leaves the visible left side of the selected preview usable.
@@ -201,7 +201,7 @@ namespace video_detail {
 
 bool resolve_search_video_source(const ApplicationSearchSourceTicket& ticket, bool embed, u8 item,
                                  bool snapshot, InlineMediaSource* out) noexcept {
-    if (!video_session_available() || !d3d11_renderer_search_visible(g_app.renderer))
+    if (!video_session_available() || !d3d11_renderer_shows<d3d11_surface_search>(g_app.renderer))
         return false;
     ApplicationSearchSourceView source{};
     if (!application_search_source_resolve(ticket, snapshot, &source) || !source.message || !source.rich ||

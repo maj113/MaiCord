@@ -3,9 +3,9 @@
 #include "maicord/core/slice.hpp"
 
 // What the application calls to ask plugins about decorations and buttons, and to report clicks. The
-// runtime (decorations.cpp, buttons.cpp) installs g_plugin_surfaces when the first plugin that decorates
-// or declares a button is enabled and removes it with the last, so the application pays one null test per
-// pass until then. This header is free of the plugin ABI header and of the UI headers.
+// runtime (decorations.cpp, buttons.cpp) defines the functions below and sets g_plugin_surfaces_active when the
+// first plugin that decorates or declares a button is enabled and clears it with the last, so the application pays
+// one test per pass until then. This header is free of the plugin ABI header and of the UI headers.
 //
 // The pull model: decorate hooks run in the application's prepare pass (never while laying out or
 // painting), each result is cached per plugin by the entity's revision, and the UI reads the merged
@@ -38,7 +38,7 @@ struct PluginMessageInput {
     u32 type;      // Discord message type
     u32 revision;  // the message store's revision of this message
     u32 relationship, attachment_count, embed_count;
-    // Only what the installed hooks asked for (PluginSurfaceHost::message_needs); empty otherwise.
+    // Only what the installed hooks asked for (g_plugin_message_needs); empty otherwise.
     Utf8View content, author_name;
 };
 struct PluginUserInput {
@@ -60,7 +60,7 @@ struct PluginGuildInput {
     u64 guild_id, owner_id, self_permissions;
     u32 flags, mention_count, member_count, online_count; // flags: MC_GUILD_*
     Utf8View name;
-    // PluginReader::guild only (read_guild); 0 when unknown.
+    // plugin_host_read_guild only (read_guild); 0 when unknown.
     u32 boost_count, boost_tier, verification_level, channel_count, role_count, emoji_count;
 };
 struct PluginHeaderInput {
@@ -86,62 +86,47 @@ struct PluginSurfaceTarget {
     u64 channel_id, message_id, user_id, guild_id;
 };
 
-// A plugin button that a message's hover bar has no room for: the host lists these in the message menu's
-// "Plugins" submenu. owner_id and action_id are the ids plugin_surfaces_activate takes.
-struct PluginButtonRef {
-    u64 owner_id, action_id;
-    Utf8View label;
-    bool danger;
-};
+// The runtime's side, called by name while g_plugin_surfaces_active.
+inline constinit bool g_plugin_surfaces_active = false;
+// Bit (1 << kind) of the decorate hook kinds some enabled plugin subscribes to: message 0, user 1, channel 2,
+// guild 3, header 4. Callers skip building inputs for a clear bit.
+inline constinit u32 g_plugin_surface_wants = 0;
+// The union of MC_NEED_* over the enabled DECORATE_MESSAGE hooks: which message fields to fill.
+inline constinit u32 g_plugin_message_needs = 0;
+// Each returns true when every plugin's verdict for the entity is current, false when a call waited for budget.
+bool plugin_decorate_message(PluginDecoratePass*, const PluginMessageInput&) noexcept;
+bool plugin_decorate_user(PluginDecoratePass*, const PluginUserInput&) noexcept;
+bool plugin_decorate_channel(PluginDecoratePass*, const PluginChannelInput&) noexcept;
+bool plugin_decorate_guild(PluginDecoratePass*, const PluginGuildInput&) noexcept;
+bool plugin_decorate_header(PluginDecoratePass*, const PluginHeaderInput&) noexcept;
+// Runs the message hover bar's `visible` predicates for one message (cached per message revision).
+bool plugin_decorate_popover(PluginDecoratePass*, const PluginMessageInput&) noexcept;
+// Runs the click of a plugin control: a descriptor button (action_id from the slot node) or a decoration
+// button or card button (its tag). Gesture context. `message` is the clicked or hovered message for the
+// hover bar and message accessories (with its content), else null. False when nothing handled it.
+bool plugin_surfaces_activate(u64 owner_id, const PluginSurfaceTarget&, u64 action_id,
+                              const PluginMessageInput* message) noexcept;
+// Runs the `visible` predicates of the buttons that don't depend on a message, with the open channel
+// (channel switch, enable).
+void plugin_surfaces_refresh_buttons(u64 channel_id, u64 guild_id) noexcept;
+// Session reveal of a collapsed message ("Show"): the cached verdict stays and the query reports the
+// message shown. Bounded; the oldest reveal is forgotten first. True when it was newly revealed.
+bool plugin_surfaces_reveal(u64 message_id) noexcept;
 
-struct PluginSurfaceHost {
-    // Bit (1 << kind) of the decorate hook kinds some enabled plugin subscribes to: message 0, user 1, channel 2,
-    // guild 3, header 4. Callers skip building inputs for a clear bit.
-    u32 wants;
-    // The union of MC_NEED_* over the enabled DECORATE_MESSAGE hooks: which message fields to fill.
-    u32 message_needs;
-    // Each returns true when every plugin's verdict for the entity is current, false when a call waited for budget.
-    bool (*message)(PluginDecoratePass*, const PluginMessageInput&) noexcept;
-    bool (*user)(PluginDecoratePass*, const PluginUserInput&) noexcept;
-    bool (*channel)(PluginDecoratePass*, const PluginChannelInput&) noexcept;
-    bool (*guild)(PluginDecoratePass*, const PluginGuildInput&) noexcept;
-    bool (*header)(PluginDecoratePass*, const PluginHeaderInput&) noexcept;
-    // Runs the message hover bar's `visible` predicates for one message (cached per message revision).
-    bool (*popover)(PluginDecoratePass*, const PluginMessageInput&) noexcept;
-    // Runs the click of a plugin control: a descriptor button (action_id from the slot node) or a decoration
-    // button or card button (its tag). Gesture context. `message` is the clicked or hovered message for the
-    // hover bar and message accessories (with its content), else null. False when nothing handled it.
-    bool (*activate)(u64 owner_id, const PluginSurfaceTarget&, u64 action_id, const PluginMessageInput* message) noexcept;
-    // The message's visible popover buttons past the first `bar` ones, in plugin order.
-    u32 (*overflow)(u64 message_id, u32 bar, Slice<PluginButtonRef> output) noexcept;
-    // Marks every cached pull verdict stale (an application-side input changed, e.g. the account switched).
-    void (*refresh)() noexcept;
-    // Runs the `visible` predicates of the buttons that don't depend on a message, with the open channel
-    // (channel switch, enable).
-    void (*refresh_buttons)(u64 channel_id, u64 guild_id) noexcept;
-    // Session reveal of a collapsed message ("Show"): the cached verdict stays and the query reports the
-    // message shown. Bounded; the oldest reveal is forgotten first. True when it was newly revealed.
-    bool (*reveal)(u64 message_id) noexcept;
-};
-inline constinit const PluginSurfaceHost* g_plugin_surfaces = nullptr;
-
-// What mc_api's read_* calls read: MaiCord's cache, never the network.
-// The application installs it (the tests install a fake); each function fills one of the inputs above and
-// returns false when the entity isn't cached. Views stay valid until the application's stores next change,
-// which is after the plugin call that read them returns.
-struct PluginReader {
-    // names come from guild_id when it isn't 0.
-    bool (*user)(u64 user_id, u64 guild_id, PluginUserInput* out) noexcept;
-    bool (*channel)(u64 channel_id, PluginChannelInput* out) noexcept;
-    bool (*guild)(u64 guild_id, PluginGuildInput* out) noexcept;
-    // The permission bits user_id holds in guild_id (channel_id 0: server-wide, else in that channel).
-    bool (*permissions)(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) noexcept;
-    // The voice channel user_id is in: in guild_id, or (0) a private call first, then any server.
-    bool (*voice_channel)(u64 user_id, u64 guild_id, u64* channel_id) noexcept;
-    // The group DMs shared with user_id, most recently active first, up to output.count; returns how many exist.
-    u32 (*shared_group_dms)(u64 user_id, Slice<u64> output) noexcept;
-};
-inline constinit const PluginReader* g_plugin_reader = nullptr;
+// What mc_api's read_* calls read: MaiCord's cache, never the network (surface_host.cpp; a test that links
+// runtime objects links a .cpp of its own that defines all six, in place of it). Each fills one of the inputs
+// above and returns false when the entity isn't cached. Views stay valid until the application's stores next
+// change, which is after the plugin call that read them returns.
+// names come from guild_id when it isn't 0.
+bool plugin_host_read_user(u64 user_id, u64 guild_id, PluginUserInput* out) noexcept;
+bool plugin_host_read_channel(u64 channel_id, PluginChannelInput* out) noexcept;
+bool plugin_host_read_guild(u64 guild_id, PluginGuildInput* out) noexcept;
+// The permission bits user_id holds in guild_id (channel_id 0: server-wide, else in that channel).
+bool plugin_host_read_permissions(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) noexcept;
+// The voice channel user_id is in: in guild_id, or (0) a private call first, then any server.
+bool plugin_host_read_voice_channel(u64 user_id, u64 guild_id, u64* channel_id) noexcept;
+// The group DMs shared with user_id, most recently active first, up to output.count; returns how many exist.
+u32 plugin_host_read_shared_group_dms(u64 user_id, Slice<u64> output) noexcept;
 
 // Changes whenever any decoration or button state the UI reads changed; the application compares it with the
 // value it last rendered and rebuilds retained text. Message decorations also advance

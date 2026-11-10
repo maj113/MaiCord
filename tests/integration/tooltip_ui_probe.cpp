@@ -79,7 +79,7 @@ bool expression_card_stages(D3D11Renderer& renderer, UiRect viewport, UiTextMeas
         return ui_expression_card_show(&card, identity, content, anchor, viewport, 1000, true, measure) &&
                renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme) &&
                d3d11_renderer_interaction_text_state_current(renderer) &&
-               d3d11_renderer_expression_card_visible(renderer) &&
+               (d3d11_renderer_surfaces(renderer) & d3d11_surface_expression_card) &&
                card.settled.left >= anchor.right + kUiExpressionCardGap - .01f &&
                (content.layout == UiExpressionCardLayout::loading || text_quads(renderer, card.panel) > 0) &&
                (!capture || capture(name));
@@ -381,8 +381,7 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
                     .ok() &&
                 ui_settings_scene_update(&modal, &registry, viewport);
         renderer.settings_scene = &modal;
-        valid = valid && !d3d11_renderer_tooltip_visible(renderer) &&
-                !d3d11_renderer_tooltip_revision(renderer) &&
+        valid = valid && !(d3d11_renderer_surfaces(renderer) & d3d11_surface_tooltip) &&
                 renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                 probe_present(&renderer, kDefaultTheme);
         const auto modal_stamp = renderer_capture_presentation_stamp(renderer, kDefaultTheme);

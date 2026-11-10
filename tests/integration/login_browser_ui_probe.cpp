@@ -46,15 +46,8 @@ bool login_browser_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar
         view.visible = true;
         view.status = statuses[i];
         view.focus = i ? LoginControl::back : LoginControl::browser_sign_in;
-        scene.focus = view.focus;
+        login_scene_apply_view(&scene, view);
         scene.focus_visible = true;
-        scene.browser_available = login_browser_available(view.status, {}, false);
-        scene.browser_mode = login_browser_mode(view.status);
-        scene.back_only = login_requires_back(view.status, {});
-        scene.credential_fields_hidden = login_credential_fields_hidden(view.status, {}, false);
-        scene.action_disabled = login_view_action_disabled(view);
-        scene.submit_disabled = login_view_submit_disabled(view);
-        scene.recovery_disabled = login_view_recovery_disabled(view);
         if (!login_scene_layout(&scene, 360, 640))
             return failed("login_browser_layout_failed", i);
         if (!renderer_set_login_view(&renderer, &scene, view, kDefaultTheme))

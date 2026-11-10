@@ -61,6 +61,54 @@ struct GatewayMemberUser {
 };
 // JsonMemberVisitor filling a GatewayMemberUser.
 bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) noexcept;
+// A member object as a member-list item and a thread member carry it; field_detail as in GatewayMemberUser. A
+// thread member's presence must be an object, and its flags and communication_disabled_until are not read.
+struct GatewayMemberObject {
+    JsonValue user;
+    JsonValue roles;
+    JsonValue presence;
+    JsonString nickname;
+    GatewayEventDecodeError error;
+    u32 field_detail;
+    u32 timeout_until;
+    u32 flags;
+    bool user_seen;
+    bool roles_seen;
+    bool presence_seen;
+    bool nickname_seen;
+    bool nickname_null;
+    bool timeout_seen;
+    bool flags_seen;
+    bool thread;
+};
+// JsonMemberVisitor filling a GatewayMemberObject.
+bool gateway_visit_member_object(void* opaque, JsonString name, JsonValue value) noexcept;
+// A member's presence: its status and client_status, and for a thread member the user object it carries.
+struct GatewayMemberPresence {
+    JsonValue user;
+    JsonString status;
+    GatewayEventDecodeError error;
+    u32 field_detail;
+    bool status_seen;
+    bool user_seen;
+    bool client_status_seen;
+    u8 client_status;
+    bool thread;
+};
+// JsonMemberVisitor filling a GatewayMemberPresence.
+bool gateway_visit_member_presence(void* opaque, JsonString name, JsonValue value) noexcept;
+// The role ids of a member: distinct snowflakes, at most `capacity`, stored in `roles`.
+struct GatewayMemberRoles {
+    u64* roles;
+    u32 capacity;
+    u32 count;
+    GatewayEventDecodeError error;
+};
+// JsonArrayVisitor filling a GatewayMemberRoles.
+bool gateway_visit_member_roles(void* opaque, u32 index, JsonValue value) noexcept;
+// json_visit_indexed_object that records invalid_json in *error when the visit fails.
+bool gateway_visit_object(JsonValue value, const JsonIndexedDocument& document, u32 maximum_depth,
+                          JsonMemberVisitor visitor, void* context, GatewayEventDecodeError* error) noexcept;
 // Decodes string into the writer; false unless it decodes to exactly expected bytes that fit.
 bool gateway_append_json_string(GatewayPayloadWriter* writer, JsonString string, u16 expected) noexcept;
 // Decoded byte count of a member text field (at most 128 bytes).

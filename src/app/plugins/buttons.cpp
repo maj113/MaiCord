@@ -103,15 +103,7 @@ void buttons_add(Plugin& plugin) noexcept {
     evaluate_static(plugin);
 }
 
-void buttons_refresh(u64 channel_id, u64 guild_id) noexcept {
-    g_channel_id = channel_id;
-    g_guild_id = guild_id;
-    for (u32 i = 0; i < g_plugin_count; ++i)
-        if (g_plugins[i].button_count) evaluate_static(g_plugins[i]);
-    changed(false);
-}
-
-void buttons_refresh_remembered() noexcept { buttons_refresh(g_channel_id, g_guild_id); }
+void buttons_refresh_remembered() noexcept { plugin_surfaces_refresh_buttons(g_channel_id, g_guild_id); }
 
 mc_status buttons_set_state(PluginBinding* binding, u32 button, const mc_button_state& state) noexcept {
     if (button >= binding->image.descriptor->button_count) return MC_E_INVALID;
@@ -171,7 +163,31 @@ u32 button_slots(u32 surface, u64 message_id, Slice<UiPluginSlotNode> output) no
     return count;
 }
 
-bool buttons_popover(PluginDecoratePass* pass, const PluginMessageInput& message) noexcept {
+bool buttons_activate(u64 owner_id, const PluginSurfaceTarget& target, u64 action_id,
+                      const PluginMessageInput* message) noexcept {
+    Plugin* plugin = find_plugin(owner_id);
+    const u64 index = action_id & ~kButtonAction;
+    if (!plugin || index >= plugin->button_count || plugin->binding->struck_out) return false;
+    const mc_button_def& def = definition(*plugin, static_cast<u32>(index));
+    const ButtonState& state = plugin->buttons[index];
+    const bool popover = def.surface == MC_SURFACE_MESSAGE_POPOVER;
+    if (slot_surface(def.surface) != target.surface || !def.click || (state.flags & (MC_BUTTON_HIDDEN | MC_BUTTON_DISABLED)) ||
+        (popover && (!message || !popover_shown(*plugin, static_cast<u32>(index), message->message_id))))
+        return false;
+    mc_message in{};
+    if (popover) fill_message(*message, &in);
+    const mc_button_event event{target.channel_id, target.guild_id, popover ? &in : nullptr, static_cast<u32>(index), 0};
+    ClickCall call{def.click, &event};
+    plugin_binding_call(plugin->binding, PluginCallKind::slot_action, PluginCallClass::gesture, MC_CTX_GESTURE,
+                        ClickCall::run, &call);
+    return true;
+}
+
+} // namespace plugin_surfaces_detail
+
+using namespace plugin_surfaces_detail;
+
+bool plugin_decorate_popover(PluginDecoratePass* pass, const PluginMessageInput& message) noexcept {
     if (!pass->budget_us) pass->budget_us = kPluginDecoratePassBudgetUs;
     bool complete = true;
     mc_message in{};
@@ -206,45 +222,12 @@ bool buttons_popover(PluginDecoratePass* pass, const PluginMessageInput& message
     return complete;
 }
 
-u32 buttons_overflow(u64 message_id, u32 bar, Slice<PluginButtonRef> output) noexcept {
-    u32 seen = 0, count = 0;
-    for (u32 p = 0; p < g_plugin_count; ++p) {
-        const Plugin& plugin = g_plugins[p];
-        for (u32 i = 0; i < plugin.button_count; ++i) {
-            const mc_button_def& def = definition(plugin, i);
-            if (def.surface != MC_SURFACE_MESSAGE_POPOVER || (plugin.buttons[i].flags & MC_BUTTON_HIDDEN) ||
-                !popover_shown(plugin, i, message_id) || seen++ < bar)
-                continue;
-            if (count == output.count) return count;
-            const ButtonState& state = plugin.buttons[i];
-            output[count++] = {plugin.binding->owner_id, kButtonAction | i,
-                               state.tooltip_bytes ? Utf8View{state.tooltip, state.tooltip_bytes}
-                                                   : Utf8View{def.label.data, def.label.bytes},
-                               (def.flags & MC_BUTTON_DANGER) != 0};
-        }
-    }
-    return count;
+void plugin_surfaces_refresh_buttons(u64 channel_id, u64 guild_id) noexcept {
+    g_channel_id = channel_id;
+    g_guild_id = guild_id;
+    for (u32 i = 0; i < g_plugin_count; ++i)
+        if (g_plugins[i].button_count) evaluate_static(g_plugins[i]);
+    changed(false);
 }
 
-bool buttons_activate(u64 owner_id, const PluginSurfaceTarget& target, u64 action_id,
-                      const PluginMessageInput* message) noexcept {
-    Plugin* plugin = find_plugin(owner_id);
-    const u64 index = action_id & ~kButtonAction;
-    if (!plugin || index >= plugin->button_count || plugin->binding->struck_out) return false;
-    const mc_button_def& def = definition(*plugin, static_cast<u32>(index));
-    const ButtonState& state = plugin->buttons[index];
-    const bool popover = def.surface == MC_SURFACE_MESSAGE_POPOVER;
-    if (slot_surface(def.surface) != target.surface || !def.click || (state.flags & (MC_BUTTON_HIDDEN | MC_BUTTON_DISABLED)) ||
-        (popover && (!message || !popover_shown(*plugin, static_cast<u32>(index), message->message_id))))
-        return false;
-    mc_message in{};
-    if (popover) fill_message(*message, &in);
-    const mc_button_event event{target.channel_id, target.guild_id, popover ? &in : nullptr, static_cast<u32>(index), 0};
-    ClickCall call{def.click, &event};
-    plugin_binding_call(plugin->binding, PluginCallKind::slot_action, PluginCallClass::gesture, MC_CTX_GESTURE,
-                        ClickCall::run, &call);
-    return true;
-}
-
-} // namespace plugin_surfaces_detail
 } // namespace maicord

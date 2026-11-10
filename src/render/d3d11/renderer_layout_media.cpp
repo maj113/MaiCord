@@ -77,9 +77,9 @@ bool queue_call_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
 
 // The toast's own batches close every paint stream; d3d11_renderer_draw
 // draws them after all other layers.
-bool queue_toast(D3D11Renderer* renderer, const Theme& theme) noexcept {
+bool queue_toast(D3D11Renderer* renderer, u32 shown, const Theme& theme) noexcept {
     renderer->toast_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
-    return !d3d11_renderer_toast_visible(*renderer) ||
+    return !(shown & d3d11_surface_toast) ||
            ui_toast_paint(*renderer->toast_scene, theme, &renderer->paint_stream);
 }
 void resolve_zoom_lens(D3D11Renderer* renderer, const Theme& theme, const MediaAtlasResult& allocation,
@@ -99,7 +99,7 @@ bool queue_zoom_lens_frame(D3D11Renderer* renderer, const Theme& theme, bool sea
         renderer->form_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     return ui_zoom_lens_paint(renderer->zoom_lens_source.view, theme, &renderer->paint_stream);
 }
-bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
+bool queue_inline_flags(D3D11Renderer* renderer, u32 shown) noexcept {
     renderer->inline_media_first_batch = renderer->media_batch_count;
     for (u32 layer = 0; layer < static_cast<u32>(RendererInlineMediaLayer::count); ++layer) {
         renderer->inline_media_layer_first[layer] = renderer->media_batch_count;
@@ -145,7 +145,7 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
         // A reaction tooltip's custom emoji or flag: over its surface, under
         // its text, fitted to its square.
         UiRect square{};
-        if (layer == static_cast<u32>(RendererInlineMediaLayer::form) && d3d11_renderer_tooltip_visible(*renderer) &&
+        if (layer == static_cast<u32>(RendererInlineMediaLayer::form) && (shown & d3d11_surface_tooltip) &&
             media_asset_key_valid(renderer->tooltip_scene->emoji_media) &&
             ui_tooltip_emoji(*renderer->tooltip_scene, &square) && renderer->media_atlas &&
             renderer->media_gpu.texture_view && renderer->media_quad_count < kRendererMediaQuadCapacity &&
@@ -161,7 +161,7 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
         // A rows tooltip's pictures (a server's other games), fitted to their squares.
         MediaAssetKey row_key{};
         for (u32 row = 0; layer == static_cast<u32>(RendererInlineMediaLayer::form) &&
-                          d3d11_renderer_tooltip_visible(*renderer) && renderer->media_atlas &&
+                          (shown & d3d11_surface_tooltip) && renderer->media_atlas &&
                           renderer->media_gpu.texture_view && row < kUiTooltipMaximumRows;
              ++row) {
             if (!ui_tooltip_row_media(*renderer->tooltip_scene, row, &square, &row_key) ||
@@ -335,7 +335,7 @@ bool shell_segment_replay(D3D11Renderer* renderer, u64 key, float width_dip, flo
     return true;
 }
 
-bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
+bool queue_message_media(D3D11Renderer* renderer, u32 shown, const Theme& theme,
                          const MessageMediaCommandStream& stream, bool first) noexcept {
     for (u32 index = 0; index < stream.count; ++index) {
         const MessageMediaCommand& command = stream.storage[index];
@@ -439,7 +439,7 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
             return layout_step_failed(__LINE__);
         }
         if (large_preview && command.obscure == static_cast<u8>(MessageMediaObscure::none) && renderer->zoom_lens &&
-            renderer->zoom_lens->active && d3d11_renderer_zoom_lens_allowed(*renderer) &&
+            renderer->zoom_lens->active && d3d11_renderer_zoom_lens_allowed(*renderer, shown) &&
             ui_rect_contains(ui_rect_intersection(quad, quad_clip), renderer->zoom_lens->pointer.x,
                              renderer->zoom_lens->pointer.y))
             resolve_zoom_lens(renderer, theme, allocation, quad, domain);
@@ -452,7 +452,7 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
 }
 
 // Command storage belongs to this surface; producers initialize every consumed record.
-bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const MessageScene* message_scene,
+bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme, const MessageScene* message_scene,
                           bool messages_visible, bool content_hidden) noexcept {
     LayoutScratch* const scratch = layout_scratch(renderer);
     if (!scratch)
@@ -638,7 +638,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
         }
     }
 
-    if (!queue_message_media(renderer, theme, message_media_stream, false))
+    if (!queue_message_media(renderer, shown, theme, message_media_stream, false))
         return layout_step_failed(__LINE__);
     // Composer upload thumbnails join the ordinary preview layer so the strip
     // overlay (tags, progress and the action bar) paints above them.
@@ -699,15 +699,15 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                 continue;
             }
             if (command.kind == MessageMediaCommandKind::attachment &&
-                !d3d11_renderer_message_modal_active(*renderer) &&
+                !(shown & d3d11_surface_message_modal) &&
                 !ui_attachment_save_paint(
                     &renderer->paint_stream, command.owner,
                     ui_attachment_save_rectangle(command.rectangle, false), command.clip, theme, false,
-                    d3d11_renderer_video_scene_visible(*renderer) &&
+                    (shown & d3d11_surface_video) &&
                         ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle)))
                 return layout_step_failed(__LINE__);
             const auto star_owner = renderer->gif_favorite_owner;
-            if (command.gif && !d3d11_renderer_message_modal_active(*renderer) && star_owner.generation &&
+            if (command.gif && !(shown & d3d11_surface_message_modal) && star_owner.generation &&
                 command.owner.handle.slot == star_owner.slot &&
                 command.owner.handle.generation == star_owner.generation &&
                 !ui_gif_favorite_paint(
@@ -717,7 +717,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                     command.clip, theme, renderer->gif_favorite, renderer->gif_favorite_pending))
                 return layout_step_failed(__LINE__);
             if (!command.ordinary_video ||
-                (d3d11_renderer_video_scene_visible(*renderer) &&
+                ((shown & d3d11_surface_video) &&
                  ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle)))
                 continue;
             if (command.open_link
@@ -757,13 +757,13 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
     // Inline controls of a timeline message paint with its media overlays, so
     // the timeline overlays that follow (unread banner, call view, panels,
     // popups) cover them as they cover the message text.
-    if (messages_visible && d3d11_renderer_timeline_video_visible(*renderer) &&
+    if (messages_visible && d3d11_renderer_timeline_video_visible(*renderer, shown) &&
         !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (messages_visible && d3d11_renderer_timeline_audio_visible(*renderer) &&
+    if (messages_visible && d3d11_renderer_timeline_audio_visible(*renderer, shown) &&
         !ui_audio_scene_paint(*renderer->audio_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (messages_visible && d3d11_renderer_timeline_poll_visible(*renderer) &&
+    if (messages_visible && d3d11_renderer_timeline_poll_visible(*renderer, shown) &&
         !ui_poll_scene_paint(*renderer->poll_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     // Link chip server icons are the timeline's last media range: they draw
@@ -776,7 +776,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
     return true;
 }
 
-bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
+bool build_search_media(D3D11Renderer* renderer, u32 shown, const Theme& theme) noexcept {
     LayoutScratch* const scratch = layout_scratch(renderer);
     if (!scratch)
         return layout_step_failed(__LINE__);
@@ -784,7 +784,7 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
     if (!message_media_command_stream_initialize(
             &search_media_stream, {scratch->media_commands, kRendererMessageMediaCommandCapacity}))
         return layout_step_failed(__LINE__);
-    if (d3d11_renderer_search_visible(*renderer)) {
+    if (shown & d3d11_surface_search) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         if (!ui_search_scene_paint(*renderer->search_scene, theme, &renderer->paint_stream,
                                    &renderer->search_edit_geometry, renderer->dpi, &search_media_stream,
@@ -793,22 +793,22 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
             return layout_step_failed(__LINE__);
     }
     renderer->friends_requests_media_first_batch = renderer->media_batch_count;
-    if (!queue_message_media(renderer, theme, search_media_stream, true))
+    if (!queue_message_media(renderer, shown, theme, search_media_stream, true))
         return layout_step_failed(__LINE__);
     const u32 search_foreground_quad = renderer->paint_stream.count;
-    if (d3d11_renderer_search_visible(*renderer))
+    if (shown & d3d11_surface_search)
         renderer->friends_requests_foreground_first_batch = paint_stream_seal(&renderer->paint_stream);
-    if (d3d11_renderer_search_visible(*renderer)) {
+    if (shown & d3d11_surface_search) {
         const UiVideoPlayAffordanceStyle affordance{};
         for (u32 i = 0; i < search_media_stream.count; ++i) {
             const auto& command = search_media_stream.storage[i];
-            const bool covered = d3d11_renderer_video_scene_visible(*renderer) &&
+            const bool covered = (shown & d3d11_surface_video) &&
                                  renderer->video_scene_search_result &&
                                  ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle);
             // Media grid tiles are owned by the search scene itself and have no Save action.
             if (command.kind == MessageMediaCommandKind::attachment &&
                 command.owner.manager != &renderer->search_scene->widgets &&
-                !d3d11_renderer_message_modal_active(*renderer) &&
+                !(shown & d3d11_surface_message_modal) &&
                 !ui_attachment_save_paint(&renderer->paint_stream, command.owner,
                                           ui_attachment_save_rectangle(command.rectangle, false),
                                           command.clip, theme, false, covered))
@@ -818,7 +818,7 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
                                                 &renderer->paint_stream))
                 return layout_step_failed(__LINE__);
         }
-        if (d3d11_renderer_video_scene_visible(*renderer) && renderer->video_scene_search_result &&
+        if ((shown & d3d11_surface_video) && renderer->video_scene_search_result &&
             !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
         // Rich inline emoji cells belong above Search card geometry.
@@ -852,7 +852,7 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
         if (!paint_chip_initial_plates(renderer, theme, true) || !queue_chip_guild_icons(renderer, theme, true))
             return layout_step_failed(__LINE__);
     }
-    if (d3d11_renderer_search_visible(*renderer) &&
+    if ((shown & d3d11_surface_search) &&
         !split_paint_quad_boundary(&renderer->paint_stream, search_foreground_quad,
                                    &renderer->friends_requests_foreground_first_batch))
         return layout_step_failed(__LINE__);
@@ -867,7 +867,7 @@ UiSettingsMediaResidency settings_media_residency(const D3D11Renderer* renderer)
             renderer};
 }
 
-bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
+bool build_settings_page(D3D11Renderer* renderer, u32 shown, const Theme& theme) noexcept {
     // The shell beneath is the backdrop texture; keep what it shows resident.
     renderer_pin_settings_backdrop_media(renderer);
     renderer->paint_stream.filter_scrollbars = false;
@@ -939,7 +939,7 @@ bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
     return (!d3d11_renderer_text_form_active(*renderer) ||
             text_form_paint(*renderer->text_form->scene, renderer->text_form->geometry, theme,
                             &renderer->paint_stream)) &&
-           queue_toast(renderer, theme) && queue_inline_flags(renderer);
+           queue_toast(renderer, shown, theme) && queue_inline_flags(renderer, shown);
 }
 
 } // namespace renderer_layout_detail

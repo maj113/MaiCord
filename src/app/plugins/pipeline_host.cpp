@@ -1,7 +1,6 @@
 // The application's side of the plugin message pipeline: gateway changes to hooks and the event feed,
 // clicks, typing, the actions a plugin may take, and kept messages on screen.
 #include "pipeline_host.hpp"
-#include "ui_host.hpp"
 #include "plugins.hpp"
 #include "surface_host.hpp"
 #include "maicord/app/plugins/dispatch.hpp"
@@ -388,40 +387,6 @@ const MessageRecord* cached_message(u64 channel_id, u64 message_id) noexcept {
     return record && record->channel_id == channel_id ? record : nullptr;
 }
 
-mc_status sink_send(u64, const PluginSend& send) noexcept {
-    if (!plugin_account_ready()) return MC_E_BUSY;
-    auto& ui = *g_app.account_ui;
-    if (!chat_state_store_find_channel(ui.chat_state, send.channel_id)) return MC_E_NOT_FOUND;
-    if (!application_thread_actions_channel_sendable(send.channel_id)) return MC_E_DENIED;
-    if (send.reply_to && !cached_message(send.channel_id, send.reply_to)) return MC_E_NOT_FOUND;
-    if (send.reply_to && !application_channel_readable(g_app, send.channel_id)) return MC_E_DENIED;
-    char storage[MC_DRAFT_TEXT_MAX + 16];
-    MessageComposer composer{};
-    if (!message_composer_initialize(&composer, {storage, sizeof(storage)}) ||
-        !message_composer_restore(&composer, send.channel_id, send.text, send.text.bytes, send.text.bytes))
-        return MC_E_INVALID;
-    const auto queued = message_composer_controller_queue_text(
-        &ui.message_composer_controller, &composer, ui.chat_state.self_user_id, clock_unix_milliseconds(),
-        clock_monotonic_milliseconds(), send.reply_to, (send.flags & MC_DRAFT_REPLY_PING) != 0,
-        (send.flags & MC_DRAFT_SILENT) != 0, (send.flags & MC_DRAFT_SUPPRESS_EMBEDS) != 0);
-    if (!queued.ok())
-        return queued.error == MessageComposerControllerError::invalid_input ? MC_E_INVALID : MC_E_BUSY;
-    pump_message_history();
-    return MC_OK;
-}
-
-mc_status sink_edit(u64, u64 channel, u64 message, Utf8View text) noexcept {
-    if (!plugin_account_ready()) return MC_E_BUSY;
-    const auto* record = cached_message(channel, message);
-    // Edits go through the open channel's message view.
-    if (!record || channel != g_app.account_ui->active_channel_id) return MC_E_NOT_FOUND;
-    if (record->author_id != g_app.account_ui->chat_state.self_user_id ||
-        !application_thread_actions_channel_sendable(channel))
-        return MC_E_DENIED;
-    if (g_app.message_edit.message_id || g_app.message_edit.editor_active) return MC_E_BUSY;
-    return queue_message_edit_content(message, text) ? MC_OK : MC_E_DENIED;
-}
-
 mc_status reaction_result(ApplicationMessageReactionEnqueueResult result) noexcept {
     switch (result) {
     case ApplicationMessageReactionEnqueueResult::accepted:
@@ -454,7 +419,56 @@ void split_emoji(Utf8View emoji, Utf8View* name, u64* id) noexcept {
     }
 }
 
-mc_status sink_react(u64, u64 channel, u64 message, Utf8View emoji, bool remove) noexcept {
+bool begin_scoped_read(ReadScopeKind kind, u64 id) noexcept {
+    ApplicationScopedReadTicket ticket{};
+    return application_scoped_read_capture(kind, id, &ticket) && application_scoped_read_begin(ticket);
+}
+
+bool composer_ready() noexcept {
+    return plugin_account_ready() && g_app.message_composer.channel_id;
+}
+
+} // namespace
+} // namespace maicord::app_detail
+
+namespace maicord {
+using namespace app_detail;
+
+mc_status plugin_host_send(u64, const PluginSend& send) noexcept {
+    if (!plugin_account_ready()) return MC_E_BUSY;
+    auto& ui = *g_app.account_ui;
+    if (!chat_state_store_find_channel(ui.chat_state, send.channel_id)) return MC_E_NOT_FOUND;
+    if (!application_thread_actions_channel_sendable(send.channel_id)) return MC_E_DENIED;
+    if (send.reply_to && !cached_message(send.channel_id, send.reply_to)) return MC_E_NOT_FOUND;
+    if (send.reply_to && !application_channel_readable(g_app, send.channel_id)) return MC_E_DENIED;
+    char storage[MC_DRAFT_TEXT_MAX + 16];
+    MessageComposer composer{};
+    if (!message_composer_initialize(&composer, {storage, sizeof(storage)}) ||
+        !message_composer_restore(&composer, send.channel_id, send.text, send.text.bytes, send.text.bytes))
+        return MC_E_INVALID;
+    const auto queued = message_composer_controller_queue_text(
+        &ui.message_composer_controller, &composer, ui.chat_state.self_user_id, clock_unix_milliseconds(),
+        clock_monotonic_milliseconds(), send.reply_to, (send.flags & MC_DRAFT_REPLY_PING) != 0,
+        (send.flags & MC_DRAFT_SILENT) != 0, (send.flags & MC_DRAFT_SUPPRESS_EMBEDS) != 0);
+    if (!queued.ok())
+        return queued.error == MessageComposerControllerError::invalid_input ? MC_E_INVALID : MC_E_BUSY;
+    pump_message_history();
+    return MC_OK;
+}
+
+mc_status plugin_host_edit(u64, u64 channel, u64 message, Utf8View text) noexcept {
+    if (!plugin_account_ready()) return MC_E_BUSY;
+    const auto* record = cached_message(channel, message);
+    // Edits go through the open channel's message view.
+    if (!record || channel != g_app.account_ui->active_channel_id) return MC_E_NOT_FOUND;
+    if (record->author_id != g_app.account_ui->chat_state.self_user_id ||
+        !application_thread_actions_channel_sendable(channel))
+        return MC_E_DENIED;
+    if (g_app.message_edit.message_id || g_app.message_edit.editor_active) return MC_E_BUSY;
+    return queue_message_edit_content(message, text) ? MC_OK : MC_E_DENIED;
+}
+
+mc_status plugin_host_react(u64, u64 channel, u64 message, Utf8View emoji, bool remove) noexcept {
     if (!plugin_account_ready()) return MC_E_BUSY;
     if (channel != g_app.account_ui->active_channel_id || !cached_message(channel, message)) return MC_E_NOT_FOUND;
     Utf8View name{};
@@ -479,7 +493,7 @@ mc_status sink_react(u64, u64 channel, u64 message, Utf8View emoji, bool remove)
         application_queue_message_reaction_emoji(message, id, name, custom && (custom->flags & custom_emoji_animated)));
 }
 
-mc_status sink_delete(u64, u64 channel, u64 message) noexcept {
+mc_status plugin_host_delete_own(u64, u64 channel, u64 message) noexcept {
     if (!plugin_account_ready()) return MC_E_BUSY;
     const auto* record = cached_message(channel, message);
     if (!record || channel != g_app.account_ui->active_channel_id) return MC_E_NOT_FOUND;
@@ -487,12 +501,7 @@ mc_status sink_delete(u64, u64 channel, u64 message) noexcept {
     return application_message_delete_request(message, true) ? MC_OK : MC_E_BUSY;
 }
 
-bool begin_scoped_read(ReadScopeKind kind, u64 id) noexcept {
-    ApplicationScopedReadTicket ticket{};
-    return application_scoped_read_capture(kind, id, &ticket) && application_scoped_read_begin(ticket);
-}
-
-mc_status sink_mark_read(u64, u32 scope, u64 id) noexcept {
+mc_status plugin_host_mark_read(u64, u32 scope, u64 id) noexcept {
     if (!plugin_account_ready()) return MC_E_BUSY;
     auto& chat = g_app.account_ui->chat_state;
     if (scope == MC_READ_CHANNEL) {
@@ -509,7 +518,7 @@ mc_status sink_mark_read(u64, u32 scope, u64 id) noexcept {
     return any ? MC_OK : MC_E_BUSY;
 }
 
-mc_status sink_activity(u64 owner, const mc_activity* activity) noexcept {
+mc_status plugin_host_set_activity(u64 owner, const mc_activity* activity) noexcept {
     if (!activity) return application_activity_set_plugin(owner, nullptr) ? MC_OK : MC_E_NOT_FOUND;
     if (!plugin_account_ready()) return MC_E_BUSY;
     if (activity->type == MC_ACTIVITY_CUSTOM) {
@@ -537,11 +546,11 @@ mc_status sink_activity(u64 owner, const mc_activity* activity) noexcept {
     return application_activity_set_plugin(owner, &value) ? MC_OK : MC_E_BUSY;
 }
 
-mc_status sink_local(u64, u64 channel, Utf8View text, u64* id) noexcept {
-    return application_plugins_local_notice(channel, text, id) ? MC_OK : MC_E_NOT_FOUND;
+mc_status plugin_host_local_message(u64, u64 channel, Utf8View text, u64* id) noexcept {
+    return plugin_host_local_notice(channel, text, id) ? MC_OK : MC_E_NOT_FOUND;
 }
 
-mc_status sink_local_remove(u64, u64 channel, u64 message) noexcept {
+mc_status plugin_host_local_message_remove(u64, u64 channel, u64 message) noexcept {
     const auto* record = cached_message(channel, message);
     // Only local messages go: a plugin cannot remove what the server sent.
     if (!record || record->type != kMessageTypeLocalNotice || !g_app.message_scene.timeline) return MC_E_NOT_FOUND;
@@ -552,11 +561,7 @@ mc_status sink_local_remove(u64, u64 channel, u64 message) noexcept {
 
 // ---- Composer ---------------------------------------------------------------------------------
 
-bool composer_ready() noexcept {
-    return plugin_account_ready() && g_app.message_composer.channel_id;
-}
-
-mc_status sink_composer_text(void* output, u32 capacity, u32* bytes) noexcept {
+mc_status plugin_host_composer_text(void* output, u32 capacity, u32* bytes) noexcept {
     if (!composer_ready()) return MC_E_BUSY;
     const Utf8View text = message_composer_text(g_app.message_composer);
     *bytes = text.bytes;
@@ -565,12 +570,12 @@ mc_status sink_composer_text(void* output, u32 capacity, u32* bytes) noexcept {
     return MC_OK;
 }
 
-mc_status sink_composer_insert(Utf8View text) noexcept {
+mc_status plugin_host_composer_insert(Utf8View text) noexcept {
     if (!composer_ready()) return MC_E_BUSY;
     return composer_apply_result(message_composer_insert_utf8(&g_app.message_composer, text), true) ? MC_OK : MC_E_CAPACITY;
 }
 
-mc_status sink_composer_replace(Utf8View text) noexcept {
+mc_status plugin_host_composer_replace(Utf8View text) noexcept {
     if (!composer_ready()) return MC_E_BUSY;
     auto& composer = g_app.message_composer;
     const auto result = message_composer_replace_range(&composer, 0, composer.bytes, text);
@@ -578,12 +583,12 @@ mc_status sink_composer_replace(Utf8View text) noexcept {
     return composer_apply_result(result, true) ? MC_OK : MC_E_BUSY;
 }
 
-mc_status sink_composer_focus() noexcept {
+mc_status plugin_host_composer_focus() noexcept {
     if (!composer_ready()) return MC_E_BUSY;
     return focus_message_composer_control(MessageComposerControl::none) ? MC_OK : MC_E_BUSY;
 }
 
-mc_status sink_composer_reply(u64 channel, u64 message, bool ping) noexcept {
+mc_status plugin_host_composer_reply(u64 channel, u64 message, bool ping) noexcept {
     if (!composer_ready()) return MC_E_BUSY;
     if (channel != g_app.message_composer.channel_id) return MC_E_NOT_FOUND;
     if (!message) return application_reply_draft_cancel() ? MC_OK : MC_E_DENIED;
@@ -591,19 +596,19 @@ mc_status sink_composer_reply(u64 channel, u64 message, bool ping) noexcept {
     return application_reply_draft_set(message, ping) ? MC_OK : MC_E_DENIED;
 }
 
-mc_status sink_composer_edit(u64 channel, u64 message) noexcept {
+mc_status plugin_host_composer_edit(u64 channel, u64 message) noexcept {
     if (!composer_ready()) return MC_E_BUSY;
     if (channel != g_app.message_composer.channel_id || !cached_message(channel, message)) return MC_E_NOT_FOUND;
     return begin_message_edit(message) ? MC_OK : MC_E_DENIED;
 }
 
-void sink_keep_changed() noexcept {
+void plugin_host_keep_changed() noexcept {
     application_request_frame();
 }
 
 // ---- Reads ------------------------------------------------------------------------------------
 
-mc_status sink_open_channel(mc_open_channel* out) noexcept {
+mc_status plugin_host_read_open_channel(mc_open_channel* out) noexcept {
     const AccountUiRuntime* ui = plugin_account_ready() ? g_app.account_ui : nullptr;
     if (!ui || !ui->active_channel_id) return MC_E_NOT_FOUND;
     out->channel_id = ui->active_channel_id;
@@ -617,7 +622,7 @@ mc_status sink_open_channel(mc_open_channel* out) noexcept {
 }
 
 // The open channel's loaded window, newest first, from the row after `before`.
-mc_status sink_messages(u64 channel_id, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept {
+mc_status plugin_host_read_messages(u64 channel_id, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept {
     const AccountUiRuntime* ui = plugin_account_ready() ? g_app.account_ui : nullptr;
     if (!ui || channel_id != ui->active_channel_id) return MC_E_NOT_FOUND;
     const MessageStore& store = g_app.message_view.store;
@@ -634,11 +639,10 @@ mc_status sink_messages(u64 channel_id, u64 before, mc_message_ref* out, u32 cap
     return below ? MC_OK : MC_E_NOT_FOUND;
 }
 
-const PluginPipelineSink kSink{sink_send,         sink_edit,          sink_react,          sink_delete,
-                               sink_mark_read,    sink_activity,      sink_local,          sink_local_remove,
-                               sink_composer_text, sink_composer_insert, sink_composer_replace, sink_composer_focus,
-                               sink_composer_reply, sink_composer_edit, sink_keep_changed, sink_open_channel,
-                               sink_messages};
+} // namespace maicord
+
+namespace maicord::app_detail {
+namespace {
 
 // ---- Confirming a send ---------------------------------------------------------------------------
 
@@ -661,10 +665,6 @@ bool confirm_save(TextFormOwnerKey key, Utf8View) noexcept {
 }
 
 } // namespace
-
-const PluginPipelineSink* application_plugins_pipeline_sink() noexcept {
-    return &kSink;
-}
 
 void application_plugins_pipeline_install() noexcept {
     g_message_retain_query = keep_is_deleted;

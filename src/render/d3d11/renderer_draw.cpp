@@ -1134,8 +1134,9 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;
     // A visible toast's batches close both streams; every layer below ends
     // before them and the toast draws last.
-    const bool settings_active = renderer_settings_page_visible(*renderer);
-    const bool toast = d3d11_renderer_toast_visible(*renderer);
+    const u32 shown = d3d11_renderer_frame_surfaces(*renderer);
+    const bool settings_active = (shown & d3d11_surface_settings_page) != 0;
+    const bool toast = (shown & d3d11_surface_toast) != 0;
     const u32 stream_paint_batches = renderer->paint_stream.batch_count;
     const u32 paint_batch_count =
         toast ? minimum(renderer->toast_paint_first_batch, stream_paint_batches) : stream_paint_batches;
@@ -1145,23 +1146,18 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const bool interaction_overlay =
         login_form ||
         (!renderer->login_visible &&
-         (renderer_theme_editor_visible(*renderer) || settings_active ||
+         ((shown & d3d11_surface_theme_editor) || settings_active ||
           d3d11_renderer_active(renderer->profile_scene) ||
           d3d11_renderer_active(renderer->friends_requests_scene) ||
           d3d11_renderer_active(renderer->image_viewer) ||
-          d3d11_renderer_video_scene_visible(*renderer) || d3d11_renderer_audio_scene_visible(*renderer) ||
-          d3d11_renderer_poll_scene_visible(*renderer) || d3d11_renderer_poll_voters_visible(*renderer) ||
-          d3d11_renderer_tooltip_visible(*renderer) || d3d11_renderer_zoom_lens_visible(*renderer) ||
-          d3d11_renderer_search_visible(*renderer) ||
-          d3d11_renderer_unread_banner_visible(*renderer) || toast ||
-          d3d11_renderer_pinned_messages_visible(*renderer) ||
-          d3d11_renderer_quick_switcher_visible(*renderer) || d3d11_renderer_inbox_visible(*renderer) ||
-          d3d11_renderer_message_forward_visible(*renderer) || d3d11_renderer_download_visible(*renderer) ||
-          d3d11_renderer_go_live_visible(*renderer) ||
-          d3d11_renderer_shortcuts_visible(*renderer) || d3d11_renderer_media_picker_visible(*renderer) ||
-          d3d11_renderer_call_visible(*renderer) || d3d11_renderer_stream_card_visible(*renderer) ||
-          d3d11_renderer_names_card_visible(*renderer) ||
-          d3d11_renderer_guild_card_visible(*renderer) || d3d11_renderer_expression_card_visible(*renderer) ||
+          (shown & (d3d11_surface_video | d3d11_surface_audio | d3d11_surface_poll | d3d11_surface_poll_voters |
+                    d3d11_surface_tooltip | d3d11_surface_search | d3d11_surface_unread_banner |
+                    d3d11_surface_toast | d3d11_surface_pinned_messages | d3d11_surface_quick_switcher |
+                    d3d11_surface_inbox | d3d11_surface_message_forward | d3d11_surface_download |
+                    d3d11_surface_go_live | d3d11_surface_shortcuts | d3d11_surface_media_picker |
+                    d3d11_surface_call | d3d11_surface_stream_card | d3d11_surface_names_card |
+                    d3d11_surface_guild_card | d3d11_surface_expression_card)) ||
+          d3d11_renderer_zoom_lens_visible(*renderer) ||
           d3d11_renderer_active(renderer->message_action_bar) ||
           d3d11_renderer_active(renderer->popup_scene) ||
           d3d11_renderer_form_active(*renderer) ||
@@ -1206,8 +1202,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const bool friends_requests_active =
         !renderer->login_visible && !settings_active &&
         ((d3d11_renderer_active(renderer->friends_requests_scene)) ||
-         d3d11_renderer_search_visible(*renderer) || d3d11_renderer_pinned_messages_visible(*renderer) ||
-         d3d11_renderer_call_visible(*renderer));
+         (shown & (d3d11_surface_search | d3d11_surface_pinned_messages | d3d11_surface_call)));
     const u32 requests_foreground =
         friends_requests_active
             ? maximum(base_paint_end,
@@ -1252,7 +1247,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             : maximum(media_overlay_begin,
                       minimum(base_paint_end, renderer->edit_overlay_paint_first_batch));
     const bool form_active =
-        d3d11_renderer_tooltip_visible(*renderer) || d3d11_renderer_form_active(*renderer) ||
+        (shown & (d3d11_surface_tooltip | d3d11_surface_form)) ||
         settings_active;
     // The magnifier's frame is the last paint and its picture the last media of
     // the form layer; it adds no text.
@@ -1277,15 +1272,12 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         maximum(requests_text_end, minimum(renderer->media_picker_text_first_batch, menu_text));
     const u32 gallery_text_end =
         maximum(gallery_text_first, minimum(renderer->media_picker_text_end_batch, menu_text));
-    const bool gallery_current = d3d11_renderer_media_picker_visible(*renderer);
+    const bool gallery_current = (shown & d3d11_surface_media_picker) != 0;
     const u32 gallery_foreground = maximum(
         gallery_paint_first, minimum(renderer->media_picker_foreground_first_batch, gallery_paint_end));
-    const bool popup_current = d3d11_renderer_quick_switcher_visible(*renderer) ||
-                               d3d11_renderer_inbox_visible(*renderer) ||
-                               d3d11_renderer_message_forward_visible(*renderer) ||
-                               d3d11_renderer_download_visible(*renderer) ||
-                               d3d11_renderer_go_live_visible(*renderer) ||
-                               d3d11_renderer_shortcuts_visible(*renderer) ||
+    const bool popup_current = (shown & (d3d11_surface_quick_switcher | d3d11_surface_inbox |
+                                         d3d11_surface_message_forward | d3d11_surface_download |
+                                         d3d11_surface_go_live | d3d11_surface_shortcuts)) ||
                                (d3d11_renderer_active(renderer->popup_scene) &&
                                 !renderer->login_visible && !settings_active);
     const bool choice_current = settings_active && d3d11_renderer_settings_popup(*renderer);
@@ -1323,7 +1315,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                                renderer->forum_form->scene && renderer->forum_form->scene->active;
     const float forum_opacity = forum_current ? renderer->layer_opacity.forum_form : 1;
     const float editor_opacity =
-        renderer_theme_editor_visible(*renderer) ? renderer->layer_opacity.theme_editor : 1;
+        (shown & d3d11_surface_theme_editor) ? renderer->layer_opacity.theme_editor : 1;
     const u32 editor_paint_first =
         maximum(menu_paint, minimum(renderer->theme_editor_paint_first_batch, form_paint));
     const u32 editor_paint_end =
@@ -1334,7 +1326,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         maximum(editor_text_first, minimum(renderer->theme_editor_text_end_batch, form_text));
     // A server tag popout with a banner picture splits the popup layer:
     // paint up to its foreground, the banner media, then the rest.
-    const bool card_split = !settings_active && d3d11_renderer_guild_card_visible(*renderer) &&
+    const bool card_split = !settings_active && (shown & d3d11_surface_guild_card) &&
                             renderer->guild_card_foreground_first_batch >= menu_paint &&
                             renderer->guild_card_foreground_first_batch <= editor_paint_first &&
                             renderer->guild_card_banner_media_end_batch >= menu_media &&
@@ -1347,7 +1339,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                    : editor_paint_first;
     // Each surface's ranges carry its opacity and its entrance/exit pose (scale popouts grow from their anchor edge,
     // popouts slide toward it, the profile modal scales about its centre).
-    const bool editor_current = renderer_theme_editor_visible(*renderer);
+    const bool editor_current = (shown & d3d11_surface_theme_editor) != 0;
     const auto popup = [&, renderer](u32 first, u32 end) noexcept {
         return surface_range(*renderer, RendererLayerSurface::popup, first, end, popup_opacity, popup_current);
     };
@@ -1377,7 +1369,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     };
     // The tooltip (the form layer's only content while it shows) pops in: opacity and scale about its centre.
     const float tooltip_remaining =
-        d3d11_renderer_tooltip_visible(*renderer) ? renderer->tooltip_entrance_remaining : 0;
+        (shown & d3d11_surface_tooltip) ? renderer->tooltip_entrance_remaining : 0;
     const bool tooltip_entering = tooltip_remaining > 0 && tooltip_remaining <= 1;
     const UiRect tooltip_rect = tooltip_entering ? renderer->tooltip_scene->rectangle : UiRect{};
     const LayerBatchRange tooltip_layer{0, 0, 1 - tooltip_remaining,

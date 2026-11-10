@@ -651,7 +651,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
     // Search uses author hashes from its accepted page, including authors that
     // have never appeared in the selected conversation's user cache, then the
     // people suggestions of its filter chooser.
-    if (d3d11_renderer_search_visible(application.renderer)) {
+    if (surfaces() & d3d11_surface_search) {
         const auto& search = *application.renderer.search_scene;
         for (u32 slot = 0; slot < kSearchAvatarMediaSlots; ++slot) {
             AvatarMedia media;
@@ -664,7 +664,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
     }
 
     // Quick switcher and people picker rows: user avatars and server icons.
-    if (d3d11_renderer_quick_switcher_visible(application.renderer)) {
+    if (surfaces() & d3d11_surface_quick_switcher) {
         const auto& switcher = *application.renderer.quick_switcher_scene;
         const auto& state = application.account_ui->chat_state;
         for (u32 slot = 0; slot < switcher.count; ++slot) {
@@ -688,7 +688,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
         return outcome;
 
     // Inbox mention cards and poll voter rows borrow their page's author hashes.
-    if (d3d11_renderer_inbox_visible(application.renderer)) {
+    if (surfaces() & d3d11_surface_inbox) {
         const auto& inbox = *application.renderer.inbox_scene;
         for (u32 slot = 0; slot < inbox.count && slot < kUiInboxVisibleRows; ++slot) {
             AvatarMedia media;
@@ -700,7 +700,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 return outcome;
         }
     }
-    if (d3d11_renderer_poll_voters_visible(application.renderer)) {
+    if (surfaces() & d3d11_surface_poll_voters) {
         const auto& voters = *application.renderer.poll_voters_scene;
         for (u32 index = voters.first; index < voters.first + voters.visible; ++index) {
             AvatarMedia media;
@@ -1205,7 +1205,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
         // like the browser-covered forum preview drain; normal reacquisition reloads them.
         if (!consumed && (pending.key.kind == MediaAssetKind::user_avatar || is_default_avatar_key(pending.key) ||
                           pending.key.kind == MediaAssetKind::attachment) &&
-            d3d11_renderer_thread_browser_visible(application.renderer) &&
+            (surfaces() & d3d11_surface_thread_browser) &&
             application.renderer.thread_browser_scene->forum && message_image_frame_is_current(pending)) {
             const auto upload = upload_account_media_frame(pending);
             if (upload == MediaFrameUploadResult::uploaded) {

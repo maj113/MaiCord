@@ -76,9 +76,7 @@ struct PluginRuntime {
     PluginDirectory directory;
     wchar_t data_directory[512];
     u32 data_directory_characters;
-    // Where plugin toasts and log lines go (sink_context is passed back). Without a toast sink
-    // mc_api.toast fails with MC_E_UNSUPPORTED; without a log sink log lines are dropped.
-    void (*toast)(void* context, u64 owner_id, Utf8View text, u32 tone) noexcept;
+    // Where plugin log lines go (sink_context is passed back); without a log sink they are dropped.
     void (*log)(void* context, u64 owner_id, u32 level, Utf8View text) noexcept;
     // A call that ran past its budget (the Developer console): strike counts toward kPluginCallOverrunLimit.
     void (*strike)(void* context, u64 owner_id, PluginCallKind kind, u32 strike, u64 elapsed_us) noexcept;

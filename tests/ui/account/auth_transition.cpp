@@ -118,10 +118,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
     LoginView view{};
     view.visible = true;
     view.status = LoginStatus::restoring_session;
-    scene.restoring_session = true;
-    scene.action_disabled = login_view_action_disabled(view);
-    scene.recovery_disabled = login_view_recovery_disabled(view);
-    scene.submit_disabled = login_view_submit_disabled(view);
+    login_scene_apply_view(&scene, view);
     UiTextCommand commands[kMaximumLoginTextCommands]{};
     UiTextCommandStream text{};
     ui_text_command_stream_initialize(&text, {commands, kMaximumLoginTextCommands});
@@ -147,9 +144,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
           "successful restoration hides all login text");
     view.visible = true;
     view.status = LoginStatus::session_expired;
-    scene.restoring_session = false;
-    scene.action_disabled = scene.submit_disabled = false;
-    scene.recovery_disabled = login_view_recovery_disabled(view);
+    login_scene_apply_view(&scene, view);
     login_scene_layout(&scene, 830, 720);
     login_scene_focus(&scene, LoginControl::login);
     view.focus = scene.focus;
@@ -186,11 +181,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
                 remote == LoginRemoteStatus::qr_ready || remote == LoginRemoteStatus::mobile_pending
                     ? &qr
                     : nullptr;
-            scene.focus = view.focus;
-            scene.browser_available = login_browser_available(status, remote, false);
-            scene.recovery_disabled = login_view_recovery_disabled(view);
-            scene.action_disabled = login_view_action_disabled(view);
-            scene.submit_disabled = login_view_submit_disabled(view);
+            login_scene_apply_view(&scene, view);
             ordinary_controls =
                 ordinary_controls && login_view_valid(view) && !scene.action_disabled &&
                 !scene.submit_disabled && !scene.recovery_disabled && scene.browser_available &&
@@ -207,8 +198,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
                     LoginAction::browser_sign_in;
             for (u32 width_index = 0; width_index < 3; ++width_index) {
                 const float width = widths[width_index];
-                const bool laid_out =
-                    login_scene_layout(&scene, width, 720) && login_view_matches_scene(view, &scene);
+                const bool laid_out = login_scene_layout(&scene, width, 720);
                 ordinary_controls = ordinary_controls && laid_out &&
                                     login_scene_element(scene, LoginElement::login_field) &&
                                     login_scene_element(scene, LoginElement::password_field) &&
@@ -293,23 +283,14 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
                 limited.mfa_code_ready = true;
             }
             LoginScene paused{};
-            paused.back_only = login_requires_back(status, limited.remote_status);
-            paused.credential_fields_hidden =
-                login_credential_fields_hidden(status, limited.remote_status, false);
-            paused.mfa_capabilities = limited.mfa_capabilities;
-            paused.selected_mfa_capability = limited.selected_mfa_capability;
-            paused.action_disabled = login_view_action_disabled(limited);
-            paused.submit_disabled = login_view_submit_disabled(limited);
-            paused.auth_retry_resume = login_view_auth_retry_resume(limited);
-            paused.captcha_action = login_view_captcha_action(limited);
-            paused.recovery_disabled = login_view_recovery_disabled(limited);
+            login_scene_apply_view(&paused, limited);
             for (float width : widths) {
                 rate_controls = rate_controls && login_scene_layout(&paused, width, 720);
                 limited.focus = paused.focus;
                 const auto submit = login_scene_rectangle(paused, LoginElement::submit);
                 rate_controls =
                     rate_controls && login_view_valid(limited) && paused.submit_disabled == !unknown &&
-                    !paused.captcha_action && login_view_matches_scene(limited, &paused) &&
+                    !paused.captcha_action &&
                     login_scene_hit_test(paused, (submit.left + submit.right) * 0.5f,
                                          (submit.top + submit.bottom) * 0.5f) ==
                         (unknown ? LoginControl::submit : LoginControl::none);

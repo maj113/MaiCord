@@ -55,8 +55,8 @@ bool d3d11_renderer_measure_search_edit(TextEditLayoutOwner* layout, TextEditMet
         text_edit_layout_invalidate(layout);
     return false;
 }
-bool d3d11_renderer_measure_popup_edit(D3D11Renderer* renderer) noexcept {
-    if (d3d11_renderer_message_forward_visible(*renderer)) {
+bool d3d11_renderer_measure_popup_edit(D3D11Renderer* renderer, u32 shown) noexcept {
+    if (shown & d3d11_surface_message_forward) {
         const auto& forward = *renderer->message_forward_scene;
         // Input admission is disabled after submission, but the frozen caption
         // still needs the shared layout for read-only presentation.

@@ -542,7 +542,7 @@ void run() noexcept {
                 const u64 at = application_tooltip_next_wake();
                 drawn = (!at || application_tooltip_synchronize(at)) &&
                         shows(utf8_literal("Subscriber since Jan 1, 2020")) &&
-                        d3d11_renderer_tooltip_visible(g_app.renderer);
+                        (d3d11_renderer_surfaces(g_app.renderer) & d3d11_surface_tooltip);
             }
             check(drawn, label);
         };

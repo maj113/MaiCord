@@ -265,14 +265,14 @@ void test_application_plugin_navigation_runtime(void (*check)(bool,const char*) 
 void test_application_plugin_surfaces_revision(void (*check)(bool,const char*) noexcept) noexcept {
     using namespace app_detail;
     static plugin_ui_fixture_runtime::Fixture decorating{};
-    check(!g_plugin_surfaces && !application_plugin_surfaces_stale(),
+    check(!g_plugin_surfaces_active && !application_plugin_surfaces_stale(),
         "plugin surfaces: with no plugin nothing is stale");
-    check(decorating.enable(L"MaiCordPluginSurfacesFixture.dll") && g_plugin_surfaces &&
+    check(decorating.enable(L"MaiCordPluginSurfacesFixture.dll") && g_plugin_surfaces_active &&
         application_plugin_surfaces_stale(),
         "plugin surfaces: enabling a decorating plugin makes the built text stale");
     application_plugin_surfaces_rendered();
     check(!application_plugin_surfaces_stale(), "plugin surfaces: building the text catches up");
-    check(decorating.disable() && !g_plugin_surfaces && application_plugin_surfaces_stale(),
+    check(decorating.disable() && !g_plugin_surfaces_active && application_plugin_surfaces_stale(),
         "plugin surfaces: a plugin that left makes the text stale though no plugin is installed");
     application_plugin_surfaces_rendered();
     check(!application_plugin_surfaces_stale(), "plugin surfaces: the rebuild after it left catches up");
@@ -305,8 +305,7 @@ void test_application_plugin_reads(void (*check)(bool,const char*) noexcept) noe
     }
     chat.private_channels=&r.private_channels;chat.self_user_id=plugin_navigation_runtime::kSelf;
     ready=ready && voice_state_store_apply(&ui.voice_states,7,89,501,0)==VoiceStateResult::changed;
-    application_plugin_surfaces_prepare(); // installs the reader
-    check(ready && g_plugin_reader,"plugin reads: the account and the reader are set up");
+    check(ready,"plugin reads: the account is set up");
     u64 groups[1]={};
     u32 total=0;
     check(plugin_surfaces_detail::read_shared_group_dms(501,groups,1,&total)==MC_OK && total==2 && groups[0]==201,
@@ -320,7 +319,6 @@ void test_application_plugin_reads(void (*check)(bool,const char*) noexcept) noe
     mc_guild guild{};
     check(plugin_surfaces_detail::read_guild(7,&guild)==MC_OK && guild.emoji_count==0 && guild.boost_count==0,
         "plugin reads: a server's overview counts what the cache holds");
-    g_plugin_reader=nullptr;
     voice_state_store_release(&ui.voice_states);
     VirtualFree(g_app.account_ui,0,MEM_RELEASE);g_app.account_ui=nullptr;
 }

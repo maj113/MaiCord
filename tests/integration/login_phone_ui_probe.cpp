@@ -45,18 +45,12 @@ bool login_phone_ui_probe(D3D11Renderer& renderer,
             view.edit_composition = {&sparse_composition, 1};
         }
         view.focus = i == 8 ? LoginControl::password : login_phone_editable(view.status) ? LoginControl::phone_code : LoginControl::back;
-        scene.phone_mode = login_phone_mode(view.status); scene.reset_mode = view.reset_mode;
-        scene.recovery_mode = false; scene.back_only = login_requires_back(view.status, {});
-        scene.credential_fields_hidden = login_credential_fields_hidden(view.status, {}, view.reset_mode);
-        scene.phone_resend_disabled = scene.phone_mode && !login_phone_editable(view.status);
-        scene.recovery_disabled = login_view_recovery_disabled(view);
-        scene.action_disabled = login_view_action_disabled(view); scene.submit_disabled = login_view_submit_disabled(view);
-        scene.focus = view.focus; scene.focus_visible = true;
+        login_scene_apply_view(&scene, view); scene.focus_visible = true;
         stage = 20;
         valid = valid && login_scene_layout(&scene, renderer.width / pixels, renderer.height / pixels);
         view.focus = scene.focus;
         stage = 30;
-        valid = valid && login_view_matches_scene(view, &scene) && !scene.qr_visible &&
+        valid = valid && login_view_valid(view) && !scene.qr_visible &&
             !login_scene_element(scene, LoginElement::login_field) && scene.widgets.count <= kMaximumLoginWidgets;
         UiTextCommand commands[kMaximumLoginTextCommands]{}; UiTextCommandStream text{};
         valid = valid && ui_text_command_stream_initialize(&text, {commands, kMaximumLoginTextCommands}) &&

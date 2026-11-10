@@ -502,7 +502,7 @@ bool application_video_search_active() noexcept {
     return g_app.video && media_asset_search(g_app.video->source.key);
 }
 bool application_video_open_search(const UiSearchTarget& target) noexcept {
-    if (!video_surface_available() || !d3d11_renderer_search_visible(g_app.renderer) ||
+    if (!video_surface_available() || !d3d11_renderer_shows<d3d11_surface_search>(g_app.renderer) ||
         target.action != UiSearchAction::rich_item || target.save || target.rich_index > 255 ||
         (target.rich_kind != MessageSceneRichItemKind::attachment &&
          target.rich_kind != MessageSceneRichItemKind::embed) ||
@@ -528,7 +528,7 @@ bool application_video_open_search(const UiSearchTarget& target) noexcept {
 bool application_video_open_focused() noexcept {
     if (!video_surface_available())
         return false;
-    if (d3d11_renderer_search_visible(g_app.renderer)) {
+    if (d3d11_renderer_shows<d3d11_surface_search>(g_app.renderer)) {
         const auto& search = *g_app.renderer.search_scene;
         const auto* scene = ui_search_scene_message_scene(search);
         if (scene && g_app.context_focus == &scene->widgets) {

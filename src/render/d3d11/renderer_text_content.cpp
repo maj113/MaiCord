@@ -666,7 +666,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
 }
 
 bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPresentation* presentation,
-                                 const MessageTextCommand& command, u32 command_index, const Theme& theme,
+                                 const MessageTextCommand& command, u32 command_index, const Theme& theme, u32 shown,
                                  bool* atlas_invalidated, bool search_result,
                                  bool force_new_batch) noexcept {
     if (command.measurement_kind > MessageTextMeasurementKind::notice ||
@@ -674,9 +674,8 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
          command.measurement_index >= presentation->measurement_count)) {
         return false;
     }
-    if (d3d11_renderer_audio_owner(*renderer, command.owner))
-        return true;
-    if (d3d11_renderer_poll_owner(*renderer, command.owner))
+    if (d3d11_renderer_audio_owner(*renderer, shown, command.owner) ||
+        d3d11_renderer_poll_owner(*renderer, shown, command.owner))
         return true;
     const auto* scene = search_result && renderer->search_scene
                             ? ui_search_scene_message_scene(*renderer->search_scene)

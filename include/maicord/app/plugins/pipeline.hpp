@@ -7,7 +7,7 @@
 // deleted, edited, typing), the batched event feed, timers, and the actions plugins may take
 // (sends, edits, reactions, local messages, composer control). The runtime half (pipeline.cpp,
 // pipeline_api.cpp) is independent of the application: it runs hooks and enforces permissions,
-// gestures and rate limits, and reaches the application through PluginPipelineSink.
+// gestures and rate limits, and reaches the application through the plugin_host_* functions below.
 // Kept (deleted and edited) messages live in keep.hpp. UI thread only.
 namespace maicord {
 
@@ -67,39 +67,35 @@ u32 plugin_timers_poll(u64 now_ms) noexcept;
 
 // ---- Application side of the actions ----------------------------------------------------
 
-// What the application does for a plugin; every function runs after the runtime checked
-// permission, gesture, arguments and rate limit. A null function makes the call fail with
-// MC_E_UNSUPPORTED. Status values are MC_OK or MC_E_*.
 struct PluginSend {
     u64 channel_id, reply_to;
     Utf8View text;
     u32 flags; // MC_DRAFT_SILENT, MC_DRAFT_SUPPRESS_EMBEDS, MC_DRAFT_REPLY_PING
 };
-struct PluginPipelineSink {
-    mc_status (*send)(u64 owner_id, const PluginSend&) noexcept;
-    mc_status (*edit)(u64 owner_id, u64 channel_id, u64 message_id, Utf8View text) noexcept;
-    mc_status (*react)(u64 owner_id, u64 channel_id, u64 message_id, Utf8View emoji, bool remove) noexcept;
-    mc_status (*delete_own)(u64 owner_id, u64 channel_id, u64 message_id) noexcept;
-    mc_status (*mark_read)(u64 owner_id, u32 scope, u64 id) noexcept;
-    // activity is null to clear.
-    mc_status (*set_activity)(u64 owner_id, const mc_activity* activity) noexcept;
-    mc_status (*local_message)(u64 owner_id, u64 channel_id, Utf8View text, u64* message_id) noexcept;
-    mc_status (*local_message_remove)(u64 owner_id, u64 channel_id, u64 message_id) noexcept;
-    mc_status (*composer_text)(void* output, u32 capacity, u32* bytes) noexcept;
-    mc_status (*composer_insert)(Utf8View text) noexcept;
-    mc_status (*composer_replace)(Utf8View text) noexcept;
-    mc_status (*composer_focus)() noexcept;
-    mc_status (*composer_reply)(u64 channel_id, u64 message_id, bool ping) noexcept;
-    mc_status (*composer_edit)(u64 channel_id, u64 message_id) noexcept;
-    // The kept messages changed outside a hook (keep_restore): repaint.
-    void (*keep_changed)() noexcept;
-    // read_open_channel: fills out (zeroed); MC_E_NOT_FOUND without an open channel.
-    mc_status (*open_channel)(mc_open_channel* out) noexcept;
-    // read_messages: up to capacity loaded messages of channel below before (0: the newest), newest first.
-    mc_status (*messages)(u64 channel_id, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept;
-};
-// The sink is global (one application); null removes it. Tests install their own.
-void plugin_pipeline_set_sink(const PluginPipelineSink*) noexcept;
+// What the application does for a plugin (pipeline_host.cpp); the runtime calls these by name, every one after it
+// checked permission, gesture, arguments and rate limit. A test that links runtime objects links a .cpp of its own
+// that defines all sixteen, in place of pipeline_host.cpp. Status values are MC_OK or MC_E_*.
+mc_status plugin_host_send(u64 owner_id, const PluginSend&) noexcept;
+mc_status plugin_host_edit(u64 owner_id, u64 channel_id, u64 message_id, Utf8View text) noexcept;
+mc_status plugin_host_react(u64 owner_id, u64 channel_id, u64 message_id, Utf8View emoji, bool remove) noexcept;
+mc_status plugin_host_delete_own(u64 owner_id, u64 channel_id, u64 message_id) noexcept;
+mc_status plugin_host_mark_read(u64 owner_id, u32 scope, u64 id) noexcept;
+// activity is null to clear.
+mc_status plugin_host_set_activity(u64 owner_id, const mc_activity* activity) noexcept;
+mc_status plugin_host_local_message(u64 owner_id, u64 channel_id, Utf8View text, u64* message_id) noexcept;
+mc_status plugin_host_local_message_remove(u64 owner_id, u64 channel_id, u64 message_id) noexcept;
+mc_status plugin_host_composer_text(void* output, u32 capacity, u32* bytes) noexcept;
+mc_status plugin_host_composer_insert(Utf8View text) noexcept;
+mc_status plugin_host_composer_replace(Utf8View text) noexcept;
+mc_status plugin_host_composer_focus() noexcept;
+mc_status plugin_host_composer_reply(u64 channel_id, u64 message_id, bool ping) noexcept;
+mc_status plugin_host_composer_edit(u64 channel_id, u64 message_id) noexcept;
+// The kept messages changed outside a hook (keep_restore): repaint.
+void plugin_host_keep_changed() noexcept;
+// read_open_channel: fills out (zeroed); MC_E_NOT_FOUND without an open channel.
+mc_status plugin_host_read_open_channel(mc_open_channel* out) noexcept;
+// read_messages: up to capacity loaded messages of channel below before (0: the newest), newest first.
+mc_status plugin_host_read_messages(u64 channel_id, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept;
 
 // Counters since process start; for tests.
 struct PluginPipelineStats {

@@ -153,20 +153,49 @@ bool application_login_view_suspend(bool suspended) noexcept {
            renderer_set_login_view(&g_app.renderer, nullptr, RendererLoginView{}, application_theme());
 }
 
+void application_login_view_state(LoginView* view) noexcept {
+    const LoginRuntime& login = g_app.login;
+    const bool phone = login_phone_mode(login.status);
+    // The method list, its selection and the code field exist only on the multi-factor and security-key screens.
+    const bool mfa_presented = mfa_edit_status(login.status) || login.status == LoginStatus::mfa_backup_acknowledgement ||
+                               login.status == LoginStatus::webauthn_required ||
+                               login.status == LoginStatus::webauthn_failed;
+    view->remote_user = phone ? Utf8View{} : Utf8View{login.remote_user, login.remote_user_bytes};
+    view->focus = login.focus;
+    view->status = login.status;
+    view->mfa_capabilities = mfa_presented ? login.mfa_capabilities : static_cast<u8>(0);
+    view->selected_mfa_capability = mfa_presented ? login_mfa_capability(login.mfa_type) : static_cast<u8>(0);
+    view->backup_acknowledgement_seconds = phone ? static_cast<u8>(0) : login.backup_acknowledgement_seconds;
+    view->sms_sending = !phone && login.sms_sending;
+    view->sms_sent = !phone && login.sms_requested;
+    view->sms_failed = !phone && login.sms_failed;
+    view->visible = login.visible;
+    view->remote_status = phone ? LoginRemoteStatus::idle : login.remote_status;
+    view->reset_mode = login.reset_mode;
+    view->captcha_status = login.captcha_status;
+    view->password_revealed = login.password_revealed;
+    view->auth_rate_limited = application_login_auth_cooldown_active();
+    view->auth_retry_time_unknown = login.auth_retry_time_unknown;
+    view->account_suspended = login.account_suspended;
+    view->caps_lock = application_active_login_edit() == &login.password && window_toggle_state(nullptr, key::caps_lock);
+#if !defined(_WIN32)
+    view->security_key = login.security_key;
+    // The key's PIN is typed in the code field: the key is the method on offer.
+    if (login.security_key_pin && !phone)
+        view->selected_mfa_capability = login_mfa_capability_webauthn;
+#endif
+}
+
 bool application_synchronize_login_view() noexcept {
     Application& application = g_app;
     if (!application.login.initialized || !application.renderer_ready || g_login_view_suspended) {
         return true;
     }
     if (application_login_auth_cooldown_active()) {
-        LoginView paused{};
-        paused.status = application.login.status;
-        paused.captcha_status = application.login.captcha_status;
-        paused.auth_rate_limited = true;
-        paused.auth_retry_time_unknown = application.login.auth_retry_time_unknown;
-        const bool resume = login_view_auth_retry_resume(paused);
-        const bool back = login_requires_back(paused.status, application.login.remote_status) ||
-            application.login.reset_mode || login_phone_mode(paused.status) || login_recovery_mode(paused.status);
+        const LoginRuntime& login = application.login;
+        const bool resume = login_auth_retry_resume(login.status, login.captcha_status, login.auth_retry_time_unknown);
+        const bool back = login_requires_back(login.status, login.remote_status) || login.reset_mode ||
+                          login_phone_mode(login.status) || login_recovery_mode(login.status);
         if (!(resume && application.login.focus == LoginControl::submit) &&
             !(back && application.login.focus == LoginControl::back))
             application.login.focus = resume ? LoginControl::submit : back ? LoginControl::back : LoginControl::none;
@@ -183,18 +212,13 @@ bool application_synchronize_login_view() noexcept {
     SecureEditRenderWindow login_window{};
     SecureEditRenderWindow secret_window{};
     const bool mfa_edit = mfa_edit_status(application.login.status);
-    const bool mfa_presented = mfa_edit || application.login.status == RendererLoginStatus::mfa_backup_acknowledgement ||
-                               application.login.status == RendererLoginStatus::webauthn_required ||
-                               application.login.status == RendererLoginStatus::webauthn_failed;
+    RendererLoginView view{};
+    application_login_view_state(&view);
     // Reveal is an explicit per-field choice; any other state re-masks it.
-    LoginView reveal_probe{};
-    reveal_probe.status = application.login.status;
-    reveal_probe.remote_status = application.login.remote_status;
-    reveal_probe.reset_mode = application.login.reset_mode;
-    reveal_probe.mfa_capabilities = mfa_presented ? application.login.mfa_capabilities : static_cast<u8>(0);
     const bool password_revealed = application.login.password_revealed && !phone && !mfa_edit &&
-                                   login_view_password_reveal_available(reveal_probe);
+                                   login_view_password_reveal_available(view);
     application.login.password_revealed = password_revealed;
+    view.password_revealed = password_revealed;
     application.login.password.password = !password_revealed;
     const SecureEdit& active_secret = phone || mfa_edit ? application.login.mfa : application.login.password;
     const SecureEditResult rendered_login =
@@ -210,78 +234,29 @@ bool application_synchronize_login_view() noexcept {
         secure_clear_bytes(secret_display, sizeof(secret_display));
         return false;
     }
-    const u8 selected_mfa_capability = login_mfa_capability(application.login.mfa_type);
     SecureEdit* focused_edit = application_active_login_edit();
     const bool edit_active = focused_edit != nullptr;
     const SecureEditRenderWindow& edit_window =
         application.login.focus == LoginControl::login ? login_window : secret_window;
-    const bool mfa_code_ready =
-        mfa_edit && login_mfa_validate_code(application.login.mfa_type,
-                                            secure_buffer_view(application.login.mfa.storage))
-                        .ok();
-    RendererLoginView view{Utf8View{login_display, login_display_bytes},
-                           Utf8View{secret_display, secret_display_bytes},
-                           Utf8View{application.login.remote_user, application.login.remote_user_bytes},
-                           edit_window.anchor,
-                           edit_window.caret,
-                           edit_active,
-                           application.login.focus,
-                           application.login.status,
-                           mfa_presented ? application.login.mfa_capabilities : static_cast<u8>(0),
-                           mfa_presented ? selected_mfa_capability : static_cast<u8>(0),
-                           application.login.backup_acknowledgement_seconds,
-                           mfa_code_ready,
-                           application.login.qr_ready ? &application.login.qr_code : nullptr,
-                           application.login.sms_sending,
-                           application.login.sms_requested,
-                           application.login.sms_failed,
-                           application.login.visible};
-    view.remote_status = application.login.remote_status;
-    view.reset_mode = application.login.reset_mode;
-    view.phone_code_ready = phone && login_phone_editable(view.status) && login_phone_code_valid({secret_display, secret_display_bytes});
-    view.captcha_status = application.login.captcha_status;
-    view.password_revealed = password_revealed;
-    view.auth_rate_limited = application_login_auth_cooldown_active();
-    view.auth_retry_time_unknown = application.login.auth_retry_time_unknown;
-    view.account_suspended = application.login.account_suspended;
-    view.caps_lock = focused_edit == &application.login.password && window_toggle_state(nullptr, key::caps_lock);
+    view.login = phone ? Utf8View{} : Utf8View{login_display, login_display_bytes};
+    view.password_mask = Utf8View{secret_display, secret_display_bytes};
+    view.edit_anchor = edit_window.anchor;
+    view.edit_caret = edit_window.caret;
+    view.edit_active = edit_active;
+    view.qr_code = application.login.qr_ready && !phone ? &application.login.qr_code : nullptr;
+    view.mfa_code_ready = mfa_edit && login_mfa_validate_code(application.login.mfa_type,
+                                                              secure_buffer_view(application.login.mfa.storage))
+                                          .ok();
+    view.phone_code_ready = phone && login_phone_editable(view.status) && login_phone_code_valid(view.password_mask);
 #if !defined(_WIN32)
-    view.security_key = application.login.security_key;
-    if (application.login.security_key_pin) {
-        // The key's PIN is typed in the code field: the key is the method on offer, and four characters are enough to send.
-        view.selected_mfa_capability = login_mfa_capability_webauthn;
-        view.mfa_code_ready = application.login.mfa.storage.bytes >= 4;
-    }
+    if (application.login.security_key_pin && !phone)
+        view.mfa_code_ready = application.login.mfa.storage.bytes >= 4; // the key's PIN: four characters are enough to send
 #endif
-    if (phone) {
-        reset_value(&view.login); reset_value(&view.remote_user); view.remote_status = LoginRemoteStatus::idle; view.qr_code = nullptr;
-        view.mfa_capabilities = view.selected_mfa_capability = view.backup_acknowledgement_seconds = 0;
-        view.mfa_code_ready = false; view.sms_sending = view.sms_sent = view.sms_failed = false;
-    }
     if (view.reset_mode) reset_value(&view.login);
     if (view.reset_mode && login_credential_fields_hidden(view.status, view.remote_status, true))
         reset_value(&view.password_mask);
     LoginScene& scene = application.login_scene;
-    scene.restoring_session = view.status == RendererLoginStatus::restoring_session;
-    scene.back_only = login_requires_back(view.status, view.remote_status);
-    scene.recovery_mode = login_recovery_mode(view.status);
-    scene.recovery_disabled = login_view_recovery_disabled(view);
-    scene.reset_mode = view.reset_mode;
-    scene.phone_mode = phone;
-    scene.browser_mode = login_browser_mode(view.status);
-    scene.browser_available = !view.auth_rate_limited &&
-                              login_browser_available(view.status, view.remote_status, view.reset_mode);
-    scene.phone_resend_disabled = phone && !login_phone_editable(view.status);
-    scene.focus = view.focus;
-    scene.mfa_capabilities = view.mfa_capabilities;
-    scene.selected_mfa_capability = view.selected_mfa_capability;
-    scene.credential_fields_hidden = login_credential_fields_hidden(view.status, view.remote_status, view.reset_mode);
-    scene.action_disabled = login_view_action_disabled(view);
-    scene.submit_disabled = login_view_submit_disabled(view);
-    scene.auth_retry_resume = login_view_auth_retry_resume(view);
-    scene.captcha_action = login_view_captcha_action(view);
-    scene.password_reveal_available = login_view_password_reveal_available(view);
-    scene.password_revealed = scene.password_reveal_available && view.password_revealed;
+    login_scene_apply_view(&scene, view);
     const float width_dip = static_cast<float>(application.renderer.width) * 96.0f /
                             static_cast<float>(maximum<u32>(application.renderer.dpi, 1));
     const float height_dip = static_cast<float>(application.renderer.height) * 96.0f /

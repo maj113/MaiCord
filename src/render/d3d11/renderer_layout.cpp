@@ -207,7 +207,7 @@ UiRect fit_in(const UiRect& tile, u32 width, u32 height, bool cover) noexcept {
     return {left, top, left + scaled_width, top + scaled_height};
 }
 
-bool paint_threads_launcher(const D3D11Renderer& renderer, const Theme& theme,
+bool paint_threads_launcher(const D3D11Renderer& renderer, bool selected, const Theme& theme,
                             PaintStream* stream) noexcept {
     const auto* scene = renderer.ui_scene;
     const auto* button =
@@ -215,7 +215,6 @@ bool paint_threads_launcher(const D3D11Renderer& renderer, const Theme& theme,
     if (!button || !button->visible)
         return true;
     const auto rectangle = button->rectangle;
-    const bool selected = d3d11_renderer_thread_browser_visible(renderer);
     const Color fill = selected ? theme.tokens.emphasis.fill
                                 : ui_button_background(scene->widgets, ui_scene_widget(*scene, UiSemantic::threads_toggle), theme, {},
                                                        UiButtonSurface::palette);
@@ -1027,8 +1026,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     animation_frame_cache_gpu_begin_visibility(&renderer->animation_gpu);
     renderer->paint_stream.filter_scrollbars = true;
     renderer->paint_stream.scrollbar_hot = renderer->scrollbar_hot;
-    if (!renderer->login_visible && renderer_settings_page_visible(*renderer))
-        return build_settings_page(renderer, theme);
+    const u32 shown = d3d11_renderer_frame_surfaces(*renderer);
+    if (!renderer->login_visible && (shown & d3d11_surface_settings_page))
+        return build_settings_page(renderer, shown, theme);
     renderer->paint_stream.scrollbar_viewport = renderer->scrollbar_viewport;
     if (d3d11_renderer_active(renderer->popup_scene)) {
         renderer->paint_stream.scrollbar_viewport = renderer->popup_scene->rectangle;
@@ -1115,7 +1115,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     ShellPresentationRegions shell{};
     const bool friends_active = d3d11_renderer_active(renderer->friends_scene);
     const bool friends_requests_active = d3d11_renderer_active(renderer->friends_requests_scene);
-    const bool browser_active = d3d11_renderer_thread_browser_visible(*renderer);
+    const bool browser_active = (shown & d3d11_surface_thread_browser) != 0;
     const bool content_hidden = friends_active || browser_active;
     // Only the fully written prefixes are passed to presentation and hashing.
     LayoutScratch* const scratch = layout_scratch(renderer);
@@ -1168,7 +1168,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 ShellTextMeasure{renderer->chat_state, renderer->message_measure_cache})) {
             return layout_step_failed(__LINE__);
         }
-        if (!paint_threads_launcher(*renderer, theme, &renderer->paint_stream))
+        if (!paint_threads_launcher(*renderer, browser_active, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
         if (browser_active)
             remove_covered_shell_paint(&renderer->paint_stream, renderer->thread_browser_scene->panel);
@@ -1531,7 +1531,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         shell_segment_capture(renderer, segment_key, chrome_regions);
     } // !segment_replayed
 
-    if (!build_timeline_media(renderer, theme, message_scene, messages_visible, content_hidden))
+    if (!build_timeline_media(renderer, shown, theme, message_scene, messages_visible, content_hidden))
         return false;
     if (friends_active &&
         !ui_friends_scene_presence_paint(*renderer->friends_scene, theme, &renderer->paint_stream))
@@ -1574,9 +1574,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             return layout_step_failed(__LINE__);
     }
 
-    const auto* focus_owner = d3d11_renderer_visible_focus_owner(*renderer);
+    const auto* focus_owner = d3d11_renderer_visible_focus_owner(*renderer, shown);
     if (focus_owner && !renderer->login_visible && !friends_requests_active &&
-        !d3d11_renderer_media_picker_visible(*renderer) &&
+        !(shown & d3d11_surface_media_picker) &&
         !d3d11_renderer_active(renderer->popup_scene) &&
         !d3d11_renderer_form_active(*renderer) &&
         !d3d11_renderer_active(renderer->reaction_viewer) &&
@@ -1601,21 +1601,21 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     // Call view: background and tile plates lead the side-panel layer; its
     // media and foreground (pills, rings, controls) follow below.
-    const bool call_visible = d3d11_renderer_call_visible(*renderer);
+    const bool call_visible = (shown & d3d11_surface_call) != 0;
     if (call_visible && !ui_call_scene_paint(*renderer->call_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (d3d11_renderer_unread_banner_visible(*renderer) &&
+    if ((shown & d3d11_surface_unread_banner) &&
         !ui_unread_banner_paint(*renderer->unread_banner_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     // Its labels draw here (renderer_draw), under the panels that follow.
     renderer->unread_banner_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
     const u32 pins_paint_first = renderer->paint_stream.count;
-    if (d3d11_renderer_pinned_messages_visible(*renderer) &&
+    if ((shown & d3d11_surface_pinned_messages) &&
         !ui_pinned_messages_scene_paint(*renderer->pinned_messages_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     const u32 pins_paint_end = renderer->paint_stream.count;
     const u32 search_paint_first = renderer->paint_stream.count;
-    if (!build_search_media(renderer, theme))
+    if (!build_search_media(renderer, shown, theme))
         return false;
     if (friends_requests_active) {
         const UnfilteredPaint scope(&renderer->paint_stream);
@@ -1623,9 +1623,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                                     renderer->dpi, false))
             return layout_step_failed(__LINE__);
     }
-    if (!d3d11_renderer_search_visible(*renderer))
+    if (!(shown & d3d11_surface_search))
         renderer->friends_requests_foreground_first_batch = paint_stream_seal(&renderer->paint_stream);
-    if (d3d11_renderer_pinned_messages_visible(*renderer) && renderer->media_atlas &&
+    if ((shown & d3d11_surface_pinned_messages) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         const auto& pins = *renderer->pinned_messages_scene;
         bool first = true;
@@ -1661,7 +1661,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             }
         }
     }
-    if (d3d11_renderer_search_visible(*renderer) && renderer->media_atlas &&
+    if ((shown & d3d11_surface_search) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         const auto& search = *renderer->search_scene;
         bool first = true;
@@ -1737,11 +1737,11 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         return layout_step_failed(__LINE__);
     renderer->friends_requests_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
     // Search result link chip icons draw above the search text.
-    if (d3d11_renderer_search_visible(*renderer) && !paint_chip_icons(renderer, theme, true))
+    if ((shown & d3d11_surface_search) && !paint_chip_icons(renderer, theme, true))
         return layout_step_failed(__LINE__);
     renderer->media_picker_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     renderer->media_picker_media_first_batch = renderer->media_batch_count;
-    if (d3d11_renderer_media_picker_visible(*renderer)) {
+    if (shown & d3d11_surface_media_picker) {
         const auto& gallery = *renderer->media_picker_scene;
         {
             const UnfilteredPaint scope(&renderer->paint_stream);
@@ -1808,7 +1808,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     renderer->media_picker_foreground_first_batch = paint_stream_seal(&renderer->paint_stream);
-    if (d3d11_renderer_media_picker_visible(*renderer) &&
+    if ((shown & d3d11_surface_media_picker) &&
         !ui_media_picker_scene_paint_foreground(*renderer->media_picker_scene, theme,
                                                 &renderer->paint_stream))
         return layout_step_failed(__LINE__);
@@ -1817,8 +1817,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     // Beside a call, its text chat keeps the message hover toolbar.
     if (!content_hidden && (!call_visible || renderer->call_scene->chat_open) &&
         !d3d11_renderer_active(renderer->profile_scene) &&
-        !d3d11_renderer_media_picker_visible(*renderer) && renderer->message_action_bar &&
-        !d3d11_renderer_message_modal_active(*renderer) && renderer->message_action_bar->active &&
+        !(shown & d3d11_surface_media_picker) && renderer->message_action_bar &&
+        !(shown & d3d11_surface_message_modal) && renderer->message_action_bar->active &&
         !message_action_bar_presentation_build(*renderer->message_action_bar, theme,
                                                &renderer->paint_stream)) {
         return layout_step_failed(__LINE__);
@@ -1850,17 +1850,17 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->popup_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     renderer->popup_scene_media_first_batch = renderer->popup_scene_media_end_batch =
         renderer->media_batch_count;
-    if (d3d11_renderer_download_visible(*renderer)) {
+    if (shown & d3d11_surface_download) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         if (!ui_download_scene_paint(*renderer->download_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
     }
-    if (d3d11_renderer_go_live_visible(*renderer)) {
+    if (shown & d3d11_surface_go_live) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         if (!ui_go_live_scene_paint(*renderer->go_live_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
     }
-    if (d3d11_renderer_message_forward_visible(*renderer)) {
+    if (shown & d3d11_surface_message_forward) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         const auto popup_edit = d3d11_renderer_popup_edit_geometry(*renderer);
         if (!ui_message_forward_scene_paint(*renderer->message_forward_scene, theme, &renderer->paint_stream,
@@ -1869,47 +1869,47 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     }
     // Search, pins and forward copies of inline controls ride their surface;
     // timeline ones painted with the message media (build_timeline_media).
-    if (d3d11_renderer_audio_scene_visible(*renderer) && !d3d11_renderer_timeline_audio_visible(*renderer) &&
+    if ((shown & d3d11_surface_audio) && !d3d11_renderer_timeline_audio_visible(*renderer, shown) &&
         !ui_audio_scene_paint(*renderer->audio_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (d3d11_renderer_poll_scene_visible(*renderer) && !d3d11_renderer_timeline_poll_visible(*renderer) &&
+    if ((shown & d3d11_surface_poll) && !d3d11_renderer_timeline_poll_visible(*renderer, shown) &&
         !ui_poll_scene_paint(*renderer->poll_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (d3d11_renderer_poll_voters_visible(*renderer) &&
+    if ((shown & d3d11_surface_poll_voters) &&
         !ui_poll_voters_scene_paint(*renderer->poll_voters_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (d3d11_renderer_quick_switcher_visible(*renderer)) {
+    if (shown & d3d11_surface_quick_switcher) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         if (!ui_quick_switcher_scene_paint(*renderer->quick_switcher_scene, theme, &renderer->paint_stream,
                                            &renderer->media_picker_edit_geometry, renderer->dpi))
             return layout_step_failed(__LINE__);
     }
-    if (d3d11_renderer_inbox_visible(*renderer)) {
+    if (shown & d3d11_surface_inbox) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         if (!ui_inbox_scene_paint(*renderer->inbox_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
     }
-    if (d3d11_renderer_stream_card_visible(*renderer) &&
+    if ((shown & d3d11_surface_stream_card) &&
         !ui_stream_card_paint(*renderer->stream_card_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (d3d11_renderer_names_card_visible(*renderer) &&
+    if ((shown & d3d11_surface_names_card) &&
         !ui_names_card_paint(*renderer->names_card_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (d3d11_renderer_expression_card_visible(*renderer) &&
+    if ((shown & d3d11_surface_expression_card) &&
         !ui_expression_card_paint(*renderer->expression_card_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     // The server tag popout: card and banner colour, then (after its banner
     // picture, see below) the foreground under its icon and badge.
     renderer->guild_card_foreground_first_batch = renderer->popup_overlay_paint_first_batch = ~0u;
     renderer->guild_card_banner_media_end_batch = 0;
-    if (d3d11_renderer_guild_card_visible(*renderer)) {
+    if (shown & d3d11_surface_guild_card) {
         if (!ui_guild_card_paint(*renderer->guild_card_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
         renderer->guild_card_foreground_first_batch = paint_stream_seal(&renderer->paint_stream);
         if (!ui_guild_card_paint_foreground(*renderer->guild_card_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
     }
-    if (d3d11_renderer_shortcuts_visible(*renderer)) {
+    if (shown & d3d11_surface_shortcuts) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         if (!ui_shortcuts_scene_paint(*renderer->shortcuts_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
@@ -1958,18 +1958,18 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         // (gallery chevrons, hosted video controls) and their glyphs.
         renderer->theme_editor_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
         if (!ui_image_viewer_paint_overlay(viewer, theme, &renderer->paint_stream) ||
-            (d3d11_renderer_viewer_video_visible(*renderer) &&
+            ((shown & d3d11_surface_viewer_video) &&
              !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream)))
             return layout_step_failed(__LINE__);
         renderer->theme_editor_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
         renderer->form_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
         // Toolbar tooltips: the form layer draws above the viewer chrome.
-        if (d3d11_renderer_tooltip_visible(*renderer) &&
+        if ((shown & d3d11_surface_tooltip) &&
             !ui_tooltip_paint(*renderer->tooltip_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
-        if (!queue_zoom_lens_frame(renderer, theme, false) || !queue_toast(renderer, theme))
+        if (!queue_zoom_lens_frame(renderer, theme, false) || !queue_toast(renderer, shown, theme))
             return layout_step_failed(__LINE__);
-        return queue_inline_flags(renderer);
+        return queue_inline_flags(renderer, shown);
 
     }
     bool first_interaction_media = true;
@@ -1977,7 +1977,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
 
     // The server tag popout's banner picture leads the interaction media: it
     // draws over the card, under its foreground (icon ring) and icon.
-    if (d3d11_renderer_guild_card_visible(*renderer) && renderer->media_atlas &&
+    if ((shown & d3d11_surface_guild_card) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         UiGuildCardMedia media{};
         if (ui_guild_card_media(*renderer->guild_card_scene, kUiGuildCardBannerMedia, &media)) {
@@ -1993,7 +1993,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     }
 
     // Quick switcher / people picker identities cover their kind glyphs.
-    if (d3d11_renderer_quick_switcher_visible(*renderer) && renderer->media_atlas &&
+    if ((shown & d3d11_surface_quick_switcher) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         const auto& switcher = *renderer->quick_switcher_scene;
         for (u32 slot = 0; slot < switcher.count; ++slot) {
@@ -2011,7 +2011,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     // Forward destinations: server icons and DM avatars cover their tile glyphs.
-    if (d3d11_renderer_message_forward_visible(*renderer) && renderer->media_atlas &&
+    if ((shown & d3d11_surface_message_forward) && renderer->media_atlas &&
         renderer->media_gpu.texture_view && renderer->chat_state) {
         const auto& forward = *renderer->message_forward_scene;
         for (u32 slot = 0; slot < forward.count; ++slot) {
@@ -2029,7 +2029,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     // Screen share sources: their live thumbnails, letterboxed, dimmed under the hover call to action.
-    if (d3d11_renderer_go_live_visible(*renderer)) {
+    if (shown & d3d11_surface_go_live) {
         const auto& scene = *renderer->go_live_scene;
         for (u32 index = 0; index < scene.source_count; ++index) {
             UiRect picture{}, clip{};
@@ -2046,7 +2046,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     // Inbox mention authors and poll voters cover their neutral avatar circles.
-    if (d3d11_renderer_inbox_visible(*renderer) && renderer->media_atlas &&
+    if ((shown & d3d11_surface_inbox) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         const auto& inbox = *renderer->inbox_scene;
         for (u32 slot = 0; slot < inbox.count && slot < kUiInboxVisibleRows; ++slot) {
@@ -2064,7 +2064,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     // The stream card's preview covers its thumbnail plate.
-    if (d3d11_renderer_stream_card_visible(*renderer)) {
+    if (shown & d3d11_surface_stream_card) {
         UiStreamCardMedia media{};
         if (ui_stream_card_media(*renderer->stream_card_scene, theme, &media)) {
             u8 domain = 0;
@@ -2081,7 +2081,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     // The names popout's server pictures over their discs.
-    if (d3d11_renderer_names_card_visible(*renderer) && renderer->media_atlas && renderer->media_gpu.texture_view) {
+    if ((shown & d3d11_surface_names_card) && renderer->media_atlas && renderer->media_gpu.texture_view) {
         UiNamesCardMedia media{};
         for (u32 index = 0; index < kUiNamesCardRows * kUiNamesCardIcons; ++index, media = {}) {
             if (!ui_names_card_media(*renderer->names_card_scene, index, &media))
@@ -2096,7 +2096,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     // The emoji/sticker popout's picture, the pack's stickers and the server icon.
-    if (d3d11_renderer_expression_card_visible(*renderer) && renderer->media_atlas &&
+    if ((shown & d3d11_surface_expression_card) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         UiExpressionCardMedia media{};
         for (u32 index = 0; index < kUiExpressionCardMediaCount; ++index, media = {}) {
@@ -2113,7 +2113,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     // The server tag popout's icon, tag badge, game pictures and trait emoji cover their plates.
-    if (d3d11_renderer_guild_card_visible(*renderer) && renderer->media_atlas &&
+    if ((shown & d3d11_surface_guild_card) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         UiGuildCardMedia media{};
         for (u32 index = 0; index < kUiGuildCardMediaCount; ++index, media = {}) {
@@ -2131,7 +2131,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             first_interaction_media = false;
         }
     }
-    if (d3d11_renderer_poll_voters_visible(*renderer) && renderer->media_atlas &&
+    if ((shown & d3d11_surface_poll_voters) && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         const auto& voters = *renderer->poll_voters_scene;
         for (u32 index = voters.first; index < voters.first + voters.visible; ++index) {
@@ -2242,11 +2242,11 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     }
     // Popup paint over the popup media: the server tag popout's busy-game markers.
     renderer->popup_overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
-    if (d3d11_renderer_guild_card_visible(*renderer) &&
+    if ((shown & d3d11_surface_guild_card) &&
         !ui_guild_card_paint_overlay(*renderer->guild_card_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     renderer->theme_editor_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
-    if (renderer_theme_editor_visible(*renderer)) {
+    if (shown & d3d11_surface_theme_editor) {
         if (!paint_stream_push_clip(&renderer->paint_stream, 0, 0, width_dip, height_dip))
             return layout_step_failed(__LINE__);
         renderer->theme_editor_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
@@ -2257,7 +2257,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->theme_editor_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
     // Quick switcher status dots sit on the avatars queued above.
     renderer->quick_switcher_status_first_batch = paint_stream_seal(&renderer->paint_stream);
-    if (d3d11_renderer_quick_switcher_visible(*renderer) &&
+    if ((shown & d3d11_surface_quick_switcher) &&
         !ui_quick_switcher_scene_presence_paint(*renderer->quick_switcher_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     renderer->quick_switcher_status_end_batch = paint_stream_seal(&renderer->paint_stream);
@@ -2271,19 +2271,16 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         !text_form_paint(*renderer->text_form->scene, renderer->text_form->geometry, theme,
                          &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (renderer_settings_page_visible(*renderer) &&
-        !ui_settings_scene_paint(*renderer->settings_scene, theme, &renderer->paint_stream, renderer->dpi))
-        return layout_step_failed(__LINE__);
-    if (d3d11_renderer_tooltip_visible(*renderer)) {
+    if (shown & d3d11_surface_tooltip) {
         renderer->form_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
         if (!ui_tooltip_paint(*renderer->tooltip_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
     }
-    if (!queue_zoom_lens_frame(renderer, theme, !d3d11_renderer_tooltip_visible(*renderer)))
+    if (!queue_zoom_lens_frame(renderer, theme, !(shown & d3d11_surface_tooltip)))
         return layout_step_failed(__LINE__);
-    if (!queue_toast(renderer, theme))
+    if (!queue_toast(renderer, shown, theme))
         return layout_step_failed(__LINE__);
-    return queue_inline_flags(renderer);
+    return queue_inline_flags(renderer, shown);
 }
 
 // Stamped inputs that build_layout itself moves: the timeline geometry count

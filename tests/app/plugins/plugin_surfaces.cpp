@@ -16,6 +16,48 @@ namespace maicord {
 void test_plugin_surface_scenes(void (*check)(bool, const char*) noexcept) noexcept;
 } // namespace maicord
 
+namespace maicord {
+// The cache mc_api.read_* reads (the plugin_host_read_* functions), in place of surface_host.cpp: user 5, channel 6
+// and server 7 and what they hold.
+bool plugin_host_read_user(u64 user, u64 guild, PluginUserInput* out) noexcept {
+    if (user != 5) return false;
+    out->user_id = 5;
+    out->guild_id = guild;
+    out->flags = kPluginUserBot;
+    out->relationship = kPluginRelationshipFriend;
+    out->presence = kPluginPresenceIdle;
+    out->platforms = kPluginPlatformMobile | kPluginPlatformWeb;
+    out->name = guild ? Utf8View{"Nick", 4} : Utf8View{"Global", 6};
+    out->username = {"user5", 5};
+    return true;
+}
+bool plugin_host_read_channel(u64 channel, PluginChannelInput* out) noexcept {
+    if (channel != 6) return false;
+    *out = {6, 7, 8, 0x400, 0, kPluginChannelNsfw | kPluginChannelCanSend, 2, {"general", 7}};
+    return true;
+}
+bool plugin_host_read_guild(u64 guild, PluginGuildInput* out) noexcept {
+    if (guild != 7) return false;
+    *out = {7, 9, 0x8, kPluginGuildMuted, 3, 120, 17, {"Home", 4}, 14, 2, 3, 21, 6, 40};
+    return true;
+}
+bool plugin_host_read_permissions(u64 guild, u64 channel, u64 user, u64* bits) noexcept {
+    if (guild != 7) return false;
+    *bits = channel ? 0x400 + user : 0x8;
+    return true;
+}
+bool plugin_host_read_voice_channel(u64 user, u64 guild, u64* channel) noexcept {
+    *channel = user == 5 && (!guild || guild == 7) ? 66 : 0;
+    return *channel != 0;
+}
+// User 5 shares three group DMs, the most recent first.
+u32 plugin_host_read_shared_group_dms(u64 user, Slice<u64> out) noexcept {
+    if (user != 5) return 0;
+    for (u32 i = 0; i < 3 && i < out.count; ++i) out[i] = 300 - i;
+    return 3;
+}
+} // namespace maicord
+
 namespace maicord::plugin_surfaces_tests {
 using namespace plugin_surfaces_detail;
 using namespace plugin_fixture;
@@ -46,7 +88,7 @@ PluginMessageInput message(u64 id, const char* content, u32 revision = 1, u64 gu
 }
 bool prepare(const PluginMessageInput& input, PluginDecoratePass* pass = nullptr) noexcept {
     PluginDecoratePass local{};
-    return g_plugin_surfaces->message(pass ? pass : &local, input);
+    return plugin_decorate_message(pass ? pass : &local, input);
 }
 const UiPluginRenderDecoration* decoration(u64 id, u32 revision = 1) noexcept { return ui_plugin_render(id, revision); }
 surfaces_state* state_of(PluginBinding* binding) noexcept { return static_cast<surfaces_state*>(binding->ctx.state); }
@@ -57,9 +99,9 @@ u32 slots(u32 surface, u64 channel, u64 message_id, u64 user, u64 guild, UiPlugi
 
 // ---- Tests ---------------------------------------------------------------------------
 
-// With nothing enabled the UI has no query and the application no table: every surface is one null test.
+// With nothing enabled the UI has no query and the application is told so: every surface is one test.
 void test_no_plugins() noexcept {
-    check(!g_plugin_surfaces && !g_ui_plugin_render_query && !g_ui_plugin_slot_query,
+    check(!g_plugin_surfaces_active && !g_ui_plugin_render_query && !g_ui_plugin_slot_query,
           "nothing is installed before a decorating plugin is enabled");
     check(!ui_plugin_render(5, 1) && !ui_plugin_slot_surface_active(kUiPluginSlotChannelRow),
           "the UI reads nothing without a query");
@@ -70,8 +112,8 @@ void test_enable(PluginRuntime* runtime, PluginBinding** out) noexcept {
     check(enabled.ok() && enabled.binding, "the surfaces plugin is enabled");
     if (!enabled.ok()) return;
     *out = enabled.binding;
-    check(g_plugin_surfaces && g_ui_plugin_render_query && g_ui_plugin_slot_query, "the queries are installed");
-    check(g_plugin_surfaces->wants == 0x1f && g_plugin_surfaces->message_needs == MC_NEED_CONTENT,
+    check(g_plugin_surfaces_active && g_ui_plugin_render_query && g_ui_plugin_slot_query, "the queries are installed");
+    check(g_plugin_surface_wants == 0x1f && g_plugin_message_needs == MC_NEED_CONTENT,
           "every kind is wanted and only content is needed");
     const u32 mask = g_ui_plugin_slot_surfaces;
     const u32 expected = (1u << kUiPluginSlotMessageAccessory) | (1u << kUiPluginSlotComposerToolbar) | (1u << kUiPluginSlotMemberBadge) |
@@ -101,7 +143,7 @@ void test_messages(PluginBinding* binding) noexcept {
     const auto* collapsed = decoration(2);
     check(collapsed && collapsed->visibility == ui_plugin_render_collapsed && same(collapsed->collapsed_label, "Spoiler"),
           "collapse keeps the label");
-    check(g_plugin_surfaces->reveal(2) && !g_plugin_surfaces->reveal(2), "a message is revealed once");
+    check(plugin_surfaces_reveal(2) && !plugin_surfaces_reveal(2), "a message is revealed once");
     check(decoration(2) && decoration(2)->visibility == ui_plugin_render_normal, "a revealed message shows normally");
 
     prepare(message(3, "blur"));
@@ -295,66 +337,66 @@ void test_entities(PluginBinding* binding) noexcept {
     odd.user_id = 31;
     odd.where = MC_USER_MEMBER_ROW;
     odd.guild_id = 7;
-    check(g_plugin_surfaces->user(&pass, odd), "a user is prepared");
+    check(plugin_decorate_user(&pass, odd), "a user is prepared");
     check(slots(kUiPluginSlotMemberBadge, 0, 0, 31, 0, nodes, 8) == 1 && same(nodes[0].text, "Fan") &&
               nodes[0].kind == ui_plugin_node_badge && nodes[0].icon == static_cast<u16>(UiIcon::favorite) &&
               nodes[0].owner_id == SURFACES_OWNER,
           "an odd user's member row shows a badge");
     PluginUserInput even = odd;
     even.user_id = 30;
-    g_plugin_surfaces->user(&pass, even);
+    plugin_decorate_user(&pass, even);
     check(slots(kUiPluginSlotMemberBadge, 0, 0, 30, 0, nodes, 8) == 0, "an even user shows nothing");
     const u32 user_calls = state->user_calls;
-    g_plugin_surfaces->user(&pass, odd);
+    plugin_decorate_user(&pass, odd);
     check(state->user_calls == user_calls, "a current user is not asked again");
     PluginUserInput present = odd;
     present.presence = MC_PRESENCE_ONLINE;
     present.platforms = MC_PLATFORM_MOBILE;
-    g_plugin_surfaces->user(&pass, present);
+    plugin_decorate_user(&pass, present);
     check(state->user_calls == user_calls + 1, "a presence change asks again");
     check(!(binding->permissions & MC_PERM_READ_ACTIVITY) && state->last_user_presence == MC_PRESENCE_UNKNOWN &&
               state->last_user_platforms == 0,
           "a plugin without the activity permission sees no presence or devices");
     PluginUserInput author = odd;
     author.where = MC_USER_MESSAGE_AUTHOR;
-    g_plugin_surfaces->user(&pass, author);
+    plugin_decorate_user(&pass, author);
     check(state->user_calls == user_calls + 1, "the surface filter skips message authors");
 
     PluginUserInput profile = odd;
     profile.where = MC_USER_PROFILE;
-    g_plugin_surfaces->user(&pass, profile);
+    plugin_decorate_user(&pass, profile);
     check(slots(kUiPluginSlotProfileSection, 0, 0, 31, 0, nodes, 8) == 2 && same(nodes[0].text, "Profile row") &&
               nodes[1].kind == ui_plugin_node_button && nodes[1].action_id == 31,
           "a profile shows its rows");
 
     // Clicking the profile button reaches NODE_ACTION with its source.
     PluginSurfaceTarget target{kUiPluginSlotProfileSection, 0, 0, 31, 0};
-    check(g_plugin_surfaces->activate(SURFACES_OWNER, target, 31, nullptr), "a profile button click is handled");
+    check(plugin_surfaces_activate(SURFACES_OWNER, target, 31, nullptr), "a profile button click is handled");
     check(state->action_calls == 1 && state->last_action_tag == 31 && state->last_action_user == 31 &&
               state->last_action_kind == MC_NODE_BUTTON && state->last_action_source == MC_HOOK_DECORATE_USER &&
               (state->last_action_flags & MC_CTX_GESTURE),
           "the action carries the tag, user and source in a gesture");
-    check(!g_plugin_surfaces->activate(SURFACES_OWNER, target, 32, nullptr), "a tag the plugin does not show is refused");
-    check(!g_plugin_surfaces->activate(SURFACES_OWNER + 5, target, 31, nullptr), "an unknown owner is refused");
+    check(!plugin_surfaces_activate(SURFACES_OWNER, target, 32, nullptr), "a tag the plugin does not show is refused");
+    check(!plugin_surfaces_activate(SURFACES_OWNER + 5, target, 31, nullptr), "an unknown owner is refused");
     check(state->action_calls == 1, "refused clicks reach nobody");
 
     PluginChannelInput channel{};
     channel.channel_id = 55;
     channel.guild_id = 7;
     channel.flags = MC_CHANNEL_UNREAD;
-    check(g_plugin_surfaces->channel(&pass, channel) &&
+    check(plugin_decorate_channel(&pass, channel) &&
               slots(kUiPluginSlotChannelRow, 55, 0, 0, 0, nodes, 8) == 1 && same(nodes[0].text, "new") && nodes[0].tone == 2,
           "an unread channel row shows a badge");
     PluginChannelInput read = channel;
     read.channel_id = 56;
     read.flags = 0;
-    g_plugin_surfaces->channel(&pass, read);
+    plugin_decorate_channel(&pass, read);
     check(slots(kUiPluginSlotChannelRow, 56, 0, 0, 0, nodes, 8) == 0, "a read channel shows nothing");
 
     PluginGuildInput guild{};
     guild.guild_id = 70;
     guild.flags = MC_GUILD_UNREAD;
-    check(g_plugin_surfaces->guild(&pass, guild) && slots(kUiPluginSlotGuildRail, 0, 0, 0, 70, nodes, 8) == 1 &&
+    check(plugin_decorate_guild(&pass, guild) && slots(kUiPluginSlotGuildRail, 0, 0, 0, 70, nodes, 8) == 1 &&
               nodes[0].kind == ui_plugin_node_icon && nodes[0].icon == static_cast<u16>(UiIcon::bell) &&
               same(nodes[0].tooltip, "Unread"),
           "an unread server shows an icon badge");
@@ -364,16 +406,16 @@ void test_entities(PluginBinding* binding) noexcept {
     header.where = MC_HEADER_MEMBER_LIST;
     header.member_count = 120;
     header.online_count = 17;
-    check(g_plugin_surfaces->header(&pass, header) &&
+    check(plugin_decorate_header(&pass, header) &&
               slots(kUiPluginSlotMemberListHeader, 0, 0, 0, 0, nodes, 8) == 1 && same(nodes[0].text, "17 online"),
           "the member list header shows its label");
     header.online_count = 18;
-    g_plugin_surfaces->header(&pass, header);
+    plugin_decorate_header(&pass, header);
     check(slots(kUiPluginSlotMemberListHeader, 0, 0, 0, 0, nodes, 8) == 1 && same(nodes[0].text, "18 online"),
           "a count change asks again");
     PluginHeaderInput title = header;
     title.where = MC_HEADER_CHANNEL;
-    g_plugin_surfaces->header(&pass, title);
+    plugin_decorate_header(&pass, title);
     const u32 header_nodes = slots(kUiPluginSlotHeaderToolbar, 0, 0, 0, 0, nodes, 8);
     check(header_nodes == 2 && nodes[0].kind == ui_plugin_node_button && (nodes[0].action_id & kButtonAction) &&
               same(nodes[1].text, "Fixture header"),
@@ -398,7 +440,7 @@ void test_entities(PluginBinding* binding) noexcept {
     check(plugin_surfaces_push(binding, MC_HOOK_DECORATE_HEADER, 0, 0, nullptr) == MC_OK &&
               slots(kUiPluginSlotMemberListHeader, 0, 0, 0, 0, nodes, 8) == 0,
           "clearing a push leaves nothing until the hook answers again");
-    g_plugin_surfaces->header(&pass, header);
+    plugin_decorate_header(&pass, header);
     check(slots(kUiPluginSlotMemberListHeader, 0, 0, 0, 0, nodes, 8) == 1 && same(nodes[0].text, "18 online"),
           "and the pulled header comes back");
     plugin_surfaces_push(binding, MC_HOOK_DECORATE_USER, 40, 0, nullptr);
@@ -431,41 +473,34 @@ void test_buttons(PluginBinding* binding) noexcept {
     check(shown(kUiPluginSlotMessageHover, 200, nodes, 8) == 1 && same(nodes[0].text, "Popover B"),
           "before the application asks, only the button with no predicate shows");
     PluginDecoratePass pass{};
-    check(g_plugin_surfaces->popover(&pass, apple) && pass.calls == 1, "the predicates run once for a message");
+    check(plugin_decorate_popover(&pass, apple) && pass.calls == 1, "the predicates run once for a message");
     check(state->visible_calls == 3, "both message predicates ran");
     check(shown(kUiPluginSlotMessageHover, 200, nodes, 8) == 2 && same(nodes[0].text, "Popover A") &&
               same(nodes[1].text, "Popover B"),
           "an 'a' message gets A and B");
     PluginDecoratePass again{};
-    g_plugin_surfaces->popover(&again, apple);
+    plugin_decorate_popover(&again, apple);
     check(state->visible_calls == 3 && again.calls == 0, "a current answer is not asked again");
     apple.revision = 2;
-    g_plugin_surfaces->popover(&again, apple);
+    plugin_decorate_popover(&again, apple);
     check(state->visible_calls == 5, "a new revision asks again");
     PluginMessageInput cat = message(201, "cat");
-    g_plugin_surfaces->popover(&again, cat);
+    plugin_decorate_popover(&again, cat);
     check(shown(kUiPluginSlotMessageHover, 201, nodes, 8) == 2 && same(nodes[0].text, "Popover B") &&
               same(nodes[1].text, "Popover C") && nodes[1].tone == 4,
           "a 'c' message gets B and the dangerous C");
-    PluginButtonRef refs[4];
-    check(g_plugin_surfaces->overflow(200, 1, {refs, 4}) == 1 && same(refs[0].label, "Popover B") && !refs[0].danger &&
-              (refs[0].action_id & kButtonAction),
-          "past a one-button bar the rest overflow");
-    check(g_plugin_surfaces->overflow(201, 2, {refs, 4}) == 0, "nothing overflows a full bar");
-    check(g_plugin_surfaces->overflow(201, 1, {refs, 4}) == 1 && same(refs[0].label, "Popover C") && refs[0].danger,
-          "the danger flag follows the button");
     PluginDecoratePass tight{};
     tight.budget_us = 1;
     tight.spent_us = 1;
     PluginMessageInput fresh = message(202, "apple");
-    check(!g_plugin_surfaces->popover(&tight, fresh) && tight.exhausted &&
+    check(!plugin_decorate_popover(&tight, fresh) && tight.exhausted &&
               shown(kUiPluginSlotMessageHover, 202, nodes, 8) == 1,
           "a pass out of budget leaves the predicates for later");
 
     // A click is a gesture with the clicked message; the toggle round trip goes through button_state.
     PluginSurfaceTarget bar{kUiPluginSlotComposerToolbar, 100, 0, 0, 7};
     const u64 toggle = kButtonAction | SURFACES_BUTTON_CHAT_TOGGLE;
-    check(g_plugin_surfaces->activate(SURFACES_OWNER, bar, toggle, nullptr), "the toggle click is handled");
+    check(plugin_surfaces_activate(SURFACES_OWNER, bar, toggle, nullptr), "the toggle click is handled");
     check(state->click_calls == 1 && state->last_button == SURFACES_BUTTON_CHAT_TOGGLE && state->last_click_channel == 100 &&
               state->last_click_guild == 7 && !state->last_click_message && (state->last_click_flags & MC_CTX_GESTURE) &&
               state->state_status == MC_OK && state->toggled == 1,
@@ -474,14 +509,14 @@ void test_buttons(PluginBinding* binding) noexcept {
               nodes[0].badge == 3 && same(nodes[0].tooltip, "Fixture on"),
           "the toggle shows active with its badge and tooltip");
     const u64 revision = g_plugin_surface_revision;
-    g_plugin_surfaces->activate(SURFACES_OWNER, bar, toggle, nullptr);
+    plugin_surfaces_activate(SURFACES_OWNER, bar, toggle, nullptr);
     check(shown(kUiPluginSlotComposerToolbar, 0, nodes, 8) == 1 && !nodes[0].state && !nodes[0].badge &&
               !nodes[0].tooltip.bytes && g_plugin_surface_revision != revision,
           "a second click turns it off and the UI revision moves");
 
     PluginSurfaceTarget hover{kUiPluginSlotMessageHover, 100, 201, 9, 7};
     PluginMessageInput clicked = message(201, "cat");
-    check(g_plugin_surfaces->activate(SURFACES_OWNER, hover, kButtonAction | SURFACES_BUTTON_POPOVER_C, &clicked),
+    check(plugin_surfaces_activate(SURFACES_OWNER, hover, kButtonAction | SURFACES_BUTTON_POPOVER_C, &clicked),
           "a popover click is handled");
     check(state->last_button == SURFACES_BUTTON_POPOVER_C && state->last_click_message == 201 &&
               state->last_click_content_bytes == 3 && state->push_status == MC_OK,
@@ -490,13 +525,13 @@ void test_buttons(PluginBinding* binding) noexcept {
               same(decoration(201)->accessories[0].text, "Pushed by click"),
           "the click's push shows under the message");
     plugin_surfaces_push(binding, MC_HOOK_DECORATE_MESSAGE, 201, 100, nullptr);
-    check(!g_plugin_surfaces->activate(SURFACES_OWNER, hover, kButtonAction | SURFACES_BUTTON_POPOVER_A, &clicked),
+    check(!plugin_surfaces_activate(SURFACES_OWNER, hover, kButtonAction | SURFACES_BUTTON_POPOVER_A, &clicked),
           "a button the message does not show cannot be clicked");
-    check(!g_plugin_surfaces->activate(SURFACES_OWNER, hover, kButtonAction | SURFACES_BUTTON_POPOVER_C, nullptr),
+    check(!plugin_surfaces_activate(SURFACES_OWNER, hover, kButtonAction | SURFACES_BUTTON_POPOVER_C, nullptr),
           "a popover click needs its message");
-    check(!g_plugin_surfaces->activate(SURFACES_OWNER, bar, kButtonAction | SURFACES_BUTTON_HEADER, nullptr),
+    check(!plugin_surfaces_activate(SURFACES_OWNER, bar, kButtonAction | SURFACES_BUTTON_HEADER, nullptr),
           "a click from the wrong surface is refused");
-    check(!g_plugin_surfaces->activate(SURFACES_OWNER, bar, kButtonAction | 40, nullptr), "an unknown button is refused");
+    check(!plugin_surfaces_activate(SURFACES_OWNER, bar, kButtonAction | 40, nullptr), "an unknown button is refused");
 
     // State from the host side: disabled and hidden.
     mc_button_state disabled{MC_BUTTON_DISABLED, 0, {}, {}};
@@ -504,7 +539,7 @@ void test_buttons(PluginBinding* binding) noexcept {
     check(buttons_set_state(binding, SURFACES_BUTTON_ACCOUNT, disabled) == MC_OK, "a state is set");
     check(shown(kUiPluginSlotAccountPanel, 0, nodes, 8) == 1 && (nodes[0].state & kUiPluginSlotDisabled), "it shows dimmed");
     PluginSurfaceTarget account{kUiPluginSlotAccountPanel, 100, 0, 0, 7};
-    check(!g_plugin_surfaces->activate(SURFACES_OWNER, account, kButtonAction | SURFACES_BUTTON_ACCOUNT, nullptr) &&
+    check(!plugin_surfaces_activate(SURFACES_OWNER, account, kButtonAction | SURFACES_BUTTON_ACCOUNT, nullptr) &&
               state->click_calls == clicks,
           "a disabled button's click does nothing");
     mc_button_state hidden{MC_BUTTON_HIDDEN, 0, {}, {}};
@@ -529,7 +564,7 @@ void test_buttons(PluginBinding* binding) noexcept {
 
     // Predicates are asked again on a refresh.
     const u32 visible = state->visible_calls;
-    g_plugin_surfaces->refresh_buttons(100, 7);
+    plugin_surfaces_refresh_buttons(100, 7);
     check(state->visible_calls == visible + 1, "a refresh asks the message-independent predicates again");
 }
 
@@ -552,14 +587,15 @@ void test_merge(PluginRuntime* runtime, PluginBinding* first) noexcept {
     check(decoration(302) && decoration(302)->visibility == ui_plugin_render_hidden, "one plugin's hide wins");
     check(state_of(second.binding)->message_calls == 3 && state_of(first)->message_calls > 0, "both plugins were asked");
     check(plugin_runtime_disable(runtime, second.binding), "the second plugin is disabled");
-    check(g_plugin_surfaces != nullptr, "the first plugin keeps the table installed");
+    check(g_plugin_surfaces_active, "the first plugin keeps the host published");
     check(decoration(300) && decoration(300)->badge_count == 1 && same(decoration(300)->name_prefix, "[P]"),
           "and the disabled plugin's verdicts are gone");
 }
 
 void test_disable(PluginRuntime* runtime, PluginBinding* binding) noexcept {
     check(plugin_runtime_disable(runtime, binding), "the plugin is disabled");
-    check(!g_plugin_surfaces && !g_ui_plugin_render_query && !g_ui_plugin_slot_query && g_ui_plugin_slot_surfaces == ~0u,
+    check(!g_plugin_surfaces_active && !g_ui_plugin_render_query && !g_ui_plugin_slot_query &&
+              g_ui_plugin_slot_surfaces == ~0u,
           "nothing stays installed");
     check(!ui_plugin_render(1, 1), "no verdict survives");
     UiPluginSlotNode nodes[2];
@@ -569,56 +605,14 @@ void test_disable(PluginRuntime* runtime, PluginBinding* binding) noexcept {
     check(again.ok() && state_of(again.binding)->message_calls == 0 && !ui_plugin_render(1, 1),
           "a re-enabled plugin starts with an empty cache and fresh state");
     if (again.ok()) plugin_runtime_disable(runtime, again.binding);
-    check(!g_plugin_surfaces, "and leaves nothing behind");
+    check(!g_plugin_surfaces_active, "and leaves nothing behind");
 }
 
-// A fake cache for mc_api.read_*.
-bool fake_user(u64 user, u64 guild, PluginUserInput* out) noexcept {
-    if (user != 5) return false;
-    out->user_id = 5;
-    out->guild_id = guild;
-    out->flags = kPluginUserBot;
-    out->relationship = kPluginRelationshipFriend;
-    out->presence = kPluginPresenceIdle;
-    out->platforms = kPluginPlatformMobile | kPluginPlatformWeb;
-    out->name = guild ? Utf8View{"Nick", 4} : Utf8View{"Global", 6};
-    out->username = {"user5", 5};
-    return true;
-}
-bool fake_channel(u64 channel, PluginChannelInput* out) noexcept {
-    if (channel != 6) return false;
-    *out = {6, 7, 8, 0x400, 0, kPluginChannelNsfw | kPluginChannelCanSend, 2, {"general", 7}};
-    return true;
-}
-bool fake_guild(u64 guild, PluginGuildInput* out) noexcept {
-    if (guild != 7) return false;
-    *out = {7, 9, 0x8, kPluginGuildMuted, 3, 120, 17, {"Home", 4}, 14, 2, 3, 21, 6, 40};
-    return true;
-}
-bool fake_permissions(u64 guild, u64 channel, u64 user, u64* bits) noexcept {
-    if (guild != 7) return false;
-    *bits = channel ? 0x400 + user : 0x8;
-    return true;
-}
-bool fake_voice(u64 user, u64 guild, u64* channel) noexcept {
-    *channel = user == 5 && (!guild || guild == 7) ? 66 : 0;
-    return *channel != 0;
-}
-// User 5 shares three group DMs, the most recent first.
-u32 fake_group_dms(u64 user, Slice<u64> out) noexcept {
-    if (user != 5) return 0;
-    for (u32 i = 0; i < 3 && i < out.count; ++i) out[i] = 300 - i;
-    return 3;
-}
 void test_reads() noexcept {
-    const PluginReader reader{fake_user, fake_channel, fake_guild, fake_permissions, fake_voice, fake_group_dms};
     mc_user user{};
     mc_channel channel{};
     mc_guild guild{};
     u64 bits = 1;
-    check(read_user(5, 0, &user) == MC_E_UNSUPPORTED && read_permissions(7, 0, 1, &bits) == MC_E_UNSUPPORTED && !bits,
-          "reads need a reader");
-    g_plugin_reader = &reader;
     check(read_user(5, 0, &user) == MC_OK && user.user_id == 5 && user.where == 0 && user.flags == MC_USER_BOT &&
               user.relationship == MC_RELATIONSHIP_FRIEND && user.presence == MC_PRESENCE_IDLE &&
               user.platforms == (MC_PLATFORM_MOBILE | MC_PLATFORM_WEB) && same(Utf8View{user.name.data, user.name.bytes}, "Global") &&
@@ -655,13 +649,12 @@ void test_reads() noexcept {
               read_shared_group_dms(6, groups, 2, &total) == MC_E_NOT_FOUND && total == 0 &&
               read_shared_group_dms(5, nullptr, 2, &total) == MC_E_INVALID,
           "read_shared_group_dms writes what fits and counts them all");
-    g_plugin_reader = nullptr;
 }
 
 // The shipped samples through the real runtime: names beside names, and a popover button with content.
 void test_samples(PluginRuntime* runtime) noexcept {
     const PluginEnableResult names = plugin_runtime_enable(runtime, {L"names.dll", 9}, MC_PERM_KNOWN, 0);
-    check(names.ok() && names.binding && g_plugin_surfaces && g_plugin_surfaces->wants == (1u << kKindUser),
+    check(names.ok() && names.binding && g_plugin_surfaces_active && g_plugin_surface_wants == (1u << kKindUser),
           "show-me-your-name decorates users only");
     if (names.ok()) {
         PluginDecoratePass pass{};
@@ -673,7 +666,7 @@ void test_samples(PluginRuntime* runtime) noexcept {
         author.name = {"Alice", 5};
         author.username = {"alice9", 6};
         UiPluginSlotNode nodes[4];
-        check(g_plugin_surfaces->user(&pass, author), "an author is prepared");
+        check(plugin_decorate_user(&pass, author), "an author is prepared");
         const auto* decorated = ui_plugin_render(900, 1);
         check(decorated && same(decorated->name_suffix, "alice9") && !decorated->name_prefix.bytes,
               "the username follows the author's name");
@@ -682,37 +675,37 @@ void test_samples(PluginRuntime* runtime) noexcept {
         same_name.message_id = 901;
         same_name.name = {"Bob", 3};
         same_name.username = {"bob", 3};
-        g_plugin_surfaces->user(&pass, same_name);
+        plugin_decorate_user(&pass, same_name);
         check(!ui_plugin_render(901, 1), "a name that already matches is left alone");
         PluginUserInput member = author;
         member.where = kPluginUserMemberRow;
         member.message_id = 0;
-        g_plugin_surfaces->user(&pass, member);
+        plugin_decorate_user(&pass, member);
         check(slots(kUiPluginSlotMemberName, 0, 0, 41, 0, nodes, 4) == 2 && !nodes[0].text.bytes &&
                   same(nodes[1].text, "alice9"),
               "a member row gets the suffix as its second node");
         const u32 calls = names.binding->calls;
         PluginUserInput profile = author;
         profile.where = kPluginUserProfile;
-        g_plugin_surfaces->user(&pass, profile);
+        plugin_decorate_user(&pass, profile);
         check(names.binding->calls == calls, "profiles are not asked");
         // The "before the name" setting moves it, tinted with the author's role colour.
         const u32 before = 1;
         check(plugin_binding_set_setting(names.binding, 0, &before, 4) == MC_OK, "the placement setting is accepted");
-        g_plugin_surfaces->refresh();
-        g_plugin_surfaces->user(&pass, author);
+        plugin_surfaces_invalidate(names.binding, MC_INVALIDATE_USER, 0);
+        plugin_decorate_user(&pass, author);
         decorated = ui_plugin_render(900, 1);
         check(decorated && same(decorated->name_prefix, "alice9") && !decorated->name_suffix.bytes &&
                   decorated->name_tone == kUiPluginToneRole,
               "placed before the name in the role colour");
         const u8 off = 0;
         check(plugin_binding_set_setting(names.binding, 1, &off, 1) == MC_OK, "the member row setting is accepted");
-        g_plugin_surfaces->refresh();
-        g_plugin_surfaces->user(&pass, member);
+        plugin_surfaces_invalidate(names.binding, MC_INVALIDATE_USER, 0);
+        plugin_decorate_user(&pass, member);
         check(slots(kUiPluginSlotMemberName, 0, 0, 41, 0, nodes, 4) == 0, "member rows can be left out");
         check(plugin_runtime_disable(runtime, names.binding), "show-me-your-name is disabled");
     }
-    check(!ui_plugin_render(900, 1) && !g_plugin_surfaces, "nothing of it remains");
+    check(!ui_plugin_render(900, 1) && !g_plugin_surfaces_active, "nothing of it remains");
 
     const PluginEnableResult translate = plugin_runtime_enable(runtime, {L"translate.dll", 13}, MC_PERM_KNOWN, 7);
     check(translate.ok() && translate.binding, "translate is enabled");
@@ -722,14 +715,13 @@ void test_samples(PluginRuntime* runtime) noexcept {
     UiPluginSlotNode nodes[4];
     const PluginMessageInput text = message(950, "Bonjour");
     const PluginMessageInput empty = message(951, "");
-    g_plugin_surfaces->popover(&pass, text);
-    g_plugin_surfaces->popover(&pass, empty);
+    plugin_decorate_popover(&pass, text);
+    plugin_decorate_popover(&pass, empty);
     check(shown(kUiPluginSlotMessageHover, 950, nodes, 4) == 1 && same(nodes[0].text, "Translate") &&
               nodes[0].icon == static_cast<u16>(UiIcon::languages) && shown(kUiPluginSlotMessageHover, 951, nodes, 4) == 0,
           "the popover button appears on messages that have text");
     const PluginSurfaceTarget hover{kUiPluginSlotMessageHover, 100, 950, 9, 7};
-    check(g_plugin_surfaces->activate(translate.binding->owner_id, hover,
-                                      kButtonAction | 0, &text),
+    check(plugin_surfaces_activate(translate.binding->owner_id, hover, kButtonAction | 0, &text),
           "its click is a handled gesture");
     check(plugin_runtime_disable(runtime, translate.binding), "translate is disabled");
 }

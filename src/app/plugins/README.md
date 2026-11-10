@@ -31,6 +31,11 @@ ui|surfaces` and `maicord_command_ui` run the Windows runtime tests over `.so` b
 `maicord_plugin()` in `cmake/test_support.cmake` is the one build recipe; the built plugins are in `plugins/` of the build directory).
 `maicord_plugin_compile_*` check the SDK's diagnostics.
 
+The runtime calls the application by name: the `plugin_host_*` functions of `include/maicord/app/plugins/{ui,pipeline,surfaces}.hpp`,
+defined by `ui_host.cpp`, `pipeline_host.cpp` and `surface_host.cpp`. A test that links runtime objects links `fake_ui_host.cpp`,
+`fake_actions.cpp` (both record what they were asked) and `fake_reader.cpp` (an empty cache) from `tests/app/plugins` instead, or
+defines the functions of a side itself (`maicord_plugin_fakes` in `cmake/test_registry.cmake`).
+
 ## Catalog and effects
 
 The official catalog (MaiCord-plugins) lists each effect's interface 4 package for the Linux client in `index-4.json`

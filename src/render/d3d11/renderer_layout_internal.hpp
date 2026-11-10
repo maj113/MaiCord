@@ -82,8 +82,8 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
 bool find_call_preview(const D3D11Renderer& renderer, const MediaAssetKey& key, MediaAtlasResult* allocation,
                        u8* domain) noexcept;
 bool queue_call_media(D3D11Renderer* renderer, const Theme& theme) noexcept;
-bool queue_toast(D3D11Renderer* renderer, const Theme& theme) noexcept;
-bool queue_inline_flags(D3D11Renderer* renderer) noexcept;
+bool queue_toast(D3D11Renderer* renderer, u32 shown, const Theme& theme) noexcept;
+bool queue_inline_flags(D3D11Renderer* renderer, u32 shown) noexcept;
 // The magnifier: a layout step resolves its picture from the quad under the lens
 // (the first that qualifies wins); its frame paints in the form layer, above
 // the other paint, and `seal` opens that layer when nothing else has.
@@ -96,9 +96,9 @@ u64 shell_segment_key(const RendererPresentationStamp& stamp, const MessageCompo
 void shell_segment_capture(D3D11Renderer* renderer, u64 key, const ShellPresentationRegions& regions) noexcept;
 bool shell_segment_replay(D3D11Renderer* renderer, u64 key, float width_dip, float height_dip,
                           ShellPresentationRegions* regions) noexcept;
-bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const MessageScene* message_scene,
+bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme, const MessageScene* message_scene,
                           bool messages_visible, bool content_hidden) noexcept;
-bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept;
-bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept;
+bool build_search_media(D3D11Renderer* renderer, u32 shown, const Theme& theme) noexcept;
+bool build_settings_page(D3D11Renderer* renderer, u32 shown, const Theme& theme) noexcept;
 
 } // namespace maicord::renderer_layout_detail

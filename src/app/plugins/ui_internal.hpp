@@ -27,7 +27,6 @@ struct Slot {
 extern Slot g_slots[kPluginMaximumBindings];
 extern u32 g_slot_count;
 extern u32 g_revision;
-extern const PluginUiHost* g_host;
 
 Slot* find_slot(u64 owner_id) noexcept;
 

@@ -37,7 +37,8 @@ bool navigation_gaps_ui_probe(D3D11Renderer& renderer, NavigationView* view, con
                                  {&messages.widgets, messages.root}, 1000, false))
         return fail(2);
     renderer.unread_banner_scene = &banner;
-    const bool banner_drawn = present(renderer, sync) && d3d11_renderer_unread_banner_visible(renderer);
+    const bool banner_drawn =
+        present(renderer, sync) && (d3d11_renderer_surfaces(renderer) & d3d11_surface_unread_banner);
     log_u64(LogLevel::info, "probe", "navigation_unread_banner_visible", banner_drawn);
     if (!banner_drawn || (capture && !capture(L"navigation-unread-banner.bmp")))
         return fail(3);

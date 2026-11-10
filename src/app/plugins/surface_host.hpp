@@ -6,12 +6,11 @@
 namespace maicord { enum class RelationshipType : u8; } // maicord/model/user/relationship_store.hpp
 
 // The application's side of plugin decorations and buttons (decorations.cpp and buttons.cpp are the runtime's):
-// what the scenes show goes to the installed plugin host in a bounded prepare pass, and clicks on plugin
-// controls go back to it as gestures. Everything here returns at once while no plugin host is installed
-// (g_plugin_surfaces is null).
+// what the scenes show goes to the plugin runtime in a bounded prepare pass, and clicks on plugin
+// controls go back to it as gestures. Everything here returns at once while no plugin decorates or declares a button
+// (g_plugin_surfaces_active is false).
 namespace maicord::app_detail {
 
-// Also installs the cache reader plugins read through (mc_api.read_*).
 // Asks the plugins about what the scenes show now: the message rows, their authors, member rows, channel and
 // server rows and both headers, each kind only when some plugin decorates it. Runs before message text is rebuilt.
 void application_plugin_surfaces_prepare() noexcept;

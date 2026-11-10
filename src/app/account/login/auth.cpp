@@ -1291,11 +1291,7 @@ bool activate_login_control(LoginControl control) noexcept {
     if (application_account_logout_locked())
         return true;
     if (control == LoginControl::submit && g_app.login.auth_retry_time_unknown) {
-        LoginView view{};
-        view.status = g_app.login.status;
-        view.captcha_status = g_app.login.captcha_status;
-        view.auth_rate_limited = view.auth_retry_time_unknown = true;
-        if (login_view_auth_retry_resume(view)) {
+        if (login_auth_retry_resume(g_app.login.status, g_app.login.captcha_status, true)) {
             // Retire the paused request before clearing its unknown receipt.
             // A failed join keeps both the owner and admission restrictions.
             if (!application_login_cancel_blocked()) return false;

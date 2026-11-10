@@ -3,6 +3,7 @@
 #include "media.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "../shell/state.hpp"
+#include "../../render/d3d11/renderer_interaction_state.hpp"
 
 namespace maicord {
 enum class CdnImageType : u8;
@@ -30,6 +31,7 @@ struct ApplicationMediaPump {
         now_seconds = seconds;
         now_us = us;
         repaint = repaint_flag;
+        surface_mask = 0;
         return *this;
     }
 
@@ -42,6 +44,17 @@ struct ApplicationMediaPump {
     // A refused asset waiting out its backoff (media_asset_failures.hpp): no request fetches or decodes it.
     __declspec(noinline) bool asset_backed_off(const MediaAssetKey& key) const noexcept;
     Application& application;
+    // The renderer's surface mask as the pass began: read once, at the pass's first use, and every request below
+    // tests that answer instead of asking again. A pass with nothing to ask never reads it. `surface_mask` is 0
+    // until then, the mask with the top bit set after (no surface has it).
+    u32 surfaces() const noexcept {
+        const u32 value = surface_mask;
+        return value ? value : read_surfaces();
+    }
+    __declspec(noinline) u32 read_surfaces() const noexcept {
+        return surface_mask = d3d11_renderer_surfaces(application.renderer) | 0x80000000u;
+    }
+    mutable u32 surface_mask{};
     ApplicationMediaPumpResult result{};
     bool prefetch_only = false;
     bool visibility_only = false;

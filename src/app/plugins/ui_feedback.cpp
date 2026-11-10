@@ -4,7 +4,7 @@
 
 // What a plugin shows the user (a banner, a modal) and the navigation actions its menus and buttons use
 // (open a link, copy text, open a channel or profile). Requests are validated and copied here; the
-// application shows them (PluginUiHost) and reports the answer back.
+// application shows them (plugin_host_*, ui.hpp) and reports the answer back.
 namespace maicord {
 using namespace plugin_ui_detail;
 namespace {
@@ -97,7 +97,7 @@ mc_status banner_set(PluginBinding& binding, const mc_banner& banner) noexcept {
     copy_bytes(shown.action, banner.action.data, banner.action.bytes);
     if (++g_banner_serial == 0) ++g_banner_serial;
     shown.serial = g_banner_serial;
-    if (g_host && g_host->banner_changed) g_host->banner_changed();
+    plugin_host_banner_changed();
     return MC_OK;
 }
 
@@ -106,7 +106,7 @@ mc_status banner_clear(PluginBinding& binding, u64 tag) noexcept {
     if (!slot) return MC_E_INACTIVE;
     if (!slot->banner.present || slot->banner.tag != tag) return MC_E_NOT_FOUND;
     slot->banner = {};
-    if (g_host && g_host->banner_changed) g_host->banner_changed();
+    plugin_host_banner_changed();
     return MC_OK;
 }
 
@@ -143,7 +143,6 @@ mc_status modal_open(PluginBinding& binding, const mc_modal& modal, u64 tag) noe
     } else if (modal.select_count || modal.select_initial) {
         return MC_E_INVALID;
     }
-    if (!g_host || !g_host->open_modal) return MC_E_UNSUPPORTED;
     if (g_modal.active) return MC_E_BUSY;
 
     Modal& m = g_modal;
@@ -172,7 +171,7 @@ mc_status modal_open(PluginBinding& binding, const mc_modal& modal, u64 tag) noe
     for (u32 i = 0; i < request.select_count; ++i) request.select_items[i] = keep(m.items[i], modal.select_items[i]);
     m.tag = tag;
     m.active = true;
-    if (!g_host->open_modal(request)) {
+    if (!plugin_host_open_modal(request)) {
         m = {};
         return MC_E_BUSY;
     }
@@ -184,32 +183,31 @@ mc_status modal_open(PluginBinding& binding, const mc_modal& modal, u64 tag) noe
 mc_status open_url(PluginBinding& binding, mc_str url) noexcept {
     if (!http_url(url)) return MC_E_INVALID;
     if (!gesture(binding)) return MC_E_GESTURE;
-    return g_host && g_host->open_url ? status_of(g_host->open_url(plugin_view(url))) : MC_E_UNSUPPORTED;
+    return status_of(plugin_host_open_url(plugin_view(url)));
 }
 
 mc_status copy_text(PluginBinding& binding, mc_str text) noexcept {
     if (!(binding.permissions & MC_PERM_CLIPBOARD)) return MC_E_DENIED;
     if (!text.bytes || text.bytes > MC_ACTION_TEXT_MAX || !text.data || !utf8_validate(plugin_view(text)).valid) return MC_E_INVALID;
     if (!gesture(binding)) return MC_E_GESTURE;
-    return g_host && g_host->copy_text ? status_of(g_host->copy_text(plugin_view(text))) : MC_E_UNSUPPORTED;
+    return status_of(plugin_host_copy_text(plugin_view(text)));
 }
 
 mc_status open_target(PluginBinding& binding, u32 what, u64 id, u64 sub) noexcept {
     if ((what != MC_OPEN_CHANNEL && what != MC_OPEN_PROFILE) || !id) return MC_E_INVALID;
     if (!gesture(binding)) return MC_E_GESTURE;
-    if (what == MC_OPEN_CHANNEL)
-        return g_host && g_host->open_channel ? status_of(g_host->open_channel(id)) : MC_E_UNSUPPORTED;
-    return g_host && g_host->open_profile ? status_of(g_host->open_profile(id, sub)) : MC_E_UNSUPPORTED;
+    if (what == MC_OPEN_CHANNEL) return status_of(plugin_host_open_channel(id));
+    return status_of(plugin_host_open_profile(id, sub));
 }
 
 void feedback_remove(Slot* slot) noexcept {
     if (slot->banner.present) {
         slot->banner = {};
-        if (g_host && g_host->banner_changed) g_host->banner_changed();
+        plugin_host_banner_changed();
     }
     if (g_modal.active && g_modal.request.owner_id == slot->binding->owner_id) {
         g_modal = {};
-        if (g_host && g_host->close_modal) g_host->close_modal();
+        plugin_host_close_modal();
     }
 }
 

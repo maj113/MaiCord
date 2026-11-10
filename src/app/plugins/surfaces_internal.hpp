@@ -74,7 +74,7 @@ Plugin* find_plugin(const PluginBinding*) noexcept;
 Plugin* find_plugin(u64 owner_id) noexcept;
 // The plugin's record, created (and the UI queries installed) on first use. Null when full.
 Plugin* ensure_plugin(PluginBinding*) noexcept;
-// Recomputes wants, the slot-surface mask and installs or removes the host table and the UI queries.
+// Recomputes wants, the slot-surface mask and publishes (or withdraws) the host state and the UI queries.
 void republish() noexcept;
 // A cached verdict or a button's state changed: the UI rebuilds. message: it was a message verdict.
 void changed(bool message) noexcept;
@@ -82,12 +82,8 @@ void changed(bool message) noexcept;
 // buttons.cpp
 void buttons_add(Plugin&) noexcept;
 u32 button_slots(u32 surface, u64 message_id, Slice<UiPluginSlotNode> output) noexcept;
-bool buttons_popover(PluginDecoratePass*, const PluginMessageInput&) noexcept;
 bool buttons_activate(u64 owner_id, const PluginSurfaceTarget&, u64 action_id, const PluginMessageInput* message) noexcept;
-u32 buttons_overflow(u64 message_id, u32 bar, Slice<PluginButtonRef> output) noexcept;
-// Re-runs the visible predicates that don't depend on a message; the channel and guild are remembered for
-// predicates that run later (invalidate(MC_INVALIDATE_BUTTONS)).
-void buttons_refresh(u64 channel_id, u64 guild_id) noexcept;
+// plugin_surfaces_refresh_buttons again for the channel and guild last given (invalidate(MC_INVALIDATE_BUTTONS)).
 void buttons_refresh_remembered() noexcept;
 // mc_api.button_state
 mc_status buttons_set_state(PluginBinding*, u32 button, const mc_button_state&) noexcept;
@@ -102,7 +98,7 @@ void fill_message(const PluginMessageInput&, mc_message*) noexcept;
 // reads.cpp: the ABI form of a user (all but `where`) and a channel, into a zeroed record.
 void fill_user(const PluginUserInput&, mc_user*) noexcept;
 void fill_channel(const PluginChannelInput&, mc_channel*) noexcept;
-// reads.cpp: mc_api.read_*, from g_plugin_reader.
+// reads.cpp: mc_api.read_*, through plugin_host_read_*.
 mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept;
 mc_status read_channel(u64 channel_id, mc_channel* out) noexcept;
 mc_status read_guild(u64 guild_id, mc_guild* out) noexcept;

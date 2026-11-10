@@ -17,7 +17,7 @@
 #include "maicord/app/chat/unread_banner_projection.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
-#include "../plugins/ui_host.hpp"
+#include "maicord/app/plugins/ui.hpp"
 #include "../account/account_ui_runtime.hpp"
 
 
@@ -207,7 +207,6 @@ bool perform(UiUnreadBannerAction action) noexcept {
 } // namespace
 
 void application_unread_banner_synchronize(u64 now_ms) noexcept {
-    application_plugins_ui_install();
     if (!g_banner.style.banner_height)
         g_banner.style = UiUnreadBannerStyle{};
     g_app.renderer.unread_banner_scene = &g_banner;

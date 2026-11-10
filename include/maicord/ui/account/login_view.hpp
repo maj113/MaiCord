@@ -165,12 +165,16 @@ struct LoginView {
 bool login_view_valid(const LoginView& view) noexcept;
 bool login_view_action_disabled(const LoginView& view) noexcept;
 bool login_view_submit_disabled(const LoginView& view) noexcept;
+// While the authentication rate limit runs: whether Resume is offered (no retry time is known and nothing is pending).
+bool login_auth_retry_resume(LoginStatus status, LoginCaptchaStatus captcha, bool retry_time_unknown) noexcept;
 bool login_view_auth_retry_resume(const LoginView& view) noexcept;
 bool login_view_recovery_disabled(const LoginView& view) noexcept;
 // The challenge's "Verify in browser" action; disabled only while opening.
 bool login_view_captcha_action(const LoginView& view) noexcept;
 // Show-password applies only to a visible password edit, never MFA/phone codes.
 bool login_view_password_reveal_available(const LoginView& view) noexcept;
-bool login_view_matches_scene(const LoginView& view, const LoginScene* scene) noexcept;
+// Derives every flag of the scene's presentation from the view: the one place that decides what the sign-in screen
+// shows, hides, enables and disables. The layout, the text and the renderer read the flags and never derive them again.
+void login_scene_apply_view(LoginScene* scene, const LoginView& view) noexcept;
 
 } // namespace maicord

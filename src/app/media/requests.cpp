@@ -69,9 +69,10 @@ bool observe_message_animation(Application& application, const MediaAssetKey& ke
 }
 
 // Forum post cards own their starter-image thumbnails while the browser is shown.
-bool forum_thumbnail_key_current(const Application& application, const MediaAssetKey& key) noexcept {
+bool forum_thumbnail_key_current(const ApplicationMediaPump& pump, const MediaAssetKey& key) noexcept {
+    const Application& application = pump.application;
     return key.kind == MediaAssetKind::attachment && !application.login.visible &&
-           d3d11_renderer_thread_browser_visible(application.renderer) &&
+           (pump.surfaces() & d3d11_surface_thread_browser) &&
            application.renderer.thread_browser_scene->forum &&
            forum_channel_thumbnail_current(*application.renderer.thread_browser_scene, application.renderer.dpi, key);
 }
@@ -190,7 +191,7 @@ bool ApplicationMediaPump::content_media_visible() const noexcept {
            !(application.renderer.settings_scene && application.renderer.settings_scene->active) &&
            !(application.renderer.friends_scene && application.renderer.friends_scene->active) &&
            // The thread browser covers the chat column; chrome stays visible.
-           !d3d11_renderer_thread_browser_visible(application.renderer);
+           !(surfaces() & d3d11_surface_thread_browser);
 }
 bool ApplicationMediaPump::catalog_media_visible() const noexcept {
     const auto* scene = application.renderer.media_picker_scene;
@@ -203,13 +204,13 @@ bool ApplicationMediaPump::catalog_media_visible() const noexcept {
 }
 bool ApplicationMediaPump::search_media_visible() const noexcept {
     const auto& renderer = application.renderer;
-    return content_media_visible() && d3d11_renderer_search_visible(renderer) &&
+    return content_media_visible() && (surfaces() & d3d11_surface_search) &&
            !application.image_viewer.scene.active && !application.reaction_viewer.active &&
            !application.popup_scene.active && !application.text_form &&
            !(renderer.profile_scene && renderer.profile_scene->active) &&
            !(renderer.quick_switcher_scene && renderer.quick_switcher_scene->active) &&
            !(renderer.message_forward_scene && renderer.message_forward_scene->active) &&
-           !d3d11_renderer_pinned_messages_visible(renderer);
+           !(surfaces() & d3d11_surface_pinned_messages);
 }
 bool ApplicationMediaPump::request_picker_emoji() noexcept {
     if (!catalog_media_visible())
@@ -388,7 +389,7 @@ MediaAtlas* ApplicationMediaPump::upload_atlas(const MediaAssetKey& key) noexcep
 bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexcept {
     if (application.login.visible)
         return false;
-    if (forum_thumbnail_key_current(application, key))
+    if (forum_thumbnail_key_current(*this, key))
         return true;
     // The profile editor is itself an opaque Settings modal: its preview card,
     // dialogs and picked images stay current while every other surface's
@@ -492,7 +493,7 @@ bool ApplicationMediaPump::animation_resident(const MediaAssetKey& key, bool* fo
     return observed && media_atlas_find(application.renderer.media_atlas, key).ok();
 }
 bool ApplicationMediaPump::settings_avatar_is_current(const MediaAssetKey& key) const noexcept {
-    if (!renderer_settings_page_visible(application.renderer))
+    if (!(surfaces() & d3d11_surface_settings_page))
         return false;
     UiSettingsAvatarGeometry avatar{};
     for (u32 cursor = 0; ui_settings_scene_next_avatar(*application.renderer.settings_scene, &cursor, &avatar);)
@@ -501,7 +502,7 @@ bool ApplicationMediaPump::settings_avatar_is_current(const MediaAssetKey& key) 
     return false;
 }
 bool ApplicationMediaPump::request_settings_avatars() noexcept {
-    if (!renderer_settings_page_visible(application.renderer))
+    if (!(surfaces() & d3d11_surface_settings_page))
         return true;
     UiSettingsAvatarGeometry avatar{};
     for (u32 cursor = 0; ui_settings_scene_next_avatar(*application.renderer.settings_scene, &cursor, &avatar);) {
@@ -582,7 +583,7 @@ bool ApplicationMediaPump::request_settings_avatars() noexcept {
     return true;
 }
 bool ApplicationMediaPump::request_forward_identities(bool* stop) noexcept {
-    if (!application.account_ui || !d3d11_renderer_message_forward_visible(application.renderer))
+    if (!application.account_ui || !(surfaces() & d3d11_surface_message_forward))
         return true;
     const auto& forward = *application.renderer.message_forward_scene;
     const auto& state = application.account_ui->chat_state;
@@ -612,16 +613,17 @@ bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexc
         !media_asset_key_valid(key))
         return false;
     const auto& users = application.account_ui->user_store;
-    if (d3d11_renderer_search_visible(application.renderer) &&
+    const u32 shown = surfaces();
+    if ((shown & d3d11_surface_search) &&
         search_avatar_media_current(*application.renderer.search_scene, key))
         return true;
-    if (d3d11_renderer_pinned_messages_visible(application.renderer) &&
+    if ((shown & d3d11_surface_pinned_messages) &&
         pinned_messages_avatar_media_current(*application.renderer.pinned_messages_scene, key))
         return true;
-    if (d3d11_renderer_thread_browser_visible(application.renderer) &&
+    if ((shown & d3d11_surface_thread_browser) &&
         forum_channel_avatar_media_current(*application.renderer.thread_browser_scene, key))
         return true;
-    if (d3d11_renderer_quick_switcher_visible(application.renderer)) {
+    if (shown & d3d11_surface_quick_switcher) {
         const auto& switcher = *application.renderer.quick_switcher_scene;
         for (u32 slot = 0; slot < switcher.count; ++slot) {
             UiQuickSwitcherMedia media{};
@@ -630,7 +632,7 @@ bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexc
                 return true;
         }
     }
-    if (d3d11_renderer_message_forward_visible(application.renderer)) {
+    if (shown & d3d11_surface_message_forward) {
         const auto& forward = *application.renderer.message_forward_scene;
         for (u32 slot = 0; slot < forward.count; ++slot) {
             UiMessageForwardMedia media{};
@@ -639,10 +641,10 @@ bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexc
                 return true;
         }
     }
-    if (d3d11_renderer_inbox_visible(application.renderer) &&
+    if ((shown & d3d11_surface_inbox) &&
         inbox_avatar_media_current(*application.renderer.inbox_scene, key))
         return true;
-    if (d3d11_renderer_poll_voters_visible(application.renderer) &&
+    if ((shown & d3d11_surface_poll_voters) &&
         poll_voters_avatar_media_current(*application.renderer.poll_voters_scene, key))
         return true;
     const auto matches = [&](u64 id) noexcept {
@@ -779,7 +781,7 @@ bool ApplicationMediaPump::channel_icon_key_is_current(const MediaAssetKey& key)
 }
 bool ApplicationMediaPump::request_pinned_messages_avatars(bool* stop) noexcept {
     *stop = false;
-    if (!d3d11_renderer_pinned_messages_visible(application.renderer))
+    if (!(surfaces() & d3d11_surface_pinned_messages))
         return true;
     const auto& scene = *application.renderer.pinned_messages_scene;
     for (u32 slot = 0; slot < scene.count && slot < kUiPinnedMessagesVisibleRows; ++slot) {
@@ -796,7 +798,7 @@ bool ApplicationMediaPump::request_pinned_messages_avatars(bool* stop) noexcept 
 // or user cache), like pins, including authors absent from the timeline.
 bool ApplicationMediaPump::request_forum_avatars(bool* stop) noexcept {
     *stop = false;
-    if (!d3d11_renderer_thread_browser_visible(application.renderer) ||
+    if (!(surfaces() & d3d11_surface_thread_browser) ||
         !application.renderer.thread_browser_scene->forum)
         return true;
     const auto& scene = *application.renderer.thread_browser_scene;
@@ -814,7 +816,7 @@ bool ApplicationMediaPump::request_forum_avatars(bool* stop) noexcept {
 // from the accepted post page; an expired one goes through the shared refresher.
 bool ApplicationMediaPump::request_forum_thumbnails(bool* stop) noexcept {
     *stop = false;
-    if (visibility_only || !d3d11_renderer_thread_browser_visible(application.renderer) ||
+    if (visibility_only || !(surfaces() & d3d11_surface_thread_browser) ||
         !application.renderer.thread_browser_scene->forum || !application.renderer.preview_media_atlas ||
         !application.account.api.media_attachment_request || !application.account.api.media_take)
         return true;

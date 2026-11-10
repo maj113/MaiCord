@@ -303,7 +303,7 @@ bool ApplicationMediaPump::message_image_source_is_current(const MediaAssetKey& 
     if (!media_key_is_current(key))
         return false;
     // Forum thumbnails come from a post page, not the message store.
-    if (forum_thumbnail_key_current(application, key))
+    if (forum_thumbnail_key_current(*this, key))
         return true;
     if (key.kind == MediaAssetKind::catalog_preview)
         return application_media_picker_preview_current(key, source_message_id, source_message_revision);

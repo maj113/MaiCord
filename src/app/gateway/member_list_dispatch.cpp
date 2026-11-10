@@ -93,44 +93,10 @@ struct ItemObject {
     bool group_seen;
 };
 
-struct MemberObject {
-    JsonValue user;
-    JsonValue roles;
-    JsonValue presence;
-    JsonString nickname;
-    GatewayEventDecodeError error;
-    u32 field_detail;
-    bool user_seen;
-    bool roles_seen;
-    bool presence_seen;
-    bool nickname_seen;
-    bool nickname_null;
-    bool timeout_seen;
-    u32 timeout_until;
-    bool flags_seen;
-    u32 flags;
-};
-
 using UserObject = GatewayMemberUser;
-
-struct PresenceObject {
-    JsonString status;
-    GatewayEventDecodeError error;
-    u32 field_detail;
-    bool status_seen;
-    bool client_status_seen;
-    u8 client_status;
-};
 
 struct U32PairContext {
     u32 values[2];
-    u32 count;
-    GatewayEventDecodeError error;
-};
-
-struct RoleContext {
-    u64* roles;
-    u32 capacity;
     u32 count;
     GatewayEventDecodeError error;
 };
@@ -252,111 +218,12 @@ bool visit_item(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
-bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<MemberObject*>(opaque);
-    static constexpr u8 details[] = {1, 2, 3, 4, 6, 5};
-    const u32 index = skim_member_index<"user", "roles", "presence", "nick", "flags", "communication_disabled_until">(name);
-    if (index > 5)
-        return true;
-    context->field_detail = (u32{details[index]} << 8) | static_cast<u32>(value.kind);
-    switch (index) {
-    case 0:
-        return gateway_keep_member(&context->error, &context->user_seen, &context->user, value,
-                                   value.kind == JsonValueKind::object);
-    case 1:
-        return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value,
-                                   value.kind == JsonValueKind::array);
-    case 2:
-        return gateway_keep_member(
-            &context->error, &context->presence_seen, &context->presence, value,
-            value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value);
-    case 3:
-        if (context->nickname_seen) {
-            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
-        }
-        context->nickname_seen = true;
-        context->nickname_null = value.kind == JsonValueKind::null_value;
-        if (!context->nickname_null && !json_value_as_string(value, &context->nickname)) {
-            return reject(&context->error);
-        }
-        break;
-    case 4:
-        if (context->flags_seen)
-            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
-        context->flags_seen = true;
-        if (!u32_value(value, &context->flags))
-            return reject(&context->error);
-        break;
-    default:
-        if (context->timeout_seen)
-            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
-        context->timeout_seen = true;
-        if (value.kind != JsonValueKind::null_value) {
-            JsonString stamp{};
-            u64 milliseconds = 0;
-            if (!json_value_as_string(value, &stamp) || !parse_iso_timestamp(stamp, &milliseconds) ||
-                milliseconds / 1000 > 0xFFFFFFFFull)
-                return reject(&context->error);
-            context->timeout_until = static_cast<u32>(milliseconds / 1000);
-        }
-        break;
-    }
-    return true;
-}
-
-bool visit_presence(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto* context = static_cast<PresenceObject*>(opaque);
-    switch (skim_member_index<"status", "client_status">(name)) {
-    case 0:
-        context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
-        return gateway_once_member(&context->error, &context->status_seen,
-                                   json_value_as_string(value, &context->status));
-    case 1:
-        if (context->client_status_seen)
-            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
-        context->client_status_seen = true;
-        // Advisory per-platform detail: a malformed object reads as offline.
-        if (!client_status_decode(value, &context->client_status))
-            context->client_status = 0;
-        break;
-    default: break;
-    }
-    return true;
-}
-
 bool visit_u32_pair(void* opaque, u32 index, JsonValue value) noexcept {
     auto* context = static_cast<U32PairContext*>(opaque);
     if (index >= 2 || !u32_value(value, &context->values[index])) {
         return reject(&context->error);
     }
     context->count = index + 1;
-    return true;
-}
-
-bool visit_role(void* opaque, u32 index, JsonValue value) noexcept {
-    auto* context = static_cast<RoleContext*>(opaque);
-    u64 role = 0;
-    if (index >= context->capacity || !json_value_to_snowflake(value, &role)) {
-        return reject(&context->error, index >= context->capacity
-                                           ? GatewayEventDecodeError::mention_role_capacity
-                                           : GatewayEventDecodeError::invalid_data);
-    }
-    for (u32 previous = 0; previous < index; ++previous) {
-        if (context->roles[previous] == role) {
-            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
-        }
-    }
-    context->roles[index] = role;
-    context->count = index + 1;
-    return true;
-}
-
-bool visit_object(JsonValue value, const JsonIndexedDocument& document, u32 maximum_depth,
-                  JsonMemberVisitor visitor, void* context, GatewayEventDecodeError* error) noexcept {
-    const JsonReadResult read = json_visit_indexed_object(document, value, maximum_depth, visitor, context);
-    if (!read.ok()) {
-        return reject(error, GatewayEventDecodeError::invalid_json);
-    }
     return true;
 }
 
@@ -421,7 +288,7 @@ bool append_group(PayloadWriter* writer, JsonValue value, u32 index,
                   u32* count = nullptr) noexcept {
     GroupObject group{};
     if (value.kind != JsonValueKind::object ||
-        !visit_object(value, document, maximum_depth, visit_group, &group, &group.error) ||
+        !gateway_visit_object(value, document, maximum_depth, visit_group, &group, &group.error) ||
         !group.id_seen || (kind == GatewayClientMemberListItemKind::summary && !group.count_seen)) {
         const u32 field = group.error != GatewayEventDecodeError::none
                               ? group.field_detail
@@ -523,7 +390,7 @@ __declspec(noinline) bool append_member_appearances(
     PayloadWriter* writer, const JsonIndexedDocument& document, JsonValue user_value, JsonValue member_value,
     JsonValue presence, bool has_presence, u64 user_id, u32 room, u32* user_bytes, u32* member_bytes,
     bool* activities_known, GatewayEventDecodeError* error) noexcept {
-    UserAppearance global_appearance{}, guild_appearance{};
+    UserAppearance global_appearance, guild_appearance; // each is assigned whole by its decode before it is read
     writer->decode_detail = decode_detail(MemberDecodeStage::user_appearance);
     if (!user_appearance_decode(document, user_value, user_id, 0, &global_appearance))
         return reject(error);
@@ -556,7 +423,7 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
     if (direct) {
         item.member = value;
         item.member_seen = value.kind == JsonValueKind::object;
-    } else if (!visit_object(value, document, maximum_depth, visit_item, &item, &item.error)) {
+    } else if (!gateway_visit_object(value, document, maximum_depth, visit_item, &item, &item.error)) {
         writer->decode_detail = decode_detail(MemberDecodeStage::item, 0, 0) | item.field_detail;
         return reject(error, item.error);
     }
@@ -574,9 +441,10 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
         writer->decode_detail = decode_detail(MemberDecodeStage::item, 6);
         return reject(error, GatewayEventDecodeError::missing_required_field);
     }
-    MemberObject member{};
+    GatewayMemberObject member{};
     writer->decode_detail = decode_detail(MemberDecodeStage::member, 0, 0);
-    if (!visit_object(item.member, document, maximum_depth, visit_member, &member, &member.error) ||
+    if (!gateway_visit_object(item.member, document, maximum_depth, gateway_visit_member_object, &member,
+                              &member.error) ||
         !member.user_seen || (full_roles && !member.roles_seen)) {
         writer->decode_detail |=
             member.error != GatewayEventDecodeError::none ? member.field_detail : (1u << 8) | 0xFFu;
@@ -584,29 +452,29 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
     }
     UserObject user{};
     writer->decode_detail = decode_detail(MemberDecodeStage::user, 0, 0);
-    if (!visit_object(member.user, document, maximum_depth, gateway_visit_member_user, &user, &user.error) ||
+    if (!gateway_visit_object(member.user, document, maximum_depth, gateway_visit_member_user, &user, &user.error) ||
         !user.id_seen || !user.username_seen) {
         writer->decode_detail |= user.error != GatewayEventDecodeError::none
                                      ? user.field_detail
                                      : ((!user.id_seen ? 1u : 2u) << 8) | 0xFFu;
         return reject_visited(error, user.error, GatewayEventDecodeError::missing_required_field);
     }
-    PresenceObject presence{};
+    GatewayMemberPresence presence{};
     // A member profile is complete without a presence. Null, like an omitted
     // field, must not discard its identity or clear an existing status/activity.
     const bool has_presence = member.presence_seen && member.presence.kind == JsonValueKind::object;
     writer->decode_detail = decode_detail(MemberDecodeStage::presence, 0, 0);
-    if (has_presence && !visit_object(member.presence, document, maximum_depth, visit_presence, &presence,
-                                      &presence.error)) {
+    if (has_presence && !gateway_visit_object(member.presence, document, maximum_depth,
+                                              gateway_visit_member_presence, &presence, &presence.error)) {
         writer->decode_detail |= presence.field_detail;
         return reject(error, presence.error);
     }
     u64 roles[kMemberListMaximumRoles];
-    RoleContext role_context{roles, kMemberListMaximumRoles, 0, GatewayEventDecodeError::none};
+    GatewayMemberRoles role_context{roles, kMemberListMaximumRoles, 0, GatewayEventDecodeError::none};
     writer->decode_detail = decode_detail(MemberDecodeStage::roles);
     if (member.roles_seen) {
         const JsonReadResult read =
-            json_visit_indexed_array(document, member.roles, maximum_depth, visit_role, &role_context);
+            json_visit_indexed_array(document, member.roles, maximum_depth, gateway_visit_member_roles, &role_context);
         if (!read.ok()) {
             return reject_visited(error, role_context.error, GatewayEventDecodeError::invalid_json);
         }
@@ -625,7 +493,7 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
     if ((!member.nickname_null && member.nickname_seen &&
          !gateway_member_string_size(member.nickname, &nickname_bytes)) ||
         !gateway_member_string_size(display, &display_bytes) || display_bytes == 0 ||
-        !gateway_member_string_size(user.username, &username_bytes) || username_bytes > 128 ||
+        !gateway_member_string_size(user.username, &username_bytes) ||
         (user.avatar_seen && !user.avatar_null &&
          !gateway_member_string_size(user.avatar_hash, &avatar_hash_bytes)) ||
         avatar_hash_bytes > kUserAvatarHashMaximumBytes ||
@@ -733,8 +601,8 @@ bool visit_operation(void* opaque, u32, JsonValue value) noexcept {
         return reject(&context->error);
     }
     OpObject operation{};
-    if (!visit_object(value, *context->document, context->maximum_depth, visit_op, &operation,
-                      &operation.error) ||
+    if (!gateway_visit_object(value, *context->document, context->maximum_depth, visit_op, &operation,
+                              &operation.error) ||
         !operation.operation_seen) {
         return reject_visited(&context->error, operation.error, GatewayEventDecodeError::missing_required_field);
     }
@@ -838,11 +706,130 @@ bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) n
     return true;
 }
 
+bool gateway_visit_member_object(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* context = static_cast<GatewayMemberObject*>(opaque);
+    static constexpr u8 details[] = {1, 2, 3, 4, 6, 5};
+    const u32 index = skim_member_index<"user", "roles", "presence", "nick", "flags", "communication_disabled_until">(name);
+    if (index > 5)
+        return true;
+    context->field_detail = (u32{details[index]} << 8) | static_cast<u32>(value.kind);
+    switch (index) {
+    case 0:
+        return gateway_keep_member(&context->error, &context->user_seen, &context->user, value,
+                                   value.kind == JsonValueKind::object);
+    case 1:
+        return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value,
+                                   value.kind == JsonValueKind::array);
+    case 2:
+        return gateway_keep_member(
+            &context->error, &context->presence_seen, &context->presence, value,
+            value.kind == JsonValueKind::object || (!context->thread && value.kind == JsonValueKind::null_value));
+    case 3:
+        if (context->nickname_seen) {
+            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
+        }
+        context->nickname_seen = true;
+        context->nickname_null = value.kind == JsonValueKind::null_value;
+        if (!context->nickname_null && !json_value_as_string(value, &context->nickname)) {
+            return reject(&context->error);
+        }
+        break;
+    case 4:
+        if (context->thread)
+            break;
+        if (context->flags_seen)
+            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
+        context->flags_seen = true;
+        if (!u32_value(value, &context->flags))
+            return reject(&context->error);
+        break;
+    default:
+        if (context->thread)
+            break;
+        if (context->timeout_seen)
+            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
+        context->timeout_seen = true;
+        if (value.kind != JsonValueKind::null_value) {
+            JsonString stamp{};
+            u64 milliseconds = 0;
+            if (!json_value_as_string(value, &stamp) || !parse_iso_timestamp(stamp, &milliseconds) ||
+                milliseconds / 1000 > 0xFFFFFFFFull)
+                return reject(&context->error);
+            context->timeout_until = static_cast<u32>(milliseconds / 1000);
+        }
+        break;
+    }
+    return true;
+}
+
+bool gateway_visit_member_presence(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* context = static_cast<GatewayMemberPresence*>(opaque);
+    switch (skim_member_index<"status", "client_status", "user">(name)) {
+    case 0:
+        context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
+        return gateway_once_member(&context->error, &context->status_seen,
+                                   json_value_as_string(value, &context->status));
+    case 1:
+        if (context->client_status_seen)
+            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
+        context->client_status_seen = true;
+        // Advisory per-platform detail: a malformed object reads as offline.
+        if (!client_status_decode(value, &context->client_status))
+            context->client_status = 0;
+        break;
+    case 2:
+        if (!context->thread)
+            break;
+        if (context->user_seen || value.kind != JsonValueKind::object)
+            return reject(&context->error);
+        context->user = value;
+        context->user_seen = true;
+        break;
+    default: break;
+    }
+    return true;
+}
+
+bool gateway_visit_member_roles(void* opaque, u32 index, JsonValue value) noexcept {
+    auto* context = static_cast<GatewayMemberRoles*>(opaque);
+    u64 role = 0;
+    if (index >= context->capacity || !json_value_to_snowflake(value, &role)) {
+        return reject(&context->error, index >= context->capacity
+                                           ? GatewayEventDecodeError::mention_role_capacity
+                                           : GatewayEventDecodeError::invalid_data);
+    }
+    for (u32 previous = 0; previous < index; ++previous) {
+        if (context->roles[previous] == role) {
+            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
+        }
+    }
+    context->roles[index] = role;
+    context->count = index + 1;
+    return true;
+}
+
+bool gateway_visit_object(JsonValue value, const JsonIndexedDocument& document, u32 maximum_depth,
+                          JsonMemberVisitor visitor, void* context, GatewayEventDecodeError* error) noexcept {
+    if (!json_visit_indexed_object(document, value, maximum_depth, visitor, context).ok()) {
+        return reject(error, GatewayEventDecodeError::invalid_json);
+    }
+    return true;
+}
+
 bool gateway_append_json_string(GatewayPayloadWriter* writer, JsonString string, u16 expected) noexcept {
     if (!writer || writer->used > writer->output.count || expected > writer->output.count - writer->used) {
         return false;
     }
     if (expected == 0) {
+        return true;
+    }
+    // Reader strings are valid UTF-8, so without escapes the decoded text is the encoded text.
+    if (!string.has_escapes) {
+        if (string.encoded.bytes != expected) {
+            return false;
+        }
+        copy_bytes(writer->output.data + writer->used, string.encoded.data, expected);
+        writer->used += expected;
         return true;
     }
     const JsonStringDecodeResult decoded = json_string_decode_utf8(
@@ -855,15 +842,18 @@ bool gateway_append_json_string(GatewayPayloadWriter* writer, JsonString string,
 }
 
 bool gateway_member_string_size(JsonString value, u16* bytes) noexcept {
-    if (!bytes) {
+    u32 size = value.encoded.bytes;
+    if (value.has_escapes) {
+        const JsonStringDecodeResult sized = json_string_decode_utf8(value, Slice<char>{nullptr, 0});
+        if (sized.error != JsonStringDecodeError::output_too_small && !sized.ok()) {
+            return false;
+        }
+        size = sized.bytes;
+    }
+    if (size > 128u) {
         return false;
     }
-    const JsonStringDecodeResult sized = json_string_decode_utf8(value, Slice<char>{nullptr, 0});
-    if ((sized.error != JsonStringDecodeError::output_too_small && !sized.ok()) || sized.bytes > 128u ||
-        sized.bytes > 0xFFFFu) {
-        return false;
-    }
-    *bytes = static_cast<u16>(sized.bytes);
+    *bytes = static_cast<u16>(size);
     return true;
 }
 

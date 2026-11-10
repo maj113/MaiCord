@@ -7,15 +7,6 @@
 
 namespace maicord {
 namespace {
-void synchronize(LoginScene& scene, LoginView& view) noexcept {
-    scene.phone_mode = login_phone_mode(view.status); scene.reset_mode = view.reset_mode;
-    scene.recovery_mode = login_recovery_mode(view.status);
-    scene.back_only = login_requires_back(view.status, view.remote_status);
-    scene.phone_resend_disabled = scene.phone_mode && !login_phone_editable(view.status);
-    scene.credential_fields_hidden = login_credential_fields_hidden(view.status, view.remote_status, view.reset_mode);
-    scene.action_disabled = login_view_action_disabled(view); scene.submit_disabled = login_view_submit_disabled(view);
-    scene.recovery_disabled = login_view_recovery_disabled(view); scene.focus = view.focus;
-}
 struct PhoneTsf {
     SecureEdit* edit;
     const UiRect* clip = nullptr;
@@ -84,11 +75,11 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
         LoginView view{}; view.status = status; view.visible = true; view.password_mask = utf8_literal("123456");
         view.phone_code_ready = login_phone_editable(status); view.focus = login_phone_editable(status) ? LoginControl::phone_code : LoginControl::back;
         view.edit_active = login_phone_editable(status); view.edit_anchor = 2; view.edit_caret = 4;
-        synchronize(scene, view); scene.focus_visible = true;
+        login_scene_apply_view(&scene, view); scene.focus_visible = true;
         check(login_scene_layout(&scene, width, 600), "phone all responsive native states lay out"); view.focus = scene.focus;
         check(scene.phone_mode && !scene.qr_visible && scene.widgets.count <= kMaximumLoginWidgets &&
             !login_scene_element(scene, LoginElement::login_field) && !login_scene_element(scene, LoginElement::login_label) &&
-            scene.mfa_capabilities == 0 && login_view_matches_scene(view, &scene) &&
+            scene.mfa_capabilities == 0 && login_view_valid(view) &&
             login_text_presentation_build(scene, view, kDefaultTheme, &text),
             "phone hides original identifier password QR and MFA choices within existing widget bank");
         const auto bounds = login_scene_content_rectangle(scene, LoginElement::password_field);
@@ -123,10 +114,16 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
             const auto next = login_scene_move_focus(&scene, false);
             check(next == LoginControl::back && login_scene_move_focus(&scene, true) == LoginControl::phone_code,
                 "native Tab and Shift-Tab traverse only visible phone controls");
+        } else if (status == LoginStatus::recovery_phone_captcha_required) {
+            // A CAPTCHA offers only the browser check beside Back, as the application's scene does.
+            check(!login_scene_focus(&scene, LoginControl::phone_code) && !login_scene_focus(&scene, LoginControl::phone_resend) &&
+                login_scene_focus(&scene, LoginControl::submit) && login_scene_focus(&scene, LoginControl::back) &&
+                login_control_action(LoginControl::submit, status, {}) == LoginAction::captcha_verify,
+                "pending phone CAPTCHA keeps Verify in browser beside Back as the only enabled controls");
         } else check(!login_scene_focus(&scene, LoginControl::phone_code) && !login_scene_focus(&scene, LoginControl::phone_resend) &&
             !login_scene_focus(&scene, LoginControl::submit) && login_scene_focus(&scene, LoginControl::back) &&
             login_scene_move_focus(&scene, false) == LoginControl::back,
-            "pending CAPTCHA authoritative cooldown and indeterminate states retain Back as the only enabled control");
+            "pending authoritative cooldown and indeterminate states retain Back as the only enabled control");
         UiRect selections[2]{login_phone_cell_rectangle(bounds, 2), login_phone_cell_rectangle(bounds, 3)};
         const LoginPresentationInput input{{selections, 2}, {}, login_phone_caret_rectangle(bounds, 4), nullptr, view.edit_active, true};
         check(login_presentation_build(scene, input, kDefaultTheme, width, 600, 144, &paint), "native phone cell selection and caret paint uses fixed geometry");
@@ -195,7 +192,7 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
     LoginView sparse{}; sparse.status = LoginStatus::recovery_phone_required; sparse.visible = true;
     sparse.focus = LoginControl::phone_code; sparse.edit_active = true; sparse.edit_anchor = 2; sparse.edit_caret = 5;
     sparse.password_mask = {reinterpret_cast<const char*>(edit.storage.data), 6};
-    synchronize(scene, sparse);
+    login_scene_apply_view(&scene, sparse);
     check(login_view_valid(sparse) && login_view_submit_disabled(sparse) && login_scene_layout(&scene, 400, 600) &&
         login_text_presentation_build(scene, sparse, kDefaultTheme, &text), "sparse projection admits holes while disabling Verify");
     u32 occupied_commands = 0;

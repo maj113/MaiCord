@@ -517,7 +517,7 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
     for (u32 pass = 0; pass < 8; ++pass)
         valid = pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) &&
                 valid;
-    check(valid && !pump.avatar_key_is_current(avatar) && identity_requests == before_hidden,
+    check(valid && !repass(pump).avatar_key_is_current(avatar) && identity_requests == before_hidden,
           "avatar admission: grouped authors without a visible avatar never queue discarded decodes");
     char command_text[32]{};
     MessageComposer command_model{};
@@ -528,16 +528,16 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
         message_composer_scene_initialize_owned(&g_app.message_composer_scene) &&
         message_composer_scene_update(&g_app.message_composer_scene, &command_model,
             {0, 300, 600, 360}, true, 0, {}, &command_projection).ok();
-    check(composer_ready && !g_app.popup_scene.active && pump.avatar_key_is_current(avatar),
+    check(composer_ready && !g_app.popup_scene.active && repass(pump).avatar_key_is_current(avatar),
           "command avatar: selected composer admits its bot after the discovery picker closes");
     command_projection.command = {};
     check(composer_ready && message_composer_scene_update(&g_app.message_composer_scene, &command_model,
-              {0, 300, 600, 360}, true, 0, {}, &command_projection).ok() && !pump.avatar_key_is_current(avatar),
+              {0, 300, 600, 360}, true, 0, {}, &command_projection).ok() && !repass(pump).avatar_key_is_current(avatar),
           "command avatar: clearing command presentation retires its media ownership");
     message_composer_scene_release(&g_app.message_composer_scene);
     for (u32 index = 0; index < g_app.message_scene.count; ++index)
         fixture.rows[index].grouped = grouped[index];
-    check(pump.avatar_key_is_current(avatar) &&
+    check(repass(pump).avatar_key_is_current(avatar) &&
               pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) &&
               identity_requests == before_hidden + 1,
           "avatar admission: matching visible author still admits its normal cold request");
@@ -589,7 +589,7 @@ void run_default_avatar_timeline_test(AccountUiRuntime& ui, ApplicationMediaPump
     pump.uploads = 0;
     last_profile_key = {};
     watched_profile_key = key;
-    const bool current = pump.avatar_key_is_current(key) && pump.media_key_is_current(key);
+    const bool current = repass(pump).avatar_key_is_current(key) && repass(pump).media_key_is_current(key);
     valid = valid && pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, Utf8View{}, &stop);
     check(valid && current && media_asset_key_equal(last_profile_key, key) &&
               utf8_equal({last_profile_url, last_profile_url_bytes},
@@ -912,7 +912,7 @@ void run_search_avatar_test(ApplicationMediaPump& pump) noexcept {
     AvatarMedia media{};
     valid = valid && search_avatar_media_resolve(scene, 0, &media);
     check(valid && !user_store_find(g_app.account_ui->user_store, 770) &&
-              pump.avatar_key_is_current(media.key),
+              repass(pump).avatar_key_is_current(media.key),
           "search avatar: exact result bank owns a visible author absent from the conversation user cache");
     const u32 before = identity_requests;
     pump.uploads = 0;
@@ -924,11 +924,11 @@ void run_search_avatar_test(ApplicationMediaPump& pump) noexcept {
     scope.current = false;
     if (valid)
         valid = pump.pass(1000, 1100, 0, &repaint).request_visible_user_avatar_value(media.key.id, media.hash, &stop, true);
-    check(valid && !pump.avatar_key_is_current(media.key) && identity_requests == before + 1,
+    check(valid && !repass(pump).avatar_key_is_current(media.key) && identity_requests == before + 1,
           "search avatar: retired account scope rejects stale admission without draining unrelated work");
     scope.current = true;
     ++source.revision;
-    check(!pump.avatar_key_is_current(media.key),
+    check(!repass(pump).avatar_key_is_current(media.key),
           "search avatar: replaced result page cannot authorize the prior borrowed projection");
     ++content.revision;
     content.filters = true;
@@ -1019,7 +1019,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     bool placeholder = false, initials = false;
     check(placeholder_paint(&placeholder, &initials) && placeholder && !initials,
           "settings avatar: a row with an avatar image paints a hideable loading placeholder, no initials");
-    check(pump.media_key_is_current(key) && !pump.media_key_is_current(other),
+    check(repass(pump).media_key_is_current(key) && !repass(pump).media_key_is_current(other),
           "settings avatar: opaque Settings admits exactly its account-card avatar");
     const u32 before = identity_requests;
     pump.uploads = 0;
@@ -1031,7 +1031,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     ++content.revision;
     valid = ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
     cursor = 0;
-    check(valid && !ui_settings_scene_next_avatar(scene, &cursor, &extra) && !pump.media_key_is_current(key) &&
+    check(valid && !ui_settings_scene_next_avatar(scene, &cursor, &extra) && !repass(pump).media_key_is_current(key) &&
               pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() && identity_requests == before + 1,
           "settings avatar: a row without media keeps its initials and requests nothing");
     check(placeholder_paint(&placeholder, &initials) && !placeholder && initials,
@@ -1048,7 +1048,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     valid = ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
     cursor = 0;
     check(valid && ui_settings_scene_next_avatar(scene, &cursor, &geometry) &&
-              media_asset_key_equal(geometry.media->key, guild_key) && pump.media_key_is_current(guild_key),
+              media_asset_key_equal(geometry.media->key, guild_key) && repass(pump).media_key_is_current(guild_key),
           "settings avatar: a server identity row admits its guild icon instead of initials");
     check(pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() && identity_requests == before + 2 &&
               media_asset_key_equal(last_identity_key, guild_key) && last_identity_size != 0,
@@ -1066,7 +1066,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     cursor = 0;
     const u32 before_default = attachment_requests;
     check(valid && ui_settings_scene_next_avatar(scene, &cursor, &geometry) &&
-              media_asset_key_equal(geometry.media->key, default_key) && pump.media_key_is_current(default_key) &&
+              media_asset_key_equal(geometry.media->key, default_key) && repass(pump).media_key_is_current(default_key) &&
               pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() &&
               attachment_requests == before_default + 1 && media_asset_key_equal(last_attachment_key, default_key),
           "settings avatar: a listed user without an avatar hash requests the default avatar by path");
@@ -1083,8 +1083,8 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     valid = ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
     observe_picker_requests = true;
     picker_emoji_requests = 0;
-    check(valid && pump.media_key_is_current(emoji_key) && pump.media_key_is_current(sticker_key) &&
-              !pump.media_key_is_current(media_asset_custom_emoji(995, false)) &&
+    check(valid && repass(pump).media_key_is_current(emoji_key) && repass(pump).media_key_is_current(sticker_key) &&
+              !repass(pump).media_key_is_current(media_asset_custom_emoji(995, false)) &&
               pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() && picker_emoji_requests == 2 &&
               media_asset_key_equal(picker_requested_keys[0], emoji_key) &&
               media_asset_key_equal(picker_requested_keys[1], sticker_key),
@@ -1157,8 +1157,8 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
           "settings preview avatars: your avatar is requested through the user-avatar path");
     check(attachment_requests == attachments + 3 && media_asset_key_equal(last_attachment_key, default_avatar_key(4)),
           "settings preview avatars: the three status avatars' defaults are requested by their CDN paths");
-    check(pump.media_key_is_current(mine) && pump.media_key_is_current(default_avatar_key(2)) &&
-              pump.media_key_is_current(default_avatar_key(4)),
+    check(repass(pump).media_key_is_current(mine) && repass(pump).media_key_is_current(default_avatar_key(2)) &&
+              repass(pump).media_key_is_current(default_avatar_key(4)),
           "settings preview avatars: the card keeps its avatars current");
     sample.compact = true;
     ++preview_content.revision;
@@ -1166,7 +1166,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
               media_asset_key_equal(shown[0], default_avatar_key(2)),
           "settings preview avatars: compact messages carry no avatar, the status column stays");
     g_app.renderer.settings_scene = previous;
-    check(!pump.media_key_is_current(key), "settings avatar: closed Settings no longer admits its avatar");
+    check(!repass(pump).media_key_is_current(key), "settings avatar: closed Settings no longer admits its avatar");
     ui_settings_scene_release(&scene);
 }
 
@@ -1216,17 +1216,17 @@ void run_profile_editor_preview_test(ApplicationMediaPump& pump) noexcept {
     check(valid && banner, "profile editor preview: the card resolves its banner media");
     bool hidden = valid && count;
     for (u32 i = 0; i < count; ++i)
-        hidden = hidden && !pump.media_key_is_current(keys[i]);
+        hidden = hidden && !repass(pump).media_key_is_current(keys[i]);
     check(hidden,
           "profile editor preview: Settings alone does not admit the card's profile media");
     fixture_editor_preview = &preview;
     bool current = count != 0;
     for (u32 i = 0; i < count; ++i)
-        current = current && pump.media_key_is_current(keys[i]);
+        current = current && repass(pump).media_key_is_current(keys[i]);
     const auto picked = media_asset_local_draft_preview(0x5052000000000001ull, 1u, MediaAttachmentFormat::png);
-    const bool picked_hidden = !pump.media_key_is_current(picked);
+    const bool picked_hidden = !repass(pump).media_key_is_current(picked);
     fixture_editor_frame_current = true;
-    const bool picked_current = pump.media_key_is_current(picked);
+    const bool picked_current = repass(pump).media_key_is_current(picked);
     check(current && picked_hidden && picked_current,
           "profile editor preview: the open editor admits its avatar, banner, decoration and picked images");
     fixture_editor_preview = nullptr;
@@ -1284,7 +1284,7 @@ void run_profile_activity_art_test(ApplicationMediaPump& pump) noexcept {
                          utf8_literal("https://i.scdn.co/image/ab67616d0000b2730123456789abcdef01234567")) &&
               last_profile_type == CdnImageType::jpeg && last_profile_proxy_width == 0,
           "profile activity art: the visible card requests its album art as JPEG from i.scdn.co");
-    check(pump.media_key_is_current(art), "profile activity art: the visible card's art is current media");
+    check(repass(pump).media_key_is_current(art), "profile activity art: the visible card's art is current media");
     // Issue #8: a decoded image the renderer refuses (there, a 1048x2048 effect layer no atlas page held; this
     // renderer has no device and refuses every upload) fails its asset alone. The pump goes on, the account
     // keeps its instance and phase (the shell schedules no reconnect: the pump never failed), the refusal is
@@ -1384,8 +1384,8 @@ void run_quick_switcher_avatar_test(ApplicationMediaPump& pump) noexcept {
             !ui_quick_switcher_scene_media(scene, 2, nullptr, &group) &&
             user.key.kind == MediaAssetKind::user_avatar && user.key.id == 880 && direct.key.id == 881 &&
             ui_rect_has_area(user.clip);
-    check(valid && pump.avatar_key_is_current(user.key) && pump.avatar_key_is_current(direct.key) &&
-              !pump.avatar_key_is_current(media_asset_user_avatar(882, user.key.variant, false)),
+    check(valid && repass(pump).avatar_key_is_current(user.key) && repass(pump).avatar_key_is_current(direct.key) &&
+              !repass(pump).avatar_key_is_current(media_asset_user_avatar(882, user.key.variant, false)),
           "quick switcher avatar: people and DM rows admit their avatars; group icons are not user avatars");
     const u32 before = identity_requests;
     pump.uploads = 0;
@@ -1396,7 +1396,7 @@ void run_quick_switcher_avatar_test(ApplicationMediaPump& pump) noexcept {
     check(valid && identity_requests == before + 1 && media_asset_key_equal(last_identity_key, user.key),
           "quick switcher avatar: picker rows use the shared user-avatar request");
     g_app.renderer.quick_switcher_scene = previous;
-    check(!pump.avatar_key_is_current(user.key), "quick switcher avatar: a closed picker admits nothing");
+    check(!repass(pump).avatar_key_is_current(user.key), "quick switcher avatar: a closed picker admits nothing");
     ui_quick_switcher_scene_release(&scene);
 }
 

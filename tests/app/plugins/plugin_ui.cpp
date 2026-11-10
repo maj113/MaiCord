@@ -6,6 +6,7 @@
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "../../support/test_output.hpp"
 #include "plugin_fixture.hpp"
+#include "fake_ui_host.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -58,83 +59,8 @@ bool same_label(const PluginMenuRow& row, const char* expected) noexcept {
 
 // ---- The recording host ---------------------------------------------------------------------------
 
-struct Recorded {
-    u32 banner_changes, modal_opens, modal_closes, urls, copies, channels, profiles, notices, toasts;
-    bool accept_modal;
-    PluginUiStatus status;
-    // The last modal as it was asked for.
-    PluginModalRequest modal;
-    char title[64], context[600], accept[40], cancel[40], input_label[80], input_initial[2100], hint[80], toggle[100],
-        select_label[80];
-    char url[2100], copy[4100];
-    u64 channel, user, guild;
-    u64 notice_channel;
-    char notice[200];
-    char toast[200];
-    u32 toast_tone;
-};
-Recorded host_state;
-
-template <u32 N> void keep(char (&storage)[N], Utf8View text) noexcept {
-    const u32 bytes = text.bytes < N - 1 ? text.bytes : N - 1;
-    copy_bytes(storage, text.data, bytes);
-    storage[bytes] = 0;
-}
-bool host_open_modal(const PluginModalRequest& request) noexcept {
-    if (!host_state.accept_modal) return false;
-    ++host_state.modal_opens;
-    host_state.modal = request;
-    keep(host_state.title, request.title);
-    keep(host_state.context, request.context);
-    keep(host_state.accept, request.accept);
-    keep(host_state.cancel, request.cancel);
-    keep(host_state.input_label, request.input_label);
-    keep(host_state.input_initial, request.input_initial);
-    keep(host_state.hint, request.input_hint);
-    keep(host_state.toggle, request.toggle_label);
-    keep(host_state.select_label, request.select_label);
-    return true;
-}
-void host_banner() noexcept {
-    ++host_state.banner_changes;
-}
-void host_close_modal() noexcept {
-    ++host_state.modal_closes;
-}
-PluginUiStatus host_open_url(Utf8View url) noexcept {
-    ++host_state.urls;
-    keep(host_state.url, url);
-    return host_state.status;
-}
-PluginUiStatus host_copy_text(Utf8View text) noexcept {
-    ++host_state.copies;
-    keep(host_state.copy, text);
-    return host_state.status;
-}
-PluginUiStatus host_open_channel(u64 channel) noexcept {
-    ++host_state.channels;
-    host_state.channel = channel;
-    return host_state.status;
-}
-PluginUiStatus host_open_profile(u64 user, u64 guild) noexcept {
-    ++host_state.profiles;
-    host_state.user = user;
-    host_state.guild = guild;
-    return host_state.status;
-}
-bool host_notice(u64 channel, Utf8View text, u64*) noexcept {
-    ++host_state.notices;
-    host_state.notice_channel = channel;
-    keep(host_state.notice, text);
-    return true;
-}
-void host_toast(u64, Utf8View text, u32 tone) noexcept {
-    ++host_state.toasts;
-    keep(host_state.toast, text);
-    host_state.toast_tone = tone;
-}
-const PluginUiHost kHost{host_open_modal, host_banner,       host_close_modal, host_open_url, host_copy_text,
-                         host_open_channel, host_open_profile, host_notice,      host_toast};
+// What the application's side of the plugin UI was asked to show (fake_ui_host.cpp).
+plugin_fake_ui::Recorded& host_state = plugin_fake_ui::recorded;
 
 // ---- Helpers --------------------------------------------------------------------------------------
 
@@ -526,7 +452,7 @@ void test_actions(PluginBinding* binding) noexcept {
           "copying reaches the clipboard through the application");
     check(state.toast_status == MC_OK && host_state.toasts == 1 && same(view(host_state.toast), "some text") &&
               host_state.toast_tone == MC_TONE_ACCENT && state.toast_flags_status == MC_E_INVALID,
-          "a toast reaches the application's host when the runtime has no sink; flags must stay zero");
+          "a toast reaches the application's host; flags must stay zero");
 
     run_json("goto", "[{\"name\":\"where\",\"type\":7,\"value\":\"4242\"},{\"name\":\"who\",\"type\":6,\"value\":\"9\"}]");
     check(state.channel_status == MC_OK && host_state.channel == 4242 && state.profile_status == MC_OK &&
@@ -649,8 +575,6 @@ void run() noexcept {
           "with no plugin there are no items, commands or banners");
     PluginMenuRow rows[8];
     check(collect(target(PluginMenuKind::message), rows) == 0, "with no plugin a menu collects nothing");
-    plugin_ui_host_install(&kHost);
-    check(plugin_ui_host() == &kHost, "the application installs its side of the plugin UI");
     const PluginLoadResult opened =
         plugin_runtime_open(&runtime, {root.plugins, length(root.plugins)}, {root.data, length(root.data)}, nullptr);
     check(opened.ok() && install(root, L"MaiCordPluginUiFixture.dll", L"ui.dll"), "the fixture is installed");
@@ -674,7 +598,6 @@ void run() noexcept {
         plugin_runtime_close(&runtime);
     }
     command_index_release(&g_index);
-    plugin_ui_host_install(nullptr);
     remove_tree(root.base);
 }
 

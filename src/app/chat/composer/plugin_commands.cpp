@@ -58,18 +58,15 @@ BuiltinCommandRun plugin_command_execute(const ApplicationCommand& command, Utf8
         *text = {text_storage.data, result.text.bytes};
         return true;
     };
-    const PluginUiHost* host = plugin_ui_host();
     switch (result.outcome) {
     case PluginCommandOutcome::none: return BuiltinCommandRun::handled;
     case PluginCommandOutcome::send: return keep() ? BuiltinCommandRun::text : BuiltinCommandRun::failed;
     case PluginCommandOutcome::insert: return keep() ? BuiltinCommandRun::insert : BuiltinCommandRun::failed;
     case PluginCommandOutcome::local:
-        return host && host->local_notice && host->local_notice(channel_id, result.text, nullptr)
-                   ? BuiltinCommandRun::handled
-                   : BuiltinCommandRun::failed;
+        return plugin_host_local_notice(channel_id, result.text, nullptr) ? BuiltinCommandRun::handled
+                                                                        : BuiltinCommandRun::failed;
     case PluginCommandOutcome::toast:
-        if (!host || !host->toast) return BuiltinCommandRun::failed;
-        host->toast(result.owner_id, result.text, result.tone);
+        plugin_host_toast(result.owner_id, result.text, result.tone);
         return BuiltinCommandRun::handled;
     default: return BuiltinCommandRun::failed;
     }

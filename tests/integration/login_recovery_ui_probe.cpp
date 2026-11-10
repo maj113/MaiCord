@@ -8,7 +8,7 @@ namespace {
 bool recovery_geometry(const LoginScene& scene, const LoginView& view, u32* stage) noexcept {
     const u32 base = *stage;
     *stage = base + 1;
-    if (!login_view_matches_scene(view, &scene) || scene.qr_visible || !scene.credential_fields_hidden ||
+    if (!login_view_valid(view) || scene.qr_visible || !scene.credential_fields_hidden ||
         view.password_mask.bytes || view.qr_code || !scene.focus_visible) return false;
     const UiRect back = login_scene_rectangle(scene, LoginElement::forgot_password);
     *stage = base + 2;
@@ -92,15 +92,7 @@ bool login_recovery_ui_probe(D3D11Renderer& renderer,
         view.login = utf8_literal("native.recovery@example.test");
         view.status = statuses[i]; view.visible = true;
         view.focus = i == 0 ? LoginControl::login : LoginControl::back;
-        scene.restoring_session = false;
-        scene.back_only = login_requires_back(view.status, view.remote_status);
-        scene.recovery_mode = true; scene.credential_fields_hidden = true;
-        scene.mfa_capabilities = 0; scene.selected_mfa_capability = 0;
-        scene.focus = view.focus; scene.focus_visible = true;
-        scene.action_disabled = login_view_action_disabled(view);
-        scene.recovery_disabled = login_view_recovery_disabled(view);
-        scene.submit_disabled = login_view_submit_disabled(view);
-        scene.captcha_action = login_view_captcha_action(view);
+        login_scene_apply_view(&scene, view); scene.focus_visible = true;
         if (!valid) break;
         stage = 100 * i + 20;
         valid = login_scene_layout(&scene, renderer.width / pixels, renderer.height / pixels);

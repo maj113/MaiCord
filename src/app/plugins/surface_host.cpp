@@ -1,5 +1,5 @@
 // The application's side of plugin decorations and buttons: the bounded prepare pass that gives the scenes'
-// entities to the installed plugin host, polling for changes, clicks, and the cache reader plugins read through.
+// entities to the plugin runtime, polling for changes, clicks, and the cache reader plugins read through.
 // The plugin code itself runs in the runtime (decorations.cpp, buttons.cpp); nothing here runs it on a paint path.
 #include "surface_host.hpp"
 #include "maicord/core/hash.hpp"
@@ -217,9 +217,9 @@ u64 signature(const AccountUiRuntime& ui, const MessageStore& store) noexcept {
     return hash;
 }
 
-bool prepare_messages(const PluginSurfaceHost& host, const AccountUiRuntime& ui, PluginDecoratePass* pass) noexcept {
+bool prepare_messages(const AccountUiRuntime& ui, PluginDecoratePass* pass) noexcept {
     const MessageStore& store = g_app.message_view.store;
-    const bool messages = host.wants & (1u << 0), users = host.wants & (1u << 1);
+    const bool messages = g_plugin_surface_wants & (1u << 0), users = g_plugin_surface_wants & (1u << 1);
     if (!messages && !users) return true;
     u32 considered = 0;
     bool complete = true;
@@ -227,7 +227,7 @@ bool prepare_messages(const PluginSurfaceHost& host, const AccountUiRuntime& ui,
         const MessageRecord* record = message_store_resolve(store, handle);
         if (!record || !record->id) return true;
         if (++considered > kScanLimit) return false;
-        if (messages && !host.message(pass, message_input(ui, store, handle, *record, host.message_needs))) {
+        if (messages && !plugin_decorate_message(pass, message_input(ui, store, handle, *record, g_plugin_message_needs))) {
             complete = false;
             return false;
         }
@@ -237,7 +237,7 @@ bool prepare_messages(const PluginSurfaceHost& host, const AccountUiRuntime& ui,
             if (user_input(ui, record->author_id, guild, kPluginUserMessageAuthor, &author)) {
                 author.channel_id = record->channel_id;
                 author.message_id = record->id;
-                if (!host.user(pass, author)) {
+                if (!plugin_decorate_user(pass, author)) {
                     complete = false;
                     return false;
                 }
@@ -253,9 +253,9 @@ bool prepare_messages(const PluginSurfaceHost& host, const AccountUiRuntime& ui,
     return complete;
 }
 
-bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, PluginDecoratePass* pass) noexcept {
+bool prepare_rows(const AccountUiRuntime& ui, PluginDecoratePass* pass) noexcept {
     bool complete = true;
-    if (host.wants & (1u << 1)) {
+    if (g_plugin_surface_wants & (1u << 1)) {
         const auto& scene = g_app.member_list_scene;
         const u64 guild = plugin_guild_of_channel(ui, ui.active_channel_id);
         for (u32 i = 0; complete && scene.active && i < scene.count; ++i) {
@@ -265,7 +265,7 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
                 !user_input(ui, row.user_id, guild, kPluginUserMemberRow, &in))
                 continue;
             in.channel_id = ui.active_channel_id;
-            complete = host.user(pass, in);
+            complete = plugin_decorate_user(pass, in);
         }
         // The open profile; its opening time is part of the user's revision, so every opening asks again.
         const ApplicationProfile* profile = g_app.profile;
@@ -273,10 +273,10 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
         if (complete && profile && profile->scene.active &&
             user_input(ui, profile->data.user_id, profile->data.guild_id, kPluginUserProfile, &in)) {
             in.message_id = profile->scene.opened_ms;
-            complete = host.user(pass, in);
+            complete = plugin_decorate_user(pass, in);
         }
     }
-    if (complete && (host.wants & (1u << 2))) {
+    if (complete && (g_plugin_surface_wants & (1u << 2))) {
         const auto& scene = g_app.shell_navigation_scene;
         char name[256];
         for (u32 i = 0; complete && scene.active && i < scene.count; ++i) {
@@ -288,10 +288,10 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
             if (view.unread) in.flags |= kPluginChannelUnread;
             if (view.muted) in.flags |= kPluginChannelMuted;
             in.mention_count = view.mention_count;
-            complete = host.channel(pass, in);
+            complete = plugin_decorate_channel(pass, in);
         }
     }
-    if (complete && (host.wants & (1u << 3))) {
+    if (complete && (g_plugin_surface_wants & (1u << 3))) {
         const auto& scene = g_app.guild_rail_scene;
         for (u32 i = 0; complete && scene.active && i < scene.count; ++i) {
             const GuildViewRow& view = scene.rows[i].view;
@@ -303,10 +303,10 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
             if (view.unread) in.flags |= kPluginGuildUnread;
             if (view.muted) in.flags |= kPluginGuildMuted;
             in.mention_count = view.mention_count;
-            complete = host.guild(pass, in);
+            complete = plugin_decorate_guild(pass, in);
         }
     }
-    if (complete && (host.wants & (1u << 4)) && ui.active_channel_id) {
+    if (complete && (g_plugin_surface_wants & (1u << 4)) && ui.active_channel_id) {
         const auto* channel = chat_state_store_find_channel(ui.chat_state, ui.active_channel_id);
         if (channel) {
             PluginHeaderInput in{};
@@ -314,7 +314,7 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
             in.guild_id = channel->guild_id;
             in.name = chat_state_store_channel_name(ui.chat_state, *channel);
             in.where = kPluginHeaderChannel;
-            complete = host.header(pass, in);
+            complete = plugin_decorate_header(pass, in);
             if (complete && channel->guild_id) {
                 if (const auto* guild = chat_state_store_find_guild(ui.chat_state, channel->guild_id)) {
                     PluginGuildInput counts;
@@ -322,7 +322,7 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
                     in.where = kPluginHeaderMemberList;
                     in.member_count = counts.member_count;
                     in.online_count = counts.online_count;
-                    complete = host.header(pass, in);
+                    complete = plugin_decorate_header(pass, in);
                 }
             }
         }
@@ -341,14 +341,29 @@ bool message_for(u64 message_id, u32 needs, PluginMessageInput* out) noexcept {
     return true;
 }
 
-// ---- the cache reader -------------------------------------------------------------------------
+} // namespace
+} // namespace maicord::app_detail
 
-bool reader_user(u64 user_id, u64 guild_id, PluginUserInput* out) noexcept {
-    return g_app.account_ui && user_input(*g_app.account_ui, user_id, guild_id, 0, out);
-}
+namespace maicord {
+using namespace app_detail;
+
+// ---- the cache reader -------------------------------------------------------------------------
+namespace {
+
 // A generated DM name lives here until the next read.
 char g_reader_name[256];
-bool reader_channel(u64 channel_id, PluginChannelInput* out) noexcept {
+
+u64 group_dm_recency(const ChatStateStore& state, u64 channel_id) noexcept {
+    const auto* channel = chat_state_store_find_channel(state, channel_id);
+    return private_channel_recency(channel_id, channel ? channel->last_message_id : 0);
+}
+
+} // namespace
+
+bool plugin_host_read_user(u64 user_id, u64 guild_id, PluginUserInput* out) noexcept {
+    return g_app.account_ui && user_input(*g_app.account_ui, user_id, guild_id, 0, out);
+}
+bool plugin_host_read_channel(u64 channel_id, PluginChannelInput* out) noexcept {
     const auto* ui = g_app.account_ui;
     const auto* channel = ui ? chat_state_store_find_channel(ui->chat_state, channel_id) : nullptr;
     if (!channel) return false;
@@ -363,7 +378,7 @@ bool reader_channel(u64 channel_id, PluginChannelInput* out) noexcept {
     }
     return true;
 }
-bool reader_guild(u64 guild_id, PluginGuildInput* out) noexcept {
+bool plugin_host_read_guild(u64 guild_id, PluginGuildInput* out) noexcept {
     const auto* ui = g_app.account_ui;
     const auto* guild = ui ? chat_state_store_find_guild(ui->chat_state, guild_id) : nullptr;
     if (!guild) return false;
@@ -385,7 +400,7 @@ bool reader_guild(u64 guild_id, PluginGuildInput* out) noexcept {
     return true;
 }
 // What a user can do in a server (or one of its channels): computed from the cached roles and overwrites.
-bool reader_permissions(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) noexcept {
+bool plugin_host_read_permissions(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) noexcept {
     const auto* ui = g_app.account_ui;
     if (!ui || !guild_id || !user_id) return false;
     const auto* guild = chat_state_store_find_guild(ui->chat_state, guild_id);
@@ -411,7 +426,7 @@ bool reader_permissions(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) no
                                                 {clock_unix_milliseconds() / 1000u, false});
     return true;
 }
-bool reader_voice_channel(u64 user_id, u64 guild_id, u64* channel_id) noexcept {
+bool plugin_host_read_voice_channel(u64 user_id, u64 guild_id, u64* channel_id) noexcept {
     const auto* ui = g_app.account_ui;
     if (!ui) return false;
     const VoiceStateStore& voice = ui->voice_states;
@@ -422,12 +437,8 @@ bool reader_voice_channel(u64 user_id, u64 guild_id, u64* channel_id) noexcept {
     *channel_id = state ? state->channel_id : 0;
     return state != nullptr;
 }
-u64 group_dm_recency(const ChatStateStore& state, u64 channel_id) noexcept {
-    const auto* channel = chat_state_store_find_channel(state, channel_id);
-    return private_channel_recency(channel_id, channel ? channel->last_message_id : 0);
-}
 // Group DMs whose members include user_id, most recently active first (an insertion sort into output).
-u32 reader_shared_group_dms(u64 user_id, Slice<u64> output) noexcept {
+u32 plugin_host_read_shared_group_dms(u64 user_id, Slice<u64> output) noexcept {
     const auto* ui = g_app.account_ui;
     const PrivateChannelStore* store = ui ? ui->chat_state.private_channels : nullptr;
     if (!store || user_id == ui->chat_state.self_user_id) return 0;
@@ -452,17 +463,14 @@ u32 reader_shared_group_dms(u64 user_id, Slice<u64> output) noexcept {
     return total;
 }
 
-constexpr PluginReader kReader{reader_user,          reader_channel,         reader_guild, reader_permissions,
-                               reader_voice_channel, reader_shared_group_dms};
+} // namespace maicord
 
-} // namespace
+namespace maicord::app_detail {
 
 void application_plugin_surfaces_prepare() noexcept {
     // The scene reads cached verdicts through the installed query; with none installed every row skips the lookup.
     g_app.message_scene.plugin_decorations = true;
-    g_plugin_reader = &kReader;
-    const PluginSurfaceHost* host = g_plugin_surfaces;
-    if (!host || !g_app.account_ui || g_app.login.visible) {
+    if (!g_plugin_surfaces_active || !g_app.account_ui || g_app.login.visible) {
         g_host.pending = false;
         return;
     }
@@ -470,17 +478,17 @@ void application_plugin_surfaces_prepare() noexcept {
     const MessageStore& store = g_app.message_view.store;
     if (!g_host.pending && g_host.prepared_signature == signature(ui, store)) return;
     PluginDecoratePass pass{};
-    bool complete = prepare_messages(*host, ui, &pass);
-    if (complete && g_plugin_surfaces == host) complete = prepare_rows(*host, ui, &pass);
+    bool complete = prepare_messages(ui, &pass);
+    if (complete && g_plugin_surfaces_active) complete = prepare_rows(ui, &pass);
     // A plugin that left during the pass invalidated the host; nothing is pending then.
-    g_host.pending = g_plugin_surfaces == host && !complete;
-    g_host.prepared_signature = g_plugin_surfaces ? signature(ui, store) : 0;
+    g_host.pending = g_plugin_surfaces_active && !complete;
+    g_host.prepared_signature = g_plugin_surfaces_active ? signature(ui, store) : 0;
     if (g_host.pending) application_request_frame();
 }
 
 bool application_plugin_surfaces_stale() noexcept {
     // A plugin that just left changed the revision too: its decorations leave the text on the next build.
-    return (g_plugin_surfaces && g_host.pending) || g_host.rendered_revision != g_plugin_surface_revision;
+    return (g_plugin_surfaces_active && g_host.pending) || g_host.rendered_revision != g_plugin_surface_revision;
 }
 
 void application_plugin_surfaces_rendered() noexcept {
@@ -490,10 +498,10 @@ void application_plugin_surfaces_rendered() noexcept {
 bool application_plugin_surfaces_poll() noexcept {
     if (!g_app.account_ui) return false;
     // The open channel decides the buttons that depend on it.
-    if (g_plugin_surfaces && g_host.context_channel != g_app.account_ui->active_channel_id) {
+    if (g_plugin_surfaces_active && g_host.context_channel != g_app.account_ui->active_channel_id) {
         application_plugin_surfaces_context_changed();
     }
-    const bool changed = g_plugin_surfaces
+    const bool changed = g_plugin_surfaces_active
                              ? g_host.pending || g_host.rendered_revision != g_plugin_surface_revision ||
                                    g_host.prepared_signature != signature(*g_app.account_ui, g_app.message_view.store)
                              : g_host.rendered_revision != g_plugin_surface_revision;
@@ -505,8 +513,8 @@ bool application_plugin_surfaces_poll() noexcept {
 }
 
 void application_plugin_surfaces_hover(u64 message_id) noexcept {
-    const PluginSurfaceHost* host = g_plugin_surfaces;
-    const MessageRecord* record = host && g_app.account_ui ? application_message_record(message_id) : nullptr;
+    const MessageRecord* record =
+        g_plugin_surfaces_active && g_app.account_ui ? application_message_record(message_id) : nullptr;
     if (!record) return;
     if (g_host.hover_message == message_id && g_host.hover_revision == record->revision &&
         g_host.hover_surface_revision == g_plugin_surface_revision)
@@ -515,21 +523,20 @@ void application_plugin_surfaces_hover(u64 message_id) noexcept {
     if (!message_for(message_id, kPluginNeedContent | kPluginNeedAuthor, &in)) return;
     PluginDecoratePass pass{};
     // A call that waited for budget is retried by the next pointer move: don't remember it.
-    if (!host->popover(&pass, in)) return;
+    if (!plugin_decorate_popover(&pass, in)) return;
     g_host.hover_message = message_id;
     g_host.hover_revision = record->revision;
     g_host.hover_surface_revision = g_plugin_surface_revision;
 }
 
 bool application_plugin_surfaces_activate(u64 owner_id, const PluginSurfaceTarget& target, u64 action_id) noexcept {
-    const PluginSurfaceHost* host = g_plugin_surfaces;
-    if (!host || !action_id) return false;
+    if (!g_plugin_surfaces_active || !action_id) return false;
     PluginSurfaceTarget resolved = target;
     PluginMessageInput message;
     const bool has_message = message_for(target.message_id, kPluginNeedContent | kPluginNeedAuthor, &message);
     // A message's badges belong to its author.
     if (has_message && !resolved.user_id) resolved.user_id = message.author_id;
-    const bool handled = host->activate(owner_id, resolved, action_id, has_message ? &message : nullptr);
+    const bool handled = plugin_surfaces_activate(owner_id, resolved, action_id, has_message ? &message : nullptr);
     application_request_frame();
     return handled;
 }
@@ -538,15 +545,14 @@ bool application_plugin_surfaces_text_click(const MessageTextHit& hit) noexcept 
     if (!hit.valid || hit.kind != MessageMarkdownSemanticKind::link ||
         !ui_plugin_render_source(static_cast<u16>(hit.source_offset >> 16u)) || !hit.message_id)
         return false;
-    const PluginSurfaceHost* host = g_plugin_surfaces;
     // The plugin that wrote the link is gone: it means nothing now.
-    if (!host) return true;
+    if (!g_plugin_surfaces_active) return true;
     const MessageStore& store = g_app.message_view.store;
     const MessageStoreResult found = message_store_find(store, hit.message_id);
     const MessageRecord* record = found.ok() ? message_store_resolve(store, found.handle) : nullptr;
     if (!record || record->revision != hit.message_revision) return true;
     if (hit.target == kUiPluginRenderShowTarget) {
-        if (host->reveal(record->id)) {
+        if (plugin_surfaces_reveal(record->id)) {
             refresh_account_text(true);
             application_request_frame();
         }
@@ -578,8 +584,8 @@ void application_plugin_surfaces_context_changed() noexcept {
     if (!g_app.account_ui) return;
     const AccountUiRuntime& ui = *g_app.account_ui;
     g_host.context_channel = ui.active_channel_id;
-    if (const PluginSurfaceHost* host = g_plugin_surfaces)
-        host->refresh_buttons(ui.active_channel_id, plugin_guild_of_channel(ui, ui.active_channel_id));
+    if (g_plugin_surfaces_active)
+        plugin_surfaces_refresh_buttons(ui.active_channel_id, plugin_guild_of_channel(ui, ui.active_channel_id));
 }
 
 } // namespace maicord::app_detail

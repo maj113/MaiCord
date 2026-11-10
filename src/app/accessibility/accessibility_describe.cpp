@@ -13,6 +13,7 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/store/store_scene.hpp"
 #include "maicord/ui/account/login_text_presentation.hpp"
+#include "../account/login/ui.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -995,22 +996,10 @@ void build_login(UiAccessTree* tree) noexcept {
     ui_access_add_widgets(tree, 0, scene.widgets, {describe_login, nullptr, surface_login, false});
     // Labels, headings and status without any credential text.
     LoginView view{};
-    view.remote_user = {g_app.login.remote_user, g_app.login.remote_user_bytes};
-    view.focus = g_app.login.focus;
-    view.status = g_app.login.status;
-    view.mfa_capabilities = scene.mfa_capabilities;
-    view.selected_mfa_capability = scene.selected_mfa_capability;
-    view.backup_acknowledgement_seconds = g_app.login.backup_acknowledgement_seconds;
-    view.sms_sending = g_app.login.sms_sending;
-    view.sms_sent = g_app.login.sms_requested;
-    view.sms_failed = g_app.login.sms_failed;
-    view.visible = true;
-    view.remote_status = g_app.login.remote_status;
-    view.reset_mode = g_app.login.reset_mode;
-    view.captcha_status = g_app.login.captcha_status;
+    application_login_view_state(&view);
     UiTextCommand commands[kMaximumLoginTextCommands]{};
     UiTextCommandStream stream{};
-    if (ui_text_command_stream_initialize(&stream, {commands, kMaximumLoginTextCommands}) &&
+    if (login_view_valid(view) && ui_text_command_stream_initialize(&stream, {commands, kMaximumLoginTextCommands}) &&
         login_text_presentation_build(scene, view, application_theme(), &stream))
         for (u32 index = 0; index < stream.count; ++index)
             ui_access_attribute_text(tree, stream.storage[index].owner, stream.storage[index].text,
@@ -1022,21 +1011,22 @@ void build_login(UiAccessTree* tree) noexcept {
 void build_overlays(UiAccessTree* tree, bool settings) noexcept {
     const auto& renderer = g_app.renderer;
     if (!settings) {
-        if (renderer.call_scene && d3d11_renderer_call_visible(renderer))
+        const u32 shown = d3d11_renderer_surfaces(renderer);
+        if (shown & d3d11_surface_call)
             ui_access_add_call(tree, 0, *renderer.call_scene, surface_call);
-        if (renderer.thread_browser_scene && d3d11_renderer_thread_browser_visible(renderer))
+        if (shown & d3d11_surface_thread_browser)
             ui_access_add_thread_browser(tree, 0, *renderer.thread_browser_scene, surface_threads);
-        if (renderer.search_scene && d3d11_renderer_search_visible(renderer))
+        if (shown & d3d11_surface_search)
             ui_access_add_search(tree, 0, *renderer.search_scene, surface_search);
-        if (renderer.pinned_messages_scene && d3d11_renderer_pinned_messages_visible(renderer))
+        if (shown & d3d11_surface_pinned_messages)
             ui_access_add_pinned_messages(tree, 0, *renderer.pinned_messages_scene, surface_pins);
-        if (renderer.inbox_scene && d3d11_renderer_inbox_visible(renderer))
+        if (shown & d3d11_surface_inbox)
             ui_access_add_inbox(tree, 0, *renderer.inbox_scene, surface_inbox);
-        if (renderer.media_picker_scene && d3d11_renderer_media_picker_visible(renderer))
+        if (shown & d3d11_surface_media_picker)
             ui_access_add_media_picker(tree, 0, *renderer.media_picker_scene, surface_picker);
-        if (renderer.quick_switcher_scene && d3d11_renderer_quick_switcher_visible(renderer))
+        if (shown & d3d11_surface_quick_switcher)
             ui_access_add_quick_switcher(tree, 0, *renderer.quick_switcher_scene, surface_quick);
-        if (renderer.go_live_scene && d3d11_renderer_go_live_visible(renderer))
+        if (shown & d3d11_surface_go_live)
             ui_access_add_go_live(tree, 0, *renderer.go_live_scene, surface_go_live);
         if (g_app.image_viewer.scene.active)
             ui_access_add_image_viewer(tree, 0, g_app.image_viewer.scene, surface_viewer);

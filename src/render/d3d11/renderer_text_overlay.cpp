@@ -15,15 +15,15 @@ namespace renderer_text_detail {
 
 // Glyph inputs beyond the projection (appearance and thread header revisions,
 // a hovered name effect, composer styles and selection) key the shell exactly.
-u64 retention_shell_signature(const D3D11Renderer& renderer, u64 shell_signature) noexcept {
-    const bool settings_active = renderer_settings_page_visible(renderer);
+u64 retention_shell_signature(const D3D11Renderer& renderer, u32 shown, u64 shell_signature) noexcept {
+    const bool settings_active = (shown & d3d11_surface_settings_page) != 0;
     const bool friends_active =
         !settings_active && d3d11_renderer_active(renderer.friends_scene);
     // A hovered header chip or quote restyles its message's retained text.
     if (renderer.message_scene && renderer.message_scene->header_hover_message_id)
         shell_signature = hash64_mix(hash64_mix(shell_signature, renderer.message_scene->header_hover_message_id),
                                      renderer.message_scene->header_hover_target);
-    const bool browser_active = d3d11_renderer_thread_browser_visible(renderer);
+    const bool browser_active = (shown & d3d11_surface_thread_browser) != 0;
     const auto* composer =
         settings_active || friends_active || browser_active ? nullptr : renderer.message_composer_scene;
     if (!settings_active && renderer.user_store)
@@ -67,12 +67,12 @@ u64 retention_shell_signature(const D3D11Renderer& renderer, u64 shell_signature
     return shell_signature;
 }
 
-ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, const Theme& theme,
+ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, u32 shown, const Theme& theme,
                                                    u64 shell_signature, u64 popup_signature,
                                                    bool include_messages) noexcept {
     const bool login_form = d3d11_renderer_login_form_text(renderer);
     if (!login_form)
-        shell_signature = retention_shell_signature(renderer, shell_signature);
+        shell_signature = retention_shell_signature(renderer, shown, shell_signature);
     include_messages = include_messages && !login_form;
     const MessageTextPresentation* presentation = renderer.message_text;
     return ContentTextRetentionKey{
@@ -116,9 +116,9 @@ bool measure_content_search(D3D11Renderer* renderer) noexcept {
                                                             &renderer->friends_search_geometry);
 }
 
-bool measure_message_search(D3D11Renderer* renderer) noexcept {
+bool measure_message_search(D3D11Renderer* renderer, u32 shown) noexcept {
     reset_value(&renderer->search_edit_geometry);
-    if (!d3d11_renderer_search_visible(*renderer)) {
+    if (!(shown & d3d11_surface_search)) {
         text_edit_layout_invalidate(&renderer->search_layout);
         return true;
     }
@@ -127,14 +127,14 @@ bool measure_message_search(D3D11Renderer* renderer) noexcept {
                                               scene.content->edit, scene.text, renderer->glyph_text.system, false,
                                               &renderer->search_edit_geometry);
 }
-bool measure_media_picker(D3D11Renderer* renderer) noexcept {
+bool measure_media_picker(D3D11Renderer* renderer, u32 shown) noexcept {
     reset_value(&renderer->media_picker_edit_geometry);
     auto& layout = renderer->media_picker_layout;
-    const bool quick = d3d11_renderer_quick_switcher_visible(*renderer);
-    const bool forward = d3d11_renderer_message_forward_visible(*renderer);
+    const bool quick = (shown & d3d11_surface_quick_switcher) != 0;
+    const bool forward = (shown & d3d11_surface_message_forward) != 0;
     // Inline results (the composer's /gif and /sticker rows) have no search field.
     if (!quick && !forward &&
-        (!d3d11_renderer_media_picker_visible(*renderer) ||
+        (!(shown & d3d11_surface_media_picker) ||
          renderer->media_picker_scene->variant == UiMediaPickerVariant::inline_results)) {
         text_edit_layout_invalidate(&layout);
         return true;
@@ -155,18 +155,18 @@ u32 overlay_boundary(const TextOverlayBoundaries& boundaries, const OverlayBatch
 u32& overlay_batch(D3D11Renderer* renderer, const OverlayBatchBoundary& entry) noexcept {
     return *reinterpret_cast<u32*>(reinterpret_cast<u8*>(renderer) + entry.batch);
 }
-bool project_toast_text(const D3D11Renderer* renderer, const Theme& theme, UiTextOutput* output,
+bool project_toast_text(const D3D11Renderer* renderer, u32 shown, const Theme& theme, UiTextOutput* output,
                         TextOverlayBoundaries* boundaries) noexcept {
-    if (!d3d11_renderer_toast_visible(*renderer))
+    if (!(shown & d3d11_surface_toast))
         return true;
     boundaries->toast_start = output->emitter->count;
     return ui_toast_text_output(*renderer->toast_scene, theme, output);
 }
 
-bool search_message_command(const D3D11Renderer& renderer, u32 index, MessageTextCommand* native,
+bool search_message_command(const D3D11Renderer& renderer, u32 shown, u32 index, MessageTextCommand* native,
                             UiTextCommand* neutral) noexcept {
     const auto* presentation = renderer.search_message_text;
-    if (!presentation || !presentation->active || !d3d11_renderer_search_visible(renderer) ||
+    if (!presentation || !presentation->active || !(shown & d3d11_surface_search) ||
         index >= presentation->command_count)
         return false;
     *native = presentation->commands[index];
@@ -186,9 +186,9 @@ bool search_message_command(const D3D11Renderer& renderer, u32 index, MessageTex
     neutral->overflow = native->overflow;
     return true;
 }
-bool project_search_message_text(D3D11Renderer* renderer, UiTextEmitter* emitter) noexcept {
+bool project_search_message_text(D3D11Renderer* renderer, u32 shown, UiTextEmitter* emitter) noexcept {
     const auto* presentation = renderer->search_message_text;
-    if (!d3d11_renderer_search_visible(*renderer) || !presentation || !presentation->active)
+    if (!(shown & d3d11_surface_search) || !presentation || !presentation->active)
         return true;
     if (presentation->command_count > presentation->commands.count)
         return false;
@@ -196,7 +196,7 @@ bool project_search_message_text(D3D11Renderer* renderer, UiTextEmitter* emitter
     for (u32 i = 0; i < presentation->command_count; ++i) {
         MessageTextCommand native{};
         UiTextCommand neutral{};
-        if (search_message_command(*renderer, i, &native, &neutral) &&
+        if (search_message_command(*renderer, shown, i, &native, &neutral) &&
             !ui_text_output_push(&output, neutral))
             return false;
     }
@@ -240,7 +240,7 @@ bool emit_browser_shell_text(void* context, const UiTextCommand& command, u32) n
     return ui_text_output_push(&output, command);
 }
 // The shell before the member list rows, which end the shell's commands.
-bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
+bool project_shell_static_text(D3D11Renderer* renderer, u32 shown, const Theme& theme,
                                UiTextEmitter* emitter) noexcept {
     if (d3d11_renderer_login_form_text(*renderer)) {
         const auto& cached = *renderer->login_form_text;
@@ -252,9 +252,9 @@ bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
                 return false;
         return true;
     }
-    const bool settings = renderer_settings_page_visible(*renderer);
+    const bool settings = (shown & d3d11_surface_settings_page) != 0;
     const bool friends = !settings && d3d11_renderer_active(renderer->friends_scene);
-    const bool browser = d3d11_renderer_thread_browser_visible(*renderer);
+    const bool browser = (shown & d3d11_surface_thread_browser) != 0;
     const bool hidden = friends || browser;
     BrowserShellTextFilter filter{emitter, browser ? renderer->thread_browser_scene->panel : UiRect{}};
     UiTextEmitter filtered{};
@@ -291,17 +291,17 @@ bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
     };
     // Selected audio replaces this attachment's static labels. Guard that
     // omission in the retained base; elapsed time remains suffix-only.
-    if (projected && d3d11_renderer_audio_scene_visible(*renderer))
+    if (projected && (shown & d3d11_surface_audio))
         mix_owner(renderer->audio_scene->owner);
-    if (projected && d3d11_renderer_poll_scene_visible(*renderer))
+    if (projected && (shown & d3d11_surface_poll))
         mix_owner(renderer->poll_scene->owner);
     return projected;
 }
 // The member list rows, appended after the static shell in the same emitter.
-bool project_shell_member_text(D3D11Renderer* renderer, const Theme& theme,
+bool project_shell_member_text(D3D11Renderer* renderer, u32 shown, const Theme& theme,
                                UiTextEmitter* emitter) noexcept {
-    if (d3d11_renderer_login_form_text(*renderer) || renderer_settings_page_visible(*renderer) ||
-        d3d11_renderer_active(renderer->friends_scene) || d3d11_renderer_thread_browser_visible(*renderer))
+    if (d3d11_renderer_login_form_text(*renderer) || d3d11_renderer_active(renderer->friends_scene) ||
+        (shown & (d3d11_surface_settings_page | d3d11_surface_thread_browser)))
         return true;
     UiTextOutput output{nullptr, emitter};
     // The DM profile panel's text goes with the member slot's.
@@ -310,11 +310,11 @@ bool project_shell_member_text(D3D11Renderer* renderer, const Theme& theme,
            (!d3d11_renderer_active(renderer->dm_profile_panel) ||
             profile_scene_text_output(*renderer->dm_profile_panel, theme, &output, nullptr));
 }
-bool project_shell_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmitter* emitter) noexcept {
-    return project_shell_static_text(renderer, theme, emitter) &&
-           project_shell_member_text(renderer, theme, emitter);
+bool project_shell_text(D3D11Renderer* renderer, u32 shown, const Theme& theme, UiTextEmitter* emitter) noexcept {
+    return project_shell_static_text(renderer, shown, theme, emitter) &&
+           project_shell_member_text(renderer, shown, theme, emitter);
 }
-bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmitter* emitter,
+bool project_overlay_text(D3D11Renderer* renderer, u32 shown, const Theme& theme, UiTextEmitter* emitter,
                           TextOverlayBoundaries* boundaries) noexcept {
     if (d3d11_renderer_login_form_text(*renderer)) {
         reset_value(boundaries);
@@ -324,7 +324,7 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
                 text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry, theme,
                                       &output));
     }
-    const bool settings = renderer_settings_page_visible(*renderer);
+    const bool settings = (shown & d3d11_surface_settings_page) != 0;
     const bool friends = !settings && d3d11_renderer_active(renderer->friends_scene);
     const bool requests =
         !settings && d3d11_renderer_active(renderer->friends_requests_scene);
@@ -370,13 +370,13 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         if (form && !text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry,
                                            theme, &output))
             return false;
-        return project_toast_text(renderer, theme, &output, boundaries);
+        return project_toast_text(renderer, shown, theme, &output, boundaries);
     }
     // Timeline inline controls lead the stream and end at timeline_end: they
     // draw with the message text, under every overlay that follows.
-    const bool timeline_audio = d3d11_renderer_timeline_audio_visible(*renderer);
-    const bool timeline_poll = d3d11_renderer_timeline_poll_visible(*renderer);
-    if (d3d11_renderer_timeline_video_visible(*renderer) &&
+    const bool timeline_audio = d3d11_renderer_timeline_audio_visible(*renderer, shown);
+    const bool timeline_poll = d3d11_renderer_timeline_poll_visible(*renderer, shown);
+    if (d3d11_renderer_timeline_video_visible(*renderer, shown) &&
         (!renderer->message_scene ||
          !ui_video_scene_text_output(*renderer->video_scene, theme, &output,
                                      {&renderer->message_scene->widgets, renderer->message_scene->root})))
@@ -396,30 +396,30 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     boundaries->timeline_end = emitter->count;
     // The unread banner (never beside a call) ends at banner_end, before any
     // panel that may draw over the timeline.
-    if (d3d11_renderer_unread_banner_visible(*renderer) &&
+    if ((shown & d3d11_surface_unread_banner) &&
         !ui_unread_banner_text_output(*renderer->unread_banner_scene, theme, &output))
         return false;
     boundaries->banner_end = emitter->count;
     // The call view leads the side-panel text range, above the base content.
-    if (d3d11_renderer_call_visible(*renderer) &&
+    if ((shown & d3d11_surface_call) &&
         !ui_call_scene_text_output(*renderer->call_scene, theme, &output))
         return false;
-    if (d3d11_renderer_video_scene_visible(*renderer) && renderer->video_scene_search_result) {
+    if ((shown & d3d11_surface_video) && renderer->video_scene_search_result) {
         const auto* video_owner = renderer->search_scene ? ui_search_scene_message_scene(*renderer->search_scene)
                                                          : nullptr;
         if (!video_owner || !ui_video_scene_text_output(*renderer->video_scene, theme, &output,
                                                         {&video_owner->widgets, video_owner->root}))
             return false;
     }
-    if (d3d11_renderer_search_visible(*renderer) &&
+    if ((shown & d3d11_surface_search) &&
         !ui_search_scene_text_output(*renderer->search_scene, theme, &output,
                                      &renderer->search_edit_geometry))
         return false;
     boundaries->search_rich_start = emitter->count;
-    if (!project_search_message_text(renderer, emitter))
+    if (!project_search_message_text(renderer, shown, emitter))
         return false;
     boundaries->search_rich_end = emitter->count;
-    if (d3d11_renderer_pinned_messages_visible(*renderer) &&
+    if ((shown & d3d11_surface_pinned_messages) &&
         !ui_pinned_messages_scene_text_output(*renderer->pinned_messages_scene, theme, &output))
         return false;
     if (requests &&
@@ -427,7 +427,7 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         return false;
     boundaries->friends_end = emitter->count;
     boundaries->media_picker_start = emitter->count;
-    if (d3d11_renderer_media_picker_visible(*renderer) &&
+    if ((shown & d3d11_surface_media_picker) &&
         !ui_media_picker_scene_text_output(*renderer->media_picker_scene, theme, &output,
                                            &renderer->media_picker_edit_geometry))
         return false;
@@ -435,11 +435,11 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     // The action bar's opaque panel is painted after the gallery range. Its
     // quick-reaction glyphs must belong to the following text range as well.
     // Beside a call its text chat keeps the toolbar (as painted in layout).
-    if (!friends && !d3d11_renderer_thread_browser_visible(*renderer) &&
-        (!d3d11_renderer_call_visible(*renderer) || renderer->call_scene->chat_open) &&
+    if (!friends && !(shown & d3d11_surface_thread_browser) &&
+        (!(shown & d3d11_surface_call) || renderer->call_scene->chat_open) &&
         !d3d11_renderer_active(renderer->profile_scene) &&
-        !d3d11_renderer_media_picker_visible(*renderer) && renderer->message_action_bar &&
-        !d3d11_renderer_message_modal_active(*renderer) && renderer->message_action_bar->active &&
+        !(shown & d3d11_surface_media_picker) && renderer->message_action_bar &&
+        !(shown & d3d11_surface_message_modal) && renderer->message_action_bar->active &&
         !message_action_bar_text_presentation_build_output(*renderer->message_action_bar, theme, &output))
         return false;
     boundaries->profile_start = emitter->count;
@@ -451,13 +451,13 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     boundaries->profile_end = emitter->count;
     boundaries->menu_start = emitter->count;
     boundaries->popup_start = emitter->count;
-    if (d3d11_renderer_download_visible(*renderer) &&
+    if ((shown & d3d11_surface_download) &&
         !ui_download_scene_text_output(*renderer->download_scene, theme, &output))
         return false;
-    if (d3d11_renderer_go_live_visible(*renderer) &&
+    if ((shown & d3d11_surface_go_live) &&
         !ui_go_live_scene_text_output(*renderer->go_live_scene, theme, &output))
         return false;
-    if (d3d11_renderer_message_forward_visible(*renderer)) {
+    if (shown & d3d11_surface_message_forward) {
         const auto popup_edit = d3d11_renderer_popup_edit_geometry(*renderer);
         if (!ui_message_forward_scene_text_output(*renderer->message_forward_scene, theme, &output,
                                                   &renderer->media_picker_edit_geometry, &popup_edit))
@@ -465,42 +465,42 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     }
     if (!timeline_audio) {
         boundaries->audio_start = emitter->count;
-        if (d3d11_renderer_audio_scene_visible(*renderer) &&
+        if ((shown & d3d11_surface_audio) &&
             !ui_audio_scene_text_output(*renderer->audio_scene, &output))
             return false;
         boundaries->audio_end = emitter->count;
     }
     if (!timeline_poll) {
         boundaries->poll_start = emitter->count;
-        if (d3d11_renderer_poll_scene_visible(*renderer) &&
+        if ((shown & d3d11_surface_poll) &&
             !ui_poll_scene_text_output(*renderer->poll_scene, &output))
             return false;
     }
-    if (d3d11_renderer_poll_voters_visible(*renderer) &&
+    if ((shown & d3d11_surface_poll_voters) &&
         !ui_poll_voters_scene_text_output(*renderer->poll_voters_scene, &output))
         return false;
     if (!timeline_poll)
         boundaries->poll_end = emitter->count;
-    if (d3d11_renderer_inbox_visible(*renderer) &&
+    if ((shown & d3d11_surface_inbox) &&
         !ui_inbox_scene_text_output(*renderer->inbox_scene, theme, &output))
         return false;
-    if (d3d11_renderer_stream_card_visible(*renderer) &&
+    if ((shown & d3d11_surface_stream_card) &&
         !ui_stream_card_text_output(*renderer->stream_card_scene, theme, &output))
         return false;
-    if (d3d11_renderer_names_card_visible(*renderer) &&
+    if ((shown & d3d11_surface_names_card) &&
         !ui_names_card_text_output(*renderer->names_card_scene, theme, &output))
         return false;
-    if (d3d11_renderer_guild_card_visible(*renderer) &&
+    if ((shown & d3d11_surface_guild_card) &&
         !ui_guild_card_text_output(*renderer->guild_card_scene, theme, &output))
         return false;
-    if (d3d11_renderer_expression_card_visible(*renderer) &&
+    if ((shown & d3d11_surface_expression_card) &&
         !ui_expression_card_text_output(*renderer->expression_card_scene, theme, &output))
         return false;
-    if (d3d11_renderer_quick_switcher_visible(*renderer) &&
+    if ((shown & d3d11_surface_quick_switcher) &&
         !ui_quick_switcher_scene_text_output(*renderer->quick_switcher_scene, theme, &output,
                                              &renderer->media_picker_edit_geometry))
         return false;
-    if (d3d11_renderer_shortcuts_visible(*renderer) &&
+    if ((shown & d3d11_surface_shortcuts) &&
         !ui_shortcuts_scene_text_output(*renderer->shortcuts_scene, theme, &output))
         return false;
     if (d3d11_renderer_active(renderer->popup_scene) &&
@@ -517,11 +517,11 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         return false;
     boundaries->theme_editor_start = emitter->count;
     // Hosted video time glyphs follow their bar in the viewer's upper layer.
-    if (d3d11_renderer_viewer_video_visible(*renderer) &&
+    if ((shown & d3d11_surface_viewer_video) &&
         !ui_video_scene_text_output(*renderer->video_scene, theme, &output, renderer->image_viewer->owner))
         return false;
 
-    if (renderer_theme_editor_visible(*renderer) &&
+    if ((shown & d3d11_surface_theme_editor) &&
         !ui_theme_editor_text_output(*renderer->theme_editor_scene, theme, &output))
         return false;
     boundaries->theme_editor_end = emitter->count;
@@ -532,9 +532,9 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     boundaries->forum_end = emitter->count;
     return (!form || text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry,
                                            theme, &output)) &&
-           (!d3d11_renderer_tooltip_visible(*renderer) ||
+           (!(shown & d3d11_surface_tooltip) ||
             ui_tooltip_text_output(*renderer->tooltip_scene, theme, &output)) &&
-           project_toast_text(renderer, theme, &output, boundaries);
+           project_toast_text(renderer, shown, theme, &output, boundaries);
 }
 bool raster_text_command(void* context, const UiTextCommand& command, u32 ordinal) noexcept {
     auto& raster = *static_cast<TextRasterConsumer*>(context);
@@ -542,8 +542,8 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
     bool boundary = false;
     if (raster.overlay) {
         const auto& bounds = *raster.boundaries;
-        const bool settings = renderer_settings_page_visible(*renderer);
-        const bool form = d3d11_renderer_form_active(*renderer) || d3d11_renderer_tooltip_visible(*renderer);
+        const bool settings = (raster.shown & d3d11_surface_settings_page) != 0;
+        const bool form = (raster.shown & (d3d11_surface_form | d3d11_surface_tooltip)) != 0;
         const u32 batch = renderer->content_text->batch_count;
         boundary = ordinal == 0;
         for (const auto& entry : kOverlayBatchBoundaries) {
@@ -573,7 +573,7 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
         bool found = false;
         while (presentation && raster.search_command_cursor < presentation->command_count) {
             const u32 index = raster.search_command_cursor++;
-            if (!search_message_command(*renderer, index, &native, &neutral))
+            if (!search_message_command(*renderer, raster.shown, index, &native, &neutral))
                 continue;
             // The emitter validates every command but omits fully clipped labels.
             // Advance this source cursor over the same omitted commands.
@@ -585,7 +585,7 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
                 neutral.owner.handle.slot != command.owner.handle.slot ||
                 !ui_rect_equal(neutral.clip, command.clip))
                 return false;
-            appended = append_message_text_command(renderer, presentation, native, index, *raster.theme,
+            appended = append_message_text_command(renderer, presentation, native, index, *raster.theme, raster.shown,
                                                    raster.atlas_invalidated, true, raster.pending_boundary);
             found = true;
             break;
@@ -597,8 +597,8 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
                                          ordinal < raster.boundaries->audio_end;
         const bool selected_poll_text = raster.overlay && ordinal >= raster.boundaries->poll_start &&
                                         ordinal < raster.boundaries->poll_end;
-        appended = ((!selected_audio_text && d3d11_renderer_audio_owner(*renderer, command.owner)) ||
-                    (!selected_poll_text && d3d11_renderer_poll_owner(*renderer, command.owner)))
+        appended = ((!selected_audio_text && d3d11_renderer_audio_owner(*renderer, raster.shown, command.owner)) ||
+                    (!selected_poll_text && d3d11_renderer_poll_owner(*renderer, raster.shown, command.owner)))
                        ? true
                        : append_content_text_command(renderer, command, *raster.theme,
                                                      raster.atlas_invalidated, raster.pending_boundary);

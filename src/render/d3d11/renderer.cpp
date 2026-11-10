@@ -472,7 +472,7 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
 
 bool renderer_set_login_view(D3D11Renderer* renderer, const LoginScene* scene,
                              const RendererLoginView& view, const Theme& theme) noexcept {
-    if (!renderer || !renderer->glyph_text.ready || !login_view_matches_scene(view, scene)) {
+    if (!renderer || !renderer->glyph_text.ready || !login_view_valid(view)) {
         return false;
     }
     if (!view.visible) {
@@ -495,10 +495,15 @@ bool renderer_set_login_view(D3D11Renderer* renderer, const LoginScene* scene,
     }
     renderer->login_status = view.status;
     renderer->login_visible = true;
-    const bool text_ready = d3d11_renderer_login_form_text(*renderer)
-                                ? d3d11_renderer_capture_login_form_text(renderer, view, theme) &&
-                                      renderer_rebuild_content_text(renderer, theme)
-                                : d3d11_renderer_rebuild_login_text(renderer, view, theme);
+    UiTextCommand commands[kMaximumLoginTextCommands];
+    UiTextCommandStream stream;
+    const bool text_ready =
+        ui_text_command_stream_initialize(&stream, Slice<UiTextCommand>{commands, kMaximumLoginTextCommands}) &&
+        login_text_presentation_build(*scene, view, theme, &stream) &&
+        (d3d11_renderer_login_form_text(*renderer)
+             ? d3d11_renderer_capture_login_form_text(renderer, stream) &&
+                   renderer_rebuild_content_text(renderer, theme)
+             : d3d11_renderer_rebuild_login_text(renderer, stream));
     return text_ready && d3d11_renderer_measure_login_edit(renderer, view);
 }
 

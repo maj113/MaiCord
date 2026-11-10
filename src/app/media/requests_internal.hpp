@@ -15,7 +15,7 @@ bool preview_media_allowed(const Application& application, const MessageRecord& 
                            const MessageRichStore& store, bool search, MessageMediaSource source, u32 index,
                            bool snapshot, bool spoiler, bool explicit_media) noexcept;
 bool observe_message_animation(Application& application, const MediaAssetKey& key, u64 message_id) noexcept;
-bool forum_thumbnail_key_current(const Application& application, const MediaAssetKey& key) noexcept;
+bool forum_thumbnail_key_current(const ApplicationMediaPump& pump, const MediaAssetKey& key) noexcept;
 MediaAttachmentFormat attachment_format_for_key(const MediaAssetKey& key, const MessageRichStore& store,
                                                 const MessageRichAttachment& item) noexcept;
 

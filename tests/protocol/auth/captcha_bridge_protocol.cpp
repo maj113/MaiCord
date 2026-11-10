@@ -299,15 +299,8 @@ void presentation(Check check) noexcept {
         view.login = utf8_literal("native@example.com");
         view.focus = LoginControl::back;
         view.captcha_status = item.status;
-        scene.focus = view.focus;
-        scene.back_only = true;
-        scene.browser_available = login_browser_available(view.status, view.remote_status, false);
-        scene.credential_fields_hidden = login_credential_fields_hidden(view.status, view.remote_status, false);
-        scene.recovery_disabled = login_view_recovery_disabled(view);
-        scene.action_disabled = login_view_action_disabled(view);
-        scene.submit_disabled = login_view_submit_disabled(view);
-        scene.captcha_action = login_view_captcha_action(view);
-        const bool laid_out = login_scene_layout(&scene, 480, 640) && login_view_matches_scene(view, &scene);
+        login_scene_apply_view(&scene, view);
+        const bool laid_out = login_scene_layout(&scene, 480, 640) && login_view_valid(view);
         const auto submit = login_scene_rectangle(scene, LoginElement::submit);
         const bool hit = login_scene_hit_test(scene, (submit.left + submit.right) / 2, (submit.top + submit.bottom) / 2) ==
                          (item.enabled ? LoginControl::submit : LoginControl::none);
@@ -328,12 +321,9 @@ void presentation(Check check) noexcept {
     remote.remote_status = LoginRemoteStatus::cancelled;
     remote.focus = LoginControl::login;
     scene = {};
-    scene.focus = remote.focus;
-    scene.browser_available = login_browser_available(remote.status, remote.remote_status, false);
-    scene.recovery_disabled = login_view_recovery_disabled(remote);
-    scene.password_reveal_available = login_view_password_reveal_available(remote);
+    login_scene_apply_view(&scene, remote);
     bool cancelled = false, refreshing = false;
-    const bool built = login_scene_layout(&scene, 900, 640) && login_view_matches_scene(remote, &scene) &&
+    const bool built = login_scene_layout(&scene, 900, 640) && login_view_valid(remote) &&
                        login_text_presentation_build(scene, remote, kDefaultTheme, &text);
     for (u32 i = 0; built && i < text.count; ++i) {
         cancelled |= utf8_equal(commands[i].text, utf8_literal("Login cancelled on your phone.")) &&

@@ -659,9 +659,10 @@ void run() noexcept {
         check(!chat_zoom.lens.active, "Chat lens: nothing starts under an open popup or menu");
         g_app.popup_scene.active = false;
         g_app.renderer.popup_scene = &g_app.popup_scene;
-        check(d3d11_renderer_zoom_lens_allowed(g_app.renderer), "Chat lens: an uncovered timeline allows the renderer's lens");
+        check(d3d11_renderer_zoom_lens_allowed(g_app.renderer, d3d11_renderer_surfaces(g_app.renderer)),
+              "Chat lens: an uncovered timeline allows the renderer's lens");
         g_app.popup_scene.active = true;
-        check(!d3d11_renderer_zoom_lens_allowed(g_app.renderer),
+        check(!d3d11_renderer_zoom_lens_allowed(g_app.renderer, d3d11_renderer_surfaces(g_app.renderer)),
               "Chat lens: the renderer withholds the picture under a popup or menu");
         g_app.popup_scene.active = false;
         g_app.renderer.popup_scene = nullptr;

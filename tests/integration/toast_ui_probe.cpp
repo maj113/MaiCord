@@ -35,7 +35,7 @@ bool toast_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noe
                 renderer.retained_presentation.valid = false;
                 restored = renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                            probe_present(&renderer, kDefaultTheme) &&
-                           !d3d11_renderer_toast_visible(renderer);
+                           !(d3d11_renderer_surfaces(renderer) & d3d11_surface_toast);
                 ui_settings_scene_release(&modal);
             }
         } restore{renderer, modal, original_settings, restored};
@@ -55,7 +55,8 @@ bool toast_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noe
             renderer_set_toast_opacity(&renderer, scene.progress);
             renderer.retained_presentation.valid = false;
             return renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
-                   probe_present(&renderer, kDefaultTheme) && d3d11_renderer_toast_visible(renderer) &&
+                   probe_present(&renderer, kDefaultTheme) &&
+                   (d3d11_renderer_surfaces(renderer) & d3d11_surface_toast) &&
                    d3d11_renderer_interaction_text_state_current(renderer) &&
                    renderer.toast_text_first_batch < renderer.content_text->batch_count &&
                    renderer.toast_paint_first_batch < renderer.paint_stream.batch_count;
@@ -100,8 +101,8 @@ bool toast_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noe
         const bool settings_passed = valid;
         ui_toast_update(&scene, 6'300, environment);
         ui_toast_update(&scene, 6'600, environment);
-        valid = valid && !scene.count && !d3d11_renderer_toast_visible(renderer) &&
-                !d3d11_renderer_toast_revision(renderer) && !ui_toast_next_wake(scene, 6'600, true);
+        valid = valid && !scene.count && !(d3d11_renderer_surfaces(renderer) & d3d11_surface_toast) &&
+                !ui_toast_next_wake(scene, 6'600, true);
         if (settings_passed && !valid)
             log_u64(LogLevel::error, "probe", "toast_native_failure_stage", 4);
     }

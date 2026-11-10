@@ -25,20 +25,22 @@ UiRect surface_rectangle(const D3D11Renderer& renderer, RendererLayerSurface sur
         return renderer.profile_scene ? renderer.profile_scene->rectangle : UiRect{};
     case RendererLayerSurface::gallery:
         return renderer.media_picker_scene ? renderer.media_picker_scene->panel : UiRect{};
-    case RendererLayerSurface::popup:
-        if (d3d11_renderer_shortcuts_visible(renderer))
+    case RendererLayerSurface::popup: {
+        const u32 shown = d3d11_renderer_shown<d3d11_surfaces_popup>(renderer);
+        if (shown & d3d11_surface_shortcuts)
             return renderer.shortcuts_scene->viewport;
-        if (d3d11_renderer_download_visible(renderer))
+        if (shown & d3d11_surface_download)
             return renderer.download_scene->viewport;
-        if (d3d11_renderer_go_live_visible(renderer))
+        if (shown & d3d11_surface_go_live)
             return renderer.go_live_scene->viewport;
-        if (d3d11_renderer_message_forward_visible(renderer))
+        if (shown & d3d11_surface_message_forward)
             return renderer.message_forward_scene->viewport;
-        if (d3d11_renderer_quick_switcher_visible(renderer))
+        if (shown & d3d11_surface_quick_switcher)
             return renderer.quick_switcher_scene->viewport;
-        if (d3d11_renderer_inbox_visible(renderer))
+        if (shown & d3d11_surface_inbox)
             return renderer.inbox_scene->panel;
         return renderer.popup_scene ? renderer.popup_scene->rectangle : UiRect{};
+    }
     case RendererLayerSurface::settings_choice:
         return renderer.popup_scene ? renderer.popup_scene->rectangle : UiRect{};
     case RendererLayerSurface::theme_editor:

@@ -23,7 +23,6 @@ inline bool d3d11_renderer_login_form_text(const D3D11Renderer& renderer) noexce
     return renderer.login_visible && renderer.login_form_text &&
            renderer.content_text == &renderer.login_form_text->text;
 }
-bool d3d11_renderer_capture_login_form_text(D3D11Renderer* renderer, const LoginView& view,
-                                           const Theme& theme) noexcept;
+bool d3d11_renderer_capture_login_form_text(D3D11Renderer* renderer, const UiTextCommandStream& source) noexcept;
 bool d3d11_renderer_restore_login_form_base(D3D11Renderer* renderer) noexcept;
 } // namespace maicord

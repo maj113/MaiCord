@@ -150,27 +150,22 @@ bool plugin_modal_resolve(bool accepted, Utf8View input, bool toggle, u32 select
 // ---- Host ------------------------------------------------------------------------------
 
 enum class PluginUiStatus : u8 { ok, busy, not_found, denied };
-// What the application provides to the plugin API; the application installs it once. A null
-// function makes its API call fail with MC_E_UNSUPPORTED.
-struct PluginUiHost {
-    // Shows the modal. False: not now (another dialog is open); the plugin sees MC_E_BUSY.
-    bool (*open_modal)(const PluginModalRequest&) noexcept;
-    // A banner appeared, changed or went.
-    void (*banner_changed)() noexcept;
-    // The modal went away without an answer (its plugin was disabled).
-    void (*close_modal)() noexcept;
-    // Through the link trust rules and the leaving confirmation.
-    PluginUiStatus (*open_url)(Utf8View url) noexcept;
-    PluginUiStatus (*copy_text)(Utf8View text) noexcept;
-    PluginUiStatus (*open_channel)(u64 channel_id) noexcept;
-    PluginUiStatus (*open_profile)(u64 user_id, u64 guild_id) noexcept;
-    // A local message only this user sees in channel_id (0: the open channel); false unless that is the open channel.
-    bool (*local_notice)(u64 channel_id, Utf8View text, u64* message_id) noexcept;
-    // A toast; tone is MC_TONE_*.
-    void (*toast)(u64 owner_id, Utf8View text, u32 tone) noexcept;
-};
-void plugin_ui_host_install(const PluginUiHost*) noexcept;
-// The installed host, or null.
-const PluginUiHost* plugin_ui_host() noexcept;
+// What the application provides to the plugin API (ui_host.cpp); the plugin runtime calls these by name. A test that
+// links runtime objects links a .cpp of its own that defines all nine, in place of ui_host.cpp.
+// Shows the modal. False: not now (another dialog is open); the plugin sees MC_E_BUSY.
+bool plugin_host_open_modal(const PluginModalRequest&) noexcept;
+// A banner appeared, changed or went.
+void plugin_host_banner_changed() noexcept;
+// The modal went away without an answer (its plugin was disabled).
+void plugin_host_close_modal() noexcept;
+// Through the link trust rules and the leaving confirmation.
+PluginUiStatus plugin_host_open_url(Utf8View url) noexcept;
+PluginUiStatus plugin_host_copy_text(Utf8View text) noexcept;
+PluginUiStatus plugin_host_open_channel(u64 channel_id) noexcept;
+PluginUiStatus plugin_host_open_profile(u64 user_id, u64 guild_id) noexcept;
+// A local message only this user sees in channel_id (0: the open channel); false unless that is the open channel.
+bool plugin_host_local_notice(u64 channel_id, Utf8View text, u64* message_id) noexcept;
+// A toast; tone is MC_TONE_*.
+void plugin_host_toast(u64 owner_id, Utf8View text, u32 tone) noexcept;
 
 } // namespace maicord

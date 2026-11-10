@@ -18,6 +18,9 @@ struct IndexedReader {
     JsonReadError error;
 };
 
+// A member visitor (object visits) or an element visitor (array visits) as one type; `object` says which.
+using AnyVisitor = void (*)() noexcept;
+
 bool fail(IndexedReader* reader, JsonReadError error, u32 offset) noexcept {
     if (reader->error == JsonReadError::none) {
         reader->error = error;
@@ -325,7 +328,6 @@ constexpr NestingSteps make_nesting_steps() noexcept {
 }
 constexpr NestingSteps kNesting = make_nesting_steps();
 
-
 bool skip_composite(IndexedReader* reader, u32 depth, char open) noexcept {
     const char close = open == '{' ? '}' : ']';
     if (depth > reader->maximum_depth) {
@@ -484,10 +486,9 @@ bool decode_string_scalar(const JsonString& value, u32* offset, u32* codepoint) 
 // alone: a member's name is two indexed quotes and a colon, a string value two more, and no byte of a string or
 // number is examined. The position stays in locals across visitor calls and reaches the reader on exit, where
 // the caller continues at the closing bracket. Stops at the first error, which is in the reader.
-template <bool Object, typename Visitor>
-static void visit_trusted(IndexedReader* reader, Visitor visitor, void* context, u32* hint, u32 base,
-                          u32* members) noexcept {
-    constexpr char close = Object ? '}' : ']';
+static void visit_trusted(IndexedReader* reader, bool object, AnyVisitor visitor, void* context, u32* hint,
+                          u32 base, u32* members) noexcept {
+    const char close = object ? '}' : ']';
     const char* const data = reader->input.data;
     const u32 bytes = reader->input.bytes;
     const u32* const offsets = reader->structurals.data;
@@ -498,8 +499,8 @@ static void visit_trusted(IndexedReader* reader, Visitor visitor, void* context,
         *members = count;
     };
     for (;;) {
-        [[maybe_unused]] JsonString name{};
-        if constexpr (Object) {
+        JsonString name{};
+        if (object) {
             if (total - index < 3) return stop(JsonReadError::structural_index_mismatch, offset);
             const u32 open = offsets[index], end = offsets[index + 1], colon = offsets[index + 2];
             if (open != offset || end <= open || colon <= end || colon >= bytes)
@@ -560,11 +561,13 @@ static void visit_trusted(IndexedReader* reader, Visitor visitor, void* context,
                                                 : JsonValueKind::number;
         }
         const JsonValue value{Utf8View{data + begin, offset - begin}, begin, kind, true};
-        if constexpr (Object) {
+        if (object) {
             ++count;
-            if (visitor && !visitor(context, name, value)) return stop(JsonReadError::visitor_rejected, name.source_offset);
+            if (visitor && !reinterpret_cast<JsonMemberVisitor>(visitor)(context, name, value))
+                return stop(JsonReadError::visitor_rejected, name.source_offset);
         } else {
-            if (visitor && !visitor(context, count, value)) return stop(JsonReadError::visitor_rejected, value.source_offset);
+            if (visitor && !reinterpret_cast<JsonArrayVisitor>(visitor)(context, count, value))
+                return stop(JsonReadError::visitor_rejected, value.source_offset);
             ++count;
         }
         while (offset < bytes && is_whitespace(data[offset])) ++offset;
@@ -580,12 +583,59 @@ static void visit_trusted(IndexedReader* reader, Visitor visitor, void* context,
     *members = count;
 }
 
-template <bool Object, typename Visitor>
-static JsonReadResult visit_range(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth, Visitor visitor,
-                                  void* context, u32 begin, bool trusted, u32* hint = nullptr,
-                                  u32 base = 0) noexcept {
-    constexpr char open = Object ? '{' : '[';
-    constexpr char close = Object ? '}' : ']';
+// The loop of a visit of a value that is not validated yet: every member or element is validated as it is visited.
+// Stops at the closing bracket or the first error, which is in the reader.
+__declspec(noinline) static void visit_checked(IndexedReader* reader, bool object, AnyVisitor visitor, void* context,
+                                               u32* hint, u32 base, u32* members) noexcept {
+    const char close = object ? '}' : ']';
+    u32 count = 0;
+    for (;;) {
+        JsonString name{};
+        if (object) {
+            if (!parse_string(reader, &name, JsonReadError::expected_member_name)) {
+                break;
+            }
+            skip_whitespace(reader);
+            if (!consume_structural(reader, ':', JsonReadError::expected_colon)) {
+                break;
+            }
+        }
+        // A nested visit of this member's value starts its index search here.
+        if (hint) *hint = base + reader->structural_index;
+        JsonValue value{};
+        if (!skip_value(reader, 2, &value)) {
+            break;
+        }
+        if (object) {
+            ++count;
+            if (visitor && !reinterpret_cast<JsonMemberVisitor>(visitor)(context, name, value)) {
+                fail(reader, JsonReadError::visitor_rejected, name.source_offset);
+                break;
+            }
+        } else {
+            if (visitor && !reinterpret_cast<JsonArrayVisitor>(visitor)(context, count, value)) {
+                fail(reader, JsonReadError::visitor_rejected, value.source_offset);
+                break;
+            }
+            ++count;
+        }
+        skip_whitespace(reader);
+        if (reader->offset < reader->input.bytes && reader->input.data[reader->offset] == close) {
+            break;
+        }
+        if (!consume_structural(reader, ',', JsonReadError::expected_comma_or_end)) {
+            break;
+        }
+        skip_whitespace(reader);
+    }
+    *members = count;
+}
+
+static JsonReadResult visit_range(bool object, Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
+                                  AnyVisitor visitor, void* context, u32 begin, bool trusted,
+                                  u32* hint = nullptr, u32 base = 0) noexcept {
+    const char open = object ? '{' : '[';
+    const char close = object ? '}' : ']';
     if ((!input.data && input.bytes != 0) || (!structurals.data && structurals.count != 0)) {
         return JsonReadResult{0, 0, JsonReadError::invalid_input};
     }
@@ -597,7 +647,7 @@ static JsonReadResult visit_range(Utf8View input, ConstSlice<u32> structurals, u
         return JsonReadResult{0, reader.offset, JsonReadError::depth_limit};
     }
     if (!consume_structural(&reader, open,
-                            Object ? JsonReadError::expected_root_object : JsonReadError::expected_root_array)) {
+                            object ? JsonReadError::expected_root_object : JsonReadError::expected_root_array)) {
         return JsonReadResult{0, reader.error_offset, reader.error};
     }
 
@@ -605,45 +655,9 @@ static JsonReadResult visit_range(Utf8View input, ConstSlice<u32> structurals, u
     skip_whitespace(&reader);
     if (reader.offset < input.bytes && input.data[reader.offset] != close) {
         if (trusted) {
-            visit_trusted<Object>(&reader, visitor, context, hint, base, &count);
-        } else for (;;) {
-            [[maybe_unused]] JsonString name{};
-            if constexpr (Object) {
-                if (!parse_string(&reader, &name, JsonReadError::expected_member_name)) {
-                    break;
-                }
-                skip_whitespace(&reader);
-                if (!consume_structural(&reader, ':', JsonReadError::expected_colon)) {
-                    break;
-                }
-            }
-            // A nested visit of this member's value starts its index search here.
-            if (hint) *hint = base + reader.structural_index;
-            JsonValue value{};
-            if (!skip_value(&reader, 2, &value)) {
-                break;
-            }
-            if constexpr (Object) {
-                ++count;
-                if (visitor && !visitor(context, name, value)) {
-                    fail(&reader, JsonReadError::visitor_rejected, name.source_offset);
-                    break;
-                }
-            } else {
-                if (visitor && !visitor(context, count, value)) {
-                    fail(&reader, JsonReadError::visitor_rejected, value.source_offset);
-                    break;
-                }
-                ++count;
-            }
-            skip_whitespace(&reader);
-            if (reader.offset < input.bytes && input.data[reader.offset] == close) {
-                break;
-            }
-            if (!consume_structural(&reader, ',', JsonReadError::expected_comma_or_end)) {
-                break;
-            }
-            skip_whitespace(&reader);
+            visit_trusted(&reader, object, visitor, context, hint, base, &count);
+        } else {
+            visit_checked(&reader, object, visitor, context, hint, base, &count);
         }
     }
 
@@ -663,22 +677,26 @@ static JsonReadResult visit_range(Utf8View input, ConstSlice<u32> structurals, u
 
 JsonReadResult json_visit_root_object(const Utf8View& input, const ConstSlice<u32>& structurals,
                                       u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
-    return visit_range<true>(input, structurals, maximum_depth, visitor, context, 0, false);
+    return visit_range(true, input, structurals, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context, 0,
+                       false);
 }
 
 JsonReadResult json_visit_root_array(const Utf8View& input, const ConstSlice<u32>& structurals,
                                      u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept {
-    return visit_range<false>(input, structurals, maximum_depth, visitor, context, 0, false);
+    return visit_range(false, input, structurals, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context, 0,
+                       false);
 }
 
 JsonReadResult json_visit_value_object(const JsonValue& value, const ConstSlice<u32>& structurals,
                                        u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
-    return visit_range<true>(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
+    return visit_range(true, value.source, structurals, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context,
+                       0, value.validated);
 }
 
 JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u32>& structurals,
                                       u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept {
-    return visit_range<false>(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
+    return visit_range(false, value.source, structurals, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context,
+                       0, value.validated);
 }
 
 // The position of the first offset >= value, searched outward from hint: consecutive lookups of a document
@@ -729,26 +747,26 @@ static bool indexed_subview(const JsonIndexedDocument& document, const JsonValue
     return true;
 }
 
-JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, const JsonValue& value,
-    u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
+static JsonReadResult visit_indexed(bool object, const JsonIndexedDocument& document, const JsonValue& value,
+                                    u32 maximum_depth, AnyVisitor visitor, void* context) noexcept {
     Utf8View prefix{};
     ConstSlice<u32> offsets{};
     u32 begin = 0, first = 0;
-    if (value.kind != JsonValueKind::object || !indexed_subview(document, value, &prefix, &offsets, &begin, &first))
+    if (value.kind != (object ? JsonValueKind::object : JsonValueKind::array) ||
+        !indexed_subview(document, value, &prefix, &offsets, &begin, &first))
         return {0, 0, JsonReadError::invalid_input};
-    return visit_range<true>(prefix, offsets, maximum_depth, visitor, context, begin, value.validated,
-                             &document.hint, first);
+    return visit_range(object, prefix, offsets, maximum_depth, visitor, context, begin, value.validated,
+                       &document.hint, first);
+}
+
+JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, const JsonValue& value,
+    u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
+    return visit_indexed(true, document, value, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context);
 }
 
 JsonReadResult json_visit_indexed_array(const JsonIndexedDocument& document, const JsonValue& value,
     u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept {
-    Utf8View prefix{};
-    ConstSlice<u32> offsets{};
-    u32 begin = 0, first = 0;
-    if (value.kind != JsonValueKind::array || !indexed_subview(document, value, &prefix, &offsets, &begin, &first))
-        return {0, 0, JsonReadError::invalid_input};
-    return visit_range<false>(prefix, offsets, maximum_depth, visitor, context, begin, value.validated,
-                              &document.hint, first);
+    return visit_indexed(false, document, value, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context);
 }
 
 bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, const char* ascii_data,

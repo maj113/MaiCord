@@ -6,6 +6,7 @@
 #include "plugins/binding_internal.hpp"
 #include "../../support/test_output.hpp"
 #include "plugin_fixture.hpp"
+#include "fake_actions.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -86,109 +87,8 @@ PluginEvent event(u32 kind, u64 value = 0) noexcept {
     return result;
 }
 
-// What the application would do for the plugin, counted.
-struct Sink {
-    u32 sends, edits, reacts, deletes, reads, activities, cleared, locals, local_removes, composer, keep_changed;
-    u64 owner, channel, message;
-    u32 flags;
-    char text[16];
-    mc_status result;
-};
-Sink g_sink;
-void note(u64 owner, u64 channel, u64 message_id) noexcept {
-    g_sink.owner = owner;
-    g_sink.channel = channel;
-    g_sink.message = message_id;
-}
-mc_status sink_send(u64 owner, const PluginSend& send) noexcept {
-    ++g_sink.sends;
-    note(owner, send.channel_id, send.reply_to);
-    g_sink.flags = send.flags;
-    g_sink.text[0] = 0;
-    if (send.text.bytes < sizeof(g_sink.text)) {
-        copy_bytes(g_sink.text, send.text.data, send.text.bytes);
-        g_sink.text[send.text.bytes] = 0;
-    }
-    return g_sink.result;
-}
-mc_status sink_edit(u64 owner, u64 channel, u64 message_id, Utf8View) noexcept {
-    ++g_sink.edits;
-    note(owner, channel, message_id);
-    return g_sink.result;
-}
-mc_status sink_react(u64 owner, u64 channel, u64 message_id, Utf8View, bool) noexcept {
-    ++g_sink.reacts;
-    note(owner, channel, message_id);
-    return g_sink.result;
-}
-mc_status sink_delete(u64 owner, u64 channel, u64 message_id) noexcept {
-    ++g_sink.deletes;
-    note(owner, channel, message_id);
-    return g_sink.result;
-}
-mc_status sink_read(u64 owner, u32, u64 id) noexcept {
-    ++g_sink.reads;
-    note(owner, id, 0);
-    return g_sink.result;
-}
-mc_status sink_activity(u64, const mc_activity* activity) noexcept {
-    ++(activity ? g_sink.activities : g_sink.cleared);
-    return g_sink.result;
-}
-mc_status sink_local(u64 owner, u64 channel, Utf8View, u64* id) noexcept {
-    ++g_sink.locals;
-    note(owner, channel, 0);
-    *id = 4242;
-    return g_sink.result;
-}
-mc_status sink_local_remove(u64, u64, u64) noexcept {
-    ++g_sink.local_removes;
-    return g_sink.result;
-}
-mc_status sink_composer_text(void*, u32 capacity, u32* bytes) noexcept {
-    ++g_sink.composer;
-    *bytes = 5;
-    return capacity < 5 ? MC_E_TRUNCATED : MC_OK;
-}
-mc_status sink_composer_insert(Utf8View) noexcept {
-    ++g_sink.composer;
-    return g_sink.result;
-}
-mc_status sink_composer_replace(Utf8View) noexcept {
-    ++g_sink.composer;
-    return g_sink.result;
-}
-mc_status sink_composer_focus() noexcept {
-    ++g_sink.composer;
-    return g_sink.result;
-}
-mc_status sink_composer_reply(u64, u64 message_id, bool) noexcept {
-    ++g_sink.composer;
-    g_sink.message = message_id;
-    return g_sink.result;
-}
-mc_status sink_composer_edit(u64, u64) noexcept {
-    ++g_sink.composer;
-    return g_sink.result;
-}
-void sink_keep_changed() noexcept {
-    ++g_sink.keep_changed;
-}
-mc_status sink_open_channel(mc_open_channel* out) noexcept {
-    *out = {kChannel, 4, 31, 0};
-    return MC_OK;
-}
-// Three loaded messages, newest 13; capacity and `before` are the runtime's to pass through.
-mc_status sink_messages(u64 channel, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept {
-    if (channel != 9 || before) return MC_E_NOT_FOUND;
-    for (u64 id = 13; id > 10 && *count < capacity; --id) out[(*count)++] = {id, 5, 1000 + id, MC_MESSAGE_OWN, 0};
-    return MC_OK;
-}
-const PluginPipelineSink kSink{sink_send,           sink_edit,           sink_react,         sink_delete,
-                               sink_read,           sink_activity,       sink_local,         sink_local_remove,
-                               sink_composer_text,  sink_composer_insert, sink_composer_replace, sink_composer_focus,
-                               sink_composer_reply, sink_composer_edit,  sink_keep_changed,  sink_open_channel,
-                               sink_messages};
+// What the application would do for the plugin, counted (fake_actions.cpp).
+auto& g_sink = plugin_fake_actions::recorded;
 
 PipelineState& state_of(PluginBinding* binding) noexcept {
     return *static_cast<PipelineState*>(binding->ctx.state);
@@ -392,8 +292,6 @@ void test_hooks(PluginRuntime* runtime, const Root& root) noexcept {
 }
 
 void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
-    plugin_pipeline_set_sink(&kSink);
-
     // A plugin with the permissions but no automation: actions work inside a gesture.
     const PluginEnableResult enabled = enable(runtime, root, L"MaiCordPluginRuntimePipelineFixture.dll", L"pipeline.dll");
     check(enabled.ok(), "the pipeline fixture is enabled for the action tests");
@@ -429,7 +327,7 @@ void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
               state.status[11] == MC_E_TRUNCATED && g_sink.composer == 4,
           "the composer is inserted into, replaced, focused and read");
     // Level 2: the replied-to author, the clock, the open channel, loaded messages, clearing a reply; the cache
-    // reads answer unsupported without the application's reader.
+    // reads find nothing in the empty cache of the reader fake.
     g_sink.composer = 0;
     plugin_dispatch_draft(PluginHook::pre_send, {77, 88, 0, 31, {"level2", 6}, 0, 12345});
     check(state.reply_author == 12345, "pre_send sees the replied-to message's author");
@@ -441,8 +339,8 @@ void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
           "loaded messages come newest first");
     check(state.level2[4] == MC_OK && g_sink.composer == 1 && g_sink.message == 0 && state.level2[5] == MC_E_INVALID,
           "message 0 clears the reply, and only without a ping");
-    check(state.level2[6] == MC_E_UNSUPPORTED && state.level2[7] == MC_E_UNSUPPORTED,
-          "the cache reads need the application's reader");
+    check(state.level2[6] == MC_E_NOT_FOUND && state.level2[7] == MC_E_NOT_FOUND,
+          "the cache reads answer from the application's reader");
     check(state.level2[8] == MC_OK && g_sink.locals == 2 && g_sink.channel == 0,
           "a local message in channel 0 goes to the open channel");
     // A click is a gesture: its reaction goes through.
@@ -482,11 +380,6 @@ void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
           "restored earlier texts keep their order");
     keep_clear();
 
-    // Without a sink the actions are unsupported, after the gates.
-    plugin_pipeline_set_sink(nullptr);
-    draft("send");
-    check(state.status[0] == MC_E_UNSUPPORTED, "an application without a sink reports the action unsupported");
-    plugin_pipeline_set_sink(&kSink);
     const u32 cleared = g_sink.cleared;
     plugin_runtime_disable(runtime, enabled.binding);
     check(g_sink.cleared == cleared + 1, "disabling a plugin that may set an activity clears it");
@@ -537,7 +430,6 @@ void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
               "with the automated permission a timer sends without a gesture");
         plugin_runtime_disable(runtime, automated.binding);
     }
-    plugin_pipeline_set_sink(nullptr);
 }
 
 // ---- The keep store: lifecycle and caps ------------------------------------------------------

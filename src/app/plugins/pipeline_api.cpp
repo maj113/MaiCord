@@ -8,7 +8,7 @@
 
 // mc_api entries for the message pipeline: local messages, the composer, actions, timers and kept
 // messages. Each recovers its binding from the context, refuses a stale one, checks permission
-// and gesture before it looks at arguments, and only then reaches the application's sink.
+// and gesture before it looks at arguments, and only then reaches the application (plugin_host_*).
 namespace maicord::plugin_runtime_detail {
 namespace {
 
@@ -45,12 +45,6 @@ mc_status composer_gate(const PluginBinding& binding) noexcept {
     return MC_E_DENIED;
 }
 
-// After the checks: the rate limit, then the sink.
-template <typename Member> const PluginPipelineSink* sink_for(Member member) noexcept {
-    const PluginPipelineSink* sink = plugin_sink();
-    return sink && sink->*member ? sink : nullptr;
-}
-
 mc_status limited(PluginBinding* binding, PluginBucket bucket) noexcept {
     if (plugin_take(binding, bucket)) return MC_OK;
     ++plugin_stats().action_denials;
@@ -64,11 +58,9 @@ mc_status MC_CALL api_local_message(mc_ctx* ctx, uint64_t channel, mc_str text, 
     if (!binding) return MC_E_INACTIVE;
     // Channel 0 is the open channel.
     if (!text_ok(text, MC_ACTION_TEXT_MAX)) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::local_message);
-    if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_local); status != MC_OK) return status;
     u64 id = 0;
-    const mc_status status = sink->local_message(binding->owner_id, channel, plugin_view(text), &id);
+    const mc_status status = plugin_host_local_message(binding->owner_id, channel, plugin_view(text), &id);
     if (status == MC_OK && message_id) *message_id = id;
     return status;
 }
@@ -77,8 +69,7 @@ mc_status MC_CALL api_local_message_remove(mc_ctx* ctx, uint64_t channel, uint64
     PluginBinding* binding = active(ctx);
     if (!binding) return MC_E_INACTIVE;
     if (!channel || !message) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::local_message_remove);
-    return sink ? sink->local_message_remove(binding->owner_id, channel, message) : MC_E_UNSUPPORTED;
+    return plugin_host_local_message_remove(binding->owner_id, channel, message);
 }
 
 mc_status MC_CALL api_composer_text(mc_ctx* ctx, void* out, uint32_t capacity, uint32_t* bytes) noexcept {
@@ -86,8 +77,7 @@ mc_status MC_CALL api_composer_text(mc_ctx* ctx, void* out, uint32_t capacity, u
     if (!binding) return MC_E_INACTIVE;
     if (const mc_status gate = composer_gate(*binding); gate != MC_OK) return gate;
     if (!bytes || (capacity && !out)) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::composer_text);
-    return sink ? sink->composer_text(out, capacity, bytes) : MC_E_UNSUPPORTED;
+    return plugin_host_composer_text(out, capacity, bytes);
 }
 
 mc_status MC_CALL api_composer_insert(mc_ctx* ctx, mc_str text) noexcept {
@@ -95,8 +85,7 @@ mc_status MC_CALL api_composer_insert(mc_ctx* ctx, mc_str text) noexcept {
     if (!binding) return MC_E_INACTIVE;
     if (const mc_status gate = composer_gate(*binding); gate != MC_OK) return gate;
     if (!text_ok(text, MC_ACTION_TEXT_MAX)) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::composer_insert);
-    return sink ? sink->composer_insert(plugin_view(text)) : MC_E_UNSUPPORTED;
+    return plugin_host_composer_insert(plugin_view(text));
 }
 
 mc_status MC_CALL api_composer_replace(mc_ctx* ctx, mc_str text) noexcept {
@@ -105,16 +94,14 @@ mc_status MC_CALL api_composer_replace(mc_ctx* ctx, mc_str text) noexcept {
     if (const mc_status gate = composer_gate(*binding); gate != MC_OK) return gate;
     // An empty text clears the draft.
     if (!optional_text_ok(text, MC_ACTION_TEXT_MAX) || (text.bytes && !text.data)) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::composer_replace);
-    return sink ? sink->composer_replace(plugin_view(text)) : MC_E_UNSUPPORTED;
+    return plugin_host_composer_replace(plugin_view(text));
 }
 
 mc_status MC_CALL api_composer_focus(mc_ctx* ctx) noexcept {
     PluginBinding* binding = active(ctx);
     if (!binding) return MC_E_INACTIVE;
     if (const mc_status gate = composer_gate(*binding); gate != MC_OK) return gate;
-    const auto* sink = sink_for(&PluginPipelineSink::composer_focus);
-    return sink ? sink->composer_focus() : MC_E_UNSUPPORTED;
+    return plugin_host_composer_focus();
 }
 
 mc_status MC_CALL api_composer_reply(mc_ctx* ctx, uint64_t channel, uint64_t message, uint32_t ping) noexcept {
@@ -123,8 +110,7 @@ mc_status MC_CALL api_composer_reply(mc_ctx* ctx, uint64_t channel, uint64_t mes
     if (const mc_status gate = composer_gate(*binding); gate != MC_OK) return gate;
     // Message 0 clears the reply.
     if (!channel || ping > 1 || (!message && ping)) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::composer_reply);
-    return sink ? sink->composer_reply(channel, message, ping != 0) : MC_E_UNSUPPORTED;
+    return plugin_host_composer_reply(channel, message, ping != 0);
 }
 
 mc_status MC_CALL api_composer_edit(mc_ctx* ctx, uint64_t channel, uint64_t message) noexcept {
@@ -132,8 +118,7 @@ mc_status MC_CALL api_composer_edit(mc_ctx* ctx, uint64_t channel, uint64_t mess
     if (!binding) return MC_E_INACTIVE;
     if (const mc_status gate = composer_gate(*binding); gate != MC_OK) return gate;
     if (!channel || !message) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::composer_edit);
-    return sink ? sink->composer_edit(channel, message) : MC_E_UNSUPPORTED;
+    return plugin_host_composer_edit(channel, message);
 }
 
 mc_status MC_CALL api_send_message(mc_ctx* ctx, const mc_send* send) noexcept {
@@ -142,10 +127,8 @@ mc_status MC_CALL api_send_message(mc_ctx* ctx, const mc_send* send) noexcept {
     if (const mc_status gate = write_gate(*binding); gate != MC_OK) return gate;
     if (!send || !send->channel_id || !text_ok(send->text, MC_DRAFT_TEXT_MAX) || (send->flags & ~kDraftFlags))
         return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::send);
-    if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_messages); status != MC_OK) return status;
-    return sink->send(binding->owner_id, {send->channel_id, send->reply_to, plugin_view(send->text), send->flags});
+    return plugin_host_send(binding->owner_id, {send->channel_id, send->reply_to, plugin_view(send->text), send->flags});
 }
 
 mc_status MC_CALL api_edit_message(mc_ctx* ctx, uint64_t channel, uint64_t message, mc_str text) noexcept {
@@ -153,10 +136,8 @@ mc_status MC_CALL api_edit_message(mc_ctx* ctx, uint64_t channel, uint64_t messa
     if (!binding) return MC_E_INACTIVE;
     if (const mc_status gate = write_gate(*binding); gate != MC_OK) return gate;
     if (!channel || !message || !text_ok(text, MC_ACTION_TEXT_MAX)) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::edit);
-    if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_messages); status != MC_OK) return status;
-    return sink->edit(binding->owner_id, channel, message, plugin_view(text));
+    return plugin_host_edit(binding->owner_id, channel, message, plugin_view(text));
 }
 
 mc_status MC_CALL api_react(mc_ctx* ctx, uint64_t channel, uint64_t message, mc_str emoji, uint32_t flags) noexcept {
@@ -164,10 +145,8 @@ mc_status MC_CALL api_react(mc_ctx* ctx, uint64_t channel, uint64_t message, mc_
     if (!binding) return MC_E_INACTIVE;
     if (const mc_status gate = write_gate(*binding); gate != MC_OK) return gate;
     if (!channel || !message || !text_ok(emoji, kEmojiBytesMax) || (flags & ~MC_REACT_REMOVE)) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::react);
-    if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_reactions); status != MC_OK) return status;
-    return sink->react(binding->owner_id, channel, message, plugin_view(emoji), (flags & MC_REACT_REMOVE) != 0);
+    return plugin_host_react(binding->owner_id, channel, message, plugin_view(emoji), (flags & MC_REACT_REMOVE) != 0);
 }
 
 mc_status MC_CALL api_delete_own(mc_ctx* ctx, uint64_t channel, uint64_t message) noexcept {
@@ -175,10 +154,8 @@ mc_status MC_CALL api_delete_own(mc_ctx* ctx, uint64_t channel, uint64_t message
     if (!binding) return MC_E_INACTIVE;
     if (const mc_status gate = write_gate(*binding); gate != MC_OK) return gate;
     if (!channel || !message) return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::delete_own);
-    if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_messages); status != MC_OK) return status;
-    return sink->delete_own(binding->owner_id, channel, message);
+    return plugin_host_delete_own(binding->owner_id, channel, message);
 }
 
 mc_status MC_CALL api_mark_read(mc_ctx* ctx, uint32_t scope, uint64_t id) noexcept {
@@ -187,10 +164,8 @@ mc_status MC_CALL api_mark_read(mc_ctx* ctx, uint32_t scope, uint64_t id) noexce
     if (const mc_status gate = write_gate(*binding); gate != MC_OK) return gate;
     if (scope < MC_READ_CHANNEL || scope > MC_READ_ALL || (scope == MC_READ_ALL ? id != 0 : id == 0))
         return MC_E_INVALID;
-    const auto* sink = sink_for(&PluginPipelineSink::mark_read);
-    if (!sink) return MC_E_UNSUPPORTED;
     if (const mc_status status = limited(binding, bucket_read); status != MC_OK) return status;
-    return sink->mark_read(binding->owner_id, scope, id);
+    return plugin_host_mark_read(binding->owner_id, scope, id);
 }
 
 mc_status MC_CALL api_set_activity(mc_ctx* ctx, const mc_activity* activity) noexcept {
@@ -210,12 +185,10 @@ mc_status MC_CALL api_set_activity(mc_ctx* ctx, const mc_activity* activity) noe
             (custom ? !activity->state.bytes && !activity->emoji.bytes : !activity->name.bytes))
             return MC_E_INVALID;
     }
-    const auto* sink = sink_for(&PluginPipelineSink::set_activity);
-    if (!sink) return MC_E_UNSUPPORTED;
     // Clearing is never limited, so a plugin can always take its activity back.
     if (activity)
         if (const mc_status status = limited(binding, bucket_presence); status != MC_OK) return status;
-    return sink->set_activity(binding->owner_id, activity);
+    return plugin_host_set_activity(binding->owner_id, activity);
 }
 
 mc_status MC_CALL api_timer(mc_ctx* ctx, uint64_t id, uint32_t interval_ms, uint32_t repeat) noexcept {
@@ -330,7 +303,7 @@ mc_status MC_CALL api_keep_restore(mc_ctx* ctx, const mc_kept* items, uint32_t c
             for (u32 edit = first_edit; edit < item.edit_count; ++edit) keep_add_edit(item.channel_id, item.message_id, plugin_view(item.edits[edit]));
         if (!stored) result = MC_E_BUDGET;
     }
-    if (const auto* sink = plugin_sink(); sink && sink->keep_changed) sink->keep_changed();
+    plugin_host_keep_changed();
     return result;
 }
 
@@ -338,8 +311,7 @@ mc_status MC_CALL api_read_open_channel(mc_ctx* ctx, mc_open_channel* out) noexc
     if (!active(ctx)) return MC_E_INACTIVE;
     if (!out) return MC_E_INVALID;
     *out = {};
-    const auto* sink = sink_for(&PluginPipelineSink::open_channel);
-    return sink ? sink->open_channel(out) : MC_E_UNSUPPORTED;
+    return plugin_host_read_open_channel(out);
 }
 
 mc_status MC_CALL api_read_messages(mc_ctx* ctx, uint64_t channel, uint64_t before, mc_message_ref* out,
@@ -349,8 +321,7 @@ mc_status MC_CALL api_read_messages(mc_ctx* ctx, uint64_t channel, uint64_t befo
     if (!(binding->permissions & MC_PERM_READ_MESSAGES)) return MC_E_DENIED;
     if (!channel || !out || !count || !capacity || capacity > MC_READ_MESSAGES_MAX) return MC_E_INVALID;
     *count = 0;
-    const auto* sink = sink_for(&PluginPipelineSink::messages);
-    return sink ? sink->messages(channel, before, out, capacity, count) : MC_E_UNSUPPORTED;
+    return plugin_host_read_messages(channel, before, out, capacity, count);
 }
 
 } // namespace maicord::plugin_runtime_detail

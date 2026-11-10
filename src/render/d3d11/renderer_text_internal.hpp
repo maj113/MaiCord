@@ -95,6 +95,7 @@ struct OverlayReservation {
 struct TextRasterConsumer {
     D3D11Renderer* renderer;
     const Theme* theme;
+    u32 shown;
     bool* atlas_invalidated;
     const TextOverlayBoundaries* boundaries;
     bool overlay;
@@ -117,23 +118,23 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
                                  bool* atlas_invalidated, bool force_new_batch = false,
                                  const UiRect* batch_clip = nullptr) noexcept;
 bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPresentation* presentation,
-                                 const MessageTextCommand& command, u32 command_index, const Theme& theme,
+                                 const MessageTextCommand& command, u32 command_index, const Theme& theme, u32 shown,
                                  bool* atlas_invalidated, bool search_result = false,
                                  bool force_new_batch = false) noexcept;
-ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, const Theme& theme,
+ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, u32 shown, const Theme& theme,
                                                    u64 shell_signature, u64 popup_signature,
                                                    bool include_messages) noexcept;
 bool measure_content_search(D3D11Renderer* renderer) noexcept;
-bool measure_message_search(D3D11Renderer* renderer) noexcept;
-bool measure_media_picker(D3D11Renderer* renderer) noexcept;
+bool measure_message_search(D3D11Renderer* renderer, u32 shown) noexcept;
+bool measure_media_picker(D3D11Renderer* renderer, u32 shown) noexcept;
 void reset_motion_text_ranges(D3D11Renderer* renderer, u32 batch) noexcept;
 bool reserve_overlay_text(void* context, const UiTextCommand& command, u32) noexcept;
-bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
+bool project_shell_static_text(D3D11Renderer* renderer, u32 shown, const Theme& theme,
                                UiTextEmitter* emitter) noexcept;
-bool project_shell_member_text(D3D11Renderer* renderer, const Theme& theme,
+bool project_shell_member_text(D3D11Renderer* renderer, u32 shown, const Theme& theme,
                                UiTextEmitter* emitter) noexcept;
-bool project_shell_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmitter* emitter) noexcept;
-bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmitter* emitter,
+bool project_shell_text(D3D11Renderer* renderer, u32 shown, const Theme& theme, UiTextEmitter* emitter) noexcept;
+bool project_overlay_text(D3D11Renderer* renderer, u32 shown, const Theme& theme, UiTextEmitter* emitter,
                           TextOverlayBoundaries* boundaries) noexcept;
 bool raster_text_command(void* context, const UiTextCommand& command, u32 ordinal) noexcept;
 u32 overlay_boundary(const TextOverlayBoundaries& boundaries, const OverlayBatchBoundary& entry) noexcept;

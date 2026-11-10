@@ -68,6 +68,10 @@ void test_thread_members(void (*check)(bool, const char*) noexcept) noexcept {
     const u32 users_revision = f.users.revision;
     check(!decode(utf8_literal("{\"op\":0,\"t\":\"THREAD_MEMBER_LIST_UPDATE\",\"d\":{\"guild_id\":\"7\",\"thread_id\":\"70\",\"members\":[{\"user_id\":\"4\",\"member\":{\"user\":{\"id\":\"5\",\"username\":\"Wrong\"}}}]}}"), &event, &payload) && f.users.revision == users_revision && f.threads.count == 1, "outer and embedded user identity mismatch is rejected without state application");
     check(!decode(utf8_literal("{\"op\":0,\"t\":\"THREAD_MEMBER_LIST_UPDATE\",\"d\":{\"guild_id\":\"7\",\"id\":\"70\",\"members\":[]}}"), &event, &payload), "snapshot requires thread_id and never uses normal member list identity");
+    check(decode(utf8_literal(R"({"op":0,"t":"THREAD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","thread_id":"70","members":[{"user_id":"2","member":{"user":{"id":"2","username":"Alpha"},"roles":[],"flags":"x","communication_disabled_until":5}}]}})"), &event, &payload),
+          "a thread member does not read the guild member fields flags and communication_disabled_until");
+    check(!decode(utf8_literal(R"({"op":0,"t":"THREAD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","thread_id":"70","members":[{"user_id":"2","member":{"user":{"id":"2","username":"Alpha"},"presence":null}}]}})"), &event, &payload),
+          "a thread member rejects a null presence inside its member object");
     check(decode(utf8_literal("{\"op\":0,\"t\":\"THREAD_MEMBER_LIST_UPDATE\",\"d\":{\"guild_id\":\"7\",\"thread_id\":\"71\",\"members\":[{\"user_id\":\"9\"}]}}"), &event, &payload) && apply(event, payload) && f.threads.count == 1, "late unowned snapshot is a validated no-op");
     check(decode(utf8_literal("{\"op\":0,\"t\":\"THREAD_MEMBER_LIST_UPDATE\",\"d\":{\"guild_id\":\"7\",\"thread_id\":\"70\",\"members\":[]}}"), &event, &payload) && apply(event, payload) && f.threads.known && !f.threads.count && project() && !f.projection.count, "empty snapshot atomically establishes known empty membership");
     thread_member_store_snapshot_begin(&f.threads, 7, 70);

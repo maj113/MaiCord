@@ -5,6 +5,7 @@
 #include "plugins/binding_internal.hpp"
 #include "../../support/test_output.hpp"
 #include "plugin_fixture.hpp"
+#include "fake_ui_host.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #if defined(_WIN32)
@@ -55,22 +56,6 @@ struct ClearUrlsSettings {
     u8 reserved[7];
     mc_list extra;
 };
-
-struct Toasts {
-    u32 count;
-    u64 owner;
-    u32 tone;
-    char text[64];
-    u32 bytes;
-};
-void collect_toast(void* context, u64 owner, Utf8View text, u32 tone) noexcept {
-    auto* toasts = static_cast<Toasts*>(context);
-    ++toasts->count;
-    toasts->owner = owner;
-    toasts->tone = tone;
-    toasts->bytes = text.bytes < sizeof(toasts->text) ? text.bytes : 0;
-    copy_bytes(toasts->text, text.data, toasts->bytes);
-}
 
 ConstSlice<wchar_t> leaf(const wchar_t* name) noexcept {
     return {name, length(name)};
@@ -290,7 +275,7 @@ void test_loader_failures(PluginRuntime* runtime, const Root& root) noexcept {
     check(plugin_image_unload(&image).ok() && !image.module && !loaded(L"full.dll"), "unload frees the DLL");
 }
 
-void test_full_plugin(PluginRuntime* runtime, const Root& root, Toasts* toasts) noexcept {
+void test_full_plugin(PluginRuntime* runtime, const Root& root) noexcept {
     const PluginEnableResult enabled = enable(runtime, L"full.dll");
     check(enabled.ok() && enabled.binding && runtime->binding_count == 1, "a valid plugin is enabled");
     if (!enabled.ok()) return;
@@ -327,15 +312,12 @@ void test_full_plugin(PluginRuntime* runtime, const Root& root, Toasts* toasts) 
               plugin_dispatch_stats().calls == calls + 6,
           "text beyond the draft limit is not offered to plugins");
 
-    // Host table.
-    check(send("toast").verdict == PluginDraftVerdict::keep && state->toast_status == MC_E_UNSUPPORTED,
-          "a toast fails without a sink");
-    runtime->toast = collect_toast;
-    runtime->sink_context = toasts;
+    // The application's side of the plugin UI (fake_ui_host.cpp).
     send("toast");
-    check(state->toast_status == MC_OK && toasts->count == 1 && same(Utf8View{toasts->text, toasts->bytes}, "hello") &&
-              toasts->owner == kFullOwner && toasts->tone == MC_TONE_ACCENT,
-          "a toast reaches the sink with its owner and tone");
+    const auto& toast = plugin_fake_ui::recorded;
+    check(state->toast_status == MC_OK && toast.toasts == 1 && bytes_equal(toast.toast, "hello", 6) &&
+              toast.toast_owner == kFullOwner && toast.toast_tone == MC_TONE_ACCENT,
+          "a toast reaches the application with its owner and tone");
     send("setting");
     check(state->setting_status == MC_OK && state->label_before == 5 && state->label_during == 5 &&
               same(settings->label, "new label") && binding->settings_dirty,
@@ -691,7 +673,6 @@ void run() noexcept {
     }
     static PluginRuntime runtime;
     static PluginCallLedger ledger;
-    static Toasts toasts;
     PluginCallMarker leftover{};
     wchar_t ledger_path[MAX_PATH];
     join(ledger_path, root.base, L"ledger.bin");
@@ -703,7 +684,7 @@ void run() noexcept {
         test_no_plugins();
         test_api_table();
         test_loader_failures(&runtime, root);
-        test_full_plugin(&runtime, root, &toasts);
+        test_full_plugin(&runtime, root);
         test_start_failure_and_duplicates(&runtime, root);
         test_budget(&runtime, &ledger, root);
         test_clear_urls(&runtime, root);

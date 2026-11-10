@@ -219,13 +219,13 @@ void observe_results(StatusObserver& status, bool primed) noexcept {
     const auto& renderer = g_app.renderer;
     UiAccessNameBuilder summary{};
     u64 quick = 0, search = 0;
-    if (renderer.quick_switcher_scene && d3d11_renderer_quick_switcher_visible(renderer) &&
+    if (d3d11_renderer_shows<d3d11_surface_quick_switcher>(renderer) &&
         ui_access_quick_switcher_summary(*renderer.quick_switcher_scene, &summary)) {
         quick = text_hash(summary.view());
         if (primed && quick != status.quick_summary)
             announce(summary.view(), false, utf8_literal("MaiCord.Results"));
     }
-    if (renderer.search_scene && d3d11_renderer_search_visible(renderer) &&
+    if (d3d11_renderer_shows<d3d11_surface_search>(renderer) &&
         ui_access_search_summary(*renderer.search_scene, &summary)) {
         search = text_hash(summary.view());
         if (primed && search != status.search_summary)

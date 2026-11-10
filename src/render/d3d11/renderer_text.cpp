@@ -177,27 +177,13 @@ bool append_login_commands(D3D11Renderer* renderer, const UiTextCommand* command
 } // namespace renderer_text_detail
 using namespace renderer_text_detail;
 
-bool d3d11_renderer_rebuild_login_text(D3D11Renderer* renderer, const RendererLoginView& view,
-                                       const Theme& theme) noexcept {
-    UiTextCommand commands[kMaximumLoginTextCommands];
-    UiTextCommandStream stream;
-    return ui_text_command_stream_initialize(&stream,
-                                             Slice<UiTextCommand>{commands, kMaximumLoginTextCommands}) &&
-           login_text_presentation_build(*renderer->login_scene, view, theme, &stream) &&
-           append_login_commands(renderer, stream.storage.data, stream.count, 2) &&
+bool d3d11_renderer_rebuild_login_text(D3D11Renderer* renderer, const UiTextCommandStream& stream) noexcept {
+    return append_login_commands(renderer, stream.storage.data, stream.count, 2) &&
            renderer->glyph_text.title_quad_count != 0;
 }
 
-bool d3d11_renderer_capture_login_form_text(D3D11Renderer* renderer, const LoginView& view,
-                                            const Theme& theme) noexcept {
-    auto* owned = renderer ? renderer->login_form_text : nullptr;
-    if (!owned || !renderer->login_scene)
-        return false;
-    UiTextCommand commands[kMaximumLoginTextCommands];
-    UiTextCommandStream source;
-    if (!ui_text_command_stream_initialize(&source, {commands, kMaximumLoginTextCommands}) ||
-        !login_text_presentation_build(*renderer->login_scene, view, theme, &source))
-        return false;
+bool d3d11_renderer_capture_login_form_text(D3D11Renderer* renderer, const UiTextCommandStream& source) noexcept {
+    auto* owned = renderer->login_form_text;
     u32 bytes = 0;
     for (u32 i = 0; i < source.count; ++i) {
         if (source.storage[i].styles.count || source.storage[i].text.bytes > sizeof(owned->display) - bytes)
@@ -692,13 +678,13 @@ __declspec(noinline) bool projection_rejected(const char* projection, const UiTe
     line.write(LogLevel::error, "render");
     return false;
 }
-bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* atlas_invalidated,
+bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& theme, bool* atlas_invalidated,
                              bool* storage_modified, bool* prefix_reused, bool include_messages) noexcept {
     const bool login_form = d3d11_renderer_login_form_text(*renderer);
-    const bool settings_active = !login_form && renderer_settings_page_visible(*renderer);
+    const bool settings_active = !login_form && (shown & d3d11_surface_settings_page);
     const bool friends_active = !login_form && !settings_active && renderer->friends_scene &&
                                 renderer->friends_scene->active;
-    const bool browser_active = !login_form && d3d11_renderer_thread_browser_visible(*renderer);
+    const bool browser_active = !login_form && (shown & d3d11_surface_thread_browser);
     include_messages = include_messages && !login_form && !settings_active && !friends_active &&
                        !browser_active && d3d11_renderer_active(renderer->message_scene);
     RendererTextStorage* storage = renderer->content_text;
@@ -748,7 +734,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     u32 static_count = 0;
     bool static_known = false;
     const auto project_static = [&]() noexcept {
-        if (!project_shell_static_text(renderer, theme, &shell))
+        if (!project_shell_static_text(renderer, shown, theme, &shell))
             return false;
         static_signature = shell.signature;
         static_count = shell.count;
@@ -766,14 +752,14 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         // signature so its glyphs can stay; the rows are rastered below.
         if (renderer->text_shell_navigation_scroll_key == navigation_scroll && !project_static())
             return projection_rejected("shell", shell);
-    } else if (!project_static() || !project_shell_member_text(renderer, theme, &shell)) {
+    } else if (!project_static() || !project_shell_member_text(renderer, shown, theme, &shell)) {
         return projection_rejected(static_known ? "members" : "shell", shell);
     }
     // An overlay whose text has no valid geometry (a scene left without layout) shows without text for this
     // build; the shell and the messages beneath it keep theirs. Anything else (a stale owner, a scene that
     // refused, capacity) still refuses the build.
     g_overlay_text_withheld = false;
-    if (!project_overlay_text(renderer, theme, &overlay, &boundaries)) {
+    if (!project_overlay_text(renderer, shown, theme, &overlay, &boundaries)) {
         projection_rejected("overlay", overlay);
         if (overlay.reject_check != UiTextRejectCheck::rectangle && overlay.reject_check != UiTextRejectCheck::clip)
             return false;
@@ -784,7 +770,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
             return false;
     }
     ContentTextRetentionKey retention_key =
-        content_text_retention_key(*renderer, theme, shell.signature, overlay.signature, include_messages);
+        content_text_retention_key(*renderer, shown, theme, shell.signature, overlay.signature, include_messages);
     if (shell_retained && (retention_key.shell_signature != retained_shell.signature ||
                            retention_key.theme_signature != retained_shell.theme_signature ||
                            retention_key.dpi != retained_shell.dpi ||
@@ -794,13 +780,13 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         // project the shell for real.
         shell_retained = false;
         if (!ui_text_emitter_initialize(&shell) || !project_static() ||
-            !project_shell_member_text(renderer, theme, &shell))
+            !project_shell_member_text(renderer, shown, theme, &shell))
             return projection_rejected(static_known ? "members" : "shell", shell);
-        retention_key =
-            content_text_retention_key(*renderer, theme, shell.signature, overlay.signature, include_messages);
+        retention_key = content_text_retention_key(*renderer, shown, theme, shell.signature, overlay.signature,
+                                                   include_messages);
     }
     if (!shell_moved && content_text_retention_probe(&renderer->content_text_retention, retention_key)) {
-        d3d11_renderer_commit_interaction_text_state(renderer);
+        d3d11_renderer_commit_interaction_text_state(renderer, shown);
         storage->last_error = RendererTextBuildError::none;
         return true;
     }
@@ -832,7 +818,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     // key cannot describe partially rewritten overlay tails.
     content_text_retention_invalidate(&renderer->content_text_retention);
     *prefix_reused = reuse;
-    TextRasterConsumer raster{renderer, &theme, atlas_invalidated, &boundaries, false};
+    TextRasterConsumer raster{renderer, &theme, shown, atlas_invalidated, &boundaries, false};
     if (reuse) {
         storage->quad_count = prefix.quads;
         storage->batch_count = prefix.batches;
@@ -854,7 +840,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         // the static part exactly as they key the whole shell.
         const u64 static_key =
             static_known
-                ? content_text_retention_key(*renderer, theme, static_signature, 0, false).shell_signature
+                ? content_text_retention_key(*renderer, shown, theme, static_signature, 0, false).shell_signature
                 : 0;
         const RendererTextShellStatic previous_static = shell_prefix.static_marks;
         RendererTextShellStatic static_marks = previous_static;
@@ -921,7 +907,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
                 storage->content_semantic_count = 0;
                 storage->content_hit_region_count = 0;
                 renderer->inline_media.count = 0;
-                if (!project_shell_static_text(renderer, theme, &shell_raster) ||
+                if (!project_shell_static_text(renderer, shown, theme, &shell_raster) ||
                     (static_known &&
                      (shell_raster.signature != static_signature || shell_raster.count != static_count)))
                     return false;
@@ -930,19 +916,19 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
                     *renderer, shell_raster,
                     static_known
                         ? static_key
-                        : content_text_retention_key(*renderer, theme, shell_raster.signature, 0, false)
+                        : content_text_retention_key(*renderer, shown, theme, shell_raster.signature, 0, false)
                               .shell_signature,
                     storage->rebuilds + 1);
             }
-            if (!project_shell_member_text(renderer, theme, &shell_raster) ||
+            if (!project_shell_member_text(renderer, shown, theme, &shell_raster) ||
                 (!shell_moved &&
                  (shell_raster.signature != shell.signature || shell_raster.count != shell.count)))
                 return false;
             if (shell_moved) {
                 shell.signature = shell_raster.signature;
                 shell.count = shell_raster.count;
-                retention_key = content_text_retention_key(*renderer, theme, shell.signature, overlay.signature,
-                                                           include_messages);
+                retention_key = content_text_retention_key(*renderer, shown, theme, shell.signature,
+                                                           overlay.signature, include_messages);
             }
             renderer->text_shell_scroll_key = shell_scroll;
             renderer->text_shell_navigation_scroll_key = navigation_scroll;
@@ -998,7 +984,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
                 const MessageTextCommand& command = presentation->commands[index];
                 if (renderer->message_scene && !ui_rect_intersects(command.clip, band))
                     continue;
-                if (!append_message_text_command(renderer, presentation, command, index, theme,
+                if (!append_message_text_command(renderer, presentation, command, index, theme, shown,
                                                  atlas_invalidated) ||
                     *atlas_invalidated) {
                     storage->quad_capacity = full_quad_capacity;
@@ -1046,7 +1032,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     TextOverlayBoundaries raster_boundaries{};
     if (!ui_text_emitter_initialize(&overlay_raster, raster_text_command, &raster) ||
         (!g_overlay_text_withheld &&
-         (!project_overlay_text(renderer, theme, &overlay_raster, &raster_boundaries) ||
+         (!project_overlay_text(renderer, shown, theme, &overlay_raster, &raster_boundaries) ||
           overlay_raster.signature != overlay.signature || overlay_raster.count != overlay.count ||
           !bytes_equal(&raster_boundaries, &boundaries, kComparedOverlayBoundaryBytes))))
         return false;
@@ -1076,7 +1062,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     storage->last_error = RendererTextBuildError::none;
     content_text_retention_commit(&renderer->content_text_retention, retention_key);
     prefix.shell.retention_generation = renderer->content_text_retention.generation;
-    d3d11_renderer_commit_interaction_text_state(renderer);
+    d3d11_renderer_commit_interaction_text_state(renderer, shown);
     return true;
 }
 
@@ -1181,39 +1167,135 @@ static_assert(sizeof(D3D11Renderer::interaction_text_thread_browser_publication)
               sizeof(D3D11Renderer::interaction_text_poll_voters_revision) == sizeof(u64) &&
               sizeof(D3D11Renderer::interaction_text_media_picker_revision) == sizeof(u32));
 
+// The sources a surface switches on in the active mask (the modal dialogs share one).
+struct ActiveBit {
+    u32 surfaces, bit;
+};
+constexpr ActiveBit kActiveBits[]{
+    {d3d11_surface_video, 1u << 9},
+    {d3d11_surface_tooltip, 1u << 10},
+    {d3d11_surface_search, 1u << 11},
+    {d3d11_surface_media_picker, 1u << 12},
+    {d3d11_surface_theme_editor, 1u << 13},
+    {d3d11_surface_pinned_messages, 1u << 14},
+    {d3d11_surface_quick_switcher | d3d11_surface_message_forward | d3d11_surface_download |
+         d3d11_surface_go_live,
+     1u << 15},
+    {d3d11_surface_audio, 1u << 17},
+    {d3d11_surface_poll, 1u << 18},
+    {d3d11_surface_poll_voters, 1u << 19},
+    {d3d11_surface_unread_banner, 1u << 20},
+    {d3d11_surface_call, 1u << 21},
+    {d3d11_surface_stream_card, 1u << 22},
+    {d3d11_surface_guild_card, 1u << 23},
+    {d3d11_surface_toast, 1u << 24},
+    {d3d11_surface_expression_card, 1u << 25},
+    {d3d11_surface_names_card, 1u << 26},
+};
+u32 interaction_text_active_mask(const D3D11Renderer& renderer, u32 shown) noexcept {
+    if (shown & d3d11_surface_settings_page)
+        return (d3d11_renderer_forum_form_active(renderer) ? d3d11_interaction_text_forum_form : 0) |
+               (1u << 6) | (d3d11_renderer_settings_popup(renderer) ? d3d11_interaction_text_popup : 0) |
+               (d3d11_renderer_text_form_active(renderer) ? d3d11_interaction_text_form : 0) |
+               ((shown & d3d11_surface_toast) ? 1u << 24 : 0);
+    u32 mask = 0;
+    for (const auto& active : kActiveBits)
+        if (shown & active.surfaces)
+            mask |= active.bit;
+    const bool friends = d3d11_renderer_active(renderer.friends_scene);
+    if (friends)
+        mask |= 1u << 7;
+    if (d3d11_renderer_active(renderer.friends_requests_scene))
+        mask |= 1u << 8;
+    if (d3d11_renderer_active(renderer.profile_scene))
+        mask |= 1u << 5;
+    if (d3d11_renderer_active(renderer.image_viewer))
+        mask |= 1u << 4;
+    if (!friends && !(shown & (d3d11_surface_thread_browser | d3d11_surface_call)) &&
+        d3d11_renderer_active(renderer.message_action_bar))
+        mask |= d3d11_interaction_text_action_bar;
+    if (d3d11_renderer_active(renderer.popup_scene))
+        mask |= d3d11_interaction_text_popup;
+    if (d3d11_renderer_active(renderer.reaction_viewer))
+        mask |= d3d11_interaction_text_reaction_viewer;
+    if (d3d11_renderer_text_form_active(renderer))
+        mask |= d3d11_interaction_text_form;
+    if (d3d11_renderer_forum_form_active(renderer))
+        mask |= d3d11_interaction_text_forum_form;
+    return mask;
+}
+
+// The surfaces whose scene revision is a source of its own: the source's slot, where the scene is bound in the
+// renderer and where its (32-bit) revision lies.
+struct SurfaceRevision {
+    u32 surface, scene;
+    u16 revision;
+    u8 source;
+};
+constexpr SurfaceRevision kSurfaceRevisions[]{
+    {d3d11_surface_tooltip, offsetof(D3D11Renderer, tooltip_scene), offsetof(UiTooltipScene, revision), 10},
+    {d3d11_surface_unread_banner, offsetof(D3D11Renderer, unread_banner_scene),
+     offsetof(UiUnreadBannerScene, revision), 11},
+    {d3d11_surface_toast, offsetof(D3D11Renderer, toast_scene), offsetof(UiToastScene, revision), 12},
+    {d3d11_surface_search, offsetof(D3D11Renderer, search_scene), offsetof(UiSearchScene, revision), 13},
+    {d3d11_surface_pinned_messages, offsetof(D3D11Renderer, pinned_messages_scene),
+     offsetof(UiPinnedMessagesScene, revision), 14},
+    {d3d11_surface_quick_switcher, offsetof(D3D11Renderer, quick_switcher_scene),
+     offsetof(UiQuickSwitcherScene, revision), 15},
+    {d3d11_surface_inbox, offsetof(D3D11Renderer, inbox_scene), offsetof(UiInboxScene, revision), 16},
+    {d3d11_surface_message_forward, offsetof(D3D11Renderer, message_forward_scene),
+     offsetof(UiMessageForwardScene, revision), 17},
+    {d3d11_surface_download, offsetof(D3D11Renderer, download_scene), offsetof(UiDownloadScene, revision), 18},
+    {d3d11_surface_shortcuts, offsetof(D3D11Renderer, shortcuts_scene), offsetof(UiShortcutsScene, revision), 19},
+    {d3d11_surface_call, offsetof(D3D11Renderer, call_scene), offsetof(UiCallScene, revision), 20},
+    {d3d11_surface_stream_card, offsetof(D3D11Renderer, stream_card_scene),
+     offsetof(UiStreamCardScene, revision), 21},
+    {d3d11_surface_guild_card, offsetof(D3D11Renderer, guild_card_scene), offsetof(UiGuildCardScene, revision), 22},
+    {d3d11_surface_media_picker, offsetof(D3D11Renderer, media_picker_scene),
+     offsetof(UiMediaPickerScene, revision), 23},
+    {d3d11_surface_expression_card, offsetof(D3D11Renderer, expression_card_scene),
+     offsetof(UiExpressionCardScene, revision), 24},
+    {d3d11_surface_go_live, offsetof(D3D11Renderer, go_live_scene), offsetof(UiGoLiveScene, revision), 25},
+    {d3d11_surface_names_card, offsetof(D3D11Renderer, names_card_scene), offsetof(UiNamesCardScene, revision),
+     34},
+};
+static_assert(sizeof(UiTooltipScene::revision) == 4 && sizeof(UiUnreadBannerScene::revision) == 4 &&
+              sizeof(UiToastScene::revision) == 4 && sizeof(UiSearchScene::revision) == 4 &&
+              sizeof(UiPinnedMessagesScene::revision) == 4 && sizeof(UiQuickSwitcherScene::revision) == 4 &&
+              sizeof(UiInboxScene::revision) == 4 && sizeof(UiMessageForwardScene::revision) == 4 &&
+              sizeof(UiDownloadScene::revision) == 4 && sizeof(UiShortcutsScene::revision) == 4 &&
+              sizeof(UiCallScene::revision) == 4 && sizeof(UiStreamCardScene::revision) == 4 &&
+              sizeof(UiGuildCardScene::revision) == 4 && sizeof(UiMediaPickerScene::revision) == 4 &&
+              sizeof(UiExpressionCardScene::revision) == 4 && sizeof(UiGoLiveScene::revision) == 4 &&
+              sizeof(UiNamesCardScene::revision) == 4);
+
 // Fills the revision of every interaction text source and returns the mask of the sources that
 // apply: the settings page tracks only the popup, profile overlay and form of the page-dependent ones.
-u64 interaction_text_source_values(const D3D11Renderer& renderer, u64* values) noexcept {
-    const bool thread_browser = d3d11_renderer_thread_browser_visible(renderer);
+u64 interaction_text_source_values(const D3D11Renderer& renderer, u32 shown, u64* values) noexcept {
+    const bool thread_browser = (shown & d3d11_surface_thread_browser) != 0;
     values[0] = renderer.forum_form && renderer.forum_form->scene ? renderer.forum_form->scene->revision : 0;
-    values[1] = renderer_theme_editor_visible(renderer) ? renderer.theme_editor_scene->revision : 0;
+    values[1] = (shown & d3d11_surface_theme_editor) ? renderer.theme_editor_scene->revision : 0;
     values[2] = renderer.settings_scene ? renderer.settings_scene->revision : 0;
-    values[3] = d3d11_renderer_interaction_text_active_mask(renderer);
+    values[3] = interaction_text_active_mask(renderer, shown);
     values[4] = thread_browser ? renderer.thread_browser_scene->revision : 0;
     values[5] = thread_browser ? renderer.thread_browser_scene->source_publication : 0;
-    values[6] = d3d11_renderer_video_text_revision(renderer);
-    values[7] = d3d11_renderer_audio_text_revision(renderer);
-    values[8] = d3d11_renderer_poll_text_revision(renderer);
-    values[9] = d3d11_renderer_poll_voters_text_revision(renderer);
-    values[10] = d3d11_renderer_tooltip_revision(renderer);
-    values[11] = d3d11_renderer_unread_banner_revision(renderer);
-    values[12] = d3d11_renderer_toast_revision(renderer);
-    values[13] = d3d11_renderer_search_visible(renderer) ? renderer.search_scene->revision : 0;
-    values[14] = d3d11_renderer_pinned_messages_visible(renderer) ? renderer.pinned_messages_scene->revision : 0;
-    values[15] = d3d11_renderer_quick_switcher_visible(renderer) ? renderer.quick_switcher_scene->revision : 0;
-    values[16] = d3d11_renderer_inbox_visible(renderer) ? renderer.inbox_scene->revision : 0;
-    values[17] = d3d11_renderer_message_forward_visible(renderer) ? renderer.message_forward_scene->revision : 0;
-    values[18] = d3d11_renderer_download_visible(renderer) ? renderer.download_scene->revision : 0;
-    values[19] = d3d11_renderer_shortcuts_visible(renderer) ? renderer.shortcuts_scene->revision : 0;
-    values[20] = d3d11_renderer_call_visible(renderer) ? renderer.call_scene->revision : 0;
-    values[21] = d3d11_renderer_stream_card_visible(renderer) ? renderer.stream_card_scene->revision : 0;
-    values[22] = d3d11_renderer_guild_card_visible(renderer) ? renderer.guild_card_scene->revision : 0;
-    values[23] = d3d11_renderer_media_picker_visible(renderer) ? renderer.media_picker_scene->revision : 0;
-    values[24] = d3d11_renderer_expression_card_visible(renderer) ? renderer.expression_card_scene->revision : 0;
-    values[25] = d3d11_renderer_go_live_visible(renderer) ? renderer.go_live_scene->revision : 0;
+    values[6] = (shown & (d3d11_surface_video | d3d11_surface_viewer_video))
+                    ? ui_video_scene_text_paint_revision(*renderer.video_scene)
+                    : 0;
+    values[7] = (shown & d3d11_surface_audio) ? ui_audio_scene_text_revision(*renderer.audio_scene) : 0;
+    values[8] = (shown & d3d11_surface_poll) ? ui_poll_scene_text_revision(*renderer.poll_scene) : 0;
+    values[9] =
+        (shown & d3d11_surface_poll_voters) ? ui_poll_voters_scene_text_revision(*renderer.poll_voters_scene) : 0;
+    for (const auto& entry : kSurfaceRevisions) {
+        const u8* const scene =
+            (shown & entry.surface)
+                ? *reinterpret_cast<const u8* const*>(reinterpret_cast<const u8*>(&renderer) + entry.scene)
+                : nullptr;
+        values[entry.source] = scene ? *reinterpret_cast<const u32*>(scene + entry.revision) : 0;
+    }
     values[kInteractionTextFormSource] =
         renderer.text_form && renderer.text_form->scene ? renderer.text_form->scene->revision : 0;
-    if (renderer_settings_page_visible(renderer)) {
+    if (shown & d3d11_surface_settings_page) {
         const auto* popup = d3d11_renderer_settings_popup(renderer);
         values[kInteractionTextPopupSource] = popup ? popup->revision : 0;
         values[kInteractionTextProfileSource] = d3d11_renderer_settings_overlay_revision(renderer);
@@ -1228,14 +1310,13 @@ u64 interaction_text_source_values(const D3D11Renderer& renderer, u64* values) n
         renderer.message_action_bar ? renderer.message_action_bar->revision : 0;
     values[kInteractionTextPopupSource] = renderer.popup_scene ? renderer.popup_scene->revision : 0;
     values[32] = renderer.reaction_viewer ? renderer.reaction_viewer->revision : 0;
-    values[34] = d3d11_renderer_names_card_visible(renderer) ? renderer.names_card_scene->revision : 0;
     return kInteractionTextAllSources;
 }
 } // namespace
 
-void d3d11_renderer_commit_interaction_text_state(D3D11Renderer* renderer) noexcept {
+void d3d11_renderer_commit_interaction_text_state(D3D11Renderer* renderer, u32 shown) noexcept {
     u64 values[kInteractionTextSourceCount];
-    const u64 used = interaction_text_source_values(*renderer, values);
+    const u64 used = interaction_text_source_values(*renderer, shown, values);
     for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
         if (!(used >> i & 1u))
             continue;
@@ -1252,9 +1333,9 @@ namespace {
 // every "is the text current?" check (a settings page's revision, the stale-overlay suppression, the account
 // refresh) fails and the next one rebuilds. Without this a failed build left the settings page "current" with an
 // empty text layer until something changed its revision (a resize).
-void invalidate_interaction_text_state(D3D11Renderer* renderer) noexcept {
+void invalidate_interaction_text_state(D3D11Renderer* renderer, u32 shown) noexcept {
     u64 values[kInteractionTextSourceCount];
-    const u64 used = interaction_text_source_values(*renderer, values);
+    const u64 used = interaction_text_source_values(*renderer, shown, values);
     for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
         if (!(used >> i & 1u))
             continue;
@@ -1268,8 +1349,8 @@ void invalidate_interaction_text_state(D3D11Renderer* renderer) noexcept {
 
 // A rebuild that could not finish: marks the text stale (above) and writes one rate-limited line with the failure's
 // counts and capacities, never text.
-void text_rebuild_failed(D3D11Renderer* renderer, TextDiagnostic kind, u32 attempts) noexcept {
-    invalidate_interaction_text_state(renderer);
+void text_rebuild_failed(D3D11Renderer* renderer, u32 shown, TextDiagnostic kind, u32 attempts) noexcept {
+    invalidate_interaction_text_state(renderer, shown);
     u32 suppressed = 0;
     if (!text_diagnostic_due(kind, &suppressed))
         return;
@@ -1308,10 +1389,11 @@ void text_rebuild_failed(D3D11Renderer* renderer, TextDiagnostic kind, u32 attem
 } // namespace
 
 bool d3d11_renderer_interaction_text_state_current(const D3D11Renderer& renderer) noexcept {
+    const u32 shown = d3d11_renderer_frame_surfaces(renderer);
     u64 values[kInteractionTextSourceCount];
-    u64 used = interaction_text_source_values(renderer, values);
+    u64 used = interaction_text_source_values(renderer, shown, values);
     // Friends and the thread browser hide the action bar.
-    if (d3d11_renderer_active(renderer.friends_scene) || d3d11_renderer_thread_browser_visible(renderer))
+    if (d3d11_renderer_active(renderer.friends_scene) || (shown & d3d11_surface_thread_browser))
         used &= ~(1ull << kInteractionTextActionBarSource);
     for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
         if (!(used >> i & 1u))
@@ -1328,7 +1410,8 @@ bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& them
                                       void* context) noexcept {
     if (!renderer || !consume || renderer->login_visible)
         return false;
-    const bool shell_ready = d3d11_renderer_login_form_text(*renderer) || renderer_settings_page_visible(*renderer) ||
+    const u32 shown = d3d11_renderer_frame_surfaces(*renderer);
+    const bool shell_ready = d3d11_renderer_login_form_text(*renderer) || (shown & d3d11_surface_settings_page) ||
                              (renderer->ui_scene && renderer->ui_scene->count && renderer->shell_navigation_scene &&
                               renderer->chat_state && renderer->navigation_view);
     UiTextEmitter shell{}, overlay{};
@@ -1336,8 +1419,8 @@ bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& them
     if (!ui_text_emitter_initialize(&shell, consume, context) ||
         !ui_text_emitter_initialize(&overlay, consume, context))
         return false;
-    const bool projected_shell = shell_ready && project_shell_text(renderer, theme, &shell);
-    const bool projected_overlay = project_overlay_text(renderer, theme, &overlay, &boundaries);
+    const bool projected_shell = shell_ready && project_shell_text(renderer, shown, theme, &shell);
+    const bool projected_overlay = project_overlay_text(renderer, shown, theme, &overlay, &boundaries);
     return projected_shell || projected_overlay;
 }
 
@@ -1502,15 +1585,17 @@ bool renderer_bind_thread_browser_scene(D3D11Renderer* renderer, UiThreadBrowser
 
 bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& theme,
                                       bool include_messages) noexcept {
-    const bool login_form = renderer && d3d11_renderer_login_form_text(*renderer);
-    const bool settings_active = renderer && !login_form && renderer_settings_page_visible(*renderer);
-    const bool friends_active = renderer && !login_form && !settings_active && renderer->friends_scene &&
+    if (!renderer)
+        return false;
+    const u32 shown = d3d11_renderer_frame_surfaces(*renderer);
+    const bool login_form = d3d11_renderer_login_form_text(*renderer);
+    const bool settings_active = !login_form && (shown & d3d11_surface_settings_page);
+    const bool friends_active = !login_form && !settings_active && renderer->friends_scene &&
                                 renderer->friends_scene->active;
-    const bool browser_active = renderer && !login_form && d3d11_renderer_thread_browser_visible(*renderer);
+    const bool browser_active = !login_form && (shown & d3d11_surface_thread_browser);
     include_messages = include_messages && !login_form && !settings_active && !friends_active &&
-                       !browser_active && renderer && renderer->message_scene &&
-                       renderer->message_scene->active;
-    if (!renderer || !renderer->content_text ||
+                       !browser_active && renderer->message_scene && renderer->message_scene->active;
+    if (!renderer->content_text ||
         (!login_form && !settings_active && (!renderer->chat_state || !renderer->navigation_view)) ||
         !renderer->glyph_text.ready ||
         (include_messages && (!renderer->message_text || !renderer->message_text->active))) {
@@ -1539,15 +1624,16 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
                                   : (((friends_active || browser_active)
                                           ? measure_content_search(renderer)
                                           : d3d11_renderer_measure_composer_edit(renderer)) &&
-                                     measure_message_search(renderer) && measure_media_picker(renderer) &&
-                                     d3d11_renderer_measure_popup_edit(renderer) &&
+                                     measure_message_search(renderer, shown) &&
+                                     measure_media_picker(renderer, shown) &&
+                                     d3d11_renderer_measure_popup_edit(renderer, shown) &&
                                      d3d11_renderer_measure_profile_edit(renderer) &&
                                      (!renderer->text_form ||
                                       text_form_surface_update(renderer->text_form,
                                                                renderer->glyph_text.system))));
         const bool content_built =
             composer_measured &&
-            build_content_text_once(renderer, theme, &atlas_invalidated, &storage_modified, &prefix_reused,
+            build_content_text_once(renderer, shown, theme, &atlas_invalidated, &storage_modified, &prefix_reused,
                                     include_messages);
         if (content_built) {
             if (!g_overlay_text_withheld)
@@ -1575,20 +1661,20 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
             // interaction overlays are tied to short-lived widget handles; drop
             // them so no stale hover/popup emoji batch outlives its owner.
             discard_retained_overlay_text(renderer);
-            text_rebuild_failed(renderer, TextDiagnostic::rebuild_rejected, attempt + 1);
+            text_rebuild_failed(renderer, shown, TextDiagnostic::rebuild_rejected, attempt + 1);
             return false;
         }
         // A content rebuild writes retained buffers in place; after a
         // capacity, shape or composer failure the partial command stream is
         // dropped so a retry cannot see stale indices.
         discard_content_text(renderer);
-        text_rebuild_failed(renderer, TextDiagnostic::rebuild_discarded, attempt + 1);
+        text_rebuild_failed(renderer, shown, TextDiagnostic::rebuild_discarded, attempt + 1);
         return false;
     }
     ++renderer->content_text->rejected;
     renderer->content_text->last_error = RendererTextBuildError::atlas;
     discard_content_text(renderer);
-    text_rebuild_failed(renderer, TextDiagnostic::rebuild_atlas, 8);
+    text_rebuild_failed(renderer, shown, TextDiagnostic::rebuild_atlas, 8);
     return false;
 }
 

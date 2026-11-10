@@ -62,14 +62,14 @@ void run_forward_identity_test(AccountUiRuntime& ui, ApplicationMediaPump& pump)
     UiMessageForwardMedia server{}, plain{}, direct{};
     check(valid && ui_message_forward_scene_media(scene, 0, &ui.chat_state, &server) &&
               media_asset_key_equal(server.key, expected) && server.hash.bytes == icon.bytes && !server.circle &&
-              server.radius > 0 && ui_rect_has_area(server.clip) && pump.media_key_is_current(server.key),
+              server.radius > 0 && ui_rect_has_area(server.clip) && repass(pump).media_key_is_current(server.key),
           "forward identity: a server channel's tile resolves the rail's guild icon key");
     check(!ui_message_forward_scene_media(scene, 1, &ui.chat_state, &plain) &&
               !ui_message_forward_scene_media(scene, 0, nullptr, &plain),
           "forward identity: a server without an icon keeps its tile placeholder");
     check(ui_message_forward_scene_media(scene, 2, nullptr, &direct) &&
               direct.key.kind == MediaAssetKind::user_avatar && direct.key.id == 883 && direct.circle &&
-              pump.avatar_key_is_current(direct.key),
+              repass(pump).avatar_key_is_current(direct.key),
           "forward identity: a DM destination admits its user avatar");
     const u32 before = identity_requests;
     pump.uploads = 0;
@@ -121,7 +121,7 @@ void run_forward_identity_test(AccountUiRuntime& ui, ApplicationMediaPump& pump)
     }
     identity_requests_queue = false;
     g_app.renderer.message_forward_scene = previous;
-    check(!pump.avatar_key_is_current(direct.key), "forward identity: a closed picker admits nothing");
+    check(!repass(pump).avatar_key_is_current(direct.key), "forward identity: a closed picker admits nothing");
     ui_message_forward_scene_release(&scene);
     // The quick switcher's server rows share the same resolver and key.
     static UiQuickSwitcherScene switcher{};
@@ -247,8 +247,8 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
     const auto child_key = media_asset_search_attachment(555, MediaAttachmentFormat::png,
                                                          MediaResolutionTier::px256, 73, true);
     check(valid && !message_store_find(g_app.message_view.store, 880).ok() &&
-              pump.message_image_source_is_current(parent_key, 880, 73) &&
-              pump.message_image_source_is_current(child_key, 880, 73),
+              repass(pump).message_image_source_is_current(parent_key, 880, 73) &&
+              repass(pump).message_image_source_is_current(child_key, 880, 73),
           "search media: independent accepted bank authorizes outer and forwarded sources absent from "
           "timeline");
     if (valid) {
@@ -396,9 +396,9 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
               "search media: parsed clipped decoration ignores concealed ordinary stale and offscreen "
               "semantics and deduplicates regions");
         fixture_search_current = false;
-        check(!pump.message_image_source_is_current(parent_key, 880, 73) &&
-                  !pump.message_image_source_is_current(child_key, 880, 73) &&
-                  !pump.message_image_source_is_current(parent_key, 880, 72),
+        check(!repass(pump).message_image_source_is_current(parent_key, 880, 73) &&
+                  !repass(pump).message_image_source_is_current(child_key, 880, 73) &&
+                  !repass(pump).message_image_source_is_current(parent_key, 880, 72),
               "search media: retired accepted source rejects both scopes and old publication completion");
         observe_picker_requests = false;
         g_app.renderer.content_text = prior_text;
