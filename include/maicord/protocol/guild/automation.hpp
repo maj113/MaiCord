@@ -322,8 +322,5 @@ struct AutoModPool {
 // GET .../rules (an array) or one rule (an object, count 1). The pool is filled from `pool->used` on.
 GuildAutomationResult automod_rules_decode(Utf8View body, Slice<u32> scratch, Slice<AutoModRule> output,
                                            u32* count, AutoModPool* pool) noexcept;
-inline AutoModList automod_rule_list(const AutoModPool& pool, u32 at, u32 bytes, u32 count) noexcept {
-    return {{pool.bytes.data + at, bytes}, count};
-}
 
 } // namespace maicord

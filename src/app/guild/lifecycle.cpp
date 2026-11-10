@@ -16,7 +16,6 @@
 #include "../settings/user_settings.hpp"
 #include "../settings/streamer_mode.hpp"
 #include "maicord/core/deadline.hpp"
-#include "maicord/core/json_scan.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
@@ -48,7 +47,7 @@ constexpr u32 kNameBytes = kServerNameCodepoints * 4;
 static_assert(kFolderNameCodepoints * 4 <= kGuildFolderNameBytes);
 
 enum class Mode : u8 { none, invite, create, folder, privacy };
-enum class Op : u8 { none, invite, create, leave, reorder };
+enum class Op : u8 { none, invite, create };
 enum class Menu : u8 { none, expiry, uses };
 enum : u64 {
     control_link = 1,
@@ -439,7 +438,7 @@ void project_create(Bank& bank) noexcept {
         visible = visible || name.data[i] != ' ';
     const bool ready = valid.valid && valid.codepoints >= kGuildCreateNameMinimum && visible;
     p.footer = {footer_status(bank), utf8_literal("Create"), utf8_literal("Cancel"), true,
-                ready && connected() && !busy() && !p.created_guild_id && g_app.account.api.guild_assets,
+                ready && connected() && !busy() && !p.created_guild_id,
                 busy() || p.created_guild_id, p.failed};
     p.content.description =
         utf8_literal("Give your new server a personality with a name and an icon. You can always change it later.");
@@ -847,7 +846,7 @@ Utf8View failure(const RestClientResponse& response) noexcept {
 } // namespace
 
 bool application_guild_lifecycle_open_invite(u64 guild_id, u64 channel_id) noexcept {
-    if (!application_account_available() || !g_app.account.api.guild_admin)
+    if (!application_account_available())
         return false;
     const auto& s = state();
     const auto* guild = chat_state_store_find_guild(s, guild_id);
@@ -876,7 +875,7 @@ bool application_guild_lifecycle_open_invite(u64 guild_id, u64 channel_id) noexc
 }
 
 bool application_guild_lifecycle_open_create() noexcept {
-    if (!g_app.account.api.guild_assets || !can_open())
+    if (!can_open())
         return false;
     release_icon();
     owner->created_guild_id = 0;
@@ -946,7 +945,7 @@ bool application_guild_lifecycle_open_join() noexcept {
 }
 
 bool application_guild_lifecycle_leave(u64 guild_id) noexcept {
-    if (!application_account_available() || !background_scope() || g_app.text_form || !g_app.account.api.guild_admin)
+    if (!application_account_available() || !background_scope() || g_app.text_form)
         return false;
     const auto& s = state();
     const auto* guild = chat_state_store_find_guild(s, guild_id);
@@ -1001,7 +1000,7 @@ bool application_guild_lifecycle_leave(u64 guild_id) noexcept {
 
 bool application_guild_lifecycle_reorder_channels(u64 guild_id, ConstSlice<GuildAdminPosition> positions) noexcept {
     if (!application_account_available() || !background_scope() || !guild_id || !positions.data || !positions.count ||
-        positions.count > kGuildAdminMaximumPositions || !g_app.account.api.guild_admin)
+        positions.count > kGuildAdminMaximumPositions)
         return false;
     auto& b = g_background;
     if (b.reorder_queued || b.reorder_request)
@@ -1060,15 +1059,15 @@ void application_guild_lifecycle_close(bool restore_focus) noexcept {
 void application_guild_lifecycle_release() noexcept {
     application_guild_lifecycle_close(false);
     auto& b = g_background;
-    application_cancel_request(&AccountModuleApi::guild_admin, b.leave_request);
-    application_cancel_request(&AccountModuleApi::guild_admin, b.reorder_request);
+    application_cancel_request(account_module_guild_admin, b.leave_request);
+    application_cancel_request(account_module_guild_admin, b.reorder_request);
     reset_value(&g_background);
     if (!owner)
         return;
     if (owner->op == Op::create)
-        application_cancel_request(&AccountModuleApi::guild_assets, owner->request_id);
+        application_cancel_request(account_module_guild_assets, owner->request_id);
     else
-        application_cancel_request(&AccountModuleApi::guild_admin, owner->request_id);
+        application_cancel_request(account_module_guild_admin, owner->request_id);
     if (owner->picker.runtime) {
         native_file_picker_cancel(&owner->picker);
         native_file_picker_release(&owner->picker, 5'000);
@@ -1128,7 +1127,7 @@ u64 application_guild_lifecycle_next_wake() noexcept {
 static RestClientSubmitResult send_background(const GuildAdminRequest& request, u64 now, bool& queued, u64& retry,
                                               u64& request_id) noexcept {
     const u64 id = application_next_request_id();
-    const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
+    const auto submitted = account_module_guild_admin(g_app.account.instance, &request, id);
     if (submit_busy(submitted, retry, now, 50))
         return submitted;
     queued = false;
@@ -1184,13 +1183,13 @@ bool application_guild_lifecycle_submit(u64 now) noexcept {
         request.operation = GuildAdminOperation::invite_create;
         request.channel_id = p.channel_id;
         request.invite = &options;
-        submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
-    } else if (p.op == Op::create && g_app.account.api.guild_assets) {
+        submitted = account_module_guild_admin(g_app.account.instance, &request, id);
+    } else if (p.op == Op::create) {
         GuildAssetRequest request{};
         request.operation = GuildAssetOperation::guild_create;
         request.name = editor_text();
         request.image = {p.icon.data, p.icon.bytes};
-        submitted = g_app.account.api.guild_assets(g_app.account.instance, &request, id);
+        submitted = account_module_guild_assets(g_app.account.instance, &request, id);
     }
     if (submit_busy(submitted, p.retry_at, now, 50))
         return true;

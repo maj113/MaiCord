@@ -2,7 +2,6 @@
 #include "maicord/media/video/rtp_video_assembly.hpp"
 
 namespace maicord {
-inline constexpr u8 kH265NalVps = 32, kH265NalSps = 33, kH265NalPps = 34;
 // RFC 7798 depacketizer without DONL (sprop-max-don-diff = 0): single NAL unit
 // packets (types 0-47), aggregation packets (48) and fragmentation units (49).
 // PACI (50) and unassigned types are damaged. Same result contract as H.264.

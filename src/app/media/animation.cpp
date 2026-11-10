@@ -19,7 +19,7 @@ void application_media_poster_uploaded(Application& application, const AccountMe
         frame.source_kind != AccountMediaSourceKind::local_draft_preview ||
         frame.kind != AccountMediaFrameKind::video_nv12_gpu || !frame.gpu_video || !frame.lease_serial ||
         !application.account.instance || !application.account.status.running ||
-        !application.account.api.media_local_preview || !application_local_preview_frame_current(frame))
+        !application_local_preview_frame_current(frame))
         return;
     const auto instance = application.account.instance;
     const u64 profile = application.account.status.profile_id;
@@ -29,7 +29,7 @@ void application_media_poster_uploaded(Application& application, const AccountMe
     request.owner_scope = frame.source_catalog_scope;
     request.owner_generation = frame.source_catalog_generation;
     request.lease_serial = frame.lease_serial;
-    const auto result = application.account.api.media_local_preview(
+    const auto result = account_module_media_local_preview(
         instance, AccountLocalPreviewOperation::uploaded, &request, 0, 0);
     if (result.ok() && result.state == AccountMediaRequestState::pending && application.account.instance == instance &&
         application.account.status.running && application.account.status.profile_id == profile &&
@@ -43,14 +43,13 @@ void application_media_posters_presented(Application& application, bool succeede
         return;
     if (application.account.instance != pending.instance || !application.account.status.running ||
         application.account.status.profile_id != pending.profile ||
-        application.plugin_account_scope_serial != pending.account_scope ||
-        !application.account.api.media_local_preview) {
+        application.plugin_account_scope_serial != pending.account_scope) {
         reset_value(&pending);
         return;
     }
     if (!succeeded || before == after)
         return;
-    const auto result = application.account.api.media_local_preview(
+    const auto result = account_module_media_local_preview(
         pending.instance, AccountLocalPreviewOperation::presented, nullptr, 0, 0);
     if (!result.ok() || result.state != AccountMediaRequestState::pending ||
         application.account.instance != pending.instance || !application.account.status.running ||
@@ -629,7 +628,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_due_animations(bool* repain
             release_animation_visual(advance.key, advance.generation);
             continue;
         }
-        const AccountMediaRequestResult requested = application.account.api.media_advance(
+        const AccountMediaRequestResult requested = account_module_media_advance(
             application.account.instance, advance.key, visual->cache_generation, advance.frame_index,
             now_seconds);
         if (requested.state == AccountMediaRequestState::queued ||
@@ -644,7 +643,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_due_animations(bool* repain
             continue;
         }
         AccountMediaFrame frame{};
-        if (!application.account.api.media_take(application.account.instance, &frame) ||
+        if (!account_module_media_take(application.account.instance, &frame) ||
             !media_asset_key_equal(frame.key, advance.key) || frame.frame_index != advance.frame_index) {
             release_animation_visual(advance.key, advance.generation);
             continue;
@@ -700,7 +699,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_due_animations(bool* repain
             release_animation_visual(advance.key, advance.generation);
             continue;
         }
-        const AccountMediaRequestResult requested = application.account.api.media_advance(
+        const AccountMediaRequestResult requested = account_module_media_advance(
             application.account.instance, advance.key, visual->cache_generation, advance.frame_index,
             now_seconds);
         if (requested.state == AccountMediaRequestState::busy) {
@@ -723,7 +722,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_due_animations(bool* repain
             continue;
         }
         AccountMediaFrame frame{};
-        if (!application.account.api.media_take(application.account.instance, &frame)) {
+        if (!account_module_media_take(application.account.instance, &frame)) {
             release_animation_visual(advance.key, advance.generation);
             continue;
         }

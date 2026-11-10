@@ -57,8 +57,6 @@ bool channel_memory_observe(ChannelMemory* memory, const ChatStateStore& state) 
 }
 
 void channel_memory_seed_restore(const ChannelMemory& memory, ChatStateStore* state) noexcept {
-    if (!state)
-        return;
     if (const ChannelMemoryEntry* latest = channel_memory_latest(memory)) {
         state->restore_channel_id = latest->channel_id;
         state->restore_guild_id = latest->guild_id;
@@ -113,7 +111,7 @@ bool channel_memory_path(u64 profile_id, wchar_t* path, u32 capacity) noexcept {
 }
 
 bool channel_memory_load_file(const wchar_t* path, ChannelMemory* memory) noexcept {
-    if (!path || !memory)
+    if (!path)
         return false;
     const u32 revision = memory->revision + 1;
     clear_bytes(memory, sizeof(*memory));

@@ -46,48 +46,6 @@ void persistence() noexcept {
     check(oauth_account_forget() && oauth_account_forget() && !oauth_account_load(client, &output),
           "sign-out removes persisted authorization and is idempotent");
 }
-struct Fake { u32 calls; u16 status; bool cancel; OAuthAuthorization* owner; };
-UpdateTransportError exchange(void* context, const UpdateHttpRequest& request, const HttpsExchangeOptions& options,
-                             UpdateHttpResponse* response) noexcept {
-    auto& fake = *static_cast<Fake*>(context); ++fake.calls;
-    check(test_contains(options.body, utf8_literal("grant_type=refresh_token&")) &&
-          test_contains(options.body, utf8_literal("refresh_token=first-refresh%2F%2B%3D")) &&
-          !test_contains(options.body, utf8_literal("client_secret")),
-          "demand-driven refresh reads the saved grant without a client secret");
-    const auto json = fake.status == 200 ? utf8_literal(R"({"access_token":"access","refresh_token":"rotated","expires_in":3600,"token_type":"Bearer"})")
-                                        : utf8_literal(R"({"error":"invalid_grant"})");
-    *response = {}; response->status = fake.status;
-    if (fake.cancel) oauth_authorization_cancel(fake.owner);
-    return request.sink(request.sink_context, {reinterpret_cast<const u8*>(json.data), json.bytes})
-        ? UpdateTransportError::none : UpdateTransportError::sink;
-}
-void refresh() noexcept {
-    auto* owner = static_cast<OAuthAuthorization*>(VirtualAlloc(nullptr, sizeof(OAuthAuthorization), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!owner) { check(false, "refresh test owner"); return; }
-    Fake fake{0, 200, false, owner}; const OAuthAuthorizationTransport transport{&fake, exchange};
-    SecureBuffer tokens{}, saved{};
-    check(oauth_account_refresh(owner, &tokens, transport, client).error == OAuthError::invalid_grant && !tokens.data && !fake.calls,
-          "no saved grant means no refresh network request");
-    check(oauth_account_save(client, first), "save refresh fixture");
-    auto result = oauth_account_refresh(owner, &tokens, transport, client);
-    check(result.ok() && fake.calls == 1 && tokens.data && tokens.locked, "saved account refresh yields locked tokens on demand");
-    check(oauth_account_load(client, &saved) && matches(saved, first),
-          "worker does not persist rotation before caller verifies current sign-in generation");
-    secure_buffer_release(&saved); secure_buffer_release(&tokens);
-    fake.status = 400;
-    result = oauth_account_refresh(owner, &tokens, transport, client);
-    check(result.error == OAuthError::invalid_grant && !tokens.data && fake.calls == 2 &&
-          oauth_account_load(client, &saved) && matches(saved, first),
-          "rejected refresh does not overwrite or delete a possibly newer saved sign-in");
-    secure_buffer_release(&saved);
-    fake.status = 200; fake.cancel = true;
-    check(oauth_account_refresh(owner, &tokens, transport, client).error == OAuthError::cancelled && !tokens.data && fake.calls == 3,
-          "cancellation discards refreshed credentials");
-    check(oauth_account_refresh(owner, &tokens, transport, client).error == OAuthError::cancelled && !tokens.data && fake.calls == 3,
-          "cancelled owner never reissues refresh");
-    oauth_authorization_release(owner); VirtualFree(owner, 0, MEM_RELEASE);
-    oauth_account_forget();
-}
 }
 }
 extern "C" void maicord_oauth_account_entry() noexcept {
@@ -99,7 +57,7 @@ extern "C" void maicord_oauth_account_entry() noexcept {
     copy_bytes(isolated, original, (n + 1) * sizeof(wchar_t));
     if (!wide_append(isolated, 1024, &length, L"\\spotify-account-tests") || !directory_ensure(isolated) ||
         !SetEnvironmentVariableW(L"LOCALAPPDATA", isolated)) ExitProcess(1);
-    persistence(); refresh();
+    persistence();
     SetEnvironmentVariableW(L"LOCALAPPDATA", original);
     ExitProcess(failures ? 1 : 0);
 }

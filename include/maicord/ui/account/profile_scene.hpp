@@ -388,7 +388,7 @@ struct ProfileScene {
 };
 bool profile_scene_open(ProfileScene* scene, const UserProfile* profile, const ChatStateStore* state,
                         const UserStore* users, u64 self, const UiRect& anchor, const UiRect& viewport) noexcept;
-bool profile_scene_layout(ProfileScene* scene, const UiRect& viewport, bool force = false) noexcept;
+bool profile_scene_layout(ProfileScene* scene, const UiRect& viewport, bool force) noexcept;
 // Advances visible activity timers to now. Text of an unchanged length is
 // rewritten in place; anything else lays the card out again. True when the
 // card changed (the host repaints its text).

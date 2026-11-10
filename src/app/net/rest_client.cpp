@@ -62,8 +62,6 @@ bool rest_transaction_fail(RestTransaction* transaction) noexcept {
     return end_transaction(transaction, RestTransactionPhase::failed);
 }
 
-void rest_client_set_trace(RestTraceFunction trace) noexcept { g_trace = trace; }
-
 RestClientResult rest_client_start_public(RestClient* client,
                                           u32 response_capacity, RestSharedState* shared) noexcept {
     return start_client(client, nullptr, RestAuthorization::none, nullptr, response_capacity, false, shared);
@@ -163,14 +161,12 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
         // a concurrent pending claimant can keep it after a failed signal.
         if (adopted_body) *owned_body = nullptr;
     }
-    if (g_trace) {
-        TraceRecord line("submit");
-        trace_identity(line, runtime, request.request_id);
-        line.field("route", request.route.route_id);
-        line.field("busy_retries", runtime->busy_count);
-        line.field("busy_episode_ms", runtime->busy_count ? clock_monotonic_milliseconds() - runtime->busy_since_ms : 0);
-        g_trace(line.text);
-    }
+    TraceRecord line("submit");
+    trace_identity(line, runtime, request.request_id);
+    line.field("route", request.route.route_id);
+    line.field("busy_retries", runtime->busy_count);
+    line.field("busy_episode_ms", runtime->busy_count ? clock_monotonic_milliseconds() - runtime->busy_since_ms : 0);
+    rest_trace(line.text);
     runtime->busy_count = runtime->busy_since_ms = 0;
     runtime->command.submitted_counter = clock_now();
     runtime->command.route = request.route;

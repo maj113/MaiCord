@@ -90,7 +90,7 @@ void application_media_picker_tick(u64 now) noexcept {
 }
 bool application_media_picker_preview_request(u32 cell, AccountMediaCatalogPreviewRequest* out) noexcept {
     const auto* p = g_app.media_picker;
-    if (!out || !shown(p) || p->kind == UiMediaPickerKind::emoji)
+    if (!shown(p) || p->kind == UiMediaPickerKind::emoji)
         return false;
     const CatalogBank* bank = nullptr;
     u32 local = 0;

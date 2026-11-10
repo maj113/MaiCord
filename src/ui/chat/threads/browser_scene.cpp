@@ -3,6 +3,7 @@
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

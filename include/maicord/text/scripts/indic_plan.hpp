@@ -12,7 +12,6 @@ inline constexpr SfntIndicScript sfnt_indic_scripts[]{
 constexpr const SfntIndicScript* sfnt_indic_script(SfntIndicProfile profile) noexcept {
     const u32 index=static_cast<u8>(profile);return index<sizeof(sfnt_indic_scripts)/sizeof(sfnt_indic_scripts[0])?sfnt_indic_scripts+index:nullptr;
 }
-using SfntIndicStage=SfntDevanagariStage;
 using SfntIndicForm=SfntDevanagariForm;
 // Modern script tags only, ENG then DefaultLangSys; fonts with only the older tags are not shaped as
 // Indic. GSUB features and stages are HarfBuzz's for the Indic shaper: locl, ccmp (and rvrn) first, the

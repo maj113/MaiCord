@@ -454,8 +454,6 @@ bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& stat
 bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& state,
                           const UiCaptionTitle& title_content) noexcept {
     const Utf8View title = title_content.text;
-    if (!renderer)
-        return false;
     auto* caption = renderer->caption;
     if (!caption) {
         caption = static_cast<RendererCaption*>(
@@ -497,7 +495,7 @@ bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& stat
 }
 
 bool renderer_set_caption_icon(D3D11Renderer* renderer, const u32* pixels, u32 extent) noexcept {
-    auto* caption = renderer ? renderer->caption : nullptr;
+    auto* caption = renderer->caption;
     if (!caption || !renderer->graphics.device || !pixels || !extent || extent > 256)
         return false;
     if (caption->icon_view && caption->icon_extent == extent)

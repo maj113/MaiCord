@@ -65,8 +65,7 @@ bool actor_current(const Actor& actor) noexcept {
 
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.running && g_app.account.status.gateway_ready &&
-           !g_app.account.stop_failed && g_app.account.status.required_action == AccountRequirement::none &&
-           g_app.account.api.guild_admin;
+           !g_app.account.stop_failed && g_app.account.status.required_action == AccountRequirement::none;
 }
 
 u64 now_seconds() noexcept {
@@ -551,10 +550,8 @@ bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept {
     bulk.delete_message_seconds = moderation.choice;
     bulk.reason = {moderation.text, moderation.text_bytes};
     const auto submitted = moderation.kind == Kind::bulk_ban
-                               ? (g_app.account.api.guild_moderation
-                                      ? g_app.account.api.guild_moderation(g_app.account.instance, &bulk, request_id)
-                                      : RestClientSubmitResult{RestClientSubmitError::invalid_input})
-                               : g_app.account.api.guild_admin(g_app.account.instance, &request, request_id);
+                               ? account_module_guild_moderation(g_app.account.instance, &bulk, request_id)
+                               : account_module_guild_admin(g_app.account.instance, &request, request_id);
     if (submit_busy(submitted, moderation.retry_at, now_ms, 100))
         return false;
     if (!submitted.ok()) {

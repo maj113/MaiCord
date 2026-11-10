@@ -43,8 +43,8 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
                                                 application.renderer.graphics.device};
     const auto requested =
         key.kind == MediaAssetKind::custom_emoji
-            ? application.account.api.media_request(application.account.instance, key, now_ms, now_seconds)
-            : application.account.api.media_attachment_request(application.account.instance, &request,
+            ? account_module_media_request(application.account.instance, key, now_ms, now_seconds)
+            : account_module_media_attachment_request(application.account.instance, &request,
                                                                now_ms, now_seconds);
     if (failure)
         *failure = requested;
@@ -95,7 +95,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_static_media(
     if ((!force_request && media_atlas_find(application.renderer.media_atlas, key).ok()) || asset_backed_off(key))
         return true;
     return settle_media_request(
-        application.account.api.media_request(application.account.instance, key, now_ms, now_seconds), key, stop_scan, !continue_on_busy);
+        account_module_media_request(application.account.instance, key, now_ms, now_seconds), key, stop_scan, !continue_on_busy);
 }
 
 __declspec(noinline) bool ApplicationMediaPump::settle_media_request(
@@ -129,7 +129,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_guild_icon(const
                                                                            bool* stop_scan,
                                                                            bool force_request,
                                                                            bool animate) noexcept {
-    if (!application.account_ui || !application.account.api.media_guild_icon_request) {
+    if (!application.account_ui) {
         return false;
     }
     *stop_scan = false;
@@ -147,7 +147,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_guild_icon(const
         asset_backed_off(key))
         return true;
     const AccountMediaGuildIconRequest request{icon_hash, key, {0, 0}};
-    return settle_media_request(application.account.api.media_guild_icon_request(
+    return settle_media_request(account_module_media_guild_icon_request(
                                     application.account.instance, &request, now_ms, now_seconds),
                                 key, stop_scan, true);
 }
@@ -161,7 +161,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_user_avatar_valu
         return request_visible_default_avatar(default_avatar_key(default_avatar_index(user_id)), stop_scan);
     const u32 variant = user_avatar_variant(avatar_hash);
     if (user_id == 0 || avatar_hash.bytes == 0 || variant == 0)
-        return application.account_ui && application.account.api.media_guild_icon_request;
+        return application.account_ui != nullptr;
     return request_visible_hashed_identity(
         media_asset_user_avatar(user_id, variant, asset_hash_animated(avatar_hash)), avatar_hash, stop_scan, force_request);
 }
@@ -169,7 +169,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_user_avatar_valu
 __declspec(noinline) bool ApplicationMediaPump::request_visible_default_avatar(const MediaAssetKey& key,
                                                                                 bool* stop_scan) noexcept {
     *stop_scan = false;
-    if (!application.account_ui || !application.account.api.media_attachment_request)
+    if (!application.account_ui)
         return false;
     // A default avatar is one of six shared pictures: skip it unless a visible surface shows it.
     if (visibility_only || !is_default_avatar_key(key) || !media_key_is_current(key))
@@ -200,7 +200,7 @@ u32 ApplicationMediaPump::identity_cdn_size() const noexcept {
 __declspec(noinline) bool ApplicationMediaPump::request_visible_hashed_identity(
     const MediaAssetKey& key, const Utf8View& hash,
     bool* stop_scan, bool force_request) noexcept {
-    if (!application.account_ui || !application.account.api.media_guild_icon_request) {
+    if (!application.account_ui) {
         return false;
     }
     *stop_scan = false;
@@ -220,7 +220,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_hashed_identity(
     // /avatars or /channel-icons rather than /icons in the account module;
     // reserved[0] asks for the CDN size covering the displayed extent at this DPI.
     const AccountMediaGuildIconRequest request{hash, key, {identity_cdn_size(), 0}};
-    return settle_media_request(application.account.api.media_guild_icon_request(
+    return settle_media_request(account_module_media_guild_icon_request(
                                     application.account.instance, &request, now_ms, now_seconds),
                                 key, stop_scan, true);
 }
@@ -434,7 +434,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
     const MessageRecord& message, const MessageRichAttachment& attachment, float preview_width,
     float preview_height, bool* stop_scan,
     const MessageRichStore* search_store, bool search_snapshot) noexcept {
-    if (!application.account_ui || !application.account.api.media_attachment_request) {
+    if (!application.account_ui) {
         return false;
     }
     *stop_scan = false;
@@ -496,7 +496,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
                                                 cdn_image_type(format),
                                                 {0, 0, 0},
                                                 application.renderer.graphics.device};
-    const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
+    const AccountMediaRequestResult requested = account_module_media_attachment_request(
         application.account.instance, &request, now_ms, now_seconds);
     log_message_media_failure("attachment_request_failed", requested, key);
     const bool target_failed =
@@ -573,8 +573,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
     const MessageRecord& message, const MessageRichRecord& rich, u32 embed_index, float preview_width,
     float preview_height, bool* stop_scan,
     bool thumbnail, const MessageRichStore* search_store) noexcept {
-    if (!application.account_ui || !application.account.api.media_attachment_request ||
-        embed_index >= rich.embed_count) {
+    if (!application.account_ui || embed_index >= rich.embed_count) {
         return false;
     }
     *stop_scan = false;
@@ -641,7 +640,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
                                                      rich.embeds[embed_index].type != GatewayMessageEmbedType::gifv),
                                                  {0, 0}},
                                                 application.renderer.graphics.device};
-    const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
+    const AccountMediaRequestResult requested = account_module_media_attachment_request(
         application.account.instance, &request, now_ms, now_seconds);
     log_message_media_failure("embed_media_request_failed", requested, key);
     return settle_message_media(requested, key, message.id, stop_scan);

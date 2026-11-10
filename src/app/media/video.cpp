@@ -165,7 +165,7 @@ bool send_video_command(ApplicationVideo& video, AccountVideoCommand kind, i64 s
     }
     const AccountVideoControl command{
         video.status.playback.identity, ++video.command_serial, seek, volume, kind, muted};
-    const auto result = g_app.account.api.video_control(g_app.account.instance, &command);
+    const auto result = account_module_video_control(g_app.account.instance, &command);
     const bool admitted = result.ok() && result.admitted;
     if (admitted && (kind == AccountVideoCommand::play || kind == AccountVideoCommand::pause))
         video.collection_continue = kind == AccountVideoCommand::play;
@@ -626,8 +626,8 @@ void close_video_session(AccountVideoIdentity* retired_identity) noexcept {
     if (video_session_available() && video->account_serial == application_account_scope() &&
         (video->selected || video->selecting)) {
         AccountVideoFrame frame{};
-        if (g_app.account.api.video_take(g_app.account.instance, &frame))
-            g_app.account.api.video_acknowledge(g_app.account.instance, &frame);
+        if (account_module_video_take(g_app.account.instance, &frame))
+            account_module_video_acknowledge(g_app.account.instance, &frame);
         if (retired_identity)
             *retired_identity = video->retiring_identity;
         if (video->selected && send_video_command(*video, AccountVideoCommand::stop) && retired_identity)
@@ -658,7 +658,7 @@ void application_video_viewer_detach() noexcept {
 bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed, u8 index, bool snapshot,
                                         const ApplicationSearchSourceTicket* search, const UiRect& preview,
                                         MediaAssetKey* key) noexcept {
-    if (!key || !video_session_available() || !ui_rect_has_area(preview))
+    if (!video_session_available() || !ui_rect_has_area(preview))
         return false;
     InlineMediaSource candidate{};
     candidate.message_id = message_id;
@@ -925,15 +925,15 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
         ui_video_scene_hover(&video->ui.video, video_pointer_position());
         const bool was_idle = video->ui.video.idle;
         ui_video_scene_tick(&video->ui.video, now_ms, application_reduced_motion());
-        if (video->collection_count && g_app.account.api.collection_title) {
+        if (video->collection_count) {
             MediaTrackTitle current{}, hovered{};
             AccountMediaCollectionTitleRequest query{video->source.key, video->source.revision, video->collection_track, true};
-            g_app.account.api.collection_title(g_app.account.instance, &query, &current);
+            account_module_collection_title(g_app.account.instance, &query, &current);
             auto& scene = video->ui.video;
             if (scene.hover_track) {
                 query.track = scene.hover_track;
                 query.fetch = scene.track_hover_since_ms && now_ms >= scene.track_hover_since_ms + 150;
-                const auto result = g_app.account.api.collection_title(g_app.account.instance, &query, &hovered);
+                const auto result = account_module_collection_title(g_app.account.instance, &query, &hovered);
                 if (query.fetch || result.state == AccountMediaRequestState::ready || result.state == AccountMediaRequestState::retry_wait) scene.track_hover_requested = true;
             }
             ui_video_scene_titles(&scene, {current.text, current.bytes}, scene.hover_track, {hovered.text, hovered.bytes});
@@ -977,7 +977,7 @@ namespace video_detail {
 
 // One copy of the host's status for every refresh.
 __declspec(noinline) void refresh_video_status(ApplicationVideo& video) noexcept {
-    video.status = g_app.account.api.video_status(g_app.account.instance);
+    video.status = account_module_video_status(g_app.account.instance);
 }
 
 } // namespace video_detail

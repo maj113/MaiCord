@@ -23,13 +23,11 @@ enum class AacLcError : u8 {
     invalid_stream  // a syntax element out of range: reserved codebook, scalefactor, band or pulse position
 };
 
-// What the frames decoded so far used. Counters wrap at 2^32; the decoder never reads them.
+// What the frames decoded so far used, for tests to see which coding tools a stream exercises. Counters wrap at 2^32;
+// the decoder never reads them.
 struct AacLcStats {
-    u32 frames, long_frames, start_frames, short_frames, stop_frames;
-    u32 single_elements, pair_elements, common_windows;
-    u32 kbd_windows, sine_windows;
-    u32 mid_side_bands, intensity_bands, noise_bands, zero_bands;
-    u32 tns_filters, pulses, escapes, data_elements, fill_elements;
+    u32 start_frames, short_frames, stop_frames;
+    u32 noise_bands, escapes, pulses;
 };
 
 inline constexpr u32 kAacLcFrameSamples = 1024;

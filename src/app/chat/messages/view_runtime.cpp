@@ -98,7 +98,7 @@ MessageViewRuntimeResult message_view_runtime_initialize(MessageViewRuntime* run
 
 MessageViewRuntimeResult message_view_runtime_bind_rich_store(MessageViewRuntime* runtime,
                                                               MessageRichStore* rich_store) noexcept {
-    if (!runtime || !runtime->initialized || !rich_store) {
+    if (!runtime->initialized || !rich_store) {
         return runtime_error(MessageViewRuntimeError::invalid_input);
     }
     if (!message_timeline_bind_rich_store(&runtime->timeline, rich_store)) {
@@ -108,15 +108,12 @@ MessageViewRuntimeResult message_view_runtime_bind_rich_store(MessageViewRuntime
 }
 
 void message_view_runtime_unbind_rich_store(MessageViewRuntime* runtime) noexcept {
-    if (runtime && runtime->initialized) {
+    if (runtime->initialized) {
         runtime->timeline.rich_store = nullptr;
     }
 }
 
 void message_view_runtime_release(MessageViewRuntime* runtime) noexcept {
-    if (!runtime) {
-        return;
-    }
     arena_release(&runtime->storage);
     arena_release(&runtime->text_storage);
     reset_value<MessageViewRuntime>(runtime);

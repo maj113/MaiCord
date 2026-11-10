@@ -64,9 +64,6 @@ RendererNavigationHit renderer_navigation_hit_test(const D3D11Renderer& renderer
 void renderer_bind_navigation_view(D3D11Renderer* renderer, const ChatStateStore* state,
                                 const UserStore* users,
                                 const NavigationView* view) noexcept {
-    if (!renderer) {
-        return;
-    }
     if (renderer->chat_state != state) arena_release(&renderer->shell_text_storage);
     renderer->chat_state = state;
     renderer->user_store = users;
@@ -74,9 +71,6 @@ void renderer_bind_navigation_view(D3D11Renderer* renderer, const ChatStateStore
 }
 
 void renderer_unbind_navigation_view(D3D11Renderer* renderer) noexcept {
-    if (!renderer) {
-        return;
-    }
     renderer->chat_state = nullptr;
     arena_release(&renderer->shell_text_storage);
     renderer->user_store = nullptr;

@@ -136,7 +136,7 @@ constexpr char kEmoticons[] =
 } // namespace
 
 bool composer_emoticons_convert(Utf8View text, Slice<char> output, u32* bytes) noexcept {
-    if (!bytes || (!text.data && text.bytes) || (!output.data && output.count))
+    if ((!text.data && text.bytes) || (!output.data && output.count))
         return false;
     TextWriter writer{output, 0, true};
     bool converted = false, code_block = false, code_span = false;
@@ -186,7 +186,7 @@ bool composer_emoticons_convert(Utf8View text, Slice<char> output, u32* bytes) n
 
 bool composer_text_substitute(Utf8View content, Utf8View pattern, Utf8View replacement, bool global,
                              Slice<char> output, u32* bytes) noexcept {
-    if (!bytes || !pattern.bytes || !output.data)
+    if (!pattern.bytes || !output.data)
         return false;
     TextWriter writer{output, 0, true};
     bool matched = false;
@@ -263,8 +263,6 @@ u64 message_jump_highlight_next_wake(u64 started_ms, u64 now_ms) noexcept {
 }
 
 bool connection_notice_observe(ConnectionNotice* notice, ConnectionNoticeState state, u64 now_ms) noexcept {
-    if (!notice)
-        return false;
     if (notice->raw != state) {
         notice->raw = state;
         notice->since_ms = now_ms;

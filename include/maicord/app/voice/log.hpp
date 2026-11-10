@@ -4,12 +4,8 @@
 namespace maicord {
 // Account-worker voice diagnostics (log category "voice"). Records hold a fixed
 // event name and numeric fields only: never keys, MLS secrets, tokens, session
-// ids, addresses or ports. The shipped code writes each record straight into the
-// log; tests (MAICORD_TEST_SEAMS) install a sink that receives it formatted
-// "voice:<I|W|E> <event> key=value ...".
-#if defined(MAICORD_TEST_SEAMS)
-using VoiceLogSink = void (*)(const char* record) noexcept;
-#endif
+// ids, addresses or ports. voice_log_fields (log_record.cpp) writes each record into the log; a test that reads
+// the records links tests/support/voice_log_sink.cpp in its place.
 enum class VoiceLogLevel : u8 {
     info,
     warning,
@@ -19,9 +15,6 @@ struct VoiceLogField {
     const char* key;
     u64 value;
 };
-#if defined(MAICORD_TEST_SEAMS)
-void voice_log_set_sink(VoiceLogSink sink) noexcept;
-#endif
 void voice_log_fields(VoiceLogLevel level, const char* event, ConstSlice<VoiceLogField> fields) noexcept;
 // Out of line: a call site passes its key/value pairs in registers and on the stack instead of building an array.
 void voice_log(VoiceLogLevel level, const char* event) noexcept;

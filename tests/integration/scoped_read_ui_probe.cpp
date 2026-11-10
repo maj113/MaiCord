@@ -1,6 +1,7 @@
 #include "maicord/platform/window/win32.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/ui_scene_fixtures.hpp"
+#include "../support/account_module_fake.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
@@ -315,8 +316,8 @@ bool account_storage() noexcept {
     g_app.account.status.profile_id = 42;
     g_app.plugin_account_scope_serial = 1;
     g_app.login.visible = false;
-    g_app.account.api.bulk_message_ack = bulk;
-    g_app.account.api.message_ack = individual;
+    g_account_fake.bulk_message_ack = bulk;
+    g_account_fake.message_ack = individual;
     // Bootstrap reserves storage only. Materialize the native root before
     // binding it, using the same layout policy as every later projection.
     if (!layout_shell())

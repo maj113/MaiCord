@@ -6,7 +6,6 @@
 #include "../../support/font_file_probe.hpp"
 #include "maicord/ui/text/text.hpp"
 #include "maicord/text/fonts/geometry.hpp"
-#include "maicord/text/fonts/instance.hpp"
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/text/fonts/session.hpp"
 #include "maicord/text/fonts/store.hpp"
@@ -3132,9 +3131,9 @@ void test_glyph_atlas_allocator() noexcept {
                                    Slice<GlyphAtlasRow>{rows, 4}),
            "glyph_atlas_reject_null");
 
-    const GlyphAtlasAllocation first = glyph_atlas_allocate(&atlas, 101, 10, 10);
-    const GlyphAtlasAllocation second = glyph_atlas_allocate(&atlas, 202, 10, 10);
-    const GlyphAtlasAllocation cached = glyph_atlas_allocate(&atlas, 101, 10, 10);
+    const GlyphAtlasAllocation first = glyph_atlas_allocate_unique(&atlas, 101, 10, 10);
+    const GlyphAtlasAllocation second = glyph_atlas_allocate_unique(&atlas, 202, 10, 10);
+    const GlyphAtlasAllocation cached = glyph_atlas_find(&atlas, 101);
     GlyphAtlasAllocation validated{};
     expect(first.ok() && second.ok() && !first.cached && first.x == 1 && first.y == 1 && second.x == 13 &&
                cached.ok() && cached.cached && cached.handle.slot == first.handle.slot &&
@@ -3143,8 +3142,7 @@ void test_glyph_atlas_allocator() noexcept {
                validated.width == 10,
            "glyph_atlas_pack_cache_validate");
     expect(glyph_atlas_find(&atlas, 999).error == GlyphAtlasError::not_found &&
-               glyph_atlas_allocate(&atlas, 101, 11, 10).error == GlyphAtlasError::invalid_input &&
-               glyph_atlas_allocate(&atlas, 303, 64, 32).error == GlyphAtlasError::too_large,
+               glyph_atlas_allocate_unique(&atlas, 303, 64, 32).error == GlyphAtlasError::too_large,
            "glyph_atlas_lookup_dimension_bounds");
 
     GlyphAtlasEntry lru_entries[4]{};
@@ -3153,10 +3151,10 @@ void test_glyph_atlas_allocator() noexcept {
     expect(glyph_atlas_initialize(&lru, 16, 16, 0, Slice<GlyphAtlasEntry>{lru_entries, 4},
                                   Slice<GlyphAtlasRow>{lru_rows, 2}),
            "glyph_atlas_lru_initialize");
-    const GlyphAtlasAllocation old_row = glyph_atlas_allocate(&lru, 1, 16, 8);
-    const GlyphAtlasAllocation live_row = glyph_atlas_allocate(&lru, 2, 16, 8);
+    const GlyphAtlasAllocation old_row = glyph_atlas_allocate_unique(&lru, 1, 16, 8);
+    const GlyphAtlasAllocation live_row = glyph_atlas_allocate_unique(&lru, 2, 16, 8);
     expect(glyph_atlas_find(&lru, 2).ok(), "glyph_atlas_lru_touch");
-    const GlyphAtlasAllocation replacement = glyph_atlas_allocate(&lru, 3, 16, 8);
+    const GlyphAtlasAllocation replacement = glyph_atlas_allocate_unique(&lru, 3, 16, 8);
     expect(replacement.ok() && replacement.evicted_entries == 1 &&
                !glyph_atlas_validate(lru, old_row.handle) && glyph_atlas_validate(lru, live_row.handle) &&
                lru.evicted_rows == 1,
@@ -3164,7 +3162,7 @@ void test_glyph_atlas_allocator() noexcept {
 
     // Two shelves holding nothing visible become one for a taller glyph; no full reset.
     const GlyphAtlasHandle stale_live = live_row.handle;
-    const GlyphAtlasAllocation reset_allocation = glyph_atlas_allocate(&lru, 4, 16, 16);
+    const GlyphAtlasAllocation reset_allocation = glyph_atlas_allocate_unique(&lru, 4, 16, 16);
     expect(reset_allocation.ok() && !reset_allocation.atlas_reset && reset_allocation.evicted_entries == 2 &&
                lru.full_resets == 0 && lru.row_count == 1 && !glyph_atlas_validate(lru, stale_live) &&
                glyph_atlas_validate(lru, reset_allocation.handle),
@@ -3177,20 +3175,20 @@ void test_glyph_atlas_allocator() noexcept {
         glyph_atlas_initialize(&pinned, 16, 16, 0, Slice<GlyphAtlasEntry>{pinned_entries, 4},
                                Slice<GlyphAtlasRow>{pinned_rows, 2});
     const GlyphAtlasAllocation pinned_old =
-        pinned_ready ? glyph_atlas_allocate(&pinned, 11, 16, 8) : GlyphAtlasAllocation{};
+        pinned_ready ? glyph_atlas_allocate_unique(&pinned, 11, 16, 8) : GlyphAtlasAllocation{};
     const GlyphAtlasAllocation pinned_live =
-        pinned_old.ok() ? glyph_atlas_allocate(&pinned, 12, 16, 8) : GlyphAtlasAllocation{};
+        pinned_old.ok() ? glyph_atlas_allocate_unique(&pinned, 12, 16, 8) : GlyphAtlasAllocation{};
     glyph_atlas_clear_pins(&pinned);
     const bool live_pinned = glyph_atlas_pin(&pinned, pinned_live.handle);
     const GlyphAtlasAllocation pinned_pressure =
-        live_pinned ? glyph_atlas_allocate(&pinned, 13, 16, 16) : GlyphAtlasAllocation{};
+        live_pinned ? glyph_atlas_allocate_unique(&pinned, 13, 16, 16) : GlyphAtlasAllocation{};
     expect(pinned_ready && pinned_old.ok() && pinned_live.ok() && live_pinned &&
                pinned_pressure.error == GlyphAtlasError::no_capacity && !pinned_pressure.atlas_reset &&
                pinned.full_resets == 0 && glyph_atlas_validate(pinned, pinned_old.handle) &&
                glyph_atlas_validate(pinned, pinned_live.handle),
            "glyph_atlas_pinned_row_blocks_destructive_reset");
     glyph_atlas_clear_pins(&pinned);
-    const GlyphAtlasAllocation pressure_after_visibility = glyph_atlas_allocate(&pinned, 13, 16, 16);
+    const GlyphAtlasAllocation pressure_after_visibility = glyph_atlas_allocate_unique(&pinned, 13, 16, 16);
     expect(pressure_after_visibility.ok() && !pressure_after_visibility.atlas_reset &&
                pinned.full_resets == 0 && !glyph_atlas_validate(pinned, pinned_live.handle),
            "glyph_atlas_unpinned_shelves_are_reclaimed_without_reset");

@@ -35,8 +35,7 @@ struct ApplicationScopedRead {
 namespace {
 u64 scoped_ticket_serial;
 bool actor_live() noexcept {
-    return g_app.account_ui && g_app.account.instance && g_app.account.api.message_ack &&
-           g_app.account.api.bulk_message_ack && !g_app.account.stop_failed && !g_app.login.visible &&
+    return g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed && !g_app.login.visible &&
            g_app.plugin_account_scope_serial && g_app.account.status.profile_id &&
            g_app.account_ui->chat_state.self_user_id;
 }
@@ -139,7 +138,7 @@ void cancel_flight(ApplicationScopedRead& o) noexcept {
         return;
     o.retired = true;
     if (!o.cancel_requested && actor_current(o.flight_actor, false)) {
-        g_app.account.api.bulk_message_ack(g_app.account.instance, nullptr, 0, o.flight_ticket.request_id);
+        account_module_bulk_message_ack(g_app.account.instance, nullptr, 0, o.flight_ticket.request_id);
         o.cancel_requested = true;
     }
 }
@@ -241,7 +240,7 @@ bool install(const ApplicationScopedReadTicket& ticket, ConstSlice<ReadScopeTarg
 } // namespace
 bool application_scoped_read_capture(ReadScopeKind kind, u64 id,
                                      ApplicationScopedReadTicket* out) noexcept {
-    if (!out || !actor_live() || scoped_ticket_serial == ~u64{0})
+    if (!actor_live() || scoped_ticket_serial == ~u64{0})
         return false;
     ApplicationScopedReadTicket t{};
     if (!read_scope_source(g_app.account_ui->chat_state, kind, id, &t.source))
@@ -405,7 +404,7 @@ bool application_scoped_read_submit(u64 request_id, u64 now) noexcept {
         publish(*o);
         return false;
     }
-    const auto result = g_app.account.api.bulk_message_ack(g_app.account.instance, wire, count, request_id);
+    const auto result = account_module_bulk_message_ack(g_app.account.instance, wire, count, request_id);
     if (!result.ok()) {
         o->admission_due = deadline_after(now, 125);
         if (result.error != RestClientSubmitError::busy) {

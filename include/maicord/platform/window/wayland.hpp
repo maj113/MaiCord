@@ -73,11 +73,6 @@ bool window_wayland_text_input_available(NativeWindow window) noexcept;
 bool window_wayland_text_input_enable(NativeWindow window, const TextInputRequest& request) noexcept;
 void window_wayland_text_input_disable(NativeWindow window) noexcept;
 
-// The primary selection (select-to-copy, middle-click to paste). Reading and writing are the clipboard's: a bounded read,
-// and a write that needs a recent input event.
-ClipboardTextResult primary_selection_read_utf8(const Slice<char>& output) noexcept;
-bool primary_selection_write_utf8(const Utf8View& text) noexcept;
-
 // What clipboard_capture_attachment found: files (their paths, as dropped files) or a PNG image.
 enum class ClipboardCaptureKind : u8 { files, image_png };
 ClipboardCaptureKind clipboard_capture_kind(const ClipboardCapture* capture) noexcept;

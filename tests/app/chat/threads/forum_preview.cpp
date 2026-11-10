@@ -5,6 +5,7 @@
 #include "../../../../src/app/chat/threads/forum_attachments.hpp"
 #include "../../../../src/app/chat/threads/forum_form.hpp"
 #include "../../../../src/app/shell/state.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "../../../../src/app/chat/threads/forum_preview.cpp"
 #include "../../../support/test_output.hpp"
@@ -121,7 +122,7 @@ void run() noexcept {
     g_app.plugin_account_scope_serial = 31;
     g_app.account.status.profile_id = 44;
     g_app.account_ui->chat_state.self_user_id = 55;
-    g_app.account.api.media_local_preview = media;
+    g_account_fake.media_local_preview = media;
     g_app.renderer.preview_media_atlas = &atlas;
     content.heading = utf8_literal("Create a forum post");
     content.context = utf8_literal("Community");
@@ -223,7 +224,7 @@ void run() noexcept {
         check(requests == actor_requests,
               "preview owner: replaced actor never invokes old module callback");
         g_app.account.instance = &actor;
-        g_app.account.api.media_local_preview = nullptr;
+        g_account_fake.media_local_preview = nullptr;
     }
 cleanup:
     application_forum_preview_release();

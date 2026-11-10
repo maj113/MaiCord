@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/voice_log_sink.hpp"
 
 namespace maicord {
 namespace {
@@ -613,28 +614,31 @@ struct LogCapture {
     bool clean; // No record carried a quote, colon or address-like text.
 };
 LogCapture g_log_capture;
-bool record_has(const char* record, const char* text) noexcept {
-    for (const char* at = record; *at; ++at) {
-        u32 i = 0;
-        while (text[i] && at[i] == text[i])
-            ++i;
-        if (!text[i])
-            return true;
-    }
-    return false;
+bool plain(const char* text) noexcept {
+    for (; *text; ++text)
+        if (*text == '"' || *text == ':' || *text == '.')
+            return false;
+    return true;
 }
-void capture_record(const char* record) noexcept {
+bool same(const char* a, const char* b) noexcept {
+    while (*a && *a == *b) {
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+void capture_record(VoiceLogLevel level, const char* event, ConstSlice<VoiceLogField> fields) noexcept {
     auto& capture = g_log_capture;
     ++capture.records;
-    if (record[6] == 'E')
+    if (level == VoiceLogLevel::error)
         ++capture.errors;
-    if (record_has(record, "dave_invalid_commit_welcome_sent"))
+    if (same(event, "dave_invalid_commit_welcome_sent"))
         ++capture.invalid_reports;
-    if (record_has(record, "dave_reconnect_requested"))
+    if (same(event, "dave_reconnect_requested"))
         ++capture.reconnects;
-    for (const char* at = record + 8; *at; ++at)
-        if (*at == '"' || *at == ':' || *at == '.')
-            capture.clean = false;
+    capture.clean = capture.clean && plain(event);
+    for (u32 i = 0; i != fields.count; ++i)
+        capture.clean = capture.clean && plain(fields[i].key);
 }
 // A scripted voice-gateway conversation through the socket event handler:
 // synthetic JSON and binary (sequence + opcode) frames, from being the sole
@@ -652,7 +656,7 @@ void voice_signaling(Check check, KdfSha256Workspace& kdf) noexcept {
         return;
     }
     g_log_capture = {0, 0, 0, 0, true};
-    voice_log_set_sink(capture_record);
+    g_voice_log_sink = capture_record;
     constexpr u64 group = 987654321ull;
     P256Key gateway{};
     u8 gateway_public[65], es[128], message[1024], batched[1024], payload[8192];
@@ -851,7 +855,7 @@ void voice_signaling(Check check, KdfSha256Workspace& kdf) noexcept {
     check(g_log_capture.records > 20 && g_log_capture.invalid_reports == kVoiceDaveInvalidLimit - 1 &&
               g_log_capture.reconnects == 3 && g_log_capture.clean,
           "voice log records every DAVE step with numeric fields only");
-    voice_log_set_sink(nullptr);
+    g_voice_log_sink = nullptr;
     voice_participants_release(&c->participants);
     c->socket.phase = VoiceSocketPhase::empty;
     c->socket.session.scratch = {};

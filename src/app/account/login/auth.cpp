@@ -213,7 +213,7 @@ bool request_sms(bool allow_resend) noexcept {
     if (login.sms_requested && !allow_resend) {
         return application_refresh_login_view();
     }
-    host.login_status = host.api.login_send_sms(host.login_instance);
+    host.login_status = account_module_login_send_sms(host.login_instance);
     retain_auth_retry(host.login_status);
     if (!host.login_status.ok() || host.login_status.phase != mfa_pending_phase()) {
         log_u64(LogLevel::error, "auth", "sms_send_error", static_cast<u64>(host.login_status.error));
@@ -241,7 +241,7 @@ bool begin_webauthn() noexcept {
 #endif
         return webauthn_failed();
     }
-    if (!g_app.account.login_instance || !g_app.account.api.login_copy_webauthn_challenge)
+    if (!g_app.account.login_instance)
         return present(LoginStatus::webauthn_failed);
     if (g_app.login.webauthn_attempted) {
         return true;
@@ -427,7 +427,7 @@ bool webauthn_begin(u64 posted_epoch, WebAuthnMfaRequestOptions* request, WebAut
         *result = webauthn_failed();
         return false;
     }
-    secured = host.api.login_copy_webauthn_challenge(host.login_instance, &challenge);
+    secured = account_module_login_copy_webauthn_challenge(host.login_instance, &challenge);
     if (!secured.ok()) {
         log_u64(LogLevel::error, "auth", "webauthn_challenge_copy_error", static_cast<u64>(secured.error));
         secure_buffer_release(&challenge);
@@ -500,7 +500,7 @@ bool webauthn_finish(WebAuthnFlight& flight, bool asserted_ok, u64 error, u32 na
         return webauthn_failed();
     }
     host.login_status =
-        host.api.login_submit_mfa(host.login_instance, &flight.credential, UserAuthMfaType::webauthn);
+        account_module_login_submit_mfa(host.login_instance, &flight.credential, UserAuthMfaType::webauthn);
     retain_auth_retry(host.login_status);
     secure_buffer_release(&flight.credential);
     if (!host.login_status.ok() || host.login_status.phase != mfa_pending_phase()) {
@@ -670,7 +670,7 @@ bool application_login_submit_mfa() noexcept {
     if (!validated.ok())
         return present(LoginStatus::mfa_input_invalid, LoginControl::password);
     host.login_status =
-        host.api.login_submit_mfa(host.login_instance, &g_app.login.mfa.storage, g_app.login.mfa_type);
+        account_module_login_submit_mfa(host.login_instance, &g_app.login.mfa.storage, g_app.login.mfa_type);
     retain_auth_retry(host.login_status);
     if (!host.login_status.ok() || host.login_status.phase != mfa_pending_phase())
         return present(g_app.login.reset_mode ? LoginStatus::reset_failed : LoginStatus::rejected);
@@ -742,7 +742,7 @@ bool submit_password() noexcept {
         if (!host.login_instance) {
             log_write(LogLevel::error, "auth", "remote_auth_instance_missing");
         } else {
-            const AccountLoginStatus cancelled = host.api.login_cancel_remote_auth(host.login_instance);
+            const AccountLoginStatus cancelled = account_module_login_cancel_remote_auth(host.login_instance);
             if (!cancelled.ok()) {
                 log_u64(LogLevel::warning, "auth", "remote_auth_cancel_error",
                         static_cast<u64>(cancelled.error));
@@ -778,8 +778,8 @@ bool submit_password() noexcept {
     }
     host.login_status = verification
         ? account_host_login_submit_verification(&host, &verification_input.token)
-        : host.api.login_submit_password(host.login_instance, &g_app.login.login.storage,
-                                        &g_app.login.password.storage);
+        : account_module_login_submit_password(host.login_instance, &g_app.login.login.storage,
+                                       &g_app.login.password.storage);
     retain_auth_retry(host.login_status);
     secure_buffer_release(&verification_input.token);
     const AccountLoginPhase expected_phase = verification ? AccountLoginPhase::verification_pending
@@ -1019,7 +1019,7 @@ bool application_login_pump() noexcept {
     if (host.login_status.remote_event == RemoteAuthClientEventKind::qr_ready) {
         char url[kRemoteAuthQrUrlBytes]{};
         u32 url_bytes = 0;
-        const bool copied = host.api.login_copy_remote_auth_qr(
+        const bool copied = account_module_login_copy_remote_auth_qr(
             host.login_instance, Slice<char>{url, static_cast<u32>(sizeof(url))}, &url_bytes);
         const bool encoded =
             copied && url_bytes == kRemoteAuthQrUrlBytes &&
@@ -1028,7 +1028,7 @@ bool application_login_pump() noexcept {
             g_app.login.qr_code.size == kQrCodeSize;
         secure_clear_bytes(url, sizeof(url));
         if (!encoded) {
-            host.api.login_cancel_remote_auth(host.login_instance);
+            account_module_login_cancel_remote_auth(host.login_instance);
             g_app.login.qr_ready = false;
             return present(LoginStatus::rejected);
         }
@@ -1044,7 +1044,7 @@ bool application_login_pump() noexcept {
     if (host.login_status.remote_event == RemoteAuthClientEventKind::mobile_pending) {
         char payload[kRemoteAuthMaximumUserPayloadBytes]{};
         u32 payload_bytes = 0;
-        const bool copied = host.api.login_copy_remote_auth_user(
+        const bool copied = account_module_login_copy_remote_auth_user(
             host.login_instance, Slice<char>{payload, static_cast<u32>(sizeof(payload))}, &payload_bytes);
         RemoteAuthUserPreview preview{};
         const RemoteAuthUserPreviewResult parsed =
@@ -1059,7 +1059,7 @@ bool application_login_pump() noexcept {
         }
         secure_clear_bytes(payload, sizeof(payload));
         if (!displayable) {
-            host.api.login_cancel_remote_auth(host.login_instance);
+            account_module_login_cancel_remote_auth(host.login_instance);
             stop_login_owner();
             application_account_module_release();
             g_app.login.remote_active = false;
@@ -1215,7 +1215,7 @@ bool application_login_begin_remote_auth() noexcept {
             return application_refresh_login_view();
         }
     }
-    host.login_status = host.api.login_start_remote_auth(host.login_instance);
+    host.login_status = account_module_login_start_remote_auth(host.login_instance);
     retain_auth_retry(host.login_status);
     if (!host.login_status.ok() || (host.login_status.phase != AccountLoginPhase::remote_starting &&
                                     host.login_status.phase != AccountLoginPhase::remote_qr_ready &&

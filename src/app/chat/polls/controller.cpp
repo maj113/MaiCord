@@ -79,15 +79,15 @@ bool poll_controller_source_equal(const PollControllerSource& a,const PollContro
         a.channel_generation==b.channel_generation;
 }
 void poll_controller_initialize(PollController* c) noexcept {
-    if (c) { reset_value(c); c->initialized=true; }
+    reset_value(c); c->initialized=true;
 }
 void poll_controller_close(PollController* c) noexcept {
-    if (!c || !c->initialized) return;
+    if (!c->initialized) return;
     retire_source(*c); c->source_active=false; reset_value(&c->snapshot); advance(*c);
 }
 PollControllerResult poll_controller_observe(PollController* c,const PollControllerSnapshot& p,
                                             bool authoritative_refresh) noexcept {
-    if (!c || !c->initialized || !snapshot_valid(p))
+    if (!c->initialized || !snapshot_valid(p))
         return {PollControllerError::invalid_input};
     const bool replaced=!c->source_active || !poll_controller_source_equal(c->snapshot.source,p.source) ||
                         !answers_equal(c->snapshot,p);
@@ -130,7 +130,7 @@ PollControllerResult poll_controller_observe(PollController* c,const PollControl
     return result(*c,PollControllerError::none,true);
 }
 PollControllerResult poll_controller_expire(PollController* c,u64 unix_now) noexcept {
-    if (!c || !c->initialized || !unix_now) return {PollControllerError::invalid_input};
+    if (!c->initialized || !unix_now) return {PollControllerError::invalid_input};
     if (!c->source_active || !c->snapshot.expiry_ms || unix_now<c->snapshot.expiry_ms)
         return result(*c);
     const bool changed=c->vote_barrier!=PollControllerError::expired;
@@ -143,7 +143,7 @@ PollControllerResult poll_controller_expire(PollController* c,u64 unix_now) noex
     return result(*c,PollControllerError::expired,changed);
 }
 PollControllerResult poll_controller_queue_vote(PollController* c,u16 mask,u64 now,u64 unix_now) noexcept {
-    if (!c || !c->initialized || !now) return {PollControllerError::invalid_input};
+    if (!c->initialized || !now) return {PollControllerError::invalid_input};
     if (c->vote_phase==PollControllerVotePhase::uncertain)
         return result(*c,PollControllerError::uncertain);
     if (c->flight.active || c->pending_ready || c->desired_active)
@@ -164,7 +164,7 @@ PollControllerResult poll_controller_queue_vote(PollController* c,u16 mask,u64 n
 }
 PollControllerResult poll_controller_queue_voter_page(PollController* c,u32 answer,u64 after,
                                                       u32 limit,u64 now) noexcept {
-    if (!c || !c->initialized || !c->source_active || !now || !limit ||
+    if (!c->initialized || !c->source_active || !now || !limit ||
         limit>kReactionUsersMaximumPage) return {PollControllerError::invalid_input};
     if (!c->snapshot.can_inspect) return result(*c,PollControllerError::forbidden);
     bool found=false;
@@ -183,7 +183,7 @@ PollControllerResult poll_controller_queue_voter_page(PollController* c,u32 answ
     return result(*c,PollControllerError::none,true);
 }
 PollControllerResult poll_controller_queue_refresh(PollController* c,u64 now) noexcept {
-    if (!c || !c->initialized || !c->source_active || !now) return {PollControllerError::invalid_input};
+    if (!c->initialized || !c->source_active || !now) return {PollControllerError::invalid_input};
     if (!c->snapshot.can_inspect) return result(*c,PollControllerError::forbidden);
     if (c->pending_ready) return result(*c,PollControllerError::busy);
     if (!advance(*c)) return result(*c,PollControllerError::exhausted);
@@ -193,14 +193,14 @@ PollControllerResult poll_controller_queue_refresh(PollController* c,u64 now) no
 }
 bool poll_controller_prepare(const PollController& c,u64 now,u64 unix_now,
                               PollControllerCommand* command) noexcept {
-    if (!command || !c.initialized || !c.pending_ready || c.flight.active || !now ||
+    if (!c.initialized || !c.pending_ready || c.flight.active || !now ||
         now<c.pending.due_at_ms || !flight_current(c,c.pending,unix_now)) return false;
     *command=c.pending; return true;
 }
 bool poll_controller_admit(PollController* c,const PollControllerCommand& command,u64 request_id,
                            u64 now,u64 unix_now,PollControllerTicket* ticket) noexcept {
     PollControllerCommand current{};
-    if (!c || !ticket || !request_id || !poll_controller_prepare(*c,now,unix_now,&current) ||
+    if (!request_id || !poll_controller_prepare(*c,now,unix_now,&current) ||
         !command_equal(command,current)) return false;
     reset_value(&c->flight); c->flight.command=current; c->flight.ticket={request_id,current.epoch};
     c->flight.active=true; drop_pending(*c);
@@ -208,7 +208,7 @@ bool poll_controller_admit(PollController* c,const PollControllerCommand& comman
     *ticket=c->flight.ticket; return true;
 }
 PollControllerResult poll_controller_submit_failed(PollController* c,u64 now) noexcept {
-    if (!c || !c->initialized || !c->pending_ready || c->flight.active || !now)
+    if (!c->initialized || !c->pending_ready || c->flight.active || !now)
         return {PollControllerError::invalid_input};
     if (c->pending.busy_retries<kPollControllerMaximumBusyRetries) {
         c->pending.due_at_ms=deadline_after(now,50ull<<c->pending.busy_retries);
@@ -301,7 +301,7 @@ PollControllerResult complete_flight(PollController* c,const PollControllerComma
 PollControllerResult poll_controller_complete(PollController* c,PollControllerTicket ticket,
     const RestClientResponse& response,u64 now,u64 unix_now,bool body_valid,
     ConstSlice<ReactionUser> voters) noexcept {
-    if (!c || !c->initialized || !c->flight.active || !ticket.request_id ||
+    if (!c->initialized || !c->flight.active || !ticket.request_id ||
         response.request_id!=ticket.request_id || c->flight.ticket.request_id!=ticket.request_id ||
         c->flight.ticket.epoch!=ticket.epoch) return {PollControllerError::stale,false,true};
     const bool stale=c->flight.retired || !flight_current(*c,c->flight.command,unix_now);

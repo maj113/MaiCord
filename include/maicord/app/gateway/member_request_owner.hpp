@@ -65,7 +65,7 @@ inline bool gateway_member_request_equal(const GatewayGuildMemberRequest& a,
 inline bool gateway_member_request_admit(GatewayMemberRequestOwner* owner,
                                          const GatewayGuildMemberRequest& request,
                                          u64 now_ms = 0) noexcept {
-    if (!owner || !gateway_guild_member_request_valid(request))
+    if (!gateway_guild_member_request_valid(request))
         return false;
     bool known = false;
     for (const auto& floor : owner->floors)

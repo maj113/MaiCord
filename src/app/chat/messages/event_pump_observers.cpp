@@ -29,7 +29,7 @@ ReadStateEntry read_model_entry(const GatewayClientReadStateMutation& record) no
 bool preflight_read_snapshot(const MessageEventPump& pump, const GatewayClientEvent& event,
                              ConstSlice<u8> payload, u32* required) noexcept {
     const auto& reads = *pump.state->read_state;
-    if (!required || !reads.pending.data || reads.count > reads.backed_count ||
+    if (!reads.pending.data || reads.count > reads.backed_count ||
         reads.backed_count > reads.pending.count || reads.preparing_ready ||
         event.read_state.record_count > kGatewayReadStateMaximumEntries ||
         payload.count != event.read_state.record_count * sizeof(GatewayClientReadStateMutation))
@@ -766,7 +766,7 @@ bool observe_message_deletions(MessageEventPump* pump, const GatewayClientEvent&
 bool message_event_pump_initialize(MessageEventPump* pump, MessageTimeline* timeline,
                                    Slice<u8> payload_scratch, Slice<u64> bulk_id_scratch,
                                    MessageContentAvailability content_access) noexcept {
-    if (!pump || !timeline || !timeline->store || !timeline->list || !payload_scratch.data ||
+    if (!timeline->store || !timeline->list || !payload_scratch.data ||
         payload_scratch.count < kMessageEventPumpPayloadCapacity || !bulk_id_scratch.data ||
         bulk_id_scratch.count < kGatewayBulkDeleteMaximumIds) {
         return false;
@@ -791,7 +791,7 @@ void message_event_pump_set_view_active(MessageEventPump* pump, bool view_active
 
 bool message_event_pump_set_state_store(MessageEventPump* pump, ChatStateStore* state,
                                         Slice<u64> guild_id_scratch) noexcept {
-    if (!state || !guild_id_scratch.data || guild_id_scratch.count < state->guild_capacity) {
+    if (!guild_id_scratch.data || guild_id_scratch.count < state->guild_capacity) {
         return false;
     }
     pump->state = state;
@@ -804,7 +804,7 @@ void message_event_pump_set_guild_detail_store(MessageEventPump* pump, GuildDeta
 }
 
 bool message_event_pump_set_user_store(MessageEventPump* pump, UserStore* users) noexcept {
-    if (!users || !users->records || !users->order || !users->names) {
+    if (!users->records || !users->order || !users->names) {
         return false;
     }
     pump->users = users;
@@ -813,7 +813,7 @@ bool message_event_pump_set_user_store(MessageEventPump* pump, UserStore* users)
 
 bool message_event_pump_set_member_store(MessageEventPump* pump,
                                          GuildMemberStore* members) noexcept {
-    if (!members || !members->records || !members->order) {
+    if (!members->records || !members->order) {
         return false;
     }
     pump->members = members;

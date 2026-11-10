@@ -157,12 +157,12 @@ void release_uri(Picked& picked) noexcept {
     picked.has_md5 = false;
 }
 void retire_preview(Picked& picked) noexcept {
-    if (picked.admitted && picked.instance == g_app.account.instance && g_app.account.api.media_local_preview) {
+    if (picked.admitted && picked.instance == g_app.account.instance) {
         AccountMediaLocalPreviewRequest exact{};
         exact.key = picked.request.key;
         exact.owner_scope = picked.request.owner_scope;
         exact.owner_generation = picked.request.owner_generation;
-        g_app.account.api.media_local_preview(picked.instance, AccountLocalPreviewOperation::retire, &exact, 0, 0);
+        account_module_media_local_preview(picked.instance, AccountLocalPreviewOperation::retire, &exact, 0, 0);
     }
     if (g_app.renderer.preview_media_atlas && media_asset_key_valid(picked.request.key))
         media_atlas_unpin(g_app.renderer.preview_media_atlas, picked.request.key);
@@ -480,7 +480,7 @@ Picked* picked_for(MediaAssetKey key) noexcept {
     return nullptr;
 }
 bool pump_previews(u64 now) noexcept {
-    if (!owner || !g_app.account.api.media_local_preview || !g_app.account.instance)
+    if (!owner || !g_app.account.instance)
         return false;
     bool changed = false;
     Picked* candidates[] = {&owner->staged, &owner->avatar, &owner->banner};
@@ -496,7 +496,7 @@ bool pump_previews(u64 now) noexcept {
         if (picked->ready || now < picked->poll_at)
             continue;
         picked->request.path = {picked->path, picked->path_units};
-        const auto result = g_app.account.api.media_local_preview(
+        const auto result = account_module_media_local_preview(
             picked->instance, AccountLocalPreviewOperation::request, &picked->request, now, unix_now);
         if (result.state == AccountMediaRequestState::queued || result.state == AccountMediaRequestState::pending ||
             result.state == AccountMediaRequestState::ready)
@@ -872,7 +872,7 @@ bool project() noexcept {
                 utf8_literal("Save Changes"),
                 utf8_literal("Reset"),
                 changed != 0 || saving() || p.failed,
-                changed && valid && connected() && !busy() && p.loaded && g_app.account.api.profile_edit,
+                changed && valid && connected() && !busy() && p.loaded,
                 saving(),
                 p.failed};
     p.content.controls = {p.controls, p.control_count};

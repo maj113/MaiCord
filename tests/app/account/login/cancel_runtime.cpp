@@ -1,6 +1,7 @@
 #include "shell/state.hpp"
 #include "../../../support/window_fixture.hpp"
 #include "account/login/auth.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "account/login/browser_auth.hpp"
 #include "maicord/platform/desktop/webauthn.hpp"
 #include "maicord/app/account/account_paths.hpp"
@@ -241,22 +242,22 @@ bool seed(bool remote) noexcept {
     g_app.account = {};
     g_app.account.module = reinterpret_cast<HMODULE>(1); // Never passed to an OS loader.
     g_app.account.login_instance = &audit;
-    g_app.account.api.login_stop = stop;
-    g_app.account.api.login_start = start;
-    g_app.account.api.login_submit_password = password;
-    g_app.account.api.login_start_remote_auth = remote_start;
-    g_app.account.api.login_start_reset = start;
-    g_app.account.api.login_start_browser = browser_start;
-    g_app.account.api.login_copy_browser_url = browser_copy;
-    g_app.account.api.login_submit_reset = reset;
-    g_app.account.api.login_submit_mfa = mfa;
-    g_app.account.api.login_submit_recovery = recovery;
-    g_app.account.api.login_submit_phone_verify = phone_verify;
-    g_app.account.api.login_submit_phone_resend = phone_resend;
-    g_app.account.api.login_take_phone_reset_token = phone_take;
-    g_app.account.api.login_pump = pump;
-    g_app.account.api.login_notification_handle = notification;
-    g_app.account.api.login_copy_webauthn_challenge = copy_challenge;
+    g_account_fake.login_stop = stop;
+    g_account_fake.login_start = start;
+    g_account_fake.login_submit_password = password;
+    g_account_fake.login_start_remote_auth = remote_start;
+    g_account_fake.login_start_reset = start;
+    g_account_fake.login_start_browser = browser_start;
+    g_account_fake.login_copy_browser_url = browser_copy;
+    g_account_fake.login_submit_reset = reset;
+    g_account_fake.login_submit_mfa = mfa;
+    g_account_fake.login_submit_recovery = recovery;
+    g_account_fake.login_submit_phone_verify = phone_verify;
+    g_account_fake.login_submit_phone_resend = phone_resend;
+    g_account_fake.login_take_phone_reset_token = phone_take;
+    g_account_fake.login_pump = pump;
+    g_account_fake.login_notification_handle = notification;
+    g_account_fake.login_copy_webauthn_challenge = copy_challenge;
     g_app.login.visible = g_app.login.initialized = true;
     g_app.login.reset_mode = g_app.login.reset_retry = false; g_app.login.webauthn_post_epoch = 0;
     g_app.login.status = remote ? LoginStatus::idle : LoginStatus::captcha_required;
@@ -1103,20 +1104,20 @@ bool application_account_module_load() noexcept {
     ++login_cancel_test::audit.module_loads;
     if (login_cancel_test::audit.allow_load) {
         g_app.account.module = reinterpret_cast<HMODULE>(1);
-        g_app.account.api.login_start = login_cancel_test::start;
-        g_app.account.api.login_submit_password = login_cancel_test::password;
-        g_app.account.api.login_start_remote_auth = login_cancel_test::remote_start;
-        g_app.account.api.login_start_reset = login_cancel_test::start;
-        g_app.account.api.login_start_browser = login_cancel_test::browser_start;
-        g_app.account.api.login_copy_browser_url = login_cancel_test::browser_copy;
-        g_app.account.api.login_submit_reset = login_cancel_test::reset;
-        g_app.account.api.login_submit_recovery = login_cancel_test::recovery;
-        g_app.account.api.login_submit_phone_verify = login_cancel_test::phone_verify;
-        g_app.account.api.login_submit_phone_resend = login_cancel_test::phone_resend;
-        g_app.account.api.login_take_phone_reset_token = login_cancel_test::phone_take;
-        g_app.account.api.login_submit_mfa = login_cancel_test::mfa;
-        g_app.account.api.login_stop = login_cancel_test::stop;
-        g_app.account.api.login_pump = login_cancel_test::pump;
+        g_account_fake.login_start = login_cancel_test::start;
+        g_account_fake.login_submit_password = login_cancel_test::password;
+        g_account_fake.login_start_remote_auth = login_cancel_test::remote_start;
+        g_account_fake.login_start_reset = login_cancel_test::start;
+        g_account_fake.login_start_browser = login_cancel_test::browser_start;
+        g_account_fake.login_copy_browser_url = login_cancel_test::browser_copy;
+        g_account_fake.login_submit_reset = login_cancel_test::reset;
+        g_account_fake.login_submit_recovery = login_cancel_test::recovery;
+        g_account_fake.login_submit_phone_verify = login_cancel_test::phone_verify;
+        g_account_fake.login_submit_phone_resend = login_cancel_test::phone_resend;
+        g_account_fake.login_take_phone_reset_token = login_cancel_test::phone_take;
+        g_account_fake.login_submit_mfa = login_cancel_test::mfa;
+        g_account_fake.login_stop = login_cancel_test::stop;
+        g_account_fake.login_pump = login_cancel_test::pump;
     }
     return login_cancel_test::audit.allow_load;
 }

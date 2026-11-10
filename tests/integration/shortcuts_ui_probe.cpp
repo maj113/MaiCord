@@ -134,7 +134,6 @@ bool shortcuts_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*,
             renderer.retained_presentation.valid = false;
             ui_shortcuts_scene_release(&overlay.scene);
             ui_settings_scene_release(&page.scene);
-            ui_page_registry_unregister_owner(&page.registry, 1);
             ui_page_registry_clear(&page.registry);
         }
     } restore{renderer, renderer.shortcuts_scene, renderer.settings_scene, renderer.focus_owner};

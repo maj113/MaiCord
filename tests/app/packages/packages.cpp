@@ -441,10 +441,6 @@ void test_textures(Check check) noexcept {
     check(error_of(build(indexed, 3)) == McfxError::texture, "mcfx: a palette texture is refused");
     const Section extra[]{{1, reinterpret_cast<const u8*>(kManifest), c_string_length(kManifest)}, {2, dxbc, sizeof(dxbc)}, {3, png, png_bytes}};
     check(error_of(build(extra, 3)) == McfxError::manifest, "mcfx: a texture section the manifest does not declare is refused");
-    u32 w = 0, h = 0;
-    check(mcfx_png_extent({png, png_bytes}, &w, &h) && w == 64 && h == 32 && !mcfx_png_extent({wide, wide_bytes}, &w, &h) &&
-              !mcfx_png_extent({png, 20}, &w, &h),
-          "mcfx: the PNG extent reader bounds its input");
 }
 
 // ---- Interface 3: the pass graph, TEXTURE2/3 and float data ------------------------------------------------------

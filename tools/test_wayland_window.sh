@@ -102,7 +102,7 @@ fi
 # ctest), so a driver waits for its test's first file for as long as a build can take: with a shorter wait the drivers
 # gave up while the build still ran, took no screenshot and wrote no answer, and the input and EGL tests then waited
 # for them until their own deadlines. A test that is skipped never writes its file; the script ends its drivers.
-driver_wait="${MAICORD_DRIVER_WAIT:-1800}"
+driver_wait=1800
 
 wait_for() {  # file timeout-seconds
     for _ in $(seq 1 $(( $2 * 10 ))); do

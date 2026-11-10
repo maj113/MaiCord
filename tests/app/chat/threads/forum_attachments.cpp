@@ -104,7 +104,7 @@ Utf8View rich_post(u64 id) noexcept {
 void run() noexcept {
     check(initialize(), "forum media: actual Core and timeline initialize");
     if (!g_app.account_ui) return;
-    g_app.account.api.upload = upload_api;
+    g_account_fake.upload = upload_api;
     static MessageRichStore rich_store{};
     static MessageRichRecord rich_rows[32]{}; static u16 rich_order[32]{}; static u8 rich_text[65536]{};
     check(message_rich_store_initialize(&rich_store, {rich_rows, 32}, {rich_order, 32}, {rich_text, sizeof(rich_text)}) &&

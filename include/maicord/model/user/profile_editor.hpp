@@ -115,7 +115,7 @@ Utf8View profile_editor_gate_reason(ProfileEditorTab tab, ProfileEditorGate gate
 u16 profile_editor_changes(ProfileEditorTab tab, const ProfileEditorBase& base,
                            const ProfileEditorDraft& draft) noexcept;
 // Remaining bio characters as the counter shows them (may be negative).
-i32 profile_editor_bio_remaining(Utf8View bio, u32 limit = kProfileEditBioCodepoints) noexcept;
+i32 profile_editor_bio_remaining(Utf8View bio) noexcept;
 // Every change is allowed by the gate (resetting a gated per-server value
 // stays allowed) and every text is within its input limit.
 bool profile_editor_changes_allowed(ProfileEditorTab tab, const ProfileEditorBase& base,

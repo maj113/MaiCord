@@ -203,7 +203,6 @@ inline constexpr u32 kFormatAudioRate = 0x10003;      // SPA_FORMAT_AUDIO_rate
 inline constexpr u32 kFormatAudioChannels = 0x10004;  // SPA_FORMAT_AUDIO_channels
 inline constexpr u32 kFormatAudioPosition = 0x10005;  // SPA_FORMAT_AUDIO_position
 inline constexpr u32 kAudioFormatS16 = 259;           // SPA_AUDIO_FORMAT_S16_LE
-inline constexpr u32 kChannelMono = 2;                // SPA_AUDIO_CHANNEL_MONO
 inline constexpr u32 kChannelFl = 3;                  // SPA_AUDIO_CHANNEL_FL
 inline constexpr u32 kChannelFr = 4;                  // SPA_AUDIO_CHANNEL_FR
 inline constexpr u32 kVideoFormatRgbx = 7;            // SPA_VIDEO_FORMAT_RGBx

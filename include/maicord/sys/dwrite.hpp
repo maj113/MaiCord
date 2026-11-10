@@ -13,9 +13,6 @@
 #include <dwrite_3.h>
 #endif
 
-// <DWrite_2.h>
-#define DWRITE_NO_PALETTE_INDEX 0xFFFF
-
 MAICORD_SYS_TYPES_BEGIN
 struct IDWriteColorGlyphRunEnumerator1;
 struct IDWriteColorGlyphRunEnumerator;

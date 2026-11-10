@@ -3,6 +3,7 @@
 #include "../../../../src/app/chat/threads/browser.hpp"
 #include "../../../../src/app/shell/state.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/account_module_fake.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "../../../support/window_fixture.hpp"
@@ -179,7 +180,7 @@ bool initialize() noexcept {
     g_app.account_ui->active_channel_id = 70;
     g_app.account.instance = &actor; g_app.account.status.profile_id = 2;
     g_app.account.status.running = true; g_app.plugin_account_scope_serial = 3;
-    g_app.account.api.thread_browser = submit;
+    g_account_fake.thread_browser = submit;
     g_app.renderer.width = 1280; g_app.renderer.height = 720; g_app.renderer.dpi = 96;
     permit();
     for (u32 i = 0; i < 120; ++i) {
@@ -316,11 +317,6 @@ void run() noexcept {
         !browser_owner->view.loading && !application_thread_browser_pending(now) && !submissions,
         "browser: offline Archived choice fails explicitly without an infinite loading state");
     g_app.account.status.running = true;
-    g_app.account.api.thread_browser = nullptr;
-    check(action(UiThreadBrowserAction::retry) && browser_owner->error && !browser_owner->queued &&
-        !browser_owner->view.loading && !submissions,
-        "browser: unavailable typed account API gives explicit reconnect feedback");
-    g_app.account.api.thread_browser = submit;
     check(action(UiThreadBrowserAction::retry) && application_thread_browser_next_wake() == 1 &&
         application_thread_browser_pending(now),
         "browser: initially queued Archived publishes an immediate nonzero scheduler deadline");
@@ -510,7 +506,7 @@ void run() noexcept {
 
     // Forum parent: tag metadata, post metadata, official ordering, tag filter,
     // layout and pagination through the existing active/archived endpoints.
-    g_app.account.api.forum_post = forum_submit;
+    g_account_fake.forum_post = forum_submit;
     check(chat_state_store_upsert_channel(&state, {72, 7, 0, utf8_literal("Help forum"), 2, 0, 15}).ok(),
         "forum: parent fixture");
     permit(true, false, 72);
@@ -645,7 +641,7 @@ void run() noexcept {
     check(bounded_rate && forum_submissions == before_rate + 3,
           "forum: genuine metadata rate limits preserve the exact server floor and two-retry budget");
     application_thread_browser_release();
-    g_app.account.api.forum_post = nullptr;
+    g_account_fake.forum_post = nullptr;
 
     run_indexing();
     // Scrolling the channel list beside the open browser rebuilds the retained

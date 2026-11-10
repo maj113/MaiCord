@@ -159,7 +159,7 @@ struct AccountConsents {
 };
 // The latest data request (GET /users/@me/harvest; a 204 has none).
 struct AccountHarvest {
-    u64 created_ms, completed_ms;
+    u64 created_ms;
     u8 status; // 0 queued, 1 running, 2 failed, 3 completed, 4 cancelled
 };
 // A 401 with code 60003: the ticket for /mfa/finish and the methods it allows (authenticator bits, plus

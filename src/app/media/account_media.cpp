@@ -762,7 +762,7 @@ u8* base_scanlines(AccountMedia* media) noexcept {
 } // namespace
 
 AccountMediaRequestResult account_media_initialize(AccountMedia* media, EncodedMediaCache* shared_cache) noexcept {
-    if (!media || (shared_cache && (!shared_cache->entries || !shared_cache->storage))) {
+    if (shared_cache && (!shared_cache->entries || !shared_cache->storage)) {
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
     SecureZeroMemory(media, sizeof(*media));
@@ -948,7 +948,7 @@ AccountMediaRequestResult submit_fetch(AccountMedia* media, const MediaAssetKey&
 } // namespace account_media_detail
 
 bool account_media_trim_scanlines(AccountMedia* media) noexcept {
-    if (!media || !media->started || !media->expanded_scanlines || media->frame_ready)
+    if (!media->started || !media->expanded_scanlines || media->frame_ready)
         return false;
     u8* base = base_scanlines(media);
     if (!base)
@@ -963,7 +963,7 @@ bool account_media_trim_scanlines(AccountMedia* media) noexcept {
 
 bool account_media_video_matches(const AccountMedia* media, const MediaAssetKey& key,
                                  u16 cache_generation) noexcept {
-    return media && media->mp4_decoder && media->mp4_decoder->ready && video_asset(key) &&
+    return media->mp4_decoder && media->mp4_decoder->ready && video_asset(key) &&
            (!media->progressive || media->progressive->state != ProgressiveVideoFetchState::failed) &&
            media_asset_key_equal(media->mp4_key, key) &&
            (cache_generation == 0 || media->mp4_generation == cache_generation);
@@ -971,10 +971,10 @@ bool account_media_video_matches(const AccountMedia* media, const MediaAssetKey&
 
 bool account_media_audio_matches(const AccountMedia* media, const MediaAssetKey& key,
                                  u16 cache_generation) noexcept {
-    const bool streaming = media && media->progressive &&
+    const bool streaming = media->progressive &&
         media->progressive->kind == ProgressiveVideoKind::fragmented_audio &&
         media->progressive->state == ProgressiveVideoFetchState::ready;
-    return media && (streaming || (encoded_audio_ready(media->audio_source.metadata) && media->audio_source.bytes.data)) &&
+    return (streaming || (encoded_audio_ready(media->audio_source.metadata) && media->audio_source.bytes.data)) &&
            media->audio_source.content_identity &&
            media_asset_key_valid(key) && media_attachment_format_audio_supported(media_asset_audio_format(key)) &&
            media_asset_key_equal(media->audio_source.key, key) &&
@@ -982,15 +982,15 @@ bool account_media_audio_matches(const AccountMedia* media, const MediaAssetKey&
 }
 
 AccountMediaCollectionState account_media_collection_state(const AccountMedia* media, const MediaAssetKey& key, bool ready) noexcept {
-    if (!media || !media->collection || !media_asset_key_equal(media->collection->key, key) ||
+    if (!media->collection || !media_asset_key_equal(media->collection->key, key) ||
         (ready && !account_media_audio_matches(media, key, 0) && !account_media_video_matches(media, key, 0))) return {};
     const auto& collection = *media->collection;
     return {collection.count, collection.selected ? collection.selected : collection.failed_track ? collection.failed_track : collection.initial, collection.continuation_bytes != 0};
 }
 bool account_media_collection_title(AccountMedia* media, const AccountMediaCollectionTitleRequest& request,
     MediaTrackTitle* title, MediaTrackId* id, u64* retry_at_ms) noexcept {
-    auto* queue = media ? media->collection : nullptr;
-    if (!queue || !title || !id || !retry_at_ms || !request.track || request.track > queue->count ||
+    auto* queue = media->collection;
+    if (!queue || !request.track || request.track > queue->count ||
         queue->revision != request.source_revision || !media_asset_key_equal(queue->key, request.key)) return 0;
     reset_value(title);
     const auto& track = reinterpret_cast<const CollectionTrack*>(queue + 1)[request.track - 1];
@@ -1004,7 +1004,7 @@ bool account_media_collection_title(AccountMedia* media, const AccountMediaColle
 bool account_media_collection_title_batch(AccountMedia* media, const AccountMediaCollectionTitleRequest& request,
     SoundcloudTitleBatch* out) noexcept {
     MediaTrackTitle title{}; MediaTrackId id{}; u64 retry{};
-    if (!out || !account_media_collection_title(media,request,&title,&id,&retry) || id.youtube_track || id.apple_track) return false;
+    if (!account_media_collection_title(media,request,&title,&id,&retry) || id.youtube_track || id.apple_track) return false;
     const auto& queue=*media->collection;
     if (!queue.client[0]) return false;
     reset_value(out); copy_bytes(out->client,queue.client,sizeof(out->client));
@@ -1031,8 +1031,6 @@ bool account_media_collection_title_store(AccountMedia* media, const AccountMedi
     return true;
 }
 void account_media_release_audio_source(AccountMedia* media) noexcept {
-    if (!media)
-        return;
     if (media->audio_source.lease.acquired)
         encoded_media_cache_release(media->pipeline.cache, &media->audio_source.lease);
     if (media->audio_source.transient_allocation)
@@ -1124,7 +1122,7 @@ AccountMediaRequestResult account_media_advance_animation(AccountMedia* media, c
     const bool animated_sticker =
         (key.kind == MediaAssetKind::sticker && (key.variant == 2 || key.variant == 4)) ||
         catalog_png_key(key);
-    if (!media || !media->started || !supported_key(key) ||
+    if (!media->started || !supported_key(key) ||
         (!lottie_asset(key) && !animated_webp && !animated_sticker && !apng_asset(key) && !gif_asset(key) &&
          !video) ||
         cache_generation == 0 || unix_now_seconds == 0) {
@@ -1226,7 +1224,7 @@ AccountMediaRequestResult account_media_advance_animation(AccountMedia* media, c
 }
 
 bool account_media_pump(AccountMedia* media, u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
-    if (!media || !media->started || monotonic_now_ms == 0 || unix_now_seconds == 0) {
+    if (!media->started || monotonic_now_ms == 0 || unix_now_seconds == 0) {
         return false;
     }
     if (!media->client_started) {
@@ -1264,10 +1262,10 @@ bool account_media_pump(AccountMedia* media, u64 monotonic_now_ms, u64 unix_now_
 }
 
 bool account_media_take_frame(AccountMedia* media, AccountMediaFrame* frame) noexcept {
-    const bool jpeg = media && media->frame_kind == AccountMediaFrameKind::jpeg_coefficients;
-    const bool video = media && media->frame_kind == AccountMediaFrameKind::video_nv12_gpu;
-    const bool audio = media && media->frame_kind == AccountMediaFrameKind::audio_source;
-    if (!media || !frame || !media->frame_ready || !media->pipeline.scanline_storage ||
+    const bool jpeg = media->frame_kind == AccountMediaFrameKind::jpeg_coefficients;
+    const bool video = media->frame_kind == AccountMediaFrameKind::video_nv12_gpu;
+    const bool audio = media->frame_kind == AccountMediaFrameKind::audio_source;
+    if (!frame || !media->frame_ready || !media->pipeline.scanline_storage ||
         (media->frame_bytes == 0 && media->frame_kind != AccountMediaFrameKind::vp8_keyframe &&
          media->frame_kind != AccountMediaFrameKind::animated_webp_vp8 && !jpeg && !video && !audio) ||
         media->frame_kind == AccountMediaFrameKind::none) {
@@ -1375,13 +1373,13 @@ bool account_media_take_frame(AccountMedia* media, AccountMediaFrame* frame) noe
 }
 
 HANDLE account_media_notification_handle(const AccountMedia* media) noexcept {
-    return media && media->started && media->client_started
+    return media->started && media->client_started
                ? cdn_client_notification_handle(&media->client)
                : nullptr;
 }
 
 bool account_media_stop(AccountMedia* media, u32 timeout_ms) noexcept {
-    if (!media || !media->started || timeout_ms == 0) {
+    if (!media->started || timeout_ms == 0) {
         return false;
     }
     if (media->client_started) {
@@ -1432,8 +1430,6 @@ bool account_media_stop(AccountMedia* media, u32 timeout_ms) noexcept {
 }
 
 void account_media_release_video(AccountMedia* media) noexcept {
-    if (!media)
-        return;
     if (media->mp4_decoder)
         mp4_decoder_release(media->mp4_decoder);
     if (media->progressive) {
@@ -1448,12 +1444,12 @@ void account_media_release_video(AccountMedia* media) noexcept {
 }
 
 bool account_media_submit_progressive(AccountMedia* media, CdnByteRange range, bool audio) noexcept {
-    auto* fetch = media ? (audio ? media->progressive_audio : media->progressive) : nullptr;
+    auto* fetch = audio ? media->progressive_audio : media->progressive;
     return fetch && media->client_started && submit_progressive(media, range, fetch);
 }
 ProgressiveVideoAccept account_media_accept_progressive(AccountMedia* media, const CdnClientResponse& response,
                                                          const ConstSlice<u8>& body) noexcept {
-    if (!media || !response.request_id) return ProgressiveVideoAccept::ignored;
+    if (!response.request_id) return ProgressiveVideoAccept::ignored;
     ProgressiveVideoFetch* sources[]{media->progressive, media->progressive_audio};
     for (auto* fetch : sources)
         if (fetch && fetch->inflight_id == response.request_id) {
@@ -1476,7 +1472,7 @@ ProgressiveVideoAccept account_media_accept_progressive(AccountMedia* media, con
 }
 ProgressiveVideoNext account_media_progressive_next(AccountMedia* media, bool read_ahead, u64 now,
                                                     ProgressiveVideoFetch** selected) noexcept {
-    if (!media || !media->progressive || !selected) return {{}, ProgressiveVideoStep::failed};
+    if (!media->progressive) return {{}, ProgressiveVideoStep::failed};
     auto* video = media->progressive; auto* audio = media->progressive_audio;
     ProgressiveVideoFetch* sources[]{video, audio};
     const auto pending = progressive_video_fetch_pending;
@@ -1518,13 +1514,12 @@ ProgressiveVideoNext account_media_progressive_next(AccountMedia* media, bool re
     *selected = video; return {};
 }
 void account_media_cancel_provider(AccountMedia* media) noexcept {
-    if (!media) return;
     auto* resolver = *static_cast<EmbedResolver* const volatile*>(&media->provider_resolver);
     if (resolver) embed_resolver_cancel(resolver);
 }
 
 void account_media_cache_progressive(AccountMedia* media, const MediaAssetKey& key) noexcept {
-    auto* fetch = media ? media->progressive : nullptr;
+    auto* fetch = media->progressive;
     if (!fetch || fetch->kind != ProgressiveVideoKind::movie || fetch->cached || !progressive_source_complete(fetch->source) ||
         fetch->source.total_bytes > kAccountMediaProgressiveCacheMaximumBytes)
         return;

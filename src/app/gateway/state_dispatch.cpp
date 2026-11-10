@@ -117,8 +117,6 @@ GatewayClientDispatchRouteResult route_channel_object(const StateObjectContext& 
 GatewayClientDispatchRouteResult gateway_client_route_channel_create(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> storage,
     u64 self_user_id, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
-    if (!event || !payload)
-        return route_error(GatewayClientDispatchRouteError::invalid_input);
     StateObjectContext object;
     const auto decoded = decode_state_object(data, structural_scratch, maximum_depth, &object, true);
     if (!decoded.ok())
@@ -138,8 +136,6 @@ GatewayClientDispatchRouteResult gateway_client_route_channel_create(
 GatewayClientDispatchRouteResult gateway_client_route_private_channel(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> storage,
     GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
-    if (!event || !payload)
-        return route_error(GatewayClientDispatchRouteError::invalid_input);
     StateObjectContext object;
     const auto decoded = decode_state_object(data, structural_scratch, maximum_depth, &object, true);
     if (!decoded.ok())
@@ -557,7 +553,7 @@ GatewayClientDispatchRouteResult gateway_client_route_ready_guild(const GatewayE
                                                                   GatewayClientLargeRecord large,
                                                                   GatewayClientEvent* event,
                                                                   ConstSlice<u8>* payload) noexcept {
-    if (!event || !payload || !storage.data || !storage.count || !self_user_id)
+    if (!storage.data || !storage.count || !self_user_id)
         return route_error(GatewayClientDispatchRouteError::invalid_input);
     u32 capacity = storage.count;
     for (;;) {
@@ -589,7 +585,7 @@ GatewayClientDispatchRouteResult gateway_client_route_self_members(JsonValue mem
                                                                    Slice<char> storage,
                                                                    GatewayClientEvent* event,
                                                                    ConstSlice<u8>* payload) noexcept {
-    if (!event || !payload || !guild_id || !self_user_id || members.kind != JsonValueKind::array)
+    if (!guild_id || !self_user_id || members.kind != JsonValueKind::array)
         return route_error(GatewayClientDispatchRouteError::invalid_input);
     reset_value(event);
     reset_value(payload);
@@ -640,7 +636,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch_large(
 
 bool gateway_client_route_guild_placeholder(JsonValue guild, Slice<u32> structural_scratch,
                                             u32 maximum_depth, GatewayClientEvent* event) noexcept {
-    if (!event || guild.kind != JsonValueKind::object || !guild.source.data || !structural_scratch.data ||
+    if (guild.kind != JsonValueKind::object || !guild.source.data || !structural_scratch.data ||
         !structural_scratch.count || !maximum_depth)
         return false;
     const JsonScanResult scan = json_scan_structurals_avx1(guild.source, structural_scratch);
@@ -712,7 +708,7 @@ bool ready_content_parent(JsonValue value, Slice<u32> scratch, u32 depth) noexce
 GatewayClientDispatchRouteResult gateway_client_route_ready(
     const GatewayReady& ready, Slice<u32> structural_scratch, Slice<u32> object_scratch, u32 maximum_depth,
     Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
-    if (!event || !payload || ready.user_id == 0 || ready.guilds.kind != JsonValueKind::array ||
+    if (ready.user_id == 0 || ready.guilds.kind != JsonValueKind::array ||
         !ready.guilds.source.data || !structural_scratch.data || structural_scratch.count == 0 ||
         !object_scratch.data || object_scratch.count == 0 || maximum_depth == 0 || !payload_scratch.data) {
         return route_error(GatewayClientDispatchRouteError::invalid_input);

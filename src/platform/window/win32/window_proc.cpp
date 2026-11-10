@@ -14,13 +14,6 @@ namespace {
 struct Backend {
     WindowSink sink;
     void* context;
-#if defined(MAICORD_TEST_SEAMS)
-    // The window options' tables (kWin32Hooks and kWin32CaptionOps are the shipped procedure's); the frame glue runs
-    // only with a caption controller.
-    Win32Hooks hooks;
-    Win32CaptionOps caption;
-    bool has_caption;
-#endif
     // A TME_LEAVE request is outstanding; WM_MOUSELEAVE spends it.
     bool leave_armed;
     // The cursor of the WM_SETCURSOR being dispatched.
@@ -88,24 +81,6 @@ bool dispatch_cursor(HWND window, float* x, float* y) noexcept {
     return true;
 }
 
-#if defined(MAICORD_TEST_SEAMS)
-const Win32Hooks& hooks() noexcept {
-    return g.hooks;
-}
-
-const Win32CaptionOps* caption_ops() noexcept {
-    return g.has_caption ? &g.caption : nullptr;
-}
-#else
-const Win32Hooks& hooks() noexcept {
-    return kWin32Hooks;
-}
-
-const Win32CaptionOps* caption_ops() noexcept {
-    return &kWin32CaptionOps;
-}
-#endif
-
 bool deliver(const WindowEvent& event, WindowEventResult* result) noexcept {
     if (!g.sink)
         return false;
@@ -148,11 +123,10 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     }
     LRESULT result = 0;
     // The frame the application draws owns the rows above the content and the non-client messages.
-    if (const Win32CaptionOps* caption = caption_ops();
-        caption && caption_frame_message(*caption, window, message, wparam, lparam, &result))
+    if (win32_caption_enabled() && caption_frame_message(window, message, wparam, lparam, &result))
         return result;
     // UI Automation, tray icon callbacks, Explorer restarts and launches forwarded by a second instance.
-    if (hooks().shell && hooks().shell(hooks().context, window, message, wparam, lparam, &result))
+    if (win32_shell_message(window, message, wparam, lparam, &result))
         return result;
     switch (message) {
     case WM_ERASEBKGND:
@@ -175,7 +149,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         break;
     }
     if (!modeled) {
-        if (blocked_class(message) && hooks().input_blocked && hooks().input_blocked(hooks().context))
+        if (blocked_class(message) && win32_input_blocked())
             return 0;
         return DefWindowProcW(window, message, wparam, lparam);
     }
@@ -188,7 +162,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             if (limits) {
                 // The sink answers the smallest client; the track size is the window around it.
                 u32 width = 0, height = 0;
-                frame_outer_size(caption_ops(), window, answer.width_px, answer.height_px, &width, &height);
+                frame_outer_size(window, answer.width_px, answer.height_px, &width, &height);
                 limits->ptMinTrackSize.x = maximum(limits->ptMinTrackSize.x, static_cast<LONG>(width));
                 limits->ptMinTrackSize.y = maximum(limits->ptMinTrackSize.y, static_cast<LONG>(height));
             }
@@ -230,14 +204,6 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
     g = {};
     g.sink = sink;
     g.context = context;
-#if defined(MAICORD_TEST_SEAMS)
-    if (options.hooks)
-        g.hooks = *options.hooks;
-    if (options.caption) {
-        g.caption = *options.caption;
-        g.has_caption = true;
-    }
-#endif
     const HINSTANCE instance = GetModuleHandleW(nullptr);
     WNDCLASSEXW window_class{};
     window_class.cbSize = sizeof(window_class);

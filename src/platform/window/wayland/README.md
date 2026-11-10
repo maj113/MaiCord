@@ -13,7 +13,7 @@ drains it and calls the sink, so no `wl_*_listener` ever runs app code. `wayland
 | `window.cpp` | registry, xdg-shell window, configure sequence, scale (fractional-scale + viewporter, or integer), opaque region, frame callback, `platform_settings_read` |
 | `extras.cpp` | xdg-activation, idle inhibit, xdg-foreign export, ext-idle-notify watch, xdg-system-bell, xdg-toplevel-icon |
 | `pointer.cpp`, `keyboard.cpp`, `keymap.cpp`, `global_keys.cpp`, `frame.cpp` | input, cursor (cursor-shape, `wl_cursor` fallback), keys, CSD hit tests |
-| `data.cpp`, `uri.cpp`, `text_input.cpp` | clipboard, primary selection, drag and drop, IME (text-input-v3) |
+| `data.cpp`, `uri.cpp`, `text_input.cpp` | clipboard, drag and drop, IME (text-input-v3) |
 | `pump.cpp` | `window_wait` / `window_pump`: display fd, loop wake, key-repeat timer, session bus |
 
 Bindings are generated at build time by `tools/generate_wayland_protocols.py` from `third_party/wayland` (see its README): every
@@ -55,7 +55,7 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 | xdg-shell 7, xdg-decoration | window, client-side frame (our caption bar), `suspended` state |
 | fractional-scale-v1 + viewporter | scale in 1/120; falls back to wl_surface buffer scale |
 | cursor-shape-v1 | cursors; `wl_cursor` theme fallback |
-| text-input-v3, wl_data_device, primary-selection | IME, clipboard, drag and drop, primary selection |
+| text-input-v3, wl_data_device | IME, clipboard, drag and drop |
 | xdg-activation-v1 | `window_request_attention` (own token), `window_wayland_activate` (the token of a notification click or a second launch) |
 | zwp_idle_inhibit | `window_wayland_set_idle_inhibit`: screen stays on while the call view is open |
 | ext-idle-notify-v1 | `window_wayland_watch_idle`: `PlatformSettings::system_idle_ms` (presence idle, read acks); v2's input-only notification when offered; GNOME has none |

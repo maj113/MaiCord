@@ -1,5 +1,4 @@
 #include "maicord/protocol/gateway/presence.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 
 namespace maicord {

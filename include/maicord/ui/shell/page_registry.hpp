@@ -47,9 +47,6 @@ struct UiPageRegistry {
 
 bool ui_page_registry_initialize(UiPageRegistry* registry, Slice<UiPage> storage) noexcept;
 UiPageResult ui_page_registry_register(UiPageRegistry* registry, const UiPage& page) noexcept;
-// Drops every borrowed descriptor for an owner in one bounded compaction pass.
-// Returns the number removed; zero also covers invalid input.
-u32 ui_page_registry_unregister_owner(UiPageRegistry* registry, u64 owner_id) noexcept;
 UiPageResult ui_page_registry_select(UiPageRegistry* registry, UiPageKey key) noexcept;
 bool ui_page_registry_clear(UiPageRegistry* registry) noexcept;
 // Returned pointers borrow registry storage and must not be retained across

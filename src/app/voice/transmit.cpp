@@ -61,7 +61,7 @@ void voice_apply_gain(Slice<i16> pcm, u32 gain_percent) noexcept {
 }
 
 void voice_framer_push(VoiceFramer* framer, ConstSlice<i16> mono) noexcept {
-    if (!framer || !mono.data)
+    if (!mono.data)
         return;
     for (u32 at = 0; at < mono.count;) {
         if (framer->count == kFramerSamples) {
@@ -81,7 +81,7 @@ void voice_framer_push(VoiceFramer* framer, ConstSlice<i16> mono) noexcept {
 bool voice_framer_pop(VoiceFramer* framer, u64 now_us, Slice<i16> frame, u64* index, u64* wake_us) noexcept {
     if (wake_us)
         *wake_us = 0;
-    if (!framer || !frame.data || frame.count < kVoiceFrameSamples || framer->count < kVoiceFrameSamples)
+    if (!frame.data || frame.count < kVoiceFrameSamples || framer->count < kVoiceFrameSamples)
         return false;
     const u32 waiting = framer->count / kVoiceFrameSamples;
     // Re-anchor after a pause so a stale schedule cannot release a burst.
@@ -104,8 +104,6 @@ bool voice_framer_pop(VoiceFramer* framer, u64 now_us, Slice<i16> frame, u64* in
 }
 
 bool voice_activity_update(VoiceActivity* activity, u32 level, u8 sensitivity, bool automatic) noexcept {
-    if (!activity)
-        return false;
     const u32 scaled = minimum(level, kVoiceLevelMaximum) << kFloorShift;
     if (!activity->floor_ready || scaled < activity->floor_scaled) {
         // Fast attack downward, but not to a single dropped-out frame.
@@ -132,8 +130,6 @@ bool voice_activity_update(VoiceActivity* activity, u32 level, u8 sensitivity, b
 }
 
 bool voice_push_to_talk_update(VoicePushToTalk* ptt, bool key_down, u64 now_us, u32 release_ms) noexcept {
-    if (!ptt)
-        return false;
     if (key_down) {
         ptt->active = true;
         ptt->release_us = 0;
@@ -150,8 +146,6 @@ bool voice_push_to_talk_update(VoicePushToTalk* ptt, bool key_down, u64 now_us, 
 }
 
 VoiceTransmitAction voice_transmit_next(VoiceTransmitter* transmitter, bool want) noexcept {
-    if (!transmitter)
-        return VoiceTransmitAction::idle;
     auto& t = *transmitter;
     if (want) {
         t.talking = true;

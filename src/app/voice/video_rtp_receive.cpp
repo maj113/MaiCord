@@ -482,8 +482,17 @@ u64 stream_deadline(const VideoRtpConfig& config, const VideoRtpStream& stream, 
 // The packet path above and video_rtp_receive run per packet and stay at full speed. The rest is
 // setup, timers and RTCP feedback: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-VideoRtpConfig video_rtp_default_config() noexcept {
-    VideoRtpConfig config{};
+bool video_rtp_initialize(VideoRtpReceiver* receiver, u32 local_ssrc, VideoRtpFrameSink sink,
+                          void* context) noexcept {
+    if (receiver->frame || !sink)
+        return false;
+    auto* frame =
+        static_cast<u8*>(commit_pages(kVideoRtpFrameBytes));
+    if (!frame)
+        return false;
+    reset_value(receiver);
+    receiver->frame = frame;
+    auto& config = receiver->config;
     config.nack_delay_us = 5'000;
     config.nack_retry_us = 60'000;
     config.give_up_us = 300'000;
@@ -492,20 +501,6 @@ VideoRtpConfig video_rtp_default_config() noexcept {
     config.report_interval_us = 1'000'000;
     config.idle_stream_us = 5'000'000;
     config.max_nacks = 5;
-    return config;
-}
-
-bool video_rtp_initialize(VideoRtpReceiver* receiver, u32 local_ssrc, VideoRtpFrameSink sink,
-                          void* context) noexcept {
-    if (!receiver || receiver->frame || !sink)
-        return false;
-    auto* frame =
-        static_cast<u8*>(commit_pages(kVideoRtpFrameBytes));
-    if (!frame)
-        return false;
-    reset_value(receiver);
-    receiver->frame = frame;
-    receiver->config = video_rtp_default_config();
     receiver->local_ssrc = local_ssrc;
     receiver->sink = sink;
     receiver->sink_context = context;
@@ -513,8 +508,6 @@ bool video_rtp_initialize(VideoRtpReceiver* receiver, u32 local_ssrc, VideoRtpFr
 }
 
 void video_rtp_release(VideoRtpReceiver* receiver) noexcept {
-    if (!receiver)
-        return;
     for (auto& stream : receiver->streams)
         release_window(&stream);
     if (receiver->frame)
@@ -528,7 +521,7 @@ void video_rtp_set_local_ssrc(VideoRtpReceiver* receiver, u32 local_ssrc) noexce
 }
 
 bool video_rtp_set_codecs(VideoRtpReceiver* receiver, ConstSlice<VideoRtpCodecBinding> codecs) noexcept {
-    if (!receiver || codecs.count > kVideoRtpMaxCodecs || (codecs.count && !codecs.data))
+    if (codecs.count > kVideoRtpMaxCodecs || (codecs.count && !codecs.data))
         return false;
     for (u32 i = 0; i != codecs.count; ++i) {
         const auto& codec = codecs[i];
@@ -598,8 +591,6 @@ VideoRtpPush video_rtp_receive(VideoRtpReceiver* receiver, const VideoRtpSource&
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 void video_rtp_receive_rtcp(VideoRtpReceiver* receiver, ConstSlice<u8> plaintext, u64 now_us) noexcept {
-    if (!receiver)
-        return;
     RtcpSenderInfo reports[8];
     const u32 count = rtcp_read_sender_reports(plaintext, {reports, 8});
     for (u32 i = 0; i != count; ++i)
@@ -610,8 +601,6 @@ void video_rtp_receive_rtcp(VideoRtpReceiver* receiver, ConstSlice<u8> plaintext
 }
 
 void video_rtp_tick(VideoRtpReceiver* receiver, u64 now_us) noexcept {
-    if (!receiver)
-        return;
     for (auto& stream : receiver->streams) {
         if (!stream.slots || !stream.started)
             continue;
@@ -633,7 +622,7 @@ u64 video_rtp_deadline(const VideoRtpReceiver& receiver) noexcept {
 }
 
 u32 video_rtp_feedback(VideoRtpReceiver* receiver, u64 now_us, Slice<u8> output) noexcept {
-    if (!receiver || !receiver->local_ssrc)
+    if (!receiver->local_ssrc)
         return 0;
     const auto& config = receiver->config;
     bool due = receiver->next_report_us && now_us >= receiver->next_report_us;

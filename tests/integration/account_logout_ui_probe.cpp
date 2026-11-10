@@ -2,6 +2,7 @@
 #include "maicord/app/account/account_logout.hpp"
 #include "../support/window_fixture.hpp"
 #include "../support/ui_scene_fixtures.hpp"
+#include "../support/account_module_fake.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
@@ -368,7 +369,7 @@ bool seed() noexcept {
     g_app.account = {};
     g_app.account.module = GetModuleHandleW(nullptr);
     g_app.account.instance = fixture;
-    g_app.account.api.logout = server;
+    g_account_fake.logout = server;
     g_app.account.status.profile_id = 42;
     g_app.account.status.running = true;
     ++g_app.plugin_account_scope_serial;

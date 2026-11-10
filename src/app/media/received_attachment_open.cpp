@@ -54,10 +54,9 @@ bool received_attachment_url_current(const Utf8View& url, u64 origin_channel, u6
 ReceivedAttachmentOpenResult received_attachment_open_begin(
     ReceivedAttachmentOpen* intent, const ReceivedAttachmentOpenIdentity& id, Utf8View source,
     MediaUrlResolver* resolver, u64 now_ms, u64 now_seconds, Utf8View* output, bool force_refresh) noexcept {
-    if (output) reset_value(output);
-    if (!intent) return ReceivedAttachmentOpenResult::invalid;
+    reset_value(output);
     reset_value(intent);
-    if (!output || !resolver || !url_valid(id, source)) return ReceivedAttachmentOpenResult::invalid;
+    if (!url_valid(id, source)) return ReceivedAttachmentOpenResult::invalid;
     intent->identity = id;
     intent->source_fingerprint = hash64_bytes(kHash64Seed, source.data, source.bytes);
     intent->force_refresh = force_refresh;
@@ -80,8 +79,7 @@ ReceivedAttachmentOpenResult received_attachment_open_begin(
 ReceivedAttachmentOpenResult received_attachment_open_resume(
     ReceivedAttachmentOpen* intent, const ReceivedAttachmentOpenIdentity& id, Utf8View source,
     MediaUrlResolver* resolver, u64 now_ms, u64 now_seconds, Utf8View* output) noexcept {
-    if (output) reset_value(output);
-    if (!intent || !output || !resolver) return ReceivedAttachmentOpenResult::invalid;
+    reset_value(output);
     if (!intent->pending) return ReceivedAttachmentOpenResult::none;
     if (!same(intent->identity, id) || !url_valid(id, source) ||
         intent->source_fingerprint != hash64_bytes(kHash64Seed, source.data, source.bytes)) {

@@ -147,51 +147,6 @@ AacLcStats decode_statistics(const Fixture& f) noexcept {
     return stats;
 }
 
-void print_stats(const char* name, const AacLcStats& s) noexcept {
-    char line[160];
-    u32 used = 0;
-    auto put = [&](const char* text) {
-        for (; *text && used + 1 < sizeof(line); ++text)
-            line[used++] = *text;
-    };
-    auto number = [&](u32 value) {
-        char digits[12];
-        u32 n = 0;
-        do {
-            digits[n++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value);
-        while (n)
-            line[used++] = digits[--n];
-    };
-    put("  ");
-    put(name);
-    put(": long ");
-    number(s.long_frames);
-    put(" start ");
-    number(s.start_frames);
-    put(" short ");
-    number(s.short_frames);
-    put(" stop ");
-    number(s.stop_frames);
-    put(" kbd ");
-    number(s.kbd_windows);
-    put(" ms ");
-    number(s.mid_side_bands);
-    put(" is ");
-    number(s.intensity_bands);
-    put(" pns ");
-    number(s.noise_bands);
-    put(" tns ");
-    number(s.tns_filters);
-    put(" esc ");
-    number(s.escapes);
-    put(" cpe ");
-    number(s.pair_elements);
-    line[used++] = '\n';
-    test_write_bytes(line, used);
-}
-
 Fixture g_fixtures[8];
 u32 g_fixture_count;
 
@@ -232,7 +187,6 @@ void conformance() noexcept {
         check(ok && within_bounds(diff), label);
         metric("  max error x1000 of a step: ", static_cast<u64>(diff.maximum * 1000.0f));
         metric("  mean square error x1e6: ", static_cast<u64>(diff.square_sum / (diff.count ? diff.count : 1) * 1e6));
-        print_stats(entry.name, decode_statistics(f));
     }
     const Fixture& transient = g_fixtures[4];
     const AacLcStats stats = decode_statistics(transient);

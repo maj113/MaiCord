@@ -16,7 +16,7 @@ inline float client_dip_y(const WindowEvent& event) noexcept {
 }
 // A cursor query's point in DIPs; false when the system could not tell where the pointer is.
 inline bool client_cursor_dip(const WindowEvent& event, UiPoint* point) noexcept {
-    if (!point || event.pointer.x != event.pointer.x)
+    if (event.pointer.x != event.pointer.x)
         return false;
     const float scale = 96.f / static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u);
     *point = {event.pointer.x * scale, event.pointer.y * scale};

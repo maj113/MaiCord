@@ -1,6 +1,7 @@
 #include "maicord/platform/window/win32.hpp"
 #include "forum_post_ui_adapter.hpp"
 #include "../support/secure_text_store_access.hpp"
+#include "../support/account_module_fake.hpp"
 #include "forum_media_ui_adapter.hpp"
 #include "chat/threads/forum_preview.hpp"
 #include "chat/composer/text_form_state.hpp"
@@ -142,7 +143,7 @@ bool forum_post_ui_adapter_begin(HWND window, D3D11Renderer& r, UiTextMeasureCac
     g_app.renderer.height = r.height;
     g_app.renderer.dpi = r.dpi;
     g_app.renderer_ready = true;
-    g_app.account.api.forum_post = submit_forum;
+    g_account_fake.forum_post = submit_forum;
     g_app.account_ui->text_measure_cache = measure;
     g_app.account_ui->text_measure_cache.backend_context = &r;
     auto* state = reply_draft_ui_adapter_state();
@@ -830,8 +831,8 @@ bool forum_media_ui_adapter_enable() noexcept {
             return false;
         }
         forum_adapter->media_enabled = true;
-        g_app.account.api.upload = media_upload;
-        g_app.account.api.media_local_preview = media_preview;
+        g_account_fake.upload = media_upload;
+        g_account_fake.media_local_preview = media_preview;
         return permissions(true, false);
     });
 }

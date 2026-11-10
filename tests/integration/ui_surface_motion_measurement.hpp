@@ -286,8 +286,7 @@ bool measure(D3D11Renderer& r, RendererLayerSurface surface, UiRect bounds, bool
         (require_media && batches.media_first == batches.media_end))
         return fail();
     const auto stamp = renderer_capture_presentation_stamp(r, kDefaultTheme);
-    if (renderer_set_layer_opacity(nullptr, surface, .5f) ||
-        renderer_set_layer_opacity(&r, RendererLayerSurface::count, .5f) ||
+    if (renderer_set_layer_opacity(&r, RendererLayerSurface::count, .5f) ||
         !renderer_presentation_stamp_equal(stamp, renderer_capture_presentation_stamp(r, kDefaultTheme)))
         return fail();
     Readback rb;

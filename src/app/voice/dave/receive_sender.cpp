@@ -71,8 +71,6 @@ DaveSenderError dave_receive_sender_initialize(DaveReceiveSender* sender, DaveRe
     return DaveSenderError::none;
 }
 void dave_receive_sender_release(DaveReceiveSender* sender) noexcept {
-    if (!sender)
-        return;
     while (sender->newest) {
         auto* node = sender->newest;
         sender->newest = node->older;

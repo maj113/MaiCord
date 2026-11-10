@@ -158,7 +158,7 @@ u32 plugin_setting_format(const PluginBinding& binding, u32 index, Slice<char> o
     return w.ok ? w.used : 0;
 }
 
-bool plugin_setting_parse(const mc_setting_def& setting, Utf8View text, Slice<u8> bytes, u32* used) noexcept {
+static bool plugin_setting_parse(const mc_setting_def& setting, Utf8View text, Slice<u8> bytes, u32* used) noexcept {
     *used = 0;
     const Utf8View trimmed = ascii_trim(text);
     switch (setting.type) {

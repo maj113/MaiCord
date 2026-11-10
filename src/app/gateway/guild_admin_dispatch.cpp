@@ -74,8 +74,6 @@ GatewayClientDispatchRouteResult failure(GatewayClientDispatchRouteError route,
 GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload, bool* handled) noexcept {
-    if (!event || !payload || !handled)
-        return failure(GatewayClientDispatchRouteError::invalid_input, GatewayEventDecodeError::none);
     const u32 event_index = protocol_detail::skim_member_index<"GUILD_MEMBER_REMOVE", "GUILD_BAN_ADD", "GUILD_BAN_REMOVE",
                                                                "GUILD_STICKERS_UPDATE">(envelope.event_name);
     const bool member_remove = event_index == 0;

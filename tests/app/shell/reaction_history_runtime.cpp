@@ -2,6 +2,7 @@
 // admission. The reaction host itself has a separate shipping-host fixture; here
 // its public boundary is a deterministic transport owner, never legacy phases.
 #include "../../support/application_poll_inactive.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "maicord/core/hash.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
 #include "../../support/application_member_moderation_inactive.hpp"
@@ -178,7 +179,7 @@ void details_fairness(AccountUiRuntime& ui) noexcept {
                              ? chat_state_store_thread_actions(state, *value)
                              : channel_actions(value->type, permissions, true);
     }
-    g_app.account.api.thread_action = thread_submit;
+    g_account_fake.thread_action = thread_submit;
     ApplicationThreadActionTicket ticket{};
     check(application_thread_actions_fetch(21, &ticket) == ApplicationThreadActionEnqueueResult::accepted,
           "DETAILS shipping thread owner queues membership discovery");
@@ -832,9 +833,9 @@ void run() noexcept {
     g_app.account.status.profile_id = 9;
     g_app.plugin_account_scope_serial = 10;
     ui->active_channel_id = 7;
-    g_app.account.api.rest_take = take;
-    g_app.account.api.message_submit = send;
-    g_app.account.api.history_submit = history;
+    g_account_fake.rest_take = take;
+    g_account_fake.message_submit = send;
+    g_account_fake.history_submit = history;
     auto& view = g_app.message_view;
     const bool initialized =
         message_store_initialize(&view.store, {records, 16}, {order, 16}, {text, sizeof(text)}) &&

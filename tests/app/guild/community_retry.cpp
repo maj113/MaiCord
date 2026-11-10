@@ -1,6 +1,7 @@
 #include "../../../src/app/guild/community.cpp"
 #include "../../../src/app/guild/community_projection.cpp"
 #include "../../support/model_store_fixtures.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -132,7 +133,7 @@ void application_guild_card_response(u64, bool join, const RestClientResponse& r
 void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
     auto* saved_ui = g_app.account_ui;
     const auto saved_instance = g_app.account.instance;
-    const auto saved_submit = g_app.account.api.guild_community;
+    const auto saved_submit = g_account_fake.guild_community;
     const bool saved_ready = g_app.account.status.gateway_ready;
     const bool saved_running = g_app.account.status.running;
     const bool saved_login = g_app.login.visible;
@@ -147,7 +148,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
         return;
     g_app.account_ui = ui;
     g_app.account.instance = &retry_background;
-    g_app.account.api.guild_community = community_submit;
+    g_account_fake.guild_community = community_submit;
     g_app.account.status.gateway_ready = true;
     g_app.renderer_ready = false;
     retry_background = {};
@@ -474,7 +475,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
     retry_background = {};
     g_app.account_ui = saved_ui;
     g_app.account.instance = saved_instance;
-    g_app.account.api.guild_community = saved_submit;
+    g_account_fake.guild_community = saved_submit;
     g_app.account.status.gateway_ready = saved_ready;
     g_app.account.status.running = saved_running;
     g_app.login.visible = saved_login;

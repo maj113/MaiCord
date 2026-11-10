@@ -36,7 +36,7 @@ inline bool gateway_channel_info_queued(const GatewayChannelInfoRequests& owner,
 // False for a zero guild, one already asked this session or queued, or a full queue.
 inline bool gateway_channel_info_admit(GatewayChannelInfoRequests* owner, u64 guild_id,
                                        u64 not_before_ms = 0) noexcept {
-    if (!owner || !guild_id || gateway_channel_info_requested(*owner, guild_id) ||
+    if (!guild_id || gateway_channel_info_requested(*owner, guild_id) ||
         gateway_channel_info_queued(*owner, guild_id) || owner->pending_count == kGatewayChannelInfoPending)
         return false;
     owner->pending[owner->pending_count++] = {guild_id, not_before_ms};
@@ -70,7 +70,7 @@ inline void gateway_channel_info_unqueue(GatewayChannelInfoRequests* owner, u64 
         }
 }
 inline void gateway_channel_info_sent(GatewayChannelInfoRequests* owner, u64 guild_id) noexcept {
-    if (!owner || !guild_id)
+    if (!guild_id)
         return;
     gateway_channel_info_unqueue(owner, guild_id);
     if (gateway_channel_info_requested(*owner, guild_id))
@@ -81,21 +81,19 @@ inline void gateway_channel_info_sent(GatewayChannelInfoRequests* owner, u64 gui
         ++owner->requested_count;
 }
 inline void gateway_channel_info_forget(GatewayChannelInfoRequests* owner, u64 guild_id) noexcept {
-    for (u32 i = 0; owner && guild_id && i < owner->requested_count; ++i)
+    for (u32 i = 0; guild_id && i < owner->requested_count; ++i)
         if (owner->requested[i] == guild_id)
             owner->requested[i] = 0;
 }
 // READY or RESUMED: every guild may be asked again; queued guilds stay queued.
 inline void gateway_channel_info_reset_session(GatewayChannelInfoRequests* owner) noexcept {
-    if (!owner)
-        return;
     for (auto& guild : owner->requested)
         guild = 0;
     owner->requested_next = owner->requested_count = 0;
 }
 inline void gateway_channel_info_rate_limited(GatewayChannelInfoRequests* owner,
                                               const GatewayRateLimited& event, u64 now_ms) noexcept {
-    if (!owner || event.opcode != kGatewayRequestChannelInfoOpcode || !event.guild_id)
+    if (event.opcode != kGatewayRequestChannelInfoOpcode || !event.guild_id)
         return;
     gateway_channel_info_forget(owner, event.guild_id);
     gateway_channel_info_unqueue(owner, event.guild_id);

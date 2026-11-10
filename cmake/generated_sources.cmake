@@ -52,7 +52,6 @@ if(MAICORD_LINUX)
         "${MAICORD_WAYLAND_XML_DIRECTORY}/xdg-system-bell-v1.xml"
         "${MAICORD_WAYLAND_XML_DIRECTORY}/xdg-foreign-unstable-v2.xml"
         "${MAICORD_WAYLAND_XML_DIRECTORY}/text-input-unstable-v3.xml"
-        "${MAICORD_WAYLAND_XML_DIRECTORY}/primary-selection-unstable-v1.xml"
         "${MAICORD_WAYLAND_XML_DIRECTORY}/xdg-decoration-unstable-v1.xml"
         "${MAICORD_WAYLAND_XML_DIRECTORY}/idle-inhibit-unstable-v1.xml"
         # The compositor side of input injection, for tests/platform/window/wayland_window.cpp (wlroots compositors).

@@ -18,13 +18,11 @@ using namespace text_presentation_detail;
 
 namespace text_presentation_detail {
 void set_failure_context(MessageTextPresentation* presentation, MessageTextPresentationStage stage,
-                         MessageTextPresentationOperation operation,
-                         u16 item_index,
-                         UiTextFlowError flow_error) noexcept {
+                         MessageTextPresentationOperation operation, u16 item_index) noexcept {
     presentation->failure_stage = stage;
     presentation->failure_operation = operation;
     presentation->failure_item_index = item_index;
-    presentation->failure_flow_error = flow_error;
+    presentation->failure_flow_error = UiTextFlowError::none;
 }
 
 namespace {

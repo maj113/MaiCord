@@ -404,7 +404,7 @@ AacLcError parse_pulses(Bits& b, Channel& c) noexcept {
     return b.error ? AacLcError::truncated : AacLcError::none;
 }
 
-AacLcError parse_tns(Bits& b, Channel& c, AacLcStats& stats) noexcept {
+AacLcError parse_tns(Bits& b, Channel& c) noexcept {
     const Ics& ics = c.ics;
     const bool is_short = ics.sequence == kEightShort;
     for (u32 w = 0; w < ics.windows; ++w) {
@@ -432,7 +432,6 @@ AacLcError parse_tns(Bits& b, Channel& c, AacLcStats& stats) noexcept {
                 cos_sin(raw / (raw >= 0 ? positive : negative), &c0, &s0);
                 c.tns_coefficient[w][f][i] = static_cast<float>(s0);
             }
-            ++stats.tns_filters;
         }
         if (b.error)
             return AacLcError::truncated;
@@ -523,10 +522,8 @@ void dequantize(AacLc& d, Channel& c, u32& random) noexcept {
         for (u32 sfb = 0; sfb < ics.max_sfb; ++sfb, ++index) {
             const u32 book = c.band_type[index];
             const u32 width = ics.bands[sfb + 1] - ics.bands[sfb];
-            if (book == kZeroBook) {
-                ++d.stats.zero_bands;
+            if (book == kZeroBook)
                 continue;
-            }
             for (u32 w = 0; w < ics.group_length[g]; ++w) {
                 const u32 base = (window + w) * kShortLines * (ics.windows > 1) + ics.bands[sfb];
                 float* out = c.coefficient + base;
@@ -563,7 +560,6 @@ void apply_mid_side(AacLc& d, Channel& left, Channel& right) noexcept {
         for (u32 sfb = 0; sfb < ics.max_sfb; ++sfb, ++index) {
             if (!d.mid_side[index] || left.band_type[index] >= kNoiseBook || right.band_type[index] >= kNoiseBook)
                 continue;
-            ++d.stats.mid_side_bands;
             for (u32 w = 0; w < ics.group_length[g]; ++w) {
                 u32 window = 0;
                 for (u32 i = 0; i < g; ++i)
@@ -589,7 +585,6 @@ void apply_intensity(AacLc& d, Channel& left, Channel& right, bool mid_side_pres
             const u32 book = right.band_type[index];
             if (book != kIntensityInPhase && book != kIntensityOutOfPhase)
                 continue;
-            ++d.stats.intensity_bands;
             float sign = book == kIntensityInPhase ? 1.0f : -1.0f;
             if (mid_side_present && d.mid_side[index])
                 sign = -sign;
@@ -770,7 +765,7 @@ AacLcError read_channel(AacLc& d, Bits& b, Channel& c, bool common_window) noexc
         return error;
     for (u32 w = 0; w < kShortWindows; ++w)
         c.tns_filters[w] = 0;
-    if (b.get1() && (error = parse_tns(b, c, d.stats)) != AacLcError::none)
+    if (b.get1() && (error = parse_tns(b, c)) != AacLcError::none)
         return error;
     if (b.get1())
         return AacLcError::unsupported; // gain control: SSR
@@ -783,21 +778,12 @@ AacLcError read_channel(AacLc& d, Bits& b, Channel& c, bool common_window) noexc
 }
 
 void count_window(AacLc& d, const Ics& ics) noexcept {
-    switch (ics.sequence) {
-    case kOnlyLong:
-        ++d.stats.long_frames;
-        break;
-    case kLongStart:
+    if (ics.sequence == kLongStart)
         ++d.stats.start_frames;
-        break;
-    case kEightShort:
+    else if (ics.sequence == kEightShort)
         ++d.stats.short_frames;
-        break;
-    default:
+    else if (ics.sequence == kLongStop)
         ++d.stats.stop_frames;
-        break;
-    }
-    ++(ics.shape ? d.stats.kbd_windows : d.stats.sine_windows);
 }
 
 AacLcError read_pair(AacLc& d, Bits& b, u32 first) noexcept {
@@ -816,7 +802,6 @@ AacLcError read_pair(AacLc& d, Bits& b, u32 first) noexcept {
         const u32 bands = left.ics.groups * left.ics.max_sfb;
         for (u32 i = 0; i < bands; ++i)
             d.mid_side[i] = mask_present == 2 ? 1 : mask_present == 1 ? static_cast<u8>(b.get1()) : 0;
-        ++d.stats.common_windows;
     } else {
         clear_bytes(d.mid_side, sizeof(d.mid_side));
     }
@@ -831,7 +816,6 @@ AacLcError read_pair(AacLc& d, Bits& b, u32 first) noexcept {
     count_window(d, left.ics);
     if (!common)
         count_window(d, right.ics);
-    ++d.stats.pair_elements;
     return AacLcError::none;
 }
 
@@ -928,7 +912,6 @@ AacLcError aac_lc_decode(AacLc* d, ConstSlice<u8> frame, float* pcm) noexcept {
             b.get(4);
             if ((error = read_channel(*d, b, d->channel[decoded], false)) == AacLcError::none) {
                 count_window(*d, d->channel[decoded].ics);
-                ++d->stats.single_elements;
                 ++decoded;
             }
             break;
@@ -948,7 +931,6 @@ AacLcError aac_lc_decode(AacLc* d, ConstSlice<u8> frame, float* pcm) noexcept {
             if (aligned)
                 b.align();
             skip(b, count * 8);
-            ++d->stats.data_elements;
             break;
         }
         case kFill: {
@@ -956,7 +938,6 @@ AacLcError aac_lc_decode(AacLc* d, ConstSlice<u8> frame, float* pcm) noexcept {
             if (count == 15)
                 count += b.get(8) - 1;
             skip(b, count * 8);
-            ++d->stats.fill_elements;
             break;
         }
         case kEnd:
@@ -984,7 +965,6 @@ AacLcError aac_lc_decode(AacLc* d, ConstSlice<u8> frame, float* pcm) noexcept {
         d->shape[ch] = d->staged_shape[ch];
     }
     d->random_state = d->staged_random;
-    ++d->stats.frames;
     return AacLcError::none;
 }
 

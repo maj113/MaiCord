@@ -32,17 +32,19 @@ RestClient* request_lane(void* instance, u64 request_id) noexcept {
     return runtime && request_id ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
 }
 
-GatewayClientSelfStatusSnapshot WINAPI module_self_status_snapshot(void* instance) noexcept {
+} // namespace account_module_detail
+
+GatewayClientSelfStatusSnapshot account_module_self_status_snapshot(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime ? gateway_client_self_status_snapshot(&runtime->coordinator.gateway)
                    : GatewayClientSelfStatusSnapshot{};
 }
 
-RestClientSubmitResult WINAPI module_self_status_submit(void* instance, u64 profile_id,
-                                                        u64 self_user_id,
-                                                        SelfStatusSettingsOperation operation,
-                                                        GatewayUserStatus status, u64 request_id,
-                                                        u64 unix_now_ms) noexcept {
+RestClientSubmitResult account_module_self_status_submit(void* instance, u64 profile_id,
+                                                         u64 self_user_id,
+                                                         SelfStatusSettingsOperation operation,
+                                                         GatewayUserStatus status, u64 request_id,
+                                                         u64 unix_now_ms) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime ? gateway_client_self_status_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest,
                                                        profile_id, self_user_id, operation, status, request_id,
@@ -50,12 +52,14 @@ RestClientSubmitResult WINAPI module_self_status_submit(void* instance, u64 prof
                    : RestClientSubmitResult{RestClientSubmitError::invalid_input};
 }
 
-bool WINAPI module_self_status_complete(void* instance, u64 profile_id, u64 self_user_id, u64 request_id,
-                                        const RestClientResponse* response, Utf8View body) noexcept {
+bool account_module_self_status_complete(void* instance, u64 profile_id, u64 self_user_id, u64 request_id,
+                                         const RestClientResponse* response, Utf8View body) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && gateway_client_self_status_complete(&runtime->coordinator.gateway, profile_id,
                                                           self_user_id, request_id, response, body);
 }
+
+namespace account_module_detail {
 
 AccountModuleStatus module_failure(AccountModuleError error) noexcept {
     AccountModuleStatus status{};

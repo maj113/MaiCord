@@ -5,7 +5,6 @@
 #include "../../chat/channel_session.hpp"
 #include "../../shell/content_input.hpp"
 #include "maicord/core/deadline.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/permission_grid.hpp"
 #include "maicord/ui/widgets/color_picker.hpp"

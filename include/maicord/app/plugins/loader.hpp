@@ -130,12 +130,6 @@ PluginLoadResult plugin_image_load(PluginImage*, const PluginDirectory&, const C
 // FreeLibrary or dlclose, and reset. The caller stopped the plugin and removed its hooks first.
 PluginLoadResult plugin_image_unload(PluginImage*) noexcept;
 
-// The descriptor rules, on a loaded image: image is where the image's first byte is mapped.
-PluginLoadResult plugin_descriptor_check(const u8* image, const PluginImage& pe, const mc_descriptor* descriptor,
-                                         PluginInfo* info, u64* permissions) noexcept;
-// The permissions a validated descriptor's hooks, buttons and network hosts imply
-// (plugin.hpp computes the same at compile time); *permissions above includes them.
-u64 plugin_implied_permissions(const mc_descriptor& descriptor) noexcept;
 // A keybind setting value: 0 (unbound), or a virtual-key code with modifier bits that cannot be typing (Ctrl or
 // Alt held, or a function key).
 bool plugin_keybind_valid(u32 key) noexcept;

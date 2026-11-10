@@ -252,7 +252,7 @@ bool gateway_mailbox_publish(GatewayClientMailbox* mailbox, HANDLE space, HANDLE
 }
 bool gateway_mailbox_wait_lease(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, HANDLE notification,
     u64 deadline_ms, const volatile LONG* lease) noexcept {
-    if (!mailbox || !space || !cancel || !notification || !lease) return false;
+    if (!space || !cancel || !notification) return false;
     const auto room = [&]() noexcept { return !read_acquire(lease); };
     for (;;) {
         if (cancel_requested(mailbox, cancel)) return false;
@@ -324,7 +324,7 @@ GatewayClientDispatchRouteResult gateway_route_relationship(const GatewayEnvelop
     const bool remove = event_index == 2;
     *handled = event_index < 3;
     if (!*handled) return {};
-    if (!event || !payload || !output.data || output.count < sizeof(RelationshipMutation)) return fail(GatewayClientDispatchRouteError::payload_capacity);
+    if (!output.data || output.count < sizeof(RelationshipMutation)) return fail(GatewayClientDispatchRouteError::payload_capacity);
     RelationshipMutation mutation;
     const auto decoded = relationship_decode_record(envelope.data.source, scratch,
         remove ? RelationshipEvent::remove : update ? RelationshipEvent::update : RelationshipEvent::add, &mutation);

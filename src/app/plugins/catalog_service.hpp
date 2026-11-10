@@ -26,7 +26,7 @@ enum class CatalogPhase : u8 { idle, queued, downloading, verifying, consent, ap
 enum class CatalogError : u8 {
     none, busy, not_configured, unreachable, rate_limited, signature, invalid_index, replay, expired,
     not_listed, incompatible, revoked, download, digest, package, storage, plugin_load, plugin_mismatch,
-    owner_conflict, declined, capacity, enable_failed, not_installed, developer_mode,
+    owner_conflict, declined, capacity, enable_failed, developer_mode,
     review_again, // a refresh changed the build under review: nothing installed, its new version is being reviewed
 };
 // A short sentence for a toast or the "Copy details" line.
@@ -73,8 +73,6 @@ struct CatalogItemState {
     Utf8View reason;
 };
 CatalogItemState application_catalog_item_state(CatalogKind, const Utf8View& slug) noexcept;
-// The newest version of a listed item this client can install (api_level and revocations), or kCatalogNone.
-u32 application_catalog_installable_version(u32 item) noexcept;
 
 // ---- actions (one at a time; progress through view.operation and the revision) ---------------------
 // Browse was opened: fetches may run from now on (no catalog traffic for users who never browse and have

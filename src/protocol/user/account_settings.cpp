@@ -747,10 +747,9 @@ bool consent_member(void* opaque, JsonString name, JsonValue value) noexcept {
 bool harvest_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& harvest = *static_cast<AccountHarvest*>(opaque);
     u64 status = 0;
-    switch (member_index<"created_at", "completed_at", "status">(name)) {
+    switch (member_index<"created_at", "status">(name)) {
     case 0: json_value_to_timestamp(value, &harvest.created_ms); break;
-    case 1: json_value_to_timestamp(value, &harvest.completed_ms); break;
-    case 2:
+    case 1:
         if (json_value_to_u64(value, &status) && status <= 4)
             harvest.status = static_cast<u8>(status);
         break;

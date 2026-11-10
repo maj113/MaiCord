@@ -856,8 +856,8 @@ struct RendererPaletteCrop {
 // image_palette of that drawn crop; 0 while the picture is not resident or when the read fails.
 u32 renderer_media_crop_palette(D3D11Renderer* renderer, MediaAssetKey key, const RendererPaletteCrop& crop,
                                 u32* colors) noexcept;
-// image_dominant_color of one resident media allocation, read back from the GPU (a stall: callers keep the
-// result). False while `key` is not resident or when the read fails.
+// The first colour of image_palette of one resident media allocation, read back from the GPU (a stall: callers
+// keep the result). False while `key` is not resident or when the read fails.
 bool renderer_media_dominant_color(D3D11Renderer* renderer, MediaAssetKey key, u32* rgb) noexcept;
 void renderer_unbind_media_atlas(D3D11Renderer* renderer) noexcept;
 MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer, MediaAssetKey key,

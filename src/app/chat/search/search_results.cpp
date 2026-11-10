@@ -409,10 +409,9 @@ bool measure_rows(ApplicationSearch& s) noexcept {
     return true;
 }
 void cancel_submitted(ApplicationSearch& s) noexcept {
-    if (s.submitted.request_id && !s.submitted_cancelled && g_app.account.instance &&
-        g_app.account.api.message_search) {
-        g_app.account.api.message_search(g_app.account.instance, AccountMessageSearchOperation::cancel,
-                                         nullptr, s.submitted.request_id);
+    if (s.submitted.request_id && !s.submitted_cancelled && g_app.account.instance) {
+        account_module_message_search(g_app.account.instance, AccountMessageSearchOperation::cancel, nullptr,
+                              s.submitted.request_id);
         s.submitted_cancelled = true;
     }
     // The shared worker queue keeps this request ID until its completion is consumed.

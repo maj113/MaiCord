@@ -122,8 +122,6 @@ inline constexpr u32 kMcfxKnobGlideMs = 60;
 bool mcfx_knob_glide(const McfxPackage& package, const float (&target)[kEffectKnobRows][4],
                      float (&shown)[kEffectKnobRows][4], u32 elapsed_ms) noexcept;
 
-// PNG textures: the container only checks the signature and the IHDR extent (<= 512 x 512, 8-bit RGBA/RGB).
-bool mcfx_png_extent(ConstSlice<u8> png, u32* width, u32* height) noexcept;
 // A float data texture ("MCFT"): true with its extent; the texels follow 8 bytes in, RGBA32F, rows contiguous.
 bool mcfx_float_texture(ConstSlice<u8> texture, u32* width, u32* height) noexcept;
 

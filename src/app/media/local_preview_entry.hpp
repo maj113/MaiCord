@@ -36,7 +36,7 @@ template <class Entry, u32 Count> __forceinline u64 local_preview_next_wake(cons
 template <class Entry> __forceinline void local_preview_retire(Entry& entry, u64 now, bool actor_current) noexcept {
     entry.retired = true;
     entry.ready = false;
-    if (!entry.admitted || !actor_current || !g_app.account.api.media_local_preview) {
+    if (!entry.admitted || !actor_current) {
         reset_value(&entry);
         return;
     }
@@ -44,7 +44,7 @@ template <class Entry> __forceinline void local_preview_retire(Entry& entry, u64
     exact.key = entry.request.key;
     exact.owner_scope = entry.request.owner_scope;
     exact.owner_generation = entry.request.owner_generation;
-    const auto result = g_app.account.api.media_local_preview(entry.instance, AccountLocalPreviewOperation::retire,
+    const auto result = account_module_media_local_preview(entry.instance, AccountLocalPreviewOperation::retire,
                                                               &exact, 0, 0);
     if (result.state == AccountMediaRequestState::pending)
         entry.poll_at = deadline_after(now, 100);
@@ -82,7 +82,7 @@ inline bool local_preview_evicted(LocalPreviewEntry& entry) noexcept {
 // Asks the lane to decode the entry and schedules the next poll. True when the lane refused the request outright (the
 // entry failed).
 inline bool local_preview_admit(LocalPreviewEntry& entry, u64 now, u64 unix_now) noexcept {
-    const auto result = g_app.account.api.media_local_preview(entry.instance, AccountLocalPreviewOperation::request,
+    const auto result = account_module_media_local_preview(entry.instance, AccountLocalPreviewOperation::request,
                                                               &entry.request, now, unix_now);
     if (result.state == AccountMediaRequestState::queued || result.state == AccountMediaRequestState::pending ||
         result.state == AccountMediaRequestState::ready) {

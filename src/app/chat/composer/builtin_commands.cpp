@@ -262,7 +262,7 @@ bool builtin_command_speaks(const ApplicationCommand& command) noexcept {
 
 BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8View options_json, u64 channel_id,
                                       Slice<char> text_storage, Utf8View* text) noexcept {
-    if (!g_app.account_ui || !text)
+    if (!g_app.account_ui)
         return BuiltinCommandRun::failed;
     const auto options = parse_options(options_json);
     if (!options.ok)
@@ -381,11 +381,10 @@ bool builtin_commands_submit(u64 request_id, bool* busy) noexcept {
         return false;
     RestClientSubmitResult result{RestClientSubmitError::invalid_input};
     if (s.action == Action::nick || s.action == Action::thread) {
-        if (g_app.account.api.application_command)
-            result = g_app.account.api.application_command(
-                g_app.account.instance, s.channel, s.guild, 0, 0, Utf8View{s.body, s.body_bytes}, request_id,
-                s.action == Action::nick ? kBuiltinCommandNick : kBuiltinCommandThread);
-    } else if (g_app.account.api.guild_admin) {
+        result = account_module_application_command(
+            g_app.account.instance, s.channel, s.guild, 0, 0, Utf8View{s.body, s.body_bytes}, request_id,
+            s.action == Action::nick ? kBuiltinCommandNick : kBuiltinCommandThread);
+    } else {
         GuildAdminRequest request{};
         MemberPatch patch{};
         request.guild_id = s.guild;
@@ -403,7 +402,7 @@ bool builtin_commands_submit(u64 request_id, bool* busy) noexcept {
             patch.communication_disabled_until_ms = clock_unix_milliseconds() + u64{s.seconds} * 1000;
             request.member = &patch;
         }
-        result = g_app.account.api.guild_admin(g_app.account.instance, &request, request_id);
+        result = account_module_guild_admin(g_app.account.instance, &request, request_id);
     }
     if (result.error == RestClientSubmitError::busy) {
         *busy = true;

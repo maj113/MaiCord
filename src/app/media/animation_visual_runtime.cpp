@@ -5,11 +5,10 @@
 namespace maicord {
 
 void animation_visual_runtime_suspend(AnimationVisualRuntime* runtime, u64 now_us) noexcept {
-    if (runtime) animation_timeline_suspend(&runtime->timeline, now_us);
+    animation_timeline_suspend(&runtime->timeline, now_us);
 }
 
 void animation_visual_runtime_resume(AnimationVisualRuntime* runtime, u64 now_us) noexcept {
-    if (!runtime) return;
     const u64 elapsed = animation_timeline_resume(&runtime->timeline, now_us);
     // Codec completions still refer to the frame/generation requested before
     // the pause. Keep their timeline tokens synchronized without restarting
@@ -21,7 +20,7 @@ void animation_visual_runtime_resume(AnimationVisualRuntime* runtime, u64 now_us
 
 bool animation_visual_runtime_initialize(
     AnimationVisualRuntime* runtime) noexcept {
-    if (!runtime || runtime->entries.arena.base ||
+    if (runtime->entries.arena.base ||
         runtime->buckets.arena.base || runtime->visual_storage.arena.base) {
         return false;
     }
@@ -58,7 +57,7 @@ bool animation_visual_runtime_initialize(
 
 bool animation_visual_runtime_reserve(
     AnimationVisualRuntime* runtime, u32 required_capacity) noexcept {
-    if (!runtime || !runtime->visuals || required_capacity == 0 ||
+    if (!runtime->visuals || required_capacity == 0 ||
         required_capacity > kAnimationVisualMaximumCapacity) {
         return false;
     }
@@ -89,7 +88,7 @@ AnimationTimelineResult animation_visual_runtime_publish(
     AnimationVisualRuntime* runtime,
     const AnimationTimelineDescriptor& descriptor,
     u64 monotonic_now_us) noexcept {
-    if (!runtime || !runtime->visuals) {
+    if (!runtime->visuals) {
         return {AnimationTimelineError::invalid_argument, 0};
     }
     AnimationTimelineResult published = animation_timeline_publish(
@@ -107,7 +106,7 @@ AnimationTimelineResult animation_visual_runtime_publish(
 }
 
 void animation_visual_runtime_reset(AnimationVisualRuntime* runtime) noexcept {
-    if (!runtime || !runtime->visuals) {
+    if (!runtime->visuals) {
         return;
     }
     animation_timeline_reset(&runtime->timeline);
@@ -118,9 +117,6 @@ void animation_visual_runtime_reset(AnimationVisualRuntime* runtime) noexcept {
 }
 
 void animation_visual_runtime_release(AnimationVisualRuntime* runtime) noexcept {
-    if (!runtime) {
-        return;
-    }
     stable_storage_release(&runtime->visual_storage);
     stable_storage_release(&runtime->buckets);
     stable_storage_release(&runtime->entries);

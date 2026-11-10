@@ -30,12 +30,9 @@ struct OAuthAuthorizationResult {
 // Serial worker-only, with no browser, thread, retry loop or persistent token
 // store. Callback state/attempt identity must be checked before exchanging.
 // On success, transfers a locked OAuthTokens into EMPTY output. Never
-// mutates the caller's existing credentials on failure. Refresh preserves the
-// previous refresh token when the provider omits a replacement.
+// mutates the caller's existing credentials on failure.
 OAuthAuthorizationResult oauth_authorization_exchange(OAuthAuthorization*, Utf8View client, u16 port,
     Utf8View code, Utf8View verifier, SecureBuffer* output, OAuthAuthorizationTransport = {}, OAuthProvider = OAuthProvider::spotify) noexcept;
-OAuthAuthorizationResult oauth_authorization_refresh(OAuthAuthorization*, Utf8View client,
-    Utf8View refresh, SecureBuffer* output, OAuthAuthorizationTransport = {}, OAuthProvider = OAuthProvider::spotify) noexcept;
 // Cancel from any thread, release only after the worker joins. The caller must
 // also fence completion by attempt identity before installing credentials.
 void oauth_authorization_cancel(OAuthAuthorization*) noexcept;

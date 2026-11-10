@@ -12,8 +12,6 @@ const CallVideoTarget* target_for(ConstSlice<CallVideoTarget> targets, u64 user_
 } // namespace
 
 void call_video_presenter_reset(CallVideoPresenter* presenter) noexcept {
-    if (!presenter)
-        return;
     presenter->count = 0;
     for (auto& stream : presenter->streams)
         reset_value(&stream);
@@ -33,7 +31,7 @@ u32 call_video_reduction_extent(u32 width, u32 height, u32 tile_pixels) noexcept
 CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, const CallVideoHost& host,
                                               ConstSlice<CallVideoTarget> targets, bool poll) noexcept {
     CallVideoPumpResult result{};
-    if (!presenter || (!targets.data && targets.count))
+    if (!targets.data && targets.count)
         return result;
     // Streams whose camera ended are forgotten; the voice server keeps the sink
     // want for the call, so a returning camera starts from an unknown want.

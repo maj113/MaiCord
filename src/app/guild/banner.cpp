@@ -133,7 +133,7 @@ u64 application_guild_banner_next_wake() noexcept {
 
 u32 application_guild_banner_media(GuildBannerMedia* output, u32 capacity) noexcept {
     const auto& b = g_banner;
-    if (!output || !b.shown || !b.visible || renderer_settings_hides_shell(g_app.renderer))
+    if (!b.shown || !b.visible || renderer_settings_hides_shell(g_app.renderer))
         return 0;
     u32 count = 0;
     if (b.animate && count < capacity)
@@ -158,7 +158,7 @@ void application_guild_banner_media_failed(MediaAssetKey key) noexcept {
 }
 
 bool application_guild_banner_take_retired(MediaAssetKey* key) noexcept {
-    if (!key || !media_asset_key_valid(g_banner.retired))
+    if (!media_asset_key_valid(g_banner.retired))
         return false;
     *key = g_banner.retired;
     reset_value(&g_banner.retired);

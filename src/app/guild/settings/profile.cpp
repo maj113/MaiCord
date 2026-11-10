@@ -458,7 +458,7 @@ bool prepare_icon() noexcept {
     auto& p = *owner;
     if (p.icon_uri)
         return true;
-    if (!p.icon.data || !g_app.account.api.profile_image)
+    if (!p.icon.data)
         return false;
     const auto state = image_crop_begin(ImageCropUse::avatar, p.icon_info.width, p.icon_info.height,
                                         kCropEditorWidth, kCropEditorHeight);
@@ -472,7 +472,7 @@ bool prepare_icon() noexcept {
     ProfileImageInfo info{};
     request.info = &info;
     request.data_uri = {uri, kAccountProfileImageUriCapacity};
-    if (!g_app.account.api.profile_image(g_app.account.instance, &request) || !request.data_uri_bytes) {
+    if (!account_module_profile_image(g_app.account.instance, &request) || !request.data_uri_bytes) {
         pages_release(uri);
         return false;
     }

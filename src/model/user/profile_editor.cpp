@@ -1,6 +1,5 @@
 #include "maicord/model/user/profile_editor.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/color_hex.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -130,9 +129,9 @@ u16 profile_editor_changes(ProfileEditorTab tab, const ProfileEditorBase& base, 
     return changed;
 }
 
-i32 profile_editor_bio_remaining(Utf8View bio, u32 limit) noexcept {
+i32 profile_editor_bio_remaining(Utf8View bio) noexcept {
     const u32 used = codepoints(bio);
-    return used == ~0u ? 0 : static_cast<i32>(limit) - static_cast<i32>(used);
+    return used == ~0u ? 0 : static_cast<i32>(kProfileEditBioCodepoints) - static_cast<i32>(used);
 }
 
 static bool allowed(ProfileEditorTab tab, u16 changed, const ProfileEditorDraft& draft, ProfileEditorGate gate) noexcept {

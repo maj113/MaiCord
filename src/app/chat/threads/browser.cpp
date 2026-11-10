@@ -27,7 +27,6 @@
 #include "../../account/account_access.hpp"
 
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 
@@ -177,9 +176,8 @@ void cancel_flight(ApplicationThreadBrowser& value) noexcept {
     flight.retired = true;
     // Cancellation only stops the result from being shown. Keep the request in
     // flight until its response is consumed, including a late rate-limit observation.
-    if (!flight.cancel_requested && flight.scope.instance && flight.scope.instance == g_app.account.instance &&
-        g_app.account.api.thread_browser) {
-        g_app.account.api.thread_browser(g_app.account.instance, nullptr, flight.id);
+    if (!flight.cancel_requested && flight.scope.instance && flight.scope.instance == g_app.account.instance) {
+        account_module_thread_browser(g_app.account.instance, nullptr, flight.id);
         flight.cancel_requested = true;
     }
 }
@@ -327,9 +325,8 @@ void forum_cancel_meta(ForumState& forum) noexcept {
     auto& flight = forum.meta_flight;
     if (!flight.active) return;
     flight.retired = true;
-    if (!flight.cancel_requested && flight.scope.instance && flight.scope.instance == g_app.account.instance &&
-        g_app.account.api.forum_post) {
-        g_app.account.api.forum_post(g_app.account.instance, nullptr, flight.id);
+    if (!flight.cancel_requested && flight.scope.instance && flight.scope.instance == g_app.account.instance) {
+        account_module_forum_post(g_app.account.instance, nullptr, flight.id);
         flight.cancel_requested = true;
     }
 }
@@ -510,7 +507,7 @@ void project_forum(ApplicationThreadBrowser& value) noexcept {
 // hides the tag chips.
 bool forum_meta_due(const ApplicationThreadBrowser& value, u64 now) noexcept {
     return value.forum_mode && value.forum && value.forum->meta_queued && !value.forum->meta_flight.active &&
-        !value.flight.active && g_app.account.api.forum_post && now >= maximum(value.forum->meta_due, value.actor_floor);
+        !value.flight.active && now >= maximum(value.forum->meta_due, value.actor_floor);
 }
 bool forum_submit_meta(ApplicationThreadBrowser& value, u64 id, u64 now) noexcept {
     auto& forum = *value.forum;
@@ -519,7 +516,7 @@ bool forum_submit_meta(ApplicationThreadBrowser& value, u64 id, u64 now) noexcep
     request.guild_id = value.scope.guild;
     request.operation = ForumPostOperation::parent_metadata;
     if (!forum_post_request_valid(request)) { forum.meta_queued = false; repaint(); return false; }
-    const auto result = g_app.account.api.forum_post(g_app.account.instance, &request, id);
+    const auto result = account_module_forum_post(g_app.account.instance, &request, id);
     if (!result.ok()) {
         if (result.error == RestClientSubmitError::busy && ++forum.meta_busy <= 20) forum.meta_due = deadline_after(now, 50);
         else forum.meta_queued = false;
@@ -580,7 +577,7 @@ struct BatchContext {
 };
 bool read_input(const void* opaque, u32 index, ChannelInput* output) noexcept {
     const auto& context = *static_cast<const BatchContext*>(opaque);
-    if (!output || index >= context.count) return false;
+    if (index >= context.count) return false;
     const u32 raw = context.indices[index];
     const auto& row = context.bank->page.rows.data[raw];
     *output = {row.id, row.guild_id, row.parent_id, thread_browser_row_name(context.bank->page, raw), 0, 0, row.type};
@@ -739,7 +736,7 @@ bool application_thread_browser_synchronize() noexcept {
         fail_choice(*value, utf8_literal("Verify your account to view threads."),
             utf8_literal("Showing saved threads. Verify your account to refresh."));
     if (value->queued && (!g_app.account.status.running || g_app.account.stop_failed ||
-        !g_app.account.instance || !g_app.account.api.thread_browser))
+        !g_app.account.instance))
         fail_choice(*value, utf8_literal("Can't load threads while offline."),
             utf8_literal("Showing saved threads. Can't refresh while offline."));
     const bool in_flight = value->queued || (value->flight.active && !value->flight.retired);
@@ -782,7 +779,7 @@ bool application_thread_browser_pending(u64 now) noexcept {
         g_app.account.status.required_action == AccountRequirement::none) return true;
     return browser_owner && current(*browser_owner) && browser_owner->queued && !browser_owner->flight.active &&
         !forum_meta_active(*browser_owner) &&
-        g_app.account.instance && g_app.account.status.running && !g_app.account.stop_failed && g_app.account.api.thread_browser &&
+        g_app.account.instance && g_app.account.status.running && !g_app.account.stop_failed &&
         g_app.account.status.required_action == AccountRequirement::none && now >= maximum(browser_owner->due, browser_owner->actor_floor);
 }
 bool application_thread_browser_submit(u64 id, u64 now) noexcept {
@@ -797,7 +794,7 @@ bool application_thread_browser_submit(u64 id, u64 now) noexcept {
             : value.tab == UiThreadBrowserTab::active ? ThreadBrowserMode::active
                                                       : ThreadBrowserMode::archived, {}};
     if (!thread_browser_request_valid(request)) { fail(value, utf8_literal("Thread names can be up to 100 characters.")); repaint(); return false; }
-    const auto result = g_app.account.api.thread_browser(g_app.account.instance, &request, id);
+    const auto result = account_module_thread_browser(g_app.account.instance, &request, id);
     if (!result.ok()) {
         if (result.error == RestClientSubmitError::busy && ++value.busy_count <= 20) value.due = deadline_after(now, 50);
         else fail_load(value);
@@ -991,7 +988,7 @@ bool application_thread_browser_activate(UiThreadBrowserTarget target) noexcept 
     return repaint();
 }
 bool application_thread_browser_search_scope(ApplicationThreadBrowserSearchScope* out) noexcept {
-    if (!out || !application_thread_browser_active()) return false;
+    if (!application_thread_browser_active()) return false;
     const auto& value = *browser_owner;
     const auto* parent = application_channel_record(value.scope.parent);
     *out = {value.scope.parent, value.session, chat_state_store_channel_name(g_app.account_ui->chat_state, *parent),

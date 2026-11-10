@@ -5,6 +5,7 @@
 #include "../../../support/model_store_fixtures.hpp"
 #include "../../../../src/app/shell/state.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
@@ -219,7 +220,7 @@ void reset() noexcept {
     g_app.account.status.gateway_ready = 1;
     g_app.account.status.profile_id = 2;
     g_app.account.status.required_action = AccountRequirement::none;
-    g_app.account.api.poll = submit;
+    g_account_fake.poll = submit;
     g_app.plugin_account_scope_serial = 3;
     g_app.login.visible = false;
     g_app.account_ui->active_channel_id = 70;

@@ -188,7 +188,7 @@ const GameRecord* known_game(u64 id) noexcept {
 }
 
 bool connected() noexcept {
-    return g_app.account.instance && g_app.account.status.gateway_ready && g_app.account.api.guild_admin;
+    return g_app.account.instance && g_app.account.status.gateway_ready;
 }
 bool scope_current() noexcept {
     return owner && application_account_available() && owner->account_scope == g_app.plugin_account_scope_serial &&

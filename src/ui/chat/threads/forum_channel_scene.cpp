@@ -1,6 +1,7 @@
 #include "maicord/ui/chat/threads/forum_channel_scene.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 #include "maicord/ui/layout/rect_edges.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"

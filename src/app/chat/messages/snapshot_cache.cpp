@@ -285,15 +285,11 @@ bool delete_row(MessageSnapshotCache* cache, MessageSnapshotEntry* entry, u64 me
 } // namespace
 
 void message_snapshot_cache_initialize(MessageSnapshotCache* cache, u32 budget_bytes) noexcept {
-    if (!cache)
-        return;
     reset_value<MessageSnapshotCache>(cache);
     cache->budget = budget_bytes;
 }
 
 void message_snapshot_cache_release(MessageSnapshotCache* cache) noexcept {
-    if (!cache)
-        return;
     for (auto& entry : cache->entries)
         reset_value<MessageSnapshotEntry>(&entry);
     release_memory(cache);
@@ -305,7 +301,7 @@ void message_snapshot_cache_drop(MessageSnapshotCache* cache, u64 channel_id) no
 }
 
 void message_snapshot_cache_prune(MessageSnapshotCache* cache, bool (*keep)(void*, u64), void* context) noexcept {
-    if (!cache || !keep)
+    if (!keep)
         return;
     for (auto& entry : cache->entries)
         if (entry.occupied && !keep(context, entry.channel_id))
@@ -329,7 +325,7 @@ u32 message_snapshot_cache_count(const MessageSnapshotCache& cache) noexcept {
 
 bool message_snapshot_cache_capture(MessageSnapshotCache* cache, const MessageTimeline& timeline,
                                     const MessageSnapshotCaptureInput& input) noexcept {
-    if (!cache || !cache->budget || !input.channel_id || !timeline.store || !timeline.list ||
+    if (!cache->budget || !input.channel_id || !timeline.store || !timeline.list ||
         timeline.store->count != timeline.list->count)
         return false;
     const MessageStore& store = *timeline.store;
@@ -411,7 +407,7 @@ bool message_snapshot_cache_capture_page(MessageSnapshotCache* cache, u64 channe
                                          const ChatStateStore* state,
                                          MessageContentAvailability empty_content_availability,
                                          u32 default_item_units, bool exhausted) noexcept {
-    if (!cache || !cache->budget || !channel_id || !messages.count || !messages.data || !default_item_units)
+    if (!cache->budget || !channel_id || !messages.count || !messages.data || !default_item_units)
         return false;
     MessageSnapshotScratch* value = scratch(cache);
     if (!value)
@@ -557,7 +553,7 @@ MessageSnapshotRestoreResult message_snapshot_cache_restore(MessageSnapshotCache
 void message_snapshot_cache_observe(MessageSnapshotCache* cache, const GatewayClientEvent& event,
                                     ConstSlice<u8> payload, Slice<u64> bulk_ids, u64 self_user_id,
                                     MessageContentAvailability content_availability) noexcept {
-    if (!cache || !message_snapshot_cache_count(*cache))
+    if (!message_snapshot_cache_count(*cache))
         return;
     switch (event.dispatch_kind) {
     case GatewayClientDispatchKind::message_create:
@@ -633,7 +629,7 @@ void message_snapshot_cache_observe(MessageSnapshotCache* cache, const GatewayCl
 }
 
 void channel_prefetch_press(ChannelPrefetch* prefetch, u64 channel_id, u64 now_ms) noexcept {
-    if (!prefetch || !channel_id)
+    if (!channel_id)
         return;
     if (prefetch->press_channel_id && prefetch->press_channel_id == prefetch->inflight_channel_id &&
         prefetch->press_channel_id != channel_id)
@@ -666,12 +662,11 @@ u64 channel_prefetch_next_wake(const ChannelPrefetch& prefetch) noexcept {
 }
 
 void channel_prefetch_skip(ChannelPrefetch* prefetch) noexcept {
-    if (prefetch)
-        prefetch->fired = true;
+    prefetch->fired = true;
 }
 
 void channel_prefetch_submitted(ChannelPrefetch* prefetch, u64 channel_id, u64 request_id, u64 now_ms) noexcept {
-    if (!prefetch || !channel_id || !request_id)
+    if (!channel_id || !request_id)
         return;
     prefetch->inflight_channel_id = channel_id;
     prefetch->inflight_request_id = request_id;
@@ -687,7 +682,7 @@ void channel_prefetch_submitted(ChannelPrefetch* prefetch, u64 channel_id, u64 r
 }
 
 bool channel_prefetch_adopt(ChannelPrefetch* prefetch, u64 request_id, u64 channel_id) noexcept {
-    if (!prefetch || !request_id || request_id != prefetch->inflight_request_id ||
+    if (!request_id || request_id != prefetch->inflight_request_id ||
         channel_id != prefetch->inflight_channel_id)
         return false;
     prefetch->inflight_channel_id = prefetch->inflight_request_id = 0;
@@ -696,7 +691,7 @@ bool channel_prefetch_adopt(ChannelPrefetch* prefetch, u64 request_id, u64 chann
 }
 
 bool channel_prefetch_complete(ChannelPrefetch* prefetch, u64 request_id, u64 now_ms) noexcept {
-    if (!prefetch || !request_id || request_id != prefetch->inflight_request_id)
+    if (!request_id || request_id != prefetch->inflight_request_id)
         return false;
     const bool wanted = prefetch->press_channel_id == prefetch->inflight_channel_id ||
                         (prefetch->left_at_ms && now_ms - prefetch->left_at_ms <= kChannelPrefetchKeepMs);

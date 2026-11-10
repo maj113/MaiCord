@@ -237,7 +237,7 @@ def compressed(name, source, categories, patterns, outcomes):
 
 
 def khmer():
-    # KhmerCategory order in src/text/scripts/syllabic_shape.hpp.
+    # K order in src/text/scripts/syllabic_shape.cpp.
     g = Grammar(['X', 'C', 'V', 'H', 'ZWNJ', 'ZWJ', 'PLACEHOLDER', 'DOTTEDCIRCLE', 'Ra', 'VAbv', 'VBlw', 'VPre', 'VPst',
                  'Robatic', 'Xgroup', 'Ygroup'])
     s = g.sym
@@ -256,7 +256,7 @@ def khmer():
 
 
 def myanmar():
-    # MyanmarCategory order in src/text/scripts/syllabic_shape.hpp.
+    # M order in src/text/scripts/syllabic_shape.cpp.
     g = Grammar(['X', 'C', 'IV', 'DB', 'H', 'ZWNJ', 'ZWJ', 'SM', 'A', 'GB', 'DOTTEDCIRCLE', 'Ra', 'CS', 'SMPst', 'VAbv',
                  'VBlw', 'VPre', 'VPst', 'As', 'MH', 'MR', 'MW', 'MY', 'PT', 'VS', 'ML'])
     s = g.sym
@@ -279,7 +279,7 @@ def myanmar():
                       '1 consonant syllable, 2 broken cluster, 3 non-Myanmar cluster')
 
 
-# USE category order in src/text/scripts/syllabic_shape.hpp. CGJ never reaches the scanner.
+# U order in src/text/scripts/syllabic_shape.cpp. CGJ never reaches the scanner.
 USE_CATEGORIES = ['O', 'B', 'N', 'GB', 'CGJ', 'SUB', 'H', 'HN', 'ZWNJ', 'WJ', 'R', 'CS', 'IS', 'Sk', 'G', 'J', 'SB', 'SE',
                   'HVM', 'HM', 'HR', 'RK', 'FAbv', 'FBlw', 'FPst', 'MAbv', 'MBlw', 'MPst', 'MPre', 'CMAbv', 'CMBlw',
                   'VAbv', 'VBlw', 'VPst', 'VPre', 'VMAbv', 'VMBlw', 'VMPst', 'VMPre', 'SMAbv', 'SMBlw', 'FMAbv', 'FMBlw',

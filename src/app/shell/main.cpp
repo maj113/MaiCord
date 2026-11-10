@@ -428,7 +428,9 @@ __attribute__((minsize)) void stop_application(int exit_code) noexcept {
 #endif
 }
 
-int run_application() noexcept {
+} // namespace
+
+int application_run() noexcept {
     if (const int refused = start_process())
         return refused;
     struct NotificationLifetime {
@@ -847,12 +849,6 @@ int run_application() noexcept {
 
     stop_application(exit_code);
     return exit_code;
-}
-
-} // namespace
-
-int application_run() noexcept {
-    return run_application();
 }
 
 } // namespace maicord

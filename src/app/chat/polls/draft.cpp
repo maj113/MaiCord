@@ -81,14 +81,13 @@ Utf8View emoji(const PollDraft& draft, u32 index) noexcept {
 } // namespace
 
 void poll_draft_reset(PollDraft* draft) noexcept {
-    if (!draft) return;
     clear_bytes(draft, sizeof(*draft));
     draft->answer_count = kPollCreateMinimumAnswers;
     draft->duration_index = kPollDraftDefaultDuration;
 }
 
 bool poll_draft_add_answer(PollDraft* draft) noexcept {
-    if (!draft || draft->answer_count >= kPollCreateMaximumAnswers) return false;
+    if (draft->answer_count >= kPollCreateMaximumAnswers) return false;
     const u32 index = draft->answer_count++;
     draft->answer_bytes[index] = 0;
     draft->emoji_bytes[index] = 0;
@@ -96,7 +95,7 @@ bool poll_draft_add_answer(PollDraft* draft) noexcept {
 }
 
 bool poll_draft_remove_answer(PollDraft* draft, u32 index) noexcept {
-    if (!draft || index >= draft->answer_count || draft->answer_count <= kPollCreateMinimumAnswers)
+    if (index >= draft->answer_count || draft->answer_count <= kPollCreateMinimumAnswers)
         return false;
     for (u32 i = index + 1; i < draft->answer_count; ++i) {
         copy_bytes(draft->answers[i - 1], draft->answers[i], draft->answer_bytes[i]);
@@ -144,7 +143,7 @@ Utf8View poll_draft_issue_text(PollDraftIssue issue) noexcept {
 }
 
 bool poll_draft_build(const PollDraft& draft, PollCreate* poll) noexcept {
-    if (!poll || poll_draft_check(draft) != PollDraftIssue::none) return false;
+    if (poll_draft_check(draft) != PollDraftIssue::none) return false;
     PollCreate built{};
     built.question = trim({draft.question, draft.question_bytes});
     for (u32 i = 0; i < draft.answer_count; ++i) {

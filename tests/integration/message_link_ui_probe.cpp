@@ -1,6 +1,7 @@
 #include "maicord/platform/window/win32.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/window_fixture.hpp"
+#include "../support/account_module_fake.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "probe_glyph_ink.hpp"
@@ -180,10 +181,10 @@ bool initialize(HWND window) noexcept {
     g_app.account.status.running = true;
     g_app.account.status.profile_id = 9;
     g_app.plugin_account_scope_serial = 7;
-    g_app.account.api.channel_overview = metadata;
-    g_app.account.api.thread_action = member;
-    g_app.account.api.pinned_messages = cancel_metadata;
-    g_app.account.api.message_search = cancel_history;
+    g_account_fake.channel_overview = metadata;
+    g_account_fake.thread_action = member;
+    g_account_fake.pinned_messages = cancel_metadata;
+    g_account_fake.message_search = cancel_history;
     if (!initialize_step(
             chat_state_store_initialize(&ui.chat_state, {ui.guild_record_storage, 2},
                                            {ui.guild_order_storage, 2}, {ui.channel_record_storage, 16},

@@ -67,7 +67,7 @@ u8 voice_message_frame_level(ConstSlice<i16> pcm) noexcept {
 
 VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, u32 serial,
                                                        u32 gain_percent) noexcept {
-    if (!r || r->block)
+    if (r->block)
         return VoiceMessageRecorderError::invalid_state;
     const Layout l = layout();
     if (!l.total)
@@ -101,7 +101,7 @@ VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, 
 }
 
 VoiceMessageRecorderError voice_message_recorder_push(VoiceMessageRecorder* r, ConstSlice<i16> mono) noexcept {
-    if (!r || !r->block || r->finished || r->error != VoiceMessageRecorderError::none)
+    if (!r->block || r->finished || r->error != VoiceMessageRecorderError::none)
         return VoiceMessageRecorderError::invalid_state;
     if (!mono.data && mono.count)
         return VoiceMessageRecorderError::invalid_input;
@@ -127,7 +127,7 @@ VoiceMessageRecorderError voice_message_recorder_push(VoiceMessageRecorder* r, C
 }
 
 VoiceMessageRecorderError voice_message_recorder_finish(VoiceMessageRecorder* r) noexcept {
-    if (!r || !r->block || r->finished || r->error != VoiceMessageRecorderError::none)
+    if (!r->block || r->finished || r->error != VoiceMessageRecorderError::none)
         return VoiceMessageRecorderError::invalid_state;
     if (r->frame_fill) {
         clear_bytes(r->frame + r->frame_fill, (kVoiceMessageFrameSamples - r->frame_fill) * sizeof(i16));
@@ -173,8 +173,6 @@ void voice_message_recorder_waveform(const VoiceMessageRecorder& r,
 }
 
 void voice_message_recorder_release(VoiceMessageRecorder* r) noexcept {
-    if (!r)
-        return;
     opus_encoder_release(&r->encoder);
     if (r->block) {
         // Wipe only what the recording touched; untouched pages are still zero.

@@ -71,7 +71,6 @@ struct Binding {
 
 constexpr Binding kBindings[] = {
     MAICORD_BINDING(wl_data_device_manager, data_manager, 3, 1, kPlainDestroy, false),
-    MAICORD_BINDING(zwp_primary_selection_device_manager_v1, primary_manager, 1, 1, 2, false),
     MAICORD_BINDING(zwp_text_input_manager_v3, text_input_manager, 1, 1, 0, false),
     MAICORD_BINDING(xdg_activation_v1, activation_manager, 1, 1, 0, false),
     MAICORD_BINDING(zwp_idle_inhibit_manager_v1, idle_manager, 1, 1, 0, false),

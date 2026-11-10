@@ -9,8 +9,6 @@ struct MessageRichRecord;
 struct UiLayoutStyle;
 struct UiRect;
 
-struct Theme;
-
 // Component metrics (V1 buttons/selects, V2 layout): a
 // container pads 16 and stacks children 8 apart; an action row wraps its
 // controls 8 apart; V2 content is at most 600 wide.

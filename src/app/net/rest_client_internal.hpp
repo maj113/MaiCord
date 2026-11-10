@@ -15,7 +15,9 @@ namespace rest_client_detail {}
 using namespace rest_client_detail;
 namespace rest_client_detail {
 
-extern RestTraceFunction g_trace;
+// One request-trace record: metadata only, never request bodies. rest_client_trace.cpp writes it into the log
+// (category "rest_trace"); a test that reads the records defines this itself.
+void rest_trace(const char* record) noexcept;
 extern volatile LONG g_trace_serial;
 
 inline constexpr wchar_t kApiHostWide[] = L"discord.com";

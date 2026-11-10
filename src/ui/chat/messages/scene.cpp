@@ -1,7 +1,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "scene_measurements.hpp"
-#include "maicord/model/chat/message_poll_store.hpp"
 #include "maicord/ui/chat/polls/controls.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/ui/text/measure_cache.hpp"

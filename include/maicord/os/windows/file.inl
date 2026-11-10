@@ -1,5 +1,5 @@
-// The Windows bodies of maicord/os/file.hpp: forwarders to the Win32 calls, so a call site compiles to the
-// imports it used to call. Included by file.hpp only.
+// The Windows bodies of maicord/os/file.hpp: forwarders to the Win32 calls, so a call site compiles to the Win32 import.
+// Included by file.hpp only.
 
 #include "maicord/core/win32_file_info.hpp"
 #include "maicord/core/win32_process.hpp"

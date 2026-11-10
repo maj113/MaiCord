@@ -37,7 +37,7 @@ namespace {
 bool account_ready() noexcept {
     return g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed &&
            !g_app.login.visible && g_app.plugin_account_scope_serial && g_app.account.status.profile_id &&
-           g_app.account_ui->chat_state.self_user_id && g_app.account.api.download;
+           g_app.account_ui->chat_state.self_user_id;
 }
 
 } // namespace
@@ -578,8 +578,8 @@ void cancel_job(ApplicationDownloads& q, u32 index) noexcept {
     j.cancel_requested = true;
     if (q.picker_job == index)
         native_file_picker_cancel(&q.picker);
-    if (j.admitted && q.account_instance == g_app.account.instance && g_app.account.api.download)
-        g_app.account.api.download(q.account_instance, AccountDownloadOperation::cancel, j.id, nullptr);
+    if (j.admitted && q.account_instance == g_app.account.instance)
+        account_module_download(q.account_instance, AccountDownloadOperation::cancel, j.id, nullptr);
     else if (q.picker_job != index) {
         j.phase = JobPhase::cancelled;
         reset_value(&j.resolution);

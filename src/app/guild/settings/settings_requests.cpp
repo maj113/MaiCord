@@ -59,7 +59,7 @@ bool application_guild_settings_submit(u64 now) noexcept {
         request.guild_id = creation.guild_id;
         request.channel = &patch;
         const u64 id = application_next_request_id();
-        const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
+        const auto submitted = account_module_guild_admin(g_app.account.instance, &request, id);
         if (submit_busy(submitted, creation.retry_at, now, 50))
             return false;
         creation.queued = false;
@@ -153,21 +153,19 @@ bool application_guild_settings_submit(u64 now) noexcept {
     default: assets = false; break;
     }
     if (assets)
-        valid = valid && g_app.account.api.guild_assets && guild_asset_request_valid(asset);
+        valid = valid && guild_asset_request_valid(asset);
     else if (p.request.op == Op::members_search) {
         // Built from the current filters and page; an unchanged body is not sent.
         moderation_op = true;
-        valid = g_app.account.api.guild_moderation && members_search_request(&moderation, &search_query);
+        valid = members_search_request(&moderation, &search_query);
     } else if (p.request.op == Op::ban_search) {
         moderation_op = true;
-        valid = g_app.account.api.guild_moderation && bans_search_request(&moderation);
+        valid = bans_search_request(&moderation);
     } else if (p.request.op == Op::apps || p.request.op == Op::automod) {
         automation_op = true;
-        valid = g_app.account.api.guild_automation &&
-                (p.request.op == Op::apps ? apps_request(&automation) : automod_request(&automation));
+        valid = p.request.op == Op::apps ? apps_request(&automation) : automod_request(&automation);
     } else if (p.request.op == Op::server_access) {
-        valid = server_access_request(&request, &guild_patch, &role_patch, &community, &community_op) &&
-                (!community_op || g_app.account.api.guild_community);
+        valid = server_access_request(&request, &guild_patch, &role_patch, &community, &community_op);
     } else {
         request.operation = kAdminOperations.of[static_cast<u32>(p.request.op)];
         switch (p.request.op) {
@@ -257,11 +255,11 @@ bool application_guild_settings_submit(u64 now) noexcept {
         return false;
     }
     const u64 id = application_next_request_id();
-    const auto submitted = assets          ? g_app.account.api.guild_assets(g_app.account.instance, &asset, id)
-                           : moderation_op ? g_app.account.api.guild_moderation(g_app.account.instance, &moderation, id)
-                           : automation_op ? g_app.account.api.guild_automation(g_app.account.instance, &automation, id)
-                           : community_op  ? g_app.account.api.guild_community(g_app.account.instance, &community, id)
-                                           : g_app.account.api.guild_admin(g_app.account.instance, &request, id);
+    const auto submitted = assets          ? account_module_guild_assets(g_app.account.instance, &asset, id)
+                           : moderation_op ? account_module_guild_moderation(g_app.account.instance, &moderation, id)
+                           : automation_op ? account_module_guild_automation(g_app.account.instance, &automation, id)
+                           : community_op  ? account_module_guild_community(g_app.account.instance, &community, id)
+                                           : account_module_guild_admin(g_app.account.instance, &request, id);
     if (submit_busy(submitted, p.retry_at, now, 50))
         return false;
     if (!submitted.ok()) {

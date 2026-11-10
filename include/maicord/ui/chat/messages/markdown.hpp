@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/core/utf.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/ui/text/style.hpp"
 
 namespace maicord {
@@ -193,7 +193,7 @@ struct MessageMarkdownOptions {
 };
 
 // The TextSize the markdown gives a run with these style flags.
-constexpr u8 message_markdown_text_size(u32 flags, u8 base_size = text_size_inherit) noexcept {
+constexpr u8 message_markdown_text_size(u32 flags, u8 base_size) noexcept {
     return flags & text_style_heading_1   ? u8{text_size_xl}
            : flags & text_style_heading_2 ? u8{text_size_lg}
            : flags & text_style_heading_3 ? u8{text_size_md}

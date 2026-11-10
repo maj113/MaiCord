@@ -17,8 +17,6 @@
 #include "maicord/core/time.hpp"
 #include "../../account/account_access.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
-
 namespace maicord::app_detail {
 namespace {
 using ForumPhase = ApplicationForumPostPhase;
@@ -188,9 +186,8 @@ void forum_cancel_flight(ForumOwner& owner) noexcept {
     flight.retired = true;
     if (flight.request.operation == ForumOperation::create)
         forum_ledger_add(owner, flight.source.parent);
-    if (!flight.cancel_requested && flight.source.instance == g_app.account.instance &&
-        g_app.account.instance && g_app.account.api.forum_post) {
-        g_app.account.api.forum_post(g_app.account.instance, nullptr, flight.id);
+    if (!flight.cancel_requested && flight.source.instance == g_app.account.instance && g_app.account.instance) {
+        account_module_forum_post(g_app.account.instance, nullptr, flight.id);
         flight.cancel_requested = true;
     }
 }
@@ -415,7 +412,7 @@ bool forum_phase_editable(const ForumOwner& owner) noexcept {
 } // namespace
 
 bool application_forum_post_available(u64 id) noexcept {
-    if (!g_app.account_ui || !g_app.account.instance || !g_app.account.api.forum_post ||
+    if (!g_app.account_ui || !g_app.account.instance ||
         g_app.login.visible || application_friends_active() || application_settings_active() ||
         !g_app.plugin_account_scope_serial || !g_app.account.status.profile_id ||
         !g_app.account_ui->chat_state.self_user_id ||
@@ -437,8 +434,7 @@ bool application_forum_post_begin(u64 id, ApplicationForumPostTicket* output) no
     auto& owner = *forum_owner;
     if (!owner.retired && owner.source.parent == id && owner.phase != ForumPhase::settled &&
         forum_source_current(owner.source)) {
-        if (output)
-            *output = forum_ticket(owner);
+        *output = forum_ticket(owner);
         return true;
     }
     application_forum_form_close(forum_ticket(owner));
@@ -476,8 +472,7 @@ bool application_forum_post_begin(u64 id, ApplicationForumPostTicket* output) no
     ++owner.revision;
     ++owner.metadata_epoch;
     forum_queue_metadata(owner);
-    if (output)
-        *output = forum_ticket(owner);
+    *output = forum_ticket(owner);
     return true;
 }
 bool application_forum_post_open(u64 id) noexcept {
@@ -682,7 +677,7 @@ bool application_forum_post_pending(u64 now) noexcept {
     application_forum_post_synchronize();
     if (!forum_owner || forum_owner->retired || forum_owner->flight.active ||
         !forum_source_current(forum_owner->source) || !g_app.account.status.running || g_app.account.stop_failed ||
-        !g_app.account.api.forum_post || g_app.account.status.required_action != AccountRequirement::none ||
+        g_app.account.status.required_action != AccountRequirement::none ||
         now < maximum(forum_owner->due, forum_owner->actor_floor)) return false;
     if (forum_queued(*forum_owner)) return true;
     ForumPostRequest request{}; u64 draft{};
@@ -743,7 +738,7 @@ bool application_forum_post_submit(u64 id, u64 now) noexcept {
         admitted.request.upload_filename = {admitted.upload_filename, request.upload_filename.bytes};
         if (!application_forum_attachments_url_admitted(forum_ticket(owner), attachment_id)) return false;
     }
-    const auto result = g_app.account.api.forum_post(g_app.account.instance, &admitted.request, id);
+    const auto result = account_module_forum_post(g_app.account.instance, &admitted.request, id);
     if (!result.ok()) {
         if (admitted.attachment_bank) { secure_clear_bytes(admitted.attachment_bank, admitted.attachment_bank_bytes); pages_release(admitted.attachment_bank); }
         if (operation == ForumOperation::attachment_url) application_forum_attachments_url_unadmitted(forum_ticket(owner), attachment_id);

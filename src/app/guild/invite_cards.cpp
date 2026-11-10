@@ -149,7 +149,7 @@ bool application_invite_card_click(u64 message_id, UiWidgetHandle widget, float 
 
 bool application_invite_cards_pending(u64 now_ms) noexcept {
     return owner && !owner->request_id && owner->retry_at_ms <= now_ms && g_app.account_ui &&
-           g_app.account.api.guild_invite && invite_card_cache_next(owner->cache) != nullptr;
+           invite_card_cache_next(owner->cache) != nullptr;
 }
 
 bool application_invite_cards_submit(u64 request_id, u64 now_ms) noexcept {
@@ -161,7 +161,7 @@ bool application_invite_cards_submit(u64 request_id, u64 now_ms) noexcept {
     request.code_bytes = entry->code_bytes;
     request.operation = GuildInviteOperation::resolve;
     const Utf8View code{entry->code, entry->code_bytes};
-    const auto submitted = g_app.account.api.guild_invite(g_app.account.instance, &request, request_id);
+    const auto submitted = account_module_guild_invite(g_app.account.instance, &request, request_id);
     if (!submitted.ok()) {
         owner->retry_at_ms = now_ms + kBusyRetryMs;
         if (submitted.error != RestClientSubmitError::busy &&

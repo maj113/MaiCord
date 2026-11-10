@@ -12,7 +12,7 @@ namespace maicord {
 AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media, const MediaAssetKey& key,
                                                              u64 monotonic_now_ms, u64 unix_now_seconds,
                                                              const Utf8View& guild_icon_hash, u32 identity_size) noexcept {
-    if (!media || !media->started || monotonic_now_ms == 0 || unix_now_seconds == 0 ||
+    if (!media->started || monotonic_now_ms == 0 || unix_now_seconds == 0 ||
         !media_asset_key_valid(key) || key.kind == MediaAssetKind::catalog_preview) {
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
@@ -374,7 +374,7 @@ namespace account_media_detail {
 AccountMediaRequestResult request_url_media(AccountMedia* media,
                                                    const AccountMediaUrlRequest& request,
                                                    u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
-    if (!media || !media->started || monotonic_now_ms == 0 || unix_now_seconds == 0 ||
+    if (!media->started || monotonic_now_ms == 0 || unix_now_seconds == 0 ||
         (request.key.kind != MediaAssetKind::attachment && request.key.kind != MediaAssetKind::embed &&
          request.key.kind != MediaAssetKind::profile_image &&
          request.key.kind != MediaAssetKind::catalog_preview) ||

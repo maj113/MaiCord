@@ -1,6 +1,7 @@
 #include "maicord/platform/window/win32.hpp"
 #include "reply_draft_ui_adapter.hpp"
 #include "../support/model_store_fixtures.hpp"
+#include "../support/account_module_fake.hpp"
 #include "shell/state.hpp"
 #include "chat/messages/interaction.hpp"
 #include "chat/messages/edit.hpp"
@@ -137,7 +138,7 @@ bool reply_draft_ui_adapter_begin(HWND window, u32 dpi, bool (*refresh)(void*) n
     g_app.account.instance = next;
     g_app.account.status.running = true;
     g_app.account.status.profile_id = 97020;
-    g_app.account.api.message_delete = submit_delete;
+    g_account_fake.message_delete = submit_delete;
     g_app.plugin_account_scope_serial = 97010;
     g_app.renderer.dpi = dpi;
     // The real input path performs its usual derived refresh; this adapter's

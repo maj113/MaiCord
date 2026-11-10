@@ -40,7 +40,7 @@ u16 face_id(GridFaces* faces, NativeFontRunHandle run, NativeGlyphOutlines** out
 // 32x32 pixels per cell, cell = code point. Controls and anything the face lacks stay empty.
 bool effect_glyph_grid_build(D3D11Renderer* renderer, GpuSrv** view) noexcept {
     *view = nullptr;
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context || !renderer->glyph_text.ready)
+    if (!renderer->graphics.device || !renderer->graphics.context || !renderer->glyph_text.ready)
         return false;
     auto* context = renderer->graphics.context;
     GlyphAtlasGpu gpu{};

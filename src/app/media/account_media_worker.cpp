@@ -48,13 +48,12 @@ bool account_media_worker_stop_requested(AccountMediaWorker* worker) noexcept {
 }
 
 void account_media_worker_set_vp8_cpu(AccountMediaWorker* worker, bool on_cpu) noexcept {
-    if (worker)
-        WriteRelease(&worker->vp8_on_cpu, on_cpu ? 1 : 0);
+    WriteRelease(&worker->vp8_on_cpu, on_cpu ? 1 : 0);
 }
 
 AccountMediaRequestResult account_media_worker_collection_title(AccountMediaWorker* worker,
     const AccountMediaCollectionTitleRequest& request, MediaTrackTitle* out) noexcept {
-    if (!worker || !worker->initialized || !out || !request.track || !media_asset_key_valid(request.key) ||
+    if (!worker->initialized || !out || !request.track || !media_asset_key_valid(request.key) ||
         account_media_worker_stop_requested(worker))
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     collect_collection_titles(worker);
@@ -104,9 +103,6 @@ u32 account_media_worker_animation_lane(const AccountMediaWorker* worker, MediaA
 }
 
 AccountMediaRequestResult account_media_worker_initialize(AccountMediaWorker* worker) noexcept {
-    if (!worker) {
-        return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    }
     SecureZeroMemory(worker, sizeof(*worker));
     worker->stop_event = event_create(true, false);
     worker->output_event = event_create(false, false);
@@ -281,7 +277,7 @@ AccountMediaRequestResult account_media_worker_request_local_preview(
     if (work.text_bytes)
         CopyMemory(work.text, request.path.data, work.text_bytes);
     // Never reuse a live atlas/cache key for a different source or owner.
-    if (worker && worker->initialized)
+    if (worker->initialized)
         for (auto& lane : worker->lanes) {
             const auto phase = load_phase(&lane);
             const auto& prior =
@@ -296,7 +292,7 @@ AccountMediaRequestResult account_media_worker_request_local_preview(
 
 AccountMediaRequestResult account_media_worker_retire_local_preview(
     AccountMediaWorker* worker, const AccountMediaLocalPreviewRequest& request) noexcept {
-    if (!worker || !worker->initialized || !exact_local_request(request, false))
+    if (!worker->initialized || !exact_local_request(request, false))
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     bool pending = false;
     for (auto& lane : worker->lanes) {
@@ -351,7 +347,7 @@ AccountMediaRequestResult account_media_worker_retire_local_preview(
 
 AccountMediaRequestResult account_media_worker_local_preview_uploaded(
     AccountMediaWorker* worker, const AccountMediaLocalPreviewRequest& request) noexcept {
-    if (!worker || !worker->initialized || !exact_local_request(request, true))
+    if (!worker->initialized || !exact_local_request(request, true))
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     if (account_media_worker_stop_requested(worker))
         return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
@@ -399,7 +395,7 @@ AccountMediaRequestResult account_media_worker_local_preview_uploaded(
 }
 
 AccountMediaRequestResult account_media_worker_local_previews_presented(AccountMediaWorker* worker) noexcept {
-    if (!worker || !worker->initialized)
+    if (!worker->initialized)
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     if (account_media_worker_stop_requested(worker))
         return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
@@ -484,7 +480,7 @@ bool account_media_worker_take_frame(AccountMediaWorker* worker, AccountMediaFra
 }
 
 bool account_media_worker_healthy(const AccountMediaWorker* worker) noexcept {
-    if (!worker || !worker->initialized) {
+    if (!worker->initialized) {
         return false;
     }
     for (u32 index = 0; index < kAccountMediaDecodeLaneCount; ++index) {
@@ -498,11 +494,11 @@ bool account_media_worker_healthy(const AccountMediaWorker* worker) noexcept {
 }
 
 HANDLE account_media_worker_notification_handle(const AccountMediaWorker* worker) noexcept {
-    return worker && worker->initialized ? worker->output_event : nullptr;
+    return worker->initialized ? worker->output_event : nullptr;
 }
 
 void account_media_worker_expire_retries(AccountMediaWorker* worker, u64 now_ms) noexcept {
-    if (!worker || !worker->initialized)
+    if (!worker->initialized)
         return;
     // A deadline wakes the UI once even when its image left the viewport.
     // Visible work is retried when requested again; invisible failures must not spin the wait loop.
@@ -513,7 +509,7 @@ void account_media_worker_expire_retries(AccountMediaWorker* worker, u64 now_ms)
 }
 
 u64 account_media_worker_next_wake_at_ms(const AccountMediaWorker* worker) noexcept {
-    if (!worker || !worker->initialized) {
+    if (!worker->initialized) {
         return 0;
     }
     u64 earliest = 0;
@@ -531,7 +527,7 @@ u64 account_media_worker_next_wake_at_ms(const AccountMediaWorker* worker) noexc
 }
 
 bool account_media_worker_stop(AccountMediaWorker* worker, u32 timeout_ms) noexcept {
-    if (!worker || !worker->initialized || timeout_ms == 0) {
+    if (!worker->initialized || timeout_ms == 0) {
         return false;
     }
     const u64 started_at_ms = clock_monotonic_milliseconds();

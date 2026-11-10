@@ -421,7 +421,7 @@ bool enable_favorites(ApplicationMediaPicker& p) noexcept {
         application_gif_favorites_set_visible(true);
         return favorites_refresh(p);
     }
-    if (!g_app.account.api.gif_favorites || !application_gif_favorites_open())
+    if (!application_gif_favorites_open())
         return true;
     p.favorites_enabled = true;
     p.favorite_generation = 1;
@@ -513,9 +513,8 @@ void focus(ApplicationMediaPicker& p, bool value) noexcept {
         g_app.context_focus = nullptr;
 }
 void cancel(ApplicationMediaPicker& p) noexcept {
-    if (p.submitted_id && g_app.account.instance && g_app.account.api.media_catalog)
-        g_app.account.api.media_catalog(g_app.account.instance, AccountMediaCatalogOperation::cancel,
-                                        nullptr, p.submitted_id);
+    if (p.submitted_id && g_app.account.instance)
+        account_module_media_catalog(g_app.account.instance, AccountMediaCatalogOperation::cancel, nullptr, p.submitted_id);
     // Keep the response until the primary worker consumes it.
 }
 bool repaint(bool defer_text) noexcept {

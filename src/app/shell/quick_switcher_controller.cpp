@@ -285,7 +285,6 @@ bool quick_switcher_channel_forwardable(QuickSwitcherSources sources, const Chan
 
 bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope scope,
     QuickSwitcherSources sources, Utf8View query, QuickSwitcherMode mode, bool forwarding_age_restricted) noexcept {
-    if (!c) return false;
     const auto versions = stamp(sources, mode);
     const bool valid = valid_scope(scope, sources) && query.bytes <= kQuickSwitcherQueryMaximumBytes &&
         (!query.bytes || query.data) && utf8_validate(query).valid;
@@ -370,7 +369,7 @@ bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope s
 }
 bool quick_switcher_visit(QuickSwitcherController* c, QuickSwitcherScope scope,
     QuickSwitcherSources sources, u64 channel_id) noexcept {
-    if (!c || !valid_scope(scope, sources)) return false;
+    if (!valid_scope(scope, sources)) return false;
     const auto* channel = chat_state_store_find_channel(*sources.state, channel_id);
     if (!channel || !selectable(*sources.state, *channel)) return false;
     if (!quick_switcher_scope_equal(c->scope, scope)) {
@@ -393,8 +392,8 @@ bool quick_switcher_current(const QuickSwitcherController& c, QuickSwitcherScope
 }
 bool quick_switcher_resolve(const QuickSwitcherController& c, QuickSwitcherScope scope,
     QuickSwitcherSources sources, u32 index, u32 revision, QuickSwitcherTarget* target) noexcept {
-    if (target) reset_value(target);
-    if (!target || index >= c.count || !quick_switcher_current(c, scope, sources, revision) || !target_current(sources, c.rows[index].target)) return false;
+    reset_value(target);
+    if (index >= c.count || !quick_switcher_current(c, scope, sources, revision) || !target_current(sources, c.rows[index].target)) return false;
     *target = c.rows[index].target; return true;
 }
 } // namespace maicord

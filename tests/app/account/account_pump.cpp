@@ -1,6 +1,7 @@
 #include "maicord/platform/window/win32.hpp"
 #include "account_pump_internal.hpp"
 #include "../../support/application_downloads_inactive.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "../../support/gateway_message_scratch.hpp"
 #include "../../support/application_poll_inactive.hpp"
@@ -476,8 +477,8 @@ void test_member_role_refresh() noexcept {
                   !g_app.thread_member_list_subscription.retry_at_ms,
               "role_refresh_hidden_interest_does_not_create_a_subscription_or_wake");
     }
-    const auto previous_gateway_source = g_app.account.api.gateway_source;
-    g_app.account.api.gateway_source = diagnostic_source;
+    const auto previous_gateway_source = g_account_fake.gateway_source;
+    g_account_fake.gateway_source = diagnostic_source;
     scoped_gateway_event = {};
     scoped_gateway_event.kind = GatewayClientEventKind::dispatch;
     scoped_gateway_event.dispatch_kind = GatewayClientDispatchKind::channel_delete;
@@ -528,7 +529,7 @@ void test_member_role_refresh() noexcept {
     check(application_pump_account() && forum_gateway_notifications == 1 &&
               browser_gateway_notifications == 1,
           "explicit overwrite authority retains scoped browser and forum invalidation");
-    g_app.account.api.gateway_source = previous_gateway_source;
+    g_account_fake.gateway_source = previous_gateway_source;
     event_pump.timeline = nullptr;
     event_pump.state = nullptr;
     event_pump.members = nullptr;
@@ -622,9 +623,9 @@ void test_message_navigation_lifecycle() noexcept {
     const auto previous_status = next_status;
     const auto previous_actual_status = g_app.account.status;
     const u8 previous_observed_phase = g_app.account.last_phase;
-    const auto previous_overview = g_app.account.api.channel_overview;
-    const auto previous_pins = g_app.account.api.pinned_messages;
-    const auto previous_gateway_source = g_app.account.api.gateway_source;
+    const auto previous_overview = g_account_fake.channel_overview;
+    const auto previous_pins = g_account_fake.pinned_messages;
+    const auto previous_gateway_source = g_account_fake.gateway_source;
     const u64 previous_scope = g_app.plugin_account_scope_serial;
     GuildRecord guilds[1]{};
     ChannelRecord channels[8]{};
@@ -635,9 +636,9 @@ void test_message_navigation_lifecycle() noexcept {
     MessageRecord messages[8]{};
     u32 message_order[8]{}, item_units[8]{};
     u64 fenwick[8]{}, bulk_ids[kGatewayBulkDeleteMaximumIds]{}, ready_guilds[8]{};
-    g_app.account.api.channel_overview = navigation_fetch;
-    g_app.account.api.pinned_messages = navigation_cancel;
-    g_app.account.api.gateway_source = diagnostic_source;
+    g_account_fake.channel_overview = navigation_fetch;
+    g_account_fake.pinned_messages = navigation_cancel;
+    g_account_fake.gateway_source = diagnostic_source;
     next_status.running = true;
     next_status.profile_id = 5;
     next_status.coordinator_phase = static_cast<u8>(UserAccountCoordinatorPhase::running);
@@ -851,9 +852,9 @@ void test_message_navigation_lifecycle() noexcept {
     message_event_pump_reset(&g_app.message_pump);
     ui.chat_state = {};
     g_app.message_view = {};
-    g_app.account.api.channel_overview = previous_overview;
-    g_app.account.api.pinned_messages = previous_pins;
-    g_app.account.api.gateway_source = previous_gateway_source;
+    g_account_fake.channel_overview = previous_overview;
+    g_account_fake.pinned_messages = previous_pins;
+    g_account_fake.gateway_source = previous_gateway_source;
     next_status = previous_status;
     g_app.account.status = previous_actual_status;
     // The fixture pumps a running account. Restore its observation stamp too,
@@ -870,7 +871,7 @@ void test_poll_gateway_receipts() noexcept {
     const auto old_status = next_status;
     const auto old_actual = g_app.account.status;
     const u8 old_phase = g_app.account.last_phase;
-    const auto old_source = g_app.account.api.gateway_source;
+    const auto old_source = g_account_fake.gateway_source;
     const auto old_scope = g_app.plugin_account_scope_serial;
     const HWND old_window = win32_hwnd(g_app.window);
     GuildRecord guilds[1]{}; ChannelRecord channels[2]{};
@@ -894,7 +895,7 @@ void test_poll_gateway_receipts() noexcept {
     next_status.running = true; next_status.profile_id = 5;
     next_status.coordinator_phase = static_cast<u8>(UserAccountCoordinatorPhase::running);
     g_app.account.status = next_status; g_app.plugin_account_scope_serial = 31;
-    g_app.account.api.gateway_source = diagnostic_source;
+    g_account_fake.gateway_source = diagnostic_source;
     constexpr auto create = utf8_literal(R"({"op":0,"s":2,"t":"MESSAGE_CREATE","d":{"id":"900","channel_id":"70","author":{"id":"42"},"content":"","timestamp":"2026-10-05T00:00:00Z","poll":{"question":{"text":"Where?"},"answers":[{"answer_id":1,"poll_media":{"text":"Here"}}],"allow_multiselect":false,"layout_type":1,"expiry":null,"results":{"is_finalized":false,"answer_counts":[{"id":1,"count":0,"me_voted":false}]}}}})");
     u32 structurals[1024]{}, object_structurals[1024]{}; char mailbox[4096]{};
     GatewayEnvelope envelope{}; ConstSlice<u8> payload{};
@@ -971,7 +972,7 @@ void test_poll_gateway_receipts() noexcept {
     poll_follow_ready = scoped_gateway_event_ready = poll_seed_selected_channel = false;
     message_poll_store_release(&ui.message_poll_store); message_event_pump_reset(&g_app.message_pump);
     ui.chat_state = {}; g_app.message_view = {}; ui.poll_sequence_known = false;
-    g_app.account.api.gateway_source = old_source; next_status = old_status; g_app.account.status = old_actual;
+    g_account_fake.gateway_source = old_source; next_status = old_status; g_app.account.status = old_actual;
     g_app.account.last_phase = old_phase;
     ui.active_channel_id = 0;
     g_app.plugin_account_scope_serial = old_scope; g_app.window = win32_window(old_window); g_app.frame_pending = false; reset_counts();
@@ -984,8 +985,8 @@ u32 run_account_pump_tests() noexcept {
         return 1;
     g_app.account.module = reinterpret_cast<HMODULE>(1);
     g_app.account.instance = reinterpret_cast<void*>(1);
-    g_app.account.api.pump = pump;
-    g_app.account.api.gateway_source = no_gateway_source;
+    g_account_fake.pump = pump;
+    g_account_fake.gateway_source = no_gateway_source;
     g_app.login.status = RendererLoginStatus::idle;
     bool media_repaint = false;
     browser_blocks_read = true;
@@ -1059,8 +1060,8 @@ u32 run_account_pump_tests() noexcept {
           "authentication_rejection_returns_to_login_without_normal_model_drain");
     reset_counts();
     next_status.coordinator_error = static_cast<u8>(UserAccountCoordinatorError::gateway);
-    g_app.account.api.gateway_source = diagnostic_source;
-    g_app.account.api.gateway_pop = diagnostic_pop;
+    g_account_fake.gateway_source = diagnostic_source;
+    g_account_fake.gateway_pop = diagnostic_pop;
     g_app.message_pump.payload_scratch = {g_app.account_ui->event_payload_scratch,
                                           kGatewayClientDispatchPayloadCapacity};
     diagnostic_events = 3;
@@ -1082,18 +1083,6 @@ u32 run_account_pump_tests() noexcept {
     check(application_pump_account() && login_returns == 1 && diagnostic_source_reads == 1 &&
               !diagnostic_pops,
           "terminal_diagnostic_null_source_still_reaches_safe_teardown");
-    for (u32 scenario = 0; scenario < 2; ++scenario) {
-        reset_counts();
-        if (!scenario)
-            g_app.account.api.gateway_source = nullptr;
-        else
-            g_app.account.api.gateway_pop = nullptr;
-        check(application_pump_account() && login_returns == 1 && !diagnostic_source_reads &&
-                  !diagnostic_pops,
-              "terminal_diagnostic_missing_hooks_abort_before_dispatch_without_skipping_teardown");
-        g_app.account.api.gateway_source = diagnostic_source;
-        g_app.account.api.gateway_pop = diagnostic_pop;
-    }
     reset_counts();
     const auto valid_scratch = g_app.message_pump.payload_scratch;
     g_app.message_pump.payload_scratch = {};

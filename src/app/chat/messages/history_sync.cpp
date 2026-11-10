@@ -643,9 +643,6 @@ void message_history_attachment_reset(AttachmentRefresh* refresh) noexcept {
 }
 
 bool message_history_attachment_tick(AttachmentRefresh* refresh, u64 now_ms) noexcept {
-    if (!refresh) {
-        return false;
-    }
     if (refresh->state == AttachmentRefreshState::waiting_retry && now_ms >= refresh->retry_at_ms) {
         refresh->retry_at_ms = 0;
         refresh->state = AttachmentRefreshState::request_required;
@@ -655,7 +652,7 @@ bool message_history_attachment_tick(AttachmentRefresh* refresh, u64 now_ms) noe
 
 bool message_history_attachment_queue(AttachmentRefresh* refresh, u64 channel_id, u64 message_id,
                                       u32 message_revision, u64 attachment_id) noexcept {
-    if (!refresh || channel_id == 0 || message_id == 0 || message_revision == 0 || attachment_id == 0) {
+    if (channel_id == 0 || message_id == 0 || message_revision == 0 || attachment_id == 0) {
         return false;
     }
     if (refresh->state != AttachmentRefreshState::idle) {
@@ -677,7 +674,7 @@ MessageHistoryRestResult message_history_jump_accept_rest(
     MessageContentAvailability empty_content_availability) noexcept {
     MessageHistoryRestResult result{};
     result.disposition = MessageHistoryRestDisposition::failed;
-    if (!timeline || !users || !members || !state || target_channel_id == 0 || target_message_id == 0 ||
+    if (target_channel_id == 0 || target_message_id == 0 ||
         (!body.data && body.bytes != 0) || response.body_bytes != body.bytes) {
         result.error = MessageHistoryRestError::invalid_input;
         return result;
@@ -756,7 +753,7 @@ MessageHistoryJumpEdges message_history_jump_edges(ConstSlice<GatewayMessageEven
 bool message_history_jump_settle(MessageHistoryCatchup* catchup, MessageHistoryOlder* older,
                                  MessageEventPump* pump, u64 channel_id,
                                  ConstSlice<GatewayMessageEvent> page, MessageHistoryJumpEdges edges) noexcept {
-    if (!catchup || !older || !pump || !pump->timeline || channel_id == 0 || (!page.data && page.count))
+    if (!pump->timeline || channel_id == 0 || (!page.data && page.count))
         return false;
     MessageTimeline& timeline = *pump->timeline;
     // Browsing stays ready (older paging, attachment and reply refreshes): a
@@ -781,7 +778,7 @@ bool message_history_jump_settle(MessageHistoryCatchup* catchup, MessageHistoryO
 
 bool message_history_jump_to_present(MessageHistoryCatchup* catchup, MessageHistoryOlder* older,
                                      MessageEventPump* pump, u64 channel_id, u32 request_limit) noexcept {
-    if (!catchup || !older || !pump || !pump->timeline || !pump->timeline->store || channel_id == 0 ||
+    if (!pump->timeline || !pump->timeline->store || channel_id == 0 ||
         request_limit == 0)
         return false;
     MessageTimeline& timeline = *pump->timeline;
@@ -804,7 +801,7 @@ MessageHistoryRestResult message_history_attachment_accept_rest(
     MessageContentAvailability empty_content_availability) noexcept {
     MessageHistoryRestResult result{};
     result.disposition = MessageHistoryRestDisposition::failed;
-    if (!refresh || !timeline || refresh->state != AttachmentRefreshState::awaiting_response ||
+    if (refresh->state != AttachmentRefreshState::awaiting_response ||
         (!body.data && body.bytes != 0) || response.body_bytes != body.bytes) {
         result.error = MessageHistoryRestError::invalid_input;
         return result;
@@ -853,7 +850,7 @@ MessageHistoryRestResult message_history_attachment_accept_rest(
 
 bool message_history_reply_queue(ReplyReferenceRefresh* refresh, const MessageTimeline& timeline,
                                  u64 channel_id, u64 now_ms) noexcept {
-    if (!refresh || !channel_id || !timeline.store || !timeline.rich_store) return false;
+    if (!channel_id || !timeline.store || !timeline.rich_store) return false;
     if (refresh->channel_id != channel_id) *refresh = {channel_id};
     if (refresh->state == AttachmentRefreshState::waiting_retry && now_ms >= refresh->retry_at_ms) {
         refresh->state = AttachmentRefreshState::request_required;
@@ -882,7 +879,7 @@ MessageHistoryRestResult message_history_reply_accept_rest(
     const MessageHistoryDecodeScratch& scratch) noexcept {
     MessageHistoryRestResult result{};
     result.disposition = MessageHistoryRestDisposition::applied;
-    if (!refresh || !timeline || !timeline->store || !timeline->rich_store ||
+    if (!timeline->store || !timeline->rich_store ||
         refresh->state != AttachmentRefreshState::awaiting_response || response.body_bytes != body.bytes) {
         result.error = MessageHistoryRestError::invalid_input;
         return result;
@@ -967,7 +964,7 @@ bool message_history_catchup_begin(MessageHistoryCatchup* catchup, MessageEventP
 
 bool message_history_catchup_take_query(MessageHistoryCatchup* catchup,
                                         MessageHistoryQuery* query) noexcept {
-    if (!catchup || !query || catchup->state != MessageHistoryCatchupState::request_required) {
+    if (catchup->state != MessageHistoryCatchupState::request_required) {
         return false;
     }
     *query = MessageHistoryQuery{catchup->cursor_after, catchup->request_limit,
@@ -1065,7 +1062,7 @@ bool message_history_window_retainable(const MessageHistoryCatchup& catchup, con
 
 bool message_history_older_demand(MessageHistoryOlder* older, const MessageTimeline* timeline,
                                   u64 channel_id, u32 request_limit) noexcept {
-    if (!older || !timeline || !timeline->store || !timeline->list || channel_id == 0 ||
+    if (!timeline->store || !timeline->list || channel_id == 0 ||
         request_limit == 0 || request_limit > kMessageHistoryMaximumMessages ||
         (older->channel_id != 0 && older->channel_id != channel_id)) {
         return false;
@@ -1102,7 +1099,7 @@ bool message_history_older_demand(MessageHistoryOlder* older, const MessageTimel
 
 bool message_history_older_take_query(MessageHistoryOlder* older,
                                       MessageHistoryQuery* query) noexcept {
-    if (!older || !query || older->cursor_before == 0 ||
+    if (older->cursor_before == 0 ||
         older->state != MessageHistoryOlderState::request_required) {
         return false;
     }
@@ -1159,7 +1156,7 @@ MessageHistoryRestResult message_history_catchup_accept_rest(
     MessageHistoryCatchup* catchup, MessageEventPump* pump, const RestClientResponse& response,
     const Utf8View& body, const MessageHistoryDecodeScratch& scratch,
     MessageContentAvailability empty_content_availability, u64 now_ms) noexcept {
-    if (!catchup || !pump || !pump->timeline ||
+    if (!pump->timeline ||
         catchup->state != MessageHistoryCatchupState::awaiting_page || (!body.data && body.bytes != 0) ||
         response.body_bytes != body.bytes) {
         MessageHistoryRestResult invalid{};
@@ -1180,7 +1177,7 @@ MessageHistoryRestResult message_history_older_accept_rest(
     ChatStateStore* state, GuildMemberStore* members, const RestClientResponse& response,
     Utf8View body, const MessageHistoryDecodeScratch& scratch,
     MessageContentAvailability empty_content_availability, u64 now_ms) noexcept {
-    if (!older || !timeline || older->state != MessageHistoryOlderState::awaiting_page ||
+    if (older->state != MessageHistoryOlderState::awaiting_page ||
         (!body.data && body.bytes != 0) || response.body_bytes != body.bytes) {
         MessageHistoryRestResult invalid{};
         invalid.disposition = MessageHistoryRestDisposition::failed;

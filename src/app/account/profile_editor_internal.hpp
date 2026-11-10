@@ -10,8 +10,6 @@
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/ui/account/profile_dialog_scene.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
-
-
 #include <stddef.h>
 #include "maicord/app/account/account_profile_edit.hpp"
 #include "maicord/app/media/local_draft_preview.hpp"

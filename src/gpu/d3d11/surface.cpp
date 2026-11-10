@@ -105,9 +105,6 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
     // The maximum frame latency of a waitable swap chain is 1 by default.
     surface->frame_latency_waitable = latency->GetFrameLatencyWaitableObject();
     latency->Release();
-    if (!surface->frame_latency_waitable) {
-        return failure(surface, "dxgi_1_3_resize_surface_unavailable", E_FAIL);
-    }
 
     surface->buffer_width = desc.width;
     surface->buffer_height = desc.height;

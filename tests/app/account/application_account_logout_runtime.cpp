@@ -4,6 +4,7 @@
 #include "../../../src/app/account/application_account_logout.hpp"
 #include "../../../src/app/account/application_account_module.hpp"
 #include "../../../src/app/shell/state.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "../../../src/app/chat/composer/text_form.hpp"
 #include "maicord/app/account/login/account_credential_forget.hpp"
 #include "maicord/app/account/account_logout.hpp"
@@ -260,7 +261,7 @@ bool seed() noexcept {
     g_app.account = {};
     g_app.account.module = GetModuleHandleW(nullptr);
     g_app.account.instance = &paths;
-    g_app.account.api.logout = server;
+    g_account_fake.logout = server;
     g_app.account.status.profile_id = 42;
     g_app.account_ui->chat_state.self_user_id = 99;
     g_app.login.visible = false;

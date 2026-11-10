@@ -173,5 +173,4 @@ extern "C" __declspec(dllimport) PEXCEPTION_ROUTINE WINAPI RtlVirtualUnwind(DWOR
 extern "C" __declspec(dllimport) PVOID WINAPI AddVectoredExceptionHandler(ULONG First,
     PVECTORED_EXCEPTION_HANDLER Handler);
 // <debugapi.h>
-extern "C" __declspec(dllimport) BOOL WINAPI IsDebuggerPresent();
 extern "C" __declspec(dllimport) BOOL WINAPI GetThreadContext(HANDLE hThread, LPCONTEXT lpContext);

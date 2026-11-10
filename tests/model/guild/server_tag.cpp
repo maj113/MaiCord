@@ -124,8 +124,7 @@ void test_catalogue() noexcept {
           "badges: ten base badges (Leaf first), twenty pack badges, none of the retired 10-20");
     const auto& bunny = *guild_tag_badge(21);
     check(!guild_tag_badge_unlocked(bunny, 0) && guild_tag_badge_unlocked(bunny, guild_feature_badge_pack_pets) &&
-              guild_tag_badge_unlocked(*guild_tag_badge(6), 0) &&
-              same(guild_tag_pack_name(guild_feature_badge_pack_creepy_crawlies), "Creepy Crawlies"),
+              guild_tag_badge_unlocked(*guild_tag_badge(6), 0),
           "badges: a pack badge needs its GUILD_TAGS_BADGE_PACK_* feature");
     check(guild_feature_bit(utf8_literal("GUILD_TAGS")) == guild_feature_guild_tags &&
               guild_feature_bit(utf8_literal("GUILD_TAGS_BADGE_PACK_FLEX")) == guild_feature_badge_pack_flex,

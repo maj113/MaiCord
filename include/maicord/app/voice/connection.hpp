@@ -21,8 +21,6 @@ inline constexpr u8 kVoiceDaveInvalidLimit = 5;
 inline constexpr u16 kVoiceCloseRepeatedMlsInvalid = 4803;
 inline constexpr u16 kVoiceCloseDaveDowngradeRefused = 4804;
 inline constexpr u64 kVoiceDaveReconnectMinimumMs = 1'000, kVoiceDaveReconnectMaximumMs = 10'000;
-// Video receive: Identify advertises video with the camera stream, Select
-// Protocol offers H.264 decode-only (PT 101, RTX 102). No encoder is offered.
 inline constexpr u32 kVoiceSinkWantsMaximum = 32;
 enum class VoiceConnectionError : u8 {
     none,
@@ -33,8 +31,7 @@ enum class VoiceConnectionError : u8 {
     media,
     datagram,
     protocol,
-    protocol_timeout,
-    participants
+    protocol_timeout
 };
 struct VoiceReceivedPacket {
     VoicePacketResult transport;

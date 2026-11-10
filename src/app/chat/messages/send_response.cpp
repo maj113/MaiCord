@@ -10,7 +10,7 @@ MessageSendResponseResult message_send_accept_response(MessageComposerController
     const RestClientResponse& response, Utf8View body, const MessageHistoryDecodeScratch& scratch,
     u64 active_channel_id, u64 current_user_id, u64 now_ms) noexcept {
     MessageSendResponseResult result{};
-    const u64 nonce = controller ? controller->inflight_nonce : 0;
+    const u64 nonce = controller->inflight_nonce;
     MessageSendHttpDisposition disposition = MessageSendHttpDisposition::terminal_failure;
     if (response.transport_ok()) {
         if (response.status_code == 429 && response.rate_limited && response.retry_at_ms &&

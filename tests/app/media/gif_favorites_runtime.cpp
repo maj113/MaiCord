@@ -4,6 +4,7 @@
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -208,7 +209,7 @@ bool contains(ConstSlice<u8> bytes, ConstSlice<u8> pattern) noexcept {
 }
 void configure() noexcept {
     g_app.account.instance = reinterpret_cast<void*>(1);
-    g_app.account.api.gif_favorites = submit;
+    g_account_fake.gif_favorites = submit;
     g_app.account.status.profile_id = 4;
     g_app.account.status.running = true;
     g_app.account.status.frecency_settings_revision = 1;

@@ -122,9 +122,8 @@ enum MimeBit : u32 {
 inline constexpr u32 kMaxOffers = 8;
 
 struct OfferSlot {
-    void* offer;  // wl_data_offer* or zwp_primary_selection_offer_v1*
-    u32 mimes;    // MimeBit
-    bool primary;
+    wl_data_offer* offer;
+    u32 mimes;  // MimeBit
 };
 
 // What a selection we own offers; freed when the source is cancelled or replaced.
@@ -139,17 +138,13 @@ struct Payload {
 
 struct DataState {
     wl_data_device* device;
-    zwp_primary_selection_device_v1* primary_device;
     OfferSlot offers[kMaxOffers];
-    OfferSlot* selection;          // the clipboard, as announced
-    OfferSlot* primary_selection;  // the primary selection
-    OfferSlot* drag;               // the offer being dragged over the window
+    OfferSlot* selection;  // the clipboard, as announced
+    OfferSlot* drag;       // the offer being dragged over the window
     bool drag_accepts;
-    bool drop_target;              // window_set_drop_target
-    wl_data_source* source;                       // the clipboard we own
+    bool drop_target;  // window_set_drop_target
+    wl_data_source* source;  // the clipboard we own
     Payload* payload;
-    zwp_primary_selection_source_v1* primary_source;
-    Payload* primary_payload;
 };
 
 inline constexpr u32 kImeUnits = 8192;
@@ -267,7 +262,6 @@ struct Backend {
     u32 input_serial;  // the serial of the latest key or button press: what selections and activation ask for
 
     wl_data_device_manager* data_manager;
-    zwp_primary_selection_device_manager_v1* primary_manager;
     zwp_text_input_manager_v3* text_input_manager;
     xdg_activation_v1* activation_manager;
     zwp_idle_inhibit_manager_v1* idle_manager;
@@ -367,7 +361,7 @@ bool frame_filter(const WindowEvent& event) noexcept;
 
 // data.cpp -----------------------------------------------------------------------------------------------------------
 
-// Creates the data and primary-selection devices once the seat and the managers are bound.
+// Creates the data device once the seat and the manager are bound.
 void data_attach() noexcept;
 void data_shutdown() noexcept;
 

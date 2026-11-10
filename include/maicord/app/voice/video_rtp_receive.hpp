@@ -76,7 +76,6 @@ struct VideoRtpConfig {
     u32 idle_stream_us;     // Idle streams may be evicted for new SSRCs.
     u8 max_nacks;           // NACKs per missing packet.
 };
-VideoRtpConfig video_rtp_default_config() noexcept;
 struct VideoRtpStreamStats {
     u64 rtx_packets, late, oversized, discarded_packets, frames, damaged_frames, losses;
 };

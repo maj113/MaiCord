@@ -18,7 +18,7 @@ namespace {
 bool read_image(Pick pick, ConstSlice<wchar_t> path, FileSnapshot snapshot, Utf8View* error) noexcept {
     auto& p = *owner;
     *error = utf8_literal("Oops, something went wrong...");
-    if (!path.data || !path.count || path.count > kNativeFilePickerMaximumPathUnits || !g_app.account.api.profile_image)
+    if (!path.data || !path.count || path.count > kNativeFilePickerMaximumPathUnits)
         return false;
     auto& staged = p.staged;
     release_picked(staged);
@@ -62,7 +62,7 @@ bool read_image(Pick pick, ConstSlice<wchar_t> path, FileSnapshot snapshot, Utf8
     ProfileImageRequest request{};
     request.source = {data, total};
     request.info = &staged.info;
-    if (!g_app.account.api.profile_image(g_app.account.instance, &request)) {
+    if (!account_module_profile_image(g_app.account.instance, &request)) {
         *error = image_error(staged.info.error);
         release_picked(staged);
         return false;
@@ -134,7 +134,7 @@ void remove_image(Pick pick) noexcept {
 bool prepare_uri(Picked& picked) noexcept {
     if (picked.uri)
         return true;
-    if (!picked.data || !g_app.account.api.profile_image)
+    if (!picked.data)
         return false;
     auto* uri = static_cast<u8*>(
         commit_pages(kAccountProfileImageUriCapacity));
@@ -146,7 +146,7 @@ bool prepare_uri(Picked& picked) noexcept {
     ProfileImageInfo info{};
     request.info = &info;
     request.data_uri = {uri, kAccountProfileImageUriCapacity};
-    if (!g_app.account.api.profile_image(g_app.account.instance, &request) || !request.data_uri_bytes) {
+    if (!account_module_profile_image(g_app.account.instance, &request) || !request.data_uri_bytes) {
         pages_release(uri);
         return false;
     }

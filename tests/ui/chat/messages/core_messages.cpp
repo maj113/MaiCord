@@ -12,7 +12,7 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/messages/action_bar_presentation.hpp"
 #include "maicord/ui/chat/messages/context_controller.hpp"
-#include "../../../support/message_background_surfaces.inc"
+#include "maicord/ui/chat/messages/presentation.hpp"
 #include "maicord/ui/chat/messages/reaction_presentation.hpp"
 #include "maicord/ui/chat/messages/rich_widgets.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
@@ -78,6 +78,18 @@ TimestampFormatResult test_markdown_timestamp(void*, u64 unix_seconds, char styl
 bool test_markdown_spoiler(void* opaque, u32) noexcept {
     auto* fixture = static_cast<MarkdownSemanticFixture*>(opaque);
     return fixture && fixture->reveal_spoiler;
+}
+
+bool initialize_presentation(MessageTextPresentation* presentation, MessageTextCommand* commands,
+                             u32 command_count) noexcept {
+    return message_text_presentation_initialize(
+        presentation, Slice<MessageTextCommand>{commands, command_count},
+        Slice<char>{g_message_text_utf8, kMaximumMessageTextUtf8Bytes},
+        Slice<TextStyleSpan>{g_message_text_styles, kMaximumMessageTextStyleSpans},
+        Slice<MessageMarkdownSemantic>{g_message_text_semantics, kMaximumMessageTextSemantics},
+        Slice<MessageTextMeasurement>{g_message_text_measurements, kMaximumMessageTextMeasurements},
+        Slice<MessageTextSpoilerReveal>{g_message_text_spoiler_reveals, kMaximumMessageTextSpoilerReveals},
+        Slice<u32>{g_message_text_byte_styles, kMessageTextByteStyleScratchCapacity});
 }
 
 } // namespace
@@ -616,14 +628,8 @@ void test_message_text_presentation() noexcept {
         rich_ready ? message_scene_update(&scene, viewport) : MessageSceneResult{};
 
     MessageTextPresentation presentation{};
-    const bool initialized = message_text_presentation_initialize(
-        &presentation, Slice<MessageTextCommand>{g_message_text_commands, kMaximumMessageTextCommands},
-        Slice<char>{g_message_text_utf8, kMaximumMessageTextUtf8Bytes},
-        Slice<TextStyleSpan>{g_message_text_styles, kMaximumMessageTextStyleSpans},
-        Slice<MessageMarkdownSemantic>{g_message_text_semantics, kMaximumMessageTextSemantics},
-        Slice<MessageTextMeasurement>{g_message_text_measurements, kMaximumMessageTextMeasurements},
-        Slice<MessageTextSpoilerReveal>{g_message_text_spoiler_reveals, kMaximumMessageTextSpoilerReveals},
-        Slice<u32>{g_message_text_byte_styles, kMessageTextByteStyleScratchCapacity});
+    const bool initialized =
+        initialize_presentation(&presentation, g_message_text_commands, kMaximumMessageTextCommands);
     ChatStateStore state{};
     GuildRecord state_guilds[1]{};
     u16 state_guild_order[1]{};
@@ -1617,14 +1623,7 @@ void test_message_text_presentation() noexcept {
            "message_text_measurement_reflows_layout_engine");
 
     MessageTextPresentation tiny{};
-    const bool tiny_initialized = message_text_presentation_initialize(
-        &tiny, Slice<MessageTextCommand>{g_tiny_message_text_commands, 1},
-        Slice<char>{g_message_text_utf8, kMaximumMessageTextUtf8Bytes},
-        Slice<TextStyleSpan>{g_message_text_styles, kMaximumMessageTextStyleSpans},
-        Slice<MessageMarkdownSemantic>{g_message_text_semantics, kMaximumMessageTextSemantics},
-        Slice<MessageTextMeasurement>{g_message_text_measurements, kMaximumMessageTextMeasurements},
-        Slice<MessageTextSpoilerReveal>{g_message_text_spoiler_reveals, kMaximumMessageTextSpoilerReveals},
-        Slice<u32>{g_message_text_byte_styles, kMessageTextByteStyleScratchCapacity});
+    const bool tiny_initialized = initialize_presentation(&tiny, g_tiny_message_text_commands, 1);
     const MessageTextPresentationResult tiny_result =
         tiny_initialized ? message_text_presentation_build(&tiny, scene, state, &users, navigation,
                                                            kDefaultTheme, 1'700'000'100ull)
@@ -1827,14 +1826,8 @@ void test_chat_text_size() noexcept {
         message_timeline_bind_rich_store(&timeline, &rich_store) &&
         message_rich_store_apply(&rich_store, 91'000, source_message->revision, rich_event).ok();
     MessageTextPresentation presentation{};
-    const bool presentation_ready = message_text_presentation_initialize(
-        &presentation, Slice<MessageTextCommand>{g_message_text_commands, kMaximumMessageTextCommands},
-        Slice<char>{g_message_text_utf8, kMaximumMessageTextUtf8Bytes},
-        Slice<TextStyleSpan>{g_message_text_styles, kMaximumMessageTextStyleSpans},
-        Slice<MessageMarkdownSemantic>{g_message_text_semantics, kMaximumMessageTextSemantics},
-        Slice<MessageTextMeasurement>{g_message_text_measurements, kMaximumMessageTextMeasurements},
-        Slice<MessageTextSpoilerReveal>{g_message_text_spoiler_reveals, kMaximumMessageTextSpoilerReveals},
-        Slice<u32>{g_message_text_byte_styles, kMessageTextByteStyleScratchCapacity});
+    const bool presentation_ready =
+        initialize_presentation(&presentation, g_message_text_commands, kMaximumMessageTextCommands);
     ChatStateStore state{};
     GuildRecord state_guilds[1]{};
     u16 state_guild_order[1]{};

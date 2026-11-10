@@ -199,7 +199,7 @@ bool enqueue(const UserGuildSettingsPatch& patch) noexcept {
     return true;
 }
 bool apply(const UserGuildSettingsPatch& patch) noexcept {
-    if (!user_guild_settings_patch_valid(patch) || !g_app.account.api.guild_settings)
+    if (!user_guild_settings_patch_valid(patch))
         return false;
     const auto projected = user_guild_settings_project(current_setting(patch.guild_id, patch.channel_id), patch);
     if (!enqueue(patch))
@@ -287,7 +287,7 @@ u32 application_notification_menu_items(u64 guild_id, u64 channel_id,
                                         const Slice<PopupItem>& output) noexcept {
     u64 guild = 0;
     u8 type = 0;
-    if (!output.data || output.count < kNotificationMenuItemCount || !g_app.account.api.guild_settings ||
+    if (!output.data || output.count < kNotificationMenuItemCount ||
         !target(guild_id, channel_id, &guild, &type))
         return 0;
     const auto setting = current_setting(guild, channel_id);
@@ -381,8 +381,7 @@ GuildChannelOptIn application_notification_controls_channel_opt_in(u64 guild_id)
     const auto* s = state();
     const auto* store = application_notifications_store(&g_app);
     const auto* guild = s ? chat_state_store_find_guild(*s, guild_id) : nullptr;
-    if (!store || !guild || guild->unavailable || !(guild->upload_features & guild_record_community) ||
-        !g_app.account.api.guild_settings)
+    if (!store || !guild || guild->unavailable || !(guild->upload_features & guild_record_community))
         return result;
     result.enabled = guild_flag(*store, guild_id, kUserGuildOptInChannelsOn);
     // Turning opt-in on needs a channel list to keep: opted-in channels or
@@ -446,14 +445,14 @@ u64 application_notification_controls_next_wake() noexcept {
 bool application_notification_controls_pending(u64 now_ms) noexcept {
     scope();
     return owner.count && !owner.request_id && (!owner.retry_at || owner.retry_at <= now_ms) &&
-           g_app.account.instance && g_app.account.status.running && g_app.account.api.guild_settings;
+           g_app.account.instance && g_app.account.status.running;
 }
 
 bool application_notification_controls_submit(u64 request_id, u64 now_ms) noexcept {
     if (!request_id || !application_notification_controls_pending(now_ms))
         return false;
     auto& front = owner.queue[0];
-    const auto submitted = g_app.account.api.guild_settings(g_app.account.instance, &front.patch, request_id);
+    const auto submitted = account_module_guild_settings(g_app.account.instance, &front.patch, request_id);
     if (submit_busy(submitted, owner.retry_at, now_ms, 50))
         return false;
     if (!submitted.ok()) {
@@ -495,7 +494,7 @@ bool application_notification_controls_response(const RestClientResponse& respon
 }
 
 void application_notification_controls_clear() noexcept {
-    application_cancel_request(&AccountModuleApi::guild_settings, owner.request_id);
+    application_cancel_request(account_module_guild_settings, owner.request_id);
     reset_value(&owner);
 }
 } // namespace maicord::app_detail

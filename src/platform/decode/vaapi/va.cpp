@@ -45,12 +45,11 @@ static_assert(kFunctionBytes + kDrmFunctionBytes == sizeof(Api));
 bool load_libraries(Api* api) noexcept {
     // Only the tests name another soname (the missing-library path); operators have MAICORD_LIBRARY_PATH.
     const char* va_name = test_hook("MAICORD_VAAPI_LIBRARY");
-    const char* drm_name = test_hook("MAICORD_VAAPI_DRM_LIBRARY");
     if (!shared_library_open(&g_libva, va_name && *va_name ? va_name : "libva.so.2")) {
         note("libva.so.2 is not installed: no hardware video decode");
         return false;
     }
-    if (!shared_library_open(&g_libva_drm, drm_name && *drm_name ? drm_name : "libva-drm.so.2")) {
+    if (!shared_library_open(&g_libva_drm, "libva-drm.so.2")) {
         note("libva-drm.so.2 is not installed: no hardware video decode");
         shared_library_close(&g_libva);
         return false;

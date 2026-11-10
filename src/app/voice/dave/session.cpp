@@ -386,14 +386,14 @@ void dave_session_release(DaveSession* session) noexcept {
     secure_clear_bytes(session, sizeof(*session));
 }
 MlsStatus dave_session_reinitialize(DaveSession* session, u16 protocol_version) noexcept {
-    if (!session || !session->initialized || !protocol_version || protocol_version > kDaveProtocolVersion)
+    if (!session->initialized || !protocol_version || protocol_version > kDaveProtocolVersion)
         return MlsStatus::invalid_argument;
     reset_group(*session);
     session->protocol_version = protocol_version;
     return prepare_leaf(*session);
 }
 MlsStatus dave_session_set_external_sender(DaveSession* session, ConstSlice<u8> input) noexcept {
-    if (!session || !session->initialized || !input.data || !input.count)
+    if (!session->initialized || !input.data || !input.count)
         return MlsStatus::invalid_argument;
     if (input.count > kMlsMaxExternalSenderBytes)
         return MlsStatus::buffer_too_small;
@@ -414,10 +414,8 @@ MlsStatus dave_session_set_external_sender(DaveSession* session, ConstSlice<u8> 
     return create_initial_group(*session);
 }
 MlsStatus dave_session_key_package(DaveSession* session, ConstSlice<u8>* output) noexcept {
-    if (!output)
-        return MlsStatus::invalid_argument;
     reset_value(output);
-    if (!session || !session->initialized || !session->protocol_version || !session->signing_key.handle)
+    if (!session->initialized || !session->protocol_version || !session->signing_key.handle)
         return MlsStatus::state_conflict;
     drop_key_package(*session);
     auto status = dave_key_package_create(session->kdf, session->signing_key, session->self_user_id,
@@ -444,8 +442,6 @@ MlsStatus dave_session_key_package(DaveSession* session, ConstSlice<u8>* output)
 }
 MlsStatus dave_session_proposals(DaveSession* session, ConstSlice<u8> input, ConstSlice<u64> recognized,
                                  ConstSlice<u8>* output, u32* commit_bytes) noexcept {
-    if (!output || !commit_bytes)
-        return MlsStatus::invalid_argument;
     reset_value(output);
     *commit_bytes = 0;
     if (!session || !session->initialized || !input.data || !input.count ||
@@ -575,8 +571,6 @@ MlsStatus dave_session_welcome(DaveSession* session, u16 transition_id, ConstSli
 }
 MlsStatus dave_session_prepare_transition(DaveSession* session, u16 transition_id, u16 protocol_version,
                                           bool allow_pending_group) noexcept {
-    if (!session)
-        return MlsStatus::invalid_argument;
     return stage(*session, transition_id, protocol_version, allow_pending_group,
                  DaveTransitionKind::protocol);
 }
@@ -589,7 +583,7 @@ bool dave_session_transition_prepared(const DaveSession& session, u16 transition
     return false;
 }
 MlsStatus dave_session_execute_transition(DaveSession* session, u16 transition_id, u64 now_ms) noexcept {
-    if (!session || !session->initialized)
+    if (!session->initialized)
         return MlsStatus::invalid_argument;
     DaveTransition* slot = nullptr;
     for (auto& transition : session->transitions)
@@ -691,7 +685,7 @@ bool dave_session_can_encrypt(const DaveSession& session) noexcept {
            session.sealer_ready;
 }
 DaveSealResult dave_session_encrypt(DaveSession* session, ConstSlice<u8> opus, Slice<u8> output) noexcept {
-    if (!session || !opus.data || !opus.count || opus.count > kDaveMaxOpusFrame)
+    if (!opus.data || !opus.count || opus.count > kDaveMaxOpusFrame)
         return {0, 0, 0, DaveSealError::invalid_input};
     if (!dave_session_can_encrypt(*session))
         return {0, 0, 0, DaveSealError::not_initialized};
@@ -705,7 +699,7 @@ DaveSealResult dave_session_encrypt(DaveSession* session, ConstSlice<u8> opus, S
 }
 DaveSealResult dave_session_encrypt_video(DaveSession* session, DaveVideoCodec codec, ConstSlice<u8> frame,
                                           Slice<u8> prepared, Slice<u8> scratch, Slice<u8> output) noexcept {
-    if (!session || !frame.data || !frame.count)
+    if (!frame.data || !frame.count)
         return {0, 0, 0, DaveSealError::invalid_input};
     if (!dave_session_can_encrypt(*session))
         return {0, 0, 0, DaveSealError::not_initialized};

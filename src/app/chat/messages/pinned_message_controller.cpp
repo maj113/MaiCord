@@ -128,7 +128,7 @@ bool pinned_message_scope_equal(PinnedMessageScope a, PinnedMessageScope b) noex
 }
 bool pinned_message_controller_open(PinnedMessageController* value, PinnedMessageScope scope,
                                     bool available, bool can_pin) noexcept {
-    if (!value || value->request_id || !scope_valid(scope) || value->revision == ~u64{0}) return false;
+    if (value->request_id || !scope_valid(scope) || value->revision == ~u64{0}) return false;
     const u64 revision = value->revision;
     clear_bytes(value, sizeof(*value));
     value->revision = revision;
@@ -177,20 +177,20 @@ void pinned_message_controller_authority(PinnedMessageController* value, PinnedM
 }
 void pinned_message_controller_reauthorize(PinnedMessageController* value, PinnedMessageScope scope,
                                            bool available, bool can_pin) noexcept {
-    if (!value || !value->active || !pinned_message_scope_equal(value->scope, scope)) return;
+    if (!value->active || !pinned_message_scope_equal(value->scope, scope)) return;
     value->permission_denied = !can_pin;
     value->read_denied = !available;
     pinned_message_controller_authority(value, scope, available, can_pin);
 }
 bool pinned_message_controller_refresh(PinnedMessageController* value) noexcept {
-    if (!value || !usable(*value) || value->request_id ||
+    if (!usable(*value) || value->request_id ||
         (value->queued && value->pending.operation != MessagePinsOperation::fetch)) return false;
     fetch(*value);
     value->failure = PinnedMessageFailure::none;
     return advance(*value);
 }
 bool pinned_message_controller_next(PinnedMessageController* value) noexcept {
-    if (!value || !usable(*value) || value->request_id || value->queued || !value->authoritative ||
+    if (!usable(*value) || value->request_id || value->queued || !value->authoritative ||
         !value->has_page || !value->page.has_more) return false;
     if (value->page_index + 1 >= kPinnedMessageCursorHistory) {
         value->phase = PinnedMessagePhase::failed;
@@ -203,7 +203,7 @@ bool pinned_message_controller_next(PinnedMessageController* value) noexcept {
     return advance(*value);
 }
 bool pinned_message_controller_previous(PinnedMessageController* value) noexcept {
-    if (!value || !usable(*value) || value->request_id || value->queued || !value->authoritative ||
+    if (!usable(*value) || value->request_id || value->queued || !value->authoritative ||
         !value->has_page || !value->has_previous || value->page_index >= value->cursor_count) return false;
     const u32 index = value->page_index - 1;
     fetch(*value, value->cursors[index], index);
@@ -211,7 +211,7 @@ bool pinned_message_controller_previous(PinnedMessageController* value) noexcept
     return advance(*value);
 }
 bool pinned_message_controller_retry(PinnedMessageController* value) noexcept {
-    if (!value || !usable(*value) || value->request_id || value->queued ||
+    if (!usable(*value) || value->request_id || value->queued ||
         value->phase != PinnedMessagePhase::failed ||
         (value->pending.operation != MessagePinsOperation::fetch && !value->can_pin)) return false;
     value->queued = true;
@@ -223,7 +223,7 @@ bool pinned_message_controller_retry(PinnedMessageController* value) noexcept {
     return advance(*value);
 }
 bool pinned_message_controller_mutate(PinnedMessageController* value, u64 message_id, bool pin) noexcept {
-    if (!value || !usable(*value) || !message_id || !value->can_pin || value->request_id ||
+    if (!usable(*value) || !message_id || !value->can_pin || value->request_id ||
         (value->queued && value->pending.operation != MessagePinsOperation::fetch)) return false;
     // A pin-notification system message cannot itself be pinned. Timeline
     // callers still authorize their resident message type before this entry.
@@ -247,7 +247,7 @@ PinnedMessageRequest pinned_message_controller_request(const PinnedMessageContro
 }
 bool pinned_message_controller_submitted(PinnedMessageController* value, const PinnedMessageRequest& request,
                                          u64 request_id) noexcept {
-    if (!value || !request_id || !request_equal(*value, request) ||
+    if (!request_id || !request_equal(*value, request) ||
         (value->pending.operation != MessagePinsOperation::fetch && !value->can_pin)) return false;
     value->request_id = request_id;
     value->submitted_remote_revision = value->remote_revision;
@@ -257,7 +257,7 @@ bool pinned_message_controller_submitted(PinnedMessageController* value, const P
 }
 bool pinned_message_controller_admission_failed(PinnedMessageController* value, const PinnedMessageRequest& request,
                                                 bool busy) noexcept {
-    if (!value || !request_equal(*value, request)) return false;
+    if (!request_equal(*value, request)) return false;
     if (busy) return true;
     value->queued = false;
     value->phase = PinnedMessagePhase::failed;
@@ -265,7 +265,7 @@ bool pinned_message_controller_admission_failed(PinnedMessageController* value, 
     return advance(*value);
 }
 bool pinned_message_controller_invalidate(PinnedMessageController* value, PinnedMessageScope scope) noexcept {
-    if (!value || !usable(*value) || !pinned_message_scope_equal(value->scope, scope)) return false;
+    if (!usable(*value) || !pinned_message_scope_equal(value->scope, scope)) return false;
     if (value->remote_revision == ~u64{0}) { pinned_message_controller_cancel(value); return false; }
     ++value->remote_revision;
     value->authoritative = false;
@@ -277,7 +277,7 @@ bool pinned_message_controller_invalidate(PinnedMessageController* value, Pinned
 bool pinned_message_controller_complete(PinnedMessageController* value, PinnedMessageScope scope, u64 request_id,
                                         PinnedMessageCompletion completion, const MessagePinsPage* page,
                                         ConstSlice<MessagePin> items, u64 now_ms) noexcept {
-    if (!value || !request_id || request_id != value->request_id ||
+    if (!request_id || request_id != value->request_id ||
         !pinned_message_scope_equal(value->scope, scope)) return false;
     value->request_id = 0;
     if (!value->active) return true;
@@ -333,7 +333,7 @@ const PinnedMessageRow* pinned_message_controller_row(const PinnedMessageControl
     return value.active && value.available && value.has_page && index < value.page.count ? &value.rows[index] : nullptr;
 }
 bool pinned_message_controller_select(PinnedMessageController* value, u64 message_id) noexcept {
-    if (!value || !usable(*value) || !value->authoritative || !message_id) return false;
+    if (!usable(*value) || !value->authoritative || !message_id) return false;
     for (u32 at = 0; at < value->page.count; ++at) if (value->rows[at].message_id == message_id) {
         value->selected_message_id = message_id; return advance(*value);
     }

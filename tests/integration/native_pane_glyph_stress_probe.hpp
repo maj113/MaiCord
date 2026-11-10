@@ -202,7 +202,7 @@ inline bool native_pane_glyph_stress_probe(D3D11Renderer& renderer) noexcept {
              .ok())
         return fail();
     surface_motion_probe_detail::Readback readback;
-    if (!readback.initialize(renderer) || renderer_refresh_interaction_text(nullptr, kDefaultTheme))
+    if (!readback.initialize(renderer))
         return fail();
     const auto warm = [&]() noexcept {
         return renderer_refresh_interaction_text(&renderer, kDefaultTheme) &&

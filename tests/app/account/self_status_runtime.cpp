@@ -1,6 +1,7 @@
 #include "account/self_status.hpp"
 #include "shell/state.hpp"
 #include "maicord/core/time.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "maicord/app/gateway/client.hpp"
 #include "../../support/test_output.hpp"
 
@@ -52,9 +53,9 @@ RestClientResponse response(u64 id, u16 status = 200) noexcept {
 }
 void run() noexcept {
     g_app.account.instance = reinterpret_cast<void*>(1);
-    g_app.account.api.self_status_snapshot = get;
-    g_app.account.api.self_status_submit = submit;
-    g_app.account.api.self_status_complete = complete;
+    g_account_fake.self_status_snapshot = get;
+    g_account_fake.self_status_submit = submit;
+    g_account_fake.self_status_complete = complete;
     snapshot.profile_id = 4;
     snapshot.self_user_id = 7;
     snapshot.available = true;

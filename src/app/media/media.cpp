@@ -139,15 +139,12 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
         *repaint = false;
     }
     if (!application.account.instance || !application.account_ui || !application.renderer.media_atlas ||
-        !application.renderer.preview_media_atlas ||
-        !account_api_provides(&AccountModuleApi::media_request, &AccountModuleApi::media_guild_icon_request,
-                              &AccountModuleApi::media_attachment_request, &AccountModuleApi::media_take)) {
+        !application.renderer.preview_media_atlas) {
         return true;
     }
 #if !defined(_WIN32)
     // Lossy WebP decodes on the CPU when this GPU has no VP8 path (renderer_vp8_gpu), before any request below.
-    if (application.account.api.media_vp8_cpu)
-        application.account.api.media_vp8_cpu(application.account.instance, !renderer_vp8_gpu(application.renderer));
+    account_module_media_vp8_cpu(application.account.instance, !renderer_vp8_gpu(application.renderer));
 #endif
     const u64 now_ms = clock_monotonic_milliseconds(), now_seconds = clock_unix_milliseconds() / 1'000;
     pass(now_ms, now_seconds, 0, repaint);
@@ -218,7 +215,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
          completions < kMessageMediaCompletionDrainBudget && uploads < kMessageMediaUploadBudget;
          ++completions) {
         AccountMediaFrame pending{};
-        if (!application.account.api.media_take(application.account.instance, &pending)) {
+        if (!account_module_media_take(application.account.instance, &pending)) {
             break;
         }
         if (pending.source_kind == AccountMediaSourceKind::local_draft_preview) {
@@ -1163,9 +1160,6 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
 }
 
 ApplicationMediaPumpResult application_pump_visible_media(Application* application) noexcept {
-    if (!application) {
-        return {};
-    }
     ApplicationMediaPump pump{*application};
     pump.result.ok = pump.pump_visible_static_media(&pump.result.repaint);
     return pump.result;
@@ -1173,8 +1167,7 @@ ApplicationMediaPumpResult application_pump_visible_media(Application* applicati
 
 __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* repaint) noexcept {
     if (application.login.visible || renderer_settings_hides_shell(application.renderer) ||
-        !application.account_ui || !application.account.instance || !application.account.api.media_take ||
-        !application.account.api.media_advance)
+        !application.account_ui || !application.account.instance)
         return true;
     const u64 now_ms = clock_monotonic_milliseconds(), now_seconds = clock_unix_milliseconds() / 1'000;
     const u64 now_us = clock_microseconds(application.clock, application.process_start, clock_now());
@@ -1193,7 +1186,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
         return false;
     for (u32 completions = 0; completions < kMessageMediaCompletionDrainBudget; ++completions) {
         AccountMediaFrame pending{};
-        if (!application.account.api.media_take(application.account.instance, &pending))
+        if (!account_module_media_take(application.account.instance, &pending))
             break;
         if (pending.source_kind == AccountMediaSourceKind::local_draft_preview)
             continue;
@@ -1224,8 +1217,6 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
 
 ApplicationMediaPumpResult application_pump_covered_media(Application* application) noexcept {
     ApplicationMediaPumpResult result{false, false, false, true};
-    if (!application)
-        return result;
     ApplicationMediaPump pump{*application};
     result.ok = pump.pump_covered_animations(&result.repaint);
     return result;
@@ -1235,11 +1226,11 @@ ApplicationMediaPumpResult application_pump_forum_preview_media(Application* app
     ApplicationMediaPumpResult result{false, false, false, true};
     const auto* scene = application_forum_form_scene();
     const auto post = application_forum_post_view();
-    if (!application || !scene || !scene->active || scene->content.owner_serial != post.ticket.serial ||
+    if (!scene || !scene->active || scene->content.owner_serial != post.ticket.serial ||
         !post.available || !application_forum_post_current(post.ticket) || application->login.visible ||
         renderer_settings_page_visible(application->renderer) || !application->account.instance ||
         !application->account_ui || !application->renderer.media_atlas ||
-        !application->renderer.preview_media_atlas || !application->account.api.media_take)
+        !application->renderer.preview_media_atlas)
         return result;
     const u64 now = clock_monotonic_milliseconds();
     result.ok = application_forum_preview_request(now, clock_unix_milliseconds() / 1'000);
@@ -1254,7 +1245,7 @@ ApplicationMediaPumpResult application_pump_forum_preview_media(Application* app
          completed < kMessageMediaCompletionDrainBudget && uploads < kMessageMediaUploadBudget;
          ++completed) {
         AccountMediaFrame frame{};
-        if (!application->account.api.media_take(application->account.instance, &frame))
+        if (!account_module_media_take(application->account.instance, &frame))
             break;
         const bool local = frame.source_kind == AccountMediaSourceKind::local_draft_preview;
         if (local) {

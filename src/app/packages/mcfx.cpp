@@ -665,12 +665,6 @@ bool glsl_section(ConstSlice<u8> section, const EffectGraph& graph, u32 shaders,
 
 } // namespace
 
-bool mcfx_png_extent(ConstSlice<u8> png, u32* width, u32* height) noexcept {
-    u32 depth{}, colour{};
-    return png_header(png, width, height, &depth, &colour) && *width <= kEffectTextureMaximumExtent &&
-           *height <= kEffectTextureMaximumExtent;
-}
-
 bool mcfx_float_texture(ConstSlice<u8> texture, u32* width, u32* height) noexcept {
     if (texture.count < 8 || !tag(texture.data, "MCFT"))
         return false;

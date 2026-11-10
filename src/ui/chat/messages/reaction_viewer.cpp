@@ -68,10 +68,7 @@ bool reaction_viewer_initialize(ReactionViewer* viewer, Slice<ReactionViewerUser
     return true;
 }
 
-bool reaction_viewer_layout(ReactionViewer* viewer, const UiRect& viewport, bool* changed) noexcept {
-    if (changed) {
-        *changed = false;
-    }
+bool reaction_viewer_layout(ReactionViewer* viewer, const UiRect& viewport) noexcept {
     if (!viewer || !ui_rect_has_area(viewport)) {
         return false;
     }
@@ -106,9 +103,6 @@ bool reaction_viewer_layout(ReactionViewer* viewer, const UiRect& viewport, bool
         return false;
     }
     saturating_increment_if(updated, viewer->revision);
-    if (changed) {
-        *changed = updated;
-    }
     return true;
 }
 

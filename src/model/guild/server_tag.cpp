@@ -64,16 +64,6 @@ const GuildTagBadge* guild_tag_badge(u8 type) noexcept {
     return nullptr;
 }
 
-Utf8View guild_tag_pack_name(u64 pack) noexcept {
-    switch (pack) {
-    case guild_feature_badge_pack_pets: return utf8_literal("Pets");
-    case guild_feature_badge_pack_flex: return utf8_literal("Flex");
-    case guild_feature_badge_pack_plant: return utf8_literal("Plant");
-    case guild_feature_badge_pack_creepy_crawlies: return utf8_literal("Creepy Crawlies");
-    default: return {};
-    }
-}
-
 bool guild_tag_badge_unlocked(const GuildTagBadge& badge, u64 features) noexcept {
     return !badge.pack || (features & badge.pack);
 }

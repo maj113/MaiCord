@@ -51,7 +51,7 @@ bool can_open() noexcept {
            (!application_channel_overview_active() || application_guild_community_active()) && ensure_owner();
 }
 bool openable(u64 guild_id) noexcept {
-    return g_app.account.api.guild_community && guild(guild_id) && can_open();
+    return guild(guild_id) && can_open();
 }
 void set_title(Utf8View title) noexcept {
     const u32 bytes = minimum<u32>(title.bytes, sizeof(owner->title));
@@ -494,7 +494,7 @@ const ScheduledEventStore* application_guild_community_events() noexcept {
 }
 
 void application_guild_community_navigation(NavigationView* view) noexcept {
-    if (!view || !g_app.account_ui)
+    if (!g_app.account_ui)
         return;
     const auto& s = state();
     const u64 guild_id = s.home_selected ? 0 : s.selected_guild_id;
@@ -546,7 +546,7 @@ bool application_guild_community_composer_press() noexcept {
 
 void application_guild_community_joined(u64 guild_id) noexcept {
     const auto* g = guild(guild_id);
-    if (!g || !g_app.account.api.guild_community)
+    if (!g)
         return;
     const bool known = self_member_known(*g);
     // Freshly joined: onboarding first when the server has it, then rules.
@@ -617,7 +617,7 @@ bool application_guild_community_open_event(u64 guild_id, u64 event_id) noexcept
 }
 
 bool application_guild_community_open_create(u64 guild_id) noexcept {
-    if (!g_app.account.api.guild_community || !can_manage_events(guild_id) || !can_open())
+    if (!can_manage_events(guild_id) || !can_open())
         return false;
     const bool switching = application_guild_community_active();
     auto& p = *owner;
@@ -655,13 +655,13 @@ bool application_guild_community_open_create(u64 guild_id) noexcept {
 }
 
 bool application_guild_community_can_create(u64 guild_id) noexcept {
-    return g_app.account.api.guild_community && can_manage_events(guild_id);
+    return can_manage_events(guild_id);
 }
 
 u32 application_guild_community_menu_items(u64 guild_id, u32 onboarding_action, u32 create_event_action,
                                            const Slice<PopupItem>& output) noexcept {
     const auto* g = guild(guild_id);
-    if (!g || g->unavailable || !output.data || !g_app.account.api.guild_community)
+    if (!g || g->unavailable || !output.data)
         return 0;
     u32 used = 0;
     if (onboarding_action && used < output.count && (g->upload_features & guild_record_onboarding))
@@ -672,7 +672,7 @@ u32 application_guild_community_menu_items(u64 guild_id, u32 onboarding_action, 
 }
 
 void application_guild_community_want_event(u64 guild_id, u64 event_id) noexcept {
-    if (!guild_id || !event_id || !guild(guild_id) || !g_app.account.api.guild_community || !ensure_background())
+    if (!guild_id || !event_id || !guild(guild_id) || !ensure_background())
         return;
     if (events && scheduled_event_store_find(*events, event_id))
         return;
@@ -744,7 +744,7 @@ void application_guild_community_close(bool restore_focus) noexcept {
 void application_guild_community_release() noexcept {
     application_guild_community_close(false);
     if (background) {
-        application_cancel_request(&AccountModuleApi::guild_community, background->request_id);
+        application_cancel_request(account_module_guild_community, background->request_id);
         SecureZeroMemory(background, sizeof(Background));
         pages_release(background);
         background = nullptr;
@@ -804,7 +804,7 @@ bool application_guild_community_submit(u64 now) noexcept {
     application_guild_card_join_poll(now);
     if (!g_app.account_ui || !background || !ensure_background() || background->request_id ||
         !background->queue_count || g_app.details_request_owner != MessageHistoryRequestOwner::none ||
-        !g_app.account.instance || !g_app.account.api.guild_community ||
+        !g_app.account.instance ||
         (background->retry_at && background->retry_at > now))
         return false;
     auto& b = *background;
@@ -829,7 +829,7 @@ bool application_guild_community_submit(u64 now) noexcept {
         application_guild_card_join_take_captcha(request.guild_id) &&
         !application_action_captcha_arm(ApplicationActionCaptchaKind::guild_join, request.guild_id, id, true))
         log_write(LogLevel::warning, "community", "join_captcha_arm_failed");
-    const auto submitted = g_app.account.api.guild_community(g_app.account.instance, &wire, id);
+    const auto submitted = account_module_guild_community(g_app.account.instance, &wire, id);
     if (submit_busy(submitted, b.retry_at, now, 50))
         return false;
     pop_request();

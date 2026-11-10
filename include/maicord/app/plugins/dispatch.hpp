@@ -76,7 +76,7 @@ struct PluginDraftResult {
 // subscribes or the text exceeds what the ABI can carry. Allocates nothing.
 PluginDraftResult plugin_dispatch_draft(PluginHook hook, const PluginDraft& draft) noexcept;
 
-// Hook calls made and strikes taken since process start; for tests and the dev console.
+// Hook calls made and strikes taken since process start; for tests.
 struct PluginDispatchStats {
     u32 calls;
     u32 strikes;

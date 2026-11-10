@@ -113,11 +113,7 @@ UiRect available_video_clip(UiRect clip) noexcept {
 namespace video_detail {
 
 bool video_session_available() noexcept {
-    return g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed &&
-           !g_app.login.visible &&
-           account_api_provides(&AccountModuleApi::video_select, &AccountModuleApi::video_control,
-                                &AccountModuleApi::video_status, &AccountModuleApi::video_take,
-                                &AccountModuleApi::video_acknowledge);
+    return g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed && !g_app.login.visible;
 }
 
 } // namespace video_detail
@@ -447,7 +443,7 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh, Applic
         return false;
     const u64 now = clock_monotonic_milliseconds(), unix_seconds = clock_unix_milliseconds() / 1000;
     const auto original_url = url;
-    url = media_url_resolve(&g_app.media_urls, url, now, unix_seconds, refresh && *refresh && !source.embed);
+    url = media_url_resolve(&g_app.media_urls, url, now, unix_seconds, *refresh && !source.embed);
     if (!url.bytes) {
         const bool pending =
             media_url_resolution_state(g_app.media_urls, original_url) != MediaUrlState::failed;
@@ -470,13 +466,12 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh, Applic
         source.audio || source.audio_preview ? audio_source_type(media_asset_audio_format(source.key))
                      : CdnImageType::mp4,
         {static_cast<u8>(source.embed && (!source.audio_preview || soundcloud_track_url(original_url) || embed_collection_url(original_url))),
-         {0, 0}, playback ? playback->collection_track : u16{0}},
+         {0, 0}, playback->collection_track},
         source.audio || source.audio_preview ? nullptr : g_app.renderer.graphics.device};
     const auto result =
-        g_app.account.api.media_attachment_request(g_app.account.instance, &request, now, unix_seconds);
-    if (refresh)
-        *refresh = result.state == AccountMediaRequestState::refresh_required;
-    if (playback && result.collection_count && result.collection_track && result.collection_track <= result.collection_count) {
+        account_module_media_attachment_request(g_app.account.instance, &request, now, unix_seconds);
+    *refresh = result.state == AccountMediaRequestState::refresh_required;
+    if (result.collection_count && result.collection_track && result.collection_track <= result.collection_count) {
         playback->collection_count = result.collection_count;
         playback->collection_track = result.collection_track;
         playback->collection_more = result.collection_more;

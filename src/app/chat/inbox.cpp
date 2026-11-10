@@ -79,7 +79,7 @@ bool front() noexcept {
     return g_app.account_ui && !g_app.login.visible && application_panel_uncovered();
 }
 bool connected() noexcept {
-    return g_app.account.instance && g_app.account.status.running && g_app.account.api.mentions;
+    return g_app.account.instance && g_app.account.status.running;
 }
 u64 server_filter() noexcept {
     const auto& state = g_app.account_ui->chat_state;
@@ -334,8 +334,8 @@ Inbox* ensure() noexcept {
     return inbox;
 }
 void cancel_request() noexcept {
-    if (inbox->request_id && !inbox->cancelled && g_app.account.instance && g_app.account.api.mentions) {
-        g_app.account.api.mentions(g_app.account.instance, nullptr, inbox->request_id);
+    if (inbox->request_id && !inbox->cancelled && g_app.account.instance) {
+        account_module_mentions(g_app.account.instance, nullptr, inbox->request_id);
         inbox->cancelled = true;
     }
 }
@@ -558,7 +558,7 @@ bool application_inbox_submit(u64 request_id, u64 now_ms) noexcept {
     const u64 oldest = value.mention_count ? value.mentions[value.mention_count - 1].message_id : 0;
     value.submitted = {oldest, value.this_server ? server_filter() : 0, kMentionsPageLimit, value.roles,
                        value.everyone};
-    const auto submitted = g_app.account.api.mentions(g_app.account.instance, &value.submitted, request_id);
+    const auto submitted = account_module_mentions(g_app.account.instance, &value.submitted, request_id);
     if (submit_busy(submitted, value.retry_at, now_ms, 50))
         return false;
     value.queued = false;

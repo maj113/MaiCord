@@ -14,7 +14,7 @@ struct FakeStream {
     u64 written_frames{}, played_frames{};
     u32 rate{48000};
     u64 microseconds() const noexcept {
-        return pulse::microseconds_from_frames(played_frames, rate);
+        return played_frames * 1'000'000 / rate;
     }
     void tick(u32 milliseconds) noexcept {
         const u64 playable = pulse::frames_in_milliseconds(rate, milliseconds);
@@ -55,10 +55,8 @@ void test_pulse_timing(Check check) noexcept {
               frames_from_microseconds(20'833, 48000) == 999 && frames_from_microseconds(0, 48000) == 0 &&
               frames_from_microseconds(1, 44100) == 0 && frames_from_microseconds(3, 500'000) == 1,
           "pulse timeline: microseconds convert to whole frames with one floor");
-    check(frames_from_microseconds(~u64{0}, 4'000'000'000u) == ~u64{0} && frames_from_microseconds(~u64{0}, 1) < ~u64{0} &&
-              microseconds_from_frames(48000, 48000) == 1'000'000 && microseconds_from_frames(1, 3) == 333'333 &&
-              microseconds_from_frames(~u64{0}, 1) == ~u64{0} && microseconds_from_frames(5, 0) == 0,
-          "pulse timeline: conversions saturate instead of wrapping and refuse a zero rate");
+    check(frames_from_microseconds(~u64{0}, 4'000'000'000u) == ~u64{0} && frames_from_microseconds(~u64{0}, 1) < ~u64{0},
+          "pulse timeline: the conversion saturates instead of wrapping");
 
     // Playback against a fake server clock: written 10 ms at a time, played as the clock advances.
     FakeStream stream{};

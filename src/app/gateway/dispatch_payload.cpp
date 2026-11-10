@@ -406,7 +406,7 @@ bool skip_rich_descriptors(Reader& reader, const GatewayClientMessageRichHeader&
 bool gateway_client_event_message_interaction_user(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                    u64* user_id) noexcept {
     GatewayMessageEvent message;
-    if (!user_id || !gateway_client_event_as_message(event, payload, &message))
+    if (!gateway_client_event_as_message(event, payload, &message))
         return false;
     const u32 rich_fields = event.message.fields & kGatewayMessageRichFieldMask;
     if (!event.message.rich_payload_bytes) {
@@ -805,7 +805,7 @@ bool gateway_client_event_message_member_role_at(const GatewayClientEvent& event
 
 bool gateway_client_event_message_author_name(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                               Utf8View* name) noexcept {
-    if (!name || !message_event_offsets(event, payload))
+    if (!message_event_offsets(event, payload))
         return false;
     *name = Utf8View{reinterpret_cast<const char*>(payload.data) + event.message.content_bytes,
                      event.message.author_name_bytes};
@@ -815,7 +815,7 @@ bool gateway_client_event_message_author_name(const GatewayClientEvent& event, C
 bool gateway_client_event_message_author_avatar_hash(const GatewayClientEvent& event,
                                                      ConstSlice<u8> payload,
                                                      Utf8View* avatar_hash) noexcept {
-    if (!avatar_hash || !message_event_offsets(event, payload))
+    if (!message_event_offsets(event, payload))
         return false;
     *avatar_hash = Utf8View{reinterpret_cast<const char*>(payload.data) + event.message.content_bytes +
                                 event.message.author_name_bytes,
@@ -825,7 +825,7 @@ bool gateway_client_event_message_author_avatar_hash(const GatewayClientEvent& e
 
 bool gateway_client_event_message_member_nick(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                               Utf8View* nick) noexcept {
-    if (!nick || !message_event_offsets(event, payload))
+    if (!message_event_offsets(event, payload))
         return false;
     *nick = Utf8View{reinterpret_cast<const char*>(payload.data) + event.message.content_bytes +
                          event.message.author_name_bytes + event.message.author_avatar_hash_bytes,

@@ -3077,8 +3077,8 @@ bool probe_settings_entrance(UiSettingsPresentation presentation, u32 stage) noe
             trial.entries = entries;
             trial.rows = rows;
             const GlyphAtlasAllocation whole =
-                glyph_atlas_allocate(&trial, ~u64{0} - 7, static_cast<u16>(trial.width - 2 * trial.padding),
-                                     static_cast<u16>(trial.page_rows - 2 * trial.padding));
+                glyph_atlas_allocate_unique(&trial, ~u64{0} - 7, static_cast<u16>(trial.width - 2 * trial.padding),
+                                            static_cast<u16>(trial.page_rows - 2 * trial.padding));
             return whole.atlas_reset || (whole.ok() && trial.entry_count == 1);
         };
         // How every modal-only frame left the shell's media before: unpinned,
@@ -3550,8 +3550,10 @@ bool probe_settings_scene() noexcept {
         g_probe.renderer.paint_stream_builds <= resize_paints ||
         !probe_capture_frame(L"settings-compact.bmp"))
         return false;
-    if (ui_page_registry_unregister_owner(&registry, 77) != 1 ||
-        ui_settings_scene_focused(scene).kind != UiSettingsTargetKind::none ||
+    reset_value(&pages[--registry.count]);
+    registry.selected_index = registry.count - 1;
+    ++registry.revision;
+    if (ui_settings_scene_focused(scene).kind != UiSettingsTargetKind::none ||
         !ui_settings_scene_update(&scene, &registry, viewport()) ||
         !ui_page_key_equal(scene.selected_page, accessibility_key) ||
         !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||

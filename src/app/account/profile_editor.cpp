@@ -113,8 +113,7 @@ void load_profile(const Utf8View& body) noexcept {
 } // namespace
 
 bool application_profile_editor_open(ProfileEditorTab tab, u64 guild_id) noexcept {
-    if (!application_account_available() || !g_app.renderer_ready || g_app.text_form || !g_app.account.api.profile_edit ||
-        !g_app.account.api.profile_image)
+    if (!application_account_available() || !g_app.renderer_ready || g_app.text_form)
         return false;
     if (application_profile_editor_active()) {
         if (owner->tab != tab || (guild_id && owner->guild_id != guild_id)) {
@@ -220,7 +219,7 @@ void application_profile_editor_release() noexcept {
     application_profile_editor_close(false);
     if (!owner)
         return;
-    application_cancel_request(&AccountModuleApi::profile_edit, owner->request_id);
+    application_cancel_request(account_module_profile_edit, owner->request_id);
     if (owner->picker.runtime) {
         native_file_picker_cancel(&owner->picker);
         native_file_picker_release(&owner->picker, 5'000);
@@ -452,8 +451,7 @@ u64 application_profile_editor_next_wake() noexcept {
 
 bool application_profile_editor_submit(u64 now) noexcept {
     if (!owner || owner->request_id || (owner->retry_at && owner->retry_at > now) || !g_app.account_ui ||
-        g_app.details_request_owner != MessageHistoryRequestOwner::none || !g_app.account.instance ||
-        !g_app.account.api.profile_edit)
+        g_app.details_request_owner != MessageHistoryRequestOwner::none || !g_app.account.instance)
         return false;
     auto& p = *owner;
     if (!p.queued && p.loaded && p.effect_wanted && p.effect_wanted != p.effect_loaded)
@@ -511,7 +509,7 @@ bool application_profile_editor_submit(u64 now) noexcept {
         return false;
     }
     const u64 id = application_next_request_id();
-    const auto submitted = g_app.account.api.profile_edit(g_app.account.instance, &request, id);
+    const auto submitted = account_module_profile_edit(g_app.account.instance, &request, id);
     if (submit_busy(submitted, p.retry_at, now, 50))
         return true;
     p.queued = false;

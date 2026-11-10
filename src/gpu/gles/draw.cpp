@@ -55,13 +55,7 @@ void bind_resources(GpuContext& context, const GlesShader& shader, u32 stage) no
             const u32 name = buffer ? buffer->name : 0;
             if (row.binding >= kGlesUniformBindings * 2)
                 break;
-            if (buffer && stage == 2 && context.compute_range_count[row.slot] != 0) {
-                // A ranged binding is rebound every time: the applied cache knows names, not offsets.
-                gl.glBindBufferRange(gl::kUniformBuffer, row.binding, name,
-                                     static_cast<gl::Intptr>(context.compute_range_first[row.slot]) * 16,
-                                     static_cast<gl::Sizeiptr>(context.compute_range_count[row.slot]) * 16);
-                context.applied_uniform_buffer[row.binding] = 0xFFFFFFFFu;
-            } else if (context.applied_uniform_buffer[row.binding] != name) {
+            if (context.applied_uniform_buffer[row.binding] != name) {
                 gl.glBindBufferBase(gl::kUniformBuffer, row.binding, name);
                 context.applied_uniform_buffer[row.binding] = name;
             }
@@ -275,18 +269,7 @@ void gpu_set_shader(GpuContext* context, GpuComputeShader* shader) {
 void gpu_set_constants(GpuContext* context, GpuStage stage, u32 first, u32 count, GpuBuffer* const* buffers) {
     for (u32 index = 0; index < count && first + index < kGlesConstantSlots; ++index) {
         context->constants[stage_index(stage)][first + index] = buffers[index];
-        if (stage == GpuStage::compute)
-            context->compute_range_count[first + index] = 0; // the whole buffer, as on Direct3D 11
     }
-}
-
-void gpu_set_constants_range(GpuContext* context, u32 slot, GpuBuffer* buffer, u32 first_constant,
-                             u32 constant_count) {
-    if (slot >= kGlesConstantSlots)
-        return;
-    context->constants[stage_index(GpuStage::compute)][slot] = buffer;
-    context->compute_range_first[slot] = first_constant;
-    context->compute_range_count[slot] = constant_count;
 }
 
 void gpu_set_strip_topology(GpuContext*) {}
@@ -310,8 +293,6 @@ void gpu_draw(GpuContext* context, u32 vertices, u32 first_vertex) {
     if (!apply_graphics(*context, 0))
         return;
     api().glDrawArrays(gl::kTriangleStrip, static_cast<gl::Int>(first_vertex), static_cast<gl::Sizei>(vertices));
-    if (gles::device().debug_checks)
-        check_error("draw");
 }
 
 void gpu_draw_instanced(GpuContext* context, u32 vertices, u32 instances, u32 first_vertex, u32 first_instance) {
@@ -321,13 +302,6 @@ void gpu_draw_instanced(GpuContext* context, u32 vertices, u32 instances, u32 fi
         return;
     api().glDrawArraysInstanced(gl::kTriangleStrip, static_cast<gl::Int>(first_vertex),
                                 static_cast<gl::Sizei>(vertices), static_cast<gl::Sizei>(instances));
-    if (gles::device().debug_checks && !gpu_ok(check_error("draw"))) {
-        LogEvent("draw_failed")
-            .hex("framebuffer_status", api().glCheckFramebufferStatus(gl::kFramebuffer))
-            .field("target_format", static_cast<u64>(context->target->texture->format))
-            .field("target_width", context->target->texture->width)
-            .write(LogLevel::error, "gpu");
-    }
 }
 
 void gpu_dispatch(GpuContext* context, u32 x, u32 y, u32 z) {

@@ -182,9 +182,10 @@ __declspec(noinline) void discard_runtime(AccountModuleRuntime* runtime, Account
     SecureZeroMemory(runtime, sizeof(*runtime));
     pages_release(runtime);
 }
+} // namespace
 
-AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const wchar_t* session_path,
-                                             u64 monotonic_now_ms, u64 unix_now_ms) noexcept {
+AccountModuleStartResult account_module_start(const wchar_t* profile_path, const wchar_t* session_path,
+                                              u64 monotonic_now_ms, u64 unix_now_ms) noexcept {
     AccountModuleStartResult result{};
     if (!profile_path || !session_path || unix_now_ms == 0) {
         result.error = AccountModuleError::invalid_input;
@@ -284,7 +285,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     return result;
 }
 
-AccountModuleStatus WINAPI module_pump(void* instance, u64 monotonic_now_ms, u64 unix_now_ms) noexcept {
+AccountModuleStatus account_module_pump(void* instance, u64 monotonic_now_ms, u64 unix_now_ms) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || unix_now_ms == 0) {
         return module_failure(AccountModuleError::invalid_input);
@@ -309,7 +310,7 @@ AccountModuleStatus WINAPI module_pump(void* instance, u64 monotonic_now_ms, u64
     return build_status(runtime);
 }
 
-u32 WINAPI module_notification_handles(void* instance, HANDLE* output, u32 capacity) noexcept {
+u32 account_module_notification_handles(void* instance, HANDLE* output, u32 capacity) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || (!output && capacity != 0)) {
         return 0;
@@ -330,31 +331,31 @@ u32 WINAPI module_notification_handles(void* instance, HANDLE* output, u32 capac
     return count;
 }
 
-void* WINAPI module_gateway_source(void* instance) noexcept {
+void* account_module_gateway_source(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
 }
 
-GatewayClientPopResult WINAPI module_gateway_pop(void* source, GatewayClientEvent* event,
-                                                 Slice<u8> payload_output) noexcept {
+GatewayClientPopResult account_module_gateway_pop(void* source, GatewayClientEvent* event,
+                                                  Slice<u8> payload_output) noexcept {
     return gateway_client_pop_event_payload(static_cast<GatewayClient*>(source), event, payload_output);
 }
 
-bool WINAPI module_guild_subscribe(void* instance, const GatewayGuildSubscription* subscription) noexcept {
+bool account_module_guild_subscribe(void* instance, const GatewayGuildSubscription* subscription) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     GatewayClient* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
     return gateway && subscription && gateway_client_subscribe_guild_members(gateway, *subscription);
 }
 
-GatewayStateRecoveryResult WINAPI module_gateway_refresh(void* instance) noexcept {
+GatewayStateRecoveryResult account_module_gateway_refresh(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return gateway_client_request_fresh_state(
         runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr);
 }
 
-RestClientSubmitResult WINAPI module_private_conversation(void* instance,
-                                                          PrivateConversationOperation operation,
-                                                          u64 id, u64 request_id) noexcept {
+RestClientSubmitResult account_module_private_conversation(void* instance,
+                                                           PrivateConversationOperation operation,
+                                                           u64 id, u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     auto* rest = module_rest(instance);
     if (!rest || !request_id)
@@ -370,9 +371,9 @@ RestClientSubmitResult WINAPI module_private_conversation(void* instance,
                               operation == PrivateConversationOperation::open);
 }
 
-RestClientSubmitResult WINAPI module_history_submit(void* instance, u64 channel_id,
-                                                    const MessageHistoryQuery* query,
-                                                    u64 request_id) noexcept {
+RestClientSubmitResult account_module_history_submit(void* instance, u64 channel_id,
+                                                     const MessageHistoryQuery* query,
+                                                     u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     // The restored channel's first page may go out before READY.
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
@@ -395,8 +396,8 @@ RestClientSubmitResult WINAPI module_history_submit(void* instance, u64 channel_
                               false);
 }
 
-AccountUploadResult WINAPI module_upload(void* instance, AccountUploadOperation operation, u64 id,
-                                         const AccountUploadRequest* request) noexcept {
+AccountUploadResult account_module_upload(void* instance, AccountUploadOperation operation, u64 id,
+                                          const AccountUploadRequest* request) noexcept {
     AccountUploadResult result{};
     result.id = id;
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
@@ -449,8 +450,8 @@ AccountUploadResult WINAPI module_upload(void* instance, AccountUploadOperation 
     return result;
 }
 
-AccountDownloadResult WINAPI module_download(void* instance, AccountDownloadOperation operation, u64 id,
-                                             const AccountDownloadRequest* request) noexcept {
+AccountDownloadResult account_module_download(void* instance, AccountDownloadOperation operation, u64 id,
+                                              const AccountDownloadRequest* request) noexcept {
     AccountDownloadResult result{};
     result.id = id;
     // A failed start either leaves nothing running or returns a handle that must be reaped.
@@ -510,9 +511,9 @@ AccountDownloadResult WINAPI module_download(void* instance, AccountDownloadOper
     return result;
 }
 
-RestClientSubmitResult WINAPI module_attachment_upload(void* instance, u64 channel_id, u32 id,
-                                                       Utf8View filename, u64 file_bytes,
-                                                       u64 request_id) noexcept {
+RestClientSubmitResult account_module_attachment_upload(void* instance, u64 channel_id, u32 id,
+                                                        Utf8View filename, u64 file_bytes,
+                                                        u64 request_id) noexcept {
     RestClient* rest = module_rest(instance);
     if (!rest || !request_id)
         return {RestClientSubmitError::invalid_input};
@@ -548,10 +549,10 @@ __declspec(noinline) RestClientSubmitResult submit_channel_body(RestClient* rest
     return submitted;
 }
 
-RestClientSubmitResult WINAPI
-module_message_submit(void* instance, u64 channel_id, Utf8View content, u64 nonce, u64 reply_message_id,
-                      ConstSlice<UploadedAttachment> attachments, ConstSlice<u64> sticker_ids,
-                      u64 request_id, bool mention_reply_author, u32 flags) noexcept {
+RestClientSubmitResult
+account_module_message_submit(void* instance, u64 channel_id, Utf8View content, u64 nonce, u64 reply_message_id,
+                              ConstSlice<UploadedAttachment> attachments, ConstSlice<u64> sticker_ids,
+                              u64 request_id, bool mention_reply_author, u32 flags) noexcept {
     RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || nonce == 0 || request_id == 0) {
         return kInvalidSubmit;
@@ -567,10 +568,10 @@ module_message_submit(void* instance, u64 channel_id, Utf8View content, u64 nonc
                                channel_id, RestMethod::post, request_id);
 }
 
-RestClientSubmitResult WINAPI module_message_forward(void* instance, u64 destination_channel_id,
-                                                     Utf8View caption, u64 nonce,
-                                                     MessageForwardReference source,
-                                                     u64 request_id) noexcept {
+RestClientSubmitResult account_module_message_forward(void* instance, u64 destination_channel_id,
+                                                      Utf8View caption, u64 nonce,
+                                                      MessageForwardReference source,
+                                                      u64 request_id) noexcept {
     RestClient* rest = module_rest(instance);
     if (!rest || !destination_channel_id || !nonce || !request_id)
         return {RestClientSubmitError::invalid_input};
@@ -584,8 +585,8 @@ RestClientSubmitResult WINAPI module_message_forward(void* instance, u64 destina
                                destination_channel_id, RestMethod::post, request_id);
 }
 
-RestClientSubmitResult WINAPI module_message_delete(void* instance, u64 channel_id, u64 message_id,
-                                                    u64 request_id) noexcept {
+RestClientSubmitResult account_module_message_delete(void* instance, u64 channel_id, u64 message_id,
+                                                     u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
@@ -606,8 +607,8 @@ RestClientSubmitResult WINAPI module_message_delete(void* instance, u64 channel_
                               false);
 }
 
-RestClientSubmitResult WINAPI module_message_edit(void* instance, u64 channel_id, u64 message_id,
-                                                  Utf8View content, u64 request_id) noexcept {
+RestClientSubmitResult account_module_message_edit(void* instance, u64 channel_id, u64 message_id,
+                                                   Utf8View content, u64 request_id) noexcept {
     RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || message_id == 0 || (!content.data && content.bytes != 0) ||
         request_id == 0) {
@@ -623,10 +624,10 @@ RestClientSubmitResult WINAPI module_message_edit(void* instance, u64 channel_id
                                RestMethod::patch, request_id);
 }
 
-RestClientSubmitResult WINAPI module_message_reaction(void* instance, u64 channel_id, u64 message_id,
-                                                      u64 emoji_id, Utf8View emoji_name,
-                                                      MessageReactionType type, bool add,
-                                                      u64 request_id) noexcept {
+RestClientSubmitResult account_module_message_reaction(void* instance, u64 channel_id, u64 message_id,
+                                                       u64 emoji_id, Utf8View emoji_name,
+                                                       MessageReactionType type, bool add,
+                                                       u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
@@ -671,9 +672,9 @@ __declspec(noinline) RestClientSubmitResult submit_interaction(AccountModuleRunt
     return result;
 }
 
-RestClientSubmitResult WINAPI module_application_command(void* instance, u64 channel, u64 guild,
-                                                         u64 application, u64 nonce, Utf8View data,
-                                                         u64 request_id, u8 operation) noexcept {
+RestClientSubmitResult account_module_application_command(void* instance, u64 channel, u64 guild,
+                                                          u64 application, u64 nonce, Utf8View data,
+                                                          u64 request_id, u8 operation) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
@@ -737,9 +738,9 @@ RestClientSubmitResult WINAPI module_application_command(void* instance, u64 cha
         &command, request_id, command.autocomplete);
 }
 
-RestClientSubmitResult WINAPI module_message_interaction(void* instance,
-                                                         const MessageInteractionRequest* request,
-                                                         u64 request_id) noexcept {
+RestClientSubmitResult account_module_message_interaction(void* instance,
+                                                          const MessageInteractionRequest* request,
+                                                          u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
     if (!rest || !request || !request_id || !message_interaction_request_valid(*request))
@@ -753,8 +754,8 @@ RestClientSubmitResult WINAPI module_message_interaction(void* instance,
         request, request_id, false);
 }
 
-RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 guild, u64 request_id,
-                                                 u8 operation, Utf8View value) noexcept {
+RestClientSubmitResult account_module_profile_get(void* instance, u64 user, u64 guild, u64 request_id,
+                                                  u8 operation, Utf8View value) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     auto* rest = module_rest(instance, true);
     if (!rest || !user || !request_id)
@@ -829,6 +830,8 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
                               false);
 }
 
+namespace {
+
 AccountLoginStatus module_login_start_mode(void** instance, const wchar_t* profile_path,
                                            bool reset) noexcept {
     if (!instance || *instance || !profile_path)
@@ -853,17 +856,14 @@ AccountLoginStatus module_login_start_mode(void** instance, const wchar_t* profi
 }
 
 } // namespace
-namespace account_module_detail {
-
-AccountLoginStatus WINAPI module_login_start(void** instance, const wchar_t* profile_path) noexcept {
+AccountLoginStatus account_module_login_start(void** instance, const wchar_t* profile_path) noexcept {
     return module_login_start_mode(instance, profile_path, false);
 }
 
-AccountLoginStatus WINAPI module_login_start_reset(void** instance, const wchar_t* profile_path) noexcept {
+AccountLoginStatus account_module_login_start_reset(void** instance, const wchar_t* profile_path) noexcept {
     return module_login_start_mode(instance, profile_path, true);
 }
 
-} // namespace account_module_detail
 namespace {
 
 bool ensure_user_auth_coordinator(AccountLoginRuntime* runtime) noexcept {
@@ -882,10 +882,8 @@ bool ensure_user_auth_coordinator(AccountLoginRuntime* runtime) noexcept {
 }
 
 } // namespace
-namespace account_module_detail {
-
-AccountLoginStatus WINAPI module_login_submit_password(void* instance, const SecureBuffer* login,
-                                                       const SecureBuffer* password) noexcept {
+AccountLoginStatus account_module_login_submit_password(void* instance, const SecureBuffer* login,
+                                                        const SecureBuffer* password) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !login || !password || runtime->remote_mode || runtime->reset_mode ||
         runtime->browser_mode) {
@@ -906,7 +904,7 @@ AccountLoginStatus WINAPI module_login_submit_password(void* instance, const Sec
     return login_status(runtime);
 }
 
-AccountLoginStatus WINAPI module_login_submit_recovery(void* instance, const SecureBuffer* login) noexcept {
+AccountLoginStatus account_module_login_submit_recovery(void* instance, const SecureBuffer* login) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !login || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode ||
         runtime->profile_saved || account_profile_promotion_has_credential(runtime->promotion)) {
@@ -926,8 +924,8 @@ AccountLoginStatus WINAPI module_login_submit_recovery(void* instance, const Sec
     return login_status(runtime);
 }
 
-AccountLoginStatus WINAPI module_login_start_browser(void* instance, u64 generation,
-                                                     u32 timeout_ms) noexcept {
+AccountLoginStatus account_module_login_start_browser(void* instance, u64 generation,
+                                                      u32 timeout_ms) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !generation || runtime->browser_mode || runtime->remote_mode || runtime->reset_mode ||
         runtime->coordinator_started || runtime->profile_saved || timeout_ms < 1000 ||
@@ -942,16 +940,16 @@ AccountLoginStatus WINAPI module_login_start_browser(void* instance, u64 generat
     return login_status(runtime);
 }
 
-SecureBufferResult WINAPI module_login_copy_browser_url(void* instance, u64 generation,
-                                                        SecureBuffer* output) noexcept {
+SecureBufferResult account_module_login_copy_browser_url(void* instance, u64 generation,
+                                                         SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !runtime->browser_mode || runtime->error != AccountLoginError::none)
         return {0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
     return browser_sign_in_receiver_copy_url(&runtime->browser.receiver, generation, output);
 }
 
-AccountLoginStatus WINAPI module_login_submit_verification(void* instance,
-                                                           const SecureBuffer* link_token) noexcept {
+AccountLoginStatus account_module_login_submit_verification(void* instance,
+                                                            const SecureBuffer* link_token) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !link_token || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode)
         return login_invalid_input();
@@ -971,7 +969,6 @@ AccountLoginStatus WINAPI module_login_submit_verification(void* instance,
     return login_status(runtime);
 }
 
-} // namespace account_module_detail
 namespace {
 
 bool phone_recovery_ready(const AccountLoginRuntime* runtime) noexcept {
@@ -990,31 +987,29 @@ AccountLoginStatus phone_submitted(AccountLoginRuntime* runtime, bool ok) noexce
 }
 
 } // namespace
-namespace account_module_detail {
-
-AccountLoginStatus WINAPI module_login_submit_phone_verify(void* instance,
-                                                           const SecureBuffer* code) noexcept {
+AccountLoginStatus account_module_login_submit_phone_verify(void* instance,
+                                                            const SecureBuffer* code) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!phone_recovery_ready(runtime))
         return login_invalid_input();
     return phone_submitted(runtime, user_auth_coordinator_submit_phone_verify(&runtime->coordinator, code).ok());
 }
-AccountLoginStatus WINAPI module_login_submit_phone_resend(void* instance) noexcept {
+AccountLoginStatus account_module_login_submit_phone_resend(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!phone_recovery_ready(runtime))
         return login_invalid_input();
     return phone_submitted(runtime, user_auth_coordinator_submit_phone_resend(&runtime->coordinator).ok());
 }
-SecureBufferResult WINAPI module_login_take_phone_reset_token(void* instance, u64 generation,
-                                                              SecureBuffer* output) noexcept {
+SecureBufferResult account_module_login_take_phone_reset_token(void* instance, u64 generation,
+                                                               SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!phone_recovery_ready(runtime) || !output)
         return {0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
     return user_auth_coordinator_take_phone_reset_token(&runtime->coordinator, generation, output);
 }
 
-AccountLoginStatus WINAPI module_login_submit_mfa(void* instance, const SecureBuffer* code,
-                                                  UserAuthMfaType type) noexcept {
+AccountLoginStatus account_module_login_submit_mfa(void* instance, const SecureBuffer* code,
+                                                   UserAuthMfaType type) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !code || runtime->remote_mode || !runtime->coordinator_started)
         return login_invalid_input();
@@ -1028,8 +1023,8 @@ AccountLoginStatus WINAPI module_login_submit_mfa(void* instance, const SecureBu
     return login_status(runtime);
 }
 
-AccountLoginStatus WINAPI module_login_submit_reset(void* instance, const SecureBuffer* link_token,
-                                                    const SecureBuffer* password) noexcept {
+AccountLoginStatus account_module_login_submit_reset(void* instance, const SecureBuffer* link_token,
+                                                     const SecureBuffer* password) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !password || !runtime->reset_mode || runtime->remote_mode || runtime->profile_saved ||
         account_profile_promotion_has_credential(runtime->promotion)) {
@@ -1048,7 +1043,7 @@ AccountLoginStatus WINAPI module_login_submit_reset(void* instance, const Secure
     return login_status(runtime);
 }
 
-AccountLoginStatus WINAPI module_login_send_sms(void* instance) noexcept {
+AccountLoginStatus account_module_login_send_sms(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || runtime->remote_mode || !runtime->coordinator_started)
         return login_invalid_input();
@@ -1061,7 +1056,7 @@ AccountLoginStatus WINAPI module_login_send_sms(void* instance) noexcept {
     return login_status(runtime);
 }
 
-AccountLoginStatus WINAPI module_login_start_remote_auth(void* instance) noexcept {
+AccountLoginStatus account_module_login_start_remote_auth(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode ||
         runtime->profile_saved ||
@@ -1092,19 +1087,19 @@ AccountLoginStatus WINAPI module_login_start_remote_auth(void* instance) noexcep
     return login_status(runtime);
 }
 
-bool WINAPI module_login_copy_remote_auth_qr(void* instance, Slice<char> output, u32* bytes) noexcept {
+bool account_module_login_copy_remote_auth_qr(void* instance, Slice<char> output, u32* bytes) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     return runtime && runtime->remote_mode && runtime->remote_active &&
            remote_auth_client_copy_qr_url(runtime->remote_auth, output, bytes);
 }
 
-bool WINAPI module_login_copy_remote_auth_user(void* instance, Slice<char> output, u32* bytes) noexcept {
+bool account_module_login_copy_remote_auth_user(void* instance, Slice<char> output, u32* bytes) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     return runtime && runtime->remote_mode && runtime->remote_active &&
            remote_auth_client_copy_user(runtime->remote_auth, output, bytes);
 }
 
-AccountLoginStatus WINAPI module_login_cancel_remote_auth(void* instance) noexcept {
+AccountLoginStatus account_module_login_cancel_remote_auth(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !runtime->remote_mode || !runtime->remote_active)
         return login_invalid_input();
@@ -1112,8 +1107,8 @@ AccountLoginStatus WINAPI module_login_cancel_remote_auth(void* instance) noexce
     return login_status(runtime);
 }
 
-SecureBufferResult WINAPI module_login_copy_webauthn_challenge(void* instance,
-                                                               SecureBuffer* output) noexcept {
+SecureBufferResult account_module_login_copy_webauthn_challenge(void* instance,
+                                                                SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !output) {
         return SecureBufferResult{0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
@@ -1124,138 +1119,183 @@ SecureBufferResult WINAPI module_login_copy_webauthn_challenge(void* instance,
                : SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
 }
 
-} // namespace account_module_detail
+RestClientSubmitResult account_module_pinned_messages(void* instance, const MessagePinsRequest* request,
+                                                      u64 request_id) noexcept {
+    return module_lane<account_pinned_messages_submit>(instance, request, request_id);
+}
 
-const AccountModuleApi kAccountModuleApi{
-        maicord::module_start,
-        maicord::module_pump,
-        maicord::module_notification_handles,
-        maicord::module_gateway_source,
-        maicord::module_gateway_pop,
-        maicord::module_guild_subscribe,
-        maicord::module_gateway_refresh,
-        maicord::module_private_conversation,
-        maicord::module_attachment_upload,
-        maicord::module_upload,
-        maicord::module_history_submit,
-        maicord::module_message_submit,
-        maicord::module_message_delete,
-        maicord::module_message_edit,
-        maicord::module_message_reaction,
-        maicord::module_reaction_users,
-        maicord::module_message_typing,
-        maicord::module_media_url_refresh,
-        maicord::module_rest_take,
-        maicord::module_media_request,
-        maicord::module_media_guild_icon_request,
-        maicord::module_media_attachment_request,
-        maicord::module_media_advance,
-        maicord::module_media_take,
-        maicord::module_stop,
-        maicord::module_login_start,
-        maicord::module_login_submit_password,
-        maicord::module_login_submit_mfa,
-        maicord::module_login_send_sms,
-        maicord::module_login_start_remote_auth,
-        maicord::module_login_copy_remote_auth_qr,
-        maicord::module_login_copy_remote_auth_user,
-        maicord::module_login_cancel_remote_auth,
-        maicord::module_login_pump_with_captcha,
-        maicord::module_login_copy_captcha_secret,
-        maicord::module_login_submit_captcha,
-        maicord::module_login_copy_webauthn_challenge,
-        maicord::module_login_notification_handle_with_captcha,
-        maicord::module_login_stop,
-        maicord::module_profile_get,
-        maicord::module_application_command,
-        maicord::module_login_submit_verification,
-        maicord::RestEntry<maicord::account_relationship_submit>::call,
-        maicord::RestEntry<maicord::account_message_ack_submit>::call,
-        maicord::module_login_submit_recovery,
-        maicord::module_login_start_reset,
-        maicord::module_login_submit_reset,
-        maicord::module_login_submit_phone_verify,
-        maicord::module_login_submit_phone_resend,
-        maicord::module_login_take_phone_reset_token,
-        maicord::module_video_select,
-        maicord::module_video_control,
-        maicord::module_video_status,
-        maicord::module_video_take,
-        maicord::module_video_acknowledge,
-        maicord::RestEntry<maicord::account_message_search>::call,
-        maicord::module_login_start_browser,
-        maicord::module_login_copy_browser_url,
-        maicord::module_self_status_snapshot,
-        maicord::module_self_status_submit,
-        maicord::module_self_status_complete,
-        maicord::RestEntry<maicord::account_media_catalog>::call,
-        maicord::module_catalog_preview_request,
-        maicord::RestEntry<maicord::account_gif_favorites>::call,
-        maicord::RestEntry<maicord::account_channel_overview_submit, true>::call,
-        maicord::module_guild_members_request,
-        maicord::module_lane<maicord::account_pinned_messages_submit>,
-        maicord::module_message_forward,
-        maicord::module_download,
-        maicord::module_lane<maicord::account_thread_action_submit, maicord::admit_thread_action>,
-        maicord::module_lane<maicord::account_thread_browser_submit>,
-        maicord::module_lane<maicord::account_thread_creation_submit, maicord::admit_thread_creation>,
-        maicord::module_lane<maicord::account_forum_post_submit, maicord::admit_published_identity<maicord::ForumPostRequest>>,
-        maicord::module_media_local_preview,
-        maicord::module_logout,
-        maicord::RestEntry<maicord::account_bulk_message_ack_submit>::call,
-        maicord::module_lane<maicord::account_message_poll_submit, maicord::admit_published_identity<maicord::PollRequest>>,
-        maicord::module_lane<maicord::account_guild_admin_submit>,
-        maicord::module_voice_request,
-        maicord::module_voice_snapshot,
-        maicord::module_login_start_captcha_bridge,
-        maicord::module_login_captcha_bridge_status,
-        maicord::module_login_copy_captcha_bridge_url,
-        maicord::module_login_cancel_captcha_bridge,
-        maicord::GatewayEntry<maicord::gateway_client_voice_user_audio>::call,
-        maicord::module_voice_audio_configure,
-        maicord::GatewayEntry<maicord::gateway_client_voice_audio_status>::call,
-        maicord::module_lane<maicord::account_guild_invite_submit, maicord::admit_invite, maicord::accepts_invite>,
-        maicord::RestEntry<maicord::account_emoji_preferences>::call,
-        maicord::module_account_settings,
-        maicord::module_action_captcha,
-        maicord::module_poll_create,
-        maicord::module_lane<maicord::account_private_channel_submit>,
-        maicord::module_custom_status_snapshot,
-        maicord::module_custom_status_submit,
-        maicord::module_lane<maicord::account_guild_settings_submit>,
-        maicord::module_lane<maicord::account_mentions_submit>,
-        maicord::module_guild_assets,
-        maicord::module_voice_video_snapshot,
-        maicord::GatewayEntry<maicord::gateway_client_voice_video_wanted>::call,
-        maicord::module_voice_video_device,
-        maicord::module_voice_video_frame,
-        maicord::module_stream_watch,
-        maicord::GatewayEntry<maicord::gateway_client_stream_snapshot>::call,
-        maicord::GatewayEntry<maicord::gateway_client_stream_volume>::call,
-        maicord::module_stream_preview,
-        maicord::module_lane<maicord::account_stage_submit>,
-        maicord::module_message_interaction,
-        maicord::module_lane<maicord::account_user_social_submit>,
-        maicord::module_lane<maicord::account_guild_community_submit, nullptr, maicord::joins_guild>,
-        maicord::module_local_presence,
-        maicord::module_activity_sharing,
-        maicord::module_soundboard,
-        maicord::module_soundboard_audio,
-        maicord::module_voice_message,
-        maicord::module_lane<maicord::account_profile_edit_submit>,
-        maicord::module_profile_image,
-        maicord::module_lane<maicord::account_guild_moderation_submit>,
-        maicord::module_guild_members_query_cancel,
-        maicord::module_channel_info,
-        maicord::module_collection_title,
-        maicord::module_client_focus,
-        maicord::module_voice_video_notification,
-        maicord::module_media_vp8_cpu,
-        maicord::module_lane<maicord::account_guild_automation_submit>,
-        maicord::module_credential_replace,
-        maicord::module_go_live,
-        maicord::module_go_live_snapshot,
-        maicord::module_go_live_preview,
-};
+RestClientSubmitResult account_module_thread_action(void* instance, const ThreadActionRequest* request,
+                                                    u64 request_id) noexcept {
+    return module_lane<account_thread_action_submit, admit_thread_action>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_thread_browser(void* instance, const ThreadBrowserRequest* request,
+                                                     u64 request_id) noexcept {
+    return module_lane<account_thread_browser_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_thread_creation(void* instance, const ThreadCreationRequest* request,
+                                                      u64 request_id) noexcept {
+    return module_lane<account_thread_creation_submit, admit_thread_creation>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_forum_post(void* instance, const ForumPostRequest* request,
+                                                 u64 request_id) noexcept {
+    return module_lane<account_forum_post_submit, admit_published_identity<ForumPostRequest>>(
+        instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_poll(void* instance, const PollRequest* request, u64 request_id) noexcept {
+    return module_lane<account_message_poll_submit, admit_published_identity<PollRequest>>(
+        instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_guild_admin(void* instance, const GuildAdminRequest* request,
+                                                  u64 request_id) noexcept {
+    return module_lane<account_guild_admin_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_guild_invite(void* instance, const GuildInviteRequest* request,
+                                                   u64 request_id) noexcept {
+    return module_lane<account_guild_invite_submit, admit_invite, accepts_invite>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_private_channel(void* instance, const PrivateChannelActionRequest* request,
+                                                      u64 request_id) noexcept {
+    return module_lane<account_private_channel_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_guild_settings(void* instance, const UserGuildSettingsPatch* request,
+                                                     u64 request_id) noexcept {
+    return module_lane<account_guild_settings_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_mentions(void* instance, const MentionsQuery* request, u64 request_id) noexcept {
+    return module_lane<account_mentions_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_stage(void* instance, const StageRequest* request, u64 request_id) noexcept {
+    return module_lane<account_stage_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_user_social(void* instance, const UserSocialRequest* request,
+                                                  u64 request_id) noexcept {
+    return module_lane<account_user_social_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_guild_community(void* instance, const GuildCommunityRequest* request,
+                                                      u64 request_id) noexcept {
+    return module_lane<account_guild_community_submit, nullptr, joins_guild>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_profile_edit(void* instance, const ProfileEditRequest* request,
+                                                   u64 request_id) noexcept {
+    return module_lane<account_profile_edit_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_guild_moderation(void* instance, const GuildModerationRequest* request,
+                                                       u64 request_id) noexcept {
+    return module_lane<account_guild_moderation_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_guild_automation(void* instance, const GuildAutomationRequest* request,
+                                                       u64 request_id) noexcept {
+    return module_lane<account_guild_automation_submit>(instance, request, request_id);
+}
+
+RestClientSubmitResult account_module_relationships(void* instance, RelationshipOperation operation, u64 user_id,
+                                                    Utf8View username, u64 request_id) noexcept {
+    return account_relationship_submit(module_rest(instance), operation, user_id, username, request_id);
+}
+
+RestClientSubmitResult account_module_message_ack(void* instance, u64 channel_id, u64 message_id, ConstSlice<u8> body,
+                                                  u64 request_id) noexcept {
+    return account_message_ack_submit(module_rest(instance), channel_id, message_id, body, request_id);
+}
+
+RestClientSubmitResult account_module_message_search(void* instance, AccountMessageSearchOperation operation,
+                                                     const MessageSearchQuery* query, u64 request_id) noexcept {
+    return account_message_search(module_rest(instance), operation, query, request_id);
+}
+
+RestClientSubmitResult account_module_media_catalog(void* instance, AccountMediaCatalogOperation operation,
+                                                    const MediaCatalogQuery* query, u64 request_id) noexcept {
+    return account_media_catalog(module_rest(instance), operation, query, request_id);
+}
+
+RestClientSubmitResult account_module_gif_favorites(void* instance, AccountGifFavoritesOperation operation,
+                                                    ConstSlice<u8> patch_json, u64 request_id) noexcept {
+    return account_gif_favorites(module_rest(instance), operation, patch_json, request_id);
+}
+
+RestClientSubmitResult account_module_channel_overview(void* instance, ChannelOverviewOperation operation,
+                                                       u64 channel_id, const ChannelOverviewPatch* patch,
+                                                       u64 request_id) noexcept {
+    return account_channel_overview_submit(module_rest(instance, true), operation, channel_id, patch, request_id);
+}
+
+RestClientSubmitResult account_module_bulk_message_ack(void* instance, const BulkMessageAckEntry* entries, u32 count,
+                                                       u64 request_id) noexcept {
+    return account_bulk_message_ack_submit(module_rest(instance), entries, count, request_id);
+}
+
+RestClientSubmitResult account_module_emoji_preferences(void* instance, AccountGifFavoritesOperation operation,
+                                                        ConstSlice<u8> patch_json, u64 request_id) noexcept {
+    return account_emoji_preferences(module_rest(instance), operation, patch_json, request_id);
+}
+
+bool account_module_voice_user_audio(void* instance, u64 user_id, u32 gain_percent, bool muted) noexcept {
+    auto* gateway = module_gateway(instance);
+    return gateway && gateway_client_voice_user_audio(gateway, user_id, gain_percent, muted);
+}
+
+bool account_module_voice_audio_status(void* instance, VoiceAudioStatus* status) noexcept {
+    auto* gateway = module_gateway(instance);
+    return gateway && gateway_client_voice_audio_status(gateway, status);
+}
+
+bool account_module_voice_video_wanted(void* instance, u64 user_id, bool wanted) noexcept {
+    auto* gateway = module_gateway(instance);
+    return gateway && gateway_client_voice_video_wanted(gateway, user_id, wanted);
+}
+
+bool account_module_stream_snapshot(void* instance, GatewayClientStreamSnapshot* snapshot) noexcept {
+    auto* gateway = module_gateway(instance);
+    return gateway && gateway_client_stream_snapshot(gateway, snapshot);
+}
+
+bool account_module_stream_volume(void* instance, u32 percent) noexcept {
+    auto* gateway = module_gateway(instance);
+    return gateway && gateway_client_stream_volume(gateway, percent);
+}
+
+AccountLoginStatus account_module_login_start_captcha_bridge(void* instance, u64 generation, u32 timeout_ms) noexcept {
+    return module_login_start_captcha_bridge(instance, generation, timeout_ms);
+}
+
+CaptchaBridgeStatus account_module_login_captcha_bridge_status(void* instance) noexcept {
+    return module_login_captcha_bridge_status(instance);
+}
+
+SecureBufferResult account_module_login_copy_captcha_bridge_url(void* instance, u64 generation,
+                                                                SecureBuffer* output) noexcept {
+    return module_login_copy_captcha_bridge_url(instance, generation, output);
+}
+
+AccountLoginStatus account_module_login_cancel_captcha_bridge(void* instance) noexcept {
+    return module_login_cancel_captcha_bridge(instance);
+}
+
+AccountLoginStatus account_module_login_pump(void* instance) noexcept {
+    return module_login_pump_with_captcha(instance);
+}
+
+HANDLE account_module_login_notification_handle(void* instance) noexcept {
+    return module_login_notification_handle_with_captcha(instance);
+}
+
+AccountLoginStatus account_module_login_stop(void** instance, u32 timeout_ms) noexcept {
+    return module_login_stop(instance, timeout_ms);
+}
 
 } // namespace maicord

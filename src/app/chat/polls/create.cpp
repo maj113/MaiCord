@@ -63,7 +63,7 @@ Form* owner;
 u64 lifetime_serial, nonce_sequence;
 
 bool connected() noexcept {
-    return g_app.account.instance && g_app.account.status.gateway_ready && g_app.account.api.poll_create;
+    return g_app.account.instance && g_app.account.status.gateway_ready;
 }
 bool scope_current() noexcept {
     if (!owner || !application_account_available() || owner->account_scope != g_app.plugin_account_scope_serial ||
@@ -363,8 +363,8 @@ void application_poll_create_release() noexcept {
     application_poll_create_close(false);
     if (!owner)
         return;
-    if (owner->request_id && g_app.account.api.poll_create && g_app.account.instance)
-        g_app.account.api.poll_create(g_app.account.instance, 0, 0, nullptr, owner->request_id);
+    if (owner->request_id && g_app.account.instance)
+        account_module_poll_create(g_app.account.instance, 0, 0, nullptr, owner->request_id);
     for (auto& model : owner->models)
         message_composer_release(&model);
     settings_modal_free(owner);
@@ -406,7 +406,7 @@ bool application_poll_create_submit(u64 now) noexcept {
         return false;
     }
     const u64 id = application_next_request_id();
-    const auto submitted = g_app.account.api.poll_create(g_app.account.instance, p.channel_id, p.nonce, &p.poll, id);
+    const auto submitted = account_module_poll_create(g_app.account.instance, p.channel_id, p.nonce, &p.poll, id);
     if (submit_busy(submitted, p.retry_at, now, 50))
         return true;
     p.queued = false;

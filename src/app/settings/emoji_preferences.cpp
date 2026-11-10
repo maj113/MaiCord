@@ -39,7 +39,7 @@ ReactionPreferenceStore* store() noexcept {
     return g_app.account_ui ? &g_app.account_ui->reaction_preferences : nullptr;
 }
 bool online() noexcept {
-    return account_online() && g_app.account.api.emoji_preferences;
+    return account_online();
 }
 void replace_groups(Broker& p, u8* groups, u32 bytes, const EmojiPreferencesSnapshot& snapshot) noexcept {
     dispose(p.groups, p.group_bytes);
@@ -408,7 +408,7 @@ bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
         p.retry_at = now_ms + kFailureBackoffMs;
         return false;
     }
-    const auto admitted = g_app.account.api.emoji_preferences(g_app.account.instance, operation, patch, id);
+    const auto admitted = account_module_emoji_preferences(g_app.account.instance, operation, patch, id);
     dispose(write, write_bytes);
     if (!admitted.ok()) {
         broker_drop_response(p);

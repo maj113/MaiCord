@@ -1,6 +1,7 @@
 #include "maicord/app/account/account_relationships.hpp"
 #include "maicord/app/chat/messages/account_message_ack.hpp"
 #include "maicord/app/account/account_host.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "../../support/rest_submit_hook.hpp"
 #include "../../support/test_output.hpp"
 
@@ -18,7 +19,7 @@ struct Submission {
 } submitted{};
 u32 failures = 0;
 u32 login_stop_attempts = 0;
-AccountLoginStatus WINAPI retry_login_stop(void** instance, u32) noexcept {
+AccountLoginStatus retry_login_stop(void** instance, u32) noexcept {
     AccountLoginStatus status{};
     if (++login_stop_attempts == 1) {
         status.error = AccountLoginError::stop;
@@ -29,6 +30,18 @@ AccountLoginStatus WINAPI retry_login_stop(void** instance, u32) noexcept {
         status.error = AccountLoginError::stop;
     }
     return status;
+}
+struct LoginHostQuarantineAudit {
+    HANDLE event;
+    u32 notifications, pumps;
+} login_host_quarantine{};
+HANDLE quarantine_login_notification(void*) noexcept {
+    ++login_host_quarantine.notifications;
+    return login_host_quarantine.event;
+}
+AccountLoginStatus quarantine_login_pump(void*) noexcept {
+    ++login_host_quarantine.pumps;
+    return {};
 }
 void check(bool success, const char* message) noexcept {
     test_check(&failures, success, message);
@@ -191,7 +204,7 @@ void test_login_quarantine() noexcept {
     AccountHost retry{};
     retry.module = reinterpret_cast<HMODULE>(1);
     retry.login_instance = reinterpret_cast<void*>(1);
-    retry.api.login_stop = retry_login_stop;
+    g_account_fake.login_stop = retry_login_stop;
     login_stop_attempts = 0;
     account_host_login_stop(&retry, 1);
     check(retry.stop_failed && retry.login_instance,
@@ -206,6 +219,36 @@ void test_login_quarantine() noexcept {
     account_host_login_stop(&retry, 1);
     check(retry.stop_failed && !retry.login_instance && retry.instance,
           "login host: login release preserves quarantine while account owner still survives");
+    g_account_fake.login_stop = nullptr;
+}
+void test_login_host_quarantine() noexcept {
+    login_host_quarantine = {CreateEventW(nullptr, TRUE, TRUE, nullptr), 0, 0};
+    if (!login_host_quarantine.event) {
+        check(false, "login_host_quarantine_event");
+        return;
+    }
+    AccountHost host{};
+    host.module = reinterpret_cast<HMODULE>(1);
+    host.login_instance = &login_host_quarantine;
+    g_account_fake.login_notification_handle = quarantine_login_notification;
+    g_account_fake.login_pump = quarantine_login_pump;
+    HANDLE handles[kAccountHostNotificationHandleCapacity]{};
+    check(account_host_notification_handles(&host, handles, kAccountHostNotificationHandleCapacity) == 1 &&
+              handles[0] == login_host_quarantine.event && WaitForSingleObject(handles[0], 0) == WAIT_OBJECT_0 &&
+              account_host_login_pump(&host).ok() && login_host_quarantine.notifications == 1 &&
+              login_host_quarantine.pumps == 1,
+          "login_host_live_notification_and_pump_admitted");
+    host.stop_failed = true;
+    handles[0] = reinterpret_cast<HANDLE>(3);
+    check(account_host_notification_handles(&host, handles, kAccountHostNotificationHandleCapacity) == 0 &&
+              handles[0] == reinterpret_cast<HANDLE>(3) &&
+              account_host_login_pump(&host).error == AccountLoginError::invalid_input &&
+              login_host_quarantine.notifications == 1 && login_host_quarantine.pumps == 1,
+          "login_host_failed_stop_quarantines_signaled_event_and_pump_without_entering_worker");
+    g_account_fake.login_notification_handle = nullptr;
+    g_account_fake.login_pump = nullptr;
+    CloseHandle(login_host_quarantine.event);
+    login_host_quarantine = {};
 }
 static void test_message_ack_transport() noexcept {
     RestClient client{};
@@ -352,5 +395,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_friends_account_entry() noex
     test_transport();
     test_message_ack_transport();
     test_login_quarantine();
+    test_login_host_quarantine();
     maicord::test_exit(failures, "Friends account transport");
 }

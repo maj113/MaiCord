@@ -2,7 +2,6 @@
 #include "expression_card.hpp"
 #include "../shell/state.hpp"
 #include "../account/account_ui_runtime.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/model/chat/chat_state.hpp"
@@ -118,7 +117,7 @@ bool sticker_at(UiPoint point, MessageExpression* out) noexcept {
 } // namespace
 
 bool application_message_expression_at(UiPoint point, MessageExpression* output) noexcept {
-    if (!output || !g_app.account_ui)
+    if (!g_app.account_ui)
         return false;
     return emoji_at(point, output) || sticker_at(point, output);
 }

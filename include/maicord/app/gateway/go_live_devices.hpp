@@ -7,8 +7,8 @@ namespace maicord {
 // The Go Live producers of a client: screen/window capture and stream audio
 // (platform/capture, platform/audio/stream_audio.hpp) and the GPU encoder
 // (platform/encode), on the renderer's device. Owned by the account module
-// (it outlives Gateway sessions); the session reaches it through kGoLiveDevicesBackend (go_live_stream.hpp), with a
-// pointer to it as the context.
+// (it outlives Gateway sessions); the session reaches it through the go_live_producer_* functions (go_live_stream.hpp),
+// with a pointer to it as the context.
 // Zero-initialize.
 struct GoLiveDevices {
     SrwLock lock; // device, encoder and media, read by the capture and encoder threads

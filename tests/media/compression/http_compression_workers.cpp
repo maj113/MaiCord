@@ -9,7 +9,12 @@ namespace maicord {
 namespace {
 HANDLE endpoint_wait_event;
 volatile LONG endpoint_waits;
-void observe_endpoint_wait(const char* record) noexcept {
+} // namespace
+// The REST client's request trace in this executable: while the case runs it counts the waits on a shared endpoint.
+namespace rest_client_detail {
+void rest_trace(const char* record) noexcept {
+    if (!endpoint_wait_event)
+        return;
     constexpr char event[] = "gate_wait ";
     constexpr char reason[] = " reason=endpoint ";
     for (u32 i = 0; i < sizeof(event) - 1; ++i)
@@ -26,7 +31,7 @@ void observe_endpoint_wait(const char* record) noexcept {
         }
     }
 }
-} // namespace
+} // namespace rest_client_detail
 void test_http_compression_workers(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr u8 raw[] = {123, 34,  99, 111, 110, 116, 101, 110, 116, 34, 58,  34,  72,  101, 108,
                           108, 111, 44, 32,  101, 109, 111, 106, 105, 32, 240, 159, 152, 128, 34,
@@ -114,7 +119,6 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
     endpoint_wait_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     InterlockedExchange(&endpoint_waits, 0);
     check(endpoint_wait_event != nullptr, "shared endpoint wait observation event initializes");
-    rest_client_set_trace(observe_endpoint_wait);
     bool started = true;
     for (auto& client : clients)
         started = rest_client_start_public(client, 4096, &shared).ok() && started;
@@ -229,7 +233,6 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
           "replacement worker retains shared rate limits, endpoint floors and authentication rejection");
     if (replacement.worker.thread)
         rest_client_stop(&replacement, 3000);
-    rest_client_set_trace(nullptr);
     if (endpoint_wait_event) CloseHandle(endpoint_wait_event);
     endpoint_wait_event = nullptr;
 }

@@ -27,14 +27,6 @@ bool hash_valid(const Utf8View& hash) noexcept {
     }
     return true;
 }
-u32 device_pixels(u32 dips, u32 dpi) noexcept {
-    return static_cast<u32>((static_cast<u64>(dips) * (dpi ? dpi : 96u) + 95u) / 96u);
-}
-// The proxy size a surface of dips asks for: dips * dpr, capped at what the
-// decoders accept (512 is itself a proxy size, so the cap never rounds up).
-u32 request_size(u32 dips, u32 dpi) noexcept {
-    return ui_media_proxy_size(minimum(device_pixels(dips, dpi), kUiGuildImageMaximumPixels));
-}
 bool finish(TextWriter& w, MediaAttachmentFormat format, bool animated, UiGuildImageMedia* output) noexcept {
     if (!w.ok)
         return false;
@@ -53,6 +45,11 @@ u32 ui_media_proxy_size(u32 pixels) noexcept {
     return 4096;
 }
 
+u32 ui_guild_image_request_size(u32 size_dips, u32 dpi) noexcept {
+    const u32 pixels = static_cast<u32>((static_cast<u64>(size_dips) * (dpi ? dpi : 96u) + 95u) / 96u);
+    return ui_media_proxy_size(minimum(pixels, kUiGuildImageMaximumPixels));
+}
+
 bool ui_guild_banner_animated_hash(const Utf8View& hash) noexcept {
     return hash.data && hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
 }
@@ -69,7 +66,7 @@ bool ui_guild_banner_media(u64 guild_id, const Utf8View& hash, u32 dpi, bool ani
     w.add("/");
     w.add(hash);
     w.add(animated && gif ? utf8_literal(".gif?size=") : utf8_literal(".webp?size="));
-    w.number(request_size(360, dpi));
+    w.number(ui_guild_image_request_size(360, dpi));
     if (animated && !gif)
         w.add("&animated=true");
     return finish(w, animated && gif ? MediaAttachmentFormat::gif : MediaAttachmentFormat::webp, animated, output);
@@ -87,7 +84,7 @@ bool ui_guild_splash_media(u64 guild_id, Utf8View hash, bool discovery, u32 size
     w.add("/");
     w.add(hash);
     w.add(".jpg?size=");
-    w.number(request_size(size_dips, dpi));
+    w.number(ui_guild_image_request_size(size_dips, dpi));
     return finish(w, MediaAttachmentFormat::jpeg, false, output);
 }
 
@@ -110,7 +107,7 @@ bool ui_guild_tag_badge_media(u64 guild_id, const Utf8View& hash, u32 size_dips,
     w.add("/");
     w.add(hash);
     w.add(".png?size=");
-    w.number(request_size(size_dips, dpi));
+    w.number(ui_guild_image_request_size(size_dips, dpi));
     return finish(w, MediaAttachmentFormat::png, false, output);
 }
 

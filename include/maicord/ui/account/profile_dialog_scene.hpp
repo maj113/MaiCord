@@ -8,7 +8,6 @@
 #include "maicord/ui/text/presentation.hpp"
 
 namespace maicord {
-struct Theme;
 
 // Modal dialogs of the profile editor, drawn above its settings page:
 // the "Edit Image" cropper for avatar and banner uploads, and the

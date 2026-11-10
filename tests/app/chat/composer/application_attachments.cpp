@@ -1,6 +1,7 @@
 #include "maicord/platform/window/win32.hpp"
 #include "../../../../src/app/chat/composer/attachments_state.hpp"
 #include "../../../support/ui_scene_fixtures.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "../../../../src/app/shell/state.hpp"
 #include "../../../../src/app/chat/composer/text_form.hpp"
 #include "maicord/core/memory.hpp"
@@ -96,7 +97,7 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
     check(popup_scene_initialize(&g_app.popup_scene, {popup_items, 16}, {popup_rows, 16},
         {popup_widgets, 34}, {popup_nodes, 34}), "attachment menus share the native popup scene");
     g_app.account.instance = &fake; g_app.account.status.profile_id = 77; g_app.account.status.running = true;
-    g_app.account.api.attachment_upload = request_url; g_app.account.api.upload = upload;
+    g_account_fake.attachment_upload = request_url; g_account_fake.upload = upload;
     g_app.account_ui->active_channel_id = 7; state->profile_id = 77;
     const wchar_t path[] = L"C:\\a.txt";
     const MessageAttachmentFile file{{path, 8}, {{9, 10, 11, 0}, 8}};

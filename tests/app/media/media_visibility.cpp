@@ -1,6 +1,7 @@
 #include "media_visibility_internal.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
 #include "../../support/model_store_fixtures.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/ui/chat/search/avatar_media.hpp"
@@ -818,7 +819,7 @@ void run_catalog_residency_test(VisibilityFixture& fixture, ApplicationMediaPump
     scene.content = &content;
     scene.projection = &projection;
     g_app.renderer.media_picker_scene = &scene;
-    g_app.account.api.catalog_preview_request = request_catalog;
+    g_account_fake.catalog_preview_request = request_catalog;
     fixture_catalog_owner_key = media_asset_catalog_preview(902, 20);
     fixture_catalog_owner_retained = fixture_catalog_visible = true;
     animation_timeline_reset(&g_app.animations.timeline);

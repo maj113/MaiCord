@@ -261,14 +261,14 @@ void add_effect(u64 user_id, u64 channel_id, const Utf8View& emoji, bool custom_
 // Account module playback -------------------------------------------------------
 bool audio(SoundboardAudioOperation operation, u64 sound_id, u64 user_id, u16 volume) noexcept {
     auto& h = g_app.account;
-    if (!h.instance || !h.api.soundboard_audio)
+    if (!h.instance)
         return false;
     SoundboardAudioCommand command{};
     command.operation = operation;
     command.sound_id = sound_id;
     command.user_id = user_id;
     command.sound_volume = volume;
-    return h.api.soundboard_audio(h.instance, &command);
+    return account_module_soundboard_audio(h.instance, &command);
 }
 
 // Queue -------------------------------------------------------------------------
@@ -600,8 +600,7 @@ void application_soundboard_gateway(const GatewayClientEvent& event, ConstSlice<
 
 bool application_soundboard_available(u64 channel_id) noexcept {
     const auto* s = application_voice_call();
-    return s && s->channel_id == channel_id && voice_channel(channel_id) &&
-           g_app.account.api.soundboard && g_app.account.api.soundboard_audio;
+    return s && s->channel_id == channel_id && voice_channel(channel_id);
 }
 
 bool application_soundboard_picker_open() noexcept {
@@ -741,7 +740,7 @@ bool application_soundboard_probe(ConstSlice<u8> file, SoundboardFileInfo* info,
     request.sound = file;
     request.info = out;
     auto& h = g_app.account;
-    const bool ok = h.instance && h.api.soundboard && h.api.soundboard(h.instance, &request, 0).ok() && out->ok();
+    const bool ok = h.instance && account_module_soundboard(h.instance, &request, 0).ok() && out->ok();
     if (!ok && error) {
         switch (out->error) {
         case SoundboardFileError::too_long: *error = utf8_literal("Sounds can be at most 5.2 seconds long."); break;
@@ -804,7 +803,7 @@ bool application_soundboard_pending(u64 now) noexcept {
     while (board.count && board.queue[board.head].account_scope != g_app.plugin_account_scope_serial)
         drop_head();
     if (board.in_flight_request || (board.retry_at_ms && now < board.retry_at_ms) ||
-        !g_app.account.instance || !g_app.account.api.soundboard)
+        !g_app.account.instance)
         return false;
     SoundboardRequest load{};
     return board.count || next_load(&load);
@@ -819,7 +818,7 @@ bool application_soundboard_submit(u64 request_id, u64 now) noexcept {
     if (!write)
         next_load(&load);
     const SoundboardRequest& request = write ? board.queue[board.head].request : load;
-    const auto submitted = h.api.soundboard(h.instance, &request, request_id);
+    const auto submitted = account_module_soundboard(h.instance, &request, request_id);
     if (submit_busy(submitted, board.retry_at_ms, now, kBusyRetryMs))
         return false;
     board.retry_at_ms = 0;

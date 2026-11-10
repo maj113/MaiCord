@@ -181,8 +181,6 @@ struct GpuContext {
     GpuBuffer* vertex_buffer;
     u32 vertex_stride, vertex_offset;
     GpuBuffer* constants[3][kGlesConstantSlots];
-    u32 compute_range_first[kGlesConstantSlots]; // gpu_set_constants_range: 16-byte constants; count 0 = whole buffer
-    u32 compute_range_count[kGlesConstantSlots];
     GpuSrv* srvs[3][kGlesResourceSlots];
     GpuSampler* samplers[3][kGlesResourceSlots];
     GpuUav* uavs[kGlesUavSlots];
@@ -225,7 +223,6 @@ struct GpuDevice {
     char description[160];
     u32 empty_vertex_array;
     bool lost;
-    bool debug_checks; // MAICORD_GLES_CHECK=1: a GL error is reported after the draw or clear that raised it
     bool created;
     u32 refs; // gpu_retain: owners beyond the first
 

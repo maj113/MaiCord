@@ -28,8 +28,6 @@ extern const GuildTagBadge kGuildTagBadges[kGuildTagBadgeCount];
 inline constexpr u8 kGuildTagDefaultBadge = 6;
 // Null for a type that can no longer be set.
 const GuildTagBadge* guild_tag_badge(u8 type) noexcept;
-// The pack's name ("Pets", "Flex", "Plant", "Creepy Crawlies"); empty for 0.
-Utf8View guild_tag_pack_name(u64 pack) noexcept;
 // A base badge, or one whose pack the server has (`features`: guild_feature_* bits).
 bool guild_tag_badge_unlocked(const GuildTagBadge& badge, u64 features) noexcept;
 

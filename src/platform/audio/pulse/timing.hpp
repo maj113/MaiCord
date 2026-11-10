@@ -67,18 +67,6 @@ constexpr u64 frames_from_microseconds(u64 microseconds, u32 rate) noexcept {
     return base > ~u64{0} - fraction ? ~u64{0} : base + fraction;
 }
 
-// floor(frames * 1,000,000 / rate), saturating; 0 for a zero rate.
-constexpr u64 microseconds_from_frames(u64 frames, u32 rate) noexcept {
-    if (!rate)
-        return 0;
-    const u64 whole = frames / rate;
-    const u64 fraction = frames % rate * 1'000'000u / rate;
-    if (whole > ~u64{0} / 1'000'000u)
-        return ~u64{0};
-    const u64 base = whole * 1'000'000u;
-    return base > ~u64{0} - fraction ? ~u64{0} : base + fraction;
-}
-
 // The frames of a stream that have been heard. `anchor` is the playback position (in frames of the source
 // timeline) the stream started at, `stream_us` its own audible position (track_time), `submitted` the frames
 // written to it plus the anchor, and `previous` the answer given last time: the result never goes back and never

@@ -48,7 +48,7 @@ const CommandIndex* plugin_commands_storage() noexcept {
 
 BuiltinCommandRun plugin_command_execute(const ApplicationCommand& command, Utf8View options_json, u64 channel_id,
                                          u64 guild_id, Slice<char> text_storage, Utf8View* text) noexcept {
-    if (!g_app.account_ui || !text) return BuiltinCommandRun::failed;
+    if (!g_app.account_ui) return BuiltinCommandRun::failed;
     const PluginCommandResult result = plugin_command_run(
         command.application_id, command.id, channel_id, guild_id, options_json,
         {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount});

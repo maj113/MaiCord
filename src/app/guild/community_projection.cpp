@@ -31,7 +31,7 @@ u32 published_events_revision;
 namespace {
 
 bool connected() noexcept {
-    return g_app.account.instance && g_app.account.status.gateway_ready && g_app.account.api.guild_community;
+    return g_app.account.instance && g_app.account.status.gateway_ready;
 }
 
 } // namespace
@@ -56,7 +56,7 @@ bool ensure_background() noexcept {
         const u64 request = background->request_id;
         SecureZeroMemory(background, sizeof(Background));
         background->account_scope = g_app.plugin_account_scope_serial;
-        application_cancel_request(&AccountModuleApi::guild_community, request);
+        application_cancel_request(account_module_guild_community, request);
     }
     return true;
 }

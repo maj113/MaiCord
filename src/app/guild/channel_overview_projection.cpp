@@ -116,8 +116,7 @@ bool available() noexcept {
 namespace {
 
 bool connected() noexcept {
-    return g_app.account.instance && g_app.account.status.running && g_app.account.status.gateway_ready &&
-           g_app.account.api.guild_admin;
+    return g_app.account.instance && g_app.account.status.running && g_app.account.status.gateway_ready;
 }
 bool busy() noexcept {
     return owner->queued || owner->request_id;

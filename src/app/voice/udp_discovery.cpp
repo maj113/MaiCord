@@ -46,7 +46,7 @@ void voice_udp_close(VoiceUdpDiscovery* discovery) noexcept {
 }
 bool voice_udp_begin(VoiceUdpDiscovery* discovery, NetworkLoop* loop, const NetworkAddress& peer, u32 ssrc,
                      u64 now_ms) noexcept {
-    if (!discovery || !voice_udp_drained(*discovery) || !ssrc)
+    if (!voice_udp_drained(*discovery) || !ssrc)
         return false;
     const auto opened = network_datagram_open(loop, &discovery->socket, peer);
     if (!opened.ok()) {

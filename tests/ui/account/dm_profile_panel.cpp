@@ -5,6 +5,7 @@
 // timers, failures). Synthetic fixtures only.
 #include "account/dm_profile.hpp"
 #include "../../support/model_store_fixtures.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "chat/composer/commands.hpp"
 #include "account/profile.hpp"
 #include "shell/state.hpp"
@@ -350,7 +351,7 @@ bool fixture_setup() noexcept {
     g_app.preferences.dm_profile_visible = true;
     g_app.renderer.width = 1280;
     g_app.renderer.dpi = 96;
-    g_app.account.api.profile_get = read_profile;
+    g_account_fake.profile_get = read_profile;
     return ui_scene_initialize_bootstrap(&g_app.shell_scene);
 }
 
@@ -642,12 +643,6 @@ struct Json {
         return *this;
     }
 };
-const ProfilePart* part_with_text(const ProfileScene& s, Utf8View text) noexcept {
-    for (u32 i = 0; i < s.part_count; ++i)
-        if (utf8_equal(s.parts[i].text, text))
-            return &s.parts[i];
-    return nullptr;
-}
 bool rect_near(UiRect a, UiRect b) noexcept {
     return near(a.left, b.left) && near(a.top, b.top) && near(a.right, b.right) && near(a.bottom, b.bottom);
 }
@@ -868,12 +863,12 @@ void failure_cases() noexcept {
     layout_shell();
     application_dm_profile_synchronize();
     auto* s = application_dm_profile_scene();
-    check(s && s->phase == ProfilePhase::loading && part_with_text(*s, utf8_literal("Mai")),
+    check(s && s->phase == ProfilePhase::loading && find_text(*s, utf8_literal("Mai")),
           "DM panel failure: the user's cached name shows before the profile arrives");
     check(application_dm_profile_submit(700, 5000), "DM panel failure: fetch");
     response(404);
     s = application_dm_profile_scene();
-    check(s && s->phase == ProfilePhase::failed && part_with_text(*s, utf8_literal("Mai")) &&
+    check(s && s->phase == ProfilePhase::failed && find_text(*s, utf8_literal("Mai")) &&
               find_part(*s, ProfileAction::retry) && !application_dm_profile_pending(6000),
           "DM panel failure: a 404 keeps the name and offers a retry");
     check(click(ProfileAction::retry) && application_dm_profile_pending(6000),
@@ -881,7 +876,7 @@ void failure_cases() noexcept {
     check(application_dm_profile_submit(701, 6000), "DM panel failure: refetch");
     response(200, utf8_literal(R"({"user":{"id":"999","username":"x"}})"));
     s = application_dm_profile_scene();
-    check(s && s->phase == ProfilePhase::failed && part_with_text(*s, utf8_literal("Mai")),
+    check(s && s->phase == ProfilePhase::failed && find_text(*s, utf8_literal("Mai")),
           "DM panel failure: a body the decoder rejects keeps the name");
     check(click(ProfileAction::retry) && application_dm_profile_submit(702, 7000), "DM panel failure: retry");
     // Pronouns up to the API's 40 code points (20 emoji: 80 bytes) and an
@@ -908,7 +903,7 @@ void failure_cases() noexcept {
     layout_shell();
     application_dm_profile_synchronize();
     s = application_dm_profile_scene();
-    check(s && !application_dm_profile_pending(8000) && part_with_text(*s, utf8_literal("Ren")),
+    check(s && !application_dm_profile_pending(8000) && find_text(*s, utf8_literal("Ren")),
           "DM panel failure: the next DM shows its basics while the first fetch is in flight");
     response(200, kLoaded);
     check(g_app.dm_profile_wake_ms && application_dm_profile_pending(9000) &&

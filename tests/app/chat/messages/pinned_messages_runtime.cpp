@@ -2,6 +2,7 @@
 #include "../../../../src/app/chat/messages/pinned_messages.cpp"
 #include "../../../support/window_fixture.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/account_module_fake.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
@@ -128,7 +129,7 @@ bool initialize() noexcept {
     g_app.account.status.profile_id = 1;
     g_app.account.status.running = true;
     g_app.plugin_account_scope_serial = 1;
-    g_app.account.api.pinned_messages = submit;
+    g_account_fake.pinned_messages = submit;
     permit();
     return true;
 }

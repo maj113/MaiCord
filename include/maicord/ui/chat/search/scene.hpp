@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/ui/text/edit_field.hpp"
 #include "maicord/ui/core/widget_storage.hpp"
-#include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/ui/chat/search/filter_context.hpp"
 

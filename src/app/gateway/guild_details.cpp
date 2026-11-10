@@ -258,7 +258,7 @@ bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue f
                                   Slice<u32> scratch, u32 maximum_depth, GatewayPayloadWriter* writer,
                                   u16* bytes) noexcept {
     *bytes = 0;
-    if (!writer || !scratch.data || !scratch.count)
+    if (!scratch.data || !scratch.count)
         return true;
     const u32 mark = writer->used;
     const auto rollback = [&](bool result) noexcept {

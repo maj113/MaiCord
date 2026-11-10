@@ -23,7 +23,7 @@ TextInputTarget application_message_forward_edit_target() noexcept;
 UiRect application_message_forward_edit_bounds() noexcept;
 bool application_message_forward_edit_focused() noexcept;
 bool application_message_forward_caption_focused() noexcept;
-bool application_message_forward_edit_changed(bool content = true) noexcept;
+bool application_message_forward_edit_changed(bool content) noexcept;
 void application_message_forward_edit_cancel_native_group(const TextInputTarget&) noexcept;
 void application_message_forward_completion(const MessageSendCompletion&) noexcept;
 } // namespace maicord::app_detail

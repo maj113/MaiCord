@@ -41,7 +41,7 @@ bool message_forward_open(MessageForwardController* controller, QuickSwitcherSco
     QuickSwitcherSources sources, const MessageStore* store, MessageHandle source,
     Utf8View author, Utf8View media_summary = {}) noexcept;
 bool message_forward_synchronize(MessageForwardController* controller, QuickSwitcherScope scope,
-    QuickSwitcherSources sources, Utf8View query, MessageComposerController* outbox = nullptr) noexcept;
+    QuickSwitcherSources sources, Utf8View query, MessageComposerController* outbox) noexcept;
 bool message_forward_toggle(MessageForwardController* controller, QuickSwitcherScope scope,
     QuickSwitcherSources sources, u32 index, u32 candidate_revision) noexcept;
 bool message_forward_remove(MessageForwardController* controller, u64 channel_id) noexcept;

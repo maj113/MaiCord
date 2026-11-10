@@ -5,9 +5,6 @@
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/win32_types.hpp"
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-#include "maicord/platform/audio/media_audio.hpp"
-#endif
 
 namespace maicord {
 struct MediaAudioStatus;
@@ -195,11 +192,4 @@ AccountVideoAudioProgress account_video_session_audio_progress(const AccountVide
 // Timeout/close failure keeps the workspace, AAC decoder and borrowed source/event.
 AccountVideoResult account_video_session_release(AccountVideoSession*, u32 timeout_ms) noexcept;
 u32 account_video_session_owned_bytes(const AccountVideoSession*) noexcept;
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-// Opt-in QA builds only; no cost in shipping builds.
-struct AccountVideoProbeSnapshot {
-    MediaAudioStatus audio{};
-};
-AccountVideoProbeSnapshot account_video_session_probe_snapshot(const AccountVideoSession*) noexcept;
-#endif
 } // namespace maicord

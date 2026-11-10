@@ -38,7 +38,7 @@ struct ApplicationForumPostView {
     bool available, error, can_edit, can_submit, can_retry, can_cancel, uncertain, require_tag;
 };
 bool application_forum_post_available(u64 parent_id = 0) noexcept;
-bool application_forum_post_begin(u64 parent_id, ApplicationForumPostTicket* = nullptr) noexcept;
+bool application_forum_post_begin(u64 parent_id, ApplicationForumPostTicket*) noexcept;
 bool application_forum_post_open(u64 parent_id = 0) noexcept;
 ApplicationForumPostView application_forum_post_view() noexcept;
 bool application_forum_post_current(const ApplicationForumPostTicket&) noexcept;

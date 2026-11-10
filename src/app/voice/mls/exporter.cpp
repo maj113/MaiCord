@@ -1,6 +1,5 @@
 #include "maicord/app/voice/mls/exporter.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "../../shell/byte_views.hpp"
 
 #include "maicord/core/memory.hpp"

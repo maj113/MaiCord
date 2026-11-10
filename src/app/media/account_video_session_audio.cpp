@@ -113,7 +113,7 @@ AccountVideoResult refused(AccountVideoSession* s, const AccountVideoIdentity& i
                            AccountVideoError error, u32 native) noexcept {
     // A rejected request for the current session has a persistent result, separate
     // from terminal transport error. Requests for another session cannot mutate this state.
-    if (s && thread(*s) && account_video_identity_equal(s->status.identity, id)) {
+    if (thread(*s) && account_video_identity_equal(s->status.identity, id)) {
         s->status.rejected_command = serial;
         s->status.rejected_error = error;
         s->status.rejected_native_error = native;
@@ -1114,7 +1114,7 @@ AccountVideoFrameDue account_video_frame_due(i64 pts, u64 duration, i64 position
     return AccountVideoFrameDue::ready;
 }
 bool account_video_qpc_position(i64 origin, u64 anchor, u64 now, u64 frequency, i64* position) noexcept {
-    if (!position || origin < 0 || now < anchor)
+    if (origin < 0 || now < anchor)
         return false;
     u64 elapsed{};
     if (!media_audio_clock_time(now - anchor, frequency, &elapsed) ||
@@ -1126,7 +1126,7 @@ bool account_video_qpc_position(i64 origin, u64 anchor, u64 now, u64 frequency, 
 AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4Decoder* video,
                                                     const AccountVideoIdentity& id, HANDLE event,
                                                     Mp4SourceAvailability audio_availability, Mp4FragmentAudio* fragmented_audio) noexcept {
-    if (!s || s->initialized || s->workspace || !video || !video->ready || !identity_valid(id) || !event)
+    if (s->initialized || s->workspace || !video || !video->ready || !identity_valid(id) || !event)
         return result(AccountVideoError::invalid_input);
     const auto source = mp4_decoder_source(*video);
     const auto movie = mp4_decoder_movie(*video);
@@ -1174,7 +1174,7 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
 }
 AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoSession* s, Mp4FragmentAudio* audio,
     const AccountVideoIdentity& id, HANDLE event) noexcept {
-    if (!s || s->initialized || s->workspace || !audio || !audio->source || !identity_valid(id) || !event ||
+    if (s->initialized || s->workspace || !audio->source || !identity_valid(id) || !event ||
         !mp4_fragment_source_valid(*audio->source) || !audio->source->track.audio ||
         (audio->source->segments && audio->source->segments->live) || !audio->packet_count ||
         audio->packet_index > audio->packet_count)
@@ -1204,7 +1204,7 @@ AccountVideoResult account_video_session_initialize_audio(AccountVideoSession* s
                                                           const AccountVideoIdentity& id,
                                                           HANDLE event) noexcept {
     u64 duration{};
-    if (!s || s->initialized || s->workspace || !metadata || !encoded_audio_ready(*metadata) ||
+    if (s->initialized || s->workspace || !encoded_audio_ready(*metadata) ||
         !encoded_audio_bytes(*metadata).data || !encoded_audio_bytes(*metadata).count ||
         (encoded_audio_channels(*metadata) != 1 && encoded_audio_channels(*metadata) != 2) ||
         encoded_audio_rate(*metadata) < 8000 || encoded_audio_rate(*metadata) > 192000 ||

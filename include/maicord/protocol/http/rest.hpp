@@ -5,8 +5,6 @@
 
 namespace maicord {
 struct GatewayUserProperties;
-enum class JsonReadError : u8;
-enum class JsonScanError : u8;
 
 inline constexpr u32 kRestMaximumHeaderBytes = 32 * 1024;
 inline constexpr u32 kRestMaximumHeaderFields = 128;

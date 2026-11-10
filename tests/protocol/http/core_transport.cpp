@@ -1,7 +1,5 @@
 #if defined(_WIN32)
 #include "../../support/test_main_shared.hpp"
-
-#include "../../support/ui_scene_fixtures.hpp"
 #else
 #include "../../support/transport_test_shared.hpp"
 #endif
@@ -15,8 +13,6 @@
 #include "maicord/protocol/http/websocket_handshake.hpp"
 #include "maicord/core/intrinsics.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/os/thread.hpp"
-#include "maicord/os/wait.hpp"
 #include "maicord/platform/net/socket.hpp"
 #if defined(_WIN32)
 #include "maicord/sys/winsock.hpp"

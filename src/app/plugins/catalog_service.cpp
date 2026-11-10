@@ -868,7 +868,6 @@ constexpr char kErrorTexts[] =
     "Another installed plugin uses the same identity.\0"
     "Too many items are installed. Remove one first.\0"
     "The plugin didn't start. It's turned off.\0"
-    "That item isn't installed.\0"
     "Turn on Developer Mode to load your own plugins.\0"
     "This plugin was updated while you reviewed it. Review it again.\0";
 static_assert(name_list_count(kErrorTexts) == static_cast<u32>(CatalogError::review_again) - 1);
@@ -907,7 +906,8 @@ bool version_runs(const CatalogItem& item, const CatalogVersion& v) noexcept {
 }
 } // namespace
 
-u32 application_catalog_installable_version(u32 item) noexcept {
+// The newest version of a listed item this client can install (api_level and revocations), or kCatalogNone.
+static u32 application_catalog_installable_version(u32 item) noexcept {
     if (!g || !g->index || item >= g->index->item_count) return kCatalogNone;
     const CatalogItem& it = g->index->items[item];
     for (u32 i = 0; i < it.version_count; ++i) {

@@ -55,7 +55,7 @@ bool application_login_begin_captcha_bridge() noexcept {
     // A closed tab cannot reuse its spent page; replace the bridge and state.
     if (login.captcha_generation) {
         login.captcha_generation = login.captcha_launch_epoch = 0;
-        const auto cancelled = host.api.login_cancel_captcha_bridge(host.login_instance);
+        const auto cancelled = account_module_login_cancel_captcha_bridge(host.login_instance);
         if (cancelled.error == AccountLoginError::stop)
             return finish(LoginCaptchaStatus::failed);
     }
@@ -63,9 +63,9 @@ bool application_login_begin_captcha_bridge() noexcept {
     login.webauthn_post_epoch = 0;
     const u64 epoch = login.application_auth_epoch;
     const auto instance = host.login_instance;
-    host.login_status = host.api.login_start_captcha_bridge(instance, epoch, kCaptchaBridgeDefaultTimeoutMs);
+    host.login_status = account_module_login_start_captcha_bridge(instance, epoch, kCaptchaBridgeDefaultTimeoutMs);
     application_login_retain_auth_retry();
-    const auto bridge = host.api.login_captcha_bridge_status(instance);
+    const auto bridge = account_module_login_captcha_bridge_status(instance);
     if (!host.login_status.ok() || bridge.generation != epoch || !bridge.ok() ||
         (bridge.phase != CaptchaBridgePhase::starting && bridge.phase != CaptchaBridgePhase::waiting)) {
         log_u64(LogLevel::warning, "auth", "captcha_bridge_start_error", static_cast<u64>(bridge.error));
@@ -98,7 +98,7 @@ bool application_captcha_auth_pump() noexcept {
         }
         return true;
     }
-    const auto bridge = host.api.login_captcha_bridge_status(host.login_instance);
+    const auto bridge = account_module_login_captcha_bridge_status(host.login_instance);
     if (bridge.generation != login.captcha_generation)
         return true;
     switch (bridge.phase) {
@@ -126,7 +126,7 @@ bool application_captcha_auth_pump() noexcept {
         login.captcha_launch_epoch = 0; // consume before the shell can dispatch messages
         SecureBuffer url{};
         const bool copied = secure_buffer_initialize(&url, kCaptchaBridgeMaximumUrlBytes).ok() &&
-                            host.api.login_copy_captcha_bridge_url(instance, epoch, &url).ok();
+                            account_module_login_copy_captcha_bridge_url(instance, epoch, &url).ok();
         const auto current = [&]() noexcept {
             return !application_account_logout_locked() && !application_login_auth_cooldown_active() &&
                    epoch == login.captcha_generation && host.module == module &&
@@ -137,7 +137,7 @@ bool application_captcha_auth_pump() noexcept {
         if (!current())
             return true;
         if (!opened) {
-            host.api.login_cancel_captcha_bridge(instance);
+            account_module_login_cancel_captcha_bridge(instance);
             return finish(LoginCaptchaStatus::failed);
         }
     }
@@ -163,7 +163,7 @@ bool application_login_tick_captcha(u64 now_ms) noexcept {
         return true;
     // The worker enforces the same deadline; this keeps the UI exact even if
     // its notification is coalesced with other login traffic.
-    g_app.account.api.login_cancel_captcha_bridge(g_app.account.login_instance);
+    account_module_login_cancel_captcha_bridge(g_app.account.login_instance);
     return finish(LoginCaptchaStatus::expired);
 }
 } // namespace maicord::app_detail

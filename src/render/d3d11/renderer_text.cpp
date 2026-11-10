@@ -48,7 +48,7 @@ bool resolve_mention_color(const D3D11Renderer* renderer, u64 message_id, Messag
                            u64 target, Color* color) noexcept {
     const bool user = kind == MessageMarkdownSemanticKind::user_mention;
     // Message id zero is the composer: its projected role spans carry colours.
-    if (renderer && color && message_id == 0 && target != 0 && renderer->message_composer_scene) {
+    if (color && message_id == 0 && target != 0 && renderer->message_composer_scene) {
         const auto& composer = *renderer->message_composer_scene;
         for (u32 index = 0; !user && composer.projection_spans && index < composer.projection_span_count; ++index) {
             const auto& span = composer.projection_spans[index];
@@ -206,7 +206,7 @@ bool d3d11_renderer_capture_login_form_text(D3D11Renderer* renderer, const UiTex
 }
 
 bool d3d11_renderer_restore_login_form_base(D3D11Renderer* renderer) noexcept {
-    const auto* owned = renderer ? renderer->login_form_text : nullptr;
+    const auto* owned = renderer->login_form_text;
     if (!owned || !owned->valid)
         return false;
     return append_login_commands(renderer, owned->projection.storage.data, owned->projection.count, 4);
@@ -1408,7 +1408,7 @@ bool d3d11_renderer_interaction_text_state_current(const D3D11Renderer& renderer
 
 bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& theme, UiTextConsumeFunction consume,
                                       void* context) noexcept {
-    if (!renderer || !consume || renderer->login_visible)
+    if (!consume || renderer->login_visible)
         return false;
     const u32 shown = d3d11_renderer_frame_surfaces(*renderer);
     const bool shell_ready = d3d11_renderer_login_form_text(*renderer) || (shown & d3d11_surface_settings_page) ||
@@ -1425,8 +1425,6 @@ bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& them
 }
 
 bool renderer_refresh_interaction_text(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer)
-        return false;
     if (renderer->login_visible || !renderer->content_text ||
         d3d11_renderer_interaction_text_state_current(*renderer))
         return true;
@@ -1434,12 +1432,12 @@ bool renderer_refresh_interaction_text(D3D11Renderer* renderer, const Theme& the
 }
 
 TextSystem renderer_text_system(D3D11Renderer* renderer, UiTextFace face) noexcept {
-    return renderer ? command_text_system(renderer, face) : TextSystem{};
+    return command_text_system(renderer, face);
 }
 
 bool renderer_prepare_typography(D3D11Renderer* renderer, const UiThemeTypography& value,
                                  RendererTypographyCandidate* candidate) noexcept {
-    if (!renderer || !candidate || candidate->prepared || !renderer->glyph_text.ready ||
+    if (!candidate || candidate->prepared || !renderer->glyph_text.ready ||
         !ui_theme_typography_valid(value))
         return false;
     const auto& source = renderer->glyph_text.system;
@@ -1508,7 +1506,7 @@ void renderer_discard_typography(RendererTypographyCandidate* candidate) noexcep
 }
 
 bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandidate* candidate) noexcept {
-    if (!renderer || !candidate || !candidate->prepared || candidate->renderer != renderer ||
+    if (!candidate || !candidate->prepared || candidate->renderer != renderer ||
         candidate->source_revision != renderer->typography_revision ||
         candidate->source_identity != typography_source_identity(renderer->glyph_text.system))
         return false;
@@ -1562,8 +1560,8 @@ bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandi
 }
 
 void renderer_release_typography(D3D11Renderer* renderer) noexcept {
-    if (!renderer || (renderer->typography_owner &&
-                      renderer->glyph_text.system.typography == &renderer->typography_owner->policy))
+    if (renderer->typography_owner &&
+        renderer->glyph_text.system.typography == &renderer->typography_owner->policy)
         return;
     release_typography_owner(renderer->typography_owner);
     renderer->typography_owner = nullptr;
@@ -1573,8 +1571,6 @@ u32 renderer_typography_revision(const D3D11Renderer& renderer) noexcept {
 }
 
 bool renderer_bind_thread_browser_scene(D3D11Renderer* renderer, UiThreadBrowserScene* scene) noexcept {
-    if (!renderer)
-        return false;
     if (renderer->thread_browser_scene == scene)
         return true;
     renderer->thread_browser_scene = scene;
@@ -1585,8 +1581,6 @@ bool renderer_bind_thread_browser_scene(D3D11Renderer* renderer, UiThreadBrowser
 
 bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& theme,
                                       bool include_messages) noexcept {
-    if (!renderer)
-        return false;
     const u32 shown = d3d11_renderer_frame_surfaces(*renderer);
     const bool login_form = d3d11_renderer_login_form_text(*renderer);
     const bool settings_active = !login_form && (shown & d3d11_surface_settings_page);

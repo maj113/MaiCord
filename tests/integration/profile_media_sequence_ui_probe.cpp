@@ -10,6 +10,7 @@
 // again before the next frame: the frame presents and the banner's texels, read back whole, are unchanged.
 #include "probe_present.hpp"
 #include "probe_capture.hpp"
+#include "../support/account_module_fake.hpp"
 #include "../../src/app/media/pump.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"
 #include "../../src/app/account/profile.hpp"
@@ -369,7 +370,7 @@ bool on_screen(D3D11Renderer& r, UiPoint at, const MediaAssetKey& key) noexcept 
     return on_screen_rgb(r, at, key_rgb(key));
 }
 
-// The colour image_dominant_color finds in a picture of one colour: the centre of its 5-bit cell.
+// The first colour image_palette finds in a picture of one colour: the centre of its 5-bit cell.
 u32 cell_centre(u32 rgb) noexcept {
     return (rgb & 0xF8F8F8u) | 0x040404u;
 }
@@ -690,10 +691,10 @@ bool profile_media_sequence_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
     application->clock = clock_initialize();
     application->process_start = clock_now();
     application->account.instance = &instance;
-    application->account.api.media_request = busy;
-    application->account.api.media_guild_icon_request = busy_icon;
-    application->account.api.media_attachment_request = fetch;
-    application->account.api.media_take = take;
+    g_account_fake.media_request = busy;
+    g_account_fake.media_guild_icon_request = busy_icon;
+    g_account_fake.media_attachment_request = fetch;
+    g_account_fake.media_take = take;
     application->account_ui = ui;
     application->profile = profile;
     application->animations.visuals = f.visuals;

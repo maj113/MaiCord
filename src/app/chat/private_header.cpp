@@ -34,9 +34,6 @@ struct HeaderUi {
 // Zero-filled in the PE (.bss), as the stream card: the entrance is reset with its scope before it ticks.
 HeaderUi header{.card = {{.entrance = {.style = {0, UiMotionCurve::linear}}}}};
 
-u64 now_ms() noexcept {
-    return clock_monotonic_milliseconds();
-}
 // Sign-in, settings, popups and modal surfaces own the pointer.
 bool blocked() noexcept {
     return !g_app.account_ui || g_app.login.visible || g_app.popup_scene.active || g_app.text_form ||
@@ -128,7 +125,7 @@ void open_card(const UiPrivateHeaderIdentity& identity, u64 now) noexcept {
 void application_private_header_pump() noexcept {
     if (g_app.account_ui) {
         // Focus shows the popout as hover does and releases it with a grace when focus moves on.
-        const u64 now = now_ms();
+        const u64 now = clock_monotonic_milliseconds();
         UiPrivateHeaderIdentity identity{};
         if (focused_identity() && !blocked()) {
             if (!header.by_focus && current_identity(&identity)) {
@@ -151,7 +148,7 @@ void application_private_header_pump() noexcept {
         close_card();
         return;
     }
-    const u64 now = now_ms();
+    const u64 now = clock_monotonic_milliseconds();
     if (header.leave_ms && now >= header.leave_ms + kCloseMs) {
         close_card();
         return;
@@ -174,7 +171,7 @@ bool application_private_header_window_event(const WindowEvent& event) noexcept 
         return false;
     if (event.type == EventType::pointer_leave) {
         if (header.card.active && !header.leave_ms && !header.by_focus)
-            header.leave_ms = now_ms();
+            header.leave_ms = clock_monotonic_milliseconds();
         return false;
     }
     if (input_vertical_wheel(event)) {
@@ -206,7 +203,7 @@ bool application_private_header_window_event(const WindowEvent& event) noexcept 
         return over;
     }
     if (move) {
-        const u64 now = now_ms();
+        const u64 now = clock_monotonic_milliseconds();
         if (over_card) {
             header.leave_ms = 0;
             return true;
@@ -248,7 +245,7 @@ void application_private_header_popout(bool show) noexcept {
     if (!show)
         close_card();
     else if (g_app.account_ui && !blocked() && current_identity(&identity))
-        open_card(identity, now_ms());
+        open_card(identity, clock_monotonic_milliseconds());
 }
 
 void application_private_header_access(UiAccessWidgetInfo* info) noexcept {

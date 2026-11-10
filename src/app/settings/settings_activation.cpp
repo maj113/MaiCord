@@ -157,17 +157,9 @@ void apply_search(ApplicationSettings& settings) noexcept {
     ++settings.content[kSettingsSearchPage - 1].revision;
     project(settings);
 }
-void set_search(ApplicationSettings& settings, const Utf8View& text) noexcept {
-    const u32 bytes = minimum(text.bytes, kSettingsSearchBytes);
-    u32 valid = 0;
-    while (valid < bytes) {
-        const auto decoded = utf8_decode_one(text.data + valid, bytes - valid);
-        if (!decoded.valid || !decoded.width || valid + decoded.width > bytes)
-            break;
-        valid += decoded.width;
-    }
-    if (valid != settings.search_edit.bytes || !bytes_equal(settings.search_text, text.data, valid))
-        message_composer_replace_range(&settings.search_edit, 0, settings.search_edit.bytes, {text.data, valid});
+void clear_search(ApplicationSettings& settings) noexcept {
+    if (settings.search_edit.bytes)
+        message_composer_replace_range(&settings.search_edit, 0, settings.search_edit.bytes, {});
     apply_search(settings);
 }
 
@@ -185,7 +177,7 @@ bool navigate(ApplicationSettings& settings, const UiPageKey& page, u64 control_
     if (page.owner_id == kNativeSettingsOwner && page.page_id == static_cast<u64>(SettingsPanel::profiles) + 1)
         return application_profile_editor_open(ProfileEditorTab::main);
     if (settings.search_bytes)
-        set_search(settings, {});
+        clear_search(settings);
     if (!theme_panel(page))
         application_custom_theme_cancel_interaction();
     close_choice();
@@ -287,7 +279,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
     case UiSettingsTargetKind::search:
         return ui_settings_scene_focus(&settings->scene, target) && refresh();
     case UiSettingsTargetKind::search_clear:
-        set_search(*settings, {});
+        clear_search(*settings);
         ui_settings_scene_focus(&settings->scene, {UiSettingsTargetKind::search, {}, 0});
         return refresh();
     case UiSettingsTargetKind::action:
@@ -301,7 +293,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
             target.page.page_id == static_cast<u64>(SettingsPanel::profiles) + 1)
             return application_profile_editor_open(ProfileEditorTab::main);
         if (settings->search_bytes)
-            set_search(*settings, {});
+            clear_search(*settings);
         if (!theme_panel(target.page))
             application_custom_theme_cancel_interaction();
         close_choice();

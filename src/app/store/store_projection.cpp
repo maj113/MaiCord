@@ -56,7 +56,8 @@ void insert_sorted(const StoreModel& model, u16* order, u32* count, u16 index, C
 }
 } // namespace
 
-bool store_item_matches(const StoreItem& item, const Utf8View& query) noexcept {
+// Whether a listed item matches the words of `query` (word-prefix over name, summary, authors, categories).
+static bool store_item_matches(const StoreItem& item, const Utf8View& query) noexcept {
     u32 pos = 0;
     while (pos < query.bytes) {
         while (pos < query.bytes && !is_word(query.data[pos]))
@@ -133,7 +134,7 @@ void store_chips_build(const StoreModel& model, CatalogKind kind, StoreChips* ou
         add(utf8_literal("Low access only"), low, 2, 4, 0);
 }
 
-u64 store_item_chips(const StoreItem& item, const StoreChips& chips) noexcept {
+static u64 store_item_chips(const StoreItem& item, const StoreChips& chips) noexcept {
     u64 bits = 0;
     for (u32 i = 1; i < chips.count; ++i) {
         const auto& chip = chips.chips[i];
@@ -161,7 +162,8 @@ u64 store_item_chips(const StoreItem& item, const StoreChips& chips) noexcept {
     return bits;
 }
 
-bool store_chips_match(u64 selected, u64 item, const StoreChips& chips) noexcept {
+// Within a group chips are OR, across groups AND.
+static bool store_chips_match(u64 selected, u64 item, const StoreChips& chips) noexcept {
     if (!selected)
         return true;
     for (u32 group = 0; group < 3; ++group) {

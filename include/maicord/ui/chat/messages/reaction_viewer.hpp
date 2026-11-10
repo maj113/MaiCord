@@ -127,8 +127,7 @@ ReactionViewerResult reaction_viewer_open(
     UiRect viewport) noexcept;
 bool reaction_viewer_close(ReactionViewer* viewer,
                            bool* changed = nullptr) noexcept;
-bool reaction_viewer_layout(ReactionViewer* viewer, const UiRect& viewport,
-                            bool* changed = nullptr) noexcept;
+bool reaction_viewer_layout(ReactionViewer* viewer, const UiRect& viewport) noexcept;
 ReactionViewerResult reaction_viewer_select_aggregate(
     ReactionViewer* viewer, u32 aggregate_index) noexcept;
 Slice<char> reaction_viewer_page_text_output(

@@ -139,13 +139,13 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
             endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms, false);
     }
     const bool peer_wait = acquired.kind == RestRateAcquireKind::busy;
-    if (g_trace && (peer_wait || acquired.kind == RestRateAcquireKind::waiting) &&
+    if ((peer_wait || acquired.kind == RestRateAcquireKind::waiting) &&
         (!runtime->rate_wait_until_ms || runtime->waiting_for_peer != peer_wait)) {
         TraceRecord line("gate_wait");
         trace_identity(line, runtime, runtime->trace_request_id);
         line.field("reason", endpoint_wait ? "endpoint" : peer_wait ? "peer_or_mutation" : "rate_limit");
         line.field("wait_ms", acquired.wait_until_ms > now_ms ? acquired.wait_until_ms - now_ms : 0);
-        g_trace(line.text);
+        rest_trace(line.text);
     }
     runtime->waiting_for_peer = peer_wait;
     if (runtime->waiting_for_peer) {
@@ -210,15 +210,13 @@ void activate_request(RestClient* client, RestClientRuntime* runtime, NetworkLoo
     runtime->first_byte_counter = runtime->receive_counter = 0;
     runtime->trace_request_id = runtime->command.request_id;
     runtime->trace_phase = RestClientPhase::queued;
-    if (g_trace) {
-        TraceRecord line("start");
-        trace_identity(line, runtime, runtime->trace_request_id);
-        line.field("route", runtime->command.route.route_id);
-        line.field("method", static_cast<u64>(runtime->command.route.method));
-        line.field("queue_us", clock_microseconds(runtime->clock, runtime->command.submitted_counter,
-                                                   runtime->request_started_counter));
-        g_trace(line.text);
-    }
+    TraceRecord line("start");
+    trace_identity(line, runtime, runtime->trace_request_id);
+    line.field("route", runtime->command.route.route_id);
+    line.field("method", static_cast<u64>(runtime->command.route.method));
+    line.field("queue_us", clock_microseconds(runtime->clock, runtime->command.submitted_counter,
+                                               runtime->request_started_counter));
+    rest_trace(line.text);
     reset_value<RestTransaction>(&runtime->transaction);
     acquire_request(client, runtime, loop, now_ms);
 }
@@ -468,7 +466,7 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
         return invalid_result();
     }
     publish_phase(client, RestClientPhase::starting);
-    const i64 worker_start = g_trace ? clock_now() : 0;
+    const i64 worker_start = clock_now();
     const NetworkWorkerResult started = start_rest_worker(client, shared);
     if (!started.ok()) {
         if (credential && runtime->credential.data) {
@@ -478,13 +476,11 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
         client->response_event = nullptr;
         return fail_start(client, RestClientError::worker, started.native_error);
     }
-    if (g_trace) {
-        TraceRecord line("worker_online");
-        trace_identity(line, runtime, 0);
-        line.field("startup_us", clock_microseconds(runtime->clock, worker_start, clock_now()));
-        line.field("runtime_bytes", runtime->allocation_bytes);
-        g_trace(line.text);
-    }
+    TraceRecord line("worker_online");
+    trace_identity(line, runtime, 0);
+    line.field("startup_us", clock_microseconds(runtime->clock, worker_start, clock_now()));
+    line.field("runtime_bytes", runtime->allocation_bytes);
+    rest_trace(line.text);
     return client_result(client);
 }
 

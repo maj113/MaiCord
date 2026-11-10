@@ -4,6 +4,7 @@
 #include "maicord/platform/window/win32_clipboard.hpp"
 #include "../../../src/app/media/downloads_input.cpp"
 #include "../../support/test_output.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "../../support/window_fixture.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -672,7 +673,7 @@ void run() noexcept {
     g_app.renderer.width = 1200;
     g_app.renderer.height = 900;
     g_app.account.instance = &starts;
-    g_app.account.api.download = download;
+    g_account_fake.download = download;
     g_app.account.status.profile_id = 4;
     g_app.plugin_account_scope_serial = 7;
     auto& ui = *g_app.account_ui;

@@ -208,8 +208,6 @@ void start_ready(AccountSoundboard* s, u64 now_ms) noexcept {
 } // namespace
 
 void account_soundboard_initialize(AccountSoundboard* s) noexcept {
-    if (!s)
-        return;
     clear_bytes(s, static_cast<u32>(sizeof(*s)));
     soundboard_cache_initialize(&s->cache);
     s->output_gain_percent = 100;
@@ -217,7 +215,7 @@ void account_soundboard_initialize(AccountSoundboard* s) noexcept {
 }
 
 void account_soundboard_output(AccountSoundboard* s, const VoiceAudioSettings& settings) noexcept {
-    if (!s || !s->initialized)
+    if (!s->initialized)
         return;
     s->output_gain_percent = minimum<u32>(settings.output_gain_percent, kVoiceGainMaximumPercent);
     if (voice_device_id_equal(settings.output_device, s->output_device))
@@ -232,7 +230,7 @@ void account_soundboard_output(AccountSoundboard* s, const VoiceAudioSettings& s
 
 bool account_soundboard_command(AccountSoundboard* s, GatewayClient* gateway, const SoundboardAudioCommand* command,
                                 u64 now_ms) noexcept {
-    if (!s || !s->initialized || !command)
+    if (!s->initialized || !command)
         return false;
     s->call_audio = gateway_client_attach_soundboard(gateway, &s->mixer);
     switch (command->operation) {
@@ -270,7 +268,7 @@ bool account_soundboard_command(AccountSoundboard* s, GatewayClient* gateway, co
 }
 
 void account_soundboard_pump(AccountSoundboard* s, GatewayClient* gateway, u64 now_ms) noexcept {
-    if (!s || !s->initialized)
+    if (!s->initialized)
         return;
     s->call_audio = gateway_client_attach_soundboard(gateway, &s->mixer);
     if (s->cdn_started && s->fetch_request_id &&
@@ -309,7 +307,7 @@ HANDLE account_soundboard_notification_handle(const AccountSoundboard* s) noexce
 }
 
 bool account_soundboard_stop(AccountSoundboard* s, GatewayClient* gateway, u32 timeout_ms) noexcept {
-    if (!s || !s->initialized)
+    if (!s->initialized)
         return true;
     gateway_client_attach_soundboard(gateway, nullptr);
     voice_audio_output_stop(&s->preview);

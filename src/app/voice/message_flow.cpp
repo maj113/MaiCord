@@ -34,8 +34,6 @@ bool voice_message_available(const VoiceMessageGate& gate) noexcept {
 
 VoiceMessageAction voice_message_flow_apply(VoiceMessageFlow* flow, VoiceMessageEvent event, u64 now_ms,
                                             u64 channel_id) noexcept {
-    if (!flow)
-        return VoiceMessageAction::none;
     auto& f = *flow;
     const auto reset = [&](VoiceMessageNotice notice) noexcept {
         reset_value(&f);

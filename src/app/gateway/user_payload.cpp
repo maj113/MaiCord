@@ -74,7 +74,7 @@ GatewayClientDispatchRouteResult error(GatewayClientDispatchRouteError route,
 
 bool gateway_client_linked_parent(const JsonIndexedDocument& document, JsonValue value,
     u32 maximum_depth, bool* parent_managed) noexcept {
-    if (!parent_managed || value.kind != JsonValueKind::array) return false;
+    if (value.kind != JsonValueKind::array) return false;
     LinkedRows rows{document, maximum_depth, false};
     const auto read = json_visit_indexed_array(document, value, maximum_depth, linked_row, &rows);
     if (!read.ok()) return false;

@@ -57,7 +57,7 @@ bool read_ack_controller_initialize(ReadAckController* controller,
 }
 bool read_ack_controller_set_reserve(ReadAckController* controller,
     ReadAckReserve reserve, void* context) noexcept {
-    if (!controller || !valid(*controller) || controller->count || controller->inflight_active) return false;
+    if (!valid(*controller) || controller->count || controller->inflight_active) return false;
     controller->reserve = reserve; controller->reserve_context = context;
     controller->backed_count = reserve ? 0 : controller->pending.count;
     return true;
@@ -93,21 +93,19 @@ bool read_ack_controller_queue(ReadAckController* controller,
     saturating_increment(controller->revision); return true;
 }
 bool read_ack_controller_next_due(const ReadAckController& controller, u64* due_at_ms) noexcept {
-    if (!due_at_ms) return false;
     u32 index = 0; u64 due = 0;
     if (!find_due(controller, &index, &due)) return false;
     *due_at_ms = due; return true;
 }
 bool read_ack_controller_peek_due(const ReadAckController& controller,
     u64 now_ms, ReadAckIntent* intent) noexcept {
-    if (!intent) return false;
     u32 index = 0; u64 due = 0;
     if (!find_due(controller, &index, &due) || now_ms < due) return false;
     *intent = controller.pending[index]; return true;
 }
 bool read_ack_controller_admit(ReadAckController* controller,
     const ReadAckIntent& intent, u64 request_id, ReadAckRequestTicket* ticket) noexcept {
-    if (!controller || !ticket || !valid(*controller) || !valid_intent(intent) || !request_id ||
+    if (!valid(*controller) || !valid_intent(intent) || !request_id ||
         controller->inflight_active) return false;
     const u32 position = lower_bound(*controller, intent.channel_id);
     if (position == controller->count || !same_target(controller->pending[position], intent) ||
@@ -120,7 +118,7 @@ bool read_ack_controller_admit(ReadAckController* controller,
 }
 ReadAckCompletionResult read_ack_controller_complete(ReadAckController* controller,
     ReadAckRequestTicket ticket, ReadAckCompletion completion, u64 retry_due_at_ms) noexcept {
-    if (!controller || !valid(*controller) || !controller->inflight_active || !ticket.request_id ||
+    if (!valid(*controller) || !controller->inflight_active || !ticket.request_id ||
         ticket.request_id != controller->request_id || ticket.generation != controller->generation)
         return ReadAckCompletionResult::ignored;
     const bool superseded = controller->inflight_superseded;
@@ -156,7 +154,7 @@ bool read_ack_controller_cancel(ReadAckController* controller, u64 channel_id) n
     return changed;
 }
 void read_ack_controller_reset(ReadAckController* controller) noexcept {
-    if (!controller || !valid(*controller)) return;
+    if (!valid(*controller)) return;
     controller->count = 0; controller->retry_not_before_ms = 0; clear_inflight(controller);
     ++controller->generation; if (!controller->generation) ++controller->generation;
     saturating_increment(controller->revision);

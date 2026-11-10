@@ -18,6 +18,9 @@ inline constexpr u32 kUiGuildImageUrlBytes = 192;
 // decode, so every request below asks for at most this many pixels and the
 // renderer scales it up.
 inline constexpr u32 kUiGuildImageMaximumPixels = 512;
+// The proxy size a surface of size_dips asks for at dpi: size_dips * dpr capped at kUiGuildImageMaximumPixels (itself
+// a proxy size, so the cap never rounds up).
+u32 ui_guild_image_request_size(u32 size_dips, u32 dpi) noexcept;
 struct UiGuildImageMedia {
     MediaAssetKey key; // profile_image identity of the exact URL
     u32 url_bytes;

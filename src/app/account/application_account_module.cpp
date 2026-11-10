@@ -157,8 +157,7 @@ bool synchronize_member_subscription_impl(u64 now_ms) noexcept {
         subscription.omit_channel_ranges = true;
         subscription.omit_features = !thread_command.thread_id;
         subscription.typing = subscription.activities = subscription.threads = true;
-        if (g_app.account.instance && g_app.account.api.guild_subscribe &&
-            g_app.account.api.guild_subscribe(g_app.account.instance, &subscription)) {
+        if (g_app.account.instance && account_module_guild_subscribe(g_app.account.instance, &subscription)) {
             thread_member_list_subscription_sent(&thread_pending, thread_command, now_ms);
             log_u64(LogLevel::info, "gateway", "thread_member_subscription_thread_id",
                     thread_command.thread_id);
@@ -279,8 +278,7 @@ bool synchronize_member_subscription_impl(u64 now_ms) noexcept {
         return true;
     }
     subscription.thread_member_lists_present = true;
-    if (!g_app.account.instance || !g_app.account.api.guild_subscribe ||
-        !g_app.account.api.guild_subscribe(g_app.account.instance, &subscription)) {
+    if (!g_app.account.instance || !account_module_guild_subscribe(g_app.account.instance, &subscription)) {
         g_app.member_list_channels = channels_before;
         member_list_subscription_fail(&pending, now_ms);
         log_u64(LogLevel::warning, "gateway", "guild_member_subscription_retry_at_ms", pending.retry_at_ms);
@@ -342,7 +340,7 @@ static void follow_visible_members(const AccountUiRuntime& ui, u64 guild_id, con
     }
     const u64 digest = hash64_bytes(hash64_mix(kHash64Seed, guild_id), wanted,
                                     wanted_count * static_cast<u32>(sizeof(wanted[0])));
-    if (!g_app.account.api.guild_subscribe || (guild_id == g_followed_guild && digest == g_followed_digest))
+    if (guild_id == g_followed_guild && digest == g_followed_digest)
         return;
     const auto send = [&](u64 guild, const u64* users, u32 users_count) noexcept {
         GatewayGuildSubscription frame{};
@@ -351,7 +349,7 @@ static void follow_visible_members(const AccountUiRuntime& ui, u64 guild_id, con
         frame.member_count = users_count;
         for (u32 i = 0; i < users_count; ++i)
             frame.members[i] = users[i];
-        return g_app.account.api.guild_subscribe(g_app.account.instance, &frame);
+        return account_module_guild_subscribe(g_app.account.instance, &frame);
     };
     if (g_followed_guild && g_followed_guild != guild_id && g_followed_count)
         send(g_followed_guild, nullptr, 0);
@@ -444,8 +442,7 @@ __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime&
         const bool scope_changed =
             eligible && (owner.guild_id != selected->guild_id || owner.channel_id != selected->id);
         if ((!missing_count || scope_changed) && owner.pending_interest) {
-            if (g_app.account.api.guild_members_request)
-                g_app.account.api.guild_members_request(g_app.account.instance, nullptr);
+            account_module_guild_members_request(g_app.account.instance, nullptr);
             owner.pending_interest = false;
         }
         if (!missing_count) {
@@ -458,8 +455,7 @@ __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime&
         if (!visible_author_hydration_plan(&owner, selected->guild_id, selected->id, {missing, missing_count},
                                            now_ms, &request))
             break;
-        const bool admitted = g_app.account.api.guild_members_request &&
-                              g_app.account.api.guild_members_request(g_app.account.instance, &request);
+        const bool admitted = account_module_guild_members_request(g_app.account.instance, &request);
         visible_author_hydration_complete(&owner, request, now_ms, admitted);
     } while (false);
     retain_interest();
@@ -503,7 +499,7 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
                                                        Slice<u8> payload_output) noexcept {
     if (!application_notifications_can_pop(&g_app))
         return {0, GatewayClientPopError::empty};
-    const GatewayClientPopResult popped = g_app.account.api.gateway_pop(source, event, payload_output);
+    const GatewayClientPopResult popped = account_module_gateway_pop(source, event, payload_output);
     if (!popped.ok() || !event) {
         return popped;
     }
@@ -1024,7 +1020,7 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
 
 void application_account_report_focus(bool focused) noexcept {
     if (g_app.account.instance)
-        g_app.account.api.client_focus(g_app.account.instance, focused);
+        account_module_client_focus(g_app.account.instance, focused);
 }
 
 bool application_account_restart() noexcept {

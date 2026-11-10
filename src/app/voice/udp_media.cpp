@@ -92,7 +92,7 @@ bool voice_udp_media_begin(VoiceUdpMedia* media, VoiceUdpDiscovery* discovery, V
 }
 VoiceUdpMediaSend voice_udp_media_send(VoiceUdpMedia* media, u64 generation,
                                        ConstSlice<u8> plaintext) noexcept {
-    if (!media || !current(*media) || generation != media->generation)
+    if (!current(*media) || generation != media->generation)
         return VoiceUdpMediaSend::invalid;
     if (media->discovery->socket.send_pending)
         return VoiceUdpMediaSend::busy;

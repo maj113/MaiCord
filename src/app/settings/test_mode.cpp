@@ -174,7 +174,7 @@ Utf8View application_test_mode_status() noexcept {
 
 bool application_test_mode_pending(u64 now_ms) noexcept {
     return (g_mode.phase == Phase::check_queued || g_mode.phase == Phase::fetch_queued) && now_ms >= g_mode.retry_at &&
-           account_online() && g_app.account.api.profile_get;
+           account_online();
 }
 
 bool application_test_mode_submit(u64 request_id, u64 now_ms) noexcept {
@@ -184,7 +184,7 @@ bool application_test_mode_submit(u64 request_id, u64 now_ms) noexcept {
     const bool check = g_mode.phase == Phase::check_queued;
     char digits[24];
     const Utf8View ids{digits, decimal_write(digits, g_mode.candidate)};
-    const auto submitted = host.api.profile_get(host.instance, g_mode.candidate, 0, request_id, check ? 7 : 5,
+    const auto submitted = account_module_profile_get(host.instance, g_mode.candidate, 0, request_id, check ? 7 : 5,
                                                 check ? Utf8View{} : ids);
     if (submitted.error == RestClientSubmitError::busy) {
         g_mode.retry_at = now_ms + kRetryMs;

@@ -1,6 +1,7 @@
 #include "account/user_actions.hpp"
 #include "../../../src/app/account/friends.cpp"
 #include "shell/state.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "account/friends.hpp"
 #include "chat/application_private_conversation.hpp"
 #include "account/profile.hpp"
@@ -697,7 +698,7 @@ void run() noexcept {
         "friends: actual state/user stores and retained shell initialize with bounded fixture backing");
     g_app.renderer_ready = true;g_app.renderer.width = 1280;g_app.renderer.height = 700;g_app.renderer.dpi = 96;
     g_app.window = nullptr;g_app.keyboard_focus_visible = true;g_app.preferences = client_preferences_defaults();
-    g_app.account.instance = &account;g_app.account.status.profile_id = 4;g_app.account.api.relationships = submit;
+    g_app.account.instance = &account;g_app.account.status.profile_id = 4;g_account_fake.relationships = submit;
     check(snapshot(utf8_literal("[]"), 1) && application_friends_show() && scene() &&
         scene()->phase == UiFriendsPhase::ready && !scene()->source_count && !application_friends_pending(1000) && !seen.submissions,
         "friends: authoritative empty READY shows ready empty scene and never queues implicit REST GET");

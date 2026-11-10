@@ -35,24 +35,6 @@ template<class Planner> SfntStatus native_plan_steps(u32 kind,Arena& state,Arena
     return native_plan_steps_run(kind,state,scratch,[](const void* context,Slice<SfntLookupStep> out,SfntLookupPlanResult* result) noexcept {
         return (*static_cast<const Planner*>(context))(out,result);},&plan,steps,roots,found,require_language);
 }
-// Planner of one opened table: planner(layout,variations,mask,steps,&result)
-// with a one-byte lookup mask.
-using NativeTablePass=SfntStatus (*)(const void* context,const SfntLayout&,const SfntFeatureSubstitutions&,
-    Slice<u8> mask,Slice<SfntLookupStep> steps,SfntLookupPlanResult* result) noexcept;
-// The planned GSUB steps and GPOS roots of a script plan.
-struct NativePlanTables {const SfntLookupStep* substitution_steps;const u16* positioning_roots;u32 substitution_count;u16 positioning_count;};
-SfntStatus native_plan_tables_run(const NativePlanSource& source,const SfntLayout (&layouts)[2],Arena& state,Arena& scratch,
-    NativeTablePass pass,const void* context,NativePlanTables& output,u32 work) noexcept;
-// Plans both opened tables of a script plan: GSUB steps and GPOS roots.
-template<class Plan,class Planner> SfntStatus native_plan_tables(const NativePlanSource& source,const SfntLayout (&layouts)[2],
-    Arena& state,Arena& scratch,Plan& plan,const Planner& planner,u32 work) noexcept {
-    NativePlanTables tables{plan.substitution_steps,plan.positioning_roots,plan.substitution_count,plan.positioning_count};
-    const auto status=native_plan_tables_run(source,layouts,state,scratch,[](const void* context,const SfntLayout& layout,
-        const SfntFeatureSubstitutions& variations,Slice<u8> mask,Slice<SfntLookupStep> steps,SfntLookupPlanResult* result) noexcept {
-        return (*static_cast<const Planner*>(context))(layout,variations,mask,steps,result);},&planner,tables,work);
-    plan.substitution_steps=tables.substitution_steps;plan.positioning_roots=tables.positioning_roots;
-    plan.substitution_count=tables.substitution_count;plan.positioning_count=tables.positioning_count;return status;
-}
 SfntStatus native_positioning_prepare(const NativeFontFace&,const SfntShapePlan&,ConstSlice<u16> roots,
     Arena& state,Arena& scratch,const SfntGposProgram** output,u32 work) noexcept;
 SfntStatus native_lookup_roots_prepare(const SfntLayout&,const SfntFeatureSubstitutions&,u32 script,bool independent,

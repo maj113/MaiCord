@@ -22,7 +22,6 @@ struct UiTextMeasureCache;
 struct UiPollAnswer;
 struct UiPollProjection;
 struct UiPollState;
-struct Theme;
 struct UiResolvedThemeStyles;
 // Borrowed from the host's lazy poll owner. No storage is acquired for ordinary
 // messages; Search and timeline retain their own local message authority.

@@ -82,7 +82,7 @@ bool channel_overview_scope_equal(ChannelOverviewScope a, ChannelOverviewScope b
 }
 bool channel_overview_controller_open(ChannelOverviewController* value, ChannelOverviewScope scope,
                                       bool available, bool can_manage) noexcept {
-    if (!value || value->request_id || !scope_valid(scope) || !can_manage || value->revision == ~u64{0})
+    if (value->request_id || !scope_valid(scope) || !can_manage || value->revision == ~u64{0})
         return false;
     const u64 revision = value->revision;
     reset_value(value);
@@ -98,8 +98,6 @@ bool channel_overview_controller_open(ChannelOverviewController* value, ChannelO
     return true;
 }
 void channel_overview_controller_cancel(ChannelOverviewController* value) noexcept {
-    if (!value)
-        return;
     value->active = false;
     value->queued = false;
     value->retry_at_ms = 0;
@@ -109,7 +107,7 @@ void channel_overview_controller_cancel(ChannelOverviewController* value) noexce
 }
 void channel_overview_controller_authority(ChannelOverviewController* value, ChannelOverviewScope scope,
                                            bool available, bool can_manage) noexcept {
-    if (!value || !value->active)
+    if (!value->active)
         return;
     if (!scope_valid(scope) || !channel_overview_scope_equal(value->scope, scope)) {
         channel_overview_controller_cancel(value);
@@ -128,7 +126,7 @@ void channel_overview_controller_authority(ChannelOverviewController* value, Cha
 }
 void channel_overview_controller_reauthorize(ChannelOverviewController* value, ChannelOverviewScope scope,
                                              bool available, bool can_manage) noexcept {
-    if (!value || !value->active || !scope_valid(scope) ||
+    if (!value->active || !scope_valid(scope) ||
         !channel_overview_scope_equal(value->scope, scope))
         return;
     value->permission_denied = !can_manage;
@@ -136,7 +134,7 @@ void channel_overview_controller_reauthorize(ChannelOverviewController* value, C
 }
 bool channel_overview_controller_edit(ChannelOverviewController* value,
                                       const ChannelOverviewPatch& input) noexcept {
-    if (!value || !editable(*value))
+    if (!editable(*value))
         return false;
     auto validated = input;
     if ((input.fields & channel_overview_name) && !input.name.bytes)
@@ -158,7 +156,7 @@ bool channel_overview_controller_edit(ChannelOverviewController* value,
     return true;
 }
 bool channel_overview_controller_save(ChannelOverviewController* value) noexcept {
-    if (!value || !editable(*value) || value->phase == ChannelOverviewPhase::conflict ||
+    if (!editable(*value) || value->phase == ChannelOverviewPhase::conflict ||
         !value->dirty_fields)
         return false;
     if (!channel_overview_patch_valid(patch(value->draft, value->dirty_fields))) {
@@ -177,7 +175,7 @@ bool channel_overview_controller_save(ChannelOverviewController* value) noexcept
     return true;
 }
 bool channel_overview_controller_reset(ChannelOverviewController* value) noexcept {
-    if (!value || !value->active || !value->has_baseline || value->request_id || value->queued)
+    if (!value->active || !value->has_baseline || value->request_id || value->queued)
         return false;
     value->draft = value->baseline;
     value->dirty_fields = value->conflict_fields = 0;
@@ -188,7 +186,7 @@ bool channel_overview_controller_reset(ChannelOverviewController* value) noexcep
     return true;
 }
 bool channel_overview_controller_reload(ChannelOverviewController* value) noexcept {
-    if (!value || !value->active || value->request_id)
+    if (!value->active || value->request_id)
         return false;
     fetch(*value);
     value->rate_attempts = 0;
@@ -196,7 +194,7 @@ bool channel_overview_controller_reload(ChannelOverviewController* value) noexce
     return true;
 }
 bool channel_overview_controller_rebase(ChannelOverviewController* value) noexcept {
-    if (!value || !editable(*value) || value->phase != ChannelOverviewPhase::conflict)
+    if (!editable(*value) || value->phase != ChannelOverviewPhase::conflict)
         return false;
     value->phase = ChannelOverviewPhase::ready;
     value->failure = ChannelOverviewFailure::none;
@@ -222,7 +220,7 @@ ChannelOverviewRequest channel_overview_controller_request(const ChannelOverview
 }
 bool channel_overview_controller_submitted(ChannelOverviewController* value,
                                            const ChannelOverviewRequest& request, u64 request_id) noexcept {
-    if (!value || !request.ready || !request_id || value->request_id || !value->active || !value->queued ||
+    if (!request.ready || !request_id || value->request_id || !value->active || !value->queued ||
         !value->available || !channel_overview_scope_equal(value->scope, request.scope) ||
         request.revision != value->revision || request.remote_revision != value->remote_revision ||
         request.operation != value->operation)
@@ -238,7 +236,7 @@ bool channel_overview_controller_submitted(ChannelOverviewController* value,
 bool channel_overview_controller_admission_failed(ChannelOverviewController* value,
                                                   const ChannelOverviewRequest& request,
                                                   ChannelOverviewFailure failure) noexcept {
-    if (!value || !request.ready || !value->active || value->request_id || !value->queued ||
+    if (!request.ready || !value->active || value->request_id || !value->queued ||
         !channel_overview_scope_equal(value->scope, request.scope) || request.revision != value->revision ||
         request.remote_revision != value->remote_revision || request.operation != value->operation)
         return false;
@@ -251,7 +249,7 @@ bool channel_overview_controller_admission_failed(ChannelOverviewController* val
 }
 bool channel_overview_controller_invalidate(ChannelOverviewController* value,
                                             ChannelOverviewScope scope) noexcept {
-    if (!value || !value->active || !channel_overview_scope_equal(value->scope, scope))
+    if (!value->active || !channel_overview_scope_equal(value->scope, scope))
         return false;
     if (value->remote_revision == ~u64{0}) {
         channel_overview_controller_cancel(value);
@@ -269,7 +267,7 @@ bool channel_overview_controller_invalidate(ChannelOverviewController* value,
 bool channel_overview_controller_complete(ChannelOverviewController* value, ChannelOverviewScope scope,
                                           u64 request_id, ChannelOverviewCompletion completion,
                                           const ChannelOverviewSnapshot* remote, u64 now_ms) noexcept {
-    if (!value || !request_id || value->request_id != request_id ||
+    if (!request_id || value->request_id != request_id ||
         !channel_overview_scope_equal(value->scope, scope))
         return false;
     value->request_id = 0;

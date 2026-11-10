@@ -15,8 +15,6 @@ namespace maicord {
 inline constexpr u32 kImageDominantColorHistogramEntries = 1u << 15;
 inline constexpr u32 kImagePaletteColors = 5;
 u32 image_palette(ConstSlice<u8> rgba, u32 width, u32 height, Slice<u32> histogram, u32* colors) noexcept;
-// The palette's first colour (0 for bad input).
-u32 image_dominant_color(ConstSlice<u8> rgba, u32 width, u32 height, Slice<u32> histogram) noexcept;
 // The colour that stands beside `rgb` when a palette has only that one: its hue a quarter turn back, saturation
 // raised to at least 30 % and lightness kept within 20-80 % (whole-degree hue, one-decimal percentages).
 u32 image_palette_companion(u32 rgb) noexcept;

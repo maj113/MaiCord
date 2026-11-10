@@ -27,12 +27,9 @@ void set_main_window(HWND window) noexcept;
 
 // The frame messages of a window whose client extends over the system caption (caption_frame.cpp). True when handled;
 // *result is then the LRESULT.
-bool caption_frame_message(const Win32CaptionOps& ops, HWND window, UINT message, WPARAM wparam, LPARAM lparam,
-                           LRESULT* result) noexcept;
-// The outer size of `window` for a client of this size; `ops` is null for the system frame.
-void frame_outer_size(const Win32CaptionOps* ops, HWND window, u32 client_width, u32 client_height, u32* width,
-                      u32* height) noexcept;
-// The caption controller of the window, null for the system frame.
-const Win32CaptionOps* caption_ops() noexcept;
+bool caption_frame_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept;
+// The outer size of `window` for a client of this size: the caption frame's, or the system frame's without a caption
+// controller or while it is hidden.
+void frame_outer_size(HWND window, u32 client_width, u32 client_height, u32* width, u32* height) noexcept;
 
 } // namespace maicord::win32_detail

@@ -40,7 +40,7 @@ bool create_resources(D3D11BackgroundFxOwner* owner, GpuDevice* device) noexcept
 bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner* owner, GpuDevice* device,
                                      GpuContext* context, const Theme& theme, float phase_seconds,
                                      u32 width, u32 height, u32 dpi, bool suppressed) noexcept {
-    if (!owner || !device || !context)
+    if (!device || !context)
         return false;
     owner->source = BackgroundFxSource::none;
     owner->drawn_count = 0;
@@ -67,7 +67,7 @@ bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner* owner, GpuDevice* d
 
 bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, GpuContext* context, UiRect canvas,
                               u32 quad_index) noexcept {
-    if (!owner || !context || owner->source == BackgroundFxSource::none)
+    if (!context || owner->source == BackgroundFxSource::none)
         return false;
     for (u32 i = 0; i < owner->drawn_count; ++i)
         if (owner->drawn[i] == quad_index)
@@ -113,8 +113,6 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, GpuContext* context
 }
 
 void d3d11_background_fx_release(D3D11BackgroundFxOwner* owner) noexcept {
-    if (!owner)
-        return;
     gpu_release(owner->blend_state);
     gpu_release(owner->constant_buffer);
     gpu_release(owner->builtin_shader);

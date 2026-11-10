@@ -158,23 +158,24 @@ environment switches that only tests use (`include/maicord/core/test_hook.hpp`: 
 shipped, packaged or measured for size comes from a build without `--test`. A new test-only knob calls `test_hook()`, never
 `environment_get()`.
 
-**The account module is called directly; tests fake it through a table.** The shipped client calls the account module through
-`kAccountModuleApi` (`include/maicord/app/account/account_module_api.hpp`), a constant table the whole-program link folds into direct
-calls and drops the `host.api.entry &&` checks of. Test code (the tests' own objects and the library twins, the targets with
-`MAICORD_TEST_CODEGEN`) compiles with `MAICORD_ACCOUNT_API_TABLE`: `AccountHost::api` is then a mutable table, empty at the start, that
-a test fills with fakes (`g_app.account.api.message_ack = fake`); `g_account_api = kAccountModuleApi` installs the linked module's
-own entries. A call site that checks several entries at once asks `account_api_provides` (`account_host.hpp`).
+**The account module is called by name; tests link a fake.** The client calls the account module through plain functions
+(`account_module_*`, declared in `include/maicord/app/account/account_module_api.hpp`, defined by
+`src/app/account/account_module*.cpp`), which the whole-program link makes direct calls. A test that links application
+code lists `tests/support/account_module_fake.cpp` in its `SOURCES`: it defines every entry, answering as the module does
+without an instance (invalid input) unless the test sets the hook of the entry in `g_account_fake`
+(`g_account_fake.message_ack = fake`; restore it when the case ends). A test of the module itself links the module.
 
-**One implementation in the shipped client means no function table.** A table of function pointers, a hook or a callback struct
-(`void* context` and entries) with a single shipped implementation costs an indirect call, a load and a null check per use, and
-keeps both sides from inlining; the shipped client is one image, so call the implementation: a `const` table the link folds
-(`extern const GoLiveBackend kGoLiveDevicesBackend`, `kWin32Hooks`, `kWin32CaptionOps`), or a global whose only writer is a test-only
-setter the client never references (`rest_client_set_trace`: the link drops the setter and folds the default). What tests need to
-fake compiles under `MAICORD_TEST_SEAMS` (the same targets as `MAICORD_ACCOUNT_API_TABLE`): a mutable table (`g_go_live_backend`), the
-window options' tables, `voice_log_set_sink`. Library code in a test's link that the test's own objects fake (Linux tests link the
-shipped libraries) is listed in that test's `SOURCES`, as `account_host.cpp` is. Seams with
-several implementations (text input targets, upload sources, settings pages, video sinks, the Linux decoder tiers) or whose
-implementation differs per system stay tables, and so do the `dlopen`/`GetProcAddress` tables, COM vtables and the plugin SDK ABI.
+**One implementation in the shipped client means no function table.** A table of function pointers, a hook or a callback
+struct (`void* context` and entries) with a single shipped implementation costs an indirect call, a load and a null check
+per use, and keeps both sides from inlining; the shipped client is one image, so call the implementation by name. What a
+test needs to fake it defines itself, and the link takes the test's definition over the library's: the Go Live producers
+(`go_live_producer_*`, `go_live_stream.hpp`), the voice log (`voice_log_fields`: `tests/support/voice_log_sink.cpp`), the
+REST trace (`rest_trace`) and the application half of the Windows window procedure (`win32_caption_*`,
+`win32_shell_message`, `win32_input_blocked`, `platform/window/win32.hpp`). A fake replaces a whole source file of the
+library, so the replaced function sits in a file of its own (`log_record.cpp`, `rest_client_trace.cpp`), and the test lists
+its fake in `SOURCES`, as it lists `account_host.cpp` when it fakes the module. Seams with several implementations (text
+input targets, upload sources, settings pages, video sinks, the Linux decoder tiers) or whose implementation differs per
+system stay tables, and so do the `dlopen`/`GetProcAddress` tables, COM vtables and the plugin SDK ABI.
 
 **Environment overrides for users and operators** (documented, shipped):
 
@@ -646,9 +647,9 @@ see the effects guide for Linux), and with Developer Mode on, MaiCord reloads th
   cursor and context-menu events reach handlers in content pixels (the dispatcher takes the caption's rows off the
   client point once, `window_dispatch.cpp`); `app/shell/window_events.hpp` has the predicates handlers use
   (`input_press`, `input_release`, `input_double`, `input_pointer_step`, `input_side_button`, ...) and `input.hpp`
-  the DIP conversions. What stays Windows-only (UI Automation, tray and single instance) is a hook of
-  `src/app/windows/platform_window.cpp` (`Win32Hooks`; the non-client frame forwards to the portable caption controller
-  through `Win32CaptionOps`), not a case in the dispatcher; the window state observer is the dispatcher's own. Handler
+  the DIP conversions. What stays Windows-only (UI Automation, tray and single instance) is a function of
+  `src/app/windows/platform_window.cpp` (`win32_shell_message`; the non-client frame forwards to the portable caption
+  controller through `win32_caption_*`), not a case in the dispatcher; the window state observer is the dispatcher's own. Handler
   tests build
   events with `tests/support/window_fixture.hpp` (`window_test::pointer_down(x, y)`, `key_down`, `wheel`, ...) and
   drive them against the headless backend (`window_test::open()`), which keeps capture, focus, key state and the

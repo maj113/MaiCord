@@ -449,12 +449,4 @@ python tools\release\maicord_release.py preview --binaries ..\MaiCord-build\Rele
   --output-dir $env:TEMP\maicord-preview --key-file $env:TEMP\throwaway.jwk
 ```
 
-To replay a set of published files through the real client pipeline offline,
-put the manifest, its `.sig`, optionally the changelog and its `.sig`, the
-package and `public-key.txt` (the hex point) in one directory and run the client
-tests with `MAICORD_UPDATE_REPLAY_DIR` pointing at it
-(`MAICORD_UPDATE_REPLAY_OWN` sets the installed version number, default
-`1000999`); see `tests/app/update/client.cpp`, which also replays a synthetic
-preview build on every run.
-
 Delete the throwaway key and output directories afterwards.

@@ -261,64 +261,8 @@ struct AccountUiRuntime {
     u64 emoji_role_storage[kChatStateEmojiRoleCapacity];
 };
 
-// Includes fixed-capacity identity, member, message, glyph and media stores.
-// Permission, history decode and rich records are independently demand-committed
-// and are not part of this committed allocation.
-inline constexpr u32 kAccountUiMemberPagingBytes =
-    sizeof(GuildMemberStore) - 48 + sizeof(MemberListView) - 80 +
-    kMemberListViewCapacity * (sizeof(MemberListRow) - 32);
-inline constexpr u32 kAccountUiThreadMemberBytes =
-    sizeof(ThreadMemberStore) + 2 * sizeof(StableStorage);
-// Known-channel read metadata shares the channel records (sizeof(ChannelRecord)
-// - 96 bytes each, committed with them in the demand tail). Only late channel
-// identities use separately demand-committed pending storage.
-inline constexpr u32 kAccountUiReadStateBytes =
-    sizeof(ReadStateStore*) + sizeof(ReadStateStore) + sizeof(StableStorage);
-static_assert(kAccountUiReadStateBytes == 152);
-// The current reply reuses the composer's channel; its remaining snapshot
-// fields occupy 16 bytes, plus eight added bytes in each retained draft record.
-inline constexpr u32 kAccountUiReplyDraftBytes = kMessageDraftCapacity * (sizeof(MessageDraftRecord) - 40) +
-                                                 sizeof(MessageComposerReplySnapshot) - sizeof(u64);
-static_assert(kAccountUiReplyDraftBytes == 528);
-// The Markdown cache: its presentation binding (16 bytes), slots and ring.
-inline constexpr u32 kAccountUiMarkdownCacheBytes = 16 + sizeof(MessageMarkdownCache) +
-                                                    kMessageMarkdownCacheSlots * sizeof(MessageMarkdownCacheEntry) +
-                                                    kMessageMarkdownCacheArenaBytes;
 // The committed owner ends where the demand tail begins; growth of the lazy decode bank does not
 // change it.
 inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel_record_storage);
-// The literal base predates these members: a text measurement of 808 bytes, a guild record of 120,
-// appearance and activity stores of two StableStorage + 16 each, a 288-byte chat state store, and
-// the channel, name, emoji and emoji-role storage that has since moved to the demand tail, and
-// the navigation view's voice extras binding (16 bytes), the message text
-// projection's scroll shift (8 bytes), the member role
-// overflow, the 2,048 voice states that moved to their own owned storage, and dead presentation and
-// cache counters removed since (see the base literal). One embedded layout node also shrank by 8
-// bytes when the layout baseline went away (the 16 + 8 - 8 terms); the composer controller lost two
-// counters, its send tracker two more and the draft store three (the - 24 term); the poll receipt
-// sequence guard shrank from eight sources to one (the - 56 term); the member media cache's sixth layer
-// (the hovered nameplate's still) moved the alignment padding after it by 16 (the last + 16 term); the
-// thread member store lost its rejected counter (the - 8 after it). The member store's base is its size
-// once the position table became parallel arrays (13 bytes a position instead of 16).
-// The paged media atlases: allocations of 24 bytes became 32 (recency), the identity atlas has 128 shelves
-// (was 64), the allocator holds its pages (was 80 bytes) and MediaAtlas lost its growth state (the - 608 term).
-// The renderer text storage lost its UTF-16 scratch pointer, capacity and error code (the - 16 term).
-// The message text presentation binds the game store for game mentions (the + 8 after it).
-static_assert(kAccountUiFixedBytes ==
-              4'261'068 + 16 + 8 - 8 - 24 - 56 + 16 - 8 - 16 + 8 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
-                  (kMediaAtlasEntryCapacity + kPreviewMediaAtlasEntryCapacity) * (sizeof(GlyphAtlasEntry) - 24) +
-                  (kMediaAtlasRowCapacity - 64) * sizeof(GlyphAtlasRow) + 2 * (sizeof(GlyphAtlasAllocator) - 80) - 608 +
-                  sizeof(MemberMediaCache) +
-                  kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
-                  kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +
-                  (sizeof(UserAppearanceStore) - 2 * sizeof(StableStorage) - 16) +
-                  (sizeof(UserActivityStore) - 2 * sizeof(StableStorage) - 16) +
-                  sizeof(MemberListPositionTable) + sizeof(GuildDetailStore) +
-                  kChatStateGuildCapacity * sizeof(GuildDetailRecord) + kGuildDetailTextBytes -
-                  4'096 * (sizeof(ChannelRecord) + sizeof(u16) + sizeof(CustomEmojiRecord)) - 256 * 1024 -
-                  16'384 * sizeof(u64) + sizeof(AccountDemandCommit) + (sizeof(ChatStateStore) - 288) +
-                  sizeof(GuildMemberRoleOverflow) + (sizeof(VoiceStateStore) - 32) - 2'048 * sizeof(VoiceState) +
-                  (sizeof(GuildMemberStore) - 33'456) + sizeof(MessageRichSide));
-
 
 } // namespace maicord::app_detail

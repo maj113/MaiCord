@@ -66,7 +66,7 @@ struct Owner : SettingsDialog {
 Owner* owner;
 
 bool connected() noexcept {
-    return g_app.account.instance && g_app.account.status.gateway_ready && g_app.account.api.user_social &&
+    return g_app.account.instance && g_app.account.status.gateway_ready &&
            g_app.account.status.required_action == AccountRequirement::none;
 }
 bool scope_current() noexcept {
@@ -536,7 +536,7 @@ bool application_report_submit(u64 now) noexcept {
         request.text = {reinterpret_cast<const char*>(p.body), written.bytes};
     }
     const u64 id = application_next_request_id();
-    const auto result = g_app.account.api.user_social(g_app.account.instance, &request, id);
+    const auto result = account_module_user_social(g_app.account.instance, &request, id);
     if (submit_busy(result, p.retry_at, now, 100))
         return false;
     if (!result.ok()) {

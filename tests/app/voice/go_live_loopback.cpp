@@ -17,6 +17,7 @@
 #include "maicord/sys/d3d11.hpp"
 #include "../../support/hevc_stream_fixture.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/voice_log_sink.hpp"
 
 namespace maicord {
 namespace {
@@ -80,28 +81,31 @@ struct World {
 };
 World* g;
 
-u32 encodable(void*, bool* known) noexcept {
+} // namespace
+
+u32 go_live_producer_encodable(void*, bool* known) noexcept {
     *known = true;
     return gpu_stream_codec_bit(GpuStreamCodec::h264) | gpu_stream_codec_bit(GpuStreamCodec::h265) |
            gpu_stream_codec_bit(GpuStreamCodec::av1);
 }
-bool capture(void* context, GoLiveMedia* media, const CaptureSource&, bool, u32) noexcept {
+bool go_live_producer_capture(void* context, GoLiveMedia* media, const CaptureSource&, bool, u32) noexcept {
     auto& p = *static_cast<Producer*>(context);
     p.media = media;
     p.capturing = true;
     return true;
 }
-void capture_stop(void* context) noexcept {
+void go_live_producer_capture_stop(void* context) noexcept {
     static_cast<Producer*>(context)->capturing = false;
 }
-bool sound(void* context, GoLiveMedia*, u32) noexcept {
+bool go_live_producer_sound(void* context, GoLiveMedia*, u32) noexcept {
     static_cast<Producer*>(context)->sounding = true;
     return true;
 }
-void sound_stop(void* context) noexcept {
+void go_live_producer_sound_stop(void* context) noexcept {
     static_cast<Producer*>(context)->sounding = false;
 }
-bool encoder(void* context, GoLiveMedia*, GpuStreamCodec codec, const GpuStreamEncoderSettings& settings) noexcept {
+bool go_live_producer_encoder(void* context, GoLiveMedia*, GpuStreamCodec codec,
+                              const GpuStreamEncoderSettings& settings) noexcept {
     auto& p = *static_cast<Producer*>(context);
     p.codec = codec;
     p.encoding = settings.width == kWidth && settings.height == kHeight;
@@ -109,19 +113,21 @@ bool encoder(void* context, GoLiveMedia*, GpuStreamCodec codec, const GpuStreamE
     ++p.encoders;
     return p.encoding;
 }
-void configure(void*, const GpuStreamEncoderSettings&) noexcept {}
-void bitrate(void*, u32) noexcept {}
-void keyframe(void* context) noexcept {
+void go_live_producer_configure(void*, const GpuStreamEncoderSettings&) noexcept {}
+void go_live_producer_bitrate(void*, u32) noexcept {}
+void go_live_producer_keyframe(void* context) noexcept {
     auto& p = *static_cast<Producer*>(context);
     p.keyframe = true;
     ++p.keyframe_requests;
 }
-void encoder_stop(void* context) noexcept {
+void go_live_producer_encoder_stop(void* context) noexcept {
     static_cast<Producer*>(context)->encoding = false;
 }
-bool preview(void*, GpuVideoFrame*, u32*) noexcept {
+bool go_live_producer_preview(void*, GpuVideoFrame*, u32*) noexcept {
     return false;
 }
+
+namespace {
 
 // One synthetic access unit of the negotiated codec into g->unit.
 u32 make_unit(bool key, u32 index, u32* pattern) noexcept {
@@ -357,8 +363,6 @@ int run() noexcept {
     if (!network_loop_initialize(&g->loop).ok())
         return 1;
     auto& live = g->live;
-    g_go_live_backend = {encodable, capture,   capture_stop, sound,        sound_stop, encoder,
-                         configure, bitrate,   keyframe,     encoder_stop, preview};
     live.backend_context = &g->producer;
     live.decodable = decodable(nullptr);
     g->voice.setup.channel_id = kChannel;
@@ -465,15 +469,22 @@ int run() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_go_live_loopback_entry() noexcept {
     using namespace maicord;
     // Voice records of failures (no secrets: the voice log never carries keys or media) explain a failed run.
-    voice_log_set_sink([](const char* record) noexcept {
-        for (const char* at = record; *at; ++at)
+    g_voice_log_sink = [](VoiceLogLevel, const char* event, ConstSlice<VoiceLogField> fields) noexcept {
+        for (const char* at = event; *at; ++at)
             if ((at[0] == 'f' && at[1] == 'a' && at[2] == 'i' && at[3] == 'l') ||
                 (at[0] == 'r' && at[1] == 'e' && at[2] == 'j' && at[3] == 'e') ||
                 (at[0] == 'i' && at[1] == 'n' && at[2] == 'v' && at[3] == 'a')) {
-                test_write_line(record);
+                test_write_text(event);
+                for (u32 i = 0; i != fields.count; ++i) {
+                    test_write_text(" ");
+                    test_write_text(fields[i].key);
+                    test_write_text("=");
+                    test_write_u64(fields[i].value);
+                }
+                test_write_line("");
                 return;
             }
-    });
+    };
     g = static_cast<World*>(pages_allocate(sizeof(World)));
     if (!g)
         ExitProcess(1);

@@ -35,7 +35,7 @@ void fresh() noexcept {
     g_app.account.status.running = false;
     application_scoped_read_release();
     fresh_owner();
-    g_app.account.api.bulk_message_ack = send_bulk;
+    g_account_fake.bulk_message_ack = send_bulk;
     bulk = {};
     for (u32 i = 0; i < 4; ++i) {
         channel(i).guild_id = 7;

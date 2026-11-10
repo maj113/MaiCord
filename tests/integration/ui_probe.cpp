@@ -3292,13 +3292,8 @@ int run_probe() noexcept {
         if (!read_state_probe(g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame))
             return 239;
         log_u64(LogLevel::info, "member_paging", "account_ui_bytes", sizeof(app_detail::AccountUiRuntime));
-        log_u64(LogLevel::info, "member_paging", "account_ui_added_bytes",
-                app_detail::kAccountUiMemberPagingBytes);
-        log_u64(LogLevel::info, "thread_members", "thread_owner_bytes",
-                app_detail::kAccountUiThreadMemberBytes);
         log_u64(LogLevel::info, "thread_members", "thread_store_bytes", sizeof(ThreadMemberStore));
         log_u64(LogLevel::info, "thread_members", "subscription_bytes", sizeof(GatewayGuildSubscription));
-        log_u64(LogLevel::info, "read_state", "fixed_ui_added_bytes", app_detail::kAccountUiReadStateBytes);
         // Exercise empty Home and a selected private conversation with the real
         // D3D11 chrome, text cache, and pixel-to-DIP hit-test path before teardown.
         message_composer_reset(&g_probe.message_composer, 0, false);

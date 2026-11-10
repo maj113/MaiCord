@@ -9,7 +9,6 @@
 #include "maicord/media/core/asset_key.hpp"
 
 namespace maicord {
-struct UiScrollbarGeometry;
 enum class UiIcon : u8;
 
 enum class UiSettingsControlKind : u8 {
@@ -423,7 +422,6 @@ struct UiSettingsModalLayout {
     UiRect modal, sidebar, panel, column, close;
     bool compact;
 };
-struct UiSettingsLayoutTokens;
 // The widest store column; wide pages take the panel's padding to 16 DIP before the close button.
 inline constexpr float kUiSettingsWideMaximum = 1040;
 UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens&, const UiRect& viewport,
@@ -453,7 +451,6 @@ struct UiSettingsSegmentMotion {
 };
 
 struct UiResolvedThemeStyles;
-struct UiKitMeasure;
 struct UiSettingsScene {
     // Optional text measuring hooks (the host's text cache); null keeps the per-character estimate.
     const UiKitMeasure* measure{};

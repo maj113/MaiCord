@@ -3,6 +3,7 @@
 #include "settings/settings.hpp"
 #include "settings/settings_internal.hpp"
 #include "shell/state.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "maicord/protocol/auth/account_requirement.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 
@@ -58,7 +59,7 @@ void test_application_account_settings_connection_runtime(void (*check)(bool, co
 
     // Settings opened while the Gateway connects, before READY.
     g_app.account.instance = reinterpret_cast<void*>(1);
-    g_app.account.api.account_settings = count_request;
+    g_account_fake.account_settings = count_request;
     g_app.account.status.profile_id = 77;
     check(application_settings_synchronize() && shows("Connecting…") && !shows("Offline") &&
               !application_account_settings_pending(0) && card(&c, &p) &&

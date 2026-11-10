@@ -831,14 +831,14 @@ void application_message_components_message(u64 message_id) noexcept {
 
 bool application_message_components_pending(u64 now_ms) noexcept {
     return owner && owner->phase == Phase::queued && owner->retry_at_ms <= now_ms && g_app.account_ui &&
-           g_app.account.api.message_interaction && application_account_scope() == owner->account_scope;
+           application_account_scope() == owner->account_scope;
 }
 
 bool application_message_components_submit(u64 request_id, u64 now_ms) noexcept {
     if (!application_message_components_pending(now_ms))
         return false;
     const auto submitted =
-        g_app.account.api.message_interaction(g_app.account.instance, &owner->request, request_id);
+        account_module_message_interaction(g_app.account.instance, &owner->request, request_id);
     if (submit_busy(submitted, owner->retry_at_ms, now_ms, kBusyRetryMs))
         return false;
     if (!submitted.ok()) {

@@ -22,7 +22,9 @@ bool starts_with(const char* text, const char* prefix) noexcept {
     while (*prefix) if (*text++ != *prefix++) return false;
     return true;
 }
-void trace_record(const char* record) noexcept {
+} // namespace
+namespace rest_client_detail {
+void rest_trace(const char* record) noexcept {
     AcquireSRWLockExclusive(&g_trace_lock);
     g_trace_starts += starts_with(record, "start ");
     g_trace_completes += starts_with(record, "complete ");
@@ -46,6 +48,8 @@ void trace_record(const char* record) noexcept {
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\r\n", 2, &written, nullptr);
     ReleaseSRWLockExclusive(&g_trace_lock);
 }
+} // namespace rest_client_detail
+namespace {
 
 u32 request_gateway(u64 request_id, bool expect_reuse,
                     RestClientResponse* response) noexcept {
@@ -207,7 +211,6 @@ bool probe_shared_workers() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI
 maicord_rest_client_probe_entry() noexcept {
-    maicord::rest_client_set_trace(maicord::trace_record);
     maicord::RestClientResult status =
         maicord::rest_client_start_public(
             &maicord::g_client, 4 * 1024);

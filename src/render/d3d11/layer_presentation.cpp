@@ -56,8 +56,6 @@ UiRect surface_rectangle(const D3D11Renderer& renderer, RendererLayerSurface sur
 
 bool renderer_set_layer_opacity(D3D11Renderer* renderer, RendererLayerSurface surface,
                                 float opacity) noexcept {
-    if (!renderer)
-        return false;
     float* value = nullptr;
     switch (surface) {
     case RendererLayerSurface::profile:
@@ -93,7 +91,7 @@ bool renderer_set_layer_opacity(D3D11Renderer* renderer, RendererLayerSurface su
 
 bool renderer_set_layer_transform(D3D11Renderer* renderer, RendererLayerSurface surface, float scale,
                                   float origin_x, float origin_y, float shift_x, float shift_y) noexcept {
-    if (!renderer || static_cast<u32>(surface) >= static_cast<u32>(RendererLayerSurface::count))
+    if (static_cast<u32>(surface) >= static_cast<u32>(RendererLayerSurface::count))
         return false;
     if (!(scale > 0 && scale <= 1) || !ui_extent_valid(origin_x) || !ui_extent_valid(origin_y) ||
         !(shift_x >= -kRendererMaximumLayerShift && shift_x <= kRendererMaximumLayerShift) ||
@@ -115,8 +113,6 @@ bool renderer_set_layer_transform(D3D11Renderer* renderer, RendererLayerSurface 
 }
 
 bool renderer_set_settings_modal_progress(D3D11Renderer* renderer, float progress) noexcept {
-    if (!renderer)
-        return false;
     progress = progress >= 0 && progress <= 1 ? progress : 1;
     if (renderer->settings_modal_progress == progress)
         return false;
@@ -126,8 +122,6 @@ bool renderer_set_settings_modal_progress(D3D11Renderer* renderer, float progres
 }
 
 bool renderer_set_toast_opacity(D3D11Renderer* renderer, float opacity) noexcept {
-    if (!renderer)
-        return false;
     opacity = opacity >= 0 && opacity <= 1 ? opacity : 1;
     if (renderer->toast_opacity == opacity)
         return false;
@@ -138,8 +132,6 @@ bool renderer_set_toast_opacity(D3D11Renderer* renderer, float opacity) noexcept
 }
 
 bool renderer_set_tooltip_entrance(D3D11Renderer* renderer, float remaining) noexcept {
-    if (!renderer)
-        return false;
     remaining = remaining >= 0 && remaining <= 1 ? remaining : 0;
     if (renderer->tooltip_entrance_remaining == remaining)
         return false;

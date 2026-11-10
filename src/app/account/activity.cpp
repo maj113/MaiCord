@@ -98,7 +98,7 @@ void scope() noexcept {
     g.account_scope = g_app.plugin_account_scope_serial;
 }
 bool module() noexcept {
-    return g_app.account.instance && g_app.account.api.local_presence;
+    return g_app.account.instance != nullptr;
 }
 void load_games() noexcept {
     if (g_games_loaded)
@@ -112,7 +112,7 @@ void load_games() noexcept {
 GatewayActivitySharing sharing() noexcept {
     GatewayActivitySharing value{};
     if (module())
-        g_app.account.api.local_presence(g_app.account.instance, nullptr, &value);
+        account_module_local_presence(g_app.account.instance, nullptr, &value);
     return value;
 }
 u64 input_idle_ms() noexcept {
@@ -345,7 +345,7 @@ void application_activity_tick(u64 now_ms) noexcept {
     }
     if (g.published_valid && gateway_local_presence_equal(g.published, local))
         return;
-    if (g_app.account.api.local_presence(g_app.account.instance, &local, nullptr)) {
+    if (account_module_local_presence(g_app.account.instance, &local, nullptr)) {
         copy_value(&g.published, local);
         g.published_valid = true;
         application_request_frame(); // Settings show the playing game.
@@ -410,13 +410,13 @@ bool application_activity_set_plugin(u64 owner_id, const ApplicationPluginActivi
 bool application_activity_sharing_pending(u64 now_ms) noexcept {
     scope();
     return g.queued && !g.request_id && g.retry_at && g.retry_at <= now_ms && g_app.account.instance &&
-           g_app.account.api.activity_sharing && sharing().known;
+           sharing().known;
 }
 bool application_activity_sharing_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!request_id || !application_activity_sharing_pending(now_ms) || !g_app.account.api.self_status_snapshot)
+    if (!request_id || !application_activity_sharing_pending(now_ms))
         return false;
-    const auto self = g_app.account.api.self_status_snapshot(g_app.account.instance);
-    const auto submitted = g_app.account.api.activity_sharing(g_app.account.instance, self.profile_id,
+    const auto self = account_module_self_status_snapshot(g_app.account.instance);
+    const auto submitted = account_module_activity_sharing(g_app.account.instance, self.profile_id,
                                                               self.self_user_id, g.desired_share, request_id);
     if (submit_busy(submitted, g.retry_at, now_ms, 50))
         return false;
@@ -437,8 +437,8 @@ bool application_activity_sharing_submit(u64 request_id, u64 now_ms) noexcept {
 bool application_activity_sharing_response(const RestClientResponse& response, Utf8View body) noexcept {
     if (!g.request_id || response.request_id != g.request_id)
         return false;
-    const bool consumed = g_app.account.instance && g_app.account.api.self_status_complete &&
-                          g_app.account.api.self_status_complete(g_app.account.instance, g.profile_id,
+    const bool consumed = g_app.account.instance &&
+                          account_module_self_status_complete(g_app.account.instance, g.profile_id,
                                                                  g.self_user_id, g.request_id, &response, body);
     g.request_id = 0;
     const bool ok = consumed && response.succeeded();
@@ -462,7 +462,7 @@ bool application_activity_settings_project(SettingBinding binding, UiSettingsCon
     case SettingBinding::share_activity: {
         const auto value = sharing();
         control->checked = g.queued ? g.desired_share : value.share;
-        control->enabled = value.known && !g.request_id && g_app.account.api.activity_sharing;
+        control->enabled = value.known && !g.request_id;
         if (g.failed)
             control->description = utf8_literal("Couldn't save this change. Try again.");
         else if (!value.known)
@@ -509,7 +509,7 @@ bool application_activity_settings_activate(SettingBinding binding, bool checked
     scope();
     switch (binding) {
     case SettingBinding::share_activity:
-        *result = sharing().known && g_app.account.api.activity_sharing;
+        *result = sharing().known;
         if (*result) {
             g.desired_share = checked;
             g.queued = true;

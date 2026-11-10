@@ -114,7 +114,7 @@ void message_drafts_image_release(MessageDraftImage* image) noexcept {
 
 MessageDraftPersistenceResult message_drafts_encode(u64 profile_id, const MessageDraftStore& store,
                                                     MessageDraftImage* image) noexcept {
-    if (!image || image->bytes || profile_id == 0 || !store_valid(store)) {
+    if (image->bytes || profile_id == 0 || !store_valid(store)) {
         return failure(MessageDraftPersistenceError::invalid_input);
     }
     u32 text_bytes = 0;
@@ -177,7 +177,7 @@ MessageDraftPersistenceResult message_drafts_encode(u64 profile_id, const Messag
 MessageDraftPersistenceResult message_drafts_commit(const wchar_t* path, MessageDraftImage* image,
                                                     bool write_through) noexcept {
     const u32 characters = path_length(path);
-    if (!image || !image->bytes || characters == 0 ||
+    if (!image->bytes || characters == 0 ||
         characters + 4 >= kAccountProfileMaximumPathCharacters) {
         message_drafts_image_release(image);
         return failure(MessageDraftPersistenceError::invalid_input);
@@ -214,7 +214,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
                                                        MessageDraftStore* store) noexcept {
     const u32 characters = path_length(path);
     if (characters == 0 || characters >= kAccountProfileMaximumPathCharacters || expected_profile_id == 0 ||
-        !store || !store_valid(*store)) {
+        !store_valid(*store)) {
         return failure(MessageDraftPersistenceError::invalid_input);
     }
     auto* file_bytes = static_cast<u8*>(commit_pages(kMessageDraftPersistenceMaximumFileBytes));

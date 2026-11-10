@@ -1,6 +1,7 @@
 #pragma once
 #include "thread_browser_ui_adapter.hpp"
 #include "../support/layout_validation.hpp"
+#include "../support/account_module_fake.hpp"
 #include "probe_present.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "maicord/core/log.hpp"
@@ -317,10 +318,10 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
     // Forum post cards: one active REST page (posts always load over REST for
     // their tags, counts and starter previews) through the shipping decoder,
     // projection, scene and renderer, in List and then Gallery layout. No tag
-    // metadata route is injected here, so the toolbar shows sort and layout only.
+    // metadata route is injected here (the metadata request is refused), so the toolbar shows sort and layout only.
     {
-        const auto forum_api = g_app.account.api.forum_post;
-        g_app.account.api.forum_post = nullptr;
+        const auto forum_api = g_account_fake.forum_post;
+        g_account_fake.forum_post = nullptr;
         u8 forum_json[4096];
         ProtocolWriter writer{{forum_json, sizeof(forum_json)}, 0};
         const auto put = [&](const char* text) noexcept { return protocol_writer_append_c_string(&writer, text); };
@@ -346,6 +347,7 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
             put("\",\"content\":\"Search before posting, keep one problem per post and tag it.\"}]}");
         ThreadBrowserRequest forum_flight{};
         u64 forum_flight_id{};
+        (void)thread_browser_ui_adapter_submit(98099); // The metadata request, refused for want of a route.
         const Utf8View forum_page{reinterpret_cast<const char*>(forum_json), writer.used};
         const bool loaded = written && application_thread_browser_pending(clock_monotonic_milliseconds()) &&
             thread_browser_ui_adapter_submit(98100) && thread_browser_ui_adapter_flight(&forum_flight, &forum_flight_id) &&
@@ -363,7 +365,7 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
             context.project() && application_thread_browser_scene()->backing->grid.columns >= 2 &&
             show(L"thread-browser-forum-gallery.bmp") && renderer.paint_stream.rejected == 0 &&
             thread_browser_ui_adapter_action(UiThreadBrowserAction::forum_list) && context.project();
-        g_app.account.api.forum_post = forum_api;
+        g_account_fake.forum_post = forum_api;
         if (!require(loaded, 164) || !require(cards, 165) || !require(gallery, 166)) return false;
     }
     // Channel list beside the open browser: the panel covers only the content

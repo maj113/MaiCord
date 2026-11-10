@@ -168,8 +168,6 @@ class Test(dbus.service.Object):
 settings = {
     'org.freedesktop.appearance': {
         'color-scheme': dbus.UInt32(1),
-        'accent-color': dbus.Struct((dbus.Double(0.25), dbus.Double(0.5), dbus.Double(0.75)), signature='ddd'),
-        'contrast': dbus.UInt32(1),
         'reduced-motion': dbus.UInt32(1),
     },
     'org.gnome.desktop.interface': {
@@ -180,12 +178,6 @@ settings = {
         'cursor-theme': dbus.String('Bibata-Modern'),
         'font-name': dbus.String('Cantarell 11'),
         'monospace-font-name': dbus.String('Source Code Pro 10'),
-        'document-font-name': dbus.String('Sans 11'),
-        'text-scaling-factor': dbus.Double(1.25),
-    },
-    'org.gnome.desktop.wm.preferences': {
-        'button-layout': dbus.String('close,minimize,maximize:appmenu'),
-        'titlebar-font': dbus.String('Cantarell Bold 11'),
     },
     'org.gnome.desktop.peripherals.mouse': {
         'double-click': dbus.Int32(350),

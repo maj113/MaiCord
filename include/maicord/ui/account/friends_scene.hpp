@@ -10,7 +10,6 @@ enum class UiPresence : u8;
 struct UserStore;
 struct UiActivityCard;
 struct ProfileMedia;
-struct UiMotionHover;
 inline constexpr u32 kUiFriendsMaximumVisibleRows = 152;
 // Two row labels and at most three inline actions, plus headings/tabs/search,
 // the Add Friend intro, the empty state and the Pending badge.

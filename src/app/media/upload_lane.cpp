@@ -19,8 +19,8 @@ bool actor(const ApplicationUploadLease& lease) noexcept {
 }
 bool application_upload_lane_available() noexcept { return !upload_lane.id; }
 bool application_upload_lane_acquire(ApplicationUploadOwner owner, ApplicationUploadLease* output) noexcept {
-    if (!output || owner == ApplicationUploadOwner::none || upload_lane.id || !g_app.account.instance ||
-        !g_app.account_ui || !g_app.account.api.upload || !g_app.account.status.running || g_app.account.stop_failed)
+    if (owner == ApplicationUploadOwner::none || upload_lane.id || !g_app.account.instance ||
+        !g_app.account_ui || !g_app.account.status.running || g_app.account.stop_failed)
         return false;
     upload_lane = {++upload_serial, g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
         g_app.account_ui->chat_state.self_user_id, g_app.account.instance, owner};
@@ -30,10 +30,10 @@ bool application_upload_lane_acquire(ApplicationUploadOwner owner, ApplicationUp
 }
 AccountUploadResult application_upload_lane_operation(const ApplicationUploadLease& lease,
     AccountUploadOperation operation, const AccountUploadRequest* request) noexcept {
-    if (!same(lease) || g_app.account.instance != lease.instance || !g_app.account.api.upload ||
+    if (!same(lease) || g_app.account.instance != lease.instance ||
         (operation == AccountUploadOperation::start && !actor(lease)))
         return {{}, lease.id, HttpsFileUploadError::invalid_input, false};
-    const auto result = g_app.account.api.upload(g_app.account.instance, operation, lease.id, request);
+    const auto result = account_module_upload(g_app.account.instance, operation, lease.id, request);
     if (operation == AccountUploadOperation::start && same(lease)) upload_started = result.owns_transfer;
     return result;
 }
@@ -41,7 +41,7 @@ void application_upload_lane_cancel(const ApplicationUploadLease& lease) noexcep
     if (same(lease)) application_upload_lane_operation(lease, AccountUploadOperation::cancel);
 }
 bool application_upload_lane_release(ApplicationUploadLease* lease) noexcept {
-    if (!lease || !lease->id) return true;
+    if (!lease->id) return true;
     if (!same(*lease)) return false;
     if (!upload_started || g_app.account.instance != lease->instance) {
         reset_value(&upload_lane); reset_value(lease); upload_started = false; return true;

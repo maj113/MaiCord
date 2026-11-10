@@ -74,7 +74,7 @@ bool application_login_begin_browser_auth() noexcept {
     if (!host.login_instance || !host.login_status.ok())
         return stop_browser_owner(LoginStatus::browser_failed);
     host.login_status =
-        host.api.login_start_browser(host.login_instance, login.application_auth_epoch, 120000);
+        account_module_login_start_browser(host.login_instance, login.application_auth_epoch, 120000);
     application_login_retain_auth_retry();
     if (!host.login_status.ok())
         return stop_browser_owner(LoginStatus::browser_failed);
@@ -117,7 +117,7 @@ bool application_browser_auth_pump(bool* handled) noexcept {
         login.browser_launch_epoch = 0; // consume before a shell call can dispatch messages
         SecureBuffer url{};
         const bool copied = secure_buffer_initialize(&url, 256).ok() &&
-                            host.api.login_copy_browser_url(instance, epoch, &url).ok();
+                            account_module_login_copy_browser_url(instance, epoch, &url).ok();
         const bool current = !application_account_logout_locked() && !application_login_auth_cooldown_active() &&
                              epoch == login.application_auth_epoch &&
                              host.module == module && host.login_instance == instance && login.visible &&

@@ -9,7 +9,7 @@ u64 sync_signature;
 
 bool thread_starter_project(const MessageStore& messages, const ChatStateStore& state,
                             MessageRichStore* rich_store) noexcept {
-    if (!rich_store || !rich_store->records)
+    if (!rich_store->records)
         return false;
     bool changed = false;
     for (u32 order = 0; order < messages.count; ++order) {

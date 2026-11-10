@@ -5,6 +5,9 @@
 # Sources are the shared tests/ files: a platform difference inside one is an #if in the test, and the few Win32 file
 # and console calls the shared tests make come from tests/support/win32_test_compat.hpp on Linux.
 
+# The account module of the tests that link application code without it (the shipped client calls it by name): the
+# account fake answers as a module without an owner unless a test sets the hook of an entry in g_account_fake.
+set(maicord_account_fake tests/support/account_module_fake.cpp)
 # Library sets most src/app fixtures link on Windows.
 set(maicord_app_test_libs maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui)
 set(maicord_app_ui_test_libs ${maicord_app_test_libs} maicord_ui_input maicord_message_runtime maicord_text)
@@ -393,8 +396,8 @@ maicord_test(MaiCordTestServerTests ONLY WINDOWS ENTRY maicord_test_server_entry
 # the GPU and checked. The three codecs run side by side (each has its own server and client, paced by the clock), and
 # the case holds no GPU chain (it renders no window). Skipped (77) without openssl or a hardware video device.
 maicord_test(MaiCordGoLiveLoopbackTests ONLY WINDOWS ENTRY maicord_go_live_loopback_entry
-    SOURCES tests/app/voice/go_live_loopback.cpp src/platform/net/test_server.cpp src/platform/net/network.cpp
-        src/platform/net/tls_client.cpp
+    SOURCES tests/app/voice/go_live_loopback.cpp tests/support/voice_log_sink.cpp src/platform/net/test_server.cpp
+        src/platform/net/network.cpp src/platform/net/tls_client.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_account_media maicord_model
         maicord_media_codec maicord_media_core maicord_voice_encoder kernel32 crypt32 ws2_32 maicord_sspicli bcrypt
         d3d11 ole32 user32
@@ -547,8 +550,7 @@ maicord_test(MaiCordAccountVideoSessionProbe ONLY WINDOWS ENTRY maicord_account_
         src/app/media/account_video_session_audio.cpp
         src/platform/decode/hevc_gpu_decoder.cpp src/gpu/d3d11/video_frame.cpp ${MAICORD_VIDEO_FRAME_HEADER}
     LIBS maicord_account_media maicord_platform maicord_model maicord_gpu_d3d11 d3d11 dxgi ole32 kernel32 user32
-    INCLUDES ${MAICORD_GENERATED_DIRECTORY}
-    DEFINES MAICORD_ACCOUNT_VIDEO_SESSION_PROBE=1)
+    INCLUDES ${MAICORD_GENERATED_DIRECTORY})
 if(MAICORD_TEST_AUDIO_PLAYBACK)
     maicord_test(MaiCordNotificationAudioPlayback ONLY WINDOWS ENTRY maicord_notification_audio_playback_entry
         SOURCES tests/platform/audio/notification_audio_playback.cpp ${MAICORD_NOTIFICATION_SOUND_RESOURCE}
@@ -834,6 +836,7 @@ maicord_test(MaiCordWindowCaptionTests ONLY WINDOWS ENTRY maicord_window_caption
     SOURCES tests/platform/desktop/window_caption.cpp
     BUNDLE MaiCordUiUnitTests TIMEOUT 10 TEST maicord_window_caption)
 maicord_test(MaiCordSettingsRuntimeTests ONLY WINDOWS ENTRY maicord_settings_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/settings/settings_runtime.cpp tests/app/settings/settings_runtime_stubs.cpp
         tests/app/settings/custom_theme.cpp tests/app/settings/catalog_pack.cpp
         tests/app/plugins/navigation_runtime.cpp
@@ -916,6 +919,7 @@ maicord_test(MaiCordAccountPermissionStorageTests ONLY WINDOWS ENTRY maicord_acc
     SOURCES tests/app/guild/account_permission_storage.cpp src/app/guild/account_permission_storage.cpp
     BUNDLE MaiCordModelTests TEST maicord_account_permission_storage)
 maicord_test(MaiCordHistoryDecodeStorageTests ONLY WINDOWS ENTRY maicord_history_decode_storage_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/messages/history_decode_storage.cpp src/app/chat/messages/send.cpp src/app/chat/threads/actions.cpp
         src/app/chat/messages/edit.cpp src/app/shell/state.cpp src/core/log.cpp tests/support/pipeline_host_stubs.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_message_runtime maicord_ui
@@ -923,6 +927,7 @@ maicord_test(MaiCordHistoryDecodeStorageTests ONLY WINDOWS ENTRY maicord_history
     INCLUDES src/app
     TEST maicord_history_decode_storage)
 maicord_test(MaiCordReactionHistoryRuntimeTests ONLY WINDOWS ENTRY maicord_application_reaction_history_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/shell/reaction_history_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
         src/app/chat/threads/actions.cpp src/app/shell/startup_history.cpp
         src/app/shell/application_startup_shell.cpp tests/support/pipeline_host_stubs.cpp
@@ -931,6 +936,7 @@ maicord_test(MaiCordReactionHistoryRuntimeTests ONLY WINDOWS ENTRY maicord_appli
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_reaction_history_runtime)
 maicord_test(MaiCordMessageReactionRuntimeTests ONLY WINDOWS ENTRY mainCRTStartup
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/messages/reaction_runtime.cpp src/app/shell/state.cpp
         src/app/chat/messages/mutation_notice.cpp src/core/log.cpp
     LIBS ${maicord_app_ui_test_libs} kernel32 user32
@@ -966,6 +972,7 @@ maicord_test(MaiCordTextFormConfirmationTests ONLY WINDOWS ENTRY maicord_text_fo
     INCLUDES src/app
     TEST maicord_text_form_confirmation)
 maicord_test(MaiCordFriendsAccountTests ENTRY maicord_friends_account_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/account_relationships.cpp tests/protocol/http/rest_submit_hook.cpp src/app/account/account_relationships.cpp
         src/app/chat/messages/account_message_ack.cpp src/app/account/account_host.cpp
     BUNDLE MaiCordAccountRequestTests TEST maicord_friends_account)
@@ -973,6 +980,7 @@ maicord_test(MaiCordFriendsStorageTests ONLY WINDOWS ENTRY maicord_friends_stora
     SOURCES tests/app/account/friends_storage.cpp src/app/account/friends_storage.cpp
     BUNDLE MaiCordModelTests TEST maicord_friends_storage)
 maicord_test(MaiCordFriendsRuntimeTests ENTRY maicord_friends_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/friends_runtime.cpp src/app/shell/state.cpp src/app/account/friends_search.cpp
         src/app/account/friends_storage.cpp src/app/account/account_relationships.cpp
     INCLUDES src/app
@@ -999,11 +1007,21 @@ maicord_test(MaiCordVoiceTests ONLY WINDOWS ENTRY maicord_voice_tests_entry
         tests/app/voice/stream_watch.cpp tests/protocol/guild/stage_channel.cpp tests/protocol/voice/video_signaling.cpp tests/app/voice/dave/video_frames.cpp
         tests/app/voice/video_sink.cpp tests/protocol/gateway/stream.cpp tests/app/voice/send.cpp tests/app/voice/preferences.cpp
         tests/ui/voice/go_live_scene.cpp tests/app/voice/go_live_send.cpp tests/app/voice/go_live_thumbnails.cpp
-        src/app/voice/settings_binding.cpp src/core/log.cpp
+        src/app/voice/settings_binding.cpp src/core/log.cpp tests/support/voice_log_sink.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_model kernel32 crypt32 ws2_32
         maicord_sspicli bcrypt maicord_ui maicord_media_codec ole32 maicord_client_preferences user32
     INCLUDES src/app
     TEST maicord_voice_setup)
+# The linked account module's entries without an owner: they refuse before creating an account, login, worker or
+# transport. The tests that fake the module link the account fake instead. The module comes before maicord_app_core so
+# that its Go Live producers, not the library's inactive ones, are the ones the Gateway client links.
+maicord_test(MaiCordAccountModuleTests ONLY WINDOWS ENTRY maicord_account_module_entry
+    SOURCES tests/app/account/account_module_contract.cpp tests/app/account/account_module_dormant.cpp src/core/log.cpp
+    LIBS maicord_core maicord_platform maicord_protocol maicord_account_module maicord_account_host maicord_app_core maicord_model
+        maicord_message_runtime maicord_message_media maicord_render_core maicord_media_core maicord_media_codec
+        maicord_cdn_media maicord_account_media bcrypt kernel32 user32 ${maicord_tls_libs}
+    INCLUDES src/app
+    TIMEOUT 15 TEST maicord_account_module)
 maicord_test(MaiCordTests ENTRY maicord_tests_entry
     WINDOWS SOURCES tests/test_main.cpp tests/model/chat/core_stores.cpp tests/ui/core/core_scene.cpp
             tests/ui/chat/messages/core_messages.cpp tests/app/chat/composer/core_composer.cpp
@@ -1012,7 +1030,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
             tests/app/media/core_media.cpp tests/protocol/gateway/core_gateway.cpp
             tests/protocol/http/core_transport.cpp tests/core/core_runtime.cpp tests/app/account/core_account.cpp
             tests/app/account/login/account_credential_forget.cpp tests/app/account/account_logout_stop.cpp
-            tests/app/account/account_module_dormant.cpp tests/app/account/account_inventory.cpp
+            tests/app/account/account_inventory.cpp ${maicord_account_fake}
             tests/app/media/parity.cpp tests/app/media/catalog_media.cpp tests/ui/chat/messages/preparation.cpp
             tests/render/media/atlas_pressure.cpp tests/ui/shell/composer_geometry.cpp
             tests/ui/chat/composer/typing_strip.cpp
@@ -1083,6 +1101,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         LIBS maicord_core maicord_compression maicord_protocol maicord_media_core maicord_media_codec maicord_model
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/composer/commands_ui.cpp tests/app/chat/composer/commands_ui_cases.cpp
         tests/app/chat/composer/commands_ui_plugin.cpp src/app/chat/composer/commands.cpp
         src/app/chat/composer/commands_frecency.cpp src/app/chat/composer/commands_picker.cpp
@@ -1100,6 +1119,7 @@ maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
     LINUX LIBS ${maicord_linux_app_test_libs}
     TEST maicord_command_ui)
 maicord_test(MaiCordMediaVisibilityTests ONLY WINDOWS ENTRY maicord_media_visibility_tests_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/media/media_visibility.cpp tests/app/media/media_visibility_search.cpp
         tests/app/guild/stream_preview_media_stub.cpp src/app/media/media.cpp
         src/app/media/animation.cpp src/app/media/requests.cpp src/app/media/requests_message.cpp src/app/shell/state.cpp
@@ -1115,7 +1135,7 @@ if(NOT MAICORD_LINUX)
         tests/app/account/application_account_text_retry_runtime.hpp
         src/app/account/account_pump.cpp src/app/shell/scheduler.cpp src/app/chat/application_channel_memory.cpp
         src/app/account/account_host.cpp src/app/shell/state.cpp src/core/log.cpp
-        src/app/chat/messages/mutation_notice.cpp
+        src/app/chat/messages/mutation_notice.cpp ${maicord_account_fake}
         $<TARGET_OBJECTS:maicord_runtime>)
     target_link_libraries(MaiCordAccountPumpTests PRIVATE
         maicord_compile_contract maicord_core maicord_platform maicord_protocol maicord_app_core
@@ -1131,6 +1151,7 @@ maicord_test(MaiCordSurfaceMotionTests ONLY WINDOWS ENTRY maicord_surface_motion
     INCLUDES src/app
     DEFINES MAICORD_SURFACE_MOTION_CONTROLLER_TEST=1)
 maicord_test(MaiCordChannelOverviewRuntimeTests ONLY WINDOWS ENTRY maicord_application_channel_overview_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/guild/channel_overview_runtime.cpp src/app/settings/layer.cpp
         src/app/settings/modal.cpp
         src/app/shell/state.cpp src/core/log.cpp
@@ -1276,6 +1297,7 @@ maicord_test(MaiCordDrawSubmissionTests ONLY WINDOWS ENTRY maicord_draw_submissi
     SOURCES tests/render/d3d11/draw_submission.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 5 TEST maicord_draw_submission)
 maicord_test(MaiCordTooltipRuntimeTests ONLY WINDOWS ENTRY maicord_tooltip_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/shell/tooltip_runtime.cpp src/app/shell/tooltip.cpp src/app/shell/state.cpp
         tests/app/chat/messages/reaction_tooltip_runtime.cpp tests/app/media/emoji_tooltip_runtime.cpp
         tests/app/chat/messages/edited_tooltip_runtime.cpp src/core/log.cpp
@@ -1289,12 +1311,14 @@ maicord_test(MaiCordAccountMenuRuntimeTests ONLY WINDOWS ENTRY maicord_account_m
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_account_menu_runtime)
 maicord_test(MaiCordDmProfileTests ENTRY maicord_dm_profile_tests_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/ui/account/dm_profile_panel.cpp src/app/account/dm_profile.cpp src/app/chat/private_header.cpp
         src/app/shell/state.cpp
     BUNDLE MaiCordAppUnitTests
     WINDOWS SOURCES src/core/log.cpp
     TIMEOUT 10 TEST maicord_dm_profile)
 maicord_test(MaiCordProfileRuntimeTests ONLY WINDOWS ENTRY maicord_profile_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/profile_runtime.cpp src/app/account/profile.cpp src/app/shell/state.cpp
         src/core/log.cpp
     LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32 bcrypt
@@ -1318,6 +1342,7 @@ maicord_test(MaiCordAccountThreadBrowserTests ENTRY maicord_account_thread_brows
     SOURCES tests/app/chat/threads/account_thread_browser.cpp tests/protocol/http/rest_submit_hook.cpp src/app/chat/threads/account_thread_browser.cpp
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_account_thread_browser)
 maicord_test(MaiCordApplicationThreadBrowserTests ENTRY maicord_application_thread_browser_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/threads/browser.cpp
     INCLUDES src/app
     WINDOWS LIBS ${maicord_headless_ui_test_libs} kernel32 user32
@@ -1325,6 +1350,7 @@ maicord_test(MaiCordApplicationThreadBrowserTests ENTRY maicord_application_thre
             maicord_ui maicord_ui_secure_text maicord_text_system ${maicord_linux_app_test_libs}
     TIMEOUT 15 TEST maicord_application_thread_browser)
 maicord_test(MaiCordApplicationPollTests ONLY WINDOWS ENTRY maicord_application_poll_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/polls/poll.cpp
     LIBS ${maicord_app_ui_test_libs} kernel32 user32 shell32
     INCLUDES src/app
@@ -1345,6 +1371,7 @@ maicord_test(MaiCordAccountPrivateChannelTests ENTRY maicord_account_private_cha
     SOURCES tests/app/chat/account_private_channel.cpp tests/protocol/http/rest_submit_hook.cpp src/app/chat/account_private_channel.cpp
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_account_private_channel)
 maicord_test(MaiCordApplicationThreadCreationTests ENTRY maicord_application_thread_creation_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/threads/creation.cpp
     INCLUDES src/app
     WINDOWS LIBS ${maicord_app_ui_test_libs} kernel32 user32
@@ -1352,6 +1379,7 @@ maicord_test(MaiCordApplicationThreadCreationTests ENTRY maicord_application_thr
             maicord_ui maicord_ui_secure_text maicord_text_system ${maicord_linux_app_test_libs}
     TIMEOUT 15 TEST maicord_application_thread_creation)
 maicord_test(MaiCordApplicationThreadActionsRuntimeTests ONLY WINDOWS
+    SOURCES ${maicord_account_fake}
     ENTRY maicord_application_thread_actions_runtime_entry
     SOURCES tests/app/chat/threads/actions_runtime.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core kernel32
@@ -1363,6 +1391,7 @@ maicord_test(MaiCordAccountForumPostTests ENTRY maicord_account_forum_post_test_
     SOURCES tests/app/chat/threads/account_forum_post.cpp tests/protocol/http/rest_submit_hook.cpp src/app/chat/threads/account_forum_post.cpp
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_account_forum_post)
 maicord_test(MaiCordApplicationForumAttachmentsTests ONLY WINDOWS ENTRY maicord_application_forum_attachments_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/threads/forum_attachments.cpp
     LIBS ${maicord_headless_ui_test_libs} kernel32 user32 shell32
     INCLUDES src/app
@@ -1370,6 +1399,7 @@ maicord_test(MaiCordApplicationForumAttachmentsTests ONLY WINDOWS ENTRY maicord_
     TEST maicord_application_forum_post --forum-post
     TEST maicord_application_forum_attachments)
 maicord_test(MaiCordApplicationForumPreviewTests ENTRY maicord_application_forum_preview_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/threads/forum_preview.cpp
     INCLUDES src/app
     WINDOWS LIBS ${maicord_app_ui_test_libs} maicord_render_core kernel32 user32
@@ -1398,6 +1428,7 @@ maicord_test(MaiCordReceivedAttachmentOpenTests ONLY WINDOWS ENTRY maicord_recei
     SOURCES tests/app/media/received_attachment_open.cpp src/app/media/received_attachment_open.cpp src/app/media/url_resolver.cpp
     BUNDLE MaiCordProtocolTests TIMEOUT 10 TEST maicord_received_attachment_open)
 maicord_test(MaiCordMessageMutationNoticeTests ENTRY maicord_message_mutation_notice_tests_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/messages/mutation_notice.cpp src/app/chat/messages/mutation_notice.cpp
         src/app/chat/threads/actions.cpp src/app/chat/messages/delete.cpp src/app/chat/messages/reaction.cpp
         src/app/shell/state.cpp
@@ -1419,11 +1450,13 @@ maicord_test(MaiCordGatewaySelfStatusRuntimeTests ENTRY maicord_gateway_self_sta
         INCLUDES tests
     TIMEOUT 10 TEST maicord_gateway_self_status_runtime)
 maicord_test(MaiCordSelfStatusRuntimeTests ENTRY maicord_self_status_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/self_status_runtime.cpp src/app/account/self_status.cpp src/app/shell/state.cpp
     BUNDLE MaiCordAppUnitTests
     WINDOWS SOURCES src/core/log.cpp
     TIMEOUT 10 TEST maicord_self_status_frontend_runtime)
 maicord_test(MaiCordSearchRuntimeTests ONLY WINDOWS ENTRY maicord_application_search_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/search/search_runtime.cpp tests/app/chat/search/search_runtime_filters.cpp
         tests/app/chat/search/search_runtime_stubs.cpp src/app/shell/state.cpp src/core/log.cpp
     LIBS ${maicord_headless_ui_test_libs} kernel32 user32
@@ -1438,6 +1471,7 @@ maicord_test(MaiCordSearchContentRuntimeTests ENTRY maicord_application_search_c
             maicord_ui maicord_ui_secure_text maicord_text_system ${maicord_linux_app_test_libs}
     TIMEOUT 15 TEST maicord_search_content_runtime)
 maicord_test(MaiCordSearchNavigationRuntimeTests ENTRY maicord_application_search_navigation_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/search/navigation_runtime.cpp src/app/chat/messages/mutation_notice.cpp
     INCLUDES src/app
     WINDOWS SOURCES src/core/log.cpp
@@ -1469,6 +1503,7 @@ maicord_test(MaiCordMessageForwardRuntimeTests ENTRY maicord_application_message
             maicord_ui maicord_ui_secure_text maicord_text_system ${maicord_linux_app_test_libs}
     TIMEOUT 15 TEST maicord_message_forward_runtime)
 maicord_test(MaiCordDownloadsRuntimeTests ONLY WINDOWS ENTRY maicord_application_downloads_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/media/downloads_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
     LIBS ${maicord_headless_ui_test_libs} kernel32 user32 shell32 ole32
     INCLUDES src/app
@@ -1495,6 +1530,7 @@ maicord_test(MaiCordTlsStreamTailTests ONLY WINDOWS ENTRY maicord_tls_stream_tai
     LIBS maicord_core maicord_platform kernel32 ${maicord_tls_libs}
     TIMEOUT 15 TEST maicord_tls_stream_tail)
 maicord_test(MaiCordPinnedMessagesRuntimeTests ENTRY maicord_application_pinned_messages_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/messages/pinned_messages_runtime.cpp src/app/shell/state.cpp
     INCLUDES src/app
     WINDOWS SOURCES src/core/log.cpp
@@ -1503,18 +1539,21 @@ maicord_test(MaiCordPinnedMessagesRuntimeTests ENTRY maicord_application_pinned_
             maicord_ui maicord_ui_secure_text maicord_text_system ${maicord_linux_app_test_libs}
     TIMEOUT 15 TEST maicord_pinned_messages_runtime)
 maicord_test(MaiCordMediaPickerRuntimeTests ONLY WINDOWS ENTRY maicord_application_media_picker_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/media/picker_runtime.cpp src/app/shell/state.cpp
         src/core/log.cpp
     LIBS ${maicord_headless_test_libs} maicord_ui_input maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_media_picker_runtime)
 maicord_test(MaiCordGifFavoritesRuntimeTests ONLY WINDOWS ENTRY maicord_application_gif_favorites_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/media/gif_favorites_runtime.cpp src/app/shell/state.cpp
     LIBS ${maicord_app_test_libs} kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_gif_favorites_runtime)
 # Includes collection navigation, canonical embed queue recovery, joined restarts and failure recovery.
 maicord_test(MaiCordVideoFocusRuntimeTests ONLY WINDOWS ENTRY maicord_video_focus_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/media/video_focus_runtime.cpp
         src/app/media/video.cpp src/app/media/video_sources.cpp
         src/app/media/video_input.cpp src/app/shell/state.cpp
@@ -1523,6 +1562,7 @@ maicord_test(MaiCordVideoFocusRuntimeTests ONLY WINDOWS ENTRY maicord_video_focu
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_video_focus_runtime)
 maicord_test(MaiCordLoginCancelRuntimeTests ONLY WINDOWS ENTRY maicord_login_cancel_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/login/cancel_runtime.cpp src/app/account/login/browser_auth.cpp
         src/app/account/login/captcha_auth.cpp src/app/account/login/auth.cpp src/app/account/login/auth_recovery.cpp
         src/app/shell/state.cpp
@@ -1550,6 +1590,7 @@ maicord_test(MaiCordNativeNotificationTests ONLY WINDOWS ENTRY maicord_native_no
 # Compile the explicit enrollment branch without invoking it: this fixture
 # substitutes a copied notification sink and never creates desktop identity.
 maicord_test(MaiCordApplicationNotificationTests ONLY WINDOWS ENTRY maicord_application_notifications_tests_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/notifications/notifications.cpp src/app/notifications/notifications.cpp src/app/shell/state.cpp
         src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model maicord_client_preferences
@@ -1717,6 +1758,7 @@ maicord_test(MaiCordPasswordRecoveryCoordinatorTests ENTRY maicord_password_reco
             maicord_crypto maicord_net ${maicord_linux_app_test_libs}
     TEST maicord_password_recovery_coordinator)
 maicord_test(MaiCordCaptchaBridgeTests ONLY WINDOWS ENTRY maicord_captcha_bridge_tests_entry
+    SOURCES src/core/log.cpp
     SOURCES tests/app/account/login/captcha_bridge_login.cpp tests/app/account/login/captcha_bridge_runtime.cpp tests/protocol/auth/captcha_bridge_protocol.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_ui kernel32 user32 ${maicord_tls_libs}
         shell32
@@ -1747,6 +1789,7 @@ maicord_test(MaiCordPasswordResetCoordinatorTests ENTRY maicord_password_reset_c
 # Offline fixtures over the shipping REST owner share one translation unit, so
 # the owner implementation they include compiles once; each case runs one.
 maicord_test(MaiCordRestClientFixtureTests ONLY WINDOWS ENTRY maicord_rest_client_fixtures_entry
+    SOURCES ${maicord_account_fake} src/app/net/rest_client_trace.cpp
     SOURCES tests/app/net/rest_client_fixtures.cpp src/app/chat/messages/account_bulk_message_ack.cpp src/app/account/account_logout.cpp
         src/app/account/account_host.cpp src/media/image/png_common.cpp src/app/account/user_client_configuration.cpp
         src/app/account/client_session_metadata.cpp src/app/net/signed_out_session.cpp src/core/log.cpp
@@ -1760,6 +1803,7 @@ maicord_test(MaiCordRestClientFixtureTests ONLY WINDOWS ENTRY maicord_rest_clien
     TEST maicord_rest_credential_swap credential-swap
     TEST maicord_signed_out_session signed-out-session)
 maicord_test(MaiCordAccountLogoutRuntimeTests ONLY WINDOWS ENTRY maicord_application_account_logout_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/application_account_logout_runtime.cpp src/app/account/account_logout_stop.cpp
         src/app/account/login/account_credential_forget.cpp src/app/account/account_paths.cpp src/app/net/file_persistence.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_ui maicord_account_host kernel32 user32
@@ -1789,6 +1833,7 @@ maicord_test(MaiCordPluginLoaderFailureTests ONLY WINDOWS ENTRY maicord_plugin_l
     LIBS maicord_core kernel32 bcrypt
     TIMEOUT 15 TEST maicord_plugin_loader_failures)
 maicord_test(MaiCordScopedReadRuntimeTests ONLY WINDOWS ENTRY maicord_scoped_read_runtime_entry
+    SOURCES ${maicord_account_fake}
     SOURCES tests/app/chat/scoped_read_runtime.cpp src/app/chat/read_state.cpp
         src/app/chat/scoped_read.cpp src/app/chat/messages/mutation_notice.cpp
         src/app/shell/state.cpp src/core/log.cpp
@@ -1821,6 +1866,7 @@ maicord_test(MaiCordH264Tests ENTRY maicord_h264_tests_entry
 maicord_test(MaiCordH264StreamGpuTests ONLY WINDOWS ENTRY maicord_h264_stream_gpu_tests_entry
     SOURCES tests/media/video/h264_stream_gpu_test.cpp tests/media/video/hevc_stream_gpu_test.cpp src/platform/decode/gpu_stream_decoder.cpp
         src/platform/decode/h264_gpu_stream_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp src/app/voice/log.cpp
+        src/app/voice/log_record.cpp src/core/log.cpp
         tests/media/video/av1_stream_gpu_test.cpp src/platform/decode/av1_gpu_stream.cpp src/platform/decode/av1_dxva_parameters.cpp
         src/app/voice/video_stream_decoders.cpp tests/platform/decode/h264_attachment_gpu_test.cpp src/platform/decode/mp4_decoder.cpp
         src/platform/decode/h264_gpu_decoder.cpp src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/h264_gpu_configuration.cpp
@@ -2367,7 +2413,7 @@ if(MAICORD_LINUX)
     #   maicord_wayland_window_lifecycle   the window opens, is configured and acked, answers frame callbacks, takes a wl_shm
     #                                      buffer, the integration protocols (xdg-foreign handle, system bell, icon) and
     #                                      closes; any compositor (sway, Weston, WSLg)
-    #   maicord_wayland_window_input       pointer, keyboard, client-side decorations, clipboard, primary selection, IME,
+    #   maicord_wayland_window_input       pointer, keyboard, client-side decorations, clipboard, IME,
     #                                      window_post, attention, idle inhibit and the system idle time, driven through a
     #                                      virtual pointer and keyboard and two helper clients (sway and other wlroots
     #                                      compositors)
@@ -2500,6 +2546,7 @@ if(MAICORD_LINUX)
     # The sign-in's side of the ceremony (src/app/account/login/auth.cpp) over a fake ceremony: the screens, the PIN field, each
     # failure, a cancel, no libfido2. The fake ceremony replaces webauthn_ceremony.cpp, which stays out of the link.
     maicord_test(MaiCordLinuxWebAuthnFlowTests ENTRY maicord_linux_webauthn_flow_entry
+        SOURCES ${maicord_account_fake}
         SOURCES tests/app/account/login/linux_webauthn_flow.cpp src/app/account/login/browser_auth.cpp
             src/app/account/login/captcha_auth.cpp src/app/account/login/auth.cpp src/app/account/login/auth_recovery.cpp
             src/app/shell/state.cpp src/app/account/account_host.cpp
@@ -2915,6 +2962,7 @@ if(NOT MAICORD_LINUX)
     endforeach()
 endif()
 maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
+    SOURCES ${maicord_account_fake}
     SOURCES ${maicord_effect_headers} config/maicord.manifest tests/integration/ui_probe.cpp
         tests/integration/ui_probe_media.cpp tests/integration/ui_probe_scenes.cpp
         tests/integration/ui_probe_renderer.cpp
@@ -3003,6 +3051,7 @@ maicord_test(MaiCordRenderScenesTests ENTRY maicord_render_scenes_entry
         INCLUDES src "${MAICORD_GENERATED_DIRECTORY}"
     TIMEOUT 20 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_render_scenes)
 maicord_test(MaiCordMessageLinkUiProbe ONLY WINDOWS WIN32 ENTRY maicord_message_link_ui_probe_entry
+    SOURCES ${maicord_account_fake}
     SOURCES config/maicord.manifest tests/integration/message_link_ui_probe.cpp src/app/shell/content_input.cpp
         src/app/chat/search/navigation.cpp src/app/chat/messages/mutation_notice.cpp
         src/app/chat/threads/actions.cpp src/core/log.cpp src/app/chat/application_channel_memory.cpp
@@ -3011,6 +3060,7 @@ maicord_test(MaiCordMessageLinkUiProbe ONLY WINDOWS WIN32 ENTRY maicord_message_
     RESOURCE_LOCK native_gpu
     TEST maicord_message_link_ui_probe)
 maicord_test(MaiCordComposerUiProbe ONLY WINDOWS WIN32 ENTRY maicord_composer_ui_probe_entry
+    SOURCES ${maicord_account_fake}
     SOURCES config/maicord.manifest tests/integration/composer_ui_probe.cpp src/app/chat/composer/composer.cpp
         src/app/chat/composer/input.cpp src/app/chat/composer/reply_draft.cpp
         src/app/chat/composer/edit_menu.cpp src/app/chat/messages/send.cpp src/core/log.cpp
@@ -3020,6 +3070,7 @@ maicord_test(MaiCordComposerUiProbe ONLY WINDOWS WIN32 ENTRY maicord_composer_ui
     RESOURCE_LOCK native_gpu
     TEST maicord_composer_ui_probe)
 maicord_test(MaiCordAccountLogoutUiProbe ONLY WINDOWS WIN32 ENTRY maicord_account_logout_ui_probe_entry
+    SOURCES ${maicord_account_fake}
     SOURCES config/maicord.manifest tests/integration/account_logout_ui_probe.cpp src/app/chat/composer/text_form.cpp
         src/app/account/login/ui.cpp src/app/account/login/input.cpp src/app/account/account_menu.cpp
         src/app/shell/input.cpp src/core/log.cpp
@@ -3028,6 +3079,7 @@ maicord_test(MaiCordAccountLogoutUiProbe ONLY WINDOWS WIN32 ENTRY maicord_accoun
     RESOURCE_LOCK native_gpu ENV MAICORD_UI_ACCOUNT_LOGOUT_PROBE=1
     TEST maicord_account_logout_ui_probe)
 maicord_test(MaiCordScopedReadUiProbe ONLY WINDOWS WIN32 ENTRY maicord_scoped_read_ui_probe_entry
+    SOURCES ${maicord_account_fake}
     SOURCES config/maicord.manifest tests/integration/scoped_read_ui_probe.cpp src/app/chat/scoped_read.cpp
         src/app/chat/read_state.cpp src/app/chat/scoped_read_menu.cpp
         src/app/chat/messages/mutation_notice.cpp src/app/guild/menu.cpp

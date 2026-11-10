@@ -17,7 +17,6 @@ inline constexpr u32 kQrCodeLargeMaximumPayloadBytes = 213;
 
 template <u32 MaximumSize> struct QrCodeOf {
     static_assert(MaximumSize >= 21 && MaximumSize <= kQrCodeMaximumSize && (MaximumSize - 17) % 4 == 0);
-    static constexpr u32 kMaximumSize = MaximumSize;
     u8 modules[(MaximumSize * MaximumSize + 7) / 8];
     u8 size;
     u8 mask;
@@ -25,7 +24,6 @@ template <u32 MaximumSize> struct QrCodeOf {
 // The sign-in QR (version 5) and an authenticator link's (up to version 10).
 struct QrCode : QrCodeOf<kQrCodeSize> {};
 struct QrCodeLarge : QrCodeOf<kQrCodeMaximumSize> {};
-inline constexpr u32 kQrCodeStorageBytes = sizeof(QrCode::modules);
 
 // A symbol's modules as the functions below read them: bit y * size + x of `modules`, size 0 when there is none.
 struct QrCodeModules {

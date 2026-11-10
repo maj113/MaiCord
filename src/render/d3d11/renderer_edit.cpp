@@ -79,7 +79,7 @@ bool d3d11_renderer_measure_profile_edit(D3D11Renderer* renderer) noexcept {
     return measure_text(&renderer->profile_edit_layout, renderer->profile_edit_selections, view,
                         scene->edit_content, renderer->glyph_text.system);
 }
-PopupEditGeometry d3d11_renderer_popup_edit_geometry(const D3D11Renderer& renderer) noexcept {
+UiEditGeometry d3d11_renderer_popup_edit_geometry(const D3D11Renderer& renderer) noexcept {
     UiEditGeometry geometry{};
     fill_geometry(renderer.popup_edit_layout, &geometry);
     return geometry;
@@ -144,9 +144,6 @@ void select_edit_geometry(D3D11Renderer* renderer, TextEditLayoutOwner* owner,
 } // namespace
 
 bool d3d11_renderer_measure_login_edit(D3D11Renderer* renderer, const LoginView& view) noexcept {
-    if (!renderer) {
-        return false;
-    }
     renderer->login_caret_visible = false;
     renderer->login_composition_metric_count = 0;
     if (!view.edit_active) {
@@ -243,9 +240,6 @@ bool d3d11_renderer_measure_login_edit(D3D11Renderer* renderer, const LoginView&
 }
 
 bool d3d11_renderer_measure_composer_edit(D3D11Renderer* renderer) noexcept {
-    if (!renderer) {
-        return false;
-    }
     select_edit_geometry(renderer, &renderer->composer_layout, &renderer->login_edit);
     // The draft is chat text.
     return text_composer_layout_measure(&renderer->composer_layout, renderer->message_composer_scene,

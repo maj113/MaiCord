@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/app/plugins/catalog_index.hpp"
-#include "maicord/core/base.hpp"
 #include "maicord/media/core/asset_key.hpp"
 #include "maicord/ui/store/store_scene.hpp"
 

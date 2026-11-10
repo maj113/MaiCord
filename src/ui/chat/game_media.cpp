@@ -11,11 +11,6 @@
 namespace maicord {
 namespace {
 
-u32 request_size(u32 dips, u32 dpi) noexcept {
-    const u32 pixels = static_cast<u32>((static_cast<u64>(dips) * (dpi ? dpi : 96u) + 95u) / 96u);
-    return ui_media_proxy_size(minimum(pixels, kUiGuildImageMaximumPixels));
-}
-
 bool starts_with(Utf8View text, u32 at, const char* literal, u32 bytes) noexcept {
     return at + bytes <= text.bytes && bytes_equal(text.data + at, literal, bytes);
 }
@@ -92,7 +87,7 @@ bool image(const GuildAdminGame& game, bool cover, u32 size_dips, u32 dpi, GameI
         return false;
     reset_value(output);
     const Utf8View value = cover ? Utf8View{game.cover, game.cover_bytes} : Utf8View{game.icon, game.icon_bytes};
-    const u32 size = request_size(size_dips, dpi);
+    const u32 size = ui_guild_image_request_size(size_dips, dpi);
     return (cover ? game.cover_url : game.icon_url) ? url_media(value, size, cover, output)
                                                     : hash_media(game.id, value, size, cover, output);
 }

@@ -131,7 +131,7 @@ u64 voice_playback_now_us() noexcept {
 }
 
 bool voice_playback_initialize(VoicePlayback* playback) noexcept {
-    if (!playback || playback->block)
+    if (playback->block)
         return false;
     const u32 decoder_bytes = static_cast<u32>(align_up(opus_decoder_storage_bytes(kVoiceChannels), 16));
     if (!decoder_bytes)
@@ -158,8 +158,6 @@ bool voice_playback_initialize(VoicePlayback* playback) noexcept {
 }
 
 void voice_playback_release(VoicePlayback* playback) noexcept {
-    if (!playback)
-        return;
     AcquireSRWLockExclusive(playback->lock.native());
     u8* block = playback->block;
     playback->block = nullptr;
@@ -172,8 +170,6 @@ void voice_playback_release(VoicePlayback* playback) noexcept {
 }
 
 void voice_playback_clear(VoicePlayback* playback) noexcept {
-    if (!playback)
-        return;
     AcquireSRWLockExclusive(playback->lock.native());
     if (playback->streams)
         for (u32 i = 0; i < playback->stream_count; ++i) {
@@ -185,7 +181,7 @@ void voice_playback_clear(VoicePlayback* playback) noexcept {
 
 bool voice_playback_push(VoicePlayback* playback, u32 ssrc, u64 user_id, u32 speaking_flags, u16 sequence,
                          u32 timestamp, ConstSlice<u8> opus, u64 arrival_us) noexcept {
-    if (!playback || !user_id || !opus.data || !opus.count)
+    if (!user_id || !opus.data || !opus.count)
         return false;
     AcquireSRWLockExclusive(playback->lock.native());
     auto* stream = playback->streams ? stream_for(*playback, ssrc, user_id, arrival_us) : nullptr;
@@ -252,8 +248,6 @@ void voice_playback_render(VoicePlayback* playback, Slice<i16> output, u64 now_u
 }
 
 void voice_playback_set_deafened(VoicePlayback* playback, bool deafened) noexcept {
-    if (!playback)
-        return;
     AcquireSRWLockExclusive(playback->lock.native());
     if (deafened && !playback->deafened && playback->streams)
         for (u32 i = 0; i < playback->stream_count; ++i) {
@@ -270,21 +264,17 @@ void voice_playback_set_deafened(VoicePlayback* playback, bool deafened) noexcep
 }
 
 void voice_playback_set_effects(VoicePlayback* playback, SoundboardMixer* effects) noexcept {
-    if (!playback)
-        return;
     AcquireSRWLockExclusive(playback->lock.native());
     playback->effects = effects;
     ReleaseSRWLockExclusive(playback->lock.native());
 }
 
 SoundboardMixer* voice_playback_effects(VoicePlayback* playback) noexcept {
-    if (!playback)
-        return nullptr;
     return *static_cast<SoundboardMixer* const volatile*>(&playback->effects); // one pointer: the lock added nothing
 }
 
 bool voice_playback_set_user(VoicePlayback* playback, u64 user_id, u32 gain_percent, bool muted) noexcept {
-    if (!playback || !user_id || gain_percent > kVoiceGainMaximumPercent)
+    if (!user_id || gain_percent > kVoiceGainMaximumPercent)
         return false;
     AcquireSRWLockExclusive(playback->lock.native());
     u32 index = 0;
@@ -305,8 +295,6 @@ bool voice_playback_set_user(VoicePlayback* playback, u64 user_id, u32 gain_perc
 }
 
 void voice_playback_set_master(VoicePlayback* playback, u32 gain_percent) noexcept {
-    if (!playback)
-        return;
     AcquireSRWLockExclusive(playback->lock.native());
     playback->master_delta = static_cast<i32>(minimum(gain_percent, kVoiceGainMaximumPercent)) - 100;
     ReleaseSRWLockExclusive(playback->lock.native());

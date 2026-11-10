@@ -194,7 +194,7 @@ enum class StoreAct : u8 {
     knob_menu,
     knob_color,
     knobs_reset,
-    universal,    // arg: UniversalRow; shader override
+    universal,    // arg: StoreUniversalRow << 8 | option; shader override
     universal_reset,
     keep_theme,
     revert_theme,
@@ -297,15 +297,9 @@ struct StoreList {
 };
 
 // ---- Projection (store_projection.cpp) --------------------------------------------------------------------
-// Whether a listed item matches the words of `query` (word-prefix over name, summary, authors, categories).
-bool store_item_matches(const StoreItem&, const Utf8View& query) noexcept;
 // The filter chips of a kind over the listed items, with counts. Base/cost chips first, categories sorted by
 // name, "Low access only" last for plugins.
 void store_chips_build(const StoreModel&, CatalogKind, StoreChips*) noexcept;
-// Chips an item lights.
-u64 store_item_chips(const StoreItem&, const StoreChips&) noexcept;
-// Within a group chips are OR, across groups AND.
-bool store_chips_match(u64 selected, u64 item, const StoreChips&) noexcept;
 u64 store_chip_toggle(u64 selected, const StoreChips&, u32 index) noexcept;
 // The Browse list: listed items of the kind, filtered and sorted.
 void store_browse_list(const StoreModel&, const StorePageState&, const StoreChips&, StoreList*) noexcept;

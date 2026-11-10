@@ -1,5 +1,6 @@
 #include "thread_creation_ui_adapter.hpp"
 #include "shell/state.hpp"
+#include "../support/account_module_fake.hpp"
 #include "account/account_presentation.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/chat/messages/context_controller.hpp"
@@ -85,7 +86,7 @@ bool thread_creation_ui_adapter_begin(HWND window, D3D11Renderer& renderer, UiTe
     creation_adapter = value;
     g_app.renderer.width = renderer.width; g_app.renderer.height = renderer.height; g_app.renderer.dpi = renderer.dpi;
     g_app.renderer_ready = true;
-    g_app.account.api.thread_creation = submit_creation;
+    g_account_fake.thread_creation = submit_creation;
     g_app.account_ui->text_measure_cache = cache;
     g_app.account_ui->text_measure_cache.backend_context = &renderer;
     if (!permission(true)) { thread_creation_ui_adapter_end(); return false; }

@@ -69,7 +69,9 @@ GpuDevice* retain_device(GoLiveDevices& d) noexcept {
     ReleaseSRWLockShared(d.lock.native());
     return device;
 }
-u32 encodable(void* context, bool* known) noexcept {
+} // namespace
+
+u32 go_live_producer_encodable(void* context, bool* known) noexcept {
     GpuDevice* device = retain_device(of(context));
     *known = device != nullptr;
     if (!device)
@@ -78,8 +80,8 @@ u32 encodable(void* context, bool* known) noexcept {
     gpu_release(device);
     return codecs;
 }
-bool capture(void* context, GoLiveMedia* media, const CaptureSource& source, bool system_picker,
-             u32 max_fps) noexcept {
+bool go_live_producer_capture(void* context, GoLiveMedia* media, const CaptureSource& source, bool system_picker,
+                              u32 max_fps) noexcept {
     auto& d = of(context);
     AcquireSRWLockExclusive(d.lock.native());
     GpuDevice* device = d.device;
@@ -96,7 +98,7 @@ bool capture(void* context, GoLiveMedia* media, const CaptureSource& source, boo
     d.capture = capture_start(options, {&d, frame, capture_ended, minimized});
     return d.capture != nullptr;
 }
-void capture_stop_all(void* context) noexcept {
+void go_live_producer_capture_stop(void* context) noexcept {
     auto& d = of(context);
     if (!d.capture)
         return;
@@ -105,7 +107,7 @@ void capture_stop_all(void* context) noexcept {
     // Counts only, to see where pictures stop between capture, encoder and the wire.
     log_u64(LogLevel::info, "go_live", "capture_frames", d.frames);
 }
-bool sound(void* context, GoLiveMedia* media, u32 process_id) noexcept {
+bool go_live_producer_sound(void* context, GoLiveMedia* media, u32 process_id) noexcept {
     auto& d = of(context);
     d.media = media;
     if (!stream_audio_available(stream_audio_method()))
@@ -115,13 +117,14 @@ bool sound(void* context, GoLiveMedia* media, u32 process_id) noexcept {
     d.audio_running = stream_audio_start(&d.audio, options, {&d, audio_block});
     return d.audio_running;
 }
-void sound_stop(void* context) noexcept {
+void go_live_producer_sound_stop(void* context) noexcept {
     auto& d = of(context);
     if (d.audio_running)
         stream_audio_stop(&d.audio);
     d.audio_running = false;
 }
-bool encoder(void* context, GoLiveMedia* media, GpuStreamCodec codec, const GpuStreamEncoderSettings& settings) noexcept {
+bool go_live_producer_encoder(void* context, GoLiveMedia* media, GpuStreamCodec codec,
+                              const GpuStreamEncoderSettings& settings) noexcept {
     auto& d = of(context);
     GpuDevice* device = retain_device(d);
     if (!device)
@@ -138,28 +141,28 @@ bool encoder(void* context, GoLiveMedia* media, GpuStreamCodec codec, const GpuS
     gpu_stream_encoder_destroy(previous);
     return true;
 }
-void configure(void* context, const GpuStreamEncoderSettings& settings) noexcept {
+void go_live_producer_configure(void* context, const GpuStreamEncoderSettings& settings) noexcept {
     auto& d = of(context);
     AcquireSRWLockShared(d.lock.native());
     if (d.encoder)
         gpu_stream_encoder_configure(d.encoder, settings);
     ReleaseSRWLockShared(d.lock.native());
 }
-void bitrate(void* context, u32 bits_per_second) noexcept {
+void go_live_producer_bitrate(void* context, u32 bits_per_second) noexcept {
     auto& d = of(context);
     AcquireSRWLockShared(d.lock.native());
     if (d.encoder)
         gpu_stream_encoder_set_bitrate(d.encoder, bits_per_second);
     ReleaseSRWLockShared(d.lock.native());
 }
-void keyframe(void* context) noexcept {
+void go_live_producer_keyframe(void* context) noexcept {
     auto& d = of(context);
     AcquireSRWLockShared(d.lock.native());
     if (d.encoder)
         gpu_stream_encoder_request_keyframe(d.encoder);
     ReleaseSRWLockShared(d.lock.native());
 }
-void encoder_stop(void* context) noexcept {
+void go_live_producer_encoder_stop(void* context) noexcept {
     auto& d = of(context);
     AcquireSRWLockExclusive(d.lock.native());
     GpuStreamEncoder* encoder = d.encoder;
@@ -175,14 +178,13 @@ void encoder_stop(void* context) noexcept {
     gpu_stream_encoder_destroy(encoder);
 }
 #pragma clang attribute pop
-bool preview(void* context, GpuVideoFrame* output, u32* sequence) noexcept {
+bool go_live_producer_preview(void* context, GpuVideoFrame* output, u32* sequence) noexcept {
     auto& d = of(context);
     AcquireSRWLockShared(d.lock.native());
     const bool ok = d.encoder && gpu_stream_encoder_preview(d.encoder, output, sequence);
     ReleaseSRWLockShared(d.lock.native());
     return ok;
 }
-} // namespace
 
 void go_live_devices_set_device(GoLiveDevices* devices, GpuDevice* device) noexcept {
     if (device)
@@ -195,13 +197,10 @@ void go_live_devices_set_device(GoLiveDevices* devices, GpuDevice* device) noexc
         gpu_release(previous);
 }
 
-const GoLiveBackend kGoLiveDevicesBackend{encodable, capture,   capture_stop_all, sound,        sound_stop, encoder,
-                                           configure, bitrate,   keyframe,        encoder_stop, preview};
-
 void go_live_devices_release(GoLiveDevices* devices) noexcept {
-    capture_stop_all(devices);
-    sound_stop(devices);
-    encoder_stop(devices);
+    go_live_producer_capture_stop(devices);
+    go_live_producer_sound_stop(devices);
+    go_live_producer_encoder_stop(devices);
     go_live_devices_set_device(devices, nullptr);
 }
 } // namespace maicord

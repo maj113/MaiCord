@@ -75,7 +75,7 @@ struct VoiceState {
 VoiceState g_voice;
 
 bool module_ready() noexcept {
-    return g_app.account_ui && g_app.account.instance && g_app.account.api.voice_message;
+    return g_app.account_ui && g_app.account.instance;
 }
 bool command(VoiceMessageOperation operation, Slice<u8> output = {}) noexcept {
     if (!module_ready())
@@ -83,7 +83,7 @@ bool command(VoiceMessageOperation operation, Slice<u8> output = {}) noexcept {
     VoiceMessageCommand c{};
     c.operation = operation;
     c.output = output;
-    return g_app.account.api.voice_message(g_app.account.instance, &c, &g_voice.status);
+    return account_module_voice_message(g_app.account.instance, &c, &g_voice.status);
 }
 Utf8View notice_text(VoiceMessageNotice notice) noexcept {
     switch (notice) {

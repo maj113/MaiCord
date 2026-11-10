@@ -39,7 +39,7 @@ bool find_box(u64 begin, u64 end, const char* type, AttachmentProbeRead read, vo
 } // namespace
 
 bool attachment_mp4_duration(u64 file_bytes, AttachmentProbeRead read, void* context, u32* milliseconds) noexcept {
-    if (!read || !milliseconds || file_bytes < 16)
+    if (!read || file_bytes < 16)
         return false;
     *milliseconds = 0;
     u64 moov = 0, moov_end = 0, mvhd = 0, mvhd_end = 0;

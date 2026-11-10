@@ -428,7 +428,7 @@ DaveSealResult voice_connection_dave_encrypt(VoiceConnection* connection, ConstS
 DaveSealResult voice_connection_dave_encrypt_video(VoiceConnection* connection, DaveVideoCodec codec,
                                                    ConstSlice<u8> frame, Slice<u8> prepared, Slice<u8> scratch,
                                                    Slice<u8> output) noexcept {
-    if (!connection || !connection->dave_session.initialized)
+    if (!connection->dave_session.initialized)
         return {0, 0, 0, DaveSealError::not_initialized};
     return dave_session_encrypt_video(&connection->dave_session, codec, frame, prepared, scratch, output);
 }

@@ -39,8 +39,7 @@ bool application_private_channel_accept_request(u64 channel_id) noexcept;
 bool application_private_channel_ignore_request(u64 channel_id) noexcept;
 // Dismisses the DM safety warning banner of a conversation.
 bool application_private_channel_dismiss_safety(u64 channel_id) noexcept;
-// The sidebar's Message Requests row is the selected one (its page shows).
-bool application_private_channel_requests_mode() noexcept;
+// Marks the sidebar's Message Requests row while its page shows; the caller synchronizes the navigation.
 void application_private_channel_set_requests_mode(bool requests) noexcept;
 // When a queued DM action, or one that found the request lane busy, goes out; zero for none.
 u64 application_private_channel_next_wake() noexcept;

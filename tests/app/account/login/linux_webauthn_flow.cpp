@@ -1,6 +1,7 @@
 #include "shell/state.hpp"
 #include "../../../support/test_output.hpp"
 #include "../../../support/window_fixture.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "account/login/auth.hpp"
 #include "account/login/ui.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
@@ -161,8 +162,8 @@ void seed() noexcept {
     g_app.account = {};
     g_app.account.module = reinterpret_cast<HMODULE>(1);  // never passed to an OS loader
     g_app.account.login_instance = &audit;
-    g_app.account.api.login_copy_webauthn_challenge = copy_challenge;
-    g_app.account.api.login_submit_mfa = mfa;
+    g_account_fake.login_copy_webauthn_challenge = copy_challenge;
+    g_account_fake.login_submit_mfa = mfa;
     g_app.account.login_status.phase = AccountLoginPhase::mfa_required;
     login().visible = login().initialized = true;
     login().mfa_capabilities = login_mfa_capability_all;
@@ -297,7 +298,7 @@ void test_failures() noexcept {
     seed();
     u64 epoch = 0;
     begin(&epoch);
-    g_app.account.api.login_submit_mfa = [](void*, const SecureBuffer*, UserAuthMfaType) noexcept -> AccountLoginStatus {
+    g_account_fake.login_submit_mfa = [](void*, const SecureBuffer*, UserAuthMfaType) noexcept -> AccountLoginStatus {
         AccountLoginStatus result{};
         result.error = AccountLoginError::invalid_input;
         return result;

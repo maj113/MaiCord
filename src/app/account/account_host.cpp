@@ -108,7 +108,7 @@ AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* pr
         return invalid;
     }
     AccountModuleStartResult started =
-        host->api.start(profile_path, session_path, monotonic_now_ms, unix_now_ms);
+        account_module_start(profile_path, session_path, monotonic_now_ms, unix_now_ms);
     if (started.ok()) {
         host->instance = started.instance;
     }
@@ -116,24 +116,24 @@ AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* pr
 }
 
 AccountLoginStatus account_host_login_start(AccountHost* host, const wchar_t* profile_path) noexcept {
-    if (!login_startable(host) || !profile_path || !host->api.login_start)
+    if (!login_startable(host) || !profile_path)
         return login_refused();
-    host->login_status = host->api.login_start(&host->login_instance, profile_path);
+    host->login_status = account_module_login_start(&host->login_instance, profile_path);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_start_reset(AccountHost* host, const wchar_t* profile_path) noexcept {
-    if (!login_startable(host) || !profile_path || !host->api.login_start_reset)
+    if (!login_startable(host) || !profile_path)
         return login_refused();
-    host->login_status = host->api.login_start_reset(&host->login_instance, profile_path);
+    host->login_status = account_module_login_start_reset(&host->login_instance, profile_path);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_submit_reset(AccountHost* host, const SecureBuffer* link_token,
                                                    const SecureBuffer* password) noexcept {
-    if (!login_live(host) || !host->api.login_submit_reset || !password)
+    if (!login_live(host) || !password)
         return login_refused();
-    host->login_status = host->api.login_submit_reset(host->login_instance, link_token, password);
+    host->login_status = account_module_login_submit_reset(host->login_instance, link_token, password);
     return host->login_status;
 }
 
@@ -142,14 +142,14 @@ AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u
     if (observations) {
         *observations = 0;
     }
-    if (!host || !host->module || !host->instance || host->stop_failed || !host->api.pump) {
+    if (!host || !host->module || !host->instance || host->stop_failed) {
         AccountModuleStatus invalid{};
         invalid.native_error = ERROR_INVALID_PARAMETER;
         invalid.error = AccountModuleError::invalid_input;
         invalid.failed = true;
         return invalid;
     }
-    const AccountModuleStatus status = host->api.pump(host->instance, monotonic_now_ms, unix_now_ms);
+    const AccountModuleStatus status = account_module_pump(host->instance, monotonic_now_ms, unix_now_ms);
     const u32 changed = account_host_observe(host, status);
     if (observations) {
         *observations = changed;
@@ -159,46 +159,46 @@ AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u
 
 AccountLoginStatus account_host_login_submit_verification(AccountHost* host,
                                                           const SecureBuffer* link_token) noexcept {
-    if (!login_live(host) || !host->api.login_submit_verification || !link_token)
+    if (!login_live(host) || !link_token)
         return login_refused();
-    host->login_status = host->api.login_submit_verification(host->login_instance, link_token);
+    host->login_status = account_module_login_submit_verification(host->login_instance, link_token);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_submit_recovery(AccountHost* host,
                                                       const SecureBuffer* login) noexcept {
-    if (!login_live(host) || !host->api.login_submit_recovery || !login)
+    if (!login_live(host) || !login)
         return login_invalid_input();
-    host->login_status = host->api.login_submit_recovery(host->login_instance, login);
+    host->login_status = account_module_login_submit_recovery(host->login_instance, login);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept {
-    if (!login_live(host) || !host->api.login_pump)
+    if (!login_live(host))
         return login_refused();
-    host->login_status = host->api.login_pump(host->login_instance);
+    host->login_status = account_module_login_pump(host->login_instance);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_submit_phone_verify(AccountHost* host,
                                                           const SecureBuffer* code) noexcept {
-    if (!login_live(host) || !host->api.login_submit_phone_verify || !code)
+    if (!login_live(host) || !code)
         return login_invalid_input();
-    host->login_status = host->api.login_submit_phone_verify(host->login_instance, code);
+    host->login_status = account_module_login_submit_phone_verify(host->login_instance, code);
     return host->login_status;
 }
 AccountLoginStatus account_host_login_submit_phone_resend(AccountHost* host) noexcept {
-    if (!login_live(host) || !host->api.login_submit_phone_resend)
+    if (!login_live(host))
         return login_invalid_input();
-    host->login_status = host->api.login_submit_phone_resend(host->login_instance);
+    host->login_status = account_module_login_submit_phone_resend(host->login_instance);
     return host->login_status;
 }
 SecureBufferResult account_host_login_take_phone_reset_token(AccountHost* host, u64 expected_generation,
                                                              SecureBuffer* output) noexcept {
-    if (!login_live(host) || !host->api.login_take_phone_reset_token)
+    if (!login_live(host))
         return {0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
     const auto result =
-        host->api.login_take_phone_reset_token(host->login_instance, expected_generation, output);
+        account_module_login_take_phone_reset_token(host->login_instance, expected_generation, output);
     if (result.ok()) {
         host->login_status.phase = AccountLoginPhase::phone_token_taken;
         host->login_status.generation = expected_generation == ~0ull ? 1 : expected_generation + 1;
@@ -208,9 +208,9 @@ SecureBufferResult account_host_login_take_phone_reset_token(AccountHost* host, 
 }
 
 AccountLoginStatus account_host_login_stop(AccountHost* host, u32 timeout_ms) noexcept {
-    if (!host || !host->module || !host->login_instance || timeout_ms == 0 || !host->api.login_stop)
+    if (!host || !host->module || !host->login_instance || timeout_ms == 0)
         return login_refused();
-    host->login_status = host->api.login_stop(&host->login_instance, timeout_ms);
+    host->login_status = account_module_login_stop(&host->login_instance, timeout_ms);
     if (host->login_instance) {
         host->stop_failed = true;
     } else if (!host->instance) {
@@ -244,7 +244,7 @@ AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 m
         }
     }
     if (host->instance) {
-        result.account_status = host->api.stop(&host->instance, timeout_ms, monotonic_now_ms, unix_now_ms);
+        result.account_status = account_module_stop(&host->instance, timeout_ms, monotonic_now_ms, unix_now_ms);
         result.observations = account_host_observe(host, result.account_status);
         if (host->instance) {
             host->stop_failed = true;
@@ -271,13 +271,13 @@ u32 account_host_notification_handles(const AccountHost* host, HANDLE* output, u
     HANDLE staged[kAccountHostNotificationHandleCapacity]{};
     u32 count = 0;
     if (host->instance && !host->stop_failed) {
-        count = host->api.notification_handles(host->instance, staged, capacity);
+        count = account_module_notification_handles(host->instance, staged, capacity);
         if (count > capacity) {
             return 0;
         }
     }
     if (host->login_instance && !host->stop_failed && count < capacity) {
-        const HANDLE login = host->api.login_notification_handle(host->login_instance);
+        const HANDLE login = account_module_login_notification_handle(host->login_instance);
         bool duplicate = false;
         for (u32 index = 0; index < count; ++index) {
             duplicate = duplicate || staged[index] == login;

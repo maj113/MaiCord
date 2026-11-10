@@ -1,4 +1,5 @@
 #include "maicord/app/account/login/oauth_account.hpp"
+#include "maicord/app/account/login/oauth_authorization.hpp"
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
@@ -54,16 +55,6 @@ bool oauth_account_forget(OAuthProvider provider) noexcept {
     if (file_remove(path)) return true;
     const auto error = thread_last_error();
     return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
-}
-OAuthAuthorizationResult oauth_account_refresh(OAuthAuthorization* owner, SecureBuffer* output,
-    OAuthAuthorizationTransport transport, Utf8View client, OAuthProvider provider) noexcept {
-    if (!owner || !secure_buffer_empty(output) || !oauth_client_valid(provider, client)) return {OAuthError::invalid_input};
-    if (ReadAcquire(&owner->native_state) == 3) return {OAuthError::cancelled};
-    Locked grant;
-    if (!oauth_account_load(client, &grant.value, provider)) return {OAuthError::invalid_grant};
-    return oauth_authorization_refresh(owner, client,
-        {reinterpret_cast<char*>(grant.value.data), grant.value.bytes}, output, transport,
-        provider);
 }
 u32 oauth_account_client(OAuthProvider provider, const Slice<char>& output) noexcept {
     if (!output.data) return 0;

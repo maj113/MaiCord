@@ -428,7 +428,7 @@ bool application_attachment_submit_url(u64 request_id, u64 now_ms, bool* submitt
         return refresh_message_composer_ui();
     }
     if (!application_upload_lane_acquire(ApplicationUploadOwner::composer, &state->upload_lease)) return true;
-    const auto result = g_app.account.api.attachment_upload(g_app.account.instance, record->channel_id, static_cast<u32>(id),
+    const auto result = account_module_attachment_upload(g_app.account.instance, record->channel_id, static_cast<u32>(id),
         message_attachment_drafts_filename(&state->drafts, id), record->source.bytes, request_id);
     if (result.error == RestClientSubmitError::busy) { application_upload_lane_release(&state->upload_lease); record->retry_at_ms = now_ms + 100; return true; }
     if (!result.ok()) { application_upload_lane_release(&state->upload_lease); fail(state, id, MessageAttachmentDraftFailure::request); return refresh_message_composer_ui(); }
@@ -622,7 +622,7 @@ bool application_attachments_defer_close() noexcept {
     return !application_release_attachments();
 }
 bool application_attachment_prepare_send(u64 channel_id, Slice<UploadedAttachment> references, Slice<u64> ids, u32* count, Slice<u64> sizes) noexcept {
-    if (!count) return false; *count = 0;
+    *count = 0;
     auto* state = g_app.attachments; if (!current(state)) return true;
     if (preparing(state, channel_id)) return false;
     const u32 found = message_attachment_drafts_channel(&state->drafts, channel_id, ids);

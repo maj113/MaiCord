@@ -76,7 +76,7 @@ bool request(u64 guild_id, u64 channel_id) noexcept {
     const GatewayVoiceStateUpdate state{guild_id, channel_id, voice.preferences.self_mute,
                                         voice.preferences.self_deaf, false,
                                         channel && channel->guild_id && channel->type == 13};
-    if (!h.instance || !h.api.voice_request || !h.api.voice_request(h.instance, &state)) {
+    if (!h.instance || !account_module_voice_request(h.instance, &state)) {
         log_write(LogLevel::warning, "voice", channel_id ? "request_rejected" : "leave_rejected");
         return false;
     }
@@ -88,27 +88,25 @@ void apply_self_state() noexcept {
 }
 void push() noexcept {
     auto& h = g_app.account;
-    if (!h.instance || !h.api.voice_audio_configure)
+    if (!h.instance)
         return;
     VoiceAudioSettings settings = voice.preferences.audio;
     settings.monitor = voice.monitor;
     const u64 user = g_app.account_ui ? g_app.account_ui->voice_session.user_id : 0;
     if (!voice.dirty && h.instance == voice.pushed_instance && user == voice.pushed_user)
         return;
-    if (!h.api.voice_audio_configure(h.instance, &settings))
+    if (!account_module_voice_audio_configure(h.instance, &settings))
         return;
-    if (h.api.soundboard_audio) {
-        SoundboardAudioCommand soundboard{};
-        soundboard.operation = SoundboardAudioOperation::configure;
-        soundboard.muted = voice.preferences.soundboard_muted;
-        soundboard.volume_percent = voice.preferences.soundboard_volume;
-        h.api.soundboard_audio(h.instance, &soundboard);
-    }
+    SoundboardAudioCommand soundboard{};
+    soundboard.operation = SoundboardAudioOperation::configure;
+    soundboard.muted = voice.preferences.soundboard_muted;
+    soundboard.volume_percent = voice.preferences.soundboard_volume;
+    account_module_soundboard_audio(h.instance, &soundboard);
     // A new account session starts with fresh playback: restore user volumes.
     if (h.instance != voice.pushed_instance || user != voice.pushed_user)
-        for (u32 i = 0; h.api.voice_user_audio && i < voice.preferences.user_count; ++i) {
+        for (u32 i = 0; i < voice.preferences.user_count; ++i) {
             const auto& u = voice.preferences.users[i];
-            h.api.voice_user_audio(h.instance, u.user_id, u.gain_percent, u.muted);
+            account_module_voice_user_audio(h.instance, u.user_id, u.gain_percent, u.muted);
         }
     voice.dirty = false;
     voice.pushed_instance = h.instance;
@@ -193,8 +191,8 @@ void set_user(u64 user_id, u32 gain, bool muted) noexcept {
     auto& h = g_app.account;
     voice_preferences_set_user(&voice.preferences, user_id, gain, muted);
     voice.users_dirty = true;
-    if (h.instance && h.api.voice_user_audio)
-        h.api.voice_user_audio(h.instance, user_id, gain, muted);
+    if (h.instance)
+        account_module_voice_user_audio(h.instance, user_id, gain, muted);
 }
 bool menu_open() noexcept {
     return voice.menu_user && g_app.popup_scene.active && g_app.popup_scene.owner_id == voice.menu_user &&
@@ -216,10 +214,9 @@ void application_voice_pump() noexcept {
     auto& h = g_app.account;
     const bool call = application_voice_call() != nullptr;
     const u64 now = clock_monotonic_milliseconds();
-    if (h.instance && h.api.voice_audio_status && (call || voice.monitor) &&
-        now >= voice.status_at_ms) {
+    if (h.instance && (call || voice.monitor) && now >= voice.status_at_ms) {
         VoiceAudioStatus status{};
-        if (h.api.voice_audio_status(h.instance, &status))
+        if (account_module_voice_audio_status(h.instance, &status))
             voice.status = status;
         voice.status_at_ms = now + (voice.monitor ? 30 : 1000);
     } else if (!call && !voice.monitor)

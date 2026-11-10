@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/core/paint.hpp"
 
 namespace maicord {

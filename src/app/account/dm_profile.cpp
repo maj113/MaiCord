@@ -441,7 +441,7 @@ ProfileScene* application_dm_profile_scene() noexcept {
     return g_panel && g_panel->scene.active ? &g_panel->scene : nullptr;
 }
 bool application_dm_profile_pending(u64 now) noexcept {
-    return g_panel && g_panel->scene.active && g_app.account.api.profile_get &&
+    return g_panel && g_panel->scene.active &&
            ((g_panel->fetch && !g_panel->requested && !g_panel->icons_requested && g_panel->retry_at <= now) ||
             icons_due(now));
 }
@@ -465,7 +465,7 @@ bool application_dm_profile_submit(u64 request_id, u64 now) noexcept {
             g_panel->asked[count++] = id;
         }
         const RestClientSubmitResult result =
-            host.api.profile_get(host.instance, user, 0, request_id, 5, {ids, used});
+            account_module_profile_get(host.instance, user, 0, request_id, 5, {ids, used});
         if (result.error == RestClientSubmitError::busy) {
             g_panel->icons_retry_at = now + kBusyRetryMs;
             update_wake();
@@ -484,7 +484,7 @@ bool application_dm_profile_submit(u64 request_id, u64 now) noexcept {
         return true;
     }
     // with_mutual_guilds and the mutual friends with their count, as the full profile asks.
-    const RestClientSubmitResult result = host.api.profile_get(host.instance, user, 0, request_id, 0, {});
+    const RestClientSubmitResult result = account_module_profile_get(host.instance, user, 0, request_id, 0, {});
     if (result.error == RestClientSubmitError::busy) {
         g_panel->retry_at = now + kBusyRetryMs;
         update_wake();

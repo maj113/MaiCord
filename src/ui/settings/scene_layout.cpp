@@ -48,9 +48,6 @@ __forceinline bool grouped_kind(UiSettingsControlKind kind) noexcept {
            kind != UiSettingsControlKind::status && kind != UiSettingsControlKind::footnote &&
            kind != UiSettingsControlKind::preview;
 }
-__forceinline bool solo_kind(UiSettingsControlKind kind) noexcept {
-    return kind == UiSettingsControlKind::status;
-}
 } // namespace
 // Sectioned pages: the space after a row that ends its section (the divider
 // sits in its middle); none while error rows or a footnote follow, and after the last.
@@ -196,7 +193,7 @@ u8 card_edges(const UiSettingsPageContent& content, u32 index, const RowContext&
     if (!context.cards || content.sectioned)
         return card_none;
     const auto kind = content.controls[index].kind;
-    if (solo_kind(kind))
+    if (kind == UiSettingsControlKind::status)
         return card_member | card_first | card_last;
     // List rows and cards draw their own plates; the rest of the field kinds share one.
     const auto member = [&](u32 i) noexcept {

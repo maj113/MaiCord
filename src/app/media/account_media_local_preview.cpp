@@ -242,7 +242,7 @@ AccountMediaRequestResult decode_local_thumbnail(AccountMedia* media, const Acco
 AccountMediaRequestResult account_media_decode_local_preview(AccountMedia* media,
                                                              const AccountMediaLocalPreviewRequest& request,
                                                              const ConstSlice<u8>& encoded) noexcept {
-    if (!media || !media->started || media->active || media->frame_ready ||
+    if (!media->started || media->active || media->frame_ready ||
         !local_draft_preview_request_valid(request) ||
         ((encoded.data || encoded.count) && (!encoded.data || encoded.count != request.snapshot.bytes)))
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
@@ -341,7 +341,7 @@ AccountMediaRequestResult account_media_decode_local_video_preview(AccountMedia*
                                                                    const AccountMediaLocalPreviewRequest& request,
                                                                    AttachmentProbeRead read,
                                                                    void* context) noexcept {
-    if (!media || !media->started || media->active || media->frame_ready || !read ||
+    if (!media->started || media->active || media->frame_ready || !read ||
         !local_draft_preview_request_valid(request) || !local_draft_preview_thumbnail(request.key) ||
         media_asset_catalog_format(request.key) != MediaAttachmentFormat::mp4 ||
         request.snapshot.bytes > kMediaMaximumProgressiveVideoBytes)
@@ -414,7 +414,7 @@ AccountMediaRequestResult account_media_decode_local_video_preview(AccountMedia*
 }
 
 bool account_media_local_video_resident(const AccountMedia* media) noexcept {
-    return media && media->mp4_key.kind == MediaAssetKind::local_draft_preview &&
+    return media->mp4_key.kind == MediaAssetKind::local_draft_preview &&
            ((media->mp4_decoder && media->mp4_decoder->ready) || media->progressive);
 }
 

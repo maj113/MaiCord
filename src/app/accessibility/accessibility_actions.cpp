@@ -2,11 +2,7 @@
 #include "../chat/private_header.hpp"
 #include "../shell/notice.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#if defined(_WIN32)
-#include "maicord/core/win32_kernel.hpp"
-#endif
 #include "../guild/community.hpp"
-#include "../shell/content_point.hpp"
 #include "../shell/caption.hpp"
 #include "../account/profile_editor.hpp"
 #include "../chat/report.hpp"

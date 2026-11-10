@@ -2,7 +2,6 @@
 #include "maicord/model/guild/channel_reorder.hpp"
 #include "maicord/protocol/guild/assets.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/color_hex.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"

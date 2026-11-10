@@ -1,6 +1,7 @@
 #include "commands_ui_internal.hpp"
 #include "../../../../src/app/chat/composer/commands.hpp"
 #include "maicord/app/gateway/client_event.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "../../../../src/app/plugins/plugins.hpp"
 #include "../../../../src/app/chat/composer/text_form.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
@@ -349,7 +350,7 @@ void run() noexcept {
     check(arena_initialize(&arena, bytes + 4096, 0, 4096), "fixture arena");
     g_app.account_ui = arena_allocate_zero<AccountUiRuntime>(&arena);
     if (!g_app.account_ui) { arena_release(&arena); return; }
-    g_app.account.api.application_command = submit;
+    g_account_fake.application_command = submit;
     g_app.renderer.dpi = 96;
     char input[kMessageComposerMaximumBytes]{};
     UiWidget widgets[70]{}; UiLayoutNode nodes[70]{};

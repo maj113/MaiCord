@@ -124,7 +124,7 @@ bool application_composer_preview_request(u64 now, u64 unix_now) noexcept {
                 retire(entry, now);
         }
     auto* state = g_app.attachments;
-    if (!state || state->closing || !g_app.account.instance || !g_app.account.api.media_local_preview ||
+    if (!state || state->closing || !g_app.account.instance ||
         !g_app.account_ui || state->profile_id != g_app.account.status.profile_id)
         return true;
     u64 ids[kAttachmentUploadMaximumCount]{};

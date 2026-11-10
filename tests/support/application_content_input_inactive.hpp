@@ -12,9 +12,6 @@ bool application_guild_menu_toggle(bool) noexcept {
 bool application_private_channel_row_close(u64, float, float) noexcept {
     return false;
 }
-bool application_private_channel_requests_mode() noexcept {
-    return false;
-}
 void application_private_channel_set_requests_mode(bool) noexcept {}
 bool application_message_action_bar_activate(const MessageActionBarHit&, bool) noexcept {
     return false;

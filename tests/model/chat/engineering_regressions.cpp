@@ -1,7 +1,6 @@
 #include "maicord/core/spsc_mailbox.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/render/d3d11/raster_clip.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/guild/channel_overview_controller.hpp"
 #include "maicord/app/chat/messages/reaction_controller.hpp"

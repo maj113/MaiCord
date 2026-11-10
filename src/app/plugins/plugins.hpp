@@ -6,7 +6,6 @@
 #include "maicord/ui/shell/popup_scene.hpp"
 // What the application calls for the plugin runtime (src/app/plugins). The runtime's own entry points
 // (enable, disable, hooks) are in include/maicord/app/plugins; this file is the application's side.
-namespace maicord { struct MessageTextHit; }
 namespace maicord::app_detail {
 inline constexpr u32 kApplicationPluginPopupActionFirst = 0xF200;
 // Plugin rows one native menu shows, across every plugin and target.

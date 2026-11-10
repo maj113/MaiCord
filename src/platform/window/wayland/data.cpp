@@ -1,4 +1,4 @@
-// The clipboard, the primary selection and file drops: wl_data_device and zwp_primary_selection on the seat.
+// The clipboard and file drops: wl_data_device on the seat.
 //
 // Reading is a pipe: the offer is asked to write one mime type into it (receive) and the window reads it, bounded by a
 // time limit, waiting on the pipe as a system waitable. A selection the window itself owns is read from memory (reading
@@ -156,7 +156,7 @@ void write_pipe(int fd, const u8* data, u32 bytes) noexcept {
 
 // Offers -------------------------------------------------------------------------------------------------------------
 
-OfferSlot* slot_of(void* offer) noexcept {
+OfferSlot* slot_of(wl_data_offer* offer) noexcept {
     if (!offer)
         return nullptr;
     for (OfferSlot& slot : g.data.offers)
@@ -166,22 +166,19 @@ OfferSlot* slot_of(void* offer) noexcept {
 }
 
 bool slot_in_use(const OfferSlot* slot) noexcept {
-    return slot == g.data.selection || slot == g.data.primary_selection || slot == g.data.drag;
+    return slot == g.data.selection || slot == g.data.drag;
 }
 
 void destroy_slot(OfferSlot* slot) noexcept {
     if (!slot || !slot->offer)
         return;
-    if (slot->primary)
-        zwp_primary_selection_offer_v1_destroy(static_cast<zwp_primary_selection_offer_v1*>(slot->offer));
-    else
-        wl_data_offer_destroy(static_cast<wl_data_offer*>(slot->offer));
+    wl_data_offer_destroy(slot->offer);
     slot->offer = nullptr;
     slot->mimes = 0;
 }
 
 // A slot for an offer the compositor has just announced: a free one, else the first not in use.
-OfferSlot* new_slot(void* offer, bool primary) noexcept {
+OfferSlot* new_slot(wl_data_offer* offer) noexcept {
     OfferSlot* chosen = nullptr;
     for (OfferSlot& slot : g.data.offers) {
         if (!slot.offer) {
@@ -196,7 +193,6 @@ OfferSlot* new_slot(void* offer, bool primary) noexcept {
     destroy_slot(chosen);
     chosen->offer = offer;
     chosen->mimes = 0;
-    chosen->primary = primary;
     return chosen;
 }
 
@@ -207,21 +203,13 @@ void on_offer_source_actions(void*, wl_data_offer*, u32) noexcept {}
 void on_offer_action(void*, wl_data_offer*, u32) noexcept {}
 const wl_data_offer_listener kOfferListener = {on_offer_mime, on_offer_source_actions, on_offer_action};
 
-void on_primary_offer_mime(void* data, zwp_primary_selection_offer_v1*, const char* mime) noexcept {
-    static_cast<OfferSlot*>(data)->mimes |= mime_bit(mime);
-}
-const zwp_primary_selection_offer_v1_listener kPrimaryOfferListener = {on_primary_offer_mime};
-
 // The bytes of one mime type of an offer, in a heap block.
 bool read_offer(const OfferSlot* slot, u32 bit, u32 timeout_ms, u32 limit, u8** out, u32* bytes) noexcept {
     const char* mime = mime_name(bit);
     int fds[2];
     if (!slot || !slot->offer || !mime || !make_pipe(fds))
         return false;
-    if (slot->primary)
-        zwp_primary_selection_offer_v1_receive(static_cast<zwp_primary_selection_offer_v1*>(slot->offer), mime, fds[1]);
-    else
-        wl_data_offer_receive(static_cast<wl_data_offer*>(slot->offer), mime, fds[1]);
+    wl_data_offer_receive(slot->offer, mime, fds[1]);
     sys_close(fds[1]);  // libwayland sent its own copy
     g_client.display_flush(g.display);
     const bool ok = read_pipe(fds[0], timeout_ms, limit, out, bytes);
@@ -230,7 +218,7 @@ bool read_offer(const OfferSlot* slot, u32 bit, u32 timeout_ms, u32 limit, u8** 
 }
 
 void on_data_offer(void*, wl_data_device*, wl_data_offer* offer) noexcept {
-    if (OfferSlot* slot = new_slot(offer, false))
+    if (OfferSlot* slot = new_slot(offer))
         wl_data_offer_add_listener(offer, &kOfferListener, slot);
     else
         wl_data_offer_destroy(offer);
@@ -253,7 +241,7 @@ void on_drag_enter(void*, wl_data_device*, u32 serial, wl_surface*, i32, i32, wl
     data.drag_accepts = data.drag && data.drop_target && (data.drag->mimes & mime_uri_list);
     if (!data.drag)
         return;
-    wl_data_offer* wl_offer = static_cast<wl_data_offer*>(data.drag->offer);
+    wl_data_offer* wl_offer = data.drag->offer;
     wl_data_offer_accept(wl_offer, serial, data.drag_accepts ? "text/uri-list" : nullptr);
     if (data.drag_accepts && g_client.proxy_get_version(reinterpret_cast<Proxy*>(wl_offer)) >= wl_data_offer_set_actions_since)
         wl_data_offer_set_actions(wl_offer, kDropActionCopy, kDropActionCopy);
@@ -280,7 +268,7 @@ void on_drop(void*, wl_data_device*) noexcept {
         files = uri_list_files(list, bytes);
         heap_free(list);
     }
-    wl_data_offer* wl_offer = static_cast<wl_data_offer*>(slot->offer);
+    wl_data_offer* wl_offer = slot->offer;
     if (g_client.proxy_get_version(reinterpret_cast<Proxy*>(wl_offer)) >= wl_data_offer_finish_since)
         wl_data_offer_finish(wl_offer);
     destroy_slot(slot);
@@ -296,23 +284,6 @@ void on_drop(void*, wl_data_device*) noexcept {
 
 const wl_data_device_listener kDeviceListener = {on_data_offer, on_drag_enter, on_drag_leave,
                                                  on_drag_motion, on_drop,       on_selection};
-
-void on_primary_data_offer(void*, zwp_primary_selection_device_v1*, zwp_primary_selection_offer_v1* offer) noexcept {
-    if (OfferSlot* slot = new_slot(offer, true))
-        zwp_primary_selection_offer_v1_add_listener(offer, &kPrimaryOfferListener, slot);
-    else
-        zwp_primary_selection_offer_v1_destroy(offer);
-}
-
-void on_primary_selection(void*, zwp_primary_selection_device_v1*, zwp_primary_selection_offer_v1* offer) noexcept {
-    DataState& data = g.data;
-    OfferSlot* slot = slot_of(offer);
-    if (data.primary_selection && data.primary_selection != slot)
-        destroy_slot(data.primary_selection);
-    data.primary_selection = slot;
-}
-
-const zwp_primary_selection_device_v1_listener kPrimaryDeviceListener = {on_primary_data_offer, on_primary_selection};
 
 // Selections we own ----------------------------------------------------------------------------------------------------
 
@@ -362,21 +333,6 @@ void on_source_action(void*, wl_data_source*, u32) noexcept {}
 const wl_data_source_listener kSourceListener = {on_source_target,         on_source_send,     on_source_cancelled,
                                                  on_source_drop_performed, on_source_finished, on_source_action};
 
-void on_primary_source_send(void* data, zwp_primary_selection_source_v1*, const char* mime, i32 fd) noexcept {
-    send_payload(static_cast<const Payload*>(data), mime, fd);
-}
-void on_primary_source_cancelled(void* data, zwp_primary_selection_source_v1* source) noexcept {
-    DataState& state = g.data;
-    if (data != state.primary_payload)
-        return;
-    zwp_primary_selection_source_v1_destroy(source);
-    state.primary_source = nullptr;
-    free_payload(state.primary_payload);
-    state.primary_payload = nullptr;
-}
-const zwp_primary_selection_source_v1_listener kPrimarySourceListener = {on_primary_source_send,
-                                                                         on_primary_source_cancelled};
-
 // Takes ownership of `payload` and offers `mimes` as the clipboard.
 bool own_clipboard(Payload* payload, const u32* mimes, u32 count) noexcept {
     DataState& data = g.data;
@@ -421,7 +377,7 @@ Payload* text_payload(const Utf8View& text) noexcept {
     return payload;
 }
 
-// Reads the clipboard or primary text into `output`.
+// Reads the clipboard text into `output`.
 ClipboardTextResult read_text(const OfferSlot* slot, const Payload* own, const Slice<char>& output) noexcept {
     ClipboardTextResult result{};
     const u8* text = nullptr;
@@ -463,10 +419,6 @@ void data_attach() noexcept {
         data.device = wl_data_device_manager_get_data_device(g.data_manager, g.seat);
         wl_data_device_add_listener(data.device, &kDeviceListener, nullptr);
     }
-    if (g.primary_manager) {
-        data.primary_device = zwp_primary_selection_device_manager_v1_get_device(g.primary_manager, g.seat);
-        zwp_primary_selection_device_v1_add_listener(data.primary_device, &kPrimaryDeviceListener, nullptr);
-    }
 }
 
 void data_shutdown() noexcept {
@@ -476,17 +428,12 @@ void data_shutdown() noexcept {
     if (data.source)
         wl_data_source_destroy(data.source);
     free_payload(data.payload);
-    if (data.primary_source)
-        zwp_primary_selection_source_v1_destroy(data.primary_source);
-    free_payload(data.primary_payload);
     if (data.device) {
         if (g.data_manager && g_client.proxy_get_version(reinterpret_cast<Proxy*>(data.device)) >= wl_data_device_release_since)
             wl_data_device_release(data.device);
         else
             g_client.proxy_destroy(reinterpret_cast<Proxy*>(data.device));
     }
-    if (data.primary_device)
-        zwp_primary_selection_device_v1_destroy(data.primary_device);
     clear_bytes(&data, static_cast<u32>(sizeof(data)));
 }
 
@@ -666,31 +613,6 @@ const DroppedFiles* clipboard_capture_files(const ClipboardCapture* capture) noe
 
 ConstSlice<u8> clipboard_capture_png(const ClipboardCapture* capture) noexcept {
     return ConstSlice<u8>{capture->png, capture->png_bytes};
-}
-
-ClipboardTextResult primary_selection_read_utf8(const Slice<char>& output) noexcept {
-    return read_text(g.data.primary_selection, g.data.primary_payload, output);
-}
-
-bool primary_selection_write_utf8(const Utf8View& text) noexcept {
-    DataState& data = g.data;
-    if (!data.primary_device || !g.primary_manager || g.input_serial == 0)
-        return false;
-    Payload* payload = text_payload(text);
-    if (!payload)
-        return false;
-    if (data.primary_source) {
-        zwp_primary_selection_source_v1_destroy(data.primary_source);
-        free_payload(data.primary_payload);
-    }
-    data.primary_source = zwp_primary_selection_device_manager_v1_create_source(g.primary_manager);
-    data.primary_payload = payload;
-    zwp_primary_selection_source_v1_add_listener(data.primary_source, &kPrimarySourceListener, payload);
-    for (const u32 bit : kTextMimes)
-        zwp_primary_selection_source_v1_offer(data.primary_source, mime_name(bit));
-    zwp_primary_selection_device_v1_set_selection(data.primary_device, data.primary_source, g.input_serial);
-    g_client.display_flush(g.display);
-    return true;
 }
 
 } // namespace maicord

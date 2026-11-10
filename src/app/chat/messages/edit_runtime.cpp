@@ -4,7 +4,7 @@
 
 namespace maicord {
 bool message_edit_runtime_initialize(MessageEditRuntime* runtime) noexcept {
-    if (!runtime || runtime->content_storage.arena.base ||
+    if (runtime->content_storage.arena.base ||
         runtime->saved_draft_storage.arena.base) {
         return false;
     }
@@ -27,7 +27,7 @@ bool message_edit_runtime_initialize(MessageEditRuntime* runtime) noexcept {
 bool message_edit_runtime_reserve(MessageEditRuntime* runtime,
                                   u32 content_bytes,
                                   u32 saved_draft_bytes) noexcept {
-    if (!runtime || !runtime->content || !runtime->saved_draft ||
+    if (!runtime->content || !runtime->saved_draft ||
         content_bytes > kMessageComposerMaximumBytes ||
         saved_draft_bytes > kMessageComposerMaximumBytes) {
         return false;
@@ -57,9 +57,6 @@ void message_edit_runtime_reset(MessageEditRuntime* runtime) noexcept {
 }
 
 void message_edit_runtime_release(MessageEditRuntime* runtime) noexcept {
-    if (!runtime) {
-        return;
-    }
     if (runtime->content && runtime->saved_draft) {
         message_edit_runtime_reset(runtime);
     }

@@ -167,8 +167,7 @@ bool local_retired(const AccountMediaWorkerLane* lane) noexcept {
     return ReadAcquire(&lane->local_retired) || account_media_worker_stop_requested(lane->owner);
 }
 bool audio_source_cancelled(void* opaque) noexcept {
-    const auto* lane = static_cast<const AccountMediaWorkerLane*>(opaque);
-    return lane && account_media_worker_stop_requested(lane->owner);
+    return account_media_worker_stop_requested(static_cast<const AccountMediaWorkerLane*>(opaque)->owner);
 }
 // Exact random-access reads for the composer video poster; a retirement or
 // account stop cancels between blocks (and CancelSynchronousIo within one).
@@ -669,7 +668,7 @@ void collect_collection_titles(AccountMediaWorker* worker) noexcept {
     }
 }
 AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWorkItem& work) noexcept {
-    if (!worker || !worker->initialized || work.kind == AccountMediaWorkKind::none ||
+    if (!worker->initialized || work.kind == AccountMediaWorkKind::none ||
         !media_asset_key_valid(work.key)) {
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }

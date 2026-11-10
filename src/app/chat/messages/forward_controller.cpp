@@ -80,7 +80,7 @@ bool message_forward_source_available(QuickSwitcherSources sources, const Messag
 }
 bool message_forward_open(MessageForwardController* c, QuickSwitcherScope scope, QuickSwitcherSources sources,
     const MessageStore* store, MessageHandle handle, Utf8View author, Utf8View media_summary) noexcept {
-    if (!c || !store || !sources.state || !scope.account_serial || !scope.profile_key || !scope.self_user_id ||
+    if (!sources.state || !scope.account_serial || !scope.profile_key || !scope.self_user_id ||
         sources.state->self_user_id != scope.self_user_id || !utf8_validate(author).valid || !utf8_validate(media_summary).valid)
         return fail(c, MessageForwardError::invalid_source);
     for (u32 i = 0; i < c->destination_count; ++i) {
@@ -106,9 +106,8 @@ bool message_forward_open(MessageForwardController* c, QuickSwitcherScope scope,
 }
 bool message_forward_synchronize(MessageForwardController* c, QuickSwitcherScope scope, QuickSwitcherSources sources,
     Utf8View query, MessageComposerController* outbox) noexcept {
-    if (!c) return false;
     if (!c->initialized) {
-        if (!c->committed || !outbox || !quick_switcher_scope_equal(c->scope, scope)) return false;
+        if (!c->committed || !quick_switcher_scope_equal(c->scope, scope)) return false;
         bool did_change = message_forward_refresh(c, *outbox);
         for (u32 i = 0; i < c->destination_count; ++i) {
             auto& d = c->destinations[i];
@@ -134,7 +133,7 @@ bool message_forward_synchronize(MessageForwardController* c, QuickSwitcherScope
         const auto next = eligible(sources, d.row.target, age_restricted) ? MessageForwardDestinationState::ready : MessageForwardDestinationState::unavailable;
         if (d.state != next) { d.state = next; did_change = true; }
     }
-    if (c->committed && outbox) for (u32 i = 0; i < c->destination_count; ++i) {
+    if (c->committed) for (u32 i = 0; i < c->destination_count; ++i) {
         auto& d = c->destinations[i];
         if (d.state == MessageForwardDestinationState::sent || eligible(sources, d.row.target, age_restricted)) continue;
         const auto* r = request(*outbox, d.nonce);
@@ -143,7 +142,7 @@ bool message_forward_synchronize(MessageForwardController* c, QuickSwitcherScope
             d.nonce = 0; d.state = MessageForwardDestinationState::unavailable; did_change = true;
         }
     }
-    if (outbox) did_change = message_forward_refresh(c, *outbox) || did_change;
+    did_change = message_forward_refresh(c, *outbox) || did_change;
     if (did_change) changed(c);
     return did_change;
 }
@@ -157,7 +156,7 @@ bool message_forward_remove(MessageForwardController* c, u64 channel_id) noexcep
 }
 bool message_forward_toggle(MessageForwardController* c, QuickSwitcherScope scope, QuickSwitcherSources sources,
     u32 index, u32 candidate_revision) noexcept {
-    if (!c || !message_forward_current(*c, scope, sources)) return fail(c, MessageForwardError::stale_scope);
+    if (!message_forward_current(*c, scope, sources)) return fail(c, MessageForwardError::stale_scope);
     if (c->committed) return fail(c, MessageForwardError::busy);
     QuickSwitcherTarget target{};
     if (!quick_switcher_resolve(c->candidates, scope, sources, index, candidate_revision, &target))
@@ -170,7 +169,7 @@ bool message_forward_toggle(MessageForwardController* c, QuickSwitcherScope scop
     c->error = MessageForwardError::none; changed(c); return true;
 }
 bool message_forward_set_caption(MessageForwardController* c, const Utf8View& caption) noexcept {
-    if (!c || !c->initialized || c->committed) return fail(c, MessageForwardError::busy);
+    if (!c->initialized || c->committed) return fail(c, MessageForwardError::busy);
     const auto valid = utf8_validate(caption);
     if (caption.bytes > sizeof(c->caption) || !valid.valid || valid.codepoints > kMessageComposerDefaultMaximumCodepoints) {
         c->caption_valid = false;
@@ -188,10 +187,10 @@ bool message_forward_set_caption(MessageForwardController* c, const Utf8View& ca
 }
 bool message_forward_confirm(MessageForwardController* c, QuickSwitcherScope scope, QuickSwitcherSources sources,
     MessageComposerController* outbox, u64 unix_ms, u64 monotonic_ms) noexcept {
-    if (!c || !message_forward_current(*c, scope, sources)) return fail(c, MessageForwardError::stale_scope);
+    if (!message_forward_current(*c, scope, sources)) return fail(c, MessageForwardError::stale_scope);
     if (c->committed) return fail(c, MessageForwardError::busy);
     if (!c->caption_valid) return fail(c, MessageForwardError::invalid_caption);
-    if (!outbox || !outbox->initialized || !unix_ms || !monotonic_ms) return fail(c, MessageForwardError::queue_failed);
+    if (!outbox->initialized || !unix_ms || !monotonic_ms) return fail(c, MessageForwardError::queue_failed);
     if (!c->destination_count) return fail(c, MessageForwardError::no_destinations);
     // Validate the whole selection before sending to its first destination.
     for (u32 i = 0; i < c->destination_count; ++i) if (!eligible(sources, c->destinations[i].row.target, source_age_restricted(sources, c->source)))
@@ -203,8 +202,8 @@ bool message_forward_confirm(MessageForwardController* c, QuickSwitcherScope sco
 }
 bool message_forward_retry_failed(MessageForwardController* c, QuickSwitcherScope scope, QuickSwitcherSources sources,
     MessageComposerController* outbox, u64 unix_ms, u64 monotonic_ms, u64 channel_id) noexcept {
-    if (!c || !message_forward_current(*c, scope, sources)) return fail(c, MessageForwardError::stale_scope);
-    if (!c->committed || !outbox || !outbox->initialized || !unix_ms || !monotonic_ms) return fail(c, MessageForwardError::busy);
+    if (!message_forward_current(*c, scope, sources)) return fail(c, MessageForwardError::stale_scope);
+    if (!c->committed || !outbox->initialized || !unix_ms || !monotonic_ms) return fail(c, MessageForwardError::busy);
     message_forward_refresh(c, *outbox); bool admitted = false, all = true;
     for (u32 i = 0; i < c->destination_count; ++i) {
         auto& d = c->destinations[i];

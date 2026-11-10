@@ -29,38 +29,13 @@ bool equals_n(const char* a, u32 a_length, const char* b) noexcept {
     return a_length == c_string_length(b) && bytes_equal(a, b, a_length);
 }
 
-CaptionButton button_named(const char* token, u32 length) noexcept {
-    if (equals_n(token, length, "close"))
-        return caption_close;
-    if (equals_n(token, length, "minimize"))
-        return caption_minimize;
-    if (equals_n(token, length, "maximize"))
-        return caption_maximize;
-    if (equals_n(token, length, "appmenu") || equals_n(token, length, "icon"))
-        return caption_menu;
-    return caption_none;
-}
-
-bool seen(const CaptionButtons& buttons, u8 button) noexcept {
-    for (u32 i = 0; i < buttons.left_count; ++i)
-        if (buttons.left[i] == button)
-            return true;
-    for (u32 i = 0; i < buttons.right_count; ++i)
-        if (buttons.right[i] == button)
-            return true;
-    return false;
-}
-
 // The value of a settings entry as far as this module reads it.
 struct Value {
     char type;  // the D-Bus type code of what was read, 0 for a type not read
     bool boolean;
     i64 integer;  // every integer type
-    double real;
     const char* text;
     u32 text_length;
-    double rgb[3];
-    bool is_rgb;
 };
 
 // Reads the variant at the reader's position (unwrapping variants nested in it) into `value`.
@@ -131,29 +106,11 @@ bool read_value(Reader* r, Value* value) noexcept {
         value->integer = v > 0x7FFFFFFFFFFFFFFFull ? 0x7FFFFFFFFFFFFFFFll : static_cast<i64>(v);
         break;
     }
-    case 'd':
-        value->type = 'd';
-        if (!reader_double(r, &value->real))
-            return false;
-        break;
     case 's':
         value->type = 's';
         if (!reader_string(r, &value->text, &value->text_length))
             return false;
         break;
-    case '(': {
-        // (ddd): the accent colour.
-        if (!reader_enter_struct(r))
-            return false;
-        bool ok = true;
-        for (u32 i = 0; i < 3 && ok; ++i)
-            ok = reader_type(*r) == 'd' && reader_double(r, &value->rgb[i]);
-        value->is_rgb = ok;
-        value->type = '(';
-        if (!reader_leave(r))
-            return false;
-        break;
-    }
     default:
         break;  // another type: leaving the variants skips it
     }
@@ -187,9 +144,8 @@ ColorScheme scheme_of_number(i64 number) noexcept {
 
 // The namespaces the settings portal is asked for (ReadAll's filter), in the order of Setting::space.
 constexpr const char* kNamespaces[] = {"org.freedesktop.appearance", "org.gnome.desktop.interface",
-                                       "org.gnome.desktop.wm.preferences", "org.gnome.desktop.peripherals.mouse",
-                                       "org.kde.kdeglobals.KDE"};
-enum : u8 { space_appearance, space_interface, space_preferences, space_mouse, space_kde };
+                                       "org.gnome.desktop.peripherals.mouse", "org.kde.kdeglobals.KDE"};
+enum : u8 { space_appearance, space_interface, space_mouse, space_kde };
 
 // A setting that is one field of DesktopSettings, read as `kind` and, when it changes, raising `area`.
 struct Setting {
@@ -205,8 +161,7 @@ struct Setting {
 #define MAICORD_SETTING(space, key, kind, field, area, low, high) \
     Setting{key, space, Setting::kind, area, static_cast<u16>(__builtin_offsetof(DesktopSettings, field)), low, high}
 constexpr Setting kSettings[] = {
-    // contrast and reduced-motion: u, 1 for on
-    MAICORD_SETTING(space_appearance, "contrast", flag, more_contrast, desktop_contrast, 0, 1),
+    // reduced-motion: u, 1 for on
     MAICORD_SETTING(space_appearance, "reduced-motion", flag, reduced_motion, desktop_motion, 0, 1),
     MAICORD_SETTING(space_interface, "enable-animations", boolean, animations, desktop_motion, 0, 0),
     MAICORD_SETTING(space_interface, "cursor-blink", boolean, cursor_blink, desktop_caret, 0, 0),
@@ -214,9 +169,7 @@ constexpr Setting kSettings[] = {
     MAICORD_SETTING(space_interface, "cursor-size", number, cursor_size, desktop_cursor, 1, 512),
     MAICORD_SETTING(space_interface, "cursor-theme", text, cursor_theme, desktop_cursor, 0, 64),
     MAICORD_SETTING(space_interface, "font-name", text, ui_font, desktop_fonts, 0, 96),
-    MAICORD_SETTING(space_interface, "document-font-name", text, document_font, desktop_fonts, 0, 96),
     MAICORD_SETTING(space_interface, "monospace-font-name", text, monospace_font, desktop_fonts, 0, 96),
-    MAICORD_SETTING(space_preferences, "titlebar-font", text, titlebar_font, desktop_fonts, 0, 96),
     MAICORD_SETTING(space_mouse, "double-click", number, double_click_ms, desktop_pointer, 50, 5000),
 };
 #undef MAICORD_SETTING
@@ -273,45 +226,15 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
             if (s->color_scheme != next)
                 areas |= desktop_scheme;
             s->color_scheme = next;
-        } else if (c_string_equal(key, "accent-color")) {
-            const bool valid = v.is_rgb && v.rgb[0] >= 0 && v.rgb[0] <= 1 && v.rgb[1] >= 0 && v.rgb[1] <= 1 &&
-                               v.rgb[2] >= 0 && v.rgb[2] <= 1;
-            const float r = valid ? static_cast<float>(v.rgb[0]) : 0;
-            const float g2 = valid ? static_cast<float>(v.rgb[1]) : 0;
-            const float b = valid ? static_cast<float>(v.rgb[2]) : 0;
-            if (s->accent_valid != valid || s->accent[0] != r || s->accent[1] != g2 || s->accent[2] != b)
-                areas |= desktop_accent;
-            s->accent_valid = valid;
-            s->accent[0] = r;
-            s->accent[1] = g2;
-            s->accent[2] = b;
         }
     } else if (space == space_interface) {
-        if (c_string_equal(key, "text-scaling-factor") && v.type == 'd' && v.real >= 0.5 && v.real <= 3.0) {
-            const float next = static_cast<float>(v.real);
-            if (s->text_scale != next)
-                areas |= desktop_fonts;
-            s->text_scale = next;
-        } else if (c_string_equal(key, "color-scheme") && v.type == 's' && !state->portal_scheme_seen) {
+        if (c_string_equal(key, "color-scheme") && v.type == 's' && !state->portal_scheme_seen) {
             const ColorScheme next = equals_n(v.text, v.text_length, "prefer-dark")    ? ColorScheme::dark
                                      : equals_n(v.text, v.text_length, "prefer-light") ? ColorScheme::light
                                                                                        : ColorScheme::no_preference;
             if (s->color_scheme != next)
                 areas |= desktop_scheme;
             s->color_scheme = next;
-        }
-    } else if (space == space_preferences) {
-        if (c_string_equal(key, "button-layout") && v.type == 's') {
-            char layout[128];
-            const u32 length = v.text_length < sizeof(layout) - 1 ? v.text_length : sizeof(layout) - 1;
-            copy_bytes(layout, v.text, length);
-            layout[length] = 0;
-            CaptionButtons parsed{};
-            const bool known = caption_buttons_parse(layout, &parsed);
-            if (s->caption_known != known || !bytes_equal(&s->caption, &parsed, sizeof(parsed)))
-                areas |= desktop_caption;
-            s->caption_known = known;
-            s->caption = parsed;
         }
     } else if (space == space_kde) {
         if (c_string_equal(key, "DoubleClickInterval")) {
@@ -421,43 +344,12 @@ void initialize() noexcept {
 
 } // namespace
 
-bool caption_buttons_parse(const char* layout, CaptionButtons* buttons) noexcept {
-    *buttons = CaptionButtons{};
-    if (!layout || !*layout)
-        return false;
-    bool right = false;
-    const char* cursor = layout;
-    while (*cursor) {
-        if (*cursor == ':') {
-            right = true;
-            ++cursor;
-            continue;
-        }
-        if (*cursor == ',' || *cursor == ' ') {
-            ++cursor;
-            continue;
-        }
-        const char* start = cursor;
-        while (*cursor && *cursor != ',' && *cursor != ':' && *cursor != ' ')
-            ++cursor;
-        const CaptionButton button = button_named(start, static_cast<u32>(cursor - start));
-        if (button == caption_none || seen(*buttons, button))
-            continue;
-        if (right && buttons->right_count < 4)
-            buttons->right[buttons->right_count++] = button;
-        else if (!right && buttons->left_count < 4)
-            buttons->left[buttons->left_count++] = button;
-    }
-    return true;
-}
-
 void desktop_settings_defaults(DesktopSettings* settings) noexcept {
     *settings = DesktopSettings{};
     settings->color_scheme = ColorScheme::no_preference;
     settings->animations = true;
     settings->cursor_blink = true;
     settings->cursor_blink_ms = 1200;
-    settings->text_scale = 1.0f;
 }
 
 void desktop_settings_set_handler(DesktopSettingsHandler handler, void* context) noexcept {

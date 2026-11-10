@@ -1,5 +1,6 @@
 #include "../../../src/app/account/activity.cpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "../../support/account_module_fake.hpp"
 
 // Game detection runs the real matcher (game_detection.cpp) and list build (detectable_list.cpp) over a fake process
 // snapshot and a saved list built from Discord's entries; the tests never enumerate processes, fetch or touch files.
@@ -90,10 +91,10 @@ void detection(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr Utf8View kCrash = utf8_literal("c:/users/u/appdata/local/roblox/versions/version-1/robloxcrashhandler.exe");
     constexpr Utf8View kStudio = utf8_literal("c:/users/u/appdata/local/roblox/versions/version-1/robloxstudiobeta.exe");
     const auto old_instance = g_app.account.instance;
-    const auto old_presence = g_app.account.api.local_presence;
+    const auto old_presence = g_account_fake.local_presence;
     const auto old_preferences = g_app.preferences;
     g_app.account.instance = &g_publishes;
-    g_app.account.api.local_presence = capture_presence;
+    g_account_fake.local_presence = capture_presence;
     g_app.preferences.game_detection = true;
     g_app.preferences.streamer_auto = false;
     g = {};
@@ -176,16 +177,16 @@ void detection(void (*check)(bool, const char*) noexcept) noexcept {
     reset_value(&g_games);
     g_games_loaded = false;
     g_app.account.instance = old_instance;
-    g_app.account.api.local_presence = old_presence;
+    g_account_fake.local_presence = old_presence;
     g_app.preferences = old_preferences;
 }
 } // namespace
 
 void test_activity_retry(void (*check)(bool, const char*) noexcept) noexcept {
     const auto old_instance = g_app.account.instance;
-    const auto old_complete = g_app.account.api.self_status_complete;
+    const auto old_complete = g_account_fake.self_status_complete;
     g_app.account.instance = &retry_completions;
-    g_app.account.api.self_status_complete = complete_retry;
+    g_account_fake.self_status_complete = complete_retry;
     retry_completions = 0;
     for (u32 kind = 0; kind < 5; ++kind) {
         g = {};
@@ -209,7 +210,7 @@ void test_activity_retry(void (*check)(bool, const char*) noexcept) noexcept {
     check(retry_completions == 5, "activity completes each owned receipt once");
     g = {};
     g_app.account.instance = old_instance;
-    g_app.account.api.self_status_complete = old_complete;
+    g_account_fake.self_status_complete = old_complete;
     detection(check);
 }
 } // namespace maicord::app_detail

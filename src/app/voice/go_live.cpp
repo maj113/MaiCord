@@ -104,7 +104,7 @@ AccountHost& host() noexcept {
 }
 bool command(const GoLiveCommand& c) noexcept {
     auto& h = host();
-    return h.instance && h.api.go_live && h.api.go_live(h.instance, &c);
+    return h.instance && account_module_go_live(h.instance, &c);
 }
 bool streaming(const GoLiveSnapshot& s) noexcept {
     return s.state == GoLiveState::starting || s.state == GoLiveState::connecting || s.state == GoLiveState::live ||
@@ -578,7 +578,7 @@ void poll(u64 now) noexcept {
     auto& h = host();
     GoLiveSnapshot next{};
     ui.polled_ms = now;
-    if (!h.instance || !h.api.go_live_snapshot || !h.api.go_live_snapshot(h.instance, &next))
+    if (!h.instance || !account_module_go_live_snapshot(h.instance, &next))
         return;
     if (ui.snapshot_valid && next.generation == ui.snapshot.generation)
         return;
@@ -685,7 +685,7 @@ bool application_go_live_tile(u64 channel_id, UiCallParticipant* p) noexcept {
 
 bool application_go_live_preview(VideoStreamFrame* frame) noexcept {
     auto& h = host();
-    return live() && h.instance && h.api.go_live_preview && h.api.go_live_preview(h.instance, frame);
+    return live() && h.instance && account_module_go_live_preview(h.instance, frame);
 }
 
 bool application_go_live_viewers_open(const UiRect& anchor) noexcept {
@@ -778,10 +778,6 @@ bool application_go_live_menu_activate(u32 action) noexcept {
         open_options(anchor);
     application_repaint();
     return true;
-}
-
-bool application_go_live_modal_active() noexcept {
-    return ui.open;
 }
 
 void application_go_live_modal_close() noexcept {

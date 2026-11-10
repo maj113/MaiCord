@@ -320,14 +320,13 @@ bool chat_state_store_set_thread_locked(ChatStateStore*, u64 thread_id, u64 self
                                            bool known = true) noexcept;
 // Active inventory is independent of stored archive metadata and read access.
 bool chat_state_store_set_thread_active(ChatStateStore*, u64 thread_id, u64 self_user_id,
-                                           bool active, bool known = true) noexcept;
+                                           bool active) noexcept;
 // Only a valid complete LIST_SYNC scope establishes a parent's listing freshness.
 bool chat_state_store_set_thread_listing_synced(ChatStateStore*, u64 parent_id, u64 self_user_id,
                                                    bool synced = true) noexcept;
-// Zero scope IDs cover every stored thread. Drops known state on a gap,
+// A zero guild covers every stored thread. Drops known state on a gap,
 // account/READY replacement or unavailable guild without inventing negative results.
-void chat_state_store_invalidate_thread_authority(ChatStateStore*, u64 guild_id = 0,
-                                                     u64 parent_id = 0) noexcept;
+void chat_state_store_invalidate_thread_authority(ChatStateStore*, u64 guild_id = 0) noexcept;
 // Threads inherit their parent channel's age restriction without copying
 // derived policy into every child on a parent update.
 bool chat_state_store_channel_age_restricted(const ChatStateStore& store,

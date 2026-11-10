@@ -126,7 +126,7 @@ __declspec(noinline) FrameTake take_ready_frame(ApplicationMediaPump& pump, cons
         frame = &local;
     *frame = {};
     const auto& application = pump.application;
-    if (!application.account.api.media_take(application.account.instance, frame))
+    if (!account_module_media_take(application.account.instance, frame))
         return FrameTake::failed;
     if (!media_asset_key_equal(frame->key, key) ||
         (message_owned && !pump.message_image_frame_is_current(*frame)))
@@ -295,7 +295,7 @@ bool ApplicationMediaPump::request_inline_flags() noexcept {
     return true;
 }
 bool ApplicationMediaPump::request_catalog_previews() noexcept {
-    if (!catalog_media_visible() || !application.account.api.catalog_preview_request)
+    if (!catalog_media_visible())
         return true;
     const auto& scene = *application.renderer.media_picker_scene;
     // Cells, then rail entries (sticker pack covers).
@@ -323,7 +323,7 @@ bool ApplicationMediaPump::request_catalog_previews() noexcept {
             return true;
         // A VIDEO favourite's tile decodes on the presenting device.
         request.video_device = application.renderer.graphics.device;
-        const auto requested = application.account.api.catalog_preview_request(
+        const auto requested = account_module_catalog_preview_request(
             application.account.instance, &request, now_ms, now_seconds);
         if (requested.state == AccountMediaRequestState::failed ||
             requested.state == AccountMediaRequestState::unsupported ||
@@ -817,8 +817,7 @@ bool ApplicationMediaPump::request_forum_avatars(bool* stop) noexcept {
 bool ApplicationMediaPump::request_forum_thumbnails(bool* stop) noexcept {
     *stop = false;
     if (visibility_only || !(surfaces() & d3d11_surface_thread_browser) ||
-        !application.renderer.thread_browser_scene->forum || !application.renderer.preview_media_atlas ||
-        !application.account.api.media_attachment_request || !application.account.api.media_take)
+        !application.renderer.thread_browser_scene->forum || !application.renderer.preview_media_atlas)
         return true;
     const auto& scene = *application.renderer.thread_browser_scene;
     for (u32 slot = 0; slot < scene.count && slot < kUiThreadBrowserPageCapacity; ++slot) {
@@ -838,7 +837,7 @@ bool ApplicationMediaPump::request_forum_thumbnails(bool* stop) noexcept {
                                                     cdn_image_type(media.format),
                                                     {0, 0, 0},
                                                     application.renderer.graphics.device};
-        const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
+        const AccountMediaRequestResult requested = account_module_media_attachment_request(
             application.account.instance, &request, now_ms, now_seconds);
         log_message_media_failure("forum_thumbnail_request_failed", requested, media.key);
         if (requested.state == AccountMediaRequestState::ready) {
@@ -931,7 +930,7 @@ bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
                                                     cdn_image_type(media_asset_embed_format(key)),
                                                     {0, 0, 0},
                                                     application.renderer.graphics.device};
-        const auto requested = application.account.api.media_attachment_request(application.account.instance,
+        const auto requested = account_module_media_attachment_request(application.account.instance,
                                                                                 &request, now_ms, now_seconds);
         if (requested.state == AccountMediaRequestState::ready) {
             const FrameTake taken = take_ready_frame(*this, key, false, true);

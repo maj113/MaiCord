@@ -2,6 +2,7 @@
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/app/media/account_video_playback.hpp"
 #include "../../support/application_downloads_inactive.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
 #include "shell/window_state.hpp"
 #include "shell/state.hpp"
@@ -1028,19 +1029,19 @@ void run() noexcept {
     g_app.account.status.profile_id = 4;
     g_app.plugin_account_scope_serial = 9;
     g_app.account.instance = &account;
-    g_app.account.api.collection_title = +[](void*, const AccountMediaCollectionTitleRequest* request, MediaTrackTitle* title) noexcept {
+    g_account_fake.collection_title = +[](void*, const AccountMediaCollectionTitleRequest* request, MediaTrackTitle* title) noexcept {
         AccountMediaRequestResult result{};
         if (!request || !title || !request->track || request->track > 3) { result.state = AccountMediaRequestState::invalid; return result; }
         const auto name = request->track == 1 ? utf8_literal("First song") : request->track == 2 ? utf8_literal("Second song") : utf8_literal("Last song");
         copy_bytes(title->text, name.data, name.bytes); title->bytes = static_cast<u16>(name.bytes);
         result.state = AccountMediaRequestState::ready; return result;
     };
-    g_app.account.api.video_select = select;
-    g_app.account.api.video_control = control;
-    g_app.account.api.video_status = status;
-    g_app.account.api.video_take = take;
-    g_app.account.api.video_acknowledge = acknowledge;
-    g_app.account.api.media_attachment_request = request;
+    g_account_fake.video_select = select;
+    g_account_fake.video_control = control;
+    g_account_fake.video_status = status;
+    g_account_fake.video_take = take;
+    g_account_fake.video_acknowledge = acknowledge;
+    g_account_fake.media_attachment_request = request;
     SceneFixture fixture{};
     const bool initialized = initialize_scene(fixture);
     check(initialized, "video focus runtime: actual borrowed message/rich attachment geometry initializes");

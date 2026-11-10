@@ -94,7 +94,7 @@ bool notification_settings_ui_probe(D3D11Renderer& renderer,bool(*capture)(const
     struct Restore {
         D3D11Renderer& renderer;Fixture& f;const UiSettingsScene* old_scene;u32 width,height;
         ~Restore() noexcept {renderer_bind_settings_scene(&renderer,old_scene);ui_settings_scene_release(&f.scene);
-            ui_page_registry_unregister_owner(&f.registry,1);ui_page_registry_clear(&f.registry);renderer_resize(&renderer,width,height);}
+            ui_page_registry_clear(&f.registry);renderer_resize(&renderer,width,height);}
     } restore{renderer,f,old_scene,width,height};
     u32 stage=__LINE__;bool valid=ui_page_registry_initialize(&f.registry,{f.pages,5});
     for(u32 i=0;valid&&i<5;++i){f.contents[i]={labels[i],descriptions[i],i==4?ConstSlice<UiSettingsControl>{f.controls,6}:ConstSlice<UiSettingsControl>{},1};

@@ -181,7 +181,7 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
     const UiMotionPose grown = ui_motion_scale(.5f, .9f);
     check(slide_down.y == 10 && slide_down.x == 0 && slide_down.opacity == 1 && slide_left.x == -5 &&
               slide_left.y == 0 && slide_left.opacity == .5f && ui_motion_slide(0, UiMotionEdge::top, 10, false).y == -10 &&
-              grown.scale == .95f && grown.opacity == .5f && ui_motion_expand(.25f, 80) == 20,
+              grown.scale == .95f && grown.opacity == .5f,
           "motion: poses start away from the anchor and grow toward rest");
     check(ui_motion_edge({0, 0, 10, 10}, {0, 12, 40, 40}) == UiMotionEdge::bottom &&
               ui_motion_edge({0, 50, 10, 60}, {0, 0, 40, 40}) == UiMotionEdge::top &&

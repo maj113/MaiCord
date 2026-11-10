@@ -1,7 +1,7 @@
 // The Windows side of a client area that extends over the system caption: the frame messages the window procedure
 // leaves to the system (WM_NCCALCSIZE keeps the DWM side and bottom frame for resizing, the shadow, rounded corners
 // and window animations; WM_NCHITTEST answers the resize borders and the maximize button the snap layouts anchor to).
-// What lies in the bar is the application's caption controller's (Win32CaptionOps); everything here is Windows.
+// What lies in the bar is the application's caption controller's (win32_caption_*); everything here is Windows.
 #include "maicord/platform/desktop/window_frame.hpp"
 #include "maicord/platform/window/win32.hpp"
 #include "internal.hpp"
@@ -101,11 +101,11 @@ FrameHit button_part(WPARAM hit) noexcept {
     }
 }
 
-LRESULT hit_test(const Win32CaptionOps& ops, HWND window, LPARAM lparam) noexcept {
+LRESULT hit_test(HWND window, LPARAM lparam) noexcept {
     POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
     if (!ScreenToClient(window, &point))
         return HTNOWHERE;
-    return hit_code(ops.hit(ops.context, static_cast<float>(point.x), static_cast<float>(point.y)));
+    return hit_code(win32_caption_hit(static_cast<float>(point.x), static_cast<float>(point.y)));
 }
 
 // Monitor edges with an auto-hide appbar (the taskbar).
@@ -123,7 +123,7 @@ u8 autohide_edges(const RECT& monitor) noexcept {
     return edges;
 }
 
-void calculate_client(const Win32CaptionOps& ops, HWND window, RECT* rectangle) noexcept {
+void calculate_client(HWND window, RECT* rectangle) noexcept {
     const bool maximized = IsZoomed(window) != FALSE;
     RECT work{};
     u8 edges = 0;
@@ -136,7 +136,7 @@ void calculate_client(const Win32CaptionOps& ops, HWND window, RECT* rectangle) 
         }
     }
     *rectangle = window_frame_client(*rectangle, window_frame_border(window_dpi(window)), maximized, work, edges);
-    ops.maximized(ops.context, maximized);
+    win32_caption_maximized(maximized);
 }
 
 void track_leave(HWND window) noexcept {
@@ -152,17 +152,16 @@ RECT screen_rect(const POINT& origin, const i32 (&rectangle)[4]) noexcept {
 
 } // namespace
 
-bool caption_frame_message(const Win32CaptionOps& ops, HWND window, UINT message, WPARAM wparam, LPARAM lparam,
-                           LRESULT* result) noexcept {
+bool caption_frame_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept {
     switch (message) {
     case WM_NCCALCSIZE: {
-        if (ops.hidden(ops.context) || !(GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION))
+        if (win32_caption_hidden() || !(GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION))
             return false;
         // Both forms begin with the proposed window rectangle; the creation-time FALSE form applies the frame without
         // a later SWP_FRAMECHANGED.
         RECT* rectangle = wparam ? &reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam)->rgrc[0]
                                  : reinterpret_cast<RECT*>(lparam);
-        calculate_client(ops, window, rectangle);
+        calculate_client(window, rectangle);
         // Prepare the composition surface before Windows commits the new origin, as for the system frame
         // (left-edge drags): the sink gets the client the frame leaves.
         if (wparam)
@@ -171,18 +170,18 @@ bool caption_frame_message(const Win32CaptionOps& ops, HWND window, UINT message
         return true;
     }
     case WM_NCHITTEST:
-        if (!ops.height(ops.context))
+        if (!win32_caption_height())
             return false;
-        *result = hit_test(ops, window, lparam);
+        *result = hit_test(window, lparam);
         return true;
     case WM_NCACTIVATE:
-        ops.active(ops.context, wparam != FALSE);
+        win32_caption_active(wparam != FALSE);
         // -1: the system frame has no caption of its own to repaint.
-        *result = DefWindowProcW(window, message, wparam, ops.height(ops.context) ? -1 : lparam);
+        *result = DefWindowProcW(window, message, wparam, win32_caption_height() ? -1 : lparam);
         return true;
     case WM_NCMOUSEMOVE: {
         const FrameHit part = button_part(wparam);
-        ops.hover(ops.context, part);
+        win32_caption_hover(part);
         if (part == FrameHit::client)
             return false;
         track_leave(window);
@@ -197,7 +196,7 @@ bool caption_frame_message(const Win32CaptionOps& ops, HWND window, UINT message
         return true;
     case WM_NCMOUSELEAVE:
         g_tracking = false;
-        ops.leave(ops.context);
+        win32_caption_leave();
         return false;
     case WM_NCLBUTTONDOWN:
     case WM_NCLBUTTONDBLCLK: {
@@ -206,18 +205,18 @@ bool caption_frame_message(const Win32CaptionOps& ops, HWND window, UINT message
             return false;
         // The system's own button tracking would run a modal loop for a caption it does not draw.
         track_leave(window);
-        ops.press(ops.context, part);
+        win32_caption_press(part);
         *result = 0;
         return true;
     }
     case WM_NCLBUTTONUP:
-        if (!ops.release(ops.context, button_part(wparam)))
+        if (!win32_caption_release(button_part(wparam)))
             return false;
         *result = 0;
         return true;
     case WM_CONTEXTMENU:
         // A right click on the caption opens the window menu, as on a system caption.
-        if (lparam == -1 || hit_test(ops, window, lparam) == HTCLIENT)
+        if (lparam == -1 || hit_test(window, lparam) == HTCLIENT)
             return false;
         *result = DefWindowProcW(window, message, wparam, lparam);
         return true;
@@ -225,8 +224,8 @@ bool caption_frame_message(const Win32CaptionOps& ops, HWND window, UINT message
         *result = DefWindowProcW(window, message, wparam, lparam);
         auto* info = reinterpret_cast<TITLEBARINFOEX*>(lparam);
         FrameBarRects bar{};
-        if (!info || info->cbSize < sizeof(TITLEBARINFOEX) || !ops.height(ops.context) ||
-            !ops.title_bar(ops.context, &bar))
+        if (!info || info->cbSize < sizeof(TITLEBARINFOEX) || !win32_caption_height() ||
+            !win32_caption_title_bar(&bar))
             return true;
         // Windows anchors the snap layouts flyout to the maximize rectangle.
         POINT origin{};
@@ -246,10 +245,9 @@ bool caption_frame_message(const Win32CaptionOps& ops, HWND window, UINT message
 }
 
 // The outer size of the window for a client of this size: the frame the glue keeps, or the system's.
-void frame_outer_size(const Win32CaptionOps* ops, HWND window, u32 client_width, u32 client_height, u32* width,
-                      u32* height) noexcept {
+void frame_outer_size(HWND window, u32 client_width, u32 client_height, u32* width, u32* height) noexcept {
     const u32 dpi = window_dpi(window);
-    if (!ops || ops->hidden(ops->context)) {
+    if (!win32_caption_enabled() || win32_caption_hidden()) {
         RECT frame{0, 0, static_cast<LONG>(client_width), static_cast<LONG>(client_height)};
         const auto style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
         const auto extended = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));

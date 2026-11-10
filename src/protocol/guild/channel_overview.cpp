@@ -1,5 +1,4 @@
 #include "maicord/protocol/guild/channel_overview.hpp"
-#include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "../encoding/json_field_lists.hpp"

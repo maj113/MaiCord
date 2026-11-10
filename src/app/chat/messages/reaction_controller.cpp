@@ -203,7 +203,7 @@ bool message_reaction_target_equal(const MessageReactionTarget& left,
 bool message_reaction_controller_initialize(MessageReactionController* controller,
                                             Slice<MessageReactionIntent> storage,
                                             MessageReactionActor actor) noexcept {
-    if (!controller || !storage.data || !storage.count || storage.count > kMessageReactionMaximumIntents ||
+    if (!storage.data || !storage.count || storage.count > kMessageReactionMaximumIntents ||
         !actor_valid(actor))
         return false;
     reset_value(controller);
@@ -216,7 +216,7 @@ bool message_reaction_controller_initialize(MessageReactionController* controlle
 
 bool message_reaction_controller_grow_storage(MessageReactionController* controller,
                                               Slice<MessageReactionIntent> storage) noexcept {
-    if (!controller || !storage.data || !storage.count || storage.data != controller->entries.data ||
+    if (!storage.data || !storage.count || storage.data != controller->entries.data ||
         storage.count < controller->entries.count || storage.count > kMessageReactionMaximumIntents)
         return false;
     for (u32 index = controller->entries.count; index < storage.count; ++index)
@@ -299,8 +299,6 @@ void message_reaction_controller_queue(MessageReactionOutcome* out, MessageReact
 bool message_reaction_controller_project(const MessageReactionController& controller,
                                          const MessageReactionTarget& target,
                                          MessageReactionProjection* projected) noexcept {
-    if (!projected)
-        return false;
     for (u32 index = 0; index < controller.count; ++index)
         if (emoji_equal(controller.entries[index].target, target)) {
             *projected = project_intent(controller, controller.entries[index]);
@@ -311,7 +309,7 @@ bool message_reaction_controller_project(const MessageReactionController& contro
 
 bool message_reaction_controller_next_due(const MessageReactionController& controller,
                                           u64* due_at_ms) noexcept {
-    if (!due_at_ms || !controller.count)
+    if (!controller.count)
         return false;
     u64 result = ~u64{0};
     for (u32 index = 0; index < controller.count; ++index) {
@@ -328,7 +326,7 @@ bool message_reaction_controller_next_due(const MessageReactionController& contr
 
 bool message_reaction_controller_peek_due(const MessageReactionController& controller, u64 now_ms,
                                           MessageReactionIntent* output) noexcept {
-    if (!output || controller.flight.active)
+    if (controller.flight.active)
         return false;
     u32 selected = kMissingIndex;
     u64 earliest = ~u64{0};
@@ -352,7 +350,7 @@ bool message_reaction_controller_peek_due(const MessageReactionController& contr
 bool message_reaction_controller_admit(MessageReactionController* controller,
                                        const MessageReactionIntent& intent, u64 request_id, u64 now_ms,
                                        MessageReactionTicket* ticket) noexcept {
-    if (!controller || !request_id || !ticket || controller->flight.active ||
+    if (!request_id || controller->flight.active ||
         controller->generation == ~u64{0})
         return false;
     const u32 index = find_intent(*controller, intent.target);
@@ -564,7 +562,7 @@ bool message_reaction_controller_observe(MessageReactionController* controller,
 bool message_reaction_controller_snapshot(MessageReactionController* controller,
                                           const MessageReactionTarget& target,
                                           MessageReactionAuthority authority) noexcept {
-    if (!controller || !authority_valid(authority))
+    if (!authority_valid(authority))
         return false;
     for (u32 index = 0; index < controller->count; ++index)
         if (emoji_equal(controller->entries[index].target, target)) {
@@ -593,7 +591,7 @@ bool message_reaction_controller_snapshot(MessageReactionController* controller,
 bool message_reaction_controller_rebind_source(MessageReactionController* controller,
                                                const MessageReactionTarget& target,
                                                MessageReactionSource source) noexcept {
-    if (!controller || !source_valid(source))
+    if (!source_valid(source))
         return false;
     bool changed = false;
     for (u32 index = 0; index < controller->count; ++index)
@@ -610,8 +608,6 @@ bool message_reaction_controller_rebind_source(MessageReactionController* contro
 
 bool message_reaction_controller_cancel(MessageReactionController* controller, u64 channel_id,
                                         u64 message_id, const MessageReactionTarget* emoji) noexcept {
-    if (!controller)
-        return false;
     bool changed = false;
     const auto matches = [channel_id, message_id, emoji](const MessageReactionTarget& target) noexcept {
         return (!channel_id || target.channel_id == channel_id) &&
@@ -634,7 +630,7 @@ bool message_reaction_controller_cancel(MessageReactionController* controller, u
 
 bool message_reaction_controller_expire(MessageReactionController* controller, u64 now_ms,
                                         MessageReactionOutcome* output) noexcept {
-    if (!controller || !output)
+    if (!output)
         return false;
     for (u32 index = 0; index < controller->count; ++index)
         if (now_ms >= controller->entries[index].deadline_at_ms) {
@@ -654,8 +650,6 @@ bool message_reaction_controller_expire(MessageReactionController* controller, u
 
 void message_reaction_controller_reset(MessageReactionController* controller,
                                        MessageReactionActor actor) noexcept {
-    if (!controller)
-        return;
     const bool different = !actor_equal(controller->actor, actor);
     if (controller->flight.active)
         controller->flight.retired = true;

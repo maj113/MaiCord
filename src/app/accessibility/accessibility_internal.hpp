@@ -28,7 +28,7 @@ enum AccessSurface : u8 {
     surface_settings,
     surface_login,
     surface_friends,
-    // Overlays (accessibility_scenes).
+    // Overlays.
     surface_quick,
     surface_search,
     surface_pins,

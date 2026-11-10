@@ -26,15 +26,11 @@ u32 update_portable_marker_path(ConstSlice<wchar_t> executable, wchar_t* output,
 // the old one and swaps them).
 bool update_portable_install(ConstSlice<wchar_t> executable) noexcept;
 
-// Whether the AppImage file `image` (the path in $APPIMAGE, a terminated string) may replace itself: a regular file (a link
-// is not followed) in a directory this process can create files in. An AppImage has no marker: it is the file the user
-// started, and the update is staged beside it and swapped in by rename.
-bool update_appimage_install(ConstSlice<wchar_t> image) noexcept;
-
 // The updater's configuration for this program, and the feed it reads (g_update_flavor): `image` is the AppImage's path
 // when the program runs from one (else empty), `executable` the real path of the running image. A configured updater stays
 // configured only when the release channels carry this install's package (`published`) and the install is the tarball
-// install (update_portable_install) or the AppImage (update_appimage_install). Every other install - a package manager's,
+// install (update_portable_install) or the AppImage (a regular file in a directory this process can create files in;
+// the update is staged beside it and swapped in by rename). Every other install - a package manager's,
 // or a build whose channels do not carry its package - has the updater disabled.
 void update_portable_gate(UpdateServiceConfig* config, bool published, ConstSlice<wchar_t> executable,
                           ConstSlice<wchar_t> image) noexcept;

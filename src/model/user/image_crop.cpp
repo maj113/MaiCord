@@ -2,9 +2,6 @@
 
 namespace maicord {
 namespace {
-float clamp(float value, float low, float high) noexcept {
-    return value < low ? low : value > high ? high : value;
-}
 bool sideways(u16 rotation) noexcept {
     return rotation % 180 != 0;
 }
@@ -68,10 +65,10 @@ float image_crop_bound_y(const ImageCropState& s) noexcept {
 void image_crop_clamp(ImageCropState* s) noexcept {
     if (!s)
         return;
-    s->zoom = clamp(s->zoom, kImageCropMinimumZoom, kImageCropMaximumZoom);
+    s->zoom = clamp_value(s->zoom, kImageCropMinimumZoom, kImageCropMaximumZoom);
     const float bx = image_crop_bound_x(*s), by = image_crop_bound_y(*s);
-    s->offset_x = clamp(s->offset_x, -bx, bx);
-    s->offset_y = clamp(s->offset_y, -by, by);
+    s->offset_x = clamp_value(s->offset_x, -bx, bx);
+    s->offset_y = clamp_value(s->offset_y, -by, by);
 }
 
 void image_crop_resize(ImageCropState* s, float editor_width, float editor_height) noexcept {
@@ -160,10 +157,10 @@ ImageCropOutput image_crop_output(const ImageCropState& s) noexcept {
     const float sx = (css_w * .5f - hw - dx) * c, sy = (css_h * .5f - hh - dy) * c;
     const float sw = hw * 2 * c, sh = hh * 2 * c;
     const float iw = static_cast<float>(s.image_width), ih = static_cast<float>(s.image_height);
-    const float x = clamp(static_cast<float>(static_cast<i64>(sx + .5f)), 0, iw - 1);
-    const float y = clamp(static_cast<float>(static_cast<i64>(sy + .5f)), 0, ih - 1);
-    const float w = clamp(static_cast<float>(static_cast<i64>(sw + .5f)), 1, iw - x);
-    const float h = clamp(static_cast<float>(static_cast<i64>(sh + .5f)), 1, ih - y);
+    const float x = clamp_value(static_cast<float>(static_cast<i64>(sx + .5f)), 0.f, iw - 1);
+    const float y = clamp_value(static_cast<float>(static_cast<i64>(sy + .5f)), 0.f, ih - 1);
+    const float w = clamp_value(static_cast<float>(static_cast<i64>(sw + .5f)), 1.f, iw - x);
+    const float h = clamp_value(static_cast<float>(static_cast<i64>(sh + .5f)), 1.f, ih - y);
     out.x = static_cast<u32>(x);
     out.y = static_cast<u32>(y);
     out.width = static_cast<u32>(w);

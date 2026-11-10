@@ -399,7 +399,7 @@ bool application_commands_send(bool* handled) noexcept {
     return composer_apply_result(message_composer_clear(&g_app.message_composer), true);
 }
 bool application_commands_pending(u64 now) noexcept {
-    if (!commands || !g_app.account_ui || !g_app.account.api.application_command) return false;
+    if (!commands || !g_app.account_ui) return false;
     const auto& c = *commands;
     const bool suggest = c.autocomplete.phase == CommandAutocompletePhase::debounce && now >= c.autocomplete.due_at;
     // The picker, or a selected command showing only its option bar, wants the indexes.
@@ -469,7 +469,7 @@ bool application_commands_submit(u64 now) noexcept {
         payload = {c.payload, data.used};
     }
     const u64 request_id = application_next_request_id();
-    const auto result = g_app.account.api.application_command(
+    const auto result = account_module_application_command(
         g_app.account.instance, op == 2 ? c.send_channel : c.channel, op == 2 ? c.send_guild : c.guild,
         application, nonce, payload, request_id, op);
     if (result.error == RestClientSubmitError::busy) {
@@ -1078,13 +1078,11 @@ bool bind_context_channel() noexcept {
 } // namespace
 
 u32 application_commands_context(u8 type, Slice<ApplicationContextCommand> output, bool* loading) noexcept {
-    if (loading)
-        *loading = false;
+    *loading = false;
     if (!bind_context_channel() || !output.data)
         return 0;
     auto& c = *commands;
-    if (loading)
-        *loading = c.pending != 0 && (!c.loaded[0] || !c.loaded[1]);
+    *loading = c.pending != 0 && (!c.loaded[0] || !c.loaded[1]);
     u32 count = 0;
     for (const auto& source : c.index)
         for (u32 n = 0; n < source.context_command_count && count < output.count; ++n) {
@@ -1200,14 +1198,12 @@ void application_commands_message_created(u64 nonce) noexcept {
 }
 u32 application_commands_for_application(u64 channel_id, u64 application_id, Slice<ApplicationRootCommand> output,
                                          bool* loading) noexcept {
-    if (loading)
-        *loading = false;
+    *loading = false;
     if (!channel_id || !application_id || !output.data || !g_app.account_ui ||
         g_app.account_ui->active_channel_id != channel_id || !bind_context_channel())
         return 0;
     auto& c = *commands;
-    if (loading)
-        *loading = c.pending != 0 && (!c.loaded[0] || !c.loaded[1]);
+    *loading = c.pending != 0 && (!c.loaded[0] || !c.loaded[1]);
     if (!commands_permitted(c))
         return 0;
     u32 count = 0;

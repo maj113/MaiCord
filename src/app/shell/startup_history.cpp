@@ -97,10 +97,10 @@ bool application_startup_history_submit(u64 channel_id) noexcept {
     AccountHost& host = g_app.account;
     release_body();
     reset_value(&g_startup);
-    if (!channel_id || !host.instance || !host.api.history_submit)
+    if (!channel_id || !host.instance)
         return false;
     const MessageHistoryQuery query{0, kMessageHistoryRequestLimit, MessageHistoryPosition::latest};
-    if (!host.api.history_submit(host.instance, channel_id, &query, kStartupHistoryRequestId).ok())
+    if (!account_module_history_submit(host.instance, channel_id, &query, kStartupHistoryRequestId).ok())
         return false;
     g_startup.channel_id = channel_id;
     g_startup.request_id = kStartupHistoryRequestId;
@@ -187,7 +187,7 @@ bool application_startup_history_replay_due() noexcept {
 
 RestClientTakeResult application_startup_history_replay(RestClientResponse* response,
                                                         Slice<u8> output) noexcept {
-    if (!response || !application_startup_history_replay_due())
+    if (!application_startup_history_replay_due())
         return {0, RestClientTakeError::empty};
     if (g_startup.body_bytes > output.count) {
         finish("dropped_size", g_startup.response);

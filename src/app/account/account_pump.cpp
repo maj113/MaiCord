@@ -44,7 +44,6 @@
 #include "maicord/app/account/user_account_coordinator.hpp"
 
 #include "maicord/core/memory.hpp"
-#include "maicord/core/trace_record.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 
 namespace maicord::app_detail {
@@ -92,8 +91,8 @@ bool observe_sync_health(AccountHost& host, const MessageEventPumpDrainResult& d
     }
     if (drained.state_incomplete && g_sync.phase == AccountSyncPhase::healthy)
         g_sync.phase = AccountSyncPhase::stale;
-    if (g_sync.phase != AccountSyncPhase::healthy && !g_sync.recovery_requested && host.api.gateway_refresh) {
-        const auto recovery = host.api.gateway_refresh(host.instance);
+    if (g_sync.phase != AccountSyncPhase::healthy && !g_sync.recovery_requested) {
+        const auto recovery = account_module_gateway_refresh(host.instance);
         if (recovery != GatewayStateRecoveryResult::unavailable) {
             g_sync.recovery_requested = true;
             g_sync.phase = recovery == GatewayStateRecoveryResult::exhausted ? AccountSyncPhase::stale
@@ -486,7 +485,7 @@ void refresh_member_role_authority(void* context, u64 guild_id) noexcept {
 
 void drain_terminal_gateway_diagnostics() noexcept {
     AccountHost& host = g_app.account;
-    if (!host.instance || !host.api.gateway_source || !host.api.gateway_pop) {
+    if (!host.instance) {
         log_write(LogLevel::error, "gateway", "terminal_diagnostic_source_invalid");
         return;
     }
@@ -496,12 +495,12 @@ void drain_terminal_gateway_diagnostics() noexcept {
         log_write(LogLevel::error, "gateway", "terminal_diagnostic_scratch_invalid");
         return;
     }
-    void* source = host.api.gateway_source(host.instance);
+    void* source = account_module_gateway_source(host.instance);
     if (!source)
         return;
     for (u32 count = 0; count < kGatewayClientEventCapacity; ++count) {
         GatewayClientEvent event{};
-        const auto popped = host.api.gateway_pop(source, &event, scratch);
+        const auto popped = account_module_gateway_pop(source, &event, scratch);
         if (popped.error == GatewayClientPopError::empty)
             break;
         if (!popped.ok() || popped.payload_bytes > scratch.count) {
@@ -563,7 +562,7 @@ bool drain_account_events() noexcept {
         g_sync = {host.instance};
     bool repaint = false;
     bool ready_applied = false;
-    if (void* const source = host.api.gateway_source(host.instance)) {
+    if (void* const source = account_module_gateway_source(host.instance)) {
         const bool private_was_incomplete = g_app.message_pump.private_state_incomplete;
         const u32 hydration_skipped = g_app.message_pump.hydration_skipped;
         BrowserGatewayDrain browser_drain{};
@@ -615,7 +614,7 @@ bool drain_account_events() noexcept {
                   repaint;
     }
     if (g_app.message_pump.private_state_incomplete && !g_app.message_pump.private_recovery_requested) {
-        const auto recovery = host.api.gateway_refresh(host.instance);
+        const auto recovery = account_module_gateway_refresh(host.instance);
         if (recovery != GatewayStateRecoveryResult::unavailable) {
             g_app.message_pump.private_recovery_requested = true;
             log_write(LogLevel::warning, "account",
@@ -624,10 +623,10 @@ bool drain_account_events() noexcept {
                           : "private_state_recovery_requested");
         }
     }
-    if (host.api.voice_snapshot && g_app.account_ui) {
+    if (g_app.account_ui) {
         GatewayClientVoiceSnapshot voice{};
         auto& ui = *g_app.account_ui;
-        if (host.api.voice_snapshot(host.instance, &voice) && !(voice == ui.voice_session)) {
+        if (account_module_voice_snapshot(host.instance, &voice) && !(voice == ui.voice_session)) {
             ui.voice_session = voice;
             const u64 call = gateway_voice_call_channel(voice);
             // The account panel shows guild voice channels only.
@@ -638,8 +637,8 @@ bool drain_account_events() noexcept {
             static u32 video_device_generation = 0;
             if (call &&
                 (video_device_instance != host.instance || video_device_generation != g_app.renderer.device_generation) &&
-                host.api.voice_video_device && g_app.renderer.graphics.device &&
-                host.api.voice_video_device(host.instance, g_app.renderer.graphics.device)) {
+                g_app.renderer.graphics.device &&
+                account_module_voice_video_device(host.instance, g_app.renderer.graphics.device)) {
                 video_device_instance = host.instance;
                 video_device_generation = g_app.renderer.device_generation;
             }

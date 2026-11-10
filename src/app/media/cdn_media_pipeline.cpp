@@ -910,7 +910,7 @@ __declspec(noinline) void finish_not_modified(CdnMediaPipeline* pipeline, const 
 }
 
 bool usable(const CdnMediaPipeline* pipeline) noexcept {
-    return pipeline && pipeline->cache && pipeline->scanline_storage;
+    return pipeline->cache && pipeline->scanline_storage;
 }
 
 // The lookup, frame and admit paths below are written once for every result type (a template per type kept a
@@ -1139,7 +1139,7 @@ void admit_response(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey
 
 bool cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
                                    Slice<u8> scanline_storage, u32 scanline_committed) noexcept {
-    if (!pipeline || !cache || !cache->entries || !cache->storage || !scanline_storage.data ||
+    if (!cache || !cache->entries || !cache->storage || !scanline_storage.data ||
         scanline_storage.count == 0 || scanline_committed > scanline_storage.count) {
         return false;
     }
@@ -1458,7 +1458,7 @@ void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipelin
                                      const MediaAssetKey& key, u64 now_seconds, OggOpusCancelled cancelled,
                                      void* context) noexcept {
     reset_value(out);
-    if (!pipeline || !pipeline->cache || !audio_key_valid(key)) {
+    if (!pipeline->cache || !audio_key_valid(key)) {
         out->error = EncodedAudioError::invalid_input;
         return;
     }
@@ -1490,7 +1490,7 @@ void cdn_media_pipeline_admit_audio(CdnEncodedAudioResult* out, CdnMediaPipeline
                                     ConstSlice<u8> body, ConstSlice<u8> conditional_etag,
                                     OggOpusCancelled cancelled, void* context) noexcept {
     reset_value(out);
-    if (!pipeline || !pipeline->cache || !audio_key_valid(key)) {
+    if (!pipeline->cache || !audio_key_valid(key)) {
         out->error = EncodedAudioError::invalid_input;
         return;
     }

@@ -8,7 +8,7 @@
 #include "wayland_protocols.hpp"
 
 // A second client of the compositor that plays the other applications of a desktop (Linux, tests only): a clipboard
-// manager (wlr-data-control: it sees the clipboard and the primary selection, and sets them) and an input method
+// manager (wlr-data-control: it sees the clipboard and sets it) and an input method
 // (input-method-v2: it is told when text input is enabled, and sends preedit, commits and deletions). Its connection is
 // served by a thread of its own, because the window under test answers it only when the test pumps the window, and
 // the window waits for it while it reads a selection the helper owns. The thread only dispatches events; the test thread
@@ -50,15 +50,10 @@ struct Helper {
     // Clipboard: the offers the compositor announced, the current selections and the sources the helper owns.
     HelperOffer offers[6];
     HelperOffer* selection;
-    HelperOffer* primary;
     volatile u32 selection_events;  // data-control selection events seen
-    volatile u32 primary_events;
     zwlr_data_control_source_v1* source;
     Offered offered[kMaxOffered];
     u32 offered_count;
-    zwlr_data_control_source_v1* primary_source;
-    Offered primary_offered[kMaxOffered];
-    u32 primary_offered_count;
 
     // Input method.
     volatile u32 ime_active;
@@ -126,7 +121,7 @@ inline HelperOffer* offer_slot(Helper& helper, zwlr_data_control_offer_v1* offer
 
 inline void release_unused(Helper& helper) noexcept {
     for (HelperOffer& slot : helper.offers) {
-        if (slot.offer && &slot != helper.selection && &slot != helper.primary) {
+        if (slot.offer && &slot != helper.selection) {
             zwlr_data_control_offer_v1_destroy(slot.offer);
             slot.offer = nullptr;
             slot.mimes = 0;
@@ -141,11 +136,9 @@ inline void on_selection(void*, zwlr_data_control_device_v1*, zwlr_data_control_
     release_unused(helper);
 }
 
-inline void on_primary_selection(void*, zwlr_data_control_device_v1*, zwlr_data_control_offer_v1* offer) noexcept {
-    Helper& helper = *g_target;
-    helper.primary = offer_slot(helper, offer);
-    helper.primary_events = helper.primary_events + 1;
-    release_unused(helper);
+// The primary selection is not used: its offers go.
+inline void on_primary_selection(void*, zwlr_data_control_device_v1*, zwlr_data_control_offer_v1*) noexcept {
+    release_unused(*g_target);
 }
 
 inline void on_finished(void*, zwlr_data_control_device_v1*) noexcept {}
@@ -170,14 +163,11 @@ inline void write_all(int fd, const u8* data, u32 bytes) noexcept {
     }
 }
 
-inline void on_send(void* data, zwlr_data_control_source_v1*, const char* mime, i32 fd) noexcept {
+inline void on_send(void*, zwlr_data_control_source_v1*, const char* mime, i32 fd) noexcept {
     const Helper& helper = *g_target;
-    const bool primary = data == &helper.primary_source;
-    const Offered* list = primary ? helper.primary_offered : helper.offered;
-    const u32 count = primary ? helper.primary_offered_count : helper.offered_count;
-    for (u32 i = 0; i < count; ++i)
-        if (same(list[i].mime, mime))
-            write_all(fd, list[i].data, list[i].bytes);
+    for (u32 i = 0; i < helper.offered_count; ++i)
+        if (same(helper.offered[i].mime, mime))
+            write_all(fd, helper.offered[i].data, helper.offered[i].bytes);
     sys_close(fd);
 }
 inline void on_cancelled(void*, zwlr_data_control_source_v1*) noexcept {}
@@ -286,31 +276,25 @@ template <typename Done> bool helper_wait(Done done, u32 timeout_ms) noexcept {
     return true;
 }
 
-// The helper owns the clipboard (or the primary selection) with these formats until it sets another.
-inline void helper_set_selection(Helper* helper, bool primary, const Offered* offered, u32 count) noexcept {
-    zwlr_data_control_source_v1** slot = primary ? &helper->primary_source : &helper->source;
-    Offered* list = primary ? helper->primary_offered : helper->offered;
-    u32* stored = primary ? &helper->primary_offered_count : &helper->offered_count;
-    if (*slot)
-        zwlr_data_control_source_v1_destroy(*slot);
+// The helper owns the clipboard with these formats until it sets another.
+inline void helper_set_selection(Helper* helper, const Offered* offered, u32 count) noexcept {
+    if (helper->source)
+        zwlr_data_control_source_v1_destroy(helper->source);
     for (u32 i = 0; i < count && i < kMaxOffered; ++i)
-        list[i] = offered[i];
-    *stored = count < kMaxOffered ? count : kMaxOffered;
-    *slot = zwlr_data_control_manager_v1_create_data_source(helper->data_manager);
-    zwlr_data_control_source_v1_add_listener(*slot, &helper_detail::kSourceListener, slot);
-    for (u32 i = 0; i < *stored; ++i)
-        zwlr_data_control_source_v1_offer(*slot, list[i].mime);
-    if (primary)
-        zwlr_data_control_device_v1_set_primary_selection(helper->data_device, *slot);
-    else
-        zwlr_data_control_device_v1_set_selection(helper->data_device, *slot);
+        helper->offered[i] = offered[i];
+    helper->offered_count = count < kMaxOffered ? count : kMaxOffered;
+    helper->source = zwlr_data_control_manager_v1_create_data_source(helper->data_manager);
+    zwlr_data_control_source_v1_add_listener(helper->source, &helper_detail::kSourceListener, nullptr);
+    for (u32 i = 0; i < helper->offered_count; ++i)
+        zwlr_data_control_source_v1_offer(helper->source, helper->offered[i].mime);
+    zwlr_data_control_device_v1_set_selection(helper->data_device, helper->source);
     g_client.display_flush(helper->display);
 }
 
 // Asks the owner of the selection for one format; the read end of the pipe it will write to, or -1. The owner is
 // the window under test: the caller pumps it until the pipe has data.
-inline int helper_receive(Helper* helper, bool primary, const char* mime) noexcept {
-    HelperOffer* offer = primary ? helper->primary : helper->selection;
+inline int helper_receive(Helper* helper, const char* mime) noexcept {
+    HelperOffer* offer = helper->selection;
     int fds[2];
     if (!offer || !offer->offer || syscall_failed(syscall2(293, reinterpret_cast<long>(fds), kOpenCloseOnExec)))
         return -1;

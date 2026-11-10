@@ -40,8 +40,7 @@ struct Lookup {
 Lookup* g_lookup;
 
 bool connected() noexcept {
-    return g_app.account.instance && g_app.account.status.running && g_app.account.status.gateway_ready &&
-           g_app.account.api.guild_admin;
+    return g_app.account.instance && g_app.account.status.running && g_app.account.status.gateway_ready;
 }
 
 Lookup* lookup() noexcept {
@@ -194,7 +193,7 @@ bool application_game_lookup_submit(u64 request_id, u64 now) noexcept {
         request.operation = GuildAdminOperation::games_list;
         request.game_ids = {l.asked, l.asked_count};
     }
-    const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, request_id);
+    const auto submitted = account_module_guild_admin(g_app.account.instance, &request, request_id);
     if (!submitted.ok()) {
         const bool busy = submitted.error == RestClientSubmitError::busy;
         if (busy)

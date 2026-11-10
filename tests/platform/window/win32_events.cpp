@@ -240,6 +240,8 @@ WindowEvent g_last_sink_event;
 float g_cursor_x, g_cursor_y;
 bool g_cursor_from_sink;
 bool g_veto_close, g_blocked, g_sink_handles;
+// The application half of the window procedure (defined below): the shell hook and the modal, or the caption controller.
+bool g_hooks, g_caption;
 WindowEventResult g_answer;
 Window g_window;
 
@@ -255,10 +257,6 @@ bool shell(void*, HWND, UINT message, WPARAM, LPARAM, LRESULT* result) noexcept 
         return true;
     }
     return false;
-}
-
-bool blocked(void*) noexcept {
-    return g_blocked;
 }
 
 void sink(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
@@ -287,10 +285,11 @@ bool order_is(const char* expected, u32 count) noexcept {
 }
 
 void procedure() noexcept {
-    const Win32Hooks hooks{nullptr, shell, blocked};
+    g_hooks = true;
+    g_caption = false;
     const char* reason = "";
     Window window{};
-    check(win32_window_create({utf8_literal("MaiCord window events"), {}, 400, 300, false}, {0, &hooks}, sink, nullptr,
+    check(win32_window_create({utf8_literal("MaiCord window events"), {}, 400, 300, false}, {0, false}, sink, nullptr,
                               &window, &reason),
           "proc: the backend creates the main window");
     if (!window)
@@ -568,24 +567,6 @@ void report(const char* path) noexcept {
 }
 
 constexpr u32 kCostCaption = 32;
-u32 cost_caption_height(void*) noexcept {
-    return kCostCaption;
-}
-bool cost_caption_hidden(void*) noexcept {
-    return false;
-}
-FrameHit cost_caption_hit(void*, float, float y) noexcept {
-    return y < static_cast<float>(kCostCaption) ? FrameHit::caption : FrameHit::client;
-}
-void cost_caption_flag(void*, bool) noexcept {}
-void cost_caption_part(void*, FrameHit) noexcept {}
-void cost_caption_leave(void*) noexcept {}
-bool cost_caption_release(void*, FrameHit) noexcept {
-    return false;
-}
-bool cost_caption_bar(void*, FrameBarRects*) noexcept {
-    return false;
-}
 
 Window g_cost_window;
 
@@ -641,14 +622,12 @@ void pointer_message(HWND hwnd, UINT message, WPARAM wparam, POINT client) noexc
 
 void costs() noexcept {
     UnregisterClassW(L"MaiCordMainWindow", GetModuleHandleW(nullptr));
-    static const Win32CaptionOps caption{nullptr,           cost_caption_height,  cost_caption_hidden,
-                                         cost_caption_hit,  cost_caption_flag,    cost_caption_flag,
-                                         cost_caption_part, cost_caption_leave,   cost_caption_part,
-                                         cost_caption_release, cost_caption_bar};
+    g_hooks = false;
+    g_caption = true;
     const char* reason = "";
     Window window{};
     check(win32_window_create({utf8_literal("MaiCord window costs"), {}, 400, 300, false},
-                              {0, nullptr, &caption, false}, cost_sink, nullptr, &window, &reason),
+                              {0, false}, cost_sink, nullptr, &window, &reason),
           "costs: the backend creates a captioned main window");
     if (!window)
         return;
@@ -746,6 +725,36 @@ void costs() noexcept {
 }
 
 } // namespace
+
+bool win32_shell_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept {
+    return g_hooks && shell(nullptr, window, message, wparam, lparam, result);
+}
+bool win32_input_blocked() noexcept {
+    return g_hooks && g_blocked;
+}
+bool win32_caption_enabled() noexcept {
+    return g_caption;
+}
+u32 win32_caption_height() noexcept {
+    return kCostCaption;
+}
+bool win32_caption_hidden() noexcept {
+    return false;
+}
+FrameHit win32_caption_hit(float, float y) noexcept {
+    return y < static_cast<float>(kCostCaption) ? FrameHit::caption : FrameHit::client;
+}
+void win32_caption_maximized(bool) noexcept {}
+void win32_caption_active(bool) noexcept {}
+void win32_caption_hover(FrameHit) noexcept {}
+void win32_caption_leave() noexcept {}
+void win32_caption_press(FrameHit) noexcept {}
+bool win32_caption_release(FrameHit) noexcept {
+    return false;
+}
+bool win32_caption_title_bar(FrameBarRects*) noexcept {
+    return false;
+}
 } // namespace maicord
 
 MAICORD_TEST_ENTRY(maicord_window_win32_events_entry) {

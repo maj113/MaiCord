@@ -78,7 +78,7 @@ bool same_view(const StreamWatchView& a, const StreamWatchView& b) noexcept {
 }
 bool submit(const GatewayStreamKey& key) noexcept {
     auto& host = g_app.account;
-    if (!host.instance || !host.api.stream_watch || !host.api.stream_watch(host.instance, &key))
+    if (!host.instance || !account_module_stream_watch(host.instance, &key))
         return false;
     // Switching streams asks nothing (as in the official client): the worker replaces the old one.
     stream.requested = key;
@@ -225,8 +225,8 @@ void application_stream_watch(const GatewayStreamKey& key) noexcept {
 
 void application_stream_stop() noexcept {
     auto& host = g_app.account;
-    if (valid(stream.requested) && host.instance && host.api.stream_watch)
-        host.api.stream_watch(host.instance, nullptr);
+    if (valid(stream.requested) && host.instance)
+        account_module_stream_watch(host.instance, nullptr);
     stream.requested = stream.pending = {};
     stream.ended_ms = 0;
     reset_value(&stream.view);
@@ -255,7 +255,7 @@ MediaAssetKey application_stream_preview(const GatewayStreamKey& key, bool* load
 void application_stream_set_volume(u32 percent) noexcept {
     auto& host = g_app.account;
     percent = percent > kGatewayStreamVolumeMaximum ? kGatewayStreamVolumeMaximum : percent;
-    if (host.instance && host.api.stream_volume && host.api.stream_volume(host.instance, percent))
+    if (host.instance && account_module_stream_volume(host.instance, percent))
         stream.volume = percent;
 }
 
@@ -324,7 +324,7 @@ void application_stream_pump() noexcept {
     const u64 now = now_ms();
     auto& host = g_app.account;
     GatewayClientStreamSnapshot snapshot{};
-    if (host.instance && host.api.stream_snapshot && host.api.stream_snapshot(host.instance, &snapshot))
+    if (host.instance && account_module_stream_snapshot(host.instance, &snapshot))
         stream.snapshot = snapshot;
     // A watch waiting for its join.
     if (valid(stream.pending)) {
@@ -345,8 +345,8 @@ void application_stream_pump() noexcept {
     const bool gone = owner_gone(stream.requested);
     if (gone && view.state != StreamWatchState::ended) {
         // The streamer left before STREAM_DELETE: stop watching, drop the tile.
-        if (host.instance && host.api.stream_watch)
-            host.api.stream_watch(host.instance, nullptr);
+        if (host.instance)
+            account_module_stream_watch(host.instance, nullptr);
         reset_value(&stream.requested);
         stream.ended_ms = 0;
         reset_value(&view);
@@ -521,17 +521,17 @@ UiStreamCardScene* application_stream_card_spinner_scene() noexcept {
 }
 
 bool application_stream_preview_pending(u64 now) noexcept {
-    return g_app.account.instance && g_app.account.api.stream_preview &&
+    return g_app.account.instance &&
            stream_preview_next_due(stream.previews, now) != nullptr;
 }
 
 bool application_stream_preview_submit(u64 request_id, u64 now) noexcept {
     const auto* due = stream_preview_next_due(stream.previews, now);
     auto& host = g_app.account;
-    if (!due || !host.instance || !host.api.stream_preview)
+    if (!due || !host.instance)
         return false;
     const GatewayStreamKey key = due->key;
-    const auto submitted = host.api.stream_preview(host.instance, &key, request_id);
+    const auto submitted = account_module_stream_preview(host.instance, &key, request_id);
     if (submitted.ok())
         return stream_preview_submitted(&stream.previews, key, request_id, now);
     if (submitted.error == RestClientSubmitError::busy)

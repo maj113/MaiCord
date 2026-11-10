@@ -398,7 +398,7 @@ void synchronize_privacy(ApplicationSearch& s) noexcept {
 
 bool application_search_source_ticket(u32 index, ApplicationSearchSourceTicket* out) noexcept {
     auto* s = g_app.search;
-    if (!out || !s || !accepted_current(*s) || index >= s->bank->page.message_count)
+    if (!s || !accepted_current(*s) || index >= s->bank->page.message_count)
         return false;
     *out = {s->bank->messages[index].message.id, s->bank->publication, index};
     return true;
@@ -444,7 +444,7 @@ bool application_search_source_resolve(u64 id, u32 publication, bool snapshot,
 bool application_search_navigation_source(const ApplicationSearchSourceTicket& ticket,
                                           ApplicationSearchNavigationSource* out) noexcept {
     auto* s = g_app.search;
-    if (!out || !s || !ticket_current(*s, ticket) || !channel_authorized(*s, ticket.index, true))
+    if (!s || !ticket_current(*s, ticket) || !channel_authorized(*s, ticket.index, true))
         return false;
     const auto& item = s->bank->messages[ticket.index];
     *out = {ticket, item.message.channel_id,
@@ -865,7 +865,7 @@ bool application_search_pending(u64 now) noexcept {
              s->controller.retry_at_ms <= now));
 }
 bool application_search_submit(u64 id, u64 now) noexcept {
-    if (!g_app.account.instance || !g_app.account.api.message_search || !application_search_pending(now))
+    if (!g_app.account.instance || !application_search_pending(now))
         return false;
     auto& s = *g_app.search;
     MessageSearchToken token{};
@@ -877,7 +877,7 @@ bool application_search_submit(u64 id, u64 now) noexcept {
         repaint();
         return false;
     }
-    const auto admission = g_app.account.api.message_search(
+    const auto admission = account_module_message_search(
         g_app.account.instance, AccountMessageSearchOperation::submit, &s.controller.query, id);
     if (!admission.ok()) {
         clear_poll_tickets(s);

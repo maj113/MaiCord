@@ -9,7 +9,7 @@
 // comes from one reservation so the probe can report it separately.
 #include "perf_account_internal.hpp"
 #include "perf_shared.hpp"
-#include "maicord/app/account/account_module_api.hpp"
+#include "../../tests/support/account_module_fake.hpp"
 #include "maicord/app/media/account_download.hpp"
 #include "maicord/app/account/account_logout.hpp"
 #include "maicord/app/media/account_upload.hpp"
@@ -1187,7 +1187,7 @@ bool WINAPI module_voice_video_frame(void* instance, u32 ssrc, VideoStreamFrame*
 
 } // namespace
 
-bool fill_api(AccountModuleApi* api) noexcept {
+bool fill_api(AccountFake* api) noexcept {
     *api = {};
     api->start = module_start;
     api->pump = module_pump;
@@ -1231,8 +1231,6 @@ bool fill_api(AccountModuleApi* api) noexcept {
     MC_STUB(17, login_copy_remote_auth_user);
     MC_STUB(18, login_cancel_remote_auth);
     MC_STUB(19, login_pump);
-    MC_STUB(20, login_copy_captcha_secret);
-    MC_STUB(21, login_submit_captcha);
     MC_STUB(22, login_copy_webauthn_challenge);
     MC_STUB(23, login_notification_handle);
     MC_STUB(24, login_stop);
@@ -1372,7 +1370,7 @@ bool counters(PerfAccountCounters* output) noexcept {
 
 } // namespace maicord::perf
 
-extern "C" bool WINAPI maicord_account_get_api(maicord::AccountModuleApi* api) noexcept {
+extern "C" bool WINAPI maicord_account_get_api(maicord::AccountFake* api) noexcept {
     return api && maicord::perf::fill_api(api);
 }
 extern "C" bool WINAPI maicord_perf_account_control(const maicord::perf::PerfAccountControl* control) noexcept {

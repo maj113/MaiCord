@@ -20,7 +20,6 @@
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/ui/media/expression_card_scene.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {
@@ -565,7 +564,7 @@ bool application_expression_card_pending(u64 now) noexcept {
 }
 
 bool application_expression_card_submit(u64 request_id, u64 now) noexcept {
-    if (!request_id || !application_expression_card_pending(now) || !g_app.account.api.media_catalog)
+    if (!request_id || !application_expression_card_pending(now))
         return false;
     auto& c = *g_card;
     const MediaCatalogOperation operation = c.wanted == Lookup::sticker ? MediaCatalogOperation::sticker
@@ -580,7 +579,7 @@ bool application_expression_card_submit(u64 request_id, u64 now) noexcept {
                             MediaCatalogFormat::tiny_webp,
                             c.wanted_id};
     const auto submitted =
-        g_app.account.api.media_catalog(g_app.account.instance, AccountMediaCatalogOperation::submit, &query, request_id);
+        account_module_media_catalog(g_app.account.instance, AccountMediaCatalogOperation::submit, &query, request_id);
     if (!submitted.ok()) {
         if (submitted.error != RestClientSubmitError::busy) {
             // Refused outright: show what is known without it.

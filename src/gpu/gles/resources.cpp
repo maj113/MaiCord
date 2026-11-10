@@ -600,8 +600,6 @@ void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const float rgba[4]) {
     // ClearRenderTargetView ignores the scissor.
     gl.glDisable(gl::kScissorTest);
     gl.glClearBufferfv(gl::kColor, 0, rgba);
-    if (gles::device().debug_checks)
-        check_error("clear");
     gl.glEnable(gl::kScissorTest);
 }
 

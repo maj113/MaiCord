@@ -1,5 +1,6 @@
 #include "thread_browser_ui_adapter.hpp"
 #include "../support/model_store_fixtures.hpp"
+#include "../support/account_module_fake.hpp"
 #include "forum_post_ui_adapter.hpp"
 #include "shell/state.hpp"
 #include "maicord/protocol/messages/thread_browser.hpp"
@@ -105,7 +106,7 @@ bool thread_browser_ui_adapter_begin(HWND window, D3D11Renderer& renderer,
     g_app.renderer = renderer; // Borrow GPU owners; never shut down this shallow view.
     g_app.renderer_ready = false; // The refresh callback rebuilds the actual renderer once.
     g_app.shell_scene = *renderer.ui_scene;
-    g_app.account.api.thread_browser = browser_submit;
+    g_account_fake.thread_browser = browser_submit;
     g_app.context_focus = nullptr;
     g_app.composer_text_input = nullptr;
     if (!seed()) { thread_browser_ui_adapter_end(); return false; }

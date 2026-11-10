@@ -5,7 +5,6 @@
 #include "../chat/composer/composer.hpp"
 #include "friends.hpp"
 #include "../guild/member_moderation.hpp"
-#include "../chat/messages/delete.hpp"
 #include "../chat/messages/history.hpp"
 #include "../chat/messages/interaction.hpp"
 #include "../chat/private_channel.hpp"
@@ -433,9 +432,9 @@ bool application_user_menu_open(u64 user_id, UiRect anchor, u64 guild_id, UserMe
     facts.can_invite = !self && collect_invite_guilds(guild, scratch, 1) != 0;
     bool held[kUserContextRoleItems];
     facts.can_edit_roles = guild && collect_roles(guild, user_id, scratch, held, 1) != 0;
-    if (!self && g_app.account_ui->active_channel_id && g_app.account.api.application_command)
+    if (!self && g_app.account_ui->active_channel_id)
         facts.has_apps = apps_available(kCommandTypeUser);
-    facts.can_report = !self && g_app.account.api.user_social;
+    facts.can_report = !self;
     // From a profile card the first row is View Full Profile; the full profile itself has none.
     if (source == UserMenuSource::profile)
         facts.profile_row = g_app.profile && g_app.profile->scene.active && g_app.profile->data.user_id == user_id &&
@@ -514,9 +513,9 @@ u32 application_user_actions_private_channel_items(u64 channel_id, Slice<PopupIt
     }
     u64 scratch[1];
     facts.can_invite = collect_invite_guilds(0, scratch, 1) != 0;
-    if (g_app.account_ui->active_channel_id == channel_id && g_app.account.api.application_command)
+    if (g_app.account_ui->active_channel_id == channel_id)
         facts.has_apps = apps_available(kCommandTypeUser);
-    facts.can_report = g_app.account.api.user_social != nullptr;
+    facts.can_report = true;
     facts.developer_mode = g_app.preferences.developer_mode;
     const u32 count = user_context_menu_build(facts, output);
     if (!count)
@@ -679,11 +678,11 @@ MessageContextMenuExtras application_user_actions_message_extras(const MessageRe
     const auto* row = navigation_view_find_channel(g_app.account_ui->navigation_view, record.channel_id);
     const bool manage = row && (row->actions & channel_action_manage_messages);
     extras.remove_embeds = rich && rich->embed_count && !(record.flags & kMessageFlagSuppressEmbeds) &&
-                           (own || manage) && g_app.account.api.user_social;
-    if (record.channel_id == g_app.account_ui->active_channel_id && g_app.account.api.application_command)
+                           (own || manage);
+    if (record.channel_id == g_app.account_ui->active_channel_id)
         extras.apps = apps_available(kCommandTypeMessage);
     extras.speak = record.content_bytes != 0;
-    extras.report = !own && record.author_id && g_app.account.api.user_social;
+    extras.report = !own && record.author_id;
     return extras;
 }
 
@@ -828,7 +827,6 @@ bool application_user_actions_submit(u64 now) noexcept {
     if (!g_state || !connected() || g_state->request_id || !lane_free() || g_state->retry_at > now)
         return false;
     auto& s = *g_state;
-    auto& api = g_app.account.api;
     const auto busy = [&](RestClientSubmitResult result) noexcept {
         if (result.error == RestClientSubmitError::busy) {
             s.retry_at = now + 100;
@@ -844,8 +842,7 @@ bool application_user_actions_submit(u64 now) noexcept {
         request.guild_id = s.invite.guild_id;
         request.channel_id = s.invite.channel_id;
         request.invite = &options;
-        const auto result = api.guild_admin ? api.guild_admin(g_app.account.instance, &request, id)
-                                            : RestClientSubmitResult{RestClientSubmitError::invalid_input};
+        const auto result = account_module_guild_admin(g_app.account.instance, &request, id);
         if (busy(result))
             return false;
         if (!result.ok()) {
@@ -857,8 +854,8 @@ bool application_user_actions_submit(u64 now) noexcept {
     }
     if (s.invite.phase == InvitePhase::dm) {
         const u64 id = application_next_request_id();
-        const auto result = api.private_conversation(g_app.account.instance, PrivateConversationOperation::open,
-                                                     s.invite.user_id, id);
+        const auto result = account_module_private_conversation(g_app.account.instance, PrivateConversationOperation::open,
+                                                        s.invite.user_id, id);
         if (busy(result))
             return false;
         if (!result.ok()) {
@@ -881,7 +878,7 @@ bool application_user_actions_submit(u64 now) noexcept {
                       guild_member_store_role_ids(g_app.account_ui->guild_member_store, *member), s.role_id,
                       s.role_add, {roles, kGuildMemberRoleMaximum + 1})
                 : ~0u;
-        if (!role_editable(chat(), s.role_guild, s.role_id) || !api.guild_admin || count == ~0u) {
+        if (!role_editable(chat(), s.role_guild, s.role_id) || count == ~0u) {
             s.role_override_id = 0;
             return false;
         }
@@ -894,7 +891,7 @@ bool application_user_actions_submit(u64 now) noexcept {
         request.target_id = s.role_user;
         request.member = &patch;
         const u64 id = application_next_request_id();
-        const auto result = api.guild_admin(g_app.account.instance, &request, id);
+        const auto result = account_module_guild_admin(g_app.account.instance, &request, id);
         if (busy(result)) {
             s.role_queued = true;
             return false;
@@ -913,15 +910,14 @@ bool application_user_actions_submit(u64 now) noexcept {
         request.message_id = s.flags_message;
         request.flags = s.flags_value;
         const u64 id = application_next_request_id();
-        const auto result = api.user_social ? api.user_social(g_app.account.instance, &request, id)
-                                            : RestClientSubmitResult{RestClientSubmitError::invalid_input};
+        const auto result = account_module_user_social(g_app.account.instance, &request, id);
         if (busy(result)) {
             s.flags_queued = true;
             return false;
         }
         return result.ok() && claim(id, Work::flags, 0);
     }
-    if (!s.notes || !api.user_social)
+    if (!s.notes)
         return false;
     const auto next = user_note_next(*s.notes, clock_monotonic_milliseconds());
     if (next.work == UserNoteWork::none)
@@ -937,7 +933,7 @@ bool application_user_actions_submit(u64 now) noexcept {
     } else
         request.operation = UserSocialOperation::note_get;
     const u64 id = application_next_request_id();
-    const auto result = api.user_social(g_app.account.instance, &request, id);
+    const auto result = account_module_user_social(g_app.account.instance, &request, id);
     if (!result.ok()) {
         if (next.work == UserNoteWork::save)
             user_note_save_finished(s.notes, next.user_id, false, clock_monotonic_milliseconds());

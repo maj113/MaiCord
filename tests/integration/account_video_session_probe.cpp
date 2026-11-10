@@ -10,10 +10,6 @@
 #include "maicord/sys/d3d11.hpp"
 #include "../support/ogg_page_fixture.hpp"
 
-#if !defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-#error The native playback probe requires the actual endpoint diagnostic contract.
-#endif
-
 // EXCLUDE_FROM_ALL, never default CTest. The entry requires an explicit opt-in
 // and a bounded original QA movie, --opus original memory stream, or --audio
 // original Opus/MP3/WAV memory streams under one shared deadline.
@@ -411,9 +407,7 @@ bool run_audio(Probe& p, MediaAttachmentFormat format) noexcept {
         !pump(p, Until::playing))
         return false;
     p.played = true;
-    const auto native = account_video_session_probe_snapshot(&p.session).audio;
-    if (!native.worker_started || !native.stream_open || !native.clock_valid || !native.clock_frequency ||
-        !native.consumed_frames)
+    if (!account_video_session_audio_progress(&p.session).consumed_frames)
         return fail(p, ERROR_INVALID_DATA);
     p.stage = 32;
     if (!command(p, AccountVideoCommand::pause) || !pump(p, Until::paused))

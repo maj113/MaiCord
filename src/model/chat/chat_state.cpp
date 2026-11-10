@@ -1,6 +1,5 @@
 #include "maicord/model/chat/chat_state.hpp"
 
-#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/model/chat/read_state.hpp"
@@ -1419,8 +1418,8 @@ bool chat_state_store_set_thread_locked(ChatStateStore* store, u64 thread_id, u6
 }
 
 bool chat_state_store_set_thread_active(ChatStateStore* store, u64 thread_id, u64 self_user_id,
-                                           bool active, bool known) noexcept {
-    return set_thread_authority(store, thread_id, self_user_id, active, known,
+                                           bool active) noexcept {
+    return set_thread_authority(store, thread_id, self_user_id, active, true,
                                 ThreadAuthorityField::active);
 }
 
@@ -1441,8 +1440,7 @@ bool chat_state_store_set_thread_listing_synced(ChatStateStore* store, u64 paren
     return true;
 }
 
-void chat_state_store_invalidate_thread_authority(ChatStateStore* store, u64 guild_id,
-                                                     u64 parent_id) noexcept {
+void chat_state_store_invalidate_thread_authority(ChatStateStore* store, u64 guild_id) noexcept {
     if (!store || !store->channels || !store->channel_order)
         return;
     bool changed = false;
@@ -1450,13 +1448,12 @@ void chat_state_store_invalidate_thread_authority(ChatStateStore* store, u64 gui
         auto& channel = store->channels[store->channel_order[order]];
         if (!channel.occupied || (guild_id && channel.guild_id != guild_id))
             continue;
-        if (channel_is_thread_parent(channel.type) && (!parent_id || channel.id == parent_id) &&
-            channel.thread_listing_synced) {
+        if (channel_is_thread_parent(channel.type) && channel.thread_listing_synced) {
             channel.thread_listing_synced = false;
             saturating_increment(channel.revision);
             ++store->channel_mutations;
         }
-        if (!channel_is_thread(channel.type) || (parent_id && channel.parent_id != parent_id) ||
+        if (!channel_is_thread(channel.type) ||
             (!channel.thread_self_joined_known && !channel.thread_archived_known &&
              !channel.thread_locked_known && !channel.thread_active_known))
             continue;

@@ -374,7 +374,6 @@ void print_support_matrix() noexcept {
         {"wp_cursor_shape_manager_v1", "cursor shapes"},
         {"zxdg_decoration_manager_v1", "server-side decorations"},
         {"zwp_text_input_manager_v3", "IME"},
-        {"zwp_primary_selection_device_manager_v1", "primary selection"},
         {"wl_data_device_manager", "clipboard and drop"},
         {"xdg_activation_v1", "attention, notification and second-launch focus"},
         {"zwp_idle_inhibit_manager_v1", "screen stays on in a call"},
@@ -1345,7 +1344,7 @@ void test_frame() noexcept {
     g_capture_on_press = true;
 }
 
-// The clipboard and the primary selection, against the helper client (a clipboard manager) --------------------------------
+// The clipboard, against the helper client (a clipboard manager) ---------------------------------------------------------
 
 // Pumps the window while reading the pipe `fd` to its end: what a selection the window owns answers through its own events.
 u32 read_pumped(int fd, u8* buffer, u32 capacity, u32 timeout_ms) noexcept {
@@ -1408,9 +1407,9 @@ void test_clipboard() noexcept {
               (helper.selection->mimes & 1) && (helper.selection->mimes & 2) && (helper.selection->mimes & 4),
           "the clipboard manager sees the text formats");
     u8 buffer[256] = {};
-    u32 count = read_pumped(inject::helper_receive(&helper, false, "text/plain;charset=utf-8"), buffer, sizeof(buffer), 2000);
+    u32 count = read_pumped(inject::helper_receive(&helper, "text/plain;charset=utf-8"), buffer, sizeof(buffer), 2000);
     check(text_matches(buffer, count, kText), "the clipboard manager reads the text the window wrote");
-    count = read_pumped(inject::helper_receive(&helper, false, "UTF8_STRING"), buffer, sizeof(buffer), 2000);
+    count = read_pumped(inject::helper_receive(&helper, "UTF8_STRING"), buffer, sizeof(buffer), 2000);
     check(text_matches(buffer, count, kText), "UTF8_STRING carries it too");
     char read_back[64];
     ClipboardTextResult result = clipboard_read_utf8(Slice<char>{read_back, sizeof(read_back)});
@@ -1434,9 +1433,9 @@ void test_clipboard() noexcept {
               (helper.selection->mimes & 8) && (helper.selection->mimes & 16) && !(helper.selection->mimes & 1),
           "the clipboard manager sees PNG and HTML, and no text any more");
     static u8 png[4096];
-    const u32 png_bytes = read_pumped(inject::helper_receive(&helper, false, "image/png"), png, sizeof(png), 2000);
+    const u32 png_bytes = read_pumped(inject::helper_receive(&helper, "image/png"), png, sizeof(png), 2000);
     check(png_bytes > 40 && png[0] == 0x89 && png[1] == 'P' && png[2] == 'N' && png[3] == 'G', "the PNG has its signature");
-    count = read_pumped(inject::helper_receive(&helper, false, "text/html"), buffer, sizeof(buffer), 2000);
+    count = read_pumped(inject::helper_receive(&helper, "text/html"), buffer, sizeof(buffer), 2000);
     check(text_matches(buffer, count, "<img src=\"https://cdn.example/image.png?x=1&amp;y=2\">"), "the HTML is the escaped linked image");
     check(clipboard_capture_attachment() == nullptr, "what the window itself wrote is not an attachment");
 
@@ -1446,7 +1445,7 @@ void test_clipboard() noexcept {
                                             {"text/plain", reinterpret_cast<const u8*>(kOutside), sizeof(kOutside) - 1},
                                             {"UTF8_STRING", reinterpret_cast<const u8*>(kOutside), sizeof(kOutside) - 1}};
     mark();
-    inject::helper_set_selection(&helper, false, text_formats, 3);
+    inject::helper_set_selection(&helper, text_formats, 3);
     expect("clipboard_changed arrives", EventType::clipboard_changed, [](const Record&) { return true; });
     result = clipboard_read_utf8(Slice<char>{read_back, sizeof(read_back)});
     check(clipboard_has_text() && result.ok() && text_matches(reinterpret_cast<u8*>(read_back), result.bytes, kOutside),
@@ -1456,7 +1455,7 @@ void test_clipboard() noexcept {
     constexpr char kList[] = "file:///tmp/a%20b.txt\r\nfile:///tmp/c%C3%A9.png\r\n# a comment\r\nfile://otherhost/x\r\n";
     const inject::Offered list_formats[] = {{"text/uri-list", reinterpret_cast<const u8*>(kList), sizeof(kList) - 1}};
     mark();
-    inject::helper_set_selection(&helper, false, list_formats, 1);
+    inject::helper_set_selection(&helper, list_formats, 1);
     expect("clipboard_changed for the file list", EventType::clipboard_changed, [](const Record&) { return true; });
     ClipboardCapture* capture = clipboard_capture_attachment();
     check(capture && clipboard_capture_kind(capture) == ClipboardCaptureKind::files &&
@@ -1468,7 +1467,7 @@ void test_clipboard() noexcept {
     constexpr char kGnome[] = "copy\nfile:///tmp/g.txt";
     const inject::Offered gnome_formats[] = {{"x-special/gnome-copied-files", reinterpret_cast<const u8*>(kGnome), sizeof(kGnome) - 1}};
     mark();
-    inject::helper_set_selection(&helper, false, gnome_formats, 1);
+    inject::helper_set_selection(&helper, gnome_formats, 1);
     expect("clipboard_changed for GNOME's list", EventType::clipboard_changed, [](const Record&) { return true; });
     capture = clipboard_capture_attachment();
     check(capture && dropped_files_count(clipboard_capture_files(capture)) == 1 && wide_path_is(clipboard_capture_files(capture), 0, "/tmp/g.txt"),
@@ -1478,32 +1477,13 @@ void test_clipboard() noexcept {
     // An image from another client.
     const inject::Offered image_formats[] = {{"image/png", png, png_bytes}};
     mark();
-    inject::helper_set_selection(&helper, false, image_formats, 1);
+    inject::helper_set_selection(&helper, image_formats, 1);
     expect("clipboard_changed for the image", EventType::clipboard_changed, [](const Record&) { return true; });
     capture = clipboard_capture_attachment();
     check(capture && clipboard_capture_kind(capture) == ClipboardCaptureKind::image_png &&
               clipboard_capture_png(capture).count == png_bytes && bytes_equal(clipboard_capture_png(capture).data, png, png_bytes),
           "the image attachment is the PNG, byte for byte");
     clipboard_capture_release(capture);
-
-    // The primary selection, both ways.
-    events = helper.primary_events;
-    check(primary_selection_write_utf8(Utf8View{"primary \xC3\xA9", 10}), "primary_selection_write_utf8");
-    check(inject::helper_wait([&] { return helper.primary_events > events; }, 2000) && helper.primary && (helper.primary->mimes & 1),
-          "the clipboard manager sees the primary selection");
-    count = read_pumped(inject::helper_receive(&helper, true, "text/plain;charset=utf-8"), buffer, sizeof(buffer), 2000);
-    check(text_matches(buffer, count, "primary \xC3\xA9"), "it reads the primary text");
-    constexpr char kPrimary[] = "selected elsewhere";
-    const inject::Offered primary_formats[] = {{"text/plain;charset=utf-8", reinterpret_cast<const u8*>(kPrimary), sizeof(kPrimary) - 1}};
-    inject::helper_set_selection(&helper, true, primary_formats, 1);
-    bool read_other = false;
-    inject::helper_wait([&] {
-        pump_once(5);
-        const ClipboardTextResult other = primary_selection_read_utf8(Slice<char>{read_back, sizeof(read_back)});
-        read_other = other.ok() && text_matches(reinterpret_cast<u8*>(read_back), other.bytes, kPrimary);
-        return read_other;
-    }, 3000);
-    check(read_other, "the window learns of another client's primary selection and reads it");
 }
 
 // Text input: the helper plays the input method ---------------------------------------------------------------------------

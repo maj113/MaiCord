@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/widgets/icon.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/text/style.hpp"
 #include "maicord/ui/core/widget_builder.hpp"
 namespace maicord {

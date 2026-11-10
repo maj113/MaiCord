@@ -1,5 +1,6 @@
 #include "media_visibility_internal.hpp"
 #include "../../support/model_store_fixtures.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "../../support/message_media_controller_fixture.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
@@ -438,7 +439,7 @@ AccountMediaRequestResult WINAPI poster_control(void* instance, AccountLocalPrev
 }
 void run_poster_presentation_test(ApplicationMediaPump& pump) noexcept {
     const auto saved_instance = g_app.account.instance;
-    const auto saved_api = g_app.account.api.media_local_preview;
+    const auto saved_api = g_account_fake.media_local_preview;
     const auto saved_profile = g_app.account.status.profile_id;
     const auto saved_running = g_app.account.status.running;
     const auto saved_scope = g_app.plugin_account_scope_serial;
@@ -450,7 +451,7 @@ void run_poster_presentation_test(ApplicationMediaPump& pump) noexcept {
     const bool frame_pending = g_app.frame_pending;
     const u32 uploads = fixture_local_uploads;
     g_app.account.instance = &poster_actor;
-    g_app.account.api.media_local_preview = poster_control;
+    g_account_fake.media_local_preview = poster_control;
     g_app.account.status.profile_id = 44;
     g_app.account.status.running = true;
     g_app.plugin_account_scope_serial = 200;
@@ -536,13 +537,13 @@ void run_poster_presentation_test(ApplicationMediaPump& pump) noexcept {
         if (change == 1) ++g_app.account.status.profile_id;
         if (change == 2) ++g_app.plugin_account_scope_serial;
         if (change == 3) g_app.account.status.running = false;
-        if (change == 4) g_app.account.api.media_local_preview = nullptr;
+        if (change == 4) g_account_fake.media_local_preview = nullptr;
         application_media_posters_presented(g_app, true, 13, 14);
         check(!g_app.local_poster_presentation.pending && count == poster_presented_calls,
               "poster cleanup: stale or stopped account clears its flag without an account call");
         g_app.account.instance = &poster_actor; g_app.account.status.profile_id = 44;
         g_app.plugin_account_scope_serial = 200; g_app.account.status.running = true;
-        g_app.account.api.media_local_preview = poster_control;
+        g_account_fake.media_local_preview = poster_control;
     }
     poster_change_account = true;
     application_media_poster_uploaded(g_app, frame);
@@ -551,7 +552,7 @@ void run_poster_presentation_test(ApplicationMediaPump& pump) noexcept {
     poster_change_account = false;
     check(poster_shape_ok && g_app.frame_pending == frame_pending && fixture_local_current && fixture_local_uploads == uploads,
           "poster cleanup: receipts preserve tile ownership and readiness and do not request an extra frame");
-    g_app.account.instance = saved_instance; g_app.account.api.media_local_preview = saved_api;
+    g_app.account.instance = saved_instance; g_account_fake.media_local_preview = saved_api;
     g_app.account.status.profile_id = saved_profile; g_app.account.status.running = saved_running;
     g_app.plugin_account_scope_serial = saved_scope; g_app.local_poster_presentation = saved_pending;
     fixture_local_key = saved_local_key; fixture_local_current = saved_current; fixture_local_exact = saved_exact;
@@ -572,11 +573,11 @@ void run_visibility_test() noexcept {
     VisibilityFixture fixture{};
     g_app.account_ui = ui;
     g_app.account.instance = &fixture;
-    g_app.account.api.media_request = request_static;
-    g_app.account.api.media_guild_icon_request = request_avatar;
-    g_app.account.api.media_attachment_request = request_attachment;
-    g_app.account.api.media_advance = advance_animation;
-    g_app.account.api.media_take = take_frame;
+    g_account_fake.media_request = request_static;
+    g_account_fake.media_guild_icon_request = request_avatar;
+    g_account_fake.media_attachment_request = request_attachment;
+    g_account_fake.media_advance = advance_animation;
+    g_account_fake.media_take = take_frame;
     g_app.renderer.dpi = 96;
     g_app.renderer.media_atlas = g_app.renderer.preview_media_atlas = &fixture.atlas;
     g_app.clock = clock_initialize();

@@ -53,8 +53,6 @@ AeadResult voice_packet_initialize(VoicePacketCrypto* crypto, u64 generation, u3
     return result;
 }
 void voice_packet_release(VoicePacketCrypto* crypto) noexcept {
-    if (!crypto)
-        return;
     aes_gcm_release(&crypto->aes);
     xchacha_release(&crypto->xchacha);
     reset_value(crypto);

@@ -117,9 +117,6 @@ MessageSendObserveResult drop_attempt(MessageSendTracker* tracker, MessageTimeli
 } // namespace
 
 bool message_send_tracker_initialize(MessageSendTracker* tracker) noexcept {
-    if (!tracker) {
-        return false;
-    }
     reset_value<MessageSendTracker>(tracker);
     tracker->initialized = true;
     return true;
@@ -129,7 +126,7 @@ MessageSendBeginResult message_send_tracker_begin(
     MessageSendTracker* tracker, MessageTimeline* timeline, u64 channel_id, u64 author_id,
     const Utf8View& content, u64 now_unix_ms, u64 now_monotonic_ms, bool has_attachments,
     const ConstSlice<GatewayMessageAttachment>& local_attachments, bool insert_local_preview) noexcept {
-    if (!tracker || !tracker->initialized || !timeline || !timeline->store || channel_id == 0 ||
+    if (!tracker->initialized || !timeline || !timeline->store || channel_id == 0 ||
         author_id == 0 || now_unix_ms == 0 || now_monotonic_ms == 0 || (!content.data && content.bytes) ||
         (content.bytes == 0 && !has_attachments)) {
         return MessageSendBeginResult{0, {}, MessageSendTrackerError::invalid_input};
@@ -160,7 +157,7 @@ MessageSendBeginResult message_send_tracker_begin(
 
 MessageSendObserveResult message_send_tracker_retry(MessageSendTracker* tracker, MessageTimeline* timeline,
                                                     u64 nonce, u64 now_monotonic_ms) noexcept {
-    if (!tracker || !tracker->initialized || !timeline || !timeline->store || now_monotonic_ms == 0) {
+    if (!tracker->initialized || !timeline || !timeline->store || now_monotonic_ms == 0) {
         return observe_error(MessageSendTrackerError::invalid_input);
     }
     MessageSendAttempt* const attempt = find_attempt(tracker, nonce);
@@ -205,7 +202,7 @@ MessageSendObserveResult message_send_tracker_observe_http(MessageSendTracker* t
                                                            u16 http_status,
                                                            MessageSendHttpDisposition disposition,
                                                            u64 now_monotonic_ms, u64 retry_at_ms) noexcept {
-    if (!tracker || !tracker->initialized || !timeline || nonce == 0 || now_monotonic_ms == 0) {
+    if (!tracker->initialized || !timeline || nonce == 0 || now_monotonic_ms == 0) {
         return observe_error(MessageSendTrackerError::invalid_input);
     }
     MessageSendAttempt* const attempt = find_attempt(tracker, nonce);
@@ -293,7 +290,7 @@ MessageSendObserveResult message_send_tracker_observe_gateway(MessageSendTracker
 
 MessageSendObserveResult message_send_tracker_confirm(MessageSendTracker* tracker,
     MessageTimeline* timeline, u64 nonce, u64 channel_id, u64 author_id, u64 authoritative_id, MessageSendConfirmationSource source) noexcept {
-    if (!tracker || !tracker->initialized || !timeline || !timeline->store ||
+    if (!tracker->initialized || !timeline || !timeline->store ||
         !nonce || !channel_id || !author_id || !authoritative_id ||
         (source != MessageSendConfirmationSource::history && source != MessageSendConfirmationSource::response)) {
         return observe_error(MessageSendTrackerError::invalid_input);
@@ -318,7 +315,7 @@ bool message_send_tracker_tick(MessageSendTracker* tracker, MessageTimeline* tim
     if (changed) {
         *changed = false;
     }
-    if (!tracker || !tracker->initialized || !timeline || now_monotonic_ms == 0 || !changed) {
+    if (!tracker->initialized || !timeline || now_monotonic_ms == 0 || !changed) {
         return false;
     }
     for (u32 index = 0; index < kMessageSendTrackerCapacity; ++index) {
@@ -350,7 +347,7 @@ bool message_send_tracker_tick(MessageSendTracker* tracker, MessageTimeline* tim
 
 bool message_send_tracker_take_completion(MessageSendTracker* tracker,
                                           MessageSendCompletion* completion) noexcept {
-    if (!tracker || !tracker->initialized || !completion || tracker->completion_count == 0) {
+    if (!tracker->initialized || !completion || tracker->completion_count == 0) {
         return false;
     }
     *completion = tracker->completions[tracker->completion_read];

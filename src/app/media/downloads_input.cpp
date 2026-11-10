@@ -29,8 +29,8 @@ bool application_downloads_pump() noexcept {
     picker_complete(*q);
     if (q->active_job != kNoDownload) {
         auto& j = q->jobs[q->active_job];
-        if (q->account_instance == g_app.account.instance && g_app.account.api.download) {
-            const auto state = g_app.account.api.download(q->account_instance,
+        if (q->account_instance == g_app.account.instance) {
+            const auto state = account_module_download(q->account_instance,
                                                           AccountDownloadOperation::status, j.id, nullptr);
             if (state.id == j.id) {
                 if (!bytes_equal(&j.transfer, &state.transfer, sizeof(j.transfer))) {
@@ -38,7 +38,7 @@ bool application_downloads_pump() noexcept {
                     changed(*q);
                 }
                 if (state.transfer.phase == HttpsFileDownloadPhase::complete) {
-                    const auto released = g_app.account.api.download(
+                    const auto released = account_module_download(
                         q->account_instance, AccountDownloadOperation::release, j.id, nullptr);
                     if (released.released) {
                         j.admitted = false;
@@ -146,7 +146,7 @@ bool application_downloads_pump() noexcept {
         request.destination = j.destination;
         request.destination_exists = j.destination_exists;
         request.overwrite_authorized = j.overwrite_authorized;
-        const auto started = g_app.account.api.download(g_app.account.instance,
+        const auto started = account_module_download(g_app.account.instance,
                                                         AccountDownloadOperation::start, j.id, &request);
         if (started.submit_error != HttpsFileDownloadError::none || started.id != j.id) {
             if (!started.released && started.id == j.id) {
@@ -509,9 +509,8 @@ bool application_downloads_release() noexcept {
     if (!native_file_picker_release(&q->picker, 0))
         return false;
     q->picker_job = kNoDownload;
-    if (q->active_job != kNoDownload && q->account_instance == g_app.account.instance &&
-        g_app.account.api.download) {
-        const auto result = g_app.account.api.download(
+    if (q->active_job != kNoDownload && q->account_instance == g_app.account.instance) {
+        const auto result = account_module_download(
             q->account_instance, AccountDownloadOperation::release, q->jobs[q->active_job].id, nullptr);
         if (!result.released)
             return false;

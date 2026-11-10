@@ -7,7 +7,7 @@ namespace maicord {
 // Go Live sending: the UI's view of the local user's own stream. The session
 // lives in the account module on the gateway worker and owns the capture, the
 // encoder, stream audio and the stream server connection; the UI reaches it
-// through AccountModuleApi::go_live / go_live_snapshot / go_live_preview.
+// through account_module_go_live / account_module_go_live_snapshot / account_module_go_live_preview.
 //
 //   start -> STREAM_CREATE (op 18) -> STREAM_CREATE + STREAM_SERVER_UPDATE ->
 //   stream voice connection (sender: video SSRCs from Ready, op 12, DAVE) ->

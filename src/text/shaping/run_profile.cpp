@@ -52,24 +52,6 @@ SfntStatus native_plan_steps_run(u32 kind,Arena& state,Arena& scratch,NativePlan
     for(u32 i=0;i<filled_steps.count;++i)lookups[i]=filled_steps[i].lookup;
     roots={lookups.data,lookups.count};return SfntStatus::ok;
 }
-SfntStatus native_plan_tables_run(const NativePlanSource& source,const SfntLayout (&layouts)[2],Arena& state,Arena& scratch,
-    NativeTablePass pass,const void* context,NativePlanTables& output,u32 work) noexcept {
-    for(u32 kind=0;kind<2;++kind){const auto& layout=layouts[kind];if(!layout.table.data)continue;
-        ArenaScope temporary{&scratch,arena_mark(&scratch)};
-        if(!kind&&!source.parent->substitutions)return SfntStatus::invalid_input;
-        SfntFeatureSubstitutions variations{};auto status=native_layout_variations(*source.instance,layout,scratch,variations,work);
-        if(status!=SfntStatus::ok)return status;
-        auto mask=take<u8>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
-        ConstSlice<SfntLookupStep> steps{};ConstSlice<u16> roots{};
-        struct Pass {NativeTablePass pass;const void* context;const SfntLayout& layout;const SfntFeatureSubstitutions& variations;Slice<u8> mask;} table{pass,context,layout,variations,mask};
-        status=native_plan_steps_run(kind,state,scratch,[](const void* data,Slice<SfntLookupStep> out,SfntLookupPlanResult* result) noexcept {
-            const auto& t=*static_cast<const Pass*>(data);return t.pass(t.context,t.layout,t.variations,t.mask,out,result);},&table,steps,roots,nullptr,false);
-        if(status!=SfntStatus::ok)return status;
-        if(!kind){output.substitution_steps=steps.data;output.substitution_count=steps.count;}
-        else{output.positioning_roots=roots.data;output.positioning_count=static_cast<u16>(roots.count);}
-    }
-    return SfntStatus::ok;
-}
 SfntStatus native_positioning_prepare(const NativeFontFace& font,const SfntShapePlan& parent,ConstSlice<u16> roots,
     Arena& state,Arena& scratch,const SfntGposProgram** output,u32 work) noexcept {
     const auto* existing=parent.positioning;*output=nullptr;if(roots.count>work)return SfntStatus::resource_limit;

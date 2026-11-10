@@ -74,7 +74,7 @@ void voice_setup_release(VoiceConnectionSetup* setup) noexcept {
 }
 
 bool voice_setup_begin(VoiceConnectionSetup* setup, u64 guild_id, u64 channel_id, u64 now_ms) noexcept {
-    if (!setup || !setup->user_id || !setup->login_session.bytes || !channel_id)
+    if (!setup->user_id || !setup->login_session.bytes || !channel_id)
         return false;
     voice_setup_leave(setup);
     if (setup->generation == ~u64{0})
@@ -88,7 +88,6 @@ bool voice_setup_begin(VoiceConnectionSetup* setup, u64 guild_id, u64 channel_id
 
 VoiceSetupResult voice_setup_bind_utf8(VoiceConnectionSetup* setup, u64 user_id,
                                        const Utf8View& session) noexcept {
-    if (!setup) return VoiceSetupResult::invalid_input;
     voice_setup_release(setup);
     if (!user_id || !session.bytes || !session.data || !utf8_validate(session).valid)
         return VoiceSetupResult::invalid_input;
@@ -175,7 +174,7 @@ VoiceSetupResult voice_setup_server(VoiceConnectionSetup* setup, const GatewayVo
 }
 
 bool voice_setup_stream_begin(VoiceConnectionSetup* setup, u64 server_id, u64 channel_id, u64 now_ms) noexcept {
-    if (!setup || !setup->user_id || !setup->login_session.bytes || server_id < 2)
+    if (!setup->user_id || !setup->login_session.bytes || server_id < 2)
         return false;
     if (!channel_id)
         channel_id = server_id - 1;
@@ -196,7 +195,7 @@ bool voice_setup_stream_begin(VoiceConnectionSetup* setup, u64 server_id, u64 ch
 
 VoiceSetupResult voice_setup_stream_server(VoiceConnectionSetup* setup, JsonString token, JsonString endpoint,
                                            bool unavailable) noexcept {
-    if (!setup || setup->phase == VoiceSetupPhase::idle || !setup->stream)
+    if (setup->phase == VoiceSetupPhase::idle || !setup->stream)
         return VoiceSetupResult::ignored;
     const auto result = assign_server(setup, token, endpoint, unavailable);
     if (result == VoiceSetupResult::credentials_ready)
@@ -210,7 +209,7 @@ bool voice_setup_current(const VoiceConnectionSetup& setup, u64 generation) noex
 }
 
 bool voice_setup_credentials(const VoiceConnectionSetup& setup, VoiceSetupCredentials* output) noexcept {
-    if (!output || !voice_setup_current(setup, setup.generation))
+    if (!voice_setup_current(setup, setup.generation))
         return false;
     *output = {setup.generation,
                setup.server_id ? setup.server_id : setup.guild_id ? setup.guild_id : setup.channel_id,

@@ -129,7 +129,7 @@ bool application_interaction_card_toggle(u64 message_id) noexcept {
 }
 
 bool application_interaction_card_target(u64 scope, UiTooltipTarget* target, UiTooltipStyle* style) noexcept {
-    if (!g_card.open || !target || !style)
+    if (!g_card.open)
         return false;
     const auto& renderer = g_app.renderer;
     UiRect anchor{};
@@ -162,7 +162,7 @@ bool application_interaction_card_pending(u64) noexcept {
 bool application_interaction_card_submit(u64 request_id, u64) noexcept {
     if (!request_id || !application_interaction_card_pending(0))
         return false;
-    if (!available() || !g_app.account.api.application_command) {
+    if (!available()) {
         g_card.phase = Phase::done;
         return false;
     }
@@ -172,7 +172,7 @@ bool application_interaction_card_submit(u64 request_id, u64) noexcept {
         publish({g_cache.text, g_cache.bytes});
         return false;
     }
-    const auto result = g_app.account.api.application_command(g_app.account.instance, g_card.channel_id, 0, 0,
+    const auto result = account_module_application_command(g_app.account.instance, g_card.channel_id, 0, 0,
                                                               g_card.message_id, {}, request_id,
                                                               kInteractionDataOperation);
     if (!result.ok()) {

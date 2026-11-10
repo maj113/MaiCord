@@ -28,7 +28,7 @@ u64 private_conversation_cached(const ChatStateStore& state, u64 user_id) noexce
 }
 bool private_conversation_begin(PrivateConversationRequest* request, const ChatStateStore& state,
     PrivateConversationOperation operation, u64 target_id) noexcept {
-    if (!request || !target_id || !state.self_user_id ||
+    if (!target_id || !state.self_user_id ||
         (request->phase != PrivateConversationPhase::idle && request->phase != PrivateConversationPhase::failed)) return false;
     const auto* channel = chat_state_store_find_channel(state, target_id);
     if (operation == PrivateConversationOperation::open) { if (target_id == state.self_user_id) return false; }
@@ -46,7 +46,7 @@ bool private_conversation_due(const PrivateConversationRequest& request, u64 now
         (request.phase == PrivateConversationPhase::retry_wait && now_ms >= request.retry_at_ms);
 }
 bool private_conversation_validate_target(PrivateConversationRequest* request, const ChatStateStore& state) noexcept {
-    if (!request || !request->target_id) return false;
+    if (!request->target_id) return false;
     if (request->operation == PrivateConversationOperation::open) return state.self_user_id && request->target_id != state.self_user_id;
     const auto* channel = chat_state_store_find_channel(state, request->target_id);
     if (channel && channel->type == 1 && channel->generation == request->channel_generation) return true;
@@ -55,7 +55,7 @@ bool private_conversation_validate_target(PrivateConversationRequest* request, c
 }
 bool private_conversation_accept(PrivateConversationRequest* request, ChatStateStore* state, UserStore* users,
     const RestClientResponse& response, Utf8View body, Slice<u32> scratch, Slice<char> packet, Slice<u64> ids) noexcept {
-    if (!request || !state || request->phase != PrivateConversationPhase::awaiting || response.request_id != request->request_id) return false;
+    if (request->phase != PrivateConversationPhase::awaiting || response.request_id != request->request_id) return false;
     const auto fail = [&](PrivateConversationError error) noexcept {
         request->phase = PrivateConversationPhase::failed;
         request->error = error;

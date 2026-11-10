@@ -1,7 +1,6 @@
 #pragma once
 // Shared by video.cpp and its parts (video_*.cpp); private to them.
 #include "downloads.hpp"
-#include "maicord/core/intrinsics.hpp"
 #include "video.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/state.hpp"
@@ -128,7 +127,7 @@ bool resolve_search_video_source(const ApplicationSearchSourceTicket& ticket, bo
 bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 item, InlineMediaSource* out,
                                   bool snapshot = false,
                                   const ApplicationSearchSourceTicket* search_source = nullptr) noexcept;
-bool request_video_source(const InlineMediaSource& source, bool* refresh = nullptr, ApplicationVideo* playback = nullptr) noexcept;
+bool request_video_source(const InlineMediaSource& source, bool* refresh, ApplicationVideo* playback) noexcept;
 bool send_video_command(ApplicationVideo& video, AccountVideoCommand kind, i64 seek = 0, float volume = 1,
                         bool muted = false) noexcept;
 bool set_video_expanded(ApplicationVideo& video, bool expanded) noexcept;

@@ -24,8 +24,6 @@
 #include "maicord/ui/text/regional_flag.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
-
 namespace maicord::app_detail {
 namespace {
 
@@ -37,9 +35,8 @@ u64 g_mention_member_interest_key = 0;
 u64 g_mention_member_interest_channel = 0;
 
 void cancel_member_query() noexcept {
-    if (g_mention_member_interest_key && g_app.account.instance &&
-        g_app.account.api.guild_members_query_cancel)
-        g_app.account.api.guild_members_query_cancel(g_app.account.instance);
+    if (g_mention_member_interest_key && g_app.account.instance)
+        account_module_guild_members_query_cancel(g_app.account.instance);
     g_mention_member_interest_key = g_mention_member_interest_channel = 0;
     mention_member_query_cancel(&g_mention_member_query);
 }
@@ -260,8 +257,7 @@ void application_mention_member_query_tick(u64 now_ms) noexcept {
     GatewayGuildMemberRequest request{};
     if (!mention_member_query_due(g_mention_member_query, now_ms, &request))
         return;
-    const bool admitted = g_app.account.instance && g_app.account.api.guild_members_request &&
-                          g_app.account.api.guild_members_request(g_app.account.instance, &request);
+    const bool admitted = g_app.account.instance && account_module_guild_members_request(g_app.account.instance, &request);
     mention_member_query_complete(&g_mention_member_query, request, now_ms, admitted);
 }
 

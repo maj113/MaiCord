@@ -140,8 +140,7 @@ bool scope_current() noexcept {
            owner->profile_id == g_app.account.status.profile_id && owner->self_user_id == state().self_user_id;
 }
 bool connected() noexcept {
-    return g_app.account.instance && g_app.account.status.running && g_app.account.status.gateway_ready &&
-           g_app.account.api.guild_admin;
+    return g_app.account.instance && g_app.account.status.running && g_app.account.status.gateway_ready;
 }
 bool busy() noexcept {
     return owner->request.queued || owner->request_id;
@@ -933,8 +932,8 @@ bool probe_profile_image(Picked* picked, ConstSlice<wchar_t> path, ProfileImageI
                                                   {owner->size_error, sizeof(owner->size_error)});
         return false;
     }
-    if (g_app.account.api.profile_image && g_app.account.instance &&
-        g_app.account.api.profile_image(g_app.account.instance, &request) && info->error == ProfileImageError::none)
+    if (g_app.account.instance && account_module_profile_image(g_app.account.instance, &request) &&
+        info->error == ProfileImageError::none)
         return true;
     *error = info->error == ProfileImageError::format ? utf8_literal("Choose a PNG, JPEG, WebP or GIF image.")
                                                       : utf8_literal("This image couldn't be read.");
@@ -1345,8 +1344,7 @@ bool application_guild_image_probe(GuildImageProfile profile, ConstSlice<u8> ima
     request.info = info;
     request.data_uri = data_uri;
     reset_value(info);
-    return g_app.account.api.guild_assets && g_app.account.instance &&
-           g_app.account.api.guild_assets(g_app.account.instance, &request, 0).ok() &&
+    return g_app.account.instance && account_module_guild_assets(g_app.account.instance, &request, 0).ok() &&
            info->error == GuildImageError::none;
 }
 
@@ -1554,7 +1552,7 @@ void application_guild_settings_release() noexcept {
     if (!owner)
         return;
     // A null request cancels this DETAILS request; its receipt is still drained.
-    application_cancel_request(&AccountModuleApi::guild_admin, owner->request_id);
+    application_cancel_request(account_module_guild_admin, owner->request_id);
     members_release();
     apps_release();
     automod_release();

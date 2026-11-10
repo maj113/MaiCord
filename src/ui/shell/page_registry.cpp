@@ -38,35 +38,6 @@ UiPageResult ui_page_registry_register(UiPageRegistry* registry, const UiPage& p
     return {UiPageError::none, true};
 }
 
-// Drops every page of an owner, retaining the selection by logical identity while
-// compacting. If it is removed, selects the first survivor after its original
-// position, then the last before.
-u32 ui_page_registry_unregister_owner(UiPageRegistry* registry, u64 owner_id) noexcept {
-    if (!registry || !registry->storage.data || !owner_id) return 0;
-    const u32 old_count = registry->count;
-    const u32 old_selected = registry->selected_index;
-    u32 count = 0;
-    u32 selected = kUiPageNoSelection;
-    u32 following = kUiPageNoSelection;
-    for (u32 index = 0; index < old_count; ++index) {
-        const UiPage& page = registry->storage[index];
-        if (page.key.owner_id == owner_id) continue;
-        if (index == old_selected) selected = count;
-        if (index > old_selected && following == kUiPageNoSelection) following = count;
-        if (count != index) registry->storage[count] = page;
-        ++count;
-    }
-    if (count == old_count) return 0;
-    // Erase removed descriptors so dormant slots retain no plugin pointers.
-    for (u32 index = count; index < old_count; ++index) reset_value(&registry->storage[index]);
-    registry->count = count;
-    registry->selected_index = !count ? kUiPageNoSelection :
-        selected != kUiPageNoSelection ? selected :
-        following != kUiPageNoSelection ? following : count - 1;
-    saturating_increment(registry->revision);
-    return old_count - count;
-}
-
 UiPageResult ui_page_registry_select(UiPageRegistry* registry, UiPageKey key) noexcept {
     if (!registry || !registry->storage.data || !valid_key(key))
         return {UiPageError::invalid_argument, false};

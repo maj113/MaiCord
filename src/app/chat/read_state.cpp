@@ -25,8 +25,6 @@
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
 #include "../account/account_ui_runtime.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 
 namespace maicord::app_detail {
@@ -76,7 +74,7 @@ bool read_surfaces_blocked() noexcept {
            (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active);
 }
 bool account_live() noexcept {
-    return g_app.account_ui && g_app.account.instance && g_app.account.api.message_ack &&
+    return g_app.account_ui && g_app.account.instance &&
            !g_app.account.stop_failed && !g_app.login.visible && g_app.plugin_account_scope_serial &&
            g_app.account.status.profile_id && g_app.account_ui->chat_state.self_user_id;
 }
@@ -715,7 +713,7 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
         abandon(owner, intent.channel_id, captured, manual, 400);
         return false;
     }
-    const auto submitted = g_app.account.api.message_ack(
+    const auto submitted = account_module_message_ack(
         g_app.account.instance, intent.channel_id, intent.message_id,
         {g_app.account_ui->response_shape_scratch.response, body.bytes}, request_id);
     if (!submitted.ok()) {
@@ -905,7 +903,7 @@ void application_read_state_release(Application& application) noexcept {
 }
 bool application_read_state_scoped_prepare(ConstSlice<ReadScopeTarget> targets, bool individual,
                                            u64* first_serial) noexcept {
-    if (!first_serial || (!targets.data && targets.count) || targets.count > kReadAckMaximumIntents ||
+    if ((!targets.data && targets.count) || targets.count > kReadAckMaximumIntents ||
         !account_live())
         return false;
     application_read_state_ready();

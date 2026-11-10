@@ -127,14 +127,12 @@ namespace {
 
 MessageMediaControllerResult failure(MessageMediaController* controller, MessageMediaControllerError error,
                                      u32 visited = 0, u32 candidates = 0) noexcept {
-    if (controller) {
-        saturating_increment(controller->rejected);
-    }
+    saturating_increment(controller->rejected);
     return MessageMediaControllerResult{visited, candidates, error, false};
 }
 
 bool controller_valid(const MessageMediaController* controller) noexcept {
-    return controller && controller->initialized && controller->rows && controller->asset_marks &&
+    return controller->initialized && controller->rows && controller->asset_marks &&
            controller->row_capacity != 0 && controller->asset_mark_capacity != 0 &&
            controller->row_count <= controller->row_capacity;
 }
@@ -248,7 +246,7 @@ constexpr u64 kEmojiMemoAnimated = 1ull << 63, kEmojiMemoFlag = 1ull << 62;
 MessageMediaEmojiMemo* emoji_memo_slot(MessageMediaController* controller, u64 message_id, u32 revision,
                                        Utf8View content, u8 scope, bool* hit) noexcept {
     *hit = false;
-    if (!controller || !controller->emoji_memo || !message_id)
+    if (!controller->emoji_memo || !message_id)
         return nullptr;
     const u32 slot = static_cast<u32>(hash64_mix(hash64_mix(kHash64Seed, message_id), scope)) &
                      (kMessageMediaEmojiMemoSlots - 1);
@@ -365,7 +363,7 @@ bool visit_inline_emojis(const MessageMediaControllerCallbacks& callbacks, Utf8V
 
 bool message_media_controller_initialize_owned(MessageMediaController* controller, u32 row_capacity,
                                                u32 asset_mark_capacity) noexcept {
-    if (!controller || controller->owned_rows.arena.base || controller->owned_asset_marks.arena.base ||
+    if (controller->owned_rows.arena.base || controller->owned_asset_marks.arena.base ||
         row_capacity == 0 || !is_power_of_two(asset_mark_capacity) || asset_mark_capacity < 4) {
         return false;
     }
@@ -391,9 +389,6 @@ bool message_media_controller_initialize_owned(MessageMediaController* controlle
 }
 
 void message_media_controller_release(MessageMediaController* controller) noexcept {
-    if (!controller) {
-        return;
-    }
     if (controller->owns_storage) {
         stable_storage_release(&controller->owned_asset_marks);
         stable_storage_release(&controller->owned_rows);
@@ -426,7 +421,7 @@ bool message_media_controller_animation_plays(const MessageMediaController& cont
 }
 
 bool message_media_controller_set_interaction(MessageMediaController* controller, u64 message_id) noexcept {
-    if (!controller || controller->interacting_message_id == message_id)
+    if (controller->interacting_message_id == message_id)
         return false;
     controller->interacting_message_id = message_id;
     controller->scan_pending = true;
@@ -434,7 +429,7 @@ bool message_media_controller_set_interaction(MessageMediaController* controller
 }
 
 bool message_media_controller_set_avatar_interaction(MessageMediaController* controller, u64 message_id) noexcept {
-    if (!controller || controller->avatar_message_id == message_id)
+    if (controller->avatar_message_id == message_id)
         return false;
     controller->avatar_message_id = message_id;
     controller->scan_pending = true;
@@ -442,7 +437,7 @@ bool message_media_controller_set_avatar_interaction(MessageMediaController* con
 }
 
 bool message_media_controller_set_avatar_hover(MessageMediaController* controller, u64 message_id) noexcept {
-    if (!controller || controller->avatar_hover_message_id == message_id)
+    if (controller->avatar_hover_message_id == message_id)
         return false;
     controller->avatar_hover_message_id = message_id;
     controller->scan_pending = true;
@@ -667,7 +662,7 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
     AnimationTimeline* animations, MediaAtlas* media_atlas, u64 now_us,
     const MessageMediaControllerCallbacks& callbacks, const MessageRichStore* rich_store) noexcept {
     if (!controller_valid(controller) || !messages.records || !messages.text || !users.records ||
-        !animations || !media_atlas || !callbacks.avatar || !callbacks.asset) {
+        !media_atlas || !callbacks.avatar || !callbacks.asset) {
         return failure(controller, MessageMediaControllerError::invalid_input);
     }
     u32 candidates = 0;
@@ -782,7 +777,7 @@ MessageMediaControllerResult message_media_controller_visit_asset(
     MessageMediaController* controller, MediaAssetKey key, bool animated,
     AnimationTimeline* animations, MediaAtlas* media_atlas, u64 now_us,
     const MessageMediaControllerCallbacks& callbacks) noexcept {
-    if (!controller_valid(controller) || !media_asset_key_valid(key) || !animations || !media_atlas ||
+    if (!controller_valid(controller) || !media_asset_key_valid(key) || !media_atlas ||
         !callbacks.asset)
         return failure(controller, MessageMediaControllerError::invalid_input);
     u32 candidates = 0;

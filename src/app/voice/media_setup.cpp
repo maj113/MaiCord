@@ -11,7 +11,7 @@ void voice_media_clear(VoiceMediaSetup* setup) noexcept {
     reset_value(setup);
 }
 VoiceMediaSetupError voice_media_ready(VoiceMediaSetup* setup, const VoiceReady& ready) noexcept {
-    if (!setup || !ready.ssrc || !ready.port)
+    if (!ready.ssrc || !ready.port)
         return VoiceMediaSetupError::decode;
     char ip[64]{};
     const auto decoded = json_string_decode_utf8(ready.ip, {ip, sizeof(ip) - 1});
@@ -76,7 +76,7 @@ VoiceMediaSetupError voice_media_description(VoiceMediaSetup* setup, JsonValue d
     return error;
 }
 bool voice_media_session_update(VoiceMediaSetup* setup, const VoiceSessionUpdate& update) noexcept {
-    if (!setup || !setup->has_description)
+    if (!setup->has_description)
         return false;
     if (update.has_video_codec)
         setup->video_codec = update.video;

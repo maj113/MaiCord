@@ -1,6 +1,7 @@
 #include "account/profile.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
 #include "../../support/model_store_fixtures.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "shell/state.hpp"
 #include "account/account_presentation.hpp"
 #include "account/friends.hpp"
@@ -189,8 +190,8 @@ bool setup() noexcept {
         copy_bytes(names + i * 8, "Role", 4);
     }
     roles[20].self_assigned = true;
-    g_app.account.api.guild_admin = submit_roles;
-    g_app.account.api.profile_get = read_profile;
+    g_account_fake.guild_admin = submit_roles;
+    g_account_fake.profile_get = read_profile;
     auto& p = *g_app.profile;
     if (!application_profile_decode_into(g_app.account_ui->profile_decode, kBefore, 42, 7, p.data) ||
         !popup_scene_initialize(&g_app.popup_scene, {popup_items, 100}, {popup_rows, 100},

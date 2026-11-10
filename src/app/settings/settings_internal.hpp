@@ -147,7 +147,7 @@ const UiSettingsControl* choice_control(const ApplicationSettingsChoice& choice)
 bool choice_popup_current(const ApplicationSettingsChoice& choice) noexcept;
 bool project_choice(ApplicationSettingsChoice choice) noexcept;
 void apply_search(ApplicationSettings& settings) noexcept;
-void set_search(ApplicationSettings& settings, const Utf8View& text) noexcept;
+void clear_search(ApplicationSettings& settings) noexcept;
 bool navigate(ApplicationSettings& settings, const UiPageKey& page, u64 control_id) noexcept;
 bool open_result(ApplicationSettings& settings, u64 control_id) noexcept;
 bool searching(const ApplicationSettings& settings) noexcept;

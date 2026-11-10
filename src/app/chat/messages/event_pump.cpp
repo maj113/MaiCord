@@ -793,7 +793,7 @@ MessageEventPumpDrainResult message_event_pump_drain(MessageEventPump* pump, voi
                                                      MessageEventPopFunction pop,
                                                      u32 maximum_events) noexcept {
     MessageEventPumpDrainResult result{};
-    if (!pump || !pump->timeline || !source || !pop || maximum_events == 0) {
+    if (!pump->timeline || !source || !pop || maximum_events == 0) {
         result.error = MessageEventPumpError::invalid_input;
         return result;
     }

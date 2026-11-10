@@ -185,8 +185,6 @@ bool voice_video_source(const VoiceSsrcBinding& source) noexcept {
 
 bool voice_video_sink_packet(VoiceVideoSink* sink, const VoiceReceivedPacket& packet, ConstSlice<u8> plaintext,
                              u64 now_us) noexcept {
-    if (!sink)
-        return false;
     const auto& layout = packet.transport.layout;
     if (!packet.transport.ok() || layout.kind != MediaPacketKind::rtp || !voice_video_source(packet.source) ||
         packet.member.user_id != packet.source.user_id || !packet.source.primary_ssrc ||
@@ -204,18 +202,14 @@ bool voice_video_sink_packet(VoiceVideoSink* sink, const VoiceReceivedPacket& pa
 }
 
 void voice_video_sink_rtcp(VoiceVideoSink* sink, ConstSlice<u8> plaintext, u64 now_us) noexcept {
-    if (!sink || !sink->rtp_ready)
+    if (!sink->rtp_ready)
         return;
     video_rtp_receive_rtcp(&sink->rtp, plaintext, now_us);
 }
 
 void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, bool media_current, u64 now_ms,
                             u64 now_us) noexcept {
-    if (!sink)
-        return;
     sink->deadline_ms = 0;
-    if (!connection)
-        return;
     const u32 offer = connection->media.has_description ? connection->media.video_offer : 0;
     if (offer != sink->offer) {
         sink->offer = offer;
@@ -266,7 +260,7 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
 }
 
 u32 voice_video_sink_feedback(VoiceVideoSink* sink, VoiceConnection* connection, u64 now_us) noexcept {
-    if (!sink || !connection || !sink->rtp_ready)
+    if (!sink->rtp_ready)
         return 0;
     const Slice<u8> output{sink->feedback, sizeof(sink->feedback)};
     const u32 core = video_rtp_feedback(&sink->rtp, now_us, output);
@@ -280,8 +274,6 @@ u32 voice_video_sink_feedback(VoiceVideoSink* sink, VoiceConnection* connection,
 }
 
 void voice_video_sink_stop(VoiceVideoSink* sink) noexcept {
-    if (!sink)
-        return;
     log_summary(*sink);
     while (sink->ended_count)
         end_stream(*sink, sink->ended_count - 1);
@@ -305,7 +297,7 @@ void voice_video_sink_stop(VoiceVideoSink* sink) noexcept {
 }
 
 void voice_video_sink_request_keyframe(VoiceVideoSink* sink, u32 ssrc) noexcept {
-    if (!sink || !ssrc)
+    if (!ssrc)
         return;
     bool queued = false;
     for (auto& pending : sink->pending_keyframes) {
@@ -325,10 +317,6 @@ u64 voice_video_sink_deadline(const VoiceVideoSink& sink) noexcept {
 
 u32 voice_video_sink_decodable(const VoiceVideoSink& sink) noexcept {
     return sink.frames.decodable ? sink.frames.decodable(sink.frames.context) : 0;
-}
-
-u64 voice_video_sink_committed_bytes(const VoiceVideoSink& sink) noexcept {
-    return (sink.buffer ? u64{kBufferBytes} : 0) + sink.held_committed;
 }
 
 u32 voice_video_users(const VoiceConnection& connection, const VoiceVideoSink* sink, u64 self_user_id,

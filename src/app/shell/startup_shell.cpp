@@ -273,7 +273,7 @@ StartupShellOpenError startup_shell_open(ConstSlice<u8> image, u64 profile_id, u
 
 StartupShellOpenError startup_shell_load_file(const wchar_t* path, u64 profile_id, u64 now_unix_ms,
                                               StartupShellKey* key, StartupShell* shell) noexcept {
-    if (!path || !key || !shell)
+    if (!path || !shell)
         return StartupShellOpenError::format;
     const FileHandle file = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead | kFileShareDelete,
                                              kFileSequential});
@@ -306,7 +306,7 @@ StartupShellOpenError startup_shell_load_file(const wchar_t* path, u64 profile_i
 
 bool startup_shell_save_file(const wchar_t* path, StartupShellKey* key, const StartupShell& shell) noexcept {
     const u32 length = wide_length(path, kAccountProfileMaximumPathCharacters);
-    if (!length || !key || !shell.profile_id)
+    if (!length || !shell.profile_id)
         return false;
     if (!key->aead.handle || key->profile_id != shell.profile_id) {
         startup_shell_key_release(key);

@@ -43,7 +43,7 @@ MlsStatus transcript_interim(KdfSha256Workspace& kdf, MlsTranscript* transcript,
 
 MlsStatus mls_key_package_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, bool verify,
                                 MlsKeyPackage* package, u32* consumed) noexcept {
-    if (!package || !consumed || !input.data || !input.count)
+    if (!input.data || !input.count)
         return MlsStatus::invalid_argument;
     reset_value(package);
     *consumed = 0;
@@ -90,7 +90,7 @@ MlsStatus mls_key_package_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, b
 
 MlsStatus mls_external_sender_parse(const ConstSlice<u8>& input_view, MlsExternalSender* sender) noexcept {
     const ConstSlice<u8> input = input_view; // *sender is written below
-    if (!sender || !input.data || !input.count || input.count > kMlsMaxExternalSenderBytes)
+    if (!input.data || !input.count || input.count > kMlsMaxExternalSenderBytes)
         return MlsStatus::invalid_argument;
     reset_value(sender);
     MlsReader reader{input};
@@ -106,7 +106,7 @@ MlsStatus mls_external_sender_parse(const ConstSlice<u8>& input_view, MlsExterna
 MlsStatus mls_group_context_write(u64 group_id, u64 epoch, const u8* tree_hash,
                                   const u8* confirmed_transcript_hash, ConstSlice<u8> external_sender,
                                   Slice<u8> output, MlsGroupContext* context) noexcept {
-    if (!tree_hash || !context)
+    if (!tree_hash)
         return MlsStatus::invalid_argument;
     const u32 senders = mls_varint_size(external_sender.count) + external_sender.count;
     const u32 extension = 2 + mls_varint_size(senders) + senders;
@@ -247,14 +247,14 @@ MlsStatus mls_group_info_verify_confirmation(KdfSha256Workspace& kdf, const MlsG
 
 MlsStatus mls_transcript_initial(KdfSha256Workspace& kdf, MlsTranscript* transcript,
                                  const u8* tag) noexcept {
-    if (!transcript || !tag)
+    if (!tag)
         return MlsStatus::invalid_argument;
     reset_value(transcript);
     return transcript_interim(kdf, transcript, tag);
 }
 MlsStatus mls_transcript_join(KdfSha256Workspace& kdf, MlsTranscript* transcript, const u8* confirmed,
                               const u8* tag) noexcept {
-    if (!transcript || !confirmed || !tag)
+    if (!confirmed || !tag)
         return MlsStatus::invalid_argument;
     reset_value(transcript);
     copy_bytes(transcript->confirmed, confirmed, kMlsHashBytes);

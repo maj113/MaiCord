@@ -394,14 +394,10 @@ bool message_timeline_is_at_bottom(const MessageTimeline& timeline, u64 toleranc
 
 bool message_timeline_set_item_height(MessageTimeline* timeline, u32 index, u32 item_units,
                                       MessageTimelineInvalidation* invalidation) noexcept {
-    if (invalidation) {
-        reset_value<MessageTimelineInvalidation>(invalidation);
-    }
-    if (validate_timeline(timeline) != MessageTimelineError::none || !invalidation ||
+    reset_value<MessageTimelineInvalidation>(invalidation);
+    if (validate_timeline(timeline) != MessageTimelineError::none ||
         index >= timeline->list->count) {
-        if (timeline) {
-            ++timeline->rejected;
-        }
+        ++timeline->rejected;
         return false;
     }
     const u64 previous_scroll = timeline->scroll_units;

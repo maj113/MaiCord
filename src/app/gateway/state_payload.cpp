@@ -68,6 +68,20 @@ bool guild_roles_end(const GatewayClientEvent& event, ConstSlice<u8> payload, u3
     return true;
 }
 
+// Where a guild create's channel records start: after its roles and the member's role ids.
+bool guild_channels_begin(const GatewayClientEvent& event, ConstSlice<u8> payload, u32* begin) noexcept {
+    u32 roles_end = 0;
+    if (!guild_roles_end(event, payload, &roles_end)) {
+        return false;
+    }
+    const u64 prefix = static_cast<u64>(roles_end) + static_cast<u64>(event.state.member_role_count) * 8;
+    if (prefix > payload.count) {
+        return false;
+    }
+    *begin = static_cast<u32>(prefix);
+    return true;
+}
+
 } // namespace
 
 bool gateway_client_event_as_ready_guilds(const GatewayClientEvent& event, ConstSlice<u8> payload,
@@ -136,17 +150,8 @@ bool gateway_client_event_next_guild_channel(const GatewayClientEvent& event, Co
         *index >= event.state.record_count) {
         return false;
     }
-    if (*index == 0 && *cursor == 0) {
-        u32 roles_end = 0;
-        if (!guild_roles_end(event, payload, &roles_end)) {
-            return false;
-        }
-        const u64 prefix =
-            static_cast<u64>(roles_end) + static_cast<u64>(event.state.member_role_count) * 8;
-        if (prefix > payload.count) {
-            return false;
-        }
-        *cursor = static_cast<u32>(prefix);
+    if (*index == 0 && *cursor == 0 && !guild_channels_begin(event, payload, cursor)) {
+        return false;
     }
     if (*cursor < event.state.name_bytes || !read_record(payload, *cursor, channel)) {
         return false;
@@ -243,17 +248,8 @@ bool gateway_client_event_guild_emojis_begin(const GatewayClientEvent& event, Co
             return false;
         }
     }
-    if (event.state.record_count == 0) {
-        u32 roles_end = 0;
-        if (!guild_roles_end(event, payload, &roles_end)) {
-            return false;
-        }
-        const u64 prefix =
-            static_cast<u64>(roles_end) + static_cast<u64>(event.state.member_role_count) * 8;
-        if (prefix > payload.count) {
-            return false;
-        }
-        cursor = static_cast<u32>(prefix);
+    if (event.state.record_count == 0 && !guild_channels_begin(event, payload, &cursor)) {
+        return false;
     }
     *begin = cursor;
     return true;

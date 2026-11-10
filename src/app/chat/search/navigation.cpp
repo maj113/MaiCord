@@ -181,11 +181,11 @@ bool navigate() noexcept {
 }
 void retire() noexcept {
     if (navigation.request_id && !navigation.cancelled && g_app.account.instance == navigation.account_instance) {
-        if (navigation.history_request && g_app.account.api.message_search)
-            g_app.account.api.message_search(g_app.account.instance, AccountMessageSearchOperation::cancel,
-                                             nullptr, navigation.request_id);
-        else if (g_app.account.api.pinned_messages)
-            g_app.account.api.pinned_messages(g_app.account.instance, nullptr, navigation.request_id);
+        if (navigation.history_request)
+            account_module_message_search(g_app.account.instance, AccountMessageSearchOperation::cancel, nullptr,
+                                  navigation.request_id);
+        else
+            account_module_pinned_messages(g_app.account.instance, nullptr, navigation.request_id);
         navigation.cancelled = true;
     }
     if (g_app.pending_message_jump_channel_id == navigation.target_channel &&
@@ -266,7 +266,7 @@ bool begin_navigation(const ApplicationSearchNavigationSource& source, const Mes
         return true;
     }
     // A named guild was proven present and available above.
-    if (!target.guild_id || !g_app.account.api.channel_overview) {
+    if (!target.guild_id) {
         finish(utf8_literal("This channel isn't available on this account."), ApplicationMessageNavigationStage::message_missing, 404);
         return true;
     }
@@ -415,12 +415,11 @@ u64 application_search_navigation_next_wake() noexcept {
 }
 bool application_search_navigation_submit(u64 id, u64 now) noexcept {
     if (!id || !application_search_navigation_pending(now)) return false;
-    if (!g_app.account.api.channel_overview) { finish(utf8_literal("Couldn't load the channel.")); return false; }
     const u64 target = navigation.phase == MessageNavigationPhase::parent ? navigation.parent : navigation.target_channel;
     const auto* resident = chat_state_store_find_channel(g_app.account_ui->chat_state, target);
     const u16 generation = resident ? resident->generation : u16{};
     const u32 revision = resident ? resident->revision : u32{};
-    const auto submitted = g_app.account.api.channel_overview(g_app.account.instance,
+    const auto submitted = account_module_channel_overview(g_app.account.instance,
         ChannelOverviewOperation::fetch, target, nullptr, id);
     if (!submitted.ok()) {
         if (submitted.error == RestClientSubmitError::busy) {

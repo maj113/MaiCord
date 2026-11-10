@@ -1,4 +1,5 @@
 #include "../../../src/app/account/custom_status.cpp"
+#include "../../support/account_module_fake.hpp"
 
 namespace maicord::app_detail {
 // The response fixture has no selected account view to repaint.
@@ -15,9 +16,9 @@ bool WINAPI complete_retry(void*, u64, u64, u64, const RestClientResponse*, Utf8
 
 void test_custom_status_retry(void (*check)(bool, const char*) noexcept) noexcept {
     const auto old_instance = g_app.account.instance;
-    const auto old_complete = g_app.account.api.self_status_complete;
+    const auto old_complete = g_account_fake.self_status_complete;
     g_app.account.instance = &retry_completions;
-    g_app.account.api.self_status_complete = complete_retry;
+    g_account_fake.self_status_complete = complete_retry;
     retry_completions = 0;
     for (u32 kind = 0; kind < 5; ++kind) {
         request = {};
@@ -42,6 +43,6 @@ void test_custom_status_retry(void (*check)(bool, const char*) noexcept) noexcep
     check(retry_completions == 5, "custom status completes each owned receipt once");
     request = {};
     g_app.account.instance = old_instance;
-    g_app.account.api.self_status_complete = old_complete;
+    g_account_fake.self_status_complete = old_complete;
 }
 } // namespace maicord::app_detail

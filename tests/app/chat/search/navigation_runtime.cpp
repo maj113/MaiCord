@@ -3,6 +3,7 @@
 #include "../../../../src/app/chat/search/navigation.cpp"
 #include "../../../support/model_store_fixtures.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 
@@ -519,9 +520,9 @@ extern "C" void maicord_application_search_navigation_runtime_entry() noexcept {
     if (!g_app.account_ui) ExitProcess(1);
     g_app.account.instance=&search_navigation_test::accepted_source;
     g_app.account.status.running=true; g_app.account.status.profile_id=5; g_app.plugin_account_scope_serial=3;
-    g_app.account.api.channel_overview=search_navigation_test::fetch;
-    g_app.account.api.pinned_messages=search_navigation_test::cancel_details;
-    g_app.account.api.message_search=search_navigation_test::cancel_history;
+    g_account_fake.channel_overview=search_navigation_test::fetch;
+    g_account_fake.pinned_messages=search_navigation_test::cancel_details;
+    g_account_fake.message_search=search_navigation_test::cancel_history;
     search_navigation_test::tests();
     search_navigation_test::timeline_tests();
     application_message_navigation_release(); VirtualFree(g_app.account_ui,0,MEM_RELEASE);

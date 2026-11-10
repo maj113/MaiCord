@@ -2,6 +2,7 @@
 #include "../../../../src/app/chat/composer/preview.hpp"
 #include "../../../../src/app/shell/state.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 // Shipping composer preview owner with a controlled account boundary: MP4/MOV
@@ -67,7 +68,7 @@ void test_composer_preview_owner(void (*check)(bool, const char*) noexcept) noex
     auto* const saved_attachments = g_app.attachments;
     void* const saved_instance = g_app.account.instance;
     const u64 saved_profile = g_app.account.status.profile_id;
-    const auto saved_media = g_app.account.api.media_local_preview;
+    const auto saved_media = g_account_fake.media_local_preview;
     auto* const saved_atlas = g_app.renderer.preview_media_atlas;
     auto* const saved_device = g_app.renderer.graphics.device;
     static MediaAtlas atlas;
@@ -87,7 +88,7 @@ void test_composer_preview_owner(void (*check)(bool, const char*) noexcept) noex
     if (ready) {
         g_app.account.instance = &actor;
         g_app.account.status.profile_id = 44;
-        g_app.account.api.media_local_preview = media;
+        g_account_fake.media_local_preview = media;
         g_app.account_ui->active_channel_id = 7;
         g_app.renderer.preview_media_atlas = &atlas;
         g_app.renderer.graphics.device = reinterpret_cast<ID3D11Device*>(&device_token);
@@ -147,7 +148,7 @@ void test_composer_preview_owner(void (*check)(bool, const char*) noexcept) noex
     g_app.attachments = saved_attachments;
     g_app.account.instance = saved_instance;
     g_app.account.status.profile_id = saved_profile;
-    g_app.account.api.media_local_preview = saved_media;
+    g_account_fake.media_local_preview = saved_media;
     g_app.renderer.preview_media_atlas = saved_atlas;
     g_app.renderer.graphics.device = saved_device;
 }

@@ -373,7 +373,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
             return refresh_message_composer_ui();
         }
         const RestClientSubmitResult submitted =
-            host.api.message_edit(host.instance, message_edit.channel_id, message_edit.message_id,
+            account_module_message_edit(host.instance, message_edit.channel_id, message_edit.message_id,
                                   Utf8View{message_edit.content, message_edit.content_bytes},
                                   next_message_history_request_id());
         if (submitted.error == RestClientSubmitError::busy) {
@@ -399,7 +399,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
             reset_message_delete();
             return refresh_account_text(true);
         }
-        const RestClientSubmitResult submitted = host.api.message_delete(
+        const RestClientSubmitResult submitted = account_module_message_delete(
             host.instance, channel_id, message_id, next_message_history_request_id());
         if (submitted.error == RestClientSubmitError::busy) {
             return true;
@@ -437,10 +437,10 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
                                        false);
         const RestClientSubmitResult submitted =
             message_submit.forward_reference.message_id
-                ? host.api.message_forward(host.instance, message_submit.channel_id, message_submit.content,
+                ? account_module_message_forward(host.instance, message_submit.channel_id, message_submit.content,
                                            message_submit.nonce, message_submit.forward_reference,
                                            request_id)
-                : host.api.message_submit(host.instance, message_submit.channel_id, message_submit.content,
+                : account_module_message_submit(host.instance, message_submit.channel_id, message_submit.content,
                                           message_submit.nonce, message_submit.reply_message_id,
                                           {message_submit.attachments, message_submit.attachment_count},
                                           {message_submit.sticker_ids, message_submit.sticker_count},
@@ -498,7 +498,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
     } else if (typing_post.ready && typing_post.channel_id != 0) {
         const u64 request_id = next_message_history_request_id();
         const RestClientSubmitResult submitted =
-            host.api.message_typing(host.instance, typing_post.channel_id, request_id);
+            account_module_message_typing(host.instance, typing_post.channel_id, request_id);
         if (!submitted.ok()) {
             log_u64(LogLevel::warning, "typing", "submit_error", static_cast<u64>(submitted.error));
         } else {
@@ -562,7 +562,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
         }
         const u64 request_id = next_message_history_request_id();
         const RestClientSubmitResult submitted =
-            host.api.history_submit(host.instance, channel_id, &query, request_id);
+            account_module_history_submit(host.instance, channel_id, &query, request_id);
         if (!submitted.ok()) {
             const bool busy = submitted.error == RestClientSubmitError::busy;
             if (owner == MessageHistoryRequestOwner::message_jump &&
@@ -597,7 +597,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
         // Resolving media must not starve sends, interactions, or channel history.
         const u64 request_id = next_message_history_request_id();
         const auto submitted =
-            host.api.media_url_refresh(host.instance, {entry->original, entry->original_bytes}, request_id);
+            account_module_media_url_refresh(host.instance, {entry->original, entry->original_bytes}, request_id);
         if (submitted.ok()) {
             entry->state = MediaUrlState::pending;
             entry->retry_at_ms = 0;
@@ -612,7 +612,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
         const u64 request_id = next_message_history_request_id();
         const MessageHistoryQuery prefetch_query{0, kMessageHistoryRequestLimit,
                                                  MessageHistoryPosition::latest};
-        const auto submitted = host.api.history_submit(host.instance, prefetch_channel, &prefetch_query, request_id);
+        const auto submitted = account_module_history_submit(host.instance, prefetch_channel, &prefetch_query, request_id);
         if (submitted.ok()) {
             application_channel_prefetch_submitted(prefetch_channel, request_id, now_ms);
             g_app.message_history_request_owner = MessageHistoryRequestOwner::channel_prefetch;
@@ -768,12 +768,12 @@ static bool pump_message_history_main(bool admit) noexcept {
         RestClientResponse response{};
         RestClientTakeResult taken = startup_replay
                                          ? application_startup_history_replay(&response, body_output)
-                                         : host.api.rest_take(host.instance, &response, body_output);
+                                         : account_module_rest_take(host.instance, &response, body_output);
         // Declared before the erase guard so the bank is erased, then released.
         LargeResponseBank large{};
         if (taken.error == RestClientTakeError::output_too_small && large.allocate(taken.body_bytes)) {
             body_output = {large.data, large.bytes};
-            taken = host.api.rest_take(host.instance, &response, body_output);
+            taken = account_module_rest_take(host.instance, &response, body_output);
         }
         if (taken.error == RestClientTakeError::empty) {
             if (g_app.message_history_request_owner != MessageHistoryRequestOwner::none)
@@ -1264,7 +1264,7 @@ static bool pump_message_history_main(bool admit) noexcept {
     if (private_conversation_due(private_request, now_ms) &&
         private_conversation_validate_target(&private_request, g_app.account_ui->chat_state)) {
         const u64 request_id = next_message_history_request_id();
-        const auto submitted = host.api.private_conversation(host.instance, private_request.operation,
+        const auto submitted = account_module_private_conversation(host.instance, private_request.operation,
                                                              private_request.target_id, request_id);
         if (submitted.error == RestClientSubmitError::busy) {
             private_request.phase = PrivateConversationPhase::retry_wait;
@@ -1300,7 +1300,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                                                    &reaction_users)) {
         const u64 request_id = next_message_history_request_id();
         const RestClientSubmitResult submitted =
-            host.api.reaction_users(host.instance, reaction_users.channel_id, reaction_users.message_id,
+            account_module_reaction_users(host.instance, reaction_users.channel_id, reaction_users.message_id,
                                     reaction_users.emoji_id, reaction_users.emoji_name, reaction_users.type,
                                     reaction_users.after_user_id, reaction_users.limit, request_id);
         if (submitted.error == RestClientSubmitError::busy) {
@@ -1330,7 +1330,7 @@ static bool pump_message_history_main(bool admit) noexcept {
     if (application_reaction_tooltip_query(&reactors)) {
         const u64 request_id = next_message_history_request_id();
         const RestClientSubmitResult submitted =
-            host.api.reaction_users(host.instance, reactors.channel_id, reactors.message_id, reactors.emoji_id,
+            account_module_reaction_users(host.instance, reactors.channel_id, reactors.message_id, reactors.emoji_id,
                                     reactors.emoji_name, reactors.type, 0, kReactionTooltipNames, request_id);
         if (submitted.error == RestClientSubmitError::busy)
             return true;

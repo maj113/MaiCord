@@ -252,7 +252,7 @@ bool voice_socket_begin(VoiceSocket* socket, NetworkLoop* loop, const GatewayEnd
 
 void voice_socket_completion(VoiceSocket* socket, NetworkLoop* loop, const NetworkCompletion& completion,
                              u64 now_ms) noexcept {
-    if (!socket || socket->phase == VoiceSocketPhase::empty || socket->phase == VoiceSocketPhase::closed)
+    if (socket->phase == VoiceSocketPhase::empty || socket->phase == VoiceSocketPhase::closed)
         return;
     socket->now_ms = now_ms;
     socket->tls_event = tls_stream_handle_completion(&socket->tls, loop, completion);
@@ -359,7 +359,7 @@ VoiceSocketSend voice_socket_send(VoiceSocket* socket, WebSocketOpcode opcode, C
                                                                           : VoiceSocketSend::failed;
 }
 bool voice_socket_close(VoiceSocket* socket, u16 code, u64 now_ms) noexcept {
-    if (!socket || socket->phase != VoiceSocketPhase::open || socket->pending_close || socket->stop_requested)
+    if (socket->phase != VoiceSocketPhase::open || socket->pending_close || socket->stop_requested)
         return false;
     socket->control[0] = static_cast<u8>(code >> 8);
     socket->control[1] = static_cast<u8>(code);
@@ -371,8 +371,6 @@ bool voice_socket_close(VoiceSocket* socket, u16 code, u64 now_ms) noexcept {
     return true;
 }
 void voice_socket_stop(VoiceSocket* socket) noexcept {
-    if (!socket)
-        return;
     voice_heartbeat_stop(&socket->session.heartbeat);
     if (socket->phase == VoiceSocketPhase::empty || socket->phase == VoiceSocketPhase::closed)
         return;

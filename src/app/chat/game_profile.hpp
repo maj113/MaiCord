@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/core/utf.hpp"
-#include "maicord/ui/core/geometry.hpp"
 
 namespace maicord::app_detail {
 struct SettingsLayer;

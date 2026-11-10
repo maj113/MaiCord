@@ -193,9 +193,9 @@ bool application_channel_overview_submit(u64 now) noexcept {
     auto& p = *owner;
     if (p.text) {
         const auto request = channel_overview_controller_request(p.controller, now);
-        if (request.ready && g_app.account.api.channel_overview && g_app.account.instance) {
+        if (request.ready && g_app.account.instance) {
             const u64 id = application_next_request_id();
-            const auto submitted = g_app.account.api.channel_overview(
+            const auto submitted = account_module_channel_overview(
                 g_app.account.instance, request.operation, request.scope.channel_id,
                 request.operation == ChannelOverviewOperation::update ? &request.patch : nullptr, id);
             if (!submitted.ok()) {
@@ -227,9 +227,8 @@ bool application_channel_overview_submit(u64 now) noexcept {
     static PermissionOverwriteWrite overwrites[kPermissionOverwriteDraftMaximum]; // UI-thread scratch; written before read
     bool valid = true;
     if (p.op == Op::fetch) {
-        if (g_app.account.api.channel_overview)
-            submitted = g_app.account.api.channel_overview(g_app.account.instance, ChannelOverviewOperation::fetch,
-                                                           p.identity.channel_id, nullptr, id);
+        submitted = account_module_channel_overview(g_app.account.instance, ChannelOverviewOperation::fetch,
+                                            p.identity.channel_id, nullptr, id);
     } else {
         if (p.op == Op::update) {
             request.operation = GuildAdminOperation::channel_update;
@@ -244,8 +243,8 @@ bool application_channel_overview_submit(u64 now) noexcept {
             request.channel = &patch;
         } else
             request.operation = GuildAdminOperation::channel_delete;
-        if (valid && g_app.account.api.guild_admin)
-            submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
+        if (valid)
+            submitted = account_module_guild_admin(g_app.account.instance, &request, id);
     }
     if (submit_busy(submitted, p.retry_at, now, 50))
         return false;

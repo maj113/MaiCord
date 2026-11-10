@@ -79,7 +79,7 @@ bool source_current(void* opaque) noexcept {
 bool resolve_row(void* opaque, u32 index, UiMessageForwardRow* out) noexcept {
     auto* q = static_cast<ApplicationMessageForward*>(opaque);
     QuickSwitcherTarget target{};
-    if (!out || !source_current(q) || !quick_switcher_resolve(q->controller.candidates,
+    if (!source_current(q) || !quick_switcher_resolve(q->controller.candidates,
         scope(), sources(), index, q->source.revision, &target)) return false;
     const auto& row = q->controller.candidates.rows[index];
     *out = {target.id, target.guild_id, target.channel_id, target.user_id, ui_kind(target.kind),

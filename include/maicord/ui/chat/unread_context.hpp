@@ -33,7 +33,7 @@ bool unread_context_available(UnreadContextSource source, UnreadContextKind kind
 // No strings or mutable model pointers are retained; identity and borrowed
 // owner addresses fence later activation.
 bool unread_context_capture(UnreadContextSource source, UnreadContextKind kind,
-    u64 id, UnreadContextTarget* target, u32 action = 0) noexcept;
+    u64 id, UnreadContextTarget* target, u32 action) noexcept;
 // Keyboard focus/hover may change without expiring this target. A reopened
 // popup, retired row, account scope or authoritative record does expire it.
 bool unread_context_current(const UnreadContextTarget& target, UnreadContextSource source) noexcept;

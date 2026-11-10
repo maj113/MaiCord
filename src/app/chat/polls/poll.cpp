@@ -179,8 +179,7 @@ bool capture(u64 id, ApplicationPollSource* out) noexcept {
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.running && g_app.account.status.gateway_ready &&
            !g_app.account.stop_failed &&
-           g_app.account.status.required_action == AccountRequirement::none &&
-           g_app.account.api.poll;
+           g_app.account.status.required_action == AccountRequirement::none;
 }
 PollControllerSnapshot snapshot(const ApplicationPollSource& source, const MessagePollRecord& p) noexcept {
     PollControllerSnapshot s{};
@@ -263,8 +262,8 @@ void cancel_retired() noexcept {
     }
     if (g_app.account.instance &&
         reinterpret_cast<usize>(g_app.account.instance) == flight.command.snapshot.source.actor.instance &&
-        !application_account_logout_host_owned() && g_app.account.api.poll) {
-        g_app.account.api.poll(g_app.account.instance, nullptr, flight.ticket.request_id);
+        !application_account_logout_host_owned()) {
+        account_module_poll(g_app.account.instance, nullptr, flight.ticket.request_id);
         owner->cancel_requested = true;
     }
 }
@@ -1027,7 +1026,7 @@ bool application_poll_submit(u64 id, u64 now) noexcept {
         request.operation = PollOperation::refresh;
     const auto result_ticket = message_poll_store_result_ticket(
         g_app.account_ui->message_poll_store, request.message_id, g_app.account_ui->poll_gateway_serial);
-    const auto result = g_app.account.api.poll(g_app.account.instance, &request, id);
+    const auto result = account_module_poll(g_app.account.instance, &request, id);
     if (!result.ok()) {
         if (result.error == RestClientSubmitError::busy) {
             if (poll_controller_submit_failed(&value.controller, now).error != PollControllerError::busy)

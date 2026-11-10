@@ -3,7 +3,6 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

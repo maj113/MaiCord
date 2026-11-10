@@ -4,7 +4,6 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/decode/mp4_decoder.hpp"
 #include "maicord/app/media/progressive_video_fetch.hpp"
-#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace account_media_detail {}

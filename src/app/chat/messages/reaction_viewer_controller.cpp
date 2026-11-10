@@ -83,7 +83,7 @@ ReactionViewerControllerResult reaction_viewer_controller_open(ReactionViewerCon
                                                                const MessageRichStore& rich_store,
                                                                const MessageRichRecord& rich,
                                                                UiRect viewport) noexcept {
-    if (!controller || !controller->initialized || !controller->viewer) {
+    if (!controller->initialized || !controller->viewer) {
         return failure(ReactionViewerControllerError::invalid_input);
     }
     const ReactionViewerResult opened = reaction_viewer_open(controller->viewer, guild_id, channel_id,
@@ -99,7 +99,7 @@ ReactionViewerControllerResult reaction_viewer_controller_open(ReactionViewerCon
 
 ReactionViewerControllerResult reaction_viewer_controller_close(
     ReactionViewerController* controller) noexcept {
-    if (!controller || !controller->initialized || !controller->viewer) {
+    if (!controller->initialized || !controller->viewer) {
         return failure(ReactionViewerControllerError::invalid_input);
     }
     bool changed = false;
@@ -119,7 +119,7 @@ ReactionViewerControllerResult reaction_viewer_controller_close(
 
 ReactionViewerControllerResult reaction_viewer_controller_select(ReactionViewerController* controller,
                                                                  u32 aggregate_index) noexcept {
-    if (!controller || !controller->initialized || !controller->viewer) {
+    if (!controller->initialized || !controller->viewer) {
         return failure(ReactionViewerControllerError::invalid_input);
     }
     const ReactionViewerResult selected =
@@ -137,7 +137,7 @@ ReactionViewerControllerResult reaction_viewer_controller_select(ReactionViewerC
 
 bool reaction_viewer_controller_prepare_request(ReactionViewerController* controller, u64 now_monotonic_ms,
                                                 ReactionViewerQuery* query) noexcept {
-    if (!controller || !query || !controller->initialized || !controller->viewer ||
+    if (!controller->initialized || !controller->viewer ||
         !controller->viewer->active) {
         return false;
     }
@@ -172,7 +172,7 @@ bool reaction_viewer_controller_prepare_request(ReactionViewerController* contro
 
 ReactionViewerControllerResult reaction_viewer_controller_mark_submitted(
     ReactionViewerController* controller, u64 epoch) noexcept {
-    if (!controller || !controller->initialized || !controller->viewer || !controller->viewer->active ||
+    if (!controller->initialized || !controller->viewer || !controller->viewer->active ||
         controller->phase != ReactionViewerRequestPhase::required || epoch != controller->epoch) {
         return failure(ReactionViewerControllerError::state);
     }
@@ -184,7 +184,7 @@ ReactionViewerControllerResult reaction_viewer_controller_mark_submitted(
 
 ReactionViewerControllerResult reaction_viewer_controller_submit_failed(
     ReactionViewerController* controller, u64 now_monotonic_ms) noexcept {
-    if (!controller || !controller->initialized ||
+    if (!controller->initialized ||
         (controller->phase != ReactionViewerRequestPhase::submitted &&
          controller->phase != ReactionViewerRequestPhase::required)) {
         return failure(ReactionViewerControllerError::state);
@@ -202,7 +202,7 @@ ReactionViewerControllerResult reaction_viewer_controller_submit_failed(
 ReactionViewerControllerResult reaction_viewer_controller_accept_response(
     ReactionViewerController* controller, const RestClientResponse& response, ConstSlice<u8> body,
     Slice<u32> page_structural_scratch, Slice<u32> object_structural_scratch) noexcept {
-    if (!controller || !controller->initialized || !controller->viewer ||
+    if (!controller->initialized || !controller->viewer ||
         controller->phase != ReactionViewerRequestPhase::submitted) {
         return failure(ReactionViewerControllerError::state);
     }
@@ -255,7 +255,7 @@ ReactionViewerControllerResult reaction_viewer_controller_accept_response(
 
 ReactionViewerControllerResult reaction_viewer_controller_request_more(
     ReactionViewerController* controller) noexcept {
-    if (!controller || !controller->initialized || !controller->viewer) {
+    if (!controller->initialized || !controller->viewer) {
         return failure(ReactionViewerControllerError::invalid_input);
     }
     bool requested = false;

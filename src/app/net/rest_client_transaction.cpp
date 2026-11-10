@@ -11,10 +11,6 @@
 namespace maicord {
 namespace rest_client_detail {
 
-void rest_trace_record(const char* record) noexcept {
-    log_write(LogLevel::info, "rest_trace", record);
-}
-RestTraceFunction g_trace = rest_trace_record;
 volatile LONG g_trace_serial = 0;
 
 } // namespace rest_client_detail
@@ -373,7 +369,7 @@ void trace_identity(TraceRecord& line, const RestClientRuntime* runtime, u64 req
 void publish_worker_phase(RestClient* client, RestClientRuntime* runtime,
                           RestClientPhase phase) noexcept {
     publish_phase(client, phase);
-    if (!g_trace || !runtime->trace_request_id || runtime->trace_phase == phase) return;
+    if (!runtime->trace_request_id || runtime->trace_phase == phase) return;
     const i64 now = clock_now();
     TraceRecord line("phase");
     trace_identity(line, runtime, runtime->trace_request_id);
@@ -383,11 +379,11 @@ void publish_worker_phase(RestClient* client, RestClientRuntime* runtime,
     line.field("elapsed_us", clock_microseconds(runtime->clock, runtime->request_started_counter, now));
     runtime->phase_counter = now;
     runtime->trace_phase = phase;
-    g_trace(line.text);
+    rest_trace(line.text);
 }
 void trace_busy(RestClient* client, RestClientRuntime* runtime,
                 const RestClientRequest& request) noexcept {
-    if (!g_trace || ++runtime->busy_count != 1) return;
+    if (++runtime->busy_count != 1) return;
     runtime->busy_since_ms = clock_monotonic_milliseconds();
     TraceRecord line("submit_busy");
     trace_identity(line, runtime, request.request_id);
@@ -400,7 +396,7 @@ void trace_busy(RestClient* client, RestClientRuntime* runtime,
             line.field("peer_phase", phase_name(load_phase(peer)));
         }
     }
-    g_trace(line.text);
+    rest_trace(line.text);
 }
 
 RestClientResult invalid_result() noexcept {
@@ -621,12 +617,10 @@ void release_extended_body(RestClientRuntime* runtime) noexcept {
 }
 
 void release_completed_response(RestClient* client, RestClientRuntime* runtime) noexcept {
-    if (g_trace) {
-        TraceRecord line("consumed");
-        trace_identity(line, runtime, runtime->completed.request_id);
-        line.field("ready_hold_us", clock_microseconds(runtime->clock, runtime->ready_counter, clock_now()));
-        g_trace(line.text);
-    }
+    TraceRecord line("consumed");
+    trace_identity(line, runtime, runtime->completed.request_id);
+    line.field("ready_hold_us", clock_microseconds(runtime->clock, runtime->ready_counter, clock_now()));
+    rest_trace(line.text);
     secure_clear_bytes(runtime->response_input, kRestMaximumHeaderBytes);
     if (runtime->completed.body_bytes != 0) {
         secure_clear_bytes(runtime->response_body, runtime->completed.body_bytes);
@@ -719,23 +713,21 @@ void publish_completed(RestClient* client, RestClientRuntime* runtime,
                                     1,
                                 runtime->command.route.method};
     }
-    if (g_trace) {
-        TraceRecord line("complete");
-        trace_identity(line, runtime, response.request_id);
-        line.field("status", response.status_code);
-        line.field("error", static_cast<u64>(response.error));
-        line.field("native_error", response.native_error);
-        line.field("elapsed_us", response.elapsed_us);
-        line.field("transfer_decode_us", runtime->first_byte_counter ? clock_microseconds(runtime->clock, runtime->first_byte_counter, clock_now()) : 0);
-        line.field("wire_bytes", runtime->wire_body_bytes);
-        line.field("body_bytes", response.body_bytes);
-        line.field("encoding", static_cast<u64>(runtime->wire_encoding));
-        line.field("decode_us", runtime->decode_us);
-        line.field("reused", static_cast<u64>(response.reused_connection));
-        g_trace(line.text);
-        runtime->wire_body_bytes = runtime->decode_us = 0;
-        runtime->wire_encoding = RestContentEncoding::missing;
-    }
+    TraceRecord line("complete");
+    trace_identity(line, runtime, response.request_id);
+    line.field("status", response.status_code);
+    line.field("error", static_cast<u64>(response.error));
+    line.field("native_error", response.native_error);
+    line.field("elapsed_us", response.elapsed_us);
+    line.field("transfer_decode_us", runtime->first_byte_counter ? clock_microseconds(runtime->clock, runtime->first_byte_counter, clock_now()) : 0);
+    line.field("wire_bytes", runtime->wire_body_bytes);
+    line.field("body_bytes", response.body_bytes);
+    line.field("encoding", static_cast<u64>(runtime->wire_encoding));
+    line.field("decode_us", runtime->decode_us);
+    line.field("reused", static_cast<u64>(response.reused_connection));
+    rest_trace(line.text);
+    runtime->wire_body_bytes = runtime->decode_us = 0;
+    runtime->wire_encoding = RestContentEncoding::missing;
     runtime->completed = response;
     runtime->rate_wait_until_ms = 0;
     secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
@@ -865,13 +857,13 @@ namespace rest_client_detail {
 TlsStreamReadAction response_plaintext_received(void* opaque, ConstSlice<u8> plaintext,
                                                 bool peer_closed) noexcept {
     auto* runtime = static_cast<RestClientRuntime*>(opaque);
-    if (g_trace && plaintext.count && !runtime->first_byte_counter) {
+    if (plaintext.count && !runtime->first_byte_counter) {
         runtime->first_byte_counter = clock_now();
         TraceRecord line("first_byte");
         trace_identity(line, runtime, runtime->trace_request_id);
         line.field("ttfb_us", clock_microseconds(runtime->clock, runtime->receive_counter,
                                                   runtime->first_byte_counter));
-        g_trace(line.text);
+        rest_trace(line.text);
     }
     runtime->response_step = rest_response_feed(&runtime->response, plaintext, peer_closed);
     if (!runtime->response_step.ok() ||

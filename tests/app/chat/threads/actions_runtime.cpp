@@ -3,6 +3,7 @@
 #include "chat/threads/actions.hpp"
 #include "shell/state.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/account_module_fake.hpp"
 
 
 namespace maicord::thread_actions_runtime_test {
@@ -104,8 +105,8 @@ bool reset(u8 type = 11, bool joined = false, bool known = false) noexcept {
     g_app.account.status.profile_id = 4;
     g_app.account.status.required_action = AccountRequirement::none;
     g_app.account.stop_failed = false;
-    g_app.account.api.thread_action = submit;
-    g_app.account.api.channel_overview = submit_metadata;
+    g_account_fake.thread_action = submit;
+    g_account_fake.channel_overview = submit_metadata;
     g_app.plugin_account_scope_serial = 7;
     g_app.login.visible = false;
     auto& state = g_app.account_ui->chat_state;

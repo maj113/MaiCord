@@ -135,9 +135,9 @@ void cancel_flight() noexcept {
     flight.retired = true;
     // Both stages use the same DETAILS transport. The nullable thread
     // callback cancels that ID; channel_overview has no cancel opcode.
-    if (!flight.cancel_requested && g_app.account.api.thread_action &&
+    if (!flight.cancel_requested &&
         flight.source.account_instance == reinterpret_cast<usize>(g_app.account.instance)) {
-        g_app.account.api.thread_action(g_app.account.instance, nullptr, flight.request_id);
+        account_module_thread_action(g_app.account.instance, nullptr, flight.request_id);
         flight.cancel_requested = true;
     }
 }
@@ -158,8 +158,6 @@ Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* outp
     if (!value || !channel_is_thread(value->type))
         return Admission::stale;
     if (!flag(operation))
-        return Admission::invalid;
-    if (!g_app.account.api.thread_action)
         return Admission::invalid;
     if (!(available(*value) & flag(operation)))
         return Admission::permission;
@@ -230,7 +228,7 @@ ApplicationThreadActionView application_thread_actions_view(u64 id) noexcept {
     result.archived_known = value->thread_archived_known;
     result.locked = value->thread_locked;
     result.locked_known = value->thread_locked_known;
-    result.actions = g_app.account.api.thread_action ? available(*value) : 0;
+    result.actions = available(*value);
     if (owner && source_current(owner->source) && owner->source.thread_id == id) {
         result.ticket.serial = owner->source.serial;
         result.phase = owner->phase;
@@ -269,8 +267,7 @@ Admission application_thread_actions_activate(const ApplicationThreadActionTicke
     return result;
 }
 Admission application_thread_actions_fetch(u64 id, ApplicationThreadActionTicket* ticket) noexcept {
-    if (ticket)
-        reset_value(ticket);
+    reset_value(ticket);
     return queue(id, Operation::fetch_self, ticket);
 }
 Membership application_thread_actions_membership(const ApplicationThreadActionTicket& source) noexcept {
@@ -382,14 +379,10 @@ bool application_thread_actions_submit(u64 id, u64 now) noexcept {
     ThreadActionRequest request{value->id, owner->source.self_user_id, owner->operation, {}};
     const bool metadata = owner->operation == Operation::fetch_self && !owner->metadata_checked &&
                           (!value->thread_archived_known || !value->thread_locked_known);
-    if (metadata && !g_app.account.api.channel_overview) {
-        publish(utf8_literal("Couldn't check this thread."), Phase::failed, true);
-        return false;
-    }
-    const auto result = metadata ? g_app.account.api.channel_overview(g_app.account.instance,
+    const auto result = metadata ? account_module_channel_overview(g_app.account.instance,
                                                                       ChannelOverviewOperation::fetch,
                                                                       value->id, nullptr, id)
-                                 : g_app.account.api.thread_action(g_app.account.instance, &request, id);
+                                 : account_module_thread_action(g_app.account.instance, &request, id);
     if (!result.ok()) {
         if (result.error == RestClientSubmitError::busy)
             owner->due = deadline_after(now, 50);

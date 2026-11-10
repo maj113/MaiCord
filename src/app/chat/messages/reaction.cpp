@@ -43,8 +43,7 @@ bool refreshing{};
 MessageReactionActor actor() noexcept {
     if (!g_app.account_ui || !g_app.account.instance || g_app.account.stop_failed ||
         !g_app.account.status.running || g_app.login.visible || !g_app.plugin_account_scope_serial ||
-        !g_app.account.status.profile_id || !g_app.account_ui->chat_state.self_user_id ||
-        !g_app.account.api.message_reaction)
+        !g_app.account.status.profile_id || !g_app.account_ui->chat_state.self_user_id)
         return {};
     return {g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
             g_app.account_ui->chat_state.self_user_id, reinterpret_cast<usize>(g_app.account.instance)};
@@ -315,10 +314,9 @@ void publish(bool model_changed = true) noexcept {
 void cancel_flight() noexcept {
     if (!owner || !owner->controller.flight.active || owner->cancel_requested)
         return;
-    if (reinterpret_cast<usize>(g_app.account.instance) == owner->controller.flight.actor.instance &&
-        g_app.account.api.message_search) {
-        g_app.account.api.message_search(g_app.account.instance, AccountMessageSearchOperation::cancel,
-                                         nullptr, owner->controller.flight.ticket.request_id);
+    if (reinterpret_cast<usize>(g_app.account.instance) == owner->controller.flight.actor.instance) {
+        account_module_message_search(g_app.account.instance, AccountMessageSearchOperation::cancel, nullptr,
+                              owner->controller.flight.ticket.request_id);
         owner->cancel_requested = true;
     }
 }
@@ -536,8 +534,7 @@ Utf8View application_message_reaction_admission_text(ApplicationMessageReactionE
 }
 
 Utf8View application_message_reaction_status(u64 message_id, bool* error) noexcept {
-    if (error)
-        *error = false;
+    *error = false;
     if (!owner || !same_actor(actor(), owner->controller.actor) || !g_app.account_ui)
         return {};
     const auto& status = owner->status;
@@ -547,8 +544,7 @@ Utf8View application_message_reaction_status(u64 message_id, bool* error) noexce
         return {};
     if (!resident(status.channel, status.message))
         return {};
-    if (error)
-        *error = status.error;
+    *error = status.error;
     return status.text;
 }
 
@@ -725,7 +721,7 @@ bool application_message_reaction_submit(u64 request_id, u64 now_ms) noexcept {
     if (!message_reaction_controller_peek_due(owner->controller, now_ms, &intent))
         return false;
     const auto& target = intent.target;
-    const auto result = g_app.account.api.message_reaction(g_app.account.instance, target.channel_id,
+    const auto result = account_module_message_reaction(g_app.account.instance, target.channel_id,
                                                            target.message_id, target.emoji_id, name(target),
                                                            target.type, intent.desired_mine, request_id);
     if (!result.ok()) {

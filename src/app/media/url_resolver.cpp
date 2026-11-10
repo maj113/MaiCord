@@ -64,7 +64,7 @@ Utf8View media_url_resolve(MediaUrlResolver* resolver, Utf8View source, u64 now_
 }
 
 MediaUrlEntry* media_url_next(MediaUrlResolver* resolver, u64 now_ms) noexcept {
-    if (!resolver || resolver->pending_slot != 0)
+    if (resolver->pending_slot != 0)
         return nullptr;
     for (auto& entry : resolver->entries) {
         if (entry.state == MediaUrlState::queued && entry.retry_at_ms <= now_ms)
@@ -75,7 +75,7 @@ MediaUrlEntry* media_url_next(MediaUrlResolver* resolver, u64 now_ms) noexcept {
 
 void media_url_complete(MediaUrlResolver* resolver, const RestClientResponse& response,
                         const Utf8View& body, u64 now_ms, u64 now_seconds) noexcept {
-    if (!resolver || resolver->pending_slot == 0 || resolver->pending_slot > 32)
+    if (resolver->pending_slot == 0 || resolver->pending_slot > 32)
         return;
     auto& entry = resolver->entries[resolver->pending_slot - 1];
     resolver->pending_slot = 0;

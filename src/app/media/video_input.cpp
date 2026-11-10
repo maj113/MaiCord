@@ -49,18 +49,18 @@ bool application_video_pump(bool* repaint) noexcept {
     }
     if (video->live_restart) {
         restart_live_session(*video);
-        if (repaint) *repaint = true;
+        *repaint = true;
         return true;
     }
     InlineMediaSource positioned{};
     bool visible = position_video_scene(video, positioned);
     const bool surface_covered = content_surface_covers_video();
     if (video->selecting && (!searched || visible || surface_covered)) {
-        const auto& existing = g_app.account.api.video_status(g_app.account.instance);
+        const auto& existing = account_module_video_status(g_app.account.instance);
         if (existing.selected && existing.playback.identity.session_epoch != video->session_epoch) {
             AccountVideoFrame frame{};
-            if (g_app.account.api.video_take(g_app.account.instance, &frame) &&
-                !g_app.account.api.video_acknowledge(g_app.account.instance, &frame))
+            if (account_module_video_take(g_app.account.instance, &frame) &&
+                !account_module_video_acknowledge(g_app.account.instance, &frame))
                 return false;
             if (!account_video_identity_equal(video->retiring_identity, existing.playback.identity)) {
                 const AccountVideoControl stop{existing.playback.identity,
@@ -69,7 +69,7 @@ bool application_video_pump(bool* repaint) noexcept {
                                                1,
                                                AccountVideoCommand::stop,
                                                false};
-                const auto stopped = g_app.account.api.video_control(g_app.account.instance, &stop);
+                const auto stopped = account_module_video_control(g_app.account.instance, &stop);
                 if (stopped.ok() && stopped.admitted)
                     video->retiring_identity = existing.playback.identity;
             }
@@ -77,7 +77,7 @@ bool application_video_pump(bool* repaint) noexcept {
             const AccountVideoSelection selection{video->source.key,
                                                   {video->account_serial, video->source.message_id, 0,
                                                    video->session_epoch, video->source.revision, 0, 0}, video->collection_track};
-            const auto selected = g_app.account.api.video_select(g_app.account.instance, &selection);
+            const auto selected = account_module_video_select(g_app.account.instance, &selection);
             if (selected.ok() && selected.admitted) {
                 video->selecting = false;
                 video->selected = true;
@@ -147,11 +147,11 @@ bool application_video_pump(bool* repaint) noexcept {
             video->status.playback.error == AccountVideoError::none && video->status.playback.rejected_error == AccountVideoError::none &&
             video->status.playback.observed_command >= video->status.playback.desired_command) {
             const bool switched = switch_collection_track(*video, video->collection_track + 1, video->ui.video.focus);
-            if (repaint) *repaint = true;
+            *repaint = true;
             return switched;
         }
         AccountVideoFrame frame{};
-        if (g_app.account.api.video_take(g_app.account.instance, &frame)) {
+        if (account_module_video_take(g_app.account.instance, &frame)) {
             bool geometry_changed = false;
             const bool current =
                 account_video_identity_equal(frame.identity, video->status.playback.identity) &&
@@ -164,15 +164,14 @@ bool application_video_pump(bool* repaint) noexcept {
                 if (uploaded.ok()) {
                     video->provider_frame_ready = video->source.provider;
                     geometry_changed = update_video_extent(*video, *frame.gpu);
-                    if (repaint)
-                        *repaint = true;
+                    *repaint = true;
                 } else {
                     video->presentation_failed = true;
                     send_video_command(*video, AccountVideoCommand::pause);
                     log_write(LogLevel::warning, "media", "video_frame_presentation_failed");
                 }
             }
-            if (!g_app.account.api.video_acknowledge(g_app.account.instance, &frame))
+            if (!account_module_video_acknowledge(g_app.account.instance, &frame))
                 return false;
             if (geometry_changed) {
                 if (!refresh_account_text(true)) {
@@ -406,7 +405,7 @@ bool application_video_cursor(UiPoint point, UiCursor* cursor) noexcept {
 }
 bool application_video_viewer_cursor(UiPoint point, UiCursor* cursor) noexcept {
     const auto* video = g_app.video;
-    if (!cursor || !video || !video->expanded || video->source.audio || !video->ui.video.active)
+    if (!video || !video->expanded || video->source.audio || !video->ui.video.active)
         return false;
     if (application_video_viewer_hidden_cursor()) {
         *cursor = UiCursor::hidden;

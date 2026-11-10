@@ -19,37 +19,27 @@ namespace maicord {
 // hand over through GoLiveMedia; everything else is worker-only.
 struct GoLiveMedia;
 
-// What makes pictures and sound. Production: kGoLiveDevicesBackend (go_live_devices.hpp: capture, the GPU encoder,
-// stream audio), a constant table the whole-program link folds into direct calls, with the producers as the context
-// (GatewayGoLive::backend_context); tests (MAICORD_TEST_SEAMS) fill g_go_live_backend with a synthetic producer.
-// Every call is on the worker except preview (any thread).
-struct GoLiveBackend {
-    // gpu_stream_codec_bit set of the hardware encoders; *known is false
-    // until there is a device to probe.
-    u32 (*encodable)(void* context, bool* known) noexcept;
-    // Starts capturing into media (the picker's source, or the system picker
-    // offering 1 << source.kind); false when nothing could start.
-    bool (*capture)(void* context, GoLiveMedia* media, const CaptureSource& source, bool system_picker,
-                    u32 max_fps) noexcept;
-    void (*capture_stop)(void* context) noexcept;
-    // Stream audio of the source (process_id 0: everything but MaiCord).
-    bool (*sound)(void* context, GoLiveMedia* media, u32 process_id) noexcept;
-    void (*sound_stop)(void* context) noexcept;
-    bool (*encoder)(void* context, GoLiveMedia* media, GpuStreamCodec codec,
-                    const GpuStreamEncoderSettings& settings) noexcept;
-    void (*configure)(void* context, const GpuStreamEncoderSettings& settings) noexcept;
-    void (*bitrate)(void* context, u32 bits_per_second) noexcept;
-    void (*keyframe)(void* context) noexcept;
-    void (*encoder_stop)(void* context) noexcept;
-    // The newest picture, and the sequence it carries (it changes with every new picture).
-    bool (*preview)(void* context, GpuVideoFrame* output, u32* sequence) noexcept;
-};
-
-#if defined(MAICORD_TEST_SEAMS)
-inline GoLiveBackend g_go_live_backend{};
-#endif
-// The shipped producers (go_live_devices.cpp).
-extern const GoLiveBackend kGoLiveDevicesBackend;
+// What makes pictures and sound: go_live_devices.cpp (capture, the GPU encoder, stream audio) with its GoLiveDevices as
+// the context (GatewayGoLive::backend_context); a test that links the stream code defines these itself with a
+// synthetic producer. Every call is on the worker except preview (any thread).
+// gpu_stream_codec_bit set of the hardware encoders; *known is false until there is a device to probe.
+u32 go_live_producer_encodable(void* context, bool* known) noexcept;
+// Starts capturing into media (the picker's source, or the system picker offering 1 << source.kind); false when
+// nothing could start.
+bool go_live_producer_capture(void* context, GoLiveMedia* media, const CaptureSource& source, bool system_picker,
+                              u32 max_fps) noexcept;
+void go_live_producer_capture_stop(void* context) noexcept;
+// Stream audio of the source (process_id 0: everything but MaiCord).
+bool go_live_producer_sound(void* context, GoLiveMedia* media, u32 process_id) noexcept;
+void go_live_producer_sound_stop(void* context) noexcept;
+bool go_live_producer_encoder(void* context, GoLiveMedia* media, GpuStreamCodec codec,
+                              const GpuStreamEncoderSettings& settings) noexcept;
+void go_live_producer_configure(void* context, const GpuStreamEncoderSettings& settings) noexcept;
+void go_live_producer_bitrate(void* context, u32 bits_per_second) noexcept;
+void go_live_producer_keyframe(void* context) noexcept;
+void go_live_producer_encoder_stop(void* context) noexcept;
+// The newest picture, and the sequence it carries (it changes with every new picture).
+bool go_live_producer_preview(void* context, GpuVideoFrame* output, u32* sequence) noexcept;
 
 // Producer side, any thread. A unit that finds no free slot is dropped and
 // a keyframe is asked for.
@@ -68,13 +58,7 @@ struct GatewayGoLive {
     GatewayStreamControl control;
     VoiceConnection connection;
     GoLiveSender sender;
-    // The table every producer call goes through (see GoLiveBackend), and the context it passes them.
-#if defined(MAICORD_TEST_SEAMS)
-    static constexpr GoLiveBackend& backend = g_go_live_backend;
-#else
-    static constexpr const GoLiveBackend& backend = kGoLiveDevicesBackend;
-#endif
-    void* backend_context;
+    void* backend_context; // The producers' context.
     GoLiveMedia* media;
     u8* seal; // Video DAVE staging: prepared, then scratch.
     // Worker wake-up for producers (posted from their threads).

@@ -536,7 +536,7 @@ VoiceSocketSend voice_connection_speaking(VoiceConnection* connection, u32 flags
 }
 VoiceSocketSend voice_connection_video(VoiceConnection* connection, const VoiceVideoSendStream& stream,
                                        u64 now_ms) noexcept {
-    if (!connection || !connection->identify_submitted || !connection->media.has_ready)
+    if (!connection->identify_submitted || !connection->media.has_ready)
         return VoiceSocketSend::invalid;
     u8 payload[384];
     const auto encoded = voice_gateway_write_video({connection->media.ssrc, stream}, {payload, sizeof(payload)});

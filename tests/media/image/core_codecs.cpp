@@ -162,45 +162,65 @@ void test_jpeg_baseline() noexcept {
                jpeg_display_width(rectangular_image) == 8 && jpeg_display_height(rectangular_image) == 16,
            "jpeg_exif_orientation_swaps_display_dimensions");
 
-    u32 malformed_exif_bytes = 0;
-    expect(build_jpeg_exif_orientation_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                               Slice<u8>{oriented_encoded, sizeof(oriented_encoded)},
-                                               static_cast<u8>(JpegOrientation::right_top), false,
-                                               &malformed_exif_bytes),
-           "jpeg_exif_malformed_fixture_build");
-    oriented_encoded[16] = 0xFF;
-    oriented_encoded[17] = 0xFF;
-    oriented_encoded[18] = 0xFF;
-    oriented_encoded[19] = 0xFF;
-    JpegImage malformed_exif_image{};
-    const JpegDecodeResult malformed_exif = jpeg_decode_coefficients(
-        ConstSlice<u8>{oriented_encoded, malformed_exif_bytes}, &malformed_exif_image, &g_jpeg_workspace);
-    expect(malformed_exif.ok() && malformed_exif_image.orientation == JpegOrientation::top_left,
-           "jpeg_malformed_exif_offset_ignored_safely");
-
-    expect(build_jpeg_exif_orientation_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                               Slice<u8>{oriented_encoded, sizeof(oriented_encoded)},
-                                               static_cast<u8>(JpegOrientation::right_top), false,
-                                               &malformed_exif_bytes),
-           "jpeg_exif_reserved_fixture_rebuild");
-    oriented_encoded[30] = 9;
-    const JpegDecodeResult reserved_orientation = jpeg_decode_coefficients(
-        ConstSlice<u8>{oriented_encoded, malformed_exif_bytes}, &malformed_exif_image, &g_jpeg_workspace);
-    expect(reserved_orientation.ok() && malformed_exif_image.orientation == JpegOrientation::top_left,
-           "jpeg_reserved_exif_orientation_ignored");
+    // A malformed or reserved EXIF orientation is ignored, not an error.
+    const auto orientation_ignored = [&](auto&& damage, const char* name) noexcept {
+        u32 bytes = 0;
+        JpegImage damaged{};
+        const bool built = build_jpeg_exif_orientation_fixture(
+            ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
+            Slice<u8>{oriented_encoded, sizeof(oriented_encoded)}, static_cast<u8>(JpegOrientation::right_top), false,
+            &bytes);
+        damage();
+        expect(built &&
+                   jpeg_decode_coefficients(ConstSlice<u8>{oriented_encoded, bytes}, &damaged, &g_jpeg_workspace).ok() &&
+                   damaged.orientation == JpegOrientation::top_left,
+               name);
+    };
+    orientation_ignored(
+        [&] {
+            for (u32 index = 16; index < 20; ++index)
+                oriented_encoded[index] = 0xFF;
+        },
+        "jpeg_malformed_exif_offset_ignored_safely");
+    orientation_ignored([&] { oriented_encoded[30] = 9; }, "jpeg_reserved_exif_orientation_ignored");
 
     u8 icc_encoded[sizeof(kJpeg420Reference) + 1'024]{};
+    u8 icc_lut_encoded[sizeof(kJpegCmykAdobeReference) + 4'096]{};
     JpegIccFixtureResult icc_fixture{};
     JpegImage icc_image{};
-    expect(build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                             Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                             JpegIccFixtureCurve::parametric_srgb, true, true,
-                                             &icc_fixture),
+    const Slice<u8> icc_buffer{icc_encoded, sizeof(icc_encoded)};
+    const Slice<u8> icc_lut_buffer{icc_lut_encoded, sizeof(icc_lut_encoded)};
+    const auto matrix_fixture = [&](JpegIccFixtureCurve curve, bool version_four, bool reverse_chunks) noexcept {
+        return build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
+                                                 icc_buffer, curve, version_four, reverse_chunks, &icc_fixture);
+    };
+    const auto lut_fixture = [&](JpegIccLutFixtureSpace space, JpegIccLutFixturePrecision precision,
+                                 bool reverse_chunks) noexcept {
+        const bool cmyk = space == JpegIccLutFixtureSpace::cmyk;
+        return build_jpeg_icc_lut_fixture(
+            cmyk ? ConstSlice<u8>{kJpegCmykAdobeReference, sizeof(kJpegCmykAdobeReference)}
+                 : ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
+            icc_lut_buffer, space, precision, reverse_chunks, &icc_fixture);
+    };
+    // The fixture just built, decoded from the buffer holding it.
+    const auto decode = [&](const u8* bytes) noexcept {
+        return jpeg_decode_coefficients(ConstSlice<u8>{bytes, icc_fixture.encoded_bytes}, &icc_image,
+                                        &g_jpeg_workspace);
+    };
+    const auto profile = [&]() noexcept {
+        return icc_image.tables && icc_image.tables->icc ? &icc_image.tables->icc->profile : nullptr;
+    };
+    // The profile's disposition; none when the decode failed.
+    const auto disposition = [&](const u8* bytes) noexcept {
+        return decode(bytes).ok() && profile() ? profile()->disposition : JpegIccDisposition::none;
+    };
+    const auto patch = [&](Slice<u8> bytes, u32 profile_offset, u8 value) noexcept {
+        return jpeg_icc_fixture_write_profile_byte(bytes, icc_fixture, profile_offset, value);
+    };
+    expect(matrix_fixture(JpegIccFixtureCurve::parametric_srgb, true, true),
            "jpeg_icc_v4_reverse_chunk_fixture_build");
-    const JpegDecodeResult icc_decoded = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    const JpegIccProfile* icc_profile =
-        icc_image.tables && icc_image.tables->icc ? &icc_image.tables->icc->profile : nullptr;
+    const JpegDecodeResult icc_decoded = decode(icc_encoded);
+    const JpegIccProfile* icc_profile = profile();
     expect(icc_decoded.ok() && icc_profile && icc_profile->disposition == JpegIccDisposition::applied &&
                icc_profile->major_version == 4 && icc_profile->chunk_count == 2 &&
                icc_profile->profile_bytes == 384 && icc_profile->entry_count == 0 &&
@@ -217,32 +237,19 @@ void test_jpeg_baseline() noexcept {
            "jpeg_icc_v4_parametric_scatter_matrix_exact");
 
     for (u8 function = 0; function <= 4; ++function) {
-        bool built = build_jpeg_icc_matrix_trc_fixture(
-            ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-            Slice<u8>{icc_encoded, sizeof(icc_encoded)}, JpegIccFixtureCurve::parametric_srgb, true, false,
-            &icc_fixture);
+        bool built = matrix_fixture(JpegIccFixtureCurve::parametric_srgb, true, false);
         constexpr u32 function_offsets[3] = {273, 313, 353};
         for (u32 channel = 0; channel < 3 && built; ++channel) {
-            built = jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                                        icc_fixture, function_offsets[channel], function);
+            built = patch(icc_buffer, function_offsets[channel], function);
         }
-        const JpegDecodeResult function_decoded =
-            built ? jpeg_decode_coefficients(ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes},
-                                             &icc_image, &g_jpeg_workspace)
-                  : JpegDecodeResult{};
-        expect(built && function_decoded.ok() && icc_image.tables && icc_image.tables->icc &&
-                   icc_image.tables->icc->profile.disposition == JpegIccDisposition::applied &&
-                   icc_image.tables->icc->profile.curves[0].kind == JpegIccCurveKind::parametric,
+        expect(built && disposition(icc_encoded) == JpegIccDisposition::applied &&
+                   profile()->curves[0].kind == JpegIccCurveKind::parametric,
                "jpeg_icc_parametric_function_zero_through_four");
     }
 
-    expect(build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                             Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                             JpegIccFixtureCurve::sampled_srgb, false, false, &icc_fixture),
-           "jpeg_icc_v2_table_fixture_build");
-    const JpegDecodeResult icc_table_decoded = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    icc_profile = icc_image.tables && icc_image.tables->icc ? &icc_image.tables->icc->profile : nullptr;
+    expect(matrix_fixture(JpegIccFixtureCurve::sampled_srgb, false, false), "jpeg_icc_v2_table_fixture_build");
+    const JpegDecodeResult icc_table_decoded = decode(icc_encoded);
+    icc_profile = profile();
     expect(icc_table_decoded.ok() && icc_profile &&
                icc_profile->disposition == JpegIccDisposition::applied && icc_profile->major_version == 2 &&
                icc_profile->profile_bytes == 696 && icc_profile->entry_count == 195 &&
@@ -253,132 +260,52 @@ void test_jpeg_baseline() noexcept {
                icc_profile->entries[194] == 0xFFFFu,
            "jpeg_icc_v2_curve_table_retained_bounded");
 
-    expect(build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                             Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                             JpegIccFixtureCurve::sampled_srgb, false, false,
-                                             &icc_fixture) &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)}, icc_fixture,
-                                                   276, 0xFF) &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)}, icc_fixture,
-                                                   277, 0xFF),
-           "jpeg_icc_descending_curve_fixture_build");
-    const JpegDecodeResult icc_descending_curve = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    expect(icc_descending_curve.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::malformed_ignored,
+    expect(matrix_fixture(JpegIccFixtureCurve::sampled_srgb, false, false) && patch(icc_buffer, 276, 0xFF) &&
+               patch(icc_buffer, 277, 0xFF) &&
+               disposition(icc_encoded) == JpegIccDisposition::malformed_ignored,
            "jpeg_icc_descending_curve_rejected");
 
-    expect(build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                             Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                             JpegIccFixtureCurve::sampled_srgb, false, false, &icc_fixture),
-           "jpeg_icc_identity_curve_fixture_build");
     constexpr u32 curve_count_low_offsets[3] = {275, 419, 563};
-    bool identity_curve_fixture = true;
+    bool identity_curve_fixture = matrix_fixture(JpegIccFixtureCurve::sampled_srgb, false, false);
     for (u32 channel = 0; channel < 3; ++channel) {
-        identity_curve_fixture =
-            identity_curve_fixture &&
-            jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)}, icc_fixture,
-                                                curve_count_low_offsets[channel], 0);
+        identity_curve_fixture = identity_curve_fixture && patch(icc_buffer, curve_count_low_offsets[channel], 0);
     }
-    const JpegDecodeResult icc_identity_curve =
-        identity_curve_fixture
-            ? jpeg_decode_coefficients(ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes}, &icc_image,
-                                       &g_jpeg_workspace)
-            : JpegDecodeResult{};
-    expect(identity_curve_fixture && icc_identity_curve.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::applied &&
-               icc_image.tables->icc->profile.curves[0].kind == JpegIccCurveKind::identity,
+    expect(identity_curve_fixture && disposition(icc_encoded) == JpegIccDisposition::applied &&
+               profile()->curves[0].kind == JpegIccCurveKind::identity,
            "jpeg_icc_zero_count_curve_is_identity");
 
-    expect(build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                             Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                             JpegIccFixtureCurve::sampled_srgb, false, false, &icc_fixture),
-           "jpeg_icc_gamma_curve_fixture_build");
     constexpr u32 gamma_high_offsets[3] = {276, 420, 564};
-    bool gamma_curve_fixture = true;
+    bool gamma_curve_fixture = matrix_fixture(JpegIccFixtureCurve::sampled_srgb, false, false);
     for (u32 channel = 0; channel < 3; ++channel) {
-        gamma_curve_fixture =
-            gamma_curve_fixture &&
-            jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)}, icc_fixture,
-                                                curve_count_low_offsets[channel], 1) &&
-            jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)}, icc_fixture,
-                                                gamma_high_offsets[channel], 1);
+        gamma_curve_fixture = gamma_curve_fixture && patch(icc_buffer, curve_count_low_offsets[channel], 1) &&
+                              patch(icc_buffer, gamma_high_offsets[channel], 1);
     }
-    const JpegDecodeResult icc_gamma_curve =
-        gamma_curve_fixture
-            ? jpeg_decode_coefficients(ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes}, &icc_image,
-                                       &g_jpeg_workspace)
-            : JpegDecodeResult{};
-    expect(gamma_curve_fixture && icc_gamma_curve.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::applied &&
-               icc_image.tables->icc->profile.curves[0].kind == JpegIccCurveKind::parametric &&
-               icc_image.tables->icc->profile.curves[0].g == 1.0f,
+    expect(gamma_curve_fixture && disposition(icc_encoded) == JpegIccDisposition::applied &&
+               profile()->curves[0].kind == JpegIccCurveKind::parametric && profile()->curves[0].g == 1.0f,
            "jpeg_icc_single_count_curve_is_u8fixed8_gamma");
 
-    expect(build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                             Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                             JpegIccFixtureCurve::parametric_srgb, true, false,
-                                             &icc_fixture),
-           "jpeg_icc_incomplete_fixture_build");
+    expect(matrix_fixture(JpegIccFixtureCurve::parametric_srgb, true, false), "jpeg_icc_incomplete_fixture_build");
     icc_encoded[icc_fixture.chunk_data_offsets[0] - 1u] = 3;
     icc_encoded[icc_fixture.chunk_data_offsets[1] - 1u] = 3;
-    const JpegDecodeResult icc_incomplete = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    expect(icc_incomplete.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::incomplete_ignored,
-           "jpeg_icc_incomplete_chunks_ignored");
+    expect(disposition(icc_encoded) == JpegIccDisposition::incomplete_ignored, "jpeg_icc_incomplete_chunks_ignored");
 
-    expect(build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                             Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                             JpegIccFixtureCurve::parametric_srgb, true, true,
-                                             &icc_fixture),
-           "jpeg_icc_duplicate_fixture_build");
+    expect(matrix_fixture(JpegIccFixtureCurve::parametric_srgb, true, true), "jpeg_icc_duplicate_fixture_build");
     icc_encoded[icc_fixture.chunk_data_offsets[1] - 2u] = 1;
-    const JpegDecodeResult icc_duplicate = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    expect(icc_duplicate.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::malformed_ignored,
-           "jpeg_icc_duplicate_sequence_ignored");
+    expect(disposition(icc_encoded) == JpegIccDisposition::malformed_ignored, "jpeg_icc_duplicate_sequence_ignored");
 
-    expect(build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                             Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                             JpegIccFixtureCurve::parametric_srgb, true, false,
-                                             &icc_fixture) &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)}, icc_fixture,
-                                                   3, 0),
-           "jpeg_icc_bad_size_fixture_build");
-    const JpegDecodeResult icc_bad_size = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    expect(icc_bad_size.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::malformed_ignored,
+    expect(matrix_fixture(JpegIccFixtureCurve::parametric_srgb, true, false) && patch(icc_buffer, 3, 0) &&
+               disposition(icc_encoded) == JpegIccDisposition::malformed_ignored,
            "jpeg_icc_bad_declared_size_ignored");
 
-    expect(build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                             Slice<u8>{icc_encoded, sizeof(icc_encoded)},
-                                             JpegIccFixtureCurve::parametric_srgb, true, false,
-                                             &icc_fixture) &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)}, icc_fixture,
-                                                   20, 'L') &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)}, icc_fixture,
-                                                   21, 'a') &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_encoded, sizeof(icc_encoded)}, icc_fixture,
-                                                   22, 'b'),
-           "jpeg_icc_unsupported_pcs_fixture_build");
-    const JpegDecodeResult icc_unsupported = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    expect(icc_unsupported.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::unsupported_ignored,
+    expect(matrix_fixture(JpegIccFixtureCurve::parametric_srgb, true, false) && patch(icc_buffer, 20, 'L') &&
+               patch(icc_buffer, 21, 'a') && patch(icc_buffer, 22, 'b') &&
+               disposition(icc_encoded) == JpegIccDisposition::unsupported_ignored,
            "jpeg_icc_unsupported_pcs_ignored");
 
-    u8 icc_lut_encoded[sizeof(kJpegCmykAdobeReference) + 4'096]{};
-    expect(build_jpeg_icc_lut_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                      Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                      JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft2, true,
-                                      &icc_fixture),
+    expect(lut_fixture(JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft2, true),
            "jpeg_icc_mft2_rgb_reverse_chunk_fixture_build");
-    const JpegDecodeResult icc_mft2_rgb = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_lut_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    icc_profile = icc_image.tables && icc_image.tables->icc ? &icc_image.tables->icc->profile : nullptr;
+    const JpegDecodeResult icc_mft2_rgb = decode(icc_lut_encoded);
+    icc_profile = profile();
     expect(icc_mft2_rgb.ok() && icc_profile && icc_profile->disposition == JpegIccDisposition::applied &&
                icc_profile->transform_kind == JpegIccTransformKind::lut &&
                icc_profile->pcs == JpegIccPcs::lab &&
@@ -394,14 +321,10 @@ void test_jpeg_baseline() noexcept {
                icc_profile->lut.output_curves[2].table_offset == 34,
            "jpeg_icc_mft2_rgb_scatter_retained_bounded");
 
-    expect(build_jpeg_icc_lut_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                      Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                      JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft1, false,
-                                      &icc_fixture),
+    expect(lut_fixture(JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft1, false),
            "jpeg_icc_mft1_rgb_fixture_build");
-    const JpegDecodeResult icc_mft1_rgb = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_lut_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    icc_profile = icc_image.tables && icc_image.tables->icc ? &icc_image.tables->icc->profile : nullptr;
+    const JpegDecodeResult icc_mft1_rgb = decode(icc_lut_encoded);
+    icc_profile = profile();
     expect(icc_mft1_rgb.ok() && icc_profile && icc_profile->disposition == JpegIccDisposition::applied &&
                icc_profile->major_version == 2 && icc_profile->profile_bytes == 1'752 &&
                icc_profile->entry_count == 1'560 && icc_profile->lut.precision_bytes == 1 &&
@@ -410,14 +333,10 @@ void test_jpeg_baseline() noexcept {
                icc_profile->lut.output_curves[0].table_offset == 792,
            "jpeg_icc_mft1_fixed_tables_retained_bounded");
 
-    expect(build_jpeg_icc_lut_fixture(
-               ConstSlice<u8>{kJpegCmykAdobeReference, sizeof(kJpegCmykAdobeReference)},
-               Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)}, JpegIccLutFixtureSpace::cmyk,
-               JpegIccLutFixturePrecision::mft2, true, &icc_fixture),
+    expect(lut_fixture(JpegIccLutFixtureSpace::cmyk, JpegIccLutFixturePrecision::mft2, true),
            "jpeg_icc_mft2_cmyk_fixture_build");
-    const JpegDecodeResult icc_mft2_cmyk = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_lut_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    icc_profile = icc_image.tables && icc_image.tables->icc ? &icc_image.tables->icc->profile : nullptr;
+    const JpegDecodeResult icc_mft2_cmyk = decode(icc_lut_encoded);
+    icc_profile = profile();
     expect(icc_mft2_cmyk.ok() && icc_profile && icc_profile->disposition == JpegIccDisposition::applied &&
                icc_profile->data_color_space == JpegIccDataColorSpace::cmyk &&
                icc_image.color_transform == JpegColorTransform::cmyk && icc_profile->profile_bytes == 320 &&
@@ -427,61 +346,33 @@ void test_jpeg_baseline() noexcept {
                icc_profile->lut.output_curves[0].table_offset == 56,
            "jpeg_icc_mft2_inverse_cmyk_retained_bounded");
 
-    expect(build_jpeg_icc_lut_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                      Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                      JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft2, false,
-                                      &icc_fixture) &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                                   icc_fixture, 154, 17),
-           "jpeg_icc_lut_grid_over_cap_fixture_build");
-    const JpegDecodeResult icc_lut_grid_over_cap = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_lut_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    expect(icc_lut_grid_over_cap.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::unsupported_ignored,
+    expect(lut_fixture(JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft2, false) &&
+               patch(icc_lut_buffer, 154, 17) &&
+               disposition(icc_lut_encoded) == JpegIccDisposition::unsupported_ignored,
            "jpeg_icc_lut_grid_over_cap_rejected");
 
-    expect(build_jpeg_icc_lut_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                      Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                      JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft2, false,
-                                      &icc_fixture) &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                                   icc_fixture, 157, 0),
-           "jpeg_icc_lut_nonidentity_matrix_fixture_build");
-    const JpegDecodeResult icc_lut_nonidentity_matrix = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_lut_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    expect(icc_lut_nonidentity_matrix.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::malformed_ignored,
+    expect(lut_fixture(JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft2, false) &&
+               patch(icc_lut_buffer, 157, 0) &&
+               disposition(icc_lut_encoded) == JpegIccDisposition::malformed_ignored,
            "jpeg_icc_lut_nonidentity_matrix_rejected");
 
-    expect(build_jpeg_icc_lut_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                      Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                      JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft1, false,
-                                      &icc_fixture) &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                                   icc_fixture, 20, 'X') &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                                   icc_fixture, 21, 'Y') &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                                   icc_fixture, 22, 'Z') &&
-               jpeg_icc_fixture_write_profile_byte(Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)},
-                                                   icc_fixture, 23, ' '),
-           "jpeg_icc_mft1_xyz_fixture_build");
-    const JpegDecodeResult icc_mft1_xyz = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_lut_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    expect(icc_mft1_xyz.ok() &&
-               icc_image.tables->icc->profile.disposition == JpegIccDisposition::unsupported_ignored,
+    expect(lut_fixture(JpegIccLutFixtureSpace::rgb, JpegIccLutFixturePrecision::mft1, false) &&
+               patch(icc_lut_buffer, 20, 'X') && patch(icc_lut_buffer, 21, 'Y') &&
+               patch(icc_lut_buffer, 22, 'Z') && patch(icc_lut_buffer, 23, ' ') &&
+               disposition(icc_lut_encoded) == JpegIccDisposition::unsupported_ignored,
            "jpeg_icc_mft1_xyz_rejected_without_ambiguous_scaling");
 
     u8 gray_encoded[192]{};
     JpegFixtureResult gray_fixture{};
+    const auto gray_icc_fixture = [&](bool pcs_lab, bool reverse_chunks) noexcept {
+        return build_jpeg_icc_gray_trc_fixture(ConstSlice<u8>{gray_encoded, gray_fixture.encoded_bytes},
+                                               icc_lut_buffer, pcs_lab, reverse_chunks, &icc_fixture);
+    };
     expect(build_grayscale_jpeg_fixture(Slice<u8>{gray_encoded, sizeof(gray_encoded)}, &gray_fixture) &&
-               build_jpeg_icc_gray_trc_fixture(ConstSlice<u8>{gray_encoded, gray_fixture.encoded_bytes},
-                                               Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)}, true,
-                                               true, &icc_fixture),
+               gray_icc_fixture(true, true),
            "jpeg_icc_gray_lab_trc_fixture_build");
-    const JpegDecodeResult icc_gray_lab = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_lut_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    icc_profile = icc_image.tables && icc_image.tables->icc ? &icc_image.tables->icc->profile : nullptr;
+    const JpegDecodeResult icc_gray_lab = decode(icc_lut_encoded);
+    icc_profile = profile();
     expect(icc_gray_lab.ok() && icc_profile && icc_image.component_count == 1 &&
                icc_image.color_transform == JpegColorTransform::grayscale &&
                icc_profile->disposition == JpegIccDisposition::applied &&
@@ -493,15 +384,8 @@ void test_jpeg_baseline() noexcept {
                icc_profile->curves[0].g == 1.0f,
            "jpeg_icc_gray_lab_trc_scatter_applied");
 
-    expect(build_jpeg_icc_gray_trc_fixture(ConstSlice<u8>{gray_encoded, gray_fixture.encoded_bytes},
-                                           Slice<u8>{icc_lut_encoded, sizeof(icc_lut_encoded)}, false,
-                                           false, &icc_fixture),
-           "jpeg_icc_gray_xyz_trc_fixture_build");
-    const JpegDecodeResult icc_gray_xyz = jpeg_decode_coefficients(
-        ConstSlice<u8>{icc_lut_encoded, icc_fixture.encoded_bytes}, &icc_image, &g_jpeg_workspace);
-    expect(icc_gray_xyz.ok() && icc_image.tables->icc->profile.disposition == JpegIccDisposition::applied &&
-               icc_image.tables->icc->profile.transform_kind == JpegIccTransformKind::gray_trc &&
-               icc_image.tables->icc->profile.pcs == JpegIccPcs::xyz,
+    expect(gray_icc_fixture(false, false) && disposition(icc_lut_encoded) == JpegIccDisposition::applied &&
+               profile()->transform_kind == JpegIccTransformKind::gray_trc && profile()->pcs == JpegIccPcs::xyz,
            "jpeg_icc_gray_xyz_trc_applied");
 
     JpegFixtureResult restarted_fixture{};
@@ -531,26 +415,28 @@ void test_jpeg_baseline() noexcept {
         ConstSlice<u8>{encoded, fixture.encoded_bytes}, image, &g_jpeg_workspace.coefficients);
     expect(bad_padding.error == JpegError::entropy, "jpeg_entropy_padding_reject");
 
+    // Whether any block of the last decode, of `blocks` blocks, has an AC coefficient.
+    const auto has_ac_coefficient = [](u32 blocks) noexcept {
+        for (u32 block = 0; block < blocks; ++block) {
+            for (u32 coefficient = 1; coefficient < 64; ++coefficient) {
+                if (jpeg_coefficient_block(g_jpeg_workspace.coefficients, blocks, block).values[coefficient] != 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
     JpegImage progressive_image{};
     const ConstSlice<u8> progressive_bytes{reinterpret_cast<const u8*>(kJpegProgressive420Reference),
                                            kJpegProgressive420ReferenceBytes};
     const JpegDecodeResult progressive =
         jpeg_decode_coefficients(progressive_bytes, &progressive_image, &g_jpeg_workspace);
-    bool progressive_has_ac = false;
-    for (u32 block = 0; block < progressive_image.coefficient_blocks; ++block) {
-        for (u32 coefficient = 1; coefficient < 64; ++coefficient) {
-            progressive_has_ac =
-                progressive_has_ac ||
-                jpeg_coefficient_block(g_jpeg_workspace.coefficients, progressive_image.coefficient_blocks, block)
-                        .values[coefficient] != 0;
-        }
-    }
     expect(progressive.ok() && progressive_image.progressive && progressive.parse.scans == 10 &&
                progressive_image.scan_count == 10 && progressive.decoded_scans == 10 &&
                progressive.decoded_blocks == 32 &&
                progressive_image.width == 16 &&
                progressive_image.height == 16 && progressive_image.coefficient_blocks == 6 &&
-               progressive_has_ac,
+               has_ac_coefficient(progressive_image.coefficient_blocks),
            "jpeg_progressive_spectral_and_refinement_decode");
 
     JpegImage progressive_edge_image{};
@@ -579,9 +465,17 @@ void test_jpeg_baseline() noexcept {
            "jpeg_progressive_restart_predictor_eob_and_sequence");
 
     u8 malformed_progressive[kJpegProgressive420ReferenceBytes]{};
-    for (u32 index = 0; index < sizeof(malformed_progressive); ++index) {
-        malformed_progressive[index] = static_cast<u8>(kJpegProgressive420Reference[index]);
-    }
+    const auto restore_progressive = [&]() noexcept {
+        for (u32 index = 0; index < sizeof(malformed_progressive); ++index) {
+            malformed_progressive[index] = static_cast<u8>(kJpegProgressive420Reference[index]);
+        }
+    };
+    const auto parse_progressive = [&]() noexcept {
+        return jpeg_parse(ConstSlice<u8>{malformed_progressive, sizeof(malformed_progressive)}, &image,
+                          &g_jpeg_workspace)
+            .error;
+    };
+    restore_progressive();
     bool changed_scan = false;
     for (u32 index = 0; index + 12 < sizeof(malformed_progressive); ++index) {
         if (malformed_progressive[index] == 0xFF && malformed_progressive[index + 1] == 0xDA) {
@@ -591,14 +485,10 @@ void test_jpeg_baseline() noexcept {
             break;
         }
     }
-    expect(changed_scan && jpeg_parse(ConstSlice<u8>{malformed_progressive, sizeof(malformed_progressive)},
-                                      &image, &g_jpeg_workspace)
-                                   .error == JpegError::scan,
+    expect(changed_scan && parse_progressive() == JpegError::scan,
            "jpeg_progressive_interleaved_ac_reject");
 
-    for (u32 index = 0; index < sizeof(malformed_progressive); ++index) {
-        malformed_progressive[index] = static_cast<u8>(kJpegProgressive420Reference[index]);
-    }
+    restore_progressive();
     bool changed_refinement = false;
     for (u32 index = 0; index + 12 < sizeof(malformed_progressive); ++index) {
         if (malformed_progressive[index] != 0xFF || malformed_progressive[index + 1] != 0xDA) {
@@ -614,15 +504,10 @@ void test_jpeg_baseline() noexcept {
             break;
         }
     }
-    expect(changed_refinement &&
-               jpeg_parse(ConstSlice<u8>{malformed_progressive, sizeof(malformed_progressive)}, &image,
-                          &g_jpeg_workspace)
-                       .error == JpegError::scan,
+    expect(changed_refinement && parse_progressive() == JpegError::scan,
            "jpeg_progressive_successive_refinement_order_reject");
 
-    for (u32 index = 0; index < sizeof(malformed_progressive); ++index) {
-        malformed_progressive[index] = static_cast<u8>(kJpegProgressive420Reference[index]);
-    }
+    restore_progressive();
     bool changed_progressive_padding = false;
     for (u32 index = sizeof(malformed_progressive) - 2; index != 0; --index) {
         if (malformed_progressive[index] == 0xFF && malformed_progressive[index + 1] == 0xD9 && index > 0) {
@@ -674,14 +559,6 @@ void test_jpeg_baseline() noexcept {
     JpegImage reference_image{};
     const JpegDecodeResult reference = jpeg_decode_coefficients(
         ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)}, &reference_image, &g_jpeg_workspace);
-    bool has_ac = false;
-    for (u32 block = 0; block < reference_image.coefficient_blocks && !has_ac; ++block) {
-        for (u32 coefficient = 1; coefficient < 64; ++coefficient) {
-            has_ac = has_ac ||
-                     jpeg_coefficient_block(g_jpeg_workspace.coefficients, reference_image.coefficient_blocks, block)
-                             .values[coefficient] != 0;
-        }
-    }
     expect(reference.ok() && reference_image.width == 16 && reference_image.height == 16 &&
                reference_image.component_count == 3 && reference_image.maximum_horizontal_sampling == 2 &&
                reference_image.maximum_vertical_sampling == 2 &&
@@ -690,27 +567,18 @@ void test_jpeg_baseline() noexcept {
                reference_image.components[1].horizontal_sampling == 1 &&
                reference_image.components[1].vertical_sampling == 1 &&
                reference_image.coefficient_blocks == 6 && reference.decoded_blocks == 6 &&
-               has_ac,
+               has_ac_coefficient(reference_image.coefficient_blocks),
            "jpeg_real_420_custom_huffman_ac_coefficients");
 
     JpegImage cmyk_image{};
     const JpegDecodeResult cmyk =
         jpeg_decode_coefficients(ConstSlice<u8>{kJpegCmykAdobeReference, sizeof(kJpegCmykAdobeReference)},
                                  &cmyk_image, &g_jpeg_workspace);
-    bool cmyk_has_ac = false;
-    for (u32 block = 0; block < cmyk_image.coefficient_blocks && !cmyk_has_ac; ++block) {
-        for (u32 coefficient = 1; coefficient < 64; ++coefficient) {
-            cmyk_has_ac = jpeg_coefficient_block(g_jpeg_workspace.coefficients, cmyk_image.coefficient_blocks, block)
-                              .values[coefficient] != 0;
-            if (cmyk_has_ac) {
-                break;
-            }
-        }
-    }
     expect(cmyk.ok() && cmyk.parse.scans == 1 && cmyk.decoded_scans == 1 && !cmyk_image.progressive &&
                cmyk_image.width == 16 && cmyk_image.height == 16 && cmyk_image.component_count == 4 &&
                cmyk_image.coefficient_blocks == 16 && cmyk_image.has_adobe && !cmyk_image.has_jfif &&
-               cmyk_image.color_transform == JpegColorTransform::cmyk && cmyk_has_ac,
+               cmyk_image.color_transform == JpegColorTransform::cmyk &&
+               has_ac_coefficient(cmyk_image.coefficient_blocks),
            "jpeg_adobe_cmyk_baseline_decode");
 
     u8 cmyk_without_adobe[sizeof(kJpegCmykAdobeReference) - 16]{};
@@ -732,23 +600,14 @@ void test_jpeg_baseline() noexcept {
     const JpegDecodeResult ycck = jpeg_decode_coefficients(
         ConstSlice<u8>{kJpegYcckProgressiveReference, sizeof(kJpegYcckProgressiveReference)}, &ycck_image,
         &g_jpeg_workspace);
-    bool ycck_has_ac = false;
-    for (u32 block = 0; block < ycck_image.coefficient_blocks && !ycck_has_ac; ++block) {
-        for (u32 coefficient = 1; coefficient < 64; ++coefficient) {
-            ycck_has_ac = jpeg_coefficient_block(g_jpeg_workspace.coefficients, ycck_image.coefficient_blocks, block)
-                              .values[coefficient] != 0;
-            if (ycck_has_ac) {
-                break;
-            }
-        }
-    }
     expect(ycck.ok() && ycck.parse.scans > 1 && ycck.decoded_scans == ycck.parse.scans &&
                ycck_image.progressive && ycck_image.width == 16 && ycck_image.height == 16 &&
                ycck_image.component_count == 4 && ycck_image.coefficient_blocks == 10 &&
                ycck_image.maximum_horizontal_sampling == 2 && ycck_image.maximum_vertical_sampling == 2 &&
                ycck_image.components[3].horizontal_sampling == 2 &&
                ycck_image.components[3].vertical_sampling == 2 && ycck_image.has_adobe &&
-               ycck_image.color_transform == JpegColorTransform::ycck && ycck_has_ac,
+               ycck_image.color_transform == JpegColorTransform::ycck &&
+               has_ac_coefficient(ycck_image.coefficient_blocks),
            "jpeg_adobe_ycck_progressive_decode");
 
     u8 invalid_cmyk_transform[sizeof(kJpegCmykAdobeReference)]{};
@@ -885,28 +744,21 @@ void test_webp_alpha() noexcept {
         oversized[index] = payload[index];
     }
     payload[0] = 0x40;
+    constexpr u32 full = sizeof(output);
+    const auto alpha_error = [&](ConstSlice<u8> data, u32 alpha_width, u32 alpha_height, u32 capacity) noexcept {
+        return webp_alpha_decode(data, alpha_width, alpha_height, nullptr, Slice<u8>{}, Slice<u8>{output, capacity})
+            .error;
+    };
     const bool bounds_exact =
-        webp_alpha_decode(ConstSlice<u8>{payload, sizeof(payload)}, width, height, nullptr, Slice<u8>{},
-                          Slice<u8>{output, sizeof(output)})
-                .error == WebpAlphaError::reserved_bits &&
-        webp_alpha_decode(ConstSlice<u8>{reinterpret_cast<const u8*>("\x20\0"), 2}, 1, 1, nullptr,
-                          Slice<u8>{}, Slice<u8>{output, sizeof(output)})
-                .error == WebpAlphaError::unsupported_preprocessing &&
-        webp_alpha_decode(ConstSlice<u8>{reinterpret_cast<const u8*>("\x02\0"), 2}, 1, 1, nullptr,
-                          Slice<u8>{}, Slice<u8>{output, sizeof(output)})
-                .error == WebpAlphaError::unsupported_compression &&
-        webp_alpha_decode(ConstSlice<u8>{oversized, sizeof(oversized)}, width, height, nullptr, Slice<u8>{},
-                          Slice<u8>{output, sizeof(output)})
-                .error == WebpAlphaError::data_size &&
-        webp_alpha_decode(ConstSlice<u8>{oversized, sizeof(payload) - 1}, width, height, nullptr,
-                          Slice<u8>{}, Slice<u8>{output, sizeof(output)})
-                .error == WebpAlphaError::data_size &&
-        webp_alpha_decode(ConstSlice<u8>{oversized, sizeof(payload)}, width, height, nullptr, Slice<u8>{},
-                          Slice<u8>{output, 11})
-                .error == WebpAlphaError::output_capacity &&
-        webp_alpha_decode(ConstSlice<u8>{oversized, sizeof(payload)}, 0, height, nullptr, Slice<u8>{},
-                          Slice<u8>{output, sizeof(output)})
-                .error == WebpAlphaError::dimensions;
+        alpha_error({payload, sizeof(payload)}, width, height, full) == WebpAlphaError::reserved_bits &&
+        alpha_error({reinterpret_cast<const u8*>("\x20\0"), 2}, 1, 1, full) ==
+            WebpAlphaError::unsupported_preprocessing &&
+        alpha_error({reinterpret_cast<const u8*>("\x02\0"), 2}, 1, 1, full) ==
+            WebpAlphaError::unsupported_compression &&
+        alpha_error({oversized, sizeof(oversized)}, width, height, full) == WebpAlphaError::data_size &&
+        alpha_error({oversized, sizeof(payload) - 1}, width, height, full) == WebpAlphaError::data_size &&
+        alpha_error({oversized, sizeof(payload)}, width, height, 11) == WebpAlphaError::output_capacity &&
+        alpha_error({oversized, sizeof(payload)}, 0, height, full) == WebpAlphaError::dimensions;
     expect(bounds_exact, "webp_alpha_header_size_and_capacity_bounds");
 
     WebpImage source_image{};
@@ -2194,15 +2046,16 @@ void test_png_decode() noexcept {
            "png_out_of_range_palette_index_reject");
 }
 
-// image_dominant_color gives what the official client's median cut gives for the same pixels (values taken from its
-// quantizer): a gradient; one colour (its 5-bit cell's centre); skipped translucent and near-white pixels (black when
-// nothing is left); a picture with alpha; the inverted boxes of one and two sampled pixels; and 250 grey, which is
-// not near-white and outweighs a larger green area by population times volume.
+// The first colour of image_palette gives what the official client's median cut gives for the same pixels (values taken
+// from its quantizer): a gradient; one colour (its 5-bit cell's centre); skipped translucent and near-white pixels
+// (black when nothing is left); a picture with alpha; the inverted boxes of one and two sampled pixels; and 250 grey,
+// which is not near-white and outweighs a larger green area by population times volume.
 void test_image_dominant_color() noexcept {
     static u8 rgba[64 * 64 * 4];
     static u32 histogram[kImageDominantColorHistogramEntries];
+    constexpr u32 entries = kImageDominantColorHistogramEntries;
     // `pixel` gives 0xRRGGBBAA.
-    const auto dominant = [](u32 width, u32 height, auto&& pixel) noexcept {
+    const auto fill = [](u32 width, u32 height, auto&& pixel) noexcept {
         for (u32 y = 0; y < height; ++y)
             for (u32 x = 0; x < width; ++x) {
                 const u32 value = pixel(x, y);
@@ -2212,8 +2065,11 @@ void test_image_dominant_color() noexcept {
                 p[2] = static_cast<u8>(value >> 8);
                 p[3] = static_cast<u8>(value);
             }
-        return image_dominant_color({rgba, width * height * 4}, width, height,
-                                    {histogram, kImageDominantColorHistogramEntries});
+    };
+    const auto dominant = [&](u32 width, u32 height, auto&& pixel) noexcept {
+        fill(width, height, pixel);
+        u32 colors[kImagePaletteColors];
+        return image_palette({rgba, width * height * 4}, width, height, {histogram, entries}, colors) ? colors[0] : 0;
     };
     constexpr u32 green = 0x088959FFu;
     expect(dominant(64, 64, [](u32 x, u32 y) { return (x * 4) << 24 | (y * 4) << 16 | (x + y) * 2 << 8 | 255u; }) ==
@@ -2240,29 +2096,20 @@ void test_image_dominant_color() noexcept {
                     }) == 0xFCFCFC,
            "dominant_color_population_times_volume");
     // The same 16x16 pixels (the last picture's first rows hold green) with a short histogram or pixel buffer.
-    constexpr u32 entries = kImageDominantColorHistogramEntries;
-    expect(image_dominant_color({rgba, 1024}, 16, 16, {histogram, entries}) != 0 &&
-               image_dominant_color({rgba, 1024}, 16, 16, {histogram, entries - 1}) == 0 &&
-               image_dominant_color({rgba, 1023}, 16, 16, {histogram, entries}) == 0,
+    u32 colors[kImagePaletteColors];
+    expect(image_palette({rgba, 1024}, 16, 16, {histogram, entries}, colors) != 0 &&
+               image_palette({rgba, 1024}, 16, 16, {histogram, entries - 1}, colors) == 0 &&
+               image_palette({rgba, 1023}, 16, 16, {histogram, entries}, colors) == 0,
            "dominant_color_rejects_short_buffers");
     // The whole palette (Discord's quantizer gives five colours, repeats included; the two-pixel picture one) and
     // the companion a single-colour palette's theme takes as its second colour (the client's first suggestion).
-    const auto palette = [](u32 width, u32 height, auto&& pixel, u32 count, const u32* want) noexcept {
-        for (u32 y = 0; y < height; ++y)
-            for (u32 x = 0; x < width; ++x) {
-                const u32 value = pixel(x, y);
-                u8* p = rgba + (y * width + x) * 4;
-                p[0] = static_cast<u8>(value >> 24);
-                p[1] = static_cast<u8>(value >> 16);
-                p[2] = static_cast<u8>(value >> 8);
-                p[3] = static_cast<u8>(value);
-            }
-        u32 colors[kImagePaletteColors]{};
-        if (image_palette({rgba, width * height * 4}, width, height, {histogram, kImageDominantColorHistogramEntries},
-                          colors) != count)
+    const auto palette = [&](u32 width, u32 height, auto&& pixel, u32 count, const u32* want) noexcept {
+        fill(width, height, pixel);
+        u32 got[kImagePaletteColors]{};
+        if (image_palette({rgba, width * height * 4}, width, height, {histogram, entries}, got) != count)
             return false;
         for (u32 i = 0; i < count; ++i)
-            if (colors[i] != want[i])
+            if (got[i] != want[i])
                 return false;
         return true;
     };

@@ -76,8 +76,6 @@ VoiceJitterFrame take(VoiceJitterBuffer& buffer) noexcept {
 } // namespace
 
 void voice_jitter_reset(VoiceJitterBuffer* buffer) noexcept {
-    if (!buffer)
-        return;
     clear(*buffer);
     reset_value(&buffer->stats);
     buffer->started = buffer->has_last = buffer->has_played = false;
@@ -88,8 +86,6 @@ void voice_jitter_reset(VoiceJitterBuffer* buffer) noexcept {
 
 VoiceJitterPush voice_jitter_push(VoiceJitterBuffer* buffer, u16 sequence, u32 timestamp, ConstSlice<u8> packet,
                                   u64 arrival_us) noexcept {
-    if (!buffer)
-        return VoiceJitterPush::rejected;
     if (!packet.data || !packet.count || packet.count > kVoiceJitterPacketBytes) {
         ++buffer->stats.rejected;
         return VoiceJitterPush::rejected;
@@ -138,8 +134,6 @@ VoiceJitterPush voice_jitter_push(VoiceJitterBuffer* buffer, u16 sequence, u32 t
 
 VoiceJitterFrame voice_jitter_pop(VoiceJitterBuffer* buffer) noexcept {
     VoiceJitterFrame frame{VoiceJitterPop::buffering};
-    if (!buffer)
-        return frame;
     if (!buffer->playing) {
         u16 first = 0;
         if (buffer->count < buffer->target || !oldest(*buffer, &first))

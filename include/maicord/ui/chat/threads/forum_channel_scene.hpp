@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/core/slice.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 struct Theme;

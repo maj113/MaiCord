@@ -75,7 +75,7 @@ bool update_portable_install(ConstSlice<wchar_t> executable) noexcept {
     return count && marker_first_line(marker) && directory_writable(marker, count);
 }
 
-bool update_appimage_install(ConstSlice<wchar_t> image) noexcept {
+static bool update_appimage_install(ConstSlice<wchar_t> image) noexcept {
     FileStat stat{};
     return image.count && file_path_stat(image.data, &stat) && stat.kind == FileKind::regular &&
            directory_writable(image.data, image.count);

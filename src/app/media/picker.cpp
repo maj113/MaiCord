@@ -628,7 +628,7 @@ bool application_media_picker_pending(u64 now) noexcept {
     return p && p->active && owns_current(*p) && p->wanted && !p->submitted_id && now >= p->due_at;
 }
 bool application_media_picker_submit(u64 id, u64 now) noexcept {
-    if (!id || !application_media_picker_pending(now) || !g_app.account.api.media_catalog)
+    if (!id || !application_media_picker_pending(now))
         return false;
     auto& p = *g_app.media_picker;
     const auto text = message_composer_text(p.edit);
@@ -643,7 +643,7 @@ bool application_media_picker_submit(u64 id, u64 now) noexcept {
                             p.operation == MediaCatalogOperation::guild_stickers ? p.guild_id : 0,
                             strip ? kMediaCatalogMinimumGifPageItems : 0u,
                             strip ? MediaCatalogFormat::webp : MediaCatalogFormat::tiny_webp};
-    const auto submitted = g_app.account.api.media_catalog(
+    const auto submitted = account_module_media_catalog(
         g_app.account.instance, AccountMediaCatalogOperation::submit, &query, id);
     if (!submitted.ok()) {
         p.admission_busy = submitted.error == RestClientSubmitError::busy;

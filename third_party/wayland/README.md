@@ -19,7 +19,6 @@ the MIT licence stated in each file's `<copyright>` block. `tools/generate_wayla
 | `xdg-system-bell-v1.xml` | staging | alert beep |
 | `xdg-foreign-unstable-v2.xml` | unstable | the window as the parent of portal dialogs |
 | `text-input-unstable-v3.xml` | unstable | IME |
-| `primary-selection-unstable-v1.xml` | unstable | primary selection |
 | `xdg-decoration-unstable-v1.xml` | unstable | server-side decorations |
 | `idle-inhibit-unstable-v1.xml` | unstable | idle inhibit during calls |
 | `wlr-virtual-pointer-unstable-v1.xml` | wlr-protocols | tests only: a virtual pointer for sway |

@@ -170,9 +170,8 @@ void bind_scope(ApplicationGifFavorites& p) noexcept {
 void cancel_fetch(ApplicationGifFavorites& p) noexcept {
     if (!p.request_id || p.operation != AccountGifFavoritesOperation::fetch)
         return;
-    if (g_app.account.api.gif_favorites && g_app.account.instance)
-        g_app.account.api.gif_favorites(g_app.account.instance, AccountGifFavoritesOperation::cancel, {},
-                                        p.request_id);
+    if (g_app.account.instance)
+        account_module_gif_favorites(g_app.account.instance, AccountGifFavoritesOperation::cancel, {}, p.request_id);
 }
 void withdraw_unused_interest(ApplicationGifFavorites& p) noexcept {
     if (interested(p))
@@ -401,7 +400,7 @@ bool application_gif_favorites_pending(u64 now_ms) noexcept {
            p->due_at <= now_ms;
 }
 bool application_gif_favorites_submit(u64 id, u64 now_ms) noexcept {
-    if (!id || !application_gif_favorites_pending(now_ms) || !g_app.account.api.gif_favorites)
+    if (!id || !application_gif_favorites_pending(now_ms))
         return false;
     auto& p = *g_app.gif_favorites;
     const auto operation = p.authoritative && p.queue_count ? AccountGifFavoritesOperation::update
@@ -464,7 +463,7 @@ bool application_gif_favorites_submit(u64 id, u64 now_ms) noexcept {
         changed(p);
         return false;
     }
-    const auto admitted = g_app.account.api.gif_favorites(g_app.account.instance, operation, patch, id);
+    const auto admitted = account_module_gif_favorites(g_app.account.instance, operation, patch, id);
     dispose(write, write_bytes);
     if (!admitted.ok()) {
         broker_drop_response(p);

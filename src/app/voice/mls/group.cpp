@@ -240,7 +240,7 @@ MlsStatus mls_group_join_welcome(KdfSha256Workspace& kdf, MlsGroup* group, Const
 }
 MlsStatus mls_group_apply_proposals(KdfSha256Workspace& kdf, MlsGroup* group, ConstSlice<u8> input,
                                     ConstSlice<u64> recognized) noexcept {
-    if (!group || !group->initialized || !input.data)
+    if (!group->initialized || !input.data)
         return MlsStatus::invalid_argument;
     if (group->pending != MlsPending::none)
         return MlsStatus::state_conflict;
@@ -249,7 +249,7 @@ MlsStatus mls_group_apply_proposals(KdfSha256Workspace& kdf, MlsGroup* group, Co
 MlsStatus mls_group_create_local(KdfSha256Workspace& kdf, MlsGroup* group, const u8* leaf_secret,
                                  const P256Key& signing, Slice<MlsProposal> views,
                                  const MlsCommitBuffers& buffers, Slice<u8> message) noexcept {
-    if (!group || !group->initialized)
+    if (!group->initialized)
         return MlsStatus::invalid_argument;
     if (group->pending != MlsPending::none)
         return MlsStatus::state_conflict;
@@ -271,8 +271,6 @@ MlsStatus mls_group_create_local(KdfSha256Workspace& kdf, MlsGroup* group, const
 MlsStatus mls_group_write_welcome(KdfSha256Workspace& kdf, const MlsGroup& group, const P256Key& signing,
                                   Slice<MlsProposal> views, Slice<u8> group_info_scratch, Slice<u8> output,
                                   u32* written) noexcept {
-    if (!written)
-        return MlsStatus::invalid_argument;
     *written = 0;
     const u32 joiners = group.staged.successor.joiner_count;
     if (!group.initialized || group.pending != MlsPending::local || !group.staged.initialized ||
@@ -288,7 +286,7 @@ MlsStatus mls_group_write_welcome(KdfSha256Workspace& kdf, const MlsGroup& group
 MlsStatus mls_group_stage_commit(KdfSha256Workspace& kdf, MlsGroup* group, u16 transition_id,
                                  ConstSlice<u8> message, Slice<MlsProposal> views,
                                  const MlsCommitBuffers& buffers) noexcept {
-    if (!group || !group->initialized || !message.data || !message.count)
+    if (!group->initialized || !message.data || !message.count)
         return MlsStatus::invalid_argument;
     const bool had_local = group->pending == MlsPending::local;
     if (had_local && message.count == group->pending_message.count &&
@@ -334,7 +332,7 @@ MlsStatus mls_group_stage_commit(KdfSha256Workspace& kdf, MlsGroup* group, u16 t
     return status;
 }
 MlsStatus mls_group_execute(MlsGroup* group, u16 transition_id) noexcept {
-    if (!group || !group->initialized)
+    if (!group->initialized)
         return MlsStatus::invalid_argument;
     const auto* successor = mls_group_pending_successor(*group);
     if (!successor || !group->has_pending_transition || group->pending_transition != transition_id ||

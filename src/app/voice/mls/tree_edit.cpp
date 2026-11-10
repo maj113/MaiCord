@@ -5,7 +5,7 @@
 namespace maicord {
 MlsStatus mls_hpke_ciphertext_next(ConstSlice<u8> ciphertexts, u32* offset, MlsHpkeCiphertext* ciphertext,
                                    bool* has_ciphertext) noexcept {
-    if (!offset || !ciphertext || !has_ciphertext || *offset > ciphertexts.count)
+    if (*offset > ciphertexts.count)
         return MlsStatus::invalid_argument;
     *has_ciphertext = false;
     reset_value(ciphertext);
@@ -24,7 +24,7 @@ MlsStatus mls_hpke_ciphertext_next(ConstSlice<u8> ciphertexts, u32* offset, MlsH
 MlsStatus mls_update_path_node_next(const ConstSlice<u8>& nodes_view, u32* offset, MlsUpdatePathNode* node,
                                     bool* has_node) noexcept {
     const ConstSlice<u8> nodes = nodes_view; // *node and *offset are written below
-    if (!offset || !node || !has_node || *offset > nodes.count)
+    if (*offset > nodes.count)
         return MlsStatus::invalid_argument;
     *has_node = false;
     reset_value(node);
@@ -201,8 +201,6 @@ u32 mls_tree_edit_bytes(const MlsRatchetTree& tree, ConstSlice<MlsProposal> prop
 MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposals,
                                    const Slice<u8>& scratch, Slice<u32> joiners, u32* joiner_count,
                                    const Slice<u8>& output, u32* written) noexcept {
-    if (!joiner_count || !written)
-        return MlsStatus::invalid_argument;
     *joiner_count = 0;
     *written = 0;
     u32 maximum_leaves = 0, maximum_nodes = 0, additions = 0;

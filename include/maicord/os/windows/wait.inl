@@ -1,5 +1,5 @@
-// The Windows bodies of maicord/os/wait.hpp: inline forwarders to the Win32 calls, so a call site compiles to the
-// import it used to call. Included by wait.hpp only.
+// The Windows bodies of maicord/os/wait.hpp: inline forwarders to the Win32 calls, so a call site compiles to the Win32
+// import. Included by wait.hpp only.
 
 namespace maicord {
 

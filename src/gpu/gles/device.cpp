@@ -68,13 +68,9 @@ bool make_current(GpuDevice& device) noexcept {
         return false;
     }
     config = candidates[0];
-    // MAICORD_GLES_ALPHA_WINDOW=1 takes a window config with alpha instead (tests: a driver with no XRGB config).
-    const char* alpha_window = test_hook("MAICORD_GLES_ALPHA_WINDOW");
-    const bool want_alpha = alpha_window && alpha_window[0] == '1';
     for (egl::Int i = 0; window && i < count; ++i) {
         egl::Int alpha = 1;
-        if (device.egl.eglGetConfigAttrib(device.display, candidates[i], egl::kAlphaSize, &alpha) &&
-            (alpha == 0) != want_alpha) {
+        if (device.egl.eglGetConfigAttrib(device.display, candidates[i], egl::kAlphaSize, &alpha) && alpha == 0) {
             config = candidates[i];
             break;
         }
@@ -345,8 +341,6 @@ GpuStatus create_device_here() noexcept {
         gpu_device_destroy(nullptr, nullptr);
         return kGpuUnsupported;
     }
-    const char* checks = test_hook("MAICORD_GLES_CHECK");
-    d.debug_checks = checks && checks[0] == '1';
     d.gl.glDisable(gl::kDither);
     d.gl.glDisable(gl::kCullFace);
     d.gl.glDisable(gl::kDepthTest);

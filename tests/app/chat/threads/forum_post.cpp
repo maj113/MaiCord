@@ -4,6 +4,7 @@
 #include "../../../support/model_store_fixtures.hpp"
 #include "../../../../src/app/shell/state.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "maicord/model/chat/read_state.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/core/slice.hpp"
@@ -185,7 +186,7 @@ void reset_owner() noexcept {
     g_app.account.status.profile_id = 2;
     g_app.account.status.running = true;
     g_app.account.status.required_action = AccountRequirement::none;
-    g_app.account.api.forum_post = submit;
+    g_account_fake.forum_post = submit;
     admission = {};
     form_ok = navigate_ok = true;
     canonical_on_navigate = release_on_paint = false;
@@ -237,7 +238,7 @@ bool initialize() noexcept {
     g_app.account.instance = &actor;
     g_app.account.status.profile_id = 2;
     g_app.account.status.running = true;
-    g_app.account.api.forum_post = submit;
+    g_account_fake.forum_post = submit;
     origin();
     permit();
     return true;

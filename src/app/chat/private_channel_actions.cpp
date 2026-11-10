@@ -219,8 +219,8 @@ bool private_channel_action_due(const PrivateChannelActionController& c, u64 now
            (c.phase == PrivateChannelActionPhase::retry_wait && now_ms >= c.retry_at_ms);
 }
 bool private_channel_action_submitted(PrivateChannelActionController* c, u64 request_id) noexcept {
-    if (!c || !request_id || (c->phase != PrivateChannelActionPhase::queued &&
-                              c->phase != PrivateChannelActionPhase::retry_wait))
+    if (!request_id || (c->phase != PrivateChannelActionPhase::queued &&
+                        c->phase != PrivateChannelActionPhase::retry_wait))
         return false;
     c->request_id = request_id;
     c->phase = PrivateChannelActionPhase::awaiting;
@@ -229,7 +229,7 @@ bool private_channel_action_submitted(PrivateChannelActionController* c, u64 req
 bool private_channel_action_accept(PrivateChannelActionController* c, ChatStateStore* state,
                                    UserStore* users, const RestClientResponse& response,
                                    Utf8View body, Slice<u32> scratch, Slice<char> packet, Slice<u64> ids) noexcept {
-    if (!c || !state || c->phase != PrivateChannelActionPhase::awaiting || response.request_id != c->request_id)
+    if (c->phase != PrivateChannelActionPhase::awaiting || response.request_id != c->request_id)
         return false;
     const auto fail = [&](PrivateChannelActionError error) noexcept {
         c->phase = PrivateChannelActionPhase::failed;
@@ -306,7 +306,7 @@ bool private_channel_action_accept(PrivateChannelActionController* c, ChatStateS
 }
 bool private_call_observe(PrivateCallPrompt* prompt, const ChatStateStore& state, const GatewayClientEvent& event,
                           u64 voice_channel_id) noexcept {
-    if (!prompt || event.kind != GatewayClientEventKind::dispatch ||
+    if (event.kind != GatewayClientEventKind::dispatch ||
         (event.dispatch_kind != GatewayClientDispatchKind::call_update &&
          event.dispatch_kind != GatewayClientDispatchKind::call_delete))
         return false;

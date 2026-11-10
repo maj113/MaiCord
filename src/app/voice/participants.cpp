@@ -201,7 +201,7 @@ VoiceSsrcBinding voice_participants_source(const VoiceParticipants& participants
 VoiceParticipantsResult voice_participants_event(VoiceParticipants* participants, u64 generation, u8 opcode,
                                                  JsonValue data, Slice<u32> scratch,
                                                  u32 maximum_depth) noexcept {
-    if (!participants || !generation || scratch.count > ~u32{0} / sizeof(u32))
+    if (!generation || scratch.count > ~u32{0} / sizeof(u32))
         return {VoiceParticipantsError::invalid_input};
     if (participants->generation && participants->generation != generation)
         return {VoiceParticipantsError::stale_generation};
@@ -261,8 +261,6 @@ VoiceParticipantsResult voice_participants_event(VoiceParticipants* participants
     return {};
 }
 void voice_participants_clear_sources(VoiceParticipants* participants) noexcept {
-    if (!participants)
-        return;
     clear_bytes(participants->sources,
                 participants->source_count * static_cast<u32>(sizeof(VoiceSsrcBinding)));
     participants->source_count = 0;
@@ -270,8 +268,6 @@ void voice_participants_clear_sources(VoiceParticipants* participants) noexcept 
         participants->users[i].speaking = 0;
 }
 void voice_participants_release(VoiceParticipants* participants) noexcept {
-    if (!participants)
-        return;
     if (participants->users)
         pages_release(participants->users);
     if (participants->sources)

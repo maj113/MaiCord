@@ -1,7 +1,6 @@
 #include "maicord/app/voice/mls/signature.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/voice/mls_encoding.hpp"
-#include "../../shell/byte_views.hpp"
 #include "maicord/protocol/auth/p256_signature.hpp"
 
 

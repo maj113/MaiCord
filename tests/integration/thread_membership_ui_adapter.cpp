@@ -2,6 +2,7 @@
 #include "thread_membership_ui_adapter.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/ui_scene_fixtures.hpp"
+#include "../support/account_module_fake.hpp"
 #include "shell/state.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -208,7 +209,7 @@ bool thread_membership_ui_adapter_begin(HWND window, bool (*refresh)(void*) noex
     g_app.account.instance = fixture;
     g_app.account.status.running = true;
     g_app.account.status.profile_id = 96020;
-    g_app.account.api.thread_action = submit_thread;
+    g_account_fake.thread_action = submit_thread;
     g_app.plugin_account_scope_serial = 96010;
     g_app.window = win32_window(window);
     g_app.login.visible = false;

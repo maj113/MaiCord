@@ -150,7 +150,7 @@ void scope() noexcept {
     if (g_owner.profile_id == profile && g_owner.self_user_id == self)
         return;
     application_text_form_cancel_owner(content_confirmation_valid);
-    application_cancel_request(&AccountModuleApi::account_settings, g_owner.request_id);
+    application_cancel_request(account_module_account_settings, g_owner.request_id);
     release_bank();
     const u64 applied = g_owner.applied_revision;
     reset_value(&g_owner);
@@ -325,7 +325,7 @@ void application_user_settings_synchronize() noexcept {
 
 bool application_user_settings_pending(u64 now_ms) noexcept {
     auto* s = store();
-    if (!s || g_owner.request_id || !account_online() || !g_app.account.api.account_settings || g_owner.retry_at_ms > now_ms)
+    if (!s || g_owner.request_id || !account_online() || g_owner.retry_at_ms > now_ms)
         return false;
     s->live = true;
     return s->refetch || user_settings_store_due(*s, now_ms);
@@ -338,7 +338,7 @@ bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept {
     AccountSettingsRequest request{};
     if (s->refetch) {
         request.operation = AccountSettingsOperation::settings_fetch;
-        const auto admitted = g_app.account.api.account_settings(g_app.account.instance, &request, request_id);
+        const auto admitted = account_module_account_settings(g_app.account.instance, &request, request_id);
         if (!admitted.ok()) {
             g_owner.retry_at_ms = now_ms + 1000;
             return false;
@@ -365,7 +365,7 @@ bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept {
     request.payload = {g_owner.bank->partial, bytes};
     request.required_data_version = required;
     request.required_data_version_present = pinned;
-    const auto admitted = g_app.account.api.account_settings(g_app.account.instance, &request, request_id);
+    const auto admitted = account_module_account_settings(g_app.account.instance, &request, request_id);
     secure_clear_bytes(g_owner.bank->partial, bytes);
     if (!admitted.ok()) {
         // Busy lanes retry the same edits shortly; nothing is rolled back.

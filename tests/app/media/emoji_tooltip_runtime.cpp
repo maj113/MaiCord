@@ -1,6 +1,7 @@
 #include "../../../src/app/media/emoji_tooltip.cpp"
 #include "../../../src/app/media/expression_card.cpp"
 #include "shell/tooltip.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "account/account_ui_runtime.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
@@ -78,7 +79,7 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
             application_tooltip_release();
             emoji_tooltip_test::hit = {};
             g_app.renderer.message_text = nullptr;
-            g_app.account.api.media_catalog = nullptr;
+            g_account_fake.media_catalog = nullptr;
             ui.chat_state = state;
             ui.active_channel_id = active;
             ui.message_rich_store = rich;
@@ -230,7 +231,7 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
     namespace card = expression_card_test;
     const bool motion = g_app.preferences.reduced_motion;
     g_app.preferences.reduced_motion = true;
-    g_app.account.api.media_catalog = card::submit;
+    g_account_fake.media_catalog = card::submit;
     const auto centre = [](UiRect r) noexcept { return UiPoint{(r.left + r.right) * .5f, (r.top + r.bottom) * .5f}; };
     const auto lparam = [](UiPoint p) noexcept {
         return static_cast<LPARAM>(MAKELPARAM(static_cast<short>(p.x), static_cast<short>(p.y)));

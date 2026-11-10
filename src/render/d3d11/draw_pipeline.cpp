@@ -150,7 +150,7 @@ D3D11DrawPipelineError create_pipeline_resources(D3D11DrawPipelineOwner* owner, 
 
 D3D11DrawPipelineResult d3d11_draw_pipeline_create(D3D11DrawPipelineOwner* staged, GpuDevice* device,
                                                    const D3D11DrawPipelineConfig& config) noexcept {
-    if (!staged || !device || config.ui_instance_stride < 64 || config.glyph_instance_stride < 48 ||
+    if (!device || config.ui_instance_stride < 64 || config.glyph_instance_stride < 48 ||
         config.media_instance_stride < 48 ||
         !valid_buffer_dimensions(config.ui_instance_stride, config.ui_instance_capacity) ||
         config.ui_instance_capacity > kD3D11MaximumUiInstanceCapacity ||
@@ -240,7 +240,7 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_ui_instances(D3D11DrawPipeli
                                                                  GpuDevice* device, u32 stride,
                                                                  u32 required_count) noexcept {
     const u32 capacity = d3d11_ui_instance_capacity_for_count(required_count);
-    if (!owner || !device || stride < 64 || !valid_buffer_dimensions(stride, capacity)) {
+    if (!device || stride < 64 || !valid_buffer_dimensions(stride, capacity)) {
         return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
     }
     if (owner->ui_instance_buffer && required_count <= owner->ui_instance_capacity)
@@ -262,7 +262,7 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_ui_instances(D3D11DrawPipeli
 D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_glyph_instances(D3D11DrawPipelineOwner* owner,
                                                                     GpuDevice* device, u32 stride,
                                                                     u32 capacity) noexcept {
-    if (!owner || !device || stride < 48 || !valid_buffer_dimensions(stride, capacity)) {
+    if (!device || stride < 48 || !valid_buffer_dimensions(stride, capacity)) {
         return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
     }
     if (owner->glyph_instance_buffer && capacity <= owner->glyph_instance_capacity) {
@@ -347,9 +347,6 @@ bool d3d11_draw_pipeline_update_caption(const D3D11DrawPipelineOwner& owner, Gpu
 }
 
 void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept {
-    if (!owner) {
-        return;
-    }
     gpu_release(owner->background_buffer);
     owner->background_valid = false;
     owner->background_active = false;
@@ -380,7 +377,7 @@ void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept {
 
 bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner* owner, GpuDevice* device,
                                            GpuContext* context, const Theme& theme) noexcept {
-    if (!owner || !context || !device)
+    if (!context || !device)
         return false;
     const auto& background = theme.background;
     owner->background_active = ui_background_active(theme) || background_effects_active(background);

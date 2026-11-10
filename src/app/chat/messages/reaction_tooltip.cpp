@@ -178,7 +178,7 @@ bool application_reaction_tooltip_query(ReactionTooltipQuery* query) noexcept {
     // Still submitted with the lane free: the lane was reset under the request.
     if (s.phase == Phase::submitted)
         s.phase = s.attempts < 2 ? Phase::required : Phase::failed;
-    if (!query || s.phase != Phase::required)
+    if (s.phase != Phase::required)
         return false;
     *query = {{s.emoji_name, s.emoji_name_bytes}, s.channel_id, s.message_id, s.emoji_id, s.epoch, s.type};
     return true;

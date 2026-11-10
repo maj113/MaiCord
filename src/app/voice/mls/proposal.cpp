@@ -76,7 +76,7 @@ MlsStatus parse_entry(KdfSha256Workspace& kdf, const MlsProposalCache& cache, u3
 
 MlsStatus mls_proposal_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, const MlsExternalSender* sender,
                              MlsProposal* proposal, u32* consumed) noexcept {
-    if (!input.data || !proposal || !consumed || !input.count || (sender && !sender->signature_key))
+    if (!input.data || !proposal || !input.count || (sender && !sender->signature_key))
         return MlsStatus::invalid_argument;
     reset_value(proposal);
     *consumed = 0;
@@ -140,7 +140,7 @@ MlsStatus mls_proposal_cache_init(MlsProposalCache* cache, u64 group_id, u64 epo
     return MlsStatus::ok;
 }
 void mls_proposal_cache_reset(MlsProposalCache* cache, u64 group_id, u64 epoch) noexcept {
-    if (!cache || !cache->storage || !cache->entries)
+    if (!cache->storage || !cache->entries)
         return;
     secure_clear_bytes(cache->storage, cache->storage_used);
     secure_clear_bytes(cache->entries, cache->entry_count * sizeof(MlsProposalCacheEntry));
@@ -149,8 +149,6 @@ void mls_proposal_cache_reset(MlsProposalCache* cache, u64 group_id, u64 epoch) 
     cache->epoch = epoch;
 }
 void mls_proposal_cache_clear(MlsProposalCache* cache) noexcept {
-    if (!cache)
-        return;
     if (cache->storage)
         secure_clear_bytes(cache->storage, cache->storage_used);
     if (cache->entries)
@@ -159,7 +157,7 @@ void mls_proposal_cache_clear(MlsProposalCache* cache) noexcept {
 }
 MlsStatus mls_proposal_cache_apply(KdfSha256Workspace& kdf, MlsProposalCache* cache, ConstSlice<u8> input,
                                    const MlsExternalSender& sender, ConstSlice<u64> recognized) noexcept {
-    if (!cache || !cache->storage || !cache->entries || !input.data || !sender.signature_key)
+    if (!cache->storage || !cache->entries || !input.data || !sender.signature_key)
         return MlsStatus::invalid_argument;
     // DAVE opcode 27: u8 operation (0 append, 1 revoke) then one vector of
     // proposal messages or of proposal references.
@@ -230,7 +228,7 @@ MlsStatus mls_proposal_cache_apply(KdfSha256Workspace& kdf, MlsProposalCache* ca
 MlsStatus mls_proposal_cache_resolve(KdfSha256Workspace& kdf, const MlsProposalCache& cache,
                                      ConstSlice<u8> references, Slice<MlsProposal> proposals,
                                      u32* count) noexcept {
-    if (!cache.storage || !cache.entries || !count || (!proposals.data && proposals.count))
+    if (!cache.storage || !cache.entries || (!proposals.data && proposals.count))
         return MlsStatus::invalid_argument;
     *count = 0;
     u32 required = 0;
@@ -278,7 +276,7 @@ MlsStatus mls_proposal_cache_resolve(KdfSha256Workspace& kdf, const MlsProposalC
 }
 MlsStatus mls_proposal_cache_resolve_all(KdfSha256Workspace& kdf, const MlsProposalCache& cache,
                                          Slice<MlsProposal> proposals, u32* count) noexcept {
-    if (!cache.storage || !cache.entries || !count || (!proposals.data && proposals.count))
+    if (!cache.storage || !cache.entries || (!proposals.data && proposals.count))
         return MlsStatus::invalid_argument;
     *count = cache.entry_count;
     if (proposals.count < cache.entry_count)

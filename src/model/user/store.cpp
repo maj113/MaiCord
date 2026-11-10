@@ -1,5 +1,4 @@
 #include "maicord/model/user/store.hpp"
-#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/model/chat/sorted_search.hpp"

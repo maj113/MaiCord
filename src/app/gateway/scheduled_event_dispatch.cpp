@@ -20,7 +20,7 @@ bool arrays_field(void* opaque, JsonString name, JsonValue value) noexcept {
 } // namespace
 
 bool gateway_guild_arrays_find(JsonValue guild, Slice<u32> scratch, GatewayGuildArrays* arrays) noexcept {
-    if (!arrays || !scratch.data || scratch.count < 64 || guild.kind != JsonValueKind::object) return false;
+    if (!scratch.data || scratch.count < 64 || guild.kind != JsonValueKind::object) return false;
     reset_value(arrays);
     arrays->scheduled_events.kind = JsonValueKind::null_value;
     const auto scan = json_scan_structurals_avx1(guild.source, scratch);

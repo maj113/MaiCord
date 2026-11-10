@@ -27,13 +27,13 @@ u32 mls_tree_right(u32 node) noexcept {
 }
 MlsStatus mls_tree_parent(u32 node, u32* parent) noexcept {
     const u32 level = mls_tree_level(node);
-    if (!parent || level >= 31)
+    if (level >= 31)
         return MlsStatus::invalid_argument;
     *parent = (node | (1u << level)) & ~(1u << (level + 1));
     return MlsStatus::ok;
 }
 MlsStatus mls_tree_sibling(u32 node, u32 ancestor, u32* sibling) noexcept {
-    if (!sibling || node == ancestor || !mls_tree_is_below(node, ancestor))
+    if (node == ancestor || !mls_tree_is_below(node, ancestor))
         return MlsStatus::invalid_argument;
     const u32 left = mls_tree_left(ancestor);
     *sibling = mls_tree_is_below(node, left) ? mls_tree_right(ancestor) : left;
@@ -56,7 +56,7 @@ MlsStatus mls_tree_full_leaf_count(u32 leaf_count, u32* full_leaf_count) noexcep
 }
 MlsStatus mls_tree_root(u32 leaf_count, u32* root) noexcept {
     u32 nodes = 0;
-    if (!root || !leaf_count || mls_tree_node_count(leaf_count, &nodes) != MlsStatus::ok)
+    if (!leaf_count || mls_tree_node_count(leaf_count, &nodes) != MlsStatus::ok)
         return MlsStatus::invalid_argument;
     u32 log = 0;
     while (nodes >> (log + 1))
@@ -65,7 +65,7 @@ MlsStatus mls_tree_root(u32 leaf_count, u32* root) noexcept {
     return MlsStatus::ok;
 }
 MlsStatus mls_tree_leaf_ancestor(u32 left_leaf, u32 right_leaf, u32* ancestor) noexcept {
-    if (!ancestor || left_leaf > 0x7fffffffu || right_leaf > 0x7fffffffu)
+    if (left_leaf > 0x7fffffffu || right_leaf > 0x7fffffffu)
         return MlsStatus::invalid_argument;
     u32 left = left_leaf * 2, right = right_leaf * 2, shifts = 0;
     if (left == right) {

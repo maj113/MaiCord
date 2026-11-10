@@ -148,16 +148,13 @@ void test_thread_authority_model(void (*check)(bool, const char*) noexcept) noex
           "Manage Threads permits writes in an active locked thread");
     fixture.permissions(kThreadTestPermissions);
 
-    chat_state_store_set_thread_self_membership(&state, 32, 5, true);
     chat_state_store_set_thread_archived(&state, 31, 5, false);
     chat_state_store_set_thread_locked(&state, 31, 5, false);
-    chat_state_store_invalidate_thread_authority(&state, 10, 20);
+    chat_state_store_invalidate_thread_authority(&state, 10);
     check(!private_thread.thread_self_joined_known && !private_thread.thread_archived_known &&
               !private_thread.thread_locked_known && !private_thread.actions &&
-              fixture.channel(32).thread_self_joined_known &&
               chat_state_store_channel_visible(state, public_thread),
-          "scoped authority invalidation denies private reads while preserving other parents and public "
-          "reads");
+          "authority invalidation denies private reads while preserving public reads");
     auto* saved_roles = state.roles;
     auto* saved_overwrites = state.overwrites;
     state.roles = nullptr;

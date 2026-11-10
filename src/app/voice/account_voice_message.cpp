@@ -161,8 +161,6 @@ bool decode_next(VoiceMessagePreview* p) noexcept {
 
 void account_voice_message_initialize(AccountVoiceMessage* v, const VoiceMessageCaptureOps* ops,
                                       void* capture_self) noexcept {
-    if (!v)
-        return;
     v->lock = SRWLOCK_INIT;
     v->capture_ops = ops ? ops : &kWasapi;
     v->capture_self = ops ? capture_self : &v->capture;
@@ -173,7 +171,7 @@ void account_voice_message_initialize(AccountVoiceMessage* v, const VoiceMessage
 }
 
 void account_voice_message_configure(AccountVoiceMessage* v, const VoiceAudioSettings& settings) noexcept {
-    if (!v || !v->capture_ops)
+    if (!v->capture_ops)
         return;
     // A recording keeps the device it opened; the next one uses the new settings.
     copy_bytes(v->input_device, settings.input_device, sizeof(v->input_device));
@@ -221,7 +219,7 @@ void account_voice_message_render(void* context, Slice<i16> pcm, u64) noexcept {
 
 bool account_voice_message_command(AccountVoiceMessage* v, const VoiceMessageCommand* command,
                                    VoiceMessageStatus* status) noexcept {
-    if (!v || !v->capture_ops)
+    if (!v->capture_ops)
         return false;
     bool accepted = true;
     // A microphone that cannot open (missing, or blocked by privacy settings)

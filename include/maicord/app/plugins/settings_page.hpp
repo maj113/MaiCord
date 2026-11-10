@@ -57,10 +57,8 @@ PluginSettingsOutcome plugin_settings_activate(PluginBinding*, PluginSettingsPag
 // The text of an edit row, as the user typed it. A refusal marks the row (page->rejected).
 PluginSettingsOutcome plugin_settings_commit(PluginBinding*, PluginSettingsPage*, u64 control_id, Utf8View text) noexcept;
 
-// The edit text of a setting's current value (what an editor shows), and the encoding of typed text
-// into the bytes set_setting takes. Numbers are decimal, colours "#RRGGBB", keys "Ctrl+Shift+K",
-// user lists one id per line. Secrets show their value; the editor masks it.
+// The edit text of a setting's current value (what an editor shows). Numbers are decimal, colours "#RRGGBB", keys
+// "Ctrl+Shift+K", user lists one id per line. Secrets show their value; the editor masks it.
 u32 plugin_setting_format(const PluginBinding&, u32 setting, Slice<char> output) noexcept;
-bool plugin_setting_parse(const mc_setting_def&, Utf8View text, Slice<u8> bytes, u32* used) noexcept;
 
 } // namespace maicord

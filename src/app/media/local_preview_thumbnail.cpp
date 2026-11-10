@@ -174,7 +174,7 @@ bool local_thumbnail_gif_row(const GifFrame& frame, const GifPalette& palette, C
 }
 
 bool local_thumbnail_orient(Slice<u8> pixels, u32* width, u32* height, u8 orientation, Slice<u8> scratch) noexcept {
-    if (!width || !height || orientation < 1 || orientation > 8)
+    if (orientation < 1 || orientation > 8)
         return false;
     const u32 w = *width, h = *height;
     const u64 bytes = static_cast<u64>(w) * h * 4u;
@@ -269,7 +269,7 @@ MediaFitRegion media_fit_region(const MediaFit& fit, u32 x, u32 y, u32 width, u3
 
 bool media_fit_begin(MediaFitSink* sink, const MediaFit& fit, MediaFitRegion source, u8* output, u32 stride, u32 lead,
                      Slice<u8> scratch) noexcept {
-    if (!sink || !output || !fit.width || !fit.height || fit.width > fit.source_width ||
+    if (!output || !fit.width || !fit.height || fit.width > fit.source_width ||
         fit.height > fit.source_height || !source.width || !source.height || source.x >= fit.source_width ||
         source.width > fit.source_width - source.x || source.y >= fit.source_height ||
         source.height > fit.source_height - source.y)
@@ -293,7 +293,7 @@ bool media_fit_begin(MediaFitSink* sink, const MediaFit& fit, MediaFitRegion sou
 }
 
 bool media_fit_push_row(MediaFitSink* s, const u8* rgba) noexcept {
-    if (!s || !s->output || !rgba || s->row >= s->source.height)
+    if (!s->output || !rgba || s->row >= s->source.height)
         return false;
     const u32 y = s->source.y + s->row;
     if (fit_cell(y, s->fit.source_height, s->fit.height) != s->cell_row)

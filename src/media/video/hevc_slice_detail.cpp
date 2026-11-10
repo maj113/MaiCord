@@ -106,8 +106,7 @@ HevcError hevc_parse_slice_detail(const HevcNal& n, const HevcConfiguration& c, 
             const bool from_sps = b.bit();
             HevcReferenceSet set{};
             if (!from_sps) {
-                u8 delta_count = 0;
-                hevc_parse_reference_set(b, s.short_term, s.short_term_count, s.short_term_count, &set, &delta_count);
+                hevc_parse_reference_set(b, s.short_term, s.short_term_count, s.short_term_count, &set);
             } else {
                 if (!s.short_term_count)
                     return HevcError::malformed;

@@ -28,17 +28,15 @@ UpdateTransportError native_exchange(void* context, const UpdateHttpRequest& req
     const HttpsExchangeOptions& options, UpdateHttpResponse* response) noexcept {
     return https_exchange(static_cast<UpdateHttpsTransport*>(context), request, options, response);
 }
-OAuthAuthorizationResult exchange(OAuthAuthorization* owner, Utf8View client, u16 port,
-    Utf8View credential, Utf8View verifier, bool refresh, SecureBuffer* output,
-    OAuthAuthorizationTransport transport, OAuthProvider provider) noexcept {
+}
+OAuthAuthorizationResult oauth_authorization_exchange(OAuthAuthorization* owner, Utf8View client, u16 port,
+    Utf8View code, Utf8View verifier, SecureBuffer* output, OAuthAuthorizationTransport transport, OAuthProvider provider) noexcept {
     if (!owner || !secure_buffer_empty(output) || !oauth_client_valid(provider, client)) return {E::invalid_input};
     if (cancelled(*owner)) return {E::cancelled, UpdateTransportError::cancelled};
     Locked work;
     if (!secure_buffer_initialize(&work.value, sizeof(Scratch)).ok()) return {E::capacity};
     auto& scratch = *reinterpret_cast<Scratch*>(work.value.data);
-    const auto count = refresh
-        ? oauth_refresh_body(provider, client, credential, {scratch.body, sizeof(scratch.body)})
-        : oauth_exchange_body(provider, client, port, credential, verifier, {scratch.body, sizeof(scratch.body)});
+    const auto count = oauth_exchange_body(provider, client, port, code, verifier, {scratch.body, sizeof(scratch.body)});
     if (!count) return {E::invalid_input};
     if (!transport.exchange) {
         const LONG state = InterlockedCompareExchange(&owner->native_state, 1, 0);
@@ -78,15 +76,10 @@ OAuthAuthorizationResult exchange(OAuthAuthorization* owner, Utf8View client, u1
     const auto parsed = oauth_tokens(provider, {reinterpret_cast<char*>(scratch.response), scratch.response_bytes},
         response.status, {scratch.structurals, 1024}, &value);
     if (parsed != E::none) return {parsed, {}, response.status, retry};
-    if (refresh && !value.refresh_bytes) {
-        copy_bytes(value.refresh, credential.data, credential.bytes);
-        value.refresh_bytes = static_cast<u16>(credential.bytes);
-    }
     tokens.value.bytes = sizeof(value);
     if (cancelled(*owner)) return {E::cancelled, UpdateTransportError::cancelled, response.status};
     if (!secure_buffer_transfer(output, &tokens.value)) return {E::invalid_input};
     return {E::none, {}, response.status};
-}
 }
 bool oauth_authorization_proof(SecureBuffer* output) noexcept {
     if (!secure_buffer_empty(output)) return false;
@@ -107,14 +100,6 @@ bool oauth_authorization_proof(SecureBuffer* output) noexcept {
                                         {data.proof.challenge, kOAuthProofBytes}).ok() ||
         !secure_buffer_assign(&result.value, {reinterpret_cast<u8*>(&data.proof), sizeof(data.proof)}).ok()) return false;
     return secure_buffer_transfer(output, &result.value);
-}
-OAuthAuthorizationResult oauth_authorization_exchange(OAuthAuthorization* owner, Utf8View client, u16 port,
-    Utf8View code, Utf8View verifier, SecureBuffer* output, OAuthAuthorizationTransport transport, OAuthProvider provider) noexcept {
-    return exchange(owner, client, port, code, verifier, false, output, transport, provider);
-}
-OAuthAuthorizationResult oauth_authorization_refresh(OAuthAuthorization* owner, Utf8View client,
-    Utf8View refresh, SecureBuffer* output, OAuthAuthorizationTransport transport, OAuthProvider provider) noexcept {
-    return exchange(owner, client, 0, refresh, {}, true, output, transport, provider);
 }
 void oauth_authorization_cancel(OAuthAuthorization* owner) noexcept {
     if (!owner) return;

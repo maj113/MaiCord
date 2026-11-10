@@ -262,9 +262,6 @@ MAICORD_GPU_INLINE void gpu_set_shader(GpuContext* context, GpuComputeShader* sh
 // Slots are the HLSL register numbers of the stage (b#, t#, s#, u#); a null entry unbinds the slot.
 MAICORD_GPU_INLINE void gpu_set_constants(GpuContext* context, GpuStage stage, u32 first, u32 count,
                                           GpuBuffer* const* buffers);
-// One compute-stage constant buffer slot bound to `constant_count` 16-byte constants from `first_constant` of the buffer.
-MAICORD_GPU_INLINE void gpu_set_constants_range(GpuContext1* context, u32 slot, GpuBuffer* buffer, u32 first_constant,
-                                                u32 constant_count);
 MAICORD_GPU_INLINE void gpu_set_srvs(GpuContext* context, GpuStage stage, u32 first, u32 count, GpuSrv* const* views);
 MAICORD_GPU_INLINE void gpu_set_samplers(GpuContext* context, GpuStage stage, u32 first, u32 count,
                                          GpuSampler* const* samplers);

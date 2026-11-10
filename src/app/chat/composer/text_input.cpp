@@ -21,13 +21,12 @@
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 #include "maicord/ui/account/friends_scene.hpp"
 #include "maicord/ui/media/picker.hpp"
-#include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/chat/threads/forum_post_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

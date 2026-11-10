@@ -30,7 +30,7 @@ UiRect occluded_clip(const MessageActionBar& bar, const UiRect& rectangle, const
     return clip;
 }
 
-bool layout_items(MessageActionBar* bar, const UiRect& row, const UiRect& viewport, bool divider = false) noexcept {
+bool layout_items(MessageActionBar* bar, const UiRect& row, const UiRect& viewport, bool divider) noexcept {
     if (!ui_rect_has_area(row) || !ui_rect_has_area(viewport) || !bar->item_count ||
         bar->item_count > kMessageActionBarCapacity) {
         return false;

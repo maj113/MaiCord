@@ -107,7 +107,6 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner*, GpuDevice*, GpuContext
                                        u32 window_height) noexcept;
 // Back to no effect. True when one was selected.
 bool d3d11_effect_clear(D3D11EffectOwner*) noexcept;
-inline bool d3d11_effect_selected(const D3D11EffectOwner& owner) noexcept { return owner.selected; }
 // The pointer in window pixels (negative: none); the effect sees it only when it declared the pointer and the
 // user allowed it.
 void d3d11_effect_set_pointer(D3D11EffectOwner*, float x, float y) noexcept;

@@ -365,8 +365,6 @@ void application_motion_schedule(u64 deadline_ms) noexcept {
 
 float application_motion_tick(UiMotionTransition* transition, const UiMotionScope& scope, float target, u64 now_ms,
                               const UiMotionStyle& style) noexcept {
-    if (!transition)
-        return target;
     if (!transition->scope.owner)
         ui_motion_transition_reset(transition, scope, target);
     const bool animate = host_motion_allowed();

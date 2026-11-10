@@ -14,7 +14,6 @@
 #include "maicord/model/voice/state_store.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
-#include "maicord/sys/crt.hpp"
 #include "profile_scene_internal.hpp"
 namespace maicord {
 using namespace profile_scene_detail;

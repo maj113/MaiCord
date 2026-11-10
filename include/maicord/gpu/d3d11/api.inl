@@ -273,11 +273,6 @@ __forceinline void gpu_set_constants(GpuContext* context, GpuStage stage, u32 fi
     }
 }
 
-__forceinline void gpu_set_constants_range(GpuContext1* context, u32 slot, GpuBuffer* buffer, u32 first_constant,
-                                           u32 constant_count) {
-    context->CSSetConstantBuffers1(slot, 1, &buffer, &first_constant, &constant_count);
-}
-
 __forceinline void gpu_set_srvs(GpuContext* context, GpuStage stage, u32 first, u32 count, GpuSrv* const* views) {
     switch (stage) {
     case GpuStage::vertex:

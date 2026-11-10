@@ -2,6 +2,7 @@
 #include "settings/emoji_preferences.hpp"
 #include "../support/window_fixture.hpp"
 #include "../support/model_store_fixtures.hpp"
+#include "../support/account_module_fake.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
@@ -1086,16 +1087,16 @@ bool spelling_marks() noexcept {
 
 bool member_query_transitions() noexcept {
     struct Restore {
-        AccountModuleApi api;
+        AccountFake fake;
         bool focused;
         ~Restore() noexcept {
-            g_app.account.api = api;
+            g_account_fake = fake;
             g_app.message_composer.focused = focused;
             fixture->commands_handled = false;
         }
-    } restore{g_app.account.api, g_app.message_composer.focused};
-    g_app.account.api.guild_members_request = admit_member_query;
-    g_app.account.api.guild_members_query_cancel = cancel_member_query;
+    } restore{g_account_fake, g_app.message_composer.focused};
+    g_account_fake.guild_members_request = admit_member_query;
+    g_account_fake.guild_members_query_cancel = cancel_member_query;
     g_app.message_composer.focused = true;
     const auto replace = [](Utf8View value) noexcept {
         message_composer_select_all(&g_app.message_composer);

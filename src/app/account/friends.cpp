@@ -6,7 +6,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/hash.hpp"
-#include "../shell/content_point.hpp"
 #include "maicord/app/shell/shortcut_registry.hpp"
 #include "friends.hpp"
 #include "../shell/state.hpp"
@@ -1481,7 +1480,7 @@ u64 application_friends_next_wake() noexcept {
     return request.phase == FriendsRequestPhase::queued ? 1 : request.phase == FriendsRequestPhase::retry ? request.retry_at : 0;
 }
 bool application_friends_submit(u64 id, u64 now) noexcept {
-    if (!id || !application_friends_pending(now) || !g_app.account.instance || !g_app.account.api.relationships) return false;
+    if (!id || !application_friends_pending(now) || !g_app.account.instance) return false;
     auto& friends = *g_app.friends;auto& request = friends.request;
     if (!request_current(friends, request)) {
             request.phase = FriendsRequestPhase::failed;request.operation = RelationshipOperation::list;
@@ -1494,7 +1493,7 @@ bool application_friends_submit(u64 id, u64 now) noexcept {
         application_action_captcha_arm(ApplicationActionCaptchaKind::friend_request,
                                        captcha_subject(request), id, false);
     }
-    const auto result = g_app.account.api.relationships(g_app.account.instance, request.operation, request.user_id,
+    const auto result = account_module_relationships(g_app.account.instance, request.operation, request.user_id,
         {request.username, request.username_bytes}, id);
     if (!result.ok()) {
         if (result.error == RestClientSubmitError::busy) { request.phase = FriendsRequestPhase::retry;request.retry_at = deadline_after(now, 100); }

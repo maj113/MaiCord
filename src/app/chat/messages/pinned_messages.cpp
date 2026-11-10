@@ -89,9 +89,8 @@ ApplicationPinnedMessages* ensure_owner() noexcept {
     return g_app.pinned_messages;
 }
 void cancel_submitted(ApplicationPinnedMessages& value) noexcept {
-    if (value.controller.request_id && !value.submitted_cancelled && g_app.account.instance &&
-        g_app.account.api.pinned_messages) {
-        g_app.account.api.pinned_messages(g_app.account.instance, nullptr, value.controller.request_id);
+    if (value.controller.request_id && !value.submitted_cancelled && g_app.account.instance) {
+        account_module_pinned_messages(g_app.account.instance, nullptr, value.controller.request_id);
         value.submitted_cancelled = true;
     }
 }
@@ -374,7 +373,7 @@ bool application_pinned_messages_synchronize() noexcept {
     return true;
 }
 bool application_pinned_messages_pending(u64 now_ms) noexcept {
-    return g_app.account.status.running && g_app.account.instance && g_app.account.api.pinned_messages &&
+    return g_app.account.status.running && g_app.account.instance &&
         g_app.pinned_messages && current(*g_app.pinned_messages) && !g_app.pinned_messages->confirming &&
         pinned_message_controller_request(g_app.pinned_messages->controller, now_ms).ready;
 }
@@ -382,13 +381,13 @@ bool application_pinned_messages_submit(u64 request_id, u64 now_ms) noexcept {
     if (!application_pinned_messages_pending(now_ms) || !request_id) return false;
     auto& value = *g_app.pinned_messages;
     const auto request = pinned_message_controller_request(value.controller, now_ms);
-    const auto admission = g_app.account.api.pinned_messages(g_app.account.instance, &request.payload, request_id);
+    const auto admission = account_module_pinned_messages(g_app.account.instance, &request.payload, request_id);
     if (!admission.ok()) {
         pinned_message_controller_admission_failed(&value.controller, request, admission.error == RestClientSubmitError::busy);
         repaint(); return false;
     }
     if (!pinned_message_controller_submitted(&value.controller, request, request_id)) {
-        g_app.account.api.pinned_messages(g_app.account.instance, nullptr, request_id); return false;
+        account_module_pinned_messages(g_app.account.instance, nullptr, request_id); return false;
     }
     value.submitted = request;
     value.submitted_cancelled = false;
@@ -455,7 +454,7 @@ bool application_pinned_messages_response(const RestClientResponse& response, Ut
     return repaint();
 }
 u64 application_pinned_messages_next_wake() noexcept {
-    return g_app.account.status.running && g_app.account.instance && g_app.account.api.pinned_messages &&
+    return g_app.account.status.running && g_app.account.instance &&
         g_app.pinned_messages && current(*g_app.pinned_messages) && !g_app.pinned_messages->confirming
         ? pinned_message_controller_next_wake(g_app.pinned_messages->controller) : 0;
 }

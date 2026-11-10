@@ -1,4 +1,5 @@
 #include "../../support/application_downloads_inactive.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "shell/state.hpp"
 #include "chat/read_state.hpp"
 #include "chat/messages/mutation_notice.hpp"
@@ -213,7 +214,7 @@ bool initialize() noexcept {
     ui.chat_state.channel_count = 4;
     ui.chat_state.selected_guild_id = 7;
     g_app.account.instance = &fixture.account_sentinel;
-    g_app.account.api.message_ack = submit;
+    g_account_fake.message_ack = submit;
     if (!message_composer_initialize(&g_app.message_composer, {fixture.draft, sizeof(fixture.draft)}) ||
         !message_composer_scene_initialize_owned(&g_app.message_composer_scene) ||
         !thread_member_store_initialize(&ui.thread_member_store, {fixture.thread_members[0], 4},

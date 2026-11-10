@@ -96,7 +96,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
         g_app.settings_held_key = code;
         // Escape unwinds: search text, then the dialog.
         if (settings->search_bytes) {
-            set_search(*settings, {});
+            clear_search(*settings);
             ui_settings_scene_focus(&settings->scene, {UiSettingsTargetKind::search, {}, 0});
             return refresh();
         }

@@ -21,11 +21,11 @@ inline u64 application_next_request_id() noexcept {
 // Cancels `request_id` on a request lane (the module entry called without a request) when an account
 // module is attached and the id is set; its response is still drained.
 template <typename Request>
-inline void application_cancel_request(RestClientSubmitResult(WINAPI* AccountModuleApi::* lane)(void*, const Request*, u64) noexcept,
-                                        u64 request_id) noexcept {
+inline void application_cancel_request(RestClientSubmitResult (*lane)(void*, const Request*, u64) noexcept,
+                                       u64 request_id) noexcept {
     const AccountHost& host = g_app.account;
-    if (request_id && host.instance && host.api.*lane)
-        (host.api.*lane)(host.instance, nullptr, request_id);
+    if (request_id && host.instance)
+        lane(host.instance, nullptr, request_id);
 }
 
 // A refused submit that only waited for the lane (the previous request is still in flight): arms

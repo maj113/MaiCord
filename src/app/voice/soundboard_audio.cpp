@@ -275,14 +275,12 @@ void soundboard_clip_release(SoundboardClip* clip) noexcept {
 }
 
 void soundboard_cache_initialize(SoundboardCache* cache, u32 budget_bytes) noexcept {
-    if (!cache)
-        return;
     reset_value(cache);
     cache->budget_bytes = budget_bytes;
 }
 
 SoundboardClip* soundboard_cache_find(SoundboardCache* cache, u64 sound_id) noexcept {
-    if (!cache || !sound_id)
+    if (!sound_id)
         return nullptr;
     for (u32 i = 0; i < cache->count; ++i)
         if (cache->entries[i]->sound_id == sound_id) {
@@ -303,7 +301,7 @@ void cache_drop(SoundboardCache* cache, u32 index) noexcept {
 } // namespace
 
 bool soundboard_cache_insert(SoundboardCache* cache, SoundboardClip* clip) noexcept {
-    if (!cache || !clip)
+    if (!clip)
         return false;
     if (clip->allocation_bytes > cache->budget_bytes) {
         soundboard_clip_release(clip);
@@ -335,14 +333,12 @@ void soundboard_cache_remove(SoundboardCache* cache, u64 sound_id) noexcept {
 }
 
 void soundboard_cache_clear(SoundboardCache* cache) noexcept {
-    if (!cache)
-        return;
     while (cache->count)
         cache_drop(cache, cache->count - 1);
 }
 
 bool soundboard_mixer_play(SoundboardMixer* mixer, SoundboardClip* clip, u32 sound_per_mille, u64 user_id) noexcept {
-    if (!mixer || !clip || !clip->frames)
+    if (!clip || !clip->frames)
         return false;
     soundboard_clip_retain(clip);
     SoundboardClip* replaced = nullptr;
@@ -407,8 +403,6 @@ u32 soundboard_mixer_render(SoundboardMixer* mixer, Slice<i32> mix, u32 frames, 
 }
 
 void soundboard_mixer_set_volume(SoundboardMixer* mixer, u32 percent) noexcept {
-    if (!mixer)
-        return;
     AcquireSRWLockExclusive(mixer->lock.native());
     mixer->volume_delta = static_cast<i32>(minimum(percent, kSoundboardVolumeMaximumPercent)) - 100;
     ReleaseSRWLockExclusive(mixer->lock.native());
@@ -434,14 +428,10 @@ void soundboard_mixer_stop(SoundboardMixer* mixer, u64 user_id) noexcept {
 }
 
 u32 soundboard_mixer_active(SoundboardMixer* mixer) noexcept {
-    if (!mixer)
-        return 0;
     return *static_cast<const volatile u32*>(&mixer->count); // one aligned word: the lock added nothing
 }
 
 bool soundboard_mixer_call_rendering(SoundboardMixer* mixer, u64 now_us) noexcept {
-    if (!mixer)
-        return false;
     const u64 last = *static_cast<const volatile u64*>(&mixer->last_call_render_us); // read once, one aligned word
     return last && now_us < last + kSoundboardCallRenderHoldUs;
 }

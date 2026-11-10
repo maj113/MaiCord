@@ -203,7 +203,7 @@ bool application_guild_invite_open_url(Utf8View url) noexcept {
 }
 
 bool application_guild_invite_open(const Utf8View& code) noexcept {
-    if (!g_app.account_ui || !g_app.account.instance || !g_app.account.api.guild_invite ||
+    if (!g_app.account_ui || !g_app.account.instance ||
         !guild_invite_code_valid(code.data, code.bytes) || g_app.text_form)
         return false;
     reset_value(&g_invite);
@@ -267,7 +267,7 @@ bool application_guild_invite_submit(u64 request_id, u64 now_ms) noexcept {
         publish(InviteState::failed);
         return false;
     }
-    const auto submitted = g_app.account.api.guild_invite(g_app.account.instance, &request, request_id);
+    const auto submitted = account_module_guild_invite(g_app.account.instance, &request, request_id);
     if (!submitted.ok()) {
         if (submitted.error == RestClientSubmitError::busy)
             g_invite.retry_at_ms = now_ms + 50;

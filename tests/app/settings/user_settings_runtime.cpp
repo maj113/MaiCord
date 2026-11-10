@@ -1,5 +1,6 @@
 #include "settings/account_settings.hpp"
 #include "shell/state.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "chat/composer/text_form.hpp"
 #include "account/friends.hpp"
 #include "settings/user_settings.hpp"
@@ -245,7 +246,7 @@ bool body_is(Utf8View expected_path, Utf8View expected_json) noexcept {
 // My Account's username, password and authenticator flows (MFA verification and the replaced token included), then
 // Connected Apps' display options and Data & Privacy's consent and data request.
 void account_flow_cases(void (*check)(bool, const char*) noexcept, u64 now) noexcept {
-    g_app.account.api.credential_replace = capture_replace;
+    g_account_fake.credential_replace = capture_replace;
     u64 id = 2000;
     const auto answer = [&](u16 status, Utf8View body) noexcept {
         application_account_settings_response(reply(id++, status), body);
@@ -487,7 +488,7 @@ void account_flow_cases(void (*check)(bool, const char*) noexcept, u64 now) noex
           "account flows: an ignored account's Unignore unignores it");
     relationships.count = 0;
     application_account_settings_visible(SettingsPanel::count);
-    g_app.account.api.credential_replace = nullptr;
+    g_account_fake.credential_replace = nullptr;
 }
 // Application Test Mode: the dialog's ID is checked with GET /activities/{id}/test-mode (profile_get 7), then named by
 // GET /applications/public?application_ids= (5); an Activity is refused, an application enters test mode.
@@ -509,9 +510,9 @@ bool status_contains(Utf8View status, Utf8View part) noexcept {
     return false;
 }
 void test_mode_cases(void (*check)(bool, const char*) noexcept) noexcept {
-    const auto saved_profile = g_app.account.api.profile_get;
+    const auto saved_profile = g_account_fake.profile_get;
     const bool saved_developer = g_app.preferences.developer_mode;
-    g_app.account.api.profile_get = capture_profile;
+    g_account_fake.profile_get = capture_profile;
     g_app.preferences.developer_mode = false;
     const bool hidden = !application_test_mode_open();
     g_app.preferences.developer_mode = true;
@@ -551,7 +552,7 @@ void test_mode_cases(void (*check)(bool, const char*) noexcept) noexcept {
               status_contains(application_test_mode_status(), utf8_literal("Enter your Discord application ID")),
           "test mode: Clear leaves it");
     g_app.preferences.developer_mode = saved_developer;
-    g_app.account.api.profile_get = saved_profile;
+    g_account_fake.profile_get = saved_profile;
 }
 } // namespace
 
@@ -580,7 +581,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     g_app.account.status.running = true;
     g_app.account.status.failed = false;
     g_app.account.status.required_action = AccountRequirement::none;
-    g_app.account.api.account_settings = capture;
+    g_account_fake.account_settings = capture;
 
     // READY: versions{data 5}, cozy, friend sources 6, 12-hour clock.
     const u8 proto[]{10, 2, 24, 5, 50, 3, 0x8A, 0x01, 0, 66, 4, 90, 2, 8, 6, 106, 2, 72, 1};

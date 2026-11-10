@@ -50,22 +50,15 @@ void test_settings() noexcept {
     DesktopSettings s;
     desktop_settings_get(&s);
     report("portal: color scheme (0 none, 1 dark, 2 light) ", static_cast<u64>(s.color_scheme));
-    report("portal: accent colour valid ", s.accent_valid ? 1 : 0);
     report("portal: reduced motion ", s.reduced_motion ? 1 : 0);
     report("portal: animations ", s.animations ? 1 : 0);
     report("portal: cursor size ", s.cursor_size);
     report("portal: double click ms (0 unknown) ", s.double_click_ms);
-    report("portal: text scale x100 ", static_cast<u64>(s.text_scale * 100.0f));
     report_text("portal: ui font ", s.ui_font);
     report_text("portal: monospace font ", s.monospace_font);
     report_text("portal: cursor theme ", s.cursor_theme);
-    if (s.caption_known) {
-        report("portal: caption buttons left ", s.caption.left_count);
-        report("portal: caption buttons right ", s.caption.right_count);
-    }
     // Whatever the desktop publishes, a loaded read has a font (GTK's settings carry one) and sane ranges.
     check(!loaded || s.cursor_blink_ms >= 100, "the blink time is in range");
-    check(!loaded || (s.text_scale >= 0.5f && s.text_scale <= 3.0f), "the text scale is in range");
 }
 
 void test_probes() noexcept {

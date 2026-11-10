@@ -3,8 +3,6 @@
 
 namespace maicord {
 bool voice_settings_read(const VoicePreferences& p, SettingBinding binding, SettingValue* value) noexcept {
-    if (!value)
-        return false;
     reset_value(value);
     const auto& a = p.audio;
     switch (binding) {
@@ -45,8 +43,6 @@ bool voice_settings_read(const VoicePreferences& p, SettingBinding binding, Sett
 }
 
 bool voice_settings_write(VoicePreferences* p, SettingBinding binding, SettingValue value) noexcept {
-    if (!p)
-        return false;
     auto& a = p->audio;
     switch (binding) {
     case SettingBinding::voice_input_volume:

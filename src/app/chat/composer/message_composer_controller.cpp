@@ -228,8 +228,8 @@ MessageComposerControllerResult save_active_draft(MessageComposerController* con
 bool message_composer_controller_initialize(MessageComposerController* controller,
                                             MessageComposer* composer, MessageDraftStore* drafts,
                                             MessageTimeline* timeline, Slice<u8> request_text) noexcept {
-    if (!controller || !composer || !composer->text || !drafts || !drafts->records || !drafts->text ||
-        !timeline || !timeline->store || !request_text.data ||
+    if (!composer->text || !drafts->records || !drafts->text ||
+        !timeline->store || !request_text.data ||
         request_text.count < kMessageComposerMaximumBytes) {
         return false;
     }
@@ -314,8 +314,8 @@ MessageComposerControllerResult message_composer_controller_set_reply(
 
 bool message_composer_controller_reply_snapshot(const MessageComposerController& controller,
     MessageComposerReplySnapshot* snapshot) noexcept {
-    if (snapshot) reset_value(snapshot);
-    if (!snapshot || !controller_valid(&controller) || !controller.composer->channel_id) return false;
+    reset_value(snapshot);
+    if (!controller_valid(&controller) || !controller.composer->channel_id) return false;
     *snapshot = {controller.composer->channel_id, controller.reply_message_id,
         controller.reply_revision, controller.mention_reply_author};
     return true;
@@ -492,7 +492,7 @@ MessageComposerControllerResult message_composer_controller_queue_send(
 MessageComposerControllerResult message_composer_controller_queue_text(
     MessageComposerController* controller, MessageComposer* source, u64 author_id, u64 now_unix_ms,
     u64 now_monotonic_ms, u64 reply_message_id, bool mention_reply_author, bool silent, bool suppress_embeds) noexcept {
-    if (!source || (controller && source == controller->composer))
+    if (controller && source == controller->composer)
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     return queue_send(controller, true, author_id, now_unix_ms, now_monotonic_ms, reply_message_id, {}, {}, source,
                       {}, reply_message_id != 0 && mention_reply_author, nullptr, true, silent, suppress_embeds);
@@ -659,9 +659,8 @@ MessageComposerControllerResult message_composer_controller_prepare_submit(
         submit->tts = false;
         reset_value(&submit->forward_reference);
     };
-    if (submit)
-        clear_submit();
-    if (!controller_valid(controller) || !submit || now_monotonic_ms == 0) {
+    clear_submit();
+    if (!controller_valid(controller) || now_monotonic_ms == 0) {
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     }
     if (controller->inflight_nonce != 0) {
@@ -887,8 +886,8 @@ MessageComposerControllerResult message_composer_controller_observe_response(Mes
 
 bool message_composer_controller_observe_history(MessageComposerController* controller,
     ConstSlice<GatewayMessageEvent> messages, bool* changed) noexcept {
-    if (changed) *changed = false;
-    if (!changed || !controller_valid(controller) || (!messages.data && messages.count)) return false;
+    *changed = false;
+    if (!controller_valid(controller) || (!messages.data && messages.count)) return false;
     constexpr u64 required = gateway_message_field_id | gateway_message_field_channel_id |
         gateway_message_field_author_id | gateway_message_field_nonce;
     for (u32 i = 0; i < messages.count; ++i) {
@@ -910,8 +909,8 @@ bool message_composer_controller_observe_history(MessageComposerController* cont
 }
 
 bool message_composer_controller_restore_local(MessageComposerController* controller, u64 channel_id, bool* changed) noexcept {
-    if (changed) *changed = false;
-    if (!changed || !controller_valid(controller) || !controller->timeline->list) return false;
+    *changed = false;
+    if (!controller_valid(controller) || !controller->timeline->list) return false;
     if (!channel_id || !controller->request_count || !controller->timeline->follow_bottom) return true;
     const MessageComposerRequest* selected[kMessageComposerRequestCapacity]{};
     bool failed[kMessageComposerRequestCapacity]{};
@@ -976,7 +975,7 @@ u64 message_composer_controller_next_wake_at(const MessageComposerController& co
 
 bool message_composer_controller_take_completion(MessageComposerController* controller,
                                                  MessageSendCompletion* completion) noexcept {
-    if (!controller_valid(controller) || !completion ||
+    if (!controller_valid(controller) ||
         !message_send_tracker_take_completion(&controller->sends, completion)) {
         return false;
     }

@@ -870,8 +870,6 @@ bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submis
 } // namespace
 
 void renderer_release_settings_backdrop(D3D11Renderer* renderer) noexcept {
-    if (!renderer)
-        return;
     release_backdrop_target(renderer);
     reset_value(&renderer->settings_backdrop_stamp);
     renderer->settings_backdrop_media_count = 0;
@@ -883,7 +881,7 @@ void renderer_release_settings_backdrop(D3D11Renderer* renderer) noexcept {
 // evicted when a full atlas resets on the next upload (a GIF frame), which
 // would make the backdrop flicker while anything animates.
 void renderer_pin_settings_backdrop_media(D3D11Renderer* renderer) noexcept {
-    if (!renderer || !renderer->settings_backdrop_valid || !settings_backdrop_wanted(*renderer))
+    if (!renderer->settings_backdrop_valid || !settings_backdrop_wanted(*renderer))
         return;
     const u32 count = minimum(renderer->settings_backdrop_media_count, kRendererMediaQuadCapacity);
     for (u32 i = 0; i < count; ++i) {
@@ -915,7 +913,7 @@ bool draw_stream_to_backdrop(D3D11Renderer* renderer, const Theme& theme) noexce
 } // namespace
 
 bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer || !gpu_surface_target(&renderer->graphics.surface) || !renderer->login_visible ||
+    if (!gpu_surface_target(&renderer->graphics.surface) || !renderer->login_visible ||
         !d3d11_renderer_build_paint(renderer, theme) || !create_backdrop_target(renderer))
         return false;
     const bool drawn = draw_stream_to_backdrop(renderer, theme);
@@ -927,7 +925,7 @@ bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme& theme)
 }
 
 bool renderer_settings_backdrop_stale(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer || !gpu_surface_target(&renderer->graphics.surface) || !renderer->glyph_text.ready ||
+    if (!gpu_surface_target(&renderer->graphics.surface) || !renderer->glyph_text.ready ||
         renderer->settings_backdrop_frozen || !settings_backdrop_wanted(*renderer))
         return false;
     return !renderer->settings_backdrop_stamp.valid || shell_backdrop_media_changed(*renderer) ||
@@ -935,7 +933,7 @@ bool renderer_settings_backdrop_stale(D3D11Renderer* renderer, const Theme& them
 }
 
 bool renderer_refresh_settings_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer || !gpu_surface_target(&renderer->graphics.surface))
+    if (!gpu_surface_target(&renderer->graphics.surface))
         return false;
     bool drawn = false;
     {
@@ -1013,7 +1011,7 @@ bool prepare_text_effects(D3D11Renderer* renderer, u64 effect_ms) noexcept {
 
 bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, bool upload_paint,
                                 bool upload_media, const RECT* damage, u64 effect_time_ms) noexcept {
-    if (!renderer || renderer->paint_stream.count > renderer->paint_stream.quad_capacity ||
+    if (renderer->paint_stream.count > renderer->paint_stream.quad_capacity ||
         renderer->paint_stream.count > kMaxPaintQuads ||
         renderer->paint_stream.clip_count > kMaxPaintClips ||
         renderer->paint_stream.batch_count > kMaxPaintBatches ||
@@ -1125,7 +1123,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                                                       renderer->graphics.context, theme,
                                                       renderer->background_phase_seconds, renderer->width,
                                                       renderer->height, renderer->dpi,
-                                                      d3d11_effect_selected(renderer->effect)));
+                                                      renderer->effect.selected));
     renderer->text_effect_next_ms = frame_ms + 42;
     d3d11_renderer_caption_begin_scrim(renderer);
     renderer->draw_calls_last_frame = 0;

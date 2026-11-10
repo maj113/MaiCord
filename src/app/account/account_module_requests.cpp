@@ -15,13 +15,12 @@
 #include "maicord/protocol/messages/typing.hpp"
 
 namespace maicord {
-namespace account_module_detail {
 
-RestClientSubmitResult WINAPI module_reaction_users(void* instance, u64 channel_id, u64 message_id,
-                                                    u64 emoji_id, Utf8View emoji_name,
-                                                    MessageReactionType type,
-                                                    u64 after_user_id, u32 limit,
-                                                    u64 request_id) noexcept {
+RestClientSubmitResult account_module_reaction_users(void* instance, u64 channel_id, u64 message_id,
+                                                     u64 emoji_id, Utf8View emoji_name,
+                                                     MessageReactionType type,
+                                                     u64 after_user_id, u32 limit,
+                                                     u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
@@ -43,8 +42,8 @@ RestClientSubmitResult WINAPI module_reaction_users(void* instance, u64 channel_
                               false);
 }
 
-RestClientSubmitResult WINAPI module_message_typing(void* instance, u64 channel_id,
-                                                    u64 request_id) noexcept {
+RestClientSubmitResult account_module_message_typing(void* instance, u64 channel_id,
+                                                     u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || request_id == 0) {
@@ -65,8 +64,8 @@ RestClientSubmitResult WINAPI module_message_typing(void* instance, u64 channel_
                               false);
 }
 
-bool WINAPI module_guild_members_request(void* instance,
-                                         const GatewayGuildMemberRequest* request) noexcept {
+bool account_module_guild_members_request(void* instance,
+                                          const GatewayGuildMemberRequest* request) noexcept {
     auto* gateway = module_gateway(instance);
     if (!gateway)
         return false;
@@ -76,24 +75,24 @@ bool WINAPI module_guild_members_request(void* instance,
     }
     return gateway_client_request_guild_members(gateway, *request);
 }
-void WINAPI module_guild_members_query_cancel(void* instance) noexcept {
+void account_module_guild_members_query_cancel(void* instance) noexcept {
     gateway_client_cancel_guild_member_query(module_gateway(instance));
 }
-bool WINAPI module_channel_info(void* instance, u64 guild_id) noexcept {
+bool account_module_channel_info(void* instance, u64 guild_id) noexcept {
     return gateway_client_request_channel_info(module_gateway(instance), guild_id);
 }
-void WINAPI module_client_focus(void* instance, bool focused) noexcept {
+void account_module_client_focus(void* instance, bool focused) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (runtime && client_session_metadata_set_focus(&runtime->client_metadata, focused))
         gateway_client_activity_changed(module_gateway(instance));
 }
-void WINAPI module_media_vp8_cpu(void* instance, bool on_cpu) noexcept {
+void account_module_media_vp8_cpu(void* instance, bool on_cpu) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (runtime)
         account_media_worker_set_vp8_cpu(&runtime->media, on_cpu);
 }
 
-RestClientSubmitResult WINAPI module_account_settings(void* instance, const AccountSettingsRequest* request,
+RestClientSubmitResult account_module_account_settings(void* instance, const AccountSettingsRequest* request,
                                                             u64 request_id) noexcept {
     if (!instance || !request_id)
         return {RestClientSubmitError::invalid_input};
@@ -108,10 +107,11 @@ RestClientSubmitResult WINAPI module_account_settings(void* instance, const Acco
     return account_settings_submit(module_rest(instance, !account_settings_primary(request->operation)), *request,
                                    request_id);
 }
-bool WINAPI module_credential_replace(void* instance, const u8* token, u32 bytes) noexcept {
+bool account_module_credential_replace(void* instance, const u8* token, u32 bytes) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && token && user_account_coordinator_replace_credential(&runtime->coordinator, {token, bytes});
 }
+namespace account_module_detail {
 // Thread, forum and poll requests act as the signed-in user of this profile; forum posts and polls also
 // need a published identity.
 bool admit_thread_action(AccountModuleRuntime& runtime, const ThreadActionRequest& request) noexcept {
@@ -123,17 +123,18 @@ bool admit_thread_creation(AccountModuleRuntime& runtime, const ThreadCreationRe
     const auto identity = gateway_client_self_status_snapshot(&runtime.coordinator.gateway);
     return identity.self_user_id && identity.profile_id == runtime.coordinator.metadata.profile_id;
 }
+} // namespace account_module_detail
 
-RestClientSubmitResult WINAPI module_poll_create(void* instance, u64 channel_id, u64 nonce,
-                                                 const PollCreate* poll, u64 request_id) noexcept {
+RestClientSubmitResult account_module_poll_create(void* instance, u64 channel_id, u64 nonce,
+                                                  const PollCreate* poll, u64 request_id) noexcept {
     auto* rest = request_lane(instance, request_id);
     if (!rest)
         return kInvalidSubmit;
     return poll ? account_poll_create_submit(rest, channel_id, nonce, poll, request_id)
                 : rest_client_cancel_result(rest, request_id);
 }
-bool WINAPI module_local_presence(void* instance, const GatewayLocalPresence* input,
-                                  GatewayActivitySharing* output) noexcept {
+bool account_module_local_presence(void* instance, const GatewayLocalPresence* input,
+                                   GatewayActivitySharing* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime) {
         if (output)
@@ -142,38 +143,37 @@ bool WINAPI module_local_presence(void* instance, const GatewayLocalPresence* in
     }
     return gateway_client_local_presence(&runtime->coordinator.gateway, input, output);
 }
-RestClientSubmitResult WINAPI module_activity_sharing(void* instance, u64 profile_id, u64 self_user_id,
-                                                      bool share, u64 request_id) noexcept {
+RestClientSubmitResult account_module_activity_sharing(void* instance, u64 profile_id, u64 self_user_id,
+                                                       bool share, u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime ? gateway_client_activity_sharing_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest,
                                                             profile_id, self_user_id, share, request_id)
                    : RestClientSubmitResult{RestClientSubmitError::invalid_input};
 }
-bool WINAPI module_custom_status_snapshot(void* instance, SelfCustomStatus* output) noexcept {
+bool account_module_custom_status_snapshot(void* instance, SelfCustomStatus* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && gateway_client_custom_status_snapshot(&runtime->coordinator.gateway, output);
 }
-RestClientSubmitResult WINAPI module_custom_status_submit(void* instance, u64 profile_id, u64 self_user_id,
-                                                          const SelfCustomStatus* custom,
-                                                          u64 request_id) noexcept {
+RestClientSubmitResult account_module_custom_status_submit(void* instance, u64 profile_id, u64 self_user_id,
+                                                           const SelfCustomStatus* custom,
+                                                           u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime ? gateway_client_custom_status_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest,
                                                          profile_id, self_user_id, custom, request_id)
                    : RestClientSubmitResult{RestClientSubmitError::invalid_input};
 }
-RestClientSubmitResult WINAPI module_guild_assets(void* instance, const GuildAssetRequest* request,
-                                                  u64 request_id) noexcept {
+RestClientSubmitResult account_module_guild_assets(void* instance, const GuildAssetRequest* request,
+                                                   u64 request_id) noexcept {
     // The image probe needs no lane or request id.
     if (instance && request && request->operation == GuildAssetOperation::image_probe)
         return {account_guild_assets_probe(request) ? RestClientSubmitError::none
                                                     : RestClientSubmitError::invalid_input};
     return module_lane<account_guild_assets_submit>(instance, request, request_id);
 }
-bool WINAPI module_profile_image(void* instance, ProfileImageRequest* request) noexcept {
+bool account_module_profile_image(void* instance, ProfileImageRequest* request) noexcept {
     return instance && account_profile_image(request);
 }
 
-} // namespace account_module_detail
 namespace {
 
 void bind_video_keyframes(void* context, VideoKeyframeRequester requester) noexcept {
@@ -193,25 +193,24 @@ void ensure_video_frames(AccountModuleRuntime* runtime, GatewayClient* gateway) 
 }
 
 } // namespace
-namespace account_module_detail {
 
-bool WINAPI module_voice_request(void* instance, const GatewayVoiceStateUpdate* state) noexcept {
+bool account_module_voice_request(void* instance, const GatewayVoiceStateUpdate* state) noexcept {
     auto* gateway = module_gateway(instance);
     return gateway && state && gateway_client_request_voice_state(gateway, *state);
 }
-bool WINAPI module_voice_snapshot(void* instance, GatewayClientVoiceSnapshot* output) noexcept {
+bool account_module_voice_snapshot(void* instance, GatewayClientVoiceSnapshot* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
     ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_voice_snapshot(gateway, output);
 }
-bool WINAPI module_voice_video_snapshot(void* instance, GatewayClientVoiceVideoSnapshot* output) noexcept {
+bool account_module_voice_video_snapshot(void* instance, GatewayClientVoiceVideoSnapshot* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
     ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_voice_video_snapshot(gateway, output);
 }
-bool WINAPI module_voice_video_device(void* instance, GpuDevice* device) noexcept {
+bool account_module_voice_video_device(void* instance, GpuDevice* device) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime)
         return false;
@@ -220,18 +219,18 @@ bool WINAPI module_voice_video_device(void* instance, GpuDevice* device) noexcep
     ensure_video_frames(runtime, user_account_coordinator_gateway(&runtime->coordinator));
     return true;
 }
-bool WINAPI module_voice_video_frame(void* instance, u32 ssrc, VideoStreamFrame* output) noexcept {
+bool account_module_voice_video_frame(void* instance, u32 ssrc, VideoStreamFrame* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !output)
         return false;
     ensure_video_frames(runtime, user_account_coordinator_gateway(&runtime->coordinator));
     return video_stream_decoders_frame(&runtime->video, ssrc, output);
 }
-HANDLE WINAPI module_voice_video_notification(void* instance) noexcept {
+HANDLE account_module_voice_video_notification(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime ? runtime->video.frame_event : nullptr;
 }
-bool WINAPI module_stream_watch(void* instance, const GatewayStreamKey* key) noexcept {
+bool account_module_stream_watch(void* instance, const GatewayStreamKey* key) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
     if (!gateway)
@@ -240,7 +239,7 @@ bool WINAPI module_stream_watch(void* instance, const GatewayStreamKey* key) noe
     ensure_video_frames(runtime, gateway);
     return gateway_client_stream_watch(gateway, key ? *key : GatewayStreamKey{});
 }
-bool WINAPI module_go_live(void* instance, const GoLiveCommand* command) noexcept {
+bool account_module_go_live(void* instance, const GoLiveCommand* command) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
     if (!gateway || !command)
@@ -248,20 +247,20 @@ bool WINAPI module_go_live(void* instance, const GoLiveCommand* command) noexcep
     ensure_video_frames(runtime, gateway);
     return gateway_client_go_live(gateway, *command);
 }
-bool WINAPI module_go_live_snapshot(void* instance, GoLiveSnapshot* output) noexcept {
+bool account_module_go_live_snapshot(void* instance, GoLiveSnapshot* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
     ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_go_live_snapshot(gateway, output);
 }
 // The self-preview: the encoder's newest NV12 picture, as a remote stream's.
-bool WINAPI module_go_live_preview(void* instance, VideoStreamFrame* output) noexcept {
+bool account_module_go_live_preview(void* instance, VideoStreamFrame* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !output)
         return false;
     GpuVideoFrame frame{};
     u32 sequence = 0;
-    if (!kGoLiveDevicesBackend.preview(&runtime->go_live, &frame, &sequence))
+    if (!go_live_producer_preview(&runtime->go_live, &frame, &sequence))
         return false;
     reset_value(output);
     output->gpu = frame;
@@ -271,8 +270,8 @@ bool WINAPI module_go_live_preview(void* instance, VideoStreamFrame* output) noe
     return true;
 }
 
-RestClientSubmitResult WINAPI module_stream_preview(void* instance, const GatewayStreamKey* key,
-                                                    u64 request_id) noexcept {
+RestClientSubmitResult account_module_stream_preview(void* instance, const GatewayStreamKey* key,
+                                                     u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request_id || (key && !gateway_stream_key_valid(*key)))
         return {RestClientSubmitError::invalid_input};
@@ -291,6 +290,7 @@ RestClientSubmitResult WINAPI module_stream_preview(void* instance, const Gatewa
         {kGatewayStreamPreviewRouteId, 0, RestMethod::get, RestMajorParameter::none},
         request_id, false);
 }
+namespace account_module_detail {
 // The Gateway session id rides a lurking join and an invite accept, as in the official client.
 bool joins_guild(const GuildCommunityRequest& request) noexcept {
     return request.operation == GuildCommunityOperation::guild_join;
@@ -301,8 +301,9 @@ bool accepts_invite(const GuildInviteRequest& request) noexcept {
 bool admit_invite(AccountModuleRuntime&, const GuildInviteRequest& request) noexcept {
     return guild_invite_request_valid(request);
 }
+} // namespace account_module_detail
 
-bool WINAPI module_voice_audio_configure(void* instance, const VoiceAudioSettings* settings) noexcept {
+bool account_module_voice_audio_configure(void* instance, const VoiceAudioSettings* settings) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
     if (runtime && settings) {
@@ -311,27 +312,27 @@ bool WINAPI module_voice_audio_configure(void* instance, const VoiceAudioSetting
     }
     return gateway && settings && gateway_client_voice_audio_configure(gateway, *settings);
 }
-RestClientSubmitResult WINAPI module_soundboard(void* instance, const SoundboardRequest* request,
-                                                u64 request_id) noexcept {
+RestClientSubmitResult account_module_soundboard(void* instance, const SoundboardRequest* request,
+                                                 u64 request_id) noexcept {
     // The sound probe needs no lane or request id.
     if (instance && request && request->operation == SoundboardOperation::probe)
         return {account_soundboard_probe(request) ? RestClientSubmitError::none
                                                   : RestClientSubmitError::invalid_input};
     return module_lane<account_soundboard_submit>(instance, request, request_id);
 }
-bool WINAPI module_soundboard_audio(void* instance, const SoundboardAudioCommand* command) noexcept {
+bool account_module_soundboard_audio(void* instance, const SoundboardAudioCommand* command) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && account_soundboard_command(&runtime->soundboard,
                                                  user_account_coordinator_gateway(&runtime->coordinator), command,
                                                  clock_monotonic_milliseconds());
 }
-bool WINAPI module_voice_message(void* instance, const VoiceMessageCommand* command,
-                                 VoiceMessageStatus* status) noexcept {
+bool account_module_voice_message(void* instance, const VoiceMessageCommand* command,
+                                  VoiceMessageStatus* status) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && account_voice_message_command(&runtime->voice_message, command, status);
 }
 
-CaptchaBridgeStatus WINAPI module_action_captcha(void* instance, const AccountActionCaptchaRequest* request) noexcept {
+CaptchaBridgeStatus account_module_action_captcha(void* instance, const AccountActionCaptchaRequest* request) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request)
         return {0, 0, 0, 0, CaptchaBridgePhase::empty, CaptchaBridgeError::invalid_input, false};
@@ -339,26 +340,26 @@ CaptchaBridgeStatus WINAPI module_action_captcha(void* instance, const AccountAc
                                   user_account_coordinator_rest(&runtime->coordinator, true), *request);
 }
 
-AccountMediaRequestResult WINAPI module_collection_title(void* instance, const AccountMediaCollectionTitleRequest* request, MediaTrackTitle* title) noexcept {
+AccountMediaRequestResult account_module_collection_title(void* instance, const AccountMediaCollectionTitleRequest* request, MediaTrackTitle* title) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request || !title) {
         return rejected_media_request();
     }
     return account_media_worker_collection_title(&runtime->media, *request, title);
 }
-AccountMediaRequestResult WINAPI
-module_catalog_preview_request(void* instance, const AccountMediaCatalogPreviewRequest* request, u64 now_ms,
-                               u64 now_seconds) noexcept {
+AccountMediaRequestResult
+account_module_catalog_preview_request(void* instance, const AccountMediaCatalogPreviewRequest* request, u64 now_ms,
+                                       u64 now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request) {
         return rejected_media_request();
     }
     return account_media_worker_request_catalog_preview(&runtime->media, *request, now_ms, now_seconds);
 }
-AccountMediaRequestResult WINAPI module_media_local_preview(void* instance,
-                                                            AccountLocalPreviewOperation operation,
-                                                            const AccountMediaLocalPreviewRequest* request,
-                                                            u64 now_ms, u64 now_seconds) noexcept {
+AccountMediaRequestResult account_module_media_local_preview(void* instance,
+                                                             AccountLocalPreviewOperation operation,
+                                                             const AccountMediaLocalPreviewRequest* request,
+                                                             u64 now_ms, u64 now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime ||
         (operation != AccountLocalPreviewOperation::request &&
@@ -378,8 +379,8 @@ AccountMediaRequestResult WINAPI module_media_local_preview(void* instance,
                : account_media_worker_retire_local_preview(&runtime->media, *request);
 }
 
-RestClientSubmitResult WINAPI module_media_url_refresh(void* instance, Utf8View source,
-                                                       u64 request_id) noexcept {
+RestClientSubmitResult account_module_media_url_refresh(void* instance, Utf8View source,
+                                                        u64 request_id) noexcept {
     RestClient* rest = module_rest(instance);
     u8* const body = g_request_body;
     const u32 bytes = attachment_refresh_body(source, {body, kCdnMaximumTargetBytes * 2});
@@ -393,8 +394,8 @@ RestClientSubmitResult WINAPI module_media_url_refresh(void* instance, Utf8View 
         true);
 }
 
-RestClientTakeResult WINAPI module_rest_take(void* instance, RestClientResponse* response,
-                                             Slice<u8> body_output) noexcept {
+RestClientTakeResult account_module_rest_take(void* instance, RestClientResponse* response,
+                                              Slice<u8> body_output) noexcept {
     RestClientTakeResult invalid{};
     invalid.error = RestClientTakeError::invalid_input;
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
@@ -407,8 +408,8 @@ RestClientTakeResult WINAPI module_rest_take(void* instance, RestClientResponse*
     return user_account_coordinator_take(&runtime->coordinator, response, body_output);
 }
 
-AccountLogoutResult WINAPI module_logout(void* instance, AccountLogoutOperation operation, u64 request_id,
-                                         AccountLogoutResponse* response) noexcept {
+AccountLogoutResult account_module_logout(void* instance, AccountLogoutOperation operation, u64 request_id,
+                                          AccountLogoutResponse* response) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request_id)
         return {RestClientSubmitError::invalid_input, false, false};
@@ -433,8 +434,8 @@ AccountLogoutResult WINAPI module_logout(void* instance, AccountLogoutOperation 
     return result;
 }
 
-AccountMediaRequestResult WINAPI module_media_request(void* instance, MediaAssetKey key,
-                                                      u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
+AccountMediaRequestResult account_module_media_request(void* instance, MediaAssetKey key,
+                                                       u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime) {
         return rejected_media_request();
@@ -443,9 +444,9 @@ AccountMediaRequestResult WINAPI module_media_request(void* instance, MediaAsset
                                                      unix_now_seconds);
 }
 
-AccountMediaRequestResult WINAPI
-module_media_guild_icon_request(void* instance, const AccountMediaGuildIconRequest* request,
-                                u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
+AccountMediaRequestResult
+account_module_media_guild_icon_request(void* instance, const AccountMediaGuildIconRequest* request,
+                                        u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request) {
         return rejected_media_request();
@@ -454,9 +455,9 @@ module_media_guild_icon_request(void* instance, const AccountMediaGuildIconReque
                                                    unix_now_seconds);
 }
 
-AccountMediaRequestResult WINAPI
-module_media_attachment_request(void* instance, const AccountMediaAttachmentRequest* request,
-                                u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
+AccountMediaRequestResult
+account_module_media_attachment_request(void* instance, const AccountMediaAttachmentRequest* request,
+                                        u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request) {
         return rejected_media_request();
@@ -465,9 +466,9 @@ module_media_attachment_request(void* instance, const AccountMediaAttachmentRequ
                                                    unix_now_seconds);
 }
 
-AccountMediaRequestResult WINAPI module_media_advance(void* instance, MediaAssetKey key,
-                                                      u16 cache_generation, u32 frame_index,
-                                                      u64 unix_now_seconds) noexcept {
+AccountMediaRequestResult account_module_media_advance(void* instance, MediaAssetKey key,
+                                                       u16 cache_generation, u32 frame_index,
+                                                       u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime) {
         return rejected_media_request();
@@ -476,36 +477,36 @@ AccountMediaRequestResult WINAPI module_media_advance(void* instance, MediaAsset
                                                   unix_now_seconds);
 }
 
-bool WINAPI module_media_take(void* instance, AccountMediaFrame* frame) noexcept {
+bool account_module_media_take(void* instance, AccountMediaFrame* frame) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && account_media_worker_take_frame(&runtime->media, frame);
 }
 
-AccountVideoResult WINAPI module_video_select(void* instance,
-                                              const AccountVideoSelection* selection) noexcept {
+AccountVideoResult account_module_video_select(void* instance,
+                                               const AccountVideoSelection* selection) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && selection ? account_media_worker_video_select(&runtime->media, *selection)
                                 : AccountVideoResult{AccountVideoError::invalid_input};
 }
-AccountVideoResult WINAPI module_video_control(void* instance,
-                                               const AccountVideoControl* command) noexcept {
+AccountVideoResult account_module_video_control(void* instance,
+                                                const AccountVideoControl* command) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && command ? account_media_worker_video_control(&runtime->media, *command)
                               : AccountVideoResult{AccountVideoError::invalid_input};
 }
-AccountVideoPlaybackStatus WINAPI module_video_status(void* instance) noexcept {
+AccountVideoPlaybackStatus account_module_video_status(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime ? account_media_worker_video_status(&runtime->media) : AccountVideoPlaybackStatus{};
 }
-bool WINAPI module_video_take(void* instance, AccountVideoFrame* frame) noexcept {
+bool account_module_video_take(void* instance, AccountVideoFrame* frame) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && account_media_worker_video_take(&runtime->media, frame);
 }
-bool WINAPI module_video_acknowledge(void* instance, const AccountVideoFrame* frame) noexcept {
+bool account_module_video_acknowledge(void* instance, const AccountVideoFrame* frame) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && frame && account_media_worker_video_acknowledge(&runtime->media, *frame);
 }
-AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64 unix_now_ms) noexcept {
+AccountModuleStatus account_module_stop(void** instance, u32 timeout_ms, u64, u64 unix_now_ms) noexcept {
     if (!instance || !*instance || timeout_ms == 0 || unix_now_ms == 0) {
         return module_failure(AccountModuleError::invalid_input);
     }
@@ -559,5 +560,4 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
     return status;
 }
 
-} // namespace account_module_detail
 } // namespace maicord

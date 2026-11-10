@@ -2,6 +2,7 @@
 #include "chat/messages/delete.hpp"
 #include "chat/messages/reaction.hpp"
 #include "shell/state.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "chat/composer/reply_draft.hpp"
 #include "chat/composer/text_form.hpp"
 #include "maicord/core/memory.hpp"
@@ -113,7 +114,7 @@ bool initialize() noexcept {
     g_app.account.instance = &account_marker;
     g_app.account.status.profile_id = 20;
     g_app.account.status.running = true;
-    g_app.account.api.message_reaction = submit_reaction_api;
+    g_account_fake.message_reaction = submit_reaction_api;
     const u64 channel_ids[]{70, 80};
     for (const u64 id : channel_ids) {
         auto* value =

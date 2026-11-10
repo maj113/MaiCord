@@ -6,7 +6,6 @@
 #include "maicord/ui/plugins/slots.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/sys/crt.hpp"
 
 namespace maicord::profile_scene_detail {
 

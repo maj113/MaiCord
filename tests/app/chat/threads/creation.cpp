@@ -4,6 +4,7 @@
 #include "../../../support/model_store_fixtures.hpp"
 #include "../../../../src/app/shell/state.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/account_module_fake.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 namespace maicord::creation_test { u64 now = 1000; }
@@ -118,7 +119,7 @@ void reset_owner() noexcept {
     application_thread_creation_release();
     g_app.account.instance = &actor; g_app.account.status.profile_id = 2;
     g_app.account.status.running = true; g_app.account.status.required_action = AccountRequirement::none;
-    g_app.account.api.thread_creation = submit; admission = {}; form_open_ok = true;
+    g_account_fake.thread_creation = submit; admission = {}; form_open_ok = true;
     select_parent(); permit();
 }
 bool gateway_thread(u64 id, Utf8View name = utf8_literal("Gateway name"), bool complete = true) noexcept {
@@ -139,7 +140,7 @@ bool initialize() noexcept {
     state.self_user_id = 5;
     g_app.plugin_account_scope_serial = 3;
     g_app.account.instance = &actor; g_app.account.status.profile_id = 2; g_app.account.status.running = true;
-    g_app.account.api.thread_creation = submit; select_parent(); permit();
+    g_account_fake.thread_creation = submit; select_parent(); permit();
     return put(900);
 }
 void run() noexcept {

@@ -179,9 +179,10 @@ UiTypingDotsClock g_component_dots{};
 void synchronize_component_dots(u64 now_ms) noexcept {
     auto& renderer = g_app.renderer;
     auto& scene = g_app.message_scene;
+    const bool on_screen = g_app.renderer_ready && !renderer.live_resize && !d3d11_renderer_page_open(renderer) &&
+                           renderer.message_scene == &scene;
     bool visible = false;
-    if (g_app.renderer_ready && !renderer.live_resize && !d3d11_renderer_page_open(renderer) &&
-        renderer.message_scene == &scene && scene.interaction.pending)
+    if (on_screen && scene.interaction.pending)
         for (u32 i = 0; i < scene.count && !visible; ++i) {
             const auto& row = scene.rows[i];
             const auto* node = row.message_id == scene.interaction.message_id
@@ -191,8 +192,7 @@ void synchronize_component_dots(u64 now_ms) noexcept {
         }
     // A local command message's or deferred response's status dots on screen
     // step on the same clock.
-    if (!visible && g_app.renderer_ready && !renderer.live_resize && !d3d11_renderer_page_open(renderer) &&
-        renderer.message_scene == &scene && g_app.account_ui && g_app.account_ui->message_text.status_dots) {
+    if (!visible && on_screen && g_app.account_ui && g_app.account_ui->message_text.status_dots) {
         const auto& text = g_app.account_ui->message_text;
         for (u32 i = 0; i < text.command_count && !visible; ++i) {
             const auto& command = text.commands[i];

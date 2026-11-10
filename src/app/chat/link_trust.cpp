@@ -73,7 +73,7 @@ bool split_url(Utf8View url, UrlParts* parts) noexcept {
 
 bool link_target_parse(Utf8View url, LinkTarget* target) noexcept {
     UrlParts parts{};
-    if (!target || !split_url(url, &parts))
+    if (!split_url(url, &parts))
         return false;
     LinkTarget parsed{};
     for (u32 i = 0; i < parts.scheme_end; ++i)
@@ -288,7 +288,7 @@ bool link_trust_path(u64 profile_id, wchar_t* path, u32 capacity) noexcept {
 }
 
 bool link_trust_load_file(const wchar_t* path, LinkTrustStore* store) noexcept {
-    if (!path || !store)
+    if (!path)
         return false;
     const u32 revision = store->revision;
     reset_value(store);

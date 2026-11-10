@@ -31,13 +31,11 @@ struct Request {
 } request;
 
 GatewayClientSelfStatusSnapshot identity() noexcept {
-    return g_app.account.instance && g_app.account.api.self_status_snapshot
-               ? g_app.account.api.self_status_snapshot(g_app.account.instance)
-               : GatewayClientSelfStatusSnapshot{};
+    return g_app.account.instance ? account_module_self_status_snapshot(g_app.account.instance)
+                                  : GatewayClientSelfStatusSnapshot{};
 }
 bool saved(SelfCustomStatus* output) noexcept {
-    return g_app.account.instance && g_app.account.api.custom_status_snapshot &&
-           g_app.account.api.custom_status_snapshot(g_app.account.instance, output);
+    return g_app.account.instance && account_module_custom_status_snapshot(g_app.account.instance, output);
 }
 void scope() noexcept {
     if (request.account_scope == g_app.plugin_account_scope_serial)
@@ -254,7 +252,7 @@ bool application_custom_status_snapshot(SelfCustomStatus* output) noexcept {
 bool application_custom_status_available() noexcept {
     SelfCustomStatus ignored;
     const auto self = identity();
-    return g_app.account.api.custom_status_submit && self.available && self.authoritative && saved(&ignored);
+    return self.available && self.authoritative && saved(&ignored);
 }
 
 bool application_custom_status_request(const SelfCustomStatus* status) noexcept {
@@ -300,9 +298,8 @@ bool application_custom_status_submit(u64 request_id, u64 now_ms) noexcept {
         return false;
     const auto self = identity();
     const bool clear = !request.desired.present;
-    const auto submitted = g_app.account.api.custom_status_submit(g_app.account.instance, self.profile_id,
-                                                                  self.self_user_id, clear ? nullptr : &request.desired,
-                                                                  request_id);
+    const auto submitted = account_module_custom_status_submit(g_app.account.instance, self.profile_id, self.self_user_id,
+                                                       clear ? nullptr : &request.desired, request_id);
     if (submit_busy(submitted, request.retry_at, now_ms, 50))
         return false;
     if (!submitted.ok()) {
@@ -323,10 +320,9 @@ bool application_custom_status_submit(u64 request_id, u64 now_ms) noexcept {
 bool application_custom_status_response(const RestClientResponse& response, Utf8View body) noexcept {
     if (!request.request_id || response.request_id != request.request_id)
         return false;
-    const bool consumed = g_app.account.instance && g_app.account.api.self_status_complete &&
-                          g_app.account.api.self_status_complete(g_app.account.instance, request.profile_id,
-                                                                 request.self_user_id, request.request_id, &response,
-                                                                 body);
+    const bool consumed = g_app.account.instance &&
+                          account_module_self_status_complete(g_app.account.instance, request.profile_id,
+                                                      request.self_user_id, request.request_id, &response, body);
     request.request_id = 0;
     const bool ok = consumed && response.succeeded();
     if (const u64 retry = rest_rate_retry_deadline(response); !ok && retry && request.attempts < 3) {

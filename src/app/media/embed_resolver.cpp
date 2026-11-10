@@ -235,7 +235,7 @@ EmbedResolveResult pornhub_resolve(EmbedResolver* r, Utf8View id, u16 height, u6
     using E = EmbedPlayerError;
     u8 target[64];
     const u32 bytes = pornhub_embed_target(id, {target, sizeof(target)});
-    if (!r || !out || !bytes || !now || !height || height > 2048) return {E::invalid_input};
+    if (!r || !bytes || !now || !height || height > 2048) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     struct Metadata { EmbedStream stream{}; ~Metadata() noexcept { wipe(this, sizeof(*this)); } } metadata;
@@ -275,7 +275,7 @@ EmbedResolveResult amazon_music_preview_resolve(EmbedResolver* r,Utf8View page,u
     EmbedResolveTransport transport) noexcept {
     using E=EmbedPlayerError;
     const auto track=amazon_music_track_locator(page);
-    if(!r || !out || !now || !track.id.bytes) return {E::invalid_input};
+    if(!r || !now || !track.id.bytes) return {E::invalid_input};
     const auto ready=transport_for(*r,transport);
     if(ready!=UpdateTransportError::none) return {E::unavailable,ready};
     char target[64];constexpr auto path=utf8_literal("/getSampleTrack/");
@@ -312,7 +312,6 @@ EmbedResolveResult amazon_music_preview_resolve(EmbedResolver* r,Utf8View page,u
     return {E::unavailable};
 }
 void embed_resolver_cancel(EmbedResolver* r) noexcept {
-    if (!r) return;
     const LONG state = InterlockedExchange(&r->native_state, 3);
     InterlockedExchange(&r->https.cancelled, 1);
     if (state == 2) update_https_cancel(&r->https);
@@ -349,7 +348,6 @@ EmbedResolveResult steam_resolve(EmbedResolver* r, Utf8View app, Utf8View movie,
     return result;
 }
 void embed_resolver_release(EmbedResolver* r) noexcept {
-    if (!r) return;
     if (r->https.winsock) update_https_release(&r->https);
     if (r->response.committed) secure_clear_bytes(r->response.base, r->response.committed);
     reserved_bytes_release(&r->response);
@@ -495,7 +493,7 @@ EmbedResolveResult youtube_collection_resolve(EmbedResolver* r, Utf8View page, U
     YoutubeCollectionPage* out, EmbedResolveTransport transport, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
     const auto locator = youtube_collection_locator(page);
-    if (!r || !out || !locator.list.bytes || continuation.bytes > 16384) return {E::invalid_input};
+    if (!r || !locator.list.bytes || continuation.bytes > 16384) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     constexpr auto host = utf8_literal("music.youtube.com");
@@ -583,7 +581,7 @@ EmbedResolveResult soundcloud_batch_titles_resolve(EmbedResolver* r, const Sound
 EmbedResolveResult apple_music_collection_resolve(EmbedResolver* r, Utf8View page, u16* count, AppleMusicCollectionSink sink, EmbedResolveTransport transport) noexcept {
     using E=EmbedPlayerError;
     const auto collection=apple_music_collection_locator(page);
-    if (!r || !count || !sink.write || !collection.id.bytes) return {E::invalid_input};
+    if (!r || !sink.write || !collection.id.bytes) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     Slice<u32> scratch{};
@@ -638,7 +636,7 @@ EmbedResolveResult apple_music_collection_resolve(EmbedResolver* r, Utf8View pag
 EmbedResolveResult soundcloud_collection_resolve(EmbedResolver* r, Utf8View page, Slice<u64> tracks,
     SoundcloudCollection* out, EmbedResolveTransport transport, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
-    if (!r || !out || !tracks.data || !tracks.count) return {E::invalid_input};
+    if (!r || !tracks.data || !tracks.count) return {E::invalid_input};
     ScratchLifetime lifetime{r};
     char decoded[1024]; SoundcloudCollectionLocator locator{};
     auto result = soundcloud_page(r, page, true, {decoded, sizeof(decoded)}, &locator, transport);

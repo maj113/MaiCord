@@ -218,7 +218,8 @@ void catalog_state_swap_previous(CatalogStateEntry* e) noexcept {
     e->previous_host_bits = hosts;
 }
 
-u64 catalog_state_host_hash(const Utf8View& host) noexcept {
+// Never zero: a free host slot is.
+static u64 catalog_state_host_hash(const Utf8View& host) noexcept {
     const u64 hash = hash64_counted_bytes(kHash64Seed, host.data, host.bytes);
     return hash ? hash : 1;
 }

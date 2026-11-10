@@ -40,7 +40,6 @@ struct MessageAttachmentDraftStore {
     u32 count;
     u32 revision;
     u32 committed_bytes;
-    u32 peak_committed_bytes;
 };
 bool message_attachment_drafts_initialize(MessageAttachmentDraftStore* store) noexcept;
 void message_attachment_drafts_release(MessageAttachmentDraftStore* store) noexcept;

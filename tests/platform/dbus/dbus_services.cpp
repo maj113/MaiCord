@@ -174,10 +174,6 @@ bool setting_arrived() noexcept {
     return g_setting_events != 0;
 }
 
-bool near(float a, float b) noexcept {
-    return a - b < 0.001f && b - a < 0.001f;
-}
-
 void set_setting_u32(const char* ns, const char* key, u32 value) noexcept {
     Builder b;
     builder_init(&b);
@@ -214,41 +210,6 @@ void set_setting_string(const char* ns, const char* key, const char* value) noex
     builder_release(&b);
 }
 
-void set_setting_color(const char* ns, const char* key, double r, double g, double b2) noexcept {
-    Builder b;
-    builder_init(&b);
-    builder_string(&b, ns);
-    builder_string(&b, key);
-    builder_open_variant(&b, "(ddd)");
-    builder_open_struct(&b, "(ddd)");
-    builder_double(&b, r);
-    builder_double(&b, g);
-    builder_double(&b, b2);
-    builder_close_struct(&b);
-    builder_close_variant(&b);
-    control("SetSetting", &b);
-    builder_release(&b);
-}
-
-void test_caption_parser() noexcept {
-    CaptionButtons b;
-    check(caption_buttons_parse("appmenu:minimize,maximize,close", &b) && b.left_count == 1 && b.left[0] == caption_menu &&
-              b.right_count == 3 && b.right[0] == caption_minimize && b.right[1] == caption_maximize &&
-              b.right[2] == caption_close,
-          "the GNOME 3 layout");
-    check(caption_buttons_parse("close,minimize,maximize:appmenu", &b) && b.left_count == 3 && b.left[0] == caption_close &&
-              b.left[2] == caption_maximize && b.right_count == 1 && b.right[0] == caption_menu,
-          "the macOS-like layout");
-    check(caption_buttons_parse("close", &b) && b.left_count == 1 && b.right_count == 0, "no colon: everything on the left");
-    check(caption_buttons_parse(":close", &b) && b.left_count == 0 && b.right_count == 1 && b.right[0] == caption_close,
-          "nothing on the left");
-    check(caption_buttons_parse("spacer,close,close,bogus:icon,minimize", &b) && b.left_count == 1 && b.right_count == 2 &&
-              b.right[0] == caption_menu && b.right[1] == caption_minimize,
-          "spacers, unknown names and repeats are skipped");
-    check(!caption_buttons_parse("", &b) && !caption_buttons_parse(nullptr, &b), "an empty layout is unknown");
-    check(caption_buttons_parse("close,minimize,maximize,appmenu,icon:close", &b) && b.left_count == 4, "at most four a side");
-}
-
 void test_settings() noexcept {
     desktop_settings_set_handler(on_settings, nullptr);
     check(desktop_settings_start(), "the settings client starts on the session bus");
@@ -258,21 +219,15 @@ void test_settings() noexcept {
     DesktopSettings s;
     check(desktop_settings_get(&s) && s.loaded, "the settings are loaded");
     check(s.color_scheme == ColorScheme::dark, "color-scheme 1 is dark");
-    check(s.accent_valid && near(s.accent[0], 0.25f) && near(s.accent[1], 0.5f) && near(s.accent[2], 0.75f), "accent colour");
-    check(s.more_contrast && s.reduced_motion && !s.animations, "contrast, reduced motion and animations");
+    check(s.reduced_motion && !s.animations, "reduced motion and animations");
     check(s.cursor_blink && s.cursor_blink_ms == 1000 && s.cursor_size == 32 && text_equal(s.cursor_theme, "Bibata-Modern"),
           "cursor blink, size and theme");
-    check(text_equal(s.ui_font, "Cantarell 11") && text_equal(s.monospace_font, "Source Code Pro 10") &&
-              text_equal(s.document_font, "Sans 11") && text_equal(s.titlebar_font, "Cantarell Bold 11") &&
-              near(s.text_scale, 1.25f),
-          "fonts and text scale");
+    check(text_equal(s.ui_font, "Cantarell 11") && text_equal(s.monospace_font, "Source Code Pro 10"),
+          "interface and monospace fonts");
     check(s.double_click_ms == 350, "double-click time");
-    check(s.caption_known && s.caption.left_count == 3 && s.caption.left[0] == caption_close && s.caption.right_count == 1 &&
-              s.caption.right[0] == caption_menu,
-          "caption buttons");
 
     take_log();
-    expect_line("ReadAll", "ReadAll [s:org.freedesktop.appearance,s:org.gnome.desktop.interface,s:org.gnome.desktop.wm.preferences,s:org.gnome.desktop.peripherals.mouse,s:org.kde.kdeglobals.KDE]",
+    expect_line("ReadAll", "ReadAll [s:org.freedesktop.appearance,s:org.gnome.desktop.interface,s:org.gnome.desktop.peripherals.mouse,s:org.kde.kdeglobals.KDE]",
                 "ReadAll names its namespaces (as libdbus decoded them)");
 
     // SettingChanged signals update the copy and report only the areas that changed.
@@ -291,30 +246,12 @@ void test_settings() noexcept {
     check(s.cursor_size == 48, "cursor size 48");
 
     g_setting_events = 0;
-    g_setting_areas = 0;
-    set_setting_string("org.gnome.desktop.wm.preferences", "button-layout", "appmenu:close");
-    check(pump(setting_arrived, 3000) && g_setting_areas == desktop_caption, "a button layout change reports the caption area");
-    desktop_settings_get(&s);
-    check(s.caption.left_count == 1 && s.caption.left[0] == caption_menu && s.caption.right_count == 1 &&
-              s.caption.right[0] == caption_close,
-          "the new layout");
-
-    g_setting_events = 0;
     set_setting_u32("org.freedesktop.appearance", "color-scheme", 2);  // unchanged
     set_setting_string("org.example.unknown", "key", "value");           // not read
     set_setting_i32("org.gnome.desktop.interface", "cursor-size", 100000);  // out of range: ignored
     settle(300);
     desktop_settings_get(&s);
     check(g_setting_events == 0 && s.cursor_size == 48, "unchanged, unknown and out-of-range values report nothing");
-
-    set_setting_color("org.freedesktop.appearance", "accent-color", 2.0, 0.0, 0.0);
-    settle(200);
-    desktop_settings_get(&s);
-    check(!s.accent_valid, "an accent colour outside 0..1 means none");
-    set_setting_color("org.freedesktop.appearance", "accent-color", 0.0, 1.0, 0.5);
-    settle(200);
-    desktop_settings_get(&s);
-    check(s.accent_valid && near(s.accent[1], 1.0f), "and a valid one again");
 
     // GNOME's own colour-scheme is ignored while the portal's is published.
     set_setting_string("org.gnome.desktop.interface", "color-scheme", "prefer-dark");
@@ -903,7 +840,7 @@ void test_bare() noexcept {
     check(desktop_settings_start(), "the bus itself is there");
     check(!desktop_settings_wait_loaded(2000), "no settings portal: nothing loads");
     DesktopSettings s;
-    check(!desktop_settings_get(&s) && s.color_scheme == ColorScheme::no_preference && s.animations && s.text_scale == 1.0f,
+    check(!desktop_settings_get(&s) && s.color_scheme == ColorScheme::no_preference && s.animations,
           "the defaults stand");
 
     notifications_set_handler(on_bare_notification, nullptr);
@@ -964,7 +901,6 @@ MAICORD_TEST_ENTRY(maicord_dbus_services_entry) {
         test_notification_plain();
         test_exit(g_failures, "dbus_services_plain");
     }
-    test_caption_parser();
     test_settings();
     test_notification_direct();
     test_open_uri_validation();

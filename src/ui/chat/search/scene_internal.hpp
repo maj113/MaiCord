@@ -75,8 +75,7 @@ MessageResultCardHeaderLayout plain_header(const UiRect& card, const UiSearchRow
 bool tiled(const UiSearchScene& s) noexcept;
 UiRect tile_cover(const UiSearchScene& s, const UiSearchItem& item, const UiRect& tile) noexcept;
 UiSearchTarget item_target(const UiSearchScene& s, const UiSearchItem& item, bool primary) noexcept;
-const UiSearchItem* target_item(const UiSearchScene& s, const UiSearchTarget& target,
-                                u32* slot = nullptr) noexcept;
+const UiSearchItem* target_item(const UiSearchScene& s, const UiSearchTarget& target, u32* slot) noexcept;
 bool measure_rows(UiSearchScene& s) noexcept;
 UiRect widget_viewport(const UiSearchScene& s) noexcept;
 bool current(const UiSearchScene& s) noexcept;

@@ -84,9 +84,6 @@ void catalog_state_remove(CatalogState&, CatalogStateEntry*) noexcept;
 void catalog_state_install(CatalogStateEntry*, const Utf8View& version, const u8* sha256, u64 now_unix, bool keep_previous) noexcept;
 // Swaps the installed and previous versions (rollback).
 void catalog_state_swap_previous(CatalogStateEntry*) noexcept;
-
-// Never zero: a free host slot is.
-u64 catalog_state_host_hash(const Utf8View& host) noexcept;
 // Bit i set when hosts[i] was approved.
 u32 catalog_state_approved_hosts(const CatalogStateEntry&, ConstSlice<Utf8View> hosts) noexcept;
 // Adds permissions and the hosts of bits to the approval; hosts not listed now go first when the slots run out.

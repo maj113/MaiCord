@@ -1,6 +1,7 @@
 // Shipping host with fake account admission and renderer bindings. No live
 // account, network, GPU or shipping diagnostic hooks are involved.
 #include "../../support/window_fixture.hpp"
+#include "../../support/account_module_fake.hpp"
 #include "account/profile_editor.hpp"
 #include "../../../src/app/guild/channel_overview.cpp"
 #include "../../../src/app/guild/channel_overview_projection.cpp"
@@ -184,7 +185,7 @@ void run() noexcept {
     g_app.account.status.profile_id = 4;
     g_app.account.status.running = true;
     g_app.account.instance = &channel;
-    g_app.account.api.channel_overview = submit;
+    g_account_fake.channel_overview = submit;
     g_app.renderer_ready = true;
     g_app.renderer.width = 1200;
     g_app.renderer.height = 900;

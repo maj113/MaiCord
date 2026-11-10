@@ -40,7 +40,7 @@ bool rasterize_program(D3D11GlyphTextOwner* owner, GpuContext* context,
                        const ColrPaintProgram& program, const GlyphAtlasAllocation& allocation,
                        u16 extent, float pixels_per_unit, u16 target_width, u16 target_height,
                        u16 padding, GpuUav* target) noexcept {
-    if (!owner || !owner->gpu.width || !context || !target || allocation.width != extent ||
+    if (!owner->gpu.width || !context || !target || allocation.width != extent ||
         allocation.height != extent)
         return false;
     if (owner->color_batch)
@@ -620,7 +620,7 @@ u32 d3d11_glyph_text_append_failure() noexcept {
 bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                              const D3D11GlyphTextAppendRequest& request) noexcept {
     g_append_failure = 0;
-    if (!owner || !context || !request.text || !request.output || !request.count ||
+    if (!context || !request.text || !request.output || !request.count ||
         !request.atlas_invalidated || *request.count > request.capacity) {
         return false;
     }
@@ -911,7 +911,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
 
 bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, GpuContext* context, u32 dpi,
                                     bool reset_atlas) noexcept {
-    if (!owner || !context || !owner->gpu.surface || !owner->title.glyphs) {
+    if (!context || !owner->gpu.surface || !owner->title.glyphs) {
         return false;
     }
     // Login/content normally replaces the bootstrap title before the first draw.
@@ -950,7 +950,7 @@ bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, GpuContext* cont
 D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* owner, GpuDevice* device,
                                                            GpuContext* context, u32 dpi,
                                                            GlyphAtlasGpu* prestarted_atlas) noexcept {
-    if (!owner || !device || !context || dpi == 0 || owner->storage.base || owner->system.native_text ||
+    if (!device || !context || dpi == 0 || owner->storage.base || owner->system.native_text ||
         owner->gpu.surface || owner->color_glyphs) {
         return initialize_result(D3D11GlyphTextInitializeError::invalid_input, E_INVALIDARG);
     }
@@ -1011,17 +1011,15 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
 }
 
 void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept {
-    if (owner) {
-        if (owner->color_batch)
-            owner->color_batch->reset();
-        glyph_atlas_reset(&owner->allocator);
-    }
+    if (owner->color_batch)
+        owner->color_batch->reset();
+    glyph_atlas_reset(&owner->allocator);
 }
 
 // A lost device took the atlas textures with it: new ones at the height the allocator holds, an empty allocator
 // (every glyph is rasterized again on demand) and the stale-geometry flag so retained quads are rebuilt.
 bool d3d11_glyph_text_recreate_gpu(D3D11GlyphTextOwner* owner, GpuDevice* device) noexcept {
-    if (!owner || !device || !owner->atlas_origins)
+    if (!device || !owner->atlas_origins)
         return false;
     if (owner->color_batch)
         owner->color_batch->reset();
@@ -1048,7 +1046,7 @@ u64 d3d11_glyph_text_trim_deadline(const D3D11GlyphTextOwner& owner) noexcept {
 // keeps its place, so only quads of evicted glyphs are rebuilt. The title stream (the sign-in screen, the bootstrap
 // title) is drawn every frame from quads nothing builds again after an eviction, so its glyphs stay: they are pinned.
 bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, GpuContext* context, u64 now_ms) noexcept {
-    if (!owner || !context || !owner->atlas_origins)
+    if (!context || !owner->atlas_origins)
         return false;
     // The atlas has no clock until the first trim check observes the caller's: what the first screens allocated
     // before it counts as allocated now. (At clock zero that check found them idle since time zero and trimmed the
@@ -1086,16 +1084,13 @@ bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, GpuContext* context, u64 
 }
 
 bool d3d11_glyph_text_take_stale(D3D11GlyphTextOwner* owner) noexcept {
-    if (!owner || !owner->atlas_origins || !text_storage(owner)->geometry_stale)
+    if (!owner->atlas_origins || !text_storage(owner)->geometry_stale)
         return false;
     text_storage(owner)->geometry_stale = false;
     return true;
 }
 
 void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept {
-    if (!owner) {
-        return;
-    }
     if (owner->color_batch)
         owner->color_batch->reset();
     owner->color_batch = nullptr;

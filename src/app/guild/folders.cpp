@@ -104,8 +104,7 @@ bool rebuild() noexcept {
     return synchronize_navigation_view() && refresh_retained_projection(false);
 }
 bool online() noexcept {
-    return g_app.account_ui && g_app.account.instance && g_app.account.status.gateway_ready &&
-           g_app.account.api.account_settings;
+    return g_app.account_ui && g_app.account.instance && g_app.account.status.gateway_ready;
 }
 // The rail as an editable canonical layout (every shown guild listed).
 bool editable_layout(ApplicationGuildFolders& folders) noexcept {
@@ -319,7 +318,7 @@ bool application_guild_folders_submit(u64 request_id, u64 now_ms) noexcept {
     AccountSettingsRequest request{};
     request.operation = AccountSettingsOperation::settings_patch;
     request.payload = {folders.partial, bytes};
-    const auto admitted = g_app.account.api.account_settings(g_app.account.instance, &request, request_id);
+    const auto admitted = account_module_account_settings(g_app.account.instance, &request, request_id);
     secure_clear_bytes(folders.partial, bytes);
     if (!admitted.ok()) {
         folders.retry_at_ms = now_ms + 500;

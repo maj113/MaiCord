@@ -20,7 +20,7 @@ struct ActionCaptcha {
 ActionCaptcha g_captcha{};
 
 bool available() noexcept {
-    return g_app.account.instance && g_app.account.api.action_captcha && g_app.account_ui;
+    return g_app.account.instance && g_app.account_ui;
 }
 bool current(ApplicationActionCaptchaKind kind, u64 subject) noexcept {
     return g_captcha.kind == kind && g_captcha.subject == subject && kind != ApplicationActionCaptchaKind::none &&
@@ -41,7 +41,7 @@ CaptchaBridgeStatus call(AccountActionCaptchaOperation operation, u64 request_id
         request.status_code = g_captcha.status_code;
         request.timeout_ms = kCaptchaBridgeDefaultTimeoutMs;
     }
-    return g_app.account.api.action_captcha(g_app.account.instance, &request);
+    return account_module_action_captcha(g_app.account.instance, &request);
 }
 void reset() noexcept {
     secure_buffer_release(&g_captcha.body);

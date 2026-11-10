@@ -161,10 +161,7 @@ bool glyph_atlas_unpin(GlyphAtlasAllocator* atlas, GlyphAtlasHandle handle) noex
 bool glyph_atlas_is_pinned(const GlyphAtlasAllocator& atlas,
                            GlyphAtlasHandle handle) noexcept;
 GlyphAtlasAllocation glyph_atlas_find(GlyphAtlasAllocator* atlas, u64 key) noexcept;
-GlyphAtlasAllocation glyph_atlas_allocate(GlyphAtlasAllocator* atlas, u64 key, u16 width,
-                                           u16 height) noexcept;
-// The caller has already established that key is absent, so the identity
-// lookup is skipped. `pool` (0: the general region; n: pool n - 1) must take
+// The caller has already established that key is absent. `pool` (0: the general region; n: pool n - 1) must take
 // the size.
 //
 // Room comes, in order, from free space on a shelf or in committed rows, from

@@ -77,7 +77,7 @@ ReadScopeTarget target(const ChatStateStore& state, const ReadScopeSource& sourc
 } // namespace
 bool read_scope_source(const ChatStateStore& state, ReadScopeKind kind, u64 id,
                        ReadScopeSource* output) noexcept {
-    if (!output || !id || (kind != ReadScopeKind::guild && kind != ReadScopeKind::category))
+    if (!id || (kind != ReadScopeKind::guild && kind != ReadScopeKind::category))
         return false;
     const auto* category =
         kind == ReadScopeKind::category ? chat_state_store_find_channel(state, id) : nullptr;

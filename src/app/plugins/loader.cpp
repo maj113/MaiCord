@@ -4,7 +4,6 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/path.hpp"
@@ -1079,7 +1078,9 @@ bool plugin_keybind_valid(u32 key) noexcept {
                     ((key & (MC_KEY_CTRL | MC_KEY_ALT)) || (vk >= 0x70 && vk <= 0x87)));
 }
 
-u64 plugin_implied_permissions(const mc_descriptor& d) noexcept {
+// The permissions a validated descriptor's hooks, buttons and network hosts imply (plugin.hpp computes the same at
+// compile time); the loader's permissions include them.
+static u64 plugin_implied_permissions(const mc_descriptor& d) noexcept {
     u64 implied = d.network_count ? MC_PERM_NETWORK : 0;
     if (d.permissions & MC_PERM_AUTOMATED_ACTIONS) implied |= MC_PERM_ACT_MESSAGES;
     for (u32 i = 0; i < d.hook_count; ++i) {
@@ -1104,8 +1105,9 @@ u64 plugin_implied_permissions(const mc_descriptor& d) noexcept {
     return implied;
 }
 
-PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, const mc_descriptor* d,
-                                         PluginInfo* info, u64* permissions) noexcept {
+// The descriptor rules, on a loaded image: base is where the image's first byte is mapped.
+static PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, const mc_descriptor* d,
+                                                PluginInfo* info, u64* permissions) noexcept {
     const Image image{base, pe.image_bytes, &pe};
     if (!image.contains(d, sizeof(mc_descriptor)) || d->size < sizeof(mc_descriptor) || d->size > 4096 ||
         !image.contains(d, d->size))

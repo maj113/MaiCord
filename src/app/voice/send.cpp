@@ -126,7 +126,7 @@ VoiceSocketSend connection_speaking(void* context, u32 flags) noexcept {
 } // namespace
 
 bool voice_send_open(VoiceSend* send) noexcept {
-    if (!send || send->shared)
+    if (send->shared)
         return false;
     const u32 encoder_bytes = opus_encoder_storage_bytes(1);
     if (!encoder_bytes)
@@ -176,8 +176,6 @@ u64 voice_send_tick(void* context, u64 now_us) noexcept {
 }
 
 void voice_send_configure(VoiceSend* send, const VoiceAudioSettings& settings) noexcept {
-    if (!send)
-        return;
     AcquireSRWLockExclusive(send->lock.native());
     copy_value(&send->settings, settings);
     send->settings.input_device[kVoiceDeviceIdCharacters - 1] = 0;
@@ -188,8 +186,6 @@ void voice_send_configure(VoiceSend* send, const VoiceAudioSettings& settings) n
 
 VoiceAudioStatus voice_send_status(VoiceSend* send) noexcept {
     VoiceAudioStatus status{};
-    if (!send)
-        return status;
     AcquireSRWLockShared(send->lock.native());
     if (send->capture_visible) {
         const auto capture = voice_audio_capture_status(send->capture);
@@ -271,8 +267,6 @@ void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
 
 void voice_send_drive(VoiceSend* send, VoiceConnection* connection, const GatewayVoiceControl& voice,
                       bool media_ready, NetworkLoop* loop, NetworkSignal* signal) noexcept {
-    if (!send)
-        return;
     send->loop = loop;
     send->signal = signal;
     AcquireSRWLockExclusive(send->lock.native());
@@ -319,8 +313,6 @@ void voice_send_drive(VoiceSend* send, VoiceConnection* connection, const Gatewa
 }
 
 void voice_send_stop(VoiceSend* send) noexcept {
-    if (!send)
-        return;
     if (voice_audio_capture_running(send->capture))
         stop_capture(*send);
     else

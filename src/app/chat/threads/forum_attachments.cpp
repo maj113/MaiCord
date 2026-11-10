@@ -194,7 +194,7 @@ bool application_forum_attachments_describe(const ApplicationForumPostTicket& ti
 }
 bool application_forum_attachments_source(const ApplicationForumPostTicket& ticket, u64 id,
     UploadSource* content, FileSnapshot* snapshot, ConstSlice<wchar_t>* path) noexcept {
-    if (!content || !snapshot || !path || !application_forum_attachments_current(ticket, id)) return false;
+    if (!application_forum_attachments_current(ticket, id)) return false;
     const auto* row = message_attachment_drafts_get(&forum_attachments->drafts, id);
     *content = row->content; *snapshot = row->source; *path = message_attachment_drafts_path(&forum_attachments->drafts, id); return true;
 }
@@ -277,7 +277,7 @@ bool application_forum_attachments_pump() noexcept {
 }
 bool application_forum_attachments_url_candidate(const ApplicationForumPostTicket& ticket, u64 now,
     ForumPostRequest* output, u64* draft_id) noexcept {
-    if (!output || !draft_id || !application_forum_attachments_current(ticket) || !authorized(ticket)) return false;
+    if (!application_forum_attachments_current(ticket) || !authorized(ticket)) return false;
     auto& owner = *forum_attachments;
     if (owner.locked || owner.url_id || owner.active_id || !application_upload_lane_available()) return false;
     for (u32 i = 0; i < owner.drafts.count; ++i) {
@@ -335,7 +335,7 @@ void application_forum_attachments_url_response(const ApplicationForumPostTicket
 }
 bool application_forum_attachments_prepare(const ApplicationForumPostTicket& ticket,
     Slice<UploadedAttachment> refs, Slice<u64> sizes, u32* count) noexcept {
-    if (!count) return false; *count = 0;
+    *count = 0;
     if (!forum_attachments) return true;
     if (!key(*forum_attachments, ticket)) return true;
     if (!application_forum_attachments_current(ticket)) return false;
@@ -365,7 +365,7 @@ void application_forum_attachments_refresh(const ApplicationForumPostTicket& tic
 }
 bool application_forum_attachments_decode_media(Utf8View body, const ForumPostRequest& request,
     u64 self, Slice<u32> scratch, ForumPostSnapshot* output) noexcept {
-    if (!output || !forum_attachments) return false;
+    if (!forum_attachments) return false;
     auto& owner = *forum_attachments;
     if (!owner.receipt) {
         owner.receipt_bytes = (2u * sizeof(ForumPostMediaSnapshot) + 4095u) & ~4095u;

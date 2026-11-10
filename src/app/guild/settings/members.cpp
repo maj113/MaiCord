@@ -192,8 +192,7 @@ void queue_search() noexcept {
     if (!ensure_bank())
         return;
     if (p.request_id && p.request.op == Op::members_search) {
-        if (g_app.account.api.guild_moderation)
-            g_app.account.api.guild_moderation(g_app.account.instance, nullptr, p.request_id);
+        account_module_guild_moderation(g_app.account.instance, nullptr, p.request_id);
         p.search_dirty = true;
         return;
     }

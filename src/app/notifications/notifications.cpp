@@ -150,8 +150,8 @@ bool viewable(const ChatStateStore& state,const ChannelRecord* channel) noexcept
 }
 bool local_dnd(const Application& a) noexcept {
     if(a.self_status.queued) return a.self_status.desired==GatewayUserStatus::dnd;
-    if(!a.account.instance || !a.account.api.self_status_snapshot) return false;
-    const auto snapshot=a.account.api.self_status_snapshot(a.account.instance);
+    if(!a.account.instance) return false;
+    const auto snapshot=account_module_self_status_snapshot(a.account.instance);
     return snapshot.authoritative && snapshot.status==GatewayUserStatus::dnd;
 }
 bool popup_sink(const Application& a,const ApplicationNotifications& n) noexcept {
@@ -218,7 +218,6 @@ void audio_reset(ApplicationNotifications& n,bool enabled) noexcept {
     if(n.audio_epoch==~u64{0}) { audio_error(n,{NotificationAudioError::timeline_exhausted,0}); return; }
     ++n.audio_epoch;
     notification_sound_throttle_generation(&n.sound_throttle,n.audio_epoch);
-    // Keep a held Gateway latch until can_pop observes cancellation/recovery.
     // A failed enqueue must not bypass cancellation of earlier voices.
     // Worker exit/stopping may reject this reset, but PCM stays attached until join.
     if(n.audio.initialized) audio_error(n,notification_audio_reset(&n.audio,n.audio_epoch,enabled && !n.audio_failed));

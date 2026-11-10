@@ -1,5 +1,6 @@
 #pragma once
-#include "maicord/app/account/login/oauth_authorization.hpp"
+#include "maicord/platform/crypto/secure_buffer.hpp"
+#include "maicord/protocol/auth/oauth.hpp"
 
 namespace maicord {
 // One account per provider for this Windows user, independent of Discord.
@@ -14,11 +15,4 @@ bool oauth_account_load(const Utf8View& client, SecureBuffer* output,
 u32 oauth_account_client(OAuthProvider, const Slice<char>& output) noexcept;
 // Idempotent local sign-out. Does not revoke the provider's grant.
 bool oauth_account_forget(OAuthProvider = OAuthProvider::spotify) noexcept;
-// Serial worker-only, demand-driven refresh. No browser, listener, retry loop
-// or timer. Uses the same cancellation owner and empty-output contract as the
-// token exchange. Caller fences publication and any rotated-grant save against
-// sign-out/new sign-in; this operation never writes or deletes stored grants.
-OAuthAuthorizationResult oauth_account_refresh(OAuthAuthorization*, SecureBuffer* output,
-    OAuthAuthorizationTransport = {}, Utf8View client = {},
-    OAuthProvider = OAuthProvider::spotify) noexcept;
 } // namespace maicord

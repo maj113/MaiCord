@@ -60,12 +60,11 @@ float ui_motion_curve_sample(UiMotionCurve, float progress) noexcept;
 // and the frame scheduling: frames are requested only while a transition runs. Nothing here allocates or keeps
 // a timer; reduced motion and hidden surfaces settle at once.
 //
-// Modal: opacity and scale(.9 -> 1) on the modal spring, entering kUiMotionModalDelayMs after its backdrop, and
-// back on the overdamped exit spring; reduced motion keeps the scale at 1.
+// Modal: opacity and scale(.9 -> 1) on the modal spring, and back on the overdamped exit spring; reduced motion keeps
+// the scale at 1.
 inline constexpr UiMotionStyle kUiMotionModalEnter{400, UiMotionCurve::spring};
 inline constexpr UiMotionStyle kUiMotionModalExit{240, UiMotionCurve::spring_exit};
 inline constexpr float kUiMotionModalScale = .9f;
-inline constexpr u32 kUiMotionModalDelayMs = 64;
 // Popout, default "translate" animation: slides kUiMotionPopoutDistance DIPs toward its anchor at full opacity,
 // 200 ms CSS ease-out.
 inline constexpr UiMotionStyle kUiMotionPopout{200, UiMotionCurve::css_ease_out};
@@ -73,8 +72,6 @@ inline constexpr float kUiMotionPopoutDistance = 10;
 // Popout "scale" animation: opacity and scale(.01 -> 1) about the anchor edge, 120 ms CSS ease-out.
 inline constexpr UiMotionStyle kUiMotionPopoutScale{120, UiMotionCurve::css_ease_out};
 inline constexpr float kUiMotionPopoutScaleFrom = .01f;
-// Popout "fade" animation: opacity only, 80 ms CSS ease-out.
-inline constexpr UiMotionStyle kUiMotionFade{80, UiMotionCurve::css_ease_out};
 // Tooltip, once its show delay passed: opacity and scale(.95 -> 1) on the stiff spring, in and out; reduced motion
 // fades only.
 inline constexpr UiMotionStyle kUiMotionTooltip{160, UiMotionCurve::spring_quick};
@@ -107,10 +104,6 @@ constexpr UiMotionPose ui_motion_slide(float value, UiMotionEdge edge, float dis
     const float away = (1 - value) * distance;
     return {fade ? value : 1, 1, edge == UiMotionEdge::left ? -away : edge == UiMotionEdge::right ? away : 0,
             edge == UiMotionEdge::bottom ? away : edge == UiMotionEdge::left || edge == UiMotionEdge::right ? 0 : -away};
-}
-// The visible height of an expanding section whose full height is `height`.
-constexpr float ui_motion_expand(float value, float height) noexcept {
-    return height * value;
 }
 // The edge of `anchor` that `surface` sits on: below, above, then beside it.
 UiMotionEdge ui_motion_edge(const UiRect& anchor, const UiRect& surface) noexcept;

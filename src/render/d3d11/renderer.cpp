@@ -149,7 +149,7 @@ void renderer_prestart_cancel() noexcept {
 }
 
 bool renderer_set_background_phase(D3D11Renderer* renderer, float seconds) noexcept {
-    if (!renderer || !(seconds >= 0 && seconds <= 3.402823466e38f))
+    if (!(seconds >= 0 && seconds <= 3.402823466e38f))
         return false;
     if (renderer->background_phase_seconds == seconds)
         return true;
@@ -160,7 +160,7 @@ bool renderer_set_background_phase(D3D11Renderer* renderer, float seconds) noexc
 
 EffectSelectResult renderer_select_effect(D3D11Renderer* renderer, const BackgroundEffectSpec& spec,
                                           const EffectSettings& settings) noexcept {
-    if (!renderer || !renderer->graphics.device)
+    if (!renderer->graphics.device)
         return {E_INVALIDARG, EffectSelect::rejected};
     // The glyph grid is rasterized only while this device does not hold the package yet.
     const auto& effect = renderer->effect;
@@ -181,14 +181,14 @@ EffectSelectResult renderer_select_effect(D3D11Renderer* renderer, const Backgro
 }
 
 void renderer_clear_effect(D3D11Renderer* renderer) noexcept {
-    if (renderer && d3d11_effect_clear(&renderer->effect)) {
+    if (d3d11_effect_clear(&renderer->effect)) {
         presentation_damage_invalidate_full(&renderer->presentation_damage);
         reset_value(&renderer->settings_backdrop_stamp);
     }
 }
 
 void renderer_set_effect_ambient(D3D11Renderer* renderer, const float (&values)[4]) noexcept {
-    if (!renderer || bytes_equal(renderer->effect.ambient, values, sizeof(values)))
+    if (bytes_equal(renderer->effect.ambient, values, sizeof(values)))
         return;
     copy_bytes(renderer->effect.ambient, values, sizeof(values));
     if (renderer->effect.selected) {
@@ -199,7 +199,7 @@ void renderer_set_effect_ambient(D3D11Renderer* renderer, const float (&values)[
 
 void renderer_set_effect_light(D3D11Renderer* renderer, float amount) noexcept {
     amount = amount >= 0 && amount <= 1 ? amount : 0;
-    if (!renderer || renderer->effect.light == amount)
+    if (renderer->effect.light == amount)
         return;
     renderer->effect.light = amount;
     if (renderer->effect.selected) {
@@ -209,7 +209,7 @@ void renderer_set_effect_light(D3D11Renderer* renderer, float amount) noexcept {
 }
 
 void renderer_bind_theme_editor_scene(D3D11Renderer* renderer, const UiThemeEditorScene* scene) noexcept {
-    if (!renderer || renderer->theme_editor_scene == scene)
+    if (renderer->theme_editor_scene == scene)
         return;
     renderer->theme_editor_scene = scene;
     renderer->interaction_text_theme_editor_revision = 0;
@@ -218,7 +218,7 @@ void renderer_bind_theme_editor_scene(D3D11Renderer* renderer, const UiThemeEdit
 }
 
 bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface, bool content_text) noexcept {
-    if (!renderer || !renderer_media_draw_storage_initialize(&renderer->media_draw)) {
+    if (!renderer_media_draw_storage_initialize(&renderer->media_draw)) {
         return false;
     }
     // Identity animation frames (<= 128 px), backed as frames are cached.
@@ -295,7 +295,7 @@ bool renderer_initialize(D3D11Renderer* renderer, const GpuSurfaceDesc& surface,
 }
 
 bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
-    if (!renderer || !gpu_surface_valid(&renderer->graphics.surface) || width == 0 || height == 0) {
+    if (!gpu_surface_valid(&renderer->graphics.surface) || width == 0 || height == 0) {
         return true;
     }
     const u32 target_height = height + renderer->caption_height;
@@ -349,7 +349,7 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
 }
 
 bool renderer_finish_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
-    if (!renderer || width == 0 || height == 0) {
+    if (width == 0 || height == 0) {
         return false;
     }
     renderer->live_resize = false;
@@ -359,13 +359,11 @@ bool renderer_finish_resize(D3D11Renderer* renderer, u32 width, u32 height) noex
 }
 
 void renderer_set_live_resize(D3D11Renderer* renderer, bool live_resize) noexcept {
-    if (renderer) {
-        renderer->live_resize = live_resize;
-    }
+    renderer->live_resize = live_resize;
 }
 
 void renderer_accept_begin_frame(D3D11Renderer* renderer) noexcept {
-    if (renderer && gpu_frame_clock_waitable(&renderer->graphics.surface) && !renderer->live_resize) {
+    if (gpu_frame_clock_waitable(&renderer->graphics.surface) && !renderer->live_resize) {
         renderer->begin_frame_permit = true;
     }
 }
@@ -472,7 +470,7 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
 
 bool renderer_set_login_view(D3D11Renderer* renderer, const LoginScene* scene,
                              const RendererLoginView& view, const Theme& theme) noexcept {
-    if (!renderer || !renderer->glyph_text.ready || !login_view_valid(view)) {
+    if (!renderer->glyph_text.ready || !login_view_valid(view)) {
         return false;
     }
     if (!view.visible) {
@@ -508,7 +506,7 @@ bool renderer_set_login_view(D3D11Renderer* renderer, const LoginScene* scene,
 }
 
 bool renderer_prepare_login_form_text(D3D11Renderer* renderer) noexcept {
-    if (!renderer || !renderer->login_visible || !renderer->glyph_text.ready)
+    if (!renderer->login_visible || !renderer->glyph_text.ready)
         return false;
     if (renderer->login_form_text)
         return renderer->content_text == &renderer->login_form_text->text;
@@ -553,7 +551,7 @@ bool renderer_prepare_login_form_text(D3D11Renderer* renderer) noexcept {
 }
 
 void renderer_release_login_form_text(D3D11Renderer* renderer) noexcept {
-    if (!renderer || !renderer->login_form_text)
+    if (!renderer->login_form_text)
         return;
     auto* owned = renderer->login_form_text;
     if (renderer->content_text == &owned->text)
@@ -573,7 +571,7 @@ void renderer_release_login_form_text(D3D11Renderer* renderer) noexcept {
 }
 
 bool renderer_bind_text_storage(D3D11Renderer* renderer, RendererTextStorage* storage) noexcept {
-    if (!renderer || !storage || !storage->quads || storage->quad_capacity == 0 || !storage->batches ||
+    if (!storage || !storage->quads || storage->quad_capacity == 0 || !storage->batches ||
         storage->batch_capacity == 0 || !storage->glyphs || storage->glyph_capacity == 0 || !storage->runs ||
         storage->run_capacity == 0 ||
         !storage->clusters || storage->cluster_capacity == 0 || !storage->hit_spans ||
@@ -620,9 +618,8 @@ bool renderer_bind_text_storage(D3D11Renderer* renderer, RendererTextStorage* st
 }
 
 void renderer_unbind_text_storage(D3D11Renderer* renderer) noexcept {
-    if (renderer)
-        renderer->message_measure_cache = nullptr;
-    if (!renderer || !renderer->content_text) {
+    renderer->message_measure_cache = nullptr;
+    if (!renderer->content_text) {
         return;
     }
     const bool login_form =
@@ -653,8 +650,8 @@ void renderer_unbind_text_storage(D3D11Renderer* renderer) noexcept {
 bool renderer_text_measure_backend(void* context, const UiTextMeasureRequest& request,
                                    UiTextMeasureValue* value) noexcept {
     auto* renderer = static_cast<D3D11Renderer*>(context);
-    RendererTextStorage* storage = renderer ? renderer->content_text : nullptr;
-    if (!renderer || !storage || !value) {
+    RendererTextStorage* storage = renderer->content_text;
+    if (!storage || !value) {
         return false;
     }
     auto system = renderer_text_system(renderer, request.face);
@@ -686,7 +683,7 @@ bool renderer_text_measure_backend(void* context, const UiTextMeasureRequest& re
 }
 
 bool renderer_measure_message_composer(D3D11Renderer* renderer, float* preferred_height) noexcept {
-    if (!renderer || !preferred_height || !renderer->message_composer_scene ||
+    if (!preferred_height || !renderer->message_composer_scene ||
         !d3d11_renderer_measure_composer_edit(renderer))
         return false;
     *preferred_height = message_composer_scene_measured_height(*renderer->message_composer_scene,
@@ -718,7 +715,7 @@ void renderer_set_dpi(D3D11Renderer* renderer, u32 dpi) noexcept {
 }
 
 void renderer_set_caption_height(D3D11Renderer* renderer, u32 height) noexcept {
-    if (!renderer || renderer->caption_height == height)
+    if (renderer->caption_height == height)
         return;
     renderer->caption_height = height;
     renderer->pipeline.backdrop_caption = height;
@@ -731,7 +728,7 @@ void renderer_set_caption_height(D3D11Renderer* renderer, u32 height) noexcept {
 }
 
 void renderer_bind_target_origin(D3D11Renderer* renderer, u32 origin_y) noexcept {
-    if (!renderer || renderer->target_origin_y == origin_y)
+    if (renderer->target_origin_y == origin_y)
         return;
     renderer->target_origin_y = origin_y;
     if (renderer->pipeline.ui_frame_buffer && renderer->graphics.context)
@@ -842,8 +839,6 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
 }
 
 bool renderer_device_lost(D3D11Renderer* renderer) noexcept {
-    if (!renderer)
-        return false;
     note_device_failure(renderer);
     return renderer->device_lost;
 }
@@ -854,7 +849,7 @@ bool renderer_device_lost(D3D11Renderer* renderer) noexcept {
 // host rebuilds text and requests media again. Cold: runs once per reset.
 bool renderer_recover_device(D3D11Renderer* renderer) noexcept {
     // A renderer that never finished initialization has nothing to rebuild.
-    if (!renderer || !renderer->glyph_text.atlas_origins)
+    if (!renderer->glyph_text.atlas_origins)
         return false;
     log_write(LogLevel::warning, "render", "device_recovery_begin");
     d3d11_effect_release_device(&renderer->effect);

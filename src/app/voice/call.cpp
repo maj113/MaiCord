@@ -330,13 +330,13 @@ void set_chat(bool open) noexcept {
 CallVideoPumpResult synchronize_video(bool poll) noexcept {
     auto& host = g_app.account;
     const auto* s = application_voice_call();
-    if (!host.instance || !host.api.voice_video_snapshot || !s) {
+    if (!host.instance || !s) {
         view.snapshot_valid = false;
         call_video_presenter_reset(&view.video);
         return {};
     }
     GatewayClientVoiceVideoSnapshot snapshot{};
-    if (!host.api.voice_video_snapshot(host.instance, &snapshot))
+    if (!account_module_voice_video_snapshot(host.instance, &snapshot))
         return {};
     if (!view.snapshot_valid || snapshot.generation != view.video_generation) {
         // A new voice connection starts with fresh sink wants.
@@ -387,7 +387,7 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
         if (ssrc == kGoLivePreviewSsrc)
             return application_go_live_preview(output);
         auto& h = g_app.account;
-        return h.instance && h.api.voice_video_frame && h.api.voice_video_frame(h.instance, ssrc, output);
+        return h.instance && account_module_voice_video_frame(h.instance, ssrc, output);
     };
     callbacks.present = +[](void*, u64 user_id, u32 ssrc, const VideoStreamFrame& frame, u32 extent) noexcept {
         const auto result =
@@ -421,7 +421,7 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
         auto& h = g_app.account;
         if (g_app.account_ui && user_id == gateway_stream_video_user(g_app.account_ui->chat_state.self_user_id))
             return true; // The self-preview is local.
-        return h.instance && h.api.voice_video_wanted && h.api.voice_video_wanted(h.instance, user_id, wanted);
+        return h.instance && account_module_voice_video_wanted(h.instance, user_id, wanted);
     };
     callbacks.resident = +[](void*, u64 user_id, u32 ssrc) noexcept {
         return g_app.renderer.preview_media_atlas &&
@@ -694,8 +694,7 @@ bool application_call_synchronize() noexcept {
 namespace {
 HANDLE video_notification() noexcept {
     const auto& host = g_app.account;
-    return host.instance && host.api.voice_video_notification ? host.api.voice_video_notification(host.instance)
-                                                              : nullptr;
+    return host.instance ? account_module_voice_video_notification(host.instance) : nullptr;
 }
 } // namespace
 

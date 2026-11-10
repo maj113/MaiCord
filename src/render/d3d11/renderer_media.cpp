@@ -26,7 +26,7 @@ void log_media_upload_failure(const MediaAtlasGpuResult& result, const char* eve
 }
 
 void note_media_mutation(D3D11Renderer* renderer, MediaAtlasHandle handle, u8 domain = 0) noexcept {
-    if (renderer && !presentation_damage_note_media(&renderer->presentation_damage, handle, domain)) {
+    if (!presentation_damage_note_media(&renderer->presentation_damage, handle, domain)) {
         presentation_damage_invalidate_full(&renderer->presentation_damage);
         log_write(LogLevel::warning, "render", "media_damage_handle_out_of_range");
     }
@@ -40,18 +40,18 @@ void note_media_mutation(D3D11Renderer* renderer, const MediaAtlasGpuResult& res
 constexpr MediaAtlasGpuResult kRejectedMediaRequest{{}, E_INVALIDARG, MediaAtlasGpuError::invalid_input};
 
 bool media_request_ready(const D3D11Renderer* renderer, const MediaAssetKey& key) noexcept {
-    return renderer && renderer->graphics.device && renderer->graphics.context1 && renderer->media_atlas &&
+    return renderer->graphics.device && renderer->graphics.context1 && renderer->media_atlas &&
            media_asset_key_valid(key);
 }
 
 // Large previews below the original tier use the preview atlas once it is bound.
 bool uses_preview_atlas(const D3D11Renderer* renderer, const MediaAssetKey& key) noexcept {
     return media_asset_large_preview(key) && media_asset_resolution_tier(key) != MediaResolutionTier::original &&
-           renderer && renderer->preview_media_atlas;
+           renderer->preview_media_atlas;
 }
 
 MediaAtlas* upload_atlas(D3D11Renderer* renderer, bool preview) noexcept {
-    return preview ? renderer->preview_media_atlas : renderer ? renderer->media_atlas : nullptr;
+    return preview ? renderer->preview_media_atlas : renderer->media_atlas;
 }
 
 MediaAtlasGpuResult ensure_primary_media_gpu(D3D11Renderer* renderer) noexcept {
@@ -180,7 +180,7 @@ __forceinline MediaAtlasGpuResult upload_animation(D3D11Renderer* renderer, cons
 
 MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer* renderer,
     MediaAssetKey key, const GpuVideoFrame& frame, u32 maximum_extent) noexcept {
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 ||
+    if (!renderer->graphics.device || !renderer->graphics.context1 ||
         !renderer->media_atlas || !media_asset_key_valid(key)) return kRejectedMediaRequest;
     // Call video lives in the large preview atlas, reduced to its tile.
     const bool call = key.kind == MediaAssetKind::call_video;
@@ -221,7 +221,7 @@ static bool media_atlas_bindable(const MediaAtlas* atlas) noexcept {
 }
 
 bool renderer_bind_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas) noexcept {
-    if (!renderer || renderer->media_atlas || !media_atlas_bindable(atlas)) {
+    if (renderer->media_atlas || !media_atlas_bindable(atlas)) {
         return false;
     }
     renderer->media_atlas = atlas;
@@ -231,7 +231,7 @@ bool renderer_bind_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas) noexc
 }
 
 bool renderer_bind_preview_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas) noexcept {
-    if (!renderer || !renderer->media_atlas || renderer->preview_media_atlas ||
+    if (!renderer->media_atlas || renderer->preview_media_atlas ||
         !media_atlas_bindable(atlas)) {
         return false;
     }
@@ -242,9 +242,6 @@ bool renderer_bind_preview_media_atlas(D3D11Renderer* renderer, MediaAtlas* atla
 }
 
 void renderer_unbind_media_atlas(D3D11Renderer* renderer) noexcept {
-    if (!renderer) {
-        return;
-    }
     renderer_release_media_surfaces(renderer);
     renderer->media_atlas = nullptr;
     renderer->preview_media_atlas = nullptr;
@@ -257,7 +254,7 @@ void renderer_unbind_media_atlas(D3D11Renderer* renderer) noexcept {
 
 bool renderer_capture_animation_frame(D3D11Renderer* renderer,
                                       const AnimationFrameCacheDescriptor& descriptor) noexcept {
-    if (renderer && media_asset_large_preview(descriptor.key.asset)) {
+    if (media_asset_large_preview(descriptor.key.asset)) {
         auto& cache = renderer->preview_animation_gpu;
         // Lazy preview cache. Identity slots are a separate namespace;
         // identical encoded animations share frame tiles.
@@ -271,10 +268,9 @@ bool renderer_capture_animation_frame(D3D11Renderer* renderer,
             renderer->media_gpu.preview_surface, descriptor);
     }
     MediaAtlasHandle presented_media{};
-    const bool captured =
-        renderer && animation_frame_cache_gpu_capture(
-                        &renderer->animation_gpu, renderer->graphics.device, renderer->graphics.context1,
-                        renderer->media_atlas, renderer->media_gpu.surface, descriptor, &presented_media);
+    const bool captured = animation_frame_cache_gpu_capture(
+        &renderer->animation_gpu, renderer->graphics.device, renderer->graphics.context1, renderer->media_atlas,
+        renderer->media_gpu.surface, descriptor, &presented_media);
     if (captured) {
         note_media_mutation(renderer, presented_media);
     }
@@ -283,7 +279,7 @@ bool renderer_capture_animation_frame(D3D11Renderer* renderer,
 
 bool renderer_restore_animation_frame(D3D11Renderer* renderer, const AnimationFrameCacheKey& key,
                                       AnimationFrameCacheResult* result) noexcept {
-    if (renderer && media_asset_large_preview(key.asset)) {
+    if (media_asset_large_preview(key.asset)) {
         auto& cache = renderer->preview_animation_gpu;
         animation_frame_cache_gpu_begin_visibility(&cache);
         MediaAtlasHandle presented{};
@@ -297,9 +293,8 @@ bool renderer_restore_animation_frame(D3D11Renderer* renderer, const AnimationFr
         return true;
     }
     MediaAtlasHandle presented_media{};
-    const bool restored =
-        renderer && animation_frame_cache_gpu_restore(&renderer->animation_gpu, renderer->media_atlas, key,
-                                                      result, &presented_media);
+    const bool restored = animation_frame_cache_gpu_restore(&renderer->animation_gpu, renderer->media_atlas, key,
+                                                            result, &presented_media);
     if (restored) {
         note_media_mutation(renderer, presented_media);
     }
@@ -307,9 +302,8 @@ bool renderer_restore_animation_frame(D3D11Renderer* renderer, const AnimationFr
 }
 
 bool renderer_materialize_animation_frame(D3D11Renderer* renderer, MediaAssetKey key) noexcept {
-    if (renderer && media_asset_large_preview(key)) return true;
-    return renderer &&
-           animation_frame_cache_gpu_materialize(&renderer->animation_gpu, renderer->graphics.context1,
+    if (media_asset_large_preview(key)) return true;
+    return animation_frame_cache_gpu_materialize(&renderer->animation_gpu, renderer->graphics.context1,
                                                  renderer->media_atlas, renderer->media_gpu.surface, key);
 }
 
@@ -359,7 +353,7 @@ static MediaAtlasGpuResult bake_program(D3D11Renderer* renderer, MediaAtlas* atl
 
 MediaAtlasGpuResult renderer_upload_regional_flag(D3D11Renderer* renderer, MediaAssetKey key,
     const ColrPaintProgram& program) noexcept {
-    if (!renderer || !renderer->media_atlas || !media_asset_key_valid(key) ||
+    if (!renderer->media_atlas || !media_asset_key_valid(key) ||
         key.kind != MediaAssetKind::regional_flag || !program.storage.base || !program.storage.offset)
         return kRejectedMediaRequest;
     char metadata_target[kRegionalFlagSvgTargetBytes];
@@ -373,7 +367,7 @@ MediaAtlasGpuResult renderer_upload_regional_flag(D3D11Renderer* renderer, Media
 
 MediaAtlasGpuResult renderer_upload_lottie_program(D3D11Renderer* renderer, MediaAssetKey key,
                                           const ColrPaintProgram& program) noexcept {
-    if (!renderer || !renderer->media_atlas || !media_asset_key_valid(key) ||
+    if (!renderer->media_atlas || !media_asset_key_valid(key) ||
         !((key.kind == MediaAssetKind::catalog_preview &&
            media_asset_catalog_format(key) == MediaAttachmentFormat::lottie) ||
           (key.kind == MediaAssetKind::sticker && key.variant == 3)) ||
@@ -389,7 +383,7 @@ MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer
                                                          ConstSlice<u8> straight_rgba8) noexcept {
     const bool preview = uses_preview_atlas(renderer, key);
     MediaAtlas* atlas = upload_atlas(renderer, preview);
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
+    if (!renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
         !media_asset_key_valid(key) || !rgba_image_valid(*atlas, width, height, row_pitch, straight_rgba8)) {
         return kRejectedMediaRequest;
     }
@@ -406,7 +400,7 @@ MediaAtlasGpuResult renderer_upload_png_scanlines(D3D11Renderer* renderer, Media
                                                   ConstSlice<u8> reconstructed_scanlines) noexcept {
     const bool preview = uses_preview_atlas(renderer, key);
     MediaAtlas* atlas = upload_atlas(renderer, preview);
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
+    if (!renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
         !media_asset_key_valid(key)) {
         return kRejectedMediaRequest;
     }
@@ -422,7 +416,7 @@ MediaAtlasGpuResult renderer_upload_jpeg(D3D11Renderer* renderer, MediaAssetKey 
                                          const JpegCoefficientWorkspace& coefficients) noexcept {
     const bool preview = uses_preview_atlas(renderer, key);
     MediaAtlas* atlas = upload_atlas(renderer, preview);
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
+    if (!renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
         !media_asset_key_valid(key)) {
         return kRejectedMediaRequest;
     }
@@ -531,7 +525,7 @@ MediaAtlasGpuResult renderer_reconstruct_vp8_keyframe(
     D3D11Renderer* renderer, const Vp8Keyframe& frame, const Vp8ModeWorkspace& modes,
     const Vp8CoefficientWorkspace& coefficients) noexcept {
     // A GPU without the VP8 path never makes the shaders: the pipeline decodes lossy WebP on the CPU instead.
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas ||
+    if (!renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas ||
         !renderer_vp8_gpu(*renderer)) {
         return kRejectedMediaRequest;
     }
@@ -552,7 +546,7 @@ MediaAtlasGpuResult renderer_filter_vp8_keyframe(D3D11Renderer* renderer, const 
                                                  const Vp8ControlHeader& header,
                                                  const Vp8ModeWorkspace& modes,
                                                  const Vp8CoefficientWorkspace& coefficients) noexcept {
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas ||
+    if (!renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas ||
         !renderer->media_gpu.surface) {
         return kRejectedMediaRequest;
     }
@@ -580,7 +574,7 @@ MediaAtlasGpuResult renderer_upload_vp8_keyframe(D3D11Renderer* renderer, MediaA
                                                  ConstSlice<u8> alpha) noexcept {
     const bool preview = uses_preview_atlas(renderer, key);
     MediaAtlas* atlas = upload_atlas(renderer, preview);
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
+    if (!renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
         !media_asset_key_valid(key)) {
         return kRejectedMediaRequest;
     }
@@ -600,7 +594,7 @@ MediaAtlasGpuResult renderer_begin_animated_webp_vp8(
     const AnimatedWebpFrame& animation_frame, const Vp8Keyframe& vp8_frame, const Vp8ControlHeader& header,
     const Vp8ModeWorkspace& modes, const Vp8CoefficientWorkspace& coefficients,
     ConstSlice<u8> alpha) noexcept {
-    if (!renderer || !media_asset_key_valid(key)) {
+    if (!media_asset_key_valid(key)) {
         return kRejectedMediaRequest;
     }
     const MediaAtlasGpuResult decoded =
@@ -621,7 +615,7 @@ MediaAtlasGpuResult renderer_advance_animated_webp_vp8(
     const AnimatedWebpFrame& previous_frame, const AnimatedWebpFrame& animation_frame,
     const Vp8Keyframe& vp8_frame, const Vp8ControlHeader& header, const Vp8ModeWorkspace& modes,
     const Vp8CoefficientWorkspace& coefficients, ConstSlice<u8> alpha) noexcept {
-    if (!renderer || !media_asset_key_valid(key)) {
+    if (!media_asset_key_valid(key)) {
         return kRejectedMediaRequest;
     }
     const MediaAtlasGpuResult decoded =
@@ -641,7 +635,7 @@ namespace {
 // One resident allocation of the primary or the preview atlas as straight RGBA8 rows.
 bool read_rgba(D3D11Renderer* renderer, MediaAssetKey key, bool preview, Slice<u8> rgba, u32* width,
                u32* height) noexcept {
-    if (!renderer || !width || !height || !rgba.data || !renderer->graphics.device ||
+    if (!width || !height || !rgba.data || !renderer->graphics.device ||
         !renderer->graphics.context || !media_asset_key_valid(key))
         return false;
     MediaAtlas* atlas = preview ? renderer->preview_media_atlas : renderer->media_atlas;
@@ -680,7 +674,7 @@ bool read_rgba(D3D11Renderer* renderer, MediaAssetKey key, bool preview, Slice<u
 // nearest texel, the source scaled to the allocation).
 u32 palette(D3D11Renderer* renderer, MediaAssetKey key, bool preview, const RendererPaletteCrop* crop,
             u32* colors) noexcept {
-    MediaAtlas* atlas = !renderer || !colors || !media_asset_key_valid(key) ? nullptr
+    MediaAtlas* atlas = !colors || !media_asset_key_valid(key) ? nullptr
                         : preview ? renderer->preview_media_atlas
                                   : renderer->media_atlas;
     const MediaAtlasResult resident = atlas ? media_atlas_peek(atlas, key) : MediaAtlasResult{};
@@ -728,21 +722,18 @@ u32 palette(D3D11Renderer* renderer, MediaAssetKey key, bool preview, const Rend
 bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<u8> rgba, u32* width,
                               u32* height) noexcept {
     // Same domain selection as presentation: large previews live in the preview atlas.
-    return renderer && read_rgba(renderer, key, media_asset_large_preview(key) && renderer->preview_media_atlas, rgba,
-                                 width, height);
+    return read_rgba(renderer, key, media_asset_large_preview(key) && renderer->preview_media_atlas, rgba, width,
+                     height);
 }
 
 u32 renderer_media_palette(D3D11Renderer* renderer, MediaAssetKey key, u32* colors) noexcept {
-    return renderer ? palette(renderer, key, media_asset_large_preview(key) && renderer->preview_media_atlas,
-                              nullptr, colors)
-                    : 0;
+    return palette(renderer, key, media_asset_large_preview(key) && renderer->preview_media_atlas, nullptr,
+                   colors);
 }
 
 u32 renderer_media_crop_palette(D3D11Renderer* renderer, MediaAssetKey key, const RendererPaletteCrop& crop,
                                 u32* colors) noexcept {
-    return renderer ? palette(renderer, key, media_asset_large_preview(key) && renderer->preview_media_atlas, &crop,
-                              colors)
-                    : 0;
+    return palette(renderer, key, media_asset_large_preview(key) && renderer->preview_media_atlas, &crop, colors);
 }
 
 bool renderer_media_dominant_color(D3D11Renderer* renderer, MediaAssetKey key, u32* rgb) noexcept {
@@ -790,8 +781,6 @@ bool trim_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas, bool preview, 
 // Drops all media surfaces and residency (as on unbind): lazy initialization
 // recreates them. Visible media is requested again by its owners.
 void renderer_release_media_surfaces(D3D11Renderer* renderer) noexcept {
-    if (!renderer)
-        return;
     media_atlas_gpu_release(&renderer->media_gpu);
     animation_frame_cache_gpu_reset(&renderer->animation_gpu);
     animation_frame_cache_gpu_reset(&renderer->preview_animation_gpu);
@@ -803,7 +792,7 @@ void renderer_release_media_surfaces(D3D11Renderer* renderer) noexcept {
 }
 
 bool renderer_media_maintain(D3D11Renderer* renderer, u64 now_ms) noexcept {
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1) {
+    if (!renderer->graphics.device || !renderer->graphics.context1) {
         return false;
     }
     bool changed = false;
@@ -852,7 +841,7 @@ u64 renderer_media_next_trim_ms(const D3D11Renderer& renderer) noexcept {
 }
 
 bool renderer_glyph_atlas_take_stale(D3D11Renderer* renderer) noexcept {
-    return renderer && d3d11_glyph_text_take_stale(&renderer->glyph_text);
+    return d3d11_glyph_text_take_stale(&renderer->glyph_text);
 }
 
 } // namespace maicord

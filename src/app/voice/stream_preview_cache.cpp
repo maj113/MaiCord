@@ -23,7 +23,7 @@ void erase(StreamPreviewEntry& entry) noexcept {
 } // namespace
 
 StreamPreviewEntry* stream_preview_want(StreamPreviewCache* cache, const GatewayStreamKey& key, u64 now_ms) noexcept {
-    if (!cache || !gateway_stream_key_valid(key))
+    if (!gateway_stream_key_valid(key))
         return nullptr;
     auto* entry = find(*cache, key);
     if (!entry) {
@@ -82,7 +82,7 @@ void stream_preview_deferred(StreamPreviewCache* cache, const GatewayStreamKey& 
 const StreamPreviewEntry* stream_preview_complete(StreamPreviewCache* cache, u64 request_id, u16 status,
                                                   const Utf8View& url, u64 retry_at_ms,
                                                   u64 now_ms) noexcept {
-    if (!cache || !request_id)
+    if (!request_id)
         return nullptr;
     StreamPreviewEntry* entry = nullptr;
     for (auto& candidate : cache->entries)

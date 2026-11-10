@@ -180,7 +180,7 @@ MlsStatus validate_remote_proposals(const MlsCommit& commit, ConstSlice<MlsPropo
 
 MlsStatus mls_commit_reference_next(ConstSlice<u8> references, u32* offset, const u8** reference,
                                     bool* has_reference) noexcept {
-    if (!offset || !reference || !has_reference || *offset > references.count)
+    if (*offset > references.count)
         return MlsStatus::invalid_argument;
     *reference = nullptr;
     *has_reference = false;

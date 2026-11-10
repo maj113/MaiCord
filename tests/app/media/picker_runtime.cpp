@@ -2,6 +2,7 @@
 // Compile the shipping controller once in this isolated executable. Private
 // ownership remains test-visible without adding a shipping diagnostic hook.
 #include "../../../src/app/media/picker.cpp"
+#include "../../support/account_module_fake.hpp"
 #include "../../../src/app/media/picker_projection.cpp"
 #include "../../../src/app/media/picker_stickers.cpp"
 #include "../../../src/app/media/picker_input.cpp"
@@ -299,7 +300,7 @@ bool initialize() noexcept {
     g_app.renderer.height = 720;
     g_app.renderer.dpi = 96;
     g_app.account.instance = &account;
-    g_app.account.api.media_catalog = submit;
+    g_account_fake.media_catalog = submit;
     return application_media_picker_synchronize();
 }
 void release() noexcept {
@@ -1144,8 +1145,8 @@ void run() noexcept {
           "picker runtime: modal front retires native capture, projection and caret ownership");
     settings = false;
     favorites_enabled = true;
-    g_app.account.api.gif_favorites = [](void*, AccountGifFavoritesOperation, ConstSlice<u8>,
-                                         u64) noexcept -> RestClientSubmitResult { return {}; };
+    g_account_fake.gif_favorites = [](void*, AccountGifFavoritesOperation, ConstSlice<u8>,
+                                      u64) noexcept -> RestClientSubmitResult { return {}; };
     saved_gifs[0] = {};
     saved_gifs[0].url = utf8_literal("https://klipy.com/gifs/HELLO-world_animated");
     saved_gifs[0].src =

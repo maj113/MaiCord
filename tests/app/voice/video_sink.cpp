@@ -115,15 +115,24 @@ VoiceReceiveResult send_keyframe(VoiceReceive& receive, const VoiceConnection& c
 constexpr u8 kAnnexB[]{0, 0, 0, 1, 0x67, 0x42, 0xc0, 0x1f, 0xda, 0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80,
                        0, 0, 0, 1, 0x65, 0x88, 0x84, 0x21, 0xa0};
 
+struct Rig {
+    VoiceConnection connection;
+    VoiceReceive receive;
+    Decoder decoder;
+    Dave dave;
+};
+// The one fixture, reset for the next test.
+Rig& fresh_rig() noexcept {
+    static Rig rig;
+    rig.connection = {};
+    clear_bytes(&rig.receive, sizeof(rig.receive));
+    rig.decoder = {};
+    rig.dave = {};
+    return rig;
+}
+
 void routing(Check check) noexcept {
-    static VoiceConnection connection;
-    static VoiceReceive receive;
-    static Decoder decoder;
-    static Dave dave;
-    connection = {};
-    clear_bytes(&receive, sizeof(receive));
-    decoder = {};
-    dave = {};
+    auto& [connection, receive, decoder, dave] = fresh_rig();
     wakes = 0;
     check(announce(connection, 11, utf8_literal(R"({"user_ids":["2","3"]})")) &&
               announce(connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
@@ -264,14 +273,7 @@ void routing(Check check) noexcept {
 
 // Every offered codec is bound: H265 first (payload type 101), H264 second (103).
 void codec_binding(Check check) noexcept {
-    static VoiceConnection connection;
-    static VoiceReceive receive;
-    static Decoder decoder;
-    static Dave dave;
-    connection = {};
-    clear_bytes(&receive, sizeof(receive));
-    decoder = {};
-    dave = {};
+    auto& [connection, receive, decoder, dave] = fresh_rig();
     check(announce(connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
               {"type":"video","rid":"100","ssrc":20,"rtx_ssrc":21,"active":true,"quality":100}]})")),
           "Video codecs fixture: camera announced");
@@ -306,14 +308,7 @@ void codec_binding(Check check) noexcept {
 
 // An AV1-capable device offers AV1 first: payload type 101 carries AV1 OBUs.
 void av1_binding(Check check) noexcept {
-    static VoiceConnection connection;
-    static VoiceReceive receive;
-    static Decoder decoder;
-    static Dave dave;
-    connection = {};
-    clear_bytes(&receive, sizeof(receive));
-    decoder = {};
-    dave = {};
+    auto& [connection, receive, decoder, dave] = fresh_rig();
     check(announce(connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
               {"type":"video","rid":"100","ssrc":20,"rtx_ssrc":21,"active":true,"quality":100}]})")),
           "AV1 video fixture: camera announced");
@@ -375,14 +370,7 @@ void dave_frames(Check check) noexcept {
 // wait ends: the unit is DAVE-opened when it completes (so its counter precedes the audio's), held, and emitted
 // once after the wait without a second open (which a replay window would refuse).
 void start_with_audio(Check check) noexcept {
-    static VoiceConnection connection;
-    static VoiceReceive receive;
-    static Decoder decoder;
-    static Dave dave;
-    connection = {};
-    clear_bytes(&receive, sizeof(receive));
-    decoder = {};
-    dave = {};
+    auto& [connection, receive, decoder, dave] = fresh_rig();
     check(announce(connection, 11, utf8_literal(R"({"user_ids":["2"]})")) &&
               announce(connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
                   {"type":"video","rid":"100","ssrc":20,"rtx_ssrc":21,"active":true,"quality":100}]})")),
@@ -396,11 +384,12 @@ void start_with_audio(Check check) noexcept {
     connection.media.ssrc = 7;
     voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
     const u64 buffers = 2 * u64{kVideoRtpFrameBytes};
-    check(!voice_video_sink_committed_bytes(receive.video), "Video sink start: an idle sink commits no frame memory");
+    const auto committed = [&]() noexcept { return (receive.video.buffer ? buffers : 0) + receive.video.held_committed; };
+    check(!committed(), "Video sink start: an idle sink commits no frame memory");
     send_keyframe(receive, connection, 100, 9000, 1'000'000);
     check(dave.calls == 1 && !decoder.frames && !dave.replays,
           "Video sink start: a whole first unit is DAVE-opened as it completes and held through the start wait");
-    check(voice_video_sink_committed_bytes(receive.video) == buffers + 4096,
+    check(committed() == buffers + 4096,
           "Video sink start: a held unit commits only the pages it needs (one page here) beyond the two buffers");
     dave.audio_seen = true; // The sender's audio for this key is opened as it arrives, inside the wait.
     voice_video_sink_drive(&receive.video, &connection, false, 1010, 1'010'000);
@@ -409,10 +398,10 @@ void start_with_audio(Check check) noexcept {
     check(decoder.frames == 1 && decoder.keyframe && decoder.intact && decoder.bytes == sizeof(kAnnexB) &&
               bytes_equal(decoder.frame, kAnnexB, sizeof(kAnnexB)) && dave.calls == 1 && !dave.replays,
           "Video sink start: audio arriving during the wait causes no decrypt failure and the unit is emitted once");
-    check(voice_video_sink_committed_bytes(receive.video) == buffers,
+    check(committed() == buffers,
           "Video sink start: the held unit's pages are decommitted once it is emitted");
     voice_receive_stop(&receive);
-    check(!voice_video_sink_committed_bytes(receive.video) && !receive.video.held,
+    check(!committed() && !receive.video.held,
           "Video sink start: stopping frees the buffers and the reservation");
     voice_participants_release(&connection.participants);
 }

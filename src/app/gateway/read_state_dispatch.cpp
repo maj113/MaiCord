@@ -318,7 +318,6 @@ bool gateway_client_channel_cursor_record(ConstSlice<u8> payload, u32 index,
 }
 GatewayClientDispatchRouteResult gateway_client_read_state_metadata(JsonValue data,
     Slice<u32> scratch, u32 depth, GatewayClientReadStateEvent* output) noexcept {
-    if (!output) return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
     Root root{}; JsonIndexedDocument document{};
     const auto result = decode_root(data, scratch, depth, &root, &document);
     if (result.ok()) *output = root.metadata;

@@ -1,8 +1,6 @@
 #include "maicord/app/voice/media_setup.hpp"
 #include "../../support/test_output.hpp"
 
-#include "maicord/sys/winsock.hpp"
-
 namespace maicord {
 namespace {
 JsonValue object(Utf8View input) noexcept {

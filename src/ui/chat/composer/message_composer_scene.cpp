@@ -212,7 +212,7 @@ UiLayoutStyle edit_style(const UiResolvedThemeStyles* styles = nullptr) noexcept
 
 // Inline text gets at least the width of the complete trailing action group.
 // Below that width the four trailing actions wrap after the editor instead.
-float full_controls_minimum_width(const UiResolvedThemeStyles* styles = nullptr) noexcept {
+float full_controls_minimum_width(const UiResolvedThemeStyles* styles) noexcept {
     const auto& metrics = ui_theme_metrics(styles);
     const float accessory = accessory_width(styles), gap = metrics.composer_padding;
     const float plugins = static_cast<float>(plugin_slot_count());
@@ -224,7 +224,7 @@ float full_controls_minimum_width(const UiResolvedThemeStyles* styles = nullptr)
 // into the emoji picker (its tabs reach both), so attach, editor, plugins,
 // emoji and send keep one row with at least this much editable width.
 inline constexpr float kComposerCompactEditorMinimum = 120.0f;
-float compact_controls_minimum_width(const UiResolvedThemeStyles* styles = nullptr) noexcept {
+float compact_controls_minimum_width(const UiResolvedThemeStyles* styles) noexcept {
     const auto& metrics = ui_theme_metrics(styles);
     const float plugins = static_cast<float>(plugin_slot_count());
     return metrics.composer_padding + metrics.composer_padding +
@@ -361,11 +361,11 @@ u64 projection_input_signature(const MessageComposerScene& scene, const MessageC
     return signature;
 }
 
-UiLayoutStyle typing_style(const UiResolvedThemeStyles* styles = nullptr) noexcept {
+UiLayoutStyle typing_style() noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fill();
     style.height = ui_layout_fixed(kComposerTypingHeight);
-    style.padding = UiInsets{kUiTypingLabelInset, 0.0f, ui_theme_metrics(styles).composer_padding, 0.0f};
+    style.padding = UiInsets{kUiTypingLabelInset, 0.0f, ui_theme_metrics(nullptr).composer_padding, 0.0f};
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     style.vertical_alignment = UiLayoutAlignment::stretch;
     style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |

@@ -73,7 +73,7 @@ VoiceUserVolume voice_preferences_user(const VoicePreferences& p, u64 user_id) n
 }
 
 bool voice_preferences_set_user(VoicePreferences* p, u64 user_id, u32 gain_percent, bool muted) noexcept {
-    if (!p || !user_id || gain_percent > 200)
+    if (!user_id || gain_percent > 200)
         return false;
     u32 index = 0;
     while (index < p->user_count && p->users[index].user_id != user_id)

@@ -1,5 +1,6 @@
 #include "../../../src/app/guild/invite.cpp"
 #include "maicord/core/win32_types.hpp"
+#include "../../support/account_module_fake.hpp"
 
 namespace maicord::app_detail {
 // The owner fixture exercises no browser or navigation admission; the shared
@@ -44,9 +45,9 @@ void application_action_captcha_cancel() noexcept {
 
 void test_invite_retry(void (*check)(bool, const char*) noexcept) noexcept {
     const auto old_instance = g_app.account.instance;
-    const auto old_submit = g_app.account.api.guild_invite;
+    const auto old_submit = g_account_fake.guild_invite;
     g_app.account.instance = &retry_calls;
-    g_app.account.api.guild_invite = submit_retry;
+    g_account_fake.guild_invite = submit_retry;
     for (u32 accept = 0; accept < 2; ++accept) {
         for (u32 kind = 0; kind < 7; ++kind) {
             g_invite = {};
@@ -108,6 +109,6 @@ void test_invite_retry(void (*check)(bool, const char*) noexcept) noexcept {
     }
     application_guild_invite_release();
     g_app.account.instance = old_instance;
-    g_app.account.api.guild_invite = old_submit;
+    g_account_fake.guild_invite = old_submit;
 }
 } // namespace maicord::app_detail

@@ -50,20 +50,6 @@ void protocol() noexcept {
         "omitted scope retains requested permissions and omitted refresh is distinguished");
     secure_clear_bytes(&tokens, sizeof(tokens));
 }
-struct Fake { u32 calls{}; u16 status{200}; Utf8View json; };
-UpdateTransportError exchange(void* context, const UpdateHttpRequest& request, const HttpsExchangeOptions& options,
-    UpdateHttpResponse* response) noexcept {
-    auto& f = *static_cast<Fake*>(context); ++f.calls;
-    const Utf8View body{reinterpret_cast<const char*>(options.body.data), options.body.count};
-    check(utf8_equal(request.host_name, utf8_literal("accounts.spotify.com")) &&
-        utf8_equal({request.target.data, request.target.count}, utf8_literal("/api/token")) &&
-        options.headers.count == 2 && request.maximum_body_bytes == 16384 &&
-        !test_contains(body, utf8_literal("client_secret")) && test_contains(body, client),
-        "Spotify credentials are sent only to its fixed TLS token endpoint without Basic authentication");
-    *response = {}; response->status = f.status;
-    return request.sink(request.sink_context, {reinterpret_cast<const u8*>(f.json.data), f.json.bytes}) ?
-        UpdateTransportError::none : UpdateTransportError::sink;
-}
 void account() noexcept {
     char configured[160]; configured[0] = '!';
     check(!oauth_account_client(provider, {configured, sizeof(configured)}) && configured[0] == '!', "missing Spotify config has no fallback credentials");
@@ -73,44 +59,12 @@ void account() noexcept {
         {reinterpret_cast<const u8*>(client.data), client.bytes}).ok() &&
         oauth_account_client(provider, {configured, sizeof(configured)}) == client.bytes && bytes_equal(configured, client.data, client.bytes),
         "public Spotify registration loads from the bounded native configuration");
-    SecureBuffer grant{}, tokens{};
+    SecureBuffer grant{};
     check(oauth_account_save(client, utf8_literal("previous/+="), provider) && oauth_account_load(client, &grant, provider) && grant.locked,
         "Spotify refresh grant is stored encrypted and read into locked memory");
     secure_buffer_release(&grant);
     check(!oauth_account_load(utf8_literal("1123456789abcdef0123456789abcdef"), &grant, provider) && !grant.data,
         "stored grant cannot be used by another Spotify registration");
-    auto* owner = static_cast<OAuthAuthorization*>(VirtualAlloc(nullptr, sizeof(OAuthAuthorization), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    check(owner != nullptr, "lazy transport owner allocation");
-    if (!owner) { oauth_account_forget(provider); DeleteFileW(path); return; }
-    Fake fake{0, 200, utf8_literal(R"({"access_token":"next","refresh_token":"rotated","expires_in":3600,"token_type":"Bearer","scope":"user-read-private"})")};
-    const OAuthAuthorizationTransport transport{&fake, exchange};
-    auto result = oauth_account_refresh(owner, &tokens, transport, client, provider);
-    check(result.ok() && fake.calls == 1 && tokens.locked && !owner->https.winsock, "Spotify refresh needs no Google client configuration or native socket with injected transport");
-    if (tokens.data) {
-        const auto& value = *reinterpret_cast<OAuthTokens*>(tokens.data);
-        check(utf8_equal({value.refresh, value.refresh_bytes}, utf8_literal("rotated")), "refresh rotation reaches the caller for fenced persistence");
-    }
-    secure_buffer_release(&tokens);
-    check(oauth_account_load(client, &grant, provider) && utf8_equal({reinterpret_cast<char*>(grant.data), grant.bytes}, utf8_literal("previous/+=")),
-        "worker cannot overwrite storage after a concurrent sign-out");
-    secure_buffer_release(&grant);
-    fake.json = utf8_literal(R"({"access_token":"next","expires_in":3600,"token_type":"Bearer"})");
-    result = oauth_account_refresh(owner, &tokens, transport, client, provider);
-    check(result.ok() && tokens.data && utf8_equal({reinterpret_cast<OAuthTokens*>(tokens.data)->refresh,
-        reinterpret_cast<OAuthTokens*>(tokens.data)->refresh_bytes}, utf8_literal("previous/+=")), "Spotify refresh retains the previous grant when rotation is omitted");
-    secure_buffer_release(&tokens);
-    fake.status = 302; fake.json = {};
-    result = oauth_account_refresh(owner, &tokens, transport, client, provider);
-    check(result.error == OAuthError::unavailable && fake.calls == 3 && !tokens.data, "Spotify token redirects are not followed");
-    fake.status = 400; fake.json = utf8_literal(R"({"error":"invalid_grant"})");
-    result = oauth_account_refresh(owner, &tokens, transport, client, provider);
-    check(result.error == OAuthError::invalid_grant && !tokens.data, "revoked Spotify grant is reported without publication");
-    oauth_authorization_cancel(owner);
-    const auto calls = fake.calls;
-    result = oauth_account_refresh(owner, &tokens, transport, client, provider);
-    check(result.error == OAuthError::cancelled && fake.calls == calls, "cancelled account refresh performs no exchange");
-    oauth_authorization_release(owner);
-    VirtualFree(owner, 0, MEM_RELEASE);
     check(oauth_account_forget(provider) && oauth_account_forget(provider) && !oauth_account_load(client, &grant, provider),
         "Spotify sign-out is local, idempotent and removes the saved grant");
     DeleteFileW(path);

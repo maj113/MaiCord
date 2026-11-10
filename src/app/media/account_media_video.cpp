@@ -33,8 +33,7 @@ bool cancelled(void* opaque) noexcept {
     return ReadAcquire(&v->command_pending) != 0 || account_media_worker_stop_requested(v->worker);
 }
 bool source_cancelled(void* opaque) noexcept {
-    auto* worker = static_cast<AccountMediaWorker*>(opaque);
-    return !worker || account_media_worker_stop_requested(worker);
+    return account_media_worker_stop_requested(static_cast<AccountMediaWorker*>(opaque));
 }
 u32 progressive_refresh_delay(const ProgressiveVideoFetch* video, const ProgressiveVideoFetch* audio, u64 now) noexcept {
     // Both tracks share one CDN request. Its completion event wakes this lane;
@@ -221,7 +220,7 @@ void progressive_retire(AccountMediaWorkerLane* lane) noexcept {
 }
 } // namespace
 bool account_media_video_offer_url(AccountMediaWorker* worker, MediaAssetKey key, Utf8View url) noexcept {
-    if (!worker || !worker->initialized || !worker->video_runtime || !url.data || !url.bytes ||
+    if (!worker->initialized || !worker->video_runtime || !url.data || !url.bytes ||
         url.bytes > kCdnMaximumTargetBytes)
         return false;
     auto& v = *worker->video_runtime;
@@ -241,12 +240,12 @@ bool account_media_video_offer_url(AccountMediaWorker* worker, MediaAssetKey key
     return wanted;
 }
 bool account_media_video_reserved(const AccountMediaWorker* worker, u32 lane) noexcept {
-    return worker && worker->video_runtime &&
+    return worker->video_runtime &&
            ReadAcquire(&worker->video_runtime->selected_lane) == static_cast<LONG>(lane);
 }
 AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
                                                      const AccountVideoSelection& requested) noexcept {
-    if (!worker || !worker->initialized || !selection_valid(requested))
+    if (!worker->initialized || !selection_valid(requested))
         return failed(AccountVideoError::invalid_input);
     if (account_media_worker_stop_requested(worker))
         return failed(AccountVideoError::busy);
@@ -334,7 +333,7 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
 }
 AccountVideoResult account_media_worker_video_control(AccountMediaWorker* worker,
                                                       const AccountVideoControl& command) noexcept {
-    if (!worker || !worker->initialized || !worker->video_runtime || !command.command_serial ||
+    if (!worker->initialized || !worker->video_runtime || !command.command_serial ||
         static_cast<u32>(command.command) > static_cast<u32>(AccountVideoCommand::stop) ||
         command.volume != command.volume || command.volume < 0 || command.volume > 1 ||
         command.seek_time_100ns < 0)
@@ -366,7 +365,7 @@ AccountVideoResult account_media_worker_video_control(AccountMediaWorker* worker
     return {AccountVideoError::none, 0, true, false};
 }
 AccountVideoPlaybackStatus account_media_worker_video_status(const AccountMediaWorker* worker) noexcept {
-    if (!worker || !worker->initialized || !worker->video_runtime)
+    if (!worker->initialized || !worker->video_runtime)
         return {};
     auto& v = *worker->video_runtime;
     AcquireSRWLockShared(&v.lock);
@@ -375,7 +374,7 @@ AccountVideoPlaybackStatus account_media_worker_video_status(const AccountMediaW
     return copy;
 }
 bool account_media_worker_video_take(AccountMediaWorker* worker, AccountVideoFrame* out) noexcept {
-    if (!worker || !worker->initialized || !worker->video_runtime || !out)
+    if (!worker->initialized || !worker->video_runtime || !out)
         return false;
     auto& v = *worker->video_runtime;
     AcquireSRWLockExclusive(&v.lock);
@@ -390,7 +389,7 @@ bool account_media_worker_video_take(AccountMediaWorker* worker, AccountVideoFra
 }
 bool account_media_worker_video_acknowledge(AccountMediaWorker* worker,
                                             const AccountVideoFrame& frame) noexcept {
-    if (!worker || !worker->initialized || !worker->video_runtime)
+    if (!worker->initialized || !worker->video_runtime)
         return false;
     auto& v = *worker->video_runtime;
     AcquireSRWLockExclusive(&v.lock);
@@ -409,7 +408,7 @@ bool account_media_worker_video_acknowledge(AccountMediaWorker* worker,
     return event_set(worker->lanes[lane].command_event) != FALSE;
 }
 bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) noexcept {
-    if (!lane || !stopped || !account_media_video_reserved(lane->owner, lane->index))
+    if (!account_media_video_reserved(lane->owner, lane->index))
         return false;
     auto& v = *lane->owner->video_runtime;
     *stopped = false;
@@ -628,7 +627,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
     return true;
 }
 bool account_media_video_destroy(AccountMediaWorker* worker) noexcept {
-    if (!worker || !worker->video_runtime)
+    if (!worker->video_runtime)
         return true;
     auto* v = worker->video_runtime;
     if (ReadAcquire(&v->selected_lane) >= 0 || v->session.workspace || v->session.initialized)

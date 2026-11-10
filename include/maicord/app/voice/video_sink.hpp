@@ -86,8 +86,6 @@ void voice_video_sink_request_keyframe(VoiceVideoSink* sink, u32 ssrc) noexcept;
 u64 voice_video_sink_deadline(const VoiceVideoSink& sink) noexcept;
 // The frame sink's decodable codecs (VideoFrameSink::decodable), 0 without one.
 u32 voice_video_sink_decodable(const VoiceVideoSink& sink) noexcept;
-// Bytes the sink has committed for frames: the DAVE buffers once allocated, plus the pages of a held first unit.
-u64 voice_video_sink_committed_bytes(const VoiceVideoSink& sink) noexcept;
 // Remote users with an active video source, sorted by user ID (self excluded).
 u32 voice_video_users(const VoiceConnection& connection, const VoiceVideoSink* sink, u64 self_user_id,
                       Slice<VoiceVideoUser> output) noexcept;

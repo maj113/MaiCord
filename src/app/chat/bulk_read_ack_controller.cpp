@@ -118,7 +118,7 @@ u64 bulk_read_ack_next_wake(const BulkReadAckController& c) noexcept {
 }
 bool bulk_read_ack_peek(BulkReadAckController* c, u64 now, Slice<BulkReadAckIntent> output,
                         u32* count) noexcept {
-    if (!c || !count || !valid(*c) || c->inflight || now < c->not_before_ms || !output.data ||
+    if (!valid(*c) || c->inflight || now < c->not_before_ms || !output.data ||
         output.count < kBulkReadAckMaximumBatch ||
         overlaps_storage(*c, output.data, output.count))
         return false;
@@ -133,7 +133,7 @@ bool bulk_read_ack_peek(BulkReadAckController* c, u64 now, Slice<BulkReadAckInte
 }
 bool bulk_read_ack_admit(BulkReadAckController* c, ConstSlice<BulkReadAckIntent> entries, u64 id,
                          BulkReadAckTicket* ticket) noexcept {
-    if (!c || !ticket || !valid(*c) || c->inflight || !id || !entries.data || !entries.count ||
+    if (!valid(*c) || c->inflight || !id || !entries.data || !entries.count ||
         entries.count > kBulkReadAckMaximumBatch || entries.count > c->flight_backed_count ||
         overlaps_storage(*c, entries.data, entries.count))
         return false;
@@ -165,7 +165,7 @@ bool bulk_read_ack_admit(BulkReadAckController* c, ConstSlice<BulkReadAckIntent>
 }
 bool bulk_read_ack_complete(BulkReadAckController* c, BulkReadAckTicket ticket, bool success, bool retry,
                             u64 now, u64 retry_due) noexcept {
-    if (!c || !valid(*c) || !c->inflight || !ticket.request_id || ticket.request_id != c->request_id ||
+    if (!valid(*c) || !c->inflight || !ticket.request_id || ticket.request_id != c->request_id ||
         ticket.generation != c->generation || (success && retry))
         return false;
     if (success)
@@ -193,7 +193,7 @@ void bulk_read_ack_floor(BulkReadAckController* c, u64 floor) noexcept {
         c->not_before_ms = maximum(c->not_before_ms, floor);
 }
 bool bulk_read_ack_cancel(BulkReadAckController* c, u64 channel, u64 serial) noexcept {
-    if (!c || !valid(*c) || !channel)
+    if (!valid(*c) || !channel)
         return false;
     const u32 at = position(*c, channel);
     if (at == c->count || c->pending[at].channel_id != channel ||
@@ -205,7 +205,7 @@ bool bulk_read_ack_cancel(BulkReadAckController* c, u64 channel, u64 serial) noe
     return true;
 }
 void bulk_read_ack_reset(BulkReadAckController* c, bool retain_floor) noexcept {
-    if (!c || !valid(*c))
+    if (!valid(*c))
         return;
     c->count = c->flight_count = 0;
     c->request_id = 0;

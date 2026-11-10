@@ -123,7 +123,7 @@ bool application_private_channel_submit(u64 request_id, u64 now_ms) noexcept {
         reset_value(&c);
         return false;
     }
-    const auto submitted = g_app.account.api.private_channel(g_app.account.instance, &c.request, request_id);
+    const auto submitted = account_module_private_channel(g_app.account.instance, &c.request, request_id);
     if (!submitted.ok()) {
         if (submitted.error == RestClientSubmitError::busy) {
             c.phase = PrivateChannelActionPhase::retry_wait;
@@ -369,7 +369,7 @@ bool application_private_channel_dismiss_safety(u64 channel_id) noexcept {
     return scope_current() && started(private_channel_begin_dismiss_safety(&g_private.controller, state(), channel_id));
 }
 void application_private_channel_navigation(NavigationView* view) noexcept {
-    if (!view || !g_app.account_ui)
+    if (!g_app.account_ui)
         return;
     static u32 published_store_revision;
     const auto* store = state().private_channels;
@@ -387,10 +387,6 @@ void application_private_channel_navigation(NavigationView* view) noexcept {
         ++view->requests_revision;
     }
 }
-bool application_private_channel_requests_mode() noexcept {
-    return scope_current() && g_private.requests_mode;
-}
-// Marks the sidebar's Message Requests row while its page shows; the caller synchronizes the navigation.
 void application_private_channel_set_requests_mode(bool requests) noexcept {
     if (scope_current())
         g_private.requests_mode = requests;

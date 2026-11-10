@@ -1,7 +1,6 @@
 #include "store_build.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord::app_detail::store_build {
 namespace {

@@ -163,9 +163,8 @@ void cancel_flight(CreationOwner& owner) noexcept {
     if (!flight.active) return;
     flight.retired = true;
     if (flight.request.operation == Operation::from_message) ledger_add(owner, flight.source.message);
-    if (!flight.cancel_requested && flight.source.instance && flight.source.instance == g_app.account.instance &&
-        g_app.account.api.thread_creation) {
-        g_app.account.api.thread_creation(g_app.account.instance, nullptr, flight.id);
+    if (!flight.cancel_requested && flight.source.instance && flight.source.instance == g_app.account.instance) {
+        account_module_thread_creation(g_app.account.instance, nullptr, flight.id);
         flight.cancel_requested = true;
     }
 }
@@ -249,7 +248,7 @@ bool queued(const CreationOwner& owner) noexcept {
 }
 
 bool application_thread_creation_available(u64 id) noexcept {
-    if (!id || !g_app.account_ui || !g_app.account.instance || !g_app.account.api.thread_creation || g_app.login.visible ||
+    if (!id || !g_app.account_ui || !g_app.account.instance || g_app.login.visible ||
         application_friends_active() || application_settings_active() || application_thread_browser_active() ||
         !g_app.plugin_account_scope_serial || !g_app.account.status.profile_id || !g_app.account_ui->chat_state.self_user_id ||
         g_app.account.status.required_action != AccountRequirement::none) return false;
@@ -349,7 +348,7 @@ bool application_thread_creation_name_submit(const ApplicationThreadCreationTick
     if (!valid) { fail(owner, utf8_literal("Thread names must be 1–100 characters on one line."), owner.uncertain, false, true); return false; }
     copy_bytes(owner.name, name.data, name.bytes);
     owner.name_bytes = name.bytes;
-    if (!g_app.account.status.running || g_app.account.stop_failed || !g_app.account.instance || !g_app.account.api.thread_creation) {
+    if (!g_app.account.status.running || g_app.account.stop_failed || !g_app.account.instance) {
         fail(owner, utf8_literal("Can't create threads while offline.")); return false;
     }
     if (g_app.account.status.required_action != AccountRequirement::none) {
@@ -366,7 +365,7 @@ bool application_thread_creation_name_submit(const ApplicationThreadCreationTick
 bool application_thread_creation_retry(const ApplicationThreadCreationTicket& value) noexcept {
     if (!application_thread_creation_current(value) || !application_thread_creation_view().can_retry) return false;
     auto& owner = *creation_owner;
-    if (!g_app.account.status.running || g_app.account.stop_failed || !g_app.account.instance || !g_app.account.api.thread_creation) {
+    if (!g_app.account.status.running || g_app.account.stop_failed || !g_app.account.instance) {
         fail(owner, utf8_literal("Can't create threads while offline."), owner.uncertain); return false;
     }
     if (g_app.account.status.required_action != AccountRequirement::none) {
@@ -401,7 +400,7 @@ bool application_thread_creation_synchronize() noexcept {
     if (queued(*owner) && g_app.account.status.required_action != AccountRequirement::none)
         fail(*owner, utf8_literal("Verify your account to create threads."), owner->uncertain, true);
     else if (queued(*owner) && (!g_app.account.status.running || g_app.account.stop_failed ||
-        !g_app.account.instance || !g_app.account.api.thread_creation))
+        !g_app.account.instance))
         fail(*owner, utf8_literal("Can't create threads while offline."), owner->uncertain);
     return true;
 }
@@ -409,7 +408,7 @@ bool application_thread_creation_pending(u64 now) noexcept {
     application_thread_creation_synchronize();
     return creation_owner && !creation_owner->retired && !creation_owner->flight.active && queued(*creation_owner) &&
         source_current(*creation_owner) && g_app.account.status.running && !g_app.account.stop_failed &&
-        g_app.account.instance && g_app.account.api.thread_creation &&
+        g_app.account.instance &&
         g_app.account.status.required_action == AccountRequirement::none &&
         now >= maximum(creation_owner->due, creation_owner->actor_floor);
 }
@@ -422,7 +421,7 @@ bool application_thread_creation_submit(u64 id, u64 now) noexcept {
     CreationFlight admitted{owner.source, request, id, owner.serial, owner.gateway_serial, {}, true, false, false};
     copy_bytes(admitted.name, owner.name, owner.name_bytes);
     admitted.request.name = {admitted.name, owner.name_bytes};
-    const auto result = g_app.account.api.thread_creation(g_app.account.instance, &admitted.request, id);
+    const auto result = account_module_thread_creation(g_app.account.instance, &admitted.request, id);
     if (!result.ok()) {
         if (owner.serial != admitted.serial || owner.retired) return false;
         if (result.error == RestClientSubmitError::busy && ++owner.busy_count <= 20) owner.due = deadline_after(now, 50);

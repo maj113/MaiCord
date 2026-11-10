@@ -550,7 +550,7 @@ RestClientSubmitResult gateway_client_activity_sharing_submit(GatewayClient* cli
 #if defined(MAICORD_GATEWAY_SELF_STATUS_TEST)
 bool gateway_self_status_test_create(GatewayClient* client, u64 profile, u64 self,
                                      GatewaySelfStatusTestSubmit submit) noexcept {
-    if (!client || client->runtime || !profile || !self || !submit)
+    if (client->runtime || !profile || !self || !submit)
         return false;
     auto* runtime = static_cast<GatewayClientRuntime*>(
         commit_pages(kGatewayUserClientRuntimeBytes));
@@ -570,13 +570,13 @@ bool gateway_self_status_test_create(GatewayClient* client, u64 profile, u64 sel
     return true;
 }
 bool gateway_self_status_test_observe(GatewayClient* client, Utf8View dispatch) noexcept {
-    if (!client || !client->runtime)
+    if (!client->runtime)
         return false;
     return self_settings_dispatch(client, static_cast<GatewayClientRuntime*>(client->runtime), dispatch);
 }
 
 void gateway_self_status_test_ready(GatewayClient* client, bool ready) noexcept {
-    if (!client || !client->runtime)
+    if (!client->runtime)
         return;
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
     AcquireSRWLockExclusive(&runtime->subscription_lock);
@@ -588,12 +588,10 @@ void gateway_self_status_test_ready(GatewayClient* client, bool ready) noexcept 
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
 }
 u32 gateway_self_status_test_group_bytes(const GatewayClient* client) noexcept {
-    return client && client->runtime
-               ? static_cast<const GatewayClientRuntime*>(client->runtime)->self_status_group_bytes
-               : 0;
+    return client->runtime ? static_cast<const GatewayClientRuntime*>(client->runtime)->self_status_group_bytes : 0;
 }
 u32 gateway_self_status_test_destroy(GatewayClient* client) noexcept {
-    if (!client || !client->runtime)
+    if (!client->runtime)
         return 0;
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
     u32 wiped = 0;

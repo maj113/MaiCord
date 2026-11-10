@@ -58,35 +58,6 @@ void test_ui_page_registry(void (*check)(bool, const char*) noexcept) noexcept {
               ui_page_key_equal(ui_page_registry_selected(registry)->key, {2, 1}),
           "page selection changes revision once and unchanged selection is a no-op");
 
-    const u32 before_unload = registry.revision;
-    check(ui_page_registry_unregister_owner(&registry, 2) == 2 && registry.count == 3 &&
-              registry.revision == before_unload + 1 &&
-              ui_page_key_equal(ui_page_registry_at(registry, 0)->key, {1, 1}) &&
-              ui_page_key_equal(ui_page_registry_at(registry, 1)->key, {1, 2}) &&
-              ui_page_key_equal(ui_page_registry_at(registry, 2)->key, {3, 1}) &&
-              ui_page_key_equal(ui_page_registry_selected(registry)->key, {1, 2}) &&
-              !storage[3].label.data && !storage[3].context && !storage[4].key.owner_id,
-          "owner unload preserves survivor order selects the next page and erases removed pointers");
-    const u32 after_unload = registry.revision;
-    check(!ui_page_registry_unregister_owner(&registry, 2) &&
-              !ui_page_registry_unregister_owner(&registry, 0) && registry.revision == after_unload &&
-              ui_page_registry_register(&registry, plugin).ok() &&
-              ui_page_key_equal(ui_page_registry_at(registry, 3)->key, plugin.key),
-          "owner reload can reuse stable keys and appends without changing existing order");
-
-    check(ui_page_registry_select(&registry, {3, 1}).ok() &&
-              ui_page_registry_unregister_owner(&registry, 1) == 2 && registry.selected_index == 0 &&
-              ui_page_key_equal(ui_page_registry_selected(registry)->key, {3, 1}),
-          "removing earlier pages preserves selected logical identity after compaction");
-    check(ui_page_registry_select(&registry, plugin.key).ok() &&
-              ui_page_registry_unregister_owner(&registry, 2) == 1 &&
-              ui_page_key_equal(ui_page_registry_selected(registry)->key, {3, 1}) &&
-              ui_page_registry_unregister_owner(&registry, 3) == 1 && !registry.count &&
-              !ui_page_registry_selected(registry) && registry.selected_index == kUiPageNoSelection,
-          "last selected page falls back to previous and removing every page leaves no selection");
-
-    check(ui_page_registry_register(&registry, plugin).ok() && registry.selected_index == 0,
-          "first page after emptying restores automatic selection");
     registry.revision = ~0u;
     check(ui_page_registry_clear(&registry) && !registry.count && !storage[0].label.data &&
               !storage[0].context && !ui_page_registry_selected(registry) &&

@@ -163,7 +163,6 @@ bool push_frame(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> f
 
 void end_stream(void* context, u32 ssrc) noexcept {
     auto* decoders = static_cast<VideoStreamDecoders*>(context);
-    if (!decoders) return;
     AcquireSRWLockExclusive(decoders->lock.native());
     auto* stream = find(decoders, ssrc);
     GpuStreamDecoder* decoder = stream ? detach(stream) : nullptr;
@@ -179,13 +178,11 @@ u32 decodable(void* context) noexcept {
 } // namespace
 
 void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept {
-    if (!decoders) return;
     reset_value(decoders);
     decoders->frame_event = event_create(false, false);
 }
 
 void video_stream_decoders_set_device(VideoStreamDecoders* decoders, GpuDevice* device) noexcept {
-    if (!decoders) return;
     const u32 codecs = device ? gpu_stream_decoder_codecs(device) : 0;
     u32 bits = 0;
     if (codecs & gpu_stream_codec_bit(GpuStreamCodec::h264)) bits |= voice_video_codec_bit(VoiceVideoCodec::h264);
@@ -235,7 +232,6 @@ bool video_stream_decoders_frame(VideoStreamDecoders* decoders, u32 ssrc, VideoS
 }
 
 void video_stream_decoders_release(VideoStreamDecoders* decoders) noexcept {
-    if (!decoders) return;
     GpuStreamDecoder* detached[kVideoStreamDecoderStreams]{};
     AcquireSRWLockExclusive(decoders->lock.native());
     for (u32 i = 0; i < kVideoStreamDecoderStreams; ++i)

@@ -47,8 +47,7 @@ draw or dispatch happens.
   (`src/app/media/cdn_media_pipeline.cpp`) without a VP8 shader ever being compiled (`maicord_vp8_cpu_route`).
 - The window config is the one without alpha (the compositor reads the buffers as XRGB); a driver with only alpha configs gets
   `EGL_EXT_present_opaque` on the surface instead.
-- Test hooks (`test_hook`, test builds only): `MAICORD_GLES_MAX_COMPUTE_INVOCATIONS`, `_NO_TIMER_QUERY`,
-  `_ALPHA_WINDOW`, `_CHECK` (a GL error is reported after each draw and clear).
+- Test hooks (`test_hook`, test builds only): `MAICORD_GLES_MAX_COMPUTE_INVOCATIONS` and `_NO_TIMER_QUERY`.
 - Tests: `maicord_gpu_*` (goldens captured from Direct3D 11 in `tests/gpu/golden`, renewed by `tools/update_gpu_goldens.py`) run on
   llvmpipe anywhere and with `GALLIUM_DRIVER=d3d12` on WSL; `tools/test_gpu_surface.sh` shows the EGL window path on headless sway.
 

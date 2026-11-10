@@ -436,6 +436,14 @@ function(maicord_add_test_codegen_twins target_list_variable)
             endif()
             list(APPEND twin_sources "${source}")
         endforeach()
+        # What the application defines by name and a test that links the library without it leaves inactive (tests/support):
+        # the application half of the Windows window procedure, and the Go Live producers. A test that needs more defines
+        # them in its own sources, which come before the libraries in the link.
+        if(library STREQUAL "maicord_window_win32")
+            list(APPEND twin_sources tests/support/win32_app_inactive.cpp)
+        elseif(library STREQUAL "maicord_app_core")
+            list(APPEND twin_sources tests/support/go_live_producers_inactive.cpp)
+        endif()
         add_library(${twin} STATIC ${twin_sources})
         foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FEATURES
                 LINK_LIBRARIES INTERFACE_LINK_LIBRARIES INTERFACE_INCLUDE_DIRECTORIES
@@ -643,7 +651,7 @@ function(maicord_precompile_test_application_sources target_list_variable)
         add_library(${library} OBJECT)
         foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FLAGS
                 COMPILE_FEATURES CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS MSVC_RUNTIME_LIBRARY LINK_LIBRARIES
-                MAICORD_SDK_INCLUDES MAICORD_INLINE_ANY MAICORD_TEST_CODEGEN MAICORD_NO_WHOLE_PROGRAM)
+                MAICORD_SDK_INCLUDES MAICORD_INLINE_ANY MAICORD_TEST_CODEGEN)
             get_target_property(value ${target} ${property})
             if(NOT value STREQUAL "value-NOTFOUND")
                 set_property(TARGET ${library} PROPERTY ${property} "${value}")

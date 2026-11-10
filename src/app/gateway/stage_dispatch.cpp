@@ -91,7 +91,7 @@ GatewayClientDispatchRouteResult gateway_client_route_stage_instance(const Gatew
                                                                      ConstSlice<u8>* payload) noexcept {
     GatewayStageInstance instance{};
     GatewayClientStageInstanceRecord record{};
-    if (!event || !payload || payload_scratch.count < sizeof(record) || !payload_scratch.data ||
+    if (payload_scratch.count < sizeof(record) || !payload_scratch.data ||
         !gateway_decode_stage_instance(envelope.data, scratch, maximum_depth ? maximum_depth : kDepth, &instance)
              .ok() ||
         !instance.id || !make_record(instance, 0, &record))

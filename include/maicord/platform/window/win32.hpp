@@ -33,49 +33,40 @@ void win32_menu_appearance(bool dark) noexcept;
 // destroys the icon. Null for an invalid image.
 HICON win32_create_icon(ConstSlice<u32> pixels, u32 extent) noexcept;
 
-// What the application's caption controller answers to the frame glue (caption_frame.cpp), which owns the system
-// side of a client area that extends over the system caption: WM_NCCALCSIZE, WM_NCHITTEST, the non-client mouse
-// messages of the maximize button, WM_NCACTIVATE, the window menu and the snap layouts flyout. Client pixels are
-// relative to the client origin; the glue converts to and from screen coordinates.
-struct Win32CaptionOps {
-    void* context;
-    u32 (*height)(void* context) noexcept;                    // rows of the bar above the content; zero without one
-    bool (*hidden)(void* context) noexcept;                   // fullscreen: the system frame again
-    FrameHit (*hit)(void* context, float x, float y) noexcept;  // the frame part under a client pixel
-    void (*maximized)(void* context, bool maximized) noexcept;
-    void (*active)(void* context, bool active) noexcept;      // the frame's activation (WM_NCACTIVATE)
-    // The non-client button (FrameHit::maximize) under the pointer: pointer over a part (FrameHit::client: none),
-    // gone from the frame, pressed, released on a part. release returns whether it ended a press of the controller's.
-    void (*hover)(void* context, FrameHit part) noexcept;
-    void (*leave)(void* context) noexcept;
-    void (*press)(void* context, FrameHit part) noexcept;
-    bool (*release)(void* context, FrameHit part) noexcept;
-    bool (*title_bar)(void* context, FrameBarRects* rectangles) noexcept;  // false without a bar
-};
+// The application's half of the window procedure, called by name (src/app/windows/platform_window.cpp defines them;
+// a test that creates a window defines its own).
+//
+// The caption controller, which the frame glue (caption_frame.cpp) asks: the glue owns the system side of a client
+// area that extends over the system caption: WM_NCCALCSIZE, WM_NCHITTEST, the non-client mouse messages of the
+// maximize button, WM_NCACTIVATE, the window menu and the snap layouts flyout. Client pixels are relative to the
+// client origin; the glue converts to and from screen coordinates.
+// False: no caption controller, the system frame and client coordinates from the window's corner.
+bool win32_caption_enabled() noexcept;
+u32 win32_caption_height() noexcept;  // rows of the bar above the content; zero without one
+bool win32_caption_hidden() noexcept; // fullscreen: the system frame again
+FrameHit win32_caption_hit(float x, float y) noexcept; // the frame part under a client pixel
+void win32_caption_maximized(bool maximized) noexcept;
+void win32_caption_active(bool active) noexcept;       // the frame's activation (WM_NCACTIVATE)
+// The non-client button (FrameHit::maximize) under the pointer: pointer over a part (FrameHit::client: none), gone
+// from the frame, pressed, released on a part. release returns whether it ended a press of the controller's.
+void win32_caption_hover(FrameHit part) noexcept;
+void win32_caption_leave() noexcept;
+void win32_caption_press(FrameHit part) noexcept;
+bool win32_caption_release(FrameHit part) noexcept;
+bool win32_caption_title_bar(FrameBarRects* rectangles) noexcept; // false without a bar
 
-// What the Windows build of the application keeps for itself in the window procedure, beside the sink every
-// backend has: UI Automation and the shell integration. Each hook that returns true has handled the raw message and
-// `*result` is its LRESULT. The hooks run ahead of the sink, after the caption frame glue:
-//   shell         UI Automation (WM_GETOBJECT and its deferred actions), tray icon callbacks, a second launch.
-// `input_blocked` tells whether a modal owns all input: a message of the input classes the sink does not model
+// What the Windows build of the application keeps for itself in the window procedure, beside the sink every backend
+// has: UI Automation and the shell integration. win32_shell_message returns true when it handled the raw message and
+// `*result` is its LRESULT; it runs ahead of the sink, after the caption frame glue (UI Automation: WM_GETOBJECT and
+// its deferred actions, tray icon callbacks, a second launch).
+// win32_input_blocked tells whether a modal owns all input: a message of the input classes the sink does not model
 // (IME, clipboard commands) is then swallowed instead of reaching the default procedure.
-struct Win32Hooks {
-    void* context;
-    bool (*shell)(void* context, HWND window, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept;
-    bool (*input_blocked)(void* context) noexcept;
-};
-// The shipped window procedure runs the application's own tables, constants the whole-program link folds into direct
-// calls (defined in src/app/windows/platform_window.cpp); the code of tests and library twins (MAICORD_TEST_SEAMS)
-// runs the ones its window options carry instead, and none without.
-extern const Win32Hooks kWin32Hooks;
-extern const Win32CaptionOps kWin32CaptionOps;
+bool win32_shell_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept;
+bool win32_input_blocked() noexcept;
 
 struct Win32WindowOptions {
-    u32 extra_extended_style;          // WS_EX_* bits added to the application's own (probe windows)
-    const Win32Hooks* hooks;           // copied; may be null; ignored by the shipped procedure (kWin32Hooks)
-    const Win32CaptionOps* caption;    // copied; null: the system frame, client coordinates from the window's corner;
-                                       // ignored by the shipped procedure (kWin32CaptionOps)
-    bool dark_frame;                   // the system frame follows the dark scheme
+    u32 extra_extended_style; // WS_EX_* bits added to the application's own (probe windows)
+    bool dark_frame;          // the system frame follows the dark scheme
 };
 
 // Registers the window class and creates the main window with the window procedure of this backend, which

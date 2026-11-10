@@ -84,7 +84,6 @@ inline constexpr i32 kEntrypointEncSliceLp = 8;  // VAEntrypointEncSliceLP
 inline constexpr i32 kEntrypointVideoProc = 10;  // VAEntrypointVideoProc
 inline constexpr i32 kConfigAttribRateControl = 5;     // VAConfigAttribRateControl
 inline constexpr i32 kConfigAttribEncPackedHeaders = 10; // VAConfigAttribEncPackedHeaders
-inline constexpr i32 kConfigAttribEncMaxRefFrames = 13;  // VAConfigAttribEncMaxRefFrames
 inline constexpr u32 kRcCbr = 0x00000002;              // VA_RC_CBR
 inline constexpr u32 kEncPackedHeaderNone = 0x00000000; // VA_ENC_PACKED_HEADER_NONE
 inline constexpr u32 kRtFormatRgb32 = 0x00020000;      // VA_RT_FORMAT_RGB32

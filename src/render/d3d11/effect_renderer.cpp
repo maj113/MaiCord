@@ -434,7 +434,7 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* devic
                                        u64 adapter_key, GpuSrv* glyph_view, u32 window_width,
                                        u32 window_height) noexcept {
     const auto result = [](GpuStatus error, EffectSelect state) noexcept { return EffectSelectResult{error, state}; };
-    if (!owner || !device || !context || !spec.identity || !spec.bytecode.data || !spec.bytecode.count ||
+    if (!device || !context || !spec.identity || !spec.bytecode.data || !spec.bytecode.count ||
         !effect_settings_valid(settings) || (spec.uses & ~static_cast<u32>(effect_use_all)) ||
         static_cast<u8>(spec.blend) > 2 || !window_width || !window_height)
         return result(E_INVALIDARG, EffectSelect::rejected);
@@ -520,7 +520,7 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* devic
 }
 
 bool d3d11_effect_clear(D3D11EffectOwner* owner) noexcept {
-    if (!owner || !owner->selected)
+    if (!owner->selected)
         return false;
     // The shaders and the inputs belong to the package; the pass's own objects stay for the next one.
     gpu_release(owner->shader);
@@ -540,16 +540,14 @@ bool d3d11_effect_clear(D3D11EffectOwner* owner) noexcept {
 }
 
 void d3d11_effect_set_pointer(D3D11EffectOwner* owner, float x, float y) noexcept {
-    if (owner) {
-        owner->pointer[0] = is_finite(x) ? x : -1.f;
-        owner->pointer[1] = is_finite(y) ? y : -1.f;
-    }
+    owner->pointer[0] = is_finite(x) ? x : -1.f;
+    owner->pointer[1] = is_finite(y) ? y : -1.f;
 }
 
 bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context,
                               const Theme& theme, float phase, bool clock_running, u32 content_width,
                               u32 content_height, u32 caption_height, u32 dpi, bool live_resize, u64 now_ms) noexcept {
-    if (!owner || !device || !context)
+    if (!device || !context)
         return false;
     owner->active = owner->rendered = false;
     owner->drawn_count = owner->draws_last_frame = 0;
@@ -649,7 +647,7 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, GpuDevice* device, GpuCon
 
 bool d3d11_effect_draw(D3D11EffectOwner* owner, GpuContext* context, UiRect canvas, u32 quad_index,
                        float tile_radius) noexcept {
-    if (!owner || !context || !owner->active)
+    if (!context || !owner->active)
         return false;
     for (u32 i = 0; i < owner->drawn_count; ++i)
         if (owner->drawn[i] == quad_index)
@@ -718,7 +716,7 @@ bool d3d11_effect_draw(D3D11EffectOwner* owner, GpuContext* context, UiRect canv
 }
 
 void d3d11_effect_end_frame(D3D11EffectOwner* owner, GpuContext* context) noexcept {
-    if (!owner || !context || !owner->draws_last_frame)
+    if (!context || !owner->draws_last_frame)
         return;
     // Leave no view of the target bound: the next frame renders into it.
     GpuSrv* none = nullptr;
@@ -726,8 +724,6 @@ void d3d11_effect_end_frame(D3D11EffectOwner* owner, GpuContext* context) noexce
 }
 
 void d3d11_effect_release_device(D3D11EffectOwner* owner) noexcept {
-    if (!owner)
-        return;
     // A frame that was in flight is the removal's suspect; the host reads it from the verdict.
     if (owner->selected && owner->marker && *owner->marker == owner->identity) {
         owner->verdict = EffectVerdict::device_removed;
@@ -738,8 +734,6 @@ void d3d11_effect_release_device(D3D11EffectOwner* owner) noexcept {
 }
 
 void d3d11_effect_release(D3D11EffectOwner* owner) noexcept {
-    if (!owner)
-        return;
     release_objects(owner);
     mark_idle(owner);
     reset_value(owner);
@@ -749,7 +743,6 @@ void d3d11_effect_release(D3D11EffectOwner* owner) noexcept {
 
 namespace maicord {
 void d3d11_effect_set_marker(D3D11EffectOwner* owner, volatile u64* marker) noexcept {
-    if (owner)
-        owner->marker = marker;
+    owner->marker = marker;
 }
 } // namespace maicord

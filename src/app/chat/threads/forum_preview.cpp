@@ -135,7 +135,7 @@ bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
         }
     const auto post = application_forum_post_view();
     if (!post.available || !application_forum_post_current(post.ticket) || !g_app.account.instance ||
-        !g_app.account.api.media_local_preview || !g_app.account_ui)
+        !g_app.account_ui)
         return true;
     const auto view = application_forum_attachments_view(post.ticket);
     if (!view.rows.count)

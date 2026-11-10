@@ -347,7 +347,7 @@ maicord_library(maicord_model
     src/app/voice/mls/welcome.cpp src/app/voice/mls/group.cpp src/app/voice/dave/session.cpp
     # The DAVE connection names the voice socket and its TLS stream (platform/net/network.hpp, Winsock types).
     windows:src/app/voice/dave/connection_dave.cpp
-    src/app/voice/log.cpp
+    src/app/voice/log.cpp src/app/voice/log_record.cpp
     src/model/notifications/desktop_notification_queue.cpp src/model/notifications/sound_policy.cpp
     src/model/notifications/sound_admission.cpp src/model/notifications/retention.cpp
     src/model/guild/permission_grid.cpp src/model/guild/settings_model.cpp src/model/guild/channel_settings_model.cpp

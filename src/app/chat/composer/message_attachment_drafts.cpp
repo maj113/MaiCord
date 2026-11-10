@@ -24,20 +24,18 @@ bool commit(MessageAttachmentDraftStore* store, MessageAttachmentDraft* record, 
         if (!pages_commit_at(payload(store, id) + record->committed_bytes, delta)) return false;
         record->committed_bytes = rounded;
         store->committed_bytes += delta;
-        store->peak_committed_bytes = maximum(store->committed_bytes, store->peak_committed_bytes);
     }
     return true;
 }
 }
 u32 message_attachment_drafts_reserved_bytes() noexcept { return kPayloadBytes * kMessageAttachmentDraftCapacity; }
 bool message_attachment_drafts_initialize(MessageAttachmentDraftStore* store) noexcept {
-    if (!store || store->payload) return false;
+    if (store->payload) return false;
     reset_value(store);
     store->payload = static_cast<u8*>(pages_reserve(message_attachment_drafts_reserved_bytes()));
     return store->payload != nullptr;
 }
 void message_attachment_drafts_release(MessageAttachmentDraftStore* store) noexcept {
-    if (!store) return;
     for (u32 i = 0; i < kMessageAttachmentDraftCapacity; ++i)
         if (store->records[i].occupied) message_attachment_drafts_remove(store, identifier(store->records[i], i));
     if (store->payload) pages_release(store->payload);
@@ -223,7 +221,7 @@ bool message_attachment_drafts_rename(MessageAttachmentDraftStore* store, u64 id
     return ok;
 }
 bool message_attachment_drafts_mark_queued(MessageAttachmentDraftStore* store, ConstSlice<u64> ids, u64 nonce) noexcept {
-    if (!store || !ids.data || !ids.count || ids.count > kAttachmentUploadMaximumCount || !nonce) return false;
+    if (!ids.data || !ids.count || ids.count > kAttachmentUploadMaximumCount || !nonce) return false;
     u64 channel = 0;
     for (u32 i = 0; i < ids.count; ++i) {
         const auto* record = message_attachment_drafts_get(store, ids[i]);
@@ -238,7 +236,7 @@ bool message_attachment_drafts_mark_queued(MessageAttachmentDraftStore* store, C
     ++store->revision; return true;
 }
 u32 message_attachment_drafts_remove_nonce(MessageAttachmentDraftStore* store, u64 nonce) noexcept {
-    if (!store || !nonce) return 0;
+    if (!nonce) return 0;
     u32 removed = 0;
     for (u32 i = 0; i < kMessageAttachmentDraftCapacity; ++i) {
         const auto& record = store->records[i];

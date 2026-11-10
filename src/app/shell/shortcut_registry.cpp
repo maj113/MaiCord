@@ -390,7 +390,7 @@ bool shortcut_key_is_modifier(u32 key) noexcept {
 }
 ShortcutRecordStep shortcut_recorder_input(ShortcutRecorder* recorder, bool down, u32 key, u8 modifiers,
                                            ShortcutChord* recorded) noexcept {
-    if (!recorder || !recorder->active)
+    if (!recorder->active)
         return ShortcutRecordStep::ignored;
     if (!down || !key || key > 0xfe)
         return ShortcutRecordStep::pending;
@@ -462,7 +462,7 @@ bool custom_keybinds_add(CustomKeybinds* keybinds, CustomKeybind keybind, Custom
     return true;
 }
 bool custom_keybinds_remove(CustomKeybinds* keybinds, u32 index) noexcept {
-    if (!keybinds || index >= keybinds->count || keybinds->count > kCustomKeybindMaximum)
+    if (index >= keybinds->count || keybinds->count > kCustomKeybindMaximum)
         return false;
     for (u32 i = index + 1; i < keybinds->count; ++i)
         keybinds->items[i - 1] = keybinds->items[i];

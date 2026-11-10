@@ -5,7 +5,6 @@ namespace maicord { struct GatewayClientEvent; }
 #include "maicord/platform/desktop/notifications.hpp"
 #include "maicord/platform/audio/notification_audio.hpp"
 #include "maicord/model/notifications/soundpack.hpp"
-#include "maicord/core/win32_types.hpp"
 #endif
 namespace maicord::app_detail {
 struct Application;

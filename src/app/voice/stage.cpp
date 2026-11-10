@@ -409,7 +409,7 @@ bool application_stage_pending(u64 now) noexcept {
     while (stage.count && stage.queue[stage.head].account_scope != g_app.plugin_account_scope_serial)
         drop_head();
     return stage.count && !stage.in_flight_request && (!stage.retry_at_ms || now >= stage.retry_at_ms) &&
-           g_app.account.instance && g_app.account.api.stage;
+           g_app.account.instance;
 }
 
 bool application_stage_submit(u64 request_id, u64 now) noexcept {
@@ -417,7 +417,7 @@ bool application_stage_submit(u64 request_id, u64 now) noexcept {
         return false;
     auto& host = g_app.account;
     const auto& queued = stage.queue[stage.head];
-    const auto submitted = host.api.stage(host.instance, &queued.request, request_id);
+    const auto submitted = account_module_stage(host.instance, &queued.request, request_id);
     if (submit_busy(submitted, stage.retry_at_ms, now, kBusyRetryMs))
         return false;
     if (!submitted.ok()) {

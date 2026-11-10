@@ -115,8 +115,7 @@ u64 command_content_signature(const MessageTextCommand& command) noexcept;
 bool fail(MessageTextPresentation* presentation, MessageTextPresentationError error) noexcept;
 void set_failure_context(MessageTextPresentation* presentation, MessageTextPresentationStage stage,
                          MessageTextPresentationOperation operation,
-                         u16 item_index = kInvalidMessageTextMeasurement,
-                         UiTextFlowError flow_error = UiTextFlowError::none) noexcept;
+                         u16 item_index = kInvalidMessageTextMeasurement) noexcept;
 void set_failure_operation(MessageTextPresentation* presentation,
                            MessageTextPresentationOperation operation,
                            UiTextFlowError flow_error = UiTextFlowError::none) noexcept;
@@ -172,8 +171,8 @@ bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& te
                        const ConstSlice<TextStyleSpan>& styles, UiTextFlowLayout* flow, const Color& color,
                        const Color& inline_role_color, const UiWidgetReference& owner, const MessageRecord& record,
                        u16 measurement_index, TextOverflow overflow,
-                       float right_inset = 0.0f, float left_inset = kMessageReplyTextInset,
-                       ConstSlice<MessageMarkdownSemantic> semantics = {}, float line_height = 18.0f) noexcept;
+                       float right_inset, float left_inset, ConstSlice<MessageMarkdownSemantic> semantics,
+                       float line_height) noexcept;
 bool initialize_flow(MessageTextPresentation* presentation, const UiLayoutNode& region, float text_left,
                      float text_width, const UiRect& clip, UiTextFlowLayout* flow) noexcept;
 bool finish_flow(MessageTextPresentation* presentation, const UiTextFlowLayout& flow,
@@ -182,8 +181,7 @@ float rich_item_total(const MessageSceneRichItemLayout& layout, u32 begin, u32 c
 bool compact_content(MessageTextPresentation* presentation, BuildContext* context, Utf8View name,
                      Utf8View source, Utf8View* text, ConstSlice<TextStyleSpan>* styles,
                      ConstSlice<MessageMarkdownSemantic>* semantics,
-                     const UiPluginRenderDecoration* decoration = nullptr, u64 avatar_user = 0,
-                     u32 dot_rgb = 0) noexcept;
+                     const UiPluginRenderDecoration* decoration, u64 avatar_user, u32 dot_rgb) noexcept;
 bool append_compact_timestamp(MessageTextPresentation* presentation, const MessageScene& scene,
                               const MessageSceneRowWidget& row, const UiRect& clip, const Theme& theme,
                               const MessageRecord& record, u64 now_unix_seconds) noexcept;
@@ -209,14 +207,14 @@ float quote_gap_after(const QuoteSegment* segments, u32 count, u32 index, float 
 bool append_rich_markdown_line(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow,
                                float left_inset, float right_inset, const Color& color,
                                const UiWidgetReference& owner, u16 measurement_index,
-                               MessageTextMeasurementKind measurement_kind, float gap_after = 3.0f,
-                               u32 base_style = 0, u8 base_size = text_size_inherit) noexcept;
+                               MessageTextMeasurementKind measurement_kind, float gap_after, u32 base_style,
+                               u8 base_size) noexcept;
 float widest_framed(const MessageTextPresentation* presentation, u32 first, float inset, float widest) noexcept;
 bool append_embed_plain_line(BuildContext* context, const Utf8View& text, UiTextFlowLayout* flow,
                              float left_inset, float right_inset, const Color& color,
                              const UiWidgetReference& owner, u16 measurement_index, u32 flags,
-                             const Utf8View& link, u16 link_source, float minimum_height = kMessageEmbedLineMinimum,
-                             u16 source_id = 0, u8 size = text_size_inherit) noexcept;
+                             const Utf8View& link, u16 link_source, float minimum_height, u16 source_id,
+                             u8 size) noexcept;
 bool append_embed_block(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow, float left_inset,
                         float right_inset, const Color& color, const UiWidgetReference& owner,
                         u16 measurement_index, bool markdown, u8 rules, u32 base_style, u8 base_size,
@@ -240,7 +238,7 @@ u32 failed_component_host(const MessageScene& scene, const MessageRecord& record
 bool append_annotations(MessageTextPresentation* presentation, const MessageScene& scene,
                         const MessageSceneRowWidget& row, const MessageRecord& record, const Theme& theme,
                         const UiRect& row_clip, u16 measurement_index, bool forwarded, float offset,
-                        const UiPluginRenderDecoration* decoration = nullptr) noexcept;
+                        const UiPluginRenderDecoration* decoration) noexcept;
 bool append_invite_cards(MessageTextPresentation* presentation, const MessageScene& scene,
                          const MessageSceneRowWidget& row, const MessageRecord& record, const ChatStateStore& state,
                          const Theme& theme, const UiRect& row_clip, u16 measurement_index,
@@ -264,7 +262,7 @@ __declspec(noinline) bool append_content_segments(
     const Utf8View& display_content, const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
     bool split, float content_top, float text_left, float text_width, const UiRect& row_clip,
     const Color& content_color, const MessageRecord* record, u16 measurement_index, u16 source_id,
-    const Color& role_color, u64 edited_unix_seconds = 0) noexcept;
+    const Color& role_color, u64 edited_unix_seconds) noexcept;
 bool append_row(MessageTextPresentation* presentation, const MessageScene& scene,
                 const MessageSceneRowWidget& row, const ChatStateStore& state,
                 const UserStore* users, const NavigationView& navigation, const Theme& theme,

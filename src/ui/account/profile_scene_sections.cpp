@@ -3,7 +3,6 @@
 #include "maicord/ui/account/profile_appearance.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/ui/widgets/presence.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/model/chat/game_store.hpp"
 #include "maicord/ui/chat/game_media.hpp"

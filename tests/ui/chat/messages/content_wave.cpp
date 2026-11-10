@@ -3,7 +3,6 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/app/chat/messages/send_response.hpp"
 #include "maicord/model/guild/invite_card_cache.hpp"
-#include "maicord/model/chat/message_reconcile.hpp"
 #include "maicord/protocol/messages/interaction.hpp"
 #include "maicord/ui/chat/messages/component_layout.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
@@ -763,13 +762,27 @@ bool command_text(const SceneFixture& f, u64 message_id, Utf8View part,
             return true;
     return false;
 }
+bool initialize_stores(SceneFixture& f) noexcept {
+    return message_store_initialize(&f.store, {f.record, kRows}, {f.order, kRows}, {f.text, sizeof(f.text)}) &&
+           message_rich_store_initialize(&f.rich, {f.rich_record, kRows}, {f.rich_order, kRows},
+                                         {f.rich_text, sizeof(f.rich_text)});
+}
+// The timeline over `rows` stored messages, the scene, the presentation and the measure cache.
+bool initialize_scene(SceneFixture& f, u32 rows) noexcept {
+    return ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, rows, ui_extent_units(57)) &&
+           message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(2000), false) &&
+           message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
+           message_scene_initialize_owned(&f.scene, &f.timeline, kRows, kRows, {f.widget, kWidgets}, {f.node, kWidgets}) &&
+           message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
+                                                {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
+                                                {f.spoilers, 2}, {f.byte_styles, 4096}) &&
+           ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
+}
 
 void test_presentation(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
-    bool ok = message_store_initialize(&f.store, {f.record, kRows}, {f.order, kRows}, {f.text, sizeof(f.text)}) &&
-              message_rich_store_initialize(&f.rich, {f.rich_record, kRows}, {f.rich_order, kRows},
-                                            {f.rich_text, sizeof(f.rich_text)});
+    bool ok = initialize_stores(f);
     MessageInput join{};
     join.id = 3ull << 22;
     join.channel_id = 7;
@@ -793,14 +806,7 @@ void test_presentation(Check check) noexcept {
     invite.content = utf8_literal("join us https://discord.gg/abc123 today");
     ok = ok && message_store_upsert(&f.store, join).ok() && message_store_upsert(&f.store, ephemeral).ok() &&
          message_store_upsert(&f.store, thinking).ok() && message_store_upsert(&f.store, invite).ok() &&
-         ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, kRows, ui_extent_units(57)) &&
-         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(2000), false) &&
-         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-         message_scene_initialize_owned(&f.scene, &f.timeline, kRows, kRows, {f.widget, kWidgets}, {f.node, kWidgets}) &&
-         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
-                                              {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
-                                              {f.spoilers, 2}, {f.byte_styles, 4096}) &&
-         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
+         initialize_scene(f, kRows);
     message_scene_bind_invite_cards(&f.scene, &f.invites);
     ChatStateStore state{};
     NavigationView navigation{};
@@ -937,9 +943,7 @@ void test_plugin_decorations(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
     render_users = {};
-    bool ok = message_store_initialize(&f.store, {f.record, kRows}, {f.order, kRows}, {f.text, sizeof(f.text)}) &&
-              message_rich_store_initialize(&f.rich, {f.rich_record, kRows}, {f.rich_order, kRows},
-                                            {f.rich_text, sizeof(f.rich_text)}) &&
+    bool ok = initialize_stores(f) &&
               user_store_initialize(&render_users.store, {render_users.records, 4}, {render_users.order, 4},
                                     {render_users.names, sizeof(render_users.names)}) &&
               user_store_upsert(&render_users.store, 11, utf8_literal("Ann")).ok() &&
@@ -967,14 +971,7 @@ void test_plugin_decorations(Check check) noexcept {
     collapsed.content = utf8_literal("collapsed secret");
     ok = ok && message_store_upsert(&f.store, first).ok() && message_store_upsert(&f.store, hidden).ok() &&
          message_store_upsert(&f.store, replaced).ok() && message_store_upsert(&f.store, collapsed).ok() &&
-         ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, kRows, ui_extent_units(57)) &&
-         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(2000), false) &&
-         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-         message_scene_initialize_owned(&f.scene, &f.timeline, kRows, kRows, {f.widget, kWidgets}, {f.node, kWidgets}) &&
-         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
-                                              {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
-                                              {f.spoilers, 2}, {f.byte_styles, 4096}) &&
-         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
+         initialize_scene(f, kRows);
     for (auto& decoration : g_render_decorations)
         decoration = {};
     g_render_ids[0] = first.id;
@@ -1123,9 +1120,7 @@ void test_plugin_card_collapse(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
     render_users = {};
-    bool ok = message_store_initialize(&f.store, {f.record, kRows}, {f.order, kRows}, {f.text, sizeof(f.text)}) &&
-              message_rich_store_initialize(&f.rich, {f.rich_record, kRows}, {f.rich_order, kRows},
-                                            {f.rich_text, sizeof(f.rich_text)});
+    bool ok = initialize_stores(f);
     MessageInput card{};
     card.id = 31ull << 22;
     card.channel_id = 7;
@@ -1133,14 +1128,7 @@ void test_plugin_card_collapse(Check check) noexcept {
     card.timestamp_ms = 1'500'000'000'000ull;
     card.content = utf8_literal("hi");
     ok = ok && message_store_upsert(&f.store, card).ok() &&
-         ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, 1, ui_extent_units(57)) &&
-         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(2000), false) &&
-         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-         message_scene_initialize_owned(&f.scene, &f.timeline, kRows, kRows, {f.widget, kWidgets}, {f.node, kWidgets}) &&
-         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
-                                              {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
-                                              {f.spoilers, 2}, {f.byte_styles, 4096}) &&
-         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
+         initialize_scene(f, 1);
     for (auto& decoration : g_render_decorations)
         decoration = {};
     for (auto& id : g_render_ids)
@@ -1219,9 +1207,7 @@ void test_plugin_card_embed_geometry(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
     render_users = {};
-    bool ok = message_store_initialize(&f.store, {f.record, kRows}, {f.order, kRows}, {f.text, sizeof(f.text)}) &&
-              message_rich_store_initialize(&f.rich, {f.rich_record, kRows}, {f.rich_order, kRows},
-                                            {f.rich_text, sizeof(f.rich_text)});
+    bool ok = initialize_stores(f);
     MessageInput embedded{};
     embedded.id = 41ull << 22;
     embedded.channel_id = 7;
@@ -1247,14 +1233,7 @@ void test_plugin_card_embed_geometry(Check check) noexcept {
     event.embeds = ConstSlice<GatewayMessageEmbed>{&embed, 1};
     ok = ok && embedded_record &&
          message_rich_store_apply(&f.rich, embedded.id, embedded_record->revision, event).ok() &&
-         ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, 2, ui_extent_units(57)) &&
-         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(2000), false) &&
-         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-         message_scene_initialize_owned(&f.scene, &f.timeline, kRows, kRows, {f.widget, kWidgets}, {f.node, kWidgets}) &&
-         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
-                                              {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
-                                              {f.spoilers, 2}, {f.byte_styles, 4096}) &&
-         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
+         initialize_scene(f, 2);
     for (auto& decoration : g_render_decorations)
         decoration = {};
     for (auto& id : g_render_ids)
@@ -1336,9 +1315,7 @@ void test_compact_display(Check check) noexcept {
     f = {};
     render_users = {};
     g_ui_plugin_render_query = nullptr;
-    bool ok = message_store_initialize(&f.store, {f.record, kRows}, {f.order, kRows}, {f.text, sizeof(f.text)}) &&
-              message_rich_store_initialize(&f.rich, {f.rich_record, kRows}, {f.rich_order, kRows},
-                                            {f.rich_text, sizeof(f.rich_text)}) &&
+    bool ok = initialize_stores(f) &&
               user_store_initialize(&render_users.store, {render_users.records, 4}, {render_users.order, 4},
                                     {render_users.names, sizeof(render_users.names)}) &&
               user_store_upsert(&render_users.store, 11, utf8_literal("Ann")).ok() &&
@@ -1360,14 +1337,7 @@ void test_compact_display(Check check) noexcept {
     third.content = utf8_literal("third line");
     ok = ok && message_store_upsert(&f.store, first).ok() && message_store_upsert(&f.store, second).ok() &&
          message_store_upsert(&f.store, third).ok() &&
-         ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, 3, ui_extent_units(57)) &&
-         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(2000), false) &&
-         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-         message_scene_initialize_owned(&f.scene, &f.timeline, kRows, kRows, {f.widget, kWidgets}, {f.node, kWidgets}) &&
-         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
-                                              {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
-                                              {f.spoilers, 2}, {f.byte_styles, 4096}) &&
-         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
+         initialize_scene(f, 3);
     ChatStateStore state{};
     NavigationView navigation{};
     const auto converge = [&]() noexcept {

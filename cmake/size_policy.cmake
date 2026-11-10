@@ -120,7 +120,7 @@ maicord_compact_sources(
         src/app/chat/messages/reaction_controller.cpp
         src/platform/desktop/integration.cpp src/platform/desktop/system_tray.cpp src/platform/net/tls_client.cpp
         src/app/account/account_module.cpp src/app/account/account_module_login.cpp src/app/account/account_module_requests.cpp
-        src/app/net/rest_client.cpp src/app/net/rest_client_transaction.cpp
+        src/app/net/rest_client.cpp src/app/net/rest_client_transaction.cpp src/app/net/rest_client_trace.cpp
         src/app/net/rest_client_worker.cpp src/app/net/signed_out_session.cpp
         src/app/voice/account_soundboard.cpp src/app/voice/account_voice_message.cpp
         src/app/net/https_file_upload.cpp src/app/net/https_file_download.cpp
@@ -424,7 +424,7 @@ if(MAICORD_LINUX)
     endfunction()
     maicord_source_options(OPTIONS ${MAICORD_SIZE_OPTION}
         INCLUDE "^src/app/media/(account_|cdn_)"
-            "^src/app/gateway/(guild_admin|thread_member|voice|dispatch_notifications|relationship|read_state|private)_dispatch"
+            "^src/app/gateway/(guild_admin|thread_member|voice|relationship|read_state|private)_dispatch"
             "^src/protocol/http/" "^src/protocol/gateway/reaction_events" "^src/media/containers/")
     maicord_source_options(OPTIONS ${MAICORD_BALANCED_OPTION}
         EXCLUDE "^src/core/(json_reader|json_scan|utf)\\.cpp$" "^src/core/linux/(runtime|start)\\.cpp$"

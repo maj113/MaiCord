@@ -7,7 +7,7 @@ An in-house D-Bus client: no libdbus, no sd-bus. Headers are in `include/maicord
 | `wire.hpp` | The wire format: little endian, the whole type system, `UNIX_FD` over SCM_RIGHTS. |
 | `connection.hpp` | One bus connection: EXTERNAL authentication, calls with timeouts, `AddMatch` signals, exported methods. One thread per connection; a `Waitable` for the loop. |
 | `session.hpp` | The session bus the window loop waits on, plus `SessionBusExtra` (further connections the Wayland pump waits on; their due times bound the sleep). |
-| `desktop_settings.hpp` | The settings portal: colour scheme, accent, contrast, motion, fonts, cursor, GNOME button layout. The window backend maps it to `PlatformSettings` and `settings_changed`. |
+| `desktop_settings.hpp` | The settings portal: colour scheme, motion, interface fonts, cursor. The window backend maps it to `PlatformSettings` and `settings_changed`. |
 | `notifications.hpp` | Toasts: the daemon directly, the portal when sandboxed (`MAICORD_NOTIFICATION_BACKEND=portal\|direct` overrides). |
 | `open_uri.hpp` | OpenURI portal, then `xdg-open` through `posix_spawnp` looked up with `dlsym`. |
 | `secret_service.hpp` | Secret Service, private connections, any thread. |

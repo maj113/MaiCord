@@ -1,5 +1,4 @@
 #include "maicord/app/voice/mls/key_schedule.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../shell/byte_views.hpp"
 

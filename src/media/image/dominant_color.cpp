@@ -219,11 +219,6 @@ u32 image_palette(ConstSlice<u8> rgba, u32 width, u32 height, Slice<u32> histogr
     return count;
 }
 
-u32 image_dominant_color(ConstSlice<u8> rgba, u32 width, u32 height, Slice<u32> histogram) noexcept {
-    u32 colors[kImagePaletteColors];
-    return image_palette(rgba, width, height, histogram, colors) ? colors[0] : 0;
-}
-
 u32 image_palette_companion(u32 rgb) noexcept {
     const double r = static_cast<double>(rgb >> 16 & 255) / 255, g = static_cast<double>(rgb >> 8 & 255) / 255,
                  b = static_cast<double>(rgb & 255) / 255;

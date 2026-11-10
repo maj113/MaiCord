@@ -37,8 +37,6 @@ bool media_attachable(const VoiceConnection& connection) noexcept {
 VoiceReceiveResult voice_receive_packet(VoiceReceive* receive, const VoiceReceivedPacket& packet,
                                         ConstSlice<u8> plaintext, VoiceReceiveDecrypt decrypt, void* context,
                                         u64 now_us) noexcept {
-    if (!receive || !decrypt)
-        return VoiceReceiveResult::invalid;
     const auto& layout = packet.transport.layout;
     if (layout.kind == MediaPacketKind::rtcp) {
         if (packet.transport.ok())
@@ -73,8 +71,6 @@ VoiceReceiveResult voice_receive_packet(VoiceReceive* receive, const VoiceReceiv
 
 void voice_receive_drive(VoiceReceive* receive, VoiceConnection* connection, const GatewayVoiceControl& voice,
                          u64 now_ms) noexcept {
-    if (!receive || !connection)
-        return;
     receive->connection = connection;
     receive->video.decrypt = connection_decrypt_frame;
     receive->video.decrypt_context = connection;
@@ -105,8 +101,6 @@ void voice_receive_drive(VoiceReceive* receive, VoiceConnection* connection, con
 }
 
 void voice_receive_stop(VoiceReceive* receive) noexcept {
-    if (!receive)
-        return;
     voice_audio_output_stop(&receive->output);
     voice_playback_release(&receive->playback);
     voice_video_sink_stop(&receive->video);
@@ -116,8 +110,6 @@ void voice_receive_stop(VoiceReceive* receive) noexcept {
 }
 
 u32 voice_receive_speaking(VoiceReceive* receive, Slice<u64> users, u64 now_ms) noexcept {
-    if (!receive)
-        return 0;
     const u64 now_us = voice_playback_now_us();
     u64 next_us = 0;
     const u32 count = voice_playback_speaking(&receive->playback, now_us, users, &next_us);
@@ -130,12 +122,10 @@ u64 voice_receive_deadline(const VoiceReceive& receive) noexcept {
 }
 
 bool voice_receive_set_user(VoiceReceive* receive, u64 user_id, u32 gain_percent, bool muted) noexcept {
-    return receive && voice_playback_set_user(&receive->playback, user_id, gain_percent, muted);
+    return voice_playback_set_user(&receive->playback, user_id, gain_percent, muted);
 }
 
 void voice_receive_configure(VoiceReceive* receive, const VoiceAudioSettings& settings) noexcept {
-    if (!receive)
-        return;
     voice_playback_set_master(&receive->playback, settings.output_gain_percent);
     if (voice_device_id_equal(settings.output_device, receive->output_device))
         return;

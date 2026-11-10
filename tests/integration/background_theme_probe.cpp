@@ -646,7 +646,7 @@ bool background_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
         }
     } restore{c, width, height};
     if (!renderer_set_background_phase(&r, 0) || !presentation_damage_empty(r.presentation_damage) ||
-        renderer_set_background_phase(nullptr, 0) || renderer_set_background_phase(&r, -1))
+        renderer_set_background_phase(&r, -1))
         return failure(2);
     Theme theme = kDefaultTheme;
     theme.background = {

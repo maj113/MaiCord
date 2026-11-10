@@ -1,5 +1,4 @@
 #include "account_settings.hpp"
-#include "../chat/application_link_trust.hpp"
 #include "../account/account_access.hpp"
 #include "../shell/owner.hpp"
 #include "settings.hpp"
@@ -153,7 +152,6 @@ struct Owner {
     u32 key_serial;
     u64 key_token;
     Utf8View carry;
-    bool carry_error;
     u64 op_id;
     u8 op_option;
     // The connection, security key or session a flow acts on.
@@ -161,7 +159,7 @@ struct Owner {
     Form form;
     SettingsPanel flow_panel;
     // The open dialog: whether closing it opens `form`, whether its request runs, and its status line.
-    bool form_shown, advance, busy, form_error, sms_sent;
+    bool form_shown, advance, busy;
     Utf8View form_status;
     // The verification's method as /mfa/finish names it ("totp", "password", …).
     Utf8View mfa_type;
@@ -203,7 +201,7 @@ void scope() noexcept {
     const u64 self = g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0;
     if (g_owner.profile_id == profile && g_owner.self_user_id == self)
         return;
-    application_cancel_request(&AccountModuleApi::account_settings, g_owner.request_id);
+    application_cancel_request(account_module_account_settings, g_owner.request_id);
     release_bank();
     const u64 lifetime = g_owner.lifetime + 1;
     // The open page stays wanted: a page opened before READY loads once it lands.
@@ -301,7 +299,7 @@ void clear_flow() noexcept {
         b->detail_bytes = b->context_bytes = 0;
     }
     g_owner.code_count = 0;
-    g_owner.verified = g_owner.sms_sent = false;
+    g_owner.verified = false;
     end_ceremony();
     g_owner.form = Form::none;
 }
@@ -321,9 +319,8 @@ ApplicationTextFormProgress form_progress(TextFormOwnerKey) noexcept {
     progress.dismissible = !g_owner.busy || g_owner.key_ceremony != 0;
     return progress;
 }
-void form_status(Utf8View text, bool error) noexcept {
+void form_status(Utf8View text) noexcept {
     g_owner.form_status = text;
-    g_owner.form_error = error;
     ++g_owner.form_revision;
 }
 void open_form(Form form) noexcept;
@@ -364,7 +361,7 @@ void queue(Op op, u64 id = 0, u8 option = 0) noexcept {
     g_owner.op_option = option;
     g_owner.queued = true;
     g_owner.busy = true;
-    form_status({}, false);
+    form_status({});
     set_status(g_owner.flow_panel, {}, false);
     application_settings_refresh_pages();
 }
@@ -609,7 +606,7 @@ void open_form(Form form) noexcept {
     ++g_owner.form_serial;
     g_owner.busy = false;
     // What an earlier step left to say (a refused PIN, a failed ceremony) opens with the dialog.
-    form_status(g_owner.carry, g_owner.carry_error);
+    form_status(g_owner.carry);
     g_owner.carry = {};
     if (form == Form::none)
         return;
@@ -764,7 +761,7 @@ bool phone_number(Utf8View text, char (&output)[24], u32* bytes) noexcept {
     return plus && at >= 9 && at <= 16;
 }
 bool reject(Utf8View text) noexcept {
-    form_status(text, true);
+    form_status(text);
     return false;
 }
 
@@ -923,11 +920,10 @@ void ceremony_pin() noexcept {
     }
     if (g_owner.form == Form::key_pin && g_owner.form_shown) {
         g_owner.busy = false;
-        form_status(status, prompt.wrong);
+        form_status(status);
         return;
     }
     g_owner.carry = status;
-    g_owner.carry_error = prompt.wrong;
     transition(Form::key_pin);
 }
 
@@ -959,11 +955,10 @@ void ceremony_done() noexcept {
     const Form back = registering ? Form::key_register : Form::mfa_code;
     if (g_owner.form == back && g_owner.form_shown) {
         g_owner.busy = false;
-        form_status(text, true);
+        form_status(text);
         return;
     }
     g_owner.carry = text;
-    g_owner.carry_error = true;
     transition(back);
 }
 #endif
@@ -1102,8 +1097,7 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
             return reject(key_failure_text(webauthn_platform_available() ? KeyFailure::generic : KeyFailure::unavailable,
                                            true));
         g_owner.busy = true;
-        form_status(utf8_literal("Interact with your security key. You may need to tap your device or confirm a prompt."),
-                    false);
+        form_status(utf8_literal("Interact with your security key. You may need to tap your device or confirm a prompt."));
         return false;
 #endif
     }
@@ -1112,7 +1106,7 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
         if (!webauthn_ceremony_submit_pin({reinterpret_cast<const u8*>(text.data), text.bytes}))
             return reject(utf8_literal("Enter your security key's PIN: 4 to 63 characters."));
         g_owner.busy = true;
-        form_status(utf8_literal("Interact with your security key."), false);
+        form_status(utf8_literal("Interact with your security key."));
 #endif
         return false;
     case Form::key_name:
@@ -1196,8 +1190,7 @@ bool form_save_choices(TextFormOwnerKey key, Utf8View text, bool, u32 choice, u3
         if (!start_ceremony(false))
             return reject(key_failure_text(KeyFailure::generic, false));
         g_owner.busy = true;
-        form_status(utf8_literal("Interact with your security key. You may need to tap your device or confirm a prompt."),
-                    false);
+        form_status(utf8_literal("Interact with your security key. You may need to tap your device or confirm a prompt."));
 #endif
         return false;
     }
@@ -2106,7 +2099,7 @@ bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept {
         if (load == load_profile)
             request.id = g_owner.self_user_id;
     }
-    const auto admitted = g_app.account.api.account_settings(g_app.account.instance, &request, request_id);
+    const auto admitted = account_module_account_settings(g_app.account.instance, &request, request_id);
     secure_clear_bytes(hashes, sizeof(hashes));
     if (!admitted.ok()) {
         if (admitted.error != RestClientSubmitError::busy) {
@@ -2115,7 +2108,7 @@ bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept {
                 g_owner.queued = false;
                 if (g_owner.form_shown) {
                     g_owner.busy = false;
-                    form_status(failure_text(g_owner.op), true);
+                    form_status(failure_text(g_owner.op));
                 } else
                     finish(failure_text(g_owner.op), true);
             } else
@@ -2138,8 +2131,8 @@ namespace {
 void adopt_token(Utf8View body, Slice<u32> structurals) noexcept {
     char token[256];
     const u32 bytes = account_settings_decode_member(body, structurals, utf8_literal("token"), {token, sizeof(token)});
-    if (bytes != ~0u && bytes && g_app.account.api.credential_replace &&
-        !g_app.account.api.credential_replace(g_app.account.instance, reinterpret_cast<const u8*>(token), bytes))
+    if (bytes != ~0u && bytes &&
+        !account_module_credential_replace(g_app.account.instance, reinterpret_cast<const u8*>(token), bytes))
         log_write(LogLevel::warning, "account_settings", "credential_replace_failed");
     secure_clear_bytes(token, sizeof(token));
 }
@@ -2165,11 +2158,10 @@ __forceinline void action_succeeded(Op op, Utf8View body, Slice<u32> structurals
     case Op::mfa_sms_send: {
         char phone[32];
         const u32 bytes = account_settings_decode_member(body, structurals, utf8_literal("phone"), {phone, sizeof(phone)});
-        g_owner.sms_sent = true;
         g_owner.busy = false;
         message(utf8_literal("We've sent a message to "));
         append(b.message, b.message_bytes, bytes != ~0u ? view(phone, bytes) : utf8_literal("your phone"));
-        form_status(append(b.message, b.message_bytes, utf8_literal(". Please enter the code you received.")), false);
+        form_status(append(b.message, b.message_bytes, utf8_literal(". Please enter the code you received.")));
         return;
     }
     case Op::email_challenge:
@@ -2355,7 +2347,6 @@ bool application_account_settings_response(const RestClientResponse& response, U
                 account_settings_decode_mfa_challenge(body, structurals, &b->mfa, {b->webauthn, sizeof(b->webauthn)},
                                                       &b->webauthn_bytes)) {
                 g_owner.retry = op;
-                g_owner.sms_sent = false;
                 transition(b->mfa.methods == kAccountMfaMethodPassword ? Form::mfa_password : Form::mfa_code);
             } else {
                 b->message_bytes = 0;
@@ -2372,7 +2363,7 @@ bool application_account_settings_response(const RestClientResponse& response, U
                 // A failure after verifying cannot reuse the spent ticket: the flow ends with it.
                 if (g_owner.form_shown && !g_owner.verified) {
                     g_owner.busy = false;
-                    form_status(reason, true);
+                    form_status(reason);
                 } else
                     finish(reason, true);
             }
@@ -2470,7 +2461,7 @@ void application_account_settings_release() noexcept {
 AccountSettingsConnection application_account_settings_connection() noexcept {
     const auto& host = g_app.account;
     const auto& status = host.status;
-    if (!host.instance || host.stop_failed || !g_app.account_ui || !host.api.account_settings || status.failed)
+    if (!host.instance || host.stop_failed || !g_app.account_ui || status.failed)
         return AccountSettingsConnection::offline;
     if (status.required_action != AccountRequirement::none)
         return AccountSettingsConnection::action_required;

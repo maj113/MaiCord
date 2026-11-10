@@ -97,7 +97,7 @@ bool resolve_paths(ApplicationAccountLogout& owner) noexcept {
 void cancel_server(ApplicationAccountLogout& owner) noexcept {
     if (!owner.request_id || owner.cancelled)
         return;
-    g_app.account.api.logout(owner.source_instance, AccountLogoutOperation::cancel, owner.request_id, nullptr);
+    account_module_logout(owner.source_instance, AccountLogoutOperation::cancel, owner.request_id, nullptr);
     owner.cancelled = true;
 }
 void start_stop(ApplicationAccountLogout& owner) noexcept {
@@ -283,7 +283,7 @@ bool application_account_logout_available() noexcept {
     if (application_account_logout_locked())
         return false;
     return g_app.account_ui && !g_app.login.visible && g_app.account.instance &&
-           !g_app.account.stop_failed && g_app.account.api.logout && g_app.account.status.profile_id &&
+           !g_app.account.stop_failed && g_app.account.status.profile_id &&
            g_app.account_ui->chat_state.self_user_id;
 }
 bool application_account_logout_open() noexcept {
@@ -352,7 +352,7 @@ void application_account_logout_pump() noexcept {
         }
     }
     if (owner->phase == LogoutPhase::admission && deadline_due(now, owner->admission_due)) {
-        const auto admitted = g_app.account.api.logout(owner->source_instance, AccountLogoutOperation::begin,
+        const auto admitted = account_module_logout(owner->source_instance, AccountLogoutOperation::begin,
                                                        owner->request_id, nullptr);
         if (admitted.submit_error == RestClientSubmitError::busy) {
             owner->admission_due = deadline_after(now, kLogoutAdmissionRetryMilliseconds);
@@ -368,7 +368,7 @@ void application_account_logout_pump() noexcept {
     }
     if (owner->phase == LogoutPhase::server && deadline_due(now, owner->admission_due)) {
         AccountLogoutResponse response{};
-        const auto taken = g_app.account.api.logout(owner->source_instance, AccountLogoutOperation::take,
+        const auto taken = account_module_logout(owner->source_instance, AccountLogoutOperation::take,
                                                     owner->request_id, &response);
         if (!taken.consumed) {
             owner->admission_due = deadline_after(now, kLogoutAdmissionRetryMilliseconds);

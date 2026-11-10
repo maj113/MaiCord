@@ -404,7 +404,7 @@ void test_decoders() noexcept {
         R"("actions":[{"type":2,"metadata":{"channel_id":"5"}}],"trigger_metadata":{},"enabled":false,)"
         R"("exempt_roles":[],"exempt_channels":[]}])");
     const bool decoded = automod_rules_decode(body, {scratch, 4096}, {rules, 3}, &count, &pool).ok();
-    const auto words = automod_rule_list(pool, rules[0].keywords_at, rules[0].keywords_bytes, rules[0].keyword_count);
+    const AutoModList words{{pool_bytes + rules[0].keywords_at, rules[0].keywords_bytes}, rules[0].keyword_count};
     check(decoded && count == 2 && rules[0].id == 969 && rules[0].creator_id == 423 &&
               rules[0].actions == (automod_action_block | automod_action_alert | automod_action_timeout) &&
               rules[0].alert_channel_id == 123 && rules[0].timeout_seconds == 60 &&

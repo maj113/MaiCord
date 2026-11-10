@@ -36,8 +36,8 @@ bool message_attachment_storage_write(ConstSlice<UploadedAttachment> attachments
     return true;
 }
 bool message_attachment_storage_read(ConstSlice<u8> storage, Slice<UploadedAttachment> output, u32* count, Slice<u64> sizes) noexcept {
-    if (count) *count = 0;
-    if (!count || !storage.data || !storage.count || !output.data || (sizes.count && !sizes.data)) return false;
+    *count = 0;
+    if (!storage.data || !storage.count || !output.data || (sizes.count && !sizes.data)) return false;
     u32 used = 0, items = 0;
     while (used < storage.count) {
         if (items >= output.count || items >= kAttachmentUploadMaximumCount || sizeof(Header) > storage.count - used) return false;

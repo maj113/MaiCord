@@ -110,7 +110,6 @@ u64 member_list_channel_id(const ChatStateStore& state, u64 channel_id) noexcept
 
 u64 member_list_channel_cached_id(MemberListIdentityCache* cache,
                                  const ChatStateStore& state, u64 channel_id) noexcept {
-    if (!cache) return 0;
     if (cache->channel_id != channel_id || cache->channel_mutations != state.channel_mutations ||
         cache->permission_mutations != state.permission_mutations) {
         cache->channel_id = channel_id;
@@ -123,7 +122,7 @@ u64 member_list_channel_cached_id(MemberListIdentityCache* cache,
 
 bool member_list_subscription_select(MemberListSubscriptionRetry* retry, u64 guild_id, u64 channel_id,
                                      u64 now_ms) noexcept {
-    if (!retry || now_ms == 0 || ((guild_id == 0) != (channel_id == 0))) {
+    if (now_ms == 0 || ((guild_id == 0) != (channel_id == 0))) {
         return false;
     }
     reset_value<MemberListSubscriptionRetry>(retry);
@@ -143,7 +142,7 @@ bool member_list_subscription_due(const MemberListSubscriptionRetry& retry, u64 
 }
 
 bool member_list_subscription_fail(MemberListSubscriptionRetry* retry, u64 now_ms) noexcept {
-    if (!retry || retry->guild_id == 0 || retry->channel_id == 0 || now_ms == 0) {
+    if (retry->guild_id == 0 || retry->channel_id == 0 || now_ms == 0) {
         return false;
     }
     saturating_increment(retry->failures);
@@ -152,9 +151,7 @@ bool member_list_subscription_fail(MemberListSubscriptionRetry* retry, u64 now_m
 }
 
 void member_list_subscription_complete(MemberListSubscriptionRetry* retry) noexcept {
-    if (retry) {
-        reset_value<MemberListSubscriptionRetry>(retry);
-    }
+    reset_value<MemberListSubscriptionRetry>(retry);
 }
 
 namespace {
@@ -188,7 +185,7 @@ bool retain_page_window(const GatewayMemberSubscriptionRange* requested, u32 req
 bool member_list_subscription_viewport(MemberListSubscriptionRetry* retry,
     u64 guild_id, u64 channel_id, u32 logical_count, u32 first_visible,
     u32 visible_rows, bool visible, u64 now_ms) noexcept {
-    if (!retry || !now_ms) return false;
+    if (!now_ms) return false;
     if (!visible || !guild_id || !channel_id || !visible_rows) {
         member_list_subscription_complete(retry);
         return true;
@@ -233,7 +230,6 @@ bool member_list_subscription_viewport(MemberListSubscriptionRetry* retry,
 }
 
 void member_list_subscription_sent(MemberListSubscriptionRetry* retry) noexcept {
-    if (!retry) return;
     retry->sent_range_count = retry->range_count;
     for (u32 i = 0; i < retry->range_count; ++i) retry->sent_ranges[i] = retry->ranges[i];
     retry->retry_at_ms = 0;
@@ -241,7 +237,7 @@ void member_list_subscription_sent(MemberListSubscriptionRetry* retry) noexcept 
 }
 
 void member_list_subscription_refresh(MemberListSubscriptionRetry* retry, u64 now_ms) noexcept {
-    if (!retry || !now_ms || !retry->guild_id || !retry->channel_id) return;
+    if (!now_ms || !retry->guild_id || !retry->channel_id) return;
     retry->sent_range_count = 0;
     retry->retry_at_ms = now_ms;
     retry->failures = 0;
@@ -250,7 +246,7 @@ void member_list_subscription_refresh(MemberListSubscriptionRetry* retry, u64 no
 bool member_list_channel_memory_subscribe(MemberListChannelMemory* memory, u64 guild_id, u64 channel_id,
                                           const GatewayMemberSubscriptionRange* ranges, u32 range_count,
                                           bool list_lost, GatewayGuildSubscription* frame) noexcept {
-    if (!memory || !frame || !guild_id || !channel_id || !ranges || !range_count ||
+    if (!guild_id || !channel_id || !ranges || !range_count ||
         range_count > kGatewayMemberSubscriptionMaximumRanges)
         return false;
     MemberListRememberedGuild* guild = nullptr;
@@ -314,8 +310,6 @@ bool member_list_channel_memory_subscribe(MemberListChannelMemory* memory, u64 g
 
 void member_list_channel_memory_connection(MemberListChannelMemory* memory, bool fresh,
                                            u64 shown_guild_id) noexcept {
-    if (!memory)
-        return;
     if (fresh)
         for (auto& guild : memory->guilds)
             if (guild.guild_id != shown_guild_id || !shown_guild_id)
@@ -325,7 +319,7 @@ void member_list_channel_memory_connection(MemberListChannelMemory* memory, bool
 
 bool thread_member_list_subscription_select(ThreadMemberListSubscriptionRetry* retry,
     u64 guild_id, u64 thread_id, bool visible, u64 now_ms) noexcept {
-    if (!retry || !now_ms || (visible && ((guild_id == 0) != (thread_id == 0)))) return false;
+    if (!now_ms || (visible && ((guild_id == 0) != (thread_id == 0)))) return false;
     if (!visible) guild_id = thread_id = 0;
     if (retry->guild_id == guild_id && retry->thread_id == thread_id) return true;
     retry->guild_id = guild_id;
@@ -337,7 +331,7 @@ bool thread_member_list_subscription_select(ThreadMemberListSubscriptionRetry* r
 
 bool thread_member_list_subscription_command(const ThreadMemberListSubscriptionRetry& retry,
     u64 now_ms, ThreadMemberListSubscriptionCommand* command) noexcept {
-    if (!command || !retry.retry_at_ms || now_ms < retry.retry_at_ms) return false;
+    if (!retry.retry_at_ms || now_ms < retry.retry_at_ms) return false;
     if (retry.sent_guild_id && retry.sent_guild_id != retry.guild_id)
         *command = {retry.sent_guild_id, 0};
     else if (retry.guild_id && retry.thread_id)
@@ -348,7 +342,7 @@ bool thread_member_list_subscription_command(const ThreadMemberListSubscriptionR
 
 bool thread_member_list_subscription_fail(ThreadMemberListSubscriptionRetry* retry, u64 now_ms) noexcept {
     ThreadMemberListSubscriptionCommand command{};
-    if (!retry || !now_ms || !thread_member_list_subscription_command(*retry, now_ms, &command)) return false;
+    if (!now_ms || !thread_member_list_subscription_command(*retry, now_ms, &command)) return false;
     saturating_increment(retry->failures);
     retry->retry_at_ms = deadline_after(now_ms, retry_delay(retry->failures));
     return true;
@@ -356,7 +350,7 @@ bool thread_member_list_subscription_fail(ThreadMemberListSubscriptionRetry* ret
 
 void thread_member_list_subscription_sent(ThreadMemberListSubscriptionRetry* retry,
     const ThreadMemberListSubscriptionCommand& command, u64 now_ms) noexcept {
-    if (!retry || !command.guild_id || !now_ms) return;
+    if (!command.guild_id || !now_ms) return;
     // Admission is synchronous today, but the command identity remains explicit
     // so an older accepted request cannot erase a newer desired selection.
     if (!command.thread_id) {
@@ -374,13 +368,13 @@ void thread_member_list_subscription_sent(ThreadMemberListSubscriptionRetry* ret
 }
 
 void thread_member_list_subscription_refresh(ThreadMemberListSubscriptionRetry* retry, u64 now_ms) noexcept {
-    if (retry && now_ms && (retry->guild_id || retry->sent_guild_id)) {
+    if (now_ms && (retry->guild_id || retry->sent_guild_id)) {
         retry->retry_at_ms = now_ms;
         retry->failures = 0;
     }
 }
 void thread_member_list_subscription_complete(ThreadMemberListSubscriptionRetry* retry) noexcept {
-    if (retry) reset_value(retry);
+    reset_value(retry);
 }
 
 } // namespace maicord

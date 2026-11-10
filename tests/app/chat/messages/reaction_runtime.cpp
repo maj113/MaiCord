@@ -1,6 +1,7 @@
 #include "shell/state.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/account_module_fake.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -113,8 +114,8 @@ bool seed() noexcept {
     g_app.account.status.profile_id = 20;
     g_app.plugin_account_scope_serial = 10;
     g_app.login.visible = false;
-    g_app.account.api.message_reaction = submit;
-    g_app.account.api.message_search = cancel;
+    g_account_fake.message_reaction = submit;
+    g_account_fake.message_search = cancel;
     g_app.account_ui->chat_state.self_user_id = 5;
     g_app.account_ui->active_channel_id = 70;
     chat_state_store_select_channel(&g_app.account_ui->chat_state, 70);

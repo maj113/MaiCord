@@ -55,7 +55,7 @@ LocalVideoPosterStep local_video_poster_metadata(ProgressiveSource* source, Loca
 
 bool local_video_poster_service(ProgressiveSource* source, LocalVideoPosterReader* reader,
                                 LocalVideoPosterStep* step) noexcept {
-    if (!source || !reader || !step)
+    if (!source || !reader)
         return false;
     // One sparse source, one video reader: the refused range is the next need.
     const auto plan = progressive_schedule(*source, {}, false);

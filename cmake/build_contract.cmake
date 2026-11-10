@@ -201,12 +201,6 @@ set(maicord_sdk_includes "$<BOOL:$<TARGET_PROPERTY:MAICORD_SDK_INCLUDES>>")
 target_include_directories(maicord_compile_contract INTERFACE
     "$<$<NOT:${maicord_sdk_includes}>:${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/sys/libc>")
 target_compile_definitions(maicord_compile_contract INTERFACE "$<${maicord_sdk_includes}:MAICORD_SDK_INCLUDES>")
-# The tests' own objects and library twins (MAICORD_TEST_CODEGEN) call the account module through a table they can fill
-# (include/maicord/app/account/account_host.hpp), and reach the other in-process seams with one shipped implementation
-# (MAICORD_TEST_SEAMS: go_live_stream.hpp, ...) through a table or hook of their own; everything shipped calls them
-# through constant tables the whole-program link folds into direct calls.
-target_compile_definitions(maicord_compile_contract INTERFACE
-    "$<$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>:MAICORD_ACCOUNT_API_TABLE;MAICORD_TEST_SEAMS>")
 target_compile_options(maicord_compile_contract INTERFACE
     "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:${maicord_sdk_includes}>>:${maicord_clang}-nostdinc>")
 target_compile_features(maicord_compile_contract INTERFACE cxx_std_23)
@@ -236,8 +230,7 @@ if(MAICORD_LINUX)
         # uses is part of the same baseline there; clang needs it named).
         "$<$<COMPILE_LANGUAGE:CXX>:-mavx;-maes;-mpclmul>"
         "$<$<COMPILE_LANGUAGE:C,CXX>:-O2>" "$<$<COMPILE_LANGUAGE:CXX>:-finline-hint-functions>"
-        # MAICORD_NO_WHOLE_PROGRAM: no LTO, for code kept outside it in an image that links with it.
-        "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>"
+        "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>"
         "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>"
         "$<$<COMPILE_LANGUAGE:CXX>:${maicord_warning_exceptions}>")
     # clang 24 reports #embed in C++ under -Wc++26-extensions (clang 23 under -Wc23-extensions, which the targets that
@@ -277,10 +270,9 @@ else()
         $<$<COMPILE_LANGUAGE:CXX>:/Brepro>
         $<$<COMPILE_LANGUAGE:ASM_MASM>:/Brepro>)
     target_compile_options(maicord_compile_contract INTERFACE
-        # MAICORD_INLINE_ANY: /Ob2 instead. MAICORD_NO_WHOLE_PROGRAM: no LTO, for
-        # code kept outside it in an image that links with it.
+        # MAICORD_INLINE_ANY: /Ob2 instead.
         "$<$<COMPILE_LANGUAGE:CXX>:/O2;/Ob$<IF:$<BOOL:$<TARGET_PROPERTY:MAICORD_INLINE_ANY>>,2,1>>"
-        $<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>
+        $<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>
         # Compact C++ EH metadata (FH4).
         $<$<COMPILE_LANGUAGE:CXX>:/d2FH4>
         "$<$<COMPILE_LANGUAGE:CXX>:${maicord_warning_exceptions}>"

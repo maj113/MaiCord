@@ -6,7 +6,7 @@ namespace maicord {
 AccountVideoResult account_video_session_control(AccountVideoSession* s, const AccountVideoIdentity& id,
                                                  u64 serial, AccountVideoCommand command, i64 target,
                                                  float volume, bool muted) noexcept {
-    if (!s || !thread(*s) || !serial ||
+    if (!thread(*s) || !serial ||
         static_cast<u32>(command) > static_cast<u32>(AccountVideoCommand::stop))
         return refused(s, id, serial, AccountVideoError::invalid_input);
     if (!account_video_identity_equal(s->status.identity, id) || serial <= s->status.desired_command)
@@ -65,7 +65,7 @@ AccountVideoResult account_video_session_control(AccountVideoSession* s, const A
     return result(AccountVideoError::none, 0, true, s->status.observed_command == serial);
 }
 void account_video_session_source_failed(AccountVideoSession* s) noexcept {
-    if (s && thread(*s) && s->status.error == AccountVideoError::none)
+    if (thread(*s) && s->status.error == AccountVideoError::none)
         terminal(*s, AccountVideoError::demux);
 }
 
@@ -236,7 +236,7 @@ AccountVideoService account_video_session_service(AccountVideoSession* s, bool (
 }
 bool account_video_session_acknowledge(AccountVideoSession* s, const AccountVideoIdentity& id, u64 epoch,
                                        u64 serial) noexcept {
-    if (!s || !thread(*s) || !account_video_identity_equal(s->status.identity, id) ||
+    if (!thread(*s) || !account_video_identity_equal(s->status.identity, id) ||
         epoch != s->playback_epoch || !s->published || serial != s->status.frame_serial)
         return false;
     if (!drop_frame(*s))
@@ -250,10 +250,10 @@ bool account_video_session_acknowledge(AccountVideoSession* s, const AccountVide
     return true;
 }
 AccountVideoStatus account_video_session_status(const AccountVideoSession* s) noexcept {
-    return s && thread(*s) ? s->status : AccountVideoStatus{};
+    return thread(*s) ? s->status : AccountVideoStatus{};
 }
 AccountVideoAudioProgress account_video_session_audio_progress(const AccountVideoSession* s) noexcept {
-    if (!s || !thread(*s) || !s->workspace)
+    if (!thread(*s) || !s->workspace)
         return {};
     const auto* owner = audio_owner(*s);
     const auto a = media_audio_status(owner);
@@ -262,8 +262,6 @@ AccountVideoAudioProgress account_video_session_audio_progress(const AccountVide
     return {a.observed_epoch, a.written_frames, a.submitted_frames, a.consumed_frames};
 }
 AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 timeout) noexcept {
-    if (!s)
-        return result(AccountVideoError::invalid_input);
     if (!s->initialized && !s->workspace) {
         reset_value(s);
         return result(AccountVideoError::none, 0, true, true);
@@ -296,7 +294,7 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
     return result(AccountVideoError::none, 0, true, true);
 }
 u32 account_video_session_owned_bytes(const AccountVideoSession* s) noexcept {
-    if (!s || !s->workspace)
+    if (!s->workspace)
         return 0;
     if (s->status.kind == AccountPlaybackKind::wave_pcm)
         return sizeof(PcmWorkspace);
@@ -306,19 +304,5 @@ u32 account_video_session_owned_bytes(const AccountVideoSession* s) noexcept {
                ? static_cast<const OpusWorkspace*>(s->workspace)->allocation_bytes
                : sizeof(Workspace);
 }
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-AccountVideoProbeSnapshot account_video_session_probe_snapshot(const AccountVideoSession* s) noexcept {
-    AccountVideoProbeSnapshot out{};
-    if (!s || !thread(*s) || !s->workspace)
-        return out;
-    if (pcm_backed(*s))
-        out.audio = media_audio_status(&pcm_owner(*s).audio);
-    else if (s->status.kind == AccountPlaybackKind::ogg_opus)
-        out.audio = media_audio_status(&static_cast<const OpusWorkspace*>(s->workspace)->audio);
-    else
-        out.audio = media_audio_status(&static_cast<const Workspace*>(s->workspace)->audio);
-    return out;
-}
-#endif
 
 } // namespace maicord

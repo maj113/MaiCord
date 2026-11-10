@@ -17,9 +17,8 @@ bool current(const ApplicationSelfStatusRequest& request,
     return snapshot.available && same_scope(request, snapshot);
 }
 GatewayClientSelfStatusSnapshot backend() noexcept {
-    return g_app.account.instance && g_app.account.api.self_status_snapshot
-               ? g_app.account.api.self_status_snapshot(g_app.account.instance)
-               : GatewayClientSelfStatusSnapshot{};
+    return g_app.account.instance ? account_module_self_status_snapshot(g_app.account.instance)
+                                  : GatewayClientSelfStatusSnapshot{};
 }
 } // namespace
 
@@ -97,11 +96,11 @@ bool application_self_status_pending(u64 now_ms) noexcept {
            request.retry_at_ms <= now_ms;
 }
 bool application_self_status_submit(u64 id, u64 now_ms) noexcept {
-    if (!id || !application_self_status_pending(now_ms) || !g_app.account.api.self_status_submit)
+    if (!id || !application_self_status_pending(now_ms))
         return false;
     auto& request = g_app.self_status;
     const auto operation = request.operation;
-    const auto result = g_app.account.api.self_status_submit(
+    const auto result = account_module_self_status_submit(
         g_app.account.instance, request.profile_id, request.self_user_id, operation, request.desired, id,
         clock_unix_milliseconds());
     if (!result.ok()) {
@@ -129,9 +128,8 @@ bool application_self_status_response(const RestClientResponse& response, Utf8Vi
         return true;
     const bool scope_current = same_scope(request, backend());
     const bool consumed =
-        scope_current && g_app.account.api.self_status_complete &&
-        g_app.account.api.self_status_complete(g_app.account.instance, request.profile_id,
-                                               request.self_user_id, request.request_id, &response, body);
+        scope_current && account_module_self_status_complete(g_app.account.instance, request.profile_id,
+                                                      request.self_user_id, request.request_id, &response, body);
     const bool accepted = consumed && response.transport_ok() && response.status_code >= 200 &&
                           response.status_code < 300 &&
                           backend().last_error == GatewaySelfStatusError::none;

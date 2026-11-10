@@ -1,6 +1,7 @@
 #include "maicord/platform/window/win32.hpp"
 #include "reaction_intent_ui_adapter.hpp"
 #include "shell/state.hpp"
+#include "../support/account_module_fake.hpp"
 #include "chat/messages/mutation_notice.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/chat/reaction_preferences.hpp"
@@ -79,7 +80,7 @@ bool reaction_intent_ui_adapter_begin(HWND window, bool (*native_refresh)(void*)
     g_app.account.instance = next;
     g_app.account.status.running = true;
     g_app.account.status.profile_id = 20;
-    g_app.account.api.message_reaction = submit;
+    g_account_fake.message_reaction = submit;
     g_app.login.visible = false;
     g_app.window = win32_window(window);
     g_app.plugin_account_scope_serial = 10;

@@ -109,7 +109,7 @@ void remember_application(ApplicationProfile& p, u64 id, const Utf8View& icon) n
 // One GET for the public applications (their icons) or a button's metadata.
 bool submit_activity_request(ApplicationProfile& p, u64 now) noexcept {
     auto& host = g_app.account;
-    if (!host.api.profile_get || !g_app.account_ui)
+    if (!g_app.account_ui)
         return false;
     char ids[3 * 21];
     u32 used = 0, count = 0;
@@ -131,9 +131,9 @@ bool submit_activity_request(ApplicationProfile& p, u64 now) noexcept {
     if (++ui.message_history_request_id == 0)
         ++ui.message_history_request_id;
     const auto result =
-        metadata ? host.api.profile_get(host.instance, p.metadata_user, p.metadata_application,
-                                        ui.message_history_request_id, 6, p.metadata_session.view())
-                 : host.api.profile_get(host.instance, p.data.user_id, 0, ui.message_history_request_id, 5, {ids, used});
+        metadata ? account_module_profile_get(host.instance, p.metadata_user, p.metadata_application,
+                                      ui.message_history_request_id, 6, p.metadata_session.view())
+                 : account_module_profile_get(host.instance, p.data.user_id, 0, ui.message_history_request_id, 5, {ids, used});
     if (submit_busy(result, p.retry_at, now, 100))
         return true;
     if (!result.ok()) {
@@ -1223,11 +1223,10 @@ bool application_profile_submit(u64 now) noexcept {
         request.guild_id = p->data.guild_id;
         request.target_id = p->data.user_id;
         request.member = &patch;
-        if (host.api.guild_admin)
-            result = host.api.guild_admin(host.instance, &request, ui.message_history_request_id);
-    } else if (host.api.profile_get) {
-        result = host.api.profile_get(host.instance, effect ? effect_id : p->data.user_id, p->data.guild_id,
-                                      ui.message_history_request_id, effect ? 4 : 0, {});
+        result = account_module_guild_admin(host.instance, &request, ui.message_history_request_id);
+    } else {
+        result = account_module_profile_get(host.instance, effect ? effect_id : p->data.user_id, p->data.guild_id,
+                                    ui.message_history_request_id, effect ? 4 : 0, {});
     }
     if (submit_busy(result, p->retry_at, now, 100))
         return true;

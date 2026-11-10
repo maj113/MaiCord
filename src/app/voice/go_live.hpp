@@ -13,7 +13,7 @@ namespace maicord::app_detail {
 // system's picker on Linux), the stream settings (Stream Mode, resolution and frame rate within the user's Nitro and
 // the server's boosts, stream audio, preview), the stream menu while live (stop, change windows, quality and audio),
 // the local user's own stream tile with its self-preview and viewers, and the errors that end a stream. The stream
-// itself is the account module's GoLiveSession (AccountModuleApi::go_live*).
+// itself is the account module's GoLiveSession (account_module_go_live*).
 
 // The call bar's and the voice card's screen-share button for a call in channel_id.
 UiCallShare application_go_live_share(u64 channel_id) noexcept;
@@ -31,7 +31,6 @@ bool application_go_live_viewers_open(const UiRect& anchor) noexcept;
 void application_go_live_stop() noexcept;
 
 // The dialog (a modal in the popup layer).
-bool application_go_live_modal_active() noexcept;
 void application_go_live_modal_close() noexcept;
 bool application_go_live_modal_synchronize() noexcept;
 bool application_go_live_modal_input(UiInputKind kind, u32 code, bool repeated) noexcept;

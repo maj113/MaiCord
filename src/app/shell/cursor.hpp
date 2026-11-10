@@ -24,7 +24,7 @@ __declspec(noinline) inline void application_set_cursor(UiCursor cursor) noexcep
 // caller that is not handling a pointer event); false when the pointer cannot be read.
 inline bool application_pointer_dip(UiPoint* point) noexcept {
     POINT cursor{};
-    if (!point || !application_cursor_content(&cursor))
+    if (!application_cursor_content(&cursor))
         return false;
     const float scale = 96.f / static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u);
     *point = {static_cast<float>(cursor.x) * scale, static_cast<float>(cursor.y) * scale};

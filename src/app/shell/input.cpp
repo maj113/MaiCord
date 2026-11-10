@@ -65,7 +65,7 @@ bool voice_disconnect_contains(float x, float y) noexcept {
 bool leave_voice() noexcept {
     AccountHost& host = g_app.account;
     const GatewayVoiceStateUpdate leave{g_app.account_ui->voice_session.guild_id, 0, false, false, false};
-    if (!host.instance || !host.api.voice_request || !host.api.voice_request(host.instance, &leave))
+    if (!host.instance || !account_module_voice_request(host.instance, &leave))
         log_write(LogLevel::warning, "voice", "leave_rejected");
     return true;
 }

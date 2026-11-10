@@ -242,10 +242,10 @@ void test_commit_accounting(void (*check)(bool, const char*) noexcept) noexcept 
     GlyphAtlasAllocator atlas{};
     bool ok = glyph_atlas_initialize(&atlas, 256, 512, 0, {entries, 16}, {rows, 16}) &&
               glyph_atlas_configure_paging(&atlas, {512, 2, false, 128, 0, 0, false, {}});
-    const auto first = glyph_atlas_allocate(&atlas, 1, 64, 100);
-    const auto second = glyph_atlas_allocate(&atlas, 2, 64, 100);
+    const auto first = glyph_atlas_allocate_unique(&atlas, 1, 64, 100);
+    const auto second = glyph_atlas_allocate_unique(&atlas, 2, 64, 100);
     const u32 commits_after_one_shelf = atlas.commits;
-    const auto tall = glyph_atlas_allocate(&atlas, 3, 64, 200);
+    const auto tall = glyph_atlas_allocate_unique(&atlas, 3, 64, 200);
     ok = ok && first.ok() && second.ok() && tall.ok() && commits_after_one_shelf == 1 && second.y == first.y &&
          tall.y == 100 && atlas.commits == 3 && glyph_atlas_committed_rows(atlas) == 384;
     glyph_atlas_clear_pins(&atlas);
@@ -266,9 +266,9 @@ void test_commit_accounting(void (*check)(bool, const char*) noexcept) noexcept 
     GlyphAtlasAllocator pages{};
     ok = glyph_atlas_initialize(&pages, 256, 256, 0, {entries, 16}, {rows, 16}) &&
          glyph_atlas_configure_paging(&pages, {256, 2, true, 0, 0, 0, false, {}});
-    const auto top = glyph_atlas_allocate(&pages, 1, 256, 200);
+    const auto top = glyph_atlas_allocate_unique(&pages, 1, 256, 200);
     const u32 one_page = pages.commits;
-    const auto next = glyph_atlas_allocate(&pages, 2, 256, 200);
+    const auto next = glyph_atlas_allocate_unique(&pages, 2, 256, 200);
     glyph_atlas_clear_pins(&pages);
     glyph_atlas_pin(&pages, top.handle);
     glyph_atlas_trim(&pages);
@@ -284,9 +284,9 @@ void test_commit_accounting(void (*check)(bool, const char*) noexcept) noexcept 
     bool glyph_ok = glyph_atlas_initialize(&glyphs, 64, 64, 0, {glyph_entries, 16}, {glyph_rows, 8}) &&
                     glyph_atlas_configure_paging(&glyphs, {64, 1, true, 0, 0, 2'000, true, {}});
     for (u64 key = 1; glyph_ok && key <= 16; ++key)
-        glyph_ok = glyph_atlas_allocate(&glyphs, key, 16, 16).ok();
+        glyph_ok = glyph_atlas_allocate_unique(&glyphs, key, 16, 16).ok();
     glyph_atlas_observe_time(&glyphs, 1'000);
-    const auto burst = glyph_atlas_allocate(&glyphs, 17, 16, 16);
+    const auto burst = glyph_atlas_allocate_unique(&glyphs, 17, 16, 16);
     check(glyph_ok && glyphs.row_count == 4 && burst.ok() && burst.evicted_entries == 4 && burst.y == 0 &&
               !burst.atlas_reset && glyphs.full_resets == 0 && glyph_atlas_find(&glyphs, 5).ok(),
           "atlas_glyph_mode_full_surface_empties_the_oldest_shelf");
@@ -300,11 +300,11 @@ void test_out_of_virtual_space(void (*check)(bool, const char*) noexcept) noexce
     GlyphAtlasAllocator atlas{};
     bool ok = glyph_atlas_initialize(&atlas, 128, 128, 0, {entries, 8}, {rows, 8}) &&
               glyph_atlas_configure_paging(&atlas, {128, 2, false, 128, 0, 0, false, {}});
-    const auto a = glyph_atlas_allocate(&atlas, 1, 128, 128);
-    const auto b = glyph_atlas_allocate(&atlas, 2, 128, 128);
+    const auto a = glyph_atlas_allocate_unique(&atlas, 1, 128, 128);
+    const auto b = glyph_atlas_allocate_unique(&atlas, 2, 128, 128);
     glyph_atlas_clear_pins(&atlas);
     ok = ok && a.ok() && b.ok() && glyph_atlas_pin(&atlas, a.handle) && glyph_atlas_pin(&atlas, b.handle);
-    const auto refused = glyph_atlas_allocate(&atlas, 3, 16, 16);
+    const auto refused = glyph_atlas_allocate_unique(&atlas, 3, 16, 16);
     check(ok && refused.error == GlyphAtlasError::no_capacity && refused.evicted_entries == 0 && !refused.atlas_reset &&
               glyph_atlas_validate(atlas, a.handle) && glyph_atlas_validate(atlas, b.handle) &&
               atlas.full_resets == 0,

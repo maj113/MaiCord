@@ -7,7 +7,6 @@
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "maicord/ui/text/text.hpp"
-#include "maicord/text/layout/paragraph_hits.hpp"
 
 #include "../../../support/test_output.hpp"
 #include "../../../support/ui_scene_fixtures.hpp"

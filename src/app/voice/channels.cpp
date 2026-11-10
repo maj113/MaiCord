@@ -120,7 +120,7 @@ void request_selected_guild() noexcept {
         return;
     auto& host = g_app.account;
     const auto* record = chat_state_store_find_guild(*state, guild);
-    if (!record || record->unavailable || !host.instance || !host.api.channel_info)
+    if (!record || record->unavailable || !host.instance)
         return;
     bool voice = false;
     for (u32 i = 0; i < state->channel_count && !voice; ++i) {
@@ -133,7 +133,7 @@ void request_selected_guild() noexcept {
         vc.skipped_mutations = state->channel_mutations;
         return;
     }
-    host.api.channel_info(host.instance, guild);
+    account_module_channel_info(host.instance, guild);
     vc.asked_guild = guild;
     vc.asked_session = vc.session;
 }

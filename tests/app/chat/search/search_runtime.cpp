@@ -1,6 +1,7 @@
 // Compile the shipping controller once in this isolated executable. Private
 // ownership is visible here without adding a shipping diagnostic/test hook.
 #include "../../../../src/app/chat/search/search.cpp"
+#include "../../../support/account_module_fake.hpp"
 #include "../../../../src/app/chat/search/search_results.cpp"
 #include "../../../../src/app/chat/search/search_filters.cpp"
 #include "../../../../src/app/chat/search/search_actions.cpp"
@@ -265,8 +266,8 @@ bool initialize() noexcept {
     g_app.account.instance = &account;
     g_app.account.status.profile_id = 1;
     g_app.plugin_account_scope_serial = 1;
-    g_app.account.api.message_search = submit;
-    g_app.account.api.message_ack = acknowledge;
+    g_account_fake.message_search = submit;
+    g_account_fake.message_ack = acknowledge;
     window_focus(g_app.window);
     g_window_state.keyboard_focus = true;
     return application_search_synchronize();
