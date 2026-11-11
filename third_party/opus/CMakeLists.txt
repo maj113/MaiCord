@@ -19,7 +19,10 @@ set(maiopus_definitions
     OPUS_BUILD FIXED_POINT DISABLE_FLOAT_API USE_ALLOCA CUSTOM_SUPPORT "PACKAGE_VERSION=\"1.6.1\"")
 # Upstream C keeps its own warning level. No CRT libraries, security cookie,
 # heap or float math path. clang-cl (the Windows build) takes MSVC-style options; the Linux build's clang the
-# GNU-style ones: the optimization levels below are the same, spelled for each.
+# GNU-style ones: the size levels are the same, spelled for each (clang-cl's /O1 is -Os; GNU -O1 is not a size level,
+# and under LTO it inlined like -O2: 34 KB more client code and a 3% slower encode, the decode unchanged). The Linux
+# speed levels keep clang's full inlining instead of /Ob1: hint-only inlining made the Linux decode 0.5-3.3% and the
+# encode 21% slower.
 if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     set(maiopus_options /W3 /Zl /GS- /Gy /Gw /GF /Oi /utf-8 /Brepro)
     set(maiopus_decoder_options /O2 /Ob1 /clang:-fstrict-aliasing)
@@ -29,7 +32,7 @@ if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
 else()
     set(maiopus_options -w -fno-builtin-strlen -fno-math-errno -ffunction-sections -fdata-sections)
     set(maiopus_decoder_options -O2 -fstrict-aliasing)
-    set(maiopus_size_options -O1)
+    set(maiopus_size_options -Os)
     set(maiopus_smallest_options -Oz)
     set(maiopus_speed_options -O2)
 endif()
