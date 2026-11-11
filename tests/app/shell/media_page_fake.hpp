@@ -13,6 +13,8 @@ struct Page {
     app_detail::MediaPageKind kind;
     u8 title_bytes;
     char title[40];
+    u8 source_bytes;
+    char source[96];
 };
 inline Page pages[app_detail::kMediaPageCapacity + 1];
 // The page that shows, 0 for none.
@@ -64,6 +66,8 @@ u8 application_media_page_open(const MediaPageSource& source) noexcept {
         page = {true, false, source.kind, 0, {}};
         page.title_bytes = static_cast<u8>(source.title.bytes < sizeof(page.title) ? source.title.bytes : sizeof(page.title));
         copy_bytes(page.title, source.title.data, page.title_bytes);
+        page.source_bytes = static_cast<u8>(source.source.bytes < sizeof(page.source) ? source.source.bytes : sizeof(page.source));
+        copy_bytes(page.source, source.source.data, page.source_bytes);
         return id;
     }
     return 0;
@@ -96,6 +100,9 @@ MediaPageKind application_media_page_kind(u8 id) noexcept {
 }
 Utf8View application_media_page_title(u8 id) noexcept {
     return {media_page_fake::pages[id].title, media_page_fake::pages[id].title_bytes};
+}
+Utf8View application_media_page_source(u8 id) noexcept {
+    return {media_page_fake::pages[id].source, media_page_fake::pages[id].source_bytes};
 }
 bool application_media_page_missing(u8 id) noexcept {
     return media_page_fake::pages[id].missing;

@@ -933,6 +933,7 @@ Utf8View viewer_button(u32 index, const UiImageViewer& v) noexcept {
     case ui_image_viewer_next: return utf8_literal("Next");
     case ui_image_viewer_jump: return utf8_literal("Jump to message");
     case ui_image_viewer_retry: return utf8_literal("Retry");
+    case ui_image_viewer_new_tab: return utf8_literal("Open in new tab");
     default: return {};
     }
 }

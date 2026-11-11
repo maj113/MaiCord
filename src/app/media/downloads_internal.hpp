@@ -120,6 +120,8 @@ bool open_sticker_context(const DownloadSource& source, const UiRect& anchor) no
 bool embed_context(float x, float y, UiRect anchor) noexcept;
 bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noexcept;
 void copy_link(const Utf8View& link) noexcept;
+bool tab_available(const DownloadSource& source) noexcept;
+void open_in_tab(const DownloadSource& source) noexcept;
 
 } // namespace downloads_detail
 } // namespace maicord::app_detail

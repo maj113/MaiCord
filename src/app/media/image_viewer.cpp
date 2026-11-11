@@ -12,7 +12,8 @@
 #include "../shell/content_input.hpp"
 #include "policy.hpp"
 #include "../shell/input.hpp"
-#include "video.hpp"
+#include "video_internal.hpp"
+#include "../shell/tabs.hpp"
 #include "../shell/window.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/media/atlas.hpp"
@@ -323,6 +324,13 @@ void activate(u32 index) noexcept {
         if (const Utf8View url = current_url(); url.bytes)
             application_open_content_url(url);
         return;
+    case ui_image_viewer_new_tab: {
+        // The page copies what the viewer shows, then shows itself, which closes the viewer.
+        MediaPageSource page;
+        if (application_image_viewer_page_source(&page))
+            application_tabs_open_media(page, false);
+        return;
+    }
     case ui_image_viewer_copy:
         copy_image();
         return;
@@ -425,8 +433,50 @@ void open_local(const MessageRecord& message, MessageHandle handle, bool snapsho
     if (!begin(request))
         application_image_viewer_close();
 }
-// The line under a media page's title, composed by application_image_viewer_page_source.
+// The line under a media page's title: "#channel · Server · author", each part that is known. The view stays
+// valid until the next call.
 char g_page_source_line[192];
+Utf8View page_source_line(u64 channel_id, u64 author_id) noexcept {
+    u32 bytes = 0;
+    const auto append = [&](Utf8View prefix, Utf8View part) noexcept {
+        if (!part.bytes)
+            return;
+        const Utf8View separator = bytes ? utf8_literal(" \xC2\xB7 ") : Utf8View{};
+        const u32 room = sizeof(g_page_source_line) - bytes;
+        if (separator.bytes + prefix.bytes >= room)
+            return;
+        copy_bytes(g_page_source_line + bytes, separator.data, separator.bytes);
+        copy_bytes(g_page_source_line + bytes + separator.bytes, prefix.data, prefix.bytes);
+        bytes += separator.bytes + prefix.bytes;
+        const u32 kept = utf8_truncated_length(part, sizeof(g_page_source_line) - bytes);
+        copy_bytes(g_page_source_line + bytes, part.data, kept);
+        bytes += kept;
+    };
+    const auto& chat = g_app.account_ui->chat_state;
+    const auto* channel = chat_state_store_find_channel(chat, channel_id);
+    const auto* guild = channel && channel->guild_id ? chat_state_store_find_guild(chat, channel->guild_id) : nullptr;
+    const auto* author = user_store_find(g_app.account_ui->user_store, author_id);
+    if (channel)
+        append(guild ? utf8_literal("#") : Utf8View{}, chat_state_store_channel_name(chat, *channel));
+    if (guild)
+        append({}, chat_state_store_guild_name(chat, *guild));
+    if (author)
+        append({}, user_store_name(g_app.account_ui->user_store, *author));
+    return {g_page_source_line, bytes};
+}
+// The tier a video's poster is requested at: the inline card's, so the page shows its cached first frame until
+// decoded frames replace it under the same key.
+MediaResolutionTier page_video_tier(u32 source_width, u32 source_height) noexcept {
+    float width = 400, height = 225;
+    if (source_width && source_height) {
+        const float scale = minimum(1.0f, minimum(550.0f / source_width, 350.0f / source_height));
+        width = source_width * scale;
+        height = source_height * scale;
+    }
+    return media_presentation_request(source_width, source_height, width, height, g_app.renderer.dpi,
+                                      media_preview_extent_cap(MediaAttachmentFormat::mp4))
+        .resolution;
+}
 } // namespace
 UiImageViewerKey application_image_viewer_key(u32 code) noexcept {
     switch (code) {
@@ -499,32 +549,7 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
         title = item_caption(source, *item);
     if (!title.bytes)
         title = item->video ? utf8_literal("Video") : utf8_literal("Image");
-    // "#channel · Server · author", each part that is known.
-    u32 bytes = 0;
-    const auto append = [&](Utf8View prefix, Utf8View part) noexcept {
-        if (!part.bytes)
-            return;
-        const Utf8View separator = bytes ? utf8_literal(" \xC2\xB7 ") : Utf8View{};
-        const u32 room = sizeof(g_page_source_line) - bytes;
-        if (separator.bytes + prefix.bytes >= room)
-            return;
-        copy_bytes(g_page_source_line + bytes, separator.data, separator.bytes);
-        copy_bytes(g_page_source_line + bytes + separator.bytes, prefix.data, prefix.bytes);
-        bytes += separator.bytes + prefix.bytes;
-        const u32 kept = utf8_truncated_length(part, sizeof(g_page_source_line) - bytes);
-        copy_bytes(g_page_source_line + bytes, part.data, kept);
-        bytes += kept;
-    };
-    const auto& chat = g_app.account_ui->chat_state;
-    const auto* channel = chat_state_store_find_channel(chat, viewer.channel_id);
-    const auto* guild = channel && channel->guild_id ? chat_state_store_find_guild(chat, channel->guild_id) : nullptr;
-    const auto* author = user_store_find(g_app.account_ui->user_store, source.message->author_id);
-    if (channel)
-        append(guild ? utf8_literal("#") : Utf8View{}, chat_state_store_channel_name(chat, *channel));
-    if (guild)
-        append({}, chat_state_store_guild_name(chat, *guild));
-    if (author)
-        append({}, user_store_name(g_app.account_ui->user_store, *author));
+    const Utf8View line = page_source_line(viewer.channel_id, source.message->author_id);
     const bool embed = item->kind == MessageSceneRichItemKind::embed;
     *out = {item->video ? MediaPageKind::video : MediaPageKind::image,
             static_cast<u8>((embed ? media_page_embed : 0) | (viewer.attachment_snapshot ? media_page_snapshot : 0) |
@@ -532,7 +557,7 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
                             (item->video && embed_collection_url(url) ? media_page_playlist : 0)),
             url,
             title,
-            {g_page_source_line, bytes},
+            line,
             item->key,
             item->fallback,
             item->pixels,
@@ -540,6 +565,135 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
             viewer.message_id,
             source.message->author_id,
             viewer.message_revision};
+    return true;
+}
+bool application_image_viewer_item_page_source(u64 message_id, u32 revision, bool snapshot, bool embed, u64 item,
+                                               MediaPageSource* out) noexcept {
+    if (!g_app.account_ui || g_app.login.visible)
+        return false;
+    const auto found = message_store_find(g_app.message_view.store, message_id);
+    const auto* message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto& store = g_app.account_ui->message_rich_store;
+    const auto* rich = !message ? nullptr
+                       : snapshot ? message_rich_store_snapshot(store, message_id)
+                                  : message_rich_store_find(store, message_id);
+    if (!rich || message->revision != revision || rich->message_revision != revision ||
+        message->channel_id != g_app.account_ui->active_channel_id ||
+        !application_channel_readable(g_app, message->channel_id))
+        return false;
+    const u32 dpi = g_app.renderer.dpi;
+    Utf8View url{}, title{};
+    MediaAssetKey key{}, fallback{};
+    UiSize pixels{};
+    MediaPageKind kind = MediaPageKind::image;
+    u8 flags = snapshot ? media_page_snapshot : 0;
+    if (!embed) {
+        u32 index = 0;
+        while (index < rich->attachment_count && rich->attachments[index].id != item)
+            ++index;
+        if (index == rich->attachment_count)
+            return false;
+        const auto& attachment = rich->attachments[index];
+        const auto format = message_rich_attachment_format(store, attachment);
+        const auto audio = message_rich_attachment_audio_format(store, attachment);
+        url = message_rich_store_string(store, attachment.url);
+        title = message_rich_store_string(store, attachment.filename);
+        if (attachment.width && attachment.height)
+            pixels = {static_cast<float>(attachment.width), static_cast<float>(attachment.height)};
+        if (media_attachment_format_audio_supported(audio)) {
+            kind = MediaPageKind::audio;
+            key = fallback = media_asset_attachment(attachment.id, audio, MediaResolutionTier::original);
+        } else if (format == MediaAttachmentFormat::mp4) {
+            kind = MediaPageKind::video;
+            key = fallback = media_asset_attachment(attachment.id, format, page_video_tier(attachment.width, attachment.height));
+        } else if (format != MediaAttachmentFormat::unknown && format != MediaAttachmentFormat::lottie) {
+            float width = 0, height = 0;
+            if (!message_rich_attachment_preview_extent(store, attachment, 550, &width, &height))
+                width = 400, height = 225;
+            if (!ui_size_valid(pixels))
+                pixels = {width, height};
+            fallback = media_asset_attachment(
+                attachment.id, format,
+                media_resolution_tier_for_display(width, height, dpi, media_preview_extent_cap(format)));
+            key = media_asset_attachment(attachment.id, format,
+                                         media_preview_extent_cap(format) > 512 ? MediaResolutionTier::px2048
+                                                                                : MediaResolutionTier::px512);
+        } else {
+            return false;
+        }
+    } else {
+        if (item >= rich->embed_count || item > 0xFF)
+            return false;
+        const u8 index = static_cast<u8>(item);
+        const auto& value = rich->embeds[index];
+        flags |= media_page_embed;
+        title = message_rich_store_string(store, value.title);
+        MessageRichEmbedMediaSelection media{};
+        if (value.type != GatewayMessageEmbedType::gifv && message_rich_embed_playback_select(store, value, &media) &&
+            (media.format == MediaAttachmentFormat::mp4 || media_embed_audio_format_supported(media.format))) {
+            // A provider or direct video or audio; its playlist is recovered from the message as the player does.
+            kind = media.format == MediaAttachmentFormat::mp4 ? MediaPageKind::video : MediaPageKind::audio;
+            key = fallback = media_asset_embed(message_id, revision, index, media.resource, media.format, media.animated,
+                                               page_video_tier(media.media->width, media.media->height), snapshot);
+            InlineMediaSource playing{};
+            playing.key = key;
+            playing.message_id = message_id;
+            playing.channel_id = message->channel_id;
+            playing.revision = revision;
+            playing.index = index;
+            playing.embed = true;
+            playing.snapshot = snapshot;
+            u32 width = 0, height = 0;
+            if (!video_detail::resolve_message_video_url(playing, &url, &width, &height))
+                return false;
+            if (width && height)
+                pixels = {static_cast<float>(width), static_cast<float>(height)};
+            flags |= (media.provider ? media_page_provider : 0) | (embed_collection_url(url) ? media_page_playlist : 0);
+        } else {
+            MessageRichEmbedGalleryPlace place{};
+            const bool tile = message_rich_embed_gallery_place(store, *rich, index, &place);
+            MessageRichEmbedMediaSelection selected{};
+            if ((!tile && message_rich_embed_merge_host(store, *rich, index) != index) ||
+                !(tile ? message_rich_embed_gallery_select(store, value, &selected)
+                       : message_rich_embed_media_select(store, value, &selected)) ||
+                selected.format == MediaAttachmentFormat::unknown ||
+                (selected.format == MediaAttachmentFormat::mp4 && value.type != GatewayMessageEmbedType::gifv))
+                return false;
+            url = selected.source;
+            pixels = selected.media->width && selected.media->height
+                         ? UiSize{static_cast<float>(selected.media->width), static_cast<float>(selected.media->height)}
+                         : UiSize{400, 225};
+            const float scale = minimum(1.0f, minimum(400.0f / pixels.width, 300.0f / pixels.height));
+            const u16 cap = media_preview_extent_cap(selected.format, selected.animated);
+            fallback = media_asset_embed(message_id, revision, index, selected.resource, selected.format,
+                                         selected.animated,
+                                         media_resolution_tier_for_display(pixels.width * scale, pixels.height * scale,
+                                                                           dpi, cap),
+                                         snapshot);
+            key = media_asset_embed(message_id, revision, index, selected.resource, selected.format, selected.animated,
+                                    cap > 512 ? MediaResolutionTier::px2048 : MediaResolutionTier::px512, snapshot);
+        }
+    }
+    if (!url.bytes || !media_asset_key_valid(key))
+        return false;
+    if (!out)
+        return true;
+    if (!title.bytes)
+        title = kind == MediaPageKind::video   ? utf8_literal("Video")
+                : kind == MediaPageKind::audio ? utf8_literal("Audio")
+                                               : utf8_literal("Image");
+    *out = {kind,
+            flags,
+            url,
+            title,
+            page_source_line(message->channel_id, message->author_id),
+            key,
+            fallback,
+            pixels,
+            message->channel_id,
+            message_id,
+            message->author_id,
+            revision};
     return true;
 }
 bool application_image_viewer_source(ApplicationSearchSourceView* out) noexcept {
@@ -736,7 +890,10 @@ bool application_image_viewer_synchronize() noexcept {
                          : application_downloads_available(viewer.message_id, viewer.attachment_id,
                                                            viewer.attachment_snapshot));
     ui_image_viewer_set_save_available(&scene, save);
-    ui_image_viewer_set_actions(&scene, ui_image_viewer_action_open | ui_image_viewer_action_copy);
+    ui_image_viewer_set_actions(&scene, ui_image_viewer_action_open | ui_image_viewer_action_copy |
+                                            (application_tabs_visible() && application_image_viewer_page_source(nullptr)
+                                                 ? ui_image_viewer_action_tab
+                                                 : 0));
     ui_image_viewer_set_fullscreen(&scene, viewer.fullscreen);
     ui_image_viewer_set_chrome(&scene, current_video() ? application_video_viewer_chrome() : 1.0f);
     if (!current_video()) {

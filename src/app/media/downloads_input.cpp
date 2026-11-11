@@ -254,6 +254,8 @@ bool application_downloads_context_action(u32 action) noexcept {
         const Utf8View link{q->menu_link, q->menu_link_bytes};
         if (action == kReceivedAttachmentActionSave)
             return begin_source(source);
+        if (action == kReceivedAttachmentActionOpenInTab)
+            open_in_tab(source);
         if (action == kReceivedAttachmentActionCopyLink)
             copy_link(link);
         if (action == kReceivedAttachmentActionOpenLink)
@@ -266,6 +268,9 @@ bool application_downloads_context_action(u32 action) noexcept {
     case kReceivedAttachmentActionCopyImage:
         if (q->menu_kind == ReceivedAttachmentKind::image)
             copy_image(source, q->menu_format);
+        return true;
+    case kReceivedAttachmentActionOpenInTab:
+        open_in_tab(source);
         return true;
     case kReceivedAttachmentActionCopyLink:
         copy_link(url);

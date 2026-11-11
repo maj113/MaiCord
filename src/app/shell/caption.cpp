@@ -534,6 +534,8 @@ void application_caption_describe_tabs(UiAccessTree* tree, u32 parent, u8 surfac
                                                                                                : Utf8View{};
         if (media.bytes)
             ui_access_set_help(tree, tab, item.flags & kUiTabMissing ? utf8_literal("Media unavailable") : media);
+        else if (item.flags & kUiTabUnread)
+            ui_access_set_help(tree, tab, utf8_literal("Unread messages"));
         if (item.flags & kUiTabPlaying) {
             const UiTabHit icon{UiTabHitKind::icon, static_cast<u8>(i)};
             add(tab, UiAccessRole::button, icon, ui_tab_strip_icon(layout.tabs, i), ui_tab_strip_hit_name(*tabs, icon), 0,

@@ -642,6 +642,26 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
                         d3d11_renderer_caption_builds(renderer) != builds + 1)
                         return fail(150);
                 }
+                if (w == 1 && c == 1) {
+                    // An unread tab (not the active one) wears a dot of the lit ink on its icon's upper right; the
+                    // pixel there changes and the strip builds once for it. Captured for review.
+                    const UiRect glyph = ui_tab_strip_icon(bar.tabs, 1);
+                    const u32 dot_x = px(glyph.right), dot_y = px(glyph.top);
+                    const Pixel before = read(image, dot_x, dot_y);
+                    const u32 before_builds = d3d11_renderer_caption_builds(renderer);
+                    tabs.items[1].flags = kUiTabUnread;
+                    ProbeTargetReadback unread{};
+                    if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+                        probe_target_readback(renderer, &unread))
+                        return fail(156);
+                    if (equal(read(unread, dot_x, dot_y), before) ||
+                        !matches(read(unread, dot_x, dot_y), over(tokens.text, background), 6) ||
+                        d3d11_renderer_caption_builds(renderer) != before_builds + 1)
+                        return fail(157);
+                    if (!probe_write_capture(unread, L"titlebar_tabs_1000_5_unread.bmp"))
+                        return fail(158);
+                    tabs.items[1].flags = 0;
+                }
             }
         }
         UiCaptionBarState off{none, none, true, false, UiCaptionUpdate::hidden, false, 0};

@@ -9,7 +9,7 @@ inline constexpr u32 kMessageContextMaximumExtraItems = 8;
 inline constexpr u32 kMessageContextMaximumExtraLabelBytes = 128;
 // A right-clicked attachment's media and link groups, placed after the message
 // sections and before the developer-mode Copy ID.
-inline constexpr u32 kMessageContextMaximumMediaItems = 4;
+inline constexpr u32 kMessageContextMaximumMediaItems = 5;
 inline constexpr u32 kMessageContextMaximumPopupItems =
     kMessageContextMaximumItems + kMessageContextMaximumMediaItems + kMessageContextMaximumExtraItems;
 

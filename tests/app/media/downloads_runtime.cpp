@@ -57,6 +57,11 @@ UiSearchSource search_source{};
 UiSearchContent search_content{};
 UiSearchScene search_scene{};
 u32 confirmations, media_refreshes;
+// The title bar tabs as the menus see them: shown or not, whether a page can show the item, and what was opened.
+bool tabs_on, page_ok = true, tab_background, tab_embed;
+u32 tab_opens, tab_revision;
+u64 tab_message, tab_item;
+MediaPageKind tab_kind;
 MessageExplicitFilter media_filter = MessageExplicitFilter::show;
 bool media_reveal_allowed = true;
 MessageMediaOwner queried_owner{};
@@ -661,6 +666,63 @@ void media_admission_tests() noexcept {
     media_reveal_allowed = true;
     scene = {};
 }
+// "Open in new tab": the row follows the tab setting and the media kind, and the action opens the page through the
+// same spoiler and age gate as opening the media.
+void tab_entry_tests() noexcept {
+    auto& scene = g_app.message_scene;
+    tab_opens = 0;
+    MessageTimeline timeline{};
+    timeline.store = &g_app.message_view.store;
+    scene.timeline = &timeline;
+    scene.media_policy = {nullptr, query_media, 1};
+    const char* image[]{"Copy Image", "Save Image", "Copy Image Link", "Open Image Link"};
+    check(!tabs_on && open_menu(520, 620) && labels_are(image, 4) && !row_action("Open in new tab"),
+          "Attachment tab entry: no row while tabs are off");
+    tabs_on = true;
+    const char* image_tab[]{"Copy Image", "Save Image", "Open in new tab", "Copy Image Link", "Open Image Link"};
+    const char* gif_tab[]{"Save Image", "Open in new tab", "Copy Media Link", "Open Media Link"};
+    const char* video_tab[]{"Save Video", "Open in new tab", "Copy Media Link", "Open Media Link"};
+    const char* audio_tab[]{"Save File", "Open in new tab", "Copy Link", "Open Link"};
+    const char* file[]{"Save File", "Copy Link", "Open Link"};
+    check(open_menu(520, 620) && labels_are(image_tab, 5) && open_menu(521, 621) && labels_are(gif_tab, 4) &&
+              open_menu(522, 622) && labels_are(video_tab, 4) && open_menu(523, 623) && labels_are(audio_tab, 4) &&
+              open_menu(524, 624) && labels_are(audio_tab, 4) && open_menu(525, 625) && labels_are(file, 3),
+          "Attachment tab entry: images, gifs, videos, audio and voice messages get the row, files do not");
+    page_ok = false;
+    check(open_menu(520, 620) && labels_are(image, 4),
+          "Attachment tab entry: media a page cannot show has no row");
+    page_ok = true;
+
+    check(open_menu(522, 622) && application_downloads_context_action(row_action("Open in new tab")) &&
+              tab_opens == 1 && !tab_background && !tab_embed && tab_message == 522 && tab_item == 622 &&
+              tab_kind == MediaPageKind::video && tab_revision == g_app.downloads->menu.revision &&
+              !g_app.popup_scene.active,
+          "Attachment tab entry: the action shows a page of the captured attachment in a new tab");
+    check(!application_downloads_context_action(kReceivedAttachmentActionOpenInTab) && tab_opens == 1,
+          "Attachment tab entry: a consumed menu cannot open again");
+
+    // The gate: blocked media opens nothing; a blurred item is revealed by this activation, not opened, and the
+    // next activation opens it.
+    auto* rich =
+        const_cast<MessageRichRecord*>(message_rich_store_find(g_app.account_ui->message_rich_store, 520));
+    if (!rich)
+        return;
+    rich->attachments[0].flags |= kGatewayMediaExplicitFlag;
+    media_filter = MessageExplicitFilter::block;
+    check(open_menu(520, 620) && application_downloads_context_action(row_action("Open in new tab")) &&
+              tab_opens == 1 && !scene.media_reveals.count,
+          "Attachment tab entry: blocked explicit media never becomes a tab");
+    media_filter = MessageExplicitFilter::blur;
+    check(open_menu(520, 620) && application_downloads_context_action(row_action("Open in new tab")) &&
+              tab_opens == 1 && scene.media_reveals.count == 1,
+          "Attachment tab entry: blurred media is revealed by the activation, not opened");
+    check(open_menu(520, 620) && application_downloads_context_action(row_action("Open in new tab")) &&
+              tab_opens == 2 && tab_item == 620,
+          "Attachment tab entry: revealed media opens on the next activation");
+    media_filter = MessageExplicitFilter::show;
+    rich->attachments[0].flags = 0;
+    scene = {};
+}
 void run() noexcept {
     g_app.window = window_test::open();
     g_app.account_ui = static_cast<AccountUiRuntime*>(
@@ -1017,6 +1079,15 @@ void run() noexcept {
           "Downloads embed menu Save queues the proxied media");
     cancel_job(*q, 0);
     dismiss_all();
+    // An embed's menu offers the tab row too, and the action asks for the embed by its index.
+    tabs_on = true;
+    menu_row_count = 0;
+    const u32 tab_opens_before = tab_opens;
+    check(open_embed_context(embed_source, utf8_literal("https://media.tenor.com/wave.mp4"), {10, 10, 11, 11}) &&
+              row_action("Open in new tab") && application_downloads_context_action(row_action("Open in new tab")) &&
+              tab_opens == tab_opens_before + 1 && tab_embed && tab_item == 0 && tab_message == 503,
+          "Downloads embed menu opens the embed as a page in a new tab while tabs show");
+    tabs_on = false;
     check(message_store_initialize(&search_store, {search_records, 4}, {search_order, 4},
                                    {search_text, sizeof(search_text)}) &&
               message_rich_store_initialize(&search_rich, {search_rich_records, 8}, {search_rich_order, 4},
@@ -1167,6 +1238,7 @@ void run() noexcept {
           "Downloads account retirement drains and releases all scoped paths");
     save_target_tests();
     attachment_menu_tests();
+    tab_entry_tests();
     check(application_downloads_release() && !g_app.downloads,
           "Downloads attachment menu owner releases cleanly");
     media_admission_tests();
@@ -1365,6 +1437,34 @@ bool application_received_attachment_open(u64 message_id, u64 attachment_id, u64
     opened_message = message_id;
     opened_attachment = attachment_id;
     opened_origin = origin;
+    return true;
+}
+bool application_tabs_visible() noexcept {
+    return downloads_runtime_test::tabs_on;
+}
+bool application_tabs_open_media(const MediaPageSource& source, bool background) noexcept {
+    using namespace downloads_runtime_test;
+    ++tab_opens;
+    tab_background = background;
+    tab_kind = source.kind;
+    tab_message = source.message_id;
+    tab_revision = source.revision;
+    return true;
+}
+bool application_image_viewer_item_page_source(u64 message_id, u32 revision, bool, bool embed, u64 item,
+                                               MediaPageSource* out) noexcept {
+    using namespace downloads_runtime_test;
+    if (!page_ok)
+        return false;
+    if (!out)
+        return true;
+    tab_embed = embed;
+    tab_item = item;
+    *out = {};
+    out->kind = item == 622 || embed ? MediaPageKind::video : MediaPageKind::image;
+    out->url = utf8_literal("https://cdn.discordapp.com/attachments/101/1/a.bin");
+    out->message_id = message_id;
+    out->revision = revision;
     return true;
 }
 } // namespace app_detail

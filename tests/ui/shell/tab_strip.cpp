@@ -127,6 +127,13 @@ void hits_and_labels() noexcept {
               ui_tab_strip_hit_name(v, {UiTabHitKind::close, 2}).bytes && ui_tab_strip_hit_name(v, {UiTabHitKind::plus, 0}).bytes &&
               ui_tab_strip_hit_name(v, {UiTabHitKind::overflow, 0}).bytes && !ui_tab_strip_hit_name(v, {}).bytes,
           "tooltip texts");
+    // A tab that says more in its tooltip (its server) shows that text; the others keep their label.
+    UiTabStripView named = v;
+    named.items[1].tooltip = utf8_literal("general \xC2\xB7 Server");
+    check(utf8_equal(ui_tab_strip_hit_name(named, {UiTabHitKind::tab, 1}), named.items[1].tooltip) &&
+              utf8_equal(ui_tab_strip_hit_name(named, {UiTabHitKind::tab, 2}), utf8_literal("general")) &&
+              utf8_equal(ui_tab_strip_hit_name(named, {UiTabHitKind::close, 1}), utf8_literal("Close tab")),
+          "a tooltip text replaces the tab's label in its tooltip only");
     const UiTabLabel label = ui_tab_strip_label(l, 0);
     check(label.limit > 0 && label.limit < l.slot_width[0] && label.left > l.left[0],
           "a wide tab's label sits between its icon and its close button");
@@ -281,6 +288,12 @@ void stamp() noexcept {
     w = v;
     w.count = 2;
     check(ui_tab_strip_stamp(w) != base, "the count changes it");
+    w = v;
+    w.items[1].flags |= kUiTabUnread;
+    check(ui_tab_strip_stamp(w) != base, "the unread state changes it");
+    w = v;
+    w.items[1].tooltip = utf8_literal("general \xC2\xB7 Server");
+    check(ui_tab_strip_stamp(w) == base, "a tooltip text draws nothing, so it leaves it");
 }
 
 void painting() noexcept {
@@ -318,6 +331,23 @@ void painting() noexcept {
     faded.items[3].flags = kUiTabMissing;
     check(ui_tab_strip_ink(theme, faded, l, 3, true).alpha < ui_tab_strip_ink(theme, v, l, 3, true).alpha,
           "an unreachable channel is dimmed");
+    // Unread: one 6 DIP dot on the icon's upper right.
+    const u32 plain = paint.count;
+    UiTabStripView unread = v;
+    unread.items[1].flags |= kUiTabUnread;
+    const UiRect glyph = ui_tab_strip_icon(l, 1);
+    check(paint_stream_reset(&paint, 1000, kBottom) &&
+              ui_tab_strip_paint(&paint, theme, ui_tab_strip_layout(strip, unread), unread, true, 1) &&
+              paint.count == plain + 1,
+          "an unread tab adds one quad");
+    // The dot is the only 6 x 6 quad: the icons are 16 and the buttons 24 or more.
+    bool dotted = false;
+    for (u32 i = 0; i < paint.count; ++i) {
+        const auto& dot = paint.quads[i];
+        dotted = dotted || (near(dot.right - dot.left, 6) && near(dot.bottom - dot.top, 6) &&
+                            near((dot.left + dot.right) * .5f, glyph.right) && near((dot.top + dot.bottom) * .5f, glyph.top));
+    }
+    check(dotted, "the dot sits on the icon's upper right corner");
     paint_stream_release(&paint);
 }
 

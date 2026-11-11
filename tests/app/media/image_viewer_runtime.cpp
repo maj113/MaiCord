@@ -271,6 +271,152 @@ bool seed_timeline(UiPoint* inside) noexcept {
                static_cast<float>(static_cast<i16>(node->rectangle.top)) + 6};
     return true;
 }
+// A message's items as media pages (the menus' "Open in new tab"): kind, keys, URL, title and flags of attachments and
+// embeds, and no page for a file, a stale revision or an unknown item.
+struct ItemFixture {
+    MessageRecord records[4];
+    u32 order[4];
+    u8 text[512];
+    MessageRichRecord rich_records[8];
+    u16 rich_order[4];
+    u8 rich_text[8192];
+} item_fixture;
+bool seed_items() noexcept {
+    auto& f = item_fixture;
+    auto& store = g_app.account_ui->message_rich_store;
+    if (!message_store_initialize(&g_app.message_view.store, {f.records, 4}, {f.order, 4}, {f.text, sizeof(f.text)}) ||
+        !message_rich_store_initialize(&store, {f.rich_records, 8}, {f.rich_order, 4},
+                                       {f.rich_text, sizeof(f.rich_text)}))
+        return false;
+    const auto apply = [&](u64 id, const GatewayMessageEvent& event) noexcept {
+        const auto inserted = message_store_upsert(&g_app.message_view.store, {id, 999, 3, 0, 0, utf8_literal(""), 0});
+        const auto* record = inserted.ok() ? message_store_resolve(g_app.message_view.store, inserted.handle) : nullptr;
+        return record && message_rich_store_apply(&store, id, record->revision, event).ok();
+    };
+    GatewayMessageAttachment attachments[5]{};
+    const auto describe = [&](u32 index, u64 id, Utf8View name, Utf8View type, Utf8View url, u32 width, u32 height) noexcept {
+        auto& a = attachments[index];
+        a.id = id;
+        a.size = 9;
+        a.filename = name;
+        a.content_type = type;
+        a.url = url;
+        a.width = width;
+        a.height = height;
+        a.has_width = width != 0;
+        a.has_height = height != 0;
+    };
+    describe(0, 930, utf8_literal("photo.png"), utf8_literal("image/png"),
+             utf8_literal("https://cdn.discordapp.com/attachments/999/930/photo.png?ex=1&is=2&hm=3"), 640, 480);
+    describe(1, 931, utf8_literal("clip.mp4"), utf8_literal("video/mp4"),
+             utf8_literal("https://cdn.discordapp.com/attachments/999/931/clip.mp4?ex=1&is=2&hm=3"), 1280, 720);
+    describe(2, 932, utf8_literal("song.mp3"), utf8_literal("audio/mpeg"),
+             utf8_literal("https://cdn.discordapp.com/attachments/999/932/song.mp3?ex=1&is=2&hm=3"), 0, 0);
+    describe(3, 933, utf8_literal("notes.txt"), utf8_literal("text/plain"),
+             utf8_literal("https://cdn.discordapp.com/attachments/999/933/notes.txt?ex=1&is=2&hm=3"), 0, 0);
+    GatewayMessageEvent files{};
+    files.id = 820;
+    files.fields = gateway_message_field_attachments;
+    files.attachments = {attachments, 4};
+    GatewayMessageEmbed gif{};
+    gif.type = GatewayMessageEmbedType::gifv;
+    gif.url = utf8_literal("https://tenor.com/view/wave");
+    gif.title = utf8_literal("Wave");
+    gif.thumbnail.url = utf8_literal("https://media.tenor.com/wave.png");
+    gif.thumbnail.content_type = utf8_literal("image/png");
+    gif.video.url = utf8_literal("https://media.tenor.com/wave.mp4");
+    gif.video.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/wave.mp4");
+    gif.video.content_type = utf8_literal("video/mp4");
+    gif.thumbnail.width = gif.video.width = 498;
+    gif.thumbnail.height = gif.video.height = 280;
+    gif.thumbnail.has_width = gif.thumbnail.has_height = gif.video.has_width = gif.video.has_height = true;
+    GatewayMessageEvent gifv{};
+    gifv.id = 821;
+    gifv.fields = gateway_message_field_embeds;
+    gifv.embeds = {&gif, 1};
+    GatewayMessageEmbed provider[2]{};
+    provider[0].type = GatewayMessageEmbedType::video;
+    provider[0].url = provider[0].video.url = utf8_literal("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc123");
+    provider[0].title = utf8_literal("Mix");
+    provider[0].thumbnail.url = utf8_literal("https://images-ext-1.discordapp.net/external/poster.jpg");
+    provider[0].thumbnail.content_type = utf8_literal("image/jpeg");
+    provider[0].thumbnail.width = provider[0].video.width = 1280;
+    provider[0].thumbnail.height = provider[0].video.height = 720;
+    provider[0].thumbnail.has_width = provider[0].thumbnail.has_height = provider[0].video.has_width =
+        provider[0].video.has_height = true;
+    provider[1].type = GatewayMessageEmbedType::rich;
+    provider[1].url = utf8_literal("https://example.com/post");
+    provider[1].image.url = utf8_literal("https://cdn.discordapp.com/attachments/777/902/preview.png");
+    provider[1].image.width = 320;
+    provider[1].image.height = 240;
+    provider[1].image.has_width = provider[1].image.has_height = true;
+    GatewayMessageEvent embeds{};
+    embeds.id = 822;
+    embeds.fields = gateway_message_field_embeds;
+    embeds.embeds = {provider, 2};
+    describe(4, 934, utf8_literal("voice-message.ogg"), utf8_literal("audio/ogg"),
+             utf8_literal("https://cdn.discordapp.com/attachments/999/934/voice-message.ogg?ex=1&is=2&hm=3"), 0, 0);
+    GatewayMessageEvent voice{};
+    voice.id = 823;
+    voice.fields = gateway_message_field_attachments;
+    voice.attachments = {&attachments[4], 1};
+    return apply(820, files) && apply(821, gifv) && apply(822, embeds) && apply(823, voice);
+}
+u32 live_revision(u64 id) noexcept {
+    const auto found = message_store_find(g_app.message_view.store, id);
+    const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    return record ? record->revision : 0;
+}
+void item_page_source_tests() noexcept {
+    check(seed_items(), "Item pages: a live message with files, an animation, a provider video and a voice message");
+    MediaPageSource page{};
+    check(application_image_viewer_item_page_source(820, live_revision(820), false, false, 930, &page) &&
+              page.kind == MediaPageKind::image && !page.flags && utf8_equal(page.title, utf8_literal("photo.png")) &&
+              utf8_starts_with(page.url, utf8_literal("https://cdn.discordapp.com/attachments/999/930/photo.png")) &&
+              media_asset_key_equal(page.key, media_asset_attachment(930, MediaAttachmentFormat::png,
+                                                                      MediaResolutionTier::px2048)) &&
+              media_asset_key_valid(page.fallback) && page.pixels.width == 640 && page.pixels.height == 480 &&
+              page.channel_id == 999 && page.message_id == 820 && page.author_id == 3 &&
+              page.revision == live_revision(820),
+          "Item pages: an image attachment is an image page with the viewer's 2048 tier, its URL and title");
+    check(application_image_viewer_item_page_source(820, live_revision(820), false, false, 931, &page) &&
+              page.kind == MediaPageKind::video && media_asset_attachment_format(page.key) == MediaAttachmentFormat::mp4 &&
+              page.key.id == 931 && page.pixels.width == 1280 && page.pixels.height == 720 &&
+              utf8_equal(page.title, utf8_literal("clip.mp4")),
+          "Item pages: a video attachment is a video page");
+    check(application_image_viewer_item_page_source(820, live_revision(820), false, false, 932, &page) &&
+              page.kind == MediaPageKind::audio &&
+              media_attachment_format_audio_supported(media_asset_attachment_format(page.key)) && page.key.id == 932,
+          "Item pages: an audio attachment is an audio page");
+    check(application_image_viewer_item_page_source(823, live_revision(823), false, false, 934, &page) &&
+              page.kind == MediaPageKind::audio && page.key.id == 934,
+          "Item pages: a voice message is an audio page");
+    check(!application_image_viewer_item_page_source(820, live_revision(820), false, false, 933, &page) &&
+              !application_image_viewer_item_page_source(820, live_revision(820), false, false, 99, &page) &&
+              !application_image_viewer_item_page_source(820, live_revision(820) + 1, false, false, 930, &page) &&
+              !application_image_viewer_item_page_source(820, live_revision(820), true, false, 930, &page) &&
+              !application_image_viewer_item_page_source(999, 1, false, false, 930, &page) &&
+              application_image_viewer_item_page_source(820, live_revision(820), false, false, 930, nullptr) &&
+              !application_image_viewer_item_page_source(820, live_revision(820), false, false, 933, nullptr),
+          "Item pages: a file, an unknown item, a stale revision, a missing snapshot or message give no page, and "
+          "a null destination only answers");
+    check(application_image_viewer_item_page_source(821, live_revision(821), false, true, 0, &page) &&
+              page.kind == MediaPageKind::image && (page.flags & media_page_embed) && !(page.flags & media_page_provider) &&
+              page.key.kind == MediaAssetKind::embed && media_asset_embed_index(page.key) == 0 &&
+              media_asset_embed_format(page.key) == MediaAttachmentFormat::mp4 && utf8_equal(page.title, utf8_literal("Wave")) &&
+              page.url.bytes,
+          "Item pages: a GIF embed is an image page of its looping video");
+    check(application_image_viewer_item_page_source(822, live_revision(822), false, true, 0, &page) &&
+              page.kind == MediaPageKind::video && (page.flags & media_page_embed) && (page.flags & media_page_provider) &&
+              (page.flags & media_page_playlist) && media_asset_embed_index(page.key) == 0 &&
+              utf8_starts_with(page.url, utf8_literal("https://www.youtube.com/")),
+          "Item pages: a provider video playlist embed is a video page that keeps its playlist and provider flags");
+    check(application_image_viewer_item_page_source(822, live_revision(822), false, true, 1, &page) &&
+              page.kind == MediaPageKind::image && (page.flags & media_page_embed) && media_asset_embed_index(page.key) == 1 &&
+              page.pixels.width == 320 && page.pixels.height == 240 &&
+              !application_image_viewer_item_page_source(822, live_revision(822), false, true, 2, &page),
+          "Item pages: an embed's picture is an image page, and a missing embed none");
+}
 void run() noexcept {
     check_media_context();
     g_app.account_ui = static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -681,6 +827,7 @@ void run() noexcept {
         g_app.renderer.zoom_lens = nullptr;
         chat_zoom.ctrl = false;
     }
+    item_page_source_tests();
     hosted_video_key = {};
     ui_search_scene_release(&search_scene);
     g_app.renderer.search_scene = nullptr;
@@ -729,6 +876,27 @@ bool application_video_key(UINT, bool, bool) noexcept { return false; }
 float application_video_viewer_chrome() noexcept { return 1; }
 void application_video_viewer_activity() noexcept {}
 bool application_video_viewer_url(Utf8View*, bool*) noexcept { return false; }
+namespace video_detail {
+// What the player resolves for an embed: the playback URL its message's embed selects.
+bool resolve_message_video_url(const InlineMediaSource& source, Utf8View* url, u32* width, u32* height) noexcept {
+    const auto& store = g_app.account_ui->message_rich_store;
+    const auto* rich = message_rich_store_find(store, source.message_id);
+    MessageRichEmbedMediaSelection media{};
+    if (!rich || !source.embed || source.index >= rich->embed_count ||
+        !message_rich_embed_playback_select(store, rich->embeds[source.index], &media))
+        return false;
+    *url = media.source;
+    *width = media.media->width;
+    *height = media.media->height;
+    return true;
+}
+} // namespace video_detail
+bool application_tabs_visible() noexcept {
+    return false;
+}
+bool application_tabs_open_media(const MediaPageSource&, bool) noexcept {
+    return false;
+}
 bool g_window_fullscreen;
 bool application_window_fullscreen() noexcept { return g_window_fullscreen; }
 bool application_window_set_fullscreen(bool on) noexcept {

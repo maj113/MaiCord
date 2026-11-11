@@ -21,12 +21,15 @@ enum UiImageViewerButton : u32 {
     // Page mode only: the header's Jump to message and the unavailable state's Retry.
     ui_image_viewer_jump,
     ui_image_viewer_retry,
+    // Message viewer only (never on a page): turns the item into a page in a new title bar tab.
+    ui_image_viewer_new_tab,
     ui_image_viewer_button_count
 };
 // Optional actions; each hidden action is unfocusable and paints nothing.
 enum UiImageViewerAction : u8 {
     ui_image_viewer_action_open = 1u << 1,
     ui_image_viewer_action_copy = 1u << 2,
+    ui_image_viewer_action_tab = 1u << 3,
 };
 enum class UiImageViewerMedia : u8 { ready, loading, failed };
 enum class UiImageViewerPageKind : u8 { image, video, audio };

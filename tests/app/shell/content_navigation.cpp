@@ -387,12 +387,75 @@ void tab_pruning_tests() noexcept {
     g_app.preferences.tabs_enabled = false;
     application_tabs_reset();
 }
+// The unread dot, the tooltip's server name, and a media tab's whole life through the strip.
+void tab_polish_tests() noexcept {
+    check(reset() && chat_state_store_upsert_channel(&ui->chat_state, {50, 0, 0, utf8_literal("DM"), 0, 0, 3}).ok(),
+          "tab polish: fixture resets");
+    auto& state = ui->chat_state;
+    state.self_user_id = 99;
+    g_app.preferences.tabs_enabled = true;
+    const ChannelMemoryTab saved[]{saved_tab(20, 10, "Parent"), saved_tab(21, 10, "Other")};
+    channel_memory_set_tabs(&tab_memory, {saved, 2});
+    const UiTabStripView* view = tab_view();
+    check(view && view->count == 2 && !(view->items[0].flags & kUiTabUnread) && !(view->items[1].flags & kUiTabUnread),
+          "tab polish: read channels have no dot");
+    // The sidebar's unread state marks the tab, except the one that shows.
+    check(chat_state_store_note_message(&state, 20, 5000, 7, false, false) &&
+              chat_state_store_note_message(&state, 21, 5001, 7, false, false) &&
+              (tab_view()->items[0].flags & kUiTabUnread) && !(tab_view()->items[1].flags & kUiTabUnread) &&
+              (tab_view()->items[1].flags & kUiTabActive),
+          "tab polish: an unread channel's tab carries the dot, and the tab that shows never does");
+    check(application_tabs_activate(0) && !(tab_view()->items[0].flags & kUiTabUnread) &&
+              (tab_view()->items[1].flags & kUiTabUnread),
+          "tab polish: the dot moves with the tab that shows");
+    check(chat_state_store_note_message(&state, 21, 5002, 7, false, true) && !(tab_view()->items[1].flags & kUiTabUnread),
+          "tab polish: reading the channel clears its dot");
+    check(chat_state_store_note_message(&state, 21, 5003, 7, false, false) && (tab_view()->items[1].flags & kUiTabUnread) &&
+              chat_state_store_set_channel_mute(&state, 21, true, false) && !(tab_view()->items[1].flags & kUiTabUnread),
+          "tab polish: a muted channel keeps no dot");
+
+    // The tooltip names the server after the channel; a conversation has none, and the hover alone asks for it.
+    const bool parent_tip = tab_view({UiTabHitKind::tab, 0})->items[0].tooltip.bytes != 0;
+    const UiTabStripView* hovered = tab_view({UiTabHitKind::tab, 1});
+    check(parent_tip && utf8_equal(hovered->items[1].tooltip, utf8_literal("Other \xC2\xB7 Guild")) &&
+              !hovered->items[0].tooltip.bytes && !tab_view()->items[1].tooltip.bytes,
+          "tab polish: the hovered channel tab's tooltip adds its server's name");
+    check(application_tabs_open_channel(50, true) && !tab_view({UiTabHitKind::tab, 2})->items[2].tooltip.bytes &&
+              utf8_equal(tab_view({UiTabHitKind::tab, 2})->items[2].label, utf8_literal("DM")),
+          "tab polish: a conversation's tooltip is its label alone");
+
+    // A media tab: the tooltip adds the line under its title, and the tab opens, hides on a channel switch, returns and
+    // closes with its page.
+    MediaPageSource clip = media_page_fake::source(MediaPageKind::video, "clip.mp4");
+    clip.source = utf8_literal("#general \xC2\xB7 Guild \xC2\xB7 Maj");
+    const u32 media_at = application_tabs_count();
+    check(application_tabs_open_media(clip, false) && media_page_fake::shown != 0 && tab_view()->count == media_at + 1 &&
+              (tab_view()->items[media_at].flags & kUiTabActive) && !(tab_view()->items[0].flags & kUiTabActive) &&
+              utf8_equal(tab_view({UiTabHitKind::tab, static_cast<u8>(media_at)})->items[media_at].tooltip,
+                         utf8_literal("clip.mp4 \xC2\xB7 #general \xC2\xB7 Guild \xC2\xB7 Maj")),
+          "tab probe: a media tab opens, shows its page and names its source in the tooltip");
+    check(application_tabs_activate(0) && !media_page_fake::shown && ui->chat_state.selected_channel_id == 20 &&
+              (tab_view()->items[0].flags & kUiTabActive) && !(tab_view()->items[media_at].flags & kUiTabActive) &&
+              media_page_fake::open_pages() == 1,
+          "tab probe: switching channel hides the page and keeps its tab");
+    check(application_tabs_activate(media_at) && media_page_fake::shown != 0 &&
+              ui->chat_state.selected_channel_id == 20 && (tab_view()->items[media_at].flags & kUiTabActive) &&
+              !(tab_view()->items[0].flags & kUiTabActive),
+          "tab probe: returning to the tab shows the page again over the same channel");
+    check(application_tabs_close(media_at) && !media_page_fake::shown && !media_page_fake::open_pages() &&
+              tab_view()->count == media_at && ui->chat_state.selected_channel_id == 20 &&
+              (tab_view()->items[0].flags & kUiTabActive),
+          "tab probe: closing the tab closes its page and shows the channel under it");
+    g_app.preferences.tabs_enabled = false;
+    application_tabs_reset();
+}
 void tests() noexcept {
     cursor_tests();
     context_point_tests();
     home_tests();
     tabs_tests();
     tab_pruning_tests();
+    tab_polish_tests();
     check(reset(), "content navigation: real Core fixture initializes");
     g_app.pending_message_jump_channel_id = 21;
     g_app.pending_message_jump_message_id = 800;

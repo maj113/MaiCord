@@ -123,6 +123,8 @@ inline bool shown(const UiImageViewer& v, u32 index) noexcept {
         return v.can_save;
     case ui_image_viewer_open_original:
         return (v.actions & ui_image_viewer_action_open) != 0;
+    case ui_image_viewer_new_tab:
+        return (v.actions & ui_image_viewer_action_tab) != 0 && !v.page;
     case ui_image_viewer_copy:
         return (v.actions & ui_image_viewer_action_copy) != 0 && !v.video;
     case ui_image_viewer_fullscreen:
@@ -138,12 +140,13 @@ inline bool shown(const UiImageViewer& v, u32 index) noexcept {
         return true;
     }
 }
-// Right-to-left toolbar: Close, Save, Copy, Open, Jump (pages) | Fit, Zoom in,
+// Right-to-left toolbar: Close, Save, Copy, Open, Open in new tab, Jump (pages) | Fit, Zoom in,
 // Zoom out, Full screen. Narrow viewports drop the view group from its far end
 // first; its keys keep working.
 constexpr u32 kToolbarOrder[]{ui_image_viewer_close,  ui_image_viewer_save,    ui_image_viewer_copy,
-                              ui_image_viewer_open_original, ui_image_viewer_jump, ui_image_viewer_fit,
-                              ui_image_viewer_zoom_in, ui_image_viewer_zoom_out, ui_image_viewer_fullscreen};
+                              ui_image_viewer_open_original, ui_image_viewer_new_tab, ui_image_viewer_jump,
+                              ui_image_viewer_fit, ui_image_viewer_zoom_in, ui_image_viewer_zoom_out,
+                              ui_image_viewer_fullscreen};
 // The unavailable state's icon, under it its line of text, then Retry.
 constexpr float kStateText = 20;
 bool place_controls(UiImageViewer* v) noexcept {
@@ -272,7 +275,8 @@ bool ui_image_viewer_open(UiImageViewer* v, const UiRect& viewport, UiSize pixel
     const Utf8View labels[]{utf8_literal("Zoom out"),      utf8_literal("Zoom in"),    utf8_literal("Fit image"),
                             utf8_literal("Close image"),   utf8_literal("Save image"), utf8_literal("Open original"),
                             utf8_literal("Copy image"),    utf8_literal("Full screen"), utf8_literal("Previous"),
-                            utf8_literal("Next"),          utf8_literal("Jump to message"), utf8_literal("Retry")};
+                            utf8_literal("Next"),          utf8_literal("Jump to message"), utf8_literal("Retry"),
+                            utf8_literal("Open in new tab")};
     for (u32 i = 0; i < ui_image_viewer_button_count; ++i) {
         const bool chevron = i == ui_image_viewer_previous || i == ui_image_viewer_next;
         const bool retry = i == ui_image_viewer_retry;
@@ -324,7 +328,7 @@ bool ui_image_viewer_set_save_available(UiImageViewer* v, bool available) noexce
 }
 bool ui_image_viewer_set_actions(UiImageViewer* v, u8 actions) noexcept {
     if (!v || !v->active) return false;
-    actions &= ui_image_viewer_action_open | ui_image_viewer_action_copy;
+    actions &= ui_image_viewer_action_open | ui_image_viewer_action_copy | ui_image_viewer_action_tab;
     if (v->actions == actions) return true;
     v->actions = actions;
     if (!place_controls(v)) return false;
@@ -537,6 +541,7 @@ Utf8View ui_image_viewer_tooltip(const UiImageViewer& v, u32 index) noexcept {
     case ui_image_viewer_next: return utf8_literal("Next (\xE2\x86\x92)");
     case ui_image_viewer_jump:
         return v.page_info.can_jump ? utf8_literal("Jump to message") : utf8_literal("Message unavailable");
+    case ui_image_viewer_new_tab: return utf8_literal("Open in new tab");
     case ui_image_viewer_retry: return utf8_literal("Retry");
     default: return {};
     }
@@ -709,6 +714,10 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
         if (!v.page_info.can_jump)
             fade(paint, jump, .4f);
     }
+    if (p && ui_rect_has_area(ui_image_viewer_button(v, ui_image_viewer_new_tab)) &&
+        !ui_button_icon_paint(paint, v.widgets, v.buttons[ui_image_viewer_new_tab], UiIcon::plus, toolbar_theme, false,
+                              v.keyboard_focus))
+        p.fail();
     // The divider between the view group and the item actions.
     u32 last_view = ui_image_viewer_button_count;
     for (const u32 index : kToolbarOrder)

@@ -47,6 +47,8 @@ void application_media_page_reset() noexcept;
 u8 application_media_page_shown() noexcept;
 MediaPageKind application_media_page_kind(u8 id) noexcept;
 Utf8View application_media_page_title(u8 id) noexcept;
+// The line under the title: "#channel · Server · author" as it was when the page opened.
+Utf8View application_media_page_source(u8 id) noexcept;
 // The page's media cannot load ("Media unavailable") until Retry.
 bool application_media_page_missing(u8 id) noexcept;
 // The content column the page fills.

@@ -422,6 +422,10 @@ Utf8View application_media_page_title(u8 id) noexcept {
     const auto* page = page_of(id);
     return page ? Utf8View{page->title, page->title_bytes} : Utf8View{};
 }
+Utf8View application_media_page_source(u8 id) noexcept {
+    const auto* page = page_of(id);
+    return page ? Utf8View{page->source, page->source_bytes} : Utf8View{};
+}
 bool application_media_page_missing(u8 id) noexcept {
     const auto* page = page_of(id);
     return page && page->missing;

@@ -3,17 +3,19 @@
 
 namespace maicord {
 // A received attachment's actions merge into the message context menu after the
-// message sections: the media group (Copy Image, Save) and the link group (Copy
-// Link, Open Link), then the developer-mode Copy Message ID. A right-clicked
-// sticker image adds only the link group. This model builds only the media and
-// link groups. Action ids use the downloads namespace, outside every built-in
-// message action.
+// message sections: the media group (Copy Image, Save, Open in new tab) and the
+// link group (Copy Link, Open Link), then the developer-mode Copy Message ID. A
+// right-clicked sticker image adds only the link group. This model builds only
+// the media and link groups. Action ids use the downloads namespace, outside
+// every built-in message action.
 inline constexpr u32 kReceivedAttachmentActionSave = 0x444C0001u;
 inline constexpr u32 kReceivedAttachmentActionCopyImage = 0x444C0002u;
 inline constexpr u32 kReceivedAttachmentActionCopyLink = 0x444C0003u;
 inline constexpr u32 kReceivedAttachmentActionOpenLink = 0x444C0004u;
+// Opens the media as a page in a title bar tab (only while tabs are on).
+inline constexpr u32 kReceivedAttachmentActionOpenInTab = 0x444C0005u;
 constexpr bool received_attachment_menu_action(u32 action) noexcept {
-    return action >= kReceivedAttachmentActionSave && action <= kReceivedAttachmentActionOpenLink;
+    return action >= kReceivedAttachmentActionSave && action <= kReceivedAttachmentActionOpenInTab;
 }
 
 enum class ReceivedAttachmentKind : u8 {
@@ -40,8 +42,9 @@ struct ReceivedAttachmentMenuFacts {
     Utf8View url;    // read while building only; item labels are literals
     bool copy_image; // decoded pixels are resident for this still image
     bool save;       // the download owner accepts this attachment now
+    bool tab = false; // tabs are on and a media page can show this item: images, videos and audio get "Open in new tab"
 };
-inline constexpr u32 kReceivedAttachmentMenuItems = 4;
+inline constexpr u32 kReceivedAttachmentMenuItems = 5;
 // Returns the item count (zero when the URL is not an https URL or the output
 // is too small). Group starts carry popup_item_separator_before.
 u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, const Slice<PopupItem>& output) noexcept;

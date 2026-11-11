@@ -82,7 +82,8 @@ void test_received_attachment_menu(void (*check)(bool, const char*) noexcept) no
     bool labels = true, groups = true, icons = true;
     for (const auto& expected : cases) {
         PopupItem items[kReceivedAttachmentMenuItems]{};
-        const u32 count = received_attachment_menu({expected.kind, expected.url, true, true}, {items, 4});
+        const u32 count = received_attachment_menu({expected.kind, expected.url, true, true},
+                                                   {items, kReceivedAttachmentMenuItems});
         labels = labels && count == expected.count;
         for (u32 index = 0; labels && index < count; ++index) {
             u32 bytes = 0;
@@ -105,18 +106,20 @@ void test_received_attachment_menu(void (*check)(bool, const char*) noexcept) no
     check(labels && groups && icons, "attachment menu: images, gifs, videos, audio, voice messages and "
                                      "files get the official rows, groups and icons");
     PopupItem items[kReceivedAttachmentMenuItems]{};
-    check(received_attachment_menu({ReceivedAttachmentKind::image, image_url, false, false}, {items, 4}) ==
+    check(received_attachment_menu({ReceivedAttachmentKind::image, image_url, false, false},
+                                   {items, kReceivedAttachmentMenuItems}) ==
                   2 &&
               items[0].action == kReceivedAttachmentActionCopyLink &&
               (items[0].flags & popup_item_separator_before) &&
               !received_attachment_menu(
-                  {ReceivedAttachmentKind::file, utf8_literal("http://x/a.txt"), true, true}, {items, 4}) &&
+                  {ReceivedAttachmentKind::file, utf8_literal("http://x/a.txt"), true, true},
+                  {items, kReceivedAttachmentMenuItems}) &&
               !received_attachment_menu({ReceivedAttachmentKind::file, image_url, true, true}, {items, 3}),
           "attachment menu: unavailable copy/save rows drop out; non-https URLs and short outputs build "
           "nothing");
     const u32 sticker_rows = received_attachment_menu(
         {ReceivedAttachmentKind::sticker, utf8_literal("https://media.discordapp.net/stickers/42.png"), true, true},
-        {items, 4});
+        {items, kReceivedAttachmentMenuItems});
     check(sticker_rows == 2 && utf8_equal(items[0].label, utf8_literal("Copy Media Link")) &&
               utf8_equal(items[1].label, utf8_literal("Open Media Link")) &&
               (items[0].flags & popup_item_separator_before),
@@ -126,6 +129,46 @@ void test_received_attachment_menu(void (*check)(bool, const char*) noexcept) no
               !ui_menu_row_presentation_valid(ui_menu_row_presentation(UiIcon::count)),
           "attachment menu: icons past the old 62-entry menu limit lead rows; invalid identities still "
           "reject");
+    // "Open in new tab": one row in the media group of images, gifs, videos, audio and voice messages while tabs are
+    // on; files and stickers never get it, and nothing without the fact (tabs off).
+    struct TabCase {
+        ReceivedAttachmentKind kind;
+        bool row;
+    };
+    const TabCase tab_cases[]{{ReceivedAttachmentKind::image, true},         {ReceivedAttachmentKind::animated_image, true},
+                              {ReceivedAttachmentKind::video, true},         {ReceivedAttachmentKind::audio, true},
+                              {ReceivedAttachmentKind::voice_message, true}, {ReceivedAttachmentKind::file, false},
+                              {ReceivedAttachmentKind::sticker, false}};
+    bool tab_rows = true;
+    for (const auto& tab_case : tab_cases) {
+        PopupItem on[kReceivedAttachmentMenuItems]{}, off[kReceivedAttachmentMenuItems]{};
+        const u32 with = received_attachment_menu({tab_case.kind, image_url, true, true, true},
+                                                  {on, kReceivedAttachmentMenuItems});
+        const u32 without = received_attachment_menu({tab_case.kind, image_url, true, true, false},
+                                                     {off, kReceivedAttachmentMenuItems});
+        u32 rows = 0, at = 0;
+        for (u32 index = 0; index < with; ++index)
+            if (on[index].action == kReceivedAttachmentActionOpenInTab)
+                ++rows, at = index;
+        for (u32 index = 0; index < without; ++index)
+            tab_rows = tab_rows && off[index].action != kReceivedAttachmentActionOpenInTab;
+        tab_rows = tab_rows && rows == (tab_case.row ? 1u : 0u) && with == without + rows &&
+                   (!rows || (utf8_equal(on[at].label, utf8_literal("Open in new tab")) &&
+                              (on[at].flags & popup_item_enabled) && at + 3 == with &&
+                              ui_menu_row_icon(on[at].presentation) == UiIcon::plus));
+    }
+    check(tab_rows, "attachment menu: Open in new tab is one row for images, gifs, videos, audio and voice "
+                    "messages, none for files, stickers or with tabs off");
+    PopupItem only_tab[kReceivedAttachmentMenuItems]{};
+    check(received_attachment_menu({ReceivedAttachmentKind::video, image_url, false, false, true},
+                                   {only_tab, kReceivedAttachmentMenuItems}) == 3 &&
+              only_tab[0].action == kReceivedAttachmentActionOpenInTab &&
+              (only_tab[0].flags & popup_item_separator_before) &&
+              only_tab[1].action == kReceivedAttachmentActionCopyLink &&
+              (only_tab[1].flags & popup_item_separator_before) &&
+              only_tab[2].action == kReceivedAttachmentActionOpenLink && received_attachment_menu_action(only_tab[0].action) &&
+              !received_attachment_menu_action(kReceivedAttachmentActionOpenInTab + 1),
+          "attachment menu: the tab row starts the media group when Copy and Save are not offered");
 
     // Merged into the message menu: media groups before the developer-mode
     // Copy message ID; plugin extras stay last.
@@ -136,8 +179,8 @@ void test_received_attachment_menu(void (*check)(bool, const char*) noexcept) no
     message.author_id = 30;
     MessageContextController controller{};
     PopupItem media[kReceivedAttachmentMenuItems]{};
-    const u32 media_count =
-        received_attachment_menu({ReceivedAttachmentKind::image, image_url, true, true}, {media, 4});
+    const u32 media_count = received_attachment_menu({ReceivedAttachmentKind::image, image_url, true, true, true},
+                                                     {media, kReceivedAttachmentMenuItems});
     const PopupItem plugin{utf8_literal("Plugin action"), 1000, popup_item_enabled, 0};
     const UiRect anchor{40, 40, 41, 41}, viewport{0, 0, 800, 1000};
     const auto opened =
@@ -147,17 +190,18 @@ void test_received_attachment_menu(void (*check)(bool, const char*) noexcept) no
                                               false, false, false, true, {}, {media, media_count})
             : MessageContextControllerResult{MessageContextControllerError::popup, false};
     const u32 total = fixture.popup.item_count;
-    bool merged = opened.ok() && media_count == 4 && total == controller.menu.count + media_count + 1;
+    bool merged = opened.ok() && media_count == 5 && total == controller.menu.count + media_count + 1;
     const u32 id_row = merged ? total - 2 : 0, first_media = merged ? id_row - media_count : 0;
     merged = merged && fixture.items[total - 1].action == 1000 &&
              fixture.items[id_row].action == static_cast<u32>(MessageContextAction::copy_id) &&
              (fixture.items[first_media].flags & popup_item_separator_before) &&
              fixture.items[first_media].action == kReceivedAttachmentActionCopyImage &&
+             fixture.items[first_media + 2].action == kReceivedAttachmentActionOpenInTab &&
              fixture.items[id_row - 1].action == kReceivedAttachmentActionOpenLink;
     for (u32 index = 0; merged && index < first_media; ++index)
         merged = fixture.items[index].action == controller.menu.items[index].action;
-    check(merged, "attachment menu: message rows, then Copy Image..Open Image Link, then Copy message ID, "
-                  "then plugins");
+    check(merged, "attachment menu: message rows, then Copy Image..Open Image Link with the tab row, then Copy "
+                  "message ID, then plugins");
     const auto plain = message_context_controller_open(
         &controller, &fixture.popup, message, true, true, false, nullptr, anchor, viewport, true, {}, false,
         false, false, false, false, false, {}, {media, media_count});

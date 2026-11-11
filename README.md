@@ -135,6 +135,11 @@ differ, Linux memory most of all.
   the zoom, <kbd>Shift</kbd>+scroll for the lens size
 - Search with `from:`, `in:`, `has:`, `mentions:` and `pinned:` filters, an inbox for mentions, and a Quick Switcher on
   <kbd>Ctrl</kbd>+<kbd>K</kbd>
+- Tabs in the title bar (Settings > Appearance > Layout, off by default): pin channels and DMs, or choose *Open in new
+  tab* on a picture, video, audio file or voice message (its context menu, an embed's, or the image viewer's toolbar) to
+  give it a page of its own with a player. A video or track keeps playing, with sound, while you work in another tab;
+  unread channels show a dot. <kbd>Ctrl</kbd>+<kbd>T</kbd> pins, <kbd>Ctrl</kbd>+<kbd>W</kbd> closes,
+  <kbd>Ctrl</kbd>+<kbd>Tab</kbd> and <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>9</kbd> switch
 
 **Voice and video**
 - Voice channels with Discord's end-to-end encryption (DAVE)

@@ -34,6 +34,8 @@ inline constexpr u8 kUiTabClosing = 8;
 inline constexpr u8 kUiTabDragging = 16;
 // A media tab whose page owns the player: its icon (audio_lines while it plays) pauses and resumes it.
 inline constexpr u8 kUiTabPlaying = 32;
+// A channel with unread messages (the sidebar's unread state), not the one that shows: a dot on its icon.
+inline constexpr u8 kUiTabUnread = 64;
 
 struct UiTabItem {
     // Shown whole in the tooltip, shortened with an ellipsis in the tab.
@@ -45,6 +47,8 @@ struct UiTabItem {
     // How far the hover and the active fills have come in, 0..1 (UiMotionHover amounts); pressed lights the
     // hover fill fully.
     float hover, select;
+    // The tooltip's text when it says more than the label (a channel adds its server); empty shows the label.
+    Utf8View tooltip;
 };
 
 enum class UiTabHitKind : u8 { none, tab, close, plus, overflow, icon };

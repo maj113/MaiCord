@@ -32,6 +32,17 @@ void test_image_gallery(void (*check)(bool, const char*) noexcept) noexcept {
                   ui_image_viewer_button(viewer, ui_image_viewer_open_original).left &&
               ui_rect_equal(ui_image_viewer_button(viewer, ui_image_viewer_close), close),
           "gallery: Copy and Open original join the toolbar left of Close without moving it");
+    check(!ui_rect_has_area(ui_image_viewer_button(viewer, ui_image_viewer_new_tab)) &&
+              ui_image_viewer_set_actions(&viewer, ui_image_viewer_action_open | ui_image_viewer_action_copy |
+                                                       ui_image_viewer_action_tab) &&
+              ui_rect_width(ui_image_viewer_button(viewer, ui_image_viewer_new_tab)) == 32 &&
+              ui_image_viewer_button(viewer, ui_image_viewer_new_tab).right <
+                  ui_image_viewer_button(viewer, ui_image_viewer_open_original).left &&
+              ui_image_viewer_button(viewer, ui_image_viewer_fit).right <
+                  ui_image_viewer_button(viewer, ui_image_viewer_new_tab).left &&
+              ui_rect_equal(ui_image_viewer_button(viewer, ui_image_viewer_close), close) &&
+              utf8_equal(ui_image_viewer_tooltip(viewer, ui_image_viewer_new_tab), utf8_literal("Open in new tab")),
+          "gallery: Open in new tab joins the toolbar beside Open original only when the host asks for it");
     ui_image_viewer_zoom(&viewer, 2, {600, 400});
     check(ui_image_viewer_set_item(&viewer, {800, 800}, 1, 3, false) && viewer.zoom == 1 && viewer.pan.x == 0 &&
               ui_rect_width(viewer.image) == ui_rect_height(viewer.image) &&
@@ -421,6 +432,10 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
               !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_fullscreen)) &&
               !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_retry)),
           "page: the toolbar sits in the header band, with Jump to message and without full screen or Retry");
+    check(ui_image_viewer_set_actions(&page, ui_image_viewer_action_open | ui_image_viewer_action_tab) &&
+              !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_new_tab)) &&
+              ui_image_viewer_set_actions(&page, 0),
+          "page: a page is a tab already and never offers Open in new tab");
     check(ui_rect_equal(page.body, layout.player) && layout.player.top >= layout.header.bottom &&
               layout.player.left > content.left && layout.player.right < content.right &&
               page.image.left >= page.body.left && page.image.right <= page.body.right &&

@@ -12,6 +12,8 @@ constexpr float kPad = 8.f, kGap = 6.f, kIcon = 16.f, kClose = 20.f, kNarrow = 5
 constexpr float kLabelLeft = kPad + kIcon + kGap, kLabelRight = kGap + kClose + kGap, kButtonInset = 2.f;
 // Dimmed ink: an unreachable channel, a disabled "+".
 constexpr float kDim = .5f;
+// The unread dot's diameter.
+constexpr float kDot = 6.f;
 
 float snap(float value, float scale) noexcept {
     const float pixels = value * scale;
@@ -209,7 +211,9 @@ UiRect ui_tab_strip_hit_rect(const UiTabStripLayout& layout, UiTabHit hit) noexc
 Utf8View ui_tab_strip_hit_name(const UiTabStripView& view, UiTabHit hit) noexcept {
     switch (hit.kind) {
     case UiTabHitKind::tab:
-        return hit.index < view.count ? view.items[hit.index].label : Utf8View{};
+        return hit.index >= view.count ? Utf8View{}
+               : view.items[hit.index].tooltip.bytes ? view.items[hit.index].tooltip
+                                                     : view.items[hit.index].label;
     case UiTabHitKind::close:
         return utf8_literal("Close tab");
     case UiTabHitKind::icon:
@@ -280,6 +284,15 @@ bool ui_tab_strip_paint(PaintStream* paint, const Theme& theme, const UiTabStrip
             !fill(shape, pressed ? tokens.pressed : tokens.hover, (pressed ? 1.0f : item.hover) * fade, radius) ||
             !icon(item.icon, ui_tab_strip_icon(layout, i), ink))
             return false;
+        // Unread: a dot on the icon's upper right, in the lit ink.
+        if (const UiRect glyph = ui_tab_strip_icon(layout, i); (item.flags & kUiTabUnread) && ui_rect_has_area(glyph)) {
+            Color lit = window_active ? tokens.text : tokens.text_inactive;
+            lit.alpha *= fade;
+            if (!fill({glyph.right - kDot * .5f, glyph.top - kDot * .5f, glyph.right + kDot * .5f,
+                       glyph.top + kDot * .5f},
+                      lit, 1.0f, theme.scale.radius_full))
+                return false;
+        }
         const UiRect close = ui_tab_strip_close(layout, i);
         if (!ui_rect_has_area(close))
             return true;

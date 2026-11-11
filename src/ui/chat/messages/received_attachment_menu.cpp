@@ -83,6 +83,9 @@ u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, const Sli
             : facts.kind == ReceivedAttachmentKind::video ? utf8_literal("Save Video")
                                                           : utf8_literal("Save File"),
             kReceivedAttachmentActionSave, image ? UiIcon::image : UiIcon::download, count == 0);
+    // Pages show images, videos and audio; files and stickers have none.
+    if (facts.tab && facts.kind != ReceivedAttachmentKind::file && facts.kind != ReceivedAttachmentKind::sticker)
+        add(utf8_literal("Open in new tab"), kReceivedAttachmentActionOpenInTab, UiIcon::plus, count == 0);
     const auto link = received_attachment_link_kind(facts.url);
     add(link_label(link, false), kReceivedAttachmentActionCopyLink, UiIcon::link, true);
     add(link_label(link, true), kReceivedAttachmentActionOpenLink, UiIcon::external_link, false);

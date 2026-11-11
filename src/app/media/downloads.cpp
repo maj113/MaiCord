@@ -5,6 +5,8 @@
 #include "../account/account_menu.hpp"
 #include "../account/profile.hpp"
 #include "video.hpp"
+#include "image_viewer.hpp"
+#include "../shell/tabs.hpp"
 #include "../settings/settings.hpp"
 #include "../plugins/plugins.hpp"
 #include "../settings/theme_editor.hpp"
@@ -1027,7 +1029,7 @@ bool open_context(const DownloadSource& source, const UiRect& anchor) noexcept {
                                    : MediaAttachmentFormat::unknown;
     const auto kind = source_kind(format, rich);
     const ReceivedAttachmentMenuFacts facts{
-        kind, {source.url, source.url_bytes}, kind == ReceivedAttachmentKind::image, true};
+        kind, {source.url, source.url_bytes}, kind == ReceivedAttachmentKind::image, true, tab_available(source)};
     const u32 count = received_attachment_menu(facts, {q->menu_items, kReceivedAttachmentMenuItems});
     // Plugins see an image's index in the message, its URL, filename, id, type and size.
     const bool image = attachment && (kind == ReceivedAttachmentKind::image ||
@@ -1212,7 +1214,7 @@ bool open_embed_context(const DownloadSource& source, Utf8View link, UiRect anch
         return false;
     q->menu_valid = false;
     const auto kind = embed_kind(source);
-    const ReceivedAttachmentMenuFacts facts{kind, link, false, true};
+    const ReceivedAttachmentMenuFacts facts{kind, link, false, true, tab_available(source)};
     const u32 count = received_attachment_menu(facts, {q->menu_items, kReceivedAttachmentMenuItems});
     if (!count || !open_message_media_context_popup(source.message, anchor, {q->menu_items, count}))
         return false;
@@ -1269,6 +1271,21 @@ bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noex
 void copy_link(const Utf8View& link) noexcept {
     if (!application_copy_text(link, kToastLinkCopied, kToastLinkCopyFailed))
         log_write(LogLevel::warning, "downloads", "copy_link_failed");
+}
+// "Open in new tab" is offered while tabs show and a page can show the item.
+bool tab_available(const DownloadSource& source) noexcept {
+    return application_tabs_visible() &&
+           application_image_viewer_item_page_source(source.message, source.revision, source.snapshot, source.embed,
+                                                     source.embed ? source.embed_index : source.attachment, nullptr);
+}
+// The media becomes a page in a new tab through the gate opening it passes: a spoiler or age-restricted item stays
+// hidden (this activation reveals it or asks for confirmation instead), so a tab never shows what the message hides.
+void open_in_tab(const DownloadSource& source) noexcept {
+    MediaPageSource page;
+    if (source_media_allowed(source, true) &&
+        application_image_viewer_item_page_source(source.message, source.revision, source.snapshot, source.embed,
+                                                  source.embed ? source.embed_index : source.attachment, &page))
+        application_tabs_open_media(page, false);
 }
 
 } // namespace downloads_detail

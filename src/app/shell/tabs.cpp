@@ -30,7 +30,7 @@ static_assert(kUiTabCapacity >= kMediaPageCapacity);
 struct Tab : ChannelMemoryTab {
     // The left edge and width as drawn last frame, and as they were when the running transition began.
     float shown_left, shown_width, from_left, from_width;
-    // kUiTabMissing, kUiTabOpening or kUiTabClosing.
+    // kUiTabMissing, kUiTabUnread, kUiTabOpening or kUiTabClosing.
     u8 flags;
     UiIcon icon;
     // The media page the tab shows, 0 for a channel tab.
@@ -52,7 +52,7 @@ struct Tabs {
     u64 profile_id;
     u64 generation;
     // What the labels and the pruning last saw change.
-    u32 stamp[4];
+    u32 stamp[5];
     // One transition for opening, closing and the neighbours' slides; two fill groups for the pointer's hover and
     // the active tab.
     UiMotionTransition motion;
@@ -141,7 +141,9 @@ void describe(Tab* tab) noexcept {
         channel && channel->guild_id ? chat_state_store_find_guild(ui.chat_state, channel->guild_id) : nullptr;
     const bool unavailable = channel && channel->guild_id && (!guild || guild->unavailable);
     const bool reachable = application_channel_navigable(tab->channel_id) && !unavailable;
-    tab->flags = static_cast<u8>((tab->flags & ~kUiTabMissing) | (reachable ? 0 : kUiTabMissing));
+    const bool unread = reachable && channel && chat_state_store_channel_unread(ui.chat_state, *channel);
+    tab->flags = static_cast<u8>((tab->flags & ~(kUiTabMissing | kUiTabUnread)) | (reachable ? 0 : kUiTabMissing) |
+                                 (unread ? kUiTabUnread : 0));
     tab->icon = direct                                  ? UiIcon::direct_message
                 : channel && channel_is_thread(channel->type) ? UiIcon::thread
                 : channel && channel_is_voice_chat(channel->type) ? UiIcon::speaker
@@ -311,9 +313,9 @@ void follow_account() noexcept {
         }
         g_tabs.restored = true;
     }
-    const u32 stamp[4]{ui.chat_state.channel_mutations, ui.chat_state.guild_mutations,
+    const u32 stamp[5]{ui.chat_state.channel_mutations, ui.chat_state.guild_mutations,
                        ui.chat_state.private_channels ? ui.chat_state.private_channels->revision : 0,
-                       ui.user_store.revision};
+                       ui.user_store.revision, ui.chat_state.activity_mutations};
     if (!adopt && bytes_equal(stamp, g_tabs.stamp, sizeof(stamp)))
         return;
     copy_bytes(g_tabs.stamp, stamp, sizeof(stamp));
@@ -330,6 +332,31 @@ void follow_account() noexcept {
         if (live_channel(g_tabs.items[i]))
             describe(&g_tabs.items[i]);
     persist();
+}
+
+// The hovered tab's tooltip: a channel's name with its server, a media tab's title with the line under it. The text
+// stays valid until the next call; an empty view means the label says it all.
+char g_tip[240];
+Utf8View tooltip(const Tab& tab) noexcept {
+    Utf8View detail{};
+    if (tab.page) {
+        detail = application_media_page_source(tab.page);
+    } else if (tab.guild_id) {
+        const ChatStateStore& state = g_app.account_ui->chat_state;
+        if (const GuildRecord* guild = chat_state_store_find_guild(state, tab.guild_id))
+            detail = chat_state_store_guild_name(state, *guild);
+    }
+    constexpr Utf8View separator = utf8_literal(" \xC2\xB7 ");
+    if (!detail.bytes)
+        return {};
+    // A media tab's label is cut to fit the strip; its tooltip names the title whole.
+    const Utf8View title = tab.page ? application_media_page_title(tab.page) : Utf8View{};
+    u32 bytes = utf8_copy_truncated(g_tip, sizeof(g_tip) - separator.bytes,
+                                    title.bytes ? title : Utf8View{tab.label, tab.label_bytes});
+    copy_bytes(g_tip + bytes, separator.data, separator.bytes);
+    bytes += separator.bytes;
+    bytes += utf8_copy_truncated(g_tip + bytes, sizeof(g_tip) - bytes, detail);
+    return {g_tip, bytes};
 }
 
 } // namespace
@@ -361,14 +388,18 @@ const UiTabStripView* application_tabs_view(UiTabHit hovered, UiTabHit pressed, 
     UiTabStripView& view = g_tabs.view;
     for (u32 i = 0; i < g_tabs.count; ++i) {
         const Tab& tab = g_tabs.items[i];
+        const bool shown_tab = key(tab) == active && !closing(tab);
         view.items[i] = {{tab.label, tab.label_bytes},
                          tab.icon,
-                         static_cast<u8>(tab.flags | (key(tab) == active && !closing(tab) ? kUiTabActive : 0) |
+                         // The tab that shows is read: no dot on it.
+                         static_cast<u8>((tab.flags & ~(shown_tab ? kUiTabUnread : 0)) | (shown_tab ? kUiTabActive : 0) |
                                          (g_tabs.dragging && g_tabs.drag_index == i ? kUiTabDragging : 0)),
                          tab.from_left,
                          tab.from_width,
                          ui_motion_hover_amount(g_tabs.hover, key(tab)),
-                         ui_motion_hover_amount(g_tabs.select, key(tab))};
+                         ui_motion_hover_amount(g_tabs.select, key(tab)),
+                         hovered.kind == UiTabHitKind::tab && hovered.index == i && !closing(tab) ? tooltip(tab)
+                                                                                                  : Utf8View{}};
     }
     view.count = g_tabs.count;
     view.plus_enabled = can_pin();
