@@ -1,4 +1,4 @@
-// twin: src/render/shaders/glyph_draw.hlsl f3272e0606f93e4a
+// twin: src/render/shaders/glyph_draw.hlsl 8c5ec127d19bb101
 // Text quads and text effects: glyph_vertex (STAGE_VS) and glyph_pixel (STAGE_PS). The atlases are paged surfaces
 // (see media_draw.glsl): each draw binds the page its quads sample, and their v is in that page's rows.
 
@@ -33,11 +33,11 @@ layout(location = 1) in vec4 uv_rect;
 layout(location = 2) in vec4 color;
 
 // Cubic-bezier easing through control points (p.x,p.y) and (p.z,p.w); Newton iterations solve the curve parameter for
-// t; Horner form reduces each step.
+// t; Horner form reduces each step. Three steps solve both curves below to float precision (2.7e-7).
 float curve_ease(float t, vec4 p) {
     vec2 a = 1.0 + 3.0 * (p.xy - p.zw), b = 3.0 * p.zw - 6.0 * p.xy, c = 3.0 * p.xy;
     float u = clamp(t, 0.0, 1.0);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 3; i++) {
         float x = ((a.x * u + b.x) * u + c.x) * u;
         float d = (3.0 * a.x * u + 2.0 * b.x) * u + c.x;
         u = clamp(u - (x - t) / max(d, 0.001), 0.0, 1.0);

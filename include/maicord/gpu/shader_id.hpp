@@ -14,6 +14,10 @@ enum class ShaderId : u8 {
     vp8_reconstruct, vp8_idct, vp8_filter, vp8_atlas, jpeg_idct, jpeg_idct_rows, jpeg_atlas,
     video_frame,
     fx_vertex, fx_builtin, fx_target_vertex, fx_composite_vertex, fx_composite_pixel,
+#if defined(_WIN32)
+    // The Go Live encoder's BGRA to NV12 conversion (src/platform/encode); Linux converts with VA-API instead.
+    encode_vertex, encode_luma, encode_chroma,
+#endif
     count
 };
 

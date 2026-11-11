@@ -25,6 +25,7 @@ MAICORD_SHADER_ORDER(jpeg_idct); MAICORD_SHADER_ORDER(jpeg_idct_rows); MAICORD_S
 MAICORD_SHADER_ORDER(video_frame);
 MAICORD_SHADER_ORDER(fx_vertex); MAICORD_SHADER_ORDER(fx_builtin); MAICORD_SHADER_ORDER(fx_target_vertex);
 MAICORD_SHADER_ORDER(fx_composite_vertex); MAICORD_SHADER_ORDER(fx_composite_pixel);
+MAICORD_SHADER_ORDER(encode_vertex); MAICORD_SHADER_ORDER(encode_luma); MAICORD_SHADER_ORDER(encode_chroma);
 #undef MAICORD_SHADER_ORDER
 static_assert(sizeof(kShaders) / sizeof(kShaders[0]) == static_cast<u32>(ShaderId::count));
 static_assert(kShaderPatchCount <= sizeof(kShaderPatchOffsets) / sizeof(kShaderPatchOffsets[0]) &&

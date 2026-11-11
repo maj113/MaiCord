@@ -57,7 +57,8 @@ def shader_list():
     for call in re.finditer(r'maicord_shader\(([^)]*)\)', text):
         words = call.group(1).split()
         # <variable> <header> <profile> <entry> <symbol> <source> [PACK <name>] [<define>...]
-        if 'PACK' not in words:
+        # Shaders outside the client shader directory (the Go Live encoder's) are Windows only: no twin, no entry.
+        if 'PACK' not in words or not words[5].startswith('${maicord_shaders}/'):
             continue
         pack = words.index('PACK')
         stage = words[2][:2]

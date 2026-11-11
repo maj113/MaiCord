@@ -1,4 +1,4 @@
-// twin: src/render/shaders/media_draw.hlsl 3857ffa5b802bf3e
+// twin: src/render/shaders/media_draw.hlsl 242fc176160e619d
 // Media quads: media_vertex (STAGE_VS) and media_pixel (STAGE_PS). The atlases are paged surfaces: here each draw
 // binds the one page its quads sample, and their v is in that page's rows (the renderer splits draws per page).
 

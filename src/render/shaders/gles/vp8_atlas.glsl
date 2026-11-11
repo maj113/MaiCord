@@ -1,4 +1,4 @@
-// twin: src/render/shaders/vp8_atlas.hlsl 0ef4af65521892c6
+// twin: src/render/shaders/vp8_atlas.hlsl 22dcd2790857eb8c
 // vp8_to_atlas (STAGE_CS): reconstructed VP8 planes (fancy chroma upsampling, optional alpha) into the media atlas.
 layout(local_size_x = 64, local_size_y = 1) in;
 
@@ -33,8 +33,8 @@ uvec2 load_uv_pair(uint x, uint step_x, uint y) {
     return uvec2(vp8_yuv[u], vp8_yuv[u + step_x]) | (uvec2(vp8_yuv[v], vp8_yuv[v + step_x]) << 16u);
 }
 
-uint clip_rgb(int value) {
-    return uint(clamp(value >> 6, 0, 255));
+uvec3 clip_rgb(ivec3 value) {
+    return uvec3(clamp(value >> 6, 0, 255));
 }
 
 // One thread per pixel, a row of 64 per group: the loads of a group are runs of consecutive words. The host dispatches
@@ -87,9 +87,9 @@ void main() {
     int u = int(uv & 255u);
     int v = int(uv >> 16u);
     int scaled_y = (int(luma) * 19077) >> 8;
-    uvec3 rgb = uvec3(clip_rgb(scaled_y + ((v * 26149) >> 8) - 14234),
-                      clip_rgb(scaled_y - ((u * 6419) >> 8) - ((v * 13320) >> 8) + 8708),
-                      clip_rgb(scaled_y + ((u * 33050) >> 8) - 17685));
+    uvec3 rgb = clip_rgb(ivec3(scaled_y + ((v * 26149) >> 8) - 14234,
+                               scaled_y - ((u * 6419) >> 8) - ((v * 13320) >> 8) + 8708,
+                               scaled_y + ((u * 33050) >> 8) - 17685));
     // (rgb * alpha + 127) / 255 for products up to 255 * 255, without the divide (Blinn, "Three Wrongs Make a Right").
     rgb = rgb * alpha + 128u;
     rgb = (rgb + (rgb >> 8u)) >> 8u;

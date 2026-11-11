@@ -5,13 +5,11 @@
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/gpu/api.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/dxgi.hpp"
 #include "maicord/sys/initguid.hpp"
 #include "maicord/sys/media_foundation.hpp"
-#include "maicord_encode_chroma_ps.hpp"
-#include "maicord_encode_luma_ps.hpp"
-#include "maicord_encode_vs.hpp"
 
 // The Windows Go Live encoder: the capture's BGRA texture is scaled and converted to NV12 by two draws on the shared
 // immediate context (bgra_nv12.hlsl), in a context state of the encoder's own so the renderer's bindings are untouched,
@@ -793,14 +791,11 @@ bool create_pipeline(GpuStreamEncoder* e) noexcept {
     if (SUCCEEDED(h))
         h = e->immediate->QueryInterface(__uuidof(ID3D11Multithread), reinterpret_cast<void**>(&e->guard));
     if (SUCCEEDED(h))
-        h = e->device->CreateVertexShader(g_maicord_encode_vertex_shader, sizeof(g_maicord_encode_vertex_shader),
-                                          nullptr, &e->vertex);
+        h = gpu_vertex_shader_create(e->device, ShaderId::encode_vertex, {}, &e->vertex, nullptr, nullptr);
     if (SUCCEEDED(h))
-        h = e->device->CreatePixelShader(g_maicord_encode_luma_shader, sizeof(g_maicord_encode_luma_shader), nullptr,
-                                         &e->luma_shader);
+        h = gpu_pixel_shader_create(e->device, ShaderId::encode_luma, &e->luma_shader);
     if (SUCCEEDED(h))
-        h = e->device->CreatePixelShader(g_maicord_encode_chroma_shader, sizeof(g_maicord_encode_chroma_shader),
-                                         nullptr, &e->chroma_shader);
+        h = gpu_pixel_shader_create(e->device, ShaderId::encode_chroma, &e->chroma_shader);
     D3D11_SAMPLER_DESC sampler{};
     sampler.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
     sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;

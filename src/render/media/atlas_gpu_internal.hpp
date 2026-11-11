@@ -286,6 +286,18 @@ void dispatch_animated_webp(MediaAtlasGpu* gpu, GpuContext1* context,
 GpuStatus ensure_apng_backup(MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context,
                            MediaAtlas* atlas, const MediaAtlasResult& allocation) noexcept;
 
+// A frame's region of an animation canvas and how it leaves it (APNG and GIF dispose alike).
+struct CanvasFrame {
+    u32 x, y, width, height;
+    bool background, previous;
+};
+
+// A new animation canvas, allocated and cleared (`local` its slot in that page's rows); a frame that restores the
+// canvas after itself saves its region first.
+MediaAtlasGpuResult begin_canvas(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device, GpuContext1* context,
+                                 MediaAssetKey key, u16 width, u16 height, const CanvasFrame& frame,
+                                 MediaAtlasResult* local) noexcept;
+
 void unbind_apng_atlas(GpuContext1* context) noexcept;
 
 void copy_animation_region(GpuContext1* context, GpuTexture* destination,

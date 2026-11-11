@@ -32,8 +32,8 @@ uint2 load_uv_pair(uint x, uint y) {
     return u | (v << 16u);
 }
 
-uint clip_rgb(int value) {
-    return uint(clamp(value >> 6, 0, 255));
+uint3 clip_rgb(int3 value) {
+    return uint3(clamp(value >> 6, 0, 255));
 }
 
 // One thread per pixel, a row of 64 per group: the loads of a group are runs of
@@ -93,9 +93,9 @@ void vp8_to_atlas(uint3 dispatch_id : SV_DispatchThreadID) {
     const int u = int(uv & 255u);
     const int v = int(uv >> 16u);
     const int scaled_y = (int(luma) * 19077) >> 8;
-    uint3 rgb = uint3(clip_rgb(scaled_y + ((v * 26149) >> 8) - 14234),
-                      clip_rgb(scaled_y - ((u * 6419) >> 8) - ((v * 13320) >> 8) + 8708),
-                      clip_rgb(scaled_y + ((u * 33050) >> 8) - 17685));
+    uint3 rgb = clip_rgb(int3(scaled_y + ((v * 26149) >> 8) - 14234,
+                              scaled_y - ((u * 6419) >> 8) - ((v * 13320) >> 8) + 8708,
+                              scaled_y + ((u * 33050) >> 8) - 17685));
     // (rgb * alpha + 127) / 255 for products up to 255 * 255, without the
     // divide (Blinn, "Three Wrongs Make a Right").
     rgb = rgb * alpha + 128u;

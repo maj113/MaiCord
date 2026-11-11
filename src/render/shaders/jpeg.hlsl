@@ -220,8 +220,8 @@ float component_sample(uint offset, uint stride, uint width, uint height, uint h
     return lerp(top_value, bottom_value, fy);
 }
 
-uint rounded_byte(float value) {
-    return uint(clamp(floor(value + 0.5f), 0.0f, 255.0f));
+uint3 rounded_bytes(float3 value) {
+    return uint3(clamp(floor(value + 0.5f), 0.0f, 255.0f));
 }
 
 float icc_curve(uint curve_index, float x) {
@@ -255,7 +255,7 @@ float icc_curve(uint curve_index, float x) {
     return lerp(low, high, fraction) / 65535.0f;
 }
 
-float srgb_encode(float value);
+float3 srgb_encode(float3 value);
 
 float3 icc_clut(float4 input) {
     const uint4 grid = uint4(icc_grid0, icc_grid1, icc_grid2, icc_grid3);
@@ -357,10 +357,10 @@ float3 icc_transform(float4 device) {
     const float3 linear_srgb =
         float3(dot(icc_matrix_row0.xyz, connection), dot(icc_matrix_row1.xyz, connection),
                dot(icc_matrix_row2.xyz, connection));
-    return float3(srgb_encode(linear_srgb.r), srgb_encode(linear_srgb.g), srgb_encode(linear_srgb.b));
+    return srgb_encode(linear_srgb);
 }
 
-float srgb_encode(float value) {
+float3 srgb_encode(float3 value) {
     value = saturate(value);
     return value < 0.003130805f ? 12.920000076f * value
                                 : pow(1.137283325f * value, 0.416666657f) - 0.054969788f;
@@ -402,7 +402,7 @@ float srgb_encode(float value) {
     const float first =
         component_sample(a0_sample_offset, a0_sample_stride, a0_sample_width, a0_sample_height,
                          a0_horizontal_sampling, a0_vertical_sampling, source_x, source_y);
-    uint3 rgb = rounded_byte(first);
+    uint3 rgb = rounded_bytes(first);
     float second = 0.0f;
     float third = 0.0f;
     float fourth = 0.0f;
@@ -413,13 +413,12 @@ float srgb_encode(float value) {
         third = component_sample(a2_sample_offset, a2_sample_stride, a2_sample_width, a2_sample_height,
                                  a2_horizontal_sampling, a2_vertical_sampling, source_x, source_y);
         if (jpeg_color_transform == 2u || jpeg_color_transform == 3u) {
-            rgb = uint3(rounded_byte(first), rounded_byte(second), rounded_byte(third));
+            rgb = rounded_bytes(float3(first, second, third));
         } else {
             const float cb = second - 128.0f;
             const float cr = third - 128.0f;
-            rgb = uint3(rounded_byte(first + 1.402f * cr),
-                        rounded_byte(first - 0.34414f * cb - 0.71414f * cr),
-                        rounded_byte(first + 1.772f * cb));
+            rgb = rounded_bytes(
+                float3(first + 1.402f * cr, first - 0.34414f * cb - 0.71414f * cr, first + 1.772f * cb));
         }
         icc_device = float4(float3(rgb) / 255.0f, 0.0f);
         if (atlas_component_count == 4u) {
@@ -428,14 +427,11 @@ float srgb_encode(float value) {
             if (jpeg_color_transform == 3u) {
                 icc_device = 1.0f - float4(first, second, third, fourth) / 255.0f;
                 const float black = fourth / 255.0f;
-                rgb = uint3(rounded_byte(first * black), rounded_byte(second * black),
-                            rounded_byte(third * black));
+                rgb = rounded_bytes(float3(first, second, third) * black);
             } else {
                 icc_device = float4(float3(rgb) / 255.0f, 1.0f - fourth / 255.0f);
                 const float black = fourth / 255.0f;
-                rgb = uint3(rounded_byte((255.0f - float(rgb.r)) * black),
-                            rounded_byte((255.0f - float(rgb.g)) * black),
-                            rounded_byte((255.0f - float(rgb.b)) * black));
+                rgb = rounded_bytes((255.0f - float3(rgb)) * black);
             }
         }
     }
@@ -444,8 +440,7 @@ float srgb_encode(float value) {
             icc_device = float4(float3(rgb) / 255.0f, 0.0f);
         }
         const float3 encoded_srgb = icc_transform(icc_device);
-        rgb = uint3(rounded_byte(encoded_srgb.r * 255.0f), rounded_byte(encoded_srgb.g * 255.0f),
-                    rounded_byte(encoded_srgb.b * 255.0f));
+        rgb = rounded_bytes(encoded_srgb * 255.0f);
     }
     media_atlas[uint2(destination_x + x, destination_y + y)] = float4(float3(rgb) / 255.0f, 1.0f);
 }

@@ -88,10 +88,9 @@ endif()
 maicord_library(maicord_video_encode
     src/platform/encode/access_unit.cpp src/platform/encode/av1_headers.cpp
     linux:src/platform/encode/linux/gpu_stream_encoder.cpp
-    windows:src/platform/encode/gpu_stream_encoder.cpp "windows:${MAICORD_ENCODE_VERTEX_HEADER}"
-    "windows:${MAICORD_ENCODE_LUMA_HEADER}" "windows:${MAICORD_ENCODE_CHROMA_HEADER}"
-    LIBS maicord_core maicord_media_codec windows:d3d11 windows:ole32 linux:maicord_video_vaapi linux:maicord_gpu_gles
-    INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
+    windows:src/platform/encode/gpu_stream_encoder.cpp
+    LIBS maicord_core maicord_media_codec windows:maicord_gpu_d3d11 windows:d3d11 windows:ole32 linux:maicord_video_vaapi
+        linux:maicord_gpu_gles)
 
 # Go Live capture (include/maicord/platform/capture/screen_capture.hpp, platform/audio/stream_audio.hpp): screens and
 # windows through Windows.Graphics.Capture and DXGI Desktop Duplication and stream audio through WASAPI process loopback

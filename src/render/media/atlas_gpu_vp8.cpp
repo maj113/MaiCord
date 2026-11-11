@@ -220,19 +220,17 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp_vp8(
     if (FAILED(uploaded)) {
         return reject(gpu, MediaAtlasGpuError::device_failure, uploaded);
     }
-    unbind_apng_atlas(context);
     MediaAtlasResult local{};
-    const MediaAtlasResult allocation =
-        allocate_and_clear_surface(gpu, atlas, context, false, key, canvas_width, canvas_height, &local);
-    if (!allocation.ok()) {
-        return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
+    const MediaAtlasGpuResult canvas =
+        begin_canvas(gpu, atlas, device, context, key, canvas_width, canvas_height, {}, &local);
+    if (canvas.ok()) {
+        clear_animated_webp_canvas(gpu, context, local, background_rgba);
+        dispatch_vp8_atlas(gpu, context, vp8_frame, alpha, local.x + animation_frame.x_offset,
+                           local.y + animation_frame.y_offset,
+                           animation_frame.blend == AnimatedWebpBlend::over, gpu->texture_uav);
+        account_animated_webp_dispatch(gpu, animation_frame, alpha.count);
     }
-    clear_animated_webp_canvas(gpu, context, local, background_rgba);
-    dispatch_vp8_atlas(gpu, context, vp8_frame, alpha, local.x + animation_frame.x_offset,
-                       local.y + animation_frame.y_offset,
-                       animation_frame.blend == AnimatedWebpBlend::over, gpu->texture_uav);
-    account_animated_webp_dispatch(gpu, animation_frame, alpha.count);
-    return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
+    return canvas;
 }
 
 MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp_vp8(

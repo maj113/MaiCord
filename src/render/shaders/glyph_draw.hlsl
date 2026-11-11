@@ -51,20 +51,15 @@ static const float2 kGlyphCorners[6] = {
     float2(1.0f, 0.0f),
     float2(1.0f, 1.0f),
 };
-#else
-// Four-corner triangle strip; the list variant above repeats the shared corners.
-static const float2 kGlyphCorners[4] = {
-    float2(0.0f, 0.0f), float2(1.0f, 0.0f),
-    float2(0.0f, 1.0f), float2(1.0f, 1.0f),
-};
 #endif
 
 // Cubic-bezier easing through control points (p.x,p.y) and (p.z,p.w); Newton
 // iterations solve the curve parameter for t; Horner form reduces each step.
+// Three steps solve both curves below to float precision (2.7e-7).
 float curve_ease(float t,float4 p) {
     float2 a=1+3*(p.xy-p.zw),b=3*p.zw-6*p.xy,c=3*p.xy;
     float u=saturate(t);
-    [unroll] for(int i=0;i<4;i++) {
+    [unroll] for(int i=0;i<3;i++) {
         float x=((a.x*u+b.x)*u+c.x)*u;
         float d=(3*a.x*u+2*b.x)*u+c.x;
         u=saturate(u-(x-t)/max(d,.001));
@@ -104,7 +99,12 @@ float3 neon_move(float cycle) {
 }
 GlyphVertexOutput glyph_vertex(GlyphVertexInput input, uint vertex_id : SV_VertexID) {
     GlyphVertexOutput output;
+#if defined(MAICORD_GLYPH_TRIANGLE_LIST_REFERENCE)
     const float2 corner = kGlyphCorners[vertex_id];
+#else
+    // Four-corner triangle strip; the list variant above repeats the shared corners.
+    const float2 corner = float2(vertex_id & 1u, vertex_id >> 1);
+#endif
     float4 rectangle=input.rectangle, uv=input.texture_rectangle;
     const bool color_glyph=uv.x>=2;
     if(color_glyph)uv.xz-=2;

@@ -25,13 +25,15 @@ HEADER = re.compile(r'^// twin: (\S+) ([0-9a-f]{16})$')
 
 
 def packed_sources():
-    """The HLSL files (repository-relative, POSIX) the shader pack builds."""
+    """The HLSL files (repository-relative, POSIX) of the client shader directory the shader pack builds (the Go Live
+    encoder's, elsewhere, are Windows only)."""
     text = (ROOT / 'cmake' / 'generated_sources.cmake').read_text()
     directory = re.search(r'set\(maicord_shaders\s+(\S+)\)', text).group(1)
     sources = []
     for call in re.finditer(r'maicord_shader\(([^)]*)\)', text):
         words = call.group(1).split()
-        if 'PACK' in words and words[5].replace('${maicord_shaders}', directory) not in sources:
+        if 'PACK' in words and words[5].startswith('${maicord_shaders}/') and \
+                words[5].replace('${maicord_shaders}', directory) not in sources:
             sources.append(words[5].replace('${maicord_shaders}', directory))
     return sources
 

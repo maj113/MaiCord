@@ -1,4 +1,4 @@
-// twin: src/render/shaders/jpeg.hlsl c13d1f49445b0552
+// twin: src/render/shaders/jpeg.hlsl f98b8be4ecd7074e
 // JPEG decode. ENTRY_jpeg_idct (STAGE_CS): the dequantizing 8x8 inverse DCT of every coefficient block.
 // ENTRY_jpeg_to_atlas (STAGE_CS): upsampling, colour conversion, ICC transform and orientation into the media atlas.
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -211,8 +211,8 @@ float component_sample(uint offset, uint stride, uint width, uint height, uint h
     return mix(top_value, bottom_value, fy);
 }
 
-uint rounded_byte(float value) {
-    return uint(clamp(floor(value + 0.5), 0.0, 255.0));
+uvec3 rounded_bytes(vec3 value) {
+    return uvec3(clamp(floor(value + 0.5), 0.0, 255.0));
 }
 
 float icc_curve(uint curve_index, float x) {
@@ -306,9 +306,10 @@ vec3 icc_connection_to_xyz(vec3 connection) {
     return icc_pcs == 1u ? icc_lab_to_xyz(connection) : connection;
 }
 
-float srgb_encode(float value) {
+vec3 srgb_encode(vec3 value) {
     value = clamp(value, 0.0, 1.0);
-    return value < 0.003130805 ? 12.920000076 * value : pow(1.137283325 * value, 0.416666657) - 0.054969788;
+    return mix(pow(1.137283325 * value, vec3(0.416666657)) - 0.054969788, 12.920000076 * value,
+               lessThan(value, vec3(0.003130805)));
 }
 
 vec3 icc_transform(vec4 device) {
@@ -336,7 +337,7 @@ vec3 icc_transform(vec4 device) {
     }
     vec3 linear_srgb = vec3(dot(icc_matrix_row0.xyz, connection), dot(icc_matrix_row1.xyz, connection),
                             dot(icc_matrix_row2.xyz, connection));
-    return vec3(srgb_encode(linear_srgb.r), srgb_encode(linear_srgb.g), srgb_encode(linear_srgb.b));
+    return srgb_encode(linear_srgb);
 }
 
 void main() {
@@ -374,7 +375,7 @@ void main() {
     }
     float first = component_sample(a0_sample_offset, a0_sample_stride, a0_sample_width, a0_sample_height,
                                    a0_horizontal_sampling, a0_vertical_sampling, source_x, source_y);
-    uvec3 rgb = uvec3(rounded_byte(first));
+    uvec3 rgb = rounded_bytes(vec3(first));
     float second = 0.0;
     float third = 0.0;
     float fourth = 0.0;
@@ -385,12 +386,11 @@ void main() {
         third = component_sample(a2_sample_offset, a2_sample_stride, a2_sample_width, a2_sample_height,
                                  a2_horizontal_sampling, a2_vertical_sampling, source_x, source_y);
         if (jpeg_color_transform == 2u || jpeg_color_transform == 3u) {
-            rgb = uvec3(rounded_byte(first), rounded_byte(second), rounded_byte(third));
+            rgb = rounded_bytes(vec3(first, second, third));
         } else {
             float cb = second - 128.0;
             float cr = third - 128.0;
-            rgb = uvec3(rounded_byte(first + 1.402 * cr), rounded_byte(first - 0.34414 * cb - 0.71414 * cr),
-                        rounded_byte(first + 1.772 * cb));
+            rgb = rounded_bytes(vec3(first + 1.402 * cr, first - 0.34414 * cb - 0.71414 * cr, first + 1.772 * cb));
         }
         icc_device = vec4(vec3(rgb) * (1.0 / 255.0), 0.0);
         if (atlas_component_count == 4u) {
@@ -399,12 +399,11 @@ void main() {
             if (jpeg_color_transform == 3u) {
                 icc_device = 1.0 - vec4(first, second, third, fourth) * (1.0 / 255.0);
                 float black = fourth * (1.0 / 255.0);
-                rgb = uvec3(rounded_byte(first * black), rounded_byte(second * black), rounded_byte(third * black));
+                rgb = rounded_bytes(vec3(first, second, third) * black);
             } else {
                 icc_device = vec4(vec3(rgb) * (1.0 / 255.0), 1.0 - fourth * (1.0 / 255.0));
                 float black = fourth * (1.0 / 255.0);
-                rgb = uvec3(rounded_byte((255.0 - float(rgb.r)) * black), rounded_byte((255.0 - float(rgb.g)) * black),
-                            rounded_byte((255.0 - float(rgb.b)) * black));
+                rgb = rounded_bytes((255.0 - vec3(rgb)) * black);
             }
         }
     }
@@ -412,8 +411,7 @@ void main() {
         if (icc_transform_kind != 3u)
             icc_device = vec4(vec3(rgb) * (1.0 / 255.0), 0.0);
         vec3 encoded_srgb = icc_transform(icc_device);
-        rgb = uvec3(rounded_byte(encoded_srgb.r * 255.0), rounded_byte(encoded_srgb.g * 255.0),
-                    rounded_byte(encoded_srgb.b * 255.0));
+        rgb = rounded_bytes(encoded_srgb * 255.0);
     }
     imageStore(media_atlas, ivec2(destination_x + x, destination_y + y), vec4(vec3(rgb) * (1.0 / 255.0), 1.0));
 }
