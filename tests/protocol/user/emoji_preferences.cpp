@@ -81,9 +81,9 @@ bool has(const Keys& keys, Utf8View key) noexcept {
 }
 struct Items {
     Keys keys;
-    EmojiFrecencyItem items[8];
+    FrecencyItem items[8];
 };
-bool collect_item(void* context, Utf8View key, const EmojiFrecencyItem& item) noexcept {
+bool collect_item(void* context, Utf8View key, const FrecencyItem& item) noexcept {
     auto& items = *static_cast<Items*>(context);
     if (items.keys.count < 8)
         items.items[items.keys.count] = item;

@@ -609,16 +609,12 @@ GifFavoritesError gif_favorites_validate_patch_json(Utf8View input) noexcept {
     if (input.bytes > kGifFavoritesMaximumPatchBytes ||
         !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}))
         return E::input;
-    u32 structurals[16];
-    const auto scan = json_scan_structurals_avx1(input, {structurals, 16});
-    SettingsPatchEnvelope parsed{};
-    if (!scan.ok() ||
-        !json_visit_root_object(input, {structurals, scan.count}, 2, settings_patch_member, &parsed).ok() ||
-        parsed.seen != 3)
+    Utf8View encoded{};
+    if (settings_patch_members(input, &encoded) != 3)
         return E::envelope;
     ProtoSource w{};
     E error{};
-    if (!encoded_wire(parsed.encoded, &w, &error))
+    if (!encoded_wire(encoded, &w, &error))
         return error;
     u32 p = 0, f = 0, t = 0, stop = 0;
     if (!proto_tag(w, p, w.size, f, t) || f != 2 || t != 2 || !proto_length(w, p, w.size, stop) || stop != w.size)

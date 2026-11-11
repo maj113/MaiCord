@@ -1,6 +1,7 @@
 #include "emoji_preferences.hpp"
 #include "maicord/core/memory.hpp"
 #include "../media/picker.hpp"
+#include "../chat/composer/composer.hpp"
 #include "account_broker.hpp"
 #include "../shell/state.hpp"
 #include "maicord/core/time.hpp"
@@ -133,7 +134,7 @@ struct FrecencyVisit {
     Broker* p;
     u32 kind;
 };
-bool visit_frecency(void* context, Utf8View key, const EmojiFrecencyItem& item) noexcept {
+bool visit_frecency(void* context, Utf8View key, const FrecencyItem& item) noexcept {
     auto& visit = *static_cast<FrecencyVisit*>(context);
     auto& p = *visit.p;
     const auto emoji = reaction_emoji_from_settings_key(key);
@@ -172,6 +173,9 @@ __forceinline void apply_snapshot(Broker& p) noexcept {
                                       clock_unix_milliseconds());
     application_media_picker_emoji_preferences_changed();
     application_request_frame();
+    // Open ':' suggestions rank by this snapshot.
+    if (g_app.composer_autocomplete.kind == ComposerAutocompleteKind::emoji)
+        refresh_active_autocomplete();
 }
 
 // Keys match observed entries by emoji, so keys other clients wrote are sent
@@ -279,6 +283,15 @@ void application_emoji_preferences_open() noexcept {
         p.fetch_wanted = true;
         p.retry_at = 0;
     }
+}
+
+void application_emoji_preferences_load() noexcept {
+    if (!online() || !ensure())
+        return;
+    application_emoji_preferences_synchronize();
+    auto& p = *broker;
+    if (broker_scope(p) && (p.stale || !p.authoritative) && !p.request_id && !p.terminal_rate_limit)
+        p.fetch_wanted = true;
 }
 
 void application_emoji_preferences_synchronize() noexcept {

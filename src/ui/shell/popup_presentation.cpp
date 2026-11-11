@@ -605,7 +605,20 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
         }
         if (!shared_row && (item.flags & (popup_item_avatar | popup_item_emoji_preview)))
             label_rectangle.left = item_layout.row->rectangle.left + 48;
-        const Utf8View detail_text = item.detail;
+        // A Unicode emoji without an image shows its glyph (the detail) in the icon column, where images sit.
+        const bool glyph_icon = (item.flags & popup_item_emoji_preview) && !item.regional_flag && !item.media_id;
+        if (glyph_icon && item.detail.bytes)
+            text.emit({item.detail,
+                       {&scene.widgets, row.label},
+                       popup_avatar_rectangle(*item_layout.row),
+                       item_layout.clip_rectangle,
+                       color,
+                       text_style_none,
+                       UiTextAlignment::center,
+                       UiTextAlignment::center,
+                       TextWrapping::no_wrap,
+                       TextOverflow::clip});
+        const Utf8View detail_text = glyph_icon ? Utf8View{} : item.detail;
         if (detail_text.bytes) {
             Color detail_color = theme.text_primary;
             detail_color.alpha *= .65f;
@@ -693,6 +706,10 @@ PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& 
     const u16 flag = item.regional_flag ? item.regional_flag
                      : unicode_cell     ? regional_flag_sequence(item.label)
                                         : 0;
+    // A Unicode emoji row without an image (its glyph is drawn as text in the icon column) has no media.
+    if (!flag && !item.media_id && (item.flags & popup_item_emoji_preview) &&
+        !(item.flags & (popup_item_custom_emoji | popup_item_avatar | popup_item_guild_icon)))
+        return PopupMediaPresentationStatus::skip;
     if (!flag && ((item.flags & (popup_item_custom_emoji | popup_item_avatar | popup_item_emoji_preview |
                                  popup_item_guild_icon)) == 0 ||
                   ((item.flags & popup_item_guild_icon) && !item.media_variant))) {

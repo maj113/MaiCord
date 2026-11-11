@@ -6,8 +6,10 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/user/settings_proto.hpp"
+#include "../encoding/json_fields.hpp"
 #include "../encoding/json_helpers.hpp"
 #include "../encoding/proto_wire.hpp"
+#include "../user/frecency_wire.hpp"
 
 namespace maicord {
 namespace {
@@ -1029,53 +1031,7 @@ bool command_interaction_failure(Utf8View body, Slice<u32> scratch, Slice<char> 
 
 namespace {
 using namespace protocol_detail;
-constexpr u32 kFrecencyField = 7, kVersionsField = 1, kDataVersionField = 3;
-// One FrecencyItem message in [p, stop) of an extracted group.
-bool frecency_item(const ProtoSource& w, u32 p, u32 stop, CommandFrecencyEntry* entry) noexcept {
-    while (p < stop) {
-        u32 field = 0, type = 0;
-        u64 n = 0;
-        if (!proto_tag(w, p, stop, field, type))
-            return false;
-        if ((field == 1 || field == 3 || field == 4) && type == 0) {
-            if (!proto_varint(w, p, stop, n))
-                return false;
-            if (field == 1)
-                entry->total_uses = static_cast<u32>(n);
-            else if (field == 3)
-                entry->frecency = static_cast<i32>(n);
-            else
-                entry->score = static_cast<i32>(n) * 100;
-        } else if (field == 2 && (type == 0 || type == 2)) {
-            u32 end = p;
-            if (type == 2 && !proto_length(w, p, stop, end))
-                return false;
-            do {
-                if (!proto_varint(w, p, type == 2 ? end : stop, n))
-                    return false;
-                if (n) {
-                    // Keep the latest ten, ascending.
-                    if (entry->recent_count == kCommandFrecencyRecentUses) {
-                        if (n <= entry->recent_uses[0])
-                            continue;
-                        copy_bytes(entry->recent_uses, entry->recent_uses + 1,
-                                   (kCommandFrecencyRecentUses - 1) * sizeof(u64));
-                        --entry->recent_count;
-                    }
-                    u32 at = entry->recent_count++;
-                    while (at && entry->recent_uses[at - 1] > n) {
-                        entry->recent_uses[at] = entry->recent_uses[at - 1];
-                        --at;
-                    }
-                    entry->recent_uses[at] = n;
-                }
-            } while (type == 2 && p < end);
-        } else if (!proto_skip(w, p, stop, type, field)) {
-            return false;
-        }
-    }
-    return true;
-}
+constexpr u32 kFrecencyField = 7, kVersionsField = 1;
 i64 find_frecency(ConstSlice<CommandFrecencyEntry> entries, u32 count, Utf8View key) noexcept {
     for (u32 n = 0; n < count; ++n)
         if (entries[n].key_bytes == key.bytes && bytes_equal(entries[n].key, key.data, key.bytes))
@@ -1099,20 +1055,8 @@ bool command_frecency_decode_response(Utf8View body, Slice<u8> scratch, Slice<Co
         return false;
     const ConstSlice<u8> extracted{scratch.data, response.extracted.bytes};
     const ConstSlice<u8> versions = user_settings_proto_group(extracted, kVersionsField);
-    const ProtoSource v = proto_source(versions);
-    for (u32 p = 0; p < v.size;) {
-        u32 field = 0, type = 0;
-        u64 n = 0;
-        if (!proto_tag(v, p, v.size, field, type))
-            return false;
-        if (field == kDataVersionField && type == 0) {
-            if (!proto_varint(v, p, v.size, n))
-                return false;
-            *data_version = static_cast<u32>(n);
-        } else if (!proto_skip(v, p, v.size, type, field)) {
-            return false;
-        }
-    }
+    if (!settings_data_version(proto_source(versions), 0, versions.count, data_version))
+        return false;
     const ConstSlice<u8> group = user_settings_proto_group(extracted, kFrecencyField);
     const ProtoSource w = proto_source(group);
     for (u32 p = 0; p < w.size;) {
@@ -1126,38 +1070,18 @@ bool command_frecency_decode_response(Utf8View body, Slice<u8> scratch, Slice<Co
         }
         if (!proto_length(w, p, w.size, stop))
             return false;
-        // Map entry: key = 1, value = 2.
         CommandFrecencyEntry entry{};
-        bool keyed = false, long_key = false;
-        while (p < stop) {
-            u32 entry_field = 0, entry_type = 0, end = 0;
-            if (!proto_tag(w, p, stop, entry_field, entry_type))
-                return false;
-            if (entry_type != 2) {
-                if (!proto_skip(w, p, stop, entry_type, entry_field))
-                    return false;
-                continue;
-            }
-            if (!proto_length(w, p, stop, end))
-                return false;
-            if (entry_field == 1) {
-                long_key = end - p > kCommandFrecencyKeyBytes;
-                if (!long_key) {
-                    copy_bytes(entry.key, group.data + p, end - p);
-                    entry.key_bytes = static_cast<u8>(end - p);
-                    keyed = true;
-                }
-            } else if (entry_field == 2) {
-                reset_value(&entry.recent_uses);
-                entry.recent_count = 0;
-                if (!frecency_item(w, p, end, &entry))
-                    return false;
-            }
-            p = end;
-        }
-        if (!keyed || long_key)
+        Utf8View key{};
+        if (frecency_entry_decode(w, p, stop, &key, &entry) != FrecencyWire::ok)
+            return false;
+        p = stop;
+        // Longer keys are left out.
+        if (!key.data || key.bytes > kCommandFrecencyKeyBytes)
             continue;
-        const i64 existing = find_frecency({entries.data, entries.count}, *count, {entry.key, entry.key_bytes});
+        entry.score *= 100;
+        copy_bytes(entry.key, key.data, key.bytes);
+        entry.key_bytes = static_cast<u8>(key.bytes);
+        const i64 existing = find_frecency({entries.data, entries.count}, *count, key);
         if (existing >= 0)
             entries[static_cast<u32>(existing)] = entry;
         else if (*count < entries.count)
@@ -1167,16 +1091,10 @@ bool command_frecency_decode_response(Utf8View body, Slice<u8> scratch, Slice<Co
 }
 
 u32 command_frecency_compute(Slice<CommandFrecencyEntry> entries, u32 count, u64 now_unix_ms) noexcept {
-    constexpr u64 day_ms = 24ull * 60 * 60 * 1000;
     u32 kept = 0;
     for (u32 n = 0; n < count; ++n) {
-        auto entry = entries[n];
-        u32 score = 0;
-        for (u32 use = 0; use < entry.recent_count; ++use) {
-            const u64 used = entry.recent_uses[use];
-            const u64 days = now_unix_ms > used ? (now_unix_ms - used) / day_ms : 0;
-            score += days <= 3 ? 100 : days <= 15 ? 70 : days <= 30 ? 50 : days <= 45 ? 30 : days <= 80 ? 10 : 1;
-        }
+        auto& entry = entries[n];
+        const u32 score = frecency_recent_score(entry.recent_uses, entry.recent_count, now_unix_ms);
         if (!score)
             continue;
         entry.score = static_cast<i32>(score);
@@ -1184,7 +1102,9 @@ u32 command_frecency_compute(Slice<CommandFrecencyEntry> entries, u32 count, u64
         const u64 denominator = 100ull * entry.recent_count;
         entry.frecency = static_cast<i32>(
             minimum<u64>(0x7FFFFFFF, (static_cast<u64>(entry.total_uses) * score + denominator - 1) / denominator));
-        entries[kept++] = entry;
+        if (kept != n)
+            entries[kept] = entry;
+        ++kept;
     }
     return kept;
 }
@@ -1213,8 +1133,8 @@ void command_frecency_track(Slice<CommandFrecencyEntry> entries, u32* count, con
     }
     auto& entry = entries[static_cast<u32>(found)];
     ++entry.total_uses;
-    if (entry.recent_count == kCommandFrecencyRecentUses) {
-        copy_bytes(entry.recent_uses, entry.recent_uses + 1, (kCommandFrecencyRecentUses - 1) * sizeof(u64));
+    if (entry.recent_count == kFrecencyRecentUses) {
+        copy_bytes(entry.recent_uses, entry.recent_uses + 1, (kFrecencyRecentUses - 1) * sizeof(u64));
         --entry.recent_count;
     }
     entry.recent_uses[entry.recent_count++] = now_unix_ms;
@@ -1222,61 +1142,14 @@ void command_frecency_track(Slice<CommandFrecencyEntry> entries, u32* count, con
 
 u32 command_frecency_write_patch(ConstSlice<CommandFrecencyEntry> entries, u32 data_version, Slice<u8> scratch,
                                  Slice<u8> json) noexcept {
-    const auto item_bytes = [](const CommandFrecencyEntry& entry) noexcept {
-        u32 packed = 0;
-        for (u32 use = 0; use < entry.recent_count; ++use)
-            packed += proto_varint_size(entry.recent_uses[use]);
-        const u64 score = (static_cast<u64>(entry.score) + 50) / 100;
-        return (entry.total_uses ? 1 + proto_varint_size(entry.total_uses) : 0) +
-               (packed ? 1 + proto_varint_size(packed) + packed : 0) +
-               (entry.frecency ? 1 + proto_varint_size(static_cast<u64>(static_cast<i64>(entry.frecency))) : 0) +
-               (score ? 1 + proto_varint_size(score) : 0);
-    };
-    u64 map_bytes = 0;
-    for (u32 n = 0; n < entries.count; ++n) {
-        const auto& entry = entries[n];
-        const u32 value = item_bytes(entry);
-        const u32 inner = 1 + proto_varint_size(entry.key_bytes) + entry.key_bytes + 1 + proto_varint_size(value) + value;
-        map_bytes += 1 + proto_varint_size(inner) + inner;
-    }
-    if (map_bytes > scratch.count)
-        return 0;
     ProtoWriter out{scratch, 0, true};
-    out.tag(kFrecencyField, 2);
-    out.varint(map_bytes);
-    for (u32 n = 0; n < entries.count; ++n) {
-        const auto& entry = entries[n];
-        const u32 value = item_bytes(entry);
-        out.tag(1, 2);
-        out.varint(1 + proto_varint_size(entry.key_bytes) + entry.key_bytes + 1 + proto_varint_size(value) + value);
-        out.tag(1, 2);
-        out.varint(entry.key_bytes);
-        out.bytes(entry.key, entry.key_bytes);
-        out.tag(2, 2);
-        out.varint(value);
-        if (entry.total_uses) {
-            out.tag(1, 0);
-            out.varint(entry.total_uses);
+    frecency_group_write(out, kFrecencyField, [&](ProtoWriter& group) noexcept {
+        for (u32 n = 0; n < entries.count; ++n) {
+            FrecencyItem item = entries[n];
+            item.score = static_cast<i32>((static_cast<u64>(item.score) + 50) / 100);
+            frecency_entry_write(group, {entries[n].key, entries[n].key_bytes}, item);
         }
-        u32 packed = 0;
-        for (u32 use = 0; use < entry.recent_count; ++use)
-            packed += proto_varint_size(entry.recent_uses[use]);
-        if (packed) {
-            out.tag(2, 2);
-            out.varint(packed);
-            for (u32 use = 0; use < entry.recent_count; ++use)
-                out.varint(entry.recent_uses[use]);
-        }
-        if (entry.frecency) {
-            out.tag(3, 0);
-            out.varint(static_cast<u64>(static_cast<i64>(entry.frecency)));
-        }
-        const u64 score = (static_cast<u64>(entry.score) + 50) / 100;
-        if (score) {
-            out.tag(4, 0);
-            out.varint(score);
-        }
-    }
+    });
     if (!out.ok)
         return 0;
     const u32 bytes = proto_settings_patch_bytes(out.at, data_version, true);
@@ -1286,31 +1159,13 @@ u32 command_frecency_write_patch(ConstSlice<CommandFrecencyEntry> entries, u32 d
 }
 
 bool command_frecency_patch_valid(Utf8View json) noexcept {
-    u32 indexes[64];
-    const auto scanned = json_scan_structurals_avx1(json, {indexes, 64});
-    if (!scanned.ok())
+    Utf8View encoded{};
+    if (!(settings_patch_members(json, &encoded) & 1))
         return false;
-    struct Envelope {
-        JsonString settings;
-        bool seen, other;
-    } envelope{};
-    if (!json_visit_root_object(json, {indexes, scanned.count}, 4,
-                                [](void* opaque, JsonString name, JsonValue value) noexcept {
-                                    auto& e = *static_cast<Envelope*>(opaque);
-                                    if (json_string_equals_ascii(name, utf8_literal("settings")))
-                                        e.seen = json_value_as_string(value, &e.settings) && !e.settings.has_escapes;
-                                    else if (!json_string_equals_ascii(name, utf8_literal("required_data_version")))
-                                        e.other = true;
-                                    return true;
-                                },
-                                &envelope)
-             .ok() ||
-        !envelope.seen || envelope.other)
-        return false;
-    const auto measured = base64_decode(envelope.settings.encoded, {});
+    const auto measured = base64_decode(encoded, {});
     if ((!measured.ok() && measured.error != Base64Error::output_too_small) || !measured.bytes)
         return false;
-    const ProtoSource w{{}, envelope.settings.encoded, measured.bytes};
+    const ProtoSource w{{}, encoded, measured.bytes};
     for (u32 p = 0; p < w.size;) {
         u32 field = 0, type = 0, stop = 0;
         if (!proto_tag(w, p, w.size, field, type) || field != kFrecencyField || type != 2 ||

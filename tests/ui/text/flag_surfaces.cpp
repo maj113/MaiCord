@@ -175,6 +175,53 @@ void popup_identity_case(void (*check)(bool, const char*) noexcept) noexcept {
     check(valid, "flag-named users keep text, guild icons keep identity media and Unicode emoji cells use flags");
     popup_scene_release(&popup);
 }
+// Every emoji row's name starts at one x: a flag is an image and any other emoji draws its glyph in the same icon
+// column, instead of leading the label text (which pushed a flag row's name right of its neighbours').
+void emoji_row_alignment_case(void (*check)(bool, const char*) noexcept) noexcept {
+    MessageComposer composer{}; char source[64]{};
+    ComposerAutocomplete suggestions{}; MemberListView members{}; UserStore users{};
+    NavigationView navigation{}; ChatStateStore state{};
+    const auto query = utf8_literal(":sk");
+    bool valid = message_composer_initialize(&composer, {source, sizeof(source)}) &&
+        message_composer_restore(&composer, 7, query, query.bytes, query.bytes) &&
+        composer_autocomplete_build(&suggestions, composer, members, users, navigation, state) &&
+        suggestions.count >= 6;
+    const u32 count = valid ? minimum(suggestions.count, 8u) : 0;
+    PopupItem items[8]{};
+    u32 images = 0, glyphs = 0;
+    for (u32 i = 0; i < count; ++i) {
+        items[i] = PopupItem{suggestions.suggestions[i].label, 1 + i, popup_item_enabled};
+        composer_autocomplete_emoji_item(suggestions.suggestions[i], &items[i]);
+        images += items[i].regional_flag != 0;
+        glyphs += items[i].detail.bytes != 0;
+    }
+    PopupScene popup{}; UiWidget widgets[64]{}; UiLayoutNode layout[64]{};
+    UiTextCommand commands[32]{}; UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
+    valid = valid && images >= 1 && glyphs >= 1 && images + glyphs == count &&
+        popup_scene_initialize_owned(&popup, count, {widgets, 64}, {layout, 64}) &&
+        popup_scene_open(&popup, PopupKind::autocomplete, 7, {items, count}, {0, 700, 400, 701}, {0, 0, 400, 900}, 400).ok() &&
+        ui_text_command_stream_initialize(&text, {commands, 32}) &&
+        popup_text_presentation_build_output(popup, Theme{}, &text_output) && text.count == count + glyphs;
+    u32 names = 0, icons = 0;
+    for (u32 i = 0; valid && i < count; ++i) {
+        PopupItemLayout row{};
+        valid = popup_scene_resolve_item_layout(popup, i, &row) && row.visible;
+        for (u32 c = 0; valid && c < text.count; ++c) {
+            const float left = row.row->rectangle.left;
+            if (utf8_equal(commands[c].text, items[i].label)) {
+                valid = commands[c].rectangle.left == left + 48;
+                ++names;
+            } else if (items[i].detail.bytes && utf8_equal(commands[c].text, items[i].detail)) {
+                valid = commands[c].rectangle.left >= left && commands[c].rectangle.right <= left + 48;
+                ++icons;
+            }
+        }
+    }
+    check(valid && names == count && icons == glyphs, "emoji suggestion rows start every name at one x, flags and glyphs alike");
+    if (popup.active) popup_scene_release(&popup);
+    composer_autocomplete_release(&suggestions); message_composer_release(&composer);
+}
 void geometry_cases(void (*check)(bool, const char*) noexcept) noexcept {
     TextSystem system{};
     const bool initialized = text_system_initialize(&system, L"Segoe UI", 16).ok();
@@ -283,6 +330,7 @@ void escape_geometry_case(void (*check)(bool, const char*) noexcept) noexcept {
 } // namespace
 void test_flag_surfaces(void (*check)(bool, const char*) noexcept) noexcept {
     scanner_cases(check); markdown_cases(check); composer_cases(check); composer_capacity_case(check); popup_identity_case(check);
+    emoji_row_alignment_case(check);
     geometry_cases(check);
     escape_geometry_case(check);
 }

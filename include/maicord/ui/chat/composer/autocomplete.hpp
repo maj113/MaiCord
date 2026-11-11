@@ -10,6 +10,7 @@ struct MessageComposer;
 struct MessageStore;
 struct NavigationView;
 struct ReactionPreferenceStore;
+struct PopupItem;
 
 inline constexpr u32 kComposerAutocompleteCapacity = 16;
 // At most ten rows: users first, then roles fill the rows left, then
@@ -91,5 +92,9 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
                                  const ReactionPreferenceStore* preferences = nullptr,
                                  bool game_mentions = false) noexcept;
 void composer_autocomplete_release(ComposerAutocomplete* autocomplete) noexcept;
+// Marks a popup row (label already the suggestion's) as an emoji row: a custom emoji or a flag is an image, any other
+// emoji its glyph in the row's icon column (the detail), with the label cut to the name, so every row's name starts
+// at one x.
+void composer_autocomplete_emoji_item(const ComposerAutocompleteSuggestion& suggestion, PopupItem* item) noexcept;
 
 } // namespace maicord

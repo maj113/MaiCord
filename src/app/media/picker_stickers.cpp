@@ -158,15 +158,12 @@ struct StickerFrecency {
     u32 count;
     u64 now_ms;
 };
-bool sticker_frecency_entry(void* context, Utf8View key, const EmojiFrecencyItem& item) noexcept {
+bool sticker_frecency_entry(void* context, Utf8View key, const FrecencyItem& item) noexcept {
     auto& table = *static_cast<StickerFrecency*>(context);
     u64 id = 0;
     if (!snowflake_parse(key, &id))
         return true;
-    u32 score = 0;
-    for (u32 i = 0; i < item.recent_count; ++i)
-        if (item.recent_uses[i])
-            score += frecency_age_weight(table.now_ms, item.recent_uses[i]);
+    const u32 score = frecency_recent_score(item.recent_uses, item.recent_count, table.now_ms);
     u32 at = 0;
     while (at < table.count && table.id[at] != id)
         ++at;

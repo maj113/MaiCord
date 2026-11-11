@@ -13,6 +13,7 @@
 #include "maicord/model/chat/message_store.hpp"
 #include "maicord/model/chat/reaction_preferences.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 
 namespace maicord {
 namespace {
@@ -807,6 +808,24 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
         autocomplete->kind = ComposerAutocompleteKind::none;
     }
     return true;
+}
+
+void composer_autocomplete_emoji_item(const ComposerAutocompleteSuggestion& suggestion, PopupItem* item) noexcept {
+    item->flags |= popup_item_emoji_preview;
+    if (suggestion.emoji_id) {
+        item->media_id = suggestion.emoji_id;
+        item->media_flags = suggestion.animated_emoji ? 1 : 0;
+        return;
+    }
+    // The insertion is the glyph and a space. A flag is an image of that identity and its label the name alone; any
+    // other emoji leads its label with its glyph and two spaces, which the row draws in the icon column instead.
+    const u32 bytes = suggestion.insertion_bytes ? suggestion.insertion_bytes - 1u : 0;
+    item->regional_flag = regional_flag_sequence({suggestion.insertion, bytes});
+    if (!item->regional_flag && bytes && suggestion.label.bytes >= bytes + 2u &&
+        bytes_equal(suggestion.label.data, suggestion.insertion, bytes)) {
+        item->detail = {suggestion.label.data, bytes};
+        item->label = {suggestion.label.data + bytes + 2, suggestion.label.bytes - bytes - 2};
+    }
 }
 
 void composer_autocomplete_release(ComposerAutocomplete* autocomplete) noexcept {

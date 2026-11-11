@@ -32,6 +32,7 @@
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/ui/media/picker.hpp"
+#include "maicord/text/layout/pill_extent.hpp"
 #include "../../src/app/chat/composer/game_search.hpp"
 #include "../../src/app/settings/user_settings.hpp"
 
@@ -66,6 +67,7 @@ struct Fixture {
     TypingRecord typing_records[4];
     Utf8View typing, attachments;
     u32 picks, manages, gifs, stickers, emojis, history_calls, frame_requests;
+    u32 emoji_loads;
     u32 attachment_queue_notices, unexpected_completions;
     u32 timestamp_pixel_proofs, clipped_timestamp_headers;
     GatewayMemberRequestOwner member_requests;
@@ -310,7 +312,7 @@ bool initialize(HWND window) noexcept {
     message.channel_id = kSource;
     message.author_id = 98;
     message.timestamp_ms = 1'759'667'400'000ull;
-    message.content = utf8_literal("Write a clear reply in your preferred language.");
+    message.content = utf8_literal("Write a clear reply, <@98>, in your preferred language.");
     message.fields = gateway_message_field_id | gateway_message_field_channel_id |
                      gateway_message_field_author_id | gateway_message_field_timestamp |
                      gateway_message_field_content;
@@ -1058,6 +1060,206 @@ bool option_chips() noexcept {
     return require(failed, 16, "option chips with a failed check") &&
            require(active, 16, "option chips with the active option") && text({}, L"") && project();
 }
+
+bool same_color(const Color& a, const Color& b) noexcept {
+    const auto near = [](float x, float y) noexcept { return (x < y ? y - x : x - y) < .002f; };
+    return near(a.red, b.red) && near(a.green, b.green) && near(a.blue, b.blue) && near(a.alpha, b.alpha);
+}
+const u8* frame_pixel(const D3D11_MAPPED_SUBRESOURCE& mapped, i32 x, i32 y) noexcept {
+    return static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch + x * 4;
+}
+i32 pixel_distance(const u8* a, const u8* b) noexcept {
+    i32 distance{};
+    for (u32 c = 0; c < 3; ++c) {
+        const i32 d = a[c] - b[c];
+        distance += d < 0 ? -d : d;
+    }
+    return distance;
+}
+// "game chip pill: 144 dpi, gaps 5.12 and 4.87 px, height 1.60 em" on stdout, which CTest shows with a failure.
+void report_gaps(const char* what, u32 dpi, float top, float bottom, float height_in_ems) noexcept {
+    char line[160];
+    u32 bytes = 0;
+    const auto put = [&](const char* words) noexcept {
+        for (u32 i = 0; words[i]; ++i)
+            line[bytes++] = words[i];
+    };
+    const auto number = [&](float value) noexcept {
+        if (value < 0) {
+            line[bytes++] = '-';
+            value = -value;
+        }
+        const u32 hundredths = static_cast<u32>(value * 100.f + .5f);
+        bytes += decimal_write(line + bytes, hundredths / 100);
+        line[bytes++] = '.';
+        line[bytes++] = static_cast<char>('0' + hundredths / 10 % 10);
+        line[bytes++] = static_cast<char>('0' + hundredths % 10);
+    };
+    put(what);
+    put(": ");
+    bytes += decimal_write(line + bytes, dpi);
+    put(" dpi, gaps ");
+    number(top);
+    put(" and ");
+    number(bottom);
+    put(" px, height ");
+    number(height_in_ems);
+    put(" em\r\n");
+    DWORD written{};
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, bytes, &written, nullptr);
+}
+// The vertical extent of the ink in columns [left, right) over rows [first, last], in device pixels: the rows whose
+// pixels differ from the same row's pixel at `fill_x` (the plain fill the text sits on), with the partial coverage of
+// the first and last of them counted, so a fraction of a device pixel shows.
+bool ink_extent(const D3D11_MAPPED_SUBRESOURCE& mapped, i32 left, i32 right, i32 fill_x, i32 first, i32 last,
+                float* top, float* bottom) noexcept {
+    float coverage[64]{};
+    float peak = 0;
+    if (!require(last - first < 64 && right > left && first > 0, 261, "pill_rows"))
+        return false;
+    for (i32 y = first; y <= last; ++y) {
+        const u8* fill = frame_pixel(mapped, fill_x, y);
+        for (i32 x = left; x < right; ++x)
+            coverage[y - first] =
+                maximum(coverage[y - first], static_cast<float>(pixel_distance(frame_pixel(mapped, x, y), fill)));
+        peak = maximum(peak, coverage[y - first]);
+    }
+    i32 ink_first = -1, ink_last = -1;
+    for (i32 y = first; y <= last; ++y) {
+        coverage[y - first] /= peak > 0 ? peak : 1.f;
+        if (coverage[y - first] > .15f) {
+            ink_first = ink_first < 0 ? y : ink_first;
+            ink_last = y;
+        }
+    }
+    if (!require(peak > 96.f && ink_first >= 0, 262, "pill_ink"))
+        return false;
+    *top = ink_first + (1.f - minimum(1.f, coverage[ink_first - first]));
+    *bottom = ink_last + minimum(1.f, coverage[ink_last - first]);
+    return true;
+}
+// The ink sits as far from the pill's top edge as from its bottom edge (within `tolerance`), and the pill is
+// `height_in_ems` tall (within half a device pixel). Edges and ink are in device pixels.
+bool pill_balanced(const char* what, float pill_top, float pill_bottom, float ink_top, float ink_bottom,
+                   float height_in_ems, float tolerance) noexcept {
+    const float top_gap = ink_top - pill_top, bottom_gap = pill_bottom - ink_bottom;
+    const float difference = top_gap < bottom_gap ? bottom_gap - top_gap : top_gap - bottom_gap;
+    const float em = g_app.renderer.composer_layout.em_size * g_app.renderer.dpi / 96.f;
+    const float height = (pill_bottom - pill_top) / em, error = (height - height_in_ems) * em;
+    const bool centred = difference <= tolerance, sized = (error < 0 ? -error : error) <= .5f;
+    if (!centred || !sized)
+        report_gaps(what, g_app.renderer.dpi, top_gap, bottom_gap, height);
+    return require(centred, 263, "pill_gaps_equal") && require(sized, 264, "pill_height");
+}
+// The game search chip ("@game" and its query) is a pill centred on its text, measured on the frame the renderer drew:
+// the pill is the bordered quad of the option-fill token and the ink is read from the pixels of its name segment.
+bool chip_centred(const D3D11_MAPPED_SUBRESOURCE& mapped) noexcept {
+    const auto& r = g_app.renderer;
+    const auto& tokens = fixture->theme.tokens;
+    const float scale = r.dpi / 96.f;
+    const PaintQuad *box = nullptr, *name = nullptr;
+    for (u32 i = 0; i < r.paint_stream.count; ++i) {
+        const auto& q = r.paint_stream.quads[i];
+        if (!box && q.border_width == 1.f && q.radius == fixture->theme.scale.radius_sm &&
+            same_color(q.fill, tokens.option.fill))
+            box = &q;
+        else if (box && !name && same_color(q.fill, tokens.option.key) && q.top > box->top && q.bottom < box->bottom)
+            name = &q;
+    }
+    if (!require(box && name, 260, "pill_quads"))
+        return false;
+    // Rows inside the 1 DIP border; columns inside the name segment.
+    const i32 first = static_cast<i32>(box->top * scale + 2.f), last = static_cast<i32>(box->bottom * scale - 2.f);
+    const i32 left = static_cast<i32>(name->left * scale + 3.f), right = static_cast<i32>(name->right * scale - 3.f);
+    float ink_top{}, ink_bottom{};
+    // The pill's bottom border row is drawn (the pill is taller than its line and the editor's clip must let it out):
+    // it differs from the name segment's fill, read in the plain padding before the text.
+    const i32 border_row = static_cast<i32>(box->bottom * scale - .5f);
+    return require(last < static_cast<i32>(r.height), 261, "pill_rows") &&
+           require(pixel_distance(frame_pixel(mapped, left, border_row), frame_pixel(mapped, left, border_row - 4)) > 20,
+                   269, "pill_bottom_border_clipped") &&
+           ink_extent(mapped, left, right, left - 1, first, last, &ink_top, &ink_bottom) &&
+           pill_balanced("game chip pill", box->top * scale, box->bottom * scale, ink_top, ink_bottom,
+                         kTextChipPillHeight, .5f);
+}
+// A user mention in the draft ("@game": the mention background of the text layer) is a pill centred on its text too.
+// The text layer's solid quads have hard pixel edges, so its centring is held to one device pixel, not half. The pill's
+// rows are the ones whose pixels leave the editor's fill in its first column (the editor's clip cuts the pill's left
+// padding off at the text's left edge).
+bool mention_centred(const D3D11_MAPPED_SUBRESOURCE& mapped) noexcept {
+    const auto& r = g_app.renderer;
+    const auto& scene = g_app.message_composer_scene;
+    const float scale = r.dpi / 96.f;
+    const auto display = message_composer_scene_display_text(scene);
+    u32 first_unit = 0, last_unit = 0, count = 0;
+    TextEditMetric metric{};
+    if (!require(scene.projection_span_count == 1 &&
+                     scene.projection_spans[0].kind == MessageComposerProjectionKind::user &&
+                     utf8_utf16_position_for_byte_offset(display, scene.projection_spans[0].display_first, &first_unit) &&
+                     utf8_utf16_position_for_byte_offset(display, scene.projection_spans[0].display_last, &last_unit) &&
+                     text_edit_layout_range_geometry(r.composer_layout, first_unit, last_unit, {&metric, 1}, &count) &&
+                     count == 1,
+                 266, "mention_range"))
+        return false;
+    const i32 pad_x = static_cast<i32>(metric.left * scale + .5f);
+    // The pill overflows the line by about 3 DIP; the editor's border lies further out.
+    const i32 first = static_cast<i32>((metric.top - 4.f) * scale),
+              last = static_cast<i32>((metric.top + metric.height + 4.f) * scale);
+    if (!require(last < static_cast<i32>(r.height) && last - first < 64 && first > 0, 261, "pill_rows"))
+        return false;
+    // The fill is read at the line's middle; the editor's own colour above the pill.
+    const u8* fill = frame_pixel(mapped, pad_x, static_cast<i32>((metric.top + metric.height * .5f) * scale));
+    const u8* outside = frame_pixel(mapped, pad_x, first);
+    const i32 full = pixel_distance(fill, outside);
+    if (!require(full > 12, 267, "mention_fill"))
+        return false;
+    float rows[64]{};
+    i32 pill_first = -1, pill_last = -1;
+    for (i32 y = first; y <= last; ++y) {
+        rows[y - first] = minimum(1.f, static_cast<float>(pixel_distance(frame_pixel(mapped, pad_x, y), outside)) / full);
+        if (rows[y - first] > .1f) {
+            pill_first = pill_first < 0 ? y : pill_first;
+            pill_last = y;
+        }
+    }
+    float ink_top{}, ink_bottom{};
+    return require(pill_first >= 0, 268, "mention_rows") &&
+           ink_extent(mapped, pad_x + 1, static_cast<i32>((metric.left + metric.width - 1.f) * scale), pad_x,
+                      pill_first + 2, pill_last - 2,
+                      &ink_top, &ink_bottom) &&
+           pill_balanced("mention pill", pill_first + (1.f - rows[pill_first - first]),
+                         pill_last + rows[pill_last - first], ink_top, ink_bottom, kTextInlinePillHeight, 1.f);
+}
+template <typename Contract>
+bool pill_frame(const wchar_t* filename, Contract contract) noexcept {
+    return probe_capture_composer_frame(
+        filename, fixture->theme, fixture->typing, kSourceMessage, kTargetMessage, project,
+        [](bool value, u32 stage) noexcept { return require(value, stage); }, contract);
+}
+// Replaces the draft whole: typed one character at a time, a game chip's head mark alone is a stray mark the composer
+// repairs.
+bool set_draft(Utf8View value) noexcept {
+    return focus_message_composer_control(MessageComposerControl::edit) && key('A', true) && key(key::backspace) &&
+           message_composer_insert_utf8(&g_app.message_composer, value) == MessageComposerResult::changed && project();
+}
+// The composer's pills (the game search chip and a user mention) at 100% and 150%.
+bool pills() noexcept {
+    fixture->typing = fixture->attachments = {};
+    // A user whose name has capitals' height and a descender, like the chip's "@game": its ink centres where the pill
+    // should.
+    const bool user = user_store_upsert(&g_app.account_ui->user_store, 97, utf8_literal("game"), utf8_literal("game")).ok();
+    const bool chip_100 = user && set_draft(utf8_literal("\xE2\x81\xA4@game:star\xE2\x81\xA2")) &&
+                          pill_frame(L"composer-game-chip-pill-dark96.bmp", chip_centred);
+    const bool mention_100 = chip_100 && set_draft(utf8_literal("<@97>")) &&
+                             pill_frame(L"composer-mention-pill-dark96.bmp", mention_centred);
+    const bool chip_150 = mention_100 && resize(1638, 1170, 144, 772) &&
+                          set_draft(utf8_literal("\xE2\x81\xA4@game:star\xE2\x81\xA2")) &&
+                          pill_frame(L"composer-game-chip-pill-dark144.bmp", chip_centred);
+    const bool mention_150 =
+        chip_150 && set_draft(utf8_literal("<@97>")) && pill_frame(L"composer-mention-pill-dark144.bmp", mention_centred);
+    return require(mention_150 && resize(1092, 780, 96, 772) && text({}, L"") && project(), 265,
+                   "composer pills at 100% and 150%");
+}
 // Spelling squiggles: a synthetic misspelling span paints danger-token quads
 // under the word inside the edit box (no spell checker involved).
 bool spelling_marks() noexcept {
@@ -1201,8 +1403,39 @@ bool chat_size_churn() noexcept {
                    "chat_churn_atlas_bounded");
 }
 
+// The first focused composer of an account asks for its emoji frecency, so the snapshot is there before a ':' list
+// opens; a second refresh of the focused composer does not ask again.
+bool composer_focus_loads_preferences() noexcept {
+    const bool focused = g_app.message_composer.focused;
+    g_app.message_composer.focused = true;
+    const u32 before = fixture->emoji_loads;
+    refresh_message_composer_ui();
+    const u32 first = fixture->emoji_loads - before;
+    refresh_message_composer_ui();
+    const u32 second = fixture->emoji_loads - before;
+    g_app.message_composer.focused = focused;
+    return require(first == 1, 363, "composer_focus_loads_frecency") &&
+           require(second == 1, 364, "composer_second_focus_does_not_reload");
+}
+
+// The ':' query ranks by the account's emoji frecency, so typing it asks for that snapshot (not only the emoji picker).
+// The probe has no popup storage: the suggestions are built and the snapshot asked for, then opening their popup fails.
+bool emoji_query_loads_preferences() noexcept {
+    const bool focused = g_app.message_composer.focused;
+    g_app.message_composer.focused = true;
+    const u32 before = fixture->emoji_loads;
+    message_composer_select_all(&g_app.message_composer);
+    composer_apply_result(message_composer_insert_utf8(&g_app.message_composer, utf8_literal(":skunk")), true);
+    const u32 loads = fixture->emoji_loads - before;
+    const bool emoji_kind = g_app.composer_autocomplete.kind == ComposerAutocompleteKind::emoji;
+    message_composer_select_all(&g_app.message_composer);
+    composer_apply_result(message_composer_insert_utf8(&g_app.message_composer, {}), true);
+    g_app.message_composer.focused = focused;
+    return require(emoji_kind, 358, "emoji_query_lists_emoji") && require(loads >= 1, 357, "emoji_query_loads_frecency");
+}
+
 bool scenarios() noexcept {
-    if (!member_query_transitions())
+    if (!composer_focus_loads_preferences() || !member_query_transitions() || !emoji_query_loads_preferences())
         return false;
     if (!require(resize(624, 600, 96, 304) && disabled_send() &&
                      capture(L"composer-default304-dark-placeholder96.bmp"),
@@ -1283,7 +1516,7 @@ bool scenarios() noexcept {
         return false;
     if (!require(typing_dots_steps(), 15))
         return false;
-    if (!require(option_chips(), 16))
+    if (!require(option_chips(), 16) || !require(pills(), 17))
         return false;
     log_u64(LogLevel::info, "composer_native", "unexpected_completions", fixture->unexpected_completions);
     log_u64(LogLevel::info, "composer_native", "attachment_queue_notices",
@@ -1381,6 +1614,9 @@ bool composer_ui_probe() noexcept {
 // those unrelated surfaces; no live account transport is installed.
 namespace maicord::app_detail {
 using namespace composer_probe_detail;
+void application_emoji_preferences_load() noexcept {
+    ++fixture->emoji_loads;
+}
 ApplicationEmojiUse application_emoji_preferences_scan(Utf8View) noexcept {
     return {};
 }

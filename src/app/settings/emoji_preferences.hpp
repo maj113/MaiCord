@@ -18,6 +18,9 @@ ApplicationEmojiUse application_emoji_preferences_scan(Utf8View content) noexcep
 void application_emoji_preferences_track_message(const ApplicationEmojiUse&) noexcept;
 // Picker open: refresh a stale snapshot.
 void application_emoji_preferences_open() noexcept;
+// A feature that ranks by the account's frecency (':' suggestions in the composer) wants the snapshot: fetches it
+// when none is current, on the failure backoff, and keeps a rate-limit stop.
+void application_emoji_preferences_load() noexcept;
 void application_emoji_preferences_synchronize() noexcept;
 // The account's synced sticker frecency group (settings-proto/2 field 4) for
 // emoji_preferences_visit_frecency; empty when not loaded for this account.

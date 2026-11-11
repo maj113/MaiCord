@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/core/frecency.hpp"
 #include "maicord/core/slice.hpp"
 
 namespace maicord {
@@ -11,7 +12,6 @@ inline constexpr u32 kEmojiPreferencesMaximumGroupBytes = 128 * 1024;
 inline constexpr u32 kEmojiPreferencesMaximumKeyBytes = 96;
 inline constexpr u32 kEmojiPreferencesMaximumFavorites = 250;
 inline constexpr u32 kEmojiPreferencesMaximumFrecencyEntries = 100;
-inline constexpr u32 kEmojiPreferencesRecentUses = 10;
 inline constexpr u32 kEmojiPreferencesMaximumPatchBytes =
     ((3 * (kEmojiPreferencesMaximumGroupBytes + 8) + 2) / 3) * 4 + 64;
 
@@ -41,20 +41,12 @@ struct EmojiPreferencesResult {
     }
 };
 
-struct EmojiFrecencyItem {
-    u64 recent_uses[kEmojiPreferencesRecentUses]; // ascending, newest retained
-    u32 total_uses;
-    i32 frecency;
-    i32 score;
-    u8 recent_count;
-};
-
 // Validates the whole proto. A null output measures; otherwise output must
 // hold result.group_bytes and must not overlap the input.
 EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> output,
                                                 EmojiPreferencesSnapshot* snapshot) noexcept;
 using EmojiFavoriteVisitor = bool (*)(void* context, Utf8View key) noexcept;
-using EmojiFrecencyVisitor = bool (*)(void* context, Utf8View key, const EmojiFrecencyItem& item) noexcept;
+using EmojiFrecencyVisitor = bool (*)(void* context, Utf8View key, const FrecencyItem& item) noexcept;
 // Visit in wire order; for map duplicates the last entry is authoritative.
 EmojiPreferencesError emoji_preferences_visit_favorites(ConstSlice<u8> group, EmojiFavoriteVisitor,
                                                         void* context) noexcept;
@@ -67,7 +59,7 @@ struct EmojiFavoriteEdit {
 };
 struct EmojiFrecencyEntry {
     Utf8View key;
-    EmojiFrecencyItem item;
+    FrecencyItem item;
     // Local uses changed the item since the observed snapshot.
     bool updated;
 };

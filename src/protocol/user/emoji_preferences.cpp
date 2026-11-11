@@ -2,6 +2,7 @@
 #include "maicord/protocol/encoding/base64.hpp"
 #include "../encoding/json_fields.hpp"
 #include "../encoding/proto_wire.hpp"
+#include "frecency_wire.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
@@ -45,110 +46,14 @@ bool key_valid(const Utf8View& key) noexcept {
     return key.bytes && key.bytes <= kEmojiPreferencesMaximumKeyBytes && utf8_validate(key).valid;
 }
 
-void push_recent(EmojiFrecencyItem& item, u64 value) noexcept {
-    if (!value)
-        return;
-    // Keep the newest samples in ascending order.
-    if (item.recent_count == kEmojiPreferencesRecentUses) {
-        if (value <= item.recent_uses[0])
-            return;
-        for (u32 i = 1; i < kEmojiPreferencesRecentUses; ++i)
-            item.recent_uses[i - 1] = item.recent_uses[i];
-        --item.recent_count;
-    }
-    u32 at = item.recent_count++;
-    while (at && item.recent_uses[at - 1] > value) {
-        item.recent_uses[at] = item.recent_uses[at - 1];
-        --at;
-    }
-    item.recent_uses[at] = value;
-}
-
-E frecency_item(Reader r, EmojiFrecencyItem& item) noexcept {
-    reset_value(&item);
-    while (r.at < r.end) {
-        u32 f = 0, t = 0;
-        u64 n = 0;
-        if (!r.tag(f, t))
-            return E::protobuf;
-        if (f == 1 || f == 3 || f == 4) {
-            if (t != 0 || !r.varint(n))
-                return E::protobuf;
-            if (f == 1)
-                item.total_uses = static_cast<u32>(n);
-            else if (f == 3)
-                item.frecency = static_cast<i32>(n);
-            else
-                item.score = static_cast<i32>(n);
-        } else if (f == 2 && t == 2) {
-            u32 stop = 0;
-            if (!r.length(stop))
-                return E::protobuf;
-            Reader packed{r.data, r.at, stop};
-            while (packed.at < packed.end) {
-                if (!packed.varint(n))
-                    return E::protobuf;
-                push_recent(item, n);
-            }
-            r.at = stop;
-        } else if (f == 2 && t == 0) {
-            if (!r.varint(n))
-                return E::protobuf;
-            push_recent(item, n);
-        } else if (!r.skip(t, f))
-            return E::protobuf;
-    }
-    return E::none;
-}
-
 // One map entry: key (1) and value (2); missing value is a default item.
-E map_entry(Reader r, Utf8View& key, EmojiFrecencyItem& item) noexcept {
-    reset_value(&key);
-    reset_value(&item);
-    while (r.at < r.end) {
-        u32 f = 0, t = 0;
-        if (!r.tag(f, t))
-            return E::protobuf;
-        if ((f == 1 || f == 2) && t == 2) {
-            u32 stop = 0;
-            if (!r.length(stop))
-                return E::protobuf;
-            if (f == 1) {
-                key = view(r.data, r.at, stop);
-                if (!utf8_validate(key).valid)
-                    return E::utf8;
-            } else {
-                const E error = frecency_item({r.data, r.at, stop}, item);
-                if (error != E::none)
-                    return error;
-            }
-            r.at = stop;
-        } else if (!r.skip(t, f))
-            return E::protobuf;
-    }
-    return E::none;
+E map_entry(Reader r, Utf8View& key, FrecencyItem& item) noexcept {
+    const auto error = frecency_entry_decode(r.source(), r.at, r.end, &key, &item);
+    return error == FrecencyWire::ok ? E::none : error == FrecencyWire::utf8 ? E::utf8 : E::protobuf;
 }
 
-E check_favorites(const ConstSlice<u8>& group) noexcept {
-    Reader r{group.data, 0, group.count};
-    while (r.at < r.end) {
-        u32 f = 0, t = 0;
-        if (!r.tag(f, t))
-            return E::protobuf;
-        if (f == 1) {
-            u32 stop = 0;
-            if (t != 2 || !r.length(stop))
-                return E::protobuf;
-            if (!utf8_validate(view(r.data, r.at, stop)).valid)
-                return E::utf8;
-            r.at = stop;
-        } else if (!r.skip(t, f))
-            return E::protobuf;
-    }
-    return E::none;
-}
-
-E check_frecency(const ConstSlice<u8>& group) noexcept {
+// Validates a favorites (map false: repeated strings) or frecency (map true) group.
+E check_group(const ConstSlice<u8>& group, bool map) noexcept {
     Reader r{group.data, 0, group.count};
     while (r.at < r.end) {
         u32 f = 0, t = 0;
@@ -159,8 +64,9 @@ E check_frecency(const ConstSlice<u8>& group) noexcept {
             if (t != 2 || !r.length(stop))
                 return E::protobuf;
             Utf8View key{};
-            EmojiFrecencyItem item;
-            const E error = map_entry({r.data, r.at, stop}, key, item);
+            FrecencyItem item;
+            const E error = map ? map_entry({r.data, r.at, stop}, key, item)
+                                : utf8_validate(view(r.data, r.at, stop)).valid ? E::none : E::utf8;
             if (error != E::none)
                 return error;
             r.at = stop;
@@ -168,58 +74,6 @@ E check_frecency(const ConstSlice<u8>& group) noexcept {
             return E::protobuf;
     }
     return E::none;
-}
-
-E check_versions(Reader r, u32& data_version) noexcept {
-    while (r.at < r.end) {
-        u32 f = 0, t = 0;
-        u64 n = 0;
-        if (!r.tag(f, t))
-            return E::protobuf;
-        if (f == 3 && t == 0) {
-            if (!r.varint(n) || n > ~u32{0})
-                return E::protobuf;
-            data_version = static_cast<u32>(n);
-        } else if (!r.skip(t, f))
-            return E::protobuf;
-    }
-    return E::none;
-}
-
-void write_item(ProtoWriter& out, const EmojiFrecencyItem& item) noexcept {
-    if (item.total_uses)
-        out.scalar(1, item.total_uses);
-    u32 packed = 0;
-    for (u32 i = 0; i < item.recent_count; ++i)
-        packed += proto_varint_size(item.recent_uses[i]);
-    if (packed) {
-        out.tag(2, 2);
-        out.varint(packed);
-        for (u32 i = 0; i < item.recent_count; ++i)
-            out.varint(item.recent_uses[i]);
-    }
-    // int32 negatives are sign-extended to ten bytes on the wire.
-    if (item.frecency)
-        out.scalar(3, static_cast<u64>(static_cast<i64>(item.frecency)));
-    if (item.score)
-        out.scalar(4, static_cast<u64>(static_cast<i64>(item.score)));
-}
-
-u32 item_bytes(const EmojiFrecencyItem& item) noexcept {
-    ProtoWriter counter{};
-    write_item(counter, item);
-    return counter.at;
-}
-
-void write_entry(ProtoWriter& out, const Utf8View& key, const EmojiFrecencyItem& item) noexcept {
-    const u32 value = item_bytes(item);
-    const u32 entry = 1 + proto_varint_size(key.bytes) + key.bytes + 1 + proto_varint_size(value) + value;
-    out.tag(1, 2);
-    out.varint(entry);
-    out.string(1, key);
-    out.tag(2, 2);
-    out.varint(value);
-    write_item(out, item);
 }
 
 // Identities of observed keys, edits and entries, resolved once per write
@@ -242,25 +96,55 @@ bool same_emoji(u64 a, const Utf8View& a_key, u64 b, const Utf8View& b_key) noex
     return (a && a == b) || utf8_equal(a_key, b_key);
 }
 
-// Calls visit(key) for each favorite or frecency map entry of a validated group.
-template <class Visit> void each_key(ConstSlice<u8> group, bool map, Visit visit) noexcept {
+using EntryVisit = bool (*)(void* context, Utf8View key, const FrecencyItem& item) noexcept;
+
+// Calls visit for each entry of a validated group in wire order until it returns false: a favorite's string (the
+// item stays default) or a frecency map entry's key and item.
+void each_entry(ConstSlice<u8> group, bool map, EntryVisit visit, void* context) noexcept {
+    FrecencyItem item{};
     Reader r{group.data, 0, group.count};
     while (r.at < r.end) {
         u32 f = 0, t = 0;
         r.tag(f, t);
-        if (f == 1 && t == 2) {
+        if (f == 1) {
             u32 stop = 0;
             r.length(stop);
             Utf8View key = view(r.data, r.at, stop);
-            if (map) {
-                EmojiFrecencyItem item;
+            if (map)
                 map_entry({r.data, r.at, stop}, key, item);
-            }
-            visit(key);
+            if (!visit(context, key, item))
+                return;
             r.at = stop;
         } else
             r.skip(t, f);
     }
+}
+
+// each_entry for a callable of the key alone.
+template <class Visit> void each_key(ConstSlice<u8> group, bool map, Visit visit) noexcept {
+    each_entry(group, map, [](void* context, Utf8View key, const FrecencyItem&) noexcept {
+        (*static_cast<Visit*>(context))(key);
+        return true;
+    }, &visit);
+}
+
+struct Visitors {
+    EmojiFavoriteVisitor favorite;
+    EmojiFrecencyVisitor frecency;
+    void* context;
+};
+// The caller's visitor over a validated favorites (map false) or frecency group.
+EmojiPreferencesError visit_group(ConstSlice<u8> group, bool map, Visitors visitors) noexcept {
+    if (!byte_range_valid(group))
+        return E::input;
+    const E checked = check_group(group, map);
+    if (checked != E::none)
+        return checked;
+    each_entry(group, map, [](void* context, Utf8View key, const FrecencyItem& item) noexcept {
+        const auto& called = *static_cast<const Visitors*>(context);
+        return called.favorite ? called.favorite(called.context, key) : called.frecency(called.context, key, item);
+    }, &visitors);
+    return E::none;
 }
 
 void cache_observed(const Identities& ids, const ConstSlice<u8>& group, bool map, u64* cache) noexcept {
@@ -373,7 +257,7 @@ void write_frecency(ProtoWriter& out, ConstSlice<u8> group, ConstSlice<EmojiFrec
             u32 stop = 0;
             r.length(stop);
             Utf8View key{};
-            EmojiFrecencyItem item;
+            FrecencyItem item;
             map_entry({r.data, r.at, stop}, key, item);
             r.at = stop;
             const u32 current = ordinal++;
@@ -382,7 +266,7 @@ void write_frecency(ProtoWriter& out, ConstSlice<u8> group, ConstSlice<EmojiFrec
             if (match != kNoEntry && last[match] == current) {
                 ++written;
                 if (entries[match].updated) {
-                    write_entry(out, key, entries[match].item);
+                    frecency_entry_write(out, key, entries[match].item);
                     continue;
                 }
             } else if ((match != kNoEntry || !id) && kept < spare) {
@@ -397,24 +281,16 @@ void write_frecency(ProtoWriter& out, ConstSlice<u8> group, ConstSlice<EmojiFrec
     }
     for (u32 i = 0; i < entries.count && written < limit; ++i)
         if (last[i] == kNoEntry && entries[i].updated) {
-            write_entry(out, entries[i].key, entries[i].item);
+            frecency_entry_write(out, entries[i].key, entries[i].item);
             ++written;
         }
-}
-
-template <class Body> void group(ProtoWriter& out, u32 field, Body body) noexcept {
-    ProtoWriter counter{};
-    body(counter);
-    out.tag(field, 2);
-    out.varint(counter.at);
-    body(out);
 }
 
 bool entries_valid(ConstSlice<EmojiFrecencyEntry> entries) noexcept {
     if (entries.count > kEmojiPreferencesMaximumFrecencyEntries || (entries.count && !entries.data))
         return false;
     for (u32 i = 0; i < entries.count; ++i)
-        if (!key_valid(entries[i].key) || entries[i].item.recent_count > kEmojiPreferencesRecentUses)
+        if (!key_valid(entries[i].key) || entries[i].item.recent_count > kFrecencyRecentUses)
             return false;
     return true;
 }
@@ -454,10 +330,12 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
                 }
                 if (f == 1) {
                     if (!pass)
-                        result.error = check_versions({r.data, r.at, stop}, snapshot->data_version);
+                        result.error = settings_data_version(r.source(), r.at, stop, &snapshot->data_version)
+                                           ? E::none
+                                           : E::protobuf;
                 } else if (!pass) {
                     const ConstSlice<u8> part{r.data + r.at, stop - r.at};
-                    const E checked = slot == 0 ? check_favorites(part) : check_frecency(part);
+                    const E checked = check_group(part, slot != 0);
                     const bool fits = part.count <= kEmojiPreferencesMaximumGroupBytes - sizes[slot];
                     // Sticker frecency only weighs results: a bad group is dropped, never fatal.
                     if (slot == 3 && (checked != E::none || !fits))
@@ -499,51 +377,12 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
 
 EmojiPreferencesError emoji_preferences_visit_favorites(ConstSlice<u8> group, EmojiFavoriteVisitor visit,
                                                         void* context) noexcept {
-    if (!byte_range_valid(group))
-        return E::input;
-    const E checked = check_favorites(group);
-    if (checked != E::none)
-        return checked;
-    Reader r{group.data, 0, group.count};
-    while (r.at < r.end) {
-        u32 f = 0, t = 0;
-        r.tag(f, t);
-        if (f == 1) {
-            u32 stop = 0;
-            r.length(stop);
-            if (!visit(context, view(r.data, r.at, stop)))
-                return E::none;
-            r.at = stop;
-        } else
-            r.skip(t, f);
-    }
-    return E::none;
+    return visit_group(group, false, {visit, nullptr, context});
 }
 
 EmojiPreferencesError emoji_preferences_visit_frecency(ConstSlice<u8> group, EmojiFrecencyVisitor visit,
                                                        void* context) noexcept {
-    if (!byte_range_valid(group))
-        return E::input;
-    const E checked = check_frecency(group);
-    if (checked != E::none)
-        return checked;
-    Reader r{group.data, 0, group.count};
-    while (r.at < r.end) {
-        u32 f = 0, t = 0;
-        r.tag(f, t);
-        if (f == 1) {
-            u32 stop = 0;
-            r.length(stop);
-            Utf8View key{};
-            EmojiFrecencyItem item;
-            map_entry({r.data, r.at, stop}, key, item);
-            if (!visit(context, key, item))
-                return E::none;
-            r.at = stop;
-        } else
-            r.skip(t, f);
-    }
-    return E::none;
+    return visit_group(group, true, {nullptr, visit, context});
 }
 
 EmojiPreferencesWriteResult emoji_preferences_write_patch(const EmojiPreferencesPatch& patch, Slice<u8> scratch,
@@ -563,9 +402,9 @@ EmojiPreferencesWriteResult emoji_preferences_write_patch(const EmojiPreferences
     for (u32 i = 0; i < patch.favorite_edits.count; ++i)
         if (!key_valid(patch.favorite_edits[i].key))
             return fail(E::input);
-    if (check_favorites(patch.observed_favorites) != E::none ||
-        check_frecency(patch.observed_frecency) != E::none ||
-        check_frecency(patch.observed_reaction_frecency) != E::none)
+    if (check_group(patch.observed_favorites, false) != E::none ||
+        check_group(patch.observed_frecency, true) != E::none ||
+        check_group(patch.observed_reaction_frecency, true) != E::none)
         return fail(E::protobuf);
     Identities ids;
     ids.patch = &patch;
@@ -585,15 +424,15 @@ EmojiPreferencesWriteResult emoji_preferences_write_patch(const EmojiPreferences
     bool full = false;
     const auto body = [&](ProtoWriter& out) noexcept {
         if (patch.favorite_edits.count)
-            group(out, kFavorites, [&](ProtoWriter& inner) noexcept {
+            frecency_group_write(out, kFavorites, [&](ProtoWriter& inner) noexcept {
                 favorite_count = write_favorites(inner, patch.observed_favorites, patch.favorite_edits, ids);
                 full |= favorite_count == ~0u;
             });
         if (patch.write_frecency) {
-            group(out, kFrecency, [&](ProtoWriter& inner) noexcept {
+            frecency_group_write(out, kFrecency, [&](ProtoWriter& inner) noexcept {
                 write_frecency(inner, patch.observed_frecency, patch.frecency, ids.entries[0], ids.frecency, ids);
             });
-            group(out, kReactionFrecency, [&](ProtoWriter& inner) noexcept {
+            frecency_group_write(out, kReactionFrecency, [&](ProtoWriter& inner) noexcept {
                 write_frecency(inner, patch.observed_reaction_frecency, patch.reaction_frecency, ids.entries[1],
                                ids.reaction, ids);
             });
@@ -620,13 +459,10 @@ EmojiPreferencesError emoji_preferences_validate_patch_json(Utf8View input) noex
     if (input.bytes > kEmojiPreferencesMaximumPatchBytes ||
         !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}))
         return E::input;
-    u32 structurals[16];
-    const auto scan = json_scan_structurals_avx1(input, {structurals, 16});
-    SettingsPatchEnvelope parsed{};
-    if (!scan.ok() || !json_visit_root_object(input, {structurals, scan.count}, 2, settings_patch_member, &parsed).ok() ||
-        parsed.seen != 3 || !parsed.encoded.bytes)
+    Utf8View encoded{};
+    if (settings_patch_members(input, &encoded) != 3 || !encoded.bytes)
         return E::envelope;
-    const auto measured = base64_decode(parsed.encoded, {});
+    const auto measured = base64_decode(encoded, {});
     if (measured.error != Base64Error::output_too_small && !measured.ok())
         return E::envelope;
     if (!measured.bytes || measured.bytes > 3 * (kEmojiPreferencesMaximumGroupBytes + 8))
@@ -634,7 +470,7 @@ EmojiPreferencesError emoji_preferences_validate_patch_json(Utf8View input) noex
     u8* raw = static_cast<u8*>(commit_pages(measured.bytes));
     if (!raw)
         return E::capacity;
-    E error = base64_decode(parsed.encoded, {raw, measured.bytes}).ok() ? E::none : E::envelope;
+    E error = base64_decode(encoded, {raw, measured.bytes}).ok() ? E::none : E::envelope;
     Reader r{raw, 0, measured.bytes};
     while (error == E::none && r.at < r.end) {
         u32 f = 0, t = 0, stop = 0;
@@ -644,9 +480,7 @@ EmojiPreferencesError emoji_preferences_validate_patch_json(Utf8View input) noex
             break;
         }
         const ConstSlice<u8> part{raw + r.at, stop - r.at};
-        error = part.count > kEmojiPreferencesMaximumGroupBytes ? E::capacity
-                : f == kFavorites                               ? check_favorites(part)
-                                                                : check_frecency(part);
+        error = part.count > kEmojiPreferencesMaximumGroupBytes ? E::capacity : check_group(part, f != kFavorites);
         r.at = stop;
     }
     pages_release(raw, measured.bytes);

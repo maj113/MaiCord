@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/arena.hpp"
+#include "maicord/core/frecency.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 
@@ -127,12 +128,9 @@ void command_suggestions_release(CommandSuggestions*) noexcept;
 // = 2 (packed unix ms), frecency = 3, score = 4.
 inline constexpr u32 kCommandFrecencyMaximumEntries = 500;
 inline constexpr u32 kCommandFrecencyKeyBytes = 128;
-inline constexpr u32 kCommandFrecencyRecentUses = 10;
-struct CommandFrecencyEntry {
-    u64 recent_uses[kCommandFrecencyRecentUses];
-    u32 total_uses;
-    i32 frecency, score;
-    u8 recent_count, key_bytes;
+struct CommandFrecencyEntry : FrecencyItem {
+    // The item's score is kept in hundredths.
+    u8 key_bytes;
     char key[kCommandFrecencyKeyBytes];
 };
 // A settings-proto/2 GET or PATCH response: the entries (last duplicate key

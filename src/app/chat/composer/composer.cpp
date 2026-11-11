@@ -10,6 +10,7 @@
 #include "../../plugins/popup_plugin_owner.hpp"
 #include "../../plugins/pipeline_host.hpp"
 #include "../../settings/user_settings.hpp"
+#include "../../settings/emoji_preferences.hpp"
 #include "../../media/picker.hpp"
 #include "maicord/ui/media/picker.hpp"
 
@@ -128,6 +129,16 @@ bool synchronize_autocomplete() noexcept {
         cancel_composer_member_query();
         return true;
     }
+    // The ':' list ranks by the account's emoji frecency: ask for it once per account on its first focused composer,
+    // so the snapshot is normally there before a ':' list opens.
+    static struct {
+        bool asked;
+        u64 profile;
+    } preferences;
+    if (!preferences.asked || preferences.profile != g_app.account.status.profile_id) {
+        preferences = {true, g_app.account.status.profile_id};
+        application_emoji_preferences_load();
+    }
     bool commands_handled = false;
     if (!application_commands_sync(&commands_handled)) return false;
     if (commands_handled) {
@@ -151,6 +162,10 @@ bool synchronize_autocomplete() noexcept {
         return false;
     }
     note_mention_member_query();
+    // ':' suggestions rank by the account's emoji frecency; the snapshot is fetched on first use, not only when the
+    // emoji picker opens, and re-ranks this list when it arrives.
+    if (g_app.composer_autocomplete.kind == ComposerAutocompleteKind::emoji)
+        application_emoji_preferences_load();
     const ComposerAutocomplete& autocomplete = g_app.composer_autocomplete;
     if (autocomplete.count == 0) {
         close_composer_popup();
@@ -182,19 +197,8 @@ bool synchronize_autocomplete() noexcept {
                 items[index].media_variant = suggestion.role_color;
             }
         }
-        if (suggestion.emoji_id) {
-            items[index].flags |= popup_item_emoji_preview;
-            items[index].media_id = suggestion.emoji_id;
-            items[index].media_flags = suggestion.animated_emoji ? 1 : 0;
-        } else if (autocomplete.kind == ComposerAutocompleteKind::emoji && suggestion.insertion_bytes) {
-            // Insertion has one trailing space. The label is the primary
-            // shortcode while its preview carries the exact Unicode identity.
-            const auto flag = regional_flag_sequence({suggestion.insertion, suggestion.insertion_bytes - 1u});
-            if (flag) {
-                items[index].flags |= popup_item_emoji_preview;
-                items[index].regional_flag = flag;
-            }
-        }
+        if (autocomplete.kind == ComposerAutocompleteKind::emoji)
+            composer_autocomplete_emoji_item(suggestion, &items[index]);
     }
     const auto* surface = ui_widget_manager_layout_node(g_app.message_composer_scene.widgets,
                                                          g_app.message_composer_scene.surface);

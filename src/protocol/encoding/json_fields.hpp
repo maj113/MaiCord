@@ -59,5 +59,16 @@ inline bool settings_patch_member(void* opaque, JsonString key, JsonValue value)
     }
     return false;
 }
+// The member bits of a body that holds only those two members (0 when it holds anything else or is malformed)
+// and the undecoded settings.
+__declspec(noinline) inline u8 settings_patch_members(Utf8View json, Utf8View* encoded) noexcept {
+    u32 structurals[16];
+    const auto scan = json_scan_structurals_avx1(json, {structurals, 16});
+    SettingsPatchEnvelope parsed{};
+    if (!scan.ok() || !json_visit_root_object(json, {structurals, scan.count}, 2, settings_patch_member, &parsed).ok())
+        return 0;
+    *encoded = parsed.encoded;
+    return parsed.seen;
+}
 
 } // namespace maicord::protocol_detail

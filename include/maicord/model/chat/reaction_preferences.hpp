@@ -1,12 +1,13 @@
 #pragma once
 
+#include "maicord/core/frecency.hpp"
 #include "maicord/core/slice.hpp"
 #include "maicord/core/stable_storage.hpp"
 
 namespace maicord {
 
 inline constexpr u32 kReactionPreferenceUsageCapacity = 100;
-inline constexpr u32 kReactionPreferenceRecentUseCapacity = 10;
+inline constexpr u32 kReactionPreferenceRecentUseCapacity = kFrecencyRecentUses;
 inline constexpr u32 kReactionPreferenceFrequentCapacity = 42;
 inline constexpr u32 kReactionPreferenceFavoriteCapacity = 250;
 inline constexpr u16 kReactionPreferenceInvalidCatalogIndex = 0xFFFFu;
@@ -27,9 +28,6 @@ enum class ReactionPreferenceKind : u8 {
     message,
 };
 inline constexpr u32 kReactionPreferenceKindCount = 2;
-// The client's weight for one recent use:
-// 100 within 3 days, then 70, 50, 30 and 10 up to 15, 30, 45 and 80 days, else 1.
-u16 frecency_age_weight(u64 now_ms, u64 timestamp_ms) noexcept;
 
 // Exactly one identity: a custom emoji snowflake or a Unicode catalog index.
 struct ReactionEmojiRef {
