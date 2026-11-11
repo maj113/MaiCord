@@ -36,7 +36,11 @@ enum class AccountVideoCommand : u8 {
     seek,
     volume,
     mute,
-    stop
+    stop,
+    // A hidden picture: no decode or frame while off; audio and its clock run on.
+    // On lands the next picture at the current clock without resetting audio.
+    picture_off,
+    picture_on
 };
 enum class AccountPlaybackKind : u8 {
     mp4,
@@ -137,6 +141,9 @@ struct AccountVideoSession {
     // borrowed until joined release; command/service cancellation stays separate.
     OggOpusCancelled source_cancelled{};
     void* source_cancel_context{};
+    // Picture off skips the decode loop. Picture on sets picture_seek: service seeks the decoder
+    // alone to the clock (while paused, as a seek that lands one picture without touching audio).
+    bool picture_off{}, picture_seek{};
 };
 inline bool account_video_identity_equal(const AccountVideoIdentity& a,
                                          const AccountVideoIdentity& b) noexcept {

@@ -7,7 +7,7 @@ AccountVideoResult account_video_session_control(AccountVideoSession* s, const A
                                                  u64 serial, AccountVideoCommand command, i64 target,
                                                  float volume, bool muted) noexcept {
     if (!thread(*s) || !serial ||
-        static_cast<u32>(command) > static_cast<u32>(AccountVideoCommand::stop))
+        static_cast<u32>(command) > static_cast<u32>(AccountVideoCommand::picture_on))
         return refused(s, id, serial, AccountVideoError::invalid_input);
     if (!account_video_identity_equal(s->status.identity, id) || serial <= s->status.desired_command)
         return refused(s, id, serial, AccountVideoError::stale);
@@ -39,6 +39,31 @@ AccountVideoResult account_video_session_control(AccountVideoSession* s, const A
     } else if (command == AccountVideoCommand::pause) {
         s->desired_play = false;
         s->qpc_origin = s->status.position_100ns;
+    } else if (command == AccountVideoCommand::picture_off) {
+        if (s->video && !s->picture_off) {
+            // A decoded picture not yet handed out returns to the decoder; a copied one keeps its lease.
+            if (!s->published && !drop_frame(*s))
+                return refused(s, id, serial, s->status.error, s->status.native_error);
+            s->picture_off = true;
+            s->picture_seek = false;
+            // The picture track reads as ended: the decode loop stays idle and playback ends on
+            // the audio (or clock) alone. Nothing waits for a hidden picture, so seeks complete too.
+            s->video_eof = s->video_seek_ready = true;
+            set_pending(*s, &s->video_pending, false);
+            set_pending(*s, &s->seek_pending, false);
+        }
+    } else if (command == AccountVideoCommand::picture_on) {
+        if (s->picture_off) {
+            s->picture_off = false;
+            s->picture_seek = true;
+            // Paused, the existing seek path decodes the one picture at the clock; the audio
+            // epoch and position stay, and the paused wake path needs no test of its own.
+            if (!s->desired_play && !s->seeking) {
+                s->seeking = true;
+                s->video_seek_ready = false;
+                s->seek_target = s->status.position_100ns;
+            }
+        }
     } else if (command == AccountVideoCommand::volume)
         s->status.desired_volume = volume;
     else
@@ -107,6 +132,17 @@ AccountVideoService account_video_session_service(AccountVideoSession* s, bool (
     if (!s->desired_play && !s->seeking) {
         out.data_pending = data_pending(*s);
         return out;
+    }
+    if (s->picture_seek) {
+        // Picture on: only the decoder seeks to the clock; audio keeps its epoch and ring.
+        s->picture_seek = false;
+        if (!drop_frame(*s))
+            return out;
+        if (!video_seek(*s, s->status.position_100ns)) {
+            terminal(*s, AccountVideoError::demux);
+            return out;
+        }
+        s->video_eof = false;
     }
     if (s->seek_pending) {
         Mp4SeekPoint point{};

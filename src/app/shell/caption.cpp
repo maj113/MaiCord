@@ -216,6 +216,8 @@ bool activate_tab(UiTabHit hit) noexcept {
         return application_tabs_activate(hit.index);
     case UiTabHitKind::close:
         return application_tabs_close(hit.index);
+    case UiTabHitKind::icon:
+        return application_tabs_toggle_playback(hit.index);
     case UiTabHitKind::plus:
         return application_tabs_pin_current();
     case UiTabHitKind::overflow:
@@ -295,7 +297,8 @@ bool item_pointer(const WindowEvent& event) noexcept {
         // The bar's items take no other buttons; content never sees them. A tab's right click opens its menu and a
         // middle click closes it.
         if (tab && !application_input_blocked() &&
-            (hit.tab.kind == UiTabHitKind::tab || hit.tab.kind == UiTabHitKind::close)) {
+            hit.tab.kind != UiTabHitKind::none && hit.tab.kind != UiTabHitKind::plus &&
+            hit.tab.kind != UiTabHitKind::overflow) {
             if (event.button == static_cast<u8>(PointerButton::right))
                 application_tab_menu_open(hit.tab.index, tab_anchor(hit.tab));
             else if (event.button == static_cast<u8>(PointerButton::middle))
@@ -522,13 +525,20 @@ void application_caption_describe_tabs(UiAccessTree* tree, u32 parent, u8 surfac
                             ui_access_action_select | ui_access_action_invoke);
         if (tab == kUiAccessNone)
             continue;
-        // A media tab says what its page holds (its icon), and when it cannot load again.
+        // A media tab says what its page holds (its icon), and when it cannot load again; a playing one has a pause
+        // (or play) button.
         const Utf8View media = item.icon == UiIcon::video   ? utf8_literal("Video")
                                : item.icon == UiIcon::music ? utf8_literal("Audio")
+                               : item.icon == UiIcon::audio_lines ? utf8_literal("Playing")
                                : item.icon == UiIcon::image || item.icon == UiIcon::image_off ? utf8_literal("Image")
                                                                                                : Utf8View{};
         if (media.bytes)
             ui_access_set_help(tree, tab, item.flags & kUiTabMissing ? utf8_literal("Media unavailable") : media);
+        if (item.flags & kUiTabPlaying) {
+            const UiTabHit icon{UiTabHitKind::icon, static_cast<u8>(i)};
+            add(tab, UiAccessRole::button, icon, ui_tab_strip_icon(layout.tabs, i), ui_tab_strip_hit_name(*tabs, icon), 0,
+                ui_access_action_invoke);
+        }
         add(tab, UiAccessRole::button, {UiTabHitKind::close, static_cast<u8>(i)}, ui_tab_strip_close(layout.tabs, i),
             utf8_literal("Close tab"), 0, ui_access_action_invoke);
     }

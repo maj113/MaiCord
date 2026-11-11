@@ -3,6 +3,7 @@
 // tests of the tab model: pages are slots that record what the tabs asked of them. One test source includes it.
 #include "../../../src/app/media/image_viewer.hpp"
 #include "../../../src/app/media/media_page.hpp"
+#include "../../../src/app/media/video.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord::media_page_fake {
@@ -21,6 +22,9 @@ inline bool viewer_open;
 inline app_detail::MediaPageSource viewer_source;
 // How often the pages were all closed.
 inline u32 resets;
+// Each page's player (the tab's icon) and how often a tab icon toggled it.
+inline app_detail::VideoPagePlayback playback[app_detail::kMediaPageCapacity + 1];
+inline u32 toggles;
 
 inline u32 open_pages() noexcept {
     u32 count = 0;
@@ -35,6 +39,8 @@ inline void reset() noexcept {
     viewer_open = false;
     viewer_source = {};
     resets = 0;
+    clear_bytes(playback, sizeof(playback));
+    toggles = 0;
 }
 
 inline app_detail::MediaPageSource source(app_detail::MediaPageKind kind, const char* title) noexcept {
@@ -99,6 +105,15 @@ bool application_image_viewer_page_source(MediaPageSource* source) noexcept {
         return false;
     if (source)
         *source = media_page_fake::viewer_source;
+    return true;
+}
+VideoPagePlayback application_video_page_playback(u8 id) noexcept {
+    return media_page_fake::playback[id];
+}
+bool application_video_page_toggle(u8 id) noexcept {
+    ++media_page_fake::toggles;
+    auto& playback = media_page_fake::playback[id];
+    playback = playback == VideoPagePlayback::playing ? VideoPagePlayback::paused : VideoPagePlayback::playing;
     return true;
 }
 } // namespace maicord::app_detail

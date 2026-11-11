@@ -3,6 +3,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/button.hpp"
+#include "maicord/ui/widgets/menu_row.hpp"
+#include "maicord/ui/voice/video_scene.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/text/style.hpp"
 namespace maicord {
@@ -14,11 +16,12 @@ constexpr float kToolbarGroupGap = 12;
 // Media bands: the toolbar row above the body, the caption row below it.
 constexpr float kBodyTop = kToolbarTop + kToolbarTarget + 20, kBodyBottom = 40, kBodySide = 24;
 constexpr float kChevronTarget = 44, kChevronInset = 16, kPanStep = 40, kSpinnerExtent = 32;
-// Page mode: the header band (glyph, title over source, toolbar), the inset around the player, the transport band
-// and queue column reserved for the player, and the Retry button.
+// Page mode: the header band (glyph, title over source, toolbar), the inset around the player, the queue column (its
+// heading, then rows of artwork tile, title and duration) and the Retry button.
 constexpr float kPageHeader = 48, kPageToolbarTop = (kPageHeader - kToolbarTarget) * .5f, kPageInset = 16;
 constexpr float kPageGlyph = 20, kPageTextLeft = kPageInset + kPageGlyph + 12, kPageStageGlyph = 48;
-constexpr float kPageTransport = 64, kPageQueue = 320, kPageQueueMinimum = 720, kRetryWidth = 80;
+constexpr float kPageQueue = 320, kPageQueueMinimum = 720, kRetryWidth = 80;
+constexpr float kQueueHeading = 40, kQueueRow = 56, kQueueThumb = 40, kQueuePad = 8;
 inline bool view_group(u32 index) noexcept {
     return index == ui_image_viewer_fit || index == ui_image_viewer_zoom_in || index == ui_image_viewer_zoom_out ||
            index == ui_image_viewer_fullscreen;
@@ -26,6 +29,10 @@ inline bool view_group(u32 index) noexcept {
 UiImageViewerPageLayout page_layout(const UiImageViewer& v) noexcept {
     const auto r = v.viewport;
     UiImageViewerPageLayout out{};
+    if (v.fullscreen) {
+        out.player = r;
+        return out;
+    }
     out.header = {r.left, r.top, r.right, r.top + kPageHeader};
     const UiRect content{r.left + kPageInset, out.header.bottom + kPageInset * .5f, r.right - kPageInset,
                          r.bottom - kPageInset};
@@ -34,14 +41,27 @@ UiImageViewerPageLayout page_layout(const UiImageViewer& v) noexcept {
         out.player = {content.left, content.top, content.right, r.bottom - kBodyBottom};
         return out;
     }
-    float right = content.right;
-    if (v.page_info.queue && ui_rect_width(content) >= kPageQueueMinimum) {
+    out.player = content;
+    if (!v.page_info.queue)
+        return out;
+    if (ui_rect_width(content) >= kPageQueueMinimum) {
         out.queue = {content.right - kPageQueue, content.top, content.right, content.bottom};
-        right = out.queue.left - kPageInset;
+        out.player.right = out.queue.left - kPageInset;
+        return out;
     }
-    out.transport = {content.left, content.bottom - kPageTransport, right, content.bottom};
-    out.player = {content.left, content.top, right, out.transport.top - kToolbarGap};
+    // A narrow page stacks the queue under a 16:9 player, leaving it at least three rows.
+    const float split = minimum(content.top + ui_rect_width(content) * 9 / 16,
+                                content.bottom - kQueueHeading - 3 * kQueueRow - kPageInset);
+    if (split > content.top + kQueueRow) {
+        out.player.bottom = split;
+        out.queue = {content.left, split + kPageInset, content.right, content.bottom};
+    }
     return out;
+}
+// The queue's nth row in view.
+UiRect queue_row(const UiImageViewerPageLayout& layout, u32 n) noexcept {
+    const float top = layout.queue.top + kQueueHeading + n * kQueueRow;
+    return {layout.queue.left + kQueuePad, top, layout.queue.right - kQueuePad, top + kQueueRow};
 }
 // From fit, or actual size when that is smaller (fit upscales on high DPI),
 // up to the maximum or actual size when that is larger.
@@ -91,6 +111,9 @@ void arrange(UiImageViewer* v) noexcept {
     }
 }
 inline bool shown(const UiImageViewer& v, u32 index) noexcept {
+    // A full screen page is all player.
+    if (v.page && v.fullscreen)
+        return false;
     switch (index) {
     case ui_image_viewer_zoom_out:
     case ui_image_viewer_zoom_in:
@@ -370,6 +393,13 @@ bool ui_image_viewer_set_fullscreen(UiImageViewer* v, bool fullscreen) noexcept 
         return false;
     if (v->fullscreen != fullscreen) {
         v->fullscreen = fullscreen;
+        // A page's regions and toolbar follow it; its viewport usually changes with it too.
+        if (v->page) {
+            body_for(v);
+            if (!place_controls(v))
+                return false;
+            arrange(v);
+        }
         ++v->revision;
     }
     return true;
@@ -415,6 +445,19 @@ bool ui_image_viewer_set_page(UiImageViewer* v, const UiImageViewerPage& page) n
 }
 UiImageViewerPageLayout ui_image_viewer_page_layout(const UiImageViewer& v) noexcept {
     return v.active && v.page ? page_layout(v) : UiImageViewerPageLayout{};
+}
+u32 ui_image_viewer_queue_rows(const UiImageViewer& v) noexcept {
+    const auto queue = ui_image_viewer_page_layout(v).queue;
+    const float room = ui_rect_height(queue) - kQueueHeading;
+    return room > 0 ? minimum(kUiImageViewerQueueRows, static_cast<u32>(room / kQueueRow)) : 0;
+}
+u16 ui_image_viewer_queue_hit(const UiImageViewer& v, UiPoint point) noexcept {
+    const auto layout = ui_image_viewer_page_layout(v);
+    if (!v.queue || !ui_rect_contains(layout.queue, point.x, point.y) || point.y < layout.queue.top + kQueueHeading)
+        return 0;
+    const u32 n = static_cast<u32>((point.y - layout.queue.top - kQueueHeading) / kQueueRow);
+    const u32 track = v.queue->first + n + 1;
+    return n < ui_image_viewer_queue_rows(v) && track <= v.queue->count ? static_cast<u16>(track) : 0;
 }
 void ui_image_viewer_set_view(UiImageViewer* v, float zoom, UiPoint pan) noexcept {
     if (!v || !v->active || v->video || !ui_coordinate_valid(zoom) || zoom <= 0 || !ui_coordinate_valid(pan.x) ||
@@ -523,7 +566,8 @@ UiImageViewerCommand ui_image_viewer_key_command(const UiImageViewer& v, UiImage
         // A page is not dismissed: Esc only leaves full screen, else falls through.
         return v.fullscreen ? Command::exit_fullscreen : v.page ? Command::none : Command::dismiss;
     case UiImageViewerKey::f:
-        return v.page ? Command::none : Command::toggle_fullscreen;
+        // A page's player owns full screen (an image page has none).
+        return !v.page ? Command::toggle_fullscreen : v.video ? Command::video : Command::none;
     case UiImageViewerKey::tab:
         return modifiers.shift ? Command::focus_previous : Command::focus_next;
     case UiImageViewerKey::enter:
@@ -598,24 +642,49 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
     const Theme& toolbar_theme = v.page ? theme : kDefaultTheme;
     if (v.page) {
         const auto layout = page_layout(v);
-        const float glyph_top = layout.header.top + (kPageHeader - kPageGlyph) * .5f;
-        p.fill(v.viewport, theme.tokens.background.primary)
-            .rule_below(layout.header)
-            .icon(v.page_info.glyph,
-                  {layout.header.left + kPageInset, glyph_top, layout.header.left + kPageInset + kPageGlyph,
-                   glyph_top + kPageGlyph},
-                  theme.text_secondary);
-        // Pictures play on a dark stage; the audio card sits on the page itself. Until the player draws over
-        // it, a video or audio stage shows the page's glyph.
         const bool audio = v.page_info.kind == UiImageViewerPageKind::audio;
-        if (!audio)
-            p.rounded(layout.player, theme.tokens.overlay.media, theme.scale.radius_md);
-        if (v.video && v.media != UiImageViewerMedia::failed) {
-            const auto c = center(v);
+        p.fill(v.viewport, v.fullscreen ? theme.tokens.overlay.media : theme.tokens.background.primary);
+        if (!v.fullscreen) {
+            const float glyph_top = layout.header.top + (kPageHeader - kPageGlyph) * .5f;
+            p.rule_below(layout.header)
+                .icon(v.page_info.glyph,
+                      {layout.header.left + kPageInset, glyph_top, layout.header.left + kPageInset + kPageGlyph,
+                       glyph_top + kPageGlyph},
+                      theme.text_secondary);
+            // Pictures play on a dark stage; the audio card sits on the page itself.
+            if (!audio)
+                p.rounded(layout.player, theme.tokens.overlay.media, theme.scale.radius_md);
+        }
+        // Until the player draws over it, a video or audio stage shows the page's glyph, or the play button of a
+        // player that has not started.
+        const auto c = center(v);
+        if (v.video && v.idle) {
+            if (p && !ui_video_play_affordance_paint(layout.player, layout.player, {}, theme, paint))
+                p.fail();
+        } else if (v.video && v.media != UiImageViewerMedia::failed)
             p.icon(v.page_info.glyph,
                    {c.x - kPageStageGlyph * .5f, c.y - kPageStageGlyph * .5f, c.x + kPageStageGlyph * .5f,
                     c.y + kPageStageGlyph * .5f},
                    audio ? theme.text_secondary : kDefaultTheme.text_secondary);
+        // The queue: the current track on the selected fill with an accent tile playing audio_lines; the row under
+        // the pointer only takes the lighter hover fill. Every other row leads with a plain tile.
+        if (v.queue && ui_rect_has_area(layout.queue)) {
+            const auto& queue = *v.queue;
+            p.rounded(layout.queue, theme.tokens.background.secondary, theme.scale.radius_md);
+            for (u32 n = 0, rows = ui_image_viewer_queue_rows(v); n < rows && queue.first + n < queue.count; ++n) {
+                const u32 track = queue.first + n + 1;
+                const bool current = track == queue.current;
+                const auto row = queue_row(layout, n);
+                const UiRect tile{row.left + kQueuePad, row.top + kQueuePad, row.left + kQueuePad + kQueueThumb,
+                                  row.top + kQueuePad + kQueueThumb};
+                if (current || track == queue.hovered)
+                    p.rounded(ui_menu_row_plate(row, 4),
+                              current ? theme.tokens.state.row_selected : theme.tokens.state.row_hover,
+                              theme.scale.radius_sm);
+                p.rounded(tile, current ? theme.tokens.accent.brand : theme.tokens.fill.muted, theme.scale.radius_sm)
+                    .icon(current ? UiIcon::audio_lines : UiIcon::music, ui_rect_shrink(tile, 10),
+                          current ? theme.tokens.text.on_accent : theme.text_secondary);
+            }
         }
     } else {
         p.fill(v.viewport, ui_theme_color_alpha(theme.tokens.overlay.media, v.reveal));
@@ -710,13 +779,36 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme& theme, UiT
             ui_rect_has_area(b) && i != ui_image_viewer_previous && i != ui_image_viewer_next &&
             i != ui_image_viewer_retry)
             right = minimum(right, b.left - kToolbarInset);
-    if (v.page) {
+    if (v.page && !v.fullscreen) {
         // Title over the source line, beside the kind glyph.
         const float left = v.viewport.left + kPageTextLeft, top = v.viewport.top + kPageToolbarTop - 2;
         label(v.owner.handle, v.page_info.title, {left, top, right, top + 20}, theme.text_primary,
               text_style_bold);
         label(v.owner.handle, v.page_info.source, {left, top + 20, right, top + 36}, theme.text_secondary,
               text_style_subtext);
+        // The queue's heading, then each row's title (the current one with its duration).
+        const auto layout = page_layout(v);
+        if (v.queue && ui_rect_has_area(layout.queue)) {
+            const auto& queue = *v.queue;
+            // The heading names the playlist (the page's title) and where the queue is in it ("6 of 24").
+            const float inset = layout.queue.left + kQueuePad * 2, end = layout.queue.right - kQueuePad * 2;
+            const float title_end = end - (queue.position.bytes ? 72 : 0);
+            label(v.owner.handle, v.page_info.title, {inset, layout.queue.top, title_end, layout.queue.top + kQueueHeading},
+                  theme.text_primary, text_style_bold, ui_text_middle);
+            label(v.owner.handle, queue.position, {title_end, layout.queue.top, end, layout.queue.top + kQueueHeading},
+                  theme.text_secondary, text_style_subtext, ui_text_middle | ui_text_end);
+            for (u32 n = 0, rows = ui_image_viewer_queue_rows(v); n < rows && queue.first + n < queue.count; ++n) {
+                const auto row = queue_row(layout, n);
+                const bool current = queue.first + n + 1 == queue.current;
+                const float text_left = row.left + kQueuePad * 2 + kQueueThumb;
+                const float text_right = row.right - kQueuePad - (current && queue.duration.bytes ? 48 : 0);
+                label(v.owner.handle, queue.titles[n], {text_left, row.top, text_right, row.bottom},
+                      current ? theme.text_primary : theme.text_secondary, text_style_subtext, ui_text_middle);
+                if (current && queue.duration.bytes)
+                    label(v.owner.handle, queue.duration, {text_right, row.top, row.right - kQueuePad, row.bottom},
+                          theme.text_secondary, text_style_subtext, ui_text_middle | ui_text_end);
+            }
+        }
     } else if (v.counter_bytes) {
         // The counter shares the toolbar row's centre line.
         const UiRect row{v.viewport.left + kToolbarInset, v.viewport.top + kToolbarTop, right,

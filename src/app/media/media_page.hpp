@@ -17,6 +17,8 @@ enum MediaPageFlag : u8 {
     media_page_snapshot = 2,
     // An embed playlist: the page reserves its queue column.
     media_page_playlist = 4,
+    // A provider embed (YouTube and the like): played at up to 1080p.
+    media_page_provider = 8,
 };
 struct MediaPageSource {
     MediaPageKind kind;
@@ -51,6 +53,28 @@ bool application_media_page_missing(u8 id) noexcept;
 UiRect application_media_page_rect() noexcept;
 // The shown page's viewer (accessibility, probes), null when none shows.
 const UiImageViewer* application_media_page_viewer() noexcept;
+
+// The player (video.cpp hosts the one session in a page): what a video or audio page plays from, the resume point
+// a replaced session left, the playlist track it was on and whether it ever played.
+struct MediaPagePlayback {
+    Utf8View url, title;
+    MediaAssetKey key;
+    UiSize pixels;
+    u64 channel_id, message_id;
+    u32 revision, resume_ms;
+    u16 track;
+    u8 flags;
+    bool played;
+};
+bool application_media_page_playback(u8 id, MediaPagePlayback* out) noexcept;
+// Where the shown page's player goes (its stage) and the owner of its controls; false while the page is hidden,
+// covered or too small.
+bool application_media_page_player(u8 id, UiRect* stage, UiWidgetReference* owner) noexcept;
+// The page's session ended or was replaced: the page resumes there (`track` 0 outside a playlist).
+void application_media_page_note_playback(u8 id, u32 position_ms, u16 track) noexcept;
+// The shown page fills the window as all player (the window goes full screen with it).
+bool application_media_page_fullscreen() noexcept;
+void application_media_page_set_fullscreen(bool fullscreen) noexcept;
 
 // Frame and input plumbing.
 bool application_media_page_synchronize() noexcept;

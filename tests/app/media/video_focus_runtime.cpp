@@ -7,6 +7,7 @@
 #include "shell/window_state.hpp"
 #include "shell/state.hpp"
 #include "media/video.hpp"
+#include "media/video_internal.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 #include "maicord/ui/voice/audio_presentation.hpp"
 #include "../../support/test_output.hpp"
@@ -38,6 +39,7 @@ struct AccountFixture {
     u32 reject_controls{};
     bool frame_pending{};
     AccountMediaAttachmentRequest last_request{};
+    AccountVideoCommand last_command{};
 } account;
 
 u32 failures{}, text_publications{}, presentation_rejections{};
@@ -115,6 +117,7 @@ AccountVideoResult WINAPI control(void*, const AccountVideoControl* command) noe
         return {AccountVideoError::busy};
     }
     ++account.commands;
+    account.last_command = command->command;
     auto& playback = account.status.playback;
     const u64 observed_before = playback.observed_command;
     playback.desired_command = playback.observed_command = command->command_serial;
@@ -999,6 +1002,149 @@ void run_audio() noexcept {
     for (auto format : formats)
         run_audio_format(format);
 }
+// Media pages own the session they play. The page store's answers (application_media_page_* below) come from
+// these fixtures: page 1 and 2 are videos, 3 a playlist, 4 an audio file; none of their messages is loaded.
+namespace pages {
+u8 shown;
+bool fullscreen;
+u32 notes;
+u8 noted_page;
+u32 noted_ms;
+UiImageViewer owner;
+MediaPagePlayback media[5];
+constexpr UiRect kStage{40, 60, 600, 400};
+} // namespace pages
+bool url_is(Utf8View url) noexcept {
+    return account.last_request.signed_url.bytes == url.bytes &&
+           bytes_equal(account.last_request.signed_url.data, url.data, url.bytes);
+}
+void run_pages() noexcept {
+    using namespace pages;
+    collection_selection = selection_busy = false;
+    available_track = 1;
+    check(ui_image_viewer_open(&owner, {0, 0, 640, 480}, {16, 9}) &&
+              ui_image_viewer_set_page(&owner, {utf8_literal("Page"), {}, UiIcon::video, UiImageViewerPageKind::video,
+                                                false, false}),
+          "page runtime: a page viewer owns the hosted players");
+    media[1] = {utf8_literal("https://example.com/page-one.mp4"), utf8_literal("page-one.mp4"),
+                media_asset_attachment(80, MediaAttachmentFormat::mp4, MediaResolutionTier::px512), {320, 240}, 70, 50, 1};
+    media[2] = media[1];
+    media[2].url = utf8_literal("https://example.com/page-two.mp4");
+    media[2].key = media_asset_attachment(81, MediaAttachmentFormat::mp4, MediaResolutionTier::px512);
+    media[2].message_id = 51;
+    media[3] = {utf8_literal("https://www.youtube.com/watch?v=eyk25H75ld0&list=PLpagefixture"), utf8_literal("Queue"),
+                media_asset_embed(52, 1, 0, MediaEmbedResource::video, MediaAttachmentFormat::mp4, false,
+                                  MediaResolutionTier::px512, false),
+                {320, 180}, 70, 52, 1, 0, 0,
+                static_cast<u8>(media_page_embed | media_page_provider | media_page_playlist)};
+    media[4] = {utf8_literal("https://example.com/page-four.ogg"), utf8_literal("page-four.ogg"),
+                media_asset_attachment(83, MediaAttachmentFormat::ogg_opus, MediaResolutionTier::original), {16, 9},
+                70, 53, 1};
+
+    // A player in the channel's messages still closes with its channel.
+    InlineMediaSource card{};
+    card.key = media_asset_attachment(84, MediaAttachmentFormat::mp4, MediaResolutionTier::px512);
+    card.message_id = 1;
+    card.channel_id = 7;
+    card.revision = 1;
+    check(start_video_session(card) && g_app.video, "page runtime: a card session starts");
+    application_video_leave_channel();
+    check(!g_app.video, "page runtime: leaving the channel closes a player in its messages");
+
+    // A page starts playing on its first showing, from its own copy (its message is not loaded).
+    shown = 1;
+    const u32 selections = account.selections;
+    application_video_page_show(1);
+    check(g_app.video && pump() && pump() && account.selections == selections + 1 &&
+              account.status.playback.playing && g_app.renderer.video_scene && g_app.renderer.video_scene_page &&
+              application_video_page_playback(1) == VideoPagePlayback::playing,
+          "page runtime: a video page plays its own copy in the page");
+    g_app.account_ui->active_channel_id = 123;
+    application_video_leave_channel();
+    check(g_app.video && pump() && g_app.video && account.status.playback.playing,
+          "page runtime: a page's session survives a channel switch and a missing message");
+    g_app.account_ui->active_channel_id = 7;
+
+    // Hidden: sound only (no picture is decoded), the pump stays awake; shown: the picture returns.
+    shown = 0;
+    check(pump() && account.status.playback.playing && account.last_command == AccountVideoCommand::picture_off &&
+              !g_app.renderer.video_scene && application_video_next_wake(),
+          "page runtime: a hidden page plays on as sound only and keeps its pump awake");
+    shown = 1;
+    check(pump() && account.last_command == AccountVideoCommand::picture_on && g_app.renderer.video_scene_page,
+          "page runtime: showing the page again turns its picture back on");
+
+    // The player's keys.
+    check(application_video_page_key(1, key::space, false, false) && !account.status.playback.playing && pump(),
+          "page keys: Space pauses");
+    check(application_video_page_key(1, 'M', false, false) && account.status.playback.muted && pump(),
+          "page keys: M mutes");
+    check(application_video_page_key(1, key::right, false, false) &&
+              account.status.playback.position_100ns == 8'000 * 10'000ll && pump(),
+          "page keys: Right seeks five seconds on");
+    const float volume = account.status.playback.applied_volume;
+    check(application_video_page_key(1, key::up, false, false) && account.status.playback.applied_volume > volume &&
+              pump(),
+          "page keys: Up raises the volume");
+    check(application_video_page_key(1, 'F', false, false) && fullscreen && pump() &&
+              application_video_page_key(1, 'F', false, false) && !fullscreen && pump(),
+          "page keys: F enters and leaves the page's full screen");
+    check(application_video_page_toggle(1) && account.status.playback.playing && pump(),
+          "page runtime: the tab icon resumes the page");
+
+    // One session: a page started over a playing one replaces it, and the replaced page keeps its place.
+    application_video_page_show(2);
+    check(g_app.video && g_app.video->source.page_id == 1, "page runtime: showing a page leaves another's playback");
+    shown = 2;
+    const u32 notes_before = notes;
+    check(application_video_page_toggle(2) && notes == notes_before + 1 && noted_page == 1 && noted_ms == 8'000 &&
+              application_video_page_playback(1) == VideoPagePlayback::none && pump() && pump() &&
+              account.status.playback.playing,
+          "page runtime: the replaced page records resume_ms and the newer page plays");
+    check(application_video_page_key(2, key::space, false, false) && pump(), "page runtime: the newer page pauses");
+    shown = 0;
+    check(pump() && !account.status.playback.playing && !application_video_next_wake(),
+          "page runtime: a hidden page that is paused keeps no wake");
+    shown = 1;
+    application_video_page_show(1);
+    check(pump() && pump() && g_app.video && g_app.video->source.page_id == 1 && !account.status.playback.playing &&
+              account.status.playback.position_100ns == 8'000 * 10'000ll,
+          "page runtime: a replaced page comes back paused where it was left");
+
+    // A playlist page advances while hidden, from its own URL, and its queue jumps.
+    collection_selection = true;
+    available_track = 1;
+    shown = 3;
+    check(application_video_page_toggle(3) && pump() && pump() && account.status.collection_track == 1 &&
+              account.status.playback.playing,
+          "playlist page: plays its first track");
+    shown = 0;
+    pump();
+    account.status.playback.playing = false;
+    account.status.playback.ended = true;
+    check(pump() && pump() && pump() && pump() && account.status.collection_track == 2 &&
+              account.status.playback.playing && url_is(media[3].url) && !g_app.renderer.video_scene,
+          "playlist page: the queue advances while the page is hidden, from the page's own URL");
+    shown = 3;
+    const VideoPageQueue queue = (pump(), application_video_page_queue(3));
+    check(queue.count == 3 && queue.track == 2 && queue.duration_ms == 120'000,
+          "playlist page: the queue reports its tracks, the current one and its duration");
+    check(application_video_page_track(3, 3) && pump() && pump() && pump() && account.status.collection_track == 3 &&
+              account.status.playback.playing,
+          "playlist page: a queue row jumps to its track and plays");
+
+    // An audio page plays in its card and answers the player keys.
+    collection_selection = false;
+    shown = 4;
+    check(application_video_page_toggle(4) && pump() && pump() && account.status.playback.playing &&
+              g_app.renderer.audio_scene && g_app.renderer.audio_scene->surface == UiAudioSourceSurface::page,
+          "audio page: plays in its card on the page");
+    check(application_video_page_key(4, key::space, false, false) && !account.status.playback.playing && pump(),
+          "audio page: Space pauses");
+    application_video_page_close(4);
+    check(!g_app.video, "page runtime: closing a page closes its session");
+    shown = 0;
+}
 void run() noexcept {
     // Hidden HWND and fake callbacks exercise shipping AppVideo input/pump.
     // No account DLL, socket, media request, decoder or GPU resource is opened.
@@ -1879,6 +2025,7 @@ void run() noexcept {
         application_video_close();
         message_scene_release(&g_app.message_scene);
     }
+    run_pages();
     constexpr auto expired_source =
         utf8_literal("https://cdn.discordapp.com/attachments/7/70/focus-fixture.mp4");
     selection_busy = true;
@@ -2046,6 +2193,37 @@ u64 application_call_next_wake() noexcept {
 // Provider-embed pills open their page through the link trust rules.
 bool application_link_open(Utf8View, bool) noexcept {
     return true;
+}
+// The page store's answers (media_page.cpp) for the page fixtures.
+bool application_media_page_playback(u8 id, MediaPagePlayback* out) noexcept {
+    if (!id || id > 4)
+        return false;
+    *out = video_focus_runtime_test::pages::media[id];
+    return true;
+}
+bool application_media_page_player(u8 id, UiRect* stage, UiWidgetReference* owner) noexcept {
+    if (!id || id != video_focus_runtime_test::pages::shown)
+        return false;
+    *stage = video_focus_runtime_test::pages::kStage;
+    *owner = video_focus_runtime_test::pages::owner.owner;
+    return true;
+}
+void application_media_page_note_playback(u8 id, u32 position_ms, u16 track) noexcept {
+    namespace pages = video_focus_runtime_test::pages;
+    if (!id || id > 4)
+        return;
+    ++pages::notes;
+    pages::noted_page = id;
+    pages::noted_ms = position_ms;
+    pages::media[id].resume_ms = position_ms;
+    pages::media[id].track = track;
+    pages::media[id].played = true;
+}
+bool application_media_page_fullscreen() noexcept {
+    return video_focus_runtime_test::pages::fullscreen;
+}
+void application_media_page_set_fullscreen(bool fullscreen) noexcept {
+    video_focus_runtime_test::pages::fullscreen = fullscreen;
 }
 
 } // namespace app_detail

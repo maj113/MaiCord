@@ -38,10 +38,20 @@ struct UiImageViewerPage {
     // Jump to message shows disabled ("Message unavailable") without it; a playlist reserves the queue column.
     bool can_jump, queue;
 };
-// Page regions: the header band; the player (the picture, or the stage the audio card centres in); the transport
-// band under it (video and audio); the queue column beside them (a playlist, when the page is wide enough).
+// Page regions: the header band; the player (the picture with the hosted player over its foot, or the stage the
+// audio card centres in); a playlist's queue beside it, or under it on a narrow page. A full screen page is all
+// player.
 struct UiImageViewerPageLayout {
-    UiRect header, player, transport, queue;
+    UiRect header, player, queue;
+};
+// A playlist page's queue, borrowed from the host: the titles of the tracks in view from track `first + 1`, the
+// one-based current track (highlighted, with its duration), the track under the pointer, and the heading's position
+// ("6 of 24").
+inline constexpr u32 kUiImageViewerQueueRows = 16;
+struct UiImageViewerQueue {
+    Utf8View titles[kUiImageViewerQueueRows];
+    Utf8View duration, position;
+    u16 count, first, current, hovered;
 };
 // Zoom bounds relative to fit, and one wheel notch (120 units).
 inline constexpr float kUiImageViewerMaximumZoom = 16, kUiImageViewerWheelStep = 1.25f;
@@ -69,7 +79,11 @@ struct UiImageViewer {
     bool active, dragging, keyboard_focus, can_save, video, fullscreen;
     // Page mode: not modal, theme colours, a header band in place of the scrim's toolbar row.
     bool page;
+    // A video or audio page whose player has not started: its stage shows a play button.
+    bool idle;
     UiImageViewerPage page_info;
+    // A playlist page's queue (host-owned; the host bumps `revision` when it changes), null without one.
+    const UiImageViewerQueue* queue;
     bool copied; // Copy image confirmation: the action shows a check briefly.
     char counter[16], caption[160];
     u32 counter_bytes, caption_bytes;
@@ -90,9 +104,13 @@ bool ui_image_viewer_set_chrome(UiImageViewer* viewer, float opacity) noexcept;
 bool ui_image_viewer_set_fullscreen(UiImageViewer* viewer, bool fullscreen) noexcept;
 // Open/close progress in [0, 1]; scales the scrim and interpolates `display`.
 void ui_image_viewer_set_reveal(UiImageViewer* viewer, float reveal, const UiRect& origin) noexcept;
-// Turns an open viewer into a page (single item, no gallery, no full screen); its header shows `page`.
+// Turns an open viewer into a page (single item, no gallery); its header shows `page`. Full screen makes the page all
+// player: no header, toolbar or queue.
 bool ui_image_viewer_set_page(UiImageViewer* viewer, const UiImageViewerPage& page) noexcept;
 UiImageViewerPageLayout ui_image_viewer_page_layout(const UiImageViewer& viewer) noexcept;
+// The queue rows that fit the queue column, and the one-based track of the row at `point` (0 off the rows).
+u32 ui_image_viewer_queue_rows(const UiImageViewer& viewer) noexcept;
+u16 ui_image_viewer_queue_hit(const UiImageViewer& viewer, UiPoint point) noexcept;
 // Re-applies a zoom (relative to fit) and pan kept from an earlier visit; both are clamped as the viewer's own.
 void ui_image_viewer_set_view(UiImageViewer* viewer, float zoom, UiPoint pan) noexcept;
 void ui_image_viewer_zoom(UiImageViewer* viewer, float factor, UiPoint anchor) noexcept;

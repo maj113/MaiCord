@@ -424,8 +424,8 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
     check(ui_rect_equal(page.body, layout.player) && layout.player.top >= layout.header.bottom &&
               layout.player.left > content.left && layout.player.right < content.right &&
               page.image.left >= page.body.left && page.image.right <= page.body.right &&
-              !ui_rect_has_area(layout.transport) && !ui_rect_has_area(layout.queue),
-          "page: an image fills the player inside the content column; no transport band");
+              !ui_rect_has_area(layout.queue),
+          "page: an image fills the player inside the content column; no queue");
     check(utf8_equal(ui_image_viewer_tooltip(page, ui_image_viewer_close), utf8_literal("Close tab (Ctrl+W)")) &&
               ui_image_viewer_key_command(page, UiImageViewerKey::escape, {}) == UiImageViewerCommand::none &&
               ui_image_viewer_key_command(page, UiImageViewerKey::f, {}) == UiImageViewerCommand::none &&
@@ -464,17 +464,33 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
           "page: an audio page opens");
     const auto regions = ui_image_viewer_page_layout(player);
     check(player.video && ui_rect_has_area(regions.queue) && ui_rect_width(regions.queue) == 320 &&
-              regions.player.right < regions.queue.left && regions.transport.top > regions.player.bottom &&
-              ui_rect_width(regions.transport) == ui_rect_width(regions.player) &&
+              regions.player.right < regions.queue.left && regions.player.bottom == regions.queue.bottom &&
               !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_zoom_in)) &&
               !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_copy)),
-          "page: a wide playlist page reserves the transport band and the queue column, without zoom or Copy");
+          "page: a wide playlist page puts the queue beside the player, without zoom or Copy");
     check(ui_rect_has_area(ui_audio_page_card(regions.player, kDefaultUiAudioControlsStyle)) &&
               ui_rect_width(ui_audio_page_card(regions.player, kDefaultUiAudioControlsStyle)) == 480,
           "page: the audio card centres in the player at its widest");
+    const UiImageViewerQueue queue{{utf8_literal("One"), utf8_literal("Two"), utf8_literal("Three")}, {}, {}, 3, 0, 2, 0};
+    player.queue = &queue;
+    check(ui_image_viewer_queue_rows(player) >= 3 &&
+              ui_image_viewer_queue_hit(player, {regions.queue.left + 20, regions.queue.top + 40 + 56 * 1.5f}) == 2 &&
+              !ui_image_viewer_queue_hit(player, {regions.queue.left + 20, regions.queue.top + 20}) &&
+              !ui_image_viewer_queue_hit(player, {regions.queue.left + 20, regions.queue.top + 40 + 56 * 3.5f}),
+          "page: a queue row hits its track; the heading and the rows past the last track do not");
+    check(ui_image_viewer_key_command(player, UiImageViewerKey::f, {}) == UiImageViewerCommand::video &&
+              ui_image_viewer_set_fullscreen(&player, true) &&
+              ui_rect_equal(ui_image_viewer_page_layout(player).player, player.viewport) &&
+              !ui_rect_has_area(ui_image_viewer_page_layout(player).queue) &&
+              !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_close)) &&
+              ui_image_viewer_key_command(player, UiImageViewerKey::escape, {}) == UiImageViewerCommand::exit_fullscreen &&
+              ui_image_viewer_set_fullscreen(&player, false) &&
+              ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_close)),
+          "page: F goes to the player; full screen is all player (no header, toolbar or queue) until Esc");
     check(ui_image_viewer_layout(&player, {0, 0, 640, 700}) &&
-              !ui_rect_has_area(ui_image_viewer_page_layout(player).queue),
-          "page: a narrow page drops the queue column");
+              ui_image_viewer_page_layout(player).queue.top > ui_image_viewer_page_layout(player).player.bottom &&
+              ui_image_viewer_queue_rows(player) >= 3,
+          "page: a narrow page stacks the queue under the player");
     PaintStream paint{};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 700) &&
               ui_image_viewer_paint(page, kDefaultTheme, &paint) && paint.clip_depth == 1 && paint.count > 4,

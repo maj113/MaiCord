@@ -728,6 +728,7 @@ void application_video_cancel_pointer() noexcept {}
 bool application_video_key(UINT, bool, bool) noexcept { return false; }
 float application_video_viewer_chrome() noexcept { return 1; }
 void application_video_viewer_activity() noexcept {}
+bool application_video_viewer_url(Utf8View*, bool*) noexcept { return false; }
 bool g_window_fullscreen;
 bool application_window_fullscreen() noexcept { return g_window_fullscreen; }
 bool application_window_set_fullscreen(bool on) noexcept {

@@ -75,6 +75,8 @@ bool live_window(AccountVideoSession& s) noexcept;
 bool workspace(AccountVideoSession& s) noexcept;
 bool drop_frame(AccountVideoSession& s) noexcept;
 bool request_audio_state(AccountVideoSession& s) noexcept;
+// Picture decoder only: seeks to the IDR at or before target; data_pending leaves seek_pending.
+bool video_seek(AccountVideoSession& s, i64 target) noexcept;
 bool reset(AccountVideoSession& s, i64 target) noexcept;
 void refresh(AccountVideoSession& s) noexcept;
 bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, void* context,

@@ -23,29 +23,30 @@ bool application_video_pump(bool* repaint) noexcept {
     const u32 prior_native_error = video->status.playback.native_error;
     const auto prior_rejected_error = video->status.playback.rejected_error;
     const bool searched = media_asset_search(video->source.key);
+    // A page plays its own copy: its message may be gone and its channel left. It plays on while hidden.
+    const bool page = video->source.host == VideoHost::page;
     if (!video_session_available() || video->account_serial != application_account_scope() ||
-        (!searched && video->source.channel_id != g_app.account_ui->active_channel_id)) {
+        (!page && !searched && video->source.channel_id != g_app.account_ui->active_channel_id)) {
         application_video_close();
         return true;
     }
-    ApplicationSearchSourceView search_source{};
-    const auto found = searched ? MessageStoreResult{}
-                                : message_store_find(g_app.message_view.store, video->source.message_id);
-    const auto* message = searched
-                              ? (application_search_source_resolve(video->source.search_source,
-                                                                   video->source.snapshot, &search_source)
-                                     ? search_source.message
-                                     : nullptr)
-                          : found.ok() ? message_store_resolve(g_app.message_view.store, found.handle)
-                                       : nullptr;
-    if (!message || !application_channel_readable(g_app, message->channel_id) ||
-        message->revision != video->source.revision) {
-        application_video_close();
-        return true;
-    }
-    if (inline_media_activation_consumed(video->source, InlineMediaPolicyUse::retain)) {
-        application_video_close();
-        return true;
+    if (!page) [[likely]] {
+        ApplicationSearchSourceView search_source{};
+        const auto found = searched ? MessageStoreResult{}
+                                    : message_store_find(g_app.message_view.store, video->source.message_id);
+        const auto* message = searched
+                                  ? (application_search_source_resolve(video->source.search_source,
+                                                                       video->source.snapshot, &search_source)
+                                         ? search_source.message
+                                         : nullptr)
+                              : found.ok() ? message_store_resolve(g_app.message_view.store, found.handle)
+                                           : nullptr;
+        if (!message || !application_channel_readable(g_app, message->channel_id) ||
+            message->revision != video->source.revision ||
+            inline_media_activation_consumed(video->source, InlineMediaPolicyUse::retain)) {
+            application_video_close();
+            return true;
+        }
     }
     if (video->live_restart) {
         restart_live_session(*video);
@@ -54,7 +55,9 @@ bool application_video_pump(bool* repaint) noexcept {
     }
     InlineMediaSource positioned{};
     bool visible = position_video_scene(video, positioned);
-    const bool surface_covered = content_surface_covers_video();
+    // `active`: the session may select, seek and play (a page also while hidden).
+    const bool active = visible || page;
+    const bool surface_covered = !page && content_surface_covers_video();
     if (video->selecting && (!searched || visible || surface_covered)) {
         const auto& existing = account_module_video_status(g_app.account.instance);
         if (existing.selected && existing.playback.identity.session_epoch != video->session_epoch) {
@@ -129,20 +132,24 @@ bool application_video_pump(bool* repaint) noexcept {
         if (video->restore_gain && !video->live_restart &&
             send_video_command(*video, AccountVideoCommand::volume, 0, video->restore_volume) &&
             send_video_command(*video, AccountVideoCommand::mute, 0, 1, video->restore_muted)) video->restore_gain = false;
-        if (video->requested_seek && visible && video->status.playback.duration_100ns > 0) {
+        if (video->requested_seek && active && video->status.playback.duration_100ns > 0) {
             const i64 target = minimum<i64>(i64{video->source.start_seconds} * 10000000,
                                             video->status.playback.duration_100ns);
             if (send_video_command(*video, AccountVideoCommand::seek, target))
                 video->requested_seek = false;
         }
-        if (video->requested_play && !video->requested_seek && !video->restore_gain && !video->live_restart && visible) {
+        if (video->requested_play && !video->requested_seek && !video->restore_gain && !video->live_restart && active) {
             if (send_video_command(*video, AccountVideoCommand::play))
                 video->requested_play = false;
         }
-        if (!visible && video->status.playback.playing && !video->hidden_pause) {
+        if (!active && video->status.playback.playing && !video->hidden_pause) {
             video->hidden_pause = send_video_command(*video, AccountVideoCommand::pause);
         }
-        if (visible && !surface_covered && video->collection_continue && !video->requested_play &&
+        // A hidden page's video plays as sound only; shown again, its picture returns at the current position.
+        if (page && !video->source.audio && !video->source.audio_preview && video->picture_off == visible &&
+            send_video_command(*video, visible ? AccountVideoCommand::picture_on : AccountVideoCommand::picture_off))
+            video->picture_off = !visible;
+        if (active && !surface_covered && video->collection_continue && !video->requested_play &&
             video->collection_track && video->collection_track < video->collection_count && video->status.playback.ended &&
             video->status.playback.error == AccountVideoError::none && video->status.playback.rejected_error == AccountVideoError::none &&
             video->status.playback.observed_command >= video->status.playback.desired_command) {
@@ -203,9 +210,12 @@ bool application_video_pump(bool* repaint) noexcept {
 }
 
 u64 application_video_next_wake() noexcept {
-    const u64 inline_wake = g_app.video && video_surface_available() && !application_reduced_motion()
-                                ? g_app.video->presentation_wake_ms
-                                : 0;
+    // A page's player keeps its wake while hidden or minimized (its playlist advances; see project_video_scene).
+    const auto* video = g_app.video;
+    const u64 inline_wake =
+        video && (video->source.host == VideoHost::page || (video_surface_available() && !application_reduced_motion()))
+            ? video->presentation_wake_ms
+            : 0;
     const u64 call_wake = application_call_next_wake();
     return !inline_wake ? call_wake : !call_wake ? inline_wake : minimum(inline_wake, call_wake);
 }
@@ -258,7 +268,9 @@ bool application_video_pointer(const WindowEvent& event) noexcept {
     auto* video = g_app.video;
     if (video && !search_video_still_current(*video))
         return false;
-    if (video && video->source.audio && video->ui.audio.active) {
+    // A media page routes its own player (application_video_page_pointer).
+    const bool routed = video && video->source.host != VideoHost::page;
+    if (routed && video->source.audio && video->ui.audio.active) {
         InlineMediaSource current{};
         if (!resolve_visible_video_source(video->source.message_id, video->source.revision, false,
                                           video->source.index, &current, video->source.snapshot,
@@ -281,7 +293,7 @@ bool application_video_pointer(const WindowEvent& event) noexcept {
             return true;
         }
     }
-    if (video && !video->source.audio && video->ui.video.active && video_scene_pointer_event(*video, pointer, point))
+    if (routed && !video->source.audio && video->ui.video.active && video_scene_pointer_event(*video, pointer, point))
         return true;
     if (pointer != VideoPointer::down)
         return false;
@@ -311,7 +323,7 @@ bool application_video_pointer(const WindowEvent& event) noexcept {
                 return application_downloads_begin(source.message_id, source.key.id, source.snapshot);
             return action.control == UiAudioControl::play_pause && activate_inline_source(source);
         }
-        if (video && !video->source.audio && media_asset_key_equal(source.key, video->source.key) &&
+        if (routed && !video->source.audio && media_asset_key_equal(source.key, video->source.key) &&
             video->selected && video->status.selected && !video->presentation_failed &&
             video->status.playback.error == AccountVideoError::none) {
             acquire_video_focus(*video);
@@ -342,7 +354,7 @@ bool application_video_pointer(const WindowEvent& event) noexcept {
 }
 bool application_video_viewer_pointer(VideoPointer pointer, UiPoint point) noexcept {
     auto* video = g_app.video;
-    if (!video || !video->expanded || video->source.audio || !video_surface_available() ||
+    if (!video || video->source.host == VideoHost::card || video->source.audio || !video_surface_available() ||
         !video->ui.video.active)
         return false;
     auto& scene = video->ui.video;
@@ -373,7 +385,7 @@ bool application_video_cursor(UiPoint point, UiCursor* cursor) noexcept {
         return true;
     }
     // A selected inline player toggles playback anywhere on its picture.
-    if (video && !video->source.audio && !video->expanded && video->ui.video.active &&
+    if (video && !video->source.audio && video->source.host == VideoHost::card && video->ui.video.active &&
         ui_rect_contains(ui_rect_intersection(video->ui.video.preview, video->ui.video.clip), point.x, point.y)) {
         *cursor = UiCursor::hand;
         return true;
@@ -405,7 +417,7 @@ bool application_video_cursor(UiPoint point, UiCursor* cursor) noexcept {
 }
 bool application_video_viewer_cursor(UiPoint point, UiCursor* cursor) noexcept {
     const auto* video = g_app.video;
-    if (!video || !video->expanded || video->source.audio || !video->ui.video.active)
+    if (!video || video->source.host == VideoHost::card || video->source.audio || !video->ui.video.active)
         return false;
     if (application_video_viewer_hidden_cursor()) {
         *cursor = UiCursor::hidden;
@@ -416,52 +428,67 @@ bool application_video_viewer_cursor(UiPoint point, UiCursor* cursor) noexcept {
 }
 bool application_video_viewer_hidden_cursor() noexcept {
     const auto* video = g_app.video;
-    return video && video->expanded && !video->source.audio && video->ui.video.active &&
+    return video && video->source.host != VideoHost::card && !video->source.audio && video->ui.video.active &&
            video->ui.video.idle && video->ui.video.preview_hovered;
 }
 float application_video_viewer_chrome() noexcept {
     const auto* video = g_app.video;
-    return video && video->expanded && !video->source.audio ? ui_video_scene_chrome_opacity(video->ui.video) : 1.0f;
+    return video && video->source.host != VideoHost::card && !video->source.audio
+               ? ui_video_scene_chrome_opacity(video->ui.video)
+               : 1.0f;
 }
 void application_video_viewer_activity() noexcept {
     auto* video = g_app.video;
-    if (video && video->expanded && !video->source.audio && video->ui.video.active &&
+    if (video && video->source.host != VideoHost::card && !video->source.audio && video->ui.video.active &&
         ui_video_scene_activity(&video->ui.video, clock_monotonic_milliseconds()))
         application_request_frame();
+}
+bool application_video_page_pointer(u8 page, VideoPointer pointer, UiPoint point) noexcept {
+    auto* video = page_video(page);
+    if (!video || !video->source.audio)
+        return video && application_video_viewer_pointer(pointer, point);
+    if (!video->ui.audio.active)
+        return false;
+    const auto before = ui_audio_scene_paint_revision(video->ui.audio);
+    const auto result = ui_audio_scene_pointer(&video->ui.audio,
+                                               pointer == VideoPointer::down ? UiAudioPointerEvent::down
+                                               : pointer == VideoPointer::up ? UiAudioPointerEvent::up
+                                                                             : UiAudioPointerEvent::move,
+                                               point);
+    if (before != ui_audio_scene_paint_revision(video->ui.audio))
+        application_request_frame();
+    dispatch_audio_event(*video, result);
+    return result.handled;
 }
 namespace {
 // The next character event belongs to a key the player took as a shortcut.
 bool g_discard_character = false;
-} // namespace
 
-bool application_video_key(u32 key, bool shift, bool repeat) noexcept {
-    if (content_surface_covers_video())
-        return false;
-    auto* video = g_app.video;
-    if (video && !search_video_still_current(*video))
-        return false;
-    if (!video || !(video->source.audio ? video->ui.audio.active : video->ui.video.active) ||
-        !video_surface_available())
-        return false;
-    const bool focused = video_input_focus_current(*video) &&
-                         (video->source.audio ? video->ui.audio.focus != UiAudioControl::none
-                                              : video->ui.video.focus != UiVideoControl::none);
-    // Player shortcuts also follow the pointer, but never steal typing or list focus.
-    const bool hovered = !video->source.audio && video->ui.video.preview_hovered &&
-                         application_window_keyboard_focus() && !g_app.message_composer.focused && !g_app.context_focus;
-    if (!focused && !hovered && !video->expanded)
-        return false;
-    if (key == key::escape) {
-        if (video->expanded)
-            set_video_expanded(*video, false);
-        else if (focused)
-            application_video_close();
-        else
+// A player's keys once it has them: `focused` when its controls hold the keyboard (Tab, Enter and the ranges then
+// act on them). A page's audio card answers the player keys through its own controls.
+bool player_key(ApplicationVideo& video, u32 key, bool shift, bool repeat, bool focused) noexcept {
+    if (video.source.audio && video.source.host == VideoHost::page) {
+        UiAudioControl control{};
+        UiAudioKey action = UiAudioKey::activate;
+        if (key == key::space || key == 'M') {
+            if (repeat)
+                return true;
+            control = key == key::space ? UiAudioControl::play_pause : UiAudioControl::mute;
+            g_discard_character = true;
+        } else if (key == key::left || key == key::right) {
+            control = UiAudioControl::seek;
+            action = key == key::left ? UiAudioKey::decrease : UiAudioKey::increase;
+        } else if (key == key::up || key == key::down) {
+            control = UiAudioControl::volume;
+            action = key == key::up ? UiAudioKey::increase : UiAudioKey::decrease;
+        } else {
             return false;
-        application_request_frame();
+        }
+        ui_audio_scene_focus(&video.ui.audio, control, false);
+        dispatch_audio_event(video, ui_audio_scene_key(&video.ui.audio, action));
         return true;
     }
-    if (video->source.audio) {
+    if (video.source.audio) {
         UiAudioKey action{};
         if (key == key::tab)
             action = shift ? UiAudioKey::previous : UiAudioKey::next;
@@ -477,10 +504,10 @@ bool application_video_key(u32 key, bool shift, bool repeat) noexcept {
             action = UiAudioKey::activate;
         else
             return false;
-        dispatch_audio_event(*video, ui_audio_scene_key(&video->ui.audio, action));
+        dispatch_audio_event(video, ui_audio_scene_key(&video.ui.audio, action));
         return true;
     }
-    auto& scene = video->ui.video;
+    auto& scene = video.ui.video;
     const u64 now = clock_monotonic_milliseconds();
     const bool modified = application_control_down() || application_alt_down();
     const bool range_focus = focused && scene.keyboard_focus &&
@@ -498,7 +525,7 @@ bool application_video_key(u32 key, bool shift, bool repeat) noexcept {
         return false;
     UiVideoSceneResult result{};
     if (key == key::tab) {
-        if (!focused && !video->expanded)
+        if (!focused && video.source.host == VideoHost::card)
             return false;
         result = ui_video_scene_key(&scene, shift ? UiVideoKey::previous : UiVideoKey::next);
     } else if (key == key::enter) {
@@ -536,8 +563,46 @@ bool application_video_key(u32 key, bool shift, bool repeat) noexcept {
     if (printable)
         g_discard_character = true;
     result.handled = true;
-    dispatch_video_event(*video, result);
+    dispatch_video_event(video, result);
     return true;
+}
+} // namespace
+
+bool application_video_key(u32 key, bool shift, bool repeat) noexcept {
+    if (content_surface_covers_video())
+        return false;
+    auto* video = g_app.video;
+    if (video && !search_video_still_current(*video))
+        return false;
+    // A media page hands its player the keys itself (application_video_page_key).
+    if (!video || video->source.host == VideoHost::page ||
+        !(video->source.audio ? video->ui.audio.active : video->ui.video.active) || !video_surface_available())
+        return false;
+    const bool focused = video_input_focus_current(*video) &&
+                         (video->source.audio ? video->ui.audio.focus != UiAudioControl::none
+                                              : video->ui.video.focus != UiVideoControl::none);
+    // Player shortcuts also follow the pointer, but never steal typing or list focus.
+    const bool hovered = !video->source.audio && video->ui.video.preview_hovered &&
+                         application_window_keyboard_focus() && !g_app.message_composer.focused && !g_app.context_focus;
+    const bool viewer = video->source.host == VideoHost::viewer;
+    if (!focused && !hovered && !viewer)
+        return false;
+    if (key == key::escape) {
+        if (viewer)
+            set_video_expanded(*video, false);
+        else if (focused)
+            application_video_close();
+        else
+            return false;
+        application_request_frame();
+        return true;
+    }
+    return player_key(*video, key, shift, repeat, focused);
+}
+bool application_video_page_key(u8 page, u32 key, bool shift, bool repeat) noexcept {
+    auto* video = page_video(page);
+    return video && (video->source.audio ? video->ui.audio.active : video->ui.video.active) &&
+           player_key(*video, key, shift, repeat, false);
 }
 
 bool application_video_discard_character(const WindowEvent& event) noexcept {

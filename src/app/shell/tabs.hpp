@@ -46,6 +46,8 @@ bool application_tabs_activate(u32 index) noexcept;
 bool application_tabs_close(u32 index) noexcept;
 bool application_tabs_close_others(u32 index) noexcept;
 bool application_tabs_close_right(u32 index) noexcept;
+// A media tab's icon while its page owns the player: pauses or resumes it.
+bool application_tabs_toggle_playback(u32 index) noexcept;
 // Moves a tab to another slot; the other tabs slide.
 bool application_tabs_move(u32 from, u32 to) noexcept;
 // A drag: it returns the tab's index (tabs still closing are dropped first), `left` places it, and ending lets it

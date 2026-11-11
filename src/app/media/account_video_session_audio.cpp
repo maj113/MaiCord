@@ -471,11 +471,34 @@ bool request_audio_state(AccountVideoSession& s) noexcept {
     requested_play(s) = play;
     return true;
 }
+bool video_seek(AccountVideoSession& s, i64 target) noexcept {
+    Mp4SeekPoint point{};
+    const auto movie = mp4_decoder_movie(*s.video);
+    const i64 video_target = minimum(target / 10, static_cast<i64>(movie.duration_us));
+    // A shared live origin can trim whole video files when the audio
+    // playlist arrives later. Start at its preceding IDR, keeping only
+    // required decode preroll instead of replaying the retained history.
+    const bool start = (!video_target && !(movie.live && movie.first_presentation_valid &&
+                                           movie.first_presentation_time_us < 0)) ||
+                       (movie.first_presentation_time_us > 0 && video_target < movie.first_presentation_time_us);
+    const auto sought = start ? (mp4_decoder_seek_start(s.video) ? Mp4DemuxError::none
+                                  : s.video->native.demux_error == Mp4DemuxError::data_pending ? Mp4DemuxError::data_pending
+                                                                                           : Mp4DemuxError::invalid_input)
+                              : mp4_decoder_seek(s.video, video_target, &point);
+    if (sought != Mp4DemuxError::none && sought != Mp4DemuxError::data_pending)
+        return false;
+    // The IDR payload has not arrived: service retries once it has.
+    s.seek_pending = sought == Mp4DemuxError::data_pending;
+    s.seek_start_pending = start;
+    s.pending_seek_us = video_target;
+    return true;
+}
 bool reset(AccountVideoSession& s, i64 target) noexcept {
     if (s.published || s.playback_epoch == ~u64{0})
         return false;
     if (!drop_frame(s))
         return false;
+    s.picture_seek = false;
     if (standalone(s)) {
         u64 frame{}, stamp{};
         if (!frame_count(target, source_rate(s), &frame) ||
@@ -484,36 +507,19 @@ bool reset(AccountVideoSession& s, i64 target) noexcept {
             stamp > static_cast<u64>(kLimit))
             return false;
         target = static_cast<i64>(stamp);
-    } else if (s.video) {
-        Mp4SeekPoint point{};
-        const auto movie = mp4_decoder_movie(*s.video);
-        const i64 video_target = minimum(target / 10, static_cast<i64>(movie.duration_us));
-        // A shared live origin can trim whole video files when the audio
-        // playlist arrives later. Start at its preceding IDR, keeping only
-        // required decode preroll instead of replaying the retained history.
-        const bool start = (!video_target && !(movie.live && movie.first_presentation_valid &&
-                                               movie.first_presentation_time_us < 0)) ||
-                           (movie.first_presentation_time_us > 0 && video_target < movie.first_presentation_time_us);
-        const auto sought = start ? (mp4_decoder_seek_start(s.video) ? Mp4DemuxError::none
-                                      : s.video->native.demux_error == Mp4DemuxError::data_pending ? Mp4DemuxError::data_pending
-                                                                                               : Mp4DemuxError::invalid_input)
-                                  : mp4_decoder_seek(s.video, video_target, &point);
-        if (sought != Mp4DemuxError::none && sought != Mp4DemuxError::data_pending)
-            return false;
-        // The IDR payload has not arrived: service retries once it has.
-        s.seek_pending = sought == Mp4DemuxError::data_pending;
-        s.seek_start_pending = start;
-        s.pending_seek_us = video_target;
-    }
+    } else if (s.video && !s.picture_off && !video_seek(s, target))
+        return false;
     s.video_pending = s.audio_pending = false;
     s.video_started = true;
     ++s.playback_epoch;
     s.status.playback_epoch = s.playback_epoch;
     s.seek_target = target;
     s.status.position_100ns = target;
-    s.video_eof = s.audio_eof = s.video_seek_ready = false;
+    s.video_eof = s.audio_eof = false;
+    // A hidden picture stays ended with nothing to show first; picture_on seeks it later.
+    s.video_seek_ready = s.picture_off;
     // Audio-only AAC (m4a) shares the MP4 audio path without a picture track.
-    if (standalone(s) || !s.video)
+    if (standalone(s) || !s.video || s.picture_off)
         s.video_eof = true;
     s.seeking = s.status.seeking = true;
     s.status.ended = false;

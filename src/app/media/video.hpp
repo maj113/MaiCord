@@ -33,9 +33,39 @@ bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
 void application_video_cancel_pointer() noexcept;
 void application_video_blur() noexcept;
 void application_video_close() noexcept;
+// The selected channel changed: a player in the channel's messages closes; a media page's keeps playing.
+void application_video_leave_channel() noexcept;
+
+// Media pages (media_page.hpp): a video or audio page owns the one session while it plays. Its session survives
+// channel changes and plays on with sound while the page is hidden (no picture is decoded then; it comes back at the
+// current position), and its playlist advances. Starting playback anywhere else replaces it, and the page resumes
+// where it was. Ids are page ids.
+enum class VideoPagePlayback : u8 { none, paused, playing };
+// none while another session (or none) plays.
+VideoPagePlayback application_video_page_playback(u8 page) noexcept;
+// Plays or pauses the page's session, starting it (from where the page left off) when the page has none.
+bool application_video_page_toggle(u8 page) noexcept;
+// The page shows: it takes over the session already playing its media; with nothing else playing it starts its own
+// (playing on its first showing, else paused where it was left).
+void application_video_page_show(u8 page) noexcept;
+// The page closes, and its session with it.
+void application_video_page_close(u8 page) noexcept;
+bool application_video_page_pointer(u8 page, VideoPointer kind, UiPoint point) noexcept;
+// The player's keys on a page: Space, arrows (seek, volume), M (mute), F (full screen), digits.
+bool application_video_page_key(u8 page, u32 key, bool shift, bool repeat) noexcept;
+// The page's playlist: the track count (0 without one), the current track and its duration; and a jump.
+struct VideoPageQueue {
+    u16 count, track;
+    u64 duration_ms;
+};
+VideoPageQueue application_video_page_queue(u8 page) noexcept;
+bool application_video_page_track(u8 page, u16 track) noexcept;
+// The URL the viewer's playing item plays from (what its page copies) and whether it is a provider embed.
+bool application_video_viewer_url(Utf8View* url, bool* provider) noexcept;
 // Media viewer hosting: the one session moves between inline and viewer
 // geometry; position and play state stay with the session.
 void application_video_viewer_detach() noexcept;
+// The viewer's (or a page's) hosted video player: pointer, hidden pointer, chrome opacity and activity.
 bool application_video_viewer_pointer(VideoPointer kind, UiPoint point) noexcept;
 bool application_video_viewer_hidden_cursor() noexcept;
 // Viewer toolbar opacity: it hides with the idle player's controls.
@@ -44,7 +74,7 @@ float application_video_viewer_chrome() noexcept;
 void application_video_viewer_activity() noexcept;
 // Inline media under the pointer: selected players and unselected cards.
 bool application_video_cursor(UiPoint, UiCursor*) noexcept;
-// Expanded viewer controls (or the idle hidden pointer); false elsewhere.
+// Expanded viewer or page controls (or the idle hidden pointer); false elsewhere.
 bool application_video_viewer_cursor(UiPoint, UiCursor*) noexcept;
 // Reuses the current session when it already plays this item.
 bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed, u8 index, bool snapshot,

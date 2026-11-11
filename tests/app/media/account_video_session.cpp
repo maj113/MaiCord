@@ -4,6 +4,7 @@
 #include "../../fixtures/mp3_original_tone.hpp"
 #include "../../support/ogg_page_fixture.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {
@@ -351,6 +352,55 @@ void opus_session(void (*check)(bool, const char*) noexcept, const AccountVideoI
     if (event)
         CloseHandle(event);
 }
+// An audio-less clock over a decoder that is not ready: any picture decode, frame read or
+// decoder seek would fail the session, so a clean run proves the picture loop stayed off.
+void picture_session(void (*check)(bool, const char*) noexcept, const AccountVideoIdentity& id) noexcept {
+    Mp4Decoder decoder{};
+    AccountVideoSession s{};
+    s.initialized = true;
+    s.thread_id = GetCurrentThreadId();
+    s.video = &decoder;
+    s.status.identity = id;
+    s.status.duration_100ns = 600000000;
+    s.status.playback_epoch = s.playback_epoch = 1;
+    s.qpc_frequency = static_cast<u64>(clock_initialize().frequency);
+    const auto off = account_video_session_control(&s, id, 1, AccountVideoCommand::picture_off);
+    const auto play = account_video_session_control(&s, id, 2, AccountVideoCommand::play);
+    check(off.admitted && off.completed && play.admitted && play.completed && s.picture_off &&
+              s.status.observed_command == 2 && s.playback_epoch == 2 && !s.seeking && !s.status.buffering,
+          "picture off: play starts on the clock alone without a decoder seek or a picture to wait for");
+    Sleep(30);
+    const auto served = account_video_session_service(&s);
+    const i64 hidden_position = s.status.position_100ns;
+    check(!served.frame_ready && !served.needs_service && s.status.error == AccountVideoError::none &&
+              !s.held && !s.status.frame_pending && s.status.playing && hidden_position >= 300000 &&
+              served.next_service_delay_ms <= 60000 && s.playback_epoch == 2,
+          "picture off: service decodes and hands out no picture while the clock runs and wakes for the end");
+    const auto again = account_video_session_control(&s, id, 3, AccountVideoCommand::picture_off);
+    const auto on = account_video_session_control(&s, id, 4, AccountVideoCommand::picture_on);
+    check(again.admitted && again.completed && on.admitted && on.completed && !s.picture_off &&
+              s.picture_seek && s.status.observed_command == 4 && s.playback_epoch == 2 &&
+              s.status.position_100ns >= hidden_position && s.status.playing,
+          "picture on: repeated off is a no-op and on asks for a picture seek without resetting the clock");
+    const auto off_again = account_video_session_control(&s, id, 5, AccountVideoCommand::picture_off);
+    check(off_again.completed && s.picture_off && !s.picture_seek &&
+              account_video_session_control(&s, id, 5, AccountVideoCommand::picture_on).error ==
+                  AccountVideoError::stale &&
+              s.picture_off && s.status.rejected_command == 5 && s.status.observed_command == 5 &&
+              account_video_session_control(&s, id, 6, static_cast<AccountVideoCommand>(8)).error ==
+                  AccountVideoError::invalid_input &&
+              s.status.desired_command == 5,
+          "picture off: off cancels a pending picture seek; replayed serials and unknown commands are refused");
+    const auto near_end = account_video_session_control(&s, id, 6, AccountVideoCommand::seek,
+                                                        s.status.duration_100ns - 100000);
+    Sleep(30);
+    const auto ending = account_video_session_service(&s);
+    check(near_end.completed && !ending.frame_ready && s.status.ended && !s.desired_play &&
+              s.status.error == AccountVideoError::none && s.picture_off,
+          "picture off: a seek completes without the picture and a hidden movie still ends on the clock");
+    check(account_video_session_release(&s, 0).completed && !s.initialized && !s.picture_off,
+          "picture off: release returns the session to picture on");
+}
 } // namespace
 void test_account_video_session(void (*check)(bool, const char*) noexcept) noexcept {
     const Mp4AudioFrameTimeBounds final_lc{97291609, 97291610};
@@ -559,6 +609,7 @@ void test_account_video_session(void (*check)(bool, const char*) noexcept) noexc
         released.completed && !s.initialized && !s.workspace &&
             account_video_session_release(&empty, 0).completed,
         "selected video release: pure inactive metadata cleanup owns no worker, endpoint or borrowed PCM");
+    picture_session(check, id);
     opus_session(check, id);
     wave_session(check, id);
     mp3_session(check, id);

@@ -6,6 +6,8 @@
 //             container's presentation time, converts to the reference's picture, and the movie ends
 //   seek      a seek while paused presents the picture of that time first, then plays on from it
 //   replay    after the end, play starts the movie again from its first picture
+//   picture   picture off decodes and hands out nothing while the clock runs on (to the end); picture on, playing or
+//             paused, hands out the picture of the clock first, in the same playback epoch
 //   audio     (--audio, against a sound server: tools/test_pulse_audio.sh) the AAC track of a movie plays into the
 //             server through the session's PCM transport: the transport writes and consumes as many frames as the
 //             movie has, and the first pictures still arrive on time
@@ -48,7 +50,7 @@ struct Playback {
     Waitable lane;
     u64 serial;
     u32 frames, wrong_time, wrong_picture, out_of_order;
-    i64 last_time;
+    i64 last_time, taken_position; // the last picture's time (us) and the clock when it was handed out (100 ns)
 };
 
 bool open_playback(Playback* p, GpuDevice* device, GpuContext* context, const Mp4Reference& reference, const u8* movie,
@@ -140,6 +142,7 @@ Window serve(Playback* p, u32 milliseconds, u32 stop_after, bool stop_at_end) no
             if (service.frame.presentation_time_us < p->last_time)
                 ++p->out_of_order;
             p->last_time = service.frame.presentation_time_us;
+            p->taken_position = account_video_session_status(&p->session).position_100ns;
             if (first) {
                 window.first_index = index;
                 first = false;
@@ -164,6 +167,38 @@ Window serve(Playback* p, u32 milliseconds, u32 stop_after, bool stop_at_end) no
         wait_one(p->lane, wait ? wait : 1);
     }
     return window;
+}
+
+// The picture handed out last covers the clock at hand-out: within one frame of it.
+bool at_clock(const Playback* p) noexcept {
+    const i64 frame = (mp4_reference_time(*p->reference, 1) - mp4_reference_time(*p->reference, 0)) * 10;
+    return p->last_time * 10 <= p->taken_position && p->taken_position < p->last_time * 10 + frame;
+}
+
+// Hides the picture while playing: nothing is decoded or handed out while the clock (and the audio, in the same epoch)
+// runs on; repeated off is a no-op, and picture on hands out the picture of the clock's time first.
+void hide_and_show(Playback* p, u32 hidden_ms, const char* off_label, const char* on_label) noexcept {
+    const u64 epoch = p->session.playback_epoch;
+    const AccountVideoAudioProgress before = account_video_session_audio_progress(&p->session);
+    const bool off = command(p, AccountVideoCommand::picture_off);
+    const i64 from = account_video_session_status(&p->session).position_100ns;
+    const Window hidden = serve(p, hidden_ms, 0, false);
+    const AccountVideoStatus status = account_video_session_status(&p->session);
+    const AccountVideoAudioProgress during = account_video_session_audio_progress(&p->session);
+    check(off && !hidden.pictures && !p->session.held && status.error == AccountVideoError::none && status.playing &&
+              status.observed_command == p->serial && p->session.playback_epoch == epoch &&
+              status.position_100ns >= from + i64{hidden_ms - 100} * 10000 &&
+              (!status.has_audio || (during.epoch == before.epoch && during.written_frames >= before.written_frames &&
+                                     during.consumed_frames > before.consumed_frames)),
+          off_label);
+    const u32 wrong = p->wrong_picture + p->wrong_time;
+    const bool on = command(p, AccountVideoCommand::picture_off) && command(p, AccountVideoCommand::picture_on);
+    const Window shown = serve(p, 2000, 1, false);
+    const AccountVideoAudioProgress after = account_video_session_audio_progress(&p->session);
+    check(on && shown.pictures == 1 && at_clock(p) && p->wrong_picture + p->wrong_time == wrong &&
+              p->last_time * 10 >= from + i64{hidden_ms - 100} * 10000 && p->session.playback_epoch == epoch &&
+              (!status.has_audio || (after.epoch == before.epoch && after.consumed_frames > during.consumed_frames)),
+          on_label);
 }
 
 void play_movie(GpuDevice* device, GpuContext* context, const char* name, const u8* movie, usize movie_bytes,
@@ -213,6 +248,26 @@ void play_movie(GpuDevice* device, GpuContext* context, const char* name, const 
     const Window resumed = serve(&p, 8000, 0, true);
     check(resumed.ended && resumed.pictures >= r.frames - target - 1 && !p.wrong_picture && !p.wrong_time,
           "seek: play goes on from the target to the end");
+
+    // Picture off and on: hidden while playing, shown at the clock, landed while paused, and hidden to the end.
+    check(command(&p, AccountVideoCommand::play), "picture: replay");
+    serve(&p, 2000, 2, false);
+    hide_and_show(&p, 450, "picture off: no picture is decoded or handed out while the clock runs on",
+                  "picture on: the first picture is the clock's, in the next group of pictures");
+    check(command(&p, AccountVideoCommand::pause), "picture: pause");
+    const i64 paused_at = account_video_session_status(&p.session).position_100ns;
+    const bool toggled = command(&p, AccountVideoCommand::picture_off) && command(&p, AccountVideoCommand::picture_on);
+    const Window still = serve(&p, 2000, 1, false);
+    check(toggled && still.pictures == 1 && at_clock(&p) && !p.wrong_picture &&
+              account_video_session_status(&p.session).position_100ns == paused_at,
+          "picture on while paused: the picture of the paused clock is handed out and the clock stays");
+    check(command(&p, AccountVideoCommand::picture_off) && command(&p, AccountVideoCommand::play), "picture: hidden play");
+    const Window hidden_end = serve(&p, 4000, 0, true);
+    check(hidden_end.ended && !hidden_end.pictures, "picture off: a hidden movie still ends on the clock");
+    check(command(&p, AccountVideoCommand::picture_on) && command(&p, AccountVideoCommand::play), "picture: shown replay");
+    const Window shown_replay = serve(&p, 8000, 0, true);
+    check(shown_replay.ended && shown_replay.pictures == r.frames && !p.wrong_picture,
+          "picture on after a hidden end: replay hands out every picture again");
     close_playback(&p);
 }
 
@@ -258,6 +313,11 @@ bool play_with_audio(GpuDevice* device, GpuContext* context, const Mp4Reference&
           "audio: every picture arrives in order while the track plays, and the movie ends");
     check(progress.written_frames > 0 && progress.submitted_frames > 0 && progress.consumed_frames > 0,
           "audio: the transport wrote, submitted and consumed frames");
+    // The picture hidden while the track plays: the audio keeps its epoch and keeps playing; shown at its clock.
+    check(command(&p, AccountVideoCommand::play), "audio picture: replay");
+    serve(&p, 2000, 3, false);
+    hide_and_show(&p, 400, "audio picture off: no picture while the track plays on in the same epoch",
+                  "audio picture on: the first picture is the audio clock's, and the track was never reset");
     close_playback(&p);
     return true;
 }

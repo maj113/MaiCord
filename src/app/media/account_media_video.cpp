@@ -334,7 +334,7 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
 AccountVideoResult account_media_worker_video_control(AccountMediaWorker* worker,
                                                       const AccountVideoControl& command) noexcept {
     if (!worker->initialized || !worker->video_runtime || !command.command_serial ||
-        static_cast<u32>(command.command) > static_cast<u32>(AccountVideoCommand::stop) ||
+        static_cast<u32>(command.command) > static_cast<u32>(AccountVideoCommand::picture_on) ||
         command.volume != command.volume || command.volume < 0 || command.volume > 1 ||
         command.seek_time_100ns < 0)
         return failed(AccountVideoError::invalid_input);

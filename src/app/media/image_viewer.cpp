@@ -23,6 +23,7 @@
 
 #include "maicord/platform/window/key.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/protocol/media/embed_provider.hpp"
 namespace maicord::app_detail {
 namespace {
 // The official client's modal spring (tension 1000, friction 48); exit settles faster.
@@ -471,8 +472,10 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
         return false;
     const auto& store = *source.rich_store;
     const auto& rich = *source.rich;
-    // An embed picture is fetched through its media proxy URL; the rest through the URL they open.
+    // An embed picture is fetched through its media proxy URL; the rest through the URL they open. An embed video
+    // plays from what its session plays (the provider page, its playlist recovered from the message).
     Utf8View url{}, title{};
+    bool provider = false;
     if (item->kind == MessageSceneRichItemKind::attachment) {
         if (item->index >= rich.attachment_count || rich.attachments[item->index].id != item->attachment_id)
             return false;
@@ -481,9 +484,11 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
     } else {
         MessageRichEmbedMediaSelection selected{};
         if (item->index >= rich.embed_count ||
-            !message_rich_embed_resource_select(store, rich.embeds[item->index], item->resource, &selected))
+            !message_rich_embed_resource_select(store, rich.embeds[item->index], item->resource, &selected) ||
+            (item->video && !application_video_viewer_url(&url, &provider)))
             return false;
-        url = item->video ? message_rich_store_string(store, selected.media->url) : selected.source;
+        if (!item->video)
+            url = selected.source;
         title = message_rich_store_string(store, rich.embeds[item->index].title);
     }
     if (!url.bytes)
@@ -522,7 +527,9 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
         append({}, user_store_name(g_app.account_ui->user_store, *author));
     const bool embed = item->kind == MessageSceneRichItemKind::embed;
     *out = {item->video ? MediaPageKind::video : MediaPageKind::image,
-            static_cast<u8>((embed ? media_page_embed : 0) | (viewer.attachment_snapshot ? media_page_snapshot : 0)),
+            static_cast<u8>((embed ? media_page_embed : 0) | (viewer.attachment_snapshot ? media_page_snapshot : 0) |
+                            (provider ? media_page_provider : 0) |
+                            (item->video && embed_collection_url(url) ? media_page_playlist : 0)),
             url,
             title,
             {g_page_source_line, bytes},

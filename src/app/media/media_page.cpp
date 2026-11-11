@@ -2,6 +2,8 @@
 #include "downloads.hpp"
 #include "image_viewer.hpp"
 #include "pump.hpp"
+#include "video.hpp"
+#include "../account/account_presentation.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "../chat/search/search.hpp"
 #include "../chat/threads/browser.hpp"
@@ -12,18 +14,23 @@
 #include "../shell/panel_cover.hpp"
 #include "../shell/state.hpp"
 #include "../shell/tabs.hpp"
+#include "../shell/window.hpp"
 #include "maicord/app/account/account_module_api.hpp"
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/app/media/media_asset_failures.hpp"
 #include "maicord/app/media/url_resolver.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/media/containers/track_info.hpp"
 #include "maicord/render/media/atlas.hpp"
+#include "maicord/ui/core/scene_cursor.hpp"
+#include "maicord/ui/voice/video_controls.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -38,21 +45,34 @@ struct MediaPage {
     // The image's zoom (relative to fit) and pan, kept while the page is hidden.
     float zoom;
     UiPoint pan;
+    // Where a replaced session left the player (and its playlist track); whether it ever played.
+    u32 resume_ms;
+    u16 track;
     u16 url_bytes;
     u8 title_bytes, source_bytes, flags;
     MediaPageKind kind;
     // The media cannot load until Retry. `refreshed`: the request asked for a fresh signature once already.
-    bool missing, refreshed;
+    bool missing, refreshed, played;
 };
 static_assert(sizeof(MediaPage) <= 4096, "one page each");
+// What a queue row's title holds at most.
+constexpr u32 kQueueTitleBytes = 128;
 struct MediaPages {
     MediaPage* pages[kMediaPageCapacity];
     // The shown page's viewer (page mode).
     UiImageViewer scene;
+    // A playlist page's queue: its rows' titles and the current track's duration; the track the queue last
+    // scrolled into view.
+    UiImageViewerQueue queue;
+    char titles[kUiImageViewerQueueRows][kQueueTitleBytes];
+    char duration[16], position[24];
+    u16 followed;
     u64 copied_until_ms;
     u8 shown;
     // Keys go to the page after a press on it (and when it shows), until a press elsewhere.
     bool focused;
+    // The shown page fills the window (its player full screen).
+    bool fullscreen;
 };
 MediaPages g_pages;
 
@@ -76,7 +96,8 @@ UiImageViewerPage page_info(const MediaPage& page) noexcept {
             glyphs[static_cast<u32>(page.kind)],
             static_cast<UiImageViewerPageKind>(page.kind),
             page.message_id && application_channel_navigable(page.channel_id),
-            (page.flags & media_page_playlist) != 0};
+            // A playlist keeps the queue column from the start; another collection gets it once it is known.
+            (page.flags & media_page_playlist) != 0 || g_pages.queue.count != 0};
 }
 bool image_resident(const MediaPage& page) noexcept {
     auto* preview = g_app.renderer.preview_media_atlas;
@@ -173,13 +194,14 @@ bool key_event(const WindowEvent& event) noexcept {
         {application_control_down(), application_shift_down(), application_alt_down()});
     switch (command) {
     case UiImageViewerCommand::none:
-    case UiImageViewerCommand::video:
     case UiImageViewerCommand::dismiss:
-    case UiImageViewerCommand::exit_fullscreen:
     case UiImageViewerCommand::toggle_fullscreen:
     case UiImageViewerCommand::previous:
     case UiImageViewerCommand::next:
         return false;
+    case UiImageViewerCommand::exit_fullscreen:
+        application_media_page_set_fullscreen(false);
+        break;
     case UiImageViewerCommand::save:
     case UiImageViewerCommand::copy:
         if (!repeat)
@@ -195,6 +217,15 @@ bool key_event(const WindowEvent& event) noexcept {
         ++scene.revision;
         break;
     }
+    case UiImageViewerCommand::video:
+        // The player's keys, Space included unless Tab put a header button under it; Space also starts a player
+        // that has not started.
+        if (code != key::space || !scene.keyboard_focus)
+            return application_video_page_key(g_pages.shown, code, application_shift_down(), repeat) ||
+                   (code == key::space && !repeat &&
+                    application_video_page_playback(g_pages.shown) == VideoPagePlayback::none &&
+                    application_video_page_toggle(g_pages.shown));
+        [[fallthrough]];
     case UiImageViewerCommand::activate: {
         const auto button = ui_button_keyboard_key(&scene.keyboard, &scene.widgets,
                                                    code == key::enter ? UiButtonKey::enter : UiButtonKey::space,
@@ -209,6 +240,72 @@ bool key_event(const WindowEvent& event) noexcept {
     }
     application_request_frame();
     return true;
+}
+// A video or audio page's player: the play button until its session starts, and a playlist's queue. The queue keeps
+// the current track in view (one row of the past above it) when the track changes; titles come from the playlist
+// as the media worker fetches them, one at a time ("Track N" until then).
+void sync_player(const MediaPage& page) noexcept {
+    auto& scene = g_pages.scene;
+    auto& queue = g_pages.queue;
+    const u8 id = g_pages.shown;
+    const bool idle = application_video_page_playback(id) == VideoPagePlayback::none;
+    bool changed = idle != scene.idle;
+    scene.idle = idle;
+    const VideoPageQueue state = application_video_page_queue(id);
+    const u32 rows = ui_image_viewer_queue_rows(scene);
+    u32 first = queue.first;
+    if (state.track != g_pages.followed) {
+        g_pages.followed = state.track;
+        first = state.track > 1 ? state.track - 2u : 0u;
+    }
+    first = minimum<u32>(first, state.count > rows ? state.count - rows : 0u);
+    changed = changed || state.count != queue.count || state.track != queue.current || first != queue.first;
+    queue.count = state.count;
+    queue.current = state.track;
+    queue.first = static_cast<u16>(first);
+    char text[kQueueTitleBytes];
+    u32 bytes = 0;
+    if (state.duration_ms)
+        ui_video_append_clock(text, bytes, state.duration_ms, false);
+    if (bytes != queue.duration.bytes || !bytes_equal(g_pages.duration, text, bytes)) {
+        copy_bytes(g_pages.duration, text, bytes);
+        changed = true;
+    }
+    queue.duration = {g_pages.duration, bytes};
+    // "6 of 24": where the queue is in the playlist.
+    bytes = decimal_write(text, state.track);
+    copy_bytes(text + bytes, " of ", 4);
+    bytes += 4;
+    bytes += decimal_write(text + bytes, state.count);
+    if (bytes != queue.position.bytes || !bytes_equal(g_pages.position, text, bytes)) {
+        copy_bytes(g_pages.position, text, bytes);
+        changed = true;
+    }
+    queue.position = {g_pages.position, bytes};
+    for (u32 n = 0; n < rows; ++n) {
+        const u32 track = first + n + 1;
+        MediaTrackTitle title;
+        title.bytes = 0;
+        if (track <= state.count) {
+            const AccountMediaCollectionTitleRequest query{page.key, page.revision, static_cast<u16>(track), true};
+            account_module_collection_title(g_app.account.instance, &query, &title);
+        }
+        bytes = utf8_truncated_length({title.text, title.bytes}, kQueueTitleBytes);
+        if (bytes)
+            copy_bytes(text, title.text, bytes);
+        else if (track <= state.count) {
+            copy_bytes(text, "Track ", 6);
+            bytes = 6 + decimal_write(text + 6, track);
+        }
+        if (bytes != queue.titles[n].bytes || !bytes_equal(g_pages.titles[n], text, bytes)) {
+            copy_bytes(g_pages.titles[n], text, bytes);
+            changed = true;
+        }
+        queue.titles[n] = {g_pages.titles[n], bytes};
+    }
+    scene.queue = state.count ? &queue : nullptr;
+    if (changed)
+        ++scene.revision;
 }
 } // namespace
 
@@ -255,6 +352,7 @@ bool application_media_page_show(u8 id) noexcept {
     if (g_pages.shown == id && g_pages.scene.active)
         return true;
     keep_view();
+    application_media_page_set_fullscreen(false);
     // The page replaces whatever covered the chat column; the composer gives up the keyboard.
     application_image_viewer_close();
     application_search_close_panel();
@@ -262,6 +360,8 @@ bool application_media_page_show(u8 id) noexcept {
     application_composer_text_input_suspend();
     message_action_bar_close(&g_app.message_action_bar);
     auto& scene = g_pages.scene;
+    reset_value(&g_pages.queue);
+    g_pages.followed = 0;
     ui_image_viewer_set_dpi(&scene, g_app.renderer.dpi);
     if (!ui_image_viewer_open(&scene, application_media_page_rect(), page->pixels) ||
         !ui_image_viewer_set_page(&scene, page_info(*page))) {
@@ -272,6 +372,9 @@ bool application_media_page_show(u8 id) noexcept {
         ui_image_viewer_set_view(&scene, page->zoom, page->pan);
     g_pages.shown = id;
     g_pages.focused = true;
+    // A video or audio page takes over the playback of its media, or starts its own.
+    if (page->kind != MediaPageKind::image)
+        application_video_page_show(id);
     application_repaint();
     return true;
 }
@@ -280,6 +383,7 @@ void application_media_page_hide() noexcept {
     if (!scene.active)
         return;
     keep_view();
+    application_media_page_set_fullscreen(false);
     const bool capture = scene.dragging || scene.widgets.captured.generation;
     scene.dragging = false;
     ui_button_pointer(&scene.widgets, UiButtonPointerEvent::cancel, {});
@@ -297,6 +401,7 @@ void application_media_page_close(u8 id) noexcept {
     auto* page = page_of(id);
     if (!page)
         return;
+    application_video_page_close(id);
     if (g_pages.shown == id)
         application_media_page_hide();
     pages_release(page);
@@ -322,7 +427,8 @@ bool application_media_page_missing(u8 id) noexcept {
     return page && page->missing;
 }
 UiRect application_media_page_rect() noexcept {
-    return ui_scene_content_rectangle(g_app.shell_scene, UiSemantic::content);
+    return g_pages.fullscreen ? application_viewport_dips()
+                              : ui_scene_content_rectangle(g_app.shell_scene, UiSemantic::content);
 }
 const UiImageViewer* application_media_page_viewer() noexcept {
     return application_media_page_shown() ? &g_pages.scene : nullptr;
@@ -334,6 +440,42 @@ UiImageViewer* application_media_page_spinner() noexcept {
 bool application_media_page_key_current(const MediaAssetKey& key) noexcept {
     const auto* page = application_media_page_shown() ? shown_page() : nullptr;
     return page && !page->missing && (media_asset_key_equal(key, page->key) || media_asset_key_equal(key, page->fallback));
+}
+bool application_media_page_playback(u8 id, MediaPagePlayback* out) noexcept {
+    const auto* page = page_of(id);
+    if (!page || page->kind == MediaPageKind::image)
+        return false;
+    *out = {url_of(*page), {page->title, page->title_bytes}, page->key, page->pixels, page->channel_id,
+            page->message_id, page->revision, page->resume_ms, page->track, page->flags, page->played};
+    return true;
+}
+bool application_media_page_player(u8 id, UiRect* stage, UiWidgetReference* owner) noexcept {
+    if (!id || application_media_page_shown() != id)
+        return false;
+    *stage = ui_image_viewer_page_layout(g_pages.scene).player;
+    *owner = g_pages.scene.owner;
+    return ui_rect_has_area(*stage);
+}
+void application_media_page_note_playback(u8 id, u32 position_ms, u16 track) noexcept {
+    if (auto* page = page_of(id)) {
+        page->resume_ms = position_ms;
+        page->track = track;
+        page->played = true;
+    }
+}
+bool application_media_page_fullscreen() noexcept {
+    return g_pages.fullscreen;
+}
+void application_media_page_set_fullscreen(bool fullscreen) noexcept {
+    if (fullscreen == g_pages.fullscreen || (fullscreen && !application_media_page_shown()))
+        return;
+    g_pages.fullscreen = fullscreen;
+    application_window_set_fullscreen(fullscreen);
+    if (g_pages.scene.active) {
+        ui_image_viewer_set_fullscreen(&g_pages.scene, fullscreen);
+        ui_image_viewer_layout(&g_pages.scene, application_media_page_rect());
+    }
+    application_repaint();
 }
 
 bool application_media_page_synchronize() noexcept {
@@ -351,6 +493,8 @@ bool application_media_page_synchronize() noexcept {
         return !g_app.account_ui || !renderer.interaction_text_media_page_revision ||
                renderer_rebuild_content_text(&renderer, application_theme());
     }
+    if (page->kind != MediaPageKind::image)
+        sync_player(*page);
     ui_image_viewer_set_page(&scene, page_info(*page));
     const bool image = page->kind == MediaPageKind::image;
     ui_image_viewer_set_media(&scene, page->missing                  ? UiImageViewerMedia::failed
@@ -406,7 +550,13 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept {
         UiPoint cursor{};
         if (!client_cursor_dip(event, &cursor) || !ui_rect_contains(scene.viewport, cursor.x, cursor.y))
             return false;
-        application_set_cursor(UiCursor::arrow);
+        // The player's controls (and its hidden pointer while idle), the queue's rows, a player still to start.
+        UiCursor shape = UiCursor::arrow;
+        if (scene.video && !application_video_viewer_cursor(cursor, &shape))
+            shape = ui_action_cursor(ui_image_viewer_queue_hit(scene, cursor) ||
+                                     (scene.idle && ui_rect_contains(ui_image_viewer_page_layout(scene).player,
+                                                                     cursor.x, cursor.y)));
+        application_set_cursor(shape);
         return true;
     }
     if (event.type == EventType::context_menu) {
@@ -422,8 +572,38 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept {
     if (input_press(event) || input_double(event) || input_down(event, PointerButton::right) ||
         input_down(event, PointerButton::middle))
         g_pages.focused = inside;
+    // A video or audio page's player takes its own pointer (its controls capture it); the queue's rows jump to their
+    // track and a stage whose player has not started starts it.
+    if (scene.video && !scene.widgets.captured.generation &&
+        (input_press(event) || input_release(event) || input_move(event))) {
+        const u8 id = g_pages.shown;
+        if (application_video_page_pointer(id,
+                                           input_press(event)     ? VideoPointer::down
+                                           : input_release(event) ? VideoPointer::up
+                                                                  : VideoPointer::move,
+                                           point))
+            return true;
+        const u16 track = inside ? ui_image_viewer_queue_hit(scene, point) : 0;
+        if (track != g_pages.queue.hovered) {
+            g_pages.queue.hovered = track;
+            ++scene.revision;
+            application_request_frame();
+        }
+        if (input_press(event) &&
+            (track ? application_video_page_track(id, track)
+                   : scene.idle && ui_rect_contains(ui_image_viewer_page_layout(scene).player, point.x, point.y) &&
+                         application_video_page_toggle(id)))
+            return true;
+    }
     if (!inside && !captured)
         return false;
+    if (input_vertical_wheel(event) && scene.queue &&
+        ui_rect_contains(ui_image_viewer_page_layout(scene).queue, point.x, point.y)) {
+        g_pages.queue.first = static_cast<u16>(maximum(0, i32{g_pages.queue.first} + (event.wheel.dy120 > 0 ? -3 : 3)));
+        ++scene.revision;
+        application_request_frame();
+        return true;
+    }
     const bool image = !scene.video;
     const bool over_image = image && ui_rect_contains(scene.image, point.x, point.y) &&
                             ui_rect_contains(scene.body, point.x, point.y);
@@ -484,7 +664,7 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept {
 bool application_media_page_pump(ApplicationMediaPump& pump, bool* stop) noexcept {
     *stop = false;
     auto* page = application_media_page_shown() ? shown_page() : nullptr;
-    // Video and audio pages play through the session (phase 3); a page that cannot load waits for Retry.
+    // Video and audio pages play through the session (video.cpp); a page that cannot load waits for Retry.
     if (!page || page->kind != MediaPageKind::image || page->missing || pump.visibility_only || image_resident(*page) ||
         pump.asset_backed_off(page->key))
         return true;

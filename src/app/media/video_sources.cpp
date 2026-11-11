@@ -70,7 +70,7 @@ bool unbind_playback_scenes() noexcept {
         g_app.renderer.retained_presentation.valid = false;
     }
     g_app.renderer.video_scene_search_result = false;
-    g_app.renderer.video_scene_viewer = false;
+    g_app.renderer.video_scene_viewer = g_app.renderer.video_scene_page = false;
     return had_scene;
 }
 
@@ -120,7 +120,7 @@ bool video_session_available() noexcept {
 namespace {
 
 bool video_viewer_hosted() noexcept {
-    return g_app.video && g_app.video->expanded && g_app.image_viewer.scene.active;
+    return g_app.video && g_app.video->source.host == VideoHost::viewer && g_app.image_viewer.scene.active;
 }
 
 } // namespace
@@ -383,9 +383,9 @@ bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 i
     }
     return false;
 }
-// *refresh requests a forced signed-URL refresh for an attachment and reports
-// whether the media lane asked for one (403/410 or an expired URL).
-bool request_video_source(const InlineMediaSource& source, bool* refresh, ApplicationVideo* playback) noexcept {
+// The URL a message's item plays from and its source size: an attachment's CDN URL, an embed's media URL with its
+// playlist recovered from the message.
+bool resolve_message_video_url(const InlineMediaSource& source, Utf8View* out, u32* width, u32* height) noexcept {
     const MessageRecord* message = nullptr;
     Utf8View content{};
     const MessageRichRecord* rich = nullptr;
@@ -410,7 +410,6 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh, Applic
         message->revision != source.revision || !rich || rich->message_revision != source.revision)
         return false;
     Utf8View url{};
-    u32 width = 0, height = 0;
     if (!source.embed) {
         if (source.index >= rich->attachment_count)
             return false;
@@ -420,8 +419,8 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh, Applic
                                  media_asset_attachment_format(source.key)))
             return false;
         url = message_rich_store_string(*store, attachment.url);
-        width = attachment.width;
-        height = attachment.height;
+        *width = attachment.width;
+        *height = attachment.height;
     } else {
         if (source.index >= rich->embed_count)
             return false;
@@ -436,11 +435,27 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh, Applic
         if (!parse_media_url(url, {target, sizeof(target)}).ok() && media.fallback_source.bytes &&
             parse_media_url(media.fallback_source, {target, sizeof(target)}).ok())
             url = media.fallback_source;
-        width = media.media->width;
-        height = media.media->height;
+        *width = media.media->width;
+        *height = media.media->height;
     }
-    if (!url.data || !url.bytes || url.bytes > kCdnMaximumTargetBytes)
+    *out = url;
+    return url.data && url.bytes && url.bytes <= kCdnMaximumTargetBytes;
+}
+// *refresh requests a forced signed-URL refresh for an attachment and reports
+// whether the media lane asked for one (403/410 or an expired URL). A page's session plays from the page's copy.
+bool request_video_source(const InlineMediaSource& source, bool* refresh, ApplicationVideo* playback) noexcept {
+    Utf8View url{};
+    u32 width = 0, height = 0;
+    if (source.host == VideoHost::page) {
+        MediaPagePlayback page{};
+        if (!application_media_page_playback(source.page_id, &page))
+            return false;
+        url = page.url;
+        width = static_cast<u32>(page.pixels.width);
+        height = static_cast<u32>(page.pixels.height);
+    } else if (!resolve_message_video_url(source, &url, &width, &height)) {
         return false;
+    }
     const u64 now = clock_monotonic_milliseconds(), unix_seconds = clock_unix_milliseconds() / 1000;
     const auto original_url = url;
     url = media_url_resolve(&g_app.media_urls, url, now, unix_seconds, *refresh && !source.embed);

@@ -42,9 +42,11 @@ UiVideoPlaybackState project_video_playback(const ApplicationVideo& video) noexc
     out.collection_track = video.collection_track;
     out.collection_more = video.collection_more;
     out.can_change_track = video.collection_count && !video.selecting && !playback.release_pending;
-    // In the viewer the toolbar's full screen button replaces expand.
-    out.can_expand = !video.source.audio && !video.source.audio_preview && !video.presentation_failed && !video.expanded;
-    out.expanded = video.expanded;
+    // In the viewer the toolbar's full screen button replaces expand; on a page it is the page's full screen.
+    out.can_expand = !video.source.audio && !video.source.audio_preview && !video.presentation_failed &&
+                     video.source.host != VideoHost::viewer;
+    out.expanded = video.source.host == VideoHost::viewer ||
+                   (video.source.host == VideoHost::page && application_media_page_fullscreen());
     const auto& buffered = video.status.buffered;
     out.buffered_count = out.live ? 0 : minimum<u8>(buffered.count, 4);
     for (u32 i = 0; i < out.buffered_count; ++i) {
@@ -58,6 +60,15 @@ UiVideoPlaybackState project_video_playback(const ApplicationVideo& video) noexc
 bool capture_audio_metadata(ApplicationVideo& video) noexcept {
     if (!video.source.audio)
         return true;
+    // A page's audio has the title it opened with (no waveform, its length unknown until it plays).
+    if (video.source.host == VideoHost::page) {
+        MediaPagePlayback page{};
+        if (!application_media_page_playback(video.source.page_id, &page))
+            return false;
+        video.audio_title_bytes = utf8_truncated_length(page.title, sizeof(video.audio_title));
+        copy_bytes(video.audio_title, page.title.data, video.audio_title_bytes);
+        return true;
+    }
     const MessageRichStore* store = &g_app.account_ui->message_rich_store;
     const MessageRichRecord* rich = nullptr;
     ApplicationSearchSourceView searched{};
@@ -145,6 +156,17 @@ UiAudioPlaybackState project_audio_playback(const ApplicationVideo& video) noexc
     out.waveform = {video.audio_waveform, video.audio_waveform_bytes};
     return out;
 }
+// A page's session ends or moves to another host: the page resumes where it was. A session that never played leaves
+// the page's earlier point.
+void release_page(const ApplicationVideo& video) noexcept {
+    const auto& playback = video.status.playback;
+    if (!video.selected || playback.identity.session_epoch != video.session_epoch)
+        return;
+    const i64 position = playback.ended || playback.live ? 0 : playback.position_100ns / 10000;
+    application_media_page_note_playback(video.source.page_id,
+                                         static_cast<u32>(maximum<i64>(0, minimum<i64>(position, 0xffffffffll))),
+                                         video.collection_track);
+}
 
 } // namespace
 // Session start and stop, viewer opening, activation and control events: user-rate, not per frame. The
@@ -173,7 +195,18 @@ bool send_video_command(ApplicationVideo& video, AccountVideoCommand kind, i64 s
     return admitted;
 }
 bool set_video_expanded(ApplicationVideo& video, bool expanded) noexcept {
-    if (video.source.audio || expanded == video.expanded)
+    if (video.source.audio)
+        return false;
+    // A page's player expands to the page's full screen.
+    if (video.source.host == VideoHost::page) {
+        if (expanded == application_media_page_fullscreen())
+            return false;
+        application_media_page_set_fullscreen(expanded);
+        ui_video_scene_activity(&video.ui.video, clock_monotonic_milliseconds());
+        application_request_frame();
+        return true;
+    }
+    if (expanded == (video.source.host == VideoHost::viewer))
         return false;
     application_video_cancel_pointer();
     if (!expanded) {
@@ -189,7 +222,7 @@ bool set_video_expanded(ApplicationVideo& video, bool expanded) noexcept {
                                                                                   : nullptr,
                                              video.source.key, video.source.preview))
         return false;
-    video.expanded = true;
+    video.source.host = VideoHost::viewer;
     acquire_video_focus(video);
     ui_video_scene_activity(&video.ui.video, clock_monotonic_milliseconds());
     application_request_frame();
@@ -200,7 +233,8 @@ void dispatch_video_event(ApplicationVideo& video, const UiVideoSceneResult& eve
     apply_scene_result(event);
     if (!event.action_requested || !ui_video_action_current(project_video_playback(video), event.action))
         return;
-    if (inline_media_activation_consumed(video.source))
+    // A page plays its own copy: no message to gate it.
+    if (video.source.host != VideoHost::page && inline_media_activation_consumed(video.source))
         return;
     const auto& action = event.action;
     switch (action.control) {
@@ -257,7 +291,9 @@ bool start_video_session(const InlineMediaSource& source) noexcept {
     video->selecting = true;
     video->requested_play = true;
     video->requested_seek = source.start_seconds != 0;
-    acquire_video_focus(*video);
+    // A page's session can start unseen (its playlist advancing behind another view): it takes no focus.
+    if (source.host != VideoHost::page)
+        acquire_video_focus(*video);
     application_request_frame();
     return true;
 }
@@ -286,11 +322,10 @@ bool restart_live_session(ApplicationVideo& video) noexcept {
     // Copy before close: the new selection waits for joined disposal of the
     // previous session, while keeping viewer geometry and the user's sound settings.
     const auto source = video.source;
-    const bool expanded = video.expanded, muted = video.status.playback.muted;
+    const bool muted = video.status.playback.muted;
     const float volume = video.status.playback.desired_volume;
     const u8 retries = video.live_restarts;
     if (!start_video_session(source)) return false;
-    g_app.video->expanded = expanded;
     g_app.video->status.playback.live = true;
     g_app.video->restore_gain = true;
     g_app.video->restore_muted = muted;
@@ -350,7 +385,7 @@ bool activate_inline_source(const InlineMediaSource& source) noexcept {
     if (inline_media_activation_consumed(source))
         return true;
     auto* video = g_app.video;
-    if (video && media_asset_key_equal(source.key, video->source.key) &&
+    if (video && video->source.host != VideoHost::page && media_asset_key_equal(source.key, video->source.key) &&
         source.audio == video->source.audio && source.snapshot == video->source.snapshot &&
         source.message_id == video->source.message_id && source.revision == video->source.revision &&
         source.search_source.index == video->source.search_source.index && video->selected &&
@@ -374,15 +409,15 @@ void dispatch_audio_event(ApplicationVideo& video, const UiAudioSceneResult& eve
     if (!event.action_requested || !video.source.audio ||
         !ui_audio_action_current(project_audio_playback(video), event.action))
         return;
-    InlineMediaSource current{};
-    if (!resolve_visible_video_source(video.source.message_id, video.source.revision, false,
-                                      video.source.index, &current, video.source.snapshot,
-                                      &video.source.search_source) ||
-        !current.audio || !media_asset_key_equal(current.key, video.source.key) ||
-        current.owner.manager != video.ui.audio.owner.manager ||
-        !ui_widget_handle_equal(current.owner.handle, video.ui.audio.owner.handle))
-        return;
-    if (inline_media_activation_consumed(current))
+    // A page's card is its own; a card in the messages must still be the one shown, and allowed to play.
+    InlineMediaSource current = video.source;
+    if (current.host != VideoHost::page &&
+        (!resolve_visible_video_source(video.source.message_id, video.source.revision, false, video.source.index,
+                                       &current, video.source.snapshot, &video.source.search_source) ||
+         !current.audio || !media_asset_key_equal(current.key, video.source.key) ||
+         current.owner.manager != video.ui.audio.owner.manager ||
+         !ui_widget_handle_equal(current.owner.handle, video.ui.audio.owner.handle) ||
+         inline_media_activation_consumed(current)))
         return;
     switch (event.action.control) {
     case UiAudioControl::play_pause:
@@ -622,6 +657,8 @@ void close_video_session(AccountVideoIdentity* retired_identity) noexcept {
     if (!video)
         return;
     application_video_cancel_pointer();
+    if (video->source.host == VideoHost::page)
+        release_page(*video);
     const bool had_scene = unbind_playback_scenes();
     if (video_session_available() && video->account_serial == application_account_scope() &&
         (video->selected || video->selecting)) {
@@ -647,12 +684,16 @@ void close_video_session(AccountVideoIdentity* retired_identity) noexcept {
 void application_video_close() noexcept {
     close_video_session(nullptr);
 }
+void application_video_leave_channel() noexcept {
+    if (g_app.video && g_app.video->source.host != VideoHost::page)
+        close_video_session(nullptr);
+}
 void application_video_viewer_detach() noexcept {
     auto* video = g_app.video;
-    if (!video || !video->expanded)
+    if (!video || video->source.host != VideoHost::viewer)
         return;
     application_video_cancel_pointer();
-    video->expanded = false;
+    video->source.host = VideoHost::card;
     application_request_frame();
 }
 bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed, u8 index, bool snapshot,
@@ -674,7 +715,9 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
     if (video && !video->source.audio && video->source.message_id == message_id &&
         video->source.revision == revision && video->source.embed == embed && video->source.index == index &&
         video->source.snapshot == snapshot && media_asset_search(video->source.key) == (search != nullptr)) {
-        video->expanded = true;
+        if (video->source.host == VideoHost::page)
+            release_page(*video);
+        video->source.host = VideoHost::viewer;
         *key = video->source.key;
         application_request_frame();
         return true;
@@ -746,37 +789,161 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
     source.start_seconds = start_seconds;
     if (search)
         source.search_source = *search;
+    source.host = VideoHost::viewer;
     if (!start_video_session(source))
         return false;
-    g_app.video->expanded = true;
     *key = selected;
     return true;
+}
+bool application_video_viewer_url(Utf8View* url, bool* provider) noexcept {
+    const auto* video = g_app.video;
+    u32 width = 0, height = 0;
+    if (!video || video->source.host != VideoHost::viewer ||
+        !resolve_message_video_url(video->source, url, &width, &height))
+        return false;
+    *provider = video->source.provider;
+    return true;
+}
+
+namespace video_detail {
+
+ApplicationVideo* page_video(u8 page) noexcept {
+    auto* video = g_app.video;
+    return video && page && video->source.host == VideoHost::page && video->source.page_id == page ? video : nullptr;
+}
+
+} // namespace video_detail
+namespace {
+
+// Starts the page's own session from its copy, where it was left (on its playlist track), playing or paused.
+bool start_page_session(u8 page, bool play) noexcept {
+    MediaPagePlayback media{};
+    if (!video_session_available() || !application_media_page_playback(page, &media) ||
+        !media_asset_key_valid(media.key))
+        return false;
+    InlineMediaSource source{};
+    source.key = media.key;
+    source.message_id = media.message_id;
+    source.channel_id = media.channel_id;
+    source.revision = media.revision;
+    source.embed = (media.flags & media_page_embed) != 0;
+    source.snapshot = (media.flags & media_page_snapshot) != 0;
+    source.index = source.embed ? static_cast<u8>(media_asset_embed_index(media.key)) : 0;
+    source.provider = (media.flags & media_page_provider) != 0;
+    source.audio = !source.embed && media_attachment_format_audio_supported(media_asset_attachment_format(media.key));
+    source.audio_preview = source.embed && media_embed_audio_format_supported(media_asset_embed_format(media.key));
+    source.start_seconds = media.resume_ms / 1000;
+    source.host = VideoHost::page;
+    source.page_id = page;
+    if (!start_video_session(source))
+        return false;
+    g_app.video->requested_play = play;
+    g_app.video->collection_track = media.track;
+    return true;
+}
+
+} // namespace
+
+VideoPagePlayback application_video_page_playback(u8 page) noexcept {
+    const auto* video = page_video(page);
+    return !video ? VideoPagePlayback::none
+           : video->status.playback.playing || video->requested_play ? VideoPagePlayback::playing
+                                                                     : VideoPagePlayback::paused;
+}
+bool application_video_page_toggle(u8 page) noexcept {
+    auto* video = page_video(page);
+    if (!video)
+        return start_page_session(page, true);
+    if (video->selecting) {
+        video->requested_play = !video->requested_play;
+        application_request_frame();
+        return true;
+    }
+    // A failed session starts again (Retry).
+    if (video->source.audio ? project_audio_playback(*video).error : project_video_playback(*video).error)
+        return start_page_session(page, true);
+    const bool sent = send_video_command(*video, video->status.playback.playing ? AccountVideoCommand::pause
+                                                                                : AccountVideoCommand::play);
+    application_request_frame();
+    return sent;
+}
+void application_video_page_show(u8 page) noexcept {
+    auto* video = g_app.video;
+    MediaPagePlayback media{};
+    if (page_video(page) || !application_media_page_playback(page, &media))
+        return;
+    // The session already plays this media (the viewer or the card the page came from): the page takes it over.
+    // Pages never share media, so it is no other page's.
+    if (video && media_asset_key_equal(video->source.key, media.key) && video->source.message_id == media.message_id &&
+        video->source.revision == media.revision) {
+        application_video_cancel_pointer();
+        video->source.host = VideoHost::page;
+        video->source.page_id = page;
+        application_request_frame();
+        return;
+    }
+    // With nothing else playing the page starts its own: playing on its first showing, else paused where it was.
+    if (!video || (!video->status.playback.playing && !video->requested_play))
+        start_page_session(page, !media.played);
+}
+void application_video_page_close(u8 page) noexcept {
+    if (page_video(page))
+        close_video_session(nullptr);
+}
+VideoPageQueue application_video_page_queue(u8 page) noexcept {
+    const auto* video = page_video(page);
+    if (!video || !video->collection_count)
+        return {};
+    const auto& playback = video->status.playback;
+    return {video->collection_count, video->collection_track,
+            video->selected && !playback.live && playback.duration_100ns > 0
+                ? static_cast<u64>(playback.duration_100ns / 10000)
+                : 0};
+}
+bool application_video_page_track(u8 page, u16 track) noexcept {
+    auto* video = page_video(page);
+    if (!video)
+        return false;
+    // A track picked from the queue plays.
+    video->collection_continue = true;
+    return switch_collection_track(*video, track, UiVideoControl::track);
 }
 
 #pragma clang attribute pop
 namespace video_detail {
-
+namespace {
+// The page owns geometry while it shows: the player spans its stage, an audio card centres in it. Out of line: the
+// card path below stays as compact as it was.
+__declspec(noinline) bool position_page(ApplicationVideo* video, InlineMediaSource& positioned) noexcept {
+    positioned = video->source;
+    UiRect stage{};
+    const bool shown = video_session_available() && !application_window_minimized() &&
+                       application_media_page_player(video->source.page_id, &stage, &positioned.owner);
+    positioned.clip = stage;
+    positioned.preview = video->source.audio ? ui_audio_page_card(stage, kDefaultUiAudioControlsStyle) : stage;
+    return shown && ui_rect_has_area(positioned.preview);
+}
+} // namespace
 bool position_video_scene(ApplicationVideo* video, InlineMediaSource& positioned) noexcept {
-    if (video->expanded && !g_app.image_viewer.scene.active)
-        video->expanded = false;
-    bool visible = false;
-    if (video->expanded) {
-        // The viewer owns geometry; message/revision authority was checked above.
-        positioned = video->source;
-        visible = video_surface_available() &&
-                  application_image_viewer_video_geometry(video->source.key, &positioned.preview,
-                                                          &positioned.clip) &&
-                  ui_rect_has_area(positioned.clip);
-    } else {
-        visible =
-            video_surface_available() &&
-            resolve_visible_video_source(video->source.message_id, video->source.revision,
-                                         video->source.embed, video->source.index, &positioned,
-                                         video->source.snapshot, &video->source.search_source) &&
-            ui_rect_has_area(positioned.clip) && media_asset_key_equal(positioned.key, video->source.key) &&
-            positioned.audio == video->source.audio;
+    if (video->source.host == VideoHost::card)
+        return video_surface_available() &&
+               resolve_visible_video_source(video->source.message_id, video->source.revision, video->source.embed,
+                                            video->source.index, &positioned, video->source.snapshot,
+                                            &video->source.search_source) &&
+               ui_rect_has_area(positioned.clip) && media_asset_key_equal(positioned.key, video->source.key) &&
+               positioned.audio == video->source.audio;
+    if (video->source.host == VideoHost::page)
+        return position_page(video, positioned);
+    if (!g_app.image_viewer.scene.active) {
+        // The viewer closed: the session returns to its card.
+        video->source.host = VideoHost::card;
+        return position_video_scene(video, positioned);
     }
-    return visible;
+    // The viewer owns geometry; message/revision authority was checked above.
+    positioned = video->source;
+    return video_surface_available() &&
+           application_image_viewer_video_geometry(video->source.key, &positioned.preview, &positioned.clip) &&
+           ui_rect_has_area(positioned.clip);
 }
 
 } // namespace video_detail
@@ -833,7 +1000,10 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
     if (visible)
         video->hidden_pause = false;
     if (!visible) {
-        video->presentation_wake_ms = 0;
+        // A hidden page plays on: its pump keeps turning (playlist, status) while it plays.
+        video->presentation_wake_ms = video->source.host == VideoHost::page && video->status.playback.playing
+                                          ? clock_monotonic_milliseconds() + 500
+                                          : 0;
         application_video_blur();
         if (video->source.audio)
             video->ui.audio.active = false;
@@ -846,8 +1016,9 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
         return true;
     }
     video->source = positioned;
-    const MediaAssetKey inline_key = positioned.provider && video->provider_frame_ready && !video->expanded
-                                        ? positioned.key : MediaAssetKey{};
+    const MediaAssetKey inline_key =
+        positioned.provider && video->provider_frame_ready && video->source.host == VideoHost::card ? positioned.key
+                                                                                                    : MediaAssetKey{};
     if (!media_asset_key_equal(g_app.renderer.inline_embed_video, inline_key)) {
         g_app.renderer.inline_embed_video = inline_key;
         g_app.renderer.retained_presentation.valid = false;
@@ -857,7 +1028,10 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
         const auto capture = video->ui.audio.capture;
         const bool projected = ui_audio_scene_project(
             &video->ui.audio, project_audio_playback(*video), positioned.preview, positioned.clip,
-            positioned.owner, searched ? UiAudioSourceSurface::search : UiAudioSourceSurface::timeline,
+            positioned.owner,
+            video->source.host == VideoHost::page ? UiAudioSourceSurface::page
+            : searched                            ? UiAudioSourceSurface::search
+                                                  : UiAudioSourceSurface::timeline,
             kDefaultUiAudioControlsStyle, application_theme());
         video->presentation_wake_ms = 0;
         if (projected) {
@@ -895,11 +1069,20 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
                                 metrics.time_width + metrics.range_height;
     }
     UiVideoSceneStyle visual{};
-    if (video->expanded) {
-        // Viewer media is square-cornered and hides idle controls sooner.
-        visual.preview_radius = 0;
+    if (video->source.host != VideoHost::card) {
+        // Viewer and page media hide idle controls sooner; the viewer's (and a full screen page's) is
+        // square-cornered, a page's follows its stage.
+        visual.preview_radius = video->source.host == VideoHost::page && !application_media_page_fullscreen()
+                                    ? application_theme().scale.radius_md
+                                    : 0;
         visual.idle_ms = kUiVideoControlsExpandedIdleMs;
         visual.scrim_lead = 40;
+    }
+    if (video->source.host == VideoHost::page) {
+        // The page's queue lists the tracks: previous and next sit beside play/pause.
+        metrics.tracks_in_row = true;
+        metrics.expand = utf8_literal("Full screen");
+        metrics.collapse = utf8_literal("Exit full screen");
     }
 
     const float usable_width = ui_rect_width(positioned.preview) - 2 * visual.inset;
@@ -938,14 +1121,16 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
             }
             ui_video_scene_titles(&scene, {current.text, current.bytes}, scene.hover_track, {hovered.text, hovered.bytes});
         }
-        // Idle viewer playback hides the pointer with its controls; motion restores it.
-        if (video->expanded && !was_idle && video->ui.video.idle && video->ui.video.preview_hovered)
+        // Idle viewer and page playback hides the pointer with its controls; motion restores it.
+        if (video->source.host != VideoHost::card && !was_idle && video->ui.video.idle &&
+            video->ui.video.preview_hovered)
             application_set_cursor(UiCursor::hidden);
         video->presentation_wake_ms =
             ui_video_scene_next_wake(video->ui.video, now_ms, application_reduced_motion());
         g_app.renderer.video_scene = &video->ui.video;
-        g_app.renderer.video_scene_search_result = searched && !video->expanded;
-        g_app.renderer.video_scene_viewer = video->expanded;
+        g_app.renderer.video_scene_search_result = searched && video->source.host == VideoHost::card;
+        g_app.renderer.video_scene_viewer = video->source.host == VideoHost::viewer;
+        g_app.renderer.video_scene_page = video->source.host == VideoHost::page;
         if (before_capture != UiVideoControl::none && video->ui.video.capture == UiVideoControl::none)
             application_release_capture();
         if (g_app.renderer.interaction_text_video_revision != ui_video_scene_text_paint_revision(video->ui.video))
@@ -954,7 +1139,7 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
         video->presentation_wake_ms = 0;
         g_app.renderer.video_scene = nullptr;
         g_app.renderer.video_scene_search_result = false;
-        g_app.renderer.video_scene_viewer = false;
+        g_app.renderer.video_scene_viewer = g_app.renderer.video_scene_page = false;
         if (before_capture != UiVideoControl::none)
             application_release_capture();
     }

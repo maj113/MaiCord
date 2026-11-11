@@ -16,6 +16,13 @@ void check(bool value, const char* label) noexcept {
 }
 // What the stand-ins below saw and answer.
 u32 requests, resolves, forced_resolves, settles, closed_tabs, navigations, opened_urls, viewer_closes;
+// The player's stand-ins (video.cpp): what the page asked of it and what it answers.
+u32 video_shows, player_toggles, player_keys;
+u8 closed_player;
+u16 jumped_track;
+bool window_fullscreen;
+VideoPagePlayback playback_state = VideoPagePlayback::none;
+VideoPageQueue queue_state;
 u64 navigated_message;
 MediaUrlState url_state = MediaUrlState::empty;
 bool url_ready = true;
@@ -171,6 +178,56 @@ void run() noexcept {
           "pump: a request that cannot load ends in the unavailable state");
     answer = AccountMediaRequestState::queued;
 
+    // A playlist page hosts the player: a play button until it starts, the queue (the current track in view with its
+    // duration, titles as the playlist knows them), row jumps, the wheel, full screen; closing it closes its session.
+    MediaPageSource playlist = image_source(950);
+    playlist.kind = MediaPageKind::video;
+    playlist.flags = media_page_embed | media_page_playlist;
+    application_media_page_close(last);
+    const u8 player = application_media_page_open(playlist);
+    queue_state = {40, 6, 125'000};
+    check(player && application_media_page_show(player) && video_shows == 1 && application_media_page_synchronize() &&
+              application_media_page_synchronize(),
+          "player: a video page shows and asks the player to take it");
+    const auto& page = *application_media_page_viewer();
+    const auto layout = ui_image_viewer_page_layout(page);
+    const u32 rows = ui_image_viewer_queue_rows(page);
+    check(page.idle && page.queue && ui_rect_has_area(layout.queue) && rows >= 3,
+          "player: a playlist page that has not started shows its play button and its queue");
+    check(page.queue && page.queue->count == 40 && page.queue->current == 6 && page.queue->first == 4,
+          "player: the queue keeps the current track in view, one row of the past above it");
+    check(page.queue && utf8_equal(page.queue->titles[0], utf8_literal("Fixture song")) &&
+              utf8_equal(page.queue->titles[1], utf8_literal("Track 6")),
+          "player: queue rows are titled as the playlist knows them, numbered until then");
+    check(page.queue && utf8_equal(page.queue->duration, utf8_literal("2:05")),
+          "player: the current track shows its duration");
+    const UiPoint stage{(layout.player.left + layout.player.right) * .5f,
+                        (layout.player.top + layout.player.bottom) * .5f};
+    check(dispatch(window_test::pointer_down(stage.x, stage.y)) && player_toggles == 1 &&
+              dispatch(window_test::pointer_up(stage.x, stage.y)),
+          "player: a press on a stage that has not started starts it");
+    const UiPoint row{layout.queue.left + 60, layout.queue.top + 40 + 56 * 2.5f};
+    check(ui_image_viewer_queue_hit(page, row) == 7 && dispatch(window_test::pointer_move(row.x, row.y, 0)) &&
+              page.queue->hovered == 7 && dispatch(window_test::pointer_down(row.x, row.y)) && jumped_track == 7,
+          "player: a queue row lights under the pointer and jumps to its track");
+    dispatch(window_test::pointer_up(row.x, row.y));
+    check(dispatch(window_test::wheel(row.x, row.y, -120)) && application_media_page_synchronize() &&
+              page.queue->first == 7,
+          "player: the wheel scrolls the queue");
+    check(dispatch(window_test::key_down(key::space)) && player_keys == 1, "player: the page hands the player its keys");
+    application_media_page_set_fullscreen(true);
+    check(window_fullscreen && application_media_page_synchronize() && page.fullscreen &&
+              ui_rect_equal(page.viewport, application_viewport_dips()) &&
+              !ui_rect_has_area(ui_image_viewer_page_layout(page).queue) &&
+              ui_rect_equal(ui_image_viewer_page_layout(page).player, page.viewport),
+          "player: full screen makes the page the whole window, all player");
+    check(dispatch(window_test::key_down(key::escape)) && !window_fullscreen && application_media_page_synchronize() &&
+              ui_rect_equal(page.viewport, content),
+          "player: Esc leaves full screen");
+    application_media_page_close(player);
+    check(closed_player == player, "player: closing the page closes its session");
+    application_media_page_show(first);
+
     // A message viewer over the page, close and reset.
     g_app.image_viewer.scene.active = true;
     check(!application_media_page_shown() && !application_media_page_viewer() &&
@@ -196,6 +253,18 @@ namespace maicord {
 using namespace media_page_runtime_test;
 bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept {
     return true;
+}
+// The playlist knows the titles of its odd tracks.
+AccountMediaRequestResult account_module_collection_title(void*, const AccountMediaCollectionTitleRequest* request,
+                                                           MediaTrackTitle* title) noexcept {
+    AccountMediaRequestResult result{};
+    result.state = AccountMediaRequestState::pending;
+    if (request->track & 1) {
+        copy_bytes(title->text, "Fixture song", 12);
+        title->bytes = 12;
+        result.state = AccountMediaRequestState::ready;
+    }
+    return result;
 }
 Utf8View media_url_resolve(MediaUrlResolver*, Utf8View source, u64, u64, bool force_refresh) noexcept {
     ++resolves;
@@ -232,6 +301,43 @@ bool ApplicationMediaPump::settle_media_request(const AccountMediaRequestResult&
 bool application_tabs_close_page(u8 id) noexcept {
     ++closed_tabs;
     return id != 0;
+}
+void application_video_page_show(u8) noexcept {
+    ++video_shows;
+}
+void application_video_page_close(u8 id) noexcept {
+    closed_player = id;
+}
+VideoPagePlayback application_video_page_playback(u8) noexcept {
+    return playback_state;
+}
+bool application_video_page_toggle(u8) noexcept {
+    ++player_toggles;
+    return true;
+}
+bool application_video_page_key(u8, u32 code, bool, bool) noexcept {
+    player_keys += code == key::space;
+    return code == key::space;
+}
+bool application_video_page_pointer(u8, VideoPointer, UiPoint) noexcept {
+    return false;
+}
+VideoPageQueue application_video_page_queue(u8) noexcept {
+    return queue_state;
+}
+bool application_video_page_track(u8, u16 track) noexcept {
+    jumped_track = track;
+    return true;
+}
+bool application_video_viewer_cursor(UiPoint, UiCursor*) noexcept {
+    return false;
+}
+UiRect application_viewport_dips() noexcept {
+    return {0, 0, 1280, 720};
+}
+bool application_window_set_fullscreen(bool on) noexcept {
+    window_fullscreen = on;
+    return true;
 }
 bool application_navigate_known_message(u64, u64 message_id) noexcept {
     ++navigations;

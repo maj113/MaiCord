@@ -32,6 +32,8 @@ inline constexpr u8 kUiTabOpening = 4;
 inline constexpr u8 kUiTabClosing = 8;
 // Follows the pointer (UiTabStripView::drag_left) instead of its slot.
 inline constexpr u8 kUiTabDragging = 16;
+// A media tab whose page owns the player: its icon (audio_lines while it plays) pauses and resumes it.
+inline constexpr u8 kUiTabPlaying = 32;
 
 struct UiTabItem {
     // Shown whole in the tooltip, shortened with an ellipsis in the tab.
@@ -45,7 +47,7 @@ struct UiTabItem {
     float hover, select;
 };
 
-enum class UiTabHitKind : u8 { none, tab, close, plus, overflow };
+enum class UiTabHitKind : u8 { none, tab, close, plus, overflow, icon };
 struct UiTabHit {
     UiTabHitKind kind;
     u8 index;
@@ -77,6 +79,8 @@ struct UiTabStripLayout {
     // Items whose close button shows (the active and the wide ones; the others while hovered or fading out).
     u32 closable;
     UiRect plus, overflow;
+    // Items whose icon is a play/pause button (kUiTabPlaying).
+    u32 playing;
     // Items beyond this many did not fit: the first `shown` items draw, the active one taking the last slot when
     // it lies further. Equal to the live item count when everything fits.
     u8 shown;

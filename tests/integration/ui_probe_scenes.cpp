@@ -6273,6 +6273,79 @@ bool probe_media_page() noexcept {
     g_probe.failure_stage = 147;
     if (!probe_text_pixels({&card.projection.geometry.title, 1}) || !probe_capture_frame(L"media-page-audio.bmp"))
         return false;
+    // The player at 1000 and 1920 DIP: a video page (its picture with the full transport over its foot) and a
+    // playlist page with its queue beside the player and previous / play / next in the one bar; at 1920 once more
+    // with a row hovered.
+    UiImageViewerQueue queue{{utf8_literal("Night Drive"), utf8_literal("Harbour Lights"),
+                              utf8_literal("Late Train (extended mix with a title too long for its row)"),
+                              utf8_literal("Track 8"), utf8_literal("Glass City"), utf8_literal("Track 10"),
+                              utf8_literal("Low Tide"), utf8_literal("Afterglow"), utf8_literal("Track 13"),
+                              utf8_literal("Northbound"), utf8_literal("Track 15"), utf8_literal("Static Bloom")},
+                             utf8_literal("3:34"),
+                             utf8_literal("6 of 24"),
+                             24,
+                             4,
+                             6,
+                             0};
+    UiImageViewer player{};
+    UiVideoScene controls{};
+    const auto capture_player = [&](float dips, bool playlist, const wchar_t* name) noexcept {
+        if (!probe_resize_surface(static_cast<u32>(dips * renderer.dpi / 96.0f + .5f), height))
+            return false;
+        const UiRect column = ui_scene_content_rectangle(*renderer.ui_scene, UiSemantic::content);
+        UiVideoPlaybackState playback{1, 1, 1, 83'000, 214'000, 70, true, false, false, false, true, true, true, true, true};
+        playback.buffered_count = 1;
+        playback.buffered_end[0] = 6'000;
+        playback.collection_count = playlist ? queue.count : 0;
+        playback.collection_track = playlist ? queue.current : 0;
+        playback.can_change_track = playlist;
+        UiVideoControlsStyle metrics{};
+        metrics.tracks_in_row = true;
+        metrics.expand = utf8_literal("Full screen");
+        UiVideoSceneStyle visual{};
+        visual.preview_radius = kDefaultTheme.scale.radius_md;
+        visual.idle_ms = kUiVideoControlsExpandedIdleMs;
+        visual.scrim_lead = 40;
+        if (!ui_image_viewer_set_dpi(&player, renderer.dpi) || !ui_image_viewer_open(&player, column, {16, 9}) ||
+            !ui_image_viewer_set_page(&player, {playlist ? utf8_literal("Late night mix") : utf8_literal("launch-day.mp4"),
+                                                image_info.source, UiIcon::video, UiImageViewerPageKind::video, true,
+                                                playlist}) ||
+            !ui_image_viewer_set_actions(&player, ui_image_viewer_action_open))
+            return false;
+        player.queue = playlist ? &queue : nullptr;
+        const auto layout = ui_image_viewer_page_layout(player);
+        if (!ui_video_scene_project(&controls, playback, layout.player, layout.player, metrics, visual, kDefaultTheme))
+            return false;
+        ui_video_scene_hover(&controls, {(layout.player.left + layout.player.right) * .5f,
+                                         (layout.player.top + layout.player.bottom) * .5f});
+        ui_video_scene_tick(&controls, 0, true);
+        renderer.media_page = &player;
+        renderer.media_page_key = renderer.media_page_fallback = key;
+        renderer.audio_scene = nullptr;
+        renderer.video_scene = &controls;
+        renderer.video_scene_page = true;
+        renderer.retained_presentation.valid = false;
+        const UiRect first_row{layout.queue.left + 64, layout.queue.top + 40, layout.queue.right - 16,
+                               layout.queue.top + 96};
+        const auto& bar = controls.projection.controls;
+        return rebuild_probe_content_text() && probe_present(&renderer, kDefaultTheme) &&
+               (d3d11_renderer_surfaces(renderer) & d3d11_surface_page_video) &&
+               (!playlist || (ui_rect_has_area(layout.queue) && probe_text_pixels({&first_row, 1}) && bar[9].hidden &&
+                              !bar[7].hidden && bar[7].bounds.top == bar[0].bounds.top &&
+                              bar[7].bounds.right < bar[0].bounds.left && bar[8].bounds.left > bar[0].bounds.right &&
+                              bar[8].bounds.right < bar[2].bounds.left)) &&
+               probe_capture_frame(name);
+    };
+    g_probe.failure_stage = 148;
+    if (!capture_player(1000, false, L"media-player-video-1000.bmp") ||
+        !capture_player(1000, true, L"media-player-playlist-1000.bmp") ||
+        !capture_player(1920, false, L"media-player-video-1920.bmp") ||
+        !capture_player(1920, true, L"media-player-playlist-1920.bmp"))
+        return false;
+    queue.hovered = 8;
+    if (!capture_player(1920, true, L"media-player-playlist-hover-1920.bmp"))
+        return false;
+    renderer.video_scene_page = false;
     g_probe.failure_stage = 145;
     renderer.media_page = nullptr;
     renderer.audio_scene = old_audio;

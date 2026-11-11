@@ -7,6 +7,7 @@
 #include "../chat/application_channel_memory.hpp"
 #include "../media/image_viewer.hpp"
 #include "../media/media_page.hpp"
+#include "../media/video.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -158,10 +159,13 @@ void describe(Tab* tab) noexcept {
         tab->label_bytes = static_cast<u8>(bytes);
 }
 
-// A media tab's icon and dimming follow its page: a page that cannot be loaded again is dimmed.
+// A media tab's icon and dimming follow its page: a page that cannot be loaded again is dimmed; a page that owns the
+// player has a pause/play button for an icon, audio_lines while it plays.
 void describe_page(Tab* tab) noexcept {
     const bool missing = application_media_page_missing(tab->page);
-    tab->flags = static_cast<u8>((tab->flags & ~kUiTabMissing) | (missing ? kUiTabMissing : 0));
+    const VideoPagePlayback playback = application_video_page_playback(tab->page);
+    tab->flags = static_cast<u8>((tab->flags & ~(kUiTabMissing | kUiTabPlaying)) | (missing ? kUiTabMissing : 0) |
+                                 (playback != VideoPagePlayback::none ? kUiTabPlaying : 0));
     switch (application_media_page_kind(tab->page)) {
     case MediaPageKind::video:
         tab->icon = UiIcon::video;
@@ -173,6 +177,8 @@ void describe_page(Tab* tab) noexcept {
         tab->icon = missing ? UiIcon::image_off : UiIcon::image;
         break;
     }
+    if (playback == VideoPagePlayback::playing)
+        tab->icon = UiIcon::audio_lines;
 }
 
 void append(u64 channel_id, bool opening) noexcept {
@@ -345,8 +351,9 @@ const UiTabStripView* application_tabs_view(UiTabHit hovered, UiTabHit pressed, 
     if (g_tabs.busy && done >= 1)
         settle();
     const u64 active = active_key();
-    // The hover fill and the close button's fade ramp for a tab or its X; "+" and "..." hover no tab.
-    const bool over_tab = (hovered.kind == UiTabHitKind::tab || hovered.kind == UiTabHitKind::close) &&
+    // The hover fill and the close button's fade ramp for a tab, its X or its play button; "+" and "..." hover no tab.
+    const bool over_tab = (hovered.kind == UiTabHitKind::tab || hovered.kind == UiTabHitKind::close ||
+                           hovered.kind == UiTabHitKind::icon) &&
                           hovered.index < g_tabs.count;
     const u64 hovered_id = over_tab ? key(g_tabs.items[hovered.index]) : 0;
     application_motion_hover_tick(&g_tabs.hover, hovered_id, now_ms);
@@ -649,6 +656,11 @@ bool application_tabs_menu_action(u32 action, u64 id) noexcept {
 bool application_tabs_close_page(u8 id) noexcept {
     const u32 at = shown() ? find(kPageKey | id) : kNone;
     return at != kNone && close_tabs(at, Close::one);
+}
+
+bool application_tabs_toggle_playback(u32 index) noexcept {
+    return shown() && index < g_tabs.count && !closing(g_tabs.items[index]) && g_tabs.items[index].page &&
+           application_video_page_toggle(g_tabs.items[index].page);
 }
 
 } // namespace maicord::app_detail

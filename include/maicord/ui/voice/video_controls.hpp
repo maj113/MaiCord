@@ -51,6 +51,9 @@ struct UiVideoControlsStyle {
     // tabular, so the slot never jitters as the clock advances.
     float time_advance{6.25f};
     u32 text_style{text_style_subtext};
+    // A playlist's previous and next buttons flank play/pause in the one bar (a media page, whose queue lists the
+    // tracks) instead of the track strip above it.
+    bool tracks_in_row{};
     Utf8View play{utf8_literal("Play")}, pause{utf8_literal("Pause")};
     Utf8View mute{utf8_literal("Mute")}, unmute{utf8_literal("Unmute")};
     Utf8View unavailable_audio{utf8_literal("Audio unavailable")};

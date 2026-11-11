@@ -79,7 +79,7 @@ void ui_video_append_clock(char* text, u32& cursor, u64 milliseconds, bool hours
 float ui_video_controls_height(const UiVideoControlsStyle& style, float width, bool collection) noexcept {
     if (!positive(width) || width < style.minimum_width)
         return 0;
-    return 2 * style.padding + maximum(style.target, style.range_height) * (collection ? 2 : 1);
+    return 2 * style.padding + maximum(style.target, style.range_height) * (collection && !style.tracks_in_row ? 2 : 1);
 }
 u32 ui_video_format_time(const UiVideoPlaybackState& state, char* text, u32 capacity) noexcept {
     // Longest output is two 20-digit hour fields plus separators.
@@ -112,6 +112,8 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
         !paint_coordinate_valid(bounds.right) || !paint_coordinate_valid(bounds.bottom))
         return false;
     const bool collection = state.collection_count != 0;
+    // A playlist either keeps its track strip above the bar or puts previous and next beside play/pause.
+    const bool strip = collection && !style.tracks_in_row, beside = collection && style.tracks_in_row;
     const float row_height = maximum(style.target, style.range_height);
     const float width = ui_rect_width(bounds), height = ui_video_controls_height(style, width, collection);
     if (!height || ui_rect_height(bounds) < height)
@@ -128,12 +130,13 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
     projection.time_bytes = ui_video_format_time(state, projection.time_text, sizeof(projection.time_text));
     const float left = bounds.left + style.padding;
     const float right = bounds.right - style.padding;
-    const float center_y = (bounds.top + bounds.bottom + (collection ? row_height : 0)) * .5f;
+    const float center_y = (bounds.top + bounds.bottom + (strip ? row_height : 0)) * .5f;
     const float button_top = center_y - style.target * .5f;
     const float range_top = center_y - style.range_height * .5f;
     // The time slot follows its glyphs so h:mm:ss never collides with seek.
     float time_width = maximum(style.time_width, projection.time_bytes * style.time_advance);
-    const float time_left = left + style.target + style.gap;
+    const float pitch = style.target + style.gap, play_left = beside ? left + pitch : left;
+    const float time_left = play_left + pitch + (beside ? pitch : 0);
     // Optional chrome yields before the seek range: first expand, then an
     // h:mm:ss label too wide for a narrow player (its slot shrinks to the minimum).
     bool expand = state.can_expand, time_clipped = false, swap = false;
@@ -166,15 +169,17 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
         return false;
     const float collection_top = button_top - row_height;
     const UiRect rectangles[]{
-        {left, button_top, left + style.target, button_top + style.target},
+        {play_left, button_top, play_left + style.target, button_top + style.target},
         {seek_left, range_top, seek_right, range_top + style.range_height},
         {time_left, button_top, time_left + time_width, button_top + style.target},
         {mute_left, button_top, mute_left + style.target, button_top + style.target},
         {volume_left, range_top, volume_left + style.volume_width, range_top + style.range_height},
         {left, button_top, right, button_top + style.target},
         {right - style.target, button_top, right, button_top + style.target},
-        {left, collection_top, left + style.target, collection_top + style.target},
-        {right - style.target, collection_top, right, collection_top + style.target},
+        beside ? UiRect{left, button_top, left + style.target, button_top + style.target}
+               : UiRect{left, collection_top, left + style.target, collection_top + style.target},
+        beside ? UiRect{play_left + pitch, button_top, play_left + pitch + style.target, button_top + style.target}
+               : UiRect{right - style.target, collection_top, right, collection_top + style.target},
         {left + style.target + style.gap, collection_top, right - style.target - style.gap, collection_top + style.range_height}};
     const UiVideoControl ids[]{UiVideoControl::play_pause, UiVideoControl::seek,   UiVideoControl::time,
                                UiVideoControl::mute,       UiVideoControl::volume, UiVideoControl::status,
@@ -219,10 +224,11 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
     projection.controls[8].label = style.next_track;
     projection.controls[7].enabled = collection && state.can_change_track && state.collection_track > 1;
     projection.controls[8].enabled = collection && state.can_change_track && state.collection_track < state.collection_count;
-    projection.controls[9].enabled = collection && state.can_change_track && state.collection_count > 1;
+    projection.controls[9].enabled = strip && state.can_change_track && state.collection_count > 1;
     projection.controls[9].value = collection ? state.collection_track - 1 : 0;
     projection.controls[9].maximum = collection ? state.collection_count - 1 : 0;
     for (u32 i = 7; i < kUiVideoControlCount; ++i) projection.controls[i].hidden = !collection;
+    projection.controls[9].hidden = !strip;
     if (collection) {
         copy_bytes(projection.track_text, "Track ", 6); projection.track_bytes = 6;
         append_number(projection.track_text, projection.track_bytes, state.collection_track);

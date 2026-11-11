@@ -111,8 +111,11 @@ UiTabStripLayout ui_tab_strip_layout(const UiRect& area, const UiTabStripView& v
         layout.width[i] = maximum(extent, 0.0f);
         layout.fade[i] = opening ? 1 - remaining : (item.flags & kUiTabClosing) ? remaining : 1.0f;
         right = maximum(right, left + layout.width[i]);
-        const bool hovered = (view.hovered.kind == UiTabHitKind::tab || view.hovered.kind == UiTabHitKind::close) &&
+        const bool hovered = (view.hovered.kind == UiTabHitKind::tab || view.hovered.kind == UiTabHitKind::close ||
+                              view.hovered.kind == UiTabHitKind::icon) &&
                              view.hovered.index == i;
+        if ((item.flags & kUiTabPlaying) && !(item.flags & kUiTabClosing))
+            layout.playing |= 1u << i;
         // The active tab and the wide ones always show their close button; the others while the pointer is on them
         // (their hover fill fades it in and out).
         if (!(item.flags & kUiTabClosing) && layout.width[i] >= kUiTabMinimum &&
@@ -180,7 +183,8 @@ UiTabHit ui_tab_strip_hit(const UiTabStripLayout& layout, float x, float y) noex
             continue;
         const UiRect close = ui_tab_strip_close(layout, i);
         const bool on_close = ui_rect_has_area(close) && x >= close.left - kGap * .5f && x < close.right + kGap * .5f;
-        return {on_close ? UiTabHitKind::close : UiTabHitKind::tab, static_cast<u8>(i)};
+        const bool on_icon = ((layout.playing >> i) & 1) && inside(ui_tab_strip_icon(layout, i), x, y);
+        return {on_close ? UiTabHitKind::close : on_icon ? UiTabHitKind::icon : UiTabHitKind::tab, static_cast<u8>(i)};
     }
     return {};
 }
@@ -191,6 +195,8 @@ UiRect ui_tab_strip_hit_rect(const UiTabStripLayout& layout, UiTabHit hit) noexc
         return ui_tab_strip_tab(layout, hit.index);
     case UiTabHitKind::close:
         return ui_tab_strip_close(layout, hit.index);
+    case UiTabHitKind::icon:
+        return ui_tab_strip_icon(layout, hit.index);
     case UiTabHitKind::plus:
         return layout.plus;
     case UiTabHitKind::overflow:
@@ -206,6 +212,9 @@ Utf8View ui_tab_strip_hit_name(const UiTabStripView& view, UiTabHit hit) noexcep
         return hit.index < view.count ? view.items[hit.index].label : Utf8View{};
     case UiTabHitKind::close:
         return utf8_literal("Close tab");
+    case UiTabHitKind::icon:
+        return hit.index < view.count && view.items[hit.index].icon == UiIcon::audio_lines ? utf8_literal("Pause")
+                                                                                            : utf8_literal("Play");
     case UiTabHitKind::plus:
         return utf8_literal("Pin this channel");
     case UiTabHitKind::overflow:

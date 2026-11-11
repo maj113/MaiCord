@@ -1,6 +1,7 @@
 #pragma once
 // Shared by video.cpp and its parts (video_*.cpp); private to them.
 #include "downloads.hpp"
+#include "media_page.hpp"
 #include "video.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/state.hpp"
@@ -18,6 +19,9 @@ namespace maicord::app_detail {
 namespace video_detail {}
 using namespace video_detail;
 
+// Where the session's player shows: a card in the messages (or search results), the media viewer, or a media page.
+// A page's session plays from the page's own copy of its media, not from the message.
+enum class VideoHost : u8 { card, viewer, page };
 // No default member initializers: `InlineMediaSource source{}` is one zero fill.
 struct InlineMediaSource {
     MediaAssetKey key;
@@ -35,6 +39,9 @@ struct InlineMediaSource {
     bool provider;
     u32 start_seconds;
     bool audio_preview;
+    VideoHost host;
+    // The media page of a page-hosted session.
+    u8 page_id;
 };
 struct InlineAudioSceneSelection {};
 struct InlineVideoSceneSelection {};
@@ -72,8 +79,8 @@ struct ApplicationVideo {
     bool presentation_failed{};
     // The media lane reported an expired signed URL; the next source request forces a refresh.
     bool source_refresh{};
-    // The media viewer hosts this same session; geometry comes from the viewer.
-    bool expanded{};
+    // A hidden page's video plays on as sound only: the session decodes no picture until the page shows again.
+    bool picture_off{};
     bool live_started{}, live_restart{}, restore_gain{}, restore_muted{};
     u8 live_restarts{};
     float restore_volume{1};
@@ -127,10 +134,13 @@ bool resolve_search_video_source(const ApplicationSearchSourceTicket& ticket, bo
 bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 item, InlineMediaSource* out,
                                   bool snapshot = false,
                                   const ApplicationSearchSourceTicket* search_source = nullptr) noexcept;
+bool resolve_message_video_url(const InlineMediaSource& source, Utf8View* url, u32* width, u32* height) noexcept;
 bool request_video_source(const InlineMediaSource& source, bool* refresh, ApplicationVideo* playback) noexcept;
 bool send_video_command(ApplicationVideo& video, AccountVideoCommand kind, i64 seek = 0, float volume = 1,
                         bool muted = false) noexcept;
 bool set_video_expanded(ApplicationVideo& video, bool expanded) noexcept;
+// The session when the media page `page` hosts it.
+ApplicationVideo* page_video(u8 page) noexcept;
 
 enum class InlineMediaPolicyUse : u8 {
     activate,

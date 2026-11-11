@@ -346,6 +346,26 @@ void media() noexcept {
     check(!(view()->items[3].flags & kUiTabMissing) && !(view()->items[2].flags & kUiTabMissing) &&
               view()->items[2].icon == UiIcon::image,
           "caption tabs media: the dimming follows the page");
+    // A page that owns the player: audio_lines while it plays; its icon pauses and resumes it, without showing it.
+    playback[2] = VideoPagePlayback::playing;
+    check(view()->items[3].icon == UiIcon::audio_lines && (view()->items[3].flags & kUiTabPlaying),
+          "caption tabs media: a playing page's tab shows audio_lines");
+    layout = bar();
+    const UiRect playing = ui_tab_strip_icon(layout.tabs, 3);
+    check(ui_rect_has_area(playing) &&
+              ui_tab_strip_hit(layout.tabs, centre_x(playing), (playing.top + playing.bottom) * .5f).kind ==
+                  UiTabHitKind::icon,
+          "caption tabs media: the playing icon is a button");
+    click(centre_x(playing), centre_y(layout, playing));
+    check(toggles == 1 && playback[2] == VideoPagePlayback::paused && view()->items[3].icon == UiIcon::video &&
+              (view()->items[3].flags & kUiTabPlaying) && shown == 1,
+          "caption tabs media: clicking the icon pauses the page and leaves the page that shows");
+    click(centre_x(playing), centre_y(layout, playing));
+    check(toggles == 2 && playback[2] == VideoPagePlayback::playing && view()->items[3].icon == UiIcon::audio_lines,
+          "caption tabs media: clicking it again resumes");
+    playback[2] = VideoPagePlayback::none;
+    check(view()->items[3].icon == UiIcon::video && !(view()->items[3].flags & kUiTabPlaying),
+          "caption tabs media: a page without the player has its plain icon");
     bool opened = true;
     for (u32 i = 0; i < 5; ++i)
         opened = application_tabs_open_media(source(MediaPageKind::image, "x"), true) && opened;

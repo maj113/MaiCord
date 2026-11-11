@@ -35,7 +35,7 @@ bool synchronize_selected_channel() noexcept {
         ui.observed_selection_revision = state.selection_revision;
         return synchronize_member_subscription(now_ms);
     }
-    application_video_close();
+    application_video_leave_channel();
     g_app.context_focus = nullptr;
     application_composer_text_input_suspend();
     ui_button_keyboard_cancel(&g_app.button_keyboard);
