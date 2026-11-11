@@ -32,13 +32,6 @@ enum class Vp8ControlError : u8 {
     token_partition_bounds,
 };
 
-enum class Vp8ModeError : u8 {
-    none,
-    invalid_input,
-    dimensions,
-    boolean_stream,
-};
-
 enum class Vp8CoefficientError : u8 {
     none,
     invalid_input,
@@ -171,7 +164,6 @@ struct Vp8MacroblockMode {
 };
 
 struct Vp8ModeWorkspace {
-    Vp8BoolReader reader;
     Vp8MacroblockMode macroblocks[kVp8MacroblockMaximum];
     u32 macroblock_count;
     u16 columns;
@@ -194,10 +186,7 @@ struct Vp8MacroblockCoefficients {
 };
 
 struct Vp8CoefficientWorkspace {
-    Vp8BoolReader token_reader[8];
     Vp8MacroblockCoefficients macroblocks[kVp8MacroblockMaximum];
-    Vp8TokenContext top_context[kVp8MacroblockDimensionMaximum];
-    Vp8TokenContext left_context;
     u32 macroblock_count;
     u16 columns;
     u16 rows;
@@ -216,14 +205,6 @@ struct Vp8ControlParseResult {
 
     constexpr bool ok() const noexcept {
         return error == Vp8ControlError::none;
-    }
-};
-
-struct Vp8ModeParseResult {
-    Vp8ModeError error;
-
-    constexpr bool ok() const noexcept {
-        return error == Vp8ModeError::none;
     }
 };
 
@@ -247,14 +228,12 @@ Vp8ParseResult vp8_parse_keyframe(ConstSlice<u8> payload,
 Vp8ControlParseResult vp8_parse_keyframe_control(
     const Vp8Keyframe& frame, Vp8ControlHeader* header,
     Vp8ProbabilityWorkspace* probabilities) noexcept;
-Vp8ModeParseResult vp8_parse_keyframe_modes(
+// Every macroblock's modes and dequantized residuals, in raster order: the
+// row parser below over the whole frame.
+Vp8CoefficientParseResult vp8_decode_keyframe_macroblocks(
     const Vp8Keyframe& frame, const Vp8ControlHeader& header,
-    Vp8ModeWorkspace* workspace) noexcept;
-Vp8CoefficientParseResult vp8_decode_keyframe_coefficients(
-    const Vp8Keyframe& frame, const Vp8ControlHeader& header,
-    const Vp8ProbabilityWorkspace& probabilities,
-    const Vp8ModeWorkspace& modes,
-    Vp8CoefficientWorkspace* workspace) noexcept;
+    const Vp8ProbabilityWorkspace& probabilities, Vp8ModeWorkspace* modes,
+    Vp8CoefficientWorkspace* coefficients) noexcept;
 bool vp8_bool_reader_initialize(Vp8BoolReader* reader,
                                 ConstSlice<u8> bytes) noexcept;
 
@@ -300,9 +279,9 @@ static_assert(sizeof(Vp8TokenPartition) == 16);
 static_assert(sizeof(Vp8ProbabilityWorkspace) == 1'056);
 static_assert(sizeof(Vp8ControlHeader) == 280);
 static_assert(sizeof(Vp8MacroblockMode) == 20);
-static_assert(sizeof(Vp8ModeWorkspace) == 20'520);
+static_assert(sizeof(Vp8ModeWorkspace) == 20'488);
 static_assert(sizeof(Vp8TokenContext) == 9);
 static_assert(sizeof(Vp8MacroblockCoefficients) == 770);
-static_assert(sizeof(Vp8CoefficientWorkspace) == 789'048);
+static_assert(sizeof(Vp8CoefficientWorkspace) == 788'488);
 
 } // namespace maicord

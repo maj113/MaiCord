@@ -12,7 +12,6 @@ enum class LossyWebpError : u8 {
     unsupported_codec,
     vp8_envelope,
     vp8_control,
-    vp8_modes,
     vp8_coefficients,
     alpha,
 };
@@ -22,7 +21,6 @@ struct LossyWebpDecodeResult {
     WebpAlphaDecodeResult alpha;
     Vp8ParseResult envelope;
     Vp8ControlParseResult control;
-    Vp8ModeParseResult modes;
     Vp8CoefficientParseResult coefficients;
     u32 alpha_bytes;
     LossyWebpError error;
@@ -62,6 +60,6 @@ LossyWebpDecodeResult lossy_webp_decode_frame_keyframe(
     Slice<u8> alpha_output) noexcept;
 
 static_assert(sizeof(LossyWebpDecodeResult) == 44);
-static_assert(sizeof(LossyWebpWorkspace) == 810'624);
+static_assert(sizeof(LossyWebpWorkspace) == 810'032);
 
 } // namespace maicord

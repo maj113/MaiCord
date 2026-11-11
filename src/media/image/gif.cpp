@@ -466,10 +466,9 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
             frame.palette_offset = image->global_palette_offset;
             frame.palette_count = image->global_palette_count;
         }
-        if (pending.transparent) {
-            if (pending.transparent_index >= frame.palette_count) {
-                return fail(result, GifError::graphic_control);
-            }
+        // An index past the frame's palette names no colour: the frame is opaque (encoders write one when nothing is
+        // transparent, and browsers play the file).
+        if (pending.transparent && pending.transparent_index < frame.palette_count) {
             frame.flags |= gif_frame_transparent;
             frame.transparent_index = pending.transparent_index;
         }

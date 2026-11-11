@@ -1011,7 +1011,8 @@ void test_vp8_keyframe_control() noexcept {
     expect(exact, "vp8_keyframe_complete_control_header");
 
     Vp8ModeWorkspace mode_workspace{};
-    const Vp8ModeParseResult modes = vp8_parse_keyframe_modes(frame, header, &mode_workspace);
+    const Vp8CoefficientParseResult coefficients = vp8_decode_keyframe_macroblocks(
+        frame, header, probabilities, &mode_workspace, &g_vp8_coefficient_workspace);
     constexpr Vp8SubblockMode expected_fixture_modes[16] = {
         Vp8SubblockMode::dc,          Vp8SubblockMode::true_motion, Vp8SubblockMode::true_motion,
         Vp8SubblockMode::true_motion, Vp8SubblockMode::true_motion, Vp8SubblockMode::dc,
@@ -1020,7 +1021,7 @@ void test_vp8_keyframe_control() noexcept {
         Vp8SubblockMode::true_motion, Vp8SubblockMode::dc,          Vp8SubblockMode::dc,
         Vp8SubblockMode::dc,
     };
-    bool fixture_modes_exact = modes.ok() && mode_workspace.columns == 1 && mode_workspace.rows == 1 &&
+    bool fixture_modes_exact = coefficients.ok() && mode_workspace.columns == 1 && mode_workspace.rows == 1 &&
                                mode_workspace.macroblock_count == 1 &&
                                mode_workspace.macroblocks[0].luma == Vp8IntraMode::subblocks &&
                                mode_workspace.macroblocks[0].chroma == Vp8IntraMode::vertical &&
@@ -1030,13 +1031,8 @@ void test_vp8_keyframe_control() noexcept {
         fixture_modes_exact =
             mode_workspace.macroblocks[0].luma_subblock[index] == expected_fixture_modes[index];
     }
-    fixture_modes_exact = fixture_modes_exact && mode_workspace.reader.ok() &&
-                          mode_workspace.reader.byte_offset == 14 && mode_workspace.reader.bit_count == 1 &&
-                          mode_workspace.reader.range == 156;
     expect(fixture_modes_exact, "vp8_keyframe_macroblock_modes_and_context");
 
-    const Vp8CoefficientParseResult coefficients = vp8_decode_keyframe_coefficients(
-        frame, header, probabilities, mode_workspace, &g_vp8_coefficient_workspace);
     u32 nonzero_coefficients = 0;
     for (u32 block = 0; block < 24; ++block) {
         for (u32 coefficient = 0; coefficient < 16; ++coefficient) {
@@ -1054,10 +1050,7 @@ void test_vp8_keyframe_control() noexcept {
                g_vp8_coefficient_workspace.macroblocks[0].values[0][0] == -40 &&
                g_vp8_coefficient_workspace.macroblocks[0].values[0][1] == -276 &&
                g_vp8_coefficient_workspace.macroblocks[0].values[16][0] == -76 &&
-               g_vp8_coefficient_workspace.macroblocks[0].values[20][1] == -115 &&
-               g_vp8_coefficient_workspace.token_reader[0].byte_offset == 45 &&
-               g_vp8_coefficient_workspace.token_reader[0].bit_count == 7 &&
-               g_vp8_coefficient_workspace.token_reader[0].range == 184,
+               g_vp8_coefficient_workspace.macroblocks[0].values[20][1] == -115,
            "vp8_coefficients_exact_tokens_contexts_and_dequantization");
 
     bool token_prefixes_rejected = coefficients.ok();
@@ -1065,14 +1058,17 @@ void test_vp8_keyframe_control() noexcept {
         Vp8ControlHeader truncated_header = header;
         truncated_header.token_partitions[0].bytes.count = bytes;
         token_prefixes_rejected =
-            !vp8_decode_keyframe_coefficients(frame, truncated_header, probabilities, mode_workspace,
-                                              &g_vp8_coefficient_workspace)
+            !vp8_decode_keyframe_macroblocks(frame, truncated_header, probabilities, &mode_workspace,
+                                             &g_vp8_coefficient_workspace)
                  .ok();
     }
     expect(token_prefixes_rejected, "vp8_coefficients_all_required_token_prefixes_reject");
 
+    // The fixture's first partition is 15 bytes; its last mode decision only renormalizes into the 14th, and
+    // libwebp decodes it from 13 (the lookahead may run past the end; a read that needs a window bit there may
+    // not). Partition-end trimming of this kind is what some CDN encoders emit.
     bool mode_prefixes_rejected = envelope.ok();
-    for (u32 bytes = 0; bytes < 14 && mode_prefixes_rejected; ++bytes) {
+    for (u32 bytes = 0; bytes < 13 && mode_prefixes_rejected; ++bytes) {
         Vp8Keyframe truncated = frame;
         truncated.first_partition.count = bytes;
         Vp8ControlHeader truncated_header{};
@@ -1080,17 +1076,42 @@ void test_vp8_keyframe_control() noexcept {
             vp8_parse_keyframe_control(truncated, &truncated_header, &probabilities);
         mode_prefixes_rejected =
             !truncated_control.ok() ||
-            !vp8_parse_keyframe_modes(truncated, truncated_header, &mode_workspace).ok();
+            !vp8_decode_keyframe_macroblocks(truncated, truncated_header, probabilities, &mode_workspace,
+                                             &g_vp8_coefficient_workspace)
+                 .ok();
     }
     expect(mode_prefixes_rejected, "vp8_modes_all_required_partition_prefixes_reject");
 
+    Vp8Keyframe trimmed = frame;
+    trimmed.first_partition.count = 13;
+    Vp8ControlHeader trimmed_header{};
+    Vp8ModeWorkspace trimmed_modes{};
+    const bool trimmed_control = vp8_parse_keyframe_control(trimmed, &trimmed_header, &probabilities).ok();
+    const bool trimmed_decoded = trimmed_control && vp8_decode_keyframe_macroblocks(trimmed, trimmed_header,
+                                                                                    probabilities, &trimmed_modes,
+                                                                                    &g_vp8_coefficient_workspace)
+                                                        .ok();
+    bool trimmed_exact = trimmed_decoded && trimmed_modes.macroblock_count == 1 &&
+                         trimmed_modes.macroblocks[0].luma == Vp8IntraMode::subblocks &&
+                         trimmed_modes.macroblocks[0].chroma == Vp8IntraMode::vertical &&
+                         hash64_bytes(kHash64Seed, g_vp8_coefficient_workspace.macroblocks[0].values,
+                                      sizeof(g_vp8_coefficient_workspace.macroblocks[0].values)) ==
+                             0x58843F07BFBE9282ull;
+    for (u32 index = 0; index < 16 && trimmed_exact; ++index)
+        trimmed_exact = trimmed_modes.macroblocks[0].luma_subblock[index] == expected_fixture_modes[index];
+    expect(trimmed_exact, "vp8_partition_ending_inside_last_lookahead_decodes");
+
+    // The header's last decision renormalizes into byte 11; 10 bytes hold every bit it reads.
     bool required_prefixes_rejected = envelope.ok();
-    for (u32 bytes = 0; bytes < 11 && required_prefixes_rejected; ++bytes) {
+    for (u32 bytes = 0; bytes < 10 && required_prefixes_rejected; ++bytes) {
         Vp8Keyframe truncated = frame;
         truncated.first_partition.count = bytes;
         required_prefixes_rejected = !vp8_parse_keyframe_control(truncated, &header, &probabilities).ok();
     }
-    expect(required_prefixes_rejected, "vp8_control_all_required_partition_prefixes_reject");
+    Vp8Keyframe header_only = frame;
+    header_only.first_partition.count = 10;
+    expect(required_prefixes_rejected && vp8_parse_keyframe_control(header_only, &header, &probabilities).ok(),
+           "vp8_control_all_required_partition_prefixes_reject");
 
     Vp8Keyframe missing_tokens = frame;
     missing_tokens.remaining_data.count = 1;
@@ -1150,7 +1171,8 @@ void test_vp8_keyframe_control() noexcept {
         header.use_skip_probability && header.skip_probability == 0 && header.macroblock_reader.ok();
     expect(branch_exact, "vp8_control_all_optional_branches_and_four_partitions");
 
-    const Vp8ModeParseResult branch_modes = vp8_parse_keyframe_modes(branches, header, &mode_workspace);
+    const Vp8CoefficientParseResult branch_coefficients = vp8_decode_keyframe_macroblocks(
+        branches, header, probabilities, &mode_workspace, &g_vp8_coefficient_workspace);
     constexpr Vp8SubblockMode expected_branch_modes[16] = {
         Vp8SubblockMode::dc,
         Vp8SubblockMode::true_motion,
@@ -1170,7 +1192,7 @@ void test_vp8_keyframe_control() noexcept {
         Vp8SubblockMode::horizontal_up,
     };
     bool branch_modes_exact =
-        branch_modes.ok() && mode_workspace.columns == 2 && mode_workspace.rows == 2 &&
+        branch_coefficients.ok() && mode_workspace.columns == 2 && mode_workspace.rows == 2 &&
         mode_workspace.macroblock_count == 4 && mode_workspace.macroblocks[0].segment_id == 0 &&
         !mode_workspace.macroblocks[0].skip_coefficients &&
         mode_workspace.macroblocks[0].luma == Vp8IntraMode::dc &&
@@ -1190,8 +1212,6 @@ void test_vp8_keyframe_control() noexcept {
     }
     expect(branch_modes_exact, "vp8_modes_all_trees_segments_skips_and_neighbor_contexts");
 
-    const Vp8CoefficientParseResult branch_coefficients = vp8_decode_keyframe_coefficients(
-        branches, header, probabilities, mode_workspace, &g_vp8_coefficient_workspace);
     bool branch_coefficients_zero = branch_coefficients.ok() && g_vp8_coefficient_workspace.columns == 2 &&
                                     g_vp8_coefficient_workspace.rows == 2 &&
                                     g_vp8_coefficient_workspace.macroblock_count == 4;
@@ -1757,6 +1777,29 @@ void test_gif_decode() noexcept {
     expect(gif_parse(ConstSlice<u8>{malformed, fixture.encoded_bytes}, &image, &workspace).error ==
                GifError::signature,
            "gif_signature_reject");
+
+    // Encoders (Pillow among them) write a transparent index past the frame's palette when no colour is
+    // transparent; the GIF plays, as it does in browsers, with the frame opaque.
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
+    u32 control = ~0u;
+    for (u32 at = 0; at + 8 <= fixture.encoded_bytes && control == ~0u; ++at)
+        if (malformed[at] == 0x21 && malformed[at + 1] == 0xF9 && malformed[at + 2] == 4 && (malformed[at + 3] & 1))
+            control = at;
+    bool tolerated = control != ~0u;
+    if (tolerated) {
+        malformed[control + 6] = 4; // the transparent frame's palette holds four colours
+        GifImage lenient{};
+        const GifParseResult reparsed = gif_parse(ConstSlice<u8>{malformed, fixture.encoded_bytes}, &lenient, &workspace);
+        const GifDecodeResult frame = gif_decode_parsed_frame(ConstSlice<u8>{malformed, fixture.encoded_bytes}, lenient, 1,
+                                                              &workspace, Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)});
+        tolerated = reparsed.ok() && lenient.frame_count == 4 && (lenient.frames[1].flags & gif_frame_transparent) == 0 &&
+                    frame.ok() && !frame.palette.has_transparency;
+        for (u32 y = 0; y < 2 && tolerated; ++y)
+            for (u32 x = 0; x < 2 && tolerated; ++x)
+                tolerated = g_png_scanlines[y * 2 + x] == gif_fixture_source_index(1, x, y);
+    }
+    expect(tolerated, "gif_transparent_index_past_palette_plays_opaque");
+    gif_parse(ConstSlice<u8>{g_png_encoded, fixture.encoded_bytes}, &image, &workspace);
 
     copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     const u32 first_descriptor_packed = first_data_offset - 2;

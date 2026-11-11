@@ -9,10 +9,16 @@ namespace maicord {
 namespace {
 
 // RFC 6386 boolean decoder with the bit-serial normalization loop replaced by
-// one shift: identical state after every call, including the truncation
-// point (the shift that needs a byte past the end) and the state left there.
+// one shift: identical state after every call. A partition may end inside the
+// lookahead of its last decision, as libvpx and libwebp accept: the read that
+// needs a window bit past the end fails (bit_count above 8 records the missing
+// bits), not the shift before it.
 __forceinline u32 bool_read(Vp8BoolReader* reader, u32 probability) noexcept {
     if (reader->error != Vp8BoolError::none) {
+        return 0;
+    }
+    if (reader->bit_count > 8) {
+        reader->error = Vp8BoolError::truncated;
         return 0;
     }
     const u32 split = 1u + ((reader->range - 1u) * probability >> 8);
@@ -29,17 +35,11 @@ __forceinline u32 bool_read(Vp8BoolReader* reader, u32 probability) noexcept {
         _BitScanReverse(&top, range);
         const u32 shift = 7u - top;
         const u32 room = 8u - reader->bit_count;
-        if (shift < room) {
+        if (shift < room || reader->byte_offset >= reader->bytes.count) {
             reader->value <<= shift;
             reader->bit_count = static_cast<u8>(reader->bit_count + shift);
         } else {
             reader->value <<= room;
-            if (reader->byte_offset >= reader->bytes.count) {
-                reader->range = range << room;
-                reader->bit_count = 0;
-                reader->error = Vp8BoolError::truncated;
-                return bit;
-            }
             reader->value |= reader->bytes.data[reader->byte_offset++];
             reader->value <<= shift - room;
             reader->bit_count = static_cast<u8>(shift - room);
@@ -53,8 +53,8 @@ __forceinline u32 bool_read(Vp8BoolReader* reader, u32 probability) noexcept {
 // Windowed form of the same decoder for the macroblock loops: up to 56
 // lookahead bits, refilled seven bytes at a time, so a decision is a few
 // register operations. to_window/from_window convert exactly to and from the
-// bit-serial state, and a read fails at the same shift as the bit-serial
-// reader: the one that leaves no lookahead bit and no byte to load.
+// bit-serial state, and a read fails where the bit-serial reader's does: it
+// starts with window bits missing and no byte left to load.
 struct WindowReader {
     const u8* data;
     u64 value; // the active window is value >> bits; `bits` lookahead bits below it
@@ -83,17 +83,7 @@ __forceinline WindowReader to_window(const Vp8BoolReader& reader) noexcept {
 }
 
 void from_window(const WindowReader& window, Vp8BoolReader* reader) noexcept {
-    if (!window.ok()) {
-        if (reader->ok()) {
-            // window_read left the bit-serial state of its failing shift.
-            reader->value = static_cast<u32>(window.value);
-            reader->range = window.range;
-            reader->bit_count = 0;
-            reader->byte_offset = window.count;
-            reader->error = window.error;
-        }
-        return;
-    }
+    // A failed read leaves the state it started from, so failure converts like any other state.
     u64 value = window.value;
     i32 bits = window.bits;
     u32 offset = window.offset;
@@ -113,6 +103,7 @@ void from_window(const WindowReader& window, Vp8BoolReader* reader) noexcept {
     reader->bit_count = static_cast<u8>(pending);
     reader->byte_offset = offset;
     reader->range = window.range;
+    reader->error = window.error;
 }
 
 struct WindowRefill {
@@ -147,6 +138,10 @@ __forceinline u32 window_read(WindowReader* reader, u32 probability) noexcept {
         reader->value = refill.value;
         reader->offset = refill.offset;
         reader->bits = refill.bits;
+        if (refill.bits < 0) {
+            reader->error = Vp8BoolError::truncated;
+            return 0;
+        }
     }
     const u32 split = 1u + ((reader->range - 1u) * probability >> 8);
     u32 bit = 0;
@@ -160,14 +155,6 @@ __forceinline u32 window_read(WindowReader* reader, u32 probability) noexcept {
         unsigned long top = 0;
         _BitScanReverse(&top, range);
         const u32 shift = 7u - top;
-        if (reader->offset >= reader->count && shift >= static_cast<u32>(reader->bits)) {
-            // The bit-serial reader shifts out its last lookahead bit, then
-            // finds no byte to load: keep that state for from_window.
-            reader->range = range << reader->bits;
-            reader->value <<= 8;
-            reader->error = Vp8BoolError::truncated;
-            return bit;
-        }
         reader->bits -= static_cast<i32>(shift);
         range <<= shift;
     }
@@ -941,108 +928,77 @@ u32 vp8_bool_read_literal(Vp8BoolReader* reader, u32 bit_count) noexcept {
     return value;
 }
 
-Vp8ModeParseResult vp8_parse_keyframe_modes(const Vp8Keyframe& frame, const Vp8ControlHeader& header,
-                                            Vp8ModeWorkspace* workspace) noexcept {
-    if (!workspace || !header.macroblock_reader.ok() ||
-        header.macroblock_reader.bytes.data != frame.first_partition.data ||
-        header.macroblock_reader.bytes.count != frame.first_partition.count ||
-        header.macroblock_reader.byte_offset > frame.first_partition.count ||
-        header.macroblock_reader.bit_count >= 8 || header.macroblock_reader.range < 128 ||
-        header.macroblock_reader.range > 255) {
-        return {Vp8ModeError::invalid_input};
+namespace {
+// One row of macroblock headers (all in the first partition, in raster order). above holds the bottom subblock
+// modes of the row above (columns * 4), read unless this is the first row; this row's replace them.
+bool parse_row_modes(WindowReader* reader, const Vp8ControlHeader& header, Vp8SubblockMode* above, bool first_row,
+                     Vp8MacroblockMode* modes, u32 columns) noexcept {
+    for (u32 x = 0; x < columns; ++x) {
+        parse_macroblock_mode(reader, header, first_row ? nullptr : above + x * 4u, x ? &modes[x - 1] : nullptr,
+                              &modes[x]);
+        if (!reader->ok())
+            return false;
+        for (u32 block = 0; block < 4; ++block)
+            above[x * 4u + block] = modes[x].luma_subblock[12u + block];
     }
-    const u32 columns = (static_cast<u32>(frame.width) + 15u) / 16u;
-    const u32 rows = (static_cast<u32>(frame.height) + 15u) / 16u;
-    const u32 macroblock_count = columns * rows;
-    if (frame.width == 0 || frame.height == 0 || columns > kVp8MacroblockDimensionMaximum ||
-        rows > kVp8MacroblockDimensionMaximum || macroblock_count > kVp8MacroblockMaximum) {
-        return {Vp8ModeError::dimensions};
-    }
-
-    workspace->macroblock_count = 0;
-    workspace->columns = static_cast<u16>(columns);
-    workspace->rows = static_cast<u16>(rows);
-    // Decoded in a local window (registers), published to the workspace at exit.
-    WindowReader reader = to_window(header.macroblock_reader);
-
-    for (u32 macroblock_y = 0; macroblock_y < rows; ++macroblock_y) {
-        for (u32 macroblock_x = 0; macroblock_x < columns; ++macroblock_x) {
-            const u32 macroblock_index = macroblock_y * columns + macroblock_x;
-            Vp8MacroblockMode& mode = workspace->macroblocks[macroblock_index];
-            parse_macroblock_mode(&reader, header,
-                                  macroblock_y != 0
-                                      ? workspace->macroblocks[macroblock_index - columns].luma_subblock + 12
-                                      : nullptr,
-                                  macroblock_x != 0 ? &workspace->macroblocks[macroblock_index - 1u] : nullptr,
-                                  &mode);
-            if (!reader.ok()) {
-                workspace->reader = header.macroblock_reader;
-                from_window(reader, &workspace->reader);
-                return {Vp8ModeError::boolean_stream};
-            }
-            ++workspace->macroblock_count;
-        }
-    }
-    workspace->reader = header.macroblock_reader;
-    from_window(reader, &workspace->reader);
-    return Vp8ModeParseResult{Vp8ModeError::none};
+    return true;
 }
 
-Vp8CoefficientParseResult vp8_decode_keyframe_coefficients(const Vp8Keyframe& frame,
-                                                           const Vp8ControlHeader& header,
-                                                           const Vp8ProbabilityWorkspace& probabilities,
-                                                           const Vp8ModeWorkspace& modes,
-                                                           Vp8CoefficientWorkspace* workspace) noexcept {
-    const u32 partition_count = header.token_partition_count;
-    if (!workspace || partition_count == 0 || partition_count > 8 ||
-        (partition_count & (partition_count - 1u)) != 0) {
-        return {Vp8CoefficientError::invalid_input};
+// One row of tokens, from its partition (row % count).
+Vp8CoefficientParseResult decode_row_tokens(Vp8BoolReader* partition, const Vp8ControlHeader& header,
+                                            const Vp8ProbabilityWorkspace& probabilities,
+                                            const Vp8MacroblockMode* modes, Vp8TokenContext* top,
+                                            Vp8TokenContext* left, Vp8MacroblockCoefficients* coefficients,
+                                            u32 columns) noexcept {
+    WindowReader reader = to_window(*partition);
+    reset_value<Vp8TokenContext>(left);
+    for (u32 x = 0; x < columns; ++x) {
+        const auto decoded =
+            decode_macroblock_tokens(&reader, header, probabilities, modes[x], &top[x], left, &coefficients[x]);
+        if (decoded.error != Vp8CoefficientError::none) {
+            from_window(reader, partition);
+            return decoded;
+        }
     }
+    from_window(reader, partition);
+    return Vp8CoefficientParseResult{Vp8CoefficientError::none};
+}
+} // namespace
+
+// The GPU path's whole frame with the row parser's state and steps: every row's modes, then every row's tokens.
+// Once per frame, around the macroblock rows: compiled for size.
+__attribute__((minsize))
+Vp8CoefficientParseResult vp8_decode_keyframe_macroblocks(const Vp8Keyframe& frame, const Vp8ControlHeader& header,
+                                                          const Vp8ProbabilityWorkspace& probabilities,
+                                                          Vp8ModeWorkspace* modes,
+                                                          Vp8CoefficientWorkspace* coefficients) noexcept {
     const u32 columns = (static_cast<u32>(frame.width) + 15u) / 16u;
     const u32 rows = (static_cast<u32>(frame.height) + 15u) / 16u;
-    const u32 macroblock_count = columns * rows;
-    if (frame.width == 0 || frame.height == 0 || columns > kVp8MacroblockDimensionMaximum ||
-        rows > kVp8MacroblockDimensionMaximum || macroblock_count > kVp8MacroblockMaximum ||
-        modes.columns != columns || modes.rows != rows || modes.macroblock_count != macroblock_count) {
+    if (!modes || !coefficients || columns > kVp8MacroblockDimensionMaximum || rows > kVp8MacroblockDimensionMaximum)
         return {Vp8CoefficientError::dimensions};
-    }
-
-    for (u32 index = 0; index < 8; ++index) {
-        reset_value<Vp8BoolReader>(&workspace->token_reader[index]);
-    }
-    for (u32 index = 0; index < partition_count; ++index) {
-        if (!vp8_bool_reader_initialize(&workspace->token_reader[index],
-                                        header.token_partitions[index].bytes)) {
-            return {Vp8CoefficientError::token_initialize};
-        }
-    }
-    for (u32 column = 0; column < columns; ++column) {
-        reset_value<Vp8TokenContext>(&workspace->top_context[column]);
-    }
-    reset_value<Vp8TokenContext>(&workspace->left_context);
-    workspace->macroblock_count = 0;
-    workspace->columns = static_cast<u16>(columns);
-    workspace->rows = static_cast<u16>(rows);
-
-    for (u32 macroblock_y = 0; macroblock_y < rows; ++macroblock_y) {
-        reset_value<Vp8TokenContext>(&workspace->left_context);
-        Vp8BoolReader& partition = workspace->token_reader[macroblock_y & (partition_count - 1u)];
-        WindowReader reader = to_window(partition);
-        for (u32 macroblock_x = 0; macroblock_x < columns; ++macroblock_x) {
-            const u32 macroblock_index = macroblock_y * columns + macroblock_x;
-            const Vp8MacroblockMode& mode = modes.macroblocks[macroblock_index];
-            const auto decoded = decode_macroblock_tokens(&reader, header, probabilities, mode,
-                                                          &workspace->top_context[macroblock_x],
-                                                          &workspace->left_context,
-                                                          &workspace->macroblocks[macroblock_index]);
-            if (decoded.error != Vp8CoefficientError::none) {
-                from_window(reader, &partition);
-                return decoded;
-            }
-            ++workspace->macroblock_count;
-        }
-        from_window(reader, &partition);
-    }
+    Vp8TokenContext top_context[kVp8MacroblockDimensionMaximum];
+    Vp8SubblockMode above_modes[kVp8MacroblockDimensionMaximum * 4u];
+    Vp8RowParser parser;
+    if (const auto started = vp8_row_parser_initialize(&parser, frame, header, {top_context, columns},
+                                                       {above_modes, columns * 4u});
+        !started.ok())
+        return started;
+    modes->columns = coefficients->columns = static_cast<u16>(columns);
+    modes->rows = coefficients->rows = static_cast<u16>(rows);
+    modes->macroblock_count = coefficients->macroblock_count = 0;
+    WindowReader mode_reader = to_window(parser.modes);
+    for (u32 row = 0; row < rows; ++row)
+        if (!parse_row_modes(&mode_reader, header, above_modes, row == 0, modes->macroblocks + row * columns,
+                             columns))
+            return {Vp8CoefficientError::boolean_stream};
+    for (u32 row = 0; row < rows; ++row)
+        if (const auto decoded = decode_row_tokens(&parser.tokens[row & (parser.partitions - 1u)], header,
+                                                   probabilities, modes->macroblocks + row * columns, top_context,
+                                                   &parser.left_context, coefficients->macroblocks + row * columns,
+                                                   columns);
+            !decoded.ok())
+            return decoded;
+    modes->macroblock_count = coefficients->macroblock_count = columns * rows;
     return Vp8CoefficientParseResult{Vp8CoefficientError::none};
 }
 
@@ -1150,33 +1106,19 @@ Vp8CoefficientParseResult vp8_row_parser_next(Vp8RowParser* parser, const Vp8Con
     if (!parser || !parser->columns || parser->row >= parser->rows || !modes.data ||
         modes.count < parser->columns || !coefficients.data || coefficients.count < parser->columns)
         return {Vp8CoefficientError::invalid_input};
-    // All macroblock headers live in the first partition, in raster order;
-    // this row's tokens come from partition row % count.
+    // All macroblock headers live in the first partition, in raster order.
     WindowReader mode_reader = to_window(parser->modes);
-    for (u32 x = 0; x < parser->columns; ++x) {
-        parse_macroblock_mode(&mode_reader, header, parser->row ? parser->above_modes + x * 4u : nullptr,
-                              x ? &modes[x - 1] : nullptr, &modes[x]);
-        if (!mode_reader.ok()) {
-            from_window(mode_reader, &parser->modes);
-            return {Vp8CoefficientError::boolean_stream};
-        }
-    }
+    const bool parsed =
+        parse_row_modes(&mode_reader, header, parser->above_modes, parser->row == 0, modes.data, parser->columns);
     from_window(mode_reader, &parser->modes);
-    Vp8BoolReader& partition = parser->tokens[parser->row & (parser->partitions - 1u)];
-    WindowReader reader = to_window(partition);
-    reset_value<Vp8TokenContext>(&parser->left_context);
-    for (u32 x = 0; x < parser->columns; ++x) {
-        const auto decoded = decode_macroblock_tokens(&reader, header, probabilities, modes[x],
-                                                      &parser->top_context[x], &parser->left_context,
-                                                      &coefficients[x]);
-        if (decoded.error != Vp8CoefficientError::none) {
-            from_window(reader, &partition);
-            return decoded;
-        }
-        for (u32 block = 0; block < 4; ++block)
-            parser->above_modes[x * 4u + block] = modes[x].luma_subblock[12u + block];
-    }
-    from_window(reader, &partition);
+    if (!parsed)
+        return {Vp8CoefficientError::boolean_stream};
+    if (const auto decoded =
+            decode_row_tokens(&parser->tokens[parser->row & (parser->partitions - 1u)], header, probabilities,
+                              modes.data, parser->top_context, &parser->left_context, coefficients.data,
+                              parser->columns);
+        !decoded.ok())
+        return decoded;
     ++parser->row;
     return Vp8CoefficientParseResult{Vp8CoefficientError::none};
 }

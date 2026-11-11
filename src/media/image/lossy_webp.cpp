@@ -37,12 +37,8 @@ LossyWebpDecodeResult decode_payloads(
     if (!result.control.ok()) {
         return failure(result, LossyWebpError::vp8_control);
     }
-    result.modes = vp8_parse_keyframe_modes(*frame, *header, modes);
-    if (!result.modes.ok()) {
-        return failure(result, LossyWebpError::vp8_modes);
-    }
-    result.coefficients = vp8_decode_keyframe_coefficients(
-        *frame, *header, *probabilities, *modes, coefficients);
+    result.coefficients = vp8_decode_keyframe_macroblocks(
+        *frame, *header, *probabilities, modes, coefficients);
     if (!result.coefficients.ok()) {
         return failure(result, LossyWebpError::vp8_coefficients);
     }
