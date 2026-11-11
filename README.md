@@ -267,7 +267,7 @@ details.
 <summary><b>Windows</b>: Windows 10 version 1809 or later, or Windows 11, 64-bit, and a Direct3D 11 GPU with Tiled Resources Tier 1 and a WDDM 2.0 driver</summary>
 
 - Windows 10 version 1809 or later, or Windows 11, 64-bit
-- A CPU with AVX, AES-NI and PCLMULQDQ (every AVX processor has the last)
+- A CPU with AVX, AES-NI, PCLMULQDQ and POPCNT (every AVX processor has the last two)
 - A GPU with Direct3D 11 (feature level 11_0) and Tiled Resources Tier 1 (Direct3D 11.2)
 - A graphics driver of WDDM 2.0 or newer, with Direct3D 11 fences: the GPU maker's current Windows 10 driver for every
   GPU above is one (NVIDIA Fermi and later, AMD GCN and later, Intel Broadwell and later)
@@ -278,9 +278,9 @@ details.
 <details>
 <summary><b>Linux</b>: x86-64, Linux 6.1+, a Wayland session, glibc 2.34+ or musl</summary>
 
-- x86-64 with AVX, AES-NI and PCLMULQDQ, and Linux 6.1 or newer: the network loop runs on io_uring, so a system that
-  disables it (`kernel.io_uring_disabled`, Docker's and Podman's default seccomp profile) is refused at startup with the
-  cause named. Stock Ubuntu 22.04 and RHEL 9 kernels are older than 6.1
+- x86-64 with AVX, AES-NI, PCLMULQDQ and POPCNT (as on Windows), and Linux 6.1 or newer: the network loop runs on
+  io_uring, so a system that disables it (`kernel.io_uring_disabled`, Docker's and Podman's default seccomp profile) is
+  refused at startup with the cause named. Stock Ubuntu 22.04 and RHEL 9 kernels are older than 6.1
 - glibc 2.34 or newer, or musl (Alpine, Void, Chimera). The release is checked in containers of Ubuntu 22.04, Debian 12,
   AlmaLinux 9, Fedora, Arch, NixOS, Alpine, Void and Chimera
 - A Wayland compositor: there is no X11 backend. MaiCord draws its own title bar, so it needs no server-side

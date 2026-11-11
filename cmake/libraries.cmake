@@ -11,7 +11,7 @@ maicord_library(maicord_core
     # Linux: the system side of what Windows takes from src/core (log, paths, shared libraries, resources), and the
     # bodies of the neutral os layer (include/maicord/os): address space, SRW locks, waits, threads, files and
     # directories, ordinal compares, the local time zone and date formatting (the TZif reader is pure).
-    linux:src/core/linux/log.cpp linux:src/core/linux/path.cpp linux:src/core/linux/shared_library.cpp
+    linux:src/core/linux/log.cpp linux:src/core/linux/path.cpp linux:src/core/linux/shared_library.cpp linux:src/core/linux/crc32.cpp
     linux:src/core/linux/resource.cpp linux:src/os/linux/pages.cpp linux:src/os/linux/srwlock.cpp
     linux:src/os/linux/wait.cpp linux:src/os/linux/thread.cpp linux:src/os/linux/file.cpp
     linux:src/os/linux/directory.cpp linux:src/os/linux/ordinal.cpp linux:src/os/linux/local_time.cpp
@@ -36,7 +36,7 @@ set(MAIOPUS_LTCG ON)
 set(MAIOPUS_LTCG_OPTION ${MAICORD_WHOLE_PROGRAM_OPTION})
 set(MAIOPUS_SSE4_1 ON)
 if(MAICORD_LINUX)
-    set(MAIOPUS_ARCH -mavx)
+    set(MAIOPUS_ARCH -march=sandybridge -mtune=generic)
     set(maicord_opus_options -nostdinc -fPIE -fvisibility=hidden -fno-stack-protector -fcf-protection=none
         -ffp-contract=off ${MAICORD_NO_OUTLINE_OPTION} ${MAICORD_UNWIND_OPTIONS})
 else()
@@ -76,7 +76,7 @@ maicord_library(maicord_media_codec
 # for C (LTO comes from the contract).
 if(MAICORD_LINUX)
     target_compile_options(maicord_media_codec PRIVATE
-        "$<$<COMPILE_LANGUAGE:C>:-Wall;-Wextra;-Werror;-mavx;-Wno-missing-braces>")
+        "$<$<COMPILE_LANGUAGE:C>:-Wall;-Wextra;-Werror;-march=sandybridge;-mtune=generic;-Wno-missing-braces>")
 else()
     target_compile_options(maicord_media_codec PRIVATE
         "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/Zl;/GS-;/O2;/Ob1;/arch:AVX;/fp:precise;/Gy;/Gw;/GF;/Brepro;-Wno-missing-braces>")
@@ -151,6 +151,7 @@ maicord_library(maicord_protocol
     src/protocol/media/media_catalog.cpp src/protocol/gateway/presence.cpp src/protocol/gateway/client_status.cpp
     src/protocol/user/self_status_settings.cpp src/protocol/guild/folders.cpp src/protocol/guild/invite.cpp
     src/protocol/user/settings_proto.cpp src/protocol/user/account_settings.cpp src/protocol/user/emoji_preferences.cpp
+    src/protocol/user/frecency_wire.cpp
     src/protocol/user/gif_favorites.cpp src/protocol/guild/channel_overview.cpp src/protocol/guild/admin.cpp
     src/protocol/guild/admin_decode.cpp src/protocol/guild/game_profile.cpp
     src/protocol/guild/assets.cpp src/protocol/user/profile_edit.cpp src/protocol/voice/video_signaling.cpp

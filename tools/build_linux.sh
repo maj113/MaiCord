@@ -35,7 +35,8 @@
 #             MAICORD_LINUX_SOURCE always copies there; $CI never copies).
 #   Build     ~/mc-build (MAICORD_LINUX_BUILD), one Release configuration: clang and ld.lld, full LTO, IPRA,
 #             -fno-exceptions -fno-rtti, no unwind tables, -nostdinc with MaiCord's own headers
-#             (include/maicord/sys/linux for the kernel and glibc interface), -mavx where Windows uses /arch:AVX.
+#             (include/maicord/sys/linux for the kernel and glibc interface), -march=sandybridge -mtune=generic
+#             where Windows uses /arch:AVX (clang-cl's Sandy Bridge with generic tuning).
 #             cmake/build_contract.cmake is the contract; the client and the tests the run selects from the
 #             test manifest (maicord-tests.txt, written by CMake as on Windows) are built. Size is the Windows client's:
 #             cmake/size_policy.cmake (-Oz, -Os for what no measurement shows hot, and helper folding per source), the

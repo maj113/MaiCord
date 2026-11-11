@@ -3,24 +3,21 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/crc32.hpp"
+#include "maicord/core/intrinsics.hpp"
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {
-// RFC 3533 section 6: non-reflected CRC, no initial/final inversion.
-struct CrcTable {
-    u32 values[256]{};
-};
-constexpr CrcTable crc_table() noexcept {
-    CrcTable table{};
-    for (u32 i = 0; i < 256; ++i) {
-        u32 value = i << 24;
-        for (u32 bit = 0; bit < 8; ++bit)
-            value = (value << 1) ^ ((value & 0x80000000u) ? 0x04c11db7u : 0);
-        table.values[i] = value;
-    }
-    return table;
+// RFC 3533 section 6 is the IEEE CRC-32 unreflected and without the inversions: with each byte's bits reversed it is
+// the reflected CRC crc32_extend computes, whose state is the checksum bit-reversed.
+__m128i reverse_bits(__m128i bytes) noexcept {
+    const __m128i reversed = _mm_setr_epi8(0x00, -0x80, 0x40, -0x40, 0x20, -0x60, 0x60, -0x20, 0x10, -0x70, 0x50, -0x30,
+                                           0x30, -0x50, 0x70, -0x10);
+    const __m128i nibble = _mm_set1_epi8(0x0F);
+    return _mm_or_si128(_mm_shuffle_epi8(reversed, _mm_and_si128(bytes, nibble)),
+                        _mm_shuffle_epi8(_mm_srli_epi16(reversed, 4), _mm_and_si128(_mm_srli_epi16(bytes, 4), nibble)));
 }
-constexpr auto kCrc = crc_table();
 bool scratch_valid(const ConstSlice<u8>& encoded, const Slice<u8>& scratch, const void* out, u32 out_bytes) noexcept {
     return (!scratch.count || scratch.data) &&
            !byte_ranges_overlap(encoded.data, encoded.count, out, out_bytes) &&
@@ -237,12 +234,20 @@ OggOpusError read_packet(const OggOpusDemuxer& d, OggOpusCursor* cursor, Slice<u
 } // namespace
 
 u32 ogg_page_checksum(ConstSlice<u8> page) noexcept {
-    u32 crc = 0;
-    for (u32 i = 0; i < page.count; ++i) {
-        const u8 byte = i >= 22 && i < 26 ? 0 : page.data[i];
-        crc = (crc << 8) ^ kCrc.values[(crc >> 24) ^ byte];
+    u8 block[256];
+    u32 crc = ~0u;
+    for (u32 at = 0; at < page.count; at += sizeof(block)) {
+        const u32 bytes = minimum(page.count - at, u32{sizeof(block)});
+        copy_bytes(block, page.data + at, bytes);
+        for (u32 i = 22; !at && i < 26 && i < bytes; ++i)
+            block[i] = 0;
+        for (u32 i = 0; i < bytes; i += 16) {
+            auto* lane = reinterpret_cast<__m128i_u*>(block + i);
+            _mm_storeu_si128(lane, reverse_bits(_mm_loadu_si128(lane)));
+        }
+        crc = crc32_extend(crc, block, bytes);
     }
-    return crc;
+    return byte_swap(static_cast<u32>(_mm_cvtsi128_si32(reverse_bits(_mm_cvtsi32_si128(static_cast<int>(~crc))))));
 }
 
 OggOpusError ogg_opus_demux_initialize(OggOpusDemuxer* out, ConstSlice<u8> encoded, Slice<u8> scratch,

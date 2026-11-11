@@ -226,9 +226,9 @@ if(MAICORD_LINUX)
         "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-stack-protector;-fcf-protection=none>"
         # Strict IEEE semantics, as /fp:precise.
         "$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-contract=off>"
-        # The x86-64 baseline of the Windows build: /arch:AVX and -maes (the carry-less multiply the JSON scanner
-        # uses is part of the same baseline there; clang needs it named).
-        "$<$<COMPILE_LANGUAGE:CXX>:-mavx;-maes;-mpclmul>"
+        # The x86-64 baseline of the Windows build: clang-cl's /arch:AVX is Sandy Bridge (AVX, POPCNT, PCLMULQDQ,
+        # CMPXCHG16B) with generic tuning, plus -maes. Sandy Bridge's own tuning grew the client by 38 KB.
+        "$<$<COMPILE_LANGUAGE:CXX>:-march=sandybridge;-mtune=generic;-maes>"
         "$<$<COMPILE_LANGUAGE:C,CXX>:-O2>" "$<$<COMPILE_LANGUAGE:CXX>:-finline-hint-functions>"
         "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>"
         "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>"
