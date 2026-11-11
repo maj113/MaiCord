@@ -25,11 +25,9 @@ void ownership() noexcept {
     auto* base = store.collapsed_guilds.arena.base;
     SYSTEM_INFO system{}; GetSystemInfo(&system);
     check(first.ok() && first.changed && base && vm(base, MEM_COMMIT) &&
-        store.collapsed_guilds.arena.committed == system.dwPageSize && store.collapsed_guilds.arena.commit_count == 1 &&
+        store.collapsed_guilds.arena.committed == system.dwPageSize &&
         reaction_preferences_section_collapsed(store, 16, 1007),
         "reaction storage: first guild collapse commits exactly one native page before publishing identity");
-    test_write_metric("MEASURE reaction_collapse_initial_committed_bytes=", 0);
-    test_write_metric("MEASURE reaction_collapse_first_committed_bytes=", store.collapsed_guilds.arena.committed);
     check(!reaction_preferences_initialize(&store) && store.collapsed_guilds.arena.base == base &&
         reaction_preferences_section_collapsed(store, 16, 1007),
         "reaction storage: duplicate reset cannot discard a live owned bank");
@@ -39,7 +37,6 @@ void ownership() noexcept {
     const u32 revision = store.revision;
     check(store.collapsed_guild_count == 256 && store.collapsed_guilds.capacity == 256 &&
         store.collapsed_guilds.arena.base == base && store.collapsed_guilds.arena.committed == system.dwPageSize &&
-        store.collapsed_guilds.arena.commit_count == 1 &&
         reaction_preferences_toggle_section(&store, 16, 9000).error == ReactionPreferenceError::capacity &&
         store.collapsed_guild_count == 256 && store.revision == revision,
         "reaction storage: full-capacity overflow preserves state and stable bank with no extra page");
@@ -92,7 +89,6 @@ void commit_failure() noexcept {
 
 MAICORD_TEST_ENTRY(maicord_reaction_preference_storage_entry) {
     using namespace maicord::reaction_preference_storage_test;
-    maicord::test_write_metric("MEASURE reaction_preference_owner_bytes=", sizeof(maicord::ReactionPreferenceStore));
     DWORD before = 0, after = 0;
     const bool counted = GetProcessHandleCount(GetCurrentProcess(), &before) != FALSE;
     ownership(); commit_failure();

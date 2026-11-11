@@ -54,7 +54,7 @@ if(MAICORD_LINUX)
     maicord_share_test_objects(maicord_test_targets)
 else()
     maicord_copy_fonts(MaiCordUiProbe MaiCordMessageLinkUiProbe MaiCordComposerUiProbe MaiCordAccountLogoutUiProbe
-        MaiCordScopedReadUiProbe MaiCordFontCatalogTests)
+        MaiCordScopedReadUiProbe MaiCordTextUnitTests)
     maicord_add_test_codegen_twins(maicord_test_targets)
     maicord_share_test_objects(maicord_test_targets)
     # The tests compiling the most application sources use the application PCH too.

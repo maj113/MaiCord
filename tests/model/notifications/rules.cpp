@@ -282,8 +282,6 @@ void test_notification_rules(void (*check)(bool, const char*) noexcept) noexcept
         run_cases(t, s, true);
     }
     check(applied, "notification rules: every settings row is admitted");
-    test_write_metric("notification rules: settings=", settings);
-    test_write_metric("notification rules: cases=", t.cases);
     check(settings == 480 + 1440 + 4 && t.cases == (480 + 1440) * 1152 + 4 * 576 + 2 * 6144 + 3072,
           "notification rules: the table covers every settings row and case");
     check(t.popups && t.selected_sounds, "notification rules: the table reaches popups and selected sounds");

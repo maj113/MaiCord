@@ -28,7 +28,6 @@ struct KeepInfo {
 
 struct KeepStats {
     u32 messages;
-    u32 evicted; // messages dropped for a cap since the last clear
 };
 
 // Keeps a deleted message as a tombstone. False when it could not be stored (no memory,

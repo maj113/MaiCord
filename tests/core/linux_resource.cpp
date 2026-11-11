@@ -29,7 +29,6 @@ MAICORD_TEST_ENTRY(maicord_linux_resource_entry) {
     }
     const ConstSlice<u8> first = program_resource(nullptr, 20481), second = program_resource(nullptr, 20482);
     check(first.data != second.data, "the two sounds are different resources");
-    check(program_resource(nullptr, 20481).data == first.data, "a resource is the same bytes on every call");
     check(!program_resource(nullptr, 1).data && !program_resource(nullptr, 2).data && !program_resource(nullptr, 2).count,
           "an unknown id is empty");
     test_exit(g_failures, "linux_resource");

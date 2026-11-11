@@ -60,8 +60,6 @@ bool run() noexcept {
     union {u32 bits;float value;} nonfinite{0x7fc00000u};invalid.rotation=0;invalid.cx=nonfinite.value;
     CHECK(!regional_flag_layer_outline(invalid,&outline));nonfinite.bits=0x7f800000u;invalid.cx=nonfinite.value;
     CHECK(!regional_flag_layer_outline(invalid,&outline));
-    print("art_bytes=");number(sizeof(RegionalFlagArt));print(" layer_bytes=");number(sizeof(RegionalFlagLayer));
-    print(" outline_workspace_bytes=");number(sizeof(commands));print("\n");
     arena_release(&program.storage);print("regional_flag_art_test_passed\n");return true;
 }
 }}

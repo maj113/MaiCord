@@ -115,7 +115,9 @@ void run() noexcept {
         deliver(&coordinator, &event, 200, utf8_literal(R"({"token":"session-token"})"));
         check(event.kind == UserAuthCoordinatorEventKind::authenticated && !runtime->reset_context_active && !runtime->continuation_base_bytes,
             "reset coordinator: final authenticated response erases reset context");
-        for (u32 i = 0; i < runtime->request_capacity; ++i) check(!runtime->secrets.data[i], "reset coordinator: initial and transient secret bytes wiped");
+        bool wiped = true;
+        for (u32 i = 0; i < runtime->request_capacity; ++i) wiped = !runtime->secrets.data[i] && wiped;
+        check(wiped, "reset coordinator: initial and transient secret bytes wiped");
         check(user_auth_coordinator_take_profile(&coordinator, 1, &profile, 1).ok() && profile.credential.bytes == 13 &&
             bytes_equal(profile.credential.data, "session-token", 13), "reset coordinator: only final session enters protected profile handoff");
         secure_buffer_release(&profile.credential); profile = {};
@@ -208,7 +210,9 @@ void run() noexcept {
     deliver(&coordinator, &event, 400, utf8_literal(R"({"code":50035})"));
     check(coordinator.state.phase == UserAuthCoordinatorPhase::reset_rejected && runtime->reset_prefix_retry &&
         prefix == runtime->continuation_token_bytes, "reset coordinator: explicit rejection retains only encoded token prefix");
-    for (u32 i = prefix; i < runtime->secrets.capacity; ++i) check(!runtime->secrets.data[i], "reset coordinator: rejected password and challenges erased");
+    bool rejected_wiped = true;
+    for (u32 i = prefix; i < runtime->secrets.capacity; ++i) rejected_wiped = !runtime->secrets.data[i] && rejected_wiped;
+    check(rejected_wiped, "reset coordinator: rejected password and challenges erased");
     const auto retry_generation = runtime->flow.generation;
     secure_clear_bytes(password.data, password.capacity); password.bytes = kUserAuthMaximumPasswordBytes + 1;
     check(!user_auth_coordinator_submit_reset(&coordinator, nullptr, &password).ok() && runtime->flow.generation == retry_generation &&

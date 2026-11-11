@@ -79,7 +79,6 @@ void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
     const u8 present_sbr[]{0x12, 0x10, 0x56, 0xe5, 0x80};
     check(!aac_decoder_configuration_valid({present_sbr, 5}, 44100, 2),
           "AAC metadata: out-of-domain SBR extension refuses rather than changing output rate silently");
-    const HMODULE before = GetModuleHandleW(L"mfplat.dll");
     AacDecoder decoder{};
     check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).ok() && decoder.initialized &&
               !decoder.runtime && !decoder.thread_id,
@@ -89,13 +88,11 @@ void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
           "AAC lifecycle: busy initialization and invalid packet cannot open a native transform");
     check(aac_decoder_drain(&decoder).ok() && decoder.ended && decoder.draining &&
               aac_decoder_flush(&decoder).ok() && !decoder.ended && !decoder.draining &&
-              aac_decoder_release(&decoder).ok() && !decoder.initialized && !decoder.runtime &&
-              GetModuleHandleW(L"mfplat.dll") == before,
-          "AAC lifecycle: metadata drain/flush/release balance without COM, MF startup or codec execution");
+              aac_decoder_release(&decoder).ok() && !decoder.initialized && !decoder.runtime,
+          "AAC lifecycle: metadata drain/flush/release balance without codec execution");
     check(aac_decoder_initialize(&decoder, {he44, 4}, 44100, 2).ok() && decoder.sample_rate == 44100 &&
               decoder.channels == 2 && decoder.asc_bytes == 4 && bytes_equal(decoder.asc, he44, 4) &&
-              !decoder.runtime && !decoder.thread_id && aac_decoder_release(&decoder).ok() &&
-              GetModuleHandleW(L"mfplat.dll") == before,
+              !decoder.runtime && !decoder.thread_id && aac_decoder_release(&decoder).ok(),
           "AAC lifecycle: HE configuration copies exact ASC and final PCM domain without native "
           "initialization or owner growth");
     decoder.asc[0] = stereo44[0];

@@ -20,8 +20,6 @@ namespace normal_fixture {
 #include "../../generated/tt_outline_fixture.inc"
 #include "../../generated/tt_recovery_fixture.inc"
 }
-static_assert(sizeof(SfntOutlineScratch)==64);
-static_assert(sizeof(TtOutlineInstance)==240,"Preparation recovery must fit the existing instance footprint.");
 enum class OutlineMode : u8 { normal,bold,bold_oblique,oblique,position };
 bool simulate_oblique=false,simulate_bold=false;
 template<usize Count> bool mode_name(const wchar_t* value,u32 count,const wchar_t (&name)[Count]) noexcept {

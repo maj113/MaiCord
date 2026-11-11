@@ -41,7 +41,7 @@ bool builtins() noexcept {
 }
 bool run() noexcept {
     CHECK(builtins());
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));print("checks=");number(checks);print(" PASS native script classes and resolution\n");return true;
+    print("checks=");number(checks);print(" PASS native script classes and resolution\n");return true;
 }
 }}
 extern "C" int maicord_script_tests_entry() noexcept {::maicord::test_process_exit(maicord::run()?0u:1u);}

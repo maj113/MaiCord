@@ -1819,10 +1819,11 @@ bool friends_pages(Fixture& f, D3D11Renderer& r) noexcept {
 }
 bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) noexcept {
     f.theme = kDefaultTheme;
-    // Atlases that hold every image at both scales; nothing is uploaded yet.
+    // Atlases that hold every image at both scales; nothing is uploaded yet. The primary one has the client's
+    // extent: a 1024-pixel square left no room for the second activity's art beside what the hero frames pin.
     renderer_unbind_media_atlas(&r);
-    bool ok = media_atlas_initialize(&f.atlas, 1024, 1024, 1, {f.atlas_entries, 64}, {f.atlas_buckets, 128},
-                                     {f.atlas_allocations, 64}, {f.atlas_rows, 32}) &&
+    bool ok = media_atlas_initialize(&f.atlas, kMediaAtlasExtent, kMediaAtlasExtent, 1, {f.atlas_entries, 64},
+                                     {f.atlas_buckets, 128}, {f.atlas_allocations, 64}, {f.atlas_rows, 32}) &&
               media_atlas_initialize(&f.preview_atlas, 4096, 4096, 1, {f.preview_entries, 64},
                                      {f.preview_buckets, 128}, {f.preview_allocations, 64},
                                      {f.preview_rows, 32}) &&

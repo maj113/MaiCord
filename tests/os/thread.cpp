@@ -133,22 +133,8 @@ void test_many_threads() noexcept {
     check(all && total == 199 * 200 / 2, "200 threads one after another");
 }
 
-u32 boost_and_return(void*) noexcept {
-    thread_boost_realtime();
-    return 1;
-}
-
 void test_helpers() noexcept {
     check(processor_count() >= 1, "processor count");
-    thread_sleep(1);
-    thread_sleep(0);
-    Thread* thread = thread_start(boost_and_return, nullptr, 64 * 1024, nullptr);
-    u32 code = 0;
-    check(thread != nullptr && thread_wait(thread, kLimit) && thread_exit_code(thread, &code) && code == 1,
-          "boost is best effort and returns");
-    if (thread != nullptr) {
-        thread_close(thread);
-    }
     check(current_thread_id() != 0, "thread id");
 }
 

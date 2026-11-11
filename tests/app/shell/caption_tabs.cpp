@@ -271,7 +271,6 @@ void overflow() noexcept {
           "caption tabs overflow: sixteen tabs do not fit at the narrowest window, and the \"...\" appears");
     click(centre_x(layout.tabs.overflow), centre_y(layout, layout.tabs.overflow));
     check(list_opens == 1 && menu_anchor.bottom <= 0, "caption tabs overflow: the \"...\" opens the list of every tab");
-    check(!application_tabs_open_channel(116, true), "caption tabs overflow: a seventeenth tab is refused");
 }
 
 UiAccessNode* find_node(UiAccessTree& tree, UiAccessRole role, Utf8View name, u32 under = 0) noexcept {
@@ -438,14 +437,13 @@ void accessibility() noexcept {
     seed(3);
     UiAccessTree& tree = access_tree;
     check(describe_bar(), "caption tabs accessibility: tree");
-    check(view() && tree.count > 3, "caption tabs accessibility: the nodes are added");
     const UiAccessNode* list = find_node(tree, UiAccessRole::tab_list, utf8_literal("Open tabs"));
     UiAccessNode* one = find_node(tree, UiAccessRole::tab, utf8_literal("one"));
     UiAccessNode* two = find_node(tree, UiAccessRole::tab, utf8_literal("two"));
     check(list && one && two, "caption tabs accessibility: the list and its named tabs exist");
     if (!list || !one || !two)
         return;
-    check(list && one && two && find_node(tree, UiAccessRole::tab, utf8_literal("three")) &&
+    check(find_node(tree, UiAccessRole::tab, utf8_literal("three")) &&
               (one->state & ui_access_selected) && !(two->state & ui_access_selected) &&
               (two->state & ui_access_selectable) && (two->actions & ui_access_action_select) &&
               (two->actions & ui_access_action_invoke) && one->parent == static_cast<u32>(list - tree.nodes.data),

@@ -45,14 +45,12 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     const u32 source_count = picker.result_count, source_revision = picker.revision;
     const usize allocation_before_toggle = picker.storage.offset,
                 committed_before_toggle = picker.storage.committed;
-    const u32 commits_before_toggle = picker.storage.commit_count;
     valid = valid && reaction_picker_toggle_section(&picker, favorite).ok();
     check(valid && picker.result_count == source_count && picker.sections[favorite].collapsed &&
               picker.sections[favorite].count == 1 && picker.revision > source_revision,
           "reaction sections: collapse keeps the complete source span without rebuilding the catalog");
     check(picker.storage.offset == allocation_before_toggle &&
-              picker.storage.committed == committed_before_toggle &&
-              picker.storage.commit_count == commits_before_toggle,
+              picker.storage.committed == committed_before_toggle,
           "reaction sections: toggle performs no arena allocation or page commitment");
     reaction_picker_release(&picker);
     valid = valid && reaction_picker_open(&picker, 77, &preferences, 1000).ok();

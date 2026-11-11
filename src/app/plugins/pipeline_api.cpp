@@ -28,27 +28,17 @@ bool optional_text_ok(const mc_str& text, u32 maximum) noexcept {
 
 // A write to the account needs MC_PERM_ACT_MESSAGES and a gesture, or MC_PERM_AUTOMATED_ACTIONS.
 mc_status write_gate(const PluginBinding& binding) noexcept {
-    if (!(binding.permissions & (MC_PERM_ACT_MESSAGES | MC_PERM_AUTOMATED_ACTIONS))) {
-        ++plugin_stats().action_denials;
-        return MC_E_DENIED;
-    }
-    if (!(binding.ctx.flags & MC_CTX_GESTURE) && !(binding.permissions & MC_PERM_AUTOMATED_ACTIONS)) {
-        ++plugin_stats().action_denials;
-        return MC_E_GESTURE;
-    }
+    if (!(binding.permissions & (MC_PERM_ACT_MESSAGES | MC_PERM_AUTOMATED_ACTIONS))) return MC_E_DENIED;
+    if (!(binding.ctx.flags & MC_CTX_GESTURE) && !(binding.permissions & MC_PERM_AUTOMATED_ACTIONS)) return MC_E_GESTURE;
     return MC_OK;
 }
 
 mc_status composer_gate(const PluginBinding& binding) noexcept {
-    if (binding.permissions & MC_PERM_COMPOSER) return MC_OK;
-    ++plugin_stats().action_denials;
-    return MC_E_DENIED;
+    return binding.permissions & MC_PERM_COMPOSER ? MC_OK : MC_E_DENIED;
 }
 
 mc_status limited(PluginBinding* binding, PluginBucket bucket) noexcept {
-    if (plugin_take(binding, bucket)) return MC_OK;
-    ++plugin_stats().action_denials;
-    return MC_E_RATE_LIMITED;
+    return plugin_take(binding, bucket) ? MC_OK : MC_E_RATE_LIMITED;
 }
 
 } // namespace
@@ -171,10 +161,7 @@ mc_status MC_CALL api_mark_read(mc_ctx* ctx, uint32_t scope, uint64_t id) noexce
 mc_status MC_CALL api_set_activity(mc_ctx* ctx, const mc_activity* activity) noexcept {
     PluginBinding* binding = active(ctx);
     if (!binding) return MC_E_INACTIVE;
-    if (!(binding->permissions & MC_PERM_ACT_PRESENCE)) {
-        ++plugin_stats().action_denials;
-        return MC_E_DENIED;
-    }
+    if (!(binding->permissions & MC_PERM_ACT_PRESENCE)) return MC_E_DENIED;
     if (activity) {
         const bool custom = activity->type == MC_ACTIVITY_CUSTOM;
         if (activity->type > MC_ACTIVITY_COMPETING || activity->flags ||
@@ -226,9 +213,7 @@ mc_status MC_CALL api_cancel_timer(mc_ctx* ctx, uint64_t id) noexcept {
 
 namespace {
 mc_status history_gate(const PluginBinding& binding) noexcept {
-    if (binding.permissions & MC_PERM_MESSAGE_HISTORY) return MC_OK;
-    ++plugin_stats().action_denials;
-    return MC_E_DENIED;
+    return binding.permissions & MC_PERM_MESSAGE_HISTORY ? MC_OK : MC_E_DENIED;
 }
 
 bool kept_valid(const mc_kept& item) noexcept {
@@ -272,10 +257,7 @@ mc_status MC_CALL api_keep_text(mc_ctx* ctx, uint64_t channel, uint64_t message,
 mc_status MC_CALL api_keep_restore(mc_ctx* ctx, const mc_kept* items, uint32_t count) noexcept {
     PluginBinding* binding = active(ctx);
     if (!binding) return MC_E_INACTIVE;
-    if (!(binding->permissions & MC_PERM_PERSISTENT_LOG)) {
-        ++plugin_stats().action_denials;
-        return MC_E_DENIED;
-    }
+    if (!(binding->permissions & MC_PERM_PERSISTENT_LOG)) return MC_E_DENIED;
     if (!items || !count) return MC_E_INVALID;
     if (count > MC_KEEP_RESTORE_MAX) return MC_E_CAPACITY;
     for (u32 i = 0; i < count; ++i)

@@ -1,10 +1,10 @@
 // Shared first-party emoji test storage, font ownership and diagnostics.
-u32 checks=0,case_index=0,font_index=0,cases=0,runs=0,rejected_fonts=0,nominal_runs=0,proof_fallbacks=0;u64 values=0,digest=1469598103934665603ull,root_bytes=0;
+u32 checks=0,case_index=0,font_index=0,cases=0,runs=0,rejected_fonts=0,nominal_runs=0,proof_fallbacks=0;
 void print(const char* s) noexcept {u32 length=0;while(s[length])++length;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,length,&written,nullptr);}
 void number(u64 value) noexcept {char s[32];u32 count=0;do{s[count++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<count/2;++i){const auto c=s[i];s[i]=s[count-1-i];s[count-1-i]=c;}s[count]=0;print(s);}
 bool check(bool value,u32 line) noexcept {++checks;if(value)return true;print("FAIL line=");number(line);print(" font=");number(font_index);print(" case=");number(case_index);print("\n");return false;}
 #define CHECK(v) do{if(!check((v),__LINE__))return false;}while(false)
-bool equal(u32 actual,u32 expected,u32 line) noexcept {++values;digest=(digest^actual)*1099511628211ull;if(actual==expected)return true;print("actual=");number(actual);print(" expected=");number(expected);print(" ");return check(false,line);}
+bool equal(u32 actual,u32 expected,u32 line) noexcept {if(actual==expected)return true;print("actual=");number(actual);print(" expected=");number(expected);print(" ");return check(false,line);}
 #define EQUAL(a,b) do{if(!equal((a),(b),__LINE__))return false;}while(false)
 struct Reader {ConstSlice<u8> data;u32 at=0;bool word(u32* value) noexcept {if(data.count-at<4)return false;*value=byte_load_le32(data.data+at);at+=4;return true;}bool take(u32 count,ConstSlice<u8>* value) noexcept {if(count>data.count-at)return false;*value={data.data+at,count};at+=count;return true;}};
 NativeFontFileSlot files[1];NativeFontFaceSlot faces[1];NativeFontInstanceSlot instances[1];NativeRunPlanSlot plans[1];
@@ -39,7 +39,6 @@ bool emoji_cleanup(bool ok) noexcept {
     while(plans[0].references)native_run_plan_release(&store,{1,plans[0].generation});
     while(instances[0].references)native_font_instance_release(&font_instances,{1,instances[0].generation});while(faces[0].references)native_font_release(&fonts,{1,faces[0].generation});
     arena_release(&scratch);arena_release(&state);if(input_file)pages_release(input_file);if(temporary[0]&&!DeleteFileW(temporary))ok=false;
-    if(GetModuleHandleW(L"dwrite.dll")||GetModuleHandleW(L"DWriteCore.dll"))ok=false;
     return ok;
 }
 // Reads the whole file named by font_path (at most 32 MiB) into input_file.

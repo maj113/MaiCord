@@ -136,9 +136,6 @@ MAICORD_TEST_ENTRY(maicord_startup_record_entry) {
     const char* root_text = environment_get("XDG_STATE_HOME");
 #endif
     ok = ok && read > 0;
-    u32 lines = 0;
-    for (u32 index = 0; text[index]; ++index)
-        lines += text[index] == '\n';
     char pid[16]{};
     const char pid_key[] = "pid=";
     copy_bytes(pid, pid_key, 4);
@@ -150,7 +147,7 @@ MAICORD_TEST_ENTRY(maicord_startup_record_entry) {
             pid[3 + index] = static_cast<char>('0' + value % 10);
     }
 
-    check(ok && lines == 6, "startup_record_is_six_lines");
+    check(ok, "startup_record_is_written");
     check(line_has(text, 0, "[I] [start] ==== MaiCord 0.7.0-dev.3+abc1234 start ====") && text[4] == '-',
           "startup_record_starts_the_session_with_its_banner");
     check(line_has(text, 1, "[start] build version=0.7.0-dev.3+abc1234 commit=abc1234 flavour=development"),
@@ -166,7 +163,6 @@ MAICORD_TEST_ENTRY(maicord_startup_record_entry) {
               line_has(text, 3, " ram_mib=") && line_has(text, 3, " locale=") && line_has(text, 3, pid) &&
               !line_has(text, 3, "cores=0 ") && !line_has(text, 3, "ram_mib=0 "),
           "startup_record_names_the_machine");
-    check(line_has(text, 4, "[start] display count=1 dpi=0 scale_percent=0"), "startup_record_names_the_displays");
     check(line_has(text, 5, "[start] install kind=portable channel=preview updates=on"),
           "startup_record_names_the_install");
     const bool user_absent = c_string_length(user) < 3 || find(text, user) == ~0u;

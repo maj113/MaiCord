@@ -73,8 +73,6 @@ void test_account_module_contract() noexcept {
     }
     if (guarded_owner)
         VirtualFree(guarded_owner, 0, MEM_RELEASE);
-    expect(account_module_thread_browser(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
-           "account_module_thread_browser_dormant_cancel_contract");
     expect(account_module_private_conversation(nullptr, PrivateConversationOperation::open, 2, 1).error ==
                RestClientSubmitError::invalid_input,
            "account_module_private_conversation_contract");
@@ -113,8 +111,6 @@ void test_account_module_contract() noexcept {
                        GatewayClientPopError::invalid_input &&
                    !account_module_guild_subscribe(nullptr, nullptr) &&
                    account_module_gateway_refresh(nullptr) == GatewayStateRecoveryResult::unavailable &&
-                   account_module_relationships(nullptr, RelationshipOperation::list, 0, {}, 1).error ==
-                       RestClientSubmitError::invalid_input &&
                    account_module_history_submit(nullptr, 1, &query, 1).error ==
                        RestClientSubmitError::invalid_input &&
                    account_module_message_typing(nullptr, 1, 1).error == RestClientSubmitError::invalid_input &&

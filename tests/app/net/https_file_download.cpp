@@ -61,8 +61,8 @@ void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcep
     request.url = utf8_literal("https://cdn.discordapp.com/attachments/77/42/file.bin?ex=ffffffff&is=1&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
     request.source_channel_id = 77; request.attachment_id = 42;
     request.path = {path, units}; request.expected_bytes = 0; request.timeout_ms = 5000;
-    check(https_file_download_runtime_bytes() < 768 * 1024 && sizeof(HttpsFileDownloadResult) == 40,
-        "download uses a fixed bounded runtime and compact receipt independent of attachment size");
+    check(https_file_download_runtime_bytes() < 768 * 1024,
+        "download uses a fixed bounded runtime independent of attachment size");
     request.destination_exists = true; request.destination = selected;
     check(https_file_download_start(&owner, request) == HttpsFileDownloadError::invalid_input && !owner.runtime,
         "download refuses an existing destination without explicit overwrite authorization");

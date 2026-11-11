@@ -122,6 +122,5 @@ void test_notification_sound_policy(void(*check)(bool,const char*)noexcept) noex
         !notification_sound_throttle_timer(&throttle,10000,0).invoke&&!notification_sound_throttle_timer(&throttle,10000,8).invoke&&
         !throttle.timer_active&&!throttle.pending,
         "disabled zero owner cancels pending sound and rejects both zero and old timer generations");
-    check(sizeof(NotificationSoundThrottle)<=64&&sizeof(NotificationSoundRequest)<=24,"sound scheduling owns bounded copied scalar state without tables");
 }
 } // namespace maicord

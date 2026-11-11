@@ -138,13 +138,13 @@ bool run() noexcept {
 extern "C" int maicord_font_store_entry() noexcept {
     using namespace maicord;const bool ok=run();
     for(u32 i=0;i<instance_store.slots.count;++i)while(instance_store.slots[i].references)native_font_instance_release(&instance_store,{i+1,instance_store.slots[i].generation});
-    print("instance_fonts=",15);number(instance_fonts);print("\ninstance_outlines=",19);number(instance_outlines);print("\ninstance_budgets=",18);number(instance_budgets);print("\ninstance_slot_bytes=",21);number(sizeof(NativeFontInstanceSlot));print("\n",1);
+    print("instance_fonts=",15);number(instance_fonts);print("\ninstance_outlines=",19);number(instance_outlines);print("\ninstance_budgets=",18);number(instance_budgets);print("\n",1);
     // Always close live test handles before deleting only files we created.
     for(u32 i=0;i<store.faces.count;++i)while(store.faces[i].references)native_font_release(&store,{i+1,store.faces[i].generation});
     bool cleaned=true;for(auto& path:paths)if(path[0]&&!DeleteFileW(path))cleaned=false;
     if(directory_created&&!RemoveDirectoryW(directory))cleaned=false;
     if(reserved&&!DeleteFileW(reservation))cleaned=false;
-    print("checks=",7);number(checks);print("\nhandle_bytes=",14);number(sizeof(NativeFontHandle));print("\nfile_slot_bytes=",17);number(sizeof(NativeFontFileSlot));print("\nface_slot_bytes=",17);number(sizeof(NativeFontFaceSlot));
+    print("checks=",7);number(checks);
     const bool passed=ok&&cleaned;
     const char* message=passed?"\nPASS native font instances\n":"\nFAIL native font instances\n";
     print(message,28);return passed?0:1;

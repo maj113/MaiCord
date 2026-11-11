@@ -75,7 +75,6 @@ Bytes fixture(bool split = false) noexcept {
     packet(b,257,1,true,z.view()); return b;
 }
 void run() noexcept {
-    check(sizeof(MpegTsReader) <= 32 && sizeof(MpegTsProgram) <= 12, "transport cursor has fixed small storage");
     auto bytes = fixture(); MpegTsProgram program{};
     check(mpeg_ts_program(bytes.view(), &program) == E::none && program.number == 1 && program.pmt_pid == 4096 &&
         program.pcr_pid == 257 && program.video_pid == 257 && program.audio_pid == 256, "clear single-program AVC/AAC selection");

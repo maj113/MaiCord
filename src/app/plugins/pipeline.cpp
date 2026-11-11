@@ -13,7 +13,6 @@ static_assert(MC_MESSAGE_OWN == 1 && MC_EVENT_KIND_COUNT <= 64);
 namespace plugin_runtime_detail {
 namespace {
 
-PluginPipelineStats g_stats;
 PluginSide g_sides[kPluginMaximumBindings];
 
 struct BucketPolicy {
@@ -51,10 +50,6 @@ bool plugin_take(PluginBinding* binding, PluginBucket bucket) noexcept {
     return true;
 }
 
-PluginPipelineStats& plugin_stats() noexcept {
-    return g_stats;
-}
-
 // Whether the plugin declares the hook; true while it starts, before its hooks are published.
 bool plugin_subscribed(const PluginBinding* binding, PluginHook hook) noexcept {
     const mc_descriptor& descriptor = *binding->image.descriptor;
@@ -66,10 +61,6 @@ bool plugin_subscribed(const PluginBinding* binding, PluginHook hook) noexcept {
 } // namespace plugin_runtime_detail
 
 using namespace plugin_runtime_detail;
-
-const PluginPipelineStats& plugin_pipeline_stats() noexcept {
-    return g_stats;
-}
 
 namespace {
 
@@ -129,7 +120,7 @@ mc_status run_typing(mc_ctx* ctx, void* argument) noexcept {
 // Runs the verdict function of every subscriber of hook; returns whether any answered `wanted`.
 // stop_at_first ends the pass at the first such answer.
 bool run_verdicts(PluginHook hook, PluginCallKind kind, PluginCallClass call_class, u32 context_flags, PluginInvoke invoke,
-                  Verdict call, u32 wanted, bool stop_at_first, u32* counter, u32 filter_bit) noexcept {
+                  Verdict call, u32 wanted, bool stop_at_first, u32 filter_bit) noexcept {
     bool answered = false;
     for (const auto& subscriber : subscribers(hook)) {
         if (subscriber.binding->struck_out) continue;
@@ -137,7 +128,6 @@ bool run_verdicts(PluginHook hook, PluginCallKind kind, PluginCallClass call_cla
         call.function = subscriber.function;
         call.result = 0;
         const PluginCallResult ran = plugin_binding_call(subscriber.binding, kind, call_class, context_flags, invoke, &call);
-        ++*counter;
         if (ran.overran) continue;
         if (call.result == wanted) {
             answered = true;
@@ -193,7 +183,6 @@ void deliver_to(const PluginSubscriber& subscriber) noexcept {
             // The plugin was too slow: it learns how many events it missed.
             const u64 lost = g_head - kPluginEventSlots - side->cursor;
             side->cursor = g_head - kPluginEventSlots;
-            g_stats.events_lost += static_cast<u32>(lost);
             reset_value(&batch[count]);
             batch[count].kind = MC_EVENT_OVERFLOW;
             batch[count].value = lost;
@@ -208,7 +197,6 @@ void deliver_to(const PluginSubscriber& subscriber) noexcept {
         if (!count) return;
         EventCall call{subscriber.function.events, batch, count};
         plugin_binding_call(subscriber.binding, PluginCallKind::event, PluginCallClass::event, 0, run_events, &call);
-        ++g_stats.event_calls;
     }
 }
 
@@ -218,8 +206,7 @@ bool plugin_dispatch_deleted(const PluginMessage& message) noexcept {
     if (!plugin_hook_subscribed(PluginHook::message_deleted)) return false;
     const mc_message abi = to_abi(message);
     const bool keep = run_verdicts(PluginHook::message_deleted, PluginCallKind::event, PluginCallClass::pre, 0,
-                                   run_deleted, Verdict{&abi, nullptr, nullptr, 0, {}, 0}, MC_KEEP, false,
-                                   &g_stats.deleted_calls, 0);
+                                   run_deleted, Verdict{&abi, nullptr, nullptr, 0, {}, 0}, MC_KEEP, false, 0);
     return keep && keep_deleted(to_keep(message));
 }
 
@@ -227,8 +214,7 @@ bool plugin_dispatch_edited(const PluginMessage& before, const PluginMessage& af
     if (!plugin_hook_subscribed(PluginHook::message_edited)) return false;
     const mc_message abi_before = to_abi(before), abi_after = to_abi(after);
     const bool keep = run_verdicts(PluginHook::message_edited, PluginCallKind::event, PluginCallClass::pre, 0,
-                                   run_edited, Verdict{&abi_before, &abi_after, nullptr, 0, {}, 0}, MC_KEEP, false,
-                                   &g_stats.edited_calls, 0);
+                                   run_edited, Verdict{&abi_before, &abi_after, nullptr, 0, {}, 0}, MC_KEEP, false, 0);
     return keep && keep_edited(to_keep(before), after.content, after.edited_ms);
 }
 
@@ -241,14 +227,13 @@ bool plugin_dispatch_click(const PluginMessage& message, const PluginClick& clic
     const mc_click abi_click{click.button, click.count, click.modifiers, 0};
     return run_verdicts(PluginHook::message_click, PluginCallKind::slot_action, PluginCallClass::gesture,
                         MC_CTX_GESTURE, run_click, Verdict{&abi, nullptr, &abi_click, 0, {}, 0}, MC_CLICK_HANDLED,
-                        false, &g_stats.click_calls, bit);
+                        false, bit);
 }
 
 bool plugin_dispatch_typing(u64 channel_id) noexcept {
     if (!plugin_hook_subscribed(PluginHook::pre_typing)) return false;
     return run_verdicts(PluginHook::pre_typing, PluginCallKind::event, PluginCallClass::pre, 0, run_typing,
-                        Verdict{nullptr, nullptr, nullptr, channel_id, {}, 0}, MC_SUPPRESS, true,
-                        &g_stats.typing_calls, 0);
+                        Verdict{nullptr, nullptr, nullptr, channel_id, {}, 0}, MC_SUPPRESS, true, 0);
 }
 
 u64 plugin_events_interest() noexcept {
@@ -328,7 +313,6 @@ u32 plugin_timers_poll(u64 now_ms) noexcept {
             TimerCall call{subscriber.function.timer, id};
             plugin_binding_call(subscriber.binding, PluginCallKind::timer, PluginCallClass::event, 0, run_timer, &call);
             ++calls;
-            ++g_stats.timer_calls;
         }
         total += calls;
     }

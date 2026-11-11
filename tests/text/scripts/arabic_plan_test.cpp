@@ -37,7 +37,6 @@ SfntGsubExecutionFrame gs_frames[16];u32 gs_positions[512],gs_rebased[512],gs_co
 SfntGposExecutionFrame gp_frames[16];u32 gp_positions[512];SfntCursiveChainNode chains[256];
 ConstSlice<u8> fonts[512];
 u64 runs=0,glyph_checks=0,cluster_checks=0,float_checks=0,budget_checks=0;
-u64 utf8_calls=0;
 bool run_mode=false;
 #include "arabic_owned_units.inc"
 #include "arabic_run_units.inc"
@@ -199,7 +198,6 @@ bool corpus(ConstSlice<u8> corpus_bytes,u32 corpus_index) noexcept {
             for(u32 i=0;i<gs.lookups.count;++i)gs_lookups[i].bounds.ready=static_cast<u16>(gate);
             for(u32 i=0;i<gp.lookups.count;++i)gp_lookups[i].bounds.ready=static_cast<u16>(gate);
             SfntShapeRunResult result{};
-            if(run_mode)++utf8_calls;
             const auto s=run_mode?native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result):
                 sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},true,em,storage,&result,scheduled);
             if(s!=SfntStatus::ok)return fail(c,10,static_cast<u32>(s));
@@ -243,8 +241,6 @@ int run() noexcept {
     if(run_mode){
         if(!owned_gate_checks(fonts[0]))ok=false;
         if(!owned_close())ok=false;arena_release(&owned_scratch);if(!DeleteFileW(owned_path))ok=false;
-        print(utf8_literal("owned_preparations="));number(owned_preparations);print(utf8_literal(" owned_hits="));number(owned_hits);print(utf8_literal(" committed_sum="));number(owned_committed);print(utf8_literal(" used_sum="));number(owned_used);print(utf8_literal("\n"));
-        print(utf8_literal("utf8_calls="));number(utf8_calls);print(utf8_literal("\n"));
     }
     if(!ok)return 1;print(utf8_literal("PASS native Arabic schedule and coordinated shaping\n"));return 0;
 }

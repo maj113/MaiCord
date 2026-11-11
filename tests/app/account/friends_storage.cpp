@@ -35,16 +35,19 @@ void test_banks() noexcept {
     const auto committed = storage.active.arena.committed;
     check(committed == 4096 && !storage.candidate.arena.committed && !storage.indices.arena.committed,
         "friends storage: a small live list commits one record-bank page only");
+    bool shifted = true;
     for (u32 i = 1; i < 30; ++i)
-        check(friends_relationship_storage_upsert(&storage, store, i) && relationship_store_upsert(&store, record(i)).ok(),
-            "friends storage: sorted insertion admits every shifted destination");
+        shifted = friends_relationship_storage_upsert(&storage, store, i) && relationship_store_upsert(&store, record(i)).ok() && shifted;
+    check(shifted, "friends storage: sorted insertion admits every shifted destination");
     check(storage.active.arena.committed == 8192 && active == stable_storage_data<RelationshipRecord>(storage.active) &&
         store.records[0].user_id == 1 && store.records[29].user_id == 30,
         "friends storage: crossing the first page keeps the address and ordered records");
     check(friends_relationship_storage_indices(&storage, store.count), "friends storage: projection commits its destination prefix");
     for (u32 i = 0; i < store.count; ++i) indices[i] = i;
     const auto highwater = storage.active.arena.committed;
-    for (u32 i = 1; i <= 30; ++i) check(relationship_store_remove(&store, i).ok(), "friends storage: remove clears only admitted rows");
+    bool removed = true;
+    for (u32 i = 1; i <= 30; ++i) removed = relationship_store_remove(&store, i).ok() && removed;
+    check(removed, "friends storage: remove clears only admitted rows");
     check(!store.count && storage.active.arena.committed == highwater && !storage.candidate.arena.committed,
         "friends storage: emptying a list retains bounded reusable highwater");
     const u32 commits = storage.active.arena.commit_count;

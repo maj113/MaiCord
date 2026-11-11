@@ -38,7 +38,6 @@ struct PluginSide {
 PluginSide* plugin_side(PluginBinding*, bool create) noexcept;
 // True when the plugin may take one more action of this kind now (and counts it).
 bool plugin_take(PluginBinding*, PluginBucket) noexcept;
-PluginPipelineStats& plugin_stats() noexcept;
 // Whether the plugin subscribed to the hook (timer creation needs its TIMER hook).
 bool plugin_subscribed(const PluginBinding*, PluginHook) noexcept;
 

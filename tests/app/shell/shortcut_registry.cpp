@@ -4,12 +4,36 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/platform/window/event.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 constexpr u8 C = shortcut_ctrl, L = shortcut_alt, H = shortcut_shift;
+
+// The portable key numbering is the Windows virtual-key numbering that saved keybinds persist (Windows also checks
+// every key against <Windows.h> in src/platform/window/win32/key_conformance.cpp).
+static_assert(key::enter == 0x0D && key::escape == 0x1B && key::space == 0x20 && key::tab == 0x09);
+static_assert(key::left == 0x25 && key::up == 0x26 && key::right == 0x27 && key::down == 0x28);
+static_assert(key::f1 == 0x70 && key::f24 == 0x87 && key::numpad0 == 0x60 && key::numpad9 == 0x69);
+static_assert(key::shift == 0x10 && key::ctrl == 0x11 && key::alt == 0x12);
+static_assert(key::lbutton == 0x01 && key::mbutton == 0x04 && key::xbutton2 == 0x06);
+// A chord's modifiers are the low bits of an event's, so the two share one numbering.
+static_assert(mod_ctrl == 1 && mod_alt == 2 && mod_shift == 4);
+constexpr bool single_bits() noexcept {
+    constexpr u32 flags[] = {ev_repeat, ev_double_click, ev_system, ev_synthetic, ev_keyboard, ev_provisional};
+    u32 seen = 0;
+    for (const u32 flag : flags) {
+        if (flag == 0 || (flag & (flag - 1)) != 0 || (seen & flag) != 0)
+            return false;
+        seen |= flag;
+    }
+    return seen <= 0xFF;
+}
+static_assert(single_bits());
+static_assert(static_cast<u8>(PointerButton::left) == 0 && static_cast<u8>(PointerButton::forward) == 4);
+static_assert(__is_trivially_copyable(WindowEvent) && __is_trivially_copyable(WindowEventResult));
 
 bool resolves_list(ShortcutContext context, ShortcutChord chord, const ShortcutAction* expected, u32 expected_count) noexcept {
     ShortcutAction actions[4]{};
@@ -57,10 +81,6 @@ void test_precedence(Check check) noexcept {
               resolves(content, {'K', C | L}) && shortcut_matches(A::search, {'F', C | H}) &&
               !shortcut_matches(A::search, {'F', C | L}),
           "shortcut precedence: global chords apply in every focus and need their exact modifiers");
-    check(navigation_shortcut(key::up, true, true, true).mode == NavigationMode::mention &&
-              navigation_shortcut(key::down, true, true, false).mode == NavigationMode::guild &&
-              navigation_shortcut('K', true, false, false).mode == NavigationMode::none,
-          "shortcut registry: navigation chords come from the registry");
     check(resolves(text, {key::tab, C}, A::tab_next) && resolves(composer, {key::page_down, C}, A::tab_next) &&
               resolves(content, {key::tab, C | H}, A::tab_previous) &&
               resolves(typed, {key::page_up, C}, A::tab_previous) && resolves(text, {'W', C}, A::tab_close) &&

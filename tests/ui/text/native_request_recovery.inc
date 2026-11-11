@@ -1,7 +1,5 @@
 // Exercise the public shape dispatcher while the private catalog names an old
 // file generation. Unsupported CFF bold makes staging fail deterministically.
-volatile u32 request_recovery_phase;
-__declspec(noinline) void request_recovery_marker(u32 phase) noexcept {request_recovery_phase=phase;}
 bool native_request_recovery() noexcept {
     struct Files {
         wchar_t reserved[MAX_PATH]{},live[MAX_PATH]{},retired[MAX_PATH]{},file[MAX_PATH]{},old_file[MAX_PATH]{};
@@ -29,25 +27,16 @@ bool native_request_recovery() noexcept {
     const auto old_run=second_output.text.runs[0].native_face;auto* fonts=system.native_fonts;
     CHECK(MoveFileExW(files.live,files.retired,0)&&CreateDirectoryW(files.live,nullptr)&&CopyFileW(L"assets/fonts/Compagnon.otf",files.file,TRUE));
     CHECK(native_text_format_create(system.native_text,{{family,9},scope,{600,5,0},16,64,true},&system.native_format));
-    LARGE_INTEGER frequency{};CHECK(QueryPerformanceFrequency(&frequency));
     const TextStyleSpan style{0,text.bytes,text_style_underline};
-    for(u32 mode=0;mode<3;++mode){request_recovery_marker(mode+1);
-        u64 samples[7][2]{};
-        for(u32 i=0;i<7;++i){LARGE_INTEGER first{},last{};ULONG64 before=0,after=0;
-            CHECK(QueryThreadCycleTime(GetCurrentThread(),&before)&&QueryPerformanceCounter(&first));
+    for(u32 mode=0;mode<3;++mode){
+        for(u32 i=0;i<2;++i){
             const auto result=text_shape_utf8(&system, {text,mode==1?ConstSlice<TextStyleSpan>{&style,1}:ConstSlice<TextStyleSpan>{},60,20,TextWrapping::wrap,mode==2?TextOverflow::clip:TextOverflow::ellipsis}, &native_output.text);
-            CHECK(QueryPerformanceCounter(&last)&&QueryThreadCycleTime(GetCurrentThread(),&after));
             CHECK(!result.ok()&&result.error==TextShapeError::unsupported&&!native_output.text.native_fonts()&&!native_output.text.run_count);
             CHECK(native_text_format_identity(alias)==identity&&native_font_run_get(*native_font_session_runs(fonts),old_run));
-            samples[i][0]=last.QuadPart-first.QuadPart;samples[i][1]=after-before;
         }
-        print("{\"kind\":\"request_recovery\",\"mode\":");number(mode);print(",\"frequency\":");number(frequency.QuadPart);print(",\"samples\":[");
-        for(u32 i=0;i<7;++i){if(i)print(",");print("[");number(samples[i][0]);print(",");number(samples[i][1]);print("]");}print("]}\n");
     }
-    request_recovery_marker(4);
     CHECK(native_text_format_create(system.native_text,{{family,9},scope,{400,5,0},16,64,true},&system.native_format));
     CHECK(text_shape_utf8(&system, {text,{},60,20,TextWrapping::wrap,TextOverflow::ellipsis}, &native_output.text).ok());
     CHECK(native_text_format_identity(alias)!=identity&&system.native_fonts==fonts&&native_font_run_get(*native_font_session_runs(fonts),old_run)&&native_output.text.run_count);
-    request_recovery_marker(5);
     print("PASS public request recovery: plain/styled ellipsis, clip, repeated rejection, later commit, retained old run\n");return true;
 }

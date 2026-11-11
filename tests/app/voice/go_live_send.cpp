@@ -145,7 +145,6 @@ void packetization(Check check) noexcept {
             return;
         }
     }
-    check(true, "Go Live RTP: AV1 temporal units round-trip as DAVE's prepared form (OBU elements, Z/Y, N)");
     const u8 broken[]{0x00, 0x00, 0x01, 0x80, 0x11};
     RtpVideoPacketizer packetizer;
     check(!rtp_packetizer_begin(&packetizer, RtpVideoPacketCodec::h264, {broken, 5}, false, 1100),

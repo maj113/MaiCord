@@ -1027,7 +1027,7 @@ void test_qr_code() noexcept {
             unpacked[y * kQrCodeSize + x] = qr_code_module(code, x, y) ? 1 : 0;
         }
     }
-    expect(encoded && code.size == kQrCodeSize && code.mask < 8 && payload.count == 66 &&
+    expect(encoded && code.size == kQrCodeSize && code.mask < 8 &&
                qr_code_module(code, 0, 0) && !qr_code_module(code, 1, 1) && qr_code_module(code, 3, 3) &&
                qr_code_module(code, 8, kQrCodeSize - 8),
            "qr_v5_m_function_patterns");

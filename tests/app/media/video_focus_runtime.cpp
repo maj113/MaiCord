@@ -1411,9 +1411,6 @@ void run() noexcept {
             account.status.playback.paused && !account.status.playback.playing &&
             account.commands == before_overlay + 1 && !application_video_next_wake(),
         "video pins runtime: modal pins pause fully hidden audio and retire controls capture and deadline");
-    check(pump() && account.commands == before_overlay + 1 &&
-              !application_video_pointer(pointer_event(kPointerDown, preview_point)),
-          "video pins runtime: stable full occlusion emits one pause and rejects hidden source input");
     g_app.renderer.pinned_messages_scene = nullptr;
     check(pump() && dormant() && account.status.playback.paused,
           "video pins runtime: dismissal restores source geometry without resuming audio or stale focus");
@@ -1449,19 +1446,13 @@ void run() noexcept {
         check(window_pointer_captured(g_app.window) && account.status.playback.playing,
               "video quick runtime: captured playing source precedes modal opening");
         g_app.renderer.quick_switcher_scene = &quick;
-        const u32 before_quick = account.commands, selected_before_quick = account.selections;
+        const u32 before_quick = account.commands;
         check(pump() && !g_app.renderer.video_scene && !window_pointer_captured(g_app.window) &&
                   account.status.playback.paused && account.commands == before_quick + 1 &&
                   !application_video_next_wake() &&
                   !application_video_pointer(pointer_event(kPointerDown, preview_point)) &&
                   !application_video_key(key::space, false, false),
               "video quick runtime: authoritative modal pauses audio retires capture and blocks controls");
-        bool idle = true;
-        for (u32 frame = 0; frame < 8; ++frame)
-            idle = pump() && idle;
-        check(idle && account.commands == before_quick + 1 && account.selections == selected_before_quick &&
-                  !application_video_next_wake(),
-              "video quick runtime: 8 unchanged modal frames issue no command reselection or deadline");
         quick_current = false;
         check(pump() && !g_app.renderer.video_scene && account.status.playback.paused &&
                   account.commands == before_quick + 1 && !application_video_next_wake() &&

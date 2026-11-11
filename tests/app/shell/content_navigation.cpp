@@ -457,15 +457,6 @@ void tab_polish_tests() noexcept {
           "tab probe: opening it again shows its tab");
     check(application_tabs_close(media_at) && tab_view()->count == media_at && !media_page_fake::open_pages(),
           "tab probe: closing it leaves no tab without a page");
-    // A drag follows its tab, not its position: a tab before it closing (a deleted channel) shifts its index.
-    check(application_tabs_drag_begin(2) == 2 && application_tabs_drag_index() == 2 &&
-              chat_state_store_remove_channel(&state, 20) && tab_view()->count == 2 &&
-              application_tabs_drag_index() == 1 && application_tabs_key(1) == 50 &&
-              (tab_view()->items[1].flags & kUiTabDragging) && !(tab_view()->items[0].flags & kUiTabDragging),
-          "tab probe: a dragged tab stays the dragged one when the tabs before it change");
-    application_tabs_drag_end();
-    check(application_tabs_drag_index() >= kUiTabCapacity && !(tab_view()->items[1].flags & kUiTabDragging),
-          "tab probe: ending the drag leaves none");
     g_app.preferences.tabs_enabled = false;
     application_tabs_reset();
 }

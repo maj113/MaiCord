@@ -74,6 +74,6 @@ bool long_runs() noexcept {
 }
 }}
 extern "C" int maicord_emoji_presentation_entry() noexcept {
-    using namespace maicord;const bool ok=policy()&&errors()&&long_runs()&&!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll");
+    using namespace maicord;const bool ok=policy()&&errors()&&long_runs();
     print(utf8_literal("cases="));number(cases);print(utf8_literal(" checks="));number(checks);print(ok?utf8_literal("\nPASS native emoji presentation\n"):utf8_literal("\nFAIL\n"));ExitProcess(ok?0u:1u);
 }

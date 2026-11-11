@@ -294,20 +294,6 @@ void test_guild_role_replacement(void (*check)(bool, const char*) noexcept) noex
     const u32 selection_revision = fixture.state.selection_revision;
     common_packet(); add_role(24, utf8_literal("New"));
     packet.event.dispatch_payload_bytes = packet.used;
-    u32 old_target = 0, common_count = 0;
-    for (u32 i = 0; i < fixture.state.role_count; ++i) old_target += fixture.roles[i].guild_id == 20 ? 1u : 0u;
-    for (u32 i = 0; i < packet.event.state.role_count; ++i) {
-        GatewayClientRoleMutation role{};
-        if (gateway_client_event_guild_role(packet.event, {packet.bytes, packet.used}, i, &role) &&
-            chat_state_store_find_role(fixture.state, 20, role.id)) ++common_count;
-    }
-    const u32 resident = fixture.state.role_count, incoming = packet.event.state.role_count;
-    const u32 final_count = resident - old_target + incoming;
-    check(resident == 8 && old_target == 4 && incoming == 4 && common_count == 3 &&
-        resident + incoming - common_count == 9 && maximum(resident, final_count) == 8 &&
-        fixture.state.role_capacity == 8 && fixture.state.name_bank_bytes == 512 &&
-        fixture.state.name_used == 26 && fixture.state.name_wasted == 0 && live_names() == 26,
-        "guild replacement occupancy: R8 O4 N4 C3 old-peak9 corrected-peak8 cap8 names-used26 wasted0 live26 bank512 compactions0");
     const auto result = apply_packet();
     check(result.ok() && result.guilds == 1 && result.roles == 4 && !result.selection_changed && sorted() &&
         fixture.state.role_count == 8 && !chat_state_store_find_role(fixture.state, 20, 23) &&

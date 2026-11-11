@@ -587,7 +587,6 @@ void test_file_chooser() noexcept {
     settle(300);
     set_mode("chooser-hold", false);
     settle(100);
-    check(true, "a chooser released before the reply is freed without a crash");
 }
 
 void test_file_chooser_bare() noexcept {

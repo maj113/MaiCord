@@ -4,7 +4,6 @@ NativeFontInstanceStore owned_instance_store{&owned_fonts,{owned_instances,2}};
 NativeRunPlanStore owned_run_store{&owned_instance_store,{owned_runs,2}};
 NativeArabicPlanStore owned_store{&owned_run_store,{owned_plans,2}};
 NativeArabicPlanHandle owned_handle{};u32 owned_index=0xffffffffu;Arena owned_scratch{};wchar_t owned_path[MAX_PATH]{};
-u64 owned_preparations=0,owned_hits=0,owned_committed=0,owned_used=0;
 u8 owned_gate_bytes[65536];
 bool owned_close() noexcept {
     if(owned_handle.slot){const auto old=owned_handle;if(!native_arabic_plan_release(&owned_store,old) || native_arabic_plan_get(owned_store,old).shape || native_arabic_plan_release(&owned_store,old))return false;owned_handle={};}
@@ -55,7 +54,7 @@ bool owned_select(ConstSlice<u8> bytes,u32 index,bool independent,NativeArabicPl
         auto& live=owned_plans[owned_handle.slot-1];const u32 saved_references=live.references;live.references=0xffffffffu;
         const bool overflow=native_arabic_plan_acquire(&owned_store,run,&owned_scratch,&alias).error==NativeFontError::capacity && !alias.slot;live.references=saved_references;if(!overflow)return false;
         if(!native_run_plan_release(&owned_run_store,run) || !native_font_instance_release(&owned_instance_store,instance) || !native_font_release(&owned_fonts,font) || owned_runs[run.slot-1].references!=1)return false;
-        ++owned_preparations;owned_committed+=state.committed;owned_used+=state.offset;owned_index=index;
-    }else ++owned_hits;
+        owned_index=index;
+    }
     *view=native_arabic_plan_get(owned_store,owned_handle,independent);return view->shape!=nullptr;
 }

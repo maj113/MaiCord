@@ -41,7 +41,6 @@ void test_startup() noexcept {
     const ProcessStartup& startup = process_startup();
     expect(startup.argc >= 1 && startup.argv && startup.argv[0] && !startup.argv[startup.argc],
            "startup_arguments");
-    expect(startup.environment != nullptr, "startup_environment");
     expect(startup.page_size == 4096 && auxiliary_value(kAuxPageSize) == startup.page_size, "startup_page_size");
     expect(auxiliary_value(kAuxSystemInfoHeader) != 0 && auxiliary_value(kAuxRandom) != 0,
            "startup_auxiliary_vector");

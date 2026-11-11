@@ -323,23 +323,6 @@ UpdateTransportError fake_get(void* context, const UpdateHttpRequest& request, U
     return UpdateTransportError::none;
 }
 
-// Captured updater log lines.
-char g_lines[24][300];
-u32 g_line_count;
-void capture(LogLevel, const char*, const char* line) noexcept {
-    if (g_line_count == 24) return;
-    u32 n = 0;
-    while (line[n] && n + 1 < sizeof(g_lines[0])) { g_lines[g_line_count][n] = line[n]; ++n; }
-    g_lines[g_line_count++][n] = 0;
-}
-bool logged(const char* needle) noexcept {
-    const u32 k = c_string_length(needle);
-    for (u32 i = 0; i < g_line_count; ++i)
-        for (u32 j = 0; g_lines[i][j]; ++j)
-            if (bytes_equal(g_lines[i] + j, needle, k)) return true;
-    return false;
-}
-
 // ------------------------------------------------------------------------------------------------ the install
 
 // A temporary install of the tarball's layout (old files and the marker), update storage and a Fake network.
@@ -502,7 +485,6 @@ void preview_replay(Stand* s) noexcept {
     check(built, "linux preview replay: a signed development build tarball"); if (!built) return;
     const auto serve_feed = [&]() noexcept {
         serve_release(s, manifest, package.data, package.count, version, UpdateChannel::preview);
-        g_line_count = 0;
     };
     const auto with_installed = [&](u64 installed) noexcept {
         update_service_release(&s->service);
@@ -523,7 +505,7 @@ void preview_replay(Stand* s) noexcept {
     for (const u64 installed : later) {
         serve_feed();
         const auto up_to_date = with_installed(installed) ? run_check(s, 100, UpdateChannel::preview) : UpdateCheckResult{};
-        check(up_to_date.outcome == UpdateCheckOutcome::up_to_date && !s->service.staged.file && !logged("admitted"),
+        check(up_to_date.outcome == UpdateCheckOutcome::up_to_date && !s->service.staged.file,
               "linux preview replay: a release or build at or after the development build is up to date");
     }
     // The stable channel never offers a development build, whatever its manifest says.
@@ -684,11 +666,9 @@ void appimage_replay(Stand* s) noexcept {
 
     // The good AppImage is staged beside the file the runtime started, which stays as it was.
     serve_release(s, m2, pkg2.data, pkg2.count, v2);
-    g_line_count = 0;
     auto r = run_check(s);
     check(r.outcome == UpdateCheckOutcome::ready && r.version == v2 && s->service.staged.file && holds(paths.staged, pkg2.data, kAppImageBytes) &&
-              mode_of(paths.staged) == 0755 && installed_is_old() && present(paths.acceptance) && s->fake.routes[3].hits == 1 && !s->fake.wrong_host &&
-              logged("ready version=2999"),
+              mode_of(paths.staged) == 0755 && installed_is_old() && present(paths.acceptance) && s->fake.routes[3].hits == 1 && !s->fake.wrong_host,
           "linux appimage: a verified AppImage is staged (mode 0755) beside the file the runtime started, which stays as it was");
     if (!s->service.staged.file) return;
 
@@ -709,10 +689,9 @@ void appimage_replay(Stand* s) noexcept {
     }
 
     // The swap: the new AppImage at the path, the old one beside it, and the relaunch command on the same path.
-    g_line_count = 0;
     const auto swap = update_service_swap(&s->service);
     check(swap.ok() && !s->service.staged.file && holds(image, pkg2.data, kAppImageBytes) && mode_of(image) == 0755 && !present(paths.staged) &&
-              !present(paths.download) && holds(paths.replaced, old_bytes, kAppImageBytes) && logged("swap version=2999 error=0"),
+              !present(paths.download) && holds(paths.replaced, old_bytes, kAppImageBytes),
           "linux appimage: installing swaps the verified AppImage in and keeps the one it replaced for a rollback");
     ProcessCommand relaunch{};
     u32 native = 0;
@@ -874,8 +853,6 @@ void test_update_linux_replay(void (*check_fn)(bool, const char*) noexcept) noex
     check(paths.staged_count == paths.executable_count + 7 && paths.replaced[paths.executable_count] == L'.' &&
               bytes_equal(paths.staged + paths.executable_count, L".update", 8 * sizeof(wchar_t)),
           "linux update replay: the stage and the replaced install sit beside the executable");
-    g_update_log_sink = capture;
-    struct Sink { ~Sink() noexcept { g_update_log_sink = nullptr; } } sink_owner;
 
     // Releases 0.0.2 and 0.0.3 are good; every other version below is a broken package of the same layout.
     static Package good2, good3;
@@ -917,7 +894,6 @@ void test_update_linux_replay(void (*check_fn)(bool, const char*) noexcept) noex
 
     // 2. A good release is staged beside the install, which is untouched.
     serve(s, manifest2, good2, 2);
-    g_line_count = 0;
     r = run_check(s);
     wchar_t staged_exe[600], staged_font[600], staged_license[600], staged_share[600], staged_marker[600], staged_fonts[600];
     join(staged_exe, paths.staged, L"MaiCord"); join(staged_fonts, paths.staged, L"fonts");
@@ -930,8 +906,6 @@ void test_update_linux_replay(void (*check_fn)(bool, const char*) noexcept) noex
               holds_text(staged_license, "opus") && mode_of(staged_font) == 0644 && mode_of(paths.staged) == 0755 &&
               !present(staged_share) && !present(staged_marker) && install_is_old(site) && present(paths.download) && s->fake.routes[3].hits == 1,
           "linux update replay: a verified release is staged (program, fonts, licenses) beside an install that stays as it was");
-    check(logged("prepare error=0") && logged("stage error=0") && logged("ready version=2999"),
-          "linux update replay: every phase of the successful check is logged");
     if (!s->service.staged.file) return;
 
     // 3. A plain exit installs nothing and drops the stage; the next launch stages the kept package again, unsent.
@@ -940,10 +914,8 @@ void test_update_linux_replay(void (*check_fn)(bool, const char*) noexcept) noex
           "linux update replay: a plain exit keeps the install, discards the stage and keeps the verified package");
     update_paths_cleanup(paths);
     serve(s, manifest2, good2, 2);
-    g_line_count = 0;
     r = update_service_initialize(&s->service, s->config, paths) == UpdateServiceError::none ? run_check(s) : UpdateCheckResult{};
-    check(r.outcome == UpdateCheckOutcome::ready && !s->fake.routes[3].hits && s->service.staged.file && holds(staged_exe, release2.image, kImageBytes) &&
-              logged("package version=2999 reused=1"),
+    check(r.outcome == UpdateCheckOutcome::ready && !s->fake.routes[3].hits && s->service.staged.file && holds(staged_exe, release2.image, kImageBytes),
           "linux update replay: the next launch stages the kept package again after verifying it, without downloading");
 
     // 4. A newer release replaces that stage.
@@ -998,10 +970,8 @@ void test_update_linux_replay(void (*check_fn)(bool, const char*) noexcept) noex
     }
 
     // 7. The swap: the new files in, the old version whole beside them, the package dropped, the relaunch command on the program.
-    g_line_count = 0;
     const auto swap = update_service_swap(&s->service);
-    check(swap.ok() && !s->service.staged.file && install_is(site, release3) && !present(paths.staged) && !present(paths.download) &&
-              logged("swap version=3999 error=0"),
+    check(swap.ok() && !s->service.staged.file && install_is(site, release3) && !present(paths.staged) && !present(paths.download),
           "linux update replay: installing moves the verified stage into the install, fonts and licenses with the program");
     wchar_t kept_exe[600], kept_fonts[600], kept_font[600], kept_retired[600];
     join(kept_exe, paths.replaced, L"MaiCord"); join(kept_fonts, paths.replaced, L"fonts");

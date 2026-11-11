@@ -202,7 +202,6 @@ void guards(Check check, KdfSha256Workspace& workspace) noexcept {
 }
 } // namespace
 void test_mls_key_schedule(Check check) noexcept {
-    static_assert(sizeof(MlsEpochSecrets) == 13 * 32);
     KdfSha256Workspace workspace{};
     check(kdf_sha256_initialize(&workspace).ok(), "MLS key schedule workspace init");
     if (!workspace.storage.data)

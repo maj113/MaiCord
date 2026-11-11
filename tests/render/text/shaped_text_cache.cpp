@@ -55,7 +55,7 @@ void test_shaped_text_cache(void (*check)(bool, const char*) noexcept) noexcept 
     ShapedText view{};
     Fixture fixture{};
     fill(&fixture, 5, 100);
-    check(!shaped_text_cache_find(cache, base, &hash, &view) && cache->stats.misses == 1,
+    check(!shaped_text_cache_find(cache, base, &hash, &view),
           "shaped text cache misses before insertion");
     check(shaped_text_cache_insert(cache, base, hash, &fixture.shaped) && fixture.shaped.run_count == 0,
           "shaped text cache insertion moves run references out of the scratch result");
@@ -142,7 +142,6 @@ void test_shaped_text_cache(void (*check)(bool, const char*) noexcept) noexcept 
         shaped_text_cache_insert(cache, request, hash, &fixture.shaped);
     }
     const bool reused = shaped_text_cache_find(cache, base, &hash, &view) && view.glyphs[0].advance == 100;
-    const u32 promotions = cache->stats.promotions;
     const u32 second = cache->stats.flips;
     while (cache->stats.flips == second && inserted < 8192) {
         const auto request = request_for(inserted++);
@@ -150,7 +149,7 @@ void test_shaped_text_cache(void (*check)(bool, const char*) noexcept) noexcept 
         shaped_text_cache_find(cache, request, &hash, &view);
         shaped_text_cache_insert(cache, request, hash, &fixture.shaped);
     }
-    check(reused && promotions >= 1 && shaped_text_cache_find(cache, base, &hash, &view) &&
+    check(reused && shaped_text_cache_find(cache, base, &hash, &view) &&
               view.glyph_count == 5 && view.glyphs[4].advance == 104 && misses(idle),
           "shaped text cache keeps recently used results across generations and evicts idle ones");
     fill(&fixture, 64, 1);

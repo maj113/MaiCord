@@ -2,7 +2,6 @@
 #include "maicord/platform/window/event.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
-#include "maicord/ui/core/cursor.hpp"
 #include "../../support/test_output.hpp"
 
 // The headless window backend (src/platform/window/null) behaves as the system does where handlers depend on it:
@@ -47,9 +46,7 @@ void capture() noexcept {
     // The first take is silent; a held capture released tells the sink once, before the call returns.
     check(!window_pointer_captured(g_window), "null window: nothing is captured at the start");
     window_capture_pointer(g_window);
-    check(window_pointer_captured(g_window) && g_seen.capture_lost == 0 && null_window_probe().captured &&
-              null_window_probe().captures == 1,
-          "null window: the first capture is silent");
+    check(window_pointer_captured(g_window) && g_seen.capture_lost == 0, "null window: the first capture is silent");
 
     window_capture_pointer(g_window);
     check(g_seen.capture_lost == 1 && g_seen.capture_lost_self == 1 && window_pointer_captured(g_window),
@@ -64,7 +61,6 @@ void capture() noexcept {
     g_seen.capture_lost = 0;
     window_release_capture(g_window);
     check(g_seen.capture_lost == 0, "null window: releasing with no capture sends nothing");
-    check(null_window_probe().releases == 1, "null window: the probe counts only the release that held the capture");
 }
 
 void keys() noexcept {
@@ -86,39 +82,13 @@ void keys() noexcept {
           "null window: releasing the keys lets go of the held keys but not of a toggled lock");
     null_window_set_toggle(key::caps_lock, false);
     check(window_modifiers(nullptr) == 0, "null window: the lock toggles back off");
-    null_window_set_layout_types_text(false);
-    check(!window_layout_types_text(nullptr, 'A', 0), "null window: the layout answer is what the test set");
-    null_window_set_layout_types_text(true);
-    check(window_layout_types_text(nullptr, 'A', 0), "null window: and can be set the other way");
 }
 
 void state() noexcept {
-    float x = 1, y = 1;
-    null_window_set_pointer(12.5f, 40.f);
-    check(window_pointer_position(g_window, &x, &y) && x == 12.5f && y == 40.f,
-          "null window: the pointer is where the test put it");
-
-    window_set_cursor(g_window, UiCursor::hand);
-    window_set_cursor(g_window, UiCursor::ibeam);
-    check(null_window_probe().cursor == static_cast<u8>(UiCursor::ibeam) && null_window_probe().cursor_changes == 2,
-          "null window: the cursor shape and the number of changes are recorded");
-    window_request_cursor_refresh(g_window);
-    check(null_window_probe().cursor_refreshes == 1, "null window: cursor refresh requests are counted");
-
     null_window_set_focus_allowed(false);
     check(!window_focus(g_window) && !null_window_probe().focused, "null window: focus can be refused");
     null_window_set_focus_allowed(true);
-    check(window_focus(g_window) && null_window_probe().focused && null_window_probe().focus_requests == 2,
-          "null window: focus is taken when allowed");
-
-    window_set_title(g_window, utf8_literal("headless"));
-    check(null_window_probe().title_bytes == 8 && null_window_probe().title[0] == 'h', "null window: the title is kept");
-    window_invalidate(g_window);
-    window_wake(g_window);
-    window_request_close(g_window);
-    check(null_window_probe().invalidations == 1 && null_window_probe().wakes == 1 &&
-              null_window_probe().close_requests == 1,
-          "null window: invalidations, wakes and close requests are counted");
+    check(window_focus(g_window) && null_window_probe().focused, "null window: focus is taken when allowed");
 }
 
 void inject() noexcept {

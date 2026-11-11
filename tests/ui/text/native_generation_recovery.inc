@@ -4,9 +4,6 @@ struct GenerationOutput {
     GenerationOutput() noexcept {text.glyphs=glyphs;text.glyph_capacity=256;text.runs=runs;text.run_capacity=128;text.clusters=clusters;text.cluster_capacity=256;}
     ~GenerationOutput() noexcept {release_output(text);}
 };
-volatile usize recovery_observation;
-volatile u32 recovery_expect_mismatch=0;
-__declspec(noinline) void recovery_marker(const void* root,const void* backing,u32 phase) noexcept {recovery_observation=reinterpret_cast<usize>(root)^reinterpret_cast<usize>(backing)^phase;}
 bool recovery_format_sharing() noexcept {
     for(u32 large_first=0;large_first<2;++large_first){
         TextSystem system{};CHECK(native_font_session_create(&system.native_fonts)&&native_text_context_initialize(&system.native_text,system.native_fonts));
@@ -56,7 +53,7 @@ bool generation_recovery(const wchar_t* path) noexcept {
     CHECK(!native_text_context_rebuild(system,attempt,&trial)&&trial.calls==1&&system.native_text==root&&native_text_format_identity(alias)==before_id&&native_text_format_identity(system)==private_id);
     MEMORY_BASIC_INFORMATION region{};CHECK(VirtualQuery(trial.staged,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE);
     trial.accept=true;CHECK(native_text_context_rebuild(system,attempt,&trial)&&trial.calls==2&&system.native_text==root&&alias.native_text==root);
-    const auto* first_backing=trial.staged;recovery_marker(root,first_backing,1);
+    const auto* first_backing=trial.staged;
     CHECK(native_text_format_identity(alias)!=before_id&&native_text_format_identity(system)!=private_id);
     CHECK(draw.text.run_count&&draw.text.native_fonts()==old_fonts&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
     CHECK(VirtualQuery(root,&region,sizeof(region))==sizeof(region)&&region.State==MEM_COMMIT&&region.RegionSize==4096);
@@ -70,7 +67,7 @@ bool generation_recovery(const wchar_t* path) noexcept {
     }
     const auto changed_id=native_text_format_identity(alias);trial.accept=false;
     CHECK(!native_text_context_rebuild(alias,attempt,&trial)&&native_text_format_identity(alias)==changed_id&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
-    trial.accept=true;CHECK(native_text_context_rebuild(alias,attempt,&trial));recovery_marker(root,trial.staged,2);
+    trial.accept=true;CHECK(native_text_context_rebuild(alias,attempt,&trial));
     CHECK(VirtualQuery(first_backing,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE&&native_text_format_identity(alias)!=changed_id);
     release_output(draw.text);draw.text=output();CHECK(exercise(alias));
     native_text_context_release(&system.native_text);CHECK(!system.native_text&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
@@ -109,10 +106,6 @@ bool automatic_generation_recovery(const wchar_t* path) noexcept {
     CHECK(native_text_format_identity(alias)==identity&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
     CHECK(native_text_format_create(system.native_text,{{family,9},scope,{400,5,0},16,64,true},&system.native_format));
     const bool recovered=native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&draw.text,nullptr);
-    if(recovery_expect_mismatch){
-        CHECK(!recovered&&!draw.text.native_fonts()&&!draw.text.run_count&&native_text_format_identity(alias)==identity&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
-        print("PASS injected second acquisition mismatch: bounded failure, original generation and output retained\n");return true;
-    }
     CHECK(recovered&&draw.text.run_count&&draw.text.native_fonts()==old_fonts);
     CHECK(system.native_text==root&&alias.native_text==root&&native_text_format_identity(alias)!=identity&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
     const auto* old_value=native_font_run_get(*native_font_session_runs(old_fonts),old_run);

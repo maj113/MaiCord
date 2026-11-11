@@ -15,7 +15,7 @@ bool same(NativeFontHandle a,NativeFontHandle b) noexcept {return a.slot==b.slot
 bool same(NativeFontInstanceHandle a,NativeFontInstanceHandle b) noexcept {return a.slot==b.slot&&a.generation==b.generation;}
 bool run() noexcept {
     CHECK(native_font_session_create(&session));const auto empty=native_font_session_stats(session);
-    CHECK(empty.references==1&&!empty.live.files&&!empty.instances&&empty.metadata_committed==4096);
+    CHECK(empty.references==1&&!empty.live.files&&!empty.instances);
     CHECK(native_font_session_face(session,nullptr,0,&alias).error==NativeFontError::invalid_input&&!alias.slot);
     CHECK(native_font_session_instance(session,{}, {},false,{},&instructed).error==NativeFontError::invalid_input&&!instructed.slot);
     CHECK(native_font_session_stats(session).metadata_committed==empty.metadata_committed);

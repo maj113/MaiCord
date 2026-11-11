@@ -19,11 +19,6 @@ void check(bool condition, const char* name) noexcept {
     test_write_line(name);
     failures += condition ? 0u : 1u;
 }
-void metric(const char* name, u64 value) noexcept {
-    test_write_text(name);
-    test_write_u64(value);
-    test_write_text("\n");
-}
 
 constexpr u64 kGuild = 7;
 constexpr u32 kRoles = 250;
@@ -74,8 +69,6 @@ void member_roles() noexcept {
     check(f.initialize() && guild_member_store_enable_role_overflow(&f.members, 64) &&
               !guild_member_store_enable_role_overflow(&f.members, 65),
           "member roles: fixture and overflow bound");
-    metric("MEASURE member_record_bytes=", sizeof(GuildMemberRecord));
-    metric("MEASURE member_store_bytes=", sizeof(GuildMemberStore));
     u64 ids[kGuildMemberRoleMaximum + 1];
     for (u32 i = 0; i <= kGuildMemberRoleMaximum; ++i)
         ids[i] = role_id(i % kRoles);
@@ -121,8 +114,6 @@ void member_roles() noexcept {
         if (f.records[slot].occupied && f.records[slot].role_overflow)
             live += f.records[slot].role_count;
     const auto& overflow = f.members.role_overflow;
-    metric("MEASURE member_overflow_heavy_live_ids=", live);
-    metric("MEASURE member_overflow_heavy_committed_bytes=", overflow.storage.arena.committed);
     check(churn && overflow.compactions > 0 && overflow.used - overflow.wasted == live &&
               overflow.storage.arena.committed <= (u64{live} * 2u + 512u) * 8u,
           "member roles: churn compacts released spans and keeps the commit near the live lists");
@@ -220,7 +211,6 @@ void voice_states() noexcept {
         applied = voice_state_store_clear_guild(&store, 100 + g) != VoiceStateResult::invalid_input &&
                   voice_state_store_apply_batch(&store, {packed, sizeof(packed)}) == VoiceStateResult::changed;
     }
-    metric("MEASURE voice_32768_committed_bytes=", store.owned.arena.committed);
     bool sorted = true;
     for (u32 i = 1; i < store.count; ++i)
         sorted = sorted && store.records[i - 1].channel_id <= store.records[i].channel_id;

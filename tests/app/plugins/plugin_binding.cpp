@@ -294,7 +294,6 @@ void test_full_plugin(PluginRuntime* runtime, const Root& root) noexcept {
           "the hooks are published and imply their permission");
 
     // Verdicts.
-    const u32 calls = plugin_dispatch_stats().calls;
     const PluginDraftResult cancelled = send("cancel");
     check(cancelled.verdict == PluginDraftVerdict::cancel && cancelled.owner_id == kFullOwner, "cancel names its plugin");
     const PluginDraftResult replaced = send("replace");
@@ -304,12 +303,11 @@ void test_full_plugin(PluginRuntime* runtime, const Root& root) noexcept {
     check(send("hello").verdict == PluginDraftVerdict::keep, "a plugin that changes nothing keeps the text");
     const PluginDraftResult edited = edit("abc");
     check(edited.verdict == PluginDraftVerdict::replace && same(edited.text, "abc!"), "pre_edit runs its own hook");
-    check(plugin_dispatch_stats().calls == calls + 6 && state->sends == 5, "each hook call is counted once");
+    check(state->sends == 5, "each pre_send call reaches the plugin once");
     char large[4100];
     for (char& c : large) c = 'a';
     const PluginDraft too_long{1, 0, 0, 0, {large, sizeof(large)}};
-    check(plugin_dispatch_draft(PluginHook::pre_send, too_long).verdict == PluginDraftVerdict::keep &&
-              plugin_dispatch_stats().calls == calls + 6,
+    check(plugin_dispatch_draft(PluginHook::pre_send, too_long).verdict == PluginDraftVerdict::keep && state->sends == 5,
           "text beyond the draft limit is not offered to plugins");
 
     // The application's side of the plugin UI (fake_ui_host.cpp).
@@ -419,9 +417,7 @@ void test_budget(PluginRuntime* runtime, PluginCallLedger* ledger, const Root& r
         return;
     }
     PluginBinding* binding = enabled.binding;
-    const u32 strikes = plugin_dispatch_stats().strikes;
-    check(send("hi").verdict == PluginDraftVerdict::keep && binding->strikes == 1 &&
-              plugin_dispatch_stats().strikes == strikes + 1 && !binding->struck_out,
+    check(send("hi").verdict == PluginDraftVerdict::keep && binding->strikes == 1 && !binding->struck_out,
           "an overrun leaves the draft unchanged and costs a strike");
     send("hi");
     send("hi");

@@ -97,16 +97,6 @@ mc_status plugin_host_read_open_channel(mc_open_channel* out) noexcept;
 // read_messages: up to capacity loaded messages of channel below before (0: the newest), newest first.
 mc_status plugin_host_read_messages(u64 channel_id, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept;
 
-// Counters since process start; for tests.
-struct PluginPipelineStats {
-    u32 deleted_calls, edited_calls, click_calls, typing_calls;
-    u32 event_calls;       // EVENTS hook calls (batches)
-    u32 events_lost;       // events a slow plugin missed
-    u32 timer_calls;
-    u32 action_denials;    // actions refused for permission, gesture or rate limit
-};
-const PluginPipelineStats& plugin_pipeline_stats() noexcept;
-
 // Message actions (send, edit, delete) are limited per plugin to this many in one window; reactions, mark
 // read, activity and local messages have their own limits (pipeline.cpp).
 inline constexpr u32 kPluginActionWindowMilliseconds = 5000;

@@ -76,8 +76,7 @@ void check_screen(LoginStatus status, LoginSecurityKey key, const char* words, c
     UiTextCommand commands[kMaximumLoginTextCommands]{};
     UiTextCommandStream text{};
     const bool built = build(status, key, commands, &text);
-    check(built, label);
-    check(built && some_command_says(commands, text, words) && !some_command_says(commands, text, "Windows"), words);
+    check(built && some_command_says(commands, text, words) && !some_command_says(commands, text, "Windows"), label);
 }
 
 void test_text() noexcept {

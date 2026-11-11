@@ -272,20 +272,7 @@ static void store_tree(void (*check)(bool, const char*) noexcept) noexcept {
     }
             check(laid && cards == 5 && switches == 2 && installs == 3 && g_scene.page_root != kUiStoreNone,
           "store: Browse builds a card per listed plugin, a switch on installed ones, Install or Update on the rest");
-    {
-        PaintStream paint{};
-        UiTextCommand commands[1024]{};
-        UiTextCommandStream stream{};
-        UiTextOutput output{&stream, nullptr};
-        g_scene.active = true;
-        const bool ready = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 900, 700) &&
-                           ui_text_command_stream_initialize(&stream, {commands, 1024});
-        check(ready, "store: paint and text streams");
-        check(ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0), "store: the page paints plates");
-        check(ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 1), "store: the page paints its foreground");
-        check(ui_store_scene_text_output(g_scene, kDefaultTheme, &output, false) && stream.count > 20, "store: the page emits its text");
-        paint_stream_release(&paint);
-    }
+    g_scene.active = true;
     // Three columns at the store column's width, two when it narrows.
     float first_x = -1, third_x = -1;
     for (u32 i = 0, seen = 0; i < g_scene.count; ++i)

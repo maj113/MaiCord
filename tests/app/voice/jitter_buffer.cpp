@@ -80,12 +80,12 @@ void run_late_duplicate(Check check) noexcept {
               push(buffer, 101, 20'000) == VoiceJitterPush::stored &&
               voice_jitter_push(&buffer, 102, 0, {large, 0}, 0) == VoiceJitterPush::rejected &&
               voice_jitter_push(&buffer, 102, 0, {large, sizeof(large)}, 0) == VoiceJitterPush::rejected &&
-              buffer.stats.duplicate == 1 && buffer.stats.rejected == 2 && buffer.count == 2,
+              buffer.count == 2,
           "Jitter: duplicates, empty and oversized packets are refused without consuming slots");
     voice_jitter_pop(&buffer);
     voice_jitter_pop(&buffer);
     check(push(buffer, 100, 60'000) == VoiceJitterPush::late && push(buffer, 101, 60'000) == VoiceJitterPush::late &&
-              push(buffer, 102, 60'000) == VoiceJitterPush::stored && buffer.stats.late == 2,
+              push(buffer, 102, 60'000) == VoiceJitterPush::stored,
           "Jitter: packets behind the playout point are dropped as late");
     check(push(buffer, 102 + kVoiceJitterSlots + 4, 80'000) == VoiceJitterPush::resync && buffer.count == 1 &&
               !buffer.playing && push(buffer, 7, 90'000) == VoiceJitterPush::resync && buffer.next_sequence == 7,
@@ -113,7 +113,7 @@ void run_underrun(Check check) noexcept {
     push(buffer, 13, 900'000);
     push(buffer, 14, 920'000);
     const auto spurt = voice_jitter_pop(&buffer);
-    check(spurt.kind == P && spurt.sequence == 13 && buffer.stats.late == 0,
+    check(spurt.kind == P && spurt.sequence == 13,
           "Jitter: the next talk spurt re-buffers and resumes at its first packet");
 }
 void run_adaptive(Check check) noexcept {
@@ -135,7 +135,7 @@ void run_adaptive(Check check) noexcept {
     for (u16 i = 0; i < 12; ++i)
         push(backlog, i, 0);
     const auto played = voice_jitter_pop(&backlog);
-    check(played.kind == P && played.sequence > 0 && backlog.count <= backlog.target + 4 && backlog.stats.trimmed,
+    check(played.kind == P && played.sequence > 0 && backlog.count <= backlog.target + 4,
           "Jitter: a backlog beyond the target is trimmed to bound latency");
     check(sizeof(VoiceJitterBuffer) < 24 * 1024, "Jitter: per-stream memory is fixed and bounded");
 }

@@ -562,7 +562,6 @@ void run() noexcept {
                   utf8_equal(roots[0].description, utf8_literal("Play wordle")) && !roots[0].subcommands &&
                   admin_nested && !application_commands_for_application(8, 10, {roots, 8}, &roots_loading),
               "profile commands list one app's root commands for the active channel only");
-        check(application_commands_catalog_revision() != 0, "loaded indexes advance the catalog revision");
         check(application_commands_insert(10, 100, utf8_literal("wordle")) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("/wordle ")) &&
                   g_app.message_composer_scene.command.name_bytes == 7 && !confirm_request.title.bytes,

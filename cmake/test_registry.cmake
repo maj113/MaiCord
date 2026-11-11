@@ -2345,7 +2345,7 @@ foreach(script IN ITEMS devanagari tamil bengali gujarati gurmukhi odia telugu k
 endforeach()
 maicord_test(MaiCordFontCatalogTests ONLY WINDOWS ENTRY maicord_font_catalog_entry
     SOURCES tests/text/fonts/catalog_test.cpp
-    LIBS maicord_core maicord_font kernel32 advapi32
+    BUNDLE MaiCordTextUnitTests
     TIMEOUT 2 LABELS native-text-font-catalog TEST maicord_native_font_catalog)
 maicord_test(MaiCordFontCatalogCoverageTests ONLY WINDOWS ENTRY maicord_font_catalog_coverage_entry
     SOURCES tests/text/fonts/catalog_coverage_test.cpp
@@ -2393,9 +2393,6 @@ maicord_test(MaiCordGatewayEtfSessionTests ENTRY maicord_gateway_etf_session_ent
     BUNDLE MaiCordCoreUnitTests TEST maicord_gateway_etf_session)
 maicord_test(MaiCordByteOrderTests ENTRY maicord_byte_order_entry SOURCES tests/core/byte_order_test.cpp
     BUNDLE MaiCordCoreUnitTests TEST maicord_byte_order)
-# The window vocabulary (include/maicord/platform/window): key numbering, event layout, headers compile.
-maicord_test(MaiCordWindowVocabularyTests ENTRY maicord_window_vocabulary_entry
-    SOURCES tests/platform/window/window_vocabulary.cpp BUNDLE MaiCordCoreUnitTests TEST maicord_window_vocabulary)
 # The Windows key-state service against the thread's synthetic keyboard state.
 maicord_test(MaiCordWindowWin32KeysTests ONLY WINDOWS ENTRY maicord_window_win32_keys_entry
     SOURCES tests/platform/window/win32_keys.cpp
@@ -2495,17 +2492,17 @@ if(MAICORD_LINUX)
     # The settings catalog's Linux wording (no row names Windows) and the rows this system leaves out.
     maicord_test(MaiCordLinuxCatalogTextTests ENTRY maicord_linux_catalog_text_entry
         SOURCES tests/app/settings/linux_catalog_text.cpp
-        LIBS ${maicord_linux_app_test_libs} INCLUDES src/app
+        LIBS ${maicord_linux_app_test_libs} INCLUDES src/app BUNDLE MaiCordAppUnitTests
         TIMEOUT 10 TEST maicord_linux_catalog_text)
     # The sign-in screen's wording for a security key on Linux, where none can be used (src/ui/account/login_text_presentation.cpp).
     maicord_test(MaiCordLinuxWebAuthnTextTests ENTRY maicord_linux_webauthn_text_entry
         SOURCES tests/ui/account/linux_webauthn_text.cpp
-        LIBS ${maicord_linux_app_test_libs} INCLUDES src/app
+        LIBS ${maicord_linux_app_test_libs} INCLUDES src/app BUNDLE MaiCordAppUnitTests
         TIMEOUT 10 TEST maicord_linux_webauthn_text)
     # Push to talk through the GlobalShortcuts portal while a call is open (src/app/voice/push_to_talk_binding.cpp).
     maicord_test(MaiCordPushToTalkBindingTests ENTRY maicord_push_to_talk_binding_entry
         SOURCES tests/app/voice/push_to_talk_binding.cpp
-        LIBS ${maicord_linux_app_test_libs} INCLUDES src/app
+        LIBS ${maicord_linux_app_test_libs} INCLUDES src/app BUNDLE MaiCordAppUnitTests
         TIMEOUT 10 TEST maicord_push_to_talk_binding)
     # The termination signals as a loop event (src/app/linux/shutdown_signal.cpp), and the minimum window size that follows
     # the layout (src/app/shell/window.cpp: sign-in, main layout, panes).
@@ -2532,12 +2529,12 @@ if(MAICORD_LINUX)
     # The launch's arguments as the command line the launch parser reads (the Linux entry's input to the shared startup).
     maicord_test(MaiCordLinuxLaunchLineTests ENTRY maicord_linux_launch_line_entry
         SOURCES tests/platform/desktop/linux_launch_line.cpp
-        LIBS maicord_app_client maicord_desktop_system maicord_core
+        LIBS maicord_app_client maicord_desktop_system maicord_core BUNDLE MaiCordAppUnitTests
         TIMEOUT 10 TEST maicord_linux_launch_line)
     # The account's file locations and the start-up logout probe on a Linux profile.
     maicord_test(MaiCordLinuxAccountPathsTests ENTRY maicord_linux_account_paths_entry
         SOURCES tests/app/account/linux_account_paths.cpp
-        LIBS maicord_app_client maicord_core
+        LIBS maicord_app_client maicord_core BUNDLE MaiCordAppUnitTests
         TIMEOUT 10 TEST maicord_linux_account_paths)
     # The toast layer without a session bus: no daemon is ever reached. The _mock case runs it against the mock notification
     # daemon of tools/test_dbus.sh (skipped, 77, outside that script).
@@ -2757,7 +2754,7 @@ maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 10
     TEST maicord_native_simulated_profile ${maicord_bundled_fonts} --simulated-profile --family "Segoe UI" 400)
 maicord_test(MaiCordNativeSpacingTests ONLY WINDOWS ENTRY maicord_native_spacing_entry
     SOURCES tests/text/opentype/native_spacing_test.cpp
-    LIBS maicord_core maicord_font kernel32
+    BUNDLE MaiCordTextUnitTests
     TIMEOUT 5 LABELS native-text-spacing TEST maicord_native_spacing)
 maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_paragraph_options ${maicord_bundled_fonts} --paragraph-options
@@ -2839,7 +2836,7 @@ maicord_font_test(MaiCordFontInstanceTests maicord_font_store_entry text/fonts/s
 # The font store, catalog check and handle stamp over real files, through the files seam.
 maicord_test(MaiCordFontStoreFilesTests ENTRY maicord_font_store_files_entry SOURCES
         tests/text/fonts/store_files_test.cpp
-    LIBS maicord_core maicord_font kernel32 TIMEOUT 5 TEST maicord_native_font_store_files)
+    BUNDLE MaiCordTextUnitTests TIMEOUT 5 TEST maicord_native_font_store_files)
 if(MAICORD_LINUX)
     # The tests of the Linux text platform: the system font locator over fontconfig and over the directory scan, and what
     # builds on it. They read the host's installed fonts; the cases that
@@ -3313,7 +3310,7 @@ maicord_test(MaiCordAppleMusicPlayerTests ENTRY maicord_apple_music_player_entry
     BUNDLE MaiCordProtocolTests TIMEOUT 5 TEST maicord_apple_music_player)
 
 maicord_test(MaiCordMp4FragmentTests ONLY WINDOWS ENTRY maicord_mp4_fragment_entry
-    SOURCES tests/media/containers/mp4_fragment.cpp tests/media/containers/fragment_audio_playback_probe.cpp
+    SOURCES tests/media/containers/mp4_fragment.cpp
     LIBS maicord_account_media maicord_platform ole32 user32 d3d11 dxgi
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_mp4_fragment)

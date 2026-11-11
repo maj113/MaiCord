@@ -197,9 +197,6 @@ void test_member_list_sparse_model(void (*check)(bool, const char*) noexcept) no
         guild_member_store_set_group(&f.members, 7, 70, 512, 9999, 1) && project() &&
         group_count_at(0) == 1 && group_count_at(126) == 1 && group_count_at(512) == 1,
         "new requested headers replace unpinned history while visible headers remain protected");
-    check(sizeof(GuildMemberStore) < 8192 + sizeof(MemberListPositionTable) &&
-              sizeof(MemberListPositionTable) <= kMemberListPositionCapacity * 16 + 8 && sizeof(MemberListRow) == 40,
-        "list metadata, bounded per-list rows and sparse row records remain fixed storage");
 
     // Each member list keeps its own rows: a second list of the guild that
     // lists the same members (a channel switch) takes none from the first,

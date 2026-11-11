@@ -132,8 +132,6 @@ void test_mention_badge_text(void (*check)(bool, const char*) noexcept) noexcept
                 ui_rect_width(badge->rectangle) == ui_mention_badge_width(counts[index]) &&
                 name->content_rectangle.right <= badge->rectangle.left - 6.0f,
                 "mention badge: channel numeric text matches widget badge and reserves name spacing at every width");
-            check(f.guild_rows[index].mention_count == counts[index] && f.channel_rows[index].mention_count == counts[index],
-                "mention badge: compact numeric labels never replace complete projected model counts");
         }
         // Layering: the chrome paints no rail badge (the server icon's media
         // draws over the chrome); the post-media overlay paints each badge

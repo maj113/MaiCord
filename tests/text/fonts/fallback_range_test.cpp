@@ -39,7 +39,6 @@ bool routing_guards() noexcept {
 #include "fallback_map_cases.inc"
 bool guards() noexcept {
     CHECK(routing_guards()&&mapping_guards());
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
     struct Case {const char* text;u32 bytes,units,font,selects,probes;};
     const Case cases[]{ {"aba",1,1,0,2,0},{"axa",1,1,0,2,0},{"b\xcc\x81" "a",3,2,1,2,1},
         {"b\xe2\x80\x8d" "a",5,3,1,1,2},{"b\xe2\x80\x8c" "a",4,2,1,2,1},

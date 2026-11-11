@@ -254,9 +254,10 @@ void storage(AccountUiRuntime& ui, usize page) noexcept {
         "history all nine typed slices end at their committed elements beside the structural/content unions");
     measurement("MEASURE history_first_committed_bytes=", committed_bytes(owner));
     const auto first = scratch; const usize first_committed = committed_bytes(owner);
-    for (u32 i = 0; i < 100; ++i) check(application_message_decode_scratch(ui, &scratch), "history repeated access succeeds");
-    check(same_scratch(first, scratch) && owner.base == base && committed_bytes(owner) == first_committed,
-        "history repeat access retains identical slices and performs no extra commit");
+    bool repeated = true;
+    for (u32 i = 0; i < 100; ++i) repeated = application_message_decode_scratch(ui, &scratch) && repeated;
+    check(repeated && same_scratch(first, scratch) && owner.base == base && committed_bytes(owner) == first_committed,
+        "history 100 repeat accesses succeed, retain identical slices and perform no extra commit");
     check(!scratch.rich.snapshot.attachments.data && !scratch.rich.snapshot.embeds.data &&
         !scratch.rich.snapshot.mention_users.data && !scratch.rich.poll.answers.data,
         "ordinary history exposes no uncommitted optional snapshot or poll pointers");

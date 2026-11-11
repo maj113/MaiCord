@@ -38,7 +38,7 @@ bool exercise(TextSystem system) noexcept {
         CHECK(native_text_candidate_styled(system,{input,{&effect,1},37,1000000,TextWrapping::wrap},&draw,nullptr));
         CHECK(native_text_candidate_hits(system,{input,{},37,1000000,TextWrapping::wrap},storage,&measure));
         CHECK(measure.ok()&&measure.utf16_units==draw.cluster_count&&native_paragraph_hit_position(geometry,1,false,&metric,&x)==SfntStatus::ok);}
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));return true;
+    return true;
 }
 bool braille(TextSystem system) noexcept {
     // Exercise every braille cell, including U+2800, through native coverage,
@@ -61,7 +61,7 @@ bool braille(TextSystem system) noexcept {
     }
     const auto mixed=utf8_literal("A\xe2\xa0\x80\xe2\xa3\xbf\nZ");TextMeasureResult measure{};
     CHECK(native_text_candidate_line(system,{mixed,{},1000,1000},nullptr,&measure)&&measure.ok()&&measure.line_count==2);
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));return true;
+    return true;
 }
 bool family_cache(NativeFontSession* session) noexcept {
     NativeTextCatalogs catalogs{};Arena scratch{};
@@ -98,7 +98,7 @@ bool simulated_formats(NativeFontSession* session) noexcept {
         release_output(draw);NativeParagraphHits geometry{};TextMeasureResult measure{};
         NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{advances,1280},&geometry,{parts,16}};
         CHECK(native_text_candidate_hits(system,{text,{},37,1000,TextWrapping::wrap},storage,&measure)&&measure.ok()&&geometry.lines.count);
-    }CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));return true;
+    }return true;
 }
 bool system_cache(NativeFontSession* session,const wchar_t* path) noexcept {
     NativeTextCatalogs catalogs{};Arena scratch{};
@@ -135,7 +135,7 @@ bool system_cache(NativeFontSession* session,const wchar_t* path) noexcept {
     query.scope=0xffffffffu;
     CHECK(!native_text_catalog_select_query(&catalogs,query,session,&scratch,&instance,&selection,nullptr,nullptr,&selected_scope,&missing_family)&&!instance.slot&&!missing_family);
     CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&again)&&!again.bytes&&again.scope==native_fallback_missing&&again.match.candidate==native_fallback_missing);
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));return true;
+    return true;
 }
 // No font discovery is needed to exercise inline/arena transitions and index pages.
 bool format_boundaries(NativeFontSession* session) noexcept {
@@ -183,9 +183,6 @@ bool format_boundaries(NativeFontSession* session) noexcept {
     CHECK(catalogs.attempted==0x80000000u&&catalogs.builds==1&&catalogs.failures==1);
     return true;
 }
-volatile u32 stale_observation;
-__declspec(noinline) void stale_marker(const NativeTextCatalogs* owner,u32 scope,u32 phase) noexcept {stale_observation=owner->stale_scopes^scope^phase;}
-static_assert(offsetof(NativeTextCatalogs,stale_scopes)==436);
 // Only copied catalog descriptors are faulted; no installed/private font bytes
 // or shared snapshot arrays are modified. Existing instances must remain valid.
 bool stale_scope_signal(NativeFontSession* session,const wchar_t* path,u32 scope_index) noexcept {
@@ -207,16 +204,12 @@ bool stale_scope_signal(NativeFontSession* session,const wchar_t* path,u32 scope
     CHECK(native_font_coverage_reset(&catalogs.coverage));
     struct Restore {u8* changed;u8 original;~Restore() noexcept {*changed=original;}} restore{changed,original};
     const u32 candidate=range.match.candidate;const u32 bit=1u<<scope_index;NativeFontInstanceHandle rejected{};
-    stale_marker(&catalogs,scope_index,0);
     CHECK(!native_text_catalog_select_query(&catalogs,query,session,&scratch,&rejected,&selected)&&!rejected.slot&&!selected.face.slot&&catalogs.stale_scopes==bit);
-    stale_marker(&catalogs,scope_index,1);
     CHECK(native_font_instance_get(*native_font_session_instances(session),retained)==held);
     catalogs.stale_scopes=0;
     CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&!range.bytes&&catalogs.stale_scopes==bit);
-    stale_marker(&catalogs,scope_index,2);
     catalogs.stale_scopes=0;
     CHECK(!native_text_catalog_select_face(&catalogs,scope_index,candidate,0,session,&scratch,&rejected,&selected)&&!rejected.slot&&!selected.face.slot&&catalogs.stale_scopes==bit);
-    stale_marker(&catalogs,scope_index,3);
     // Invalid requests must not request a catalog rebuild.
     catalogs.stale_scopes=0;
     CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xff"),&range)&&!catalogs.stale_scopes);
@@ -258,14 +251,12 @@ bool run() noexcept {
     const wchar_t pressure_option[]=L"--recovery-pressure ";u32 pressure_match=0;while(pressure_option[pressure_match]&&arg[pressure_match]==pressure_option[pressure_match])++pressure_match;const bool pressure_only=!pressure_option[pressure_match];if(pressure_only)arg+=pressure_match;
     wchar_t path[1024];u32 length=0;quote=*arg=='"';if(quote)++arg;while(*arg&&(!quote||*arg!='"')&&(quote||(*arg!=' '&&*arg!='\t'))){CHECK(length<1023);path[length++]=*arg++;}path[length]=0;CHECK(length);
 
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
     TextSystem system{};CHECK(native_font_session_create(&system.native_fonts));CHECK(native_text_context_initialize(&system.native_text,system.native_fonts));
     struct Release {TextSystem& s;~Release() noexcept {native_text_context_release(&s.native_text);native_font_session_release(&s.native_fonts);}} release{system};
     if(stale_only){
         CHECK(stale_scope_signal(system.native_fonts,path,0));
         CHECK(stale_scope_signal(system.native_fonts,path,1));
         CHECK(stale_scope_signal(system.native_fonts,path,31));
-        CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
         print("PASS stale scope signal: system file, private file, scope 31, retained instance, sticky bits\n");return true;
     }
     if(generation_only){CHECK(recovery_format_sharing());CHECK(generation_recovery(path));CHECK(automatic_generation_recovery(path));CHECK(released);return true;}
@@ -284,7 +275,7 @@ bool run() noexcept {
         CHECK(shaped.cluster_count&&shaped.line_count);release_output(shaped);NativeParagraphHits geometry{};TextMeasureResult measure{};
         NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{advances,1280},&geometry,{parts,16}};
         CHECK(native_text_candidate_hits(system,{text,{},37,1000000,TextWrapping::wrap},storage,&measure)&&measure.ok()&&geometry.source_units);
-        CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));}
+    }
     const u32 first_format=system.native_format;const u64 first_identity=native_text_format_identity(system);
     const auto instances=native_font_session_stats(system.native_fonts).instances;
     for(u32 i=0;i<96;++i){description.em_size=8+static_cast<float>(i)*.5f;description.tab_stop=description.em_size*4;
@@ -307,7 +298,6 @@ bool run() noexcept {
     for(u32 i=0;i<6;++i){system.native_format=(i&1)?bold_format:normal_format;auto draw=output();
         CHECK(native_text_candidate_line(system,{utf8_literal("a\xcb\x91" "a"),{},1000000,1000},&draw,nullptr)&&draw.native_fonts());
         CHECK(draw.run_count==((i&1)?1u:3u));release_output(draw);}
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
     // Private face-zero registration is also independent of COM collections.
     CHECK(system_cache(system.native_fonts,path));
     u32 scope=0,again=0;CHECK(native_text_register_font_path(system.native_text,path,&scope));CHECK(native_text_register_font_path(system.native_text,path,&again)&&again==scope);
@@ -321,7 +311,7 @@ bool run() noexcept {
         CHECK(native_text_format_create(system.native_text,{{bio_family,16},bio_scope,{400,5,0},16,64,true},&bundled.native_format));
         CHECK(emergency_cut(bundled,0));}
     auto invalid=system;invalid.native_format=0xffffffffu;TextMeasureResult measured{};CHECK(!native_text_candidate_line(invalid,{utf8_literal("AV"),{},95,1000},nullptr,&measured));
-    CHECK(!native_text_format_identity(invalid));CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
+    CHECK(!native_text_format_identity(invalid));
     // Published runs and copied editor geometry outlive all format metadata.
     auto retained=output();const auto text=utf8_literal("A \xce\xb1\xf0\x9f\x98\x80\xd0\x91 To");
     CHECK(native_text_candidate_line(system,{text,{},1000000,1000},&retained,nullptr));

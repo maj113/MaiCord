@@ -130,9 +130,6 @@ bool initialize() noexcept {
 void notice_tests() noexcept {
     using Kind = ApplicationMessageMutationKind;
     const auto forbidden = response(403), missing = response(404), server = response(500);
-    static_assert(static_cast<u32>(Kind::edit) == 0 && static_cast<u32>(Kind::erase) == 1 &&
-                  static_cast<u32>(Kind::reaction) == 2 && static_cast<u32>(Kind::attachment_open) == 3 &&
-                  static_cast<u32>(Kind::mark_unread) == 4);
     using Stage = ApplicationMessageNavigationStage;
     application_message_mutation_notice_begin(Kind::navigate_message, 70, 900);
     const Stage pending_stages[]{

@@ -4,20 +4,12 @@
 #include "maicord/app/chat/messages/event_pump.hpp"
 #include "maicord/app/chat/messages/history_sync.hpp"
 #include "maicord/model/chat/message_reconcile.hpp"
-#include <stddef.h>
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "../../support/gateway_message_scratch.hpp"
 
 namespace maicord::message_pinned_state_test {
-static_assert(sizeof(MessageRecord) == 64);
-static_assert(sizeof(MessageInput) == 72);
-static_assert(offsetof(GatewayMessageEvent, snapshot) == 456);
-static_assert(sizeof(GatewayMessageEvent) ==
-              456 + sizeof(GatewayMessageSnapshot) + sizeof(GatewayMessagePoll) + sizeof(GatewayMessageThread) +
-                  sizeof(GatewayMessageCall));
-static_assert(sizeof(GatewayClientMessageMutation) == 88);
 u32 failures{};
 void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);

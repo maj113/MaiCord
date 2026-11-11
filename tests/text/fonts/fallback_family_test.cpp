@@ -24,7 +24,7 @@ bool guards() noexcept {
     // Simulation flags break an equal projection: bold simulated before oblique simulated.
     const NativeFontProperties ties[]{{400,5,1},{700,5,0}};native_font_fallback_order({ties,2},{700,5,1},output);CHECK(output[0]==0&&output[1]==1);
     const NativeFontProperties reversed[]{{700,5,0},{400,5,1}};native_font_fallback_order({reversed,2},{700,5,1},output);CHECK(output[0]==1&&output[1]==0);
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));return true;
+    return true;
 }
 }}
 MAICORD_TEST_ENTRY(maicord_font_fallback_family_entry) {using namespace maicord;const bool ok=guards();

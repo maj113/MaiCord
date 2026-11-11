@@ -677,11 +677,13 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
                     reply_draft_ui_adapter_state()->selected_channel_id == kReplyDraftProbeChannelA,
                 50 + reason))
             return false;
-        if (reason == 1 &&
-            !require(forum_post_ui_adapter_open() && forum_post_ui_adapter_pointer_up() &&
-                         forum_post_ui_adapter_scene() && forum_post_ui_adapter_submissions() == 2 &&
-                         forum_post_ui_adapter_escape_tails(),
-                     41))
+        // The press that began on the retired form's Cancel ends over the reopened one without clicking it. Each step
+        // reports its own stage: a reopen refused by the form and a cancel from the Escape tail both leave the post
+        // cancelled with no form.
+        if (reason == 1 && (!require(forum_post_ui_adapter_open(), 41) ||
+                            !require(forum_post_ui_adapter_pointer_up(), 42) ||
+                            !require(forum_post_ui_adapter_scene() && forum_post_ui_adapter_submissions() == 2, 43) ||
+                            !require(forum_post_ui_adapter_escape_tails(), 44)))
             return false;
     }
     log_write(

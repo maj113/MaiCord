@@ -47,7 +47,7 @@ int run() noexcept {
         if(!match){if(failed<16){if(failed)print(utf8_literal(","));field(utf8_literal("{\"rtl\":"),direction);field(utf8_literal(",\"count\":"),count);field(utf8_literal(",\"boundaries\":"),boundaries);field(utf8_literal(",\"zero\":"),zero);field(utf8_literal(",\"pattern\":"),pattern);u32 sb=0;copy_bytes(&sb,&spacing,4);field(utf8_literal(",\"spacing\":"),sb);
             print(utf8_literal(",\"rows\":["));for(u32 i=0;i<count;++i){if(i)print(utf8_literal(","));print(utf8_literal("["));const float observed[]{before[i].advance,after[i].advance,before[i].advance_offset,after[i].advance_offset};for(u32 j=0;j<4;++j){u32 b=0;copy_bytes(&b,observed+j,4);if(j)print(utf8_literal(","));number(b);}print(utf8_literal("]"));}print(utf8_literal("]}"));}++failed;}
     }
-    field(utf8_literal("],\"cases\":"),cases);field(utf8_literal(",\"failed\":"),failed);field(utf8_literal(",\"validation_cases\":"),8);print(utf8_literal("}\n"));return output_ok&&!failed?0:1;
+    field(utf8_literal("],\"cases\":"),cases);field(utf8_literal(",\"failed\":"),failed);print(utf8_literal("}\n"));return output_ok&&!failed?0:1;
 }
 }}
 extern "C" void maicord_native_spacing_entry(){ExitProcess(static_cast<UINT>(maicord::run()));}

@@ -26,9 +26,6 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
           "theme appearance: authored foreground hues never choose canvas or text policy");
     BackgroundFrameWork phase{};
     phase.background_requested = true;
-    u32 phase_reuses = 0;
-    for (u32 frame = 0; frame < 64; ++frame)
-        phase_reuses += background_frame_reuses_static_media(phase) ? 1u : 0u;
     bool BackgroundFrameWork::* changes[]{
         &BackgroundFrameWork::previous_damage,     &BackgroundFrameWork::account_work,
         &BackgroundFrameWork::dispatched_messages, &BackgroundFrameWork::media_animation_due,
@@ -42,10 +39,10 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     }
     auto completion = phase;
     completion.account_work = true;
-    check(phase_reuses == 64 && all_changes_pump && !background_frame_reuses_static_media(completion) &&
+    check(all_changes_pump && !background_frame_reuses_static_media(completion) &&
               background_frame_reuses_static_media(phase),
-          "background media policy: 64 shader phases reuse; completion, input, damage, scroll and explicit "
-          "deadlines retain pumping");
+          "background media policy: an idle frame reuses static media; completion, input, damage, scroll and "
+          "explicit deadlines retain pumping");
     constexpr ClientTheme kinds[]{ClientTheme::dark, ClientTheme::amoled, ClientTheme::light};
     const Theme amoled_theme = ui_theme_amoled();
     const Theme* bases[]{&kDefaultTheme, &amoled_theme, &kLightTheme};

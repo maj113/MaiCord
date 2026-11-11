@@ -138,25 +138,11 @@ void test_modes() noexcept {
     run_gate(true, true, true, "modes: a writer waits for a writer, then gets in");
 }
 
-void test_single_thread() noexcept {
-    SRWLOCK lock = SRWLOCK_INIT;
-    AcquireSRWLockExclusive(&lock);
-    ReleaseSRWLockExclusive(&lock);
-    AcquireSRWLockShared(&lock);
-    AcquireSRWLockShared(&lock);
-    ReleaseSRWLockShared(&lock);
-    ReleaseSRWLockShared(&lock);
-    AcquireSRWLockExclusive(&lock);
-    ReleaseSRWLockExclusive(&lock);
-    check(true, "single thread: acquire and release in both modes, nested shared");
-}
-
 } // namespace
 } // namespace maicord
 
 MAICORD_TEST_ENTRY(maicord_os_srwlock_entry) {
     using namespace maicord;
-    test_single_thread();
     test_modes();
     test_contention();
     test_exit(g_failures, "os_srwlock");

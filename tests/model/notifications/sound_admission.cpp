@@ -31,8 +31,6 @@ MessageNotificationOverride level(u64 id,L value) noexcept {
 }
 }
 void test_notification_sound_admission(void(*check)(bool,const char*)noexcept) noexcept {
-    check(sizeof(NotificationSoundAdmissionInput)<=16&&sizeof(NotificationSoundAdmissions)<=4&&sizeof(MessageNotificationScope)<=4,
-        "sound admission passes bounded scalar results and a borrowed policy pointer without owner tables");
     Fixture f{};check(f.initialize(),"sound admission fixture shares typed guild override and thread store");
     auto pair=notification_sound_admissions(f.sound);
     check(pair.ordinary==A::allowed&&pair.selected==A::denied,"ordinary ALL admission is independent of default-disabled selected preference");

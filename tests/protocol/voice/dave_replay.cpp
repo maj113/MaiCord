@@ -4,7 +4,6 @@
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
-static_assert(sizeof(DaveReplay) <= 8192);
 // Independent ordered-list model of libdave's missing-nonce deque policy.
 // Deliberately uses linear lookup/front erasure, not the production ring/index.
 struct Model {

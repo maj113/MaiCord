@@ -36,7 +36,7 @@ bool lines_corpus(ConstSlice<u8> data) noexcept {
         else{CHECK(size<32768);const int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,reinterpret_cast<const char*>(font.data),static_cast<int>(size),font_path,32767);CHECK(n>0);font_path[n]=0;path=font_path;}
         NativeRunPlanHandle handle{};CHECK(acquire(path,&handle,false,weight));arena_reset(&state);NativeEmojiPlan plan{};
         const auto saved=scratch.offset;CHECK(native_emoji_plan_prepare(store,handle,&state,&scratch,&plan)==SfntStatus::ok&&scratch.offset==saved&&plans[0].references==1);
-        root_bytes+=state.offset;if(!font_index)CHECK(line_guards(plan));
+        if(!font_index)CHECK(line_guards(plan));
         for(case_index=0;case_index<count;++case_index){u32 em_bits=0,bytes=0,glyph_count=0,units=0,points=0,ranges=0;ConstSlice<u8> text{},glyphs{},placements{},map{};
             CHECK(reader.word(&em_bits)&&reader.word(&bytes)&&reader.word(&glyph_count)&&reader.word(&units)&&reader.word(&points)&&reader.word(&ranges));
             CHECK(glyph_count<=1024&&units<=256&&reader.take(bytes,&text)&&reader.take(glyph_count*2,&glyphs)&&reader.take(glyph_count*12,&placements)&&reader.take(units*4,&map));
@@ -70,6 +70,6 @@ bool run_lines() noexcept {
 }}
 extern "C" void maicord_emoji_line_entry() noexcept {
     using namespace maicord;bool ok=emoji_cleanup(run_lines());
-    print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\ndigest=");number(digest);print("\nroot_bytes_sum=");number(root_bytes);print("\nnominal_runs=");number(nominal_runs);
+    print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nnominal_runs=");number(nominal_runs);
     print(ok?"\nPASS native emoji line geometry\n":"\nFAIL native emoji line geometry\n");::maicord::test_process_exit(ok?0u:1u);
 }

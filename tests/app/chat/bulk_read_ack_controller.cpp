@@ -91,10 +91,11 @@ void test_bulk_read_ack_controller(void (*check)(bool, const char*) noexcept) no
               c.revision == before.revision,
           "bulk read: zero cursor never becomes outgoing bulk acknowledgement");
     const u32 calls = reserve.pending_calls + reserve.flight_calls, revision = c.revision;
+    bool stable_wake = true;
     for (u32 warm = 0; warm < 64; ++warm)
-        check(bulk_read_ack_next_wake(c) == 1001, "bulk read: warm wake stays stable");
-    check(c.revision == revision && reserve.pending_calls + reserve.flight_calls == calls,
-          "bulk read: 64 warm deadline reads perform no reserve or publication");
+        stable_wake = bulk_read_ack_next_wake(c) == 1001 && stable_wake;
+    check(stable_wake && c.revision == revision && reserve.pending_calls + reserve.flight_calls == calls,
+          "bulk read: 64 warm deadline reads keep the wake stable and perform no reserve or publication");
     count = 777;
     check(!bulk_read_ack_queue(&c, {c.pending.data, c.count}) &&
               !bulk_read_ack_peek(&c, 2000, {c.pending.data, 100}, &count) && count == 777,

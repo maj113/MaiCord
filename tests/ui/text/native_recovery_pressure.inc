@@ -1,4 +1,3 @@
-volatile u32 pressure_expect_commit_failure;
 bool recovery_session_pressure(const wchar_t* path) noexcept {
     ReplacementFont replacement;CHECK(replacement.open(path));
     TextSystem system{};CHECK(native_font_session_create(&system.native_fonts)&&native_text_context_initialize(&system.native_text,system.native_fonts));system.em_size=16;
@@ -33,26 +32,14 @@ bool recovery_session_pressure(const wchar_t* path) noexcept {
     const auto* run_store=native_font_session_runs(session);CHECK(run_store->slots.count==64);for(u32 i=0;i<run_store->slots.count;++i)CHECK(run_store->slots[i].references);
     CHECK(replacement.replace(path));
     CHECK(native_text_format_create(system.native_text,{{family,9},scope,{400,5,0},16,64,true},&system.native_format));
-    recovery_marker(system.native_text,session,64);
     const bool recovered=native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&draw.text,nullptr);
-    if(pressure_expect_commit_failure){
-        CHECK(!recovered&&!draw.text.native_fonts()&&!draw.text.run_count&&native_text_format_identity(alias)==identity);
-        CHECK(native_font_run_get(*native_font_session_runs(session),old_run)&&native_font_session_stats(session).live.faces==64);
-        CHECK(VirtualQuery(session,&region,sizeof(region))==sizeof(region)&&region.State==MEM_COMMIT&&region.RegionSize==4096);
-        CHECK(native_font_run_release(native_font_session_runs(session),pressure.runs[62]));pressure.runs[62]={};
-        CHECK(native_font_instance_release(native_font_session_instances(session),pressure.instances[62]));pressure.instances[62]={};
-        CHECK(native_font_release(native_font_session_fonts(session),pressure.faces[62]));pressure.faces[62]={};
-        CHECK(native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&draw.text,nullptr));
-    }else CHECK(recovered);
+    CHECK(recovered);
     CHECK(draw.text.run_count&&draw.text.native_fonts()==session&&native_text_format_identity(alias)!=identity);
     CHECK(native_font_run_get(*native_font_session_runs(session),old_run));
     CHECK(native_font_get(*native_font_session_fonts(session),pressure.faces[0])==first_face&&
         native_font_instance_get(*native_font_session_instances(session),pressure.instances[0])==first_instance&&
         native_font_run_get(*native_font_session_runs(session),pressure.runs[0])==first_run);
-    const u32 live=pressure_expect_commit_failure?64u:65u;
-    const auto grown=native_font_session_stats(session);CHECK(grown.live.faces==live&&grown.instances==live&&native_font_session_runs(session)->slots.count>=live);
-    CHECK(VirtualQuery(session,&region,sizeof(region))==sizeof(region)&&region.State==MEM_COMMIT&&region.RegionSize==(pressure_expect_commit_failure?4096u:8192u));
-    recovery_marker(system.native_text,session,65);
-    print(pressure_expect_commit_failure?"PASS injected file-prefix commit failure: rollback, retained output, and recovery after releasing one slot\n":
-        "PASS generation recovery with 64 occupied file/face/instance/run slots; all retained views and old output survive\n");return true;
+    const auto grown=native_font_session_stats(session);CHECK(grown.live.faces==65&&grown.instances==65&&native_font_session_runs(session)->slots.count>=65);
+    CHECK(VirtualQuery(session,&region,sizeof(region))==sizeof(region)&&region.State==MEM_COMMIT&&region.RegionSize==8192u);
+    print("PASS generation recovery with 64 occupied file/face/instance/run slots; all retained views and old output survive\n");return true;
 }

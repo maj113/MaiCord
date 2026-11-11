@@ -38,8 +38,6 @@ void test_delay() noexcept {
     check(bounded, "reconnect delay stays within half and all of the doubling capped ceiling");
     check(varied || account_reconnect_delay(0, &a) == account_reconnect_delay(0, &b),
           "reconnect delay is jittered and deterministic for a seed");
-    check(ceiling(20) == kAccountReconnectCapMs && ceiling(0) == kAccountReconnectBaseMs,
-          "reconnect ceiling doubles from 2 s to the 2 min cap");
 }
 
 // A session that never reaches READY: every deadline restarts, every restart

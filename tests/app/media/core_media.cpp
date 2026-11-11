@@ -391,29 +391,37 @@ void test_cdn_http_policy() noexcept {
                                                         "If-None-Match: W/\"asset-1\"\r\n\r\n")),
            "cdn_bounded_conditional_request");
 
-    const CdnRequestResult webp_request = write_static_cdn_get_request(
-        CdnImageType::webp, CdnHost::cdn, byte_literal("/emojis/45.webp?size=64"), {},
-        Slice<u8>{request, sizeof(request)});
-    expect(webp_request.ok() && bytes_equal(ConstSlice<u8>{request, webp_request.bytes},
-                                            byte_literal("GET /emojis/45.webp?size=64 HTTP/1.1\r\n"
-                                                         "Host: cdn.discordapp.com\r\n"
-                                                         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
-                                                         "Accept: image/webp\r\n"
-                                                         "Accept-Encoding: identity\r\n"
-                                                         "Connection: keep-alive\r\n\r\n")),
-           "cdn_webp_credential_free_request_head");
-
-    const CdnRequestResult gif_request = write_static_cdn_get_request(
-        CdnImageType::gif, CdnHost::media, byte_literal("/stickers/90.gif"), {},
-        Slice<u8>{request, sizeof(request)});
-    expect(gif_request.ok() && bytes_equal(ConstSlice<u8>{request, gif_request.bytes},
-                                           byte_literal("GET /stickers/90.gif HTTP/1.1\r\n"
-                                                        "Host: media.discordapp.net\r\n"
-                                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
-                                                        "Accept: image/gif\r\n"
-                                                        "Accept-Encoding: identity\r\n"
-                                                        "Connection: keep-alive\r\n\r\n")),
-           "cdn_gif_credential_free_request_head");
+    // The other formats differ from the PNG head only in host, target and Accept; the User-Agent is pinned above.
+    const auto head_is = [&](CdnImageType type, CdnHost host, ConstSlice<u8> target, ConstSlice<u8> host_line,
+                             ConstSlice<u8> accept_line) noexcept {
+        const CdnRequestResult written =
+            write_static_cdn_get_request(type, host, target, {}, Slice<u8>{request, sizeof(request)});
+        u32 at = 0;
+        const auto take = [&](ConstSlice<u8> part) noexcept {
+            const bool same = at + part.count <= written.bytes && bytes_equal(request + at, part.data, part.count);
+            at += part.count;
+            return same;
+        };
+        if (!written.ok() || !take(byte_literal("GET ")) || !take(target) || !take(byte_literal(" HTTP/1.1\r\n")) ||
+            !take(host_line) || !take(byte_literal("User-Agent: ")))
+            return false;
+        while (at < written.bytes && request[at] != '\r')
+            ++at;
+        return take(byte_literal("\r\n")) && take(accept_line) &&
+               take(byte_literal("Accept-Encoding: identity\r\nConnection: keep-alive\r\n\r\n")) && at == written.bytes;
+    };
+    expect(head_is(CdnImageType::webp, CdnHost::cdn, byte_literal("/emojis/45.webp?size=64"),
+                   byte_literal("Host: cdn.discordapp.com\r\n"), byte_literal("Accept: image/webp\r\n")) &&
+               head_is(CdnImageType::gif, CdnHost::media, byte_literal("/stickers/90.gif"),
+                       byte_literal("Host: media.discordapp.net\r\n"), byte_literal("Accept: image/gif\r\n")) &&
+               head_is(CdnImageType::jpeg, CdnHost::cdn,
+                       byte_literal("/attachments/123/456/a.jpg?ex=2&is=1&hm="
+                                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                       byte_literal("Host: cdn.discordapp.com\r\n"), byte_literal("Accept: image/jpeg\r\n")) &&
+               head_is(CdnImageType::mp4, CdnHost::images_ext_1,
+                       byte_literal("/external/hash/https/media.tenor.com/clip.mp4"),
+                       byte_literal("Host: images-ext-1.discordapp.net\r\n"), byte_literal("Accept: video/mp4\r\n")),
+           "cdn_webp_gif_jpeg_mp4_credential_free_request_heads");
 
     // A connected account's logo: discord.com/assets/<16 hex digits>.png as a PNG, nothing else on that host.
     const CdnRequestResult web_asset_request = write_static_cdn_get_request(
@@ -453,41 +461,6 @@ void test_cdn_http_policy() noexcept {
                track_art_refused(CdnImageType::jpeg, byte_literal("/generate_204")) &&
                track_art_refused(CdnImageType::png, byte_literal("/vi/CZQdi1sxd30/mqdefault.jpg")),
            "cdn_track_art_host_serves_only_video_thumbnails");
-
-    const CdnRequestResult jpeg_request = write_static_cdn_get_request(
-        CdnImageType::jpeg, CdnHost::cdn,
-        byte_literal("/attachments/123/456/a.jpg?ex=2&is=1&hm="
-                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-        {}, Slice<u8>{request, sizeof(request)});
-    expect(
-        jpeg_request.ok() &&
-            bytes_equal(
-                ConstSlice<u8>{request, jpeg_request.bytes},
-                byte_literal("GET /attachments/123/456/a.jpg?ex=2&is=1&hm="
-                             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\n"
-                             "Host: cdn.discordapp.com\r\n"
-                             "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
-                             "Accept: image/jpeg\r\n"
-                             "Accept-Encoding: identity\r\n"
-                             "Connection: keep-alive\r\n\r\n")),
-        "cdn_jpeg_credential_free_request_head");
-
-    const CdnRequestResult mp4_request =
-        write_static_cdn_get_request(
-            CdnImageType::mp4, CdnHost::images_ext_1,
-            byte_literal("/external/hash/https/media.tenor.com/clip.mp4"), {},
-            Slice<u8>{request, sizeof(request)});
-    expect(mp4_request.ok() &&
-               bytes_equal(
-                   ConstSlice<u8>{request, mp4_request.bytes},
-                   byte_literal(
-                       "GET /external/hash/https/media.tenor.com/clip.mp4 HTTP/1.1\r\n"
-                       "Host: images-ext-1.discordapp.net\r\n"
-                       "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9267 Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36\r\n"
-                       "Accept: video/mp4\r\n"
-                       "Accept-Encoding: identity\r\n"
-                       "Connection: keep-alive\r\n\r\n")),
-           "cdn_mp4_credential_free_request_head");
 
     u8 long_target[1'500]{};
     long_target[0] = '/';
@@ -557,70 +530,39 @@ void test_cdn_http_policy() noexcept {
                bytes_equal(accepted.etag, byte_literal("\"asset-1\"")),
            "cdn_png_mime_and_freshness_admission");
 
-    const CdnResponseResult webp_accepted =
-        validate_static_image_response(CdnImageType::webp, byte_literal("HTTP/1.1 200 OK\r\n"
-                                                   "Content-Type: image/webp\r\n"
-                                                   "Content-Length: 8\r\n"
-                                                   "Cache-Control: max-age=30\r\n\r\n"),
-                                      8, 1'000);
-    expect(webp_accepted.ok() && webp_accepted.disposition == CdnResponseDisposition::accept_body &&
-               webp_accepted.expires_at_seconds == 1'030 &&
-               validate_static_image_response(CdnImageType::webp, byte_literal("HTTP/1.1 200 OK\r\n"
-                                                          "Content-Type: image/png\r\n"
-                                                          "Content-Length: 8\r\n\r\n"),
-                                             8, 0)
-                       .error == CdnHttpError::invalid_content_type,
-           "cdn_webp_exact_mime_admission");
-
-    const CdnResponseResult gif_accepted =
-        validate_static_image_response(CdnImageType::gif, byte_literal("HTTP/1.1 200 OK\r\n"
-                                                  "Content-Type: image/gif\r\n"
-                                                  "Content-Length: 8\r\n"
-                                                  "Cache-Control: max-age=30\r\n\r\n"),
-                                     8, 1'000);
-    expect(gif_accepted.ok() && gif_accepted.disposition == CdnResponseDisposition::accept_body &&
-               gif_accepted.expires_at_seconds == 1'030 &&
-               validate_static_image_response(CdnImageType::gif, byte_literal("HTTP/1.1 200 OK\r\n"
-                                                         "Content-Type: image/png\r\n"
-                                                         "Content-Length: 8\r\n\r\n"),
-                                            8, 0)
-                       .error == CdnHttpError::invalid_content_type,
-           "cdn_gif_exact_mime_admission");
-
-    const CdnResponseResult jpeg_accepted =
-        validate_static_image_response(CdnImageType::jpeg, byte_literal("HTTP/1.1 200 OK\r\n"
-                                                   "Content-Type: image/jpeg\r\n"
-                                                   "Content-Length: 8\r\n"
-                                                   "Cache-Control: max-age=30\r\n\r\n"),
-                                      8, 1'000);
-    expect(jpeg_accepted.ok() && jpeg_accepted.disposition == CdnResponseDisposition::accept_body &&
-               jpeg_accepted.expires_at_seconds == 1'030 &&
-               validate_static_image_response(CdnImageType::jpeg, byte_literal("HTTP/1.1 200 OK\r\n"
-                                                          "Content-Type: image/png\r\n"
-                                                          "Content-Length: 8\r\n\r\n"),
-                                             8, 0)
-                       .error == CdnHttpError::invalid_content_type,
-           "cdn_jpeg_exact_mime_admission");
-
-    const CdnResponseResult mp4_accepted =
-        validate_static_image_response(
-            CdnImageType::mp4,
-            byte_literal("HTTP/1.1 200 OK\r\n"
-                         "Content-Type: video/mp4\r\n"
-                         "Content-Length: 8\r\n"
-                         "Cache-Control: max-age=30\r\n\r\n"),
-            8, 1'000);
-    expect(mp4_accepted.ok() &&
-               mp4_accepted.disposition ==
-                   CdnResponseDisposition::accept_body &&
-               validate_static_image_response(
-                   CdnImageType::mp4,
-                   byte_literal("HTTP/1.1 200 OK\r\n"
-                                "Content-Type: image/webp\r\n"
-                                "Content-Length: 8\r\n\r\n"),
-                   8, 0)
-                       .error == CdnHttpError::invalid_content_type,
-           "cdn_mp4_exact_mime_admission");
+    // Every other format admits its own MIME type with its max-age and refuses another one.
+    struct MimeCase {
+        CdnImageType type;
+        ConstSlice<u8> own;
+        ConstSlice<u8> other;
+    };
+    const MimeCase mime_cases[]{
+        {CdnImageType::webp,
+         byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/webp\r\nContent-Length: 8\r\n"
+                      "Cache-Control: max-age=30\r\n\r\n"),
+         byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 8\r\n\r\n")},
+        {CdnImageType::gif,
+         byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nContent-Length: 8\r\n"
+                      "Cache-Control: max-age=30\r\n\r\n"),
+         byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 8\r\n\r\n")},
+        {CdnImageType::jpeg,
+         byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: 8\r\n"
+                      "Cache-Control: max-age=30\r\n\r\n"),
+         byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 8\r\n\r\n")},
+        {CdnImageType::mp4,
+         byte_literal("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: 8\r\n"
+                      "Cache-Control: max-age=30\r\n\r\n"),
+         byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/webp\r\nContent-Length: 8\r\n\r\n")},
+    };
+    bool exact_mime = true;
+    for (const MimeCase& mime : mime_cases) {
+        const CdnResponseResult admitted = validate_static_image_response(mime.type, mime.own, 8, 1'000);
+        exact_mime = exact_mime && admitted.ok() && admitted.disposition == CdnResponseDisposition::accept_body &&
+                     admitted.expires_at_seconds == 1'030 &&
+                     validate_static_image_response(mime.type, mime.other, 8, 0).error ==
+                         CdnHttpError::invalid_content_type;
+    }
+    expect(exact_mime, "cdn_webp_gif_jpeg_mp4_exact_mime_admission");
 
     const CdnResponseResult no_store =
         validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\n"
@@ -882,8 +824,7 @@ void test_animation_timeline() noexcept {
     for (u32 index = 0; index < scale_collected.advances && scale_ok; ++index) {
         scale_ok = animation_timeline_commit_advance(&scale, scale_advances[index], 16'667).ok();
     }
-    expect(scale_ok && scale.entry_count == 256 &&
-               scale.counters.due_advances == 256,
+    expect(scale_ok && scale.entry_count == 256,
            "animation_timeline_identity_batch_churn");
 }
 

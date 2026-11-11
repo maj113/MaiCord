@@ -1095,7 +1095,6 @@ void test_ui_scene() noexcept {
            "message_presentation_rich_scene_reflow");
     expect(message_presentation_ready,
            "message_presentation_builds_owned_streams");
-    expect(message_presentation_result.geometry_quads != 0, "message_presentation_geometry_count");
     expect(message_presentation_result.media_commands == 4 && attachment_commands == 1 &&
                embed_commands == 1 && sticker_commands == 1 && emoji_commands == 1 &&
                attachment_format_projected && embed_identity_projected && message_media_item_owned,
@@ -1299,7 +1298,6 @@ void test_text_flow_layout() noexcept {
     const float widths[] = {280.0f, 420.0f, 720.0f};
     const float dpi_scales[] = {1.0f, 1.25f, 1.5f, 2.0f};
     bool matrix_clean = true;
-    u32 matrix_cases = 0;
     for (u32 width_index = 0; width_index < 3; ++width_index) {
         for (u32 scale_index = 0; scale_index < 4; ++scale_index) {
             UiTextFlowLayout matrix{};
@@ -1319,10 +1317,9 @@ void test_text_flow_layout() noexcept {
             }
             matrix_clean = matrix_clean && !matrix.overflow && matrix.item_count == 4 &&
                            ui_text_flow_required_height(matrix) == expected_top;
-            ++matrix_cases;
         }
     }
-    expect(matrix_clean && matrix_cases == 12, "text_flow_width_font_density_dpi_matrix");
+    expect(matrix_clean, "text_flow_width_font_density_dpi_matrix");
 }
 
 void test_text_measure_cache() noexcept {

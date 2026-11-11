@@ -27,7 +27,6 @@ struct Store {
     u32 count;
     u32 used, wasted;
     u64 stamp;
-    u32 evicted;
     u8* pool;
 };
 
@@ -83,11 +82,6 @@ Record* oldest(u64 channel_id, const Record* protect) noexcept {
     return best;
 }
 
-void evict(Record* record) noexcept {
-    ++g_store->evicted;
-    release(record);
-}
-
 // Moves every live block to the front of a fresh pool.
 bool compact() noexcept {
     auto* fresh = static_cast<u8*>(commit_pages(kKeepPoolBytes));
@@ -123,7 +117,7 @@ u32 allocate(u32 bytes, const Record* protect) noexcept {
         if (g_store->wasted && compact()) continue;
         Record* victim = oldest(0, protect);
         if (!victim) return kNone;
-        evict(victim);
+        release(victim);
     }
 }
 
@@ -147,8 +141,8 @@ Record* claim(const KeepMessage& message) noexcept {
     u32 in_channel = 0;
     for (const auto& record : g_store->records)
         in_channel += record.occupied && record.channel_id == message.channel_id;
-    if (in_channel >= kKeepPerChannelMax) evict(oldest(message.channel_id, nullptr));
-    if (g_store->count >= kKeepMessagesMax) evict(oldest(0, nullptr));
+    if (in_channel >= kKeepPerChannelMax) release(oldest(message.channel_id, nullptr));
+    if (g_store->count >= kKeepMessagesMax) release(oldest(0, nullptr));
     for (auto& record : g_store->records) {
         if (record.occupied) continue;
         reset_value(&record);
@@ -278,7 +272,7 @@ void keep_clear() noexcept {
 }
 
 KeepStats keep_stats() noexcept {
-    return g_store ? KeepStats{g_store->count, g_store->evicted} : KeepStats{};
+    return g_store ? KeepStats{g_store->count} : KeepStats{};
 }
 
 } // namespace maicord

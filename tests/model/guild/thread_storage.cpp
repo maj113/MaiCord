@@ -74,9 +74,7 @@ void test_thread_storage(void (*check)(bool, const char*) noexcept) noexcept {
     check(snapshot(&f, 1) && committed(f, 1, page_size) && f.reserve_calls == 1 &&
         f.store.count == 1 && thread_member_store_contains(f.store, 1),
         "thread snapshot first ID commits one OS page in each bank before any identity write");
-    const u32 initial_commits = f.banks[0].arena.commit_count;
     check(snapshot(&f, 512) && committed(f, 512, page_size) &&
-        f.banks[0].arena.commit_count == initial_commits && f.banks[1].arena.commit_count == initial_commits &&
         thread_member_store_contains(f.store, 1) && thread_member_store_contains(f.store, 512),
         "thread snapshot 512 IDs reuses each first 4096 byte page and sorts reverse admission");
     check(snapshot(&f, 513) && committed(f, 513, page_size) &&
@@ -88,15 +86,13 @@ void test_thread_storage(void (*check)(bool, const char*) noexcept) noexcept {
         f.store.banks[f.store.active_bank][kThreadMemberMaximumIds - 1] == kThreadMemberMaximumIds,
         "thread snapshot maximum 2048 IDs commits bounded 16384 byte banks and retains sorted complete identity set");
     const usize first_highwater = f.banks[0].arena.committed, second_highwater = f.banks[1].arena.committed;
-    const u32 first_commits = f.banks[0].arena.commit_count, second_commits = f.banks[1].arena.commit_count;
     const u32 calls = f.reserve_calls;
     check(snapshot(&f, 0) && f.store.known && !f.store.count && f.reserve_calls == calls &&
         f.banks[0].arena.committed == first_highwater && f.banks[1].arena.committed == second_highwater,
         "empty thread snapshot commits no new VM and retains reusable bounded bank highwater");
     check(thread_member_store_select(&f.store, 7, 71) && !f.store.known &&
         thread_member_store_select(&f.store, 7, 70) && snapshot(&f, 1) && f.reserve_calls == calls &&
-        f.banks[0].arena.committed == first_highwater && f.banks[1].arena.committed == second_highwater &&
-        f.banks[0].arena.commit_count == first_commits && f.banks[1].arena.commit_count == second_commits,
+        f.banks[0].arena.committed == first_highwater && f.banks[1].arena.committed == second_highwater,
         "thread scope reset and small replacement reuse committed highwater without further VM commitment");
     release(&f);
     check(!f.banks[0].arena.base && !f.banks[1].arena.base && !f.banks[0].capacity && !f.banks[1].capacity &&

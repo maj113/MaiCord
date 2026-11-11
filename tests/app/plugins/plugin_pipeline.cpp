@@ -98,7 +98,6 @@ PipelineState& state_of(PluginBinding* binding) noexcept {
 
 // With nothing enabled every entry point is a branch: no call, no allocation, no state.
 void test_no_plugins() noexcept {
-    const PluginPipelineStats before = plugin_pipeline_stats();
     const PluginMessage text = message(1, "hello");
     const PluginClick click{MC_CLICK_LEFT, 1, 0};
     check(!plugin_dispatch_deleted(text) && !plugin_dispatch_edited(text, text) && !plugin_dispatch_click(text, click) &&
@@ -109,9 +108,7 @@ void test_no_plugins() noexcept {
           "no event is translated, queued or delivered without a subscriber");
     check(plugin_timers_next_due() == 0 && plugin_timers_poll(clock_monotonic_milliseconds()) == 0,
           "no timer exists without a plugin");
-    const PluginPipelineStats after = plugin_pipeline_stats();
-    check(bytes_equal(&before, &after, sizeof(before)) && keep_stats().messages == 0 && !keep_is_deleted(1),
-          "the pipeline counted no call and the keep store holds nothing");
+    check(keep_stats().messages == 0 && !keep_is_deleted(1), "the keep store holds nothing without plugins");
 }
 
 // pre_send: every verdict, flags, confirm and ordering across plugins.
@@ -174,7 +171,6 @@ void test_hooks(PluginRuntime* runtime, const Root& root) noexcept {
               plugin_hook_subscribed(PluginHook::message_edited) && plugin_hook_subscribed(PluginHook::events) &&
               plugin_hook_subscribed(PluginHook::pre_typing) && plugin_hook_subscribed(PluginHook::timer),
           "every pipeline hook is published");
-    const PluginPipelineStats start = plugin_pipeline_stats();
 
     // message_click.
     const PluginMessage plain = message(10, "plain");
@@ -188,7 +184,6 @@ void test_hooks(PluginRuntime* runtime, const Root& root) noexcept {
     check(!plugin_dispatch_click(plain, {MC_CLICK_MIDDLE, 1, MC_MOD_CTRL | MC_MOD_ALT}) && state.clicks == 3 &&
               state.click_button == MC_CLICK_MIDDLE && state.click_mods == (MC_MOD_CTRL | MC_MOD_ALT),
           "a middle click carries its modifiers");
-    check(plugin_pipeline_stats().click_calls == start.click_calls + 3, "three clicks are three calls");
 
     // message_deleted: keep or drop, with the cached copy.
     const PluginMessage dropped = message(100, "drop me", MC_MESSAGE_CACHED);
@@ -228,22 +223,19 @@ void test_hooks(PluginRuntime* runtime, const Root& root) noexcept {
           "deleting an edited message keeps its history");
 
     // pre_typing: the first suppression ends the pass.
-    check(!plugin_dispatch_typing(kChannel) && plugin_dispatch_typing(0x5555) && state.typing == 2 &&
-              plugin_pipeline_stats().typing_calls == start.typing_calls + 2,
+    check(!plugin_dispatch_typing(kChannel) && plugin_dispatch_typing(0x5555) && state.typing == 2,
           "typing is suppressed only where the plugin says");
 
     // Events: batches, kinds, text limits and overflow.
     check(plugin_events_interest() == MC_EVENT_KINDS, "the events interest is the plugin's filter");
     check(!plugin_events_push(event(MC_EVENT_KIND_COUNT)) && !plugin_events_push(event(MC_EVENT_OVERFLOW)),
           "an unknown kind is never queued");
-    const u32 calls = plugin_pipeline_stats().event_calls;
     check(plugin_events_push(event(MC_EVENT_TYPING)) && plugin_events_push(event(MC_EVENT_PRESENCE, MC_PRESENCE_IDLE)) &&
               plugin_events_push(event(MC_EVENT_RELATIONSHIP_ADD, 1)) && plugin_events_pending() &&
               state.batches == 0,
           "events wait in the queue until the host delivers them");
     check(!plugin_events_deliver() && state.batches == 1 && state.events == 3 && state.largest_batch == 3 &&
-              state.kinds_seen == ((1u << MC_EVENT_TYPING) | (1u << MC_EVENT_PRESENCE) | (1u << MC_EVENT_RELATIONSHIP_ADD)) &&
-              plugin_pipeline_stats().event_calls == calls + 1,
+              state.kinds_seen == ((1u << MC_EVENT_TYPING) | (1u << MC_EVENT_PRESENCE) | (1u << MC_EVENT_RELATIONSHIP_ADD)),
           "three events arrive in one batch, one call");
     check(!plugin_events_deliver() && state.batches == 1, "a delivered event is not delivered twice");
     PluginEvent big = event(MC_EVENT_MESSAGE_CREATE);
@@ -261,12 +253,10 @@ void test_hooks(PluginRuntime* runtime, const Root& root) noexcept {
     check(!plugin_events_deliver() && state.batches == batches + 2 && state.events == delivered + 70 &&
               state.largest_batch == MC_EVENT_BATCH_MAX,
           "seventy events take two batches of at most sixty-four");
-    const u32 lost = plugin_pipeline_stats().events_lost;
     for (u32 i = 0; i < kPluginEventSlots + 72; ++i) plugin_events_push(event(MC_EVENT_TYPING));
     const u32 before_events = state.events;
     check(!plugin_events_deliver() && state.overflows == 1 && state.overflow_value == 72 &&
-              state.events == before_events + kPluginEventSlots &&
-              plugin_pipeline_stats().events_lost == lost + 72,
+              state.events == before_events + kPluginEventSlots,
           "a plugin that fell behind is told how many events it lost");
 
     // Timers.
@@ -282,7 +272,6 @@ void test_hooks(PluginRuntime* runtime, const Root& root) noexcept {
           "a one-shot timer fires once and is gone");
     check(state.timer_send_status == MC_E_GESTURE && g_sink.sends == 0,
           "a timer is no gesture: its send is refused without the automated permission");
-    check(plugin_pipeline_stats().timer_calls == start.timer_calls + 1, "the timer call is counted");
 
     check(plugin_runtime_disable(runtime, binding) && plugin_events_interest() == 0 && plugin_timers_next_due() == 0 &&
               !plugin_hook_subscribed(PluginHook::message_click) && !plugin_events_push(event(MC_EVENT_TYPING)),
@@ -299,7 +288,6 @@ void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
     PipelineState& state = state_of(enabled.binding);
     g_sink = {};
     g_sink.result = MC_OK;
-    const PluginPipelineStats start = plugin_pipeline_stats();
     draft("send");
     check(state.status[0] == MC_OK && g_sink.sends == 1 && g_sink.owner == kPipelineOwner && g_sink.channel == kChannel &&
               g_sink.text[0] == 'h' && g_sink.flags == 0,
@@ -353,8 +341,7 @@ void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
         draft("send");
         refused += state.status[0] == MC_E_RATE_LIMITED;
     }
-    check(refused == 4 && g_sink.sends + g_sink.edits + g_sink.deletes == kPluginActionsPerWindow &&
-              plugin_pipeline_stats().action_denials > start.action_denials,
+    check(refused == 4 && g_sink.sends + g_sink.edits + g_sink.deletes == kPluginActionsPerWindow,
           "sends past the window's limit are refused and never reach the application");
 
     // Errors from the application come back to the plugin.
@@ -457,7 +444,7 @@ void test_keep_store() noexcept {
     // 32 per channel: the oldest tombstone makes room.
     for (u32 i = 0; i < kKeepPerChannelMax + 8; ++i) keep_deleted({2, 2000 + i, 5, 7, 0, {text, 10}, {}});
     KeepStats stats = keep_stats();
-    check(stats.messages == kKeepPerChannelMax && stats.evicted == 8 && !keep_is_deleted(2000) && !keep_is_deleted(2007) &&
+    check(stats.messages == kKeepPerChannelMax && !keep_is_deleted(2000) && !keep_is_deleted(2007) &&
               keep_is_deleted(2008) && keep_is_deleted(2000 + kKeepPerChannelMax + 7),
           "a channel keeps at most thirty-two messages, newest first");
     KeepMessage listed[kKeepPerChannelMax];
@@ -473,8 +460,7 @@ void test_keep_store() noexcept {
         for (u32 i = 0; i < kKeepPerChannelMax; ++i)
             keep_deleted({100 + channel, 10000 + channel * 100 + i, 5, 7, 0, {text, 10}, {}});
     stats = keep_stats();
-    check(stats.messages == kKeepMessagesMax && stats.evicted == 20 * kKeepPerChannelMax - kKeepMessagesMax &&
-              !keep_is_deleted(10000) && keep_is_deleted(10000 + 19 * 100 + 31),
+    check(stats.messages == kKeepMessagesMax && !keep_is_deleted(10000) && keep_is_deleted(10000 + 19 * 100 + 31),
           "five hundred messages in all, oldest first");
     keep_clear();
 
@@ -506,7 +492,7 @@ void test_keep_store() noexcept {
         stored += keep_deleted({200 + i / 30, 50000 + i, 5, 7, 0, {text, kKeepContentMax}, {"Ann", 3}});
     }
     stats = keep_stats();
-    check(stored == 300 && stats.messages < 300 && stats.evicted > 0 && keep_is_deleted(50299) && !keep_is_deleted(50000),
+    check(stored == 300 && stats.messages < 300 && keep_is_deleted(50299) && !keep_is_deleted(50000),
           "a full text pool drops the oldest messages");
     bool intact = true;
     for (u32 i = 299; i > 299 - 20; --i) {
@@ -517,7 +503,7 @@ void test_keep_store() noexcept {
     }
     check(intact, "the newest messages read back byte for byte after the pool was compacted");
     keep_clear();
-    check(keep_stats().messages == 0 && keep_stats().evicted == 0, "clearing resets the store");
+    check(keep_stats().messages == 0, "clearing resets the store");
 }
 
 // The silent-toggle and translate samples through the real runtime: flags and a confirmation from pre_send.

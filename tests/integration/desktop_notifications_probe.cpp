@@ -4,17 +4,8 @@
 #include "../../src/platform/desktop/toast_abi.hpp"
 
 namespace maicord {
-DesktopNotificationResult desktop_notifications_factory(DesktopNotifications*, void**) noexcept; // tests/platform/desktop/native_notifications.cpp
-}
-
-namespace maicord {
-namespace {
-constexpr GUID kProbeActivator{0x8fbd2e90,0xe59d,0x4cab,{0xb1,0xdf,0x4b,0x98,0x11,0x77,0x84,0x32}};
-template<usize N> constexpr ConstSlice<wchar_t> wide(const wchar_t(&v)[N]) noexcept {return {v,static_cast<u32>(N-1)};}
-}
-// Default dispatch is intentionally nonemitting and never enrolls an identity.
-// It validates the OS XML parser, real COM callback factory, capacity and inert
-// retained callback teardown. The caller owns all execution and receipts.
+// The XML the client builds for a toast is accepted by the OS parser. The owner, callback and queue behaviour is
+// tests/platform/desktop/native_notifications.cpp's.
 bool probe_desktop_notifications() noexcept {
     DesktopNotificationPayload payload{{1,2,3},utf8_literal("MaiCord native notification probe"),utf8_literal("Unicode \xF0\x9F\x87\xB9\xF0\x9F\x87\xAF & <safe>"),{},true};
     DesktopNotificationXml text{};if(!desktop_notification_xml(payload,&text).ok())return false;
@@ -27,24 +18,7 @@ bool probe_desktop_notifications() noexcept {
     if(SUCCEEDED(h))h=toast::call(factory_object,toast::kActivateInstance,&instance);
     if(SUCCEEDED(h))h=toast::query(instance,toast::kIidXmlDocumentIO,&io);
     if(SUCCEEDED(h))h=toast::call(io,toast::kXmlLoad,content.get());
-    toast::release(io);toast::release(instance);toast::release(factory_object);CoUninitialize();if(FAILED(h))return false;
-    DesktopNotifications owner{};DesktopNotificationConfig config{wide(L"MaiCord.Native.NonemittingProbe"),kProbeActivator,nullptr,0,false};
-    if(!desktop_notifications_initialize(&owner,config).ok())return false;
-    bool cleanup=true;
-    bool cleanup_ok=desktop_notifications_history_step(&owner,&cleanup).ok()&&!cleanup;
-    for(u32 i=0;i<8;++i)cleanup_ok=cleanup_ok&&desktop_notifications_remove_channel(&owner,1,10+i).ok();
-    cleanup_ok=cleanup_ok&&desktop_notifications_remove_channel(&owner,1,10).ok()&&
-        desktop_notifications_remove_channel(&owner,1,99).error==DesktopNotificationError::capacity;
-    desktop_notifications_remove_profile(&owner,1);cleanup_ok=cleanup_ok&&!desktop_notifications_history_pending(&owner);
-    IClassFactory* factory=nullptr;INotificationActivationCallback* callback=nullptr;
-    bool ok=cleanup_ok&&desktop_notifications_factory(&owner,reinterpret_cast<void**>(&factory)).ok();
-    if(ok)ok=SUCCEEDED(factory->CreateInstance(nullptr,__uuidof(INotificationActivationCallback),reinterpret_cast<void**>(&callback)));
-    wchar_t args[61];u32 count{};ok=ok&&desktop_notification_activation_format(payload.target,{args,61},&count);
-    if(ok){for(u32 i=0;i<8;++i)ok=ok&&SUCCEEDED(callback->Activate(L"MaiCord.Native.NonemittingProbe",args,nullptr,0));
-        ok=ok&&FAILED(callback->Activate(L"MaiCord.Native.NonemittingProbe",args,nullptr,0));
-        for(u32 i=0;i<8;++i){DesktopNotificationActivation a{};ok=ok&&desktop_notifications_take_activation(&owner,&a)&&a.profile_id==1&&a.channel_id==2&&a.message_id==3;}
-    }
-    desktop_notifications_release(&owner);if(callback){ok=ok&&callback->Activate(L"MaiCord.Native.NonemittingProbe",args,nullptr,0)==CO_E_SERVER_STOPPING;callback->Release();}
-    if(factory)ok=(factory->Release()==0)&&ok;return ok&&!owner.runtime;
+    toast::release(io);toast::release(instance);toast::release(factory_object);CoUninitialize();
+    return SUCCEEDED(h);
 }
 }

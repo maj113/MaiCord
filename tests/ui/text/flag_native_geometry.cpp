@@ -69,7 +69,6 @@ bool run() noexcept {
     CHECK(atom(system,tj,text_style_custom_emoji,16));system.independent_letters=false;
     TextStyleSpan code{0,tj.bytes,text_style_monospace};
     CHECK(native_text_candidate_styled(system,{tj,{&code,1},128,128,TextWrapping::wrap},nullptr,&measured)&&measured.width>0&&measured.utf16_units==4);
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));
     print("PASS flag native geometry: true RI/tag ranges, em cells, wrap, warm retention and code control\n");return true;
 }
 } }

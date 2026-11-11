@@ -31,7 +31,7 @@ u64 decode_pool_hash(const HistoryDecodeStorage& storage) noexcept {
         hash = hash64_bytes(hash, storage.base + history_decode_pool_offset(pool), storage.committed[pool]);
     return hash;
 }
-u32 failures, reaction_admissions, response_calls, sync_calls;
+u32 failures, reaction_admissions, response_calls;
 u32 send_admissions, history_admissions;
 u32 scoped_attempts, scoped_admissions, scoped_responses, scoped_response_bytes;
 u64 scoped_flight, scoped_response_id;
@@ -953,7 +953,6 @@ void run() noexcept {
     check(pump_message_history() &&
               is_primary(MessageHistoryRequestOwner::message_reaction, reaction_flight),
           "actor scope resets reaction-only fairness turn");
-    check(sync_calls != 0, "shipping history pump synchronizes reaction lifecycle");
     details_fairness(*ui);
     navigation_history_gate(*ui);
     scoped_read_routing();
@@ -1028,7 +1027,6 @@ bool application_message_reaction_response(const RestClientResponse& response) n
     return true;
 }
 bool application_message_reaction_synchronize() noexcept {
-    ++reaction_history_test::sync_calls;
     return true;
 }
 bool application_commands_tick(u64) noexcept {

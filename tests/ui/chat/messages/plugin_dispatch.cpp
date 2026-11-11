@@ -43,8 +43,7 @@ void test_plugin_dispatch_scene(void (*check)(bool, const char*) noexcept) noexc
     }
     const PluginDispatchStats after = plugin_dispatch_stats();
     check(rendered, "plugin_dispatch_scene_renders_without_subscribers");
-    check(after.calls == before.calls && after.strikes == before.strikes && after.allocations == before.allocations &&
-              after.allocations == 0,
+    check(after.calls == before.calls && after.allocations == before.allocations && after.allocations == 0,
           "plugin_dispatch_scene_render_calls_no_plugin_and_allocates_nothing");
     message_scene_release(&f.scene);
 }

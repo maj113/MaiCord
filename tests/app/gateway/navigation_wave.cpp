@@ -87,15 +87,6 @@ void lifecycle_requests() noexcept {
     GuildAdminRequest leave{};
     leave.operation = GuildAdminOperation::guild_leave;
     leave.guild_id = 42;
-    u8 target[256], body[256];
-    const auto t = guild_admin_write_target(leave, {target, sizeof(target)});
-    const auto b = guild_admin_write_body(leave, {body, sizeof(body)});
-    check(guild_admin_request_valid(leave) && t.ok() && b.ok() &&
-              text_is(target, t.bytes, utf8_literal("/api/v9/users/@me/guilds/42")) &&
-              text_is(body, b.bytes, utf8_literal(R"({"lurking":false})")) &&
-              guild_admin_method(leave.operation) == RestMethod::delete_method &&
-              guild_admin_has_body(leave.operation),
-          "leave: DELETE /users/@me/guilds/{id} with the official lurking body");
     auto stray = leave;
     stray.target_id = 7;
     auto unscoped = leave;

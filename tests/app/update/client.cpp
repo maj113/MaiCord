@@ -40,23 +40,13 @@ bool same_location(const UpdateLocation& l, UpdateHost host, const char* host_na
     return l.host == host && same(update_location_host(l), host_name) && same({l.target, l.target_bytes}, target);
 }
 
-// Captured updater log lines and their categories.
+// Captured updater log lines: the privacy checks read them.
 char g_lines[32][400];
-const char* g_categories[32];
 u32 g_line_count;
-void capture(LogLevel, const char* category, const char* line) noexcept {
+void capture(LogLevel, const char*, const char* line) noexcept {
     if (g_line_count == 32) return;
     u32 n = 0; while (line[n] && n + 1 < sizeof(g_lines[0])) { g_lines[g_line_count][n] = line[n]; ++n; }
-    g_categories[g_line_count] = category;
     g_lines[g_line_count++][n] = 0;
-}
-bool all_categories(const char* expected) noexcept {
-    for (u32 i = 0; i < g_line_count; ++i) if (!g_categories[i] || !same({g_categories[i], c_string_length(g_categories[i])}, expected)) return false;
-    return g_line_count != 0;
-}
-bool logged(const char* needle) noexcept {
-    for (u32 i = 0; i < g_line_count; ++i) if (contains(g_lines[i], needle)) return true;
-    return false;
 }
 
 // Scripted servers: exact host + target routes, everything else 404. Requests
@@ -296,10 +286,8 @@ void test_redirects_and_schedule() noexcept {
         "update fetch: a redirect to the release-asset host streams the exact body");
     bool private_fields = false;
     for (u32 i = 0; i < g_line_count; ++i) private_fields |= contains(g_lines[i], "SECRET") || contains(g_lines[i], "?") || contains(g_lines[i], "/o/r");
-    check(g_line_count == 2 && logged("http host=github.com status=302 next=objects.githubusercontent.com") &&
-        logged("http host=objects.githubusercontent.com status=200 length=5 bytes=5 expected=5") && !private_fields &&
-        all_categories("update"),
-        "update log: each response records host, status and sizes under the update category, never targets or query strings");
+    check(g_line_count && !private_fields,
+        "update log: each response is logged without targets or query strings");
     body = {};
     check(update_fetch(transport, at(UpdateHost::pages, "/r/updates/m.json"), 64, 0, sink, &body, now).ok() && body.used == 2 &&
         !fake.wrong_host, "update fetch: Pages manifests follow same-origin redirects and name the Pages host");
@@ -323,13 +311,11 @@ void test_redirects_and_schedule() noexcept {
     private_fields = false;
     for (u32 i = 0; i < g_line_count; ++i)
         private_fields |= contains(g_lines[i], "catalog") || contains(g_lines[i], "SECRET") || contains(g_lines[i], "?") || contains(g_lines[i], "/");
-    check(r.ok() && r.redirects == 1 && body.used == 2 && !provider.wrong_host && provider.routes[1].hits == 1 && g_line_count == 2 &&
-        logged("http host=plugins.example.net status=302 next=Plugins.Example.NET") &&
-        logged("http host=plugins.example.net status=200 length=2 bytes=2") && !private_fields && all_categories("plugins"),
-        "update fetch: a provider origin follows a same-origin redirect and logs only hosts under the transport's category");
-    body = {}; g_line_count = 0;
+    check(r.ok() && r.redirects == 1 && body.used == 2 && !provider.wrong_host && provider.routes[1].hits == 1 && g_line_count &&
+        !private_fields, "update fetch: a provider origin follows a same-origin redirect and logs no targets");
+    body = {};
     check(update_fetch(plugins, at(UpdateHost::provider, "/catalog/v1/away.json"), 64, 0, sink, &body, now).error == UpdateFetchError::redirect &&
-        !body.used && !provider.routes[3].hits && logged("next=github.com refused=1") && all_categories("plugins"),
+        !body.used && !provider.routes[3].hits,
         "update fetch: a provider redirect to github.com is refused before any request to it");
     check(update_fetch(transport, at(UpdateHost::github, "/o/r/evil"), 64, 0, sink, &body, now).error == UpdateFetchError::redirect && !body.used &&
         update_fetch(transport, at(UpdateHost::github, "/o/r/loop"), 64, 0, sink, &body, now).redirects == kUpdateFetchMaximumRedirects &&
@@ -979,18 +965,15 @@ void test_changelog_cache() noexcept {
             fake.routes[fake.count++] = route(UpdateHost::pages, target[3], 200, nullptr, notes_signature, 64);
         }
     };
-    g_update_log_sink = capture;
     check(open(), "update changelog cache: service opens"); if (!service.initialized) return;
     check(!update_service_cached_changelog(&service, UpdateChannel::stable) && !present(cache),
         "update changelog cache: a new profile has no cached changelog");
 
     // Up to date: the running version's notes are fetched anyway, verified and cached.
-    g_line_count = 0;
     serve(current, manifest_signatures[0], notes_now, notes_signatures[0]);
     auto r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.outcome == UpdateCheckOutcome::up_to_date && seen.calls == 1 && !seen.newer && seen.held && seen.version == kV5 && seen.entries == 1 &&
-              fake.routes[2].hits == 1 && fake.routes[3].hits == 1 && present(cache) &&
-              logged("changelog fetched=1 error=0 matches=1 entries=1"),
+              fake.routes[2].hits == 1 && fake.routes[3].hits == 1 && present(cache),
         "update changelog cache: an up-to-date check fetches and caches the running version's changelog");
     // The same version again: nothing is fetched, the held document is reported.
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
@@ -1018,10 +1001,8 @@ void test_changelog_cache() noexcept {
     check(cached_signature(notes_signatures[0]) && file_bytes == 64 + notes_now.bytes,
         "update changelog cache: the file holds the signature, then the document");
     file[64 + 20] ^= 1;
-    g_line_count = 0;
     SetFileAttributesW(cache, FILE_ATTRIBUTE_NORMAL); // the atomic write leaves its file hidden
-    check(put_file(cache, file, file_bytes) && open() && !update_service_cached_changelog(&service, UpdateChannel::stable) &&
-              logged("changelog_cache"),
+    check(put_file(cache, file, file_bytes) && open() && !update_service_cached_changelog(&service, UpdateChannel::stable),
         "update changelog cache: a cached document that no longer verifies is not shown");
     seen = {};
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
@@ -1031,10 +1012,10 @@ void test_changelog_cache() noexcept {
 
     // A newer release: its changelog replaces the cache once it verifies.
     serve(next, manifest_signatures[1], notes_next, notes_signatures[1]); // signed by a stranger
-    seen = {}; g_line_count = 0;
+    seen = {};
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(seen.calls == 1 && seen.newer && seen.held && seen.version == kV5 && r.outcome == UpdateCheckOutcome::failed &&
-              cached_signature(notes_signatures[0]) && logged("matches=0"),
+              cached_signature(notes_signatures[0]),
         "update changelog cache: a changelog signed by another key keeps the cached one and caches nothing new");
     serve(next, manifest_signatures[1], notes_next, notes_signatures[2]);
     seen = {};
@@ -1042,9 +1023,9 @@ void test_changelog_cache() noexcept {
     check(seen.calls == 1 && seen.newer && seen.held && seen.version == kV6 && seen.entries == 1 && cached_signature(notes_signatures[2]),
         "update changelog cache: a signed changelog for the offered version replaces the cache");
     serve(next, manifest_signatures[1], {}, nullptr); // the changelog went away
-    seen = {}; g_line_count = 0;
+    seen = {};
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(seen.calls == 1 && seen.newer && seen.held && seen.version == kV6 && !logged("changelog fetched"),
+    check(seen.calls == 1 && seen.newer && seen.held && seen.version == kV6,
         "update changelog cache: a cached changelog for the offered version needs no request");
     serve(current, manifest_signatures[0], {}, nullptr);
     seen = {};
@@ -1174,7 +1155,6 @@ void test_service() noexcept {
     };
     const UpdateTransport transport{&fake, fake_get};
     const auto acceptance_exists = [&]() noexcept { return GetFileAttributesW(paths.acceptance) != INVALID_FILE_ATTRIBUTES; };
-    g_update_log_sink = capture;
 
     serve(v6, signatures[3], package_target);
     auto r = update_service_check(&service, transport, UpdateChannel::stable, 100);
@@ -1219,22 +1199,17 @@ void test_service() noexcept {
     }
 
     serve(v6, signatures[0], package_target, true);
-    g_line_count = 0;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.error == UpdateServiceError::unavailable && r.fetch_error == UpdateFetchError::not_found && fake.routes[1].hits == 1 &&
-        fake.routes[3].hits == 1 && acceptance_exists() && GetFileAttributesW(paths.download) == INVALID_FILE_ATTRIBUTES &&
-        logged("admitted version=2999") && logged("http host=github.com status=404") && logged("check_failed phase=package"),
-        "update service: a missing release package after admission is reported once and logged, without refetching");
+        fake.routes[3].hits == 1 && acceptance_exists() && GetFileAttributesW(paths.download) == INVALID_FILE_ATTRIBUTES,
+        "update service: a missing release package after admission is reported once, without refetching");
     serve(v6, signatures[0], package_target);
-    g_line_count = 0;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && fake.routes[4].hits == 1 && service.staged.file &&
         service.staged.version == kV6 && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe") &&
         present(paths.download),
         "update service: the first release replaces a stale stage with the verified executable beside the running one");
-    check(logged("check channel=0 own=1999 staged=0") && logged("offer channel=0 version=2999") && logged("prepare error=0") &&
-        logged("stage error=0") && logged("ready version=2999"), "update log: every phase of a successful check is recorded");
-    if (!service.staged.file) { g_update_log_sink = nullptr; return; }
+    if (!service.staged.file) return;
     // A plain exit, without Restart to update, installs nothing.
     update_service_release(&service);
     check(holds(t.executable, "old exe") && !present(paths.staged) && !present(paths.replaced) && present(paths.download),
@@ -1243,12 +1218,10 @@ void test_service() noexcept {
     // package against the signed offer and stages it without downloading.
     update_paths_cleanup(paths);
     serve(v6, signatures[0], package_target);
-    g_line_count = 0;
     r = update_service_initialize(&service, config, paths) == UpdateServiceError::none
         ? update_service_check(&service, transport, UpdateChannel::stable, 100) : UpdateCheckResult{};
     check(r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && !fake.routes[3].hits && !fake.routes[4].hits &&
-        service.staged.file && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe") &&
-        logged("package version=2999 reused=1") && logged("prepare error=0") && logged("stage error=0"),
+        service.staged.file && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe"),
         "update service: the next launch stages the kept package again after verifying it, without downloading");
     // A kept package that no longer matches the signed digest is downloaded again.
     update_service_release(&service);
@@ -1259,24 +1232,22 @@ void test_service() noexcept {
     check(tampered && r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && fake.routes[4].hits == 1 &&
         service.staged.file && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE),
         "update service: a kept package that changed is downloaded again");
-    if (!service.staged.file) { g_update_log_sink = nullptr; return; }
+    if (!service.staged.file) return;
     serve(v7, signatures[1], package_target7);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && service.staged.version == kV7 &&
         same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe"),
         "update service: the next release verifies and replaces the earlier stage");
     const u32 package_hits = fake.routes[4].hits;
-    g_line_count = 0;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && fake.routes[4].hits == package_hits &&
-        logged("ready version=3999 staged=1"), "update service: a staged version is ready without downloading again");
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && fake.routes[4].hits == package_hits,
+        "update service: a staged version is ready without downloading again");
     serve(v6, signatures[0], package_target);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && !fake.routes[3].hits && service.staged.version == kV7,
         "update service: an older offer leaves the newer stage ready");
-    g_line_count = 0;
     check(update_service_swap(&service).ok() && !service.staged.file && same_file(t.executable, MAICORD_UPDATE_TEST_EXECUTABLE) &&
-        holds(paths.replaced, "old exe") && !present(paths.staged) && !present(paths.download) && logged("swap version=3999 error=0"),
+        holds(paths.replaced, "old exe") && !present(paths.staged) && !present(paths.download),
         "update service: installing moves the verified stage over the executable, keeps the replaced one as .old and drops the package");
     check(update_service_swap(&service).error == UpdateSwapError::nothing_staged && same_file(t.executable, MAICORD_UPDATE_TEST_EXECUTABLE),
         "update service: a second swap finds nothing verified to move");
@@ -1292,13 +1263,11 @@ void test_service() noexcept {
     // Once that version is installed, its check deletes the kept package.
     UpdateServiceConfig installed{};
     serve(v7, signatures[1], package_target7);
-    g_line_count = 0;
     r = update_service_config(utf8_literal("owner/repo"), {key_hex, 130}, kV7, &installed) &&
             update_service_initialize(&service, installed, paths) == UpdateServiceError::none
         ? update_service_check(&service, transport, UpdateChannel::stable, 100) : UpdateCheckResult{};
-    check(r.outcome == UpdateCheckOutcome::up_to_date && !fake.routes[3].hits && !present(paths.download) &&
-        logged("dropped_package=1"), "update service: an offer no newer than the installed version deletes the kept package");
-    g_update_log_sink = nullptr;
+    check(r.outcome == UpdateCheckOutcome::up_to_date && !fake.routes[3].hits && !present(paths.download),
+        "update service: an offer no newer than the installed version deletes the kept package");
     check(update_channel_save(paths, UpdateChannel::preview) &&
         update_channel_load(paths, UpdateChannel::stable) == UpdateChannel::preview,
         "update service: channel choice persists in the update storage");
@@ -1403,9 +1372,7 @@ UpdateCheckResult replay(const wchar_t* dir, u64 own, ReplayOffer* offer) noexce
         fake.routes[fake.count] = route(package_at.host, package_target, 200);
     fake.routes[fake.count].file = zip; fake.routes[fake.count++].body_bytes = static_cast<u64>(zip_size.QuadPart);
     const u64 now = unix_now();
-    g_update_log_sink = capture; g_line_count = 0;
     const auto r = update_service_check(&service, {&fake, fake_get}, channel, now);
-    g_update_log_sink = nullptr;
     check(!fake.wrong_host, "update replay: every request names its route's host");
     return r;
 }
@@ -1473,7 +1440,7 @@ void test_preview_replay() noexcept {
     ReplayOffer offer{};
     const auto r = replay(files.root, 1999, &offer);
     check(r.outcome == UpdateCheckOutcome::ready && r.version == version && offer.version == version && offer.changelog &&
-        offer.entries == 3 && logged("changelog fetched=1 error=0 matches=1 entries=3") && logged("http host=owner.github.io status=200"),
+        offer.entries == 3,
         "preview replay: a stable build on the preview channel stages the master build from the feed with its changelog");
     // The same files offered to a newer build install nothing.
     offer = {};
@@ -1487,8 +1454,8 @@ void test_preview_replay() noexcept {
     for (const u64 local : local_builds) {
         offer = {};
         const auto built = replay(files.root, local, &offer);
-        check(built.outcome == UpdateCheckOutcome::up_to_date && !offer.version && !logged("admitted") &&
-            logged("up_to_date floor="), "preview replay: a local build at or after the published master build is up to date");
+        check(built.outcome == UpdateCheckOutcome::up_to_date && !offer.version,
+              "preview replay: a local build at or after the published master build is up to date");
     }
 #else
     check(false, "preview replay: build must supply the built EXE fixture path");

@@ -8,7 +8,6 @@ namespace {
 struct MessagePollStoreMetrics {
     usize reserved_bytes;
     usize committed_bytes;
-    u32 commit_count;
     u32 records;
     u32 text_bytes;
 };
@@ -21,12 +20,10 @@ MessagePollStoreMetrics message_poll_store_metrics(const MessagePollStore& store
     Win32MemoryInformation owner{};
     if (VirtualQuery(store.owned, owner.native(), sizeof(owner))) {
         result.reserved_bytes = result.committed_bytes = owner.RegionSize;
-        result.commit_count = 1;
     }
     const auto add = [&](const Arena& bank) noexcept {
         result.reserved_bytes += bank.reserved;
         result.committed_bytes += bank.committed;
-        result.commit_count += bank.commit_count;
     };
     add(store.owned->records.arena);
     for (const auto& bank : store.owned->text_banks)
@@ -73,8 +70,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     ReleasePoll release{store};
     check(message_poll_store_initialize_owned(&store), "poll model: configure dormant bounded owner");
     auto costs = message_poll_store_metrics(store);
-    check(!store.owned && !store.records && !costs.reserved_bytes && !costs.committed_bytes &&
-              !costs.commit_count,
+    check(!store.owned && !store.records && !costs.reserved_bytes && !costs.committed_bytes,
           "poll model: an account with no received poll reserves and commits no bank");
     GatewayMessagePoll results{};
     results.present = results.results_known = true;
@@ -107,7 +103,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     costs = message_poll_store_metrics(store);
     Win32SystemInfo system{};
     GetSystemInfo(system.native());
-    check(costs.committed_bytes == 3 * static_cast<usize>(system.dwPageSize) && costs.commit_count == 3,
+    check(costs.committed_bytes == 3 * static_cast<usize>(system.dwPageSize),
           "poll model: first small poll commits only owner, record and active text pages");
     const auto stable_costs = costs;
     const u32 stable_revision = store.revision, stable_content = store.content_revision,
@@ -128,9 +124,8 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     costs = message_poll_store_metrics(store);
     check(retained && store.revision == stable_revision && store.content_revision == stable_content &&
               store.text_used == stable_text && costs.committed_bytes == stable_costs.committed_bytes &&
-              costs.commit_count == stable_costs.commit_count && !store.compactions,
-          "poll model: 64 identical metadata publications retain counts, text, versions and physical "
-          "commit counters");
+              !store.compactions,
+          "poll model: 64 identical metadata publications retain counts, text, versions and committed bytes");
     const char malformed[]{static_cast<char>(0xc0)};
     auto invalid_question = metadata;
     invalid_question.fields = gateway_message_poll_field_question;
@@ -293,7 +288,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
               !rejected_page_result.changed && store.owned == before_owner && store.text == before_text &&
               store.count == before_page_count && store.revision == before_page_revision &&
               !message_poll_store_find(store, 12) &&
-              message_poll_store_metrics(store).commit_count == before_page.commit_count,
+              message_poll_store_metrics(store).committed_bytes == before_page.committed_bytes,
           "poll model: later invalid page candidate rolls back earlier valid poll and every live "
           "bank/version");
     const auto* retained_poll = message_poll_store_find(store, 10);
@@ -324,7 +319,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     const auto ignored_page_result = message_poll_store_apply_page(&store, {stale_page, 1});
     check(ignored_page_result.ok() && !ignored_page_result.changed && ignored_page_result.ignored == 1 &&
               store.owned == accepted_owner &&
-              message_poll_store_metrics(store).commit_count == stable_page.commit_count &&
+              message_poll_store_metrics(store).committed_bytes == stable_page.committed_bytes &&
               message_poll_store_apply_page(&store, {}).ok(),
           "poll model: all-stale and ordinary pages allocate no transaction bank or scene publication");
     auto resident_ticket = message_poll_store_result_ticket(store, 12, 1000);
@@ -363,7 +358,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
               bounded.text_used == 64 &&
               utf8_equal(message_poll_store_string(bounded, message_poll_store_find(bounded, 3)->question),
                         compact.question) &&
-              message_poll_store_metrics(bounded).commit_count == before_failure.commit_count,
+              message_poll_store_metrics(bounded).committed_bytes == before_failure.committed_bytes,
           "poll model: full text preflight rejects atomically without copying or committing another bank");
     replace.question = utf8_literal("short");
     applied = message_poll_store_apply(&bounded, 1, 2, replace);
@@ -413,7 +408,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     check(message_poll_store_apply(&observations, 31, 20, observed_poll).error ==
                   MessagePollStoreError::capacity &&
               observations.count == 1 &&
-              message_poll_store_metrics(observations).commit_count == full_costs.commit_count,
+              message_poll_store_metrics(observations).committed_bytes == full_costs.committed_bytes,
           "poll model: record-capacity failure preserves the live poll and committed budget");
 }
 } // namespace maicord

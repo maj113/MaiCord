@@ -140,11 +140,10 @@ template<u32 A,u32 B> bool owned_script(NativeClusterScript script,const char* n
     CHECK(arena_allocate(&tiny,4095,1));const auto mark=arena_mark(&tiny);
     CHECK(native_cluster_plan_prepare(script,owner.store,owner.run,false,&tiny,&scratch,&prepared)==SfntStatus::resource_limit&&unchanged()&&tiny.offset==mark.offset);
     CHECK(native_cluster_plan_prepare(script,owner.store,owner.run,false,&state,&tiny,&prepared)==SfntStatus::output_too_small&&unchanged()&&tiny.offset==mark.offset);
-    usize retained=0;
     for(u32 mode=0;mode<2;++mode){const usize before=state.offset;
         CHECK(native_cluster_plan_prepare(script,owner.store,owner.run,mode!=0,&state,&scratch,&prepared)==SfntStatus::ok);
         CHECK(prepared.independent_letters==(mode!=0)&&!prepared.fallback&&prepared.substitution_count);
-        CHECK(scratch.offset==before_scratch.offset&&*sentinel==0x12345678&&owner.plans[0].references==refs&&state.offset>before);retained+=state.offset-before;
+        CHECK(scratch.offset==before_scratch.offset&&*sentinel==0x12345678&&owner.plans[0].references==refs&&state.offset>before);
         if(!mode&&!samples(script,owner,prepared,cases,checksum,s,name))return false;
         auto invalid=prepared;++invalid.run.generation;SfntShapeRunResult result{};
         CHECK(native_cluster_run(script,owner.store,invalid,{},1000,SfntShapeStorage{},&result)==SfntStatus::invalid_input&&!result.glyph_count&&!result.source_units);
@@ -184,8 +183,7 @@ template<u32 A,u32 B> bool owned_script(NativeClusterScript script,const char* n
     if(default_shaper)CHECK(native_cluster_run(script,fallback.store,other,{cases[0].text,c_string_length(cases[0].text)},1000,s,&result)==SfntStatus::unsupported_sequence&&!result.glyph_count);
     if(!samples(script,fallback,other,fallback_cases,fallback_checksum,s,default_shaper?"default-shaper font":"font without the script"))return false;
     CHECK(fallback.close());
-    test_write_text("PASS ");test_write_text(name);test_write_text(" owned units; assertions=");test_write_u64(checks);
-    test_write_text(" retained_profile_bytes_both_modes=");test_write_u64(retained);test_write_text(" profile_bytes=");test_write_u64(sizeof(NativeClusterPlan));test_write_text("\n");
+    test_write_text("PASS ");test_write_text(name);test_write_text(" owned units; assertions=");test_write_u64(checks);test_write_text("\n");
     return true;
 }
 bool run() noexcept {

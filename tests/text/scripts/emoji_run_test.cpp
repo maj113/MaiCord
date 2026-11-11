@@ -61,7 +61,6 @@ bool corpus(ConstSlice<u8> bytes,NativeRunPlanKind kind) noexcept {
         const usize root_storage=roots*2u+(roots?1u:0u);
         if(plan.positioning_program==parent->positioning){CHECK(state.offset-mark==root_storage);}
         else{CHECK(state.offset-mark>root_storage&&reinterpret_cast<const u8*>(plan.positioning_program)>=state.base+mark&&reinterpret_cast<const u8*>(plan.positioning_program)+sizeof(SfntGposProgram)<=state.base+state.offset);}
-        root_bytes+=state.offset-mark;
         if(kind==NativeRunPlanKind::emoji){NativeAsciiResult rejected{};CHECK(!native_run_plan_nominal(store,handle).glyph_limit);
             CHECK(native_ascii_run(store,handle,utf8_literal("a"),false,17.5f,ascii_buffers.storage(),&rejected)==SfntStatus::invalid_input);}
         if(!font_index&&embedded)CHECK(guards(handle,plan));
@@ -107,6 +106,6 @@ bool run() noexcept {
 }}
 extern "C" void maicord_emoji_run_entry() noexcept {
     using namespace maicord;bool ok=emoji_cleanup(run());
-    print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\ndigest=");number(digest);print("\nroot_bytes_sum=");number(root_bytes);print("\nrejected_fonts=");number(rejected_fonts);print("\nnominal_runs=");number(nominal_runs);print("\nproof_fallbacks=");number(proof_fallbacks);print("\nknown_divergent=");number(known_divergent);
+    print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nrejected_fonts=");number(rejected_fonts);print("\nnominal_runs=");number(nominal_runs);print("\nproof_fallbacks=");number(proof_fallbacks);print("\nknown_divergent=");number(known_divergent);
     print(ok?"\nPASS native emoji frontend\n":"\nFAIL native emoji frontend\n");::maicord::test_process_exit(ok?0u:1u);
 }

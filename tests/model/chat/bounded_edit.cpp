@@ -45,8 +45,6 @@ void test_bounded_edit(void (*check)(bool, const char*) noexcept) noexcept {
         text_input_replace(target, 1, 2, {extra, 1}, &change) == TextInputResult::invalid_utf16 &&
         model.text_revision == revision,
         "bounded edit: malformed input and split surrogate range cannot mutate document");
-    check(text_input_select(target, {1, 3}) == TextInputResult::changed,
-        "bounded edit: delegates Unicode-safe selection");
     u16 copied[4]{}; u32 count = 0, next = 0;
     check(text_input_copy(target, 1, 3, {copied, 4}, &count, &next) == TextInputResult::unchanged &&
         count == 2 && next == 3 && copied[0] == 0xD83D && copied[1] == 0xDE80,

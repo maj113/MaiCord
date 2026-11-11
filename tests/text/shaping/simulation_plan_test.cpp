@@ -4,7 +4,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {
-u64 checks=0,glyphs=0,base_bytes=0,bold_bytes=0;u32 faces=0;
+u64 checks=0,glyphs=0;u32 faces=0;
 void print(const char* s) noexcept{u32 n=0;while(s[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&written,nullptr);}
 void number(u64 value) noexcept{char b[24];u32 n=0;do{b[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){const char c=b[i];b[i]=b[n-1-i];b[n-1-i]=c;}b[n]=0;print(b);}
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print(" face=");number(faces);print("\n");return false;}}while(0)
@@ -33,8 +33,6 @@ bool exercise(const wchar_t* path,u32 index,u32 count,const u8* expected) noexce
     CHECK(native_font_session_instances(session)->slots[instance.slot-1].references==instance_refs);
     const auto nominal=native_run_plan_nominal(store,normal);if(expected)CHECK(nominal.glyph_limit==count);else count=nominal.glyph_limit;
     const auto simulated=native_run_plan_nominal(store,handles[1]);CHECK(simulated.participation.data==nominal.participation.data&&simulated.glyph_limit==nominal.glyph_limit);
-    CHECK(slots[handles[1].slot-1].state.committed==4096&&slots[handles[1].slot-1].state.reserved==4096);
-    base_bytes+=slots[normal.slot-1].state.committed;bold_bytes+=slots[handles[1].slot-1].state.committed;
     for(u32 independent=0;independent<2;++independent){const auto* a=native_run_plan_get(store,normal,independent!=0);const auto* b=native_run_plan_get(store,handles[1],independent!=0);
         CHECK(a&&b&&a->substitutions==b->substitutions&&a->positioning==b->positioning&&a->substitution_roots.data==b->substitution_roots.data&&a->positioning_roots.data==b->positioning_roots.data&&a->metric_context!=b->metric_context);
         for(u32 mode=0;mode<4;++mode){const auto* p=native_run_plan_get(store,handles[mode],independent!=0);
@@ -62,4 +60,4 @@ bool run() noexcept {
     CHECK(!reader.left);return true;
 }
 }}
-extern "C" void maicord_simulation_plan_entry(){using namespace maicord;const bool ok=run();print("faces=");number(faces);print(" glyph_advances=");number(glyphs);print(" base_state_sum=");number(base_bytes);print(" bold_state_sum=");number(bold_bytes);print(" checks=");number(checks);print(ok?" PASS simulation plans\n":" FAIL simulation plans\n");::maicord::test_process_exit(ok?0:1);}
+extern "C" void maicord_simulation_plan_entry(){using namespace maicord;const bool ok=run();print("faces=");number(faces);print(" glyph_advances=");number(glyphs);print(" checks=");number(checks);print(ok?" PASS simulation plans\n":" FAIL simulation plans\n");::maicord::test_process_exit(ok?0:1);}

@@ -6,7 +6,7 @@
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {
 #include "../../generated/nominal_scalar_fixture.inc"
-u64 scalar_checks=0,map_checks=0,budget_checks=0,guard_checks=0;volatile u64 observation=0;
+u64 scalar_checks=0,map_checks=0,budget_checks=0,guard_checks=0;
 void p16(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
 u8 file[2048];
 u8* fixture(u16 format,u32 size,u16 glyphs) noexcept {
@@ -17,16 +17,13 @@ u8* fixture(u16 format,u32 size,u16 glyphs) noexcept {
     u8* p=file+76;p16(p,0,format);if(format>=10)byte_store_be32(p+4,size);else p16(p,2,static_cast<u16>(size));return p;
 }
 bool observed(u32 cp) noexcept {return cp<65536 && ((nominal_scalar_fixture[cp/8]>>(cp%8))&1)!=0;}
-bool verify(ConstSlice<u8> bytes={file,sizeof(file)},bool exhaustive=true,bool timed=true) noexcept {
+bool verify(ConstSlice<u8> bytes={file,sizeof(file)},bool exhaustive=true) noexcept {
     SfntFace face{};SfntCmap cmap{};if(sfnt_open(bytes,0,&face)!=SfntStatus::ok || sfnt_cmap_open(face,&cmap)!=SfntStatus::ok)return false;
     u64 expected[1024]{},actual[1024]{},work=0;const u32 words=(cmap.glyph_count+63u)/64;
     // Independent slow inverse via the existing scalar cmap query, restricted
     // by uncompressed Windows observations, validates the new range traversal.
     for(u32 cp=0;cp<65536;++cp){if(!observed(cp))continue;u16 glyph=0;if(sfnt_cmap_glyph(cmap,cp,0,&glyph)!=SfntStatus::ok)return false;if(glyph)expected[glyph/64]|=1ull<<(glyph%64);}
     if(sfnt_nominal_sources(cmap,{actual,1024},&work)!=SfntStatus::ok || !bytes_equal(expected,actual,words*8) || (exhaustive&&work>10000))return false;map_checks+=cmap.glyph_count;
-    if(!exhaustive&&timed){LARGE_INTEGER begin{},end{},frequency{};QueryPerformanceFrequency(&frequency);QueryPerformanceCounter(&begin);
-        for(u32 i=0;i<1024;++i){if(sfnt_nominal_sources(cmap,{actual,1024},&work)!=SfntStatus::ok)return false;observation=observation^actual[i%words];}
-        QueryPerformanceCounter(&end);print(utf8_literal("source_ticks="));number(end.QuadPart-begin.QuadPart);print(utf8_literal("\nsource_frequency="));number(frequency.QuadPart);print(utf8_literal("\nsource_repeats=1024\nsource_work="));number(work);print(utf8_literal("\n"));}
     const u64 full=work;for(u64 i=0;i<(exhaustive?full+1:3);++i){const u64 budget=exhaustive?i:i==0?0:i==1?full-1:full;const auto status=sfnt_nominal_sources(cmap,{actual,1024},&work,budget);++budget_checks;if(status!=(budget<full?SfntStatus::resource_limit:SfntStatus::ok) || work>budget || (status==SfntStatus::ok && !bytes_equal(actual,expected,words*8)))return false;}
     actual[0]=0xaaaaaaaaaaaaaaaaull;if(sfnt_nominal_sources(cmap,{actual,words-1},&work)!=SfntStatus::output_too_small || actual[0]!=0xaaaaaaaaaaaaaaaaull)return false;
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize,storage=((words*8+page-1)/page)*page;auto* memory=static_cast<u8*>(pages_allocate(storage+page));if(!memory)return false;bool ok=pages_protect(memory+storage, page, PageAccess::none)!=0;auto* out=reinterpret_cast<u64*>(memory+storage-words*8);if(ok)ok=sfnt_nominal_sources(cmap,{out,words},&work)==SfntStatus::ok && bytes_equal(out,expected,words*8);++guard_checks;pages_release(memory);return ok;
@@ -53,7 +50,7 @@ bool units() noexcept {
         const u16 glyphs=scenario==2?65535:512;
         if(format==4){p=fixture(4,32,glyphs);p16(p,6,4);p16(p,14,static_cast<u16>(last));p16(p,16,65535);p16(p,20,static_cast<u16>(first));p16(p,22,65535);p16(p,24,static_cast<u16>(base-first));p16(p,26,1);}
         else{p=fixture(12,28,glyphs);byte_store_be32(p+12,1);byte_store_be32(p+16,first);byte_store_be32(p+20,last);byte_store_be32(p+24,base);}
-        if(!verify({file,sizeof(file)},false,false))return false;
+        if(!verify({file,sizeof(file)},false))return false;
     }
     {
         p=fixture(4,32,256);p16(p,6,4);p16(p,14,0x3bf);p16(p,16,65535);p16(p,20,0x280);p16(p,22,65535);p16(p,24,static_cast<u16>(128-0x280));p16(p,26,1);

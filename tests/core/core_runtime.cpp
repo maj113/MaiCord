@@ -574,14 +574,12 @@ void test_arena() noexcept {
     const usize committed_before_growth = arena.committed;
     auto* growth = static_cast<u8*>(arena_allocate(&arena, 70 * 1024, 4096));
     expect(growth != nullptr, "arena_commit_growth_allocation");
-    expect(arena.committed > committed_before_growth && arena.commit_count >= 2,
-           "arena_commit_growth_recorded");
+    expect(arena.committed > committed_before_growth, "arena_commit_growth_recorded");
     expect((reinterpret_cast<usize>(growth) & 4095u) == 0, "arena_page_alignment");
 
     expect(arena_allocate(&arena, arena.reserved + 1, 1) == nullptr, "arena_capacity_bound");
     expect(arena_allocate(&arena, 8, 3) == nullptr, "arena_alignment_reject");
     expect(!arena_rewind(&arena, ArenaMark{arena.offset + 1}), "arena_forward_rewind_reject");
-    expect(arena.peak >= mark.offset, "arena_peak_recorded");
     expect(!arena_allocate(&arena, 1, usize{1} << 63), "arena_huge_alignment_reject");
     bool aligned_bounds = true;
     for (u32 exponent = 0; exponent <= 24; ++exponent) {
@@ -610,7 +608,6 @@ void test_arena() noexcept {
         }
         initial_regions = initial_regions && arena.reserved == expected_reserved &&
                           arena.committed == expected_committed && arena.offset == 0 &&
-                          arena.commit_count == (initial ? 1u : 0u) &&
                           arena_regions_match(arena, initial != 0, expected_committed, expected_reserved);
         for (usize i = 0; i < expected_committed; ++i)
             initial_regions = initial_regions && arena.base[i] == 0;

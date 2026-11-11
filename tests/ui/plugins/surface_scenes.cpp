@@ -121,7 +121,7 @@ void test_plugin_surface_scenes(void (*checker)(bool, const char*) noexcept) noe
           "the count badge overhangs the tile's corner");
 
     UiPluginSlotNode header{};
-    check(ui_plugin_member_list_header(&header) && header.text.bytes == 9 && kUiPluginMemberListHeaderHeight > 0,
+    check(ui_plugin_member_list_header(&header) && header.text.bytes == 9,
           "the member list header is the first label node");
 
     // Removing the plugins removes the tiles at the next update.

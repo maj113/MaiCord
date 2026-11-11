@@ -1,7 +1,6 @@
 // Shared retained shell/friends fixture for the text emitter test and the
 // text projection benchmark. Include inside the test namespace after the
 // friends_scene, mention_badge and shell_text_presentation headers.
-static_assert(sizeof(UiTextCommand) == 160 && sizeof(UiTextEffect) == 48);
 struct Fixture {
     UiScene shell;
     ChatStateStore state;

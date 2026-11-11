@@ -73,7 +73,7 @@ bool corpus(ConstSlice<u8> data) noexcept {
 #endif
         }
         NativeRunPlanHandle handle{};CHECK(acquire(path,&handle,false,weight));arena_reset(&state);NativeEmojiPlan plan{};
-        CHECK(native_emoji_plan_prepare(store,handle,&state,&scratch,&plan)==SfntStatus::ok);root_bytes+=state.offset;if(!font_index)CHECK(guards(plan));
+        CHECK(native_emoji_plan_prepare(store,handle,&state,&scratch,&plan)==SfntStatus::ok);if(!font_index)CHECK(guards(plan));
         for(case_index=0;case_index<count;++case_index){u32 em=0,bytes=0,glyph_count=0,units=0,points=0,ranges=0,run_count=0,line_count=0;ConstSlice<u8> text{},glyphs{},placements{},map{};
             CHECK(reader.word(&em)&&reader.word(&bytes)&&reader.word(&glyph_count)&&reader.word(&units)&&reader.word(&points)&&reader.word(&ranges)&&reader.word(&run_count)&&reader.word(&line_count));
             CHECK(glyph_count<=1024&&units<=256&&reader.take(bytes,&text)&&reader.take(glyph_count*2,&glyphs)&&reader.take(glyph_count*12,&placements)&&reader.take(units*4,&map));
@@ -113,6 +113,6 @@ bool run() noexcept {
 }}
 extern "C" void maicord_emoji_paragraph_entry() noexcept {
     using namespace maicord;bool ok=emoji_cleanup(run());
-    print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\ndigest=");number(digest);
+    print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);
     print(ok?"\nPASS native emoji itemized paragraphs\n":"\nFAIL native emoji itemized paragraphs\n");::maicord::test_process_exit(ok?0u:1u);
 }

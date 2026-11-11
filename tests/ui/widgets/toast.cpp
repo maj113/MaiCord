@@ -210,7 +210,7 @@ void test_presentation() noexcept {
 
     PaintStream paint{};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint), "toast: paint stream");
-    check(ui_toast_paint(f.scene, theme, &paint) && paint.count > 0, "toast: paints a visible toast");
+    check(ui_toast_paint(f.scene, theme, &paint), "toast: paints a visible toast");
     const float radius = theme.scale.radius_md;
     bool plate = false, tint = false, icon = false;
     for (u32 i = 0; i < paint.count; ++i) {

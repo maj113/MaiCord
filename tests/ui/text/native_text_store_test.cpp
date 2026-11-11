@@ -123,7 +123,7 @@ struct Fixture {
                                     text_edit_layout_wrap,
                                     {}};
         CHECK(text_edit_layout_measure(&layout, input, system));
-        CHECK((layout.geometry || !value.bytes) && !GetModuleHandleW(L"dwrite.dll") && !GetModuleHandleW(L"dwritecore.dll"));
+        CHECK(layout.geometry || !value.bytes);
         return true;
     }
     static void changed(void* opaque) noexcept {

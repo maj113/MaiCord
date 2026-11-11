@@ -343,8 +343,7 @@ void test_message_timeline() noexcept {
                        .error == MessageTimelineError::invalid_payload &&
                message_timeline_apply(&timeline, unsupported, ConstSlice<u8>{nullptr, 0},
                                       Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds})
-                       .error == MessageTimelineError::unsupported_event &&
-               timeline.applied == 11 && timeline.rejected == 2,
+                       .error == MessageTimelineError::unsupported_event,
            "message_timeline_payload_and_event_rejections");
 
     MessageRecord capacity_records[4]{};
@@ -392,19 +391,17 @@ void test_message_timeline() noexcept {
         byte_literal("d"), Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds});
     expect(retained.ok() && retained.kind == GatewayMessageApplyKind::created && retained.evicted == 1 &&
                retained.invalidation.structural && capacity_store.count == 3 && capacity_list.count == 3 &&
-               capacity_timeline.evicted == 1 &&
                message_store_find(capacity_store, 1).error == MessageStoreError::not_found &&
                message_store_find(capacity_store, 4).ok() && capacity_timeline.follow_bottom &&
                message_timeline_is_at_bottom(capacity_timeline, 0),
            "message_timeline_follow_bottom_evicts_oldest_for_newer");
-    const u32 evicted_before_invalid = capacity_timeline.evicted;
     const MessageTimelineApplyResult invalid_at_capacity =
         message_timeline_apply(&capacity_timeline,
                                timeline_message_event(GatewayClientDispatchKind::message_create, 5, 7, 1,
                                                       create_fields & ~gateway_message_field_author_id, 1),
                                byte_literal("e"), Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds});
     expect(invalid_at_capacity.error == MessageTimelineError::reconcile &&
-               capacity_timeline.evicted == evicted_before_invalid && capacity_store.count == 3 &&
+               capacity_store.count == 3 &&
                capacity_list.count == 3 && message_store_find(capacity_store, 2).ok() &&
                message_store_find(capacity_store, 5).error == MessageStoreError::not_found,
            "message_timeline_validates_before_capacity_eviction");
@@ -444,9 +441,7 @@ void test_message_timeline() noexcept {
                message_store_find(pressure_store, 20).ok() &&
                utf8_equal(
                    message_store_content(pressure_store, message_store_find(pressure_store, 20).handle),
-                   utf8_literal("123456")) &&
-               pressure_timeline.evicted == 1 &&
-               pressure_store.rejected == 0,
+                   utf8_literal("123456")),
            "message_timeline_update_pressure_preserves_target");
 
     MessageRecord rich_timeline_records[2]{};
@@ -824,8 +819,7 @@ void test_message_event_pump() noexcept {
         message_event_pump_consume(&pump, timeline_delete_event(999, 7), ConstSlice<u8>{nullptr, 0});
     expect(ready.ok() && ready.kind == MessageEventPumpConsumeKind::lifecycle && ready.repaint &&
                ignored.ok() && ignored.kind == MessageEventPumpConsumeKind::ignored_dispatch &&
-               missing.ok() && missing.kind == MessageEventPumpConsumeKind::not_resident &&
-               pump.lifecycle == 1 && pump.ignored == 1 && pump.not_resident == 1,
+               missing.ok() && missing.kind == MessageEventPumpConsumeKind::not_resident,
            "message_event_pump_lifecycle_unknown_not_resident");
 
     GatewayClientEvent catchup_marker{};
@@ -844,7 +838,7 @@ void test_message_event_pump() noexcept {
         message_event_pump_consume(&pump, malformed, byte_literal("x"));
     expect(rejected.error == MessageEventPumpError::apply &&
                rejected.kind == MessageEventPumpConsumeKind::rejected && pump.resync_required &&
-               pump.rejected == 1 && store.count == 1,
+               store.count == 1,
            "message_event_pump_rejection_requires_resync");
 
     {
@@ -860,7 +854,7 @@ void test_message_event_pump() noexcept {
         const GatewayClientEvent original = input;
         const auto borrowed = message_event_pump_consume(&normalization_pump, input, {});
         expect(borrowed.ok() && borrowed.kind == MessageEventPumpConsumeKind::ignored_dispatch &&
-                   normalization_pump.last_sequence == 41 && normalization_pump.ignored == 1 &&
+                   normalization_pump.last_sequence == 41 &&
                    maicord::bytes_equal(&input, &original, sizeof(input)),
                "message_event_pump_plain_event_advances_sequence_without_input_mutation");
 
@@ -869,13 +863,13 @@ void test_message_event_pump() noexcept {
         const auto bad_length = message_event_pump_consume(&normalization_pump, input, {});
         expect(bad_length.error == MessageEventPumpError::apply &&
                    bad_length.kind == MessageEventPumpConsumeKind::rejected &&
-                   normalization_pump.rejected == 1 && normalization_pump.resync_required &&
-                   normalization_pump.last_sequence == 41 && normalization_pump.ignored == 1,
+                   normalization_pump.resync_required &&
+                   normalization_pump.last_sequence == 41,
                "message_event_pump_length_rejection_precedes_sequence_observation");
         const auto null_body = message_event_pump_consume(&normalization_pump, input, {nullptr, 1});
         expect(null_body.error == MessageEventPumpError::invalid_input &&
-                   normalization_pump.rejected == 1 && normalization_pump.last_sequence == 41,
-               "message_event_pump_null_body_preserves_sequence_and_rejection_count");
+                   normalization_pump.last_sequence == 41,
+               "message_event_pump_null_body_preserves_sequence");
 
         GatewayClientNotificationSidecar sidecar{};
         sidecar.guild_id = 10;
@@ -893,7 +887,7 @@ void test_message_event_pump() noexcept {
         copy_bytes(original_body, body, sizeof(body));
         const auto trimmed = message_event_pump_consume(&normalization_pump, input, {body, sizeof(body)});
         expect(trimmed.ok() && trimmed.kind == MessageEventPumpConsumeKind::ignored_dispatch &&
-                   normalization_pump.last_sequence == 42 && normalization_pump.ignored == 2 &&
+                   normalization_pump.last_sequence == 42 &&
                    maicord::bytes_equal(&input, &original_sidecar_event, sizeof(input)) &&
                    maicord::bytes_equal(body, original_body, sizeof(body)),
                "message_event_pump_valid_sidecar_advances_sequence_without_input_mutation");
@@ -913,15 +907,15 @@ void test_message_event_pump() noexcept {
                    bad_thread.error == MessageEventPumpError::apply && bad_tail.error == MessageEventPumpError::apply &&
                    bad_sidecar.kind == MessageEventPumpConsumeKind::rejected &&
                    bad_thread.kind == MessageEventPumpConsumeKind::rejected &&
-                   bad_tail.kind == MessageEventPumpConsumeKind::rejected && normalization_pump.rejected == 4 &&
-                   normalization_pump.last_sequence == 42 && normalization_pump.ignored == 2,
+                   bad_tail.kind == MessageEventPumpConsumeKind::rejected &&
+                   normalization_pump.last_sequence == 42,
                "message_event_pump_malformed_sidecars_reject_before_sequence_observation");
 
         input.dispatch_payload_bytes = 0;
         input.notification_payload_bytes = kGatewayNotificationMetadataIncomplete;
         const auto incomplete = message_event_pump_consume(&normalization_pump, input, {});
         expect(incomplete.ok() && incomplete.kind == MessageEventPumpConsumeKind::ignored_dispatch &&
-                   normalization_pump.last_sequence == 43 && normalization_pump.ignored == 3 &&
+                   normalization_pump.last_sequence == 43 &&
                    input.notification_payload_bytes == kGatewayNotificationMetadataIncomplete && store.count == 1,
                "message_event_pump_incomplete_sidecar_preserves_event_and_ordinary_state");
 
@@ -931,16 +925,13 @@ void test_message_event_pump() noexcept {
         const auto plain_body = message_event_pump_consume(&normalization_pump, input, byte_literal("raw"));
         expect(plain_body.ok() && plain_body.kind == MessageEventPumpConsumeKind::ignored_dispatch &&
                    !plain_body.repaint && normalization_pump.last_sequence == 44 &&
-                   normalization_pump.has_sequence && normalization_pump.ignored == 4 &&
-                   normalization_pump.rejected == 4 && normalization_pump.applied == 0 &&
-                   normalization_pump.lifecycle == 0 && store.count == 1,
-               "message_event_pump_plain_unknown_body_preserves_counters_and_sequence");
+                   normalization_pump.has_sequence && store.count == 1,
+               "message_event_pump_plain_unknown_body_preserves_sequence");
         input.has_sequence = false;
         input.sequence = 99;
         const auto unsequenced = message_event_pump_consume(&normalization_pump, input, byte_literal("raw"));
         expect(unsequenced.ok() && unsequenced.kind == MessageEventPumpConsumeKind::ignored_dispatch &&
                    normalization_pump.last_sequence == 44 && normalization_pump.has_sequence &&
-                   normalization_pump.ignored == 5 && normalization_pump.rejected == 4 &&
                    store.count == 1,
                "message_event_pump_plain_unknown_without_sequence_preserves_last_sequence");
     }
@@ -990,7 +981,7 @@ void test_message_event_pump() noexcept {
                drain_store.count == 3 && drain_list.count == 3 && second_drain.ok() &&
                second_drain.popped == 1 && second_drain.applied == 1 &&
                second_drain.invalidation.first == 2 && !second_drain.invalidation.structural &&
-               empty_drain.ok() && empty_drain.popped == 0 && drain_pump.drained == 4 &&
+               empty_drain.ok() && empty_drain.popped == 0 &&
                drain_pump.last_sequence == 4,
            "message_event_pump_bounded_drain_and_damage_merge");
 
@@ -1106,7 +1097,7 @@ void test_message_event_pump() noexcept {
     expect(deferred_drain.ok() && deferred_drain.popped == 1 && deferred_drain.deferred == 1 &&
                deferred_drain.applied == 0 && !deferred_drain.repaint && !deferred_drain.resync_required &&
                deferred_drain.catchup_required && deferred_pump.catchup_required &&
-               deferred_pump.deferred == 1 && deferred_pump.rejected == 0 && deferred_store.count == 2,
+               deferred_store.count == 2,
            "message_event_pump_deferred_is_not_resync_failure");
 
     struct ReactionObserveProbe {
@@ -1458,7 +1449,6 @@ void test_message_history_sync() noexcept {
                prepended.invalidation.scroll_changed && store.count == 4 && list.count == 4 &&
                list.structural_updates == 1 && timeline.scroll_units == 250 &&
                timeline.scroll_origin_units == 200 &&
-               timeline.history_pages == 1 &&
                message_store_resolve(store, message_store_find(store, 100).handle)->content_availability ==
                    MessageContentAvailability::available,
            "message_history_batch_prepend_preserves_anchor_once");
@@ -1487,7 +1477,7 @@ void test_message_history_sync() noexcept {
         MessageContentAvailability::available);
     expect(replaced_edge.ok() && replaced_edge.inserted == 2 && replaced_edge.evicted == 2 &&
                store.compactions == compactions_before_replace && store.count == 6 && list.count == 6 &&
-               list.structural_updates == 4 && timeline.evicted == 2 && timeline.history_pages == 3 &&
+               list.structural_updates == 4 &&
                message_store_find(store, 100).error == MessageStoreError::not_found &&
                message_store_find(store, 200).error == MessageStoreError::not_found &&
                message_store_find(store, 700).ok() && message_store_find(store, 800).ok() &&

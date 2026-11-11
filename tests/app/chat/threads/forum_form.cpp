@@ -8,8 +8,8 @@ void test_application_forum_form(void (*check)(bool, const char*) noexcept) noex
     using namespace app_detail;
     const auto named_tag = utf8_literal("Questions");
     check(utf8_equal(forum_post_tag_label({}), utf8_literal("Unnamed tag")) &&
-              forum_post_tag_label(named_tag).data == named_tag.data,
-          "forum_form_tag_label_policy_covers_empty_wire_name_and_borrows_nonempty_name");
+              utf8_equal(forum_post_tag_label(named_tag), named_tag),
+          "forum_form_tag_label_policy_covers_empty_wire_name_and_nonempty_name");
     SecureEdit title{}, body{};
     check(secure_edit_initialize(&title, kApplicationForumTitleBytes, false,
                                  {kApplicationForumTitleScalars, false}) &&

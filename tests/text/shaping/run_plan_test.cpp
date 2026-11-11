@@ -23,7 +23,7 @@ void flush() noexcept {DWORD written=0;if(print_count&&(!WriteFile(GetStdHandle(
 void print_bytes(const char* data,u32 count) noexcept {while(count){if(print_count==sizeof(print_buffer))flush();const u32 n=minimum(count,static_cast<u32>(sizeof(print_buffer))-print_count);copy_bytes(print_buffer+print_count,data,n);print_count+=n;data+=n;count-=n;}}
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;print_bytes(s,n);}
 void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print_bytes(s,n);}
-u64 checks=0,fonts=0,values=0,state_bytes=0;
+u64 checks=0,fonts=0,values=0;
 #define CHECK(x) do {++checks;if(!(x)){print("FAIL line=");number(__LINE__);print(" font=");number(fonts);print("\n");return false;}} while(0)
 NativeFontFileSlot files[2];NativeFontFaceSlot faces[2];NativeFontInstanceSlot instances[2];NativeRunPlanSlot plans[2];
 NativeFontStore font_store{{files,2},{faces,2}};NativeFontInstanceStore instance_store{&font_store,{instances,2}};NativeRunPlanStore store{&instance_store,{plans,2}};
@@ -37,7 +37,7 @@ bool acquire(const wchar_t* path,NativeRunPlanHandle* out,u32 weight=0) noexcept
     CHECK(native_font_instance_acquire(&instance_store,face,weight?ConstSlice<FontAxisSetting>{&setting,1}:ConstSlice<FontAxisSetting>{},false,prepare,&instance).ok());
     const auto result=native_run_plan_acquire(&store,instance,&scratch,out);
     if(!result.ok()){print("plan_status=");number(static_cast<u32>(result.font_status));print("\n");}
-    CHECK(result.ok());const auto& state=plans[out->slot-1].state;state_bytes+=state.committed;
+    CHECK(result.ok());const auto& state=plans[out->slot-1].state;
     MEMORY_BASIC_INFORMATION info{};CHECK(VirtualQuery(state.base,&info,sizeof(info))==sizeof(info)&&info.Protect==PAGE_READONLY);
     NativeRunPlanHandle alias{};CHECK(native_run_plan_acquire(&store,instance,&scratch,&alias,1000000,0).ok()&&alias.slot==out->slot&&alias.generation==out->generation);
     CHECK(native_run_plan_release(&store,alias));
@@ -276,6 +276,6 @@ MAICORD_TEST_ENTRY(maicord_run_plan_entry) {
     for(u32 i=0;i<2;++i)while(instances[i].references)native_font_instance_release(&instance_store,{i+1,instances[i].generation});
     for(u32 i=0;i<2;++i)while(faces[i].references)native_font_release(&font_store,{i+1,faces[i].generation});
     arena_release(&scratch);if(temporary[0]&&!DeleteFileW(temporary))ok=false;
-    print("fonts=");number(fonts);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\nstate_bytes_sum=");number(state_bytes);print("\nslot_bytes=");number(sizeof(NativeRunPlanSlot));
+    print("fonts=");number(fonts);print("\nchecks=");number(checks);print("\nvalues=");number(values);
     print(ok?"\nPASS native run plans\n":"\nFAIL native run plans\n");flush();::maicord::test_process_exit(ok&&print_ok?0:1);
 }

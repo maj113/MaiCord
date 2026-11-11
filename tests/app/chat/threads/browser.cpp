@@ -310,8 +310,9 @@ void run() noexcept {
     const auto stable = browser_owner->revision;
     check(application_thread_browser_synchronize() && application_thread_browser_synchronize() &&
         browser_owner->revision == stable, "browser: unchanged frames do not recount Core inventory");
-    for (u32 i = 0; i < 4; ++i) check(action(UiThreadBrowserAction::next), "browser: active next page");
-    check(browser_owner->row_count == 20 && browser_owner->rows[19].thread_id == 219 && !browser_owner->has_more,
+    bool paged = true;
+    for (u32 i = 0; i < 4; ++i) paged = action(UiThreadBrowserAction::next) && paged;
+    check(paged && browser_owner->row_count == 20 && browser_owner->rows[19].thread_id == 219 && !browser_owner->has_more,
         "browser: direct Active paging reaches eligible records past 100");
     check(action(UiThreadBrowserAction::archived) && browser_owner->error && !browser_owner->queued &&
         !browser_owner->view.loading && !application_thread_browser_pending(now) && !submissions,
@@ -346,8 +347,9 @@ void run() noexcept {
         submitted.mode == ThreadBrowserMode::search && !submitted.offset && utf8_equal(submitted.name, utf8_literal("Find thread")) &&
         receipt(13, 200, page(3000, 100, false)), "browser: Search request owns name-only query and accepts100 without truncation");
     const u32 before_search_pages = submissions;
-    for (u32 i = 0; i < 3; ++i) check(action(UiThreadBrowserAction::next), "browser: Search local next");
-    check(browser_owner->page_index == 3 && browser_owner->row_count == 25 && browser_owner->rows[24].thread_id == 3099 &&
+    bool local_paged = true;
+    for (u32 i = 0; i < 3; ++i) local_paged = action(UiThreadBrowserAction::next) && local_paged;
+    check(local_paged && browser_owner->page_index == 3 && browser_owner->row_count == 25 && browser_owner->rows[24].thread_id == 3099 &&
         submissions == before_search_pages && !browser_owner->has_more, "browser: Search is at most four local pages with zero pagination REST");
     check(action(UiThreadBrowserAction::archived) && application_thread_browser_submit(20, now), "browser: cancellation fixture flight");
     check(application_thread_browser_search(utf8_literal("Find thread")) && cancelled == 20 && browser_owner->flight.retired &&

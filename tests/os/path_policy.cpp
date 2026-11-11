@@ -118,11 +118,7 @@ bool name_is(const wchar_t* path, const char* expected) noexcept {
 
 void test_attachment_names(const Samples& samples) noexcept {
     check(name_is(samples.absolute, "photo.png"), "an attachment from an absolute path is named after its last component");
-#if defined(_WIN32)
-    check(name_is(samples.mixed, "report.txt"), "an attachment name follows the last backslash");
-#else
-    check(name_is(samples.mixed, "report.txt"), "an attachment name follows the last separator, either kind");
-#endif
+    check(name_is(samples.mixed, "report.txt"), "an attachment name follows the last separator");
     check(name_is(samples.relative, "photo.png"), "an attachment from a relative path keeps its last component");
 }
 

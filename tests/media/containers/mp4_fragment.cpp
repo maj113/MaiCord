@@ -12,7 +12,6 @@
 #include "../../support/test_output.hpp"
 
 namespace maicord {
-bool fragment_audio_playback_probe() noexcept;
 namespace {
 u32 failures;
 void check(bool value, const char* label) noexcept { test_check(&failures, value, label); }
@@ -1295,6 +1294,5 @@ void run() noexcept {
 }
 extern "C" __declspec(noreturn) void WINAPI maicord_mp4_fragment_entry() noexcept {
     maicord::run(); maicord::empty_roll_tests(); maicord::multiplexed_fragment_tests(); maicord::track_tests(); maicord::source_tests(); maicord::media_segment_tests(); maicord::multipart_segment_tests(); maicord::segment_store_tests(); maicord::live_segment_tests(); maicord::live_audio_tests(); maicord::live_fetch_tests(); maicord::live_alignment_tests(); maicord::segmented_fetch_tests(); maicord::segmented_fetch_tests(true); maicord::segmented_fetch_tests(true, true); maicord::audio_tests();
-    maicord::check(maicord::fragment_audio_playback_probe(), "finite fragmented audio plays and seeks to its end without a picture decoder");
     ExitProcess(maicord::failures ? 1 : 0);
 }

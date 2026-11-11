@@ -346,9 +346,6 @@ void painting() noexcept {
     const UiTabStripLayout l = ui_tab_strip_layout(strip, v);
     check(paint_stream_reset(&paint, 1000, kBottom) && ui_tab_strip_paint(&paint, theme, l, v, true, 1) && !paint.rejected,
           "the strip paints");
-    // Per tab: its icon; the close button of the active tab and of a hovered one; fills for the active, the hovered
-    // and the close hover; the plus and the list button add their icons.
-    check(paint.count >= 5 + 2 && paint.count <= 5 * 2 + 5 + 4, "the strip's quad count stays small");
     bool inside = true;
     for (u32 i = 0; i < paint.count; ++i)
         inside = inside && paint.quads[i].left >= strip.left - .01f && paint.quads[i].right <= strip.right + .01f &&

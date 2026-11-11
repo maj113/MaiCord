@@ -411,7 +411,6 @@ void dpapi_failure() noexcept {
     SecureZeroMemory(protected_bytes, sizeof(protected_bytes));
 }
 void run() noexcept {
-    static_assert(sizeof(SecureBuffer) == 24);
     real_peak(); real_concurrent_images(); controlled_failures(); dpapi_failure();
 }
 } // namespace maicord::lock_budget_test

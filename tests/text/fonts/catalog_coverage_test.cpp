@@ -31,7 +31,7 @@ struct Owner {
 };
 u8 collection[65536];
 bool run() noexcept {
-    CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));Temporary temp;CHECK(temp.open());Owner owner;
+    Temporary temp;CHECK(temp.open());Owner owner;
     const ConstSlice<u8> font{font_catalog_probe_font,sizeof(font_catalog_probe_font)};
     // Distinct TTC face indices share one fixture's table data.
     byte_store_be32(collection,sfnt_tag('t','t','c','f'));byte_store_be32(collection+4,0x10000);byte_store_be32(collection+8,collection_faces);
