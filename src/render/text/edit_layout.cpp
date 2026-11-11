@@ -7,6 +7,7 @@
 #include "maicord/ui/text/text.hpp"
 #include "maicord/ui/text/native_text_candidate.hpp"
 #include "maicord/text/layout/paragraph_hits.hpp"
+#include "maicord/text/layout/pill_extent.hpp"
 
 namespace maicord {
 bool text_composer_emoji_rectangle(const TextEditLayoutOwner& owner,
@@ -482,6 +483,28 @@ bool text_edit_layout_move_vertical(const TextEditLayoutOwner& owner, bool down,
 bool text_edit_layout_range_geometry(const TextEditLayoutOwner& owner, u32 first, u32 last,
     Slice<TextEditMetric> output, u32* count) noexcept {
     return range_geometry_at(owner, owner.origin_y, first, last, output, count);
+}
+
+bool text_edit_layout_pill_geometry(const TextEditLayoutOwner& owner, u32 first, u32 last, float scale, float height_in_ems,
+                                    Slice<TextEditMetric> output, u32* count) noexcept {
+    const auto* native = native_geometry(owner);
+    if (!text_edit_layout_range_geometry(owner, first, last, output, count) || !native)
+        return false;
+    const auto& hits = native->hits;
+    for (u32 i = 0; i < minimum(*count, output.count); ++i) {
+        TextEditMetric& piece = output[i];
+        u32 line = 0;
+        while (line + 1 < hits.lines.count && hits.lines[line + 1].top <= piece.top - owner.origin_y + .5f)
+            ++line;
+        const float ascent = hits.style_count ? hits.styles[hits.lines[line].ascent_style].baseline : hits.uniform.baseline;
+        // The baseline text is drawn on: the block's origin and the baseline below it are each a whole device pixel.
+        const float baseline = (text_whole_pixels(owner.origin_y * scale) +
+                                text_whole_pixels((piece.top - owner.origin_y + ascent) * scale)) / scale;
+        const TextPillExtent pill = text_pill_extent(baseline, owner.em_size, height_in_ems);
+        piece.top = pill.top;
+        piece.height = pill.bottom - pill.top;
+    }
+    return true;
 }
 
 bool text_edit_layout_position_geometry(const TextEditLayoutOwner& owner,u32 position,TextEditMetric* metric) noexcept {

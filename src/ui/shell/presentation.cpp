@@ -1092,7 +1092,11 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     // its leading end. The active chip's border is the focus colour, a chip
     // that failed its check the danger colour.
     if (composer_presentation && composer_presentation->geometry_active && composer_presentation->chips.count) {
-        if (!paint_stream_push_clip(stream, edit->content_rectangle))
+        // A chip is taller than its line (text_pill_extent): its clip reaches into the editor's padding for the overshoot.
+        const float overshoot = ui_theme_metrics(theme.styles).composer_padding;
+        const UiRect chip_clip{edit->content_rectangle.left, edit->content_rectangle.top - overshoot,
+                               edit->content_rectangle.right, edit->content_rectangle.bottom + overshoot};
+        if (!paint_stream_push_clip(stream, chip_clip))
             return false;
         const float radius = theme.scale.radius_sm;
         for (u32 i = 0; i < composer_presentation->chips.count; ++i) {

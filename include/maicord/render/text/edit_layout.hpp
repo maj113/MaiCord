@@ -90,6 +90,10 @@ bool text_edit_layout_move_vertical(const TextEditLayoutOwner& owner, bool down,
                                     u32* utf16_position) noexcept;
 bool text_edit_layout_range_geometry(const TextEditLayoutOwner& owner, u32 first, u32 last,
                                      Slice<TextEditMetric> output, u32* count) noexcept;
+// The range's rectangles as pills centred on their text (text_pill_extent), `height_in_ems` tall, for a frame drawn at
+// `scale` device pixels per DIP.
+bool text_edit_layout_pill_geometry(const TextEditLayoutOwner&, u32 first, u32 last, float scale, float height_in_ems,
+                                    Slice<TextEditMetric>, u32* count) noexcept;
 bool text_edit_layout_position_geometry(const TextEditLayoutOwner&, u32 position, TextEditMetric*) noexcept;
 bool text_edit_layout_raw_range_geometry(const TextEditLayoutOwner&, u32 first, u32 last,
                                          Slice<TextEditMetric>, u32* count) noexcept;

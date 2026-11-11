@@ -55,6 +55,18 @@ allocated counts as allocated then. The trim evicts glyphs nothing used within `
 it evicted. The title stream (the sign-in screen, the bootstrap title) is retained quads nothing rebuilds, so the trim pins its
 glyphs; the caption rebuilds its own when the atlas evicts.
 
+## Pills
+
+A mention's background (`d3d11/glyph_text.cpp`, `mention_pill`) and a composer chip (a command option or the game search token,
+`text_edit_layout_pill_geometry`, called by `composer_chip_geometry`) are centred on their text, not on the line box: ascent reserves room for
+accents, so a font's ascent and descent box sits high on the glyphs (Segoe UI's centre is .41 em above the baseline, the ink of
+"@game" .24 em). `include/maicord/text/layout/pill_extent.hpp` puts a pill's centre .24 em above the baseline and gives it a height in
+ems, so it holds at every size and scale; both follow the baseline the text is really drawn on (`text_whole_pixels`, the same
+rounding `glyph_text.cpp` draws with: text snaps its origin and each baseline to whole device pixels). A chip is 1.6 em tall, a mention 1.4 em. The
+layout's decorations still report the line box (hit regions and the text references digest them); only the drawn quad moves. The
+composer probe (`tests/integration/composer_ui_probe.cpp`, `pills`) reads the drawn frame back at 100% and 150%: the chip's ink sits
+as far from its top edge as from its bottom within half a device pixel, a mention within one (its solid quads have hard edges).
+
 ## Background effects
 
 Effects run through the shared pass executor (`d3d11/effect_renderer.cpp`, built into `maicord_effect_host`). A package of `.mcfx`

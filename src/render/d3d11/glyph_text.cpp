@@ -11,6 +11,7 @@
 #include "maicord/render/effects/colr_paint.hpp"
 #include "maicord/media/image/regional_flag_art.hpp"
 #include "maicord/render/text/native_glyph_outlines.hpp"
+#include "maicord/text/layout/pill_extent.hpp"
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/sys/simd.hpp"
 #include "maicord/platform/font/default_fonts.hpp"
@@ -74,14 +75,6 @@ constexpr u16 color_face_flag = 2;
 // A colour bitmap face (CBLC/CBDT): its glyphs are decoded images placed in the colour atlas, not paint programs.
 constexpr u16 bitmap_face_flag = 4;
 #endif
-
-// The nearest whole device pixel, also for the negative origins of text
-// scrolled above its clip.
-float whole_pixels(float pixels) noexcept {
-    const float shifted = pixels + .5f;
-    const i32 truncated = static_cast<i32>(shifted);
-    return static_cast<float>(static_cast<float>(truncated) > shifted ? truncated - 1 : truncated);
-}
 
 // The nearest integer (ties to even) in one conversion, for the hot glyph loop.
 inline i32 nearest_i32(float value) noexcept {
@@ -394,6 +387,25 @@ bool role_color_for_decoration(const D3D11GlyphTextAppendRequest& request, const
     return false;
 }
 
+// A mention's background is a pill centred on its text, not the line box the layout reports (text_pill_extent), on the
+// baseline the text is drawn on: that of the first mention run whose baseline lies in the box. Like the layout's
+// decorations, the result is relative to the block (whose origin is a whole pixel, as the baseline below it is).
+void mention_pill(const D3D11GlyphTextAppendRequest& request, TextDecoration* decoration, float pixel_scale) noexcept {
+    if (decoration->kind != TextDecorationKind::background || !(decoration->style_flags & text_style_mention))
+        return;
+    for (u32 index = 0; index < request.text->run_count; ++index) {
+        const TextRun& run = request.text->runs[index];
+        if (!(run.style_flags & text_style_mention) || !(run.baseline_y > decoration->top) ||
+            !(run.baseline_y < decoration->bottom))
+            continue;
+        const TextPillExtent extent = text_pill_extent(text_whole_pixels(run.baseline_y * pixel_scale) / pixel_scale,
+                                                       run.em_size, kTextInlinePillHeight);
+        decoration->top = extent.top;
+        decoration->bottom = extent.bottom;
+        return;
+    }
+}
+
 #if !defined(_WIN32)
 enum class BitmapGlyph : u8 { ready, absent, retry, failed };
 
@@ -636,8 +648,8 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
     // made the spacing inside a word depend on the block's fractional origin:
     // centred text at odd window sizes moved some letters a pixel and not
     // their neighbours.
-    const float origin_x_pixels = whole_pixels(request.origin_x * pixel_scale);
-    const float origin_y_pixels = whole_pixels(request.origin_y * pixel_scale);
+    const float origin_x_pixels = text_whole_pixels(request.origin_x * pixel_scale);
+    const float origin_y_pixels = text_whole_pixels(request.origin_y * pixel_scale);
     const float origin_x = origin_x_pixels / pixel_scale, origin_y = origin_y_pixels / pixel_scale;
     const float inverse_scale = 1.0f / pixel_scale, step_scale = pixel_scale * kSubpixelBins;
     GlyphAtlasIndex* const index = atlas_index(owner);
@@ -672,7 +684,9 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
             role_color.alpha = (decoration.style_flags & text_style_interactive_hover) ? .3f : .18f;
             decoration_color = role_color;
         }
-        if (!d3d11_glyph_text_append_solid(decoration, origin_x, origin_y, decoration_color,
+        TextDecoration pill = decoration;
+        mention_pill(request, &pill, pixel_scale);
+        if (!d3d11_glyph_text_append_solid(pill, origin_x, origin_y, decoration_color,
                                            request.output, request.capacity, request.count)) {
             return append_fail(1);
         }
@@ -743,7 +757,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         }
         const float pixels_per_em = run.em_size * pixel_scale;
         float advance = 0.0f;
-        const float baseline_y_pixels = origin_y_pixels + whole_pixels(run.baseline_y * pixel_scale);
+        const float baseline_y_pixels = origin_y_pixels + text_whole_pixels(run.baseline_y * pixel_scale);
         for (u32 offset = 0; offset < run.glyph_count; ++offset) {
             const u32 glyph_index = run.first_glyph + offset;
             if (glyph_index >= request.text->glyph_count) {

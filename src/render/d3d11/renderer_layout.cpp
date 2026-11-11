@@ -17,6 +17,7 @@
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/ui/voice/panel.hpp"
+#include "maicord/text/layout/pill_extent.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/ui/guild/banner.hpp"
 #include "maicord/ui/chat/game_media.hpp"
@@ -301,16 +302,17 @@ bool composer_chip_geometry(const D3D11Renderer& renderer, Slice<MessageComposer
     if (!scene || !scene->model || !renderer.composer_layout.active)
         return true;
     const auto& layout = renderer.composer_layout;
+    const float scale = static_cast<float>(maximum(renderer.dpi, 1u)) / 96.0f;
     MessageComposerChipRange ranges[25];
     const u32 count = message_composer_scene_chip_ranges(*scene, {ranges, 25});
     for (u32 i = 0; i < count; ++i) {
         const auto& range = ranges[i];
         TextEditMetric keys[kTextEditSelectionCapacity], values[kTextEditSelectionCapacity], padding[2];
         u32 key_count = 0, value_count = 0, padding_count = 0;
-        if (!text_edit_layout_range_geometry(layout, range.first, range.key_last, {keys, kTextEditSelectionCapacity},
-                                             &key_count) ||
-            !text_edit_layout_range_geometry(layout, range.key_last, range.value_last,
-                                             {values, kTextEditSelectionCapacity}, &value_count) ||
+        if (!text_edit_layout_pill_geometry(layout, range.first, range.key_last, scale, kTextChipPillHeight,
+                                            {keys, kTextEditSelectionCapacity}, &key_count) ||
+            !text_edit_layout_pill_geometry(layout, range.key_last, range.value_last, scale, kTextChipPillHeight,
+                                            {values, kTextEditSelectionCapacity}, &value_count) ||
             !text_edit_layout_range_geometry(layout, range.key_last, range.key_last + kMessageComposerChipPadding,
                                              {padding, 2}, &padding_count) ||
             !key_count || !value_count || !padding_count)
