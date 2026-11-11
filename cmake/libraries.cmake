@@ -167,7 +167,6 @@ maicord_library(maicord_protocol
     src/protocol/media/embed_player_audio.cpp
     src/protocol/media/dash_manifest.cpp
     src/protocol/media/steam_player.cpp
-    src/protocol/auth/oauth.cpp
     src/protocol/media/hls_playlist.cpp
     src/protocol/media/twitch_playback.cpp
     src/protocol/http/cookie_jar.cpp

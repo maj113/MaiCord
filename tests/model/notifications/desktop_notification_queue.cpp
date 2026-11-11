@@ -14,7 +14,7 @@ struct Fixture {
     }
 };
 DesktopNotificationQueueInput item(u64 message,u64 channel=22,Utf8View body=utf8_literal("body")) noexcept {
-    return {11,1,channel,message,message,utf8_literal("author"),body,{},true,false};
+    return {11,1,channel,message,message,utf8_literal("author"),body,{},true};
 }
 bool zero(const char* data,u32 n) noexcept {for(u32 i=0;i<n;++i)if(data[i])return false;return true;}
 }

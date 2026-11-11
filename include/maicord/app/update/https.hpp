@@ -36,11 +36,11 @@ struct HttpsHeader { Utf8View name, value; };
 struct HttpsExchangeOptions {
     ConstSlice<HttpsHeader> headers{};
     ConstSlice<u8> body{}; // At most 4096 bytes; a nonempty body selects POST.
-    bool read_error_body{}; // OAuth errors have structured 4xx responses.
+    bool read_error_body{}; // A 4xx/5xx response body is streamed like a 2xx one instead of failing the exchange.
     // Asks for Content-Encoding: gzip; the body then streams as sent (response.gzip) and the caller inflates it.
     bool accept_gzip{};
 };
-// Shared native Schannel exchange for bounded provider metadata and OAuth.
+// Shared native Schannel exchange for bounded provider metadata.
 // No redirects, cookie jar or credential forwarding. The caller owns origin
 // policy; cancellation and joined release use the existing transport above.
 UpdateTransportError https_exchange(UpdateHttpsTransport*, const UpdateHttpRequest&,

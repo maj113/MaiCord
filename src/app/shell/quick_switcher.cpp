@@ -180,7 +180,7 @@ bool pointer_edit(ApplicationQuickSwitcher& q, float x, float y, bool extend) no
         !text_edit_layout_hit_test(layout, x, y, &position) ||
         !utf8_byte_offset_for_utf16_position(text, position, &byte)) return false;
     message_composer_set_selection(&q.edit, extend ? q.edit.anchor : byte, byte);
-    return application_quick_switcher_edit_changed(false);
+    return application_quick_switcher_edit_changed();
 }
 bool activate(ApplicationQuickSwitcher& q, const UiQuickSwitcherTarget& selected) noexcept {
     QuickSwitcherTarget target{};
@@ -375,7 +375,7 @@ static bool application_quick_switcher_toggle() noexcept {
     if (application_quick_switcher_active()) { application_quick_switcher_close(); return true; }
     return application_quick_switcher_open();
 }
-bool application_quick_switcher_edit_changed(bool) noexcept {
+bool application_quick_switcher_edit_changed() noexcept {
     auto* q = g_app.quick_switcher;
     if (!application_quick_switcher_active()) return true;
     ++q->content_revision; caret_reset(*q);
@@ -398,7 +398,7 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
         if (control || (alt && !ctrl_raw) || key < 32 || (key >= 127 && key <= 159) || key == 0x2028 || key == 0x2029 || key > 0xffff) return true;
         if (!q->edit.history) message_composer_enable_history(&q->edit, 2048);
         if (message_composer_insert_utf16(&q->edit, static_cast<u16>(key), clock_monotonic_milliseconds()) == MessageComposerResult::changed)
-            application_quick_switcher_edit_changed(true);
+            application_quick_switcher_edit_changed();
         return true;
     }
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) return true;
@@ -415,7 +415,6 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
             key == key::down ? UiQuickSwitcherMove::next : key == key::page_up ? UiQuickSwitcherMove::page_previous : UiQuickSwitcherMove::page_next);
         application_request_frame(); return true;
     }
-    const auto revision = q->edit.text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
     if (control && (key == 'C' || key == 'X')) {
         const u32 a = minimum(q->edit.anchor, q->edit.caret), b = maximum(q->edit.anchor, q->edit.caret);
@@ -435,7 +434,7 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
         if (key == key::backspace) g_app.quick_switcher_held_key = key;
         message_composer_edit_key(&q->edit, key, control, shift, &result);
     }
-    if (result == MessageComposerResult::changed) application_quick_switcher_edit_changed(revision != q->edit.text_revision);
+    if (result == MessageComposerResult::changed) application_quick_switcher_edit_changed();
     return true;
 }
 bool application_quick_switcher_filter(const WindowEvent& event) noexcept {

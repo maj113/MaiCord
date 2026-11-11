@@ -184,8 +184,7 @@ void ui_motion_transition_cancel(UiMotionTransition* transition) noexcept {
 }
 
 bool ui_motion_transition_tick(UiMotionTransition* transition, const UiMotionScope& scope_view, float requested,
-                               u64 now_ms, const UiMotionStyle& requested_style, bool reduced_motion,
-                               bool visible) noexcept {
+                               u64 now_ms, const UiMotionStyle& requested_style, bool reduced_motion) noexcept {
     const UiMotionScope scope = scope_view; // *transition is written below
     if (!transition || !motion_scope_matches(*transition, scope))
         return false;
@@ -196,7 +195,7 @@ bool ui_motion_transition_tick(UiMotionTransition* transition, const UiMotionSco
     now_ms = maximum(now_ms, transition->sampled_ms);
     motion_sample(*transition, now_ms);
     transition->sampled_ms = now_ms;
-    if (!visible || reduced_motion || !style.duration_ms || now_ms > ~u64{0} - style.duration_ms) {
+    if (reduced_motion || !style.duration_ms || now_ms > ~u64{0} - style.duration_ms) {
         transition->value = transition->from = transition->target = target;
         transition->started_ms = now_ms;
         transition->style = style;
@@ -212,8 +211,8 @@ bool ui_motion_transition_tick(UiMotionTransition* transition, const UiMotionSco
 }
 
 u64 ui_motion_transition_next_wake(const UiMotionTransition& transition, UiMotionScope scope,
-                                   bool reduced_motion, bool visible) noexcept {
-    if (!motion_scope_matches(transition, scope) || !transition.active || reduced_motion || !visible)
+                                   bool reduced_motion) noexcept {
+    if (!motion_scope_matches(transition, scope) || !transition.active || reduced_motion)
         return 0;
     if (transition.started_ms > ~u64{0} - transition.style.duration_ms)
         return 0;
@@ -263,15 +262,15 @@ bool ui_motion_hover_tick(UiMotionHover* hover, u64 hovered_id, u64 now_ms, cons
         hover->in_id = hovered_id;
     }
     changed = ui_motion_transition_tick(&hover->in, kHoverScope, hover->in_id ? 1.f : 0.f, now_ms, style,
-                                        reduced_motion, true) || changed;
-    return ui_motion_transition_tick(&hover->out, kHoverScope, 0, now_ms, style, reduced_motion, true) || changed;
+                                        reduced_motion) || changed;
+    return ui_motion_transition_tick(&hover->out, kHoverScope, 0, now_ms, style, reduced_motion) || changed;
 }
 float ui_motion_hover_amount(const UiMotionHover& hover, u64 id) noexcept {
     return !id ? 0 : id == hover.in_id ? hover.in.value : id == hover.out_id ? hover.out.value : 0;
 }
 u64 ui_motion_hover_next_wake(const UiMotionHover& hover) noexcept {
-    const u64 a = ui_motion_transition_next_wake(hover.in, kHoverScope, false, true);
-    const u64 b = ui_motion_transition_next_wake(hover.out, kHoverScope, false, true);
+    const u64 a = ui_motion_transition_next_wake(hover.in, kHoverScope, false);
+    const u64 b = ui_motion_transition_next_wake(hover.out, kHoverScope, false);
     return !a ? b : !b ? a : minimum(a, b);
 }
 

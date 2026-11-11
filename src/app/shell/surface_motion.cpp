@@ -82,8 +82,7 @@ float application_surface_motion_update(ApplicationSurfaceMotionOwner* owner, Re
         const UiMotionScope scope{static_cast<u64>(surface) + 1, ++owner->scope_serial};
         ui_motion_transition_reset(&slot.motion, scope, entrance ? 0.0f : 1.0f);
     }
-    ui_motion_transition_tick(&slot.motion, slot.motion.scope, slot.close ? 0 : 1, now_ms, slot.style, !animate,
-                              true);
+    ui_motion_transition_tick(&slot.motion, slot.motion.scope, slot.close ? 0 : 1, now_ms, slot.style, !animate);
     return slot.motion.value;
 }
 
@@ -94,7 +93,7 @@ u64 application_surface_motion_owner_next_wake(const ApplicationSurfaceMotionOwn
         return 0;
     const auto& slot = owner.slots[static_cast<u32>(surface)];
     return same_key(slot.key, key)
-               ? ui_motion_transition_next_wake(slot.motion, slot.motion.scope, false, true)
+               ? ui_motion_transition_next_wake(slot.motion, slot.motion.scope, false)
                : 0;
 }
 
@@ -368,8 +367,8 @@ float application_motion_tick(UiMotionTransition* transition, const UiMotionScop
     if (!transition->scope.owner)
         ui_motion_transition_reset(transition, scope, target);
     const bool animate = host_motion_allowed();
-    ui_motion_transition_tick(transition, scope, target, now_ms, style, !animate, true);
-    application_motion_schedule(ui_motion_transition_next_wake(*transition, scope, !animate, true));
+    ui_motion_transition_tick(transition, scope, target, now_ms, style, !animate);
+    application_motion_schedule(ui_motion_transition_next_wake(*transition, scope, !animate));
     return transition->value;
 }
 

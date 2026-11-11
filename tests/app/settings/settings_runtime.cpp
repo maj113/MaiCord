@@ -12,8 +12,6 @@
 #include "chat/messages/interaction.hpp"
 #include "shell/input.hpp"
 #include "settings/theme_editor.hpp"
-#include "maicord/app/account/login/oauth_account.hpp"
-#include "maicord/app/net/file_persistence.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "settings_runtime_keys.hpp"
 #include "../../support/test_output.hpp"
@@ -630,44 +628,7 @@ void test_controller() noexcept {
           "settings: existing owner lookups preserve a nonzero lifetime identity");
     test_native_projection_bank();
     test_every_settings_page();
-    check(!application_media_auth_notification() && !application_settings_open_key(utf8_literal("voice.youtube")),
-          "Removed YouTube sign-in is not discoverable and starts no worker");
-    check(application_settings_open_key(utf8_literal("voice.spotify")), "Spotify settings: account action is discoverable");
-    const UiSettingsTarget spotify_target{UiSettingsTargetKind::control,
-        {1, static_cast<u64>(SettingsPanel::voice) + 1}, cid("voice.spotify")};
-    const auto* spotify = ui_settings_scene_control(*scene(), spotify_target);
-    check(spotify && spotify->enabled && utf8_equal(spotify->action_label, utf8_literal("Sign in")) &&
-          utf8_equal(spotify->description, utf8_literal("Spotify opens in your browser. Playback is limited to previews.")) &&
-          !application_media_auth_notification(),
-          "Spotify settings: preview limit is explicit and navigation creates no worker");
-    activate_control(spotify_target.page, spotify_target.control_id);
-    spotify = ui_settings_scene_control(*scene(), spotify_target);
-    check(spotify && utf8_equal(spotify->description, utf8_literal("Configure MaiCord's Spotify client registration before signing in.")) &&
-          !application_media_auth_notification(),
-          "Spotify settings: absent registration reports the prerequisite without opening a browser");
-    constexpr auto spotify_client = utf8_literal("0123456789abcdef0123456789abcdef");
-    wchar_t spotify_path[1024];
-    const auto spotify_location = data_path(spotify_path, 1024, L"spotify-client.txt", true);
-    const bool configured = spotify_location.ok() && file_persistence_write_atomic(spotify_path, spotify_location.length,
-        {reinterpret_cast<const u8*>(spotify_client.data), spotify_client.bytes}).ok();
-    check(configured && oauth_account_save(spotify_client, utf8_literal("spotify-settings-refresh"), OAuthProvider::spotify),
-          "Media settings: saved Spotify account fixture");
-    application_media_auth_shutdown();
-    application_settings_refresh_pages();
-    check(application_settings_synchronize(), "Media settings: reload Spotify grant");
-    spotify = ui_settings_scene_control(*scene(), spotify_target);
-    check(spotify && utf8_equal(spotify->action_label, utf8_literal("Sign out")) &&
-          utf8_equal(spotify->description, utf8_literal("Sign-in saved on this device. Spotify playback is limited to previews.")) &&
-          !application_media_auth_notification(),
-          "Media settings: saved Spotify account restores without background workers");
-    check(activate_control(spotify_target.page, spotify_target.control_id), "Spotify settings: sign out saved account");
-    SecureBuffer saved_spotify{};
-    spotify = ui_settings_scene_control(*scene(), spotify_target);
-    check(spotify && utf8_equal(spotify->action_label, utf8_literal("Sign in")) &&
-          !oauth_account_load(spotify_client, &saved_spotify, OAuthProvider::spotify),
-          "Spotify settings: sign-out removes the saved grant and restores the control state");
-    secure_buffer_release(&saved_spotify);
-    if (configured) DeleteFileW(spotify_path);
+    check(!application_settings_open_key(utf8_literal("voice.youtube")), "Removed YouTube sign-in is not discoverable");
     check(application_settings_open_key(utf8_literal("appearance")), "Media settings: original page restored");
     maicord::app_detail::test_application_account_settings_connection_runtime(check);
     test_search_field();

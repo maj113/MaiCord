@@ -8,7 +8,7 @@ inline constexpr u32 kDesktopNotificationQueueItemBytes = 4096;
 struct DesktopNotificationQueueInput {
     u64 profile_id{}, generation{}, channel_id{}, message_id{}, source_sequence{};
     Utf8View title{}, body{}, avatar_file_uri{};
-    bool silent{}, suppress_popup{};
+    bool silent{};
     // Optional policy/selection scope (e.g. thread-starter parent). Activation
     // still uses channel_id. Zero means the caller did not supply this scope.
     u64 policy_channel_id{};
@@ -20,7 +20,7 @@ struct DesktopNotificationQueueInput {
 struct DesktopNotificationQueueRow {
     u64 token{}, profile_id{}, generation{}, channel_id{}, message_id{}, source_sequence{};
     u32 offset{}, title_bytes{}, body_bytes{}, avatar_bytes{};
-    bool silent{}, suppress_popup{};
+    bool silent{};
     u64 policy_channel_id{};
     u64 sound_epoch{};
     u32 sound_id{};

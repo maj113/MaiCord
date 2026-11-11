@@ -27,7 +27,7 @@ struct Captured {
     DesktopNotificationActivation target;
     char title[256], body[1024];
     u32 title_bytes, body_bytes;
-    bool silent, suppress_popup;
+    bool silent;
 };
 struct Fixture {
     AccountUiRuntime ui;
@@ -75,7 +75,6 @@ void capture(void* context, const DesktopNotificationPayload& payload) noexcept 
     f.last = {};
     f.last.target = payload.target;
     f.last.silent = payload.silent;
-    f.last.suppress_popup = payload.suppress_popup;
     if (payload.title.bytes > sizeof(f.last.title) || payload.body.bytes > sizeof(f.last.body) ||
         (payload.title.bytes && !payload.title.data) || (payload.body.bytes && !payload.body.data)) {
         f.sink_valid = false; return;
@@ -483,15 +482,13 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     g_app.preferences.message_sounds_enabled=false; application_notifications_settings_refresh(&g_app);
     bool twenty=true;
     for(u32 i=0;i<20;++i) {
-        application_notifications_fixture_suppress_popup(&g_app,i==19);
         twenty=message(2000+i,2+i) && twenty;
     }
-    application_notifications_fixture_suppress_popup(&g_app,false);
     m=application_notifications_fixture_metrics(&g_app);
-    check(twenty && f.delivered==20 && f.last.silent && f.last.suppress_popup && m.retention_channels==1 && m.retention_tickets==20 &&
+    check(twenty && f.delivered==20 && f.last.silent && m.retention_channels==1 && m.retention_tickets==20 &&
         application_notifications_fixture_retained(&g_app,21,0)==2000 &&
         application_notifications_fixture_retained(&g_app,21,19)==2019 && !f.removal_count,
-        "notification retention: exactly20 successful silent and ActionCenter-only Shows keep actual-channel FIFO");
+        "notification retention: exactly20 successful silent Shows keep actual-channel FIFO");
     f.removal_result={DesktopNotificationError::transport,5};
     check(message(2020,22) && f.removal_count==1 && f.removals[0].profile_id==77 &&
         f.removals[0].channel_id==21 && f.removals[0].message_id==2000 &&

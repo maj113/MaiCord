@@ -422,7 +422,7 @@ void headers() noexcept {
         UpdateHttpResponse response{};
         check(update_http_read(&reader, request, &response, out, &size, sizeof(out), true, read_error) ==
             UpdateTransportError::none && reader.complete && response.status == 400 &&
-            delivered == (read_error ? 2u : 0u), "OAuth error bodies are opt-in; updater behavior preserved");
+            delivered == (read_error ? 2u : 0u), "error bodies are opt-in; updater behavior preserved");
     }
 }
 void resident_selection() noexcept {

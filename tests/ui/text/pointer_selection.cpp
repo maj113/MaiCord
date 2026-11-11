@@ -108,39 +108,36 @@ void pointer_selection() noexcept {
     constexpr auto text = utf8_literal("alpha beta gamma\ndelta");
     UiTextPointerSelection state{};
     u32 anchor = 0, caret = 0;
-    check(ui_text_pointer_press(text, 8, 2, false, false, 0, false, &state, &anchor, &caret) && anchor == 6 &&
+    check(ui_text_pointer_press(text, 8, 2, false, 0, false, &state, &anchor, &caret) && anchor == 6 &&
               caret == 10 && state.unit == UiTextSelectionUnit::word,
           "pointer: double click selects the word under the pointer");
-    check(ui_text_pointer_press(text, 10, 2, false, false, 0, false, &state, &anchor, &caret) && anchor == 6 &&
+    check(ui_text_pointer_press(text, 10, 2, false, 0, false, &state, &anchor, &caret) && anchor == 6 &&
               caret == 10,
           "pointer: double click on the trailing half of a word's last letter still selects that word");
-    check(ui_text_pointer_drag(text, state, 9, false, false, &anchor, &caret) && anchor == 6 && caret == 10 &&
-              ui_text_pointer_drag(text, state, 10, false, false, &anchor, &caret) && anchor == 6 && caret == 10,
+    check(ui_text_pointer_drag(text, state, 9, false, &anchor, &caret) && anchor == 6 && caret == 10 &&
+              ui_text_pointer_drag(text, state, 10, false, &anchor, &caret) && anchor == 6 && caret == 10,
           "pointer: jitter inside the double-clicked word keeps the whole word");
-    check(ui_text_pointer_drag(text, state, 13, false, false, &anchor, &caret) && anchor == 6 && caret == 16 &&
-              ui_text_pointer_drag(text, state, 1, false, false, &anchor, &caret) && anchor == 10 && caret == 0,
+    check(ui_text_pointer_drag(text, state, 13, false, &anchor, &caret) && anchor == 6 && caret == 16 &&
+              ui_text_pointer_drag(text, state, 1, false, &anchor, &caret) && anchor == 10 && caret == 0,
           "pointer: dragging after a double click extends by whole words in both directions");
-    check(ui_text_pointer_drag(text, state, 19, false, false, &anchor, &caret) && anchor == 6 && caret == 22,
+    check(ui_text_pointer_drag(text, state, 19, false, &anchor, &caret) && anchor == 6 && caret == 22,
           "pointer: word drag continues onto the next line by whole words");
-    check(ui_text_pointer_press(text, 8, 3, false, false, 0, false, &state, &anchor, &caret) && anchor == 0 &&
-              caret == 16 && ui_text_pointer_drag(text, state, 20, false, false, &anchor, &caret) && anchor == 0 &&
+    check(ui_text_pointer_press(text, 8, 3, false, 0, false, &state, &anchor, &caret) && anchor == 0 &&
+              caret == 16 && ui_text_pointer_drag(text, state, 20, false, &anchor, &caret) && anchor == 0 &&
               caret == 22,
           "pointer: triple click selects the paragraph and drags by paragraphs");
-    check(ui_text_pointer_press(text, 8, 3, true, false, 0, false, &state, &anchor, &caret) && anchor == 0 &&
-              caret == text.bytes,
-          "pointer: triple click in a single-line field selects all of it");
-    check(ui_text_pointer_press(text, 8, 1, false, true, 2, false, &state, &anchor, &caret) && anchor == 2 &&
-              caret == 8 && ui_text_pointer_drag(text, state, 12, false, false, &anchor, &caret) && anchor == 2 &&
+    check(ui_text_pointer_press(text, 8, 1, true, 2, false, &state, &anchor, &caret) && anchor == 2 &&
+              caret == 8 && ui_text_pointer_drag(text, state, 12, false, &anchor, &caret) && anchor == 2 &&
               caret == 12,
           "pointer: shift-click extends from the anchor and drags by characters");
     const auto before = state;
     anchor = caret = 77;
-    check(!ui_text_pointer_press(text, 8, 2, false, false, 0, true, &state, &anchor, &caret) && anchor == 77 &&
+    check(!ui_text_pointer_press(text, 8, 2, false, 0, true, &state, &anchor, &caret) && anchor == 77 &&
               caret == 77 && state.origin_first == before.origin_first &&
-              !ui_text_pointer_drag(text, state, 12, false, true, &anchor, &caret) && anchor == 77,
+              !ui_text_pointer_drag(text, state, 12, true, &anchor, &caret) && anchor == 77,
           "pointer: an active IME composition blocks pointer selection changes");
-    check(!ui_text_pointer_press(text, 99, 2, false, false, 0, false, &state, &anchor, &caret) &&
-              !ui_text_pointer_drag(text, {0, 99, UiTextSelectionUnit::word}, 1, false, false, &anchor, &caret),
+    check(!ui_text_pointer_press(text, 99, 2, false, 0, false, &state, &anchor, &caret) &&
+              !ui_text_pointer_drag(text, {0, 99, UiTextSelectionUnit::word}, 1, false, &anchor, &caret),
           "pointer: out-of-range positions are rejected");
 }
 

@@ -343,8 +343,6 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
             return navigate(*settings, {kNativeSettingsOwner, kThemesPage}, 0);
         return settled(*settings, application_custom_theme_apply_installed(installed_theme_at(request.selected_choice), false));
     }
-    case SettingBinding::spotify_account:
-        return settled(*settings, media_account_action());
     case SettingBinding::notification_setup:
         // Setup is a user action; showing status or entering the page never enrolls.
         application_notifications_setup(&g_app);

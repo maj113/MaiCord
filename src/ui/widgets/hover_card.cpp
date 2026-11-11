@@ -29,7 +29,7 @@ void ui_hover_card_restart(UiHoverCard* card, const UiHoverCardMotion& motion, u
     card->hovered = card->pressed = false;
     ++card->entrance_generation;
     ui_motion_transition_reset(&card->entrance, scope(*card, motion), reduced_motion ? 1.f : 0.f);
-    ui_motion_transition_tick(&card->entrance, scope(*card, motion), 1, now_ms, motion.style, reduced_motion, true);
+    ui_motion_transition_tick(&card->entrance, scope(*card, motion), 1, now_ms, motion.style, reduced_motion);
 }
 
 void ui_hover_card_publish(UiHoverCard* card, u64 content_hash) noexcept {
@@ -44,8 +44,7 @@ bool ui_hover_card_advance(UiHoverCard* card, const UiHoverCardMotion& motion, u
                            bool reduced_motion) noexcept {
     if (!card || !card->active || (!card->entrance.active && card->entrance.value >= 1))
         return false;
-    if (!ui_motion_transition_tick(&card->entrance, scope(*card, motion), 1, now_ms, motion.style, reduced_motion,
-                                   true))
+    if (!ui_motion_transition_tick(&card->entrance, scope(*card, motion), 1, now_ms, motion.style, reduced_motion))
         return false;
     card->progress = card->entrance.value;
     return true;
@@ -54,7 +53,7 @@ bool ui_hover_card_advance(UiHoverCard* card, const UiHoverCardMotion& motion, u
 u64 ui_hover_card_next_wake(const UiHoverCard& card, const UiHoverCardMotion& motion,
                             bool reduced_motion) noexcept {
     return card.active
-               ? ui_motion_transition_next_wake(card.entrance, scope(card, motion), reduced_motion, true)
+               ? ui_motion_transition_next_wake(card.entrance, scope(card, motion), reduced_motion)
                : 0;
 }
 

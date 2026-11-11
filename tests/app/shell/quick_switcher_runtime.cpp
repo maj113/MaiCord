@@ -102,7 +102,7 @@ bool query(Utf8View value) noexcept {
     TextInputChange change{};
     const auto result = text_input_replace(target, 0, length, {converted, value.bytes}, &change);
     return (result == TextInputResult::changed || result == TextInputResult::unchanged) &&
-           application_quick_switcher_edit_changed(true);
+           application_quick_switcher_edit_changed();
 }
 bool open_key() noexcept {
     modifiers(true);

@@ -198,8 +198,7 @@ DesktopNotificationShowResult desktop_notifications_show_once(DesktopNotificatio
     request.desktop_entry = "io.github.maj113.MaiCord";
     request.default_action = true;
     request.timeout_ms = -1;
-    // The Windows "suppress popup" files the toast without a banner; a low urgency is the nearest request there is.
-    request.urgency = payload.suppress_popup ? dbus::NotificationUrgency::low : dbus::NotificationUrgency::normal;
+    request.urgency = dbus::NotificationUrgency::normal;
     request.silent = payload.silent;
     request.cookie = toast->cookie;
     shown.native_show_attempted = true;

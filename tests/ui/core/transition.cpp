@@ -71,84 +71,79 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
 
     const UiMotionScope scope{17, 3};
     UiMotionTransition motion{};
-    check(!ui_motion_transition_tick(&motion, scope, 1, 0, kUiDefaultMotionStyle, false, true) &&
-              !ui_motion_transition_next_wake(motion, scope, false, true),
+    check(!ui_motion_transition_tick(&motion, scope, 1, 0, kUiDefaultMotionStyle, false) &&
+              !ui_motion_transition_next_wake(motion, scope, false),
           "motion: unbound storage cannot acquire a lifetime from a delayed tick");
     ui_motion_transition_reset(&motion, scope);
     const UiMotionStyle linear{100, UiMotionCurve::linear};
-    check(!ui_motion_transition_tick(&motion, scope, 1, 100, linear, false, true) && motion.active &&
-              ui_motion_transition_next_wake(motion, scope, false, true) == 116,
+    check(!ui_motion_transition_tick(&motion, scope, 1, 100, linear, false) && motion.active &&
+              ui_motion_transition_next_wake(motion, scope, false) == 116,
           "motion: starting a trajectory schedules paint without changing its initial value");
-    check(ui_motion_transition_tick(&motion, scope, 1, 125, linear, false, true) && motion.value == .25f,
+    check(ui_motion_transition_tick(&motion, scope, 1, 125, linear, false) && motion.value == .25f,
           "motion: linear host style samples the exact borrowed-clock fraction");
-    check(!ui_motion_transition_tick(&motion, scope, 1, 110, linear, false, true) && motion.value == .25f &&
-              ui_motion_transition_next_wake(motion, scope, false, true) == 141,
+    check(!ui_motion_transition_tick(&motion, scope, 1, 110, linear, false) && motion.value == .25f &&
+              ui_motion_transition_next_wake(motion, scope, false) == 141,
           "motion: a regressing host clock cannot rewind presentation or deadlines");
     const auto retained = motion;
-    check(!ui_motion_transition_tick(&motion, {17, 2}, 0, 900, linear, false, true) &&
-              !ui_motion_transition_tick(&motion, {18, 3}, 0, 900, linear, false, true) &&
+    check(!ui_motion_transition_tick(&motion, {17, 2}, 0, 900, linear, false) &&
+              !ui_motion_transition_tick(&motion, {18, 3}, 0, 900, linear, false) &&
               motion.value == retained.value && motion.target == retained.target &&
               motion.started_ms == retained.started_ms && motion.sampled_ms == retained.sampled_ms &&
-              !ui_motion_transition_next_wake(motion, {17, 2}, false, true),
+              !ui_motion_transition_next_wake(motion, {17, 2}, false),
           "motion: stale generations and other owners cannot touch or schedule a successor");
     const UiMotionStyle ease_out{100, UiMotionCurve::ease_out};
-    check(ui_motion_transition_tick(&motion, scope, 0, 150, ease_out, false, true) && motion.value == .5f &&
+    check(ui_motion_transition_tick(&motion, scope, 0, 150, ease_out, false) && motion.value == .5f &&
               motion.from == .5f && motion.started_ms == 150,
           "motion: reversal samples the old curve before copying a new style");
-    check(ui_motion_transition_tick(&motion, scope, 0, 200, ease_out, false, true) &&
+    check(ui_motion_transition_tick(&motion, scope, 0, 200, ease_out, false) &&
               motion.value == .0625f,
           "motion: cubic ease-out reaches the exact midpoint without a transcendental curve");
-    ui_motion_transition_tick(&motion, scope, 0, 245, ease_out, false, true);
-    check(ui_motion_transition_next_wake(motion, scope, false, true) == 250 &&
-              ui_motion_transition_tick(&motion, scope, 0, 250, ease_out, false, true) &&
+    ui_motion_transition_tick(&motion, scope, 0, 245, ease_out, false);
+    check(ui_motion_transition_next_wake(motion, scope, false) == 250 &&
+              ui_motion_transition_tick(&motion, scope, 0, 250, ease_out, false) &&
               motion.value == 0 && !motion.active &&
-              !ui_motion_transition_next_wake(motion, scope, false, true),
+              !ui_motion_transition_next_wake(motion, scope, false),
           "motion: the final deadline lands on completion and settled state has no idle wake");
     UiMotionStyle themed{100, UiMotionCurve::ease_in_out};
-    ui_motion_transition_tick(&motion, scope, 1, 300, themed, false, true);
+    ui_motion_transition_tick(&motion, scope, 1, 300, themed, false);
     themed = {900, UiMotionCurve::linear};
     check(motion.style.duration_ms == 100 && motion.style.curve == UiMotionCurve::ease_in_out &&
-              ui_motion_transition_tick(&motion, scope, 1, 325, {100, UiMotionCurve::ease_in_out}, false,
-                                        true) &&
+              ui_motion_transition_tick(&motion, scope, 1, 325, {100, UiMotionCurve::ease_in_out}, false) &&
               motion.value == .15625f,
           "motion: copied theme style survives its source changing and smoothstep has exact samples");
     const float sampled = motion.value;
-    check(!ui_motion_transition_tick(&motion, scope, 1, 325, linear, false, true) &&
+    check(!ui_motion_transition_tick(&motion, scope, 1, 325, linear, false) &&
               motion.from == sampled && motion.value == sampled && motion.started_ms == 325 &&
               motion.style.curve == UiMotionCurve::linear,
           "motion: a live style change retimes continuously rather than jumping");
     ui_motion_transition_tick(&motion, scope, 0, 340,
-                              {kUiMotionMaximumDurationMs + 1, UiMotionCurve::linear}, false, true);
+                              {kUiMotionMaximumDurationMs + 1, UiMotionCurve::linear}, false);
     check(motion.style.duration_ms == kUiDefaultMotionStyle.duration_ms &&
               motion.style.curve == kUiDefaultMotionStyle.curve &&
               !ui_motion_style_valid({120, static_cast<UiMotionCurve>(255)}) &&
               ui_motion_style_valid({0, UiMotionCurve::ease_in_out}),
           "motion: invalid duration or curve is rejected while zero duration remains a valid style");
-    ui_motion_transition_tick(&motion, scope, 1, 350, {120, static_cast<UiMotionCurve>(255)}, false, true);
+    ui_motion_transition_tick(&motion, scope, 1, 350, {120, static_cast<UiMotionCurve>(255)}, false);
     check(motion.style.curve == kUiDefaultMotionStyle.curve &&
-              ui_motion_transition_tick(&motion, scope, 0, 360, linear, true, true) && motion.value == 0 &&
-              !motion.active && !ui_motion_transition_next_wake(motion, scope, true, true),
+              ui_motion_transition_tick(&motion, scope, 0, 360, linear, true) && motion.value == 0 &&
+              !motion.active && !ui_motion_transition_next_wake(motion, scope, true),
           "motion: enabling reduced motion retires an in-flight trajectory at its endpoint");
-    ui_motion_transition_tick(&motion, scope, 1, 400, linear, false, true);
-    check(!ui_motion_transition_next_wake(motion, scope, false, false) &&
-              ui_motion_transition_tick(&motion, scope, 1, 410, linear, false, false) &&
-              motion.value == 1 && !motion.active,
-          "motion: hidden surfaces request no frame and settle when the host updates visibility");
-    check(ui_motion_transition_tick(&motion, scope, 0, 420, {0, UiMotionCurve::linear}, false, true) &&
+    ui_motion_transition_tick(&motion, scope, 1, 410, linear, true);
+    check(ui_motion_transition_tick(&motion, scope, 0, 420, {0, UiMotionCurve::linear}, false) &&
               !motion.active && motion.value == 0,
           "motion: zero-duration theme snaps without a wake");
-    check(ui_motion_transition_tick(&motion, scope, 1, ~u64{0} - 50, linear, false, true) &&
+    check(ui_motion_transition_tick(&motion, scope, 1, ~u64{0} - 50, linear, false) &&
               motion.value == 1 && !motion.active &&
-              !ui_motion_transition_next_wake(motion, scope, false, true),
+              !ui_motion_transition_next_wake(motion, scope, false),
           "motion: an unrepresentable completion time snaps instead of wrapping a deadline");
     ui_motion_transition_reset(&motion, {17, 4}, .75f);
-    check(!ui_motion_transition_tick(&motion, scope, 0, 500, linear, false, true) && motion.value == .75f &&
+    check(!ui_motion_transition_tick(&motion, scope, 0, 500, linear, false) && motion.value == .75f &&
               motion.scope.generation == 4,
           "motion: explicit lifetime replacement prevents an old closing fade leaking into a new page");
     ui_motion_transition_cancel(&motion);
     check(!motion.scope.owner && !motion.active &&
-              !ui_motion_transition_tick(&motion, {17, 4}, 1, 600, linear, false, true) &&
-              !ui_motion_transition_next_wake(motion, {17, 4}, false, true),
+              !ui_motion_transition_tick(&motion, {17, 4}, 1, 600, linear, false) &&
+              !ui_motion_transition_next_wake(motion, {17, 4}, false),
           "motion: cancellation drops scope and deadlines without retaining host pointers");
     ui_motion_transition_reset(&motion, {0, 1}, 1);
     check(!motion.scope.owner && motion.value == 0,

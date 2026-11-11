@@ -95,7 +95,7 @@ void run() noexcept {
     host.synchronize(205);
     check(host.opacity[0] == 1 && !host.next_wake() &&
               !ui_motion_transition_tick(&host.owner.slots[0].motion, retired_scope, 0, 900,
-                                         kUiDefaultMotionStyle, false, true),
+                                         kUiDefaultMotionStyle, false),
           "surface motion: account successor settles immediately and rejects delayed old-scope ticks");
     const auto successor_scope = host.owner.slots[0].motion.scope;
     check(application_surface_motion_update(&host.owner, gallery, {100, 9, 0, 0}, 900, true) == 1 &&

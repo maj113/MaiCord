@@ -17,20 +17,8 @@ u8 ui_click_tracker_press(UiClickTracker* tracker, const void* owner, float x, f
     return tracker->count;
 }
 
-namespace {
-// A triple click: the line/paragraph, or all text in a single-line field.
-bool line_range(const Utf8View& text, u32 position, bool single_line, u32* first, u32* last) noexcept {
-    if (!single_line)
-        return utf8_line_range(text, position, first, last);
-    *first = 0;
-    *last = text.bytes;
-    return true;
-}
-} // namespace
-
-bool ui_text_pointer_press(const Utf8View& text, u32 position, u8 clicks, bool single_line, bool shift,
-                           u32 current_anchor, bool composing, UiTextPointerSelection* state,
-                           u32* anchor, u32* caret) noexcept {
+bool ui_text_pointer_press(const Utf8View& text, u32 position, u8 clicks, bool shift, u32 current_anchor,
+                           bool composing, UiTextPointerSelection* state, u32* anchor, u32* caret) noexcept {
     if (composing || position > text.bytes || current_anchor > text.bytes)
         return false;
     const auto unit = ui_text_selection_unit(clicks);
@@ -43,7 +31,7 @@ bool ui_text_pointer_press(const Utf8View& text, u32 position, u8 clicks, bool s
     }
     u32 first = 0, last = 0;
     if (!(unit == UiTextSelectionUnit::word ? utf8_word_range_near(text, position, &first, &last)
-                                            : line_range(text, position, single_line, &first, &last)))
+                                            : utf8_line_range(text, position, &first, &last)))
         return false;
     *state = {first, last, unit};
     *anchor = first;
@@ -51,8 +39,8 @@ bool ui_text_pointer_press(const Utf8View& text, u32 position, u8 clicks, bool s
     return true;
 }
 
-bool ui_text_pointer_drag(const Utf8View& text, const UiTextPointerSelection& state, u32 position,
-                          bool single_line, bool composing, u32* anchor, u32* caret) noexcept {
+bool ui_text_pointer_drag(const Utf8View& text, const UiTextPointerSelection& state, u32 position, bool composing,
+                          u32* anchor, u32* caret) noexcept {
     if (composing || position > text.bytes || state.origin_first > state.origin_last ||
         state.origin_last > text.bytes)
         return false;
@@ -69,7 +57,7 @@ bool ui_text_pointer_drag(const Utf8View& text, const UiTextPointerSelection& st
     u32 first = 0, last = 0;
     const bool ranged = state.unit == UiTextSelectionUnit::word
                             ? utf8_word_range(text, position, &first, &last)
-                            : line_range(text, position, single_line, &first, &last);
+                            : utf8_line_range(text, position, &first, &last);
     if (!ranged)
         return false;
     if (position < state.origin_first) {

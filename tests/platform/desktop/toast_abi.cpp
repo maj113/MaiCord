@@ -113,8 +113,7 @@ void test_toast_abi(void (*check)(bool, const char*) noexcept) noexcept {
           "toast ABI: IToastNotification slots");
     auto* identity = as<sdk_toast::IToastNotification2>(object);
     check(at(identity->put_Tag(nullptr), local::kToastPutTag) &&
-              at(identity->put_Group(nullptr), local::kToastPutGroup) &&
-              at(identity->put_SuppressPopup(0), local::kToastPutSuppressPopup),
+              at(identity->put_Group(nullptr), local::kToastPutGroup),
           "toast ABI: IToastNotification2 slots");
     auto* view = as<__FIVectorView_1_Windows__CUI__CNotifications__CToastNotification>(object);
     check(at(view->GetAt(0, nullptr), local::kViewGetAt) && at(view->get_Size(nullptr), local::kViewSize),

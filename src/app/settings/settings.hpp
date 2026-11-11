@@ -38,9 +38,6 @@ bool application_window_inactive() noexcept;
 HANDLE application_preferences_notification() noexcept;
 void application_preferences_poll() noexcept;
 void application_preferences_shutdown() noexcept;
-HANDLE application_media_auth_notification() noexcept;
-void application_media_auth_poll() noexcept;
-void application_media_auth_shutdown() noexcept;
 bool application_settings_active() noexcept;
 // Appearance, or search results that can show its controls, is selected.
 bool application_settings_appearance_selected() noexcept;

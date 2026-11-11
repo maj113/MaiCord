@@ -107,7 +107,6 @@ inline constexpr int kErrorInvalid = 22;
 inline constexpr int kErrorTimedOut = 110;
 
 // <asm-generic/errno-base.h>, <asm-generic/errno.h>: more of them, named by what the file and network layers test.
-inline constexpr int kErrorNoSpace = 28;
 inline constexpr int kErrorPipe = 32;
 inline constexpr int kErrorMessageSize = 90;
 inline constexpr int kErrorAddressFamily = 97;

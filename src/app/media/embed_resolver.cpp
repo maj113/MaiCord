@@ -15,7 +15,7 @@ constexpr u32 kResponseLimit = 2u * 1024u * 1024u;
 constexpr auto kAgent = kYoutubeNativeUserAgent;
 // The first entry alone is the plain browser agent. The client ID is a public
 // application identifier observed in the Twitch embed client; not a user
-// credential, OAuth token or application secret.
+// credential or application secret.
 constexpr HttpsHeader kBrowserHeaders[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
     {utf8_literal("Content-Type"), utf8_literal("application/json")},
     {utf8_literal("Client-ID"), utf8_literal("b31o4btkqth5bzbvr9ub2ovr79umhh")}};

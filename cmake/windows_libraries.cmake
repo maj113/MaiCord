@@ -201,9 +201,6 @@ maicord_library(maicord_app_core
     src/app/update/changelog.cpp
     src/app/media/embed_resolver.cpp
     src/app/media/segmented_video_fetch.cpp
-    src/app/account/login/oauth_authorization.cpp
-    src/app/account/login/oauth_sign_in.cpp
-    src/app/account/login/oauth_account.cpp
     src/app/account/client_session_metadata.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)

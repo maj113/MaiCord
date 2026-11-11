@@ -23,7 +23,6 @@
 #include "../account/activity.hpp"
 #include "../account/account_text_retry.hpp"
 #include "../shell/window_state.hpp"
-#include "maicord/app/account/login/oauth_account.hpp"
 #include "maicord/core/log_event.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
@@ -390,72 +389,6 @@ bool application_settings_appearance_selected() noexcept {
 }
 HANDLE application_preferences_notification() noexcept {
     return client_preferences_writer_completion_event(g_app.preferences_writer);
-}
-HANDLE application_media_auth_notification() noexcept { return oauth_sign_in_notification(&g_spotify_account.sign_in); }
-void application_media_auth_poll() noexcept {
-    auto& account = g_spotify_account;
-    if (!account.sign_in.runtime) return;
-    if (account.stopping) {
-        media_close(account);
-        if (!account.stopping && g_app.settings) {
-            project(*g_app.settings);
-            if (g_app.settings->scene.active) refresh();
-        }
-        return;
-    }
-    const auto status = oauth_sign_in_status(&account.sign_in);
-    const auto previous = account.message;
-    using Phase = OAuthSignInPhase;
-    if (status.phase == Phase::waiting && !account.launched) {
-        SecureBuffer url{}, wide{};
-        bool opened = false;
-        if (oauth_sign_in_url(&account.sign_in, account.generation, &url) &&
-            secure_buffer_initialize(&wide, (url.bytes + 1) * sizeof(wchar_t)).ok()) {
-            auto* text = reinterpret_cast<wchar_t*>(wide.data);
-            for (u32 i = 0; i < url.bytes; ++i) text[i] = static_cast<wchar_t>(url.data[i]);
-            text[url.bytes] = 0;
-            opened = desktop_open_target(g_app.window, text);
-        }
-        secure_buffer_release(&wide); secure_buffer_release(&url);
-        account.launched = true;
-        account.message = opened ? utf8_literal("Finish signing in in your browser.")
-                                   : utf8_literal("Could not open your browser. Try signing in again.");
-        if (!opened) media_close(account);
-    } else if (status.phase == Phase::exchanging) {
-        account.message = utf8_literal("Completing sign-in...");
-    } else if (status.phase == Phase::ready) {
-        SecureBuffer credentials{};
-        const bool taken = oauth_sign_in_take(&account.sign_in, account.generation, &credentials);
-        if (taken) {
-            const auto& tokens = *reinterpret_cast<const OAuthTokens*>(credentials.data);
-            account.saved = oauth_account_save(account.client_id(), {tokens.refresh, tokens.refresh_bytes}, provider);
-            account.message = account.saved ? saved_account_message()
-                : utf8_literal("Could not save sign-in on this device. Try again.");
-        } else account.message = utf8_literal("Could not complete sign-in. Try again.");
-        secure_buffer_release(&credentials);
-        media_close(account);
-    } else if (status.phase == Phase::failed || status.phase == Phase::expired || status.phase == Phase::cancelled) {
-        account.message = status.phase == Phase::expired ? utf8_literal("Sign-in expired. Try again.")
-            : status.phase == Phase::cancelled || status.error == OAuthError::denied ? utf8_literal("Sign-in cancelled.")
-            : status.error == OAuthError::invalid_client ? utf8_literal("The provider rejected this app's registration.")
-            : status.error == OAuthError::invalid_grant ? utf8_literal("Authorization expired or was already used. Sign in again.")
-            : status.error == OAuthError::invalid_request ? utf8_literal("The provider rejected the sign-in request.")
-            : status.error == OAuthError::scope ? utf8_literal("The required account permission was not granted. Sign in again.")
-            : status.error == OAuthError::malformed ? utf8_literal("The provider returned an unexpected sign-in response.")
-            : utf8_literal("Sign-in failed. Try again.");
-        media_close(account);
-    }
-    if (!utf8_equal(previous, account.message) && g_app.settings) {
-        project(*g_app.settings);
-        if (g_app.settings->scene.active) refresh();
-    }
-}
-void application_media_auth_shutdown() noexcept {
-    auto& account = g_spotify_account;
-    if (oauth_sign_in_stop(&account.sign_in, 1000)) {
-        account.checked = false; account.saved = false; reset_value(&account.message);
-        account.stopping = false;
-    }
 }
 void application_preferences_poll() noexcept {
     if (!g_app.preferences_writer)

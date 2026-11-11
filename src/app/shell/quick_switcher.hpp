@@ -24,6 +24,6 @@ MessageComposer* application_quick_switcher_edit_model() noexcept;
 TextInputTarget application_quick_switcher_edit_target() noexcept;
 UiRect application_quick_switcher_edit_bounds() noexcept;
 bool application_quick_switcher_edit_focused() noexcept;
-bool application_quick_switcher_edit_changed(bool content = true) noexcept;
+bool application_quick_switcher_edit_changed() noexcept;
 void application_quick_switcher_edit_cancel_native_group(const TextInputTarget&) noexcept;
 } // namespace maicord::app_detail

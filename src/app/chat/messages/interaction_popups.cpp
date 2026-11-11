@@ -159,7 +159,7 @@ bool begin_message_text_selection(const WindowEvent& event, bool double_click) n
     // Double click selects the word, triple click the paragraph (line).
     if (clicks > 1) {
         const MessageTextCommand* command = selected_message_text_command();
-        if (!command || !ui_text_pointer_press(command->text, hit.byte_offset, clicks, false, false, anchor, false,
+        if (!command || !ui_text_pointer_press(command->text, hit.byte_offset, clicks, false, anchor, false,
                                                &g_app.message_text_pointer_unit, &anchor, &caret)) {
             anchor = caret = hit.byte_offset;
             g_app.message_text_pointer_unit = {anchor, anchor, UiTextSelectionUnit::character};
@@ -206,8 +206,8 @@ bool handle_message_text_selection_drag(const WindowEvent& event) noexcept {
     u32 anchor = g_app.message_text_selection_anchor, caret = hit.byte_offset;
     if (g_app.message_text_pointer_unit.unit != UiTextSelectionUnit::character) {
         const MessageTextCommand* command = selected_message_text_command();
-        if (!command || !ui_text_pointer_drag(command->text, g_app.message_text_pointer_unit, hit.byte_offset,
-                                              false, false, &anchor, &caret))
+        if (!command || !ui_text_pointer_drag(command->text, g_app.message_text_pointer_unit, hit.byte_offset, false,
+                                              &anchor, &caret))
             return true;
     }
     if (anchor == g_app.message_text_selection_anchor && caret == g_app.message_text_selection_caret)

@@ -20,7 +20,7 @@ struct DesktopNotificationPayload {
     // URI of an already-written local file for this account. The caller keeps the
     // file until OS history no longer needs it. No download or media cache is created.
     Utf8View avatar_file_uri;
-    bool silent{}, suppress_popup{};
+    bool silent{};
 };
 struct DesktopNotificationXml { char bytes[kDesktopNotificationXmlBytes]; u32 count{}; };
 struct DesktopNotificationConfig {

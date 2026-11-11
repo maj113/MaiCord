@@ -177,7 +177,6 @@ HRESULT show_once(Server* s,const DesktopNotificationPayload& p,Toast& text,bool
     if(SUCCEEDED(h))h=call(s->factory,toast::kCreateToast,dom,&item);
     if(SUCCEEDED(h))h=query(item,toast::kIidToastNotification2,&identity);
     if(SUCCEEDED(h))h=call(identity,toast::kToastPutTag,tag.get());if(SUCCEEDED(h))h=call(identity,toast::kToastPutGroup,group.get());
-    if(SUCCEEDED(h))h=call(identity,toast::kToastPutSuppressPopup,static_cast<u8>(p.suppress_popup));
     if(SUCCEEDED(h)){*attempted=true;h=call(s->notifier,toast::kNotifierShow,item);}
     release(identity);release(item);release(dom);return h;
 }

@@ -138,7 +138,7 @@ bool handle_composer_click(const WindowEvent& event) noexcept {
         const bool composing = application_composer_text_input_composing();
         MessageComposerResult selection = MessageComposerResult::unchanged;
         u32 anchor = 0, caret = 0;
-        if (ui_text_pointer_press(message_composer_text(g_app.message_composer), position, clicks, false, shift,
+        if (ui_text_pointer_press(message_composer_text(g_app.message_composer), position, clicks, shift,
                                   g_app.message_composer.anchor, composing, &g_app.composer_pointer_unit, &anchor,
                                   &caret))
             selection = clicks == 1 ? message_composer_set_selection(&g_app.message_composer, anchor, caret)
@@ -206,7 +206,7 @@ bool handle_composer_double_click(const WindowEvent& event) noexcept {
     const u8 clicks = application_click_count(event, &g_app.message_composer_scene, x, y, true);
     const bool composing = application_composer_text_input_composing();
     u32 anchor = 0, caret = 0;
-    if (!ui_text_pointer_press(message_composer_text(g_app.message_composer), position, clicks, false, false,
+    if (!ui_text_pointer_press(message_composer_text(g_app.message_composer), position, clicks, false,
                                g_app.message_composer.anchor, composing, &g_app.composer_pointer_unit, &anchor,
                                &caret))
         return true;
@@ -243,7 +243,7 @@ bool handle_composer_drag(const WindowEvent& event) noexcept {
     }
     u32 anchor = 0, caret = 0;
     if (!ui_text_pointer_drag(message_composer_text(g_app.message_composer), g_app.composer_pointer_unit, position,
-                              false, application_composer_text_input_composing(), &anchor, &caret))
+                              application_composer_text_input_composing(), &anchor, &caret))
         return true;
     const MessageComposerResult selected =
         g_app.composer_pointer_unit.unit == UiTextSelectionUnit::character

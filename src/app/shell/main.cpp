@@ -381,7 +381,6 @@ __attribute__((minsize)) void stop_application(int exit_code) noexcept {
     drain_deferred_text_services();
     application_media_picker_close();
     application_preferences_shutdown();
-    application_media_auth_shutdown();
     // After Restart to update, a normal exit swaps in the update this process verified.
     application_updates_release(exit_code == 0);
     application_catalog_release();
@@ -473,7 +472,6 @@ int application_run() noexcept {
             push_handle(application_guild_settings_notification());
         }
         push_handle(application_preferences_notification());
-        push_handle(application_media_auth_notification());
         push_handle(application_custom_theme_notification());
         push_handle(application_downloads_notification());
         push_handle(application_account_logout_notification());
@@ -567,7 +565,6 @@ int application_run() noexcept {
         }
         u64 restart_now_ms = clock_monotonic_milliseconds();
         application_preferences_poll();
-        application_media_auth_poll();
         application_custom_theme_poll();
         application_plugins_poll();
         poll_catalog();

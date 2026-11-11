@@ -131,10 +131,9 @@ void ui_motion_transition_cancel(UiMotionTransition*) noexcept;
 // continuity. Hidden/reduced-motion surfaces settle to the requested endpoint.
 // Returns paint-value change, not whether a deadline was started or retired.
 bool ui_motion_transition_tick(UiMotionTransition*, const UiMotionScope&, float target, u64 now_ms,
-                               const UiMotionStyle&, bool reduced_motion, bool visible) noexcept;
+                               const UiMotionStyle&, bool reduced_motion) noexcept;
 // Absolute deadline anchored to the last tick, never postponed by observation.
-u64 ui_motion_transition_next_wake(const UiMotionTransition&, UiMotionScope, bool reduced_motion,
-                                   bool visible) noexcept;
+u64 ui_motion_transition_next_wake(const UiMotionTransition&, UiMotionScope, bool reduced_motion) noexcept;
 
 static_assert(sizeof(UiMotionStyle) == 8);
 static_assert(sizeof(UiMotionScope) == 16);

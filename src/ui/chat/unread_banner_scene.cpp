@@ -187,11 +187,11 @@ bool ui_unread_banner_update(UiUnreadBannerScene* scene, const UiUnreadBannerVie
     }
     const bool notice = usable && scene->notice_id != 0;
     bool changed_notice = ui_motion_transition_tick(&scene->notice_motion, scope, notice ? 1.f : 0.f, now_ms, kMotion,
-                                                    !animate, true);
+                                                    !animate);
     bool changed = ui_motion_transition_tick(&scene->banner_motion, scope, next.banner ? 1.f : 0.f, now_ms, kMotion,
-                                             !animate, true) || changed_notice;
+                                             !animate) || changed_notice;
     changed = ui_motion_transition_tick(&scene->pill_motion, scope, next.jump ? 1.f : 0.f, now_ms, kMotion,
-                                        !animate, true) || changed;
+                                        !animate) || changed;
     // Keep the outgoing label while the banner slides away.
     const bool keep_label = !next.banner && scene->banner_motion.value > 0;
     if (!keep_label) {
@@ -265,9 +265,9 @@ bool ui_unread_banner_update(UiUnreadBannerScene* scene, const UiUnreadBannerVie
 }
 
 u64 ui_unread_banner_next_wake(const UiUnreadBannerScene& scene, bool animate) noexcept {
-    const u64 a = ui_motion_transition_next_wake(scene.banner_motion, scene.banner_motion.scope, !animate, true);
-    const u64 b = ui_motion_transition_next_wake(scene.pill_motion, scene.pill_motion.scope, !animate, true);
-    const u64 c = ui_motion_transition_next_wake(scene.notice_motion, scene.notice_motion.scope, !animate, true);
+    const u64 a = ui_motion_transition_next_wake(scene.banner_motion, scene.banner_motion.scope, !animate);
+    const u64 b = ui_motion_transition_next_wake(scene.pill_motion, scene.pill_motion.scope, !animate);
+    const u64 c = ui_motion_transition_next_wake(scene.notice_motion, scene.notice_motion.scope, !animate);
     const u64 ab = !a ? b : !b ? a : minimum(a, b);
     return !ab ? c : !c ? ab : minimum(ab, c);
 }

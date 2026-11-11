@@ -189,11 +189,6 @@ system stay tables, and so do the `dlopen`/`GetProcAddress` tables, COM vtables 
 | `MAICORD_PLUGIN_DEV`, `MAICORD_EFFECT_DEV` | Developer Mode folders (both systems). |
 | `MAICORD_FPS_TITLE=1` | Frame rate in the window title (both systems). |
 
-**Spotify listening activity.** Signing in to Spotify (Settings > Voice & Video > Media accounts) needs a Spotify client registration of
-your own: a public 32-character client ID whose redirect URI is `http://127.0.0.1/oauth2callback`; no client secret is involved.
-`tools\configure_spotify_oauth.ps1 -ClientId <id>` writes the ID to `%LOCALAPPDATA%\MaiCord\spotify-client.txt`, the file the client
-reads (on Linux, write the ID to `$XDG_DATA_HOME/maicord/spotify-client.txt`, by default `~/.local/share/maicord/spotify-client.txt`).
-
 **Size.** The Linux client is held to the Windows client's size (6,500,000 bytes stripped) without slowing hot paths. It follows
 `cmake/size_policy.cmake` (the one list of size-compiled sources, Windows and Linux paths side by side: a new `src/app` unit is
 size-compiled by default on Linux, and any other new `src` unit compiles `-Os` instead of `-O2` unless that file's list of hot code

@@ -104,8 +104,8 @@ inline constexpr u32 kXmlDocumentElement = 8;
 inline constexpr u32 kXmlGetAttribute = 7;
 // IToastNotification::get_Content(IXmlDocument**)
 inline constexpr u32 kToastContent = 6;
-// IToastNotification2::put_Tag(HSTRING), put_Group(HSTRING), put_SuppressPopup(boolean)
-inline constexpr u32 kToastPutTag = 6, kToastPutGroup = 8, kToastPutSuppressPopup = 10;
+// IToastNotification2::put_Tag(HSTRING), put_Group(HSTRING)
+inline constexpr u32 kToastPutTag = 6, kToastPutGroup = 8;
 // IVectorView<ToastNotification*>::GetAt(unsigned, IToastNotification**), get_Size(unsigned*)
 inline constexpr u32 kViewGetAt = 6, kViewSize = 7;
 // IToastNotifier::Show(IToastNotification*), get_Setting(NotificationSetting*)

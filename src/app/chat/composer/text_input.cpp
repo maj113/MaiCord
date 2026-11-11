@@ -225,7 +225,7 @@ void changed(void* context) noexcept {
     project(input);
     input->busy = true;
     const bool refreshed = forward_edit()    ? application_message_forward_edit_changed(content)
-                           : quick_edit()    ? application_quick_switcher_edit_changed(content)
+                           : quick_edit()    ? application_quick_switcher_edit_changed()
                            : overview_edit() ? application_channel_overview_edit_changed(content)
                            : profile_edit()  ? application_profile_refresh_message()
                            : friends_edit()  ? application_friends_search_changed(content)

@@ -6,7 +6,6 @@
 #include "layer.hpp"
 #include "catalog.hpp"
 #include "../voice/settings.hpp"
-#include "maicord/app/account/login/oauth_sign_in.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/render/text/edit_layout.hpp"
 
@@ -83,24 +82,6 @@ struct ApplicationSettings {
 };
 
 namespace settings_detail {
-
-struct MediaAccount {
-    OAuthSignIn sign_in{};
-    u64 generation{};
-    char client[kOAuthClientBytes]{};
-    u32 client_bytes{};
-    bool launched{}, stopping{}, checked{}, saved{};
-    Utf8View message{};
-    Utf8View client_id() const noexcept { return {client, client_bytes}; }
-};
-
-extern MediaAccount g_spotify_account;
-
-constexpr auto provider = OAuthProvider::spotify;
-
-Utf8View saved_account_message() noexcept;
-void media_close(MediaAccount& account) noexcept;
-bool media_account_action() noexcept;
 
 // Settings opened before sign-in: it borrows an account UI runtime for its
 // text and measurement (released again unless an account started meanwhile)

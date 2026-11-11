@@ -15,7 +15,6 @@
 #include "account_settings.hpp"
 #include "keybinds_settings.hpp"
 #include "../notifications/desktop.hpp"
-#include "maicord/app/account/login/oauth_account.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/media/avatar_media.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -40,57 +39,6 @@ inline constexpr u32 kSettingsSearchHits = 16;
 static_assert(sizeof(ApplicationSettings) <= 4 * 4096);
 
 namespace settings_detail {
-
-MediaAccount g_spotify_account{};
-
-Utf8View saved_account_message() noexcept {
-    return utf8_literal("Sign-in saved on this device. Spotify playback is limited to previews.");
-}
-
-static void media_saved_state() noexcept {
-    auto& account = g_spotify_account;
-    if (account.checked) return;
-    account.client_bytes = oauth_account_client(provider, {account.client, sizeof(account.client)});
-    SecureBuffer refresh{};
-    account.saved = oauth_account_load(account.client_id(), &refresh, provider);
-    secure_buffer_release(&refresh);
-    account.checked = true;
-    if (account.saved) account.message = saved_account_message();
-}
-
-void media_close(MediaAccount& account) noexcept {
-    account.stopping = !oauth_sign_in_stop(&account.sign_in, 0);
-}
-bool media_account_action() noexcept {
-    media_saved_state();
-    auto& account = g_spotify_account;
-    if (account.saved) {
-        if (!oauth_account_forget(provider)) {
-            account.message = utf8_literal("Could not remove the saved sign-in. Try again.");
-            return false;
-        }
-        account.saved = false;
-        account.message = utf8_literal("Signed out on this device.");
-        return true;
-    }
-    if (account.sign_in.runtime) {
-        media_close(account);
-        account.message = utf8_literal("Sign-in cancelled.");
-        return true;
-    }
-    account.client_bytes = oauth_account_client(provider, {account.client, sizeof(account.client)});
-    if (!account.client_bytes) {
-        account.message = utf8_literal("Configure MaiCord's Spotify client registration before signing in.");
-        return false;
-    }
-    if (!g_app.window) return false;
-    account.launched = false;
-    account.stopping = false;
-    const bool started = oauth_sign_in_start(&account.sign_in, account.client_id(), ++account.generation, 300000, {},
-        provider);
-    account.message = started ? utf8_literal("Opening sign-in in your browser...") : utf8_literal("Could not start sign-in. Try again.");
-    return started;
-}
 
 SignedOutSession g_signed_out;
 
@@ -244,13 +192,6 @@ static bool project_node(const ApplicationSettings& settings, u32 panel, u32 ind
     *presentation = {static_cast<UiSettingsVariant>(node.variant),
                      static_cast<u8>(node.flags & ui_settings_schema_marks ? ui_settings_presentation_marks : 0),
                      node.default_choice_slot}; // 0xffff is kUiSettingsNoDefault
-    if (binding == SettingBinding::spotify_account) {
-        media_saved_state();
-        const auto& account = g_spotify_account;
-        if (account.message.bytes) control->description = account.message;
-        control->action_label = account.saved ? utf8_literal("Sign out")
-                                : account.sign_in.runtime ? utf8_literal("Cancel") : utf8_literal("Sign in");
-    }
     if (binding == SettingBinding::accessibility_preview) {
         // Discord's example messages, avatars and button.
         static constexpr Utf8View texts[]{utf8_literal("what happened to all the beans"),

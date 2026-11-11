@@ -514,7 +514,7 @@ float application_motion_tick(UiMotionTransition* transition, const UiMotionScop
                               const UiMotionStyle& style) noexcept {
     if (!transition->scope.owner)
         ui_motion_transition_reset(transition, scope, target);
-    ui_motion_transition_tick(transition, scope, target, now_ms, style, application_reduced_motion(), true);
+    ui_motion_transition_tick(transition, scope, target, now_ms, style, application_reduced_motion());
     return transition->value;
 }
 INACTIVE_MODAL_CORE(application_guild_settings)

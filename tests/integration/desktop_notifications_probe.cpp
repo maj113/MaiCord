@@ -16,7 +16,7 @@ template<usize N> constexpr ConstSlice<wchar_t> wide(const wchar_t(&v)[N]) noexc
 // It validates the OS XML parser, real COM callback factory, capacity and inert
 // retained callback teardown. The caller owns all execution and receipts.
 bool probe_desktop_notifications() noexcept {
-    DesktopNotificationPayload payload{{1,2,3},utf8_literal("MaiCord native notification probe"),utf8_literal("Unicode \xF0\x9F\x87\xB9\xF0\x9F\x87\xAF & <safe>"),{},true,false};
+    DesktopNotificationPayload payload{{1,2,3},utf8_literal("MaiCord native notification probe"),utf8_literal("Unicode \xF0\x9F\x87\xB9\xF0\x9F\x87\xAF & <safe>"),{},true};
     DesktopNotificationXml text{};if(!desktop_notification_xml(payload,&text).ok())return false;
     // The OS parser accepts the XML through the client's string references and activation calls.
     const HRESULT apartment=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED|COINIT_DISABLE_OLE1DDE);if(FAILED(apartment))return false;

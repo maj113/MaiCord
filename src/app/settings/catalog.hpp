@@ -173,7 +173,6 @@ enum class SettingBinding : u16 {
     image_zoom_square,
     image_zoom_factor,
     image_zoom_size,
-    spotify_account,
     // Appearance's link row to the Effects page.
     browse_effects,
     // Themes' header action, reached from settings search: pick a theme file, install it and apply it.

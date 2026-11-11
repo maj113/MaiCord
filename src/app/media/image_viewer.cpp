@@ -607,7 +607,7 @@ bool application_image_viewer_synchronize() noexcept {
     }
     const u64 now = clock_monotonic_milliseconds();
     ui_motion_transition_tick(&viewer.reveal, reveal_scope(), viewer.closing ? 0.0f : 1.0f, now,
-                              viewer.closing ? kRevealClose : kRevealOpen, application_reduced_motion(), true);
+                              viewer.closing ? kRevealClose : kRevealOpen, application_reduced_motion());
     ui_image_viewer_set_reveal(&scene, viewer.reveal.value, viewer.origin);
     if (viewer.closing && !viewer.reveal.active && viewer.reveal.value <= 0) {
         application_image_viewer_close();

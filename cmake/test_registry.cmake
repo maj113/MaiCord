@@ -69,8 +69,6 @@ maicord_test_bundle(MaiCordGpuUnitTests ONLY WINDOWS
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
 maicord_test_bundle(MaiCordTextUnitTests
     LIBS maicord_core maicord_unicode kernel32 maicord_font advapi32 WINDOWS maicord_ui maicord_paint_program)
-maicord_test_bundle(MaiCordOAuthTests ONLY WINDOWS
-    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ${maicord_tls_libs})
 
 maicord_test(MaiCordRemoteAuthCancellationTests ONLY WINDOWS ENTRY maicord_remote_auth_cancellation_entry
     SOURCES tests/app/account/login/remote_auth_ticket_exchange_cancellation.cpp src/app/account/login/remote_auth_ticket_exchange.cpp
@@ -3303,25 +3301,6 @@ maicord_test(MaiCordMp4FragmentTests ONLY WINDOWS ENTRY maicord_mp4_fragment_ent
     LIBS maicord_account_media maicord_platform ole32 user32 d3d11 dxgi
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_mp4_fragment)
-
-maicord_test(MaiCordOAuthProtocolTests ENTRY maicord_oauth_protocol_entry SOURCES tests/protocol/auth/oauth_protocol.cpp
-    BUNDLE MaiCordProtocolTests TIMEOUT 5 TEST maicord_oauth_protocol)
-
-maicord_test(MaiCordSpotifyOAuthTests ONLY WINDOWS ENTRY maicord_spotify_oauth_entry
-    SOURCES tests/app/account/login/spotify_oauth.cpp
-    BUNDLE MaiCordOAuthTests TIMEOUT 5 TEST maicord_spotify_oauth)
-
-maicord_test(MaiCordOAuthAuthorizationTests ONLY WINDOWS ENTRY maicord_oauth_authorization_entry
-    SOURCES tests/app/account/login/oauth_authorization.cpp
-    BUNDLE MaiCordOAuthTests TIMEOUT 5 TEST maicord_oauth_authorization)
-
-maicord_test(MaiCordOAuthSignInTests ONLY WINDOWS ENTRY maicord_oauth_sign_in_entry
-    SOURCES tests/app/account/login/oauth_sign_in.cpp
-    BUNDLE MaiCordOAuthTests TIMEOUT 8 TEST maicord_oauth_sign_in)
-
-maicord_test(MaiCordOAuthAccountTests ONLY WINDOWS ENTRY maicord_oauth_account_entry
-    SOURCES tests/app/account/login/oauth_account.cpp
-    BUNDLE MaiCordOAuthTests TIMEOUT 5 TEST maicord_oauth_account)
 
 maicord_test(MaiCordDashManifestTests ENTRY maicord_dash_manifest_entry SOURCES tests/protocol/media/dash_manifest.cpp
     BUNDLE MaiCordProtocolTests TIMEOUT 5 TEST maicord_dash_manifest)

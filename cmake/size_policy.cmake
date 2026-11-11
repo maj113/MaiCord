@@ -150,14 +150,14 @@ maicord_compact_sources(
         src/text/opentype/layout_variations.cpp src/text/opentype/nominal_participation.cpp src/text/opentype/nominal_sources.cpp
         src/text/opentype/layout_directory.cpp
         # Signaling, setup and per-surface control around byte paths that stay
-        # /O2: OAuth, member-list channel binding, guild details, voice socket
+        # /O2: member-list channel binding, guild details, voice socket
         # and participants, progressive video requests, spell checking, P-256
         # and HKDF, socket setup, profile and guild image preparation, posters,
         # Lottie and COLR program building, the encoded-media cache and
         # upload-only PNG encoding (perf probe phases equal or lower). Gateway
         # dispatch (3-9% slower) and the video presenter, session and decoder
         # control (call phases ~3% slower) measured worse at /Os and stay /O2.
-        src/app/account/login/oauth_sign_in.cpp src/app/guild/member_list_channel_binding.cpp src/app/gateway/guild_details.cpp
+        src/app/guild/member_list_channel_binding.cpp src/app/gateway/guild_details.cpp
         src/app/voice/socket.cpp src/app/voice/participants.cpp src/app/media/progressive_video_fetch.cpp
         src/media/image/png_encode.cpp
         src/platform/desktop/spell_checker.cpp src/platform/crypto/p256.cpp src/platform/crypto/hkdf_sha256.cpp
@@ -169,12 +169,12 @@ maicord_compact_sources(
         src/platform/decode/gpu_decoder_surfaces.cpp src/platform/decode/h264_gpu_configuration.cpp
         src/app/media/guild_image.cpp src/app/media/profile_image.cpp src/app/account/account_profile_edit.cpp
         src/app/media/local_video_poster.cpp
-        # One-shot REST request builders, OAuth and session metadata, an MP4 duration
+        # One-shot REST request builders, session metadata, an MP4 duration
         # probe, permission storage setup and rare Gateway account events.
         src/app/guild/account_guild_community.cpp src/app/guild/account_guild_moderation.cpp src/app/account/account_user_social.cpp
         src/app/guild/account_guild_automation.cpp
         src/app/chat/messages/account_bulk_message_ack.cpp src/app/chat/messages/account_message_ack.cpp src/app/guild/account_permission_storage.cpp
-        src/app/account/login/oauth_authorization.cpp src/app/account/login/oauth_account.cpp src/app/account/client_session_metadata.cpp
+        src/app/account/client_session_metadata.cpp
         src/app/media/attachment_media_probe.cpp src/app/gateway/guild_folders.cpp src/app/gateway/user_settings.cpp
         src/app/gateway/scheduled_event_dispatch.cpp
         src/render/effects/lottie_program.cpp src/render/effects/colr_source.cpp src/media/core/encoded_cache.cpp)
@@ -342,7 +342,7 @@ maicord_fold_helpers(
 # REST and CDN transfer, TLS records and the Gateway transport.
 maicord_fold_helpers(
     INCLUDE "(^|/)src/app/account/(account_(host|module|module_login|profile|session_store))\\.cpp$"
-        "(^|/)src/app/account/login/(account_credential_forget|browser_sign_in_receiver|captcha_bridge|captcha_challenge|oauth_sign_in|remote_auth_client|remote_auth_handshake)\\.cpp$"
+        "(^|/)src/app/account/login/(account_credential_forget|browser_sign_in_receiver|captcha_bridge|captcha_challenge|remote_auth_client|remote_auth_handshake)\\.cpp$"
         "(^|/)src/app/gateway/client(_outputs|_storage)?\\.cpp$" "(^|/)src/app/chat/messages/send_tracker\\.cpp$"
         "(^|/)src/app/media/(account_media_requests|regional_flag_assets)\\.cpp$" "(^|/)src/app/packages/(link|mcfx)\\.cpp$"
         "(^|/)src/app/plugins/(api|binding|catalog_index|catalog_service|catalog_state|http|keep|pipeline_api|settings_page)\\.cpp$"

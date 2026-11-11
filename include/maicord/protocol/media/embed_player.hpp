@@ -26,7 +26,7 @@ struct EmbedStreams {
 EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View expected_video_id,
     u16 maximum_height, Slice<u32> scratch, EmbedStreams* output) noexcept;
 // Exact Google video CDN boundary and /videoplayback target, HTTPS only.
-// Does not authorize forwarding OAuth tokens or browser cookies to that CDN.
+// Does not authorize forwarding browser cookies to that CDN.
 bool youtube_stream_url(Utf8View url) noexcept;
 struct EmbedStreamLocation { Utf8View host, target; };
 bool embed_stream_location(CdnHost, const Utf8View& url, EmbedStreamLocation* = nullptr) noexcept;

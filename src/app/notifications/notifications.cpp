@@ -139,7 +139,6 @@ struct ApplicationNotifications {
     DesktopNotificationResult(*fixture_retention_remove)(void*,DesktopNotificationActivation) noexcept;
     void* fixture_retention_context;
     u32 fixture_retention_failure_bank;
-    bool fixture_suppress_popup;
     bool fixture_focus_known, fixture_focused;
 #endif
 };
@@ -813,7 +812,7 @@ void application_notifications_drain(Application* a) noexcept {
                 // The official client flashes as it shows the popup; focus stops it.
                 if(a->preferences.taskbar_flash) application_taskbar_attention_notify();
                 const DesktopNotificationPayload projected{{id.profile_id,id.channel_id,id.message_id},
-                    dispatch.title,dispatch.body,dispatch.avatar_file_uri,id.silent,id.suppress_popup};
+                    dispatch.title,dispatch.body,dispatch.avatar_file_uri,id.silent};
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
                 if(n.fixture_sink) {
                     n.fixture_sink(n.fixture_context,projected);
@@ -950,9 +949,6 @@ bool application_notifications_fixture_retention_remove(Application* a,
 }
 void application_notifications_fixture_retention_oom(Application* a,u32 bank) noexcept {
     if(auto* n=ensure(a)) n->fixture_retention_failure_bank=bank<=2?bank:1;
-}
-void application_notifications_fixture_suppress_popup(Application* a,bool value) noexcept {
-    if(auto* n=ensure(a)) n->fixture_suppress_popup=value;
 }
 u64 application_notifications_fixture_retained(Application* a,u64 channel,u32 ordinal) noexcept {
     u64 ticket{};
@@ -1357,11 +1353,6 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     if(!has_popup_sink || !outputs.popup) return;
     auto* display=ensure_display(n);
     if(!display) { log_write(LogLevel::warning,"notifications","display_storage_unavailable"); return; }
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    const bool suppress_popup=n.fixture_suppress_popup;
-#else
-    constexpr bool suppress_popup=false;
-#endif
     // The author's cached avatar bitmap, when resident; the queue copies the URI.
     char avatar_uri[512];
     Utf8View avatar{};
@@ -1373,7 +1364,7 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
         avatar=g_notification_avatar(message.author_id,hash,{avatar_uri,sizeof(avatar_uri)});
     }
     const auto admitted=desktop_notification_queue_enqueue(&display->queue,
-        {n.profile,n.generation,channel->id,message.id,event.sequence,author,text,avatar,true,suppress_popup,policy_channel->id,
+        {n.profile,n.generation,channel->id,message.id,event.sequence,author,text,avatar,true,policy_channel->id,
             outputs.sound==NotificationMessageSoundRoute::popup?n.audio_epoch:0,
             outputs.sound==NotificationMessageSoundRoute::popup?1u:0u});
     if(!admitted.ok()) log_u64(LogLevel::warning,"notifications","display_admission_error",static_cast<u64>(admitted.error));

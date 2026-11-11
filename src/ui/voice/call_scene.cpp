@@ -555,12 +555,12 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const Ui
             s->tiles[i].from = source(s->tiles[i].user_id, previous, s->tiles[i].target);
         ++s->morph_generation;
         ui_motion_transition_reset(&s->morph, morph_scope(*s), 0);
-        ui_motion_transition_tick(&s->morph, morph_scope(*s), 1, now_ms, kMorphStyle, reduced_motion, true);
+        ui_motion_transition_tick(&s->morph, morph_scope(*s), 1, now_ms, kMorphStyle, reduced_motion);
     } else if (morphing && !reduced_motion) {
         // A re-projection keeps an in-flight morph's sources.
         for (u32 i = 0; i < s->tile_count; ++i)
             s->tiles[i].from = source(s->tiles[i].user_id, previous_from, s->tiles[i].target);
-        ui_motion_transition_tick(&s->morph, morph_scope(*s), 1, now_ms, kMorphStyle, reduced_motion, true);
+        ui_motion_transition_tick(&s->morph, morph_scope(*s), 1, now_ms, kMorphStyle, reduced_motion);
     } else {
         ++s->morph_generation;
         ui_motion_transition_reset(&s->morph, morph_scope(*s), 1);
@@ -615,7 +615,7 @@ void ui_call_scene_release(UiCallScene* s) noexcept {
 }
 
 u64 ui_call_scene_next_wake(const UiCallScene& s, bool reduced_motion) noexcept {
-    return s.active ? ui_motion_transition_next_wake(s.morph, morph_scope(s), reduced_motion, true) : 0;
+    return s.active ? ui_motion_transition_next_wake(s.morph, morph_scope(s), reduced_motion) : 0;
 }
 
 bool ui_call_scene_contains(const UiCallScene& s, float x, float y) noexcept {

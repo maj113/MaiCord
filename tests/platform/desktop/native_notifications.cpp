@@ -115,7 +115,7 @@ void test_native_notifications(void (*check)(bool,const char*) noexcept) noexcep
         "toast activation rejects wrong field order, URLs, truncation and zero identities");
     wchar_t hex[17]{};check(desktop_notification_hex_id(~u64{0},{hex,17})&&bytes_equal(hex,L"ffffffffffffffff",16*sizeof(wchar_t))&&
         !desktop_notification_hex_id(1,{hex,16}),"toast tags and groups exactly16hex even maximum snowflake");
-    DesktopNotificationPayload p{target,utf8_literal("A<&\"' "),utf8_literal("body \xF0\x9F\x87\xB9\xF0\x9F\x87\xAF"),{},true,false};
+    DesktopNotificationPayload p{target,utf8_literal("A<&\"' "),utf8_literal("body \xF0\x9F\x87\xB9\xF0\x9F\x87\xAF"),{},true};
     DesktopNotificationXml xml{};
     check(desktop_notification_xml(p,&xml).ok()&&xml.count<4096&&xml.bytes[xml.count]==0&&
         contains(xml,utf8_literal("A&lt;&amp;&quot;&apos; "))&&contains(xml,p.body)&&

@@ -303,7 +303,7 @@ bool ui_settings_scene_tick(UiSettingsScene* scene, u64 now_ms, bool reduced_mot
     if (auto& segment = scene->segment; segment.control_id) {
         const float before = segment.transition.value;
         const bool moved = ui_motion_transition_tick(&segment.transition, kSegmentScope, 1.f, now_ms, kSegmentMotion,
-                                                     reduced_motion, true);
+                                                     reduced_motion);
         const bool settled = !segment.transition.active;
         if (settled)
             segment.control_id = 0;

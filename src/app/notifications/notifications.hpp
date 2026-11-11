@@ -65,7 +65,6 @@ bool application_notifications_fixture_retention_remove(Application*,
 // 0 normal; 1 fail row allocation; 2 fail index allocation after rows exist.
 // Existing capacity works in every mode; production contains no failure hook.
 void application_notifications_fixture_retention_oom(Application*,u32 bank) noexcept;
-void application_notifications_fixture_suppress_popup(Application*,bool) noexcept;
 u64 application_notifications_fixture_retained(Application*,u64 channel,u32 ordinal) noexcept;
 ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(Application*) noexcept;
 #endif

@@ -83,7 +83,7 @@ DesktopNotificationQueueResult desktop_notification_queue_enqueue(DesktopNotific
     if(q->count+u32(q->has_inflight)==q->rows.count)return {DesktopNotificationQueueError::full_rows};
     if(total>q->bytes.count-q->used)return {DesktopNotificationQueueError::full_bytes};
     DesktopNotificationQueueRow row{q->next_token,value.profile_id,value.generation,value.channel_id,value.message_id,
-        value.source_sequence,q->used,value.title.bytes,value.body.bytes,value.avatar_file_uri.bytes,value.silent,value.suppress_popup,
+        value.source_sequence,q->used,value.title.bytes,value.body.bytes,value.avatar_file_uri.bytes,value.silent,
         value.policy_channel_id,value.sound_epoch,value.sound_id};
     u32 at=q->used;copy_bytes(q->bytes.data+at,value.title.data,value.title.bytes);at+=value.title.bytes;
     copy_bytes(q->bytes.data+at,value.body.data,value.body.bytes);at+=value.body.bytes;

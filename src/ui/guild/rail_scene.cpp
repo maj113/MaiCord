@@ -588,7 +588,7 @@ bool guild_rail_scene_folder_toggled(GuildRailScene* scene, u64 folder_id, bool 
         ui_motion_transition_reset(&transition, scope, from);
     }
     // Ticking with an unchanged sample time starts the deadline at now_ms.
-    ui_motion_transition_tick(&transition, scope, expanded ? 1.0f : 0.0f, now_ms, kFolderMotion, !animate, true);
+    ui_motion_transition_tick(&transition, scope, expanded ? 1.0f : 0.0f, now_ms, kFolderMotion, !animate);
     store_transition(slot, transition);
     if (!slot->active)
         slot->folder_id = 0;
@@ -605,7 +605,7 @@ bool guild_rail_scene_tick(GuildRailScene* scene, u64 now_ms, bool animate) noex
             continue;
         const UiMotionScope scope{slot.folder_id, 1};
         auto transition = transition_of(slot);
-        changed = ui_motion_transition_tick(&transition, scope, slot.target, now_ms, kFolderMotion, !animate, true) ||
+        changed = ui_motion_transition_tick(&transition, scope, slot.target, now_ms, kFolderMotion, !animate) ||
                   changed;
         store_transition(&slot, transition);
         if (!slot.active) {
@@ -621,7 +621,7 @@ u64 guild_rail_scene_next_wake(const GuildRailScene& scene) noexcept {
     for (const auto& slot : scene.folder_motion) {
         if (!slot.folder_id)
             continue;
-        const u64 deadline = ui_motion_transition_next_wake(transition_of(slot), {slot.folder_id, 1}, false, true);
+        const u64 deadline = ui_motion_transition_next_wake(transition_of(slot), {slot.folder_id, 1}, false);
         if (deadline && (!wake || deadline < wake))
             wake = deadline;
     }
@@ -634,7 +634,7 @@ bool guild_rail_indicator_parameter_tick(GuildRailIndicatorMotion* motion, UiMot
     if (motion->scope.owner != scope.owner || motion->scope.generation != scope.generation)
         ui_motion_transition_reset(&transition, scope, target);
     const bool changed = ui_motion_transition_tick(&transition, scope, target, now_ms,
-        {200, UiMotionCurve::css_ease_out}, !animate, true);
+        {200, UiMotionCurve::css_ease_out}, !animate);
     *motion = {{transition.scope.owner, transition.scope.generation}, transition.started_ms,
                transition.sampled_ms, transition.value, transition.from, transition.target, transition.active};
     return changed;
@@ -654,7 +654,7 @@ u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill) noexcept {
     const GuildRailIndicatorMotion* motions[]{&pill.height, &pill.visibility};
     for (const auto* motion : motions) {
         const auto transition = guild_rail_indicator_transition(*motion);
-        const u64 deadline = ui_motion_transition_next_wake(transition, transition.scope, false, true);
+        const u64 deadline = ui_motion_transition_next_wake(transition, transition.scope, false);
         if (deadline && (!wake || deadline < wake))
             wake = deadline;
     }
