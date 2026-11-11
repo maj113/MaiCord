@@ -91,4 +91,18 @@ u64 application_channel_memory_next_wake() noexcept {
                                                                                           : g_memory.write_at_ms;
 }
 
+u64 application_channel_memory_profile() noexcept {
+    return g_memory.profile_id;
+}
+
+ConstSlice<ChannelMemoryTab> application_channel_memory_tabs() noexcept {
+    return g_memory.profile_id ? ConstSlice<ChannelMemoryTab>{g_memory.table.tabs, g_memory.table.tab_count}
+                               : ConstSlice<ChannelMemoryTab>{};
+}
+
+void application_channel_memory_set_tabs(ConstSlice<ChannelMemoryTab> tabs) noexcept {
+    if (g_memory.profile_id && channel_memory_set_tabs(&g_memory.table, tabs) && !g_memory.write_at_ms)
+        g_memory.write_at_ms = clock_monotonic_milliseconds() + kWriteDelayMs;
+}
+
 } // namespace maicord::app_detail

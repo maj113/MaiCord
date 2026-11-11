@@ -2,6 +2,7 @@
 
 #include "maicord/media/core/asset_key.hpp"
 #include "maicord/ui/widgets/icon.hpp"
+#include "maicord/ui/shell/tab_strip.hpp"
 #include "maicord/ui/core/paint.hpp"
 
 namespace maicord {
@@ -17,6 +18,8 @@ enum class UiCaptionPart : u8 {
     icon,
     update,
     settings,
+    // The channel tabs, "+" and "..." (tab_strip.hpp resolves which).
+    tab,
     minimize,
     maximize,
     close,
@@ -52,6 +55,9 @@ struct UiCaptionBarState {
     UiCaptionPart tooltip;
     // What remains of the tooltip's entrance (kUiMotionTooltip), 0 when settled: it draws at opacity 1 - this.
     float tooltip_entrance;
+    // The channel tabs, none while the feature is off or no account is signed in: the title moves to a fixed
+    // region beside the window buttons and the strip takes the room left of it. Outlives the bar's layouts.
+    const UiTabStripView* tabs;
 };
 
 struct UiCaptionBarLayout {
@@ -73,12 +79,18 @@ struct UiCaptionBarLayout {
     UiRect update_fill;
     UiRect settings_fill;
     float fill_radius;
+    // The tab strip's place and, for the hovered tab or button, its rectangle (the tooltip's anchor); empty
+    // without tabs.
+    UiTabStripLayout tabs;
+    UiRect tab_hover;
     // Span the title is centred in, between the icon and the trailing items.
     UiRect title;
     // The title's leading glyph (the renderer places it beside the shaped
     // text; UiIcon::count or an empty box draws none).
     UiRect title_icon;
     UiIcon title_glyph;
+    // The title starts at the span's left instead of centring (beside the tabs).
+    bool title_leading;
 };
 
 // What the bar's centre names, as the official client's app title bar: the
@@ -104,6 +116,10 @@ struct UiCaptionTitle {
 UiCaptionTitle ui_caption_title(const UiCaptionTitleInput&) noexcept;
 // Server icons are 16 DIP rounded squares, glyphs 18 DIPs, 8 from the text.
 inline constexpr float kUiCaptionTitleImage = 16.f, kUiCaptionTitleGlyph = 18.f, kUiCaptionTitleGap = 8.f;
+// With tabs the title is a region beside the window buttons, a fifth of the bar between these limits (a function of
+// the width alone, so a channel switch moves nothing); the strip keeps the gap clear of whatever follows it, which
+// stays the drag band.
+inline constexpr float kUiCaptionServerMinimum = 120.f, kUiCaptionServerMaximum = 184.f, kUiCaptionDragGap = 48.f;
 // The text's width limit: the title span and half the bar, less the icon.
 float ui_caption_title_text_limit(const UiCaptionBarLayout&, bool icon, float icon_extent) noexcept;
 // The icon and text centred as one group in the bar, kept inside the title

@@ -12,6 +12,11 @@
 #include "tooltip.hpp"
 #include "../update/updates.hpp"
 #include "../settings/catalog.hpp"
+#include "maicord/ui/accessibility/accessibility.hpp"
+#include "../chat/messages/interaction.hpp"
+#include "tabs.hpp"
+#include "window_runtime.hpp"
+#include "maicord/ui/shell/navigation_drag.hpp"
 
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/frame.hpp"
@@ -24,9 +29,20 @@
 namespace maicord::app_detail {
 namespace {
 
+// A press on a tab that may become its drag: its index, where the pointer and the tab's left edge were.
+struct TabDrag {
+    bool pressed, active;
+    u8 index, origin;
+    float press_x, grab;
+};
+
 struct CaptionState {
     UiCaptionPart hovered;
     UiCaptionPart pressed;
+    // Which tab, "+" or "..." the pointer is over and pressed (part tab).
+    UiTabHit hovered_tab;
+    UiTabHit pressed_tab;
+    TabDrag drag;
     bool enabled;
     bool hidden;
     bool active;
@@ -109,10 +125,11 @@ UiCaptionPart button_part(FrameHit hit) noexcept {
     }
 }
 
-void set_hover(UiCaptionPart hovered, UiCaptionPart pressed) noexcept {
-    if (g_caption.hovered == hovered && g_caption.pressed == pressed)
+void set_hover(UiCaptionPart hovered, UiCaptionPart pressed, UiTabHit tab = {}, UiTabHit down = {}) noexcept {
+    if (g_caption.hovered == hovered && g_caption.pressed == pressed && g_caption.hovered_tab == tab &&
+        g_caption.pressed_tab == down)
         return;
-    if (g_caption.hovered != hovered) {
+    if (g_caption.hovered != hovered || g_caption.hovered_tab != tab) {
         // A content tooltip gives way to the bar's.
         if (g_caption.hovered == UiCaptionPart::none && ui_caption_bar_part_tooltip(hovered))
             application_tooltip_clear();
@@ -132,6 +149,8 @@ void set_hover(UiCaptionPart hovered, UiCaptionPart pressed) noexcept {
     }
     g_caption.hovered = hovered;
     g_caption.pressed = pressed;
+    g_caption.hovered_tab = tab;
+    g_caption.pressed_tab = down;
     application_request_frame();
 }
 
@@ -156,67 +175,172 @@ void synchronize_icon(u32 dpi) noexcept {
 // The bar's own items: client area, but the bar consumes their input before content coordinates apply. The window
 // buttons are among them wherever the platform does not draw them as frame.
 bool bar_item(UiCaptionPart part) noexcept {
-    return part == UiCaptionPart::update || part == UiCaptionPart::settings || part == UiCaptionPart::minimize ||
-           part == UiCaptionPart::close ||
+    return part == UiCaptionPart::update || part == UiCaptionPart::settings || part == UiCaptionPart::tab ||
+           part == UiCaptionPart::minimize || part == UiCaptionPart::close ||
            (part == UiCaptionPart::maximize && !window_caps().native_caption_buttons);
 }
 
-// The bar part under a client point, none below the bar.
-UiCaptionPart client_part(const WindowEvent& event) noexcept {
+// What lies under a client point: the bar part, and for a tab, "+" or "..." its hit and the tab's left edge.
+struct BarHit {
+    UiCaptionPart part;
+    UiTabHit tab;
+    float tab_left;
+};
+BarHit client_hit(const WindowEvent& event) noexcept {
     const i32 x = static_cast<i32>(event.pointer.x), y = static_cast<i32>(event.pointer.y);
     if (y < 0 || y >= static_cast<i32>(g_app.renderer.caption_height))
-        return UiCaptionPart::none;
+        return {};
     const u32 dpi = window_dpi();
-    return ui_caption_bar_part(layout_for(g_window_state.client_width, dpi), to_dips(x, dpi), to_dips(y, dpi));
+    const UiCaptionBarLayout layout = layout_for(g_window_state.client_width, dpi);
+    const float dx = to_dips(x, dpi), dy = to_dips(y, dpi);
+    const UiCaptionPart part = ui_caption_bar_part(layout, dx, dy);
+    if (part != UiCaptionPart::tab)
+        return {part, {}, 0};
+    const UiTabHit tab = ui_tab_strip_hit(layout.tabs, dx, dy);
+    return {part, tab, tab.kind == UiTabHitKind::tab ? layout.tabs.left[tab.index] : 0};
 }
 
-// Pointer input over the bar's own items (update badge, Settings, the window buttons the platform leaves to the bar).
+// A tab strip item's rectangle in content DIPs (the strip sits above the content origin), for the popups.
+UiRect tab_anchor(UiTabHit hit) noexcept {
+    const UiCaptionBarLayout layout = layout_for(g_window_state.client_width, window_dpi());
+    const UiRect r = ui_tab_strip_hit_rect(layout.tabs, hit);
+    return {r.left, r.top - layout.height, r.right, r.bottom - layout.height};
+}
+
+// What a click (or an accessibility invoke) on a tab strip item does.
+bool activate_tab(UiTabHit hit) noexcept {
+    if (application_input_blocked())
+        return false;
+    switch (hit.kind) {
+    case UiTabHitKind::tab:
+        return application_tabs_activate(hit.index);
+    case UiTabHitKind::close:
+        return application_tabs_close(hit.index);
+    case UiTabHitKind::plus:
+        return application_tabs_pin_current();
+    case UiTabHitKind::overflow:
+        return dismiss_popup() && application_tab_list_open(tab_anchor(hit));
+    default:
+        return false;
+    }
+}
+
+// The pointer at `x` DIPs drags the pressed tab: past the drag threshold it follows the pointer and the others make
+// way as its centre crosses theirs.
+void drag_tab(float x) noexcept {
+    TabDrag& drag = g_caption.drag;
+    if (!drag.active && x - drag.press_x < kNavigationDragThreshold && drag.press_x - x < kNavigationDragThreshold)
+        return;
+    if (!drag.active) {
+        const u32 at = application_tabs_drag_begin(drag.index);
+        if (at >= kUiTabCapacity) {
+            drag = {};
+            return;
+        }
+        drag.active = true;
+        drag.index = drag.origin = static_cast<u8>(at);
+    }
+    // The strip keeps the dragged tab inside itself; the slot follows from its centre.
+    const UiTabStripLayout tabs = layout_for(g_window_state.client_width, window_dpi()).tabs;
+    const float left = x - drag.grab;
+    application_tabs_drag_to(left);
+    const u32 to = ui_tab_strip_drag_slot(tabs, drag.index, left + tabs.slot_width[drag.index] / 2);
+    if (to != drag.index && application_tabs_move(drag.index, to))
+        drag.index = static_cast<u8>(to);
+}
+
+// Esc or a lost capture: the dragged tab goes back where it was.
+void cancel_drag() noexcept {
+    if (g_caption.drag.active) {
+        application_tabs_move(g_caption.drag.index, g_caption.drag.origin);
+        application_tabs_drag_end();
+    }
+    g_caption.drag = {};
+}
+
+// Pointer input over the bar's own items (update badge, Settings, the tabs, the window buttons the platform leaves to
+// the bar).
 bool item_pointer(const WindowEvent& event) noexcept {
     switch (event.type) {
     case EventType::pointer_move: {
         // Another owner's captured drag keeps its moves, even over the bar.
         const bool foreign = window_pointer_captured(g_app.window) && !bar_item(g_caption.pressed);
-        const UiCaptionPart part = foreign ? UiCaptionPart::none : client_part(event);
-        if (bar_item(part))
-            set_hover(part, g_caption.pressed);
+        const BarHit hit = foreign ? BarHit{} : client_hit(event);
+        if (g_caption.drag.pressed)
+            drag_tab(to_dips(static_cast<i32>(event.pointer.x), window_dpi()));
+        if (bar_item(hit.part))
+            set_hover(hit.part, g_caption.pressed, hit.tab, g_caption.pressed_tab);
         else if (bar_item(g_caption.hovered))
-            set_hover(UiCaptionPart::none, g_caption.pressed);
+            set_hover(UiCaptionPart::none, g_caption.pressed, {}, g_caption.pressed_tab);
         // A press dragged off its item keeps the pointer until release.
-        return bar_item(part) || bar_item(g_caption.pressed);
+        return bar_item(hit.part) || bar_item(g_caption.pressed);
     }
     case EventType::pointer_down: {
+        const BarHit hit = client_hit(event);
+        if (!bar_item(hit.part))
+            return false;
+        const bool tab = hit.part == UiCaptionPart::tab;
+        if (tab && g_app.popup_scene.active)
+            dismiss_popup();
         if (event.button == static_cast<u8>(PointerButton::left)) {
-            const UiCaptionPart part = client_part(event);
-            if (!bar_item(part))
-                return false;
             window_capture_pointer(g_app.window);
-            set_hover(part, part);
+            set_hover(hit.part, hit.part, hit.tab, hit.tab);
+            // A press selects the tab at once, and may turn into its drag.
+            if (hit.tab.kind == UiTabHitKind::tab && activate_tab(hit.tab)) {
+                const float x = to_dips(static_cast<i32>(event.pointer.x), window_dpi());
+                g_caption.drag = {true, false, hit.tab.index, hit.tab.index, x, x - hit.tab_left};
+            }
             return true;
         }
-        // The bar's items take no other buttons; content never sees them.
-        return event.button <= static_cast<u8>(PointerButton::middle) && bar_item(client_part(event));
+        // The bar's items take no other buttons; content never sees them. A tab's right click opens its menu and a
+        // middle click closes it.
+        if (tab && !application_input_blocked() &&
+            (hit.tab.kind == UiTabHitKind::tab || hit.tab.kind == UiTabHitKind::close)) {
+            if (event.button == static_cast<u8>(PointerButton::right))
+                application_tab_menu_open(hit.tab.index, tab_anchor(hit.tab));
+            else if (event.button == static_cast<u8>(PointerButton::middle))
+                application_tabs_close(hit.tab.index);
+        }
+        return event.button <= static_cast<u8>(PointerButton::middle);
     }
     case EventType::pointer_up: {
         if (event.button != static_cast<u8>(PointerButton::left))
-            return event.button <= static_cast<u8>(PointerButton::middle) && bar_item(client_part(event));
+            return event.button <= static_cast<u8>(PointerButton::middle) && bar_item(client_hit(event).part);
         const UiCaptionPart pressed = g_caption.pressed;
         if (!bar_item(pressed))
             return false;
-        const UiCaptionPart part = client_part(event);
-        set_hover(bar_item(part) ? part : UiCaptionPart::none, UiCaptionPart::none);
+        const BarHit hit = client_hit(event);
+        const UiTabHit down = g_caption.pressed_tab;
+        const bool dragged = g_caption.drag.active;
+        if (dragged)
+            application_tabs_drag_end();
+        g_caption.drag = {};
+        set_hover(bar_item(hit.part) ? hit.part : UiCaptionPart::none, UiCaptionPart::none, hit.tab, {});
         window_release_capture(g_app.window);
-        if (part == pressed)
-            application_caption_command(part);
+        if (hit.part != pressed)
+            return true;
+        if (pressed != UiCaptionPart::tab)
+            application_caption_command(pressed);
+        else if (!dragged && hit.tab == down && down.kind != UiTabHitKind::tab)
+            activate_tab(down);
         return true;
     }
     case EventType::pointer_leave:
         if (bar_item(g_caption.hovered))
-            set_hover(UiCaptionPart::none, g_caption.pressed);
+            set_hover(UiCaptionPart::none, g_caption.pressed, {}, g_caption.pressed_tab);
         return false;
     case EventType::capture_lost:
+        cancel_drag();
         if (bar_item(g_caption.pressed))
-            set_hover(g_caption.hovered, UiCaptionPart::none);
+            set_hover(g_caption.hovered, UiCaptionPart::none, g_caption.hovered_tab, {});
         return false;
+    case EventType::key_down:
+        if (!g_caption.drag.active || !input_plain_key_down(event) || event.key.key != key::escape)
+            return false;
+        cancel_drag();
+        set_hover(g_caption.hovered, UiCaptionPart::none, g_caption.hovered_tab, {});
+        window_release_capture(g_app.window);
+        return true;
     case EventType::cursor_query:
         if (input_has_position(event) && event.pointer.y < static_cast<float>(g_app.renderer.caption_height)) {
             application_set_cursor(UiCursor::arrow);
@@ -301,7 +425,8 @@ UiCaptionBarState application_caption_state() noexcept {
             application_update_progress(updates),
             to_dips(static_cast<i32>(g_caption.side_frame), window_dpi()),
             shown,
-            entrance};
+            entrance,
+            application_tabs_view(g_caption.hovered_tab, g_caption.pressed_tab, clock_monotonic_milliseconds())};
 }
 
 UiCaptionBarLayout application_caption_layout() noexcept {
@@ -317,6 +442,10 @@ UiCaptionBarLayout application_caption_layout() noexcept {
     lift(&layout.update);
     lift(&layout.settings);
     lift(&layout.title);
+    lift(&layout.tabs.area);
+    lift(&layout.tabs.plus);
+    lift(&layout.tabs.overflow);
+    lift(&layout.tab_hover);
     return layout;
 }
 
@@ -349,6 +478,60 @@ bool application_caption_command(UiCaptionPart part) noexcept {
     }
 }
 
+bool application_caption_access(u64 item) noexcept {
+    const auto part = static_cast<UiCaptionPart>(item & 0xff);
+    return part == UiCaptionPart::tab
+               ? activate_tab({static_cast<UiTabHitKind>(item >> 8 & 0xff), static_cast<u8>(item >> 16 & 0xff)})
+               : application_caption_command(part);
+}
+
+void application_caption_describe_tabs(UiAccessTree* tree, u32 parent, u8 surface) noexcept {
+    const UiCaptionBarLayout layout = application_caption_layout();
+    const UiTabStripView* tabs = application_caption_state().tabs;
+    if (!tabs)
+        return;
+    UiAccessNodeDesc list{};
+    list.key = ui_access_key(surface, static_cast<u64>(UiCaptionPart::tab));
+    list.rectangle = layout.tabs.area;
+    list.name = utf8_literal("Open tabs");
+    list.role = UiAccessRole::tab_list;
+    list.surface = surface;
+    const u32 tab_list = ui_access_add(tree, parent, list);
+    if (tab_list == kUiAccessNone)
+        return;
+    const auto add = [&](u32 under, UiAccessRole role, UiTabHit hit, const UiRect& rectangle, Utf8View name,
+                         u16 flags, u16 actions) noexcept {
+        UiAccessNodeDesc node{};
+        node.item = application_caption_tab_item(hit);
+        node.key = ui_access_key(surface, node.item);
+        node.rectangle = rectangle;
+        node.name = name;
+        node.role = role;
+        node.state = flags;
+        node.actions = actions;
+        node.surface = surface;
+        return ui_rect_has_area(rectangle) ? ui_access_add(tree, under, node) : kUiAccessNone;
+    };
+    for (u32 i = 0; i < tabs->count; ++i) {
+        const UiTabItem& item = tabs->items[i];
+        if (item.flags & kUiTabClosing)
+            continue;
+        const u32 tab = add(tab_list, UiAccessRole::tab, {UiTabHitKind::tab, static_cast<u8>(i)},
+                            ui_tab_strip_tab(layout.tabs, i), item.label,
+                            static_cast<u16>(ui_access_selectable | (item.flags & kUiTabActive ? ui_access_selected : 0)),
+                            ui_access_action_select | ui_access_action_invoke);
+        if (tab != kUiAccessNone)
+            add(tab, UiAccessRole::button, {UiTabHitKind::close, static_cast<u8>(i)}, ui_tab_strip_close(layout.tabs, i),
+                utf8_literal("Close tab"), 0, ui_access_action_invoke);
+    }
+    static constexpr UiTabHitKind kButtons[]{UiTabHitKind::plus, UiTabHitKind::overflow};
+    for (const UiTabHitKind kind : kButtons) {
+        const UiTabHit hit{kind, 0};
+        add(parent, UiAccessRole::button, hit, ui_tab_strip_hit_rect(layout.tabs, hit), ui_tab_strip_hit_name(*tabs, hit),
+            0, ui_access_action_invoke);
+    }
+}
+
 void application_caption_set_hidden(bool hidden) noexcept {
     if (!g_caption.enabled || g_caption.hidden == hidden)
         return;
@@ -368,8 +551,12 @@ void application_caption_synchronize() noexcept {
     }
     if (g_caption.side_frame_stale)
         measure_side_frame();
-    if (height && renderer_set_caption(&g_app.renderer, application_caption_state(), caption_title()))
+    const UiCaptionBarState state = application_caption_state();
+    if (height && renderer_set_caption(&g_app.renderer, state, caption_title()))
         synchronize_icon(dpi);
+    // The tabs slide from where this frame draws them.
+    if (height && state.tabs)
+        application_tabs_note_layout(layout_for(static_cast<i32>(g_app.renderer.width), dpi).tabs);
 }
 
 bool application_caption_event(const WindowEvent& event) noexcept {
@@ -412,7 +599,7 @@ void application_caption_active(bool active) noexcept {
 }
 
 void application_caption_hover(FrameHit part) noexcept {
-    set_hover(button_part(part), g_caption.pressed);
+    set_hover(button_part(part), g_caption.pressed, {}, g_caption.pressed_tab);
 }
 
 void application_caption_leave() noexcept {

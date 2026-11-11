@@ -9,7 +9,7 @@
 namespace maicord {
 namespace {
 constexpr u8 kMagic[] = {'M', 'C', 'C', 'M'};
-constexpr u8 kVersion = 1;
+constexpr u8 kVersion = 1, kTabsVersion = 2;
 
 bool entry_valid(const ChannelMemoryEntry& entry) noexcept {
     return entry.channel_id != 0 && entry.parent_id != entry.channel_id;
@@ -56,6 +56,29 @@ bool channel_memory_observe(ChannelMemory* memory, const ChatStateStore& state) 
                                               channel_is_thread(channel->type) ? channel->parent_id : 0);
 }
 
+bool channel_memory_set_tabs(ChannelMemory* memory, ConstSlice<ChannelMemoryTab> tabs) noexcept {
+    if (!memory || tabs.count > kChannelMemoryTabCapacity)
+        return false;
+    bool same = tabs.count == memory->tab_count;
+    for (u32 i = 0; i < tabs.count; ++i) {
+        for (u32 j = 0; j < i; ++j)
+            if (tabs[j].channel_id == tabs[i].channel_id)
+                return false;
+        if (!tabs[i].channel_id || tabs[i].label_bytes > kChannelMemoryTabLabelBytes)
+            return false;
+        const ChannelMemoryTab& old = memory->tabs[i];
+        same = same && old.channel_id == tabs[i].channel_id && old.guild_id == tabs[i].guild_id &&
+               old.label_bytes == tabs[i].label_bytes && bytes_equal(old.label, tabs[i].label, old.label_bytes);
+    }
+    if (same)
+        return false;
+    clear_bytes(memory->tabs, sizeof(memory->tabs));
+    copy_bytes(memory->tabs, tabs.data, tabs.count * sizeof(ChannelMemoryTab));
+    memory->tab_count = static_cast<u8>(tabs.count);
+    ++memory->revision;
+    return true;
+}
+
 void channel_memory_seed_restore(const ChannelMemory& memory, ChatStateStore* state) noexcept {
     if (const ChannelMemoryEntry* latest = channel_memory_latest(memory)) {
         state->restore_channel_id = latest->channel_id;
@@ -67,16 +90,35 @@ void channel_memory_seed_restore(const ChannelMemory& memory, ChatStateStore* st
 }
 
 u32 channel_memory_encode(const ChannelMemory& memory, Slice<u8> output) noexcept {
-    const u32 body = 6 + memory.count * kChannelMemoryEntryBytes;
-    if (memory.count > kChannelMemoryCapacity || !output.data || output.count < body + 4)
+    const u32 entries = 6 + memory.count * kChannelMemoryEntryBytes;
+    u32 body = entries;
+    for (u32 i = 0; i < memory.tab_count && i < kChannelMemoryTabCapacity; ++i) {
+        if (memory.tabs[i].label_bytes > kChannelMemoryTabLabelBytes)
+            return 0;
+        body += (i ? 0 : 1) + 17 + memory.tabs[i].label_bytes;
+    }
+    if (memory.count > kChannelMemoryCapacity || memory.tab_count > kChannelMemoryTabCapacity || !output.data ||
+        output.count < body + 4)
         return 0;
-    const u8 header[] = {kMagic[0], kMagic[1], kMagic[2], kMagic[3], kVersion, memory.count};
+    const u8 header[] = {kMagic[0], kMagic[1], kMagic[2], kMagic[3], memory.tab_count ? kTabsVersion : kVersion,
+                         memory.count};
     copy_bytes(output.data, header, sizeof(header));
     for (u32 i = 0; i < memory.count; ++i) {
         u8* at = output.data + 6 + i * kChannelMemoryEntryBytes;
         byte_store_le64(at, memory.entries[i].guild_id);
         byte_store_le64(at + 8, memory.entries[i].channel_id);
         byte_store_le64(at + 16, memory.entries[i].parent_id);
+    }
+    u32 at = entries;
+    if (memory.tab_count)
+        output.data[at++] = memory.tab_count;
+    for (u32 i = 0; i < memory.tab_count; ++i) {
+        const ChannelMemoryTab& tab = memory.tabs[i];
+        byte_store_le64(output.data + at, tab.channel_id);
+        byte_store_le64(output.data + at + 8, tab.guild_id);
+        output.data[at + 16] = tab.label_bytes;
+        copy_bytes(output.data + at + 17, tab.label, tab.label_bytes);
+        at += 17 + tab.label_bytes;
     }
     const u32 hash = hash32_bytes(output.data, body);
     byte_store_le32(output.data + body, hash);
@@ -85,12 +127,12 @@ u32 channel_memory_encode(const ChannelMemory& memory, Slice<u8> output) noexcep
 
 bool channel_memory_decode(ConstSlice<u8> input, ChannelMemory* memory) noexcept {
     if (!memory || !input.data || input.count < 10 || input.count > kChannelMemoryFileBytes ||
-        !bytes_equal(input.data, kMagic, 4) || input[4] != kVersion || input[5] > kChannelMemoryCapacity ||
-        input.count != 10 + input[5] * kChannelMemoryEntryBytes)
+        !bytes_equal(input.data, kMagic, 4) || (input[4] != kVersion && input[4] != kTabsVersion) ||
+        input[5] > kChannelMemoryCapacity)
         return false;
+    const u32 entries = 6 + input[5] * kChannelMemoryEntryBytes;
     const u32 body = input.count - 4;
-    const u32 stored = byte_load_le32(input.data + body);
-    if (stored != hash32_bytes(input.data, body))
+    if (entries > body || byte_load_le32(input.data + body) != hash32_bytes(input.data, body))
         return false;
     ChannelMemory decoded{};
     for (u32 i = 0; i < input[5]; ++i) {
@@ -101,6 +143,29 @@ bool channel_memory_decode(ConstSlice<u8> input, ChannelMemory* memory) noexcept
         decoded.entries[i] = entry;
         decoded.count = static_cast<u8>(i + 1);
     }
+    // Version 2 appends the tab count (at least one) and the tabs; the record ends with the last of them.
+    u32 at = entries;
+    ChannelMemoryTab tabs[kChannelMemoryTabCapacity]{};
+    u32 count = 0;
+    if (input[4] == kTabsVersion) {
+        count = at < body ? input[at++] : 0;
+        if (!count || count > kChannelMemoryTabCapacity)
+            return false;
+        for (u32 i = 0; i < count; ++i) {
+            if (at + 17 > body)
+                return false;
+            ChannelMemoryTab& tab = tabs[i];
+            tab.channel_id = byte_load_le64(input.data + at);
+            tab.guild_id = byte_load_le64(input.data + at + 8);
+            tab.label_bytes = input[at + 16];
+            if (tab.label_bytes > kChannelMemoryTabLabelBytes || at + 17 + tab.label_bytes > body)
+                return false;
+            copy_bytes(tab.label, input.data + at + 17, tab.label_bytes);
+            at += 17 + tab.label_bytes;
+        }
+    }
+    if (at != body || (count && !channel_memory_set_tabs(&decoded, {tabs, count})))
+        return false;
     decoded.revision = memory->revision + 1;
     *memory = decoded;
     return true;

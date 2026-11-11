@@ -543,6 +543,112 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
         if (!draw(renderer, theme))
             return fail(104);
     }
+
+    // The channel tabs at three window widths with one, five and sixteen tabs: the active tab's fill, a label, the
+    // free band between the strip and the server region, the server name at the region's left, and the content rows
+    // untouched by the strip (its fills reach below the bar and are scissored). One build serves repeated draws and
+    // a hover change builds once. Captured for review.
+    {
+        static UiTabStripView tabs;
+        static const char* const kNames[16]{"general", "announcements", "dev-chat", "memes", "off-topic", "music",
+                                            "help", "design", "releases", "voice-lounge", "bots", "art",
+                                            "introductions", "a-very-long-channel-name-that-never-fits", "qa", "ci"};
+        static const wchar_t* const kFiles[3][3]{
+            {L"titlebar_tabs_624_1.bmp", L"titlebar_tabs_624_5.bmp", L"titlebar_tabs_624_16.bmp"},
+            {L"titlebar_tabs_1000_1.bmp", L"titlebar_tabs_1000_5.bmp", L"titlebar_tabs_1000_16.bmp"},
+            {L"titlebar_tabs_1920_1.bmp", L"titlebar_tabs_1920_5.bmp", L"titlebar_tabs_1920_16.bmp"}};
+        constexpr float kWidths[3]{624, 1000, 1920};
+        constexpr u32 kCounts[3]{1, 5, 16};
+        const u32 original_width = renderer.width;
+        for (u32 w = 0; w < 3; ++w) {
+            if (!renderer_resize(&renderer, px(kWidths[w]), renderer.height))
+                return fail(140);
+            for (u32 c = 0; c < 3; ++c) {
+                reset_value(&tabs);
+                tabs.count = static_cast<u8>(kCounts[c]);
+                tabs.plus_enabled = true;
+                const u32 active = kCounts[c] / 2;
+                for (u32 i = 0; i < kCounts[c]; ++i) {
+                    tabs.items[i].label = {kNames[i], c_string_length(kNames[i])};
+                    tabs.items[i].icon = UiIcon::channel;
+                    tabs.items[i].flags = i == active ? kUiTabActive : u8{0};
+                    tabs.items[i].select = i == active ? 1.0f : 0.0f;
+                }
+                UiCaptionBarState state{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
+                const UiCaptionBarLayout bar = [&] {
+                    state.tabs = &tabs;
+                    return ui_caption_bar_layout(theme, kWidths[w], state, height, scale);
+                }();
+                ProbeTargetReadback plain{}, image{};
+                state.tabs = nullptr;
+                if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+                    probe_target_readback(renderer, &plain))
+                    return fail(141);
+                state.tabs = &tabs;
+                if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+                    probe_target_readback(renderer, &image))
+                    return fail(142);
+                const u32 builds = d3d11_renderer_caption_builds(renderer);
+                const UiRect body = ui_tab_strip_tab(bar.tabs, active);
+                const UiTabLabel label = ui_tab_strip_label(bar.tabs, active);
+                const Color active_fill = over(tokens.pressed, background);
+                // The active fill: left edge of its body, below its icon and label.
+                if (!ui_rect_has_area(body) ||
+                    !matches(read(image, px(body.left) + 2, px(bar.height) - 2), active_fill, 6))
+                    return fail(143);
+                if (label.limit > 0 &&
+                    ink_pixels(image, {label.left, bar.height * .25f, label.left + label.limit, bar.height * .8f},
+                               scale, active_fill) < 20)
+                    return fail(144);
+                // Between the strip and the server region only the drag band shows.
+                if (ink_pixels(image, {bar.tabs.area.right, 0, bar.title.left, bar.height}, scale, background))
+                    return fail(145);
+                if (ink_pixels(image, {bar.title.left, bar.height * .25f, bar.title.left + 12, bar.height * .75f},
+                               scale, background) < 4)
+                    return fail(146);
+                // The content below the bar is the same with and without the strip.
+                for (u32 y = caption; y < image.height; ++y)
+                    for (u32 x = 0; x < renderer.width; ++x)
+                        if (!equal(read(image, x, y), read(plain, x, y)))
+                            return fail(147);
+                if (!draw(renderer, theme) || !draw(renderer, theme) || d3d11_renderer_caption_builds(renderer) != builds)
+                    return fail(148);
+                if (!probe_write_capture(image, kFiles[w][c]))
+                    return fail(149);
+                if (w == 2 && c == 2) {
+                    // Inactive tabs this narrow show no close button until hovered (the last one's short label
+                    // leaves its place free); then it comes in beside a shorter label.
+                    const UiRect last_tab = ui_tab_strip_tab(bar.tabs, 15);
+                    if (ink_pixels(image, {last_tab.right - 26, bar.height * .3f, last_tab.right - 6, bar.height * .8f},
+                                   scale, background))
+                        return fail(152);
+                    const UiRect narrow_tab = ui_tab_strip_tab(bar.tabs, 3);
+                    const UiRect x_box{narrow_tab.right - 26, bar.height * .3f, narrow_tab.right - 6, bar.height * .8f};
+                    tabs.hovered = {UiTabHitKind::tab, 3};
+                    tabs.items[3].hover = 1;
+                    ProbeTargetReadback hovered{};
+                    if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+                        probe_target_readback(renderer, &hovered))
+                        return fail(153);
+                    if (ink_pixels(hovered, x_box, scale, over(tokens.hover, background)) < 8)
+                        return fail(154);
+                    if (!probe_write_capture(hovered, L"titlebar_tabs_1920_16_hover.bmp"))
+                        return fail(155);
+                }
+                if (c == 1) {
+                    tabs.hovered = {UiTabHitKind::tab, 0};
+                    tabs.items[0].hover = 1;
+                    if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+                        d3d11_renderer_caption_builds(renderer) != builds + 1)
+                        return fail(150);
+                }
+            }
+        }
+        UiCaptionBarState off{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
+        if (!renderer_resize(&renderer, original_width, renderer.height) || !relayout(renderer.height) ||
+            !renderer_set_caption(&renderer, off, utf8_literal("Native Lab")) || !draw(renderer, theme))
+            return fail(151);
+    }
     log_u64(LogLevel::info, "probe", "caption_height_px", caption);
     return true;
 }

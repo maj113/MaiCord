@@ -330,6 +330,7 @@ constexpr LocalToggle toggles[]{
     {SettingBinding::folders_close_on_home, &ClientPreferences::folders_close_on_home},
     {SettingBinding::folders_follow_selection, &ClientPreferences::folders_follow_selection},
     {SettingBinding::show_hidden_channels, &ClientPreferences::show_hidden_channels},
+    {SettingBinding::tabs, &ClientPreferences::tabs_enabled},
     {SettingBinding::image_zoom, &ClientPreferences::image_zoom},
     {SettingBinding::image_zoom_square, &ClientPreferences::image_zoom_square},
     {SettingBinding::game_detection, &ClientPreferences::game_detection},
@@ -386,6 +387,7 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
     case SettingBinding::folders_close_on_home:
     case SettingBinding::folders_follow_selection:
     case SettingBinding::show_hidden_channels:
+    case SettingBinding::tabs:
     case SettingBinding::image_zoom:
     case SettingBinding::image_zoom_square:
     case SettingBinding::image_zoom_factor:

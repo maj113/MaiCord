@@ -11,6 +11,7 @@
 #include "../application_private_conversation.hpp"
 #include "../../account/account_menu.hpp"
 #include "../../shell/scrolling.hpp"
+#include "../../shell/tabs.hpp"
 #include "../../guild/channel_overview.hpp"
 #include "../../guild/settings/settings.hpp"
 #include "maicord/ui/guild/context_policy.hpp"
@@ -64,6 +65,15 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
     }
     if (!g_app.account_ui)
         return false;
+    if (g_app.popup_owner_kind == PopupOwnerKind::tab) {
+        // A tab's menu acts on its channel; the list's rows select a tab.
+        const u64 channel_id = g_app.popup_scene.owner_id;
+        if (!dismiss_popup())
+            return false;
+        return (action >= popup_action_tab_first ? application_tabs_activate(action - popup_action_tab_first)
+                                                 : application_tabs_menu_action(action, channel_id)) ||
+               true;
+    }
     if (g_app.popup_owner_kind == PopupOwnerKind::commands)
         return application_commands_activate(action);
     if (g_app.popup_owner_kind == PopupOwnerKind::message_components)
@@ -239,6 +249,10 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
     } else if (action == popup_action_leave_guild && g_app.popup_owner_kind == PopupOwnerKind::guild) {
         dismiss_popup();
         return application_guild_lifecycle_leave(owner_id) || true;
+    } else if (action == popup_action_tab_open && (g_app.popup_owner_kind == PopupOwnerKind::channel ||
+                                                   g_app.popup_owner_kind == PopupOwnerKind::private_channel)) {
+        dismiss_popup();
+        return application_tabs_open_channel(owner_id, false) || true;
     } else if (action == popup_action_open_voice_chat && g_app.popup_owner_kind == PopupOwnerKind::channel) {
         dismiss_popup();
         return application_navigate_known_message(owner_id, 0) || true;

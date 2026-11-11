@@ -207,6 +207,10 @@ constexpr UiSettingsSchemaNode appearance[]{
          utf8_literal("List channels you can't view with a lock. Nothing in them is requested; selecting one "
                       "shows who can see it."),
          utf8_literal("locked private channels permissions view"), SettingBinding::show_hidden_channels),
+    node(utf8_literal("appearance.tabs"), K::toggle, utf8_literal("Show tabs in the title bar"),
+         utf8_literal("Pin channels and conversations as tabs beside the app icon. Tabs are bookmarks: the "
+                      "channel list still navigates."),
+         utf8_literal("tabs bookmarks pinned channels title bar"), SettingBinding::tabs),
     node(utf8_literal("appearance.folders"), K::category, utf8_literal("Server Folders"), {}, {}),
     node(utf8_literal("appearance.folders_close_others"), K::toggle,
          utf8_literal("Close other folders when opening one"),

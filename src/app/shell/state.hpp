@@ -198,6 +198,7 @@ enum class PopupOwnerKind : u8 {
     soundboard,         // The call bar's soundboard picker (owner_id is the channel).
     profile,            // A profile card menu: Edit Profile, Friend Actions, role picker.
     hidden_channel,     // The read-only explanation of a locked channel (owner_id is the channel).
+    tab,                // A title bar tab's menu (owner_id is its channel) or the list of every tab (zero).
 };
 
 enum class PaneResizeKind : u8 {
@@ -245,9 +246,15 @@ enum PopupAction : u32 {
     popup_action_create_event,
     popup_action_private_accept_request,
     popup_action_private_ignore_request,
+    popup_action_tab_close,
+    popup_action_tab_close_others,
+    popup_action_tab_close_right,
+    popup_action_tab_open, // The channel menu's "Open in new tab".
     popup_action_autocomplete_first = 1'000,
     // The composer's game search results (chat/composer/game_search.hpp).
     popup_action_game_first = 1'100,
+    // The list of every tab: one row per tab, in strip order.
+    popup_action_tab_first = 1'200,
 };
 
 struct LoginRuntime {

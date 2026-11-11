@@ -569,7 +569,8 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
                 return true;
             }
         } else if (input_press(event, PointerButton::middle)) {
-            if (g_app.renderer_ready && application_plugins_message_click(content, true, 1))
+            if (g_app.renderer_ready && (application_navigation_middle_click(content) ||
+                                         application_plugins_message_click(content, true, 1)))
                 return true;
         } else if (input_double(event)) {
             if (application_profile_double_click({client_dip_x(content), client_dip_y(content)}))

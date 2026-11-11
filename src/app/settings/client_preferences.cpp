@@ -90,7 +90,8 @@ bool client_preferences_equal(const ClientPreferences& a, const ClientPreference
            a.streamer_disable_sounds == b.streamer_disable_sounds &&
            a.streamer_disable_notifications == b.streamer_disable_notifications &&
            a.streamer_hide_window == b.streamer_hide_window && a.speak_messages == b.speak_messages &&
-           a.test_mode_application == b.test_mode_application && background_theme_equal(a.gradient, b.gradient);
+           a.test_mode_application == b.test_mode_application && a.tabs_enabled == b.tabs_enabled &&
+           background_theme_equal(a.gradient, b.gradient);
 }
 
 ClientPreferencesResult client_preferences_encode(const ClientPreferences& preferences,
@@ -145,6 +146,7 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
         (preferences.streamer_disable_sounds ? 16u : 0u) | (preferences.streamer_disable_notifications ? 32u : 0u) |
         (preferences.streamer_hide_window ? 64u : 0u));
     record.data[78] = preferences.speak_messages;
+    record.data[79] = preferences.tabs_enabled ? 1 : 0;
     byte_store_le64(record.data + 80, preferences.test_mode_application);
     byte_store_le64(record.data + kChecksumOffset, hash64_bytes(kHash64Seed, record.data, kChecksumOffset));
     return {};
@@ -178,7 +180,7 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
         (record.data[61] && (record.data[61] < 2 || record.data[61] > 100)) ||
         (record.data[62] && (record.data[62] < 5 || record.data[62] > 100)) ||
         (current && ((record.data[76] & ~31u) || (record.data[77] & ~127u) || record.data[78] > client_speak_messages_all ||
-                     record.data[79])))
+                     (record.data[79] & ~1u))))
         return failure(ClientPreferencesError::format);
     if (byte_load_le64(record.data + checksum) != hash64_bytes(kHash64Seed, record.data, checksum))
         return failure(ClientPreferencesError::checksum);
@@ -236,6 +238,7 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
         decoded.streamer_hide_window = (record.data[77] & 64) != 0;
         decoded.speak_messages = record.data[78];
         decoded.test_mode_application = byte_load_le64(record.data + 80);
+        decoded.tabs_enabled = (record.data[79] & 1) != 0;
     } else {
         const auto defaults = client_preferences_defaults();
         decoded.zoom = defaults.zoom;

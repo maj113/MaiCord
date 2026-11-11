@@ -10,6 +10,8 @@
 #include "../../plugins/surface_host.hpp"
 #include "../../account/profile.hpp"
 #include "../composer/commands.hpp"
+#include "../../shell/content_input.hpp"
+#include "../../shell/tabs.hpp"
 
 namespace maicord::app_detail {
 namespace interaction_detail {
@@ -711,7 +713,7 @@ bool open_channel_context_popup(u64 channel_id, UiRect anchor) noexcept {
         unread_context_available(unread_source(UnreadContextKind::channel, channel_id, true),
                                  UnreadContextKind::channel, channel_id);
     const bool can_unread = ordinary_unread && !can_retry_unread;
-    constexpr u32 native_capacity = 4 + 1 + 6 + 1 + 3 + kNotificationMenuItemCount + kUserContextMaximumItems;
+    constexpr u32 native_capacity = 4 + 1 + 6 + 1 + 3 + 1 + kNotificationMenuItemCount + kUserContextMaximumItems;
     PopupItem items[native_capacity + kApplicationPluginMenuRows]{};
     const auto thread_view = application_thread_actions_view(channel_id);
     const auto thread_header = application_thread_header_projection(thread_view);
@@ -724,6 +726,12 @@ bool open_channel_context_popup(u64 channel_id, UiRect anchor) noexcept {
     if (ordinary && thread_count)
         items[ordinary].flags |= popup_item_separator_before;
     u32 builtins = ordinary + thread_count;
+    // Title bar tabs: the channel (or conversation) becomes a tab and is shown.
+    if (application_tabs_visible() && !application_tabs_contains(channel_id) &&
+        application_channel_navigable(channel_id)) {
+        popup_item_set(&items[builtins], utf8_literal("Open in new tab"), popup_action_tab_open, popup_item_enabled);
+        items[builtins++].presentation = ui_menu_row_presentation(UiIcon::plus);
+    }
     // Text in voice: a voice channel's chat opens without joining the call.
     constexpr u32 chat_read = channel_action_view | channel_action_read_history;
     if (channel_is_voice_chat(channel->type) && channel->guild_id && (channel->actions & chat_read) == chat_read) {
@@ -804,6 +812,50 @@ bool application_thread_actions_menu_open(const ApplicationThreadActionTicket& t
     thread_menu_scope = {host.ticket, true, true};
     set_popup_owner(PopupOwnerKind::channel);
     g_app.context_focus = &g_app.shell_scene.widgets;
+    return refresh_popup_text();
+}
+
+// `anchor` is in content DIPs, the strip's rectangle lifted by the title bar's height.
+bool application_tab_menu_open(u32 index, const UiRect& anchor) noexcept {
+    const u64 channel_id = application_tabs_channel(index);
+    if (!channel_id)
+        return false;
+    u32 before = 0, after = 0;
+    for (u32 i = 0; i < application_tabs_count(); ++i)
+        (i < index ? before : after) += i != index && application_tabs_channel(i) != 0;
+    PopupItem items[3]{};
+    popup_item_set(&items[0], utf8_literal("Close"), popup_action_tab_close, popup_item_enabled);
+    popup_item_set(&items[1], utf8_literal("Close other tabs"), popup_action_tab_close_others,
+                   before + after ? popup_item_enabled : popup_item_none);
+    popup_item_set(&items[2], utf8_literal("Close tabs to the right"), popup_action_tab_close_right,
+                   after ? popup_item_enabled : popup_item_none);
+    if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, channel_id, {items, 3}, anchor,
+                          application_viewport_dips(), 220.0f)
+             .ok())
+        return false;
+    set_popup_owner(PopupOwnerKind::tab);
+    g_app.context_focus = &g_app.popup_scene.widgets;
+    return refresh_popup_text();
+}
+
+bool application_tab_list_open(const UiRect& anchor) noexcept {
+    PopupItem items[kUiTabCapacity]{};
+    u32 count = 0;
+    const u64 selected = g_app.account_ui ? g_app.account_ui->chat_state.selected_channel_id : 0;
+    for (u32 i = 0; i < application_tabs_count(); ++i) {
+        if (!application_tabs_channel(i))
+            continue;
+        popup_item_set(&items[count], application_tabs_label(i), popup_action_tab_first + i,
+                       static_cast<u16>(popup_item_enabled | (application_tabs_channel(i) == selected ? popup_item_checked : 0)));
+        items[count++].presentation = ui_menu_row_presentation(application_tabs_icon(i));
+    }
+    if (!count ||
+        !popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, 1, {items, count}, anchor,
+                          application_viewport_dips(), 260.0f)
+             .ok())
+        return false;
+    set_popup_owner(PopupOwnerKind::tab);
+    g_app.context_focus = &g_app.popup_scene.widgets;
     return refresh_popup_text();
 }
 

@@ -1325,6 +1325,10 @@ void test_controller() noexcept {
               g_app.preferences.folders_close_on_home && g_app.preferences.folders_follow_selection,
           "settings extras: hidden channels and the three folder options toggle and persist");
     check(observed.layout_updates == extras_layouts, "settings extras: no toggle rebuilds the hidden shell layout");
+    check(!g_app.preferences.tabs_enabled && activate_control(kAppearancePage, cid("appearance.tabs")) &&
+              g_app.preferences.tabs_enabled && activate_control(kAppearancePage, cid("appearance.tabs")) &&
+              !g_app.preferences.tabs_enabled,
+          "settings layout: the title bar tabs are off by default and toggle");
     constexpr const char* extras_keys[]{"appearance.role_colors_everywhere", "appearance.reply_timestamps",
                                         "appearance.show_hidden_channels", "appearance.folders_close_others",
                                         "appearance.folders_close_on_home", "appearance.folders_follow_selection"};

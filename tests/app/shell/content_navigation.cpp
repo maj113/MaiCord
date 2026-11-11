@@ -3,6 +3,7 @@
 // deterministic boundaries; no cloned navigation helper is used.
 #include "maicord/platform/window/win32.hpp"
 #include "../../../src/app/shell/content_input.cpp"
+#include "../../../src/app/shell/tabs.cpp"
 #include "../../support/window_fixture.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "../../../src/app/shell/content_point.hpp"
@@ -32,8 +33,11 @@ MessageLink captured_target{};
 AccountUiRuntime* ui;
 GuildRecord guilds[2];
 u16 guild_order[2];
-ChannelRecord channels[8];
-u16 channel_order[8];
+constexpr u32 kChannelSlots = 32;
+ChannelRecord channels[kChannelSlots];
+u16 channel_order[kChannelSlots];
+ChannelMemory tab_memory;
+u64 tab_profile;
 RoleRecord roles[4];
 PermissionOverwriteRecord overwrites[4];
 u8 names[2048];
@@ -44,6 +48,9 @@ void check(bool valid, const char* label) noexcept {
 }
 bool reset() noexcept {
     SecureZeroMemory(&g_app, sizeof(g_app));
+    application_tabs_reset();
+    tab_memory = {};
+    tab_profile = 9;
     history_calls = selections = stops = friends_shown = 0;
     friends_visible = false;
     home_shows_conversation = false;
@@ -63,8 +70,8 @@ bool reset() noexcept {
     SecureZeroMemory(roles, sizeof(roles));
     SecureZeroMemory(overwrites, sizeof(overwrites));
     auto& state = ui->chat_state;
-    if (!chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, 8},
-                                        {channel_order, 8}, {names, sizeof(names)}) ||
+    if (!chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, kChannelSlots},
+                                        {channel_order, kChannelSlots}, {names, sizeof(names)}) ||
         !chat_state_store_bind_permissions(&state, {roles, 4}, {overwrites, 4}) ||
         !chat_state_store_upsert_guild(&state,
                                           {10, utf8_literal("Guild"), GuildMutationKind::create, 99})
@@ -79,6 +86,10 @@ bool reset() noexcept {
                                        {40, 10, 0, utf8_literal("Forum"), 0, 0, 15}};
     for (const auto& input : inputs)
         if (!chat_state_store_upsert_channel(&state, input).ok())
+            return false;
+    // Sixteen more text channels for the tab limit.
+    for (u64 id = 100; id < 116; ++id)
+        if (!chat_state_store_upsert_channel(&state, {id, 10, 0, utf8_literal("General"), 0, 0, 0}).ok())
             return false;
     // Core publishes role/overwrite resolution separately from channel insertion,
     // including inherited thread permissions. Resolve the real fixture before
@@ -180,10 +191,199 @@ void home_tests() noexcept {
               friends_shown == 3 && application_friends_active(),
           "home navigation: leaving Friends for a server returns Home to Friends");
 }
+// The tab model over the real store and navigator: what comes back, what a click, a pin and the keys do.
+u64 tab_clock = 200'000;
+const UiTabStripView* tab_view(UiTabHit hovered = {}, u64 advance = 1) noexcept {
+    tab_clock += advance;
+    return application_tabs_view(hovered, {}, tab_clock);
+}
+u64 memory_tab(u32 i) noexcept {
+    return tab_memory.tabs[i].channel_id;
+}
+ChannelMemoryTab saved_tab(u64 channel, u64 guild, const char* label) noexcept {
+    ChannelMemoryTab tab{channel, guild, 0, {}};
+    while (label[tab.label_bytes])
+        tab.label[tab.label_bytes] = label[tab.label_bytes], ++tab.label_bytes;
+    return tab;
+}
+bool tab_channels(const u64* expected, u32 count) noexcept {
+    u32 live = 0;
+    for (u32 i = 0; i < application_tabs_count(); ++i)
+        if (const u64 id = application_tabs_channel(i)) {
+            if (live >= count || id != expected[live])
+                return false;
+            ++live;
+        }
+    if (live != count || tab_memory.tab_count != count)
+        return false;
+    for (u32 i = 0; i < count; ++i)
+        if (memory_tab(i) != expected[i])
+            return false;
+    return true;
+}
+void tabs_tests() noexcept {
+    check(reset(), "tabs: fixture resets");
+    ui->chat_state.self_user_id = 99;
+    g_app.preferences.tabs_enabled = true;
+    const ChannelMemoryTab saved[]{saved_tab(20, 10, "Parent"), saved_tab(21, 10, "Other"), saved_tab(777, 10, "Old")};
+    channel_memory_set_tabs(&tab_memory, {saved, 3});
+    check(!application_tabs_open_channel(30, true) && application_tabs_visible(),
+          "tabs: nothing changes before the saved tabs are adopted");
+    const UiTabStripView* view = tab_view();
+    const u64 adopted[]{20, 21};
+    check(view && view->count == 2 && utf8_equal(view->items[0].label, utf8_literal("Parent")) &&
+              utf8_equal(view->items[1].label, utf8_literal("Other")) && !(view->items[0].flags & kUiTabActive) &&
+              (view->items[1].flags & kUiTabActive) && tab_channels(adopted, 2),
+          "tabs: the saved tabs come back with their labels, the active one marked, the vanished channel dropped");
+    // Hovering a tab ramps its hover amount on the shared transition, and the amount keeps falling after the pointer
+    // leaves, so the close button fades instead of popping. "+" hovers no tab.
+    const UiTabHit over{UiTabHitKind::tab, 0};
+    tab_view(over);
+    const float rising = tab_view(over, 85)->items[0].hover;
+    const float full = tab_view(over, 315)->items[0].hover;
+    tab_view({}, 1); // The pointer leaves: the fade-out starts from the settled amount.
+    const float fading = tab_view({}, 85)->items[0].hover;
+    const float gone = tab_view({}, 515)->items[0].hover;
+    check(rising > 0 && rising < 1 && full == 1 && fading > 0 && fading < 1 && gone == 0 &&
+              tab_view({UiTabHitKind::plus, 0}, 100)->items[0].hover == 0,
+          "tabs: the hover amount ramps in and out over the shared transition, and \"+\" hovers no tab");
+    const u64 three[]{20, 21, 30};
+    check(application_tabs_open_channel(30, true) && application_tabs_open_channel(30, true) &&
+              ui->chat_state.selected_channel_id == 21 && tab_view()->count == 3 && tab_channels(three, 3) &&
+              !(tab_view()->items[2].flags & (kUiTabOpening | kUiTabClosing)),
+          "tabs: a background tab opens once, persists and leaves the selection alone");
+    check(!application_tabs_open_channel(40, true) && !application_tabs_open_channel(31, true) &&
+              !application_tabs_open_channel(999, true) && tab_channels(three, 3),
+          "tabs: a forum, an unreachable thread and an unknown channel cannot become tabs");
+    check(application_tabs_open_channel(30, false) && ui->chat_state.selected_channel_id == 30 &&
+              (tab_view()->items[2].flags & kUiTabActive) && !(tab_view()->items[1].flags & kUiTabActive) &&
+              !application_tabs_pin_current() && !tab_view()->plus_enabled,
+          "tabs: showing a tab selects its channel, and the pin is off while the channel is already a tab");
+    check(application_navigate_known_message(100, 0) && tab_view()->plus_enabled &&
+              !(tab_view()->items[2].flags & kUiTabActive) && application_tabs_pin_current() &&
+              tab_view()->count == 4 && !tab_view()->plus_enabled && (tab_view()->items[3].flags & kUiTabActive),
+          "tabs: \"+\" pins the channel that is selected");
+    const u64 after_close[]{20, 21, 30};
+    check(application_tabs_close(3) && ui->chat_state.selected_channel_id == 30 && tab_view()->count == 3 &&
+              tab_channels(after_close, 3),
+          "tabs: closing the active tab shows its left neighbour when it is the last");
+    const u64 after_middle[]{20, 30};
+    check(application_navigate_known_message(21, 0) && application_tabs_close(1) &&
+              ui->chat_state.selected_channel_id == 30 && tab_view()->count == 2 && tab_channels(after_middle, 2),
+          "tabs: closing the active tab shows its right neighbour");
+    check(!application_tabs_close(5) && application_tabs_activate(0) && ui->chat_state.selected_channel_id == 20 &&
+              application_tabs_close_others(0) && tab_view()->count == 1 && tab_memory.tab_count == 1,
+          "tabs: close others keeps one tab and shows it when the active one went");
+    // Sixteen tabs fit; the seventeenth is refused with a toast.
+    bool filled = true;
+    for (u64 id = 100; id < 115; ++id)
+        filled = filled && application_tabs_open_channel(id, true);
+    check(filled && tab_view()->count == kUiTabCapacity && tab_memory.tab_count == kUiTabCapacity &&
+              !g_app.toasts.count && !application_tabs_open_channel(115, true) && g_app.toasts.count == 1 &&
+              tab_view()->count == kUiTabCapacity,
+          "tabs: the seventeenth tab is refused with a toast");
+    check(application_tabs_move(0, 5) && application_tabs_channel(5) == 20 && memory_tab(5) == 20 &&
+              memory_tab(0) == 100 && !application_tabs_move(5, 5) && !application_tabs_move(5, 16),
+          "tabs: moving a tab reorders and persists");
+    const u32 dragged = application_tabs_drag_begin(5);
+    application_tabs_drag_to(40);
+    check(dragged == 5 && tab_view()->drag_left == 40 && (tab_view()->items[5].flags & kUiTabDragging) &&
+              application_tabs_move(5, 2) && (tab_view()->items[2].flags & kUiTabDragging) &&
+              !(tab_view()->items[5].flags & kUiTabDragging),
+          "tabs: a dragged tab follows the pointer through its swaps");
+    application_tabs_drag_end();
+    check(!(tab_view()->items[2].flags & kUiTabDragging) && memory_tab(2) == 20 &&
+              application_tabs_close_right(10) && tab_view()->count == 11 && tab_memory.tab_count == 11,
+          "tabs: a dropped tab settles, and close to the right ends the strip");
+    // A deleted channel closes its tab.
+    const u64 doomed = memory_tab(4);
+    check(chat_state_store_remove_channel(&ui->chat_state, doomed) && tab_view()->count == 10 &&
+              !application_tabs_contains(doomed) && tab_memory.tab_count == 10,
+          "tabs: a channel that is gone closes its tab");
+    // The keys act on the tabs, and fall through while the strip is hidden.
+    using A = ShortcutAction;
+    check(application_navigate_known_message(memory_tab(0), 0) && application_tabs_shortcut(A::tab_next, false) &&
+              ui->chat_state.selected_channel_id == memory_tab(1) && application_tabs_shortcut(A::tab_previous, false) &&
+              application_tabs_shortcut(A::tab_previous, false) &&
+              ui->chat_state.selected_channel_id == memory_tab(9) && application_tabs_shortcut(A::tab_third, false) &&
+              ui->chat_state.selected_channel_id == memory_tab(2) && application_tabs_shortcut(A::tab_last, false) &&
+              ui->chat_state.selected_channel_id == memory_tab(9) && application_tabs_shortcut(A::tab_eighth, true) &&
+              ui->chat_state.selected_channel_id == memory_tab(9),
+          "tabs: Ctrl+Tab cycles, Ctrl+1..9 pick a tab and held keys act once");
+    const u64 closing_channel = ui->chat_state.selected_channel_id;
+    check(application_tabs_shortcut(A::tab_close, false) && tab_view()->count == 9 &&
+              !application_tabs_contains(closing_channel) && application_navigate_known_message(115, 0) &&
+              application_tabs_shortcut(A::tab_new, false) && tab_view()->count == 10 && application_tabs_contains(115),
+          "tabs: Ctrl+W closes the active tab and Ctrl+T pins the current channel");
+    const u32 kept = application_tabs_count();
+    g_app.preferences.tabs_enabled = false;
+    check(!application_tabs_shortcut(A::tab_next, false) && !tab_view() && !application_tabs_visible() &&
+              !application_tabs_open_channel(20, true) && !application_tabs_close(0) && tab_memory.tab_count == kept,
+          "tabs: with the setting off the strip is hidden, the keys fall through and the saved tabs stay");
+    g_app.preferences.tabs_enabled = true;
+    check(tab_view() && tab_view()->count == kept, "tabs: turning the setting back on shows the tabs again");
+    tab_profile = 10;
+    tab_memory = {};
+    check(tab_view() && tab_view()->count == 0, "tabs: another account starts without the previous account's tabs");
+    g_app.preferences.tabs_enabled = false;
+    application_tabs_reset();
+}
+// READY lists a guild as unavailable before its channels arrive: a tab is dropped only when its channel is certainly
+// gone.
+void tab_pruning_tests() noexcept {
+    check(reset(), "tab pruning: fixture resets");
+    auto& state = ui->chat_state;
+    state.self_user_id = 99;
+    g_app.preferences.tabs_enabled = true;
+    check(chat_state_store_upsert_channel(&state, {50, 0, 0, utf8_literal("Chat"), 0, 0, 3}).ok() &&
+              chat_state_store_upsert_guild(&state, {11, utf8_literal("Guild 2"), GuildMutationKind::unavailable, 99}).ok(),
+          "tab pruning: a conversation and an unavailable guild exist");
+    const ChannelMemoryTab saved[]{saved_tab(20, 10, "Parent"), saved_tab(300, 11, "Lost"), saved_tab(301, 10, "Gone"),
+                                   saved_tab(50, 0, "Chat"), saved_tab(400, 12, "Left")};
+    channel_memory_set_tabs(&tab_memory, {saved, 5});
+    const UiTabStripView* view = tab_view();
+    check(view && view->count == 3 && utf8_equal(view->items[1].label, utf8_literal("Lost")) &&
+              (view->items[1].flags & kUiTabMissing) && !(view->items[0].flags & kUiTabMissing) &&
+              !(view->items[2].flags & kUiTabMissing) && application_tabs_channel(2) == 50 &&
+              tab_memory.tab_count == 3 && tab_memory.tabs[1].channel_id == 300 && tab_memory.tabs[1].guild_id == 11 &&
+              tab_memory.tabs[1].label_bytes == 4,
+          "tab pruning: after READY a channel of an unavailable guild stays, dimmed under its saved label, while a "
+          "channel missing from an available guild or from a guild the account left is dropped");
+    check(chat_state_store_upsert_guild(&state, {11, utf8_literal("Guild 2"), GuildMutationKind::create, 99}).ok() &&
+              chat_state_store_upsert_role(&state, {11, 11, rights, {}}) &&
+              chat_state_store_set_self_roles(&state, 11, 99, 99, {}) &&
+              chat_state_store_upsert_channel(&state, {300, 11, 0, utf8_literal("Late"), 0, 0, 0}).ok() &&
+              chat_state_store_upsert_channel(&state, {310, 11, 0, utf8_literal("Second"), 0, 0, 0}).ok(),
+          "tab pruning: the guild's GUILD_CREATE brings its channels");
+    chat_state_store_recompute_guild_permissions(&state, 11);
+    view = tab_view();
+    check(view->count == 3 && utf8_equal(view->items[1].label, utf8_literal("Late")) &&
+              !(view->items[1].flags & kUiTabMissing) && tab_memory.tabs[1].label_bytes == 4 &&
+              tab_memory.tabs[1].label[0] == 'L' && tab_memory.tabs[1].label[1] == 'a',
+          "tab pruning: a late channel takes over the tab, which is no longer dimmed, and the file the new label");
+    check(application_tabs_open_channel(310, true) && tab_view()->count == 4 &&
+              chat_state_store_remove_channel(&state, 300) && tab_view()->count == 3 &&
+              !application_tabs_contains(300) && application_tabs_contains(310),
+          "tab pruning: CHANNEL_DELETE closes the tab of an available guild's channel");
+    check(chat_state_store_remove_guild(&state, 11, true) && tab_view()->count == 3 &&
+              (tab_view()->items[2].flags & kUiTabMissing) &&
+              utf8_equal(tab_view()->items[2].label, utf8_literal("Second")),
+          "tab pruning: an unavailable GUILD_DELETE keeps the tab, dimmed under its label");
+    check(chat_state_store_remove_guild(&state, 11, false) && tab_view()->count == 2 &&
+              !application_tabs_contains(310) && tab_memory.tab_count == 2,
+          "tab pruning: GUILD_DELETE closes the tabs of the guild");
+    check(chat_state_store_remove_channel(&state, 50) && tab_view()->count == 1 && !application_tabs_contains(50) &&
+              application_tabs_contains(20) && tab_memory.tab_count == 1,
+          "tab pruning: a conversation the account lost closes its tab");
+    g_app.preferences.tabs_enabled = false;
+    application_tabs_reset();
+}
 void tests() noexcept {
     cursor_tests();
     context_point_tests();
     home_tests();
+    tabs_tests();
+    tab_pruning_tests();
     check(reset(), "content navigation: real Core fixture initializes");
     g_app.pending_message_jump_channel_id = 21;
     g_app.pending_message_jump_message_id = 800;
@@ -417,6 +617,20 @@ bool application_request_frame() noexcept {
 float application_motion_tick(UiMotionTransition*, const UiMotionScope&, float target, u64,
                               const UiMotionStyle&) noexcept {
     return target;
+}
+bool application_motion_hover_tick(UiMotionHover* hover, u64 id, u64 now, const UiMotionStyle& style) noexcept {
+    return ui_motion_hover_tick(hover, id, now, style, false);
+}
+// The account's channel memory, as the real one holds its tabs.
+u64 application_channel_memory_profile() noexcept {
+    return content_navigation_test::tab_profile;
+}
+ConstSlice<ChannelMemoryTab> application_channel_memory_tabs() noexcept {
+    return {content_navigation_test::tab_memory.tabs, content_navigation_test::tab_memory.tab_count};
+}
+void application_channel_memory_set_tabs(ConstSlice<ChannelMemoryTab> tabs) noexcept {
+    if (content_navigation_test::tab_profile)
+        channel_memory_set_tabs(&content_navigation_test::tab_memory, tabs);
 }
 } // namespace maicord::app_detail
 

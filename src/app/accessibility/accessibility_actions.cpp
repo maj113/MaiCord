@@ -543,7 +543,7 @@ void run_action(const PendingAction& pending) noexcept {
     case UiAccessAction::invoke:
     case UiAccessAction::toggle:
         if (node.surface == surface_caption) {
-            application_caption_command(static_cast<UiCaptionPart>(node.item));
+            application_caption_access(node.item);
             return;
         }
         if (node.surface == surface_notice) {

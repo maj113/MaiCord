@@ -7,6 +7,7 @@
 #include "../chat/composer/composer.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "content_input.hpp"
+#include "tabs.hpp"
 #include "cursor.hpp"
 #include "../media/downloads.hpp"
 #include "../chat/inbox.hpp"
@@ -190,6 +191,9 @@ static bool run_shortcut(ShortcutAction action, bool repeated) noexcept {
     default:
         break;
     }
+    // Title bar tabs: cycling repeats, the rest act once; false while the strip is hidden, so the key falls through.
+    if (action >= A::tab_next && action <= A::tab_last)
+        return application_tabs_shortcut(action, repeated);
     u64 message = 0;
     // One-shot actions swallow auto-repeat once they own the chord.
     if (repeated)

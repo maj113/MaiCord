@@ -30,11 +30,15 @@ bool application_received_attachment_open(u64 message_id, u64 attachment_id,
 // Admit only a real, readable native-model channel. False means no navigation
 // was accepted; absent metadata is hydrated by the Search navigation owner.
 bool application_navigate_known_message(u64 channel_id, u64 message_id) noexcept;
+// The channel exists and the sidebar could select it (readable, message-capable).
+bool application_channel_navigable(u64 channel_id) noexcept;
 bool select_content_guild(u64 guild) noexcept;
 bool handle_navigation_click(const WindowEvent& event) noexcept;
 // The click a navigation press performs (selection, folder toggle, voice
 // join), replayed by drag-and-drop on a release without a drag.
 bool activate_navigation_press(const WindowEvent& event) noexcept;
+// A middle press on a channel or conversation row opens it as a background tab (title bar tabs on).
+bool application_navigation_middle_click(const WindowEvent& event) noexcept;
 // Moves the selection for a registry navigation shortcut (Alt+arrows and friends).
 bool handle_navigation_shortcut(NavigationShortcut shortcut) noexcept;
 bool activate_focused_navigation() noexcept;

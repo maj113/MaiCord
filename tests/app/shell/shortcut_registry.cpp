@@ -61,6 +61,18 @@ void test_precedence(Check check) noexcept {
               navigation_shortcut(key::down, true, true, false).mode == NavigationMode::guild &&
               navigation_shortcut('K', true, false, false).mode == NavigationMode::none,
           "shortcut registry: navigation chords come from the registry");
+    check(resolves(text, {key::tab, C}, A::tab_next) && resolves(composer, {key::page_down, C}, A::tab_next) &&
+              resolves(content, {key::tab, C | H}, A::tab_previous) &&
+              resolves(typed, {key::page_up, C}, A::tab_previous) && resolves(text, {'W', C}, A::tab_close) &&
+              resolves(typed, {'T', C}, A::tab_new) && resolves(content, {'1', C}, A::tab_first) &&
+              resolves(text, {'8', C}, A::tab_eighth) && resolves(message, {'9', C}, A::tab_last) &&
+              resolves(content, {key::tab, 0}) && resolves(content, {'0', C}, A::zoom_reset) &&
+              resolves(content, {'1', 0}) && shortcut_matches(A::tab_second, {'2', C}) &&
+              !shortcut_matches(A::tab_second, {'2', C | L}),
+          "shortcut registry: Ctrl+Tab, Ctrl+W, Ctrl+T and Ctrl+1..9 are the tab keys in every focus");
+    check(label_is({key::tab, C | H}, utf8_literal("Ctrl+Shift+Tab")) &&
+              label_is({key::page_down, C}, utf8_literal("Ctrl+Page Down")) && label_is({'9', C}, utf8_literal("Ctrl+9")),
+          "shortcut labels: the tab keys read as Ctrl+Tab, Ctrl+Page Down and Ctrl+1..9");
     check(label_is({'M', C | H}, utf8_literal("Ctrl+Shift+M")) && label_is({key::slash, C}, utf8_literal("Ctrl+/")) &&
               label_is({key::up, L}, utf8_literal("Alt+\xE2\x86\x91")) && label_is({key::f12, 0}, utf8_literal("F12")) &&
               label_is({key::numpad5, C | L}, utf8_literal("Ctrl+Alt+Num 5")) &&
@@ -177,6 +189,9 @@ void test_listing(Check check) noexcept {
     check(all > 20 && headers == static_cast<u32>(ShortcutGroup::count) && rows[0].header &&
               servers < all && rows[servers].chords[0].key == key::up && rows[servers].chords[1].key == key::down,
           "shortcut overlay listing: grouped rows, with previous/next pairs merged");
+    // The Keybinds page lists the defaults in a bank of 48 rows (kKeybindsSettingsBankCapacity): none may be cut off.
+    check(shortcut_listing({}, {rows, 48}) == all && shortcut_listing(utf8_literal("tab"), {rows, 64}) == 14,
+          "shortcut overlay listing: the tab shortcuts fit the Keybinds page's bank and list under Navigation");
     const u32 mute = shortcut_listing(utf8_literal("MUTE"), {rows, 64});
     check(mute == 2 && rows[0].header && rows[0].group == ShortcutGroup::voice &&
               utf8_equal(rows[1].label, utf8_literal("Toggle mute")),

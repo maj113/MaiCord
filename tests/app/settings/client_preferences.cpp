@@ -344,22 +344,24 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
     access.streamer_auto = access.streamer_disable_sounds = false;
     access.speak_messages = client_speak_messages_selected;
     access.test_mode_application = 0x1122334455667788ull;
+    access.tabs_enabled = true;
     check(defaults.desaturation == 0 && defaults.zoom == 100 && defaults.speech_rate == 4 &&
               defaults.reduced_motion_sync && defaults.streamer_auto && defaults.streamer_hide_personal &&
               defaults.streamer_hide_invites && defaults.streamer_disable_sounds &&
               defaults.streamer_disable_notifications && !defaults.streamer_mode && !defaults.streamer_hide_window &&
               defaults.speak_messages == client_speak_messages_never && !defaults.test_mode_application &&
+              !defaults.tabs_enabled &&
               client_preferences_encode(access, {record, kBytes}).ok() && record[72] == 20 && record[73] == 65 &&
               record[74] == 125 && record[75] == 40 && record[76] == (2 | 4 | 8) &&
-              record[77] == (1 | 4 | 8 | 32 | 64) && record[78] == 1 && record[79] == 0 &&
+              record[77] == (1 | 4 | 8 | 32 | 64) && record[78] == 1 && record[79] == 1 &&
               byte_load_le64(record + 80) == 0x1122334455667788ull &&
               client_preferences_decode({record, kBytes}, &decoded).ok() &&
               client_preferences_equal(decoded, access) && !client_preferences_equal(decoded, defaults),
-          "preferences: accessibility, Streamer Mode, speech and test mode fields roundtrip at bytes 72..87");
+          "preferences: accessibility, Streamer Mode, speech, test mode and tabs fields roundtrip at bytes 72..87");
     decoded = sentinel;
     bool access_bounds = true;
     constexpr u8 invalid_access[][2]{{72, 11}, {72, 25}, {73, 101}, {74, 49}, {74, 201}, {75, 41},
-                                     {76, 3 << 3}, {76, 32}, {77, 128}, {78, 3}, {79, 1}};
+                                     {76, 3 << 3}, {76, 32}, {77, 128}, {78, 3}, {79, 2}, {79, 0x80}};
     for (const auto& entry : invalid_access) {
         reset();
         record[entry[0]] = entry[1];

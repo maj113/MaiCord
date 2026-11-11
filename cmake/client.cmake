@@ -72,7 +72,7 @@ else()
         src/app/plugins/pipeline_host.cpp src/app/plugins/surface_host.cpp
         src/app/shell/window.cpp src/app/windows/platform_window.cpp src/app/shell/window_dispatch.cpp
         src/app/shell/input_routing.cpp
-        src/app/shell/caption.cpp src/app/shell/app_icon.cpp
+        src/app/shell/caption.cpp src/app/shell/tabs.cpp src/app/shell/app_icon.cpp
         src/app/shell/keyboard_focus.cpp src/app/account/application_account_module.cpp
         src/app/account/application_account_logout.cpp
         src/app/account/account_pump.cpp src/app/account/account_presentation.cpp

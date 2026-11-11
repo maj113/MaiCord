@@ -80,8 +80,9 @@ UiCaptionTitlePlacement ui_caption_title_place(const UiCaptionBarLayout& layout,
                                                float icon_extent) noexcept {
     const float lead = icon ? icon_extent + kUiCaptionTitleGap : 0.0f;
     const float group = lead + maximum(0.0f, text_width);
-    const float left =
-        maximum(layout.title.left, minimum((layout.width - group) * .5f, layout.title.right - group));
+    const float left = layout.title_leading ? layout.title.left
+                                            : maximum(layout.title.left, minimum((layout.width - group) * .5f,
+                                                                                 layout.title.right - group));
     UiCaptionTitlePlacement placement{{}, left + lead};
     if (icon) {
         const float top = (layout.height - icon_extent) * .5f;
@@ -128,6 +129,14 @@ UiCaptionBarLayout ui_caption_bar_layout(const Theme& theme, float width, const 
     const float icon_left = maximum(0.0f, icon_top - (state.frame > 0 ? state.frame : 0.0f));
     layout.icon = {icon_left, icon_top, icon_left + icon, icon_top + icon};
     layout.icon_target = {0, 0, minimum(layout.icon.right + padding * .5f, right), height};
+    // With tabs the title is a fixed region beside the window buttons and the update badge moves left of it.
+    if (state.tabs) {
+        const float region = minimum(maximum(layout.width * .2f, kUiCaptionServerMinimum), kUiCaptionServerMaximum);
+        const float left = maximum(0.0f, right - region);
+        layout.title = {left, 0, maximum(left, right - padding), height};
+        layout.title_leading = true;
+        right = left;
+    }
     // Square trailing items, Settings next to the window buttons.
     if (state.settings || state.update != UiCaptionUpdate::hidden)
         right = maximum(0.0f, right - theme.scale.space_2);
@@ -141,8 +150,15 @@ UiCaptionBarLayout ui_caption_bar_layout(const Theme& theme, float width, const 
         layout.update_fill = fill(layout.update);
         right = layout.update.left;
     }
-    const float title_left = minimum(layout.icon.right + padding, right);
-    layout.title = {title_left, 0, maximum(title_left, right - padding), height};
+    if (state.tabs) {
+        const float left = layout.icon_target.right;
+        layout.tabs = ui_tab_strip_layout({left, theme.scale.space_2, maximum(left, right - kUiCaptionDragGap), height},
+                                          *state.tabs);
+        layout.tab_hover = ui_tab_strip_hit_rect(layout.tabs, state.tabs->hovered);
+    } else {
+        const float title_left = minimum(layout.icon.right + padding, right);
+        layout.title = {title_left, 0, maximum(title_left, right - padding), height};
+    }
     layout.title_glyph = UiIcon::count;
     return layout;
 }
@@ -157,6 +173,8 @@ UiCaptionPart ui_caption_bar_part(const UiCaptionBarLayout& layout, float x, flo
         return UiCaptionPart::settings;
     if (x >= layout.update.left && x < layout.update.right)
         return UiCaptionPart::update;
+    if (ui_tab_strip_hit(layout.tabs, x, y).kind != UiTabHitKind::none)
+        return UiCaptionPart::tab;
     if (x < layout.icon_target.right)
         return UiCaptionPart::icon;
     return UiCaptionPart::caption;
@@ -189,6 +207,8 @@ Utf8View ui_caption_bar_part_name(UiCaptionPart part, const UiCaptionBarState& s
                : state.update == UiCaptionUpdate::downloading ? utf8_literal("Downloading update")
                : state.update == UiCaptionUpdate::failed      ? utf8_literal("Couldn't update")
                                                               : Utf8View{};
+    case UiCaptionPart::tab:
+        return state.tabs ? ui_tab_strip_hit_name(*state.tabs, state.tabs->hovered) : Utf8View{};
     case UiCaptionPart::settings:
         return state.settings ? utf8_literal("Settings") : Utf8View{};
     case UiCaptionPart::minimize:
@@ -206,6 +226,8 @@ UiRect ui_caption_bar_part_rect(const UiCaptionBarLayout& layout, UiCaptionPart 
     switch (part) {
     case UiCaptionPart::icon:
         return layout.icon_target;
+    case UiCaptionPart::tab:
+        return layout.tab_hover;
     case UiCaptionPart::update:
         return layout.update;
     case UiCaptionPart::settings:
@@ -253,6 +275,8 @@ bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptio
     const Color idle = state.active ? tokens.icon : tokens.icon_inactive;
     if (layout.title_glyph != UiIcon::count && ui_rect_has_area(layout.title_icon) &&
         !ui_icon_paint(paint, layout.title_glyph, layout.title_icon, ui_caption_bar_title_color(theme, state)))
+        return false;
+    if (state.tabs && !ui_tab_strip_paint(paint, theme, layout.tabs, *state.tabs, state.active, pixel_scale))
         return false;
     if (state.settings && layout.settings.right > layout.settings.left) {
         bool pressed = false;

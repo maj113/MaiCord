@@ -67,6 +67,12 @@ bool write_raw(const wchar_t* path, const void* bytes, u32 count) noexcept {
         CloseHandle(file);
     return ok;
 }
+ChannelMemoryTab make_tab(u64 channel, u64 guild, const char* label) noexcept {
+    ChannelMemoryTab tab{channel, guild, 0, {}};
+    while (label[tab.label_bytes])
+        tab.label[tab.label_bytes] = label[tab.label_bytes], ++tab.label_bytes;
+    return tab;
+}
 } // namespace
 
 void test_channel_memory(void (*check)(bool, const char*) noexcept) noexcept {
@@ -177,11 +183,20 @@ void test_channel_memory(void (*check)(bool, const char*) noexcept) noexcept {
     ChannelMemory full{};
     for (u64 guild = 1; guild <= kChannelMemoryCapacity; ++guild)
         channel_memory_remember(&full, guild, guild + 1000, guild % 2 ? guild + 2000 : 0);
+    ChannelMemoryTab sixteen[kChannelMemoryTabCapacity]{};
+    for (u32 i = 0; i < kChannelMemoryTabCapacity; ++i) {
+        sixteen[i] = make_tab(500 + i, 20, "x");
+        sixteen[i].label_bytes = kChannelMemoryTabLabelBytes;
+        for (u32 c = 0; c < kChannelMemoryTabLabelBytes; ++c)
+            sixteen[i].label[c] = 'a' + static_cast<char>(c % 26);
+    }
+    channel_memory_set_tabs(&full, {sixteen, kChannelMemoryTabCapacity});
     u8 big[kChannelMemoryFileBytes];
     const u32 big_bytes = channel_memory_encode(full, {big, sizeof(big)});
     check(big_bytes == kChannelMemoryFileBytes && channel_memory_decode({big, big_bytes}, &decoded) &&
-              decoded.count == kChannelMemoryCapacity,
-          "a full table fits the bounded file size");
+              decoded.count == kChannelMemoryCapacity && decoded.tab_count == kChannelMemoryTabCapacity &&
+              decoded.tabs[15].channel_id == 515 && decoded.tabs[15].label_bytes == kChannelMemoryTabLabelBytes,
+          "a full table with sixteen tabs fits the bounded file size");
 
     ChannelMemory untouched{};
     channel_memory_remember(&untouched, 7, 70, 0);
@@ -208,9 +223,59 @@ void test_channel_memory(void (*check)(bool, const char*) noexcept) noexcept {
     bad.entries[1] = {6, 60, 0};
     bad_bytes = channel_memory_encode(bad, {bad_record, sizeof(bad_record)});
     check(bad_bytes && channel_memory_decode({bad_record, bad_bytes}, &decoded), "a valid two-entry record decodes");
-    bad_record[4] = 2;
+    bad_record[4] = 3;
     check(!channel_memory_decode({bad_record, bad_bytes}, &untouched) && untouched.count == 1,
           "an unknown version is rejected");
+
+    // Title bar tabs: a table without them stays a version 1 record, with them version 2 appends their channels.
+    check(record[4] == 1 && channel_memory_decode({record, bytes}, &decoded) && decoded.tab_count == 0,
+          "a record without tabs is version 1 and decodes with none");
+    ChannelMemory tabbed{};
+    channel_memory_remember(&tabbed, 20, 201, 0);
+    const ChannelMemoryTab open_tabs[]{make_tab(201, 20, "Gen"), make_tab(211, 21, "Other"), make_tab(30, 0, "Friend")};
+    check(channel_memory_set_tabs(&tabbed, {open_tabs, 3}) && !channel_memory_set_tabs(&tabbed, {open_tabs, 3}) &&
+              tabbed.tab_count == 3,
+          "channel memory stores its tabs and reports only changes");
+    u8 tab_record[kChannelMemoryFileBytes];
+    const u32 tab_bytes = channel_memory_encode(tabbed, {tab_record, sizeof(tab_record)});
+    ChannelMemory tab_decoded{};
+    check(tab_bytes == 6 + kChannelMemoryEntryBytes + 1 + 3 * 17 + 3 + 5 + 6 + 4 && tab_record[4] == 2 &&
+              channel_memory_decode({tab_record, tab_bytes}, &tab_decoded) && tab_decoded.count == 1 &&
+              tab_decoded.tab_count == 3 && tab_decoded.tabs[0].channel_id == 201 &&
+              tab_decoded.tabs[1].channel_id == 211 && tab_decoded.tabs[1].guild_id == 21 &&
+              tab_decoded.tabs[2].channel_id == 30 && tab_decoded.tabs[2].guild_id == 0 &&
+              tab_decoded.tabs[2].label_bytes == 6 && bytes_equal(tab_decoded.tabs[2].label, "Friend", 6),
+          "a version 2 record round-trips its tabs in order");
+    tab_record[tab_bytes - 5] ^= 1;
+    check(!channel_memory_decode({tab_record, tab_bytes}, &untouched) && untouched.count == 1 &&
+              !channel_memory_decode({tab_record, tab_bytes - 1}, &untouched),
+          "a version 2 record with a changed tab or a missing byte is rejected");
+    ChannelMemory bad_tabs = tabbed;
+    bad_tabs.tabs[1].channel_id = 0;
+    u32 bad_tab_bytes = channel_memory_encode(bad_tabs, {tab_record, sizeof(tab_record)});
+    bool tabs_rejected = bad_tab_bytes && !channel_memory_decode({tab_record, bad_tab_bytes}, &untouched);
+    bad_tabs.tabs[1] = bad_tabs.tabs[0];
+    bad_tab_bytes = channel_memory_encode(bad_tabs, {tab_record, sizeof(tab_record)});
+    tabs_rejected = tabs_rejected && bad_tab_bytes && !channel_memory_decode({tab_record, bad_tab_bytes}, &untouched);
+    bad_tabs = tabbed;
+    bad_tabs.tab_count = kChannelMemoryTabCapacity + 1;
+    check(tabs_rejected && !channel_memory_encode(bad_tabs, {tab_record, sizeof(tab_record)}) && untouched.count == 1,
+          "a zero or repeated tab and a count past the capacity are rejected");
+    ChannelMemoryTab too_many[kChannelMemoryTabCapacity + 1]{};
+    for (u32 i = 0; i <= kChannelMemoryTabCapacity; ++i)
+        too_many[i] = make_tab(1 + i, 20, "x");
+    const ChannelMemoryTab with_zero[]{make_tab(4, 20, "a"), make_tab(0, 20, "b")};
+    const ChannelMemoryTab repeated[]{make_tab(4, 20, "a"), make_tab(5, 20, "b"), make_tab(4, 21, "c")};
+    ChannelMemoryTab long_label = make_tab(8, 20, "x");
+    long_label.label_bytes = kChannelMemoryTabLabelBytes + 1;
+    check(!channel_memory_set_tabs(&tabbed, {too_many, kChannelMemoryTabCapacity + 1}) &&
+              !channel_memory_set_tabs(&tabbed, {with_zero, 2}) && !channel_memory_set_tabs(&tabbed, {repeated, 3}) &&
+              !channel_memory_set_tabs(&tabbed, {&long_label, 1}) && tabbed.tab_count == 3 &&
+              channel_memory_set_tabs(&tabbed, {}) && tabbed.tab_count == 0 &&
+              channel_memory_encode(tabbed, {tab_record, sizeof(tab_record)}) == 10 + kChannelMemoryEntryBytes &&
+              tab_record[4] == 1,
+          "invalid tab lists change nothing, and clearing the tabs returns to a version 1 record");
+    channel_memory_set_tabs(&tabbed, {open_tabs, 3});
 
     wchar_t path[512];
     ChannelMemory loaded{};
@@ -219,6 +284,15 @@ void test_channel_memory(void (*check)(bool, const char*) noexcept) noexcept {
               loaded.count == visits.count &&
               channel_memory_latest(loaded)->channel_id == channel_memory_latest(visits)->channel_id,
           "channel memory persists to a file");
+    if (have_path) {
+        ChannelMemory tab_loaded{};
+        check(channel_memory_save_file(path, tabbed) && channel_memory_load_file(path, &tab_loaded) &&
+                  tab_loaded.count == 1 && tab_loaded.tab_count == 3 && tab_loaded.tabs[2].channel_id == 30 &&
+                  tab_loaded.tabs[1].guild_id == 21 && tab_loaded.tabs[1].label_bytes == 5 &&
+                  bytes_equal(tab_loaded.tabs[1].label, "Other", 5),
+              "channel memory persists its tabs to a file");
+        DeleteFileW(path);
+    }
     if (have_path) {
         DeleteFileW(path);
         check(write_raw(path, "MCCM\x01\x05garbage", 13) && !channel_memory_load_file(path, &loaded) && loaded.count == 0,

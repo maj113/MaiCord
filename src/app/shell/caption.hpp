@@ -5,6 +5,10 @@
 #include "maicord/platform/window/frame.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
 
+namespace maicord {
+struct UiAccessTree;
+}
+
 namespace maicord::app_detail {
 
 // The caption controller of the main window: the bar the app draws over the rows above the content (the frame of a
@@ -30,6 +34,15 @@ void application_caption_synchronize() noexcept;
 void application_caption_set_hidden(bool hidden) noexcept;
 // Minimize, maximize/restore or close, as the caption buttons do.
 bool application_caption_command(UiCaptionPart part) noexcept;
+// A bar item as an accessibility node's item: the part, and for a tab, "+" or "..." the hit's kind and index.
+constexpr u64 application_caption_tab_item(UiTabHit hit) noexcept {
+    return static_cast<u64>(UiCaptionPart::tab) | static_cast<u64>(hit.kind) << 8 | static_cast<u64>(hit.index) << 16;
+}
+// Performs what an accessibility node of the bar was asked to: its command, or the tab strip's action.
+bool application_caption_access(u64 item) noexcept;
+// Adds the channel tabs under the bar's accessibility node `parent`: a tab list (each tab named by its label, selected
+// when active, with a "Close tab" button), then the "+" and "..." buttons. `surface` keys the nodes.
+void application_caption_describe_tabs(UiAccessTree* tree, u32 parent, u8 surface) noexcept;
 // The bar state; the hovered part's tooltip shows once its delay passed.
 UiCaptionBarState application_caption_state() noexcept;
 // When the hovered part's tooltip is due, zero when none is pending.

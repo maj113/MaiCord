@@ -306,7 +306,7 @@ maicord_library(maicord_ui
     src/ui/voice/channel_rows.cpp src/ui/voice/panel.cpp src/ui/voice/go_live_scene.cpp
     src/ui/voice/call_scene.cpp src/ui/voice/call_stage.cpp src/ui/widgets/hover_card.cpp src/ui/voice/stream_card_scene.cpp
     src/ui/guild/card_scene.cpp src/ui/guild/folder_open.cpp src/ui/guild/hidden_channel_menu.cpp
-    src/ui/guild/banner.cpp src/ui/chat/game_media.cpp src/ui/account/profile_activity.cpp src/ui/shell/caption_bar.cpp src/ui/widgets/activity_status.cpp
+    src/ui/guild/banner.cpp src/ui/chat/game_media.cpp src/ui/account/profile_activity.cpp src/ui/shell/caption_bar.cpp src/ui/shell/tab_strip.cpp src/ui/widgets/activity_status.cpp
     src/ui/chat/messages/typing_indicator.cpp src/ui/account/dm_profile_panel.cpp
     src/ui/widgets/toast.cpp windows:src/ui/theme/theme.cpp src/ui/theme/background_color_math.cpp src/ui/chat/search/message_result_card.cpp
     src/ui/text/pointer_selection.cpp src/ui/chat/messages/author.cpp src/ui/chat/messages/interaction.cpp

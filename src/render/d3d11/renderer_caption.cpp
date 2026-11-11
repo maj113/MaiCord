@@ -18,6 +18,9 @@ inline constexpr u32 kCaptionPaintCapacity = 64;
 inline constexpr u32 kCaptionGlyphCapacity = 128;
 inline constexpr u32 kCaptionRunCapacity = 8;
 inline constexpr u32 kCaptionTitleCapacity = 256;
+// With the tab strip showing: more quads, and the glyph quads each tab label may use.
+inline constexpr u32 kCaptionTabPaintCapacity = 128;
+inline constexpr u32 kCaptionTabGlyphs = 24;
 // The effect pass's canvas index for the caption band (content quads use theirs).
 inline constexpr u32 kCaptionEffectCanvas = ~0u;
 
@@ -30,6 +33,20 @@ struct CaptionLine {
     bool shaped;
 };
 
+// The tab labels, committed while the strip shows.
+struct CaptionTabs {
+    // The scratch each label is shaped in.
+    CaptionLine line;
+    // Each tab's quads: shaped for `keys`, sitting at `placed`, `counts` of them.
+    GlyphQuad quads[kUiTabCapacity * kCaptionTabGlyphs];
+    u64 keys[kUiTabCapacity];
+    float placed[kUiTabCapacity];
+    u8 counts[kUiTabCapacity];
+    // The drawn tabs' quads in one buffer, and (OpenGL ES) the glyph page each samples.
+    GpuBuffer* buffer;
+    u8 glyph_pages[kUiTabCapacity * kCaptionTabGlyphs];
+};
+
 struct RendererCaption {
     PaintStream paint;
     CaptionLine title_line;
@@ -39,6 +56,10 @@ struct RendererCaption {
     // OpenGL ES (kGpuPagedBindings): the glyph page each quad samples; the uploaded quads hold v in its rows.
     u8 glyph_pages[kCaptionGlyphCapacity * 2];
     char title[kCaptionTitleCapacity];
+    CaptionTabs* tabs;
+    u32 paint_capacity;
+    // The hovered tab or button its tooltip is shaped for: kind and index, 0 for none.
+    u32 tooltip_hit;
     GpuBuffer* paint_buffer;
     GpuBuffer* glyph_buffer;
     // The app icon: one immutable texture, replaced only when its size changes.
@@ -71,7 +92,7 @@ struct RendererCaption {
     Theme built_theme;
     u64 built_key;
     u32 builds, draws;
-    u32 title_glyphs, tooltip_glyphs;
+    u32 title_glyphs, tooltip_glyphs, tab_glyphs;
     bool built;
     // Appearance changed since the last Present, and before it (the other
     // back buffer still shows the older caption).
@@ -107,6 +128,7 @@ u64 appearance_stamp(const D3D11Renderer& renderer, const RendererCaption& capti
     hash = hash64_bytes(hash, state, sizeof(state));
     // Whole percent steps of download progress.
     hash = hash64_mix(hash, static_cast<u64>(s.progress * 100.0f));
+    hash = hash64_mix(hash, s.tabs ? ui_tab_strip_stamp(*s.tabs) : 0);
     hash = hash64_counted_bytes(hash, caption.title, caption.title_bytes);
     hash = hash64_mix(hash, static_cast<u64>(caption.title_glyph));
     hash = hash64_bytes(hash, &caption.title_image, sizeof(caption.title_image));
@@ -138,6 +160,13 @@ u64 build_key(const D3D11Renderer& renderer, const RendererCaption& caption) noe
         renderer.icon_atlas.allocator.evicted_entries, renderer.icon_atlas.allocator.full_resets,
         static_cast<u32>(renderer.glyph_text.ready) | static_cast<u32>(renderer.icon_atlas.ready) << 1};
     return hash64_bytes(hash64_mix(kHash64Seed, caption.stamp), atlases, sizeof(atlases));
+}
+
+// What the glyph atlas has evicted: quads made before it may point at rows since reused.
+u64 atlas_key(const D3D11Renderer& renderer) noexcept {
+    const u32 atlas[3]{renderer.glyph_text.allocator.evicted_entries, renderer.glyph_text.allocator.full_resets,
+                       renderer.glyph_text.ready};
+    return hash64_bytes(kHash64Seed, atlas, sizeof(atlas));
 }
 
 bool same_theme(const Theme& a, const Theme& b) noexcept {
@@ -222,8 +251,25 @@ bool shape_line(D3D11Renderer* renderer, CaptionLine* line, Utf8View text, u32 f
     return line->shaped;
 }
 
+bool initialize_line(CaptionLine* line) noexcept {
+    return shaped_text_initialize(&line->shape, Slice<TextGlyph>{line->glyphs, kCaptionGlyphCapacity},
+                                  Slice<TextRun>{line->runs, kCaptionRunCapacity},
+                                  Slice<u16>{line->clusters, kCaptionGlyphCapacity});
+}
+
+void release_tabs(RendererCaption* caption) noexcept {
+    CaptionTabs* tabs = caption->tabs;
+    if (!tabs)
+        return;
+    gpu_release(tabs->buffer);
+    shaped_text_reset(&tabs->line.shape);
+    pages_release(tabs);
+    caption->tabs = nullptr;
+    caption->tab_glyphs = 0;
+}
+
 bool append_line(D3D11Renderer* renderer, const CaptionLine& line, GlyphQuad* output, Color color,
-                 float origin_x, float origin_y, u32* count) noexcept {
+                 float origin_x, float origin_y, u32* count, u32 capacity = kCaptionGlyphCapacity) noexcept {
     for (u32 attempt = 0; attempt < 2; ++attempt) {
         bool invalidated = false;
         *count = 0;
@@ -243,7 +289,7 @@ bool append_line(D3D11Renderer* renderer, const CaptionLine& line, GlyphQuad* ou
             origin_y,
             0,
             0,
-            kCaptionGlyphCapacity,
+            capacity,
             renderer->dpi,
         };
         if (d3d11_glyph_text_append(&renderer->glyph_text, renderer->graphics.context, request) &&
@@ -297,6 +343,97 @@ bool append_title(D3D11Renderer* renderer, RendererCaption* caption, UiCaptionBa
     }
     return append_line(renderer, line, caption->glyphs, color, placement.text_left,
                        (layout->height - line.shape.height) * .5f, count);
+}
+
+// The tab labels. Each is shaped and rasterized into its quads only when its text, its room or the atlas changed;
+// every build moves and tints them in place to where the tab is, so hover and sliding never shape again. The
+// drawn tabs' quads go to one buffer, the dragged tab's last.
+bool append_tabs(D3D11Renderer* renderer, RendererCaption* caption, const Theme& theme,
+                 const UiCaptionBarLayout& layout) noexcept {
+    caption->tab_glyphs = 0;
+    CaptionTabs* tabs = caption->tabs;
+    const UiTabStripView* view = caption->state.tabs;
+    if (!tabs || !view || !renderer->glyph_text.ready)
+        return true;
+    const UiTabStripLayout& strip = layout.tabs;
+    UiTabLabel place[kUiTabCapacity]{};
+    // An atlas that evicted while the labels went in leaves the earlier ones stale: they go in again.
+    for (u32 pass = 0; pass < 2; ++pass) {
+        const u64 atlas = atlas_key(*renderer);
+        for (u32 i = 0; i < kUiTabCapacity; ++i) {
+            const Utf8View text = i < view->count ? view->items[i].label : Utf8View{};
+            place[i] = ui_tab_strip_label(strip, i);
+            if (!(place[i].limit > 0) || !text.bytes) {
+                tabs->counts[i] = 0;
+                tabs->keys[i] = 0;
+                continue;
+            }
+            const u64 key = hash64_mix(
+                hash64_mix(hash64_mix(hash64_counted_bytes(atlas, text.data, text.bytes),
+                                      static_cast<u64>(place[i].limit * 64.0f)),
+                           static_cast<u64>((strip.area.top + strip.area.bottom) * 64.0f)),
+                renderer->dpi);
+            if (tabs->keys[i] == key)
+                continue;
+            tabs->line.shaped = false;
+            if (!shape_line(renderer, &tabs->line, text, text_style_none, text_size_sm, place[i].limit, layout.height))
+                return false;
+            u32 count = 0;
+            const float top = (strip.area.top + strip.area.bottom - tabs->line.shape.height) * .5f;
+            if (!append_line(renderer, tabs->line, tabs->quads + i * kCaptionTabGlyphs, {}, place[i].left, top, &count,
+                             kCaptionTabGlyphs)) {
+                // A label with more glyphs than its quads shows none.
+                if (d3d11_glyph_text_append_failure() != 13)
+                    return false;
+                count = 0;
+            }
+            tabs->counts[i] = static_cast<u8>(count);
+            tabs->placed[i] = place[i].left;
+            tabs->keys[i] = key;
+        }
+        if (atlas_key(*renderer) == atlas)
+            break;
+    }
+    u32 total = 0;
+    for (u32 i = 0; i < kUiTabCapacity; ++i) {
+        const float shift = place[i].left - tabs->placed[i];
+        const Color ink = ui_tab_strip_ink(theme, *view, strip, i, caption->state.active);
+        GlyphQuad* quads = tabs->quads + i * kCaptionTabGlyphs;
+        for (u32 quad = 0; quad < tabs->counts[i]; ++quad) {
+            quads[quad].left += shift;
+            quads[quad].right += shift;
+            quads[quad].color = ink;
+        }
+        tabs->placed[i] = place[i].left;
+        total += tabs->counts[i];
+    }
+    if (!total)
+        return true;
+    if (!create_buffer(renderer->graphics.device,
+                       static_cast<u32>(sizeof(GlyphQuad)) * kUiTabCapacity * kCaptionTabGlyphs, &tabs->buffer))
+        return false;
+    auto* output = static_cast<GlyphQuad*>(gpu_map(renderer->graphics.context, tabs->buffer, GpuMap::discard, nullptr));
+    if (!output)
+        return false;
+    const u32 pages = renderer->glyph_text.allocator.page_count;
+    u32 written = 0;
+    for (u32 pass = 0; pass < 2; ++pass) {
+        for (u32 i = 0; i < kUiTabCapacity; ++i) {
+            if (((view->items[i].flags & kUiTabDragging) != 0) != (pass == 1))
+                continue;
+            for (u32 quad = 0; quad < tabs->counts[i]; ++quad, ++written) {
+                GlyphQuad copy = tabs->quads[i * kCaptionTabGlyphs + quad];
+                if constexpr (kGpuPagedBindings) {
+                    tabs->glyph_pages[written] = static_cast<u8>(glyph_quad_page(copy, pages));
+                    glyph_quad_in_page(&copy, pages);
+                }
+                output[written] = copy;
+            }
+        }
+    }
+    gpu_unmap(renderer->graphics.context, tabs->buffer);
+    caption->tab_glyphs = total;
+    return true;
 }
 
 // The server icon on whole pixels, rounded like the official client's.
@@ -455,33 +592,51 @@ bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& stat
                           const UiCaptionTitle& title_content) noexcept {
     const Utf8View title = title_content.text;
     auto* caption = renderer->caption;
+    const u32 capacity = state.tabs ? kCaptionTabPaintCapacity : kCaptionPaintCapacity;
     if (!caption) {
-        caption = static_cast<RendererCaption*>(
-            commit_pages(sizeof(RendererCaption)));
-        if (!caption || !paint_stream_initialize(&caption->paint, kCaptionPaintCapacity) ||
-            !shaped_text_initialize(&caption->title_line.shape,
-                                    Slice<TextGlyph>{caption->title_line.glyphs, kCaptionGlyphCapacity},
-                                    Slice<TextRun>{caption->title_line.runs, kCaptionRunCapacity},
-                                    Slice<u16>{caption->title_line.clusters, kCaptionGlyphCapacity}) ||
-            !shaped_text_initialize(&caption->tooltip_line.shape,
-                                    Slice<TextGlyph>{caption->tooltip_line.glyphs, kCaptionGlyphCapacity},
-                                    Slice<TextRun>{caption->tooltip_line.runs, kCaptionRunCapacity},
-                                    Slice<u16>{caption->tooltip_line.clusters, kCaptionGlyphCapacity})) {
+        caption = static_cast<RendererCaption*>(commit_pages(sizeof(RendererCaption)));
+        if (!caption || !paint_stream_initialize(&caption->paint, capacity) || !initialize_line(&caption->title_line) ||
+            !initialize_line(&caption->tooltip_line)) {
             if (caption) {
                 paint_stream_release(&caption->paint);
                 pages_release(caption);
             }
             return false;
         }
+        caption->paint_capacity = capacity;
         caption->dirty = true;
         renderer->caption = caption;
+    }
+    // The strip's quads and labels exist only while it shows.
+    if (caption->paint_capacity != capacity) {
+        paint_stream_release(&caption->paint);
+        gpu_release(caption->paint_buffer);
+        caption->paint_capacity = paint_stream_initialize(&caption->paint, capacity) ? capacity : 0;
+        caption->built = false;
+    }
+    if (!state.tabs != !caption->tabs) {
+        if (state.tabs) {
+            caption->tabs = commit_pages<CaptionTabs>();
+            if (!caption->tabs || !initialize_line(&caption->tabs->line)) {
+                release_tabs(caption);
+                return false;
+            }
+        } else {
+            release_tabs(caption);
+        }
+        caption->built = false;
     }
     // A hidden, moved, relabelled or still fading-in tooltip (the content under it repaints, so each step
     // blends over a clean picture); geometry and theme changes repaint the whole target.
     const UiCaptionBarState& old = caption->state;
+    const u32 hit = state.tabs ? static_cast<u32>(state.tabs->hovered.kind) << 8 | state.tabs->hovered.index : 0;
     if (old.tooltip != state.tooltip || old.update != state.update || old.maximized != state.maximized ||
-        old.settings != state.settings || old.tooltip_entrance != state.tooltip_entrance)
+        old.settings != state.settings || old.tooltip_entrance != state.tooltip_entrance || hit != caption->tooltip_hit)
         release_tooltip_pixels(renderer, caption);
+    // The tooltip of another tab or button is another text.
+    if (hit != caption->tooltip_hit)
+        caption->tooltip_line.shaped = false;
+    caption->tooltip_hit = hit;
     caption->state = state;
     const u32 bytes = minimum<u32>(title.bytes, kCaptionTitleCapacity);
     if (bytes != caption->title_bytes || !bytes_equal(caption->title, title.data, bytes)) {
@@ -569,7 +724,8 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         // The stream culls to its viewport: the band and the content a tooltip
         // hangs into.
         // The title first: its icon's box depends on the shaped text.
-        if (!append_title(renderer, caption, &layout, ui_caption_bar_title_color(theme, caption->state),
+        if (!append_tabs(renderer, caption, theme, layout) ||
+            !append_title(renderer, caption, &layout, ui_caption_bar_title_color(theme, caption->state),
                           &glyph_count, &image) ||
             !paint_stream_reset(&caption->paint, layout.width,
                                 layout.height + dips(renderer->height, renderer->dpi)) ||
@@ -577,8 +733,9 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
                                   &caption->buttons_first_quad) ||
             caption->paint.rejected || !append_scrim(caption, layout) ||
             !append_tooltip(renderer, caption, theme, layout, glyph_count, &tooltip_glyphs) ||
+            caption->paint.count > caption->paint_capacity ||
             !create_buffer(renderer->graphics.device,
-                           static_cast<u32>(sizeof(PaintQuad)) * kCaptionPaintCapacity,
+                           static_cast<u32>(sizeof(PaintQuad)) * caption->paint_capacity,
                            &caption->paint_buffer) ||
             !create_buffer(renderer->graphics.device,
                            static_cast<u32>(sizeof(GlyphQuad)) * kCaptionGlyphCapacity * 2,
@@ -679,9 +836,9 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         draw_media_quad(caption->icon_quad, caption->icon_view);
     if (caption->image_drawn && renderer->media_gpu.texture_view)
         draw_media_quad(caption->image_quad, caption->image_view);
-    const auto draw_glyphs = [&](u32 first_glyph, u32 count) noexcept {
+    const auto draw_glyphs = [&](GpuBuffer* buffer, const u8* glyph_pages, u32 first_glyph, u32 count) noexcept {
         gpu_set_input_layout(context, pipeline.glyph_input_layout);
-        gpu_set_vertex_buffer(context, caption->glyph_buffer, sizeof(GlyphQuad), 0);
+        gpu_set_vertex_buffer(context, buffer, sizeof(GlyphQuad), 0);
         gpu_set_shader(context, pipeline.glyph_vertex_shader);
         gpu_set_shader(context, pipeline.glyph_pixel_shader);
         const GpuPagedTexture* color = d3d11_glyph_text_color_surface(renderer->glyph_text);
@@ -693,7 +850,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         // One draw per run of glyphs on one page (one draw on Direct3D 11).
         u32 first = first_glyph, page = kGlyphQuadNoPage;
         for (u32 glyph = first_glyph; kGpuPagedBindings && glyph < first_glyph + count; ++glyph) {
-            const u32 glyph_page = caption->glyph_pages[glyph];
+            const u32 glyph_page = glyph_pages[glyph];
             if (glyph_page == kGlyphQuadNoPage)
                 continue;
             if (page != kGlyphQuadNoPage && page != glyph_page) {
@@ -709,7 +866,9 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         ++renderer->draw_calls_last_frame;
     };
     if (glyph_count)
-        draw_glyphs(0, glyph_count);
+        draw_glyphs(caption->glyph_buffer, caption->glyph_pages, 0, glyph_count);
+    if (caption->tab_glyphs)
+        draw_glyphs(caption->tabs->buffer, caption->tabs->glyph_pages, 0, caption->tab_glyphs);
     if (scrim) {
         // The scrim over band, icon, title and items; the window buttons
         // follow undimmed.
@@ -735,7 +894,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         gpu_draw_instanced(context, 4, caption->paint.count - bar_end, 0, bar_end);
         ++renderer->draw_calls_last_frame;
         if (tooltip_glyphs)
-            draw_glyphs(glyph_count, tooltip_glyphs);
+            draw_glyphs(caption->glyph_buffer, caption->glyph_pages, glyph_count, tooltip_glyphs);
     }
     GpuSrv* null_views[3]{};
     gpu_set_srvs(context, GpuStage::pixel, 0, 3, null_views);
@@ -808,6 +967,12 @@ void d3d11_renderer_caption_release_device(D3D11Renderer* renderer) noexcept {
     gpu_release(caption->icon_view);
     gpu_release(caption->icon_quad);
     gpu_release(caption->image_quad);
+    if (caption->tabs) {
+        gpu_release(caption->tabs->buffer);
+        // Its quads point into the lost atlas.
+        for (u64& key : caption->tabs->keys)
+            key = 0;
+    }
     caption->icon_extent = 0;
     caption->image_drawn = false;
     caption->built = false;
@@ -820,6 +985,7 @@ void d3d11_renderer_caption_release(D3D11Renderer* renderer) noexcept {
     if (!caption)
         return;
     d3d11_renderer_caption_release_device(renderer);
+    release_tabs(caption);
     shaped_text_reset(&caption->title_line.shape);
     shaped_text_reset(&caption->tooltip_line.shape);
     paint_stream_release(&caption->paint);

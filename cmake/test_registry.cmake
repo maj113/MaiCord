@@ -833,6 +833,9 @@ maicord_test(MaiCordLayoutConsistencyTests ENTRY maicord_layout_consistency_test
 maicord_test(MaiCordWindowCaptionTests ONLY WINDOWS ENTRY maicord_window_caption_tests_entry
     SOURCES tests/platform/desktop/window_caption.cpp
     BUNDLE MaiCordUiUnitTests TIMEOUT 10 TEST maicord_window_caption)
+# Title bar channel tabs: widths, overflow, hits, drag slots, motion and paint.
+maicord_test(MaiCordTabStripTests ENTRY maicord_tab_strip_tests_entry SOURCES tests/ui/shell/tab_strip.cpp
+    BUNDLE MaiCordUiUnitTests TIMEOUT 5 TEST maicord_tab_strip)
 maicord_test(MaiCordSettingsRuntimeTests ONLY WINDOWS ENTRY maicord_settings_runtime_entry
     SOURCES ${maicord_account_fake}
     SOURCES tests/app/settings/settings_runtime.cpp tests/app/settings/settings_runtime_stubs.cpp
@@ -1409,6 +1412,13 @@ maicord_test(MaiCordApplicationContentNavigationTests ONLY WINDOWS ENTRY maicord
     LIBS ${maicord_app_ui_test_libs} maicord_render_core kernel32 user32 shell32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_application_content_navigation)
+# The title bar tabs end to end: the caption controller's real input over the tab model and the strip layout.
+maicord_test(MaiCordCaptionTabsTests ONLY WINDOWS ENTRY maicord_application_caption_tabs_entry
+    SOURCES tests/app/shell/caption_tabs.cpp src/app/shell/caption.cpp src/app/shell/tabs.cpp src/app/shell/state.cpp
+        src/core/log.cpp
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32
+    INCLUDES src/app
+    TIMEOUT 15 TEST maicord_caption_tabs)
 maicord_add_tests(MaiCordApplicationThreadActionsRuntimeTests TIMEOUT 15
     TEST maicord_application_thread_actions_runtime)
 maicord_test(MaiCordMessagePinnedStateTests ENTRY maicord_message_pinned_state_entry

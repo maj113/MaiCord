@@ -855,6 +855,13 @@ float application_motion_tick(UiMotionTransition*, const UiMotionScope&, float t
                               const UiMotionStyle&) noexcept {
     return target;
 }
+// The title bar tabs are off here (src/app/shell/tabs.cpp has its own test).
+bool application_tabs_visible() noexcept {
+    return false;
+}
+bool application_tabs_open_channel(u64, bool) noexcept {
+    return false;
+}
 const Theme& application_theme() noexcept {
     return fixture->theme;
 }

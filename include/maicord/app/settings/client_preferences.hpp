@@ -102,6 +102,8 @@ struct ClientPreferences {
     u8 speak_messages = 0;
     // Developer > Application Test Mode: the application in test mode (0 for none), kept across restarts.
     u64 test_mode_application = 0;
+    // Appearance > Layout: channel tabs in the title bar (opt-in).
+    bool tabs_enabled = false;
 };
 // Role colours on names (the default), as a dot next to names, or not at all.
 enum ClientRoleStyle : u8 { client_role_style_names, client_role_style_dot, client_role_style_hidden };
@@ -201,7 +203,8 @@ bool client_preferences_equal(const ClientPreferences& a, const ClientPreference
 // colours, 2 links underlined, 3..4 role style; byte 77 bits 0 Streamer Mode, 1
 // automatic, 2 hide personal information, 3 hide invite links, 4 disable sounds,
 // 5 disable notifications, 6 hide the window from capture. Byte 78 is Speak all messages out loud
-// (ClientSpeakMessages), 79 is zero, and 80..87 hold the test mode application id (little-endian u64).
+// (ClientSpeakMessages), 79 bit 0 shows the title bar's channel tabs (other bits must be zero), and 80..87 hold
+// the test mode application id (little-endian u64).
 // Exactly 96 bytes; portable byte encoding, zero reserved fields, accidental
 // corruption checksum at 88..95. A version 9 record (80 bytes, checksum at
 // 72..79) decodes with the newer fields at their defaults; any other version

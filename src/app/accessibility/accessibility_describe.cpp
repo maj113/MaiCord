@@ -1091,6 +1091,7 @@ void build_caption(UiAccessTree* tree) noexcept {
         button.surface = surface_caption;
         ui_access_add(tree, parent, button);
     }
+    application_caption_describe_tabs(tree, parent, surface_caption);
 }
 
 // The app-wide notice band: a status line named by its text, with its button and its X.

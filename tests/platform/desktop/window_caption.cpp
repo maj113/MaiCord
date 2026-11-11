@@ -571,6 +571,59 @@ void layout_and_states() noexcept {
     paint_stream_release(&paint);
 }
 
+// With tabs: the window buttons, the icon and the maximize rectangle the snap layouts use stay where they are; the
+// strip, the drag gap and the server region follow the width alone, whatever the tabs or the badge.
+void tabs_layout() noexcept {
+    const Theme& theme = kDefaultTheme;
+    static UiTabStripView few, many;
+    few.count = 1;
+    few.items[0] = {utf8_literal("a"), UiIcon::channel, kUiTabActive, 0, 0, 0, 0};
+    many.count = 16;
+    for (u32 i = 0; i < 16; ++i)
+        many.items[i] = {utf8_literal("a long channel name"), UiIcon::channel, i == 7 ? kUiTabActive : u8{0}, 0, 0, 0, 0};
+    constexpr float kWidths[]{50, 624, 864, 1000, 1920};
+    for (const float width : kWidths) {
+        const UiCaptionBarLayout off = ui_caption_bar_layout(theme, width, {});
+        UiCaptionBarState state{};
+        state.tabs = &few;
+        const UiCaptionBarLayout one = ui_caption_bar_layout(theme, width, state);
+        state.tabs = &many;
+        const UiCaptionBarLayout all = ui_caption_bar_layout(theme, width, state);
+        bool unmoved = true;
+        for (u32 i = 0; i < kUiCaptionButtonCount; ++i)
+            unmoved = unmoved && near(one.buttons[i].left, off.buttons[i].left) &&
+                      near(all.buttons[i].left, off.buttons[i].left) && near(all.fills[i].left, off.fills[i].left);
+        check(unmoved && near(one.icon.left, off.icon.left) && near(one.icon_target.right, off.icon_target.right),
+              "tabs leave the window buttons and the icon in place");
+        check(near(one.title.left, all.title.left) && near(one.title.right, all.title.right),
+              "the server region does not depend on the tabs");
+        if (width < 100) {
+            check(one.tabs.shown == 0 && !ui_rect_has_area(one.tabs.plus), "no strip in a 50 DIP bar");
+            continue;
+        }
+        const float region = minimum(maximum(width * .2f, kUiCaptionServerMinimum), kUiCaptionServerMaximum);
+        check(near(one.title.left, off.buttons[0].left - region) && near(one.tabs.area.right, one.title.left - kUiCaptionDragGap),
+              "the strip ends a drag gap before the server region");
+        check(one.tabs.area.right - one.tabs.area.left >= 250 && all.tabs.shown >= 4 &&
+                  (width >= 1000 ? !all.tabs.overflowed : all.tabs.overflowed),
+              "the strip's room and the overflow it implies");
+        // A press in the gap, on the server region and on the strip's empty part drags the window.
+        check(ui_caption_bar_part(one, one.tabs.area.right + kUiCaptionDragGap * .5f, 10) == UiCaptionPart::caption &&
+                  ui_caption_bar_part(one, one.title.left + 4, 10) == UiCaptionPart::caption &&
+                  ui_caption_bar_part(one, one.tabs.plus.right + 10, 10) == UiCaptionPart::caption &&
+                  ui_caption_bar_part(one, (one.tabs.plus.left + one.tabs.plus.right) * .5f, 10) == UiCaptionPart::tab,
+              "only tabs and the buttons are client parts");
+    }
+    UiCaptionBarState badge{};
+    badge.tabs = &few;
+    const UiCaptionBarLayout plain = ui_caption_bar_layout(theme, 1000, badge);
+    badge.update = UiCaptionUpdate::ready;
+    const UiCaptionBarLayout with_badge = ui_caption_bar_layout(theme, 1000, badge);
+    check(near(with_badge.title.left, plain.title.left) &&
+              near(plain.tabs.area.right - with_badge.tabs.area.right, with_badge.update.right - with_badge.update.left + theme.scale.space_2),
+          "an update badge narrows the strip by its own width and gap, the server region stays");
+}
+
 } // namespace
 } // namespace maicord
 
@@ -579,5 +632,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_window_caption_tests_entry()
     maicord::restored_window_insets();
     maicord::hit_testing();
     maicord::layout_and_states();
+    maicord::tabs_layout();
     ExitProcess(maicord::failures ? 1 : 0);
 }

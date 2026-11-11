@@ -168,6 +168,8 @@ enum class SettingBinding : u16 {
     folders_close_on_home,
     folders_follow_selection,
     show_hidden_channels,
+    // Title bar channel tabs (local).
+    tabs,
     // Image zoom lens (local): enabled, square shape, zoom and size sliders.
     image_zoom,
     image_zoom_square,

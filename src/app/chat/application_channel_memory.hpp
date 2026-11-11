@@ -15,5 +15,10 @@ void application_channel_memory_pump(u64 now_ms) noexcept;
 ChannelMemoryEntry application_channel_memory_recall(u64 guild_id) noexcept;
 // Immediate while a selection change is unobserved, else the write deadline; 0 for none.
 u64 application_channel_memory_next_wake() noexcept;
+// The profile the memory belongs to, zero while detached.
+u64 application_channel_memory_profile() noexcept;
+// The channel tabs of the account's file (loaded at start, empty without one); setting them schedules the write.
+ConstSlice<ChannelMemoryTab> application_channel_memory_tabs() noexcept;
+void application_channel_memory_set_tabs(ConstSlice<ChannelMemoryTab> tabs) noexcept;
 
 } // namespace maicord::app_detail

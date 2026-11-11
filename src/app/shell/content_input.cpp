@@ -19,6 +19,7 @@
 #include "../media/gif_favorite_star.hpp"
 #include "../account/profile.hpp"
 #include "content_input.hpp"
+#include "tabs.hpp"
 #include "../media/policy.hpp"
 #include "../guild/card.hpp"
 #include "../chat/composer/interaction_card.hpp"
@@ -162,6 +163,16 @@ void clear_pending_jump() noexcept {
     g_app.pending_message_jump_message_id = 0;
 }
 
+// A channel the sidebar could select: readable and message-capable.
+bool channel_navigable(const ChannelRecord& channel) noexcept {
+    constexpr u32 read_actions = channel_action_view | channel_action_read_history;
+    return channel.occupied && channel_is_message_capable(channel.type) && !(channel.flags & kChannelObfuscatedFlag) &&
+           (!channel_is_thread(channel.type) ||
+            chat_state_store_thread_accessible(g_app.account_ui->chat_state, channel)) &&
+           (channel_is_private(channel.type) || channel.permissions_resolved) &&
+           (channel.actions & read_actions) == read_actions;
+}
+
 bool navigate_content_message(u64 channel_id, u64 message_id) noexcept {
     if (!g_app.account_ui || channel_id == 0) {
         return false;
@@ -172,13 +183,7 @@ bool navigate_content_message(u64 channel_id, u64 message_id) noexcept {
         log_write(LogLevel::info, "ui", "message_link_channel_unavailable");
         return false;
     }
-    constexpr u32 read_actions = channel_action_view | channel_action_read_history;
-    if (!channel->occupied || !channel_is_message_capable(channel->type) ||
-        (channel->flags & kChannelObfuscatedFlag) ||
-        (channel_is_thread(channel->type) &&
-         !chat_state_store_thread_accessible(g_app.account_ui->chat_state, *channel)) ||
-        (!channel_is_private(channel->type) && !channel->permissions_resolved) ||
-        (channel->actions & read_actions) != read_actions)
+    if (!channel_navigable(*channel))
         return false;
     if (!message_id) {
         clear_pending_jump();
@@ -499,6 +504,11 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
 bool application_navigate_known_message(u64 channel_id, u64 message_id) noexcept {
     return navigate_content_message(channel_id, message_id);
 }
+bool application_channel_navigable(u64 channel_id) noexcept {
+    const ChannelRecord* channel =
+        g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id) : nullptr;
+    return channel && channel_navigable(*channel);
+}
 bool application_open_content_url(const Utf8View& url) noexcept {
     return open_content_url_impl(url);
 }
@@ -635,6 +645,15 @@ bool activate_navigation_press(const WindowEvent& event) noexcept {
               : !shell_navigation_scene_focus_channel(&g_app.shell_navigation_scene, hit.id))
         return false;
     return select_navigation(guild, hit.id, false);
+}
+
+bool application_navigation_middle_click(const WindowEvent& event) noexcept {
+    if (!application_tabs_visible())
+        return false;
+    const auto hit = renderer_navigation_hit_test(g_app.renderer, static_cast<short>(event.pointer.x),
+                                                  static_cast<short>(event.pointer.y));
+    return hit.kind == RendererNavigationHitKind::channel && hit.selectable &&
+           application_tabs_open_channel(hit.id, true);
 }
 
 bool activate_focused_navigation() noexcept {

@@ -23,6 +23,10 @@ bool copy_message_text_selection() noexcept;
 
 bool dismiss_popup() noexcept;
 bool refresh_popup_text() noexcept;
+// The title bar's tab menu (Close, Close other tabs, Close tabs to the right) and the list of every tab, in content
+// DIPs: the strip's rectangle lifted by the title bar's height.
+bool application_tab_menu_open(u32 index, const UiRect& anchor) noexcept;
+bool application_tab_list_open(const UiRect& anchor) noexcept;
 bool open_reaction_picker(u64 message_id) noexcept;
 bool open_reaction_picker(u64 message_id, const UiRect& anchor) noexcept;
 bool refresh_reaction_viewer_presentation() noexcept;
