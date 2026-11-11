@@ -155,7 +155,7 @@ static EmbedResolveResult load_collection(AccountMedia* media, const AccountMedi
     const bool youtube = youtube_collection_locator(request.url).list.bytes != 0;
     const bool apple = apple_music_collection_locator(request.url).id.bytes != 0;
     if (previous && (!youtube || request.collection_track != previous->count || !previous->continuation_bytes))
-        return {EmbedPlayerError::none, UpdateTransportError::none, 0, 200};
+        return {EmbedPlayerError::none, UpdateTransportError::none, 200};
     // 85 KiB of track ids and one YouTube page: zeroed pages for this call, not a stack frame that is probed and cleared.
     struct Scratch { u64 tracks[kMediaCollectionTracks]; YoutubeCollectionPage page; };
     ScratchPages<Scratch> scratch;
@@ -315,41 +315,40 @@ static AccountMediaRequestResult request_progressive(AccountMedia* media, const 
     return queue_progressive(media, request, monotonic_now_ms, unix_now_seconds);
 }
 
-// Spotify album art for activity cards: exactly https://i.scdn.co/image/<id>.
-constexpr char kActivityArtOrigin[] = "https://i.scdn.co/";
-static bool activity_art_url(const Utf8View& url) noexcept {
-    constexpr u32 bytes = sizeof(kActivityArtOrigin) - 1;
-    return url.data && url.bytes > bytes && bytes_equal(url.data, kActivityArtOrigin, bytes);
+// Direct picture hosts, each with one exact target shape and image type, for profile-image keys requested at their
+// own size: Spotify album art of activity cards (https://i.scdn.co/image/<id>), a connected account's logo
+// (https://discord.com/assets/<16 hex digits>.png) and a YouTube playlist track's thumbnail in a media page's queue
+// (https://i.ytimg.com/vi/<id>/mqdefault.jpg).
+struct DirectHost {
+    const char* origin;
+    u32 origin_bytes;
+    CdnImageType type;
+    CdnHost host;
+    bool (*valid)(ConstSlice<u8>) noexcept;
+};
+constexpr DirectHost kDirectHosts[]{
+    {"https://i.scdn.co/", 17, CdnImageType::jpeg, CdnHost::activity_art, activity_art_target_valid},
+    {"https://discord.com/", 19, CdnImageType::png, CdnHost::web_asset, web_asset_target_valid},
+    {"https://i.ytimg.com/", 19, CdnImageType::jpeg, CdnHost::track_art, track_art_target_valid},
+};
+static const DirectHost* direct_host(const AccountMediaUrlRequest& request) noexcept {
+    if (request.key.kind != MediaAssetKind::profile_image || request.proxy_width || !request.url.data)
+        return nullptr;
+    for (const auto& host : kDirectHosts)
+        if (request.image_type == host.type && request.url.bytes > host.origin_bytes + 1 &&
+            bytes_equal(request.url.data, host.origin, host.origin_bytes + 1))
+            return &host;
+    return nullptr;
 }
-static MediaUrlResult parse_activity_art_url(const Utf8View& url, const Slice<u8>& target_output) noexcept {
-    constexpr u32 origin_bytes = sizeof(kActivityArtOrigin) - 2;
-    if (!activity_art_url(url))
-        return {0, CdnHost::none, MediaUrlError::invalid_host};
-    const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + origin_bytes), url.bytes - origin_bytes};
-    if (!activity_art_target_valid(target))
+static MediaUrlResult parse_direct_url(const DirectHost& host, const Utf8View& url,
+                                       const Slice<u8>& target_output) noexcept {
+    const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + host.origin_bytes), url.bytes - host.origin_bytes};
+    if (!host.valid(target))
         return {0, CdnHost::none, MediaUrlError::invalid_target};
     if (target.count > target_output.count)
         return {0, CdnHost::none, MediaUrlError::output_capacity};
     copy_bytes(target_output.data, target.data, target.count);
-    return {target.count, CdnHost::activity_art, MediaUrlError::none};
-}
-// A connected account's logo: exactly https://discord.com/assets/<16 hex digits>.png, requested as a PNG.
-constexpr char kWebAssetOrigin[] = "https://discord.com/";
-static bool web_asset_url(const Utf8View& url) noexcept {
-    constexpr u32 bytes = sizeof(kWebAssetOrigin) - 1;
-    return url.data && url.bytes > bytes && bytes_equal(url.data, kWebAssetOrigin, bytes);
-}
-static MediaUrlResult parse_web_asset_url(const Utf8View& url, const Slice<u8>& target_output) noexcept {
-    constexpr u32 origin_bytes = sizeof(kWebAssetOrigin) - 2;
-    if (!web_asset_url(url))
-        return {0, CdnHost::none, MediaUrlError::invalid_host};
-    const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + origin_bytes), url.bytes - origin_bytes};
-    if (!web_asset_target_valid(target))
-        return {0, CdnHost::none, MediaUrlError::invalid_target};
-    if (target.count > target_output.count)
-        return {0, CdnHost::none, MediaUrlError::output_capacity};
-    copy_bytes(target_output.data, target.data, target.count);
-    return {target.count, CdnHost::web_asset, MediaUrlError::none};
+    return {target.count, host.host, MediaUrlError::none};
 }
 
 // Drops the previous video and reserves the video and audio fetches of a split-stream source.
@@ -454,16 +453,12 @@ AccountMediaRequestResult request_url_media(AccountMedia* media,
         target_host = parsed.host;
         expires_at_seconds = parsed.expires_at_seconds;
     } else {
+        const DirectHost* direct = catalog_key ? nullptr : direct_host(request);
         const MediaUrlResult parsed =
             catalog_key ? parse_catalog_preview_url(request.url, Slice<u8>{target, sizeof(target)},
                                                     key_format, request.proxy_width, request.proxy_height)
-            : request.key.kind == MediaAssetKind::profile_image &&
-                    request.image_type == CdnImageType::jpeg && !request.proxy_width && activity_art_url(request.url)
-                ? parse_activity_art_url(request.url, Slice<u8>{target, sizeof(target)})
-            : request.key.kind == MediaAssetKind::profile_image &&
-                    request.image_type == CdnImageType::png && !request.proxy_width && web_asset_url(request.url)
-                ? parse_web_asset_url(request.url, Slice<u8>{target, sizeof(target)})
-                : parse_media_url(request.url, Slice<u8>{target, sizeof(target)});
+            : direct    ? parse_direct_url(*direct, request.url, Slice<u8>{target, sizeof(target)})
+                        : parse_media_url(request.url, Slice<u8>{target, sizeof(target)});
         if (!parsed.ok()) {
             AccountMediaRequestResult failure =
                 result(AccountMediaRequestState::failed, AccountMediaError::target);
@@ -746,9 +741,9 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
     const u16 height = request.proxy_height ? minimum<u16>(1080, maximum<u16>(request.proxy_height, 144)) : 480;
     // Imgur's single-image MP4 mapping needs no metadata exchange. A resolved
     // provider_host also prevents re-entering this route for its direct URL.
-    const auto resolved = apple_collection ? EmbedResolveResult{EmbedPlayerError::none,UpdateTransportError::none,0,200}
+    const auto resolved = apple_collection ? EmbedResolveResult{EmbedPlayerError::none,UpdateTransportError::none,200}
         : locator.provider == EmbedProvider::imgur
-        ? EmbedResolveResult{imgur_video_streams(locator.id,&streams),UpdateTransportError::none,0,200}
+        ? EmbedResolveResult{imgur_video_streams(locator.id,&streams),UpdateTransportError::none,200}
         : track.bytes ? spotify_preview_resolve(resolver, track, unix_seconds, &streams,{},episode)
         : amazon.id.bytes ? amazon_music_preview_resolve(resolver, request.url, unix_seconds, &streams)
         : apple.id.bytes ? apple_music_preview_resolve(resolver, apple.id, apple.country, unix_seconds, &streams, {}, apple.video)

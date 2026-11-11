@@ -55,15 +55,42 @@ bool youtube_collection_tests(EmbedResolver* resolver) noexcept {
         check(youtube_collection_page({reinterpret_cast<char*>(body),writer.used},utf8_literal("PL123"),{scratch,4096},&many,sink)==EmbedPlayerError::none &&
             many.count==12 && names.count==12 && names.last==12 && names.bytes==48,"all queue titles survive beyond eight entries, including repeated songs");
     }
+    {
+        // A queue entry keeps its artist (shortBylineText) and length (lengthText, runs or simpleText) after its title.
+        struct Detail { MediaTrackTitle titles[2]; u32 count{}; } detail{};
+        const MediaTrackTitleSink keep{&detail, +[](void* opaque, u16, const MediaTrackTitle& name) noexcept {
+            auto& d = *static_cast<Detail*>(opaque);
+            if (d.count == 2) return false;
+            d.titles[d.count++] = name;
+            return true;
+        }};
+        constexpr auto entries = utf8_literal(
+            R"({"continuationContents":{"playlistPanelContinuation":{"playlistId":"PL123","contents":[)"
+            R"({"playlistPanelVideoRenderer":{"videoId":"CZQdi1sxd30","title":{"runs":[{"text":"Song"}]},)"
+            R"("shortBylineText":{"runs":[{"text":"Art\u00e9"}]},"lengthText":{"runs":[{"text":"1:02:03"}]}}},)"
+            R"({"playlistPanelVideoRenderer":{"videoId":"eyk25H75ld0","title":{"simpleText":"Other"},)"
+            R"("lengthText":{"simpleText":"3:21"}}}]}}})");
+        YoutubeCollectionPage two{};
+        const bool parsed =
+            youtube_collection_page(entries, utf8_literal("PL123"), {scratch, 4096}, &two, keep) == EmbedPlayerError::none;
+        const auto first = media_track_title_parts({detail.titles[0].text, detail.titles[0].bytes});
+        const auto second = media_track_title_parts({detail.titles[1].text, detail.titles[1].bytes});
+        check(parsed && detail.count == 2 && utf8_equal(first.title, utf8_literal("Song")) &&
+                  utf8_equal(first.author, utf8_literal("Arté")) && first.seconds == 3723 &&
+                  utf8_equal(second.title, utf8_literal("Other")) && !second.author.bytes && second.seconds == 201,
+              "queue entries keep their artist and length after the title");
+    }
     const auto saved = page;
     check(youtube_collection_page(json, utf8_literal("other"), {scratch, 4096}, &page) == EmbedPlayerError::malformed &&
         bytes_equal(&saved, &page, sizeof(page)), "another playlist cannot replace the queue");
     check(youtube_collection_page(json, list, {scratch, 1}, &page) == EmbedPlayerError::capacity &&
         bytes_equal(&saved, &page, sizeof(page)), "queue output is transactional under scratch pressure");
-    constexpr auto title_json = utf8_literal(R"({"type":"video","provider_name":"YouTube","provider_url":"https://www.youtube.com/","title":"Song \u00e9","html":"<iframe src=\"https://www.youtube.com/embed/CZQdi1sxd30?feature=oembed\"></iframe>"})");
+    constexpr auto title_json = utf8_literal(R"({"type":"video","provider_name":"YouTube","provider_url":"https://www.youtube.com/","title":"Song \u00e9","author_name":"Channel","html":"<iframe src=\"https://www.youtube.com/embed/CZQdi1sxd30?feature=oembed\"></iframe>"})");
     MediaTrackTitle title{};
     check(youtube_track_title(title_json, utf8_literal("CZQdi1sxd30"), {scratch, 4096}, &title) == EmbedPlayerError::none &&
-        utf8_equal({title.text,title.bytes},utf8_literal("Song é")), "YTM title metadata is Unicode and bound to exact video");
+        utf8_equal(media_track_title_parts({title.text, title.bytes}).title, utf8_literal("Song é")) &&
+        utf8_equal(media_track_title_parts({title.text, title.bytes}).author, utf8_literal("Channel")),
+        "YTM title metadata is Unicode, keeps its channel and is bound to exact video");
     struct Fixture { u32 calls{}; bool continuation{}; } f;
     const auto exchange = +[](void* opaque, const UpdateHttpRequest& request, const HttpsExchangeOptions& options, UpdateHttpResponse* response) noexcept {
         auto& f = *static_cast<Fixture*>(opaque); ++f.calls;

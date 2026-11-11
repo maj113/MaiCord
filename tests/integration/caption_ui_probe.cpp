@@ -15,6 +15,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
+#include "maicord/ui/theme/presets.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/page_registry.hpp"
@@ -591,7 +592,7 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
                 const u32 builds = d3d11_renderer_caption_builds(renderer);
                 const UiRect body = ui_tab_strip_tab(bar.tabs, active);
                 const UiTabLabel label = ui_tab_strip_label(bar.tabs, active);
-                const Color active_fill = over(tokens.pressed, background);
+                const Color active_fill = over(tokens.tab_active, background);
                 // The active fill: left edge of its body, below its icon and label.
                 if (!ui_rect_has_area(body) ||
                     !matches(read(image, px(body.left) + 2, px(bar.height) - 2), active_fill, 6))
@@ -644,7 +645,12 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
                 }
                 if (w == 1 && c == 1) {
                     // An unread tab (not the active one) wears a dot of the lit ink on its icon's upper right; the
-                    // pixel there changes and the strip builds once for it. Captured for review.
+                    // pixel there changes and the strip builds once for it. The pointer leaves the first tab before
+                    // the capture, so the active tab is the one lit tab in it. Captured for review.
+                    tabs.hovered = {};
+                    tabs.items[0].hover = 0;
+                    if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme))
+                        return fail(159);
                     const UiRect glyph = ui_tab_strip_icon(bar.tabs, 1);
                     const u32 dot_x = px(glyph.right), dot_y = px(glyph.top);
                     const Pixel before = read(image, dot_x, dot_y);
@@ -663,6 +669,85 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
                     tabs.items[1].flags = 0;
                 }
             }
+        }
+        // The same strip in the light and AMOLED themes (the loops above ran the dark one): the active tab wears the
+        // content's surface, a hovered one the fainter step toward it, a dragged one the active fill, and an idle one
+        // none. Captured for review.
+        Theme amoled = ui_theme_default_preset();
+        ui_theme_amoled_surfaces(amoled);
+        amoled = ui_theme_resolve_defaults(amoled);
+        const Theme variants[2]{ui_theme_light_preset(), amoled};
+        static const wchar_t* const kVariantFiles[2][3]{
+            {L"titlebar_tabs_light_hover.bmp", L"titlebar_tabs_light_drag.bmp", L"titlebar_tabs_light_tooltip.bmp"},
+            {L"titlebar_tabs_amoled_hover.bmp", L"titlebar_tabs_amoled_drag.bmp", L"titlebar_tabs_amoled_tooltip.bmp"}};
+        if (!renderer_resize(&renderer, px(1000), renderer.height))
+            return fail(160);
+        for (u32 v = 0; v < 2; ++v) {
+            const Theme& variant = variants[v];
+            const auto& colors = variant.tokens.caption;
+            const Color bar_fill = over(colors.background, variant.base_lowest);
+            reset_value(&tabs);
+            tabs.count = 5;
+            tabs.plus_enabled = true;
+            for (u32 i = 0; i < 5; ++i) {
+                tabs.items[i].label = {kNames[i], c_string_length(kNames[i])};
+                tabs.items[i].icon = UiIcon::channel;
+                tabs.items[i].flags = i == 2 ? kUiTabActive : u8{0};
+                tabs.items[i].select = i == 2 ? 1.0f : 0.0f;
+            }
+            UiCaptionBarState state{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
+            state.tabs = &tabs;
+            tabs.hovered = {UiTabHitKind::tab, 0};
+            tabs.items[0].hover = 1;
+            const UiCaptionBarLayout bar = ui_caption_bar_layout(variant, 1000, state, height, scale);
+            ProbeTargetReadback hover_shot{};
+            if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, variant) ||
+                probe_target_readback(renderer, &hover_shot))
+                return fail(161);
+            const auto foot = [&](const UiRect& body) noexcept { return read(hover_shot, px(body.left) + 2, px(bar.height) - 2); };
+            const UiRect hovered_body = ui_tab_strip_tab(bar.tabs, 0);
+            // The active tab reaches the bar's lower edge; the hovered one is a pill that stops short of it, so its
+            // foot is the bar's and its middle the hover tint.
+            if (!matches(foot(ui_tab_strip_tab(bar.tabs, 2)), over(colors.tab_active, bar_fill), 6) ||
+                !matches(foot(hovered_body), bar_fill, 6) ||
+                !matches(read(hover_shot, px(hovered_body.left) + 3, px(bar.height) / 2), over(colors.hover, bar_fill), 6) ||
+                !matches(foot(ui_tab_strip_tab(bar.tabs, 4)), bar_fill, 6))
+                return fail(162);
+            if (!probe_write_capture(hover_shot, kVariantFiles[v][0]))
+                return fail(163);
+            // The hovered tab's tooltip hangs below that tab, not below another one.
+            tabs.items[0].tooltip = utf8_literal("#general \xC2\xB7 Native Lab");
+            state.hovered = state.tooltip = UiCaptionPart::tab;
+            ProbeTargetReadback tip_shot{};
+            if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, variant) ||
+                probe_target_readback(renderer, &tip_shot))
+                return fail(167);
+            const auto changed = [&](const UiRect& body) noexcept {
+                u32 count = 0;
+                for (u32 y = caption; y < caption + px(40); ++y)
+                    for (u32 x = px(body.left); x < px(body.right); ++x)
+                        count += equal(read(hover_shot, x, y), read(tip_shot, x, y)) ? 0u : 1u;
+                return count;
+            };
+            if (changed(hovered_body) < px(40) * px(8) || changed(ui_tab_strip_tab(bar.tabs, 4)) ||
+                !probe_write_capture(tip_shot, kVariantFiles[v][2]))
+                return fail(168);
+            state.hovered = state.tooltip = none;
+            // Tab 3 held by the pointer over tab 2's place.
+            tabs.hovered = {};
+            tabs.items[0].hover = 0;
+            tabs.items[3].flags = kUiTabDragging;
+            tabs.drag_left = ui_tab_strip_tab(bar.tabs, 1).left + 30;
+            const UiCaptionBarLayout dragging = ui_caption_bar_layout(variant, 1000, state, height, scale);
+            ProbeTargetReadback drag_shot{};
+            if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, variant) ||
+                probe_target_readback(renderer, &drag_shot))
+                return fail(164);
+            const UiRect held = ui_tab_strip_tab(dragging.tabs, 3);
+            if (!matches(read(drag_shot, px(held.left) + 2, px(bar.height) - 2), over(colors.tab_active, bar_fill), 6))
+                return fail(165);
+            if (!probe_write_capture(drag_shot, kVariantFiles[v][1]))
+                return fail(166);
         }
         UiCaptionBarState off{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
         if (!renderer_resize(&renderer, original_width, renderer.height) || !relayout(renderer.height) ||

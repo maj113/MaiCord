@@ -56,9 +56,27 @@ enum class CdnHost : u8 {
     pornhub_video,
     vimeo_video,
     soundcloud_audio,
+    // i.ytimg.com: a YouTube playlist track's thumbnail in a media page's queue ("/vi/<id>/mqdefault.jpg").
+    track_art,
 };
 inline constexpr char kActivityArtHost[] = "i.scdn.co";
 inline constexpr char kWebAssetHost[] = "discord.com";
+inline constexpr char kTrackArtHost[] = "i.ytimg.com";
+// A track art target: "/vi/", an 11-character video id and "/mqdefault.jpg".
+constexpr bool track_art_target_valid(ConstSlice<u8> target) noexcept {
+    constexpr char prefix[] = "/vi/", suffix[] = "/mqdefault.jpg";
+    constexpr u32 prefix_bytes = sizeof(prefix) - 1, suffix_bytes = sizeof(suffix) - 1;
+    if (!target.data || target.count != prefix_bytes + 11 + suffix_bytes)
+        return false;
+    for (u32 i = 0; i < target.count; ++i) {
+        const u8 c = target[i];
+        if (i < prefix_bytes ? c != static_cast<u8>(prefix[i])
+            : i < prefix_bytes + 11 ? !ascii_is_alnum(c) && c != '-' && c != '_'
+                                    : c != static_cast<u8>(suffix[i - prefix_bytes - 11]))
+            return false;
+    }
+    return true;
+}
 // An activity art target: "/image/" and 1-64 ASCII letters or digits.
 constexpr bool activity_art_target_valid(ConstSlice<u8> target) noexcept {
     static constexpr char prefix[] = "/image/";

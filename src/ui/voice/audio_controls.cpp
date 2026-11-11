@@ -45,19 +45,37 @@ bool action(const UiAudioControlsProjection& projection, UiAudioControl id, u32 
     return true;
 }
 } // namespace
+bool ui_audio_controls_action(const UiAudioControlsProjection& projection, UiAudioControl id, u32 value,
+                              UiAudioAction* out) noexcept {
+    return action(projection, id, value, out);
+}
 
 float ui_audio_card_height(const UiAudioControlsStyle& style, float width, bool voice) noexcept {
     if (!positive(width) || width < style.minimum_width)
         return 0;
     return 2 * style.padding + 2 * style.target + style.gap + (voice ? 0 : style.title_height + style.gap);
 }
-UiRect ui_audio_page_card(const UiRect& stage, const UiAudioControlsStyle& style) noexcept {
+UiAudioPageLayout ui_audio_page_layout(const UiRect& stage, const UiAudioControlsStyle& style) noexcept {
+    constexpr float kArt = 240, kArtMinimum = 96, kGap = 16, kTitle = 24, kSource = 18;
+    UiAudioPageLayout out{};
     const float width = minimum(style.maximum_width, ui_rect_width(stage));
     const float height = ui_audio_card_height(style, width);
     if (!height || height > ui_rect_height(stage))
-        return {};
-    const float left = (stage.left + stage.right - width) * .5f, top = (stage.top + stage.bottom - height) * .5f;
-    return {left, top, left + width, top + height};
+        return out;
+    const float text = kTitle + kSource + 2 * kGap;
+    const float art = minimum(kArt, minimum(width, ui_rect_height(stage) - height - text));
+    const bool full = art >= kArtMinimum;
+    const float middle = (stage.left + stage.right) * .5f, left = middle - width * .5f;
+    float top = (stage.top + stage.bottom - height - (full ? art + text : 0)) * .5f;
+    if (full) {
+        out.art = {middle - art * .5f, top, middle + art * .5f, top + art};
+        top += art + kGap;
+        out.title = {left, top, left + width, top + kTitle};
+        out.source = {left, top + kTitle, left + width, top + kTitle + kSource};
+        top += kTitle + kSource + kGap;
+    }
+    out.card = {left, top, left + width, top + height};
+    return out;
 }
 bool ui_audio_card_geometry(const UiRect& bounds, const UiAudioControlsStyle& style, UiAudioCardGeometry* out,
                             bool voice, bool volume_expanded) noexcept {

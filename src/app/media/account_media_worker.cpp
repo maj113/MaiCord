@@ -60,7 +60,9 @@ AccountMediaRequestResult account_media_worker_collection_title(AccountMediaWork
     MediaTrackTitle title{}; MediaTrackId id{}; u64 retry{};
     auto* owner = collection_title_owner(worker, request, &title, &id, &retry);
     if (!owner) return request_result(AccountMediaRequestState::busy);
-    if (title.bytes) { *out = title; return request_result(AccountMediaRequestState::ready); }
+    // The track's identity comes with every answer: its thumbnail needs no title.
+    out->id = id;
+    if (title.bytes) { *out = title; out->id = id; return request_result(AccountMediaRequestState::ready); }
     const auto now = clock_monotonic_milliseconds();
     if (retry > now) return retry_wait_until(retry);
     if (id.apple_track) return request_result(AccountMediaRequestState::unsupported);

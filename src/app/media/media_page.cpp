@@ -10,6 +10,7 @@
 #include "../shell/content_input.hpp"
 #include "../shell/cursor.hpp"
 #include "../shell/input.hpp"
+#include "../shell/modal_scroll.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/panel_cover.hpp"
 #include "../shell/state.hpp"
@@ -21,6 +22,7 @@
 #include "maicord/app/media/url_resolver.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
@@ -31,6 +33,7 @@
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/ui/core/scene_cursor.hpp"
 #include "maicord/ui/voice/video_controls.hpp"
+#include "maicord/ui/chat/messages/component_media.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -48,31 +51,34 @@ struct MediaPage {
     // Where a replaced session left the player (and its playlist track); whether it ever played.
     u32 resume_ms;
     u16 track;
-    u16 url_bytes;
+    // The URL buffer holds the playback URL, then an audio page's artwork URL, then the link Open original opens.
+    u16 url_bytes, art_bytes, link_bytes;
     u8 title_bytes, source_bytes, flags;
     MediaPageKind kind;
     // The media cannot load until Retry. `refreshed`: the request asked for a fresh signature once already.
     bool missing, refreshed, played;
 };
 static_assert(sizeof(MediaPage) <= 4096, "one page each");
-// What a queue row's title holds at most.
-constexpr u32 kQueueTitleBytes = 128;
+// What a queue row's title, artist line and duration hold at most.
+constexpr u32 kQueueTitleBytes = 128, kQueueDetailBytes = 96, kQueueRowBytes = kQueueTitleBytes + kQueueDetailBytes + 16;
 struct MediaPages {
     MediaPage* pages[kMediaPageCapacity];
     // The shown page's viewer (page mode).
     UiImageViewer scene;
-    // A playlist page's queue: its rows' titles and the current track's duration; the track the queue last
-    // scrolled into view.
+    // A playlist page's queue: its rows' text and their YouTube video ids (the thumbnails' URLs; empty for other
+    // tracks), the heading's position, and the track the queue last followed.
     UiImageViewerQueue queue;
-    char titles[kUiImageViewerQueueRows][kQueueTitleBytes];
-    char duration[16], position[24];
+    char text[kUiImageViewerQueueRows][kQueueRowBytes];
+    char videos[kUiImageViewerQueueRows][11];
+    char position[24];
     u16 followed;
-    u64 copied_until_ms;
     u8 shown;
     // Keys go to the page after a press on it (and when it shows), until a press elsewhere.
     bool focused;
     // The shown page fills the window (its player full screen).
     bool fullscreen;
+    // Counts showings: the queue's scroll position belongs to one.
+    u32 showings;
 };
 MediaPages g_pages;
 
@@ -84,6 +90,26 @@ MediaPage* shown_page() noexcept {
 }
 Utf8View url_of(const MediaPage& page) noexcept {
     return {page.url, page.url_bytes};
+}
+// The picture a page requests and shows: an image page's own {url, key}; an audio page's artwork, its `fallback` key
+// and the URL stored after the playback URL (the key is zero without artwork). A video page's poster is the inline
+// card's, so it requests none.
+const MediaAssetKey& picture_key(const MediaPage& page) noexcept {
+    return page.kind == MediaPageKind::audio ? page.fallback : page.key;
+}
+Utf8View picture_url(const MediaPage& page) noexcept {
+    return page.kind == MediaPageKind::audio ? Utf8View{page.url + page.url_bytes, page.art_bytes} : url_of(page);
+}
+bool has_picture(const MediaPage& page) noexcept {
+    return page.kind == MediaPageKind::image || (page.kind == MediaPageKind::audio && page.art_bytes);
+}
+// The picture cannot load: an image page is unavailable until Retry; an audio page goes without its artwork.
+void unavailable(MediaPage* page) noexcept {
+    if (page->kind == MediaPageKind::audio)
+        page->art_bytes = 0;
+    else
+        page->missing = true;
+    application_request_frame();
 }
 // The page answers pointer and keys while it shows and nothing covers the content column.
 bool front() noexcept {
@@ -102,8 +128,9 @@ UiImageViewerPage page_info(const MediaPage& page) noexcept {
 bool image_resident(const MediaPage& page) noexcept {
     auto* preview = g_app.renderer.preview_media_atlas;
     auto* primary = g_app.renderer.media_atlas;
-    return (preview && (media_atlas_peek(preview, page.key).ok() || media_atlas_peek(preview, page.fallback).ok())) ||
-           (primary && media_atlas_peek(primary, page.key).ok());
+    const MediaAssetKey& key = picture_key(page);
+    return (preview && (media_atlas_peek(preview, key).ok() || media_atlas_peek(preview, page.fallback).ok())) ||
+           (primary && media_atlas_peek(primary, key).ok());
 }
 void keep_view() noexcept {
     auto* page = shown_page();
@@ -115,8 +142,8 @@ void keep_view() noexcept {
 // Retry: forgets the failure, the backoff and a failed URL refresh, so the next pump asks once more.
 void retry(MediaPage* page) noexcept {
     page->missing = page->refreshed = false;
-    media_asset_failure_clear(&g_app.media_failures, page->key);
-    const Utf8View url = url_of(*page);
+    media_asset_failure_clear(&g_app.media_failures, picture_key(*page));
+    const Utf8View url = picture_url(*page);
     for (auto& entry : g_app.media_urls.entries)
         if (entry.state == MediaUrlState::failed && entry.original_bytes == url.bytes &&
             bytes_equal(entry.original, url.data, url.bytes)) {
@@ -146,9 +173,12 @@ void activate(u32 index) noexcept {
         }
         return;
     case ui_image_viewer_open_original: {
-        const u64 now = clock_monotonic_milliseconds();
-        const Utf8View resolved = media_url_resolve(&g_app.media_urls, url_of(*page), now,
-                                                    clock_unix_milliseconds() / 1000);
+        // An embed's own link; an attachment's URL, its signature refreshed.
+        const Utf8View link{page->url + page->url_bytes + page->art_bytes, page->link_bytes};
+        const Utf8View resolved = link.bytes ? link
+                                             : media_url_resolve(&g_app.media_urls, url_of(*page),
+                                                                 clock_monotonic_milliseconds(),
+                                                                 clock_unix_milliseconds() / 1000);
         application_open_content_url(resolved.bytes ? resolved : url_of(*page));
         return;
     }
@@ -162,7 +192,6 @@ void activate(u32 index) noexcept {
         if (application_image_copy(page->key, page->fallback, url_of(*page))) {
             scene.copied = true;
             ++scene.revision;
-            g_pages.copied_until_ms = clock_monotonic_milliseconds() + 1500;
             application_request_frame();
         }
         return;
@@ -207,16 +236,6 @@ bool key_event(const WindowEvent& event) noexcept {
         if (!repeat)
             activate(command == UiImageViewerCommand::save ? ui_image_viewer_save : ui_image_viewer_copy);
         break;
-    case UiImageViewerCommand::focus_next:
-    case UiImageViewerCommand::focus_previous: {
-        const auto target = ui_widget_manager_next_focus(scene.widgets, scene.widgets.focused,
-                                                         command == UiImageViewerCommand::focus_previous, true);
-        ui_widget_manager_focus(&scene.widgets, target);
-        scene.focus = static_cast<u8>(scene.widgets.storage[target.slot].id - 10);
-        scene.keyboard_focus = true;
-        ++scene.revision;
-        break;
-    }
     case UiImageViewerCommand::video:
         // The player's keys, Space included unless Tab put a header button under it; Space also starts a player
         // that has not started.
@@ -241,9 +260,47 @@ bool key_event(const WindowEvent& event) noexcept {
     application_request_frame();
     return true;
 }
-// A video or audio page's player: the play button until its session starts, and a playlist's queue. The queue keeps
-// the current track in view (one row of the past above it) when the track changes; titles come from the playlist
-// as the media worker fetches them, one at a time ("Track N" until then).
+// A YouTube track's thumbnail: its 320 x 180 picture, keyed by its URL as other pictures fetched by URL.
+constexpr char kThumbPrefix[] = "https://i.ytimg.com/vi/", kThumbSuffix[] = "/mqdefault.jpg";
+constexpr u32 kThumbPrefixBytes = sizeof(kThumbPrefix) - 1, kThumbUrlBytes = kThumbPrefixBytes + 11 + sizeof(kThumbSuffix) - 1;
+void thumb_url(const char* video, char* out) noexcept {
+    copy_bytes(out, kThumbPrefix, kThumbPrefixBytes);
+    copy_bytes(out + kThumbPrefixBytes, video, 11);
+    copy_bytes(out + kThumbPrefixBytes + 11, kThumbSuffix, sizeof(kThumbSuffix) - 1);
+}
+// The queue's list scrolls with the shared scroll host (its curve, wheel settings and reduced motion).
+bool queue_scroll_read(void*, u64, UiScrollRange* range) noexcept {
+    const UiRect body = ui_image_viewer_queue_body(g_pages.scene);
+    if (!application_media_page_shown() || !g_pages.scene.queue || !ui_rect_has_area(body))
+        return false;
+    *range = {body,
+              g_pages.queue.scroll,
+              maximum(0.0, g_pages.queue.count * double{kUiImageViewerQueueRow} - ui_rect_height(body)),
+              kUiImageViewerQueueRow,
+              1,
+              0,
+              g_pages.showings};
+    return true;
+}
+bool queue_scroll_write(void*, u64, double offset, bool* changed) noexcept {
+    UiScrollRange range{};
+    if (!queue_scroll_read(nullptr, 0, &range))
+        return false;
+    const float next = static_cast<float>(minimum(maximum(offset, 0.0), range.maximum));
+    *changed = next != g_pages.queue.scroll;
+    if (*changed) {
+        g_pages.queue.scroll = next;
+        ++g_pages.scene.revision;
+        application_request_frame();
+    }
+    return true;
+}
+constexpr UiScrollBinding kQueueScroll{nullptr, 0x5155'4555'5343'524cull, queue_scroll_read, queue_scroll_write};
+// A video or audio page's player: the play button until its session starts, and a playlist's queue. The queue shows
+// the current track with one row of the past above it when the page shows; after a track change it moves (along the
+// scroll curve) only when the new current row is not wholly in view. Rows come from the playlist as the media worker
+// fetches them (title over artist, duration, thumbnail; "Track N" and no artist line until then); a row's text
+// does not depend on the current track but for a duration only the player knows.
 void sync_player(const MediaPage& page) noexcept {
     auto& scene = g_pages.scene;
     auto& queue = g_pages.queue;
@@ -252,28 +309,33 @@ void sync_player(const MediaPage& page) noexcept {
     bool changed = idle != scene.idle;
     scene.idle = idle;
     const VideoPageQueue state = application_video_page_queue(id);
-    const u32 rows = ui_image_viewer_queue_rows(scene);
-    u32 first = queue.first;
-    if (state.track != g_pages.followed) {
-        g_pages.followed = state.track;
-        first = state.track > 1 ? state.track - 2u : 0u;
-    }
-    first = minimum<u32>(first, state.count > rows ? state.count - rows : 0u);
-    changed = changed || state.count != queue.count || state.track != queue.current || first != queue.first;
+    changed = changed || state.count != queue.count || state.track != queue.current;
+    // The page's rows outlive a busy playlist lane: while the media worker resolves the next track it holds the lane
+    // that keeps the playlist, and its titles answer busy (not "unknown") until it is done.
+    const bool same_playlist = state.count == queue.count;
+    const u16 old_first = queue.first;
     queue.count = state.count;
     queue.current = state.track;
-    queue.first = static_cast<u16>(first);
-    char text[kQueueTitleBytes];
-    u32 bytes = 0;
-    if (state.duration_ms)
-        ui_video_append_clock(text, bytes, state.duration_ms, false);
-    if (bytes != queue.duration.bytes || !bytes_equal(g_pages.duration, text, bytes)) {
-        copy_bytes(g_pages.duration, text, bytes);
-        changed = true;
+    scene.queue = state.count ? &queue : nullptr;
+    constexpr float row = kUiImageViewerQueueRow;
+    const float view = ui_rect_height(ui_image_viewer_queue_body(scene));
+    if (state.track && state.track != g_pages.followed) {
+        const float top = static_cast<float>(state.track - 1) * row;
+        if (!g_pages.followed)
+            queue.scroll = top - row;
+        else if (top < queue.scroll || top + row > queue.scroll + view)
+            ui_scroll_host_scroll_to(&g_app.scroll_host, kQueueScroll, top < queue.scroll ? top : top + row - view,
+                                     application_now_us(), 96.0 / maximum(g_app.renderer.dpi, 1u));
+        g_pages.followed = state.track;
     }
-    queue.duration = {g_pages.duration, bytes};
+    const float scroll = minimum(maximum(queue.scroll, 0.0f), maximum(0.0f, state.count * row - view));
+    const u16 first = static_cast<u16>(scroll >= row ? scroll / row - 1 : 0);
+    changed = changed || scroll != queue.scroll || first != queue.first;
+    queue.scroll = scroll;
+    queue.first = first;
+    char text[kQueueRowBytes];
     // "6 of 24": where the queue is in the playlist.
-    bytes = decimal_write(text, state.track);
+    u32 bytes = decimal_write(text, state.track);
     copy_bytes(text + bytes, " of ", 4);
     bytes += 4;
     bytes += decimal_write(text + bytes, state.count);
@@ -282,28 +344,73 @@ void sync_player(const MediaPage& page) noexcept {
         changed = true;
     }
     queue.position = {g_pages.position, bytes};
-    for (u32 n = 0; n < rows; ++n) {
+    const i32 shift = i32{first} - i32{old_first};
+    for (u32 i = 0, rows = ui_image_viewer_queue_rows(scene); i < rows; ++i) {
+        // Rows move to their new slots in the order that reads each before it is overwritten.
+        const u32 n = shift < 0 ? rows - 1 - i : i;
         const u32 track = first + n + 1;
+        const bool listed = track <= state.count;
         MediaTrackTitle title;
         title.bytes = 0;
-        if (track <= state.count) {
+        title.id = {};
+        AccountMediaRequestState answer = AccountMediaRequestState::invalid;
+        if (listed) {
             const AccountMediaCollectionTitleRequest query{page.key, page.revision, static_cast<u16>(track), true};
-            account_module_collection_title(g_app.account.instance, &query, &title);
+            answer = account_module_collection_title(g_app.account.instance, &query, &title).state;
         }
-        bytes = utf8_truncated_length({title.text, title.bytes}, kQueueTitleBytes);
-        if (bytes)
-            copy_bytes(text, title.text, bytes);
-        else if (track <= state.count) {
+        // Busy: the row keeps what it showed for this track (its text, thumbnail and its key), moved with the scroll.
+        if (const i32 from = i32(n) + shift; answer == AccountMediaRequestState::busy && same_playlist && from >= 0 &&
+                                             u32(from) < rows && queue.rows[from].title.bytes) {
+            if (u32(from) != n) {
+                const auto kept = queue.rows[from];
+                char* stored = g_pages.text[n];
+                copy_bytes(stored, g_pages.text[from], kept.title.bytes + kept.detail.bytes + kept.duration.bytes);
+                copy_bytes(g_pages.videos[n], g_pages.videos[from], 11);
+                queue.rows[n] = {{stored, kept.title.bytes},
+                                 {stored + kept.title.bytes, kept.detail.bytes},
+                                 {stored + kept.title.bytes + kept.detail.bytes, kept.duration.bytes},
+                                 kept.thumb};
+                changed = true;
+            }
+            continue;
+        }
+        const auto parts = media_track_title_parts({title.text, title.bytes});
+        u32 at = utf8_truncated_length(parts.title, kQueueTitleBytes);
+        copy_bytes(text, parts.title.data, at);
+        if (!at && listed) {
             copy_bytes(text, "Track ", 6);
-            bytes = 6 + decimal_write(text + 6, track);
+            at = 6 + decimal_write(text + 6, track);
         }
-        if (bytes != queue.titles[n].bytes || !bytes_equal(g_pages.titles[n], text, bytes)) {
-            copy_bytes(g_pages.titles[n], text, bytes);
+        const u32 title_bytes = at;
+        bytes = utf8_truncated_length(parts.author, kQueueDetailBytes);
+        copy_bytes(text + at, parts.author.data, bytes);
+        at += bytes;
+        const u32 detail_bytes = at - title_bytes;
+        if (const u64 ms = parts.seconds ? parts.seconds * 1000ull : track == state.track ? state.duration_ms : 0;
+            ms && listed)
+            ui_video_append_clock(text, at, ms, false);
+        auto& item = queue.rows[n];
+        char* stored = g_pages.text[n];
+        if (item.title.bytes != title_bytes || item.detail.bytes != detail_bytes ||
+            item.title.bytes + item.detail.bytes + item.duration.bytes != at || !bytes_equal(stored, text, at)) {
+            copy_bytes(stored, text, at);
             changed = true;
         }
-        queue.titles[n] = {g_pages.titles[n], bytes};
+        // A YouTube track's thumbnail; its key never changes with the current track, so the atlas keeps it.
+        MediaAssetKey thumb{};
+        g_pages.videos[n][0] = 0;
+        if (listed && title.id.youtube_track) {
+            char url[kThumbUrlBytes];
+            copy_bytes(g_pages.videos[n], title.id.youtube, 11);
+            thumb_url(title.id.youtube, url);
+            thumb = message_component_media_key(hash64_bytes(kHash64Seed, url, kThumbUrlBytes), MediaAttachmentFormat::jpeg);
+        }
+        changed = changed || !media_asset_key_equal(thumb, item.thumb);
+        item = {{stored, title_bytes},
+                {stored + title_bytes, detail_bytes},
+                {stored + title_bytes + detail_bytes, at - title_bytes - detail_bytes},
+                thumb};
     }
-    scene.queue = state.count ? &queue : nullptr;
     if (changed)
         ++scene.revision;
 }
@@ -328,6 +435,16 @@ u8 application_media_page_open(const MediaPageSource& source) noexcept {
         return 0;
     copy_bytes(page->url, source.url.data, source.url.bytes);
     page->url_bytes = static_cast<u16>(source.url.bytes);
+    if (source.kind == MediaPageKind::audio && media_asset_key_valid(source.fallback) &&
+        source.url.bytes + source.art.bytes <= kCdnMaximumTargetBytes) {
+        copy_bytes(page->url + source.url.bytes, source.art.data, source.art.bytes);
+        page->art_bytes = static_cast<u16>(source.art.bytes);
+    }
+    // The link fits after them or goes (Open original then opens the media URL).
+    if (const u32 at = page->url_bytes + page->art_bytes; at + source.link.bytes <= kCdnMaximumTargetBytes) {
+        copy_bytes(page->url + at, source.link.data, source.link.bytes);
+        page->link_bytes = static_cast<u16>(source.link.bytes);
+    }
     page->title_bytes = static_cast<u8>(utf8_truncated_length(source.title, sizeof(page->title)));
     copy_bytes(page->title, source.title.data, page->title_bytes);
     page->source_bytes = static_cast<u8>(utf8_truncated_length(source.source, sizeof(page->source)));
@@ -362,6 +479,7 @@ bool application_media_page_show(u8 id) noexcept {
     auto& scene = g_pages.scene;
     reset_value(&g_pages.queue);
     g_pages.followed = 0;
+    ++g_pages.showings;
     ui_image_viewer_set_dpi(&scene, g_app.renderer.dpi);
     if (!ui_image_viewer_open(&scene, application_media_page_rect(), page->pixels) ||
         !ui_image_viewer_set_page(&scene, page_info(*page))) {
@@ -443,7 +561,12 @@ UiImageViewer* application_media_page_spinner() noexcept {
 }
 bool application_media_page_key_current(const MediaAssetKey& key) noexcept {
     const auto* page = application_media_page_shown() ? shown_page() : nullptr;
-    return page && !page->missing && (media_asset_key_equal(key, page->key) || media_asset_key_equal(key, page->fallback));
+    if (!page)
+        return false;
+    for (u32 n = 0, rows = g_pages.scene.queue ? ui_image_viewer_queue_rows(g_pages.scene) : 0; n < rows; ++n)
+        if (g_pages.videos[n][0] && media_asset_key_equal(key, g_pages.queue.rows[n].thumb))
+            return true;
+    return !page->missing && (media_asset_key_equal(key, page->key) || media_asset_key_equal(key, page->fallback));
 }
 bool application_media_page_playback(u8 id, MediaPagePlayback* out) noexcept {
     const auto* page = page_of(id);
@@ -513,11 +636,10 @@ bool application_media_page_synchronize() noexcept {
                                          : page->key.kind == MediaAssetKind::attachment &&
                                                application_downloads_available(page->message_id, page->key.id,
                                                                                snapshot)));
-    if (scene.copied && clock_monotonic_milliseconds() >= g_pages.copied_until_ms) {
+    // The check of Copy lasts as long as its toast; the toast's last frame comes after, so this one clears it.
+    if (scene.copied && !g_app.toasts.count && !ui_rect_has_area(g_app.toasts.rectangle)) {
         scene.copied = false;
         ++scene.revision;
-    } else if (scene.copied) {
-        application_request_frame();
     }
     const bool focus = g_app.keyboard_focus_visible && g_pages.focused;
     if (scene.keyboard_focus != focus) {
@@ -525,7 +647,8 @@ bool application_media_page_synchronize() noexcept {
         ++scene.revision;
     }
     renderer.media_page = &scene;
-    renderer.media_page_key = page->key;
+    // An audio page draws its artwork, an image page its picture; a video page's poster is the player's.
+    renderer.media_page_key = picture_key(*page);
     renderer.media_page_fallback = page->fallback;
     return renderer.interaction_text_media_page_revision == scene.revision ||
            renderer_rebuild_content_text(&renderer, application_theme());
@@ -603,9 +726,7 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept {
         return false;
     if (input_vertical_wheel(event) && scene.queue &&
         ui_rect_contains(ui_image_viewer_page_layout(scene).queue, point.x, point.y)) {
-        g_pages.queue.first = static_cast<u16>(maximum(0, i32{g_pages.queue.first} + (event.wheel.dy120 > 0 ? -3 : 3)));
-        ++scene.revision;
-        application_request_frame();
+        application_modal_scroll_wheel(kQueueScroll, point, event);
         return true;
     }
     const bool image = !scene.video;
@@ -668,35 +789,54 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept {
 bool application_media_page_pump(ApplicationMediaPump& pump, bool* stop) noexcept {
     *stop = false;
     auto* page = application_media_page_shown() ? shown_page() : nullptr;
-    // Video and audio pages play through the session (video.cpp); a page that cannot load waits for Retry.
-    if (!page || page->kind != MediaPageKind::image || page->missing || pump.visibility_only || image_resident(*page) ||
-        pump.asset_backed_off(page->key))
+    if (!page || pump.visibility_only)
+        return true;
+    // The queue's thumbnails in view and a row either side; the atlas keeps them, so scrolling back or a track change
+    // fetches nothing again.
+    const auto& scene = g_pages.scene;
+    for (u32 n = 0, rows = scene.queue ? ui_image_viewer_queue_rows(scene) : 0; n < rows; ++n) {
+        if (!g_pages.videos[n][0])
+            continue;
+        ProfileMedia media{};
+        media.key = g_pages.queue.rows[n].thumb;
+        thumb_url(g_pages.videos[n], media.url.data);
+        media.url.bytes = kThumbUrlBytes;
+        media.rectangle = ui_image_viewer_queue_thumb(scene, n);
+        media.clip = ui_image_viewer_queue_body(scene);
+        if (!pump.request_profile_media(media, stop, false))
+            return false;
+        if (*stop)
+            return true;
+    }
+    // Video pages play through the session (video.cpp) and an audio page's picture is its artwork; a page that cannot
+    // load waits for Retry.
+    if (!has_picture(*page) || page->missing || image_resident(*page) || pump.asset_backed_off(picture_key(*page)))
         return true;
     auto& application = pump.application;
-    const Utf8View source = url_of(*page);
+    const MediaAssetKey& key = picture_key(*page);
+    const Utf8View source = picture_url(*page);
     const Utf8View url =
         media_url_resolve(&application.media_urls, source, pump.now_ms, pump.now_seconds, page->refreshed);
     if (!url.bytes) {
         // Refreshing: the REST pump services the resolver. A refresh that failed for good leaves the page
         // unavailable.
-        if (media_url_resolution_state(application.media_urls, source) == MediaUrlState::failed) {
-            page->missing = true;
-            application_request_frame();
-        } else {
+        if (media_url_resolution_state(application.media_urls, source) == MediaUrlState::failed)
+            unavailable(page);
+        else {
             pump.result.history_requested =
                 pump.result.history_requested || media_url_next(&application.media_urls, pump.now_ms) != nullptr;
         }
         return true;
     }
-    const bool embed = page->key.kind == MediaAssetKind::embed;
-    const auto format = embed ? media_asset_embed_format(page->key) : media_asset_attachment_format(page->key);
-    const u16 cap = media_preview_extent_cap(format, (page->key.flags & media_asset_flag_animated) != 0);
+    const bool embed = key.kind == MediaAssetKind::embed;
+    const auto format = embed ? media_asset_embed_format(key) : media_asset_attachment_format(key);
+    const u16 cap = media_preview_extent_cap(format, (key.flags & media_asset_flag_animated) != 0);
     const float extent = static_cast<float>(cap) * 96.0f / static_cast<float>(maximum(application.renderer.dpi, 1u));
     const auto proxy = media_presentation_request(static_cast<u32>(page->pixels.width),
                                                   static_cast<u32>(page->pixels.height), extent, extent,
                                                   application.renderer.dpi, cap);
     const AccountMediaAttachmentRequest request{url,
-                                                page->key,
+                                                key,
                                                 page->message_id,
                                                 page->revision,
                                                 proxy.width,
@@ -714,13 +854,13 @@ bool application_media_page_pump(ApplicationMediaPump& pump, bool* stop) noexcep
     if (stale || requested.state == AccountMediaRequestState::failed ||
         requested.state == AccountMediaRequestState::invalid ||
         requested.state == AccountMediaRequestState::unsupported) {
-        if (stale && !page->refreshed)
+        if (stale && !page->refreshed) {
             page->refreshed = true;
-        else
-            page->missing = true;
-        application_request_frame();
+            application_request_frame();
+        } else
+            unavailable(page);
         return true;
     }
-    return pump.settle_media_request(requested, page->key, stop, true);
+    return pump.settle_media_request(requested, key, stop, true);
 }
 } // namespace maicord::app_detail

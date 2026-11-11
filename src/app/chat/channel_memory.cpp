@@ -2,6 +2,7 @@
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/model/chat/chat_state.hpp"
@@ -143,28 +144,37 @@ bool channel_memory_decode(ConstSlice<u8> input, ChannelMemory* memory) noexcept
         decoded.entries[i] = entry;
         decoded.count = static_cast<u8>(i + 1);
     }
-    // Version 2 appends the tab count (at least one) and the tabs; the record ends with the last of them.
-    u32 at = entries;
+    // Version 2 appends the tab count and the tabs, which the saved selections do not depend on: a tab that cannot be
+    // used (no channel, a repeated one, a label that is not UTF-8) is skipped, and a record that runs out of the file
+    // ends the list, so one bad tab costs that tab and nothing else.
     ChannelMemoryTab tabs[kChannelMemoryTabCapacity]{};
     u32 count = 0;
-    if (input[4] == kTabsVersion) {
-        count = at < body ? input[at++] : 0;
-        if (!count || count > kChannelMemoryTabCapacity)
+    if (input[4] == kVersion) {
+        if (entries != body)
             return false;
-        for (u32 i = 0; i < count; ++i) {
-            if (at + 17 > body)
-                return false;
-            ChannelMemoryTab& tab = tabs[i];
+    } else {
+        u32 at = entries;
+        const u32 saved = at < body ? input[at++] : 0;
+        for (u32 i = 0; i < saved && count < kChannelMemoryTabCapacity && at + 17 <= body; ++i) {
+            ChannelMemoryTab tab{};
             tab.channel_id = byte_load_le64(input.data + at);
             tab.guild_id = byte_load_le64(input.data + at + 8);
             tab.label_bytes = input[at + 16];
-            if (tab.label_bytes > kChannelMemoryTabLabelBytes || at + 17 + tab.label_bytes > body)
-                return false;
-            copy_bytes(tab.label, input.data + at + 17, tab.label_bytes);
+            const char* label = reinterpret_cast<const char*>(input.data + at + 17);
+            if (at + 17 + tab.label_bytes > body)
+                break;
             at += 17 + tab.label_bytes;
+            bool usable = tab.channel_id && tab.label_bytes <= kChannelMemoryTabLabelBytes &&
+                          utf8_validate({label, tab.label_bytes}).valid;
+            for (u32 j = 0; j < count; ++j)
+                usable = usable && tabs[j].channel_id != tab.channel_id;
+            if (!usable)
+                continue;
+            copy_bytes(tab.label, label, tab.label_bytes);
+            tabs[count++] = tab;
         }
     }
-    if (at != body || (count && !channel_memory_set_tabs(&decoded, {tabs, count})))
+    if (count && !channel_memory_set_tabs(&decoded, {tabs, count}))
         return false;
     decoded.revision = memory->revision + 1;
     *memory = decoded;

@@ -205,7 +205,7 @@ static EmbedPlayerError track_title(Utf8View json, u64 track, Utf8View video, Sl
     if (!out || (!track && !video_id(video)) || !json.data || !json.bytes || json.bytes > 32768) return E::invalid_input;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
-    FieldSet<"type", "provider_name", "provider_url", "title", "html"> f;
+    FieldSet<"type", "provider_name", "provider_url", "title", "html", "author_name"> f;
     JsonString title{}, markup{};
     if (!fields(doc, f) || !equal(f[0], video.bytes ? utf8_literal("video") : utf8_literal("rich")) ||
         !equal(f[1], video.bytes ? utf8_literal("YouTube") : utf8_literal("SoundCloud")) || !equal(f[2], video.bytes ? utf8_literal("https://www.youtube.com/") : utf8_literal("https://soundcloud.com")) ||
@@ -233,6 +233,10 @@ static EmbedPlayerError track_title(Utf8View json, u64 track, Utf8View video, Sl
     const auto name = decode_title(title, &staged);
     if (!name.ok()) return name.error == JsonStringDecodeError::output_too_small ? E::capacity : E::malformed;
     if (!name.bytes) return E::unavailable;
+    JsonString author{};
+    MediaTrackTitle by{};
+    if (text(f[5], &author)) decode_title(author, &by);
+    append_track_detail(&staged, {by.text, by.bytes}, 0);
     copy_value(out, staged);
     return E::none;
 }
@@ -267,6 +271,49 @@ bool queue_panel(const JsonIndexedDocument& doc, JsonValue root, JsonValue* pane
     if (!json_visit_indexed_array(doc, next, 48, visit, &tabs).ok() || tabs.count != 1) return false;
     *panel = tabs.panel; return true;
 }
+// A text object's runs joined (sanitized), or its simpleText; empty without either.
+void text_object(const JsonIndexedDocument& doc, JsonValue holder, MediaTrackTitle* out) noexcept {
+    reset_value(out);
+    JsonString simple{};
+    if (json_value_as_string(child<"simpleText">(doc, holder), &simple)) {
+        decode_title(simple, out);
+        return;
+    }
+    struct Runs { const JsonIndexedDocument* doc; MediaTrackTitle* title; } runs{&doc, out};
+    const auto run = [](void* opaque, u32, JsonValue item) noexcept {
+        auto& t = *static_cast<Runs*>(opaque);
+        JsonString text{};
+        if (!json_value_as_string(child<"text">(*t.doc, item), &text)) return false;
+        auto& title = *t.title;
+        const auto decoded = decode(text, title.text + title.bytes, static_cast<u32>(sizeof(title.text) - title.bytes));
+        if (!decoded.ok()) return false;
+        title.bytes += static_cast<u16>(decoded.bytes); return true;
+    };
+    if (!visit_array(doc, child<"runs">(doc, holder), run, &runs)) reset_value(out);
+    sanitize_title(out);
+}
+// "1:02:03" in seconds; 0 for anything else.
+u32 clock_seconds(const MediaTrackTitle& clock) noexcept {
+    u32 total = 0, part = 0;
+    for (u32 i = 0; i < clock.bytes; ++i) {
+        if (clock.text[i] == ':') { total = (total + part) * 60; part = 0; }
+        else if (clock.text[i] >= '0' && clock.text[i] <= '9' && part < 100'000) part = part * 10 + static_cast<u32>(clock.text[i] - '0');
+        else return 0;
+    }
+    return total + part;
+}
+// A SoundCloud track's uploader (user.username) and length (duration, milliseconds) after its title.
+void soundcloud_detail(const JsonIndexedDocument& doc, const Field& user, const Field& duration,
+                       MediaTrackTitle* title) noexcept {
+    MediaTrackTitle by{};
+    JsonString name{};
+    u32 ms = 0;
+    if (user.seen && json_value_as_string(child<"username">(doc, user.value), &name))
+        decode_title(name, &by);
+    if (!number(duration, &ms))
+        ms = 0;
+    append_track_detail(title, {by.text, by.bytes}, ms / 1000);
+}
 }
 EmbedPlayerError youtube_collection_page(Utf8View json, Utf8View list, Slice<u32> scratch, YoutubeCollectionPage* out, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
@@ -285,7 +332,7 @@ EmbedPlayerError youtube_collection_page(Utf8View json, Utf8View list, Slice<u32
         if (v.kind != JsonValueKind::object)
             v = child<"playlistPanelVideoWrapperRenderer", "primaryRenderer", "playlistPanelVideoRenderer">(*c.doc, value);
         if (v.kind != JsonValueKind::object) return true; // Automix controls are not songs.
-        FieldSet<"videoId", "selected", "title"> fields_out;
+        FieldSet<"videoId", "selected", "title", "shortBylineText", "lengthText"> fields_out;
         JsonString id{};
         if (!fields(*c.doc, v, fields_out) || !text(fields_out[0], &id)) return false;
         MediaTrackId track{}; track.youtube_track = true;
@@ -296,24 +343,15 @@ EmbedPlayerError youtube_collection_page(Utf8View json, Utf8View list, Slice<u32
         if (fields_out[1].seen && !json_value_to_bool(fields_out[1].value, &selected)) return false;
         if (selected) { if (page.selected) return false; page.selected = static_cast<u16>(page.count + 1); }
         page.tracks[page.count++] = track;
-        if (fields_out[2].seen) {
-            MediaTrackTitle cached{};
-            const auto runs = child<"runs">(*c.doc, fields_out[2].value);
-            struct TitleRuns { const JsonIndexedDocument* doc; MediaTrackTitle* title; } title_runs{c.doc, &cached};
-            const auto run = [](void* opaque_title, u32, JsonValue item) noexcept {
-                auto& t = *static_cast<TitleRuns*>(opaque_title);
-                const auto value = child<"text">(*t.doc, item); JsonString text{};
-                if (!json_value_as_string(value, &text)) return false;
-                auto& title = *t.title;
-                const auto decoded = decode(text, title.text + title.bytes, static_cast<u32>(sizeof(title.text) - title.bytes));
-                if (!decoded.ok()) return false;
-                title.bytes += static_cast<u16>(decoded.bytes); return true;
-            };
-            if (!visit_array(*c.doc, runs, run, &title_runs)) reset_value(&cached);
-            sanitize_title(&cached);
-            if (cached.bytes) {
-                if (c.sink.write && !c.sink.write(c.sink.context, page.count, cached)) { c.overflow = true; return false; }
-            }
+        MediaTrackTitle cached, detail;
+        text_object(*c.doc, fields_out[2].value, &cached);
+        if (cached.bytes) {
+            // The artist (or channel) and the length, as the queue shows them.
+            text_object(*c.doc, fields_out[4].value, &detail);
+            const u32 seconds = clock_seconds(detail);
+            text_object(*c.doc, fields_out[3].value, &detail);
+            append_track_detail(&cached, {detail.text, detail.bytes}, seconds);
+            if (c.sink.write && !c.sink.write(c.sink.context, page.count, cached)) { c.overflow = true; return false; }
         }
         return true;
     };
@@ -651,7 +689,7 @@ EmbedPlayerError soundcloud_collection(Utf8View html, Utf8View path, u64 expecte
     const auto visit = +[](void* opaque, u32, JsonValue value) noexcept {
         auto& list = *static_cast<Tracks*>(opaque);
         if (list.count == list.limit) return false;
-        FieldSet<"id", "kind", "title"> f; u64 id{};
+        FieldSet<"id", "kind", "title", "user", "duration"> f; u64 id{};
         if (!fields(list.doc, value, f) || !u64_of(f[0], &id) || !id ||
             (f[1].seen && !equal(f[1], "track"))) return false;
         if (list.output) {
@@ -659,6 +697,7 @@ EmbedPlayerError soundcloud_collection(Utf8View html, Utf8View path, u64 expecte
             JsonString name{}; MediaTrackTitle title{};
             if (list.sink.write && text(f[2], &name)) {
                 const auto decoded = decode_title(name, &title);
+                soundcloud_detail(list.doc, f[3], f[4], &title);
                 if (decoded.ok() && decoded.bytes &&
                     !list.sink.write(list.sink.context, static_cast<u16>(list.count + 1), title)) return false;
             }
@@ -685,7 +724,7 @@ EmbedPlayerError soundcloud_batch_titles(Utf8View json, const SoundcloudTitleBat
     if (const auto indexed = index_json(json, scratch, &names.doc); indexed != E::none) return indexed;
     const auto visit = [](void* opaque, u32, JsonValue value) noexcept {
         auto& n = *static_cast<Names*>(opaque);
-        FieldSet<"id", "kind", "title", "public"> f;
+        FieldSet<"id", "kind", "title", "public", "user", "duration"> f;
         u64 id{}; JsonString name{}; bool public_track = true;
         if (!fields(n.doc,value,f) || !u64_of(f[0],&id) || !equal(f[1], "track") ||
             !text(f[2],&name) || (f[3].seen && !json_value_to_bool(f[3].value,&public_track))) return false;
@@ -696,6 +735,7 @@ EmbedPlayerError soundcloud_batch_titles(Utf8View json, const SoundcloudTitleBat
         if (!public_track) return true;
         MediaTrackTitle title{}; const auto decoded = decode_title(name,&title);
         if (!decoded.ok() || !decoded.bytes) return true;
+        soundcloud_detail(n.doc, f[4], f[5], &title);
         for (u32 i=0;i<n.batch->count;++i) if (n.batch->tracks[i].id == id && ((n.batch->tracks[i].index == n.preferred) == n.first))
             if (!n.sink.write(n.sink.context,n.batch->tracks[i].index,title)) return false;
         return true;

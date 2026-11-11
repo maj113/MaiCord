@@ -139,7 +139,8 @@ differ, Linux memory most of all.
   tab* on a picture, video, audio file or voice message (its context menu, an embed's, or the image viewer's toolbar) to
   give it a page of its own with a player. A video or track keeps playing, with sound, while you work in another tab;
   unread channels show a dot. <kbd>Ctrl</kbd>+<kbd>T</kbd> pins, <kbd>Ctrl</kbd>+<kbd>W</kbd> closes,
-  <kbd>Ctrl</kbd>+<kbd>Tab</kbd> and <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>9</kbd> switch
+  <kbd>Ctrl</kbd>+<kbd>Tab</kbd> and <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>9</kbd> switch. Channel tabs come back after a
+  restart; a version without tabs cannot read that file and starts with its last-channel memory empty
 
 **Voice and video**
 - Voice channels with Discord's end-to-end encryption (DAVE)

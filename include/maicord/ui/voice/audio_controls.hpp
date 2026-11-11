@@ -99,8 +99,15 @@ struct UiAudioAction {
 float ui_audio_card_height(const UiAudioControlsStyle&, float width, bool voice = false) noexcept;
 bool ui_audio_card_geometry(const UiRect&, const UiAudioControlsStyle&, UiAudioCardGeometry*, bool voice = false,
                             bool volume_expanded = false) noexcept;
-// A media page's card: the widest the style allows within the page's stage, centred in it; empty when it cannot fit.
-UiRect ui_audio_page_card(const UiRect& stage, const UiAudioControlsStyle&) noexcept;
+// A media page's player stage: the card at its widest within the stage, and when the stage has room the artwork
+// square, the title and the source line above it, the whole block centred. Empty when the card cannot fit.
+struct UiAudioPageLayout {
+    UiRect art, title, source, card;
+};
+UiAudioPageLayout ui_audio_page_layout(const UiRect& stage, const UiAudioControlsStyle&) noexcept;
+inline UiRect ui_audio_page_card(const UiRect& stage, const UiAudioControlsStyle& style) noexcept {
+    return ui_audio_page_layout(stage, style).card;
+}
 bool ui_audio_controls_project(const UiAudioPlaybackState&, const UiRect&, const UiAudioControlsStyle&,
                                const Theme&, UiAudioControlsProjection*,
                                bool volume_expanded = false) noexcept;
@@ -111,6 +118,7 @@ UiAudioControl ui_audio_controls_hit(const UiAudioControlsProjection&, UiPoint) 
 // Waveform seek spans its full bounds; volume endpoints are actual thumb centers.
 UiRect ui_audio_controls_range_track(const UiAudioControlsProjection&, UiAudioControl) noexcept;
 bool ui_audio_controls_pointer_action(const UiAudioControlsProjection&, UiPoint, UiAudioAction*) noexcept;
+bool ui_audio_controls_action(const UiAudioControlsProjection&, UiAudioControl, u32 value, UiAudioAction*) noexcept;
 // Captured range drags clamp outside the range without admitting another control.
 bool ui_audio_controls_range_action(const UiAudioControlsProjection&, UiAudioControl, UiPoint,
                                     UiAudioAction*) noexcept;
@@ -123,7 +131,7 @@ enum class UiAudioSourceSurface : u8 {
     search,
     pins,
     forward,
-    // A media page (media tab): the card centred on the page's stage.
+    // A media page (media tab): the card on the page's stage (ui_audio_page_layout).
     page
 };
 enum class UiAudioPointerEvent : u8 {

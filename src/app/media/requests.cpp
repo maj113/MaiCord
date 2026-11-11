@@ -389,9 +389,8 @@ MediaAtlas* ApplicationMediaPump::upload_atlas(const MediaAssetKey& key) noexcep
 bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexcept {
     if (application.login.visible)
         return false;
-    // A shown media page's picture, whatever covers the chat.
-    if ((key.kind == MediaAssetKind::attachment || key.kind == MediaAssetKind::embed) &&
-        application_media_page_key_current(key))
+    // A shown media page's picture and its queue's track thumbnails, whatever covers the chat.
+    if (application_media_page_key_current(key))
         return true;
     if (forum_thumbnail_key_current(*this, key))
         return true;

@@ -461,6 +461,30 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
               ui_image_viewer_set_media(&page, UiImageViewerMedia::ready) &&
               !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_retry)),
           "page: the unavailable state shows Retry under its notice, and only then");
+    check(ui_image_viewer_set_save_available(&page, true) &&
+              ui_image_viewer_set_actions(&page, ui_image_viewer_action_open | ui_image_viewer_action_copy) &&
+              ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_copy)) &&
+              ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_save)) &&
+              ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_zoom_in)),
+          "page: a page with its picture offers zoom, Copy and Save");
+    check(ui_image_viewer_set_media(&page, UiImageViewerMedia::failed) &&
+              !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_zoom_in)) &&
+              !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_zoom_out)) &&
+              !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_fit)) &&
+              !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_copy)) &&
+              !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_save)) &&
+              ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_open_original)),
+          "page: an unavailable page hides zoom, Copy and Save and keeps Open original");
+    check(ui_image_viewer_key_command(page, UiImageViewerKey::plus, {}) == UiImageViewerCommand::none &&
+              ui_image_viewer_key_command(page, UiImageViewerKey::zero, {}) == UiImageViewerCommand::none &&
+              ui_image_viewer_key_command(page, UiImageViewerKey::s, {true, false, false}) == UiImageViewerCommand::none &&
+              ui_image_viewer_key_command(page, UiImageViewerKey::c, {true, false, false}) == UiImageViewerCommand::none,
+          "page: an unavailable page ignores the keys of zoom, Copy and Save");
+    check(ui_image_viewer_set_media(&page, UiImageViewerMedia::ready) &&
+              ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_zoom_in)) &&
+              ui_image_viewer_key_command(page, UiImageViewerKey::s, {true, false, false}) == UiImageViewerCommand::save &&
+              ui_image_viewer_set_save_available(&page, false) && ui_image_viewer_set_actions(&page, 0),
+          "page: a page whose picture returns offers them again");
     ui_image_viewer_zoom(&page, 3, {600, 400});
     ui_image_viewer_pan(&page, {40, -20});
     const float zoom = page.zoom;
@@ -478,21 +502,92 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
     check(ui_image_viewer_open(&player, {0, 0, 1000, 700}, {16, 9}) && ui_image_viewer_set_page(&player, audio),
           "page: an audio page opens");
     const auto regions = ui_image_viewer_page_layout(player);
-    check(player.video && ui_rect_has_area(regions.queue) && ui_rect_width(regions.queue) == 320 &&
+    check(player.video && ui_rect_has_area(regions.queue) && ui_rect_width(regions.queue) >= 320 &&
+              ui_rect_width(regions.queue) <= 420 &&
               regions.player.right < regions.queue.left && regions.player.bottom == regions.queue.bottom &&
               !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_zoom_in)) &&
               !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_copy)),
           "page: a wide playlist page puts the queue beside the player, without zoom or Copy");
     check(ui_rect_has_area(ui_audio_page_card(regions.player, kDefaultUiAudioControlsStyle)) &&
               ui_rect_width(ui_audio_page_card(regions.player, kDefaultUiAudioControlsStyle)) == 480,
-          "page: the audio card centres in the player at its widest");
-    const UiImageViewerQueue queue{{utf8_literal("One"), utf8_literal("Two"), utf8_literal("Three")}, {}, {}, 3, 0, 2, 0};
+          "page: the audio card is as wide as its style allows");
+    const auto stack = ui_audio_page_layout(regions.player, kDefaultUiAudioControlsStyle);
+    check(ui_rect_has_area(stack.art) && ui_rect_width(stack.art) == ui_rect_height(stack.art) &&
+              stack.art.top >= regions.player.top && stack.art.bottom <= stack.title.top &&
+              stack.title.bottom <= stack.source.top && stack.source.bottom <= stack.card.top &&
+              stack.card.bottom <= regions.player.bottom && ui_rect_equal(player.body, stack.art) &&
+              ui_rect_equal(player.image, stack.art) && ui_rect_equal(player.display, stack.art),
+          "page: an audio page stacks artwork, title and source above the card, and the artwork square is its picture");
+    const auto cramped = ui_audio_page_layout({0, 0, 480, 200}, kDefaultUiAudioControlsStyle);
+    check(!ui_rect_has_area(cramped.art) && !ui_rect_has_area(cramped.title) && ui_rect_width(cramped.card) == 480 &&
+              cramped.card.top == 44 && !ui_rect_has_area(ui_audio_page_layout({0, 0, 100, 200}, kDefaultUiAudioControlsStyle).card),
+          "page: a stage too short for artwork keeps the card alone, centred; one too narrow has none");
+    // A queue of 40 tracks scrolled to its fourth row: rows[n] is track first + n + 1.
+    UiImageViewerQueue queue{};
+    queue.count = 40;
+    queue.current = 6;
+    queue.first = 2;
+    queue.scroll = 3 * 56;
+    for (u32 n = 0; n < kUiImageViewerQueueRows; ++n)
+        queue.rows[n] = {utf8_literal("Song"), utf8_literal("Artist"), utf8_literal("3:21"),
+                         media_asset_embed(n + 1, 1, 0, MediaEmbedResource::image, MediaAttachmentFormat::jpeg, false,
+                                           MediaResolutionTier::px512)};
     player.queue = &queue;
-    check(ui_image_viewer_queue_rows(player) >= 3 &&
-              ui_image_viewer_queue_hit(player, {regions.queue.left + 20, regions.queue.top + 40 + 56 * 1.5f}) == 2 &&
-              !ui_image_viewer_queue_hit(player, {regions.queue.left + 20, regions.queue.top + 20}) &&
-              !ui_image_viewer_queue_hit(player, {regions.queue.left + 20, regions.queue.top + 40 + 56 * 3.5f}),
-          "page: a queue row hits its track; the heading and the rows past the last track do not");
+    const auto body = ui_image_viewer_queue_body(player);
+    check(ui_rect_has_area(body) && body.top == regions.queue.top + 40 && body.left == regions.queue.left &&
+              ui_image_viewer_queue_rows(player) == minimum<u32>(kUiImageViewerQueueRows,
+                                                                 static_cast<u32>(ui_rect_height(body) / 56) + 3),
+          "page: the queue's list lies under its heading and its host fills the rows in view and one either side");
+    check(ui_image_viewer_queue_hit(player, {body.left + 20, body.top + 56 * 1.5f}) == 5 &&
+              !ui_image_viewer_queue_hit(player, {body.left + 20, body.top - 20}) &&
+              ui_image_viewer_queue_row(player, 1).top == body.top &&
+              ui_image_viewer_queue_row(player, 1).bottom == body.top + 56 &&
+              ui_image_viewer_queue_row(player, 1).left == body.left + 8 &&
+              ui_rect_equal(ui_image_viewer_queue_thumb(player, 1),
+                            {body.left + 16, body.top + 8, body.left + 56, body.top + 48}),
+          "page: a scrolled queue's rows (56 DIPs, a 40 DIP thumbnail) and hits follow its scroll");
+    queue.scroll = 40 * 56;
+    check(!ui_image_viewer_queue_hit(player, {body.left + 20, body.top + 20}), "page: rows past the last track hit none");
+    queue.scroll = 3 * 56;
+    // A track change repaints only the old and the new current rows and changes no text.
+    PaintStream before{}, after{};
+    UiTextCommand before_commands[96], after_commands[96];
+    UiTextCommandStream before_text{}, after_text{};
+    UiTextOutput before_output{&before_text, nullptr}, after_output{&after_text, nullptr};
+    const auto draw = [&](PaintStream* paint, UiTextCommandStream* text, UiTextOutput* output,
+                          UiTextCommand* commands) noexcept {
+        return paint_stream_reset(paint, 1000, 700) && ui_image_viewer_paint(player, kDefaultTheme, paint) &&
+               ui_image_viewer_paint_overlay(player, kDefaultTheme, paint) &&
+               ui_text_command_stream_initialize(text, {commands, 96}) &&
+               ui_image_viewer_text_output(player, kDefaultTheme, output);
+    };
+    const bool drawn = paint_stream_initialize(&before) && paint_stream_initialize(&after) &&
+                       draw(&before, &before_text, &before_output, before_commands);
+    queue.current = 7;
+    const bool redrawn = drawn && draw(&after, &after_text, &after_output, after_commands);
+    const UiRect touched{body.left, ui_image_viewer_queue_row(player, 3).top, body.right,
+                         ui_image_viewer_queue_row(player, 4).bottom};
+    const auto only_touched = [&](const PaintStream& a, const PaintStream& b) noexcept {
+        u32 elsewhere = 0;
+        for (u32 i = 0; i < a.count; ++i) {
+            bool found = false;
+            for (u32 j = 0; j < b.count && !found; ++j)
+                found = bytes_equal(&a.quads[i], &b.quads[j], sizeof(PaintQuad));
+            const auto& q = a.quads[i];
+            elsewhere += !found && !(q.top >= touched.top - .5f && q.bottom <= touched.bottom + .5f);
+        }
+        return elsewhere == 0;
+    };
+    bool same_text = redrawn && before_text.count == after_text.count;
+    for (u32 i = 0; same_text && i < before_text.count; ++i)
+        same_text = utf8_equal(before_text.storage[i].text, after_text.storage[i].text) &&
+                    ui_rect_equal(before_text.storage[i].rectangle, after_text.storage[i].rectangle) &&
+                    bytes_equal(&before_text.storage[i].color, &after_text.storage[i].color, sizeof(Color));
+    check(redrawn && only_touched(before, after) && only_touched(after, before) && before.count == after.count,
+          "page: a track change repaints only the old and the new current rows (fill, rule, equaliser)");
+    check(same_text, "page: a track change changes no queue text");
+    paint_stream_release(&before);
+    paint_stream_release(&after);
     check(ui_image_viewer_key_command(player, UiImageViewerKey::f, {}) == UiImageViewerCommand::video &&
               ui_image_viewer_set_fullscreen(&player, true) &&
               ui_rect_equal(ui_image_viewer_page_layout(player).player, player.viewport) &&
@@ -506,6 +601,19 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
               ui_image_viewer_page_layout(player).queue.top > ui_image_viewer_page_layout(player).player.bottom &&
               ui_image_viewer_queue_rows(player) >= 3,
           "page: a narrow page stacks the queue under the player");
+    // The play button of a player that has not started is painted over the picture (the poster or the artwork), not
+    // under it.
+    PaintStream overlay{};
+    check(paint_stream_initialize(&overlay) && paint_stream_reset(&overlay, 640, 700) &&
+              ui_image_viewer_paint_overlay(player, kDefaultTheme, &overlay),
+          "page: the audio page's foreground paints");
+    const u32 foreground = overlay.count;
+    player.idle = true;
+    check(paint_stream_reset(&overlay, 640, 700) && ui_image_viewer_paint_overlay(player, kDefaultTheme, &overlay) &&
+              overlay.count > foreground,
+          "page: a player that has not started puts its play button in the foreground");
+    player.idle = false;
+    paint_stream_release(&overlay);
     PaintStream paint{};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 700) &&
               ui_image_viewer_paint(page, kDefaultTheme, &paint) && paint.clip_depth == 1 && paint.count > 4,

@@ -6274,19 +6274,39 @@ bool probe_media_page() noexcept {
     if (!probe_text_pixels({&card.projection.geometry.title, 1}) || !probe_capture_frame(L"media-page-audio.bmp"))
         return false;
     // The player at 1000 and 1920 DIP: a video page (its picture with the full transport over its foot) and a
-    // playlist page with its queue beside the player and previous / play / next in the one bar; at 1920 once more
-    // with a row hovered.
-    UiImageViewerQueue queue{{utf8_literal("Night Drive"), utf8_literal("Harbour Lights"),
-                              utf8_literal("Late Train (extended mix with a title too long for its row)"),
-                              utf8_literal("Track 8"), utf8_literal("Glass City"), utf8_literal("Track 10"),
-                              utf8_literal("Low Tide"), utf8_literal("Afterglow"), utf8_literal("Track 13"),
-                              utf8_literal("Northbound"), utf8_literal("Track 15"), utf8_literal("Static Bloom")},
-                             utf8_literal("3:34"),
-                             utf8_literal("6 of 24"),
-                             24,
-                             4,
-                             6,
-                             0};
+    // playlist page with its queue beside the player and previous / play / next in the one bar; at 1920 a 40-track
+    // queue (thumbnails, title over artist, duration) before and after a track change, and with a row hovered.
+    const Utf8View titles[]{utf8_literal("Night Drive"), utf8_literal("Harbour Lights"),
+                            utf8_literal("Late Train (extended mix with a title too long for its row)"),
+                            utf8_literal("Glass City"), utf8_literal("Low Tide"), utf8_literal("Afterglow"),
+                            utf8_literal("Northbound"), utf8_literal("Static Bloom"), utf8_literal("Paper Moons")};
+    // Every fourth track has neither artist nor length nor thumbnail (its title centres in its row).
+    const Utf8View artists[]{utf8_literal("Kite Club"), utf8_literal("The Lanterns"), utf8_literal("Oslo Transit"), {}};
+    const Utf8View lengths[]{utf8_literal("3:34"), utf8_literal("2:05"), utf8_literal("4:11"), {}};
+    // Three thumbnails (red, green, blue) and a track without one.
+    MediaAssetKey thumbs[4]{};
+    for (u32 t = 0; t < 3; ++t) {
+        for (u32 y = 0; y < 16; ++y)
+            for (u32 x = 0; x < 32; ++x) {
+                const u32 offset = y * 129 + 1 + x * 4;
+                pixels[offset] = t == 0 ? 220 : 40;
+                pixels[offset + 1] = t == 1 ? 180 : 40;
+                pixels[offset + 2] = t == 2 ? 220 : 60;
+            }
+        thumbs[t] = media_asset_attachment(991995 + t, MediaAttachmentFormat::png, MediaResolutionTier::px2048);
+        if (!renderer_upload_png_scanlines(&renderer, thumbs[t], image, {pixels, sizeof(pixels)}).ok())
+            return false;
+    }
+    UiImageViewerQueue queue{};
+    queue.count = 40;
+    queue.current = 6;
+    queue.first = 3;
+    queue.scroll = 4 * kUiImageViewerQueueRow;
+    queue.position = utf8_literal("6 of 40");
+    for (u32 n = 0; n < kUiImageViewerQueueRows; ++n) {
+        const u32 track = queue.first + n + 1;
+        queue.rows[n] = {titles[track % 9], artists[track % 4], lengths[track % 4], thumbs[track % 4]};
+    }
     UiImageViewer player{};
     UiVideoScene controls{};
     const auto capture_player = [&](float dips, bool playlist, const wchar_t* name) noexcept {
@@ -6342,7 +6362,10 @@ bool probe_media_page() noexcept {
         !capture_player(1920, false, L"media-player-video-1920.bmp") ||
         !capture_player(1920, true, L"media-player-playlist-1920.bmp"))
         return false;
-    queue.hovered = 8;
+    queue.current = 7;
+    if (!capture_player(1920, true, L"media-player-playlist-next-1920.bmp"))
+        return false;
+    queue.hovered = 9;
     if (!capture_player(1920, true, L"media-player-playlist-hover-1920.bmp"))
         return false;
     renderer.video_scene_page = false;

@@ -17,6 +17,8 @@
 //   media picker cells    source index + 1
 //   call tiles            participant user id (stream tiles: stream tile id)
 //   screen share sources  source index + 1
+//   media page queue rows track number (one-based)
+//   media page player     kUiAccessPlayerItem | the control id of the video or audio player
 
 namespace maicord {
 
@@ -31,6 +33,11 @@ struct TextFormScene;
 struct UiImageViewer;
 struct UiMediaPickerScene;
 struct UiGoLiveScene;
+struct UiVideoScene;
+struct UiAudioScene;
+
+// UiAccessNode::item of a media page's player nodes: this bit, and the id of the UiVideoControl or UiAudioControl.
+inline constexpr u64 kUiAccessPlayerItem = 1ull << 16;
 
 u32 ui_access_add_quick_switcher(UiAccessTree* tree, u32 parent, const UiQuickSwitcherScene& scene,
                                  u8 surface) noexcept;
@@ -44,6 +51,10 @@ u32 ui_access_add_call(UiAccessTree* tree, u32 parent, const UiCallScene& scene,
 u32 ui_access_add_forum_post(UiAccessTree* tree, u32 parent, const ForumPostScene& scene, u8 surface) noexcept;
 u32 ui_access_add_text_form(UiAccessTree* tree, u32 parent, const TextFormScene& scene, u8 surface) noexcept;
 u32 ui_access_add_image_viewer(UiAccessTree* tree, u32 parent, const UiImageViewer& viewer, u8 surface) noexcept;
+// A media page's hosted player (the viewer's page above carries its queue): the scene's controls as buttons, the
+// seek and volume sliders, the time and the player's state, added beneath the page's node.
+void ui_access_add_video_controls(UiAccessTree* tree, u32 parent, const UiVideoScene& scene, u8 surface) noexcept;
+void ui_access_add_audio_controls(UiAccessTree* tree, u32 parent, const UiAudioScene& scene, u8 surface) noexcept;
 u32 ui_access_add_media_picker(UiAccessTree* tree, u32 parent, const UiMediaPickerScene& scene,
                                u8 surface) noexcept;
 u32 ui_access_add_go_live(UiAccessTree* tree, u32 parent, const UiGoLiveScene& scene, u8 surface) noexcept;

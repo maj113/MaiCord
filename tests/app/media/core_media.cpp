@@ -436,6 +436,23 @@ void test_cdn_http_policy() noexcept {
                web_asset_refused(CdnImageType::png, byte_literal("/assets/1cc92a6d139af44d.png?x=1")) &&
                web_asset_refused(CdnImageType::webp, byte_literal("/assets/1cc92a6d139af44d.png")),
            "cdn_web_asset_host_serves_only_hashed_png_assets");
+    // A YouTube playlist track's thumbnail: i.ytimg.com/vi/<id>/mqdefault.jpg as a JPEG, nothing else on that host.
+    const CdnRequestResult track_art_request = write_static_cdn_get_request(
+        CdnImageType::jpeg, CdnHost::track_art, byte_literal("/vi/CZQdi1sxd30/mqdefault.jpg"), {},
+        Slice<u8>{request, sizeof(request)});
+    const auto track_art_head = byte_literal("GET /vi/CZQdi1sxd30/mqdefault.jpg HTTP/1.1\r\nHost: i.ytimg.com\r\n");
+    const auto track_art_refused = [&](CdnImageType type, ConstSlice<u8> target) noexcept {
+        return !write_static_cdn_get_request(type, CdnHost::track_art, target, {}, Slice<u8>{request, sizeof(request)})
+                    .ok();
+    };
+    expect(track_art_request.ok() && bytes_equal(ConstSlice<u8>{request, track_art_head.count}, track_art_head) &&
+               track_art_target_valid(byte_literal("/vi/a-_b0123456/mqdefault.jpg")) &&
+               !track_art_target_valid(byte_literal("/vi/CZQdi1sxd3/mqdefault.jpg")) &&
+               !track_art_target_valid(byte_literal("/vi/CZQdi1sxd3./mqdefault.jpg")) &&
+               !track_art_target_valid(byte_literal("/vi/CZQdi1sxd30/maxresdefault.jpg")) &&
+               track_art_refused(CdnImageType::jpeg, byte_literal("/generate_204")) &&
+               track_art_refused(CdnImageType::png, byte_literal("/vi/CZQdi1sxd30/mqdefault.jpg")),
+           "cdn_track_art_host_serves_only_video_thumbnails");
 
     const CdnRequestResult jpeg_request = write_static_cdn_get_request(
         CdnImageType::jpeg, CdnHost::cdn,
@@ -2951,9 +2968,13 @@ void test_account_media_profile_jpeg_hosts() noexcept {
                                                     "0123456789abcdef0123456789abcdef.jpg?size=480"));
     const auto art = request(9'102, utf8_literal("https://i.scdn.co/image/ab67616d0000b2730123456789abcdef01234567"));
     const auto other = request(9'103, utf8_literal("https://example.com/image.jpg"));
+    const auto thumb = request(9'104, utf8_literal("https://i.ytimg.com/vi/CZQdi1sxd30/mqdefault.jpg"));
+    const auto large = request(9'105, utf8_literal("https://i.ytimg.com/vi/CZQdi1sxd30/maxresdefault.jpg"));
     expect(splash.error != AccountMediaError::target && art.error != AccountMediaError::target &&
+               thumb.error != AccountMediaError::target && large.error == AccountMediaError::target &&
+               large.media_url_error == MediaUrlError::invalid_target &&
                other.error == AccountMediaError::target && other.media_url_error == MediaUrlError::invalid_host,
-           "account_media_profile_jpeg_cdn_banner_not_routed_to_album_art_parser");
+           "account_media_profile_jpeg_hosts_route_album_art_and_track_thumbnails_by_exact_shape");
     (void)account_media_stop(&media, 5'000);
 }
 

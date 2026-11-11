@@ -3,6 +3,7 @@
 // the strip. Synthetic views only.
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
+#include "maicord/ui/theme/presets.hpp"
 #include "maicord/ui/shell/tab_strip.hpp"
 #include "../../support/test_output.hpp"
 
@@ -56,11 +57,11 @@ void widths_and_overflow() noexcept {
         check(near(l.plus.right, kLeft + 600.f), "the plus ends at the strip's edge when the tabs fill it");
     }
     {
-        // Nine tabs at 41 DIP would put the active one below its minimum: it keeps 96, the rest shrink further.
-        const UiTabStripView v = view(9, 3);
+        // Eight tabs at 46 DIP would put the active one below its minimum: it keeps 108, the rest shrink further.
+        const UiTabStripView v = view(8, 3);
         const UiTabStripLayout l = ui_tab_strip_layout(area(400), v);
-        check(!l.overflowed && l.shown == 9 && near(l.width[3], kUiTabActiveMinimum) &&
-                  near(l.width[0], (400.f - kUiTabButton - kUiTabActiveMinimum) / 8.f) && l.width[0] >= kUiTabMinimum,
+        check(!l.overflowed && l.shown == 8 && near(l.width[3], kUiTabActiveMinimum) &&
+                  near(l.width[0], (400.f - kUiTabButton - kUiTabActiveMinimum) / 7.f) && l.width[0] >= kUiTabMinimum,
               "the active tab keeps its minimum while the others shrink");
         check(near(l.plus.right, kLeft + 400.f), "the strip is filled exactly");
     }
@@ -70,7 +71,7 @@ void widths_and_overflow() noexcept {
         const UiTabStripLayout l = ui_tab_strip_layout(area(300), v);
         check(l.overflowed && l.shown == 5, "sixteen tabs overflow in 300 DIP");
         check(near(l.slot_width[12], kUiTabActiveMinimum) && near(l.slot_left[12], l.slot_left[3] + l.slot_width[3]) &&
-                  l.slot_width[4] == 0 && l.slot_width[13] == 0,
+                  l.slot_width[3] > 0 && l.slot_width[4] == 0 && l.slot_width[13] == 0,
               "the active tab takes the last visible slot, the others beyond stay hidden");
         check(near(l.overflow.right, kLeft + 300.f) && near(l.plus.right, l.overflow.left) &&
                   near(l.plus.left, l.slot_left[12] + l.slot_width[12]),
@@ -79,14 +80,14 @@ void widths_and_overflow() noexcept {
               "a hidden tab takes no input");
         const UiTabStripView first = view(16, 0);
         const UiTabStripLayout f = ui_tab_strip_layout(area(300), first);
-        check(f.shown == 5 && f.slot_width[4] > 0 && f.slot_width[5] == 0 && near(f.slot_width[0], 96.f),
+        check(f.shown == 5 && f.slot_width[4] > 0 && f.slot_width[5] == 0 && near(f.slot_width[0], kUiTabActiveMinimum),
               "an active first tab is among the first ones");
     }
     {
         // The window's smallest strips (624 DIP wide).
         const UiTabStripView v = view(16, 15);
         const UiTabStripLayout narrow = ui_tab_strip_layout(area(257), v);
-        check(narrow.overflowed && narrow.shown >= 4 && ui_rect_has_area(narrow.overflow) &&
+        check(narrow.overflowed && narrow.shown >= 3 && ui_rect_has_area(narrow.overflow) &&
                   near(narrow.overflow.right, kLeft + 257.f),
               "a 624 DIP window's strip keeps the active tab, the plus and the list button");
         const UiTabStripLayout wide = ui_tab_strip_layout(area(1538), v);
@@ -139,7 +140,7 @@ void hits_and_labels() noexcept {
           "a wide tab's label sits between its icon and its close button");
 
     // Narrow tabs: icon only; the close button shows on the active and the hovered tab, in the icon's place.
-    v = view(9, 3);
+    v = view(8, 3);
     l = ui_tab_strip_layout(area(400), v);
     check(ui_tab_strip_label(l, 0).limit == 0 && ui_rect_has_area(ui_tab_strip_icon(l, 0)) &&
               !ui_rect_has_area(ui_tab_strip_close(l, 0)),
@@ -166,9 +167,9 @@ void hits_and_labels() noexcept {
 }
 
 // Inactive tabs narrower than kUiTabCloseAlways show no close button until the pointer is on them, and their label
-// takes the button's room (24 DIP) back meanwhile.
+// keeps its room meanwhile: its end fades out under the button.
 void close_on_hover() noexcept {
-    // Sixteen tabs in the 1920 DIP strip: 94 DIP each, the active one (8) 96.
+    // Sixteen tabs in the 1920 DIP strip: 93 DIP each, the active one (8) 108.
     UiTabStripView v = view(16, 8);
     UiTabStripLayout l = ui_tab_strip_layout(area(1538), v);
     check(l.slot_width[3] < kUiTabCloseAlways && l.slot_width[3] >= kUiTabLabelMinimum,
@@ -185,7 +186,17 @@ void close_on_hover() noexcept {
     check(ui_rect_has_area(close), "hovering a narrow tab reveals its close button");
     hit = ui_tab_strip_hit(l, centre(close), 20);
     check(hit.kind == UiTabHitKind::close && hit.index == 3, "and the button hits");
-    check(near(idle.limit - ui_tab_strip_label(l, 3).limit, 24.f), "the label gives that room up only while it shows");
+    check(near(idle.limit, ui_tab_strip_label(l, 3).limit),
+          "the label keeps its room, whether the button shows or not");
+    // The label's end fades out under the button as far as the button has come in.
+    UiTabStripView lit = v;
+    lit.items[3].hover = 1;
+    l = ui_tab_strip_layout(area(1538), lit);
+    const float edge = ui_tab_strip_close(l, 3).left;
+    check(near(ui_tab_strip_label_fade(lit, l, 3, edge), 0) && near(ui_tab_strip_label_fade(lit, l, 3, edge - 6), .5f) &&
+              near(ui_tab_strip_label_fade(lit, l, 3, edge - 12), 1) &&
+              near(ui_tab_strip_label_fade(v, ui_tab_strip_layout(area(1538), view(16, 8)), 3, edge), 1),
+          "the label fades under the revealed button and not at all without one");
     // The hover fill fading out keeps the button until it is gone.
     v.hovered = {};
     v.items[3].hover = .4f;
@@ -213,6 +224,22 @@ void drag_slots() noexcept {
     check(ui_tab_strip_drag_slot(l, 0, 5000) == 3 && ui_tab_strip_drag_slot(l, 3, -5000) == 0 &&
               ui_tab_strip_drag_slot(l, 3, 5000) == 3,
           "the ends hold the tabs in range");
+    // Overflowed, the active tab (15) draws in the last slot after the hidden ones; a tab dragged past the end must
+    // land where it stays drawn, not among the hidden tabs.
+    UiTabStripView o = view(16, 15);
+    const UiTabStripLayout ol = ui_tab_strip_layout(area(400), o);
+    const u32 to = ui_tab_strip_drag_slot(ol, 1, 5000);
+    UiTabItem moved = o.items[1];
+    for (u32 i = 1; i < to; ++i)
+        o.items[i] = o.items[i + 1];
+    moved.flags |= kUiTabDragging;
+    o.items[to] = moved;
+    const UiTabStripLayout after = ui_tab_strip_layout(area(400), o);
+    check(ol.overflowed && ol.beyond == 1u << 15 && after.slot_width[to] > 0,
+          "an overflowed strip keeps a tab dragged past its end drawn");
+    // The active tab drawn beyond the hidden ones is no slot to land in either; dragged itself it stays last.
+    check(ui_tab_strip_drag_slot(ol, 1, ol.slot_left[15] + 1) == to && ui_tab_strip_drag_slot(ol, 15, 5000) == 15,
+          "the beyond tab is no slot, and dragged itself it stays last");
 }
 
 void motion() noexcept {
@@ -230,6 +257,17 @@ void motion() noexcept {
     v.remaining = 0;
     l = ui_tab_strip_layout(area(700), v);
     check(near(l.width[2], rest.slot_width[2]) && l.fade[2] == 1, "and settles on its slot");
+    // The opening tab's label grows with its body instead of running past it under the plus.
+    v.items[2].flags = kUiTabOpening;
+    v.remaining = .5f;
+    l = ui_tab_strip_layout(area(700), v);
+    UiTabLabel growing = ui_tab_strip_label(l, 2);
+    check(near(growing.limit, l.width[2] - 38.f) && growing.left + growing.limit <= l.left[2] + l.width[2],
+          "an opening tab's label stays inside its body");
+    v.remaining = 0;
+    l = ui_tab_strip_layout(area(700), v);
+    growing = ui_tab_strip_label(l, 2);
+    check(near(growing.limit, rest.slot_width[2] - 38.f), "and is the settled one once it is open");
 
     // Neighbours slide from where they were.
     v = view(3, 0);
@@ -324,6 +362,32 @@ void painting() noexcept {
                           near(paint.quads[i].top, kTop) && near(paint.quads[i].bottom, kBottom + theme.scale.radius_md) &&
                           near(paint.quads[i].radius, theme.scale.radius_md));
     check(shape, "the active tab is a top-rounded shape whose bottom lies on the bar's edge");
+    // A hovered tab (item 0) is a pill that stops short of the bar's edge, not the active tab's shape.
+    bool pill = false, flush = false;
+    const UiRect hovered_body = ui_tab_strip_tab(l, 0);
+    for (u32 i = 0; i < paint.count; ++i) {
+        const auto& quad = paint.quads[i];
+        const bool same_width = near(quad.left, hovered_body.left) && near(quad.right, hovered_body.right);
+        pill = pill || (same_width && near(quad.top, kTop) && near(quad.bottom, kBottom - 4.f));
+        flush = flush || (same_width && quad.bottom > kBottom - 1);
+    }
+    check(pill && !flush, "a hovered tab's fill stops above the bar's lower edge, which only the active tab reaches");
+    // A dragged tab keeps its fill, the active tab's, even while it is not the active one.
+    UiTabStripView lifted = view(5, 2);
+    lifted.items[0].flags = kUiTabDragging;
+    const UiTabStripLayout lifted_layout = ui_tab_strip_layout(strip, lifted);
+    check(paint_stream_reset(&paint, 1000, kBottom) &&
+              ui_tab_strip_paint(&paint, theme, lifted_layout, lifted, true, 1),
+          "a strip with a dragged tab paints");
+    const UiRect dragged_body = ui_tab_strip_tab(lifted_layout, 0);
+    bool kept = false;
+    for (u32 i = 0; i < paint.count; ++i)
+        kept = kept || (near(paint.quads[i].left, dragged_body.left) && near(paint.quads[i].right, dragged_body.right) &&
+                        near(paint.quads[i].fill.red, theme.tokens.caption.tab_active.red) &&
+                        near(paint.quads[i].fill.alpha, 1));
+    check(kept, "a dragged tab is filled with the active tab's surface");
+    check(paint_stream_reset(&paint, 1000, kBottom) && ui_tab_strip_paint(&paint, theme, l, v, true, 1),
+          "the strip paints again");
     const Color idle = ui_tab_strip_ink(theme, v, l, 0, true), active = ui_tab_strip_ink(theme, v, l, 2, true);
     check(active.alpha >= idle.alpha && near(active.red, theme.tokens.caption.text.red),
           "the active tab's ink is the caption text");
@@ -410,6 +474,21 @@ void caption_layout() noexcept {
           "the tab part's tooltip is the hovered tab's label and rectangle");
 }
 
+void tokens() noexcept {
+    // The active tab is the content's surface, which stands out from the bar in every theme; the hover is the
+    // translucent step, which is a different shape (see painting).
+    Theme amoled = ui_theme_default_preset();
+    ui_theme_amoled_surfaces(amoled);
+    amoled = ui_theme_resolve_defaults(amoled);
+    const Theme themes[]{ui_theme_default_preset(), ui_theme_light_preset(), amoled};
+    for (const Theme& theme : themes) {
+        const auto& caption = theme.tokens.caption;
+        const float apart = caption.tab_active.red - caption.background.red;
+        check(caption.tab_active.red == theme.tokens.background.primary.red && (apart > .02f || apart < -.02f),
+              "the active tab's surface stands out from the bar in dark, light and AMOLED");
+    }
+}
+
 void run() noexcept {
     widths_and_overflow();
     hits_and_labels();
@@ -418,6 +497,7 @@ void run() noexcept {
     motion();
     stamp();
     painting();
+    tokens();
     caption_layout();
 }
 } // namespace maicord::tab_strip_test

@@ -86,11 +86,49 @@ bool viewer_item_visible(const ApplicationSearchSourceView& source,
                           : message_rich_embed_explicit(source.rich->embeds[item.index])) ==
            MessageMediaObscure::none;
 }
-MediaAssetKey attachment_key(const ApplicationImageViewer& viewer, u64 id, MediaAttachmentFormat format,
+MediaAssetKey attachment_key(const ApplicationImageViewer* viewer, u64 id, MediaAttachmentFormat format,
                              MediaResolutionTier tier) noexcept {
-    return viewer.search_result ? media_asset_search_attachment(id, format, tier, viewer.search_source.publication_revision,
-                                                                viewer.attachment_snapshot)
-                                : media_asset_attachment(id, format, tier);
+    return viewer && viewer->search_result
+               ? media_asset_search_attachment(id, format, tier, viewer->search_source.publication_revision,
+                                               viewer->attachment_snapshot)
+               : media_asset_attachment(id, format, tier);
+}
+// An image or animation attachment as the viewer previews it and a page shows it: its size (the file's, else its
+// card's) and two decode keys, the largest tier (the viewer requests it once; zoom reuses that texture and never
+// re-encodes or copies the pixels) and the tier the card shows. `viewer` is the open viewer (a search result's assets
+// are its own), null for a message of the timeline.
+void attachment_picture(const ApplicationImageViewer* viewer, const MessageRichStore& store,
+                        const MessageRichAttachment& attachment, MediaAttachmentFormat format, UiSize* pixels,
+                        MediaAssetKey* key, MediaAssetKey* fallback) noexcept {
+    float width = 0, height = 0;
+    if (!message_rich_attachment_preview_extent(store, attachment, 550, &width, &height))
+        width = 400, height = 225;
+    *pixels = attachment.width && attachment.height
+                  ? UiSize{static_cast<float>(attachment.width), static_cast<float>(attachment.height)}
+                  : UiSize{width, height};
+    const u16 cap = media_preview_extent_cap(format);
+    *fallback = attachment_key(viewer, attachment.id, format,
+                               media_resolution_tier_for_display(width, height, g_app.renderer.dpi, cap));
+    *key = attachment_key(viewer, attachment.id, format,
+                          cap > 512 ? MediaResolutionTier::px2048 : MediaResolutionTier::px512);
+}
+// The same for an embed's picture: its media's size (else 400 by 225) and the two decode keys.
+void embed_picture(bool searched, u64 message_id, u32 revision, u8 index, bool snapshot,
+                   const MessageRichEmbedMediaSelection& selected, UiSize* pixels, MediaAssetKey* key,
+                   MediaAssetKey* fallback) noexcept {
+    const u32 width = selected.media->width, height = selected.media->height;
+    *pixels = width && height ? UiSize{static_cast<float>(width), static_cast<float>(height)} : UiSize{400, 225};
+    const float scale = minimum(1.0f, minimum(400.0f / pixels->width, 300.0f / pixels->height));
+    const u16 cap = media_preview_extent_cap(selected.format, selected.animated);
+    const auto make = [&](MediaResolutionTier resolution) noexcept {
+        return searched ? media_asset_search_embed(message_id, revision, index, selected.resource, selected.format,
+                                                   selected.animated, resolution, snapshot)
+                        : media_asset_embed(message_id, revision, index, selected.resource, selected.format,
+                                            selected.animated, resolution, snapshot);
+    };
+    *fallback = make(media_resolution_tier_for_display(pixels->width * scale, pixels->height * scale,
+                                                       g_app.renderer.dpi, cap));
+    *key = make(cap > 512 ? MediaResolutionTier::px2048 : MediaResolutionTier::px512);
 }
 // Every previewable item of one message, in the official client's order: attachments,
 // then embed media. Audio and unknown files are skipped; a looping GIFV embed is
@@ -98,7 +136,6 @@ MediaAssetKey attachment_key(const ApplicationImageViewer& viewer, u64 id, Media
 u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, bool embed_snapshot,
                   ApplicationMediaViewerItem* items) noexcept {
     const auto& viewer = g_app.image_viewer;
-    const u32 dpi = g_app.renderer.dpi;
     u32 count = 0;
     ApplicationSearchSourceView source{};
     if (!application_image_viewer_source(&source))
@@ -113,27 +150,17 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
         if (format == MediaAttachmentFormat::unknown || format == MediaAttachmentFormat::lottie ||
             media_attachment_format_audio_supported(format))
             continue;
-        float width = 0, height = 0;
-        if (!message_rich_attachment_preview_extent(store, attachment, 550, &width, &height))
-            width = 400, height = 225;
         auto& item = items[count++];
         reset_value(&item);
         item.kind = MessageSceneRichItemKind::attachment;
         item.index = static_cast<u8>(i);
         item.attachment_id = attachment.id;
         item.video = format == MediaAttachmentFormat::mp4;
-        item.pixels = attachment.width && attachment.height
-                          ? UiSize{static_cast<float>(attachment.width), static_cast<float>(attachment.height)}
-                          : UiSize{width, height};
+        MediaAssetKey key{}, fallback{};
+        attachment_picture(&viewer, store, attachment, format, &item.pixels, &key, &fallback);
         if (!item.video) {
-            item.fallback = attachment_key(viewer, attachment.id, format,
-                                           media_resolution_tier_for_display(width, height, dpi,
-                                                                             media_preview_extent_cap(format)));
-            // The viewer requests the largest supported decode tier once. Zoom
-            // reuses that texture and never re-encodes or copies the pixels.
-            item.key = attachment_key(viewer, attachment.id, format,
-                                      media_preview_extent_cap(format) > 512 ? MediaResolutionTier::px2048
-                                                                             : MediaResolutionTier::px512);
+            item.key = key;
+            item.fallback = fallback;
         }
     }
     for (u32 i = 0; i < rich.embed_count && count < kApplicationMediaViewerItems; ++i) {
@@ -167,27 +194,14 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
         item.resource = selected.resource;
         item.video = selected.format == MediaAttachmentFormat::mp4 &&
                      rich.embeds[i].type != GatewayMessageEmbedType::gifv;
-        const u32 source_width = selected.media->width, source_height = selected.media->height;
-        item.pixels = source_width && source_height
-                          ? UiSize{static_cast<float>(source_width), static_cast<float>(source_height)}
-                          : UiSize{400, 225};
-        if (item.video)
-            continue;
-        const float scale = minimum(1.0f, minimum(400.0f / item.pixels.width, 300.0f / item.pixels.height));
-        const auto tier = media_resolution_tier_for_display(item.pixels.width * scale, item.pixels.height * scale,
-                                                            dpi, media_preview_extent_cap(selected.format, selected.animated));
-        const auto large =
-            media_preview_extent_cap(selected.format, selected.animated) > 512 ? MediaResolutionTier::px2048 : MediaResolutionTier::px512;
-        const u32 revision = viewer.search_result ? viewer.search_source.publication_revision : viewer.message_revision;
-        const auto make = [&](MediaResolutionTier resolution) noexcept {
-            return viewer.search_result
-                       ? media_asset_search_embed(viewer.message_id, revision, static_cast<u8>(i), selected.resource,
-                                                  selected.format, selected.animated, resolution, embed_snapshot)
-                       : media_asset_embed(viewer.message_id, revision, static_cast<u8>(i), selected.resource,
-                                           selected.format, selected.animated, resolution, embed_snapshot);
-        };
-        item.fallback = make(tier);
-        item.key = make(large);
+        MediaAssetKey key{}, fallback{};
+        embed_picture(viewer.search_result, viewer.message_id,
+                      viewer.search_result ? viewer.search_source.publication_revision : viewer.message_revision,
+                      static_cast<u8>(i), embed_snapshot, selected, &item.pixels, &key, &fallback);
+        if (!item.video) {
+            item.key = key;
+            item.fallback = fallback;
+        }
     }
     return count;
 }
@@ -477,6 +491,13 @@ MediaResolutionTier page_video_tier(u32 source_width, u32 source_height) noexcep
                                       media_preview_extent_cap(MediaAttachmentFormat::mp4))
         .resolution;
 }
+// A page's title: the media's own, else its kind's name.
+Utf8View page_title(Utf8View title, MediaPageKind kind) noexcept {
+    return title.bytes                  ? title
+           : kind == MediaPageKind::video ? utf8_literal("Video")
+           : kind == MediaPageKind::audio ? utf8_literal("Audio")
+                                          : utf8_literal("Image");
+}
 } // namespace
 UiImageViewerKey application_image_viewer_key(u32 code) noexcept {
     switch (code) {
@@ -547,16 +568,15 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
         return true;
     if (!title.bytes)
         title = item_caption(source, *item);
-    if (!title.bytes)
-        title = item->video ? utf8_literal("Video") : utf8_literal("Image");
     const Utf8View line = page_source_line(viewer.channel_id, source.message->author_id);
     const bool embed = item->kind == MessageSceneRichItemKind::embed;
-    *out = {item->video ? MediaPageKind::video : MediaPageKind::image,
+    const MediaPageKind kind = item->video ? MediaPageKind::video : MediaPageKind::image;
+    *out = {kind,
             static_cast<u8>((embed ? media_page_embed : 0) | (viewer.attachment_snapshot ? media_page_snapshot : 0) |
                             (provider ? media_page_provider : 0) |
                             (item->video && embed_collection_url(url) ? media_page_playlist : 0)),
             url,
-            title,
+            page_title(title, kind),
             line,
             item->key,
             item->fallback,
@@ -565,6 +585,13 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
             viewer.message_id,
             source.message->author_id,
             viewer.message_revision};
+    // Open original leaves for the embed's own link (the page it describes, with the message's playlist), not the
+    // media it plays.
+    if (embed)
+        out->link = youtube_collection_source(message_rich_store_string(store, rich.embeds[item->index].url),
+                                              viewer.attachment_snapshot
+                                                  ? message_rich_store_string(store, rich.snapshot.content)
+                                                  : message_store_content(*source.store, source.handle));
     return true;
 }
 bool application_image_viewer_item_page_source(u64 message_id, u32 revision, bool snapshot, bool embed, u64 item,
@@ -581,8 +608,7 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
         message->channel_id != g_app.account_ui->active_channel_id ||
         !application_channel_readable(g_app, message->channel_id))
         return false;
-    const u32 dpi = g_app.renderer.dpi;
-    Utf8View url{}, title{};
+    Utf8View url{}, title{}, art{}, link{};
     MediaAssetKey key{}, fallback{};
     UiSize pixels{};
     MediaPageKind kind = MediaPageKind::image;
@@ -598,26 +624,16 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
         const auto audio = message_rich_attachment_audio_format(store, attachment);
         url = message_rich_store_string(store, attachment.url);
         title = message_rich_store_string(store, attachment.filename);
-        if (attachment.width && attachment.height)
-            pixels = {static_cast<float>(attachment.width), static_cast<float>(attachment.height)};
         if (media_attachment_format_audio_supported(audio)) {
             kind = MediaPageKind::audio;
-            key = fallback = media_asset_attachment(attachment.id, audio, MediaResolutionTier::original);
+            key = media_asset_attachment(attachment.id, audio, MediaResolutionTier::original);
         } else if (format == MediaAttachmentFormat::mp4) {
             kind = MediaPageKind::video;
             key = fallback = media_asset_attachment(attachment.id, format, page_video_tier(attachment.width, attachment.height));
+            if (attachment.width && attachment.height)
+                pixels = {static_cast<float>(attachment.width), static_cast<float>(attachment.height)};
         } else if (format != MediaAttachmentFormat::unknown && format != MediaAttachmentFormat::lottie) {
-            float width = 0, height = 0;
-            if (!message_rich_attachment_preview_extent(store, attachment, 550, &width, &height))
-                width = 400, height = 225;
-            if (!ui_size_valid(pixels))
-                pixels = {width, height};
-            fallback = media_asset_attachment(
-                attachment.id, format,
-                media_resolution_tier_for_display(width, height, dpi, media_preview_extent_cap(format)));
-            key = media_asset_attachment(attachment.id, format,
-                                         media_preview_extent_cap(format) > 512 ? MediaResolutionTier::px2048
-                                                                                : MediaResolutionTier::px512);
+            attachment_picture(nullptr, store, attachment, format, &pixels, &key, &fallback);
         } else {
             return false;
         }
@@ -628,13 +644,16 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
         const auto& value = rich->embeds[index];
         flags |= media_page_embed;
         title = message_rich_store_string(store, value.title);
+        link = youtube_collection_source(message_rich_store_string(store, value.url),
+                                         snapshot ? message_rich_store_string(store, rich->snapshot.content)
+                                                  : message_store_content(g_app.message_view.store, found.handle));
         MessageRichEmbedMediaSelection media{};
         if (value.type != GatewayMessageEmbedType::gifv && message_rich_embed_playback_select(store, value, &media) &&
             (media.format == MediaAttachmentFormat::mp4 || media_embed_audio_format_supported(media.format))) {
             // A provider or direct video or audio; its playlist is recovered from the message as the player does.
             kind = media.format == MediaAttachmentFormat::mp4 ? MediaPageKind::video : MediaPageKind::audio;
-            key = fallback = media_asset_embed(message_id, revision, index, media.resource, media.format, media.animated,
-                                               page_video_tier(media.media->width, media.media->height), snapshot);
+            key = media_asset_embed(message_id, revision, index, media.resource, media.format, media.animated,
+                                    page_video_tier(media.media->width, media.media->height), snapshot);
             InlineMediaSource playing{};
             playing.key = key;
             playing.message_id = message_id;
@@ -649,6 +668,17 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
             if (width && height)
                 pixels = {static_cast<float>(width), static_cast<float>(height)};
             flags |= (media.provider ? media_page_provider : 0) | (embed_collection_url(url) ? media_page_playlist : 0);
+            if (kind == MediaPageKind::video)
+                fallback = key;
+            // An audio embed's own picture, when it has one, is the artwork the page shows.
+            MessageRichEmbedMediaSelection thumbnail{};
+            if (kind == MediaPageKind::audio && message_rich_embed_media_select(store, value, &thumbnail) &&
+                thumbnail.format != MediaAttachmentFormat::unknown && thumbnail.format != MediaAttachmentFormat::mp4 &&
+                !media_embed_audio_format_supported(thumbnail.format)) {
+                MediaAssetKey large{};
+                embed_picture(false, message_id, revision, index, snapshot, thumbnail, &pixels, &large, &fallback);
+                art = thumbnail.source;
+            }
         } else {
             MessageRichEmbedGalleryPlace place{};
             const bool tile = message_rich_embed_gallery_place(store, *rich, index, &place);
@@ -660,32 +690,17 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
                 (selected.format == MediaAttachmentFormat::mp4 && value.type != GatewayMessageEmbedType::gifv))
                 return false;
             url = selected.source;
-            pixels = selected.media->width && selected.media->height
-                         ? UiSize{static_cast<float>(selected.media->width), static_cast<float>(selected.media->height)}
-                         : UiSize{400, 225};
-            const float scale = minimum(1.0f, minimum(400.0f / pixels.width, 300.0f / pixels.height));
-            const u16 cap = media_preview_extent_cap(selected.format, selected.animated);
-            fallback = media_asset_embed(message_id, revision, index, selected.resource, selected.format,
-                                         selected.animated,
-                                         media_resolution_tier_for_display(pixels.width * scale, pixels.height * scale,
-                                                                           dpi, cap),
-                                         snapshot);
-            key = media_asset_embed(message_id, revision, index, selected.resource, selected.format, selected.animated,
-                                    cap > 512 ? MediaResolutionTier::px2048 : MediaResolutionTier::px512, snapshot);
+            embed_picture(false, message_id, revision, index, snapshot, selected, &pixels, &key, &fallback);
         }
     }
     if (!url.bytes || !media_asset_key_valid(key))
         return false;
     if (!out)
         return true;
-    if (!title.bytes)
-        title = kind == MediaPageKind::video   ? utf8_literal("Video")
-                : kind == MediaPageKind::audio ? utf8_literal("Audio")
-                                               : utf8_literal("Image");
     *out = {kind,
             flags,
             url,
-            title,
+            page_title(title, kind),
             page_source_line(message->channel_id, message->author_id),
             key,
             fallback,
@@ -693,7 +708,9 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
             message->channel_id,
             message_id,
             message->author_id,
-            revision};
+            revision,
+            art,
+            link};
     return true;
 }
 bool application_image_viewer_source(ApplicationSearchSourceView* out) noexcept {
@@ -1322,16 +1339,6 @@ bool application_image_viewer_event(const WindowEvent& event) noexcept {
             if (!repeat || !video)
                 navigate(command == UiImageViewerCommand::next ? 1 : -1);
             break;
-        case UiImageViewerCommand::focus_next:
-        case UiImageViewerCommand::focus_previous: {
-            const auto target = ui_widget_manager_next_focus(scene.widgets, scene.widgets.focused,
-                                                             command == UiImageViewerCommand::focus_previous, true);
-            ui_widget_manager_focus(&scene.widgets, target);
-            scene.focus = static_cast<u8>(scene.widgets.storage[target.slot].id - 10);
-            scene.keyboard_focus = true;
-            ++scene.revision;
-            break;
-        }
         case UiImageViewerCommand::activate: {
             const auto button =
                 ui_button_keyboard_key(&scene.keyboard, &scene.widgets,

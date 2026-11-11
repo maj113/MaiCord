@@ -209,5 +209,17 @@ void test_video_controls(void (*check)(bool,const char*) noexcept) noexcept {
     test_collection_controls(check);
     test_video_player_keys(check);
     test_video_time_and_expand(check);
+    {
+        // Accessibility sets a range or presses a button by id, a collapsed volume included.
+        const UiVideoPlaybackState playing{7, 8, 9, 30000, 120000, 40, true, false, false, false, true, true, true, true};
+        UiVideoControlsProjection built{};
+        UiVideoAction made{};
+        check(ui_video_controls_project(playing, {0, 0, 640, 100}, {}, kDefaultTheme, &built) &&
+                  built.controls[4].hidden && ui_video_controls_action(built, UiVideoControl::volume, 70, &made) &&
+                  made.volume == 70 && ui_video_controls_action(built, UiVideoControl::seek, 5000, &made) &&
+                  made.position_ms == 60000 && ui_video_controls_action(built, UiVideoControl::play_pause, 0, &made) &&
+                  !made.value && !ui_video_controls_action(built, UiVideoControl::time, 0, &made),
+              "video controls: an action by control id carries the range value or toggles the button, hidden or not");
+    }
 }
 }

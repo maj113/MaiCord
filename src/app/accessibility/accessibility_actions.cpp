@@ -30,6 +30,9 @@
 #include "../chat/polls/create.hpp"
 #include "../settings/layer.hpp"
 #include "maicord/app/account/login/continuations.hpp"
+#include "../media/media_page.hpp"
+#include "../media/video.hpp"
+#include "maicord/ui/accessibility/scenes.hpp"
 #include "maicord/core/log.hpp"
 
 namespace maicord::app_detail {
@@ -507,6 +510,17 @@ bool set_settings_slider(const UiAccessNode& node, double value) noexcept {
                     (geometry.track.top + geometry.track.bottom) * 0.5f);
 }
 
+// A media page's queue row or player control: the row's track, or the control (a slider's value in its own range).
+void access_page(const UiAccessNode& node, double value) noexcept {
+    const u8 page = application_media_page_shown();
+    if (!page)
+        return;
+    if (node.item & kUiAccessPlayerItem)
+        application_video_page_control(page, static_cast<u8>(node.item), value > 0 ? static_cast<u32>(value) : 0);
+    else
+        application_video_page_track(page, static_cast<u16>(node.item));
+}
+
 } // namespace
 namespace accessibility_detail {
 
@@ -542,6 +556,11 @@ void run_action(const PendingAction& pending) noexcept {
     case UiAccessAction::select:
     case UiAccessAction::invoke:
     case UiAccessAction::toggle:
+        if (node.surface == surface_page && node.item) {
+            if (!locked)
+                access_page(node, 0);
+            return;
+        }
         if (node.surface == surface_caption) {
             application_caption_access(node.item);
             return;
@@ -613,6 +632,8 @@ void run_action(const PendingAction& pending) noexcept {
             set_settings_slider(node, pending.number);
         else if (node.surface == surface_form && !locked)
             application_text_form_set_slider(center(node.visible), pending.number);
+        else if (node.surface == surface_page && !locked)
+            access_page(node, pending.number);
         return;
     default:
         return;

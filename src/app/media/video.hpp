@@ -60,6 +60,9 @@ struct VideoPageQueue {
 };
 VideoPageQueue application_video_page_queue(u8 page) noexcept;
 bool application_video_page_track(u8 page, u16 track) noexcept;
+// Accessibility: presses the control with this id (UiVideoControl or UiAudioControl) of the page's player, or sets a
+// slider (seek 0 to 10000, volume 0 to 100); a player that has not started starts with Play. False when refused.
+bool application_video_page_control(u8 page, u8 control, u32 value) noexcept;
 // The URL the viewer's playing item plays from (what its page copies) and whether it is a provider embed.
 bool application_video_viewer_url(Utf8View* url, bool* provider) noexcept;
 // Media viewer hosting: the one session moves between inline and viewer

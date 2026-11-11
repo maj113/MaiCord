@@ -73,6 +73,23 @@ bool soundcloud_collection_tests(EmbedResolver* resolver) noexcept {
     check(soundcloud_batch_titles(batch_json,batch,3,{title_scratch,4096},sink)==EmbedPlayerError::none &&
         names.count==3 && names.indices[0]==3 && names.indices[1]==2 && names.indices[2]==1 && names.bytes==16,
         "batch names follow IDs rather than response order and preserve repeated songs with demanded title first");
+    {
+        // A batch title keeps its uploader and length after it.
+        MediaTrackTitle kept{};
+        const MediaTrackTitleSink keep{&kept, +[](void* opaque, u16, const MediaTrackTitle& name) noexcept {
+            *static_cast<MediaTrackTitle*>(opaque) = name;
+            return true;
+        }};
+        SoundcloudTitleBatch one = batch;
+        one.count = 1;
+        const bool parsed = soundcloud_batch_titles(
+            utf8_literal(R"([{"id":290,"kind":"track","title":"Tune","user":{"username":"Uploader"},"duration":65400}])"),
+            one, 1, {title_scratch, 4096}, keep) == EmbedPlayerError::none;
+        const auto parts = media_track_title_parts({kept.text, kept.bytes});
+        check(parsed && utf8_equal(parts.title, utf8_literal("Tune")) && utf8_equal(parts.author, utf8_literal("Uploader")) &&
+                  parts.seconds == 65,
+              "batch titles keep their uploader and length");
+    }
     const Utf8View invalid_batches[]{
         utf8_literal(R"([{"id":999,"kind":"track","title":"Other"}])"),
         utf8_literal(R"([{"id":290,"kind":"track","title":"A"},{"id":290,"kind":"track","title":"B"}])"),

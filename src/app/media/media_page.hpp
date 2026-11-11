@@ -26,10 +26,15 @@ struct MediaPageSource {
     // url: the original CDN URL (the media proxy URL of an embed image); title: file name or embed title; source:
     // "#channel · Server · author".
     Utf8View url, title, source;
+    // An audio page's artwork is `fallback` (its key; zero without artwork, `pixels` its size) and `art` (its URL,
+    // an embed's thumbnail). The key of an audio page is its audio's.
     MediaAssetKey key, fallback;
     UiSize pixels;
     u64 channel_id, message_id, author_id;
     u32 revision;
+    Utf8View art;
+    // What Open original opens: an embed's own link (the page it describes); empty for an attachment, whose URL it is.
+    Utf8View link;
 };
 inline constexpr u32 kMediaPageCapacity = 8;
 

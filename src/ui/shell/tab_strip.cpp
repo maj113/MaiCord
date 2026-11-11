@@ -8,12 +8,15 @@ namespace {
 // A tab: padding, icon, label, close button, padding. Narrower than kNarrow the icon centres and the close button
 // takes its place.
 constexpr float kPad = 8.f, kGap = 6.f, kIcon = 16.f, kClose = 20.f, kNarrow = 56.f;
-// The label's room beside the icon and the close button; a "+" or "..." fill is a square this far inside its box.
-constexpr float kLabelLeft = kPad + kIcon + kGap, kLabelRight = kGap + kClose + kGap, kButtonInset = 2.f;
+// The label's room beside the icon (a close button covers its end, which fades out under it); a "+" or "..." fill
+// is a square this far inside its box.
+constexpr float kLabelLeft = kPad + kIcon + kGap, kFade = 12.f, kButtonInset = 2.f;
 // Dimmed ink: an unreachable channel, a disabled "+".
 constexpr float kDim = .5f;
 // The unread dot's diameter.
 constexpr float kDot = 6.f;
+// How far a hovered tab's fill stops short of the bar's lower edge.
+constexpr float kStep = 4.f;
 
 float snap(float value, float scale) noexcept {
     const float pixels = value * scale;
@@ -41,6 +44,13 @@ bool narrow(const UiTabStripLayout& layout, u32 index) noexcept {
 
 bool closable(const UiTabStripLayout& layout, u32 index) noexcept {
     return (layout.closable >> index) & 1;
+}
+
+// How far the close button has come in: at once on the active and the wide tabs, else with the hover fill.
+float reveal(const UiTabStripView& view, const UiTabStripLayout& layout, u32 index) noexcept {
+    return (view.items[index].flags & kUiTabActive) || layout.slot_width[index] >= kUiTabCloseAlways
+               ? 1.0f
+               : view.items[index].hover;
 }
 
 UiRect snapped(const UiRect& r, float scale) noexcept {
@@ -90,6 +100,7 @@ UiTabStripLayout ui_tab_strip_layout(const UiRect& area, const UiTabStripView& v
             const bool is_active = rank == active;
             if (is_active || rank + beyond < fit)
                 slot = is_active ? active_width : width;
+            layout.beyond |= static_cast<u32>(is_active && beyond) << i;
             ++rank;
         }
         layout.slot_left[i] = x;
@@ -156,10 +167,20 @@ UiRect ui_tab_strip_close(const UiTabStripLayout& layout, u32 index) noexcept {
 }
 
 UiTabLabel ui_tab_strip_label(const UiTabStripLayout& layout, u32 index) noexcept {
-    if (layout.slot_width[index] < kUiTabLabelMinimum)
+    const float slot = layout.slot_width[index];
+    if (slot < kUiTabLabelMinimum)
         return {};
+    // A tab that is opening (its fade is below 1) grows its label with it; the others keep the settled width.
     return {layout.left[index] + kLabelLeft,
-            layout.slot_width[index] - kLabelLeft - (closable(layout, index) ? kLabelRight : kPad)};
+            (layout.fade[index] < 1 ? minimum(slot, layout.width[index]) : slot) - kLabelLeft - kPad};
+}
+
+float ui_tab_strip_label_fade(const UiTabStripView& view, const UiTabStripLayout& layout, u32 index,
+                              float right) noexcept {
+    if (!closable(layout, index))
+        return 1.0f;
+    const float clear = minimum(maximum((ui_tab_strip_close(layout, index).left - right) / kFade, 0.0f), 1.0f);
+    return 1 - reveal(view, layout, index) * (1 - clear);
 }
 
 Color ui_tab_strip_ink(const Theme& theme, const UiTabStripView& view, const UiTabStripLayout& layout, u32 index,
@@ -220,7 +241,7 @@ Utf8View ui_tab_strip_hit_name(const UiTabStripView& view, UiTabHit hit) noexcep
         return hit.index < view.count && view.items[hit.index].icon == UiIcon::audio_lines ? utf8_literal("Pause")
                                                                                             : utf8_literal("Play");
     case UiTabHitKind::plus:
-        return utf8_literal("Pin this channel");
+        return view.plus_page ? utf8_literal("Pin this media") : utf8_literal("Pin this channel");
     case UiTabHitKind::overflow:
         return utf8_literal("All tabs");
     default:
@@ -232,7 +253,8 @@ u32 ui_tab_strip_drag_slot(const UiTabStripLayout& layout, u32 dragged, float x)
     // The dragged tab lands before the first other tab whose midpoint lies right of its centre, else after the last.
     u32 last = dragged;
     for (u32 i = 0; i < kUiTabCapacity; ++i) {
-        if (i == dragged || !(layout.slot_width[i] > 0))
+        // The active tab drawn beyond the hidden ones is no place to land: the tab would vanish among them.
+        if (i == dragged || !(layout.slot_width[i] > 0) || ((layout.beyond >> i) & 1))
             continue;
         if (layout.slot_left[i] + layout.slot_width[i] * .5f >= x)
             return i > dragged ? i - 1 : i;
@@ -280,8 +302,12 @@ bool ui_tab_strip_paint(PaintStream* paint, const Theme& theme, const UiTabStrip
         const bool pressed = view.pressed.kind == UiTabHitKind::tab && view.pressed.index == i;
         const Color ink = ui_tab_strip_ink(theme, view, layout, i, window_active);
         const UiRect shape{body.left, body.top, body.right, body.bottom + radius};
-        if (!fill(shape, tokens.pressed, item.select * fade, radius) ||
-            !fill(shape, pressed ? tokens.pressed : tokens.hover, (pressed ? 1.0f : item.hover) * fade, radius) ||
+        // The active tab (and a dragged one) joins the content below it in the content's own surface. A hovered one is
+        // a rounded step inside the bar, clear of the content's edge (held while the tab is pressed), which no tab
+        // that joins the content can be mistaken for.
+        const UiRect pill{body.left, body.top, body.right, body.bottom - kStep};
+        if (!fill(pill, tokens.hover, (pressed ? 1.0f : item.hover) * (1 - item.select) * fade, radius) ||
+            !fill(shape, tokens.tab_active, ((item.flags & kUiTabDragging) ? 1.0f : item.select) * fade, radius) ||
             !icon(item.icon, ui_tab_strip_icon(layout, i), ink))
             return false;
         // Unread: a dot on the icon's upper right, in the lit ink.
@@ -301,11 +327,11 @@ bool ui_tab_strip_paint(PaintStream* paint, const Theme& theme, const UiTabStrip
         const bool on_close = close_pressed || (view.pressed.kind == UiTabHitKind::none &&
                                                 view.hovered.kind == UiTabHitKind::close && view.hovered.index == i);
         // Beyond the active and the wide tabs, the close button comes in with the hover fill.
-        const float reveal = (item.flags & kUiTabActive) || layout.slot_width[i] >= kUiTabCloseAlways ? 1.0f : item.hover;
+        const float show = reveal(view, layout, i);
         Color lit = tokens.icon_hover, quiet = ink;
-        lit.alpha *= fade * reveal;
-        quiet.alpha *= reveal;
-        return fill(close, close_pressed ? tokens.pressed : tokens.hover, on_close ? fade * reveal : 0.0f, small) &&
+        lit.alpha *= fade * show;
+        quiet.alpha *= show;
+        return fill(close, close_pressed ? tokens.pressed : tokens.hover, on_close ? fade * show : 0.0f, small) &&
                icon(UiIcon::close,
                     {close.left + kButtonInset, close.top + kButtonInset, close.right - kButtonInset,
                      close.bottom - kButtonInset},

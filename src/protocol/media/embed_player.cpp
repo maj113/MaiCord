@@ -78,6 +78,18 @@ JsonStringDecodeResult decode_title(const JsonString& name, MediaTrackTitle* tit
     if (decoded.ok()) { title->bytes = static_cast<u16>(decoded.bytes); sanitize_title(title); }
     return decoded;
 }
+void append_track_detail(MediaTrackTitle* title, Utf8View author, u32 seconds) noexcept {
+    char digits[10];
+    const u32 count = seconds ? decimal_write(digits, seconds) : 0;
+    if ((!author.bytes && !count) || 2 + author.bytes + count > sizeof(title->text) - title->bytes)
+        return;
+    char* at = title->text + title->bytes;
+    *at++ = kMediaTrackDetail;
+    copy_bytes(at, author.data, author.bytes);
+    at[author.bytes] = kMediaTrackDetail;
+    copy_bytes(at + author.bytes + 1, digits, count);
+    title->bytes = static_cast<u16>(title->bytes + 2 + author.bytes + count);
+}
 // True when a store track page names track `id` (not a music video) in `country`.
 bool track_page_is(const JsonString& page, u64 id, const Utf8View& country, u32 capacity) noexcept {
     char url[1024];

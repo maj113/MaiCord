@@ -3,8 +3,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/button.hpp"
-#include "maicord/ui/widgets/menu_row.hpp"
 #include "maicord/ui/voice/video_scene.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/text/style.hpp"
 namespace maicord {
@@ -17,11 +17,13 @@ constexpr float kToolbarGroupGap = 12;
 constexpr float kBodyTop = kToolbarTop + kToolbarTarget + 20, kBodyBottom = 40, kBodySide = 24;
 constexpr float kChevronTarget = 44, kChevronInset = 16, kPanStep = 40, kSpinnerExtent = 32;
 // Page mode: the header band (glyph, title over source, toolbar), the inset around the player, the queue column (its
-// heading, then rows of artwork tile, title and duration) and the Retry button.
+// heading, then the scrolled list of rows: thumbnail, title over artist, duration) and the Retry button. The queue
+// column takes a third of a wide page within its bounds.
 constexpr float kPageHeader = 48, kPageToolbarTop = (kPageHeader - kToolbarTarget) * .5f, kPageInset = 16;
 constexpr float kPageGlyph = 20, kPageTextLeft = kPageInset + kPageGlyph + 12, kPageStageGlyph = 48;
-constexpr float kPageQueue = 320, kPageQueueMinimum = 720, kRetryWidth = 80;
-constexpr float kQueueHeading = 40, kQueueRow = 56, kQueueThumb = 40, kQueuePad = 8;
+constexpr float kPageQueue = 320, kPageQueueWide = 420, kPageQueueMinimum = 720, kRetryWidth = 80;
+constexpr float kQueueHeading = 40, kQueueRow = kUiImageViewerQueueRow, kQueueThumb = 40, kQueuePad = 8;
+constexpr float kQueueDuration = 48;
 inline bool view_group(u32 index) noexcept {
     return index == ui_image_viewer_fit || index == ui_image_viewer_zoom_in || index == ui_image_viewer_zoom_out ||
            index == ui_image_viewer_fullscreen;
@@ -45,7 +47,8 @@ UiImageViewerPageLayout page_layout(const UiImageViewer& v) noexcept {
     if (!v.page_info.queue)
         return out;
     if (ui_rect_width(content) >= kPageQueueMinimum) {
-        out.queue = {content.right - kPageQueue, content.top, content.right, content.bottom};
+        const float width = minimum(kPageQueueWide, maximum(kPageQueue, ui_rect_width(content) * .34f));
+        out.queue = {content.right - width, content.top, content.right, content.bottom};
         out.player.right = out.queue.left - kPageInset;
         return out;
     }
@@ -58,10 +61,28 @@ UiImageViewerPageLayout page_layout(const UiImageViewer& v) noexcept {
     }
     return out;
 }
-// The queue's nth row in view.
-UiRect queue_row(const UiImageViewerPageLayout& layout, u32 n) noexcept {
-    const float top = layout.queue.top + kQueueHeading + n * kQueueRow;
-    return {layout.queue.left + kQueuePad, top, layout.queue.right - kQueuePad, top + kQueueRow};
+// The queue's list: the column under its heading.
+UiRect queue_body(const UiImageViewerPageLayout& layout) noexcept {
+    return ui_rect_has_area(layout.queue)
+               ? UiRect{layout.queue.left, layout.queue.top + kQueueHeading, layout.queue.right,
+                        layout.queue.bottom - kQueuePad}
+               : UiRect{};
+}
+// The queue's rows[n] (track first + n + 1), placed by the list's scroll; and its thumbnail square.
+UiRect queue_row(const UiImageViewer& v, const UiImageViewerPageLayout& layout, u32 n) noexcept {
+    const auto body = queue_body(layout);
+    const float top = body.top + static_cast<float>(v.queue->first + n) * kQueueRow - v.queue->scroll;
+    return {body.left + kQueuePad, top, body.right - kQueuePad, top + kQueueRow};
+}
+UiRect queue_thumb(const UiRect& row) noexcept {
+    return {row.left + kQueuePad, row.top + kQueuePad, row.left + kQueuePad + kQueueThumb,
+            row.top + kQueuePad + kQueueThumb};
+}
+// The audio page's artwork square (empty when the stage has no room for it); the page's picture draws into it.
+UiRect page_art(const UiImageViewer& v) noexcept {
+    return v.page_info.kind == UiImageViewerPageKind::audio && !v.fullscreen
+               ? ui_audio_page_layout(page_layout(v).player, kDefaultUiAudioControlsStyle).art
+               : UiRect{};
 }
 // From fit, or actual size when that is smaller (fit upscales on high DPI),
 // up to the maximum or actual size when that is larger.
@@ -78,7 +99,12 @@ inline float snap(float value, float scale) noexcept {
     return static_cast<float>(static_cast<i64>(device >= 0 ? device + .5f : device - .5f)) / scale;
 }
 void arrange(UiImageViewer* v) noexcept {
-    // Images never upscale past one source pixel per DIP; video fills the viewer.
+    // An audio page's artwork fills its square; images never upscale past one source pixel per DIP, video fills the
+    // viewer.
+    if (v->page && v->page_info.kind == UiImageViewerPageKind::audio) {
+        v->image = v->display = v->body;
+        return;
+    }
     const float scale = minimum(ui_rect_width(v->body) / v->pixels.width, ui_rect_height(v->body) / v->pixels.height);
     const float fit = v->video ? scale : minimum(1.0f, scale);
     // A zoomed image keeps its absolute scale across resizes; a fitted one refits.
@@ -114,19 +140,21 @@ inline bool shown(const UiImageViewer& v, u32 index) noexcept {
     // A full screen page is all player.
     if (v.page && v.fullscreen)
         return false;
+    // An unavailable page has nothing to zoom, copy or save.
+    const bool inert = v.page && v.media == UiImageViewerMedia::failed;
     switch (index) {
     case ui_image_viewer_zoom_out:
     case ui_image_viewer_zoom_in:
     case ui_image_viewer_fit:
-        return !v.video;
+        return !v.video && !inert;
     case ui_image_viewer_save:
-        return v.can_save;
+        return v.can_save && !inert;
     case ui_image_viewer_open_original:
         return (v.actions & ui_image_viewer_action_open) != 0;
     case ui_image_viewer_new_tab:
         return (v.actions & ui_image_viewer_action_tab) != 0 && !v.page;
     case ui_image_viewer_copy:
-        return (v.actions & ui_image_viewer_action_copy) != 0 && !v.video;
+        return (v.actions & ui_image_viewer_action_copy) != 0 && !v.video && !inert;
     case ui_image_viewer_fullscreen:
         return !v.page;
     case ui_image_viewer_previous:
@@ -135,7 +163,7 @@ inline bool shown(const UiImageViewer& v, u32 index) noexcept {
     case ui_image_viewer_jump:
         return v.page;
     case ui_image_viewer_retry:
-        return v.page && v.media == UiImageViewerMedia::failed;
+        return inert;
     default:
         return true;
     }
@@ -201,7 +229,8 @@ bool place_controls(UiImageViewer* v) noexcept {
 void body_for(UiImageViewer* v) noexcept {
     const auto r = v->viewport;
     if (v->page) {
-        v->body = page_layout(*v).player;
+        const UiRect art = page_art(*v);
+        v->body = ui_rect_has_area(art) ? art : page_layout(*v).player;
         return;
     }
     // Gallery chevrons own the side gutters, so media never sits beneath them.
@@ -450,18 +479,25 @@ bool ui_image_viewer_set_page(UiImageViewer* v, const UiImageViewerPage& page) n
 UiImageViewerPageLayout ui_image_viewer_page_layout(const UiImageViewer& v) noexcept {
     return v.active && v.page ? page_layout(v) : UiImageViewerPageLayout{};
 }
+UiRect ui_image_viewer_queue_body(const UiImageViewer& v) noexcept {
+    return queue_body(ui_image_viewer_page_layout(v));
+}
 u32 ui_image_viewer_queue_rows(const UiImageViewer& v) noexcept {
-    const auto queue = ui_image_viewer_page_layout(v).queue;
-    const float room = ui_rect_height(queue) - kQueueHeading;
-    return room > 0 ? minimum(kUiImageViewerQueueRows, static_cast<u32>(room / kQueueRow)) : 0;
+    const float room = ui_rect_height(ui_image_viewer_queue_body(v));
+    return room > 0 ? minimum(kUiImageViewerQueueRows, static_cast<u32>(room / kQueueRow) + 3) : 0;
 }
 u16 ui_image_viewer_queue_hit(const UiImageViewer& v, UiPoint point) noexcept {
-    const auto layout = ui_image_viewer_page_layout(v);
-    if (!v.queue || !ui_rect_contains(layout.queue, point.x, point.y) || point.y < layout.queue.top + kQueueHeading)
+    const auto body = ui_image_viewer_queue_body(v);
+    if (!v.queue || !ui_rect_contains(body, point.x, point.y))
         return 0;
-    const u32 n = static_cast<u32>((point.y - layout.queue.top - kQueueHeading) / kQueueRow);
-    const u32 track = v.queue->first + n + 1;
-    return n < ui_image_viewer_queue_rows(v) && track <= v.queue->count ? static_cast<u16>(track) : 0;
+    const u32 track = static_cast<u32>((point.y - body.top + v.queue->scroll) / kQueueRow) + 1;
+    return track <= v.queue->count ? static_cast<u16>(track) : 0;
+}
+UiRect ui_image_viewer_queue_row(const UiImageViewer& v, u32 n) noexcept {
+    return v.queue ? queue_row(v, ui_image_viewer_page_layout(v), n) : UiRect{};
+}
+UiRect ui_image_viewer_queue_thumb(const UiImageViewer& v, u32 n) noexcept {
+    return v.queue ? queue_thumb(ui_image_viewer_queue_row(v, n)) : UiRect{};
 }
 void ui_image_viewer_set_view(UiImageViewer* v, float zoom, UiPoint pan) noexcept {
     if (!v || !v->active || v->video || !ui_coordinate_valid(zoom) || zoom <= 0 || !ui_coordinate_valid(pan.x) ||
@@ -559,11 +595,13 @@ UiImageViewerCommand ui_image_viewer_key_command(const UiImageViewer& v, UiImage
         return Command::none;
     // Arrows browse the gallery unless a zoomed image needs them to pan.
     const bool browse = v.item_count > 1 && (v.video || v.zoom <= 1.001f);
+    // An unavailable page has nothing to zoom, copy or save.
+    const bool inert = v.page && v.media == UiImageViewerMedia::failed;
     if (modifiers.control) {
         if (key == UiImageViewerKey::s)
-            return Command::save;
+            return inert ? Command::none : Command::save;
         if (key == UiImageViewerKey::c)
-            return v.video ? Command::none : Command::copy;
+            return v.video || inert ? Command::none : Command::copy;
         return Command::none;
     }
     switch (key) {
@@ -592,20 +630,32 @@ UiImageViewerCommand ui_image_viewer_key_command(const UiImageViewer& v, UiImage
     case UiImageViewerKey::space:
         return v.video ? Command::video : Command::activate;
     case UiImageViewerKey::plus:
-        return v.video ? Command::none : Command::zoom_in;
+        return v.video || inert ? Command::none : Command::zoom_in;
     case UiImageViewerKey::minus:
-        return v.video ? Command::none : Command::zoom_out;
+        return v.video || inert ? Command::none : Command::zoom_out;
     case UiImageViewerKey::zero:
     case UiImageViewerKey::home:
-        return v.video ? Command::video : Command::fit;
+        return v.video ? Command::video : inert ? Command::none : Command::fit;
     case UiImageViewerKey::one:
-        return v.video ? Command::video : Command::actual_size;
+        return v.video ? Command::video : inert ? Command::none : Command::actual_size;
     default:
         return v.video ? Command::video : Command::none;
     }
 }
 bool ui_image_viewer_apply(UiImageViewer* v, UiImageViewerCommand command) noexcept {
-    if (!v || !v->active || v->video)
+    if (!v || !v->active)
+        return false;
+    // Tab and Shift+Tab move the keyboard focus over the buttons, a video's too.
+    if (command == UiImageViewerCommand::focus_next || command == UiImageViewerCommand::focus_previous) {
+        const auto target = ui_widget_manager_next_focus(v->widgets, v->widgets.focused,
+                                                         command == UiImageViewerCommand::focus_previous, true);
+        ui_widget_manager_focus(&v->widgets, target);
+        v->focus = static_cast<u8>(v->widgets.storage[target.slot].id - 10);
+        v->keyboard_focus = true;
+        ++v->revision;
+        return true;
+    }
+    if (v->video)
         return false;
     const auto c = center(*v);
     switch (command) {
@@ -660,36 +710,37 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
             if (!audio)
                 p.rounded(layout.player, theme.tokens.overlay.media, theme.scale.radius_md);
         }
-        // Until the player draws over it, a video or audio stage shows the page's glyph, or the play button of a
-        // player that has not started.
+        // Until the player draws over it, an audio stage shows its artwork tile (the picture draws over it when
+        // the page has one) and another video stage the page's glyph.
         const auto c = center(v);
-        if (v.video && v.idle) {
-            if (p && !ui_video_play_affordance_paint(layout.player, layout.player, {}, theme, paint))
-                p.fail();
-        } else if (v.video && v.media != UiImageViewerMedia::failed)
+        const UiRect art = page_art(v);
+        if (ui_rect_has_area(art))
+            p.rounded(art, ui_theme_color_alpha(theme.tokens.accent.brand, .16f), theme.scale.radius_md)
+                .icon(UiIcon::music, ui_rect_shrink(art, ui_rect_width(art) * .3f), theme.tokens.accent.brand);
+        else if (v.video && !v.idle && v.media != UiImageViewerMedia::failed)
             p.icon(v.page_info.glyph,
                    {c.x - kPageStageGlyph * .5f, c.y - kPageStageGlyph * .5f, c.x + kPageStageGlyph * .5f,
                     c.y + kPageStageGlyph * .5f},
                    audio ? theme.text_secondary : kDefaultTheme.text_secondary);
-        // The queue: the current track on the selected fill with an accent tile playing audio_lines; the row under
-        // the pointer only takes the lighter hover fill. Every other row leads with a plain tile.
+        // The queue's list, clipped under its heading: the current track on the selected fill, the row under the
+        // pointer on the hover fill, a thin rule between rows, and each row's thumbnail well (its picture draws over
+        // it; the equaliser over the current one is overlay).
         if (v.queue && ui_rect_has_area(layout.queue)) {
             const auto& queue = *v.queue;
-            p.rounded(layout.queue, theme.tokens.background.secondary, theme.scale.radius_md);
+            p.rounded(layout.queue, theme.tokens.background.secondary, theme.scale.radius_md).clip(queue_body(layout));
             for (u32 n = 0, rows = ui_image_viewer_queue_rows(v); n < rows && queue.first + n < queue.count; ++n) {
                 const u32 track = queue.first + n + 1;
-                const bool current = track == queue.current;
-                const auto row = queue_row(layout, n);
-                const UiRect tile{row.left + kQueuePad, row.top + kQueuePad, row.left + kQueuePad + kQueueThumb,
-                                  row.top + kQueuePad + kQueueThumb};
-                if (current || track == queue.hovered)
-                    p.rounded(ui_menu_row_plate(row, 4),
-                              current ? theme.tokens.state.row_selected : theme.tokens.state.row_hover,
+                const auto row = queue_row(v, layout, n);
+                const auto tile = queue_thumb(row);
+                if (track == queue.current || track == queue.hovered)
+                    p.rounded(row, track == queue.current ? theme.tokens.state.row_selected : theme.tokens.state.row_hover,
                               theme.scale.radius_sm);
-                p.rounded(tile, current ? theme.tokens.accent.brand : theme.tokens.fill.muted, theme.scale.radius_sm)
-                    .icon(current ? UiIcon::audio_lines : UiIcon::music, ui_rect_shrink(tile, 10),
-                          current ? theme.tokens.text.on_accent : theme.text_secondary);
+                else if (track < queue.count)
+                    p.separator({tile.left, row.bottom - 1, row.right - kQueuePad, row.bottom});
+                p.rounded(tile, theme.tokens.fill.muted, theme.scale.radius_sm)
+                    .icon(UiIcon::music, ui_rect_shrink(tile, 10), theme.text_secondary);
             }
+            p.unclip();
         }
     } else {
         p.fill(v.viewport, ui_theme_color_alpha(theme.tokens.overlay.media, v.reveal));
@@ -754,6 +805,21 @@ bool ui_image_viewer_paint_overlay(const UiImageViewer& v, const Theme& theme, P
                          focus ? theme.tokens.border.focus : theme.tokens.border.subtle, theme.scale.radius_sm,
                          focus ? 2.0f : 1.0f);
     }
+    // A video or audio page whose player has not started: its play button, over the poster or the artwork.
+    if (v.page && v.video && v.idle) {
+        const UiRect art = page_art(v), stage = ui_rect_has_area(art) ? art : page_layout(v).player;
+        if (p && !ui_video_play_affordance_paint(stage, stage, {}, theme, paint))
+            p.fail();
+    }
+    // The queue's current track: the equaliser on a scrim over its thumbnail.
+    if (const u32 n = v.page && v.queue ? v.queue->current - 1u - v.queue->first : kUiImageViewerQueueRows;
+        n < ui_image_viewer_queue_rows(v) && v.queue->current) {
+        const auto tile = ui_image_viewer_queue_thumb(v, n);
+        p.clip(ui_image_viewer_queue_body(v))
+            .rounded(tile, theme.tokens.overlay.scrim_strong, theme.scale.radius_sm)
+            .icon(UiIcon::audio_lines, ui_rect_shrink(tile, 10), kDefaultTheme.text_primary)
+            .unclip();
+    }
     const u32 first = paint->count;
     for (u32 i = ui_image_viewer_previous; p && v.item_count > 1 && i <= ui_image_viewer_next; ++i) {
         const auto button = ui_image_viewer_button(v, i);
@@ -795,8 +861,18 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme& theme, UiT
               text_style_bold);
         label(v.owner.handle, v.page_info.source, {left, top + 20, right, top + 36}, theme.text_secondary,
               text_style_subtext);
-        // The queue's heading, then each row's title (the current one with its duration).
         const auto layout = page_layout(v);
+        // An audio page's title and source line under its artwork.
+        const auto audio = v.page_info.kind == UiImageViewerPageKind::audio
+                               ? ui_audio_page_layout(layout.player, kDefaultUiAudioControlsStyle)
+                               : UiAudioPageLayout{};
+        if (ui_rect_has_area(audio.art)) {
+            label(v.owner.handle, v.page_info.title, audio.title, theme.text_primary, text_style_bold, ui_text_center);
+            label(v.owner.handle, v.page_info.source, audio.source, theme.text_secondary, text_style_subtext,
+                  ui_text_center);
+        }
+        // The queue's heading, then each row's title over its artist, and its duration at the end; every row alike,
+        // so the current track changes no text.
         if (v.queue && ui_rect_has_area(layout.queue)) {
             const auto& queue = *v.queue;
             // The heading names the playlist (the page's title) and where the queue is in it ("6 of 24").
@@ -806,16 +882,21 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme& theme, UiT
                   theme.text_primary, text_style_bold, ui_text_middle);
             label(v.owner.handle, queue.position, {title_end, layout.queue.top, end, layout.queue.top + kQueueHeading},
                   theme.text_secondary, text_style_subtext, ui_text_middle | ui_text_end);
+            auto list = text.in(queue_body(layout));
             for (u32 n = 0, rows = ui_image_viewer_queue_rows(v); n < rows && queue.first + n < queue.count; ++n) {
-                const auto row = queue_row(layout, n);
-                const bool current = queue.first + n + 1 == queue.current;
-                const float text_left = row.left + kQueuePad * 2 + kQueueThumb;
-                const float text_right = row.right - kQueuePad - (current && queue.duration.bytes ? 48 : 0);
-                label(v.owner.handle, queue.titles[n], {text_left, row.top, text_right, row.bottom},
-                      current ? theme.text_primary : theme.text_secondary, text_style_subtext, ui_text_middle);
-                if (current && queue.duration.bytes)
-                    label(v.owner.handle, queue.duration, {text_right, row.top, row.right - kQueuePad, row.bottom},
-                          theme.text_secondary, text_style_subtext, ui_text_middle | ui_text_end);
+                const auto row = queue_row(v, layout, n);
+                const auto& item = queue.rows[n];
+                const float left = row.left + kQueuePad * 2 + kQueueThumb;
+                const float right = row.right - kQueuePad - (item.duration.bytes ? kQueueDuration : 0);
+                // Without an artist line the title centres in its row.
+                list(v.owner.handle, item.title,
+                     {left, row.top + kQueuePad, right,
+                      item.detail.bytes ? row.top + kQueueRow * .5f : row.bottom - kQueuePad},
+                     theme.text_primary, text_style_bold, ui_text_middle);
+                list(v.owner.handle, item.detail, {left, row.top + kQueueRow * .5f, right, row.bottom - kQueuePad},
+                     theme.text_secondary, text_style_subtext, ui_text_middle);
+                list(v.owner.handle, item.duration, {right, row.top, row.right - kQueuePad, row.bottom},
+                     theme.text_secondary, text_style_subtext, ui_text_middle | ui_text_end);
             }
         }
     } else if (v.counter_bytes) {

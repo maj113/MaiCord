@@ -908,12 +908,31 @@ bool application_video_page_track(u8 page, u16 track) noexcept {
     video->collection_continue = true;
     return switch_collection_track(*video, track, UiVideoControl::track);
 }
+bool application_video_page_control(u8 page, u8 control, u32 value) noexcept {
+    auto* video = page_video(page);
+    if (!video)
+        return control == static_cast<u8>(UiVideoControl::play_pause) && application_video_page_toggle(page);
+    UiAudioSceneResult audio{};
+    UiVideoSceneResult picture{};
+    if (video->source.audio) {
+        audio.action_requested = ui_audio_controls_action(video->ui.audio.projection,
+                                                          static_cast<UiAudioControl>(control), value, &audio.action);
+        if (audio.action_requested)
+            dispatch_audio_event(*video, audio);
+        return audio.action_requested;
+    }
+    picture.action_requested = ui_video_controls_action(video->ui.video.projection,
+                                                        static_cast<UiVideoControl>(control), value, &picture.action);
+    if (picture.action_requested)
+        dispatch_video_event(*video, picture);
+    return picture.action_requested;
+}
 
 #pragma clang attribute pop
 namespace video_detail {
 namespace {
-// The page owns geometry while it shows: the player spans its stage, an audio card centres in it. Out of line: the
-// card path below stays as compact as it was.
+// The page owns geometry while it shows: the player spans its stage, an audio card sits under its artwork in it. Out
+// of line: the card path below stays as compact as it was.
 __declspec(noinline) bool position_page(ApplicationVideo* video, InlineMediaSource& positioned) noexcept {
     positioned = video->source;
     UiRect stage{};
@@ -1119,7 +1138,8 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
                 const auto result = account_module_collection_title(g_app.account.instance, &query, &hovered);
                 if (query.fetch || result.state == AccountMediaRequestState::ready || result.state == AccountMediaRequestState::retry_wait) scene.track_hover_requested = true;
             }
-            ui_video_scene_titles(&scene, {current.text, current.bytes}, scene.hover_track, {hovered.text, hovered.bytes});
+            ui_video_scene_titles(&scene, media_track_title_parts({current.text, current.bytes}).title,
+                                  scene.hover_track, media_track_title_parts({hovered.text, hovered.bytes}).title);
         }
         // Idle viewer and page playback hides the pointer with its controls; motion restores it.
         if (video->source.host != VideoHost::card && !was_idle && video->ui.video.idle &&

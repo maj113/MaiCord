@@ -4,6 +4,8 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
+#include "maicord/ui/voice/video_scene.hpp"
 #include "maicord/ui/voice/go_live_scene.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "maicord/ui/media/image_viewer.hpp"
@@ -938,6 +940,24 @@ Utf8View viewer_button(u32 index, const UiImageViewer& v) noexcept {
     }
 }
 
+// A node of a media page's player; the host reads which control from `item` (kUiAccessPlayerItem | id).
+u32 add_player_node(UiAccessTree* tree, u32 parent, u8 surface, u32 id, UiAccessRole role, const UiRect& rectangle,
+                    const UiRect& clip, Utf8View name, u32 state, u32 actions, Utf8View value = {},
+                    UiAccessRange range = {}) noexcept {
+    UiAccessNodeDesc d{};
+    d.key = ui_access_key(surface, 0x504C5900ull + id);
+    d.item = kUiAccessPlayerItem | id;
+    d.rectangle = rectangle;
+    d.visible = ui_rect_intersection(rectangle, clip);
+    d.role = role;
+    d.name = name;
+    d.value = value;
+    d.range = range;
+    d.state = static_cast<u16>(state);
+    d.actions = static_cast<u16>(actions);
+    d.surface = surface;
+    return ui_access_add(tree, parent, d);
+}
 void mount_viewer_media(void* context, UiAccessTree* tree, u32 node) noexcept {
     const auto& v = *static_cast<const UiImageViewer*>(context);
     UiAccessNodeDesc media{};
@@ -964,6 +984,95 @@ void mount_viewer_media(void* context, UiAccessTree* tree, u32 node) noexcept {
     else if (v.caption_bytes)
         media.value = {v.caption, v.caption_bytes};
     ui_access_add(tree, node, media);
+    if (!v.page)
+        return;
+    const u8 surface = tree->nodes[node].surface;
+    const auto layout = ui_image_viewer_page_layout(v);
+    // A player that has not started: the stage is its play button.
+    if (v.video && v.idle)
+        add_player_node(tree, node, surface, 1, UiAccessRole::button, layout.player, layout.player,
+                        utf8_literal("Play"), ui_access_focusable, ui_access_action_invoke);
+    if (!v.queue || !ui_rect_has_area(layout.queue))
+        return;
+    // The queue: its rows in view as a list (their artist as help), the current track selected; a row plays its track.
+    const auto& queue = *v.queue;
+    UiAccessNodeDesc list{};
+    list.key = ui_access_key(surface, 0x51554555ull);
+    list.rectangle = list.visible = layout.queue;
+    list.role = UiAccessRole::list;
+    list.name = utf8_literal("Queue");
+    list.help = queue.position;
+    list.surface = surface;
+    const u32 rows = ui_access_add(tree, node, list);
+    const UiRect body = ui_image_viewer_queue_body(v);
+    for (u32 n = 0; rows != kUiAccessNone && n < ui_image_viewer_queue_rows(v) && queue.first + n < queue.count; ++n) {
+        const u32 track = queue.first + n + 1;
+        UiAccessNodeDesc row{};
+        row.rectangle = ui_image_viewer_queue_row(v, n);
+        row.visible = ui_rect_intersection(row.rectangle, body);
+        if (!ui_rect_has_area(row.visible))
+            continue;
+        row.key = ui_access_key(surface, 0x54524B00ull + track);
+        row.item = track;
+        row.role = UiAccessRole::list_item;
+        row.name = queue.rows[n].title;
+        row.help = queue.rows[n].detail;
+        row.state = static_cast<u16>(ui_access_focusable | ui_access_selectable |
+                                     (track == queue.current ? ui_access_selected : 0));
+        row.actions = ui_access_action_invoke | ui_access_action_select;
+        row.placement.position = track;
+        row.placement.set_size = queue.count;
+        row.surface = surface;
+        ui_access_add(tree, rows, row);
+    }
+}
+
+// The controls of a media page's hosted player (UiAccessNode::item is kUiAccessPlayerItem | the control's id; the
+// host presses it, or sets a slider). Ids shared by the video and audio players: 1 play/pause, 2 seek, 3 time,
+// 4 mute, 5 volume.
+struct PlayerControl {
+    u32 id, kind, value, maximum;
+    UiRect bounds;
+    Utf8View label;
+    bool enabled, hidden;
+};
+__declspec(noinline) void add_player_controls(UiAccessTree* tree, u32 parent, u8 surface, const UiRect& clip,
+                                              const PlayerControl* controls, u32 count) noexcept {
+    // The time reads in the seek slider's value too.
+    Utf8View time{};
+    for (u32 i = 0; i < count; ++i)
+        if (controls[i].kind == 2 && controls[i].id == 3)
+            time = controls[i].label;
+    for (u32 i = 0; i < count; ++i) {
+        const auto& control = controls[i];
+        const u32 id = control.id, kind = control.kind;
+        const bool range = kind == 1, seek = range && id == 2, volume = range && id == 5, clock = kind == 2 && id == 3;
+        const Utf8View name = seek ? utf8_literal("Seek") : volume ? utf8_literal("Volume") : control.label;
+        // A hidden volume stays (the keyboard still reaches it); a range other than seek and volume is not on a page.
+        if (!name.bytes || !ui_rect_has_area(control.bounds) || (control.hidden && !volume) || (range && !seek && !volume))
+            continue;
+        const u32 state = kind == 2 ? 0u : ui_access_focusable | (control.enabled ? 0u : ui_access_disabled);
+        const u32 actions = kind == 0 ? ui_access_action_invoke : range ? ui_access_action_range : 0u;
+        add_player_node(tree, parent, surface, id,
+                        kind == 0 ? UiAccessRole::button : range ? UiAccessRole::slider
+                                                         : clock ? UiAccessRole::text
+                                                                 : UiAccessRole::status,
+                        control.bounds, clip, name, state, actions, seek ? time : Utf8View{},
+                        {static_cast<float>(control.value), 0, static_cast<float>(control.maximum), seek ? 500.0f : 5.0f,
+                         seek ? 1000.0f : 10.0f});
+    }
+}
+// Both players' descriptors in the one shape; `label` gives each control's own text.
+template <typename Descriptor, typename Label>
+void add_player(UiAccessTree* tree, u32 parent, u8 surface, const UiRect& clip, const Descriptor* controls, u32 count,
+                Label label) noexcept {
+    PlayerControl list[kUiVideoControlCount];
+    for (u32 i = 0; i < count; ++i) {
+        const auto& c = controls[i];
+        list[i] = {static_cast<u32>(c.id), static_cast<u32>(c.kind), c.value, c.maximum, c.bounds, label(c.id), c.enabled,
+                   c.hidden};
+    }
+    add_player_controls(tree, parent, surface, clip, list, count);
 }
 
 void describe_viewer(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&,
@@ -1506,6 +1615,21 @@ u32 ui_access_add_image_viewer(UiAccessTree* tree, u32 parent, const UiImageView
         return kUiAccessNone;
     return add_widgets(tree, parent, viewer.widgets, describe_viewer, const_cast<UiImageViewer*>(&viewer), surface,
                        nullptr, viewer.keyboard_focus);
+}
+
+void ui_access_add_video_controls(UiAccessTree* tree, u32 parent, const UiVideoScene& scene, u8 surface) noexcept {
+    // A scene copies its labels into its own buffer, so they come from it, not from the descriptors.
+    if (scene.active)
+        add_player(tree, parent, surface, scene.clip, scene.projection.controls, kUiVideoControlCount,
+                            [&scene](UiVideoControl id) noexcept { return ui_video_scene_label(scene, id); });
+}
+
+void ui_access_add_audio_controls(UiAccessTree* tree, u32 parent, const UiAudioScene& scene, u8 surface) noexcept {
+    if (scene.active)
+        add_player(tree, parent, surface, scene.clip, scene.projection.controls, kUiAudioControlCount,
+                            [&scene](UiAudioControl id) noexcept {
+                                return ui_audio_controls_label(scene.projection, id);
+                            });
 }
 
 u32 ui_access_add_media_picker(UiAccessTree* tree, u32 parent, const UiMediaPickerScene& scene,

@@ -211,6 +211,9 @@ MAICORD_THEME_TOKEN(caption, badge_track, T(fill, muted), T(fill, muted))
 MAICORD_THEME_TOKEN(caption, badge_progress, T(accent, brand), T(accent, brand))
 MAICORD_THEME_TOKEN(caption, badge_ready, T(accent, success), T(accent, success))
 MAICORD_THEME_TOKEN(caption, badge_ready_fill, RGBA(.14f, .65f, .38f, .16f), RGBA(.14f, .65f, .38f, .14f))
+// The title bar's tabs: the active tab is the content's own surface, so it joins the page below it (a hovered tab
+// is an inset step in caption.hover instead).
+MAICORD_THEME_TOKEN(caption, tab_active, T(background, primary), T(background, primary))
 MAICORD_THEME_GROUP_END(caption)
 
 // Slash command option chips in the composer: the

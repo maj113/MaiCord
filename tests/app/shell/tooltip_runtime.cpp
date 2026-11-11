@@ -28,6 +28,9 @@ bool video_ready;
 bool fail_text_build;
 UiRect viewport{0, 0, 1000, 700};
 UiTooltipTarget video_target;
+// The media page that shows (0: none) and its viewer.
+u8 page_id;
+UiImageViewer page_viewer;
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
@@ -561,6 +564,46 @@ void run() noexcept {
         g_app.renderer.dm_profile_panel = nullptr;
         profile_scene_release(&card);
     }
+    // A media page over the content column: its header buttons name themselves, never the channel header's buttons
+    // under them, and another page showing retires the shown one's tooltip.
+    {
+        const UiRect content = ui_scene_content_rectangle(g_app.shell_scene, UiSemantic::content);
+        check(ui_image_viewer_open(&page_viewer, content, {16, 9}) &&
+                  ui_image_viewer_set_page(&page_viewer, {utf8_literal("Mix"), utf8_literal("#general"), UiIcon::video,
+                                                          UiImageViewerPageKind::video, true, false}) &&
+                  ui_image_viewer_set_actions(&page_viewer, ui_image_viewer_action_open),
+              "tooltip page: a media page covers the content column");
+        page_id = 1;
+        const auto hover = [](const UiRect& r) noexcept {
+            application_tooltip_input(window_test::pointer_move((r.left + r.right) * .5f, (r.top + r.bottom) * .5f));
+            const u64 at = application_tooltip_next_wake();
+            return at && application_tooltip_synchronize(at) && g_app.renderer.tooltip_scene->visible;
+        };
+        const auto says = [](const char* text) noexcept {
+            u32 bytes = 0;
+            while (text[bytes])
+                ++bytes;
+            return utf8_equal({g_app.renderer.tooltip_scene->text, g_app.renderer.tooltip_scene->text_bytes},
+                              {text, bytes});
+        };
+        check(hover(ui_image_viewer_button(page_viewer, ui_image_viewer_jump)) && says("Jump to message"),
+              "tooltip page: Jump to message names itself");
+        check(hover(ui_image_viewer_button(page_viewer, ui_image_viewer_open_original)) && says("Open original"),
+              "tooltip page: Open original names itself");
+        const auto pins = ui_widget_manager_find(g_app.shell_scene.widgets, static_cast<u32>(UiSemantic::pins_toggle) + 1);
+        const auto* pins_node = ui_widget_manager_layout_node(g_app.shell_scene.widgets, pins);
+        check(pins_node && ui_rect_contains(content, pins_node->rectangle.left + 1, pins_node->rectangle.top + 1) &&
+                  (!hover(pins_node->rectangle) || !says("Pinned messages")),
+              "tooltip page: the channel header's buttons under the page show no tooltip");
+        check(hover(ui_image_viewer_button(page_viewer, ui_image_viewer_close)) && says("Close tab (Ctrl+W)"),
+              "tooltip page: Close tab names itself");
+        page_id = 2;
+        check(application_tooltip_synchronize(clock_monotonic_milliseconds() + 100'000) &&
+                  !g_app.renderer.tooltip_scene->visible,
+              "tooltip page: another page showing retires the tooltip of the one before");
+        page_id = 0;
+        application_tooltip_clear();
+    }
     ui_scene_release(&g_app.shell_scene);
     application_tooltip_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
@@ -608,6 +651,12 @@ UiRect application_viewport_dips() noexcept {
 // The caption's own tooltip has no pending deadline here.
 u64 application_caption_tooltip_wake() noexcept {
     return 0;
+}
+u8 application_media_page_shown() noexcept {
+    return tooltip_runtime_test::page_id;
+}
+const UiImageViewer* application_media_page_viewer() noexcept {
+    return tooltip_runtime_test::page_id ? &tooltip_runtime_test::page_viewer : nullptr;
 }
 bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
                                       UiTooltipTarget* target) noexcept {

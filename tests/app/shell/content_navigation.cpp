@@ -274,7 +274,8 @@ void tabs_tests() noexcept {
               ui->chat_state.selected_channel_id == 30 && tab_view()->count == 2 && tab_channels(after_middle, 2),
           "tabs: closing the active tab shows its right neighbour");
     check(!application_tabs_close(5) && application_tabs_activate(0) && ui->chat_state.selected_channel_id == 20 &&
-              application_tabs_close_others(0) && tab_view()->count == 1 && tab_memory.tab_count == 1,
+              application_tabs_menu_action(popup_action_tab_close_others, application_tabs_key(0)) &&
+              tab_view()->count == 1 && tab_memory.tab_count == 1,
           "tabs: close others keeps one tab and shows it when the active one went");
     // Sixteen tabs fit; the seventeenth is refused with a toast.
     bool filled = true;
@@ -290,12 +291,13 @@ void tabs_tests() noexcept {
     const u32 dragged = application_tabs_drag_begin(5);
     application_tabs_drag_to(40);
     check(dragged == 5 && tab_view()->drag_left == 40 && (tab_view()->items[5].flags & kUiTabDragging) &&
-              application_tabs_move(5, 2) && (tab_view()->items[2].flags & kUiTabDragging) &&
+              application_tabs_move(5, 2) && application_tabs_drag_index() == 2 && (tab_view()->items[2].flags & kUiTabDragging) &&
               !(tab_view()->items[5].flags & kUiTabDragging),
           "tabs: a dragged tab follows the pointer through its swaps");
     application_tabs_drag_end();
     check(!(tab_view()->items[2].flags & kUiTabDragging) && memory_tab(2) == 20 &&
-              application_tabs_close_right(10) && tab_view()->count == 11 && tab_memory.tab_count == 11,
+              application_tabs_menu_action(popup_action_tab_close_right, application_tabs_key(10)) &&
+              tab_view()->count == 11 && tab_memory.tab_count == 11,
           "tabs: a dropped tab settles, and close to the right ends the strip");
     // A deleted channel closes its tab.
     const u64 doomed = memory_tab(4);
@@ -414,10 +416,10 @@ void tab_polish_tests() noexcept {
               chat_state_store_set_channel_mute(&state, 21, true, false) && !(tab_view()->items[1].flags & kUiTabUnread),
           "tab polish: a muted channel keeps no dot");
 
-    // The tooltip names the server after the channel; a conversation has none, and the hover alone asks for it.
+    // The tooltip names the server after "#channel"; a conversation has none, and the hover alone asks for it.
     const bool parent_tip = tab_view({UiTabHitKind::tab, 0})->items[0].tooltip.bytes != 0;
     const UiTabStripView* hovered = tab_view({UiTabHitKind::tab, 1});
-    check(parent_tip && utf8_equal(hovered->items[1].tooltip, utf8_literal("Other \xC2\xB7 Guild")) &&
+    check(parent_tip && utf8_equal(hovered->items[1].tooltip, utf8_literal("#Other \xC2\xB7 Guild")) &&
               !hovered->items[0].tooltip.bytes && !tab_view()->items[1].tooltip.bytes,
           "tab polish: the hovered channel tab's tooltip adds its server's name");
     check(application_tabs_open_channel(50, true) && !tab_view({UiTabHitKind::tab, 2})->items[2].tooltip.bytes &&
@@ -442,10 +444,28 @@ void tab_polish_tests() noexcept {
               ui->chat_state.selected_channel_id == 20 && (tab_view()->items[media_at].flags & kUiTabActive) &&
               !(tab_view()->items[0].flags & kUiTabActive),
           "tab probe: returning to the tab shows the page again over the same channel");
-    check(application_tabs_close(media_at) && !media_page_fake::shown && !media_page_fake::open_pages() &&
-              tab_view()->count == media_at && ui->chat_state.selected_channel_id == 20 &&
-              (tab_view()->items[0].flags & kUiTabActive),
-          "tab probe: closing the tab closes its page and shows the channel under it");
+    // Closing the page that shows shows its neighbour, as closing a channel tab does.
+    check(application_tabs_move(media_at, 1) && application_tabs_close(1) && !media_page_fake::shown &&
+              !media_page_fake::open_pages() && tab_view()->count == media_at &&
+              ui->chat_state.selected_channel_id == 21 && (tab_view()->items[1].flags & kUiTabActive),
+          "tab probe: closing the active page closes it and shows its neighbour tab");
+    // "Open in new tab" on media that already has a tab shows that tab instead of adding a second one for its page.
+    check(application_tabs_open_media(clip, true) && application_tabs_open_media(clip, true) &&
+              tab_view()->count == media_at + 1 && media_page_fake::open_pages() == 1,
+          "tab probe: the same media opens one tab");
+    check(application_tabs_open_media(clip, false) && media_page_fake::shown != 0 && tab_view()->count == media_at + 1,
+          "tab probe: opening it again shows its tab");
+    check(application_tabs_close(media_at) && tab_view()->count == media_at && !media_page_fake::open_pages(),
+          "tab probe: closing it leaves no tab without a page");
+    // A drag follows its tab, not its position: a tab before it closing (a deleted channel) shifts its index.
+    check(application_tabs_drag_begin(2) == 2 && application_tabs_drag_index() == 2 &&
+              chat_state_store_remove_channel(&state, 20) && tab_view()->count == 2 &&
+              application_tabs_drag_index() == 1 && application_tabs_key(1) == 50 &&
+              (tab_view()->items[1].flags & kUiTabDragging) && !(tab_view()->items[0].flags & kUiTabDragging),
+          "tab probe: a dragged tab stays the dragged one when the tabs before it change");
+    application_tabs_drag_end();
+    check(application_tabs_drag_index() >= kUiTabCapacity && !(tab_view()->items[1].flags & kUiTabDragging),
+          "tab probe: ending the drag leaves none");
     g_app.preferences.tabs_enabled = false;
     application_tabs_reset();
 }

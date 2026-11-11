@@ -105,6 +105,9 @@ u32 ui_video_format_time(const UiVideoPlaybackState&, char* text, u32 capacity) 
 Utf8View ui_video_controls_label(const UiVideoControlsProjection&, UiVideoControl) noexcept;
 UiVideoControl ui_video_controls_hit(const UiVideoControlsProjection&, UiPoint) noexcept;
 bool ui_video_controls_pointer_action(const UiVideoControlsProjection&, UiPoint, UiVideoAction*) noexcept;
+// The request for a control by id (a range's `value` is in its own units), as a pointer or key would make it;
+// accessibility sets a range or presses a button this way, even where the control is hidden.
+bool ui_video_controls_action(const UiVideoControlsProjection&, UiVideoControl, u32 value, UiVideoAction*) noexcept;
 // Tab/Shift+Tab move focus; arrows/Home/End on ranges emit bounded requests.
 // Caller owns focus/capture and revalidates owner/generation/revision before use.
 bool ui_video_controls_key(const UiVideoControlsProjection&, UiVideoKey,

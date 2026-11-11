@@ -18,6 +18,7 @@
 #include "window_runtime.hpp"
 #include "maicord/ui/shell/navigation_drag.hpp"
 
+#include "maicord/core/hash.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/frame.hpp"
 #include "maicord/platform/window/key.hpp"
@@ -29,7 +30,8 @@
 namespace maicord::app_detail {
 namespace {
 
-// A press on a tab that may become its drag: its index, where the pointer and the tab's left edge were.
+// A press on a tab that may become its drag: its index (until the drag begins), where it started, where the pointer
+// and the tab's left edge were.
 struct TabDrag {
     bool pressed, active;
     u8 index, origin;
@@ -63,6 +65,8 @@ struct CaptionState {
     UiMotionTransition tooltip_entrance;
     UiCaptionPart entrance_part;
     u64 entrance_generation;
+    // The bar as the last frame built it: what hit tests read (layout_for).
+    UiCaptionBarState frame;
 } g_caption;
 constexpr u64 kCaptionTooltipMotionOwner = 0x4341'5054'5449'5031ull; // "CAPTTIP1"
 
@@ -90,9 +94,13 @@ float to_dips(i32 pixels, u32 dpi) noexcept {
     return static_cast<float>(pixels) * 96.0f / static_cast<float>(dpi);
 }
 
-UiCaptionBarLayout layout_for(i32 client_width, u32 dpi) noexcept {
-    return ui_caption_bar_layout(application_theme(), to_dips(client_width, dpi),
-                                 application_caption_state(),
+// The bar as the frame built it (application_caption_state), which is what the pointer saw: hit tests and the frame
+// questions read it rather than advancing the tabs again. `fresh` builds it anew first, for a caller that just moved
+// them.
+UiCaptionBarLayout layout_for(i32 client_width, u32 dpi, bool fresh = false) noexcept {
+    if (fresh)
+        application_caption_state();
+    return ui_caption_bar_layout(application_theme(), to_dips(client_width, dpi), g_caption.frame,
                                  to_dips(static_cast<i32>(g_app.renderer.caption_height), dpi),
                                  static_cast<float>(dpi) / 96.0f);
 }
@@ -126,6 +134,15 @@ UiCaptionPart button_part(FrameHit hit) noexcept {
 }
 
 void set_hover(UiCaptionPart hovered, UiCaptionPart pressed, UiTabHit tab = {}, UiTabHit down = {}) noexcept {
+    // A tab's drag lasts only as long as the press on it: a press that ends other than by its release (Esc, a lost
+    // capture) puts the dragged tab back where it was.
+    if (pressed != UiCaptionPart::tab && g_caption.drag.pressed) {
+        if (g_caption.drag.active) {
+            application_tabs_move(application_tabs_drag_index(), g_caption.drag.origin);
+            application_tabs_drag_end();
+        }
+        g_caption.drag = {};
+    }
     if (g_caption.hovered == hovered && g_caption.pressed == pressed && g_caption.hovered_tab == tab &&
         g_caption.pressed_tab == down)
         return;
@@ -228,7 +245,8 @@ bool activate_tab(UiTabHit hit) noexcept {
 }
 
 // The pointer at `x` DIPs drags the pressed tab: past the drag threshold it follows the pointer and the others make
-// way as its centre crosses theirs.
+// way as its centre crosses theirs. The tab is tracked by identity (application_tabs_drag_index), so changes
+// meanwhile cannot move another one.
 void drag_tab(float x) noexcept {
     TabDrag& drag = g_caption.drag;
     if (!drag.active && x - drag.press_x < kNavigationDragThreshold && drag.press_x - x < kNavigationDragThreshold)
@@ -240,24 +258,23 @@ void drag_tab(float x) noexcept {
             return;
         }
         drag.active = true;
-        drag.index = drag.origin = static_cast<u8>(at);
+        drag.origin = static_cast<u8>(at);
     }
-    // The strip keeps the dragged tab inside itself; the slot follows from its centre.
-    const UiTabStripLayout tabs = layout_for(g_window_state.client_width, window_dpi()).tabs;
+    const u32 at = application_tabs_drag_index();
+    if (at >= kUiTabCapacity) {
+        // The tab went away mid-drag.
+        application_tabs_drag_end();
+        drag = {};
+        return;
+    }
+    // The strip keeps the dragged tab inside itself; the slot follows from its centre. The layout is the strip as the
+    // last move left it, not the frame's.
+    const UiTabStripLayout tabs = layout_for(g_window_state.client_width, window_dpi(), true).tabs;
     const float left = x - drag.grab;
     application_tabs_drag_to(left);
-    const u32 to = ui_tab_strip_drag_slot(tabs, drag.index, left + tabs.slot_width[drag.index] / 2);
-    if (to != drag.index && application_tabs_move(drag.index, to))
-        drag.index = static_cast<u8>(to);
-}
-
-// Esc or a lost capture: the dragged tab goes back where it was.
-void cancel_drag() noexcept {
-    if (g_caption.drag.active) {
-        application_tabs_move(g_caption.drag.index, g_caption.drag.origin);
-        application_tabs_drag_end();
-    }
-    g_caption.drag = {};
+    const u32 to = ui_tab_strip_drag_slot(tabs, at, left + tabs.slot_width[at] / 2);
+    if (to != at)
+        application_tabs_move(at, to);
 }
 
 // Pointer input over the bar's own items (update badge, Settings, the tabs, the window buttons the platform leaves to
@@ -287,10 +304,12 @@ bool item_pointer(const WindowEvent& event) noexcept {
         if (event.button == static_cast<u8>(PointerButton::left)) {
             window_capture_pointer(g_app.window);
             set_hover(hit.part, hit.part, hit.tab, hit.tab);
-            // A press selects the tab at once, and may turn into its drag.
-            if (hit.tab.kind == UiTabHitKind::tab && activate_tab(hit.tab)) {
+            // A press selects the tab at once (a dimmed one cannot be selected, and still drags). The drag is armed
+            // first: whatever the selection does to the capture ends the press with it.
+            if (hit.tab.kind == UiTabHitKind::tab && !application_input_blocked()) {
                 const float x = to_dips(static_cast<i32>(event.pointer.x), window_dpi());
                 g_caption.drag = {true, false, hit.tab.index, hit.tab.index, x, x - hit.tab_left};
+                application_tabs_activate(hit.tab.index);
             }
             return true;
         }
@@ -333,14 +352,12 @@ bool item_pointer(const WindowEvent& event) noexcept {
             set_hover(UiCaptionPart::none, g_caption.pressed, {}, g_caption.pressed_tab);
         return false;
     case EventType::capture_lost:
-        cancel_drag();
         if (bar_item(g_caption.pressed))
             set_hover(g_caption.hovered, UiCaptionPart::none, g_caption.hovered_tab, {});
         return false;
     case EventType::key_down:
         if (!g_caption.drag.active || !input_plain_key_down(event) || event.key.key != key::escape)
             return false;
-        cancel_drag();
         set_hover(g_caption.hovered, UiCaptionPart::none, g_caption.hovered_tab, {});
         window_release_capture(g_app.window);
         return true;
@@ -419,22 +436,23 @@ UiCaptionBarState application_caption_state() noexcept {
     } else {
         g_caption.entrance_part = UiCaptionPart::none;
     }
-    return {g_caption.hovered,
-            g_caption.pressed,
-            g_caption.active,
-            g_caption.maximized,
-            application_update_badge(updates),
-            g_app.login.visible,
-            application_update_progress(updates),
-            to_dips(static_cast<i32>(g_caption.side_frame), window_dpi()),
-            shown,
-            entrance,
-            application_tabs_view(g_caption.hovered_tab, g_caption.pressed_tab, clock_monotonic_milliseconds())};
+    g_caption.frame = {g_caption.hovered,
+                       g_caption.pressed,
+                       g_caption.active,
+                       g_caption.maximized,
+                       application_update_badge(updates),
+                       g_app.login.visible,
+                       application_update_progress(updates),
+                       to_dips(static_cast<i32>(g_caption.side_frame), window_dpi()),
+                       shown,
+                       entrance,
+                       application_tabs_view(g_caption.hovered_tab, g_caption.pressed_tab, clock_monotonic_milliseconds())};
+    return g_caption.frame;
 }
 
 UiCaptionBarLayout application_caption_layout() noexcept {
     const u32 dpi = maximum(g_app.renderer.dpi, 1u);
-    UiCaptionBarLayout layout = layout_for(static_cast<i32>(g_app.renderer.width), dpi);
+    UiCaptionBarLayout layout = layout_for(static_cast<i32>(g_app.renderer.width), dpi, true);
     // Content coordinates: the caption sits above the content origin.
     const float top = -layout.height;
     const auto lift = [&](UiRect* r) noexcept { *r = {r->left, r->top + top, r->right, r->bottom + top}; };
@@ -489,8 +507,9 @@ bool application_caption_access(u64 item) noexcept {
 }
 
 void application_caption_describe_tabs(UiAccessTree* tree, u32 parent, u8 surface) noexcept {
+    // The layout builds this frame's bar (application_caption_state) first.
     const UiCaptionBarLayout layout = application_caption_layout();
-    const UiTabStripView* tabs = application_caption_state().tabs;
+    const UiTabStripView* tabs = g_caption.frame.tabs;
     if (!tabs)
         return;
     UiAccessNodeDesc list{};
@@ -502,11 +521,12 @@ void application_caption_describe_tabs(UiAccessTree* tree, u32 parent, u8 surfac
     const u32 tab_list = ui_access_add(tree, parent, list);
     if (tab_list == kUiAccessNone)
         return;
-    const auto add = [&](u32 under, UiAccessRole role, UiTabHit hit, const UiRect& rectangle, Utf8View name,
-                         u16 flags, u16 actions) noexcept {
+    // Nodes are keyed by what they are, not where: a reorder must not swap the identities of tabs a screen reader holds.
+    const auto add = [&](u32 under, UiAccessRole role, UiTabHit hit, u64 identity, const UiRect& rectangle,
+                         Utf8View name, u16 flags, u16 actions) noexcept {
         UiAccessNodeDesc node{};
         node.item = application_caption_tab_item(hit);
-        node.key = ui_access_key(surface, node.item);
+        node.key = ui_access_key(surface, hash64_mix(identity, node.item & 0xffff));
         node.rectangle = rectangle;
         node.name = name;
         node.role = role;
@@ -519,36 +539,46 @@ void application_caption_describe_tabs(UiAccessTree* tree, u32 parent, u8 surfac
         const UiTabItem& item = tabs->items[i];
         if (item.flags & kUiTabClosing)
             continue;
-        const u32 tab = add(tab_list, UiAccessRole::tab, {UiTabHitKind::tab, static_cast<u8>(i)},
-                            ui_tab_strip_tab(layout.tabs, i), item.label,
+        const u64 identity = application_tabs_key(i);
+        // A tab hidden behind "..." has no place of its own and is held there; a narrow tab's close button is the tab.
+        const UiRect body = ui_tab_strip_tab(layout.tabs, i), close = ui_tab_strip_close(layout.tabs, i);
+        const UiRect where = ui_rect_has_area(body) ? body : layout.tabs.overflow;
+        const u32 tab = add(tab_list, UiAccessRole::tab, {UiTabHitKind::tab, static_cast<u8>(i)}, identity, where,
+                            item.label,
                             static_cast<u16>(ui_access_selectable | (item.flags & kUiTabActive ? ui_access_selected : 0)),
                             ui_access_action_select | ui_access_action_invoke);
         if (tab == kUiAccessNone)
             continue;
-        // A media tab says what its page holds (its icon), and when it cannot load again; a playing one has a pause
-        // (or play) button.
+        // A media tab says what its page holds (its icon), a tab that cannot be reached why it is dimmed, and a
+        // playing one has a pause (or play) button.
         const Utf8View media = item.icon == UiIcon::video   ? utf8_literal("Video")
                                : item.icon == UiIcon::music ? utf8_literal("Audio")
                                : item.icon == UiIcon::audio_lines ? utf8_literal("Playing")
                                : item.icon == UiIcon::image || item.icon == UiIcon::image_off ? utf8_literal("Image")
                                                                                                : Utf8View{};
-        if (media.bytes)
-            ui_access_set_help(tree, tab, item.flags & kUiTabMissing ? utf8_literal("Media unavailable") : media);
-        else if (item.flags & kUiTabUnread)
-            ui_access_set_help(tree, tab, utf8_literal("Unread messages"));
+        const bool missing = (item.flags & kUiTabMissing) != 0;
+        const Utf8View help = media.bytes ? (missing ? utf8_literal("Media unavailable") : media)
+                              : missing   ? utf8_literal("Channel unavailable")
+                              : item.flags & kUiTabUnread ? utf8_literal("Unread messages")
+                                                          : Utf8View{};
+        if (help.bytes)
+            ui_access_set_help(tree, tab, help);
         if (item.flags & kUiTabPlaying) {
             const UiTabHit icon{UiTabHitKind::icon, static_cast<u8>(i)};
-            add(tab, UiAccessRole::button, icon, ui_tab_strip_icon(layout.tabs, i), ui_tab_strip_hit_name(*tabs, icon), 0,
-                ui_access_action_invoke);
+            add(tab, UiAccessRole::button, icon, identity, ui_tab_strip_icon(layout.tabs, i),
+                ui_tab_strip_hit_name(*tabs, icon), 0, ui_access_action_invoke);
         }
-        add(tab, UiAccessRole::button, {UiTabHitKind::close, static_cast<u8>(i)}, ui_tab_strip_close(layout.tabs, i),
-            utf8_literal("Close tab"), 0, ui_access_action_invoke);
+        add(tab, UiAccessRole::button, {UiTabHitKind::close, static_cast<u8>(i)}, identity,
+            ui_rect_has_area(close) ? close : where, utf8_literal("Close tab"), 0, ui_access_action_invoke);
     }
     static constexpr UiTabHitKind kButtons[]{UiTabHitKind::plus, UiTabHitKind::overflow};
     for (const UiTabHitKind kind : kButtons) {
         const UiTabHit hit{kind, 0};
-        add(parent, UiAccessRole::button, hit, ui_tab_strip_hit_rect(layout.tabs, hit), ui_tab_strip_hit_name(*tabs, hit),
-            0, ui_access_action_invoke);
+        // A "+" with nothing to pin is announced disabled.
+        const bool off = kind == UiTabHitKind::plus && !tabs->plus_enabled;
+        add(parent, UiAccessRole::button, hit, 0, ui_tab_strip_hit_rect(layout.tabs, hit),
+            ui_tab_strip_hit_name(*tabs, hit), static_cast<u16>(off ? ui_access_disabled : 0),
+            static_cast<u16>(off ? 0 : ui_access_action_invoke));
     }
 }
 
@@ -622,8 +652,12 @@ void application_caption_hover(FrameHit part) noexcept {
     set_hover(button_part(part), g_caption.pressed, {}, g_caption.pressed_tab);
 }
 
+// The pointer left the parts the platform tracks as frame. The bar's own items follow the client pointer and keep
+// their hover and press (the platform also reports this as the pointer moves onto one, or a press on one takes the
+// capture).
 void application_caption_leave() noexcept {
-    set_hover(UiCaptionPart::none, UiCaptionPart::none);
+    const auto client = [](UiCaptionPart part) noexcept { return bar_item(part) ? part : UiCaptionPart::none; };
+    set_hover(client(g_caption.hovered), client(g_caption.pressed), g_caption.hovered_tab, g_caption.pressed_tab);
 }
 
 void application_caption_press(FrameHit part) noexcept {

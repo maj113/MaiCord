@@ -18,25 +18,29 @@ inline constexpr u32 kCaptionPaintCapacity = 64;
 inline constexpr u32 kCaptionGlyphCapacity = 128;
 inline constexpr u32 kCaptionRunCapacity = 8;
 inline constexpr u32 kCaptionTitleCapacity = 256;
-// With the tab strip showing: more quads, and the glyph quads each tab label may use.
+// With the tab strip showing: more quads, the glyph quads each tab label may use, and the glyphs its scratch line
+// shapes (a label is at most kChannelMemoryTabLabelBytes bytes).
 inline constexpr u32 kCaptionTabPaintCapacity = 128;
-inline constexpr u32 kCaptionTabGlyphs = 24;
+inline constexpr u32 kCaptionTabGlyphs = 16;
+inline constexpr u32 kCaptionTabLineGlyphs = 48;
 // The effect pass's canvas index for the caption band (content quads use theirs).
 inline constexpr u32 kCaptionEffectCanvas = ~0u;
 
-// One shaped line: the title, or the tooltip's label.
-struct CaptionLine {
+// One shaped line: the title, the tooltip's label or a tab's.
+template <u32 Glyphs>
+struct CaptionLineOf {
     ShapedText shape;
-    TextGlyph glyphs[kCaptionGlyphCapacity];
+    TextGlyph glyphs[Glyphs];
     TextRun runs[kCaptionRunCapacity];
-    u16 clusters[kCaptionGlyphCapacity];
+    u16 clusters[Glyphs];
     bool shaped;
 };
+using CaptionLine = CaptionLineOf<kCaptionGlyphCapacity>;
 
 // The tab labels, committed while the strip shows.
 struct CaptionTabs {
     // The scratch each label is shaped in.
-    CaptionLine line;
+    CaptionLineOf<kCaptionTabLineGlyphs> line;
     // Each tab's quads: shaped for `keys`, sitting at `placed`, `counts` of them.
     GlyphQuad quads[kUiTabCapacity * kCaptionTabGlyphs];
     u64 keys[kUiTabCapacity];
@@ -239,7 +243,8 @@ bool upload_icon_quad(D3D11Renderer* renderer, RendererCaption* caption,
     return upload(renderer->graphics.context, caption->icon_quad, &quad, static_cast<u32>(sizeof(quad)));
 }
 
-bool shape_line(D3D11Renderer* renderer, CaptionLine* line, Utf8View text, u32 flags, u8 size, float width,
+template <u32 Glyphs>
+bool shape_line(D3D11Renderer* renderer, CaptionLineOf<Glyphs>* line, Utf8View text, u32 flags, u8 size, float width,
                 float height) noexcept {
     if (line->shaped)
         return true;
@@ -251,10 +256,11 @@ bool shape_line(D3D11Renderer* renderer, CaptionLine* line, Utf8View text, u32 f
     return line->shaped;
 }
 
-bool initialize_line(CaptionLine* line) noexcept {
-    return shaped_text_initialize(&line->shape, Slice<TextGlyph>{line->glyphs, kCaptionGlyphCapacity},
+template <u32 Glyphs>
+bool initialize_line(CaptionLineOf<Glyphs>* line) noexcept {
+    return shaped_text_initialize(&line->shape, Slice<TextGlyph>{line->glyphs, Glyphs},
                                   Slice<TextRun>{line->runs, kCaptionRunCapacity},
-                                  Slice<u16>{line->clusters, kCaptionGlyphCapacity});
+                                  Slice<u16>{line->clusters, Glyphs});
 }
 
 void release_tabs(RendererCaption* caption) noexcept {
@@ -268,13 +274,13 @@ void release_tabs(RendererCaption* caption) noexcept {
     caption->tab_glyphs = 0;
 }
 
-bool append_line(D3D11Renderer* renderer, const CaptionLine& line, GlyphQuad* output, Color color,
+bool append_line(D3D11Renderer* renderer, const ShapedText& shape, GlyphQuad* output, Color color,
                  float origin_x, float origin_y, u32* count, u32 capacity = kCaptionGlyphCapacity) noexcept {
     for (u32 attempt = 0; attempt < 2; ++attempt) {
         bool invalidated = false;
         *count = 0;
         const D3D11GlyphTextAppendRequest request{
-            &line.shape,
+            &shape,
             output,
             count,
             &invalidated,
@@ -341,7 +347,7 @@ bool append_title(D3D11Renderer* renderer, RendererCaption* caption, UiCaptionBa
         layout->title_icon = placement.icon;
         layout->title_glyph = caption->title_glyph;
     }
-    return append_line(renderer, line, caption->glyphs, color, placement.text_left,
+    return append_line(renderer, line.shape, caption->glyphs, color, placement.text_left,
                        (layout->height - line.shape.height) * .5f, count);
 }
 
@@ -375,14 +381,18 @@ bool append_tabs(D3D11Renderer* renderer, RendererCaption* caption, const Theme&
                 renderer->dpi);
             if (tabs->keys[i] == key)
                 continue;
-            tabs->line.shaped = false;
-            if (!shape_line(renderer, &tabs->line, text, text_style_none, text_size_sm, place[i].limit, layout.height))
-                return false;
+            // A label with more glyphs than its quads (stacked marks) is shaped again, narrower, until its
+            // ellipsis fits; one that never does shows none.
             u32 count = 0;
-            const float top = (strip.area.top + strip.area.bottom - tabs->line.shape.height) * .5f;
-            if (!append_line(renderer, tabs->line, tabs->quads + i * kCaptionTabGlyphs, {}, place[i].left, top, &count,
-                             kCaptionTabGlyphs)) {
-                // A label with more glyphs than its quads shows none.
+            float limit = place[i].limit;
+            for (u32 attempt = 0; attempt < 4; ++attempt, limit *= .75f) {
+                tabs->line.shaped = false;
+                if (!shape_line(renderer, &tabs->line, text, text_style_none, text_size_sm, limit, layout.height))
+                    return false;
+                const float top = (strip.area.top + strip.area.bottom - tabs->line.shape.height) * .5f;
+                if (append_line(renderer, tabs->line.shape, tabs->quads + i * kCaptionTabGlyphs, {}, place[i].left, top,
+                                &count, kCaptionTabGlyphs))
+                    break;
                 if (d3d11_glyph_text_append_failure() != 13)
                     return false;
                 count = 0;
@@ -394,6 +404,11 @@ bool append_tabs(D3D11Renderer* renderer, RendererCaption* caption, const Theme&
         if (atlas_key(*renderer) == atlas)
             break;
     }
+    // The dragged tab covers the labels of the tabs it passes.
+    u32 dragged = kUiTabCapacity;
+    for (u32 i = 0; i < view->count && i < kUiTabCapacity; ++i)
+        if (view->items[i].flags & kUiTabDragging)
+            dragged = i;
     u32 total = 0;
     for (u32 i = 0; i < kUiTabCapacity; ++i) {
         const float shift = place[i].left - tabs->placed[i];
@@ -403,6 +418,11 @@ bool append_tabs(D3D11Renderer* renderer, RendererCaption* caption, const Theme&
             quads[quad].left += shift;
             quads[quad].right += shift;
             quads[quad].color = ink;
+            // Glyphs fade out under the close button, and out of sight under the dragged tab.
+            const float middle = (quads[quad].left + quads[quad].right) * .5f;
+            const bool covered = dragged < kUiTabCapacity && i != dragged && middle >= strip.left[dragged] &&
+                                 middle < strip.left[dragged] + strip.width[dragged];
+            quads[quad].color.alpha *= covered ? 0.0f : ui_tab_strip_label_fade(*view, strip, i, quads[quad].right);
         }
         tabs->placed[i] = place[i].left;
         total += tabs->counts[i];
@@ -555,7 +575,7 @@ bool append_tooltip(D3D11Renderer* renderer, RendererCaption* caption, const The
                       static_cast<LONG>((box.right + reach) * scale + 1),
                       static_cast<LONG>((box.bottom + reach) * scale + 1)};
     caption->tooltip_pixels = pixels;
-    return append_line(renderer, line, caption->glyphs + title_count, ink,
+    return append_line(renderer, line.shape, caption->glyphs + title_count, ink,
                        (box.left + box.right - line.shape.width) * .5f,
                        (box.top + box.bottom - line.shape.height) * .5f, count);
 }

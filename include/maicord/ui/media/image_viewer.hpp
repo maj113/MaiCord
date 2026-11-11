@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/ui/widgets/button_keyboard.hpp"
 #include "maicord/ui/widgets/icon.hpp"
+#include "maicord/media/core/asset_key.hpp"
 namespace maicord {
 struct PaintStream;
 struct Theme;
@@ -47,13 +48,22 @@ struct UiImageViewerPage {
 struct UiImageViewerPageLayout {
     UiRect header, player, queue;
 };
-// A playlist page's queue, borrowed from the host: the titles of the tracks in view from track `first + 1`, the
-// one-based current track (highlighted, with its duration), the track under the pointer, and the heading's position
-// ("6 of 24").
-inline constexpr u32 kUiImageViewerQueueRows = 16;
+// A playlist page's queue, borrowed from the host: a list scrolled `scroll` DIPs from its first row. `rows` hold the
+// tracks from `first + 1` on, as many as ui_image_viewer_queue_rows (the rows in view and one either side): title,
+// the line under it (artist or channel), duration and thumbnail (zero key without one). The one-based current track
+// is highlighted with an equaliser over its thumbnail, `hovered` takes the hover fill; the heading shows the
+// position ("6 of 24"). Every row looks the same but for those two, so a track change repaints only the old and the
+// new current rows.
+inline constexpr u32 kUiImageViewerQueueRows = 32;
+inline constexpr float kUiImageViewerQueueRow = 56;
+struct UiImageViewerQueueRow {
+    Utf8View title, detail, duration;
+    MediaAssetKey thumb;
+};
 struct UiImageViewerQueue {
-    Utf8View titles[kUiImageViewerQueueRows];
-    Utf8View duration, position;
+    UiImageViewerQueueRow rows[kUiImageViewerQueueRows];
+    Utf8View position;
+    float scroll;
     u16 count, first, current, hovered;
 };
 // Zoom bounds relative to fit, and one wheel notch (120 units).
@@ -111,9 +121,14 @@ void ui_image_viewer_set_reveal(UiImageViewer* viewer, float reveal, const UiRec
 // player: no header, toolbar or queue.
 bool ui_image_viewer_set_page(UiImageViewer* viewer, const UiImageViewerPage& page) noexcept;
 UiImageViewerPageLayout ui_image_viewer_page_layout(const UiImageViewer& viewer) noexcept;
-// The queue rows that fit the queue column, and the one-based track of the row at `point` (0 off the rows).
+// The queue's scrolled list (the column under its heading; empty without one), the rows the host fills (those in view
+// and one either side), and the one-based track of the row at `point` (0 off the rows).
+UiRect ui_image_viewer_queue_body(const UiImageViewer& viewer) noexcept;
 u32 ui_image_viewer_queue_rows(const UiImageViewer& viewer) noexcept;
 u16 ui_image_viewer_queue_hit(const UiImageViewer& viewer, UiPoint point) noexcept;
+// Where the queue's rows[n] is (it may lie outside the list's view), and its thumbnail square.
+UiRect ui_image_viewer_queue_row(const UiImageViewer& viewer, u32 n) noexcept;
+UiRect ui_image_viewer_queue_thumb(const UiImageViewer& viewer, u32 n) noexcept;
 // Re-applies a zoom (relative to fit) and pan kept from an earlier visit; both are clamped as the viewer's own.
 void ui_image_viewer_set_view(UiImageViewer* viewer, float zoom, UiPoint pan) noexcept;
 void ui_image_viewer_zoom(UiImageViewer* viewer, float factor, UiPoint anchor) noexcept;
@@ -186,7 +201,8 @@ struct UiImageViewerKeyModifiers {
 };
 UiImageViewerCommand ui_image_viewer_key_command(const UiImageViewer& viewer, UiImageViewerKey key,
                                                  UiImageViewerKeyModifiers modifiers) noexcept;
-// Applies a geometry command (zoom, fit, actual size, pan); others return false.
+// Applies a geometry command (zoom, fit, actual size, pan) and Tab's focus_next and focus_previous (over the buttons,
+// a video's too); others return false.
 bool ui_image_viewer_apply(UiImageViewer* viewer, UiImageViewerCommand command) noexcept;
 
 // Scrim and toolbar, painted below the media quad.

@@ -334,7 +334,7 @@ bool seed_items() noexcept {
     gifv.id = 821;
     gifv.fields = gateway_message_field_embeds;
     gifv.embeds = {&gif, 1};
-    GatewayMessageEmbed provider[2]{};
+    GatewayMessageEmbed provider[3]{};
     provider[0].type = GatewayMessageEmbedType::video;
     provider[0].url = provider[0].video.url = utf8_literal("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc123");
     provider[0].title = utf8_literal("Mix");
@@ -350,10 +350,17 @@ bool seed_items() noexcept {
     provider[1].image.width = 320;
     provider[1].image.height = 240;
     provider[1].image.has_width = provider[1].image.has_height = true;
+    provider[2].type = GatewayMessageEmbedType::rich;
+    provider[2].url = utf8_literal("https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC");
+    provider[2].title = utf8_literal("Fixture Song");
+    provider[2].thumbnail.url = utf8_literal("https://images-ext-1.discordapp.net/external/cover.jpg");
+    provider[2].thumbnail.content_type = utf8_literal("image/jpeg");
+    provider[2].thumbnail.width = provider[2].thumbnail.height = 300;
+    provider[2].thumbnail.has_width = provider[2].thumbnail.has_height = true;
     GatewayMessageEvent embeds{};
     embeds.id = 822;
     embeds.fields = gateway_message_field_embeds;
-    embeds.embeds = {provider, 2};
+    embeds.embeds = {provider, 3};
     describe(4, 934, utf8_literal("voice-message.ogg"), utf8_literal("audio/ogg"),
              utf8_literal("https://cdn.discordapp.com/attachments/999/934/voice-message.ogg?ex=1&is=2&hm=3"), 0, 0);
     GatewayMessageEvent voice{};
@@ -414,8 +421,19 @@ void item_page_source_tests() noexcept {
     check(application_image_viewer_item_page_source(822, live_revision(822), false, true, 1, &page) &&
               page.kind == MediaPageKind::image && (page.flags & media_page_embed) && media_asset_embed_index(page.key) == 1 &&
               page.pixels.width == 320 && page.pixels.height == 240 &&
-              !application_image_viewer_item_page_source(822, live_revision(822), false, true, 2, &page),
+              !application_image_viewer_item_page_source(822, live_revision(822), false, true, 3, &page),
           "Item pages: an embed's picture is an image page, and a missing embed none");
+    check(application_image_viewer_item_page_source(822, live_revision(822), false, true, 2, &page) &&
+              page.kind == MediaPageKind::audio && (page.flags & media_page_embed) &&
+              media_asset_embed_format(page.key) == MediaAttachmentFormat::mp3 && page.fallback.kind == MediaAssetKind::embed &&
+              media_asset_embed_format(page.fallback) == MediaAttachmentFormat::jpeg &&
+              media_asset_embed_index(page.fallback) == 2 && page.pixels.width == 300 && page.pixels.height == 300 &&
+              utf8_equal(page.art, utf8_literal("https://images-ext-1.discordapp.net/external/cover.jpg")) &&
+              utf8_starts_with(page.url, utf8_literal("https://open.spotify.com/track/")),
+          "Item pages: an audio embed is an audio page whose artwork is its thumbnail, by its own key and URL");
+    check(application_image_viewer_item_page_source(820, live_revision(820), false, false, 932, &page) &&
+              page.kind == MediaPageKind::audio && !page.art.bytes && !media_asset_key_valid(page.fallback),
+          "Item pages: an audio attachment has no artwork");
 }
 void run() noexcept {
     check_media_context();

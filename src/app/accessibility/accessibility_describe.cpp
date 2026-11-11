@@ -15,6 +15,8 @@
 #include "maicord/ui/store/store_scene.hpp"
 #include "maicord/ui/account/login_text_presentation.hpp"
 #include "../account/login/ui.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
+#include "maicord/ui/voice/video_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -435,9 +437,17 @@ void describe_friends(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
 
 void mount_messages(void*, UiAccessTree* tree, u32 node) noexcept {
     const auto* friends = g_app.renderer.friends_scene;
-    if (const UiImageViewer* page = application_media_page_viewer())
-        ui_access_add_image_viewer(tree, node, *page, surface_page);
-    else if (application_friends_active() && friends && friends->active)
+    if (const UiImageViewer* page = application_media_page_viewer()) {
+        const u32 added = ui_access_add_image_viewer(tree, node, *page, surface_page);
+        // The player the page hosts: its controls follow the header, the media and the queue.
+        const auto& renderer = g_app.renderer;
+        if (added == kUiAccessNone)
+            return;
+        if (renderer.video_scene_page && renderer.video_scene)
+            ui_access_add_video_controls(tree, added, *renderer.video_scene, surface_page);
+        else if (renderer.audio_scene && renderer.audio_scene->surface == UiAudioSourceSurface::page)
+            ui_access_add_audio_controls(tree, added, *renderer.audio_scene, surface_page);
+    } else if (application_friends_active() && friends && friends->active)
         add_scene(tree, node, friends->widgets, describe_friends, surface_friends);
     else if (g_app.message_scene.active)
         add_scene(tree, node, g_app.message_scene.widgets, describe_message, surface_messages);

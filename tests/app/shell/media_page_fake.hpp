@@ -59,6 +59,13 @@ inline app_detail::MediaPageSource source(app_detail::MediaPageKind kind, const 
 namespace maicord::app_detail {
 u8 application_media_page_open(const MediaPageSource& source) noexcept {
     namespace fake = media_page_fake;
+    // As the real store: the same media (here: its kind and title) opens once and returns its page.
+    for (u8 id = 1; id <= kMediaPageCapacity; ++id) {
+        const fake::Page& page = fake::pages[id];
+        if (page.open && page.kind == source.kind && page.title_bytes == source.title.bytes &&
+            bytes_equal(page.title, source.title.data, page.title_bytes))
+            return id;
+    }
     for (u8 id = 1; id <= kMediaPageCapacity; ++id) {
         fake::Page& page = fake::pages[id];
         if (page.open)

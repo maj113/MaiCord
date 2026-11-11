@@ -498,6 +498,17 @@ void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept {
               !ui_audio_scene_key(&scene, UiAudioKey::activate).action_requested && !scene_project(),
           "audio scene: reset widget generation rejects pointer, keyboard and reprojection without "
           "touching stale owners");
+    {
+        // Accessibility makes an action for a control by id; a range value clamps, a label has none.
+        UiAudioControlsProjection built{};
+        UiAudioAction made{};
+        check(ui_audio_controls_project(playback(), {0, 0, 480, 112}, {}, kLightTheme, &built) &&
+                  ui_audio_controls_action(built, UiAudioControl::seek, 5000, &made) && made.position_ms == 60000 &&
+                  ui_audio_controls_action(built, UiAudioControl::volume, 250, &made) && made.volume == 100 &&
+                  ui_audio_controls_action(built, UiAudioControl::play_pause, 0, &made) && !made.value &&
+                  !ui_audio_controls_action(built, UiAudioControl::title, 0, &made),
+              "audio controls: an action by control id carries the range value (clamped) or toggles the button");
+    }
     rich_layout(check);
     search_geometry(check);
     search_geometry(check, utf8_literal("Original song.mp3"), utf8_literal("audio/mpeg"), false,

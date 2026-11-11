@@ -2,6 +2,8 @@
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/app/chat/messages/event_pump.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/member_store.hpp"
@@ -250,17 +252,38 @@ void test_channel_memory(void (*check)(bool, const char*) noexcept) noexcept {
     check(!channel_memory_decode({tab_record, tab_bytes}, &untouched) && untouched.count == 1 &&
               !channel_memory_decode({tab_record, tab_bytes - 1}, &untouched),
           "a version 2 record with a changed tab or a missing byte is rejected");
+    // One tab that cannot be used costs that tab: the entries and the other tabs survive. Encoding writes whatever the
+    // table holds, so a bad tab reaches the record here as it would from a hand-edited file.
     ChannelMemory bad_tabs = tabbed;
     bad_tabs.tabs[1].channel_id = 0;
     u32 bad_tab_bytes = channel_memory_encode(bad_tabs, {tab_record, sizeof(tab_record)});
-    bool tabs_rejected = bad_tab_bytes && !channel_memory_decode({tab_record, bad_tab_bytes}, &untouched);
+    ChannelMemory survivors{};
+    bool skipped = bad_tab_bytes && channel_memory_decode({tab_record, bad_tab_bytes}, &survivors) &&
+                   survivors.count == 1 && survivors.tab_count == 2 && survivors.tabs[0].channel_id == 201 &&
+                   survivors.tabs[1].channel_id == 30 && survivors.tabs[1].label_bytes == 6;
     bad_tabs.tabs[1] = bad_tabs.tabs[0];
     bad_tab_bytes = channel_memory_encode(bad_tabs, {tab_record, sizeof(tab_record)});
-    tabs_rejected = tabs_rejected && bad_tab_bytes && !channel_memory_decode({tab_record, bad_tab_bytes}, &untouched);
+    skipped = skipped && bad_tab_bytes && channel_memory_decode({tab_record, bad_tab_bytes}, &survivors) &&
+              survivors.tab_count == 2 && survivors.tabs[0].channel_id == 201 && survivors.tabs[1].channel_id == 30;
+    bad_tabs = tabbed;
+    bad_tabs.tabs[0].label[0] = static_cast<char>(0xff);
+    bad_tab_bytes = channel_memory_encode(bad_tabs, {tab_record, sizeof(tab_record)});
+    check(skipped && bad_tab_bytes && channel_memory_decode({tab_record, bad_tab_bytes}, &survivors) &&
+              survivors.count == 1 && survivors.tab_count == 2 && survivors.tabs[0].channel_id == 211 &&
+              survivors.tabs[1].channel_id == 30,
+          "a tab with no channel, a repeated one or a label that is not UTF-8 is skipped, and the rest is kept");
+    // A record that claims more label than the file holds ends the tabs there; what came before it stays.
+    const u32 cut_bytes = channel_memory_encode(tabbed, {tab_record, sizeof(tab_record)});
+    const u32 cut_body = cut_bytes - 4;
+    tab_record[cut_body - 7] = kChannelMemoryTabLabelBytes;
+    byte_store_le32(tab_record + cut_body, hash32_bytes(tab_record, cut_body));
+    check(channel_memory_decode({tab_record, cut_bytes}, &survivors) && survivors.count == 1 && survivors.tab_count == 2 &&
+              survivors.tabs[1].channel_id == 211,
+          "a tab record that runs past the file ends the tabs and keeps the earlier ones");
     bad_tabs = tabbed;
     bad_tabs.tab_count = kChannelMemoryTabCapacity + 1;
-    check(tabs_rejected && !channel_memory_encode(bad_tabs, {tab_record, sizeof(tab_record)}) && untouched.count == 1,
-          "a zero or repeated tab and a count past the capacity are rejected");
+    check(!channel_memory_encode(bad_tabs, {tab_record, sizeof(tab_record)}) && untouched.count == 1,
+          "a tab count past the capacity is not written");
     ChannelMemoryTab too_many[kChannelMemoryTabCapacity + 1]{};
     for (u32 i = 0; i <= kChannelMemoryTabCapacity; ++i)
         too_many[i] = make_tab(1 + i, 20, "x");

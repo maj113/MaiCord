@@ -46,6 +46,8 @@ bool number(const Field& f, u32* out) noexcept;
 EmbedPlayerError index_json(const Utf8View& json, const Slice<u32>& scratch, JsonIndexedDocument* doc) noexcept;
 void sanitize_title(MediaTrackTitle* title) noexcept;
 JsonStringDecodeResult decode_title(const JsonString& name, MediaTrackTitle* title) noexcept;
+// Appends a track's author (sanitized; empty when unknown) and length after its title (track_info.hpp), when both fit.
+void append_track_detail(MediaTrackTitle* title, Utf8View author, u32 seconds) noexcept;
 bool track_page_is(const JsonString& page, u64 id, const Utf8View& country, u32 capacity) noexcept;
 EmbedPlayerError publish_stream(EmbedStream* staged, u32 url_bytes, bool valid, EmbedStream* output) noexcept;
 EmbedPlayerError embedded_json(Utf8View html, Utf8View marker, Utf8View* output, bool array = false) noexcept;

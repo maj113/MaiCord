@@ -10,6 +10,7 @@
 #include "../settings/settings.hpp"
 #include "../account/friends.hpp"
 #include "../chat/threads/browser.hpp"
+#include "../media/media_page.hpp"
 #include "../media/video.hpp"
 #include "../guild/folders.hpp"
 #include "../voice/voice.hpp"
@@ -664,8 +665,10 @@ bool plugin_surface_target(UiPoint point, u64 scope, UiTooltipTarget* target) no
         target->placement = UiTooltipPlacement::right;
     return true;
 }
-bool viewer_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
-    const auto& scene = g_app.image_viewer.scene;
+// The media viewer's toolbar and chevrons, and a media page's header buttons (`identity` tells their owners apart:
+// the viewer's reveal, the page shown).
+bool viewer_target(const UiImageViewer& scene, u64 identity, UiPoint point, bool keyboard, u64 scope,
+                   UiTooltipTarget* target) noexcept {
     const auto handle = !keyboard                ? ui_widget_manager_hit_test(scene.widgets, point.x, point.y)
                         : scene.keyboard_focus ? scene.widgets.focused
                                                : ui_widget_invalid_handle();
@@ -673,8 +676,8 @@ bool viewer_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* tar
     if (!widget || widget->kind != UiWidgetKind::button || widget->id < 10)
         return false;
     const u32 index = widget->id - 10;
-    return widget_target(scene.widgets, handle, scope, g_app.image_viewer.reveal_generation, 0, index,
-                         ui_image_viewer_tooltip(scene, index), target);
+    return widget_target(scene.widgets, handle, scope, identity, 0, index, ui_image_viewer_tooltip(scene, index),
+                         target);
 }
 // The profile card covers the content; only its own hints show (activity
 // artwork text, cut-off activity lines, a disabled join button's reason).
@@ -753,7 +756,8 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
     if (g_app.image_viewer.scene.active)
         return viewer_available() && !window_pointer_captured(g_app.window) && scope &&
                (!keyboard || g_app.keyboard_focus_visible || g_app.image_viewer.scene.keyboard_focus) &&
-               viewer_target(point, keyboard, scope, target);
+               viewer_target(g_app.image_viewer.scene, g_app.image_viewer.reveal_generation, point, keyboard, scope,
+                             target);
     if (g_app.renderer.profile_scene && g_app.renderer.profile_scene->active)
         return profile_available() && !window_pointer_captured(g_app.window) && scope &&
                (!keyboard || g_app.keyboard_focus_visible) &&
@@ -774,6 +778,13 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
     if (renderer_theme_editor_visible(g_app.renderer))
         return (!keyboard || g_app.keyboard_focus_visible) &&
                theme_editor_target(point, keyboard, scope, target);
+    // A media page covers the content column: its own buttons and player name themselves there, never the channel
+    // header's buttons under it.
+    if (const auto* page = application_media_page_viewer();
+        page && (keyboard ? page->keyboard_focus : ui_rect_contains(page->viewport, point.x, point.y)))
+        return viewer_target(*page, 0x5041'4745'0000ull | application_media_page_shown(), point, keyboard, scope,
+                             target) ||
+               (!keyboard && application_video_tooltip_target(point, false, scope, target));
     if (keyboard) {
         if (!g_app.keyboard_focus_visible)
             return false;

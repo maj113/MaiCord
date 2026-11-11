@@ -66,6 +66,10 @@ bool make_control_action(const UiVideoControlsProjection& projection, UiVideoCon
     return true;
 }
 } // namespace
+bool ui_video_controls_action(const UiVideoControlsProjection& projection, UiVideoControl id, u32 value,
+                              UiVideoAction* out) noexcept {
+    return make_control_action(projection, id, value, out);
+}
 void ui_video_append_clock(char* text, u32& cursor, u64 milliseconds, bool hours_field) noexcept {
     const u64 seconds = milliseconds / 1000, hours = seconds / 3600;
     if (hours || hours_field) {

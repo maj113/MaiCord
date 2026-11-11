@@ -3,6 +3,8 @@
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "maicord/ui/media/image_viewer.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
+#include "maicord/ui/voice/video_scene.hpp"
 #include "maicord/ui/chat/inbox_scene.hpp"
 #include "maicord/ui/media/picker.hpp"
 #include "maicord/ui/chat/pinned_messages_scene.hpp"
@@ -159,6 +161,21 @@ u32 count_role(const UiAccessTree& tree, u32 ancestor, UiAccessRole role) noexce
     for (u32 index = 1; index < tree.count; ++index)
         count += tree.nodes[index].role == role && descends(tree, index, ancestor) ? 1u : 0u;
     return count;
+}
+
+// A page and the player it hosts, projected as the application does.
+struct PagePlayer {
+    const UiImageViewer* page;
+    const UiVideoScene* video;
+    const UiAudioScene* audio;
+};
+u32 add_page_player(UiAccessTree* tree, u32 parent, const PagePlayer& player, u8 surface) noexcept {
+    const u32 node = ui_access_add_image_viewer(tree, parent, *player.page, surface);
+    if (node != kUiAccessNone && player.video)
+        ui_access_add_video_controls(tree, node, *player.video, surface);
+    if (node != kUiAccessNone && player.audio)
+        ui_access_add_audio_controls(tree, node, *player.audio, surface);
+    return node;
 }
 
 // Projects one overlay and its drawn text the way the application does.
@@ -567,6 +584,109 @@ void test_page(UiAccessTree* tree) noexcept {
     group = project_overlay(tree, viewer, ui_access_add_image_viewer, text);
     check(find_node(*tree, group, UiAccessRole::image, utf8_literal("Audio")) != kUiAccessNone,
           "media page: an audio page is named by its kind");
+
+    // The queue and the player a page hosts: a list of its rows in view with the current track selected (the artist
+    // as help), the play button of a player that has not started, then the hosted player's controls, each routed by
+    // its item.
+    static UiImageViewerQueue queue{};
+    queue.rows[0] = {utf8_literal("One"), {}, {}, {}};
+    queue.rows[1] = {utf8_literal("Two"), utf8_literal("Artist"), utf8_literal("1:05"), {}};
+    queue.rows[2] = {utf8_literal("Three"), {}, {}, {}};
+    queue.position = utf8_literal("2 of 3");
+    queue.count = 3;
+    queue.current = 2;
+    page.kind = UiImageViewerPageKind::video;
+    page.glyph = UiIcon::video;
+    page.queue = true;
+    check(ui_image_viewer_set_page(&viewer, page), "media page: a playlist video page");
+    viewer.queue = &queue;
+    viewer.idle = true;
+    const auto player_text = [](const PagePlayer& p, UiTextOutput* out) noexcept {
+        return ui_image_viewer_text_output(*p.page, kDefaultTheme, out);
+    };
+    group = project_overlay(tree, PagePlayer{&viewer, nullptr, nullptr}, add_page_player, player_text);
+    const u32 rows = find_node(*tree, group, UiAccessRole::list, utf8_literal("Queue"));
+    const u32 two = find_node(*tree, rows, UiAccessRole::list_item, utf8_literal("Two"));
+    const u32 one = find_node(*tree, rows, UiAccessRole::list_item, utf8_literal("One"));
+    check(rows != kUiAccessNone && equal(ui_access_help(*tree, rows), utf8_literal("2 of 3")) &&
+              count_role(*tree, rows, UiAccessRole::list_item) == 3 && two != kUiAccessNone && one != kUiAccessNone &&
+              (tree->nodes[two].state & ui_access_selected) && !(tree->nodes[one].state & ui_access_selected) &&
+              tree->nodes[two].item == 2 && tree->nodes[two].placement.position == 2 &&
+              tree->nodes[two].placement.set_size == 3 &&
+              (tree->nodes[two].actions & ui_access_action_invoke) && equal(ui_access_help(*tree, two), utf8_literal("Artist")) &&
+              ui_rect_has_area(tree->nodes[two].rectangle),
+          "media page: the queue is a list of its rows, the current track selected and invocable by track number");
+    const u32 play = find_node(*tree, group, UiAccessRole::button, utf8_literal("Play"));
+    check(play != kUiAccessNone && tree->nodes[play].item == (kUiAccessPlayerItem | 1) &&
+              (tree->nodes[play].actions & ui_access_action_invoke),
+          "media page: a player that has not started offers Play");
+    viewer.idle = false;
+    static UiVideoScene video{};
+    UiVideoPlaybackState playing{7, 8, 9, 35000, 200000, 40, true, false, false, false, true, true, true, true};
+    playing.can_expand = true;
+    playing.collection_count = 3;
+    playing.collection_track = 2;
+    playing.can_change_track = true;
+    UiVideoControlsStyle controls{};
+    controls.tracks_in_row = true;
+    controls.expand = utf8_literal("Full screen");
+    const UiRect stage = ui_image_viewer_page_layout(viewer).player;
+    check(ui_video_scene_project(&video, playing, stage, stage, controls, {}, kDefaultTheme),
+          "media page: the hosted video player projects");
+    group = project_overlay(tree, PagePlayer{&viewer, &video, nullptr}, add_page_player, player_text);
+    const u32 pause = find_node(*tree, group, UiAccessRole::button, utf8_literal("Pause"));
+    const u32 seek = find_node(*tree, group, UiAccessRole::slider, utf8_literal("Seek"));
+    const u32 volume = find_node(*tree, group, UiAccessRole::slider, utf8_literal("Volume"));
+    check(find_node(*tree, group, UiAccessRole::button, utf8_literal("Play")) == kUiAccessNone && pause != kUiAccessNone &&
+              tree->nodes[pause].item == (kUiAccessPlayerItem | 1) && seek != kUiAccessNone &&
+              (tree->nodes[seek].actions & ui_access_action_range) && tree->nodes[seek].range.value == 1750 &&
+              tree->nodes[seek].range.maximum == 10000 && equal(ui_access_value(*tree, seek), utf8_literal("0:35 / 3:20")) &&
+              tree->nodes[seek].item == (kUiAccessPlayerItem | 2) && volume != kUiAccessNone &&
+              tree->nodes[volume].range.value == 40 && tree->nodes[volume].range.maximum == 100 &&
+              tree->nodes[volume].item == (kUiAccessPlayerItem | 5),
+          "media page: play/pause, seek and volume are a button and two sliders with their values");
+    const u32 mute = find_node(*tree, group, UiAccessRole::button, utf8_literal("Mute"));
+    check(mute != kUiAccessNone && tree->nodes[mute].item == (kUiAccessPlayerItem | 4) &&
+              find_node(*tree, group, UiAccessRole::text, utf8_literal("0:35")) != kUiAccessNone &&
+              find_node(*tree, group, UiAccessRole::button, utf8_literal("Previous track")) != kUiAccessNone &&
+              find_node(*tree, group, UiAccessRole::button, utf8_literal("Next track")) != kUiAccessNone &&
+              find_node(*tree, group, UiAccessRole::button, utf8_literal("Full screen")) != kUiAccessNone,
+          "media page: mute, the time, previous and next track and full screen are named");
+    playing.can_change_track = false;
+    check(ui_video_scene_project(&video, playing, stage, stage, controls, {}, kDefaultTheme),
+          "media page: the player cannot change tracks");
+    group = project_overlay(tree, PagePlayer{&viewer, &video, nullptr}, add_page_player, player_text);
+    const u32 previous = find_node(*tree, group, UiAccessRole::button, utf8_literal("Previous track"));
+    check(previous != kUiAccessNone && (tree->nodes[previous].state & ui_access_disabled),
+          "media page: a control the player refuses is disabled");
+    page.kind = UiImageViewerPageKind::audio;
+    page.glyph = UiIcon::music;
+    check(ui_image_viewer_set_page(&viewer, page), "media page: a playlist audio page");
+    viewer.queue = &queue;
+    static UiAudioScene card{};
+    UiAudioPlaybackState song{};
+    song.owner = 7;
+    song.generation = 8;
+    song.revision = 9;
+    song.elapsed_ms = 30000;
+    song.duration_ms = 120000;
+    song.volume = 40;
+    song.playing = song.can_play = song.can_seek = song.can_volume = song.can_download = song.has_duration = true;
+    song.title = utf8_literal("Song");
+    const UiRect audio_stage = ui_image_viewer_page_layout(viewer).player;
+    check(ui_audio_scene_project(&card, song, ui_audio_page_card(audio_stage, kDefaultUiAudioControlsStyle), audio_stage,
+                                 {&viewer.widgets, viewer.owner.handle}, UiAudioSourceSurface::page,
+                                 kDefaultUiAudioControlsStyle, kDefaultTheme),
+          "media page: the hosted audio card projects");
+    group = project_overlay(tree, PagePlayer{&viewer, nullptr, &card}, add_page_player, player_text);
+    const u32 audio_seek = find_node(*tree, group, UiAccessRole::slider, utf8_literal("Seek"));
+    check(find_node(*tree, group, UiAccessRole::button, utf8_literal("Pause")) != kUiAccessNone && audio_seek != kUiAccessNone &&
+              tree->nodes[audio_seek].range.value == 2500 && tree->nodes[audio_seek].range.maximum == 10000 &&
+              find_node(*tree, group, UiAccessRole::slider, utf8_literal("Volume")) != kUiAccessNone &&
+              find_node(*tree, group, UiAccessRole::button, utf8_literal("Mute")) != kUiAccessNone &&
+              find_node(*tree, group, UiAccessRole::button, utf8_literal("Download")) != kUiAccessNone &&
+              find_node(*tree, group, UiAccessRole::list, utf8_literal("Queue")) != kUiAccessNone,
+          "media page: an audio page names the card's controls beside its queue");
 }
 
 bool picker_item(void*, u32 index, UiMediaPickerItem* item) noexcept {

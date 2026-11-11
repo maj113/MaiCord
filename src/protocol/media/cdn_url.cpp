@@ -1140,6 +1140,8 @@ Utf8View cdn_host_name(CdnHost host) noexcept {
         return utf8_literal(kActivityArtHost);
     case CdnHost::web_asset:
         return utf8_literal(kWebAssetHost);
+    case CdnHost::track_art:
+        return utf8_literal(kTrackArtHost);
     default:
         return Utf8View{};
     }

@@ -26,7 +26,7 @@ constexpr u64 kPageKey = 1ull << 63;
 static_assert(kUiTabCapacity >= kMediaPageCapacity);
 
 // What is saved of a tab, and where it is drawn. A media tab names a page (session only: never saved) instead of a
-// channel; its label is the page's title as it was opened.
+// channel, and the channel its media came from; its label is the page's title as it was opened.
 struct Tab : ChannelMemoryTab {
     // The left edge and width as drawn last frame, and as they were when the running transition began.
     float shown_left, shown_width, from_left, from_width;
@@ -40,9 +40,9 @@ struct Tab : ChannelMemoryTab {
 struct Tabs {
     Tab items[kUiTabCapacity];
     u8 count;
-    // A drag moves the tab at drag_index with the pointer.
+    // A drag moves the tab with this key with the pointer.
     bool dragging;
-    u8 drag_index;
+    u64 drag_key;
     // The account's saved tabs were adopted: until then nothing changes them or the file.
     bool restored;
     // Opening and closing tabs are under way.
@@ -203,15 +203,15 @@ void persist() noexcept {
     application_channel_memory_set_tabs({tabs, count});
 }
 
-// Closes every media tab with its page (the strip is hidden or another account's).
-void drop_media() noexcept {
+// Drops the media tabs (`media`: the strip is hidden or another account's) or the tabs that finished closing; the
+// rest keep their order.
+void drop(bool media) noexcept {
     u32 kept = 0;
     for (u32 i = 0; i < g_tabs.count; ++i)
-        if (!g_tabs.items[i].page)
+        if (!(media ? g_tabs.items[i].page != 0 : closing(g_tabs.items[i])))
             g_tabs.items[kept++] = g_tabs.items[i];
     clear_bytes(&g_tabs.items[kept], (g_tabs.count - kept) * sizeof(Tab));
     g_tabs.count = static_cast<u8>(kept);
-    application_media_page_reset();
 }
 
 // A change starts: every tab slides from where it is drawn now.
@@ -225,18 +225,8 @@ void begin() noexcept {
     application_request_frame();
 }
 
-// Drops the tabs that finished closing; the rest keep their order.
-void drop_closing() noexcept {
-    u32 kept = 0;
-    for (u32 i = 0; i < g_tabs.count; ++i)
-        if (!closing(g_tabs.items[i]))
-            g_tabs.items[kept++] = g_tabs.items[i];
-    clear_bytes(&g_tabs.items[kept], (g_tabs.count - kept) * sizeof(Tab));
-    g_tabs.count = static_cast<u8>(kept);
-}
-
 void settle() noexcept {
-    drop_closing();
+    drop(false);
     for (u32 i = 0; i < g_tabs.count; ++i)
         g_tabs.items[i].flags &= static_cast<u8>(~kUiTabOpening);
     g_tabs.busy = false;
@@ -254,8 +244,10 @@ bool settled() noexcept {
 bool shown() noexcept {
     const u64 profile = application_channel_memory_profile();
     if (!g_app.preferences.tabs_enabled || !g_app.account_ui || g_app.login.visible || !profile) {
-        if (media_count())
-            drop_media();
+        if (media_count()) {
+            drop(true);
+            application_media_page_reset();
+        }
         return false;
     }
     if (g_tabs.profile_id != profile) {
@@ -280,13 +272,15 @@ u64 pin_target() noexcept {
     return selected && !application_friends_active() && application_channel_navigable(selected) ? selected : 0;
 }
 
-// Whether "+" is on: a message viewer to turn into a page, else a channel without a tab. A page that shows is
-// a tab already.
-bool can_pin() noexcept {
+// Whether "+" is on: a message viewer to turn into a page (`viewer`), else a channel without a tab. A page that shows
+// is a tab already.
+bool can_pin(bool* viewer) noexcept {
+    *viewer = false;
     if (application_media_page_shown())
         return false;
+    *viewer = application_image_viewer_page_source(nullptr);
     const u64 target = pin_target();
-    return application_image_viewer_page_source(nullptr) || (target && find(target) == kNone);
+    return *viewer || (target && find(target) == kNone);
 }
 
 // Whether the tab's channel is certainly gone: a DM or group DM the account no longer has, a channel missing from
@@ -334,8 +328,8 @@ void follow_account() noexcept {
     persist();
 }
 
-// The hovered tab's tooltip: a channel's name with its server, a media tab's title with the line under it. The text
-// stays valid until the next call; an empty view means the label says it all.
+// The hovered tab's tooltip: a channel's name with its server ("#channel · Server" for a text channel), a media tab's
+// title with the line under it. The text stays valid until the next call; an empty view means the label says it all.
 char g_tip[240];
 Utf8View tooltip(const Tab& tab) noexcept {
     Utf8View detail{};
@@ -351,8 +345,10 @@ Utf8View tooltip(const Tab& tab) noexcept {
         return {};
     // A media tab's label is cut to fit the strip; its tooltip names the title whole.
     const Utf8View title = tab.page ? application_media_page_title(tab.page) : Utf8View{};
-    u32 bytes = utf8_copy_truncated(g_tip, sizeof(g_tip) - separator.bytes,
-                                    title.bytes ? title : Utf8View{tab.label, tab.label_bytes});
+    g_tip[0] = '#';
+    u32 bytes = !tab.page && tab.icon == UiIcon::channel;
+    bytes += utf8_copy_truncated(g_tip + bytes, sizeof(g_tip) - separator.bytes - bytes,
+                                 title.bytes ? title : Utf8View{tab.label, tab.label_bytes});
     copy_bytes(g_tip + bytes, separator.data, separator.bytes);
     bytes += separator.bytes;
     bytes += utf8_copy_truncated(g_tip + bytes, sizeof(g_tip) - bytes, detail);
@@ -377,6 +373,10 @@ const UiTabStripView* application_tabs_view(UiTabHit hovered, UiTabHit pressed, 
     const float done = application_motion_tick(&g_tabs.motion, g_tabs.motion.scope, 1, now_ms, kUiMotionExpand);
     if (g_tabs.busy && done >= 1)
         settle();
+    // The tab the pointer holds in a drag is the hovered and the pressed one, wherever the drag moved it.
+    const u32 dragged = g_tabs.dragging ? find(g_tabs.drag_key) : kNone;
+    if (dragged != kNone)
+        hovered = pressed = {UiTabHitKind::tab, static_cast<u8>(dragged)};
     const u64 active = active_key();
     // The hover fill and the close button's fade ramp for a tab, its X or its play button; "+" and "..." hover no tab.
     const bool over_tab = (hovered.kind == UiTabHitKind::tab || hovered.kind == UiTabHitKind::close ||
@@ -393,7 +393,7 @@ const UiTabStripView* application_tabs_view(UiTabHit hovered, UiTabHit pressed, 
                          tab.icon,
                          // The tab that shows is read: no dot on it.
                          static_cast<u8>((tab.flags & ~(shown_tab ? kUiTabUnread : 0)) | (shown_tab ? kUiTabActive : 0) |
-                                         (g_tabs.dragging && g_tabs.drag_index == i ? kUiTabDragging : 0)),
+                                         (i == dragged ? kUiTabDragging : 0)),
                          tab.from_left,
                          tab.from_width,
                          ui_motion_hover_amount(g_tabs.hover, key(tab)),
@@ -402,7 +402,7 @@ const UiTabStripView* application_tabs_view(UiTabHit hovered, UiTabHit pressed, 
                                                                                                   : Utf8View{}};
     }
     view.count = g_tabs.count;
-    view.plus_enabled = can_pin();
+    view.plus_enabled = can_pin(&view.plus_page);
     view.hovered = hovered.index < g_tabs.count || hovered.kind == UiTabHitKind::plus ||
                            hovered.kind == UiTabHitKind::overflow
                        ? hovered
@@ -436,7 +436,7 @@ bool application_tabs_open_channel(u64 channel_id, bool background) noexcept {
     }
     // Tabs still closing make room at once.
     if (g_tabs.count == kUiTabCapacity)
-        drop_closing();
+        drop(false);
     begin();
     append(channel_id, true);
     persist();
@@ -446,29 +446,31 @@ bool application_tabs_open_channel(u64 channel_id, bool background) noexcept {
 bool application_tabs_open_media(const MediaPageSource& source, bool background) noexcept {
     if (!shown() || !g_tabs.restored)
         return false;
+    // The store hands the page of the same media back: its tab shows instead of a second one for the page.
+    const u8 page = application_media_page_open(source);
+    if (const u32 at = page ? find(kPageKey | page) : kNone; at != kNone)
+        return background || application_tabs_activate(at);
     const bool full = live_count() == kUiTabCapacity;
-    if (full || media_count() == kMediaPageCapacity) {
-        application_toast_show(UiToastKind::failure, full ? utf8_literal("You can have up to 16 tabs open.")
-                                                          : utf8_literal("You can have up to 8 media tabs open."));
+    if (!page || full) {
+        if (page)
+            application_media_page_close(page);
+        if (full || media_count() == kMediaPageCapacity)
+            application_toast_show(UiToastKind::failure, full ? utf8_literal("You can have up to 16 tabs open.")
+                                                              : utf8_literal("You can have up to 8 media tabs open."));
         return false;
     }
-    const u8 page = application_media_page_open(source);
-    if (!page)
-        return false;
     // Tabs still closing make room at once.
     if (g_tabs.count == kUiTabCapacity)
-        drop_closing();
+        drop(false);
     begin();
     Tab& tab = g_tabs.items[g_tabs.count++];
     clear_bytes(&tab, sizeof(tab));
     tab.page = page;
+    tab.channel_id = source.channel_id;
     tab.flags = kUiTabOpening;
     describe_page(&tab);
-    const Utf8View untitled = source.kind == MediaPageKind::video   ? utf8_literal("Video")
-                              : source.kind == MediaPageKind::audio ? utf8_literal("Audio")
-                                                                    : utf8_literal("Image");
-    tab.label_bytes =
-        static_cast<u8>(utf8_copy_truncated(tab.label, kLabelBytes, source.title.bytes ? source.title : untitled));
+    // Both producers (application_image_viewer_page_source, _item_page_source) title an untitled item by its kind.
+    tab.label_bytes = static_cast<u8>(utf8_copy_truncated(tab.label, kLabelBytes, source.title));
     return background || application_tabs_activate(g_tabs.count - 1);
 }
 
@@ -487,8 +489,13 @@ bool application_tabs_activate(u32 index) noexcept {
     if (!shown() || index >= g_tabs.count || closing(g_tabs.items[index]))
         return false;
     const Tab& tab = g_tabs.items[index];
-    // Navigating to a channel hides a page that shows (application_tabs_note_navigation).
-    return tab.page ? application_media_page_show(tab.page) : application_navigate_known_message(tab.channel_id, 0);
+    if (!tab.page)
+        return application_navigate_known_message(tab.channel_id, 0);
+    // A page shows with the channel it came from in the sidebar and the member list (when the account still reaches
+    // it); navigating hides the page that shows, so this one shows after it.
+    if (application_media_page_shown() != tab.page && tab.channel_id)
+        application_navigate_known_message(tab.channel_id, 0);
+    return application_media_page_show(tab.page);
 }
 
 void application_tabs_note_navigation() noexcept {
@@ -526,10 +533,9 @@ bool close_tabs(u32 index, Close how) noexcept {
             continue;
         tab.flags |= kUiTabClosing;
         any = true;
+        lose_active = lose_active || key(tab) == active;
         if (tab.page)
             application_media_page_close(tab.page);
-        else
-            lose_active = lose_active || tab.channel_id == active;
     }
     if (!any)
         return false;
@@ -545,14 +551,6 @@ bool application_tabs_close(u32 index) noexcept {
     return close_tabs(index, Close::one);
 }
 
-bool application_tabs_close_others(u32 index) noexcept {
-    return close_tabs(index, Close::others);
-}
-
-bool application_tabs_close_right(u32 index) noexcept {
-    return close_tabs(index, Close::right);
-}
-
 bool application_tabs_move(u32 from, u32 to) noexcept {
     if (!shown() || from >= g_tabs.count || to >= g_tabs.count || from == to)
         return false;
@@ -563,8 +561,6 @@ bool application_tabs_move(u32 from, u32 to) noexcept {
     else
         copy_bytes(&g_tabs.items[to + 1], &g_tabs.items[to], (from - to) * sizeof(Tab));
     g_tabs.items[to] = moved;
-    if (g_tabs.dragging && g_tabs.drag_index == from)
-        g_tabs.drag_index = static_cast<u8>(to);
     persist();
     return true;
 }
@@ -573,14 +569,18 @@ u32 application_tabs_drag_begin(u32 index) noexcept {
     if (!shown() || index >= g_tabs.count || closing(g_tabs.items[index]))
         return kNone;
     const u64 id = key(g_tabs.items[index]);
-    drop_closing();
+    drop(false);
     const u32 at = find(id);
     if (at == kNone)
         return kNone;
     g_tabs.dragging = true;
-    g_tabs.drag_index = static_cast<u8>(at);
+    g_tabs.drag_key = id;
     g_tabs.drag_left = g_tabs.items[at].shown_left;
     return at;
+}
+
+u32 application_tabs_drag_index() noexcept {
+    return g_tabs.dragging ? find(g_tabs.drag_key) : kNone;
 }
 
 void application_tabs_drag_to(float left) noexcept {
@@ -671,17 +671,9 @@ UiIcon application_tabs_icon(u32 index) noexcept {
 }
 
 bool application_tabs_menu_action(u32 action, u64 id) noexcept {
-    const u32 at = find(id);
-    switch (action) {
-    case popup_action_tab_close:
-        return application_tabs_close(at);
-    case popup_action_tab_close_others:
-        return application_tabs_close_others(at);
-    case popup_action_tab_close_right:
-        return application_tabs_close_right(at);
-    default:
-        return false;
-    }
+    // The menu's rows are Close, Close other tabs and Close tabs to the right, in Close's order.
+    const u32 how = action - popup_action_tab_close;
+    return how <= static_cast<u32>(Close::right) && close_tabs(find(id), static_cast<Close>(how));
 }
 
 bool application_tabs_close_page(u8 id) noexcept {

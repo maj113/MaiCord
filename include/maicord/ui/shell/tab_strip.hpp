@@ -15,11 +15,13 @@ namespace maicord {
 inline constexpr u32 kUiTabCapacity = 16;
 
 // A tab at rest is this wide, shrinks to the minimum as more open, and the active one keeps its own minimum
-// while the others can still shrink. Below the label minimum a tab is its icon (its close button on hover).
-inline constexpr float kUiTabWidth = 168.f, kUiTabMinimum = 32.f, kUiTabActiveMinimum = 96.f;
-inline constexpr float kUiTabLabelMinimum = 88.f;
-// The active tab and tabs at least this wide always show their close button; the others only while hovered, which
-// gives their label the button's room.
+// while the others can still shrink. Below the label minimum a tab is its icon (its close button on hover); a tab
+// at the label minimum shows two or three characters and an ellipsis.
+// The active minimum is the most that still lets all 16 tabs share a 1000 DIP window.
+inline constexpr float kUiTabWidth = 168.f, kUiTabMinimum = 32.f, kUiTabActiveMinimum = 108.f;
+inline constexpr float kUiTabLabelMinimum = 64.f;
+// The active tab and tabs at least this wide always show their close button; the others only while hovered. A
+// label keeps its room whether the button shows or not: it fades out under the button instead.
 inline constexpr float kUiTabCloseAlways = 120.f;
 // The "+" and "..." buttons.
 inline constexpr float kUiTabButton = 28.f;
@@ -61,8 +63,10 @@ struct UiTabHit {
 struct UiTabStripView {
     UiTabItem items[kUiTabCapacity];
     u8 count;
-    // False while the current channel is already a tab: the "+" draws dimmed and takes no hover.
+    // False while there is nothing to pin: the "+" draws dimmed and takes no hover.
     bool plus_enabled;
+    // "+" would turn the open message viewer into a page tab instead of pinning the channel.
+    bool plus_page;
     UiTabHit hovered, pressed;
     // What remains of the transition (opening, closing and neighbours sliding), 0 at rest: tabs draw at their
     // slot plus (from - slot) * remaining.
@@ -85,6 +89,9 @@ struct UiTabStripLayout {
     UiRect plus, overflow;
     // Items whose icon is a play/pause button (kUiTabPlaying).
     u32 playing;
+    // The active item that draws in the last slot after the hidden ones (bit set), 0 when none does: a tab dragged
+    // past the end must not land among the hidden ones.
+    u32 beyond;
     // Items beyond this many did not fit: the first `shown` items draw, the active one taking the last slot when
     // it lies further. Equal to the live item count when everything fits.
     u8 shown;
@@ -98,12 +105,16 @@ UiTabStripLayout ui_tab_strip_layout(const UiRect& area, const UiTabStripView& v
 UiRect ui_tab_strip_tab(const UiTabStripLayout&, u32 index) noexcept;
 UiRect ui_tab_strip_icon(const UiTabStripLayout&, u32 index) noexcept;
 UiRect ui_tab_strip_close(const UiTabStripLayout&, u32 index) noexcept;
-// The label's left edge as drawn and the width it is shaped to, which follows the settled width so the shape stays
-// put while the tab moves; limit 0 when the tab shows no label.
+// The label's left edge as drawn and the width it is shaped to: the settled width, so the shape stays put while
+// the tab moves, or the width reached so far while the tab opens, so it never runs past its body. The width never
+// depends on the close button; limit 0 when the tab shows no label.
 struct UiTabLabel {
     float left, limit;
 };
 UiTabLabel ui_tab_strip_label(const UiTabStripLayout&, u32 index) noexcept;
+// The opacity of the label's glyph whose right edge is at `right`: 1 clear of the close button, fading to 0 where
+// the button is, as far as the button has come in.
+float ui_tab_strip_label_fade(const UiTabStripView&, const UiTabStripLayout&, u32 index, float right) noexcept;
 // The label's colour: the idle ink toward the lit one as the tab hovers or is active, dimmed with its fade.
 Color ui_tab_strip_ink(const Theme&, const UiTabStripView&, const UiTabStripLayout&, u32 index,
                        bool window_active) noexcept;

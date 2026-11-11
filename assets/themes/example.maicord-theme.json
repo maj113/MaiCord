@@ -168,7 +168,8 @@
       "badge_track": "{semantic.fill.muted}",
       "badge_progress": "{semantic.accent.brand}",
       "badge_ready": "{semantic.accent.success}",
-      "badge_ready_fill": [0.14, 0.65, 0.38, 0.16]
+      "badge_ready_fill": [0.14, 0.65, 0.38, 0.16],
+      "tab_active": "{semantic.background.primary}"
     },
     "option": {
       "fill": "{semantic.fill.muted}",
