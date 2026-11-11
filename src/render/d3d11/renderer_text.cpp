@@ -1150,10 +1150,11 @@ constexpr u32 kInteractionTextSourceOffsets[]{
     offsetof(D3D11Renderer, interaction_text_reaction_viewer_revision),
     offsetof(D3D11Renderer, interaction_text_form_revision),
     offsetof(D3D11Renderer, interaction_text_names_card_revision),
+    offsetof(D3D11Renderer, interaction_text_media_page_revision),
 };
 constexpr u32 kInteractionTextSourceCount = sizeof(kInteractionTextSourceOffsets) / sizeof(u32);
 // Sources 0 to 25 apply on every page; 26 to 33 are friends, friends requests, profile, image viewer,
-// action bar, popup, reaction viewer and form; 34 is the names card.
+// action bar, popup, reaction viewer and form; 34 is the names card and 35 the media page.
 constexpr u32 kInteractionTextProfileSource = 28, kInteractionTextActionBarSource = 30,
               kInteractionTextPopupSource = 31, kInteractionTextFormSource = 33;
 constexpr u64 kInteractionTextStaticSources = (1ull << 26) - 1,
@@ -1191,6 +1192,7 @@ constexpr ActiveBit kActiveBits[]{
     {d3d11_surface_toast, 1u << 24},
     {d3d11_surface_expression_card, 1u << 25},
     {d3d11_surface_names_card, 1u << 26},
+    {d3d11_surface_media_page, 1u << 27},
 };
 u32 interaction_text_active_mask(const D3D11Renderer& renderer, u32 shown) noexcept {
     if (shown & d3d11_surface_settings_page)
@@ -1211,7 +1213,7 @@ u32 interaction_text_active_mask(const D3D11Renderer& renderer, u32 shown) noexc
         mask |= 1u << 5;
     if (d3d11_renderer_active(renderer.image_viewer))
         mask |= 1u << 4;
-    if (!friends && !(shown & (d3d11_surface_thread_browser | d3d11_surface_call)) &&
+    if (!friends && !(shown & (d3d11_surface_thread_browser | d3d11_surface_call | d3d11_surface_media_page)) &&
         d3d11_renderer_active(renderer.message_action_bar))
         mask |= d3d11_interaction_text_action_bar;
     if (d3d11_renderer_active(renderer.popup_scene))
@@ -1258,6 +1260,7 @@ constexpr SurfaceRevision kSurfaceRevisions[]{
     {d3d11_surface_go_live, offsetof(D3D11Renderer, go_live_scene), offsetof(UiGoLiveScene, revision), 25},
     {d3d11_surface_names_card, offsetof(D3D11Renderer, names_card_scene), offsetof(UiNamesCardScene, revision),
      34},
+    {d3d11_surface_media_page, offsetof(D3D11Renderer, media_page), offsetof(UiImageViewer, revision), 35},
 };
 static_assert(sizeof(UiTooltipScene::revision) == 4 && sizeof(UiUnreadBannerScene::revision) == 4 &&
               sizeof(UiToastScene::revision) == 4 && sizeof(UiSearchScene::revision) == 4 &&
@@ -1267,7 +1270,7 @@ static_assert(sizeof(UiTooltipScene::revision) == 4 && sizeof(UiUnreadBannerScen
               sizeof(UiCallScene::revision) == 4 && sizeof(UiStreamCardScene::revision) == 4 &&
               sizeof(UiGuildCardScene::revision) == 4 && sizeof(UiMediaPickerScene::revision) == 4 &&
               sizeof(UiExpressionCardScene::revision) == 4 && sizeof(UiGoLiveScene::revision) == 4 &&
-              sizeof(UiNamesCardScene::revision) == 4);
+              sizeof(UiNamesCardScene::revision) == 4 && sizeof(UiImageViewer::revision) == 4);
 
 // Fills the revision of every interaction text source and returns the mask of the sources that
 // apply: the settings page tracks only the popup, profile overlay and form of the page-dependent ones.
@@ -1279,7 +1282,7 @@ u64 interaction_text_source_values(const D3D11Renderer& renderer, u32 shown, u64
     values[3] = interaction_text_active_mask(renderer, shown);
     values[4] = thread_browser ? renderer.thread_browser_scene->revision : 0;
     values[5] = thread_browser ? renderer.thread_browser_scene->source_publication : 0;
-    values[6] = (shown & (d3d11_surface_video | d3d11_surface_viewer_video))
+    values[6] = (shown & (d3d11_surface_video | d3d11_surface_viewer_video | d3d11_surface_page_video))
                     ? ui_video_scene_text_paint_revision(*renderer.video_scene)
                     : 0;
     values[7] = (shown & d3d11_surface_audio) ? ui_audio_scene_text_revision(*renderer.audio_scene) : 0;
@@ -1392,8 +1395,9 @@ bool d3d11_renderer_interaction_text_state_current(const D3D11Renderer& renderer
     const u32 shown = d3d11_renderer_frame_surfaces(renderer);
     u64 values[kInteractionTextSourceCount];
     u64 used = interaction_text_source_values(renderer, shown, values);
-    // Friends and the thread browser hide the action bar.
-    if (d3d11_renderer_active(renderer.friends_scene) || (shown & d3d11_surface_thread_browser))
+    // Friends, the thread browser and a media page hide the action bar.
+    if (d3d11_renderer_active(renderer.friends_scene) ||
+        (shown & (d3d11_surface_thread_browser | d3d11_surface_media_page)))
         used &= ~(1ull << kInteractionTextActionBarSource);
     for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
         if (!(used >> i & 1u))

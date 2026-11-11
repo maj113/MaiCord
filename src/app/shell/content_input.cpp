@@ -143,6 +143,7 @@ bool select_content_channel(u64 channel_id) noexcept {
     }
     application_thread_browser_close();
     application_friends_hide();
+    application_tabs_note_navigation();
     application_read_state_activity();
     if ((selected.changed || was_friends || was_browser) &&
         (!synchronize_navigation_view() || !synchronize_selected_channel() ||
@@ -457,6 +458,7 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
         home_shows_conversation = !was_friends;
     application_thread_browser_close();
     application_friends_hide();
+    application_tabs_note_navigation();
     const u64 selected_channel_id = g_app.account_ui->chat_state.selected_channel_id;
     application_read_state_activity();
     if (selected.changed || was_friends || was_browser) {

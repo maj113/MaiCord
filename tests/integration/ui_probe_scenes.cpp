@@ -2,6 +2,7 @@
 #include "../support/model_store_fixtures.hpp"
 #include "probe_capture.hpp"
 #include "maicord/ui/chat/composer/voice_bar.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/account/profile_appearance.hpp"
 #include "maicord/ui/chat/private_channel_title.hpp"
@@ -6179,6 +6180,107 @@ bool probe_image_viewer() noexcept {
         g_probe.renderer.interaction_text_image_viewer_revision)
         return false;
     log_write(LogLevel::info, "probe", "image_viewer_texture_controls_zoom_and_retention_hardware_passed");
+    return true;
+}
+// Media pages (title bar media tabs) at a 1000 DIP window: an image page, a video page and an audio page with its
+// card, and the unavailable state, drawn in the content column with the sidebar and member list beside them.
+bool probe_media_page() noexcept {
+    auto& renderer = g_probe.renderer;
+    const u32 width = renderer.width, height = renderer.height;
+    const auto* old_audio = renderer.audio_scene;
+    const auto* old_video = renderer.video_scene;
+    g_probe.failure_stage = 140;
+    if (!renderer.ui_scene ||
+        !probe_resize_surface(static_cast<u32>(1000.0f * renderer.dpi / 96.0f + .5f), height))
+        return false;
+    const UiRect content = ui_scene_content_rectangle(*renderer.ui_scene, UiSemantic::content);
+    PngImage image{};
+    u8 pixels[16 * (32 * 4 + 1)]{};
+    for (u32 y = 0; y < 16; ++y)
+        for (u32 x = 0; x < 32; ++x) {
+            const u32 offset = y * 129 + 1 + x * 4;
+            pixels[offset] = 240;
+            pixels[offset + 3] = 255;
+        }
+    const auto key = media_asset_attachment(991993, MediaAttachmentFormat::png, MediaResolutionTier::px2048);
+    UiImageViewer page{};
+    const UiImageViewerPage image_info{utf8_literal("sunset-over-the-harbour.png"),
+                                       utf8_literal("#general \xC2\xB7 Probe Server \xC2\xB7 Mai"), UiIcon::image,
+                                       UiImageViewerPageKind::image, true, false};
+    if (!ui_rect_has_area(content) || content.left <= 0 || !png_image_configure(&image, 32, 16, 8, 6) ||
+        !renderer_upload_png_scanlines(&renderer, key, image, {pixels, sizeof(pixels)}).ok() ||
+        !ui_image_viewer_set_dpi(&page, renderer.dpi) || !ui_image_viewer_open(&page, content, {1024, 512}) ||
+        !ui_image_viewer_set_page(&page, image_info) ||
+        !ui_image_viewer_set_actions(&page, ui_image_viewer_action_open | ui_image_viewer_action_copy) ||
+        !ui_image_viewer_set_save_available(&page, true))
+        return false;
+    g_probe.failure_stage = 141;
+    renderer.media_page = &page;
+    renderer.media_page_key = key;
+    const UiRect title{content.left + 52, content.top + 6, content.left + 320, content.top + 42};
+    const ProbePixelSample picture{
+        {(page.image.left + page.image.right) * .5f, (page.image.top + page.image.bottom) * .5f},
+        {240.f / 255.f, 0, 0, 1}, 2};
+    if (!rebuild_probe_content_text() || !probe_present(&renderer, kDefaultTheme) ||
+        !(d3d11_renderer_surfaces(renderer) & d3d11_surface_media_page) ||
+        renderer.interaction_text_media_page_revision != page.revision || !probe_exact_pixels({&picture, 1}) ||
+        !probe_text_pixels({&title, 1}) || !probe_capture_frame(L"media-page-image.bmp"))
+        return false;
+    g_probe.failure_stage = 142;
+    if (!ui_image_viewer_set_media(&page, UiImageViewerMedia::failed) || !rebuild_probe_content_text() ||
+        !probe_present(&renderer, kDefaultTheme) || !probe_capture_frame(L"media-page-unavailable.bmp"))
+        return false;
+    g_probe.failure_stage = 143;
+    UiImageViewer video{};
+    if (!ui_image_viewer_set_dpi(&video, renderer.dpi) || !ui_image_viewer_open(&video, content, {16, 9}) ||
+        !ui_image_viewer_set_page(&video, {utf8_literal("launch-day.mp4"), image_info.source, UiIcon::video,
+                                           UiImageViewerPageKind::video, true, false}) ||
+        !ui_image_viewer_set_actions(&video, ui_image_viewer_action_open))
+        return false;
+    renderer.media_page = &video;
+    renderer.media_page_key = {};
+    if (!rebuild_probe_content_text() || !probe_present(&renderer, kDefaultTheme) ||
+        !probe_capture_frame(L"media-page-video.bmp"))
+        return false;
+    g_probe.failure_stage = 144;
+    UiImageViewer audio{};
+    UiAudioScene card{};
+    if (!ui_image_viewer_set_dpi(&audio, renderer.dpi) || !ui_image_viewer_open(&audio, content, {16, 9}) ||
+        !ui_image_viewer_set_page(&audio, {utf8_literal("Night Drive"), image_info.source, UiIcon::music,
+                                           UiImageViewerPageKind::audio, true, false}) ||
+        !ui_image_viewer_set_actions(&audio, ui_image_viewer_action_open))
+        return false;
+    UiAudioPlaybackState playback{};
+    playback.owner = 991994;
+    playback.revision = 1;
+    playback.elapsed_ms = 83000;
+    playback.duration_ms = 214000;
+    playback.volume = 70;
+    playback.has_duration = playback.can_play = playback.can_seek = playback.can_volume = true;
+    playback.title = utf8_literal("night-drive.mp3");
+    playback.generation = audio.owner.handle.generation;
+    const auto stage = ui_image_viewer_page_layout(audio).player;
+    if (!ui_audio_scene_project(&card, playback, ui_audio_page_card(stage, kDefaultUiAudioControlsStyle), stage,
+                                audio.owner, UiAudioSourceSurface::page, kDefaultUiAudioControlsStyle, kDefaultTheme))
+        return false;
+    g_probe.failure_stage = 146;
+    renderer.media_page = &audio;
+    renderer.video_scene = nullptr;
+    renderer.audio_scene = &card;
+    if (!rebuild_probe_content_text() || !probe_present(&renderer, kDefaultTheme) ||
+        !(d3d11_renderer_surfaces(renderer) & d3d11_surface_audio))
+        return false;
+    g_probe.failure_stage = 147;
+    if (!probe_text_pixels({&card.projection.geometry.title, 1}) || !probe_capture_frame(L"media-page-audio.bmp"))
+        return false;
+    g_probe.failure_stage = 145;
+    renderer.media_page = nullptr;
+    renderer.audio_scene = old_audio;
+    renderer.video_scene = old_video;
+    if (!probe_resize_surface(width, height) || !rebuild_probe_content_text() ||
+        !probe_present(&renderer, kDefaultTheme) || renderer.interaction_text_media_page_revision)
+        return false;
+    log_write(LogLevel::info, "probe", "media_page_image_video_audio_content_column_passed");
     return true;
 }
 

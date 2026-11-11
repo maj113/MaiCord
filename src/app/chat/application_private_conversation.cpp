@@ -1,5 +1,6 @@
 #include "application_private_conversation.hpp"
 #include "../account/friends.hpp"
+#include "../shell/tabs.hpp"
 #include "../account/profile.hpp"
 #include "../account/account_presentation.hpp"
 #include "channel_session.hpp"
@@ -13,6 +14,7 @@
 namespace maicord::app_detail {
 bool private_navigation_changed() noexcept {
     application_friends_hide();
+    application_tabs_note_navigation();
     application_read_state_activity();
     return synchronize_navigation_view() && synchronize_selected_channel() && synchronize_shell_layout() &&
         refresh_account_frame(true);

@@ -904,18 +904,35 @@ void describe_text_form(void* context, const UiWidgetManager&, UiWidgetHandle ha
 
 // Image viewer
 
+// What the viewer holds: a page says its kind, a modal viewer an image or a video.
+UiImageViewerPageKind viewer_kind(const UiImageViewer& v) noexcept {
+    return v.page   ? v.page_info.kind
+           : v.video ? UiImageViewerPageKind::video
+                     : UiImageViewerPageKind::image;
+}
+
+Utf8View viewer_noun(const UiImageViewer& v) noexcept {
+    const UiImageViewerPageKind kind = viewer_kind(v);
+    return kind == UiImageViewerPageKind::video ? utf8_literal("Video")
+           : kind == UiImageViewerPageKind::audio ? utf8_literal("Audio")
+                                                  : utf8_literal("Image");
+}
+
 Utf8View viewer_button(u32 index, const UiImageViewer& v) noexcept {
     switch (index) {
     case ui_image_viewer_zoom_out: return utf8_literal("Zoom out");
     case ui_image_viewer_zoom_in: return utf8_literal("Zoom in");
     case ui_image_viewer_fit: return utf8_literal("Fit to window");
-    case ui_image_viewer_close: return v.video ? utf8_literal("Close video") : utf8_literal("Close image");
+    case ui_image_viewer_close:
+        return v.page ? utf8_literal("Close tab") : v.video ? utf8_literal("Close video") : utf8_literal("Close image");
     case ui_image_viewer_save: return utf8_literal("Save");
     case ui_image_viewer_open_original: return utf8_literal("Open original");
     case ui_image_viewer_copy: return v.copied ? utf8_literal("Copied") : utf8_literal("Copy image");
     case ui_image_viewer_fullscreen: return v.fullscreen ? utf8_literal("Exit full screen") : utf8_literal("Full screen");
     case ui_image_viewer_previous: return utf8_literal("Previous");
     case ui_image_viewer_next: return utf8_literal("Next");
+    case ui_image_viewer_jump: return utf8_literal("Jump to message");
+    case ui_image_viewer_retry: return utf8_literal("Retry");
     default: return {};
     }
 }
@@ -928,20 +945,22 @@ void mount_viewer_media(void* context, UiAccessTree* tree, u32 node) noexcept {
     media.visible = ui_rect_intersection(media.rectangle, v.viewport);
     media.role = UiAccessRole::image;
     media.surface = tree->nodes[node].surface;
-    g_name.clear().add(v.video ? utf8_literal("Video") : utf8_literal("Image"));
+    g_name.clear().add(viewer_noun(v));
     if (v.item_count > 1)
         g_name.add(" ").number(v.item + 1u).add(" of ").number(v.item_count);
     media.name = g_name.view();
     UiAccessNameBuilder help; // composed from clear() below; the bytes beyond its length are never read
     // 100% is one source pixel per device pixel.
-    if (!v.video && v.zoom > 0) {
+    if (viewer_kind(v) == UiImageViewerPageKind::image && v.zoom > 0) {
         help.clear()
             .add("Zoom ")
             .number(static_cast<u64>(v.zoom / ui_image_viewer_actual_zoom(v) * 100.0f + 0.5f))
             .add("%");
         media.help = help.view();
     }
-    if (v.caption_bytes)
+    if (v.page && v.media == UiImageViewerMedia::failed)
+        media.value = utf8_literal("Media unavailable");
+    else if (v.caption_bytes)
         media.value = {v.caption, v.caption_bytes};
     ui_access_add(tree, node, media);
 }
@@ -950,14 +969,21 @@ void describe_viewer(void* context, const UiWidgetManager&, UiWidgetHandle handl
                      const UiLayoutNode&, UiAccessWidgetInfo* info) noexcept {
     const auto& v = *static_cast<const UiImageViewer*>(context);
     if (handle.slot == 0) {
+        info->mount = mount_viewer_media;
+        info->mount_context = context;
+        // A page is part of the window, named by what it shows and where that came from; a viewer is a modal dialog.
+        if (v.page) {
+            info->role = UiAccessRole::group;
+            info->name = v.page_info.title;
+            info->help = v.page_info.source;
+            return;
+        }
         info->role = UiAccessRole::dialog;
         info->state |= ui_access_modal;
         g_name.clear().add(v.video ? utf8_literal("Video viewer") : utf8_literal("Image viewer"));
         if (v.item_count > 1)
             g_name.add(", ").number(v.item + 1u).add(" of ").number(v.item_count);
         info->name = g_name.view();
-        info->mount = mount_viewer_media;
-        info->mount_context = context;
         return;
     }
     for (u32 index = 0; index < ui_image_viewer_button_count; ++index)

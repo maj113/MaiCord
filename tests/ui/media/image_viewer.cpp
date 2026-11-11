@@ -1,4 +1,5 @@
 #include "maicord/ui/media/image_viewer.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/platform/window/win32_clipboard.hpp"
 #include "maicord/ui/media/zoom_lens.hpp"
 #include "maicord/app/media/account_media.hpp"
@@ -401,9 +402,89 @@ void test_zoom_lens(void (*check)(bool, const char*) noexcept) noexcept {
           "zoom lens: the frame is one ring and one surface from theme tokens");
     paint_stream_release(&paint);
 }
+// A media page: header band with title and source, Close tab / Jump / Retry, the player regions, and a view
+// that survives being shown again.
+void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept {
+    UiImageViewer page{};
+    const UiRect content{312, 32, 1000, 700};
+    UiImageViewerPage info{utf8_literal("cat.png"), utf8_literal("#general \xC2\xB7 Server \xC2\xB7 Mai"),
+                           UiIcon::image, UiImageViewerPageKind::image, true, false};
+    check(ui_image_viewer_open(&page, content, {1600, 900}) && ui_image_viewer_set_page(&page, info) && page.page &&
+              !page.video,
+          "page: an open viewer turns into a page");
+    const auto layout = ui_image_viewer_page_layout(page);
+    const auto close = ui_image_viewer_button(page, ui_image_viewer_close);
+    const auto jump = ui_image_viewer_button(page, ui_image_viewer_jump);
+    check(layout.header.top == content.top && ui_rect_height(layout.header) == 48 &&
+              close.top >= layout.header.top && close.bottom <= layout.header.bottom && close.right < content.right &&
+              ui_rect_has_area(jump) && jump.right < close.left &&
+              !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_fullscreen)) &&
+              !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_retry)),
+          "page: the toolbar sits in the header band, with Jump to message and without full screen or Retry");
+    check(ui_rect_equal(page.body, layout.player) && layout.player.top >= layout.header.bottom &&
+              layout.player.left > content.left && layout.player.right < content.right &&
+              page.image.left >= page.body.left && page.image.right <= page.body.right &&
+              !ui_rect_has_area(layout.transport) && !ui_rect_has_area(layout.queue),
+          "page: an image fills the player inside the content column; no transport band");
+    check(utf8_equal(ui_image_viewer_tooltip(page, ui_image_viewer_close), utf8_literal("Close tab (Ctrl+W)")) &&
+              ui_image_viewer_key_command(page, UiImageViewerKey::escape, {}) == UiImageViewerCommand::none &&
+              ui_image_viewer_key_command(page, UiImageViewerKey::f, {}) == UiImageViewerCommand::none &&
+              ui_image_viewer_key_command(page, UiImageViewerKey::plus, {}) == UiImageViewerCommand::zoom_in,
+          "page: Close reads Close tab, Esc and F fall through, zoom keys stay");
+    info.can_jump = false;
+    check(ui_image_viewer_set_page(&page, info) &&
+              ui_rect_equal(ui_image_viewer_button(page, ui_image_viewer_jump), jump) &&
+              !ui_widget_manager_input_enabled(page.widgets, page.buttons[ui_image_viewer_jump]) &&
+              utf8_equal(ui_image_viewer_tooltip(page, ui_image_viewer_jump), utf8_literal("Message unavailable")),
+          "page: Jump to message without its message keeps its place but is inert");
+    const u32 retained = page.revision;
+    check(ui_image_viewer_set_page(&page, info) && page.revision == retained, "page: unchanged header is retained");
+    check(ui_image_viewer_set_media(&page, UiImageViewerMedia::failed) &&
+              ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_retry)) &&
+              ui_widget_manager_input_enabled(page.widgets, page.buttons[ui_image_viewer_retry]) &&
+              ui_image_viewer_button(page, ui_image_viewer_retry).top > (page.body.top + page.body.bottom) * .5f &&
+              ui_image_viewer_set_media(&page, UiImageViewerMedia::ready) &&
+              !ui_rect_has_area(ui_image_viewer_button(page, ui_image_viewer_retry)),
+          "page: the unavailable state shows Retry under its notice, and only then");
+    ui_image_viewer_zoom(&page, 3, {600, 400});
+    ui_image_viewer_pan(&page, {40, -20});
+    const float zoom = page.zoom;
+    const UiPoint pan = page.pan;
+    UiImageViewer again{};
+    check(ui_image_viewer_open(&again, content, {1600, 900}) && ui_image_viewer_set_page(&again, info) &&
+              again.zoom == 1,
+          "page: a page shown again opens fitted");
+    ui_image_viewer_set_view(&again, zoom, pan);
+    check(again.zoom == zoom && again.pan.x == pan.x && again.pan.y == pan.y &&
+              ui_rect_equal(again.image, page.image),
+          "page: the kept zoom and pan restore the same picture");
+    UiImageViewer player{};
+    UiImageViewerPage audio{utf8_literal("Song"), {}, UiIcon::music, UiImageViewerPageKind::audio, true, true};
+    check(ui_image_viewer_open(&player, {0, 0, 1000, 700}, {16, 9}) && ui_image_viewer_set_page(&player, audio),
+          "page: an audio page opens");
+    const auto regions = ui_image_viewer_page_layout(player);
+    check(player.video && ui_rect_has_area(regions.queue) && ui_rect_width(regions.queue) == 320 &&
+              regions.player.right < regions.queue.left && regions.transport.top > regions.player.bottom &&
+              ui_rect_width(regions.transport) == ui_rect_width(regions.player) &&
+              !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_zoom_in)) &&
+              !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_copy)),
+          "page: a wide playlist page reserves the transport band and the queue column, without zoom or Copy");
+    check(ui_rect_has_area(ui_audio_page_card(regions.player, kDefaultUiAudioControlsStyle)) &&
+              ui_rect_width(ui_audio_page_card(regions.player, kDefaultUiAudioControlsStyle)) == 480,
+          "page: the audio card centres in the player at its widest");
+    check(ui_image_viewer_layout(&player, {0, 0, 640, 700}) &&
+              !ui_rect_has_area(ui_image_viewer_page_layout(player).queue),
+          "page: a narrow page drops the queue column");
+    PaintStream paint{};
+    check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 700) &&
+              ui_image_viewer_paint(page, kDefaultTheme, &paint) && paint.clip_depth == 1 && paint.count > 4,
+          "page: the plate, header, stage and toolbar paint");
+    paint_stream_release(&paint);
+}
 } // namespace
 void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
     test_zoom_lens(check);
+    test_image_viewer_page(check);
     UiImageViewer viewer{};
     check(ui_image_viewer_open(&viewer, {0, 0, 800, 600}, {2048, 1024}) &&
               ui_rect_width(viewer.image) == 752 && ui_rect_height(viewer.image) == 376,

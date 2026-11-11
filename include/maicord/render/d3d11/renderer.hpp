@@ -371,6 +371,11 @@ struct D3D11Renderer {
     MediaAssetKey inline_embed_video;
     bool video_scene_search_result;
     bool video_scene_viewer; // The scene is hosted by the media viewer.
+    bool video_scene_page;   // The scene is hosted by the media page.
+    // A media page (media tab) over the content column, drawn in the side-panel layer like the call view.
+    const UiImageViewer* media_page;
+    MediaAssetKey media_page_key, media_page_fallback;
+    u32 interaction_text_media_page_revision;
 
     const UiAudioScene* audio_scene;
     const UiPollScene* poll_scene;
@@ -700,7 +705,7 @@ struct D3D11Renderer {
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
 #if defined(_WIN32)
-static_assert(sizeof(D3D11Renderer) == 126072);
+static_assert(sizeof(D3D11Renderer) == 126120);
 #endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process

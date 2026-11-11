@@ -3,6 +3,7 @@
 #include "../shell/caption.hpp"
 #include "../shell/notice.hpp"
 #include "../account/friends.hpp"
+#include "../media/media_page.hpp"
 #include "../guild/folders.hpp"
 #include "../voice/channels.hpp"
 #include "../voice/voice.hpp"
@@ -434,14 +435,16 @@ void describe_friends(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
 
 void mount_messages(void*, UiAccessTree* tree, u32 node) noexcept {
     const auto* friends = g_app.renderer.friends_scene;
-    if (application_friends_active() && friends && friends->active)
+    if (const UiImageViewer* page = application_media_page_viewer())
+        ui_access_add_image_viewer(tree, node, *page, surface_page);
+    else if (application_friends_active() && friends && friends->active)
         add_scene(tree, node, friends->widgets, describe_friends, surface_friends);
     else if (g_app.message_scene.active)
         add_scene(tree, node, g_app.message_scene.widgets, describe_message, surface_messages);
 }
 
 void mount_composer(void*, UiAccessTree* tree, u32 node) noexcept {
-    if (g_app.message_composer_scene.active && !application_friends_active())
+    if (g_app.message_composer_scene.active && !application_friends_active() && !application_media_page_viewer())
         add_scene(tree, node, g_app.message_composer_scene.widgets, describe_composer, surface_composer);
 }
 

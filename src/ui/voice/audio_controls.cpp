@@ -51,6 +51,14 @@ float ui_audio_card_height(const UiAudioControlsStyle& style, float width, bool 
         return 0;
     return 2 * style.padding + 2 * style.target + style.gap + (voice ? 0 : style.title_height + style.gap);
 }
+UiRect ui_audio_page_card(const UiRect& stage, const UiAudioControlsStyle& style) noexcept {
+    const float width = minimum(style.maximum_width, ui_rect_width(stage));
+    const float height = ui_audio_card_height(style, width);
+    if (!height || height > ui_rect_height(stage))
+        return {};
+    const float left = (stage.left + stage.right - width) * .5f, top = (stage.top + stage.bottom - height) * .5f;
+    return {left, top, left + width, top + height};
+}
 bool ui_audio_card_geometry(const UiRect& bounds, const UiAudioControlsStyle& style, UiAudioCardGeometry* out,
                             bool voice, bool volume_expanded) noexcept {
     if (!out || !paint_coordinate_valid(bounds.left) || !paint_coordinate_valid(bounds.top) ||
@@ -370,7 +378,7 @@ bool ui_audio_scene_project(UiAudioScene* scene, const UiAudioPlaybackState& sta
                              scene->projection.playback.generation == state.generation &&
                              scene->projection.playback.revision == state.revision;
     if (!widget || !(widget->flags & ui_widget_enabled) || (widget->flags & ui_widget_block_input) ||
-        static_cast<u32>(surface) > static_cast<u32>(UiAudioSourceSurface::forward) || !rectangle(clip) ||
+        static_cast<u32>(surface) > static_cast<u32>(UiAudioSourceSurface::page) || !rectangle(clip) ||
         !ui_audio_controls_project(state, bounds, style, theme, &projection) ||
         !rectangle(ui_rect_overlap(projection.geometry.bounds, clip))) {
         reset_value(scene);

@@ -523,6 +523,52 @@ void test_viewer(UiAccessTree* tree) noexcept {
           "media viewer: visible actions only");
 }
 
+// A media page: a group named by its title with the source line as help, in the window rather than modal, whose header
+// names Close tab and Jump to message (dimmed without a message), and which says when its media cannot load again.
+void test_page(UiAccessTree* tree) noexcept {
+    static UiImageViewer viewer{};
+    UiImageViewerPage page{utf8_literal("cat.png"), utf8_literal("#general - Native Lab - Mai"), UiIcon::image,
+                           UiImageViewerPageKind::image, true, false};
+    check(ui_image_viewer_open(&viewer, {0, 0, 1200, 800}, {1600, 900}) && ui_image_viewer_set_page(&viewer, page),
+          "media page: the viewer turns into a page");
+    const auto text = [](const UiImageViewer& v, UiTextOutput* out) noexcept {
+        return ui_image_viewer_text_output(v, kDefaultTheme, out);
+    };
+    u32 group = project_overlay(tree, viewer, ui_access_add_image_viewer, text);
+    u32 image = find_node(*tree, group, UiAccessRole::image, utf8_literal("Image"));
+    check(group != kUiAccessNone && tree->nodes[group].role == UiAccessRole::group &&
+              equal(ui_access_name(*tree, group), utf8_literal("cat.png")) &&
+              equal(ui_access_help(*tree, group), utf8_literal("#general - Native Lab - Mai")) &&
+              !(tree->nodes[group].state & ui_access_modal) && image != kUiAccessNone &&
+              utf8_starts_with(ui_access_help(*tree, image), utf8_literal("Zoom ")),
+          "media page: a group named by its title around the image, not a modal dialog");
+    const u32 jump = find_node(*tree, group, UiAccessRole::button, utf8_literal("Jump to message"));
+    check(find_node(*tree, group, UiAccessRole::button, utf8_literal("Close tab")) != kUiAccessNone &&
+              find_node(*tree, group, UiAccessRole::button, utf8_literal("Close image")) == kUiAccessNone &&
+              jump != kUiAccessNone && !(tree->nodes[jump].state & ui_access_disabled) &&
+              find_node(*tree, group, UiAccessRole::button, utf8_literal("Retry")) == kUiAccessNone,
+          "media page: the header names Close tab and Jump to message");
+    page.can_jump = false;
+    check(ui_image_viewer_set_page(&viewer, page), "media page: the message went away");
+    group = project_overlay(tree, viewer, ui_access_add_image_viewer, text);
+    const u32 dimmed = find_node(*tree, group, UiAccessRole::button, utf8_literal("Jump to message"));
+    check(dimmed != kUiAccessNone && (tree->nodes[dimmed].state & ui_access_disabled),
+          "media page: Jump to message is disabled without its message");
+    check(ui_image_viewer_set_media(&viewer, UiImageViewerMedia::failed), "media page: the media failed");
+    group = project_overlay(tree, viewer, ui_access_add_image_viewer, text);
+    image = find_node(*tree, group, UiAccessRole::image, utf8_literal("Image"));
+    check(image != kUiAccessNone && equal(ui_access_value(*tree, image), utf8_literal("Media unavailable")) &&
+              find_node(*tree, group, UiAccessRole::button, utf8_literal("Retry")) != kUiAccessNone,
+          "media page: an unavailable page says so and offers Retry");
+    page.kind = UiImageViewerPageKind::audio;
+    page.glyph = UiIcon::music;
+    check(ui_image_viewer_set_page(&viewer, page) && ui_image_viewer_set_media(&viewer, UiImageViewerMedia::ready),
+          "media page: the page holds audio");
+    group = project_overlay(tree, viewer, ui_access_add_image_viewer, text);
+    check(find_node(*tree, group, UiAccessRole::image, utf8_literal("Audio")) != kUiAccessNone,
+          "media page: an audio page is named by its kind");
+}
+
 bool picker_item(void*, u32 index, UiMediaPickerItem* item) noexcept {
     *item = {index + 1, index + 1001, utf8_literal("Party parrot"), {}, 0, 320, 180, UiMediaPickerItemKind::gif, true};
     return true;
@@ -614,6 +660,7 @@ void test_overlays() noexcept {
     test_call(&tree);
     test_forms(&tree);
     test_viewer(&tree);
+    test_page(&tree);
     test_picker(&tree);
 }
 

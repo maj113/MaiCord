@@ -12,6 +12,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "../../support/application_content_input_inactive.hpp"
+#include "media_page_fake.hpp"
 
 namespace maicord::content_navigation_test {
 using namespace app_detail;
@@ -49,6 +50,7 @@ void check(bool valid, const char* label) noexcept {
 bool reset() noexcept {
     SecureZeroMemory(&g_app, sizeof(g_app));
     application_tabs_reset();
+    media_page_fake::reset();
     tab_memory = {};
     tab_profile = 9;
     history_calls = selections = stops = friends_shown = 0;
@@ -209,7 +211,7 @@ ChannelMemoryTab saved_tab(u64 channel, u64 guild, const char* label) noexcept {
 bool tab_channels(const u64* expected, u32 count) noexcept {
     u32 live = 0;
     for (u32 i = 0; i < application_tabs_count(); ++i)
-        if (const u64 id = application_tabs_channel(i)) {
+        if (const u64 id = application_tabs_key(i)) {
             if (live >= count || id != expected[live])
                 return false;
             ++live;
@@ -282,7 +284,7 @@ void tabs_tests() noexcept {
               !g_app.toasts.count && !application_tabs_open_channel(115, true) && g_app.toasts.count == 1 &&
               tab_view()->count == kUiTabCapacity,
           "tabs: the seventeenth tab is refused with a toast");
-    check(application_tabs_move(0, 5) && application_tabs_channel(5) == 20 && memory_tab(5) == 20 &&
+    check(application_tabs_move(0, 5) && application_tabs_key(5) == 20 && memory_tab(5) == 20 &&
               memory_tab(0) == 100 && !application_tabs_move(5, 5) && !application_tabs_move(5, 16),
           "tabs: moving a tab reorders and persists");
     const u32 dragged = application_tabs_drag_begin(5);
@@ -315,6 +317,13 @@ void tabs_tests() noexcept {
               !application_tabs_contains(closing_channel) && application_navigate_known_message(115, 0) &&
               application_tabs_shortcut(A::tab_new, false) && tab_view()->count == 10 && application_tabs_contains(115),
           "tabs: Ctrl+W closes the active tab and Ctrl+T pins the current channel");
+    // Navigation, even to the channel that is selected, hides a page and keeps its tab.
+    check(application_tabs_open_media(media_page_fake::source(MediaPageKind::audio, "song"), false) &&
+              media_page_fake::shown != 0 && tab_view()->count == 11 &&
+              application_navigate_known_message(ui->chat_state.selected_channel_id, 0) && !media_page_fake::shown &&
+              media_page_fake::open_pages() == 1 && tab_memory.tab_count == 10 && application_tabs_close(10) &&
+              tab_view()->count == 10 && !media_page_fake::open_pages(),
+          "tabs: navigation hides a media page and keeps its tab, which closes with its page");
     const u32 kept = application_tabs_count();
     g_app.preferences.tabs_enabled = false;
     check(!application_tabs_shortcut(A::tab_next, false) && !tab_view() && !application_tabs_visible() &&
@@ -344,7 +353,7 @@ void tab_pruning_tests() noexcept {
     const UiTabStripView* view = tab_view();
     check(view && view->count == 3 && utf8_equal(view->items[1].label, utf8_literal("Lost")) &&
               (view->items[1].flags & kUiTabMissing) && !(view->items[0].flags & kUiTabMissing) &&
-              !(view->items[2].flags & kUiTabMissing) && application_tabs_channel(2) == 50 &&
+              !(view->items[2].flags & kUiTabMissing) && application_tabs_key(2) == 50 &&
               tab_memory.tab_count == 3 && tab_memory.tabs[1].channel_id == 300 && tab_memory.tabs[1].guild_id == 11 &&
               tab_memory.tabs[1].label_bytes == 4,
           "tab pruning: after READY a channel of an unavailable guild stays, dimmed under its saved label, while a "

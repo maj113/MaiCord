@@ -475,7 +475,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             }
         }
     }
-
+    // A shown media page asks for its picture through its own {url, key}.
+    if (!proceed(application_media_page_pump(*this, &stop)))
+        return outcome;
 
     // A command app's picture (the commands module's fallback chain): its bot's
     // avatar through the user store, or a picture fetched by the URL the

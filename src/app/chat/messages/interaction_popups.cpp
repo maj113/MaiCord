@@ -817,19 +817,19 @@ bool application_thread_actions_menu_open(const ApplicationThreadActionTicket& t
 
 // `anchor` is in content DIPs, the strip's rectangle lifted by the title bar's height.
 bool application_tab_menu_open(u32 index, const UiRect& anchor) noexcept {
-    const u64 channel_id = application_tabs_channel(index);
-    if (!channel_id)
+    const u64 key = application_tabs_key(index);
+    if (!key)
         return false;
     u32 before = 0, after = 0;
     for (u32 i = 0; i < application_tabs_count(); ++i)
-        (i < index ? before : after) += i != index && application_tabs_channel(i) != 0;
+        (i < index ? before : after) += i != index && application_tabs_key(i) != 0;
     PopupItem items[3]{};
     popup_item_set(&items[0], utf8_literal("Close"), popup_action_tab_close, popup_item_enabled);
     popup_item_set(&items[1], utf8_literal("Close other tabs"), popup_action_tab_close_others,
                    before + after ? popup_item_enabled : popup_item_none);
     popup_item_set(&items[2], utf8_literal("Close tabs to the right"), popup_action_tab_close_right,
                    after ? popup_item_enabled : popup_item_none);
-    if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, channel_id, {items, 3}, anchor,
+    if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, key, {items, 3}, anchor,
                           application_viewport_dips(), 220.0f)
              .ok())
         return false;
@@ -841,12 +841,11 @@ bool application_tab_menu_open(u32 index, const UiRect& anchor) noexcept {
 bool application_tab_list_open(const UiRect& anchor) noexcept {
     PopupItem items[kUiTabCapacity]{};
     u32 count = 0;
-    const u64 selected = g_app.account_ui ? g_app.account_ui->chat_state.selected_channel_id : 0;
     for (u32 i = 0; i < application_tabs_count(); ++i) {
-        if (!application_tabs_channel(i))
+        if (!application_tabs_key(i))
             continue;
         popup_item_set(&items[count], application_tabs_label(i), popup_action_tab_first + i,
-                       static_cast<u16>(popup_item_enabled | (application_tabs_channel(i) == selected ? popup_item_checked : 0)));
+                       static_cast<u16>(popup_item_enabled | (application_tabs_active(i) ? popup_item_checked : 0)));
         items[count++].presentation = ui_menu_row_presentation(application_tabs_icon(i));
     }
     if (!count ||

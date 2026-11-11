@@ -862,6 +862,7 @@ bool application_tabs_visible() noexcept {
 bool application_tabs_open_channel(u64, bool) noexcept {
     return false;
 }
+void application_tabs_note_navigation() noexcept {}
 const Theme& application_theme() noexcept {
     return fixture->theme;
 }

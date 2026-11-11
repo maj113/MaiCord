@@ -9,6 +9,7 @@
 #include "maicord/app/shell/shortcut_registry.hpp"
 #include "friends.hpp"
 #include "../shell/state.hpp"
+#include "../shell/tabs.hpp"
 #include "../settings/settings.hpp"
 #include "account_presentation.hpp"
 #include "../chat/channel_session.hpp"
@@ -1339,7 +1340,7 @@ bool show(UiFriendsTab tab) noexcept {
     if (friends->tab != tab) { search_focus(*friends, false);friends->tab = tab;project(*friends, true); }
     application_private_channel_set_requests_mode(ui_friends_tab_requests(tab));
     friends->visible = true;
-    application_composer_text_input_suspend();dismiss_popup();application_profile_close();application_image_viewer_close();
+    application_composer_text_input_suspend();dismiss_popup();application_profile_close();application_image_viewer_close();application_tabs_note_navigation();
     g_app.message_composer.focused = false;g_app.context_focus = nullptr;ui_scroll_host_cancel(&g_app.scroll_host);
     if (!synchronize_navigation_view() || !synchronize_selected_channel() || !synchronize_shell_layout() || !repaint()) {
         application_friends_hide();return false;

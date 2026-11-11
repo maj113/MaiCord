@@ -3838,6 +3838,8 @@ int run_probe() noexcept {
             return static_cast<int>(g_probe.failure_stage);
         if (!probe_image_viewer())
             return static_cast<int>(g_probe.failure_stage);
+        if (!probe_media_page())
+            return static_cast<int>(g_probe.failure_stage);
         if (!probe_rich_composer())
             return static_cast<int>(g_probe.failure_stage);
         if (!probe_voice_message_bar())

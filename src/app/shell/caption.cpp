@@ -520,9 +520,17 @@ void application_caption_describe_tabs(UiAccessTree* tree, u32 parent, u8 surfac
                             ui_tab_strip_tab(layout.tabs, i), item.label,
                             static_cast<u16>(ui_access_selectable | (item.flags & kUiTabActive ? ui_access_selected : 0)),
                             ui_access_action_select | ui_access_action_invoke);
-        if (tab != kUiAccessNone)
-            add(tab, UiAccessRole::button, {UiTabHitKind::close, static_cast<u8>(i)}, ui_tab_strip_close(layout.tabs, i),
-                utf8_literal("Close tab"), 0, ui_access_action_invoke);
+        if (tab == kUiAccessNone)
+            continue;
+        // A media tab says what its page holds (its icon), and when it cannot load again.
+        const Utf8View media = item.icon == UiIcon::video   ? utf8_literal("Video")
+                               : item.icon == UiIcon::music ? utf8_literal("Audio")
+                               : item.icon == UiIcon::image || item.icon == UiIcon::image_off ? utf8_literal("Image")
+                                                                                               : Utf8View{};
+        if (media.bytes)
+            ui_access_set_help(tree, tab, item.flags & kUiTabMissing ? utf8_literal("Media unavailable") : media);
+        add(tab, UiAccessRole::button, {UiTabHitKind::close, static_cast<u8>(i)}, ui_tab_strip_close(layout.tabs, i),
+            utf8_literal("Close tab"), 0, ui_access_action_invoke);
     }
     static constexpr UiTabHitKind kButtons[]{UiTabHitKind::plus, UiTabHitKind::overflow};
     for (const UiTabHitKind kind : kButtons) {

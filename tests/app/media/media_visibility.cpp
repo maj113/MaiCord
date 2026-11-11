@@ -113,6 +113,14 @@ bool application_image_viewer_key_current(const MediaAssetKey& key) noexcept {
     return g_app.image_viewer.scene.active && media_asset_key_equal(key, g_app.image_viewer.key);
 }
 void application_image_viewer_request_failed(const MediaAssetKey&) noexcept {}
+// No media page shows in this fixture.
+bool application_media_page_pump(ApplicationMediaPump&, bool* stop) noexcept {
+    *stop = false;
+    return true;
+}
+bool application_media_page_key_current(const MediaAssetKey&) noexcept {
+    return false;
+}
 // The fixture does not select native video or submit a frame to the GPU.
 bool application_video_ordinary(const MediaAssetKey&) noexcept {
     return false;

@@ -99,6 +99,8 @@ struct UiAudioAction {
 float ui_audio_card_height(const UiAudioControlsStyle&, float width, bool voice = false) noexcept;
 bool ui_audio_card_geometry(const UiRect&, const UiAudioControlsStyle&, UiAudioCardGeometry*, bool voice = false,
                             bool volume_expanded = false) noexcept;
+// A media page's card: the widest the style allows within the page's stage, centred in it; empty when it cannot fit.
+UiRect ui_audio_page_card(const UiRect& stage, const UiAudioControlsStyle&) noexcept;
 bool ui_audio_controls_project(const UiAudioPlaybackState&, const UiRect&, const UiAudioControlsStyle&,
                                const Theme&, UiAudioControlsProjection*,
                                bool volume_expanded = false) noexcept;
@@ -120,7 +122,9 @@ enum class UiAudioSourceSurface : u8 {
     timeline,
     search,
     pins,
-    forward
+    forward,
+    // A media page (media tab): the card centred on the page's stage.
+    page
 };
 enum class UiAudioPointerEvent : u8 {
     down,

@@ -1,5 +1,6 @@
 #include "downloads.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "../shell/toast.hpp"
 #include "../shell/overlay_input.hpp"
@@ -260,28 +261,14 @@ Utf8View current_url() noexcept {
 }
 bool copy_image() noexcept {
     const auto& viewer = g_app.image_viewer;
-    if (current_video())
+    if (current_video() || !application_image_copy(viewer.key, viewer.fallback, current_url()))
         return false;
-    // The decoded viewer texture is bounded by the 2048 DIP decode tier.
-    constexpr u32 capacity = 2048u * 2048u * 4u;
-    auto* pixels = static_cast<u8*>(commit_pages(capacity));
-    if (!pixels)
-        return false;
-    u32 width = 0, height = 0;
-    const bool read = renderer_read_media_rgba(&g_app.renderer, viewer.key, {pixels, capacity}, &width, &height) ||
-                      renderer_read_media_rgba(&g_app.renderer, viewer.fallback, {pixels, capacity}, &width, &height);
-    const bool copied =
-        read && clipboard_write_image(pixels, width, height, width * 4, current_url());
-    pages_release(pixels);
-    application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
-    if (copied) {
-        auto& scene = g_app.image_viewer.scene;
-        scene.copied = true;
-        ++scene.revision;
-        g_app.image_viewer.copied_until_ms = clock_monotonic_milliseconds() + 1500;
-        application_request_frame();
-    }
-    return copied;
+    auto& scene = g_app.image_viewer.scene;
+    scene.copied = true;
+    ++scene.revision;
+    g_app.image_viewer.copied_until_ms = clock_monotonic_milliseconds() + 1500;
+    application_request_frame();
+    return true;
 }
 // Full screen the viewer turned on; it never takes over the call view's.
 void set_fullscreen(bool on) noexcept {
@@ -437,7 +424,117 @@ void open_local(const MessageRecord& message, MessageHandle handle, bool snapsho
     if (!begin(request))
         application_image_viewer_close();
 }
+// The line under a media page's title, composed by application_image_viewer_page_source.
+char g_page_source_line[192];
 } // namespace
+UiImageViewerKey application_image_viewer_key(u32 code) noexcept {
+    switch (code) {
+    case key::escape: return UiImageViewerKey::escape;
+    case key::tab: return UiImageViewerKey::tab;
+    case key::enter: return UiImageViewerKey::enter;
+    case key::space: return UiImageViewerKey::space;
+    case key::left: return UiImageViewerKey::left;
+    case key::right: return UiImageViewerKey::right;
+    case key::up: return UiImageViewerKey::up;
+    case key::down: return UiImageViewerKey::down;
+    case key::home: return UiImageViewerKey::home;
+    case key::add: case key::equals: return UiImageViewerKey::plus;
+    case key::subtract: case key::minus: return UiImageViewerKey::minus;
+    case '0': case key::numpad0: return UiImageViewerKey::zero;
+    case '1': case key::numpad1: return UiImageViewerKey::one;
+    case 'F': return UiImageViewerKey::f;
+    case 'S': return UiImageViewerKey::s;
+    case 'C': return UiImageViewerKey::c;
+    default: return UiImageViewerKey::other;
+    }
+}
+bool application_image_copy(const MediaAssetKey& key, const MediaAssetKey& fallback, Utf8View url) noexcept {
+    // The decoded viewer texture is bounded by the 2048 DIP decode tier.
+    constexpr u32 capacity = 2048u * 2048u * 4u;
+    auto* pixels = static_cast<u8*>(commit_pages(capacity));
+    if (!pixels)
+        return false;
+    u32 width = 0, height = 0;
+    const bool read = renderer_read_media_rgba(&g_app.renderer, key, {pixels, capacity}, &width, &height) ||
+                      renderer_read_media_rgba(&g_app.renderer, fallback, {pixels, capacity}, &width, &height);
+    const bool copied = read && clipboard_write_image(pixels, width, height, width * 4, url);
+    pages_release(pixels);
+    application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
+    return copied;
+}
+bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
+    const auto& viewer = g_app.image_viewer;
+    const auto* item = current_item();
+    ApplicationSearchSourceView source{};
+    if (!item || viewer.closing || !media_asset_key_valid(item->key) || !application_image_viewer_source(&source) ||
+        !viewer_item_visible(source, *item))
+        return false;
+    const auto& store = *source.rich_store;
+    const auto& rich = *source.rich;
+    // An embed picture is fetched through its media proxy URL; the rest through the URL they open.
+    Utf8View url{}, title{};
+    if (item->kind == MessageSceneRichItemKind::attachment) {
+        if (item->index >= rich.attachment_count || rich.attachments[item->index].id != item->attachment_id)
+            return false;
+        url = message_rich_store_string(store, rich.attachments[item->index].url);
+        title = message_rich_store_string(store, rich.attachments[item->index].filename);
+    } else {
+        MessageRichEmbedMediaSelection selected{};
+        if (item->index >= rich.embed_count ||
+            !message_rich_embed_resource_select(store, rich.embeds[item->index], item->resource, &selected))
+            return false;
+        url = item->video ? message_rich_store_string(store, selected.media->url) : selected.source;
+        title = message_rich_store_string(store, rich.embeds[item->index].title);
+    }
+    if (!url.bytes)
+        return false;
+    if (!out)
+        return true;
+    if (!title.bytes)
+        title = item_caption(source, *item);
+    if (!title.bytes)
+        title = item->video ? utf8_literal("Video") : utf8_literal("Image");
+    // "#channel · Server · author", each part that is known.
+    u32 bytes = 0;
+    const auto append = [&](Utf8View prefix, Utf8View part) noexcept {
+        if (!part.bytes)
+            return;
+        const Utf8View separator = bytes ? utf8_literal(" \xC2\xB7 ") : Utf8View{};
+        const u32 room = sizeof(g_page_source_line) - bytes;
+        if (separator.bytes + prefix.bytes >= room)
+            return;
+        copy_bytes(g_page_source_line + bytes, separator.data, separator.bytes);
+        copy_bytes(g_page_source_line + bytes + separator.bytes, prefix.data, prefix.bytes);
+        bytes += separator.bytes + prefix.bytes;
+        const u32 kept = utf8_truncated_length(part, sizeof(g_page_source_line) - bytes);
+        copy_bytes(g_page_source_line + bytes, part.data, kept);
+        bytes += kept;
+    };
+    const auto& chat = g_app.account_ui->chat_state;
+    const auto* channel = chat_state_store_find_channel(chat, viewer.channel_id);
+    const auto* guild = channel && channel->guild_id ? chat_state_store_find_guild(chat, channel->guild_id) : nullptr;
+    const auto* author = user_store_find(g_app.account_ui->user_store, source.message->author_id);
+    if (channel)
+        append(guild ? utf8_literal("#") : Utf8View{}, chat_state_store_channel_name(chat, *channel));
+    if (guild)
+        append({}, chat_state_store_guild_name(chat, *guild));
+    if (author)
+        append({}, user_store_name(g_app.account_ui->user_store, *author));
+    const bool embed = item->kind == MessageSceneRichItemKind::embed;
+    *out = {item->video ? MediaPageKind::video : MediaPageKind::image,
+            static_cast<u8>((embed ? media_page_embed : 0) | (viewer.attachment_snapshot ? media_page_snapshot : 0)),
+            url,
+            title,
+            {g_page_source_line, bytes},
+            item->key,
+            item->fallback,
+            item->pixels,
+            viewer.channel_id,
+            viewer.message_id,
+            source.message->author_id,
+            viewer.message_revision};
+    return true;
+}
 bool application_image_viewer_source(ApplicationSearchSourceView* out) noexcept {
     const auto& viewer = g_app.image_viewer;
     reset_value(out);
@@ -1031,27 +1128,7 @@ bool application_image_viewer_event(const WindowEvent& event) noexcept {
         const bool repeat = input_repeated(event);
         const UiImageViewerKeyModifiers modifiers{application_control_down(), application_shift_down(),
                                                   application_alt_down()};
-        UiImageViewerKey key = UiImageViewerKey::other;
-        switch (code) {
-        case key::escape: key = UiImageViewerKey::escape; break;
-        case key::tab: key = UiImageViewerKey::tab; break;
-        case key::enter: key = UiImageViewerKey::enter; break;
-        case key::space: key = UiImageViewerKey::space; break;
-        case key::left: key = UiImageViewerKey::left; break;
-        case key::right: key = UiImageViewerKey::right; break;
-        case key::up: key = UiImageViewerKey::up; break;
-        case key::down: key = UiImageViewerKey::down; break;
-        case key::home: key = UiImageViewerKey::home; break;
-        case key::add: case key::equals: key = UiImageViewerKey::plus; break;
-        case key::subtract: case key::minus: key = UiImageViewerKey::minus; break;
-        case '0': case key::numpad0: key = UiImageViewerKey::zero; break;
-        case '1': case key::numpad1: key = UiImageViewerKey::one; break;
-        case 'F': key = UiImageViewerKey::f; break;
-        case 'S': key = UiImageViewerKey::s; break;
-        case 'C': key = UiImageViewerKey::c; break;
-        default: break;
-        }
-        const auto command = ui_image_viewer_key_command(scene, key, modifiers);
+        const auto command = ui_image_viewer_key_command(scene, application_image_viewer_key(code), modifiers);
         // Keys that close or act stay swallowed until released, so their
         // key-up and character never reach the surface underneath.
         if (command == UiImageViewerCommand::dismiss || command == UiImageViewerCommand::save ||

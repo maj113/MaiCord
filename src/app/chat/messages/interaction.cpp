@@ -66,12 +66,12 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
     if (!g_app.account_ui)
         return false;
     if (g_app.popup_owner_kind == PopupOwnerKind::tab) {
-        // A tab's menu acts on its channel; the list's rows select a tab.
-        const u64 channel_id = g_app.popup_scene.owner_id;
+        // A tab's menu acts on its tab (the owner is its key); the list's rows select a tab.
+        const u64 tab_key = g_app.popup_scene.owner_id;
         if (!dismiss_popup())
             return false;
         return (action >= popup_action_tab_first ? application_tabs_activate(action - popup_action_tab_first)
-                                                 : application_tabs_menu_action(action, channel_id)) ||
+                                                 : application_tabs_menu_action(action, tab_key)) ||
                true;
     }
     if (g_app.popup_owner_kind == PopupOwnerKind::commands)

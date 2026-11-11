@@ -14,9 +14,34 @@ constexpr float kToolbarGroupGap = 12;
 // Media bands: the toolbar row above the body, the caption row below it.
 constexpr float kBodyTop = kToolbarTop + kToolbarTarget + 20, kBodyBottom = 40, kBodySide = 24;
 constexpr float kChevronTarget = 44, kChevronInset = 16, kPanStep = 40, kSpinnerExtent = 32;
+// Page mode: the header band (glyph, title over source, toolbar), the inset around the player, the transport band
+// and queue column reserved for the player, and the Retry button.
+constexpr float kPageHeader = 48, kPageToolbarTop = (kPageHeader - kToolbarTarget) * .5f, kPageInset = 16;
+constexpr float kPageGlyph = 20, kPageTextLeft = kPageInset + kPageGlyph + 12, kPageStageGlyph = 48;
+constexpr float kPageTransport = 64, kPageQueue = 320, kPageQueueMinimum = 720, kRetryWidth = 80;
 inline bool view_group(u32 index) noexcept {
     return index == ui_image_viewer_fit || index == ui_image_viewer_zoom_in || index == ui_image_viewer_zoom_out ||
            index == ui_image_viewer_fullscreen;
+}
+UiImageViewerPageLayout page_layout(const UiImageViewer& v) noexcept {
+    const auto r = v.viewport;
+    UiImageViewerPageLayout out{};
+    out.header = {r.left, r.top, r.right, r.top + kPageHeader};
+    const UiRect content{r.left + kPageInset, out.header.bottom + kPageInset * .5f, r.right - kPageInset,
+                         r.bottom - kPageInset};
+    if (v.page_info.kind == UiImageViewerPageKind::image) {
+        // The caption band stays under the picture, as in the viewer.
+        out.player = {content.left, content.top, content.right, r.bottom - kBodyBottom};
+        return out;
+    }
+    float right = content.right;
+    if (v.page_info.queue && ui_rect_width(content) >= kPageQueueMinimum) {
+        out.queue = {content.right - kPageQueue, content.top, content.right, content.bottom};
+        right = out.queue.left - kPageInset;
+    }
+    out.transport = {content.left, content.bottom - kPageTransport, right, content.bottom};
+    out.player = {content.left, content.top, right, out.transport.top - kToolbarGap};
+    return out;
 }
 // From fit, or actual size when that is smaller (fit upscales on high DPI),
 // up to the maximum or actual size when that is larger.
@@ -77,21 +102,30 @@ inline bool shown(const UiImageViewer& v, u32 index) noexcept {
         return (v.actions & ui_image_viewer_action_open) != 0;
     case ui_image_viewer_copy:
         return (v.actions & ui_image_viewer_action_copy) != 0 && !v.video;
+    case ui_image_viewer_fullscreen:
+        return !v.page;
     case ui_image_viewer_previous:
     case ui_image_viewer_next:
         return v.item_count > 1;
+    case ui_image_viewer_jump:
+        return v.page;
+    case ui_image_viewer_retry:
+        return v.page && v.media == UiImageViewerMedia::failed;
     default:
         return true;
     }
 }
-// Right-to-left toolbar: Close, Save, Copy, Open | Fit, Zoom in, Zoom out,
-// Full screen. Narrow viewports drop the view group from its far end first;
-// its keys keep working.
-constexpr u32 kToolbarOrder[]{ui_image_viewer_close,         ui_image_viewer_save, ui_image_viewer_copy,
-                              ui_image_viewer_open_original, ui_image_viewer_fit,  ui_image_viewer_zoom_in,
-                              ui_image_viewer_zoom_out,      ui_image_viewer_fullscreen};
+// Right-to-left toolbar: Close, Save, Copy, Open, Jump (pages) | Fit, Zoom in,
+// Zoom out, Full screen. Narrow viewports drop the view group from its far end
+// first; its keys keep working.
+constexpr u32 kToolbarOrder[]{ui_image_viewer_close,  ui_image_viewer_save,    ui_image_viewer_copy,
+                              ui_image_viewer_open_original, ui_image_viewer_jump, ui_image_viewer_fit,
+                              ui_image_viewer_zoom_in, ui_image_viewer_zoom_out, ui_image_viewer_fullscreen};
+// The unavailable state's icon, under it its line of text, then Retry.
+constexpr float kStateText = 20;
 bool place_controls(UiImageViewer* v) noexcept {
-    const float width = ui_rect_width(v->viewport);
+    // A page keeps room for its title beside the toolbar.
+    const float width = ui_rect_width(v->viewport) - (v->page ? kPageTextLeft + 160 : 0);
     u32 wanted = 0;
     for (const u32 index : kToolbarOrder)
         wanted += shown(*v, index);
@@ -110,6 +144,10 @@ bool place_controls(UiImageViewer* v) noexcept {
         if (index == ui_image_viewer_previous || index == ui_image_viewer_next) {
             // Centred on the media body, not the whole viewport.
             style.margin = {kChevronInset, kBodyTop, kChevronInset, kBodyBottom};
+        } else if (index == ui_image_viewer_retry) {
+            const float x = (v->body.left + v->body.right - kRetryWidth) * .5f;
+            const float y = (v->body.top + v->body.bottom + kSpinnerExtent) * .5f + kToolbarGap * 2 + kStateText;
+            style.margin = {x - v->viewport.left, y - v->viewport.top, 0, 0};
         } else if (visible) {
             u32 position = 0;
             for (const u32 candidate : kToolbarOrder) {
@@ -118,10 +156,14 @@ bool place_controls(UiImageViewer* v) noexcept {
                 position += shown(*v, candidate);
             }
             visible = position < fits || wanted <= fits;
-            style.margin.top = kToolbarTop;
+            style.margin.top = v->page ? kPageToolbarTop : kToolbarTop;
             style.margin.right = kToolbarInset + position * kToolbarPitch + (view_group(index) ? kToolbarGroupGap : 0);
         }
-        widget->flags = visible ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : ui_widget_none;
+        // Jump to message without its message stays visible but inert ("Message unavailable" on hover).
+        widget->flags = !visible ? ui_widget_none
+                        : index == ui_image_viewer_jump && !v->page_info.can_jump
+                            ? ui_widget_hit_test
+                            : ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable;
         if (visible)
             style.flags |= ui_layout_node_visible;
         else
@@ -132,6 +174,10 @@ bool place_controls(UiImageViewer* v) noexcept {
 }
 void body_for(UiImageViewer* v) noexcept {
     const auto r = v->viewport;
+    if (v->page) {
+        v->body = page_layout(*v).player;
+        return;
+    }
     // Gallery chevrons own the side gutters, so media never sits beneath them.
     const float side = v->item_count > 1 && ui_rect_width(r) >= 480 ? kChevronInset * 2 + kChevronTarget : kBodySide;
     v->body = {r.left + side, r.top + kBodyTop, r.right - side, r.bottom - kBodyBottom};
@@ -203,14 +249,15 @@ bool ui_image_viewer_open(UiImageViewer* v, const UiRect& viewport, UiSize pixel
     const Utf8View labels[]{utf8_literal("Zoom out"),      utf8_literal("Zoom in"),    utf8_literal("Fit image"),
                             utf8_literal("Close image"),   utf8_literal("Save image"), utf8_literal("Open original"),
                             utf8_literal("Copy image"),    utf8_literal("Full screen"), utf8_literal("Previous"),
-                            utf8_literal("Next")};
+                            utf8_literal("Next"),          utf8_literal("Jump to message"), utf8_literal("Retry")};
     for (u32 i = 0; i < ui_image_viewer_button_count; ++i) {
         const bool chevron = i == ui_image_viewer_previous || i == ui_image_viewer_next;
+        const bool retry = i == ui_image_viewer_retry;
         auto button_style = ui_layout_style();
-        button_style.width = ui_layout_fixed(chevron ? kChevronTarget : kToolbarTarget);
+        button_style.width = ui_layout_fixed(chevron ? kChevronTarget : retry ? kRetryWidth : kToolbarTarget);
         button_style.height = ui_layout_fixed(chevron ? kChevronTarget : kToolbarTarget);
         button_style.horizontal_alignment =
-            i == ui_image_viewer_previous ? UiLayoutAlignment::start : UiLayoutAlignment::end;
+            i == ui_image_viewer_previous || retry ? UiLayoutAlignment::start : UiLayoutAlignment::end;
         button_style.vertical_alignment = chevron ? UiLayoutAlignment::center : UiLayoutAlignment::start;
         const auto button = ui_widget_manager_add(
             &v->widgets, root.handle,
@@ -300,7 +347,10 @@ bool ui_image_viewer_set_media(UiImageViewer* v, UiImageViewerMedia media) noexc
     if (!v || !v->active)
         return false;
     if (v->media != media) {
+        const bool retry = shown(*v, ui_image_viewer_retry);
         v->media = media;
+        if (retry != shown(*v, ui_image_viewer_retry) && !place_controls(v))
+            return false;
         ++v->revision;
     }
     return true;
@@ -332,6 +382,46 @@ void ui_image_viewer_set_reveal(UiImageViewer* v, float reveal, const UiRect& or
         return;
     v->reveal = reveal;
     v->origin = origin;
+    arrange(v);
+    ++v->revision;
+}
+bool ui_image_viewer_set_page(UiImageViewer* v, const UiImageViewerPage& page) noexcept {
+    if (!v || !v->active)
+        return false;
+    auto& info = v->page_info;
+    const bool same_text = info.title.data == page.title.data && info.title.bytes == page.title.bytes &&
+                           info.source.data == page.source.data && info.source.bytes == page.source.bytes;
+    const bool same_shape = v->page && info.kind == page.kind && info.queue == page.queue;
+    if (same_shape && same_text && info.glyph == page.glyph && info.can_jump == page.can_jump)
+        return true;
+    info = page;
+    if (!same_shape) {
+        v->page = true;
+        // The page's root owns its hosted player (the audio card needs an enabled owner); it takes no hits.
+        if (auto* root = ui_widget_manager_resolve(&v->widgets, v->owner.handle))
+            root->flags = ui_widget_enabled;
+        v->video = page.kind != UiImageViewerPageKind::image;
+        v->item = 0;
+        v->item_count = 1;
+        v->counter_bytes = 0;
+        v->fullscreen = false;
+        body_for(v);
+    }
+    if (!place_controls(v))
+        return false;
+    arrange(v);
+    ++v->revision;
+    return true;
+}
+UiImageViewerPageLayout ui_image_viewer_page_layout(const UiImageViewer& v) noexcept {
+    return v.active && v.page ? page_layout(v) : UiImageViewerPageLayout{};
+}
+void ui_image_viewer_set_view(UiImageViewer* v, float zoom, UiPoint pan) noexcept {
+    if (!v || !v->active || v->video || !ui_coordinate_valid(zoom) || zoom <= 0 || !ui_coordinate_valid(pan.x) ||
+        !ui_coordinate_valid(pan.y))
+        return;
+    v->zoom = clamp_zoom(*v, zoom);
+    v->pan = pan;
     arrange(v);
     ++v->revision;
 }
@@ -381,17 +471,20 @@ void ui_image_viewer_pan(UiImageViewer* v, UiPoint delta) noexcept {
     ++v->revision;
 }
 UiRect ui_image_viewer_button(const UiImageViewer& v, u32 index) noexcept {
-    if (index >= ui_image_viewer_button_count || !ui_widget_manager_input_enabled(v.widgets, v.buttons[index]))
+    // A page's Jump to message keeps its place while its message is unavailable.
+    if (index >= ui_image_viewer_button_count ||
+        (!ui_widget_manager_input_enabled(v.widgets, v.buttons[index]) &&
+         !(v.page && index == ui_image_viewer_jump)))
         return {};
     const auto* node = ui_widget_manager_layout_node(v.widgets, v.buttons[index]);
-    return node ? node->rectangle : UiRect{};
+    return node && (node->spec.style.flags & ui_layout_node_visible) ? node->rectangle : UiRect{};
 }
 Utf8View ui_image_viewer_tooltip(const UiImageViewer& v, u32 index) noexcept {
     switch (index) {
     case ui_image_viewer_zoom_out: return utf8_literal("Zoom out (-)");
     case ui_image_viewer_zoom_in: return utf8_literal("Zoom in (+)");
     case ui_image_viewer_fit: return utf8_literal("Fit to window (0)");
-    case ui_image_viewer_close: return utf8_literal("Close (Esc)");
+    case ui_image_viewer_close: return v.page ? utf8_literal("Close tab (Ctrl+W)") : utf8_literal("Close (Esc)");
     case ui_image_viewer_save: return utf8_literal("Save (Ctrl+S)");
     case ui_image_viewer_open_original: return utf8_literal("Open original");
     case ui_image_viewer_copy: return v.copied ? utf8_literal("Copied") : utf8_literal("Copy image (Ctrl+C)");
@@ -399,6 +492,9 @@ Utf8View ui_image_viewer_tooltip(const UiImageViewer& v, u32 index) noexcept {
         return v.fullscreen ? utf8_literal("Exit full screen (F)") : utf8_literal("Full screen (F)");
     case ui_image_viewer_previous: return utf8_literal("Previous (\xE2\x86\x90)");
     case ui_image_viewer_next: return utf8_literal("Next (\xE2\x86\x92)");
+    case ui_image_viewer_jump:
+        return v.page_info.can_jump ? utf8_literal("Jump to message") : utf8_literal("Message unavailable");
+    case ui_image_viewer_retry: return utf8_literal("Retry");
     default: return {};
     }
 }
@@ -424,9 +520,10 @@ UiImageViewerCommand ui_image_viewer_key_command(const UiImageViewer& v, UiImage
     }
     switch (key) {
     case UiImageViewerKey::escape:
-        return v.fullscreen ? Command::exit_fullscreen : Command::dismiss;
+        // A page is not dismissed: Esc only leaves full screen, else falls through.
+        return v.fullscreen ? Command::exit_fullscreen : v.page ? Command::none : Command::dismiss;
     case UiImageViewerKey::f:
-        return Command::toggle_fullscreen;
+        return v.page ? Command::none : Command::toggle_fullscreen;
     case UiImageViewerKey::tab:
         return modifiers.shift ? Command::focus_previous : Command::focus_next;
     case UiImageViewerKey::enter:
@@ -496,10 +593,33 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
     UiPaint p{paint, theme};
     if (!p.clip(v.viewport))
         return false;
-    p.fill(v.viewport, ui_theme_color_alpha(theme.tokens.overlay.media, v.reveal));
-    // The media scrim is always black, so its toolbar uses light foregrounds
-    // independently of the application's selected appearance.
-    const Theme& toolbar_theme = kDefaultTheme;
+    // A page sits in the content column in the application's colours. The viewer's media scrim is always black,
+    // so its toolbar uses light foregrounds independently of the application's selected appearance.
+    const Theme& toolbar_theme = v.page ? theme : kDefaultTheme;
+    if (v.page) {
+        const auto layout = page_layout(v);
+        const float glyph_top = layout.header.top + (kPageHeader - kPageGlyph) * .5f;
+        p.fill(v.viewport, theme.tokens.background.primary)
+            .rule_below(layout.header)
+            .icon(v.page_info.glyph,
+                  {layout.header.left + kPageInset, glyph_top, layout.header.left + kPageInset + kPageGlyph,
+                   glyph_top + kPageGlyph},
+                  theme.text_secondary);
+        // Pictures play on a dark stage; the audio card sits on the page itself. Until the player draws over
+        // it, a video or audio stage shows the page's glyph.
+        const bool audio = v.page_info.kind == UiImageViewerPageKind::audio;
+        if (!audio)
+            p.rounded(layout.player, theme.tokens.overlay.media, theme.scale.radius_md);
+        if (v.video && v.media != UiImageViewerMedia::failed) {
+            const auto c = center(v);
+            p.icon(v.page_info.glyph,
+                   {c.x - kPageStageGlyph * .5f, c.y - kPageStageGlyph * .5f, c.x + kPageStageGlyph * .5f,
+                    c.y + kPageStageGlyph * .5f},
+                   audio ? theme.text_secondary : kDefaultTheme.text_secondary);
+        }
+    } else {
+        p.fill(v.viewport, ui_theme_color_alpha(theme.tokens.overlay.media, v.reveal));
+    }
     static constexpr UiIcon icons[]{UiIcon::zoom_out, UiIcon::zoom_in,       UiIcon::fit,  UiIcon::close,
                              UiIcon::download, UiIcon::external_link, UiIcon::copy, UiIcon::maximize};
     const u32 first = paint->count;
@@ -510,6 +630,15 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
                                                                               : icons[i];
         if (!ui_button_icon_paint(paint, v.widgets, v.buttons[i], icon, toolbar_theme, false, v.keyboard_focus))
             p.fail();
+    }
+    if (p && ui_rect_has_area(ui_image_viewer_button(v, ui_image_viewer_jump))) {
+        const u32 jump = paint->count;
+        if (!ui_button_icon_paint(paint, v.widgets, v.buttons[ui_image_viewer_jump], UiIcon::arrow_right,
+                                  toolbar_theme, false, v.keyboard_focus))
+            p.fail();
+        // Inert while its message is unavailable.
+        if (!v.page_info.can_jump)
+            fade(paint, jump, .4f);
     }
     // The divider between the view group and the item actions.
     u32 last_view = ui_image_viewer_button_count;
@@ -532,11 +661,21 @@ bool ui_image_viewer_paint_overlay(const UiImageViewer& v, const Theme& theme, P
     UiPaint p{paint, theme};
     if (!p.clip(v.viewport))
         return false;
-    const Theme& ink_theme = kDefaultTheme;
+    // A video page's stage is dark like the viewer; an audio page shows its state on the page itself.
+    const Theme& ink_theme = v.page && v.page_info.kind == UiImageViewerPageKind::audio ? theme : kDefaultTheme;
     if (!v.video && v.media == UiImageViewerMedia::loading)
         p.spinner(state_box(v), ui_theme_color_alpha(ink_theme.text_primary, v.reveal), v.spinner_phase);
-    else if (!v.video && v.media == UiImageViewerMedia::failed)
+    else if ((!v.video || v.page) && v.media == UiImageViewerMedia::failed)
         p.icon(UiIcon::image_off, state_box(v), ui_theme_color_alpha(ink_theme.text_secondary, v.reveal));
+    if (const auto retry = ui_image_viewer_button(v, ui_image_viewer_retry); ui_rect_has_area(retry)) {
+        const auto handle = v.buttons[ui_image_viewer_retry];
+        const bool focus = v.keyboard_focus && ui_widget_handle_equal(v.widgets.focused, handle);
+        p.rounded_border(retry,
+                         ui_widget_handle_equal(v.widgets.hovered, handle) ? theme.tokens.overlay.scrim_strong
+                                                                           : theme.tokens.overlay.scrim_light,
+                         focus ? theme.tokens.border.focus : theme.tokens.border.subtle, theme.scale.radius_sm,
+                         focus ? 2.0f : 1.0f);
+    }
     const u32 first = paint->count;
     for (u32 i = ui_image_viewer_previous; p && v.item_count > 1 && i <= ui_image_viewer_next; ++i) {
         const auto button = ui_image_viewer_button(v, i);
@@ -558,19 +697,28 @@ bool ui_image_viewer_paint_overlay(const UiImageViewer& v, const Theme& theme, P
     fade(paint, first, v.reveal * v.chrome);
     return p.end();
 }
-bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme&, UiTextOutput* out) noexcept {
+bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme& theme, UiTextOutput* out) noexcept {
     if (!v.active)
         return true;
     const float alpha = v.reveal * v.chrome;
     UiTextPen<UiTextClip::label> text{out, v.widgets, v.viewport};
     auto label = text.in(v.viewport);
-    if (v.counter_bytes) {
-        // The counter shares the toolbar row's centre line; it ends where the
-        // leftmost toolbar button begins.
-        float right = v.viewport.right - kToolbarInset;
-        for (u32 i = 0; i < ui_image_viewer_previous; ++i)
-            if (const auto b = ui_image_viewer_button(v, i); ui_rect_has_area(b))
-                right = minimum(right, b.left - kToolbarInset);
+    // The counter (and a page's title) ends where the leftmost toolbar button begins.
+    float right = v.viewport.right - kToolbarInset;
+    for (u32 i = 0; i < ui_image_viewer_button_count; ++i)
+        if (const auto b = ui_image_viewer_button(v, i);
+            ui_rect_has_area(b) && i != ui_image_viewer_previous && i != ui_image_viewer_next &&
+            i != ui_image_viewer_retry)
+            right = minimum(right, b.left - kToolbarInset);
+    if (v.page) {
+        // Title over the source line, beside the kind glyph.
+        const float left = v.viewport.left + kPageTextLeft, top = v.viewport.top + kPageToolbarTop - 2;
+        label(v.owner.handle, v.page_info.title, {left, top, right, top + 20}, theme.text_primary,
+              text_style_bold);
+        label(v.owner.handle, v.page_info.source, {left, top + 20, right, top + 36}, theme.text_secondary,
+              text_style_subtext);
+    } else if (v.counter_bytes) {
+        // The counter shares the toolbar row's centre line.
         const UiRect row{v.viewport.left + kToolbarInset, v.viewport.top + kToolbarTop, right,
                          v.viewport.top + kToolbarTop + kToolbarTarget};
         if (ui_rect_has_area(row))
@@ -581,12 +729,18 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme&, UiTextOut
     if (v.caption_bytes)
         label(v.owner.handle, Utf8View{v.caption, v.caption_bytes},
               {v.body.left, v.body.bottom, v.body.right, v.viewport.bottom},
-              ui_theme_color_alpha(kDefaultTheme.text_primary, alpha), text_style_subtext, ui_text_center);
-    if (!v.video && v.media == UiImageViewerMedia::failed) {
+              ui_theme_color_alpha(v.page ? theme.text_primary : kDefaultTheme.text_primary, alpha),
+              text_style_subtext, ui_text_center);
+    if ((!v.video || v.page) && v.media == UiImageViewerMedia::failed) {
+        const Theme& ink = v.page && v.page_info.kind == UiImageViewerPageKind::audio ? theme : kDefaultTheme;
         const auto box = state_box(v);
-        label(v.owner.handle, utf8_literal("This image couldn't be loaded."),
-              {v.body.left, box.bottom + kToolbarGap, v.body.right, box.bottom + kToolbarGap + 20},
-              ui_theme_color_alpha(kDefaultTheme.text_secondary, v.reveal), text_style_subtext, ui_text_center);
+        label(v.owner.handle,
+              v.page ? utf8_literal("Media unavailable") : utf8_literal("This image couldn't be loaded."),
+              {v.body.left, box.bottom + kToolbarGap, v.body.right, box.bottom + kToolbarGap + kStateText},
+              ui_theme_color_alpha(ink.text_secondary, v.reveal), text_style_subtext, ui_text_center);
+        if (const auto retry = ui_image_viewer_button(v, ui_image_viewer_retry); ui_rect_has_area(retry))
+            label(v.owner.handle, utf8_literal("Retry"), retry, kDefaultTheme.text_primary, text_style_subtext,
+                  ui_text_center | ui_text_middle);
     }
     return text.ok();
 }

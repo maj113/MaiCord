@@ -1154,7 +1154,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                     d3d11_surface_inbox | d3d11_surface_message_forward | d3d11_surface_download |
                     d3d11_surface_go_live | d3d11_surface_shortcuts | d3d11_surface_media_picker |
                     d3d11_surface_call | d3d11_surface_stream_card | d3d11_surface_names_card |
-                    d3d11_surface_guild_card | d3d11_surface_expression_card)) ||
+                    d3d11_surface_guild_card | d3d11_surface_expression_card | d3d11_surface_media_page)) ||
           d3d11_renderer_zoom_lens_visible(*renderer) ||
           d3d11_renderer_active(renderer->message_action_bar) ||
           d3d11_renderer_active(renderer->popup_scene) ||
@@ -1200,7 +1200,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const bool friends_requests_active =
         !renderer->login_visible && !settings_active &&
         ((d3d11_renderer_active(renderer->friends_requests_scene)) ||
-         (shown & (d3d11_surface_search | d3d11_surface_pinned_messages | d3d11_surface_call)));
+         (shown & (d3d11_surface_search | d3d11_surface_pinned_messages | d3d11_surface_call |
+                   d3d11_surface_media_page)));
     const u32 requests_foreground =
         friends_requests_active
             ? maximum(base_paint_end,

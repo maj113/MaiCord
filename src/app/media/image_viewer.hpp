@@ -5,6 +5,7 @@
 #include "../chat/search/search.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/platform/window/event.hpp"
+#include "media_page.hpp"
 namespace maicord::app_detail {
 // One previewable message item. Video keys are bound when the item becomes
 // current, because the playback session owns their decode identity.
@@ -63,4 +64,12 @@ void application_image_viewer_request_failed(const MediaAssetKey& key) noexcept;
 void application_image_viewer_dismiss() noexcept;
 bool application_image_viewer_synchronize() noexcept;
 bool application_image_viewer_event(const WindowEvent& event) noexcept;
+// The current item as a media page (the title bar's "+"): false unless an open viewer, not closing, shows an
+// item a page can show. A null `out` only answers; filled views stay valid until the next call or the viewer
+// closes.
+bool application_image_viewer_page_source(MediaPageSource* out) noexcept;
+// The viewer's (and a media page's) name for a key code.
+UiImageViewerKey application_image_viewer_key(u32 code) noexcept;
+// Copies the resident picture (`key`, else `fallback`) to the clipboard with its link and toasts the result.
+bool application_image_copy(const MediaAssetKey& key, const MediaAssetKey& fallback, Utf8View url) noexcept;
 }

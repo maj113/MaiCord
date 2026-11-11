@@ -127,13 +127,19 @@ enum : u32 {
     d3d11_surface_inline_covered = 1u << 26,
     // The media viewer hosts the inline video scene above its media quad.
     d3d11_surface_viewer_video = 1u << 27,
+    // A media page (media tab) covers the content column, under the popouts; the sidebar and member list stay.
+    d3d11_surface_media_page = 1u << 28,
+    // The media page hosts the inline video scene on its stage.
+    d3d11_surface_page_video = 1u << 29,
 };
 
 // The inline audio control is bound, enabled and drawable on a surface that shows (`shown` holds the bits below it).
 __declspec(noinline) inline bool d3d11_renderer_audio_shown(const D3D11Renderer& renderer, u32 shown) noexcept {
     const auto* scene = renderer.audio_scene;
+    // A media page's card is the page's own content, drawn in its layer under every popout.
     if (!scene || !scene->active || !scene->owner.manager || renderer.video_scene ||
-        d3d11_renderer_active(renderer.poll_voters_scene) || (shown & d3d11_surface_inline_covered))
+        d3d11_renderer_active(renderer.poll_voters_scene) ||
+        ((shown & d3d11_surface_inline_covered) && scene->surface != UiAudioSourceSurface::page))
         return false;
     const auto* widget = ui_widget_manager_resolve(*scene->owner.manager, scene->owner.handle);
     if (!widget || !(widget->flags & ui_widget_enabled) || (widget->flags & ui_widget_block_input) ||
@@ -155,6 +161,8 @@ __declspec(noinline) inline bool d3d11_renderer_audio_shown(const D3D11Renderer&
     case UiAudioSourceSurface::forward:
         return (shown & d3d11_surface_message_forward) &&
                scene->owner.manager == &renderer.message_forward_scene->widgets;
+    case UiAudioSourceSurface::page:
+        return (shown & d3d11_surface_media_page) && scene->owner.manager == &renderer.media_page->widgets;
     }
     return false;
 }
@@ -264,16 +272,18 @@ __forceinline bool d3d11_renderer_covered(const D3D11Renderer& renderer, u32 bit
            ((bits & d3d11_surface_form) && d3d11_renderer_form_active(renderer));
 }
 
-// The surface bits of the surfaces that stand alone: each rule reads only what lies over the shell and, for the two
-// that others read, the quick switcher and the thread browser. Any set of them can be asked for by itself.
+// The surface bits of the surfaces that stand alone: each rule reads only what lies over the shell and, for the
+// three that others read, the quick switcher, the thread browser and the media page. Any set of them can be asked
+// for by itself.
 constexpr u32 d3d11_surface_simple =
     d3d11_surface_quick_switcher | d3d11_surface_inbox | d3d11_surface_thread_browser | d3d11_surface_call |
     d3d11_surface_guild_card | d3d11_surface_stream_card | d3d11_surface_names_card |
     d3d11_surface_expression_card | d3d11_surface_message_forward | d3d11_surface_shortcuts |
     d3d11_surface_download | d3d11_surface_go_live | d3d11_surface_media_picker | d3d11_surface_search |
-    d3d11_surface_pinned_messages | d3d11_surface_settings_page | d3d11_surface_theme_editor | d3d11_surface_form;
+    d3d11_surface_pinned_messages | d3d11_surface_settings_page | d3d11_surface_theme_editor | d3d11_surface_form |
+    d3d11_surface_media_page;
 // Every surface but the inline poll (see d3d11_renderer_frame_surfaces).
-constexpr u32 d3d11_surface_all = ((1u << 28) - 1) & ~d3d11_surface_poll;
+constexpr u32 d3d11_surface_all = ((1u << 30) - 1) & ~d3d11_surface_poll;
 // The modal and popup surfaces of the popup layer.
 constexpr u32 d3d11_surfaces_popup = d3d11_surface_quick_switcher | d3d11_surface_inbox |
                                      d3d11_surface_message_forward | d3d11_surface_shortcuts |
@@ -318,17 +328,26 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
         return d3d11_renderer_active(renderer.thread_browser_scene) && !over(page | friends) &&
                d3d11_current<ui_thread_browser_scene_current>(*renderer.thread_browser_scene);
     };
+    // The page lies under the popouts, profile, viewer and menus, which draw over it; pages replacing the shell
+    // (and Friends, which replaces the content column) hide it.
+    const auto page_rule = [&]() __attribute__((always_inline)) noexcept {
+        return d3d11_renderer_active(renderer.media_page) && !over(page | friends);
+    };
     u32 shown = 0;
     if constexpr (kWant & (settings | editor | form)) {
         over(0);
         shown = above & (settings | editor | form);
     }
-    // The surfaces that read the quick switcher or the thread browser take its bit when the mask has it, else its rule.
+    // The surfaces that read the quick switcher, the thread browser or the media page take its bit when the mask
+    // has it, else its rule.
     const auto quick_up = [&]() __attribute__((always_inline)) noexcept {
         return full ? (shown & d3d11_surface_quick_switcher) != 0 : quick_rule();
     };
     const auto browser_up = [&]() __attribute__((always_inline)) noexcept {
         return full ? (shown & d3d11_surface_thread_browser) != 0 : browser_rule();
+    };
+    const auto page_up = [&]() __attribute__((always_inline)) noexcept {
+        return full ? (shown & d3d11_surface_media_page) != 0 : page_rule();
     };
     if constexpr (kWant & d3d11_surface_quick_switcher) {
         if (quick_rule())
@@ -342,6 +361,10 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
     if constexpr (kWant & d3d11_surface_thread_browser) {
         if (browser_rule())
             shown |= d3d11_surface_thread_browser;
+    }
+    if constexpr (kWant & d3d11_surface_media_page) {
+        if (page_rule())
+            shown |= d3d11_surface_media_page;
     }
     if constexpr (kWant & d3d11_surface_message_forward) {
         if (d3d11_renderer_active(renderer.message_forward_scene) && !over(modal) &&
@@ -365,14 +388,14 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
     }
     if constexpr (kWant & d3d11_surface_media_picker) {
         if (d3d11_renderer_active(renderer.media_picker_scene) &&
-            !over(login | settings | editor | friends | requests | viewer) && !browser_up() &&
+            !over(login | settings | editor | friends | requests | viewer) && !browser_up() && !page_up() &&
             d3d11_current<ui_media_picker_scene_current>(*renderer.media_picker_scene))
             shown |= d3d11_surface_media_picker;
     }
     // Call view over the content column (or the whole window in fullscreen). The application closes it before
-    // search, pins or the thread browser show.
+    // search, pins or the thread browser show; a media page shown over it hides it.
     if constexpr (kWant & d3d11_surface_call) {
-        if (d3d11_renderer_active(renderer.call_scene) && !over(page | requests) && !browser_up())
+        if (d3d11_renderer_active(renderer.call_scene) && !over(page | requests) && !browser_up() && !page_up())
             shown |= d3d11_surface_call;
     }
     // The popouts (popup layer): menus and modal surfaces hide them.
@@ -401,7 +424,7 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
     }
     if constexpr (kWant & d3d11_surface_pinned_messages) {
         if (d3d11_renderer_active(renderer.pinned_messages_scene) &&
-            !over(login | editor | settings | friends | requests | viewer) && !browser_up() &&
+            !over(login | editor | settings | friends | requests | viewer) && !browser_up() && !page_up() &&
             d3d11_current<ui_pinned_messages_scene_current>(*renderer.pinned_messages_scene))
             shown |= d3d11_surface_pinned_messages;
     }
@@ -415,13 +438,13 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
             shown |= d3d11_surface_message_modal;
         if ((above & (login | settings | editor | friends | requests | profile | viewer | popup | reaction | form)) ||
             (shown & (d3d11_surface_thread_browser | d3d11_surface_media_picker | d3d11_surface_quick_switcher |
-                      d3d11_surface_download | d3d11_surface_go_live)))
+                      d3d11_surface_download | d3d11_surface_go_live | d3d11_surface_media_page)))
             shown |= d3d11_surface_inline_covered;
         const bool voters_active = d3d11_renderer_active(renderer.poll_voters_scene);
         // Inline controls have one host-owned scene and disappear beneath front surfaces.
         if (!voters_active &&
             !(shown & (d3d11_surface_thread_browser | d3d11_surface_call | d3d11_surface_media_picker |
-                       d3d11_surface_message_modal)) &&
+                       d3d11_surface_message_modal | d3d11_surface_media_page)) &&
             d3d11_renderer_active(renderer.video_scene) &&
             !(above & (login | settings | friends | requests | profile | viewer | popup | reaction | form)) &&
             (!renderer.video_scene_search_result ||
@@ -430,12 +453,15 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
         if (renderer.video_scene_viewer && d3d11_renderer_active(renderer.video_scene) && (above & viewer) &&
             !(above & (login | settings)))
             shown |= d3d11_surface_viewer_video;
+        if (renderer.video_scene_page && d3d11_renderer_active(renderer.video_scene) &&
+            (shown & d3d11_surface_media_page))
+            shown |= d3d11_surface_page_video;
         if (renderer.tooltip_scene && !(above & (login | requests | popup | reaction | form)) && !voters_active &&
             !message_modal && ui_tooltip_visible(*renderer.tooltip_scene))
             shown |= d3d11_surface_tooltip;
         // Timeline overlay below every popup/modal layer; covering surfaces hide it.
         if (renderer.unread_banner_scene && !(above & (page | friends | requests | viewer)) &&
-            !(shown & (d3d11_surface_thread_browser | d3d11_surface_call)) &&
+            !(shown & (d3d11_surface_thread_browser | d3d11_surface_call | d3d11_surface_media_page)) &&
             d3d11_renderer_active(renderer.message_scene) && ui_unread_banner_visible(*renderer.unread_banner_scene))
             shown |= d3d11_surface_unread_banner;
         // Toasts show over every surface except the sign-in screen.
@@ -537,10 +563,13 @@ __declspec(noinline) inline const UiWidgetManager* d3d11_renderer_visible_focus_
             front = &renderer.text_form->scene->widgets;
         return owner == front ? owner : nullptr;
     }
-    if (((shown & d3d11_surface_thread_browser) || d3d11_renderer_active(renderer.friends_scene)) &&
-        ((renderer.message_scene && owner == &renderer.message_scene->widgets) ||
-         (renderer.message_composer_scene && owner == &renderer.message_composer_scene->widgets) ||
-         (renderer.member_list_scene && owner == &renderer.member_list_scene->widgets)))
+    // The thread browser and Friends cover the chat column and the member list; a media page only the chat column.
+    const bool members_covered =
+        (shown & d3d11_surface_thread_browser) || d3d11_renderer_active(renderer.friends_scene);
+    if (((members_covered || (shown & d3d11_surface_media_page)) &&
+         ((renderer.message_scene && owner == &renderer.message_scene->widgets) ||
+          (renderer.message_composer_scene && owner == &renderer.message_composer_scene->widgets))) ||
+        (members_covered && renderer.member_list_scene && owner == &renderer.member_list_scene->widgets))
         return nullptr;
     return owner;
 }
@@ -578,6 +607,10 @@ inline bool d3d11_renderer_timeline_video_visible(const D3D11Renderer& renderer,
 }
 inline bool d3d11_renderer_timeline_audio_visible(const D3D11Renderer& renderer, u32 shown) noexcept {
     return (shown & d3d11_surface_audio) && renderer.audio_scene->surface == UiAudioSourceSurface::timeline;
+}
+// A media page's audio card paints and emits its text with the page, under every popout.
+inline bool d3d11_renderer_page_audio_visible(const D3D11Renderer& renderer, u32 shown) noexcept {
+    return (shown & d3d11_surface_audio) && renderer.audio_scene->surface == UiAudioSourceSurface::page;
 }
 inline bool d3d11_renderer_timeline_poll_visible(const D3D11Renderer& renderer, u32 shown) noexcept {
     return (shown & d3d11_surface_poll) && renderer.poll_scene->surface == UiPollSourceSurface::timeline;

@@ -372,6 +372,11 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(stamp.structural ? 0 : renderer.call_scene->spinner_phase)
             .push(renderer.interaction_text_call_revision)
             .bytes(&renderer.call_scene->viewport, sizeof(renderer.call_scene->viewport));
+    if (shown & d3d11_surface_media_page)
+        s.pointer(renderer.media_page)
+            .push(renderer.media_page->revision)
+            .push(stamp.structural ? 0 : renderer.media_page->spinner_phase)
+            .push(renderer.interaction_text_media_page_revision);
     if (shown & d3d11_surface_stream_card)
         s.pointer(renderer.stream_card_scene)
             .push(renderer.stream_card_scene->revision)
@@ -501,8 +506,9 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         .push(renderer.gif_favorite_owner.generation)
         .push(renderer.gif_favorite)
         .push(renderer.gif_favorite_pending);
-    const auto* video =
-        (shown & (d3d11_surface_video | d3d11_surface_viewer_video)) ? renderer.video_scene : nullptr;
+    const auto* video = (shown & (d3d11_surface_video | d3d11_surface_viewer_video | d3d11_surface_page_video))
+                            ? renderer.video_scene
+                            : nullptr;
     s.pointer(video);
     if (video)
         s.push(ui_video_scene_paint_revision(*video));

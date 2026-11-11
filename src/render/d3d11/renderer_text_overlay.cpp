@@ -404,6 +404,20 @@ bool project_overlay_text(D3D11Renderer* renderer, u32 shown, const Theme& theme
     if ((shown & d3d11_surface_call) &&
         !ui_call_scene_text_output(*renderer->call_scene, theme, &output))
         return false;
+    // So does a media page: its header and state, then its player's glyphs. The page's text shares the card
+    // owner's range, so the card's owner never hides the page's own labels.
+    const bool page_audio = d3d11_renderer_page_audio_visible(*renderer, shown);
+    if (shown & d3d11_surface_media_page) {
+        if (page_audio)
+            boundaries->audio_start = emitter->count;
+        if (!ui_image_viewer_text_output(*renderer->media_page, theme, &output) ||
+            ((shown & d3d11_surface_page_video) &&
+             !ui_video_scene_text_output(*renderer->video_scene, theme, &output, renderer->media_page->owner)) ||
+            (page_audio && !ui_audio_scene_text_output(*renderer->audio_scene, &output)))
+            return false;
+        if (page_audio)
+            boundaries->audio_end = emitter->count;
+    }
     if ((shown & d3d11_surface_video) && renderer->video_scene_search_result) {
         const auto* video_owner = renderer->search_scene ? ui_search_scene_message_scene(*renderer->search_scene)
                                                          : nullptr;
@@ -435,7 +449,7 @@ bool project_overlay_text(D3D11Renderer* renderer, u32 shown, const Theme& theme
     // The action bar's opaque panel is painted after the gallery range. Its
     // quick-reaction glyphs must belong to the following text range as well.
     // Beside a call its text chat keeps the toolbar (as painted in layout).
-    if (!friends && !(shown & d3d11_surface_thread_browser) &&
+    if (!friends && !(shown & (d3d11_surface_thread_browser | d3d11_surface_media_page)) &&
         (!(shown & d3d11_surface_call) || renderer->call_scene->chat_open) &&
         !d3d11_renderer_active(renderer->profile_scene) &&
         !(shown & d3d11_surface_media_picker) && renderer->message_action_bar &&
@@ -463,7 +477,7 @@ bool project_overlay_text(D3D11Renderer* renderer, u32 shown, const Theme& theme
                                                   &renderer->media_picker_edit_geometry, &popup_edit))
             return false;
     }
-    if (!timeline_audio) {
+    if (!timeline_audio && !page_audio) {
         boundaries->audio_start = emitter->count;
         if ((shown & d3d11_surface_audio) &&
             !ui_audio_scene_text_output(*renderer->audio_scene, &output))

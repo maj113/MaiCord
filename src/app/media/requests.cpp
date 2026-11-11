@@ -190,8 +190,8 @@ bool ApplicationMediaPump::content_media_visible() const noexcept {
            !application.login.visible &&
            !(application.renderer.settings_scene && application.renderer.settings_scene->active) &&
            !(application.renderer.friends_scene && application.renderer.friends_scene->active) &&
-           // The thread browser covers the chat column; chrome stays visible.
-           !(surfaces() & d3d11_surface_thread_browser);
+           // The thread browser and a media page cover the chat column; chrome stays visible.
+           !(surfaces() & (d3d11_surface_thread_browser | d3d11_surface_media_page));
 }
 bool ApplicationMediaPump::catalog_media_visible() const noexcept {
     const auto* scene = application.renderer.media_picker_scene;
@@ -389,6 +389,10 @@ MediaAtlas* ApplicationMediaPump::upload_atlas(const MediaAssetKey& key) noexcep
 bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexcept {
     if (application.login.visible)
         return false;
+    // A shown media page's picture, whatever covers the chat.
+    if ((key.kind == MediaAssetKind::attachment || key.kind == MediaAssetKind::embed) &&
+        application_media_page_key_current(key))
+        return true;
     if (forum_thumbnail_key_current(*this, key))
         return true;
     // The profile editor is itself an opaque Settings modal: its preview card,

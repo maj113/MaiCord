@@ -1,6 +1,6 @@
-// The title bar's channel tabs end to end: the caption controller's real pointer and key handling over the real tab
-// model and strip layout, in the headless window. Navigation, popups, the renderer and updates are observed at their
-// host boundaries.
+// The title bar's tabs end to end: the caption controller's real pointer and key handling over the real tab model
+// (channel tabs and media tabs over a stand-in page store) and strip layout, in the headless window. Navigation,
+// popups, the renderer and updates are observed at their host boundaries.
 #include "../../support/window_fixture.hpp"
 #include "../../support/test_output.hpp"
 #include "../../support/model_store_fixtures.hpp"
@@ -20,6 +20,7 @@
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/accessibility/accessibility.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
+#include "media_page_fake.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::caption_tabs_test {
@@ -62,6 +63,7 @@ bool fixture(u32 width) noexcept {
     g_app.preferences = client_preferences_defaults();
     g_app.preferences.tabs_enabled = true;
     application_tabs_reset();
+    media_page_fake::reset();
     clear_bytes(&memory, sizeof(memory));
     memory_profile = 9;
     menu_opens = list_opens = 0;
@@ -170,7 +172,7 @@ void clicks() noexcept {
           "caption tabs: the pin is on for a channel without a tab");
     auto layout = bar();
     click(centre_x(layout.tabs.plus), centre_y(layout, layout.tabs.plus));
-    check(application_tabs_count() == 5 && selected() == 105 && application_tabs_channel(4) == 105 &&
+    check(application_tabs_count() == 5 && selected() == 105 && application_tabs_key(4) == 105 &&
               !view()->plus_enabled && memory.tab_count == 5,
           "caption tabs: \"+\" pins the current channel and persists it");
     layout = bar();
@@ -183,7 +185,7 @@ void clicks() noexcept {
     // The X of the active tab closes it and shows its neighbour.
     layout = bar();
     const UiRect close = ui_tab_strip_close(layout.tabs, 3);
-    check(application_tabs_channel(3) == 105 && ui_rect_has_area(close), "caption tabs: the active tab shows its close button");
+    check(application_tabs_key(3) == 105 && ui_rect_has_area(close), "caption tabs: the active tab shows its close button");
     click(centre_x(close), centre_y(layout, close));
     check(view()->count == 3 && !application_tabs_contains(105) && selected() == 103,
           "caption tabs: the close button closes the active tab and shows its left neighbour");
@@ -198,13 +200,13 @@ void drags() noexcept {
     send(pointer_move(x, y));
     send(pointer_down(x, y));
     send(pointer_move(x + 2, y));
-    check(view() && !(view()->items[0].flags & kUiTabDragging) && application_tabs_channel(0) == 100,
+    check(view() && !(view()->items[0].flags & kUiTabDragging) && application_tabs_key(0) == 100,
           "caption tabs drag: a move under the threshold stays a click");
     send(pointer_move(x + width * 0.4f, y));
-    check((view()->items[0].flags & kUiTabDragging) && application_tabs_channel(0) == 100,
+    check((view()->items[0].flags & kUiTabDragging) && application_tabs_key(0) == 100,
           "caption tabs drag: past the threshold the tab follows the pointer inside its own slot");
     send(pointer_move(x + width * 1.1f, y));
-    check(application_tabs_channel(0) == 101 && application_tabs_channel(1) == 100 &&
+    check(application_tabs_key(0) == 101 && application_tabs_key(1) == 100 &&
               (view()->items[1].flags & kUiTabDragging),
           "caption tabs drag: crossing the neighbour's midpoint swaps them");
     send(pointer_up(x + width * 1.1f, y));
@@ -217,10 +219,10 @@ void drags() noexcept {
     send(pointer_down(x, y));
     send(pointer_move(x - width * 0.6f, y));
     send(pointer_move(x - width * 1.4f, y));
-    check(application_tabs_channel(1) == 102 && application_tabs_channel(2) == 100,
+    check(application_tabs_key(1) == 102 && application_tabs_key(2) == 100,
           "caption tabs drag: dragging left swaps with the neighbour on the left");
-    check(send(window_test::key_down(key::escape)) && application_tabs_channel(0) == 101 &&
-              application_tabs_channel(1) == 100 && application_tabs_channel(2) == 102 &&
+    check(send(window_test::key_down(key::escape)) && application_tabs_key(0) == 101 &&
+              application_tabs_key(1) == 100 && application_tabs_key(2) == 102 &&
               !(view()->items[2].flags & kUiTabDragging) && !window_pointer_captured(g_app.window),
           "caption tabs drag: Esc cancels the drag and restores the order");
     // A lost capture cancels it the same way.
@@ -228,9 +230,9 @@ void drags() noexcept {
     send(pointer_move(x, y));
     send(pointer_down(x, y));
     send(pointer_move(x + width * 1.1f, y));
-    const bool swapped = application_tabs_channel(0) == 100;
+    const bool swapped = application_tabs_key(0) == 100;
     send(window_test::capture_lost());
-    check(swapped && application_tabs_channel(0) == 101 && !(view()->items[0].flags & kUiTabDragging),
+    check(swapped && application_tabs_key(0) == 101 && !(view()->items[0].flags & kUiTabDragging),
           "caption tabs drag: a lost capture cancels the drag");
 }
 
@@ -280,15 +282,15 @@ UiAccessNode* find_node(UiAccessTree& tree, UiAccessRole role, Utf8View name, u3
     return nullptr;
 }
 
-void accessibility() noexcept {
-    check(fixture(1000), "caption tabs accessibility: fixture");
-    seed(3);
-    static UiAccessTree tree{};
+// The bar's accessibility tree, built afresh.
+UiAccessTree access_tree;
+bool describe_bar() noexcept {
+    UiAccessTree& tree = access_tree;
     clear_bytes(&tree, sizeof(tree));
-    check(ui_access_tree_initialize(&tree, {access_nodes, 64}, {access_text, sizeof(access_text)}, {access_slots, 128},
-                                    {access_keys, 128}) &&
-              ui_access_tree_reset(&tree, utf8_literal("MaiCord"), {0, -32, 1000, 600}),
-          "caption tabs accessibility: tree");
+    if (!ui_access_tree_initialize(&tree, {access_nodes, 64}, {access_text, sizeof(access_text)}, {access_slots, 128},
+                                   {access_keys, 128}) ||
+        !ui_access_tree_reset(&tree, utf8_literal("MaiCord"), {0, -32, 1000, 600}))
+        return false;
     UiAccessNodeDesc group{};
     group.key = ui_access_key(5, 0);
     group.rectangle = {0, -32, 1000, 0};
@@ -297,7 +299,121 @@ void accessibility() noexcept {
     group.surface = 5;
     const u32 parent = ui_access_add(&tree, 0, group);
     application_caption_describe_tabs(&tree, parent, 5);
-    check(parent != kUiAccessNone && view() && tree.count > 3, "caption tabs accessibility: the nodes are added");
+    return parent != kUiAccessNone;
+}
+
+constexpr u64 page_key(u8 id) noexcept {
+    return (1ull << 63) | id;
+}
+
+// Media tabs: pages the tabs open, show, hide, dim and close, kept out of the saved channel tabs.
+void media() noexcept {
+    using namespace media_page_fake;
+    check(fixture(1000), "caption tabs media: fixture");
+    seed(2);
+    check(!view()->plus_enabled, "caption tabs media: the pin is off for a channel that is a tab");
+    viewer_open = true;
+    viewer_source = source(MediaPageKind::image, "cat.png");
+    check(view()->plus_enabled, "caption tabs media: the pin is on while a message viewer is open");
+    auto layout = bar();
+    click(centre_x(layout.tabs.plus), centre_y(layout, layout.tabs.plus));
+    check(application_tabs_count() == 3 && application_tabs_key(2) == page_key(1) && shown == 1 && !viewer_open &&
+              view()->items[2].icon == UiIcon::image && (view()->items[2].flags & kUiTabActive) &&
+              !(view()->items[0].flags & kUiTabActive) &&
+              utf8_equal(application_tabs_label(2), utf8_literal("cat.png")) && memory.tab_count == 2 &&
+              selected() == 100 && !view()->plus_enabled,
+          "caption tabs media: \"+\" turns the open viewer into the active page tab, which is not saved");
+    click(tab_x(0), tab_y(0));
+    check(shown == 0 && pages[1].open && (view()->items[0].flags & kUiTabActive) &&
+              !(view()->items[2].flags & kUiTabActive),
+          "caption tabs media: a channel tab hides the page and keeps it");
+    click(tab_x(2), tab_y(2));
+    check(shown == 1 && selected() == 100 && (view()->items[2].flags & kUiTabActive) &&
+              !(view()->items[0].flags & kUiTabActive),
+          "caption tabs media: a media tab shows its page over the channel");
+    check(application_tabs_open_media(source(MediaPageKind::video, ""), true) &&
+              application_tabs_open_media(source(MediaPageKind::audio, "song.mp3"), true) && shown == 1 &&
+              view()->items[3].icon == UiIcon::video && utf8_equal(application_tabs_label(3), utf8_literal("Video")) &&
+              view()->items[4].icon == UiIcon::music &&
+              utf8_equal(application_tabs_label(4), utf8_literal("song.mp3")) &&
+              !(view()->items[3].flags & kUiTabActive),
+          "caption tabs media: background video and audio tabs take their icon and label and leave the page that shows");
+    pages[1].missing = pages[2].missing = true;
+    check((view()->items[3].flags & kUiTabMissing) && (view()->items[2].flags & kUiTabMissing) &&
+              view()->items[2].icon == UiIcon::image_off,
+          "caption tabs media: a page that cannot load again dims its tab");
+    pages[1].missing = pages[2].missing = false;
+    check(!(view()->items[3].flags & kUiTabMissing) && !(view()->items[2].flags & kUiTabMissing) &&
+              view()->items[2].icon == UiIcon::image,
+          "caption tabs media: the dimming follows the page");
+    bool opened = true;
+    for (u32 i = 0; i < 5; ++i)
+        opened = application_tabs_open_media(source(MediaPageKind::image, "x"), true) && opened;
+    check(opened && open_pages() == kMediaPageCapacity && view()->count == 10 && !g_app.toasts.count &&
+              !application_tabs_open_media(source(MediaPageKind::image, "y"), true) && g_app.toasts.count == 1 &&
+              open_pages() == kMediaPageCapacity && view()->count == 10,
+          "caption tabs media: the ninth media tab is refused with a toast");
+    layout = bar();
+    const UiRect close = ui_tab_strip_close(layout.tabs, 2);
+    check(ui_rect_has_area(close), "caption tabs media: the page that shows has a close button");
+    click(centre_x(close), centre_y(layout, close));
+    check(!pages[1].open && shown == 0 && view()->count == 9 && selected() == 100 &&
+              (view()->items[0].flags & kUiTabActive),
+          "caption tabs media: closing the page that shows closes it and shows the channel under it");
+    click(tab_x(2), tab_y(2), PointerButton::middle);
+    check(!pages[2].open && view()->count == 8 && pages[3].open && shown == 0,
+          "caption tabs media: a middle click closes a media tab and its page");
+    check(application_tabs_menu_action(popup_action_tab_close_right, 101) && view()->count == 2 && open_pages() == 0,
+          "caption tabs media: closing the tabs to the right closes their pages");
+    // Closing the active channel tab shows a media neighbour; the keys cycle through every tab.
+    check(application_tabs_open_media(source(MediaPageKind::audio, "a"), true) && application_tabs_activate(1) &&
+              selected() == 101 && application_tabs_close(1) && shown == 1 && view()->count == 2 &&
+              (view()->items[1].flags & kUiTabActive),
+          "caption tabs media: closing the active channel tab shows the page next to it");
+    check(application_tabs_shortcut(ShortcutAction::tab_next, false) && shown == 0 && selected() == 100 &&
+              (view()->items[0].flags & kUiTabActive) && application_tabs_shortcut(ShortcutAction::tab_next, false) &&
+              shown == 1,
+          "caption tabs media: the next-tab key cycles between a channel tab and a page tab");
+    check(application_tabs_shortcut(ShortcutAction::tab_close, false) && shown == 0 && view()->count == 1 &&
+              open_pages() == 0,
+          "caption tabs media: the close-tab key closes the page that shows");
+    check(application_tabs_open_media(source(MediaPageKind::video, "v"), false) && shown != 0 &&
+              application_tabs_close_page(shown) && shown == 0 && view()->count == 1 && open_pages() == 0 &&
+              !application_tabs_close_page(7),
+          "caption tabs media: the page's own close button closes its tab");
+    // The strip hiding takes the pages, and keeps the channel tabs.
+    check(application_tabs_open_media(source(MediaPageKind::image, "z"), true) && open_pages() == 1, "caption tabs media: a page opens");
+    g_app.preferences.tabs_enabled = false;
+    check(!application_tabs_visible() && open_pages() == 0 && resets != 0,
+          "caption tabs media: hiding the strip closes the pages");
+    g_app.preferences.tabs_enabled = true;
+    check(application_tabs_visible() && view()->count == 1 && application_tabs_key(0) == 100,
+          "caption tabs media: the channel tabs stay when the strip shows again");
+    // Accessibility: the page tab says what it holds, is selected while its page shows and shows it when invoked.
+    check(application_tabs_open_media(source(MediaPageKind::image, "cat.png"), false) && describe_bar(),
+          "caption tabs media: the page tab is described");
+    UiAccessNode* node = find_node(access_tree, UiAccessRole::tab, utf8_literal("cat.png"));
+    const u32 index = node ? static_cast<u32>(node - access_tree.nodes.data) : 0;
+    check(node && (node->state & ui_access_selected) &&
+              utf8_equal(ui_access_help(access_tree, index), utf8_literal("Image")),
+          "caption tabs media: the page tab is selected while its page shows and names its kind");
+    pages[shown].missing = true;
+    node = describe_bar() ? find_node(access_tree, UiAccessRole::tab, utf8_literal("cat.png")) : nullptr;
+    check(node && utf8_equal(ui_access_help(access_tree, static_cast<u32>(node - access_tree.nodes.data)),
+                             utf8_literal("Media unavailable")),
+          "caption tabs media: a page that cannot load again says so");
+    const u8 page = shown;
+    check(application_caption_access(application_caption_tab_item({UiTabHitKind::tab, 0})) && shown == 0 &&
+              application_caption_access(application_caption_tab_item({UiTabHitKind::tab, 1})) && shown == page,
+          "caption tabs media: invoking the tabs hides and shows the page");
+}
+
+void accessibility() noexcept {
+    check(fixture(1000), "caption tabs accessibility: fixture");
+    seed(3);
+    UiAccessTree& tree = access_tree;
+    check(describe_bar(), "caption tabs accessibility: tree");
+    check(view() && tree.count > 3, "caption tabs accessibility: the nodes are added");
     const UiAccessNode* list = find_node(tree, UiAccessRole::tab_list, utf8_literal("Open tabs"));
     UiAccessNode* one = find_node(tree, UiAccessRole::tab, utf8_literal("one"));
     UiAccessNode* two = find_node(tree, UiAccessRole::tab, utf8_literal("two"));
@@ -332,6 +448,7 @@ void run() noexcept {
     drags();
     menus();
     overflow();
+    media();
     accessibility();
     window_test::close();
 }
@@ -341,7 +458,11 @@ namespace maicord {
 namespace app_detail {
 bool application_navigate_known_message(u64 channel_id, u64) noexcept {
     using namespace caption_tabs_test;
-    return chat_state_store_select_channel(&ui->chat_state, channel_id).ok();
+    // The real navigation hides a page that shows.
+    const bool selected = chat_state_store_select_channel(&ui->chat_state, channel_id).ok();
+    if (selected)
+        application_tabs_note_navigation();
+    return selected;
 }
 bool application_channel_navigable(u64 channel_id) noexcept {
     using namespace caption_tabs_test;

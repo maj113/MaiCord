@@ -994,6 +994,37 @@ bool find_call_preview(const D3D11Renderer& renderer, const MediaAssetKey& key, 
 } // namespace renderer_layout_detail
 using namespace renderer_layout_detail;
 namespace {
+// The picture a viewer or media page shows: its large tier, the tier it opened from, or the original-tier video
+// frames presented into the primary atlas (domain 0).
+MediaAtlasResult viewer_media(const D3D11Renderer& renderer, const MediaAssetKey& key, const MediaAssetKey& fallback,
+                              u8* domain) noexcept {
+    MediaAtlasResult allocation{};
+    allocation.error = MediaAtlasError::not_found;
+    *domain = 1;
+    if (!renderer.preview_media_atlas || !renderer.media_gpu.preview_texture_view)
+        return allocation;
+    allocation = media_atlas_peek(renderer.preview_media_atlas, key);
+    if (!allocation.ok())
+        allocation = media_atlas_peek(renderer.preview_media_atlas, fallback);
+    if (!allocation.ok() && renderer.media_atlas && renderer.media_gpu.texture_view) {
+        allocation = media_atlas_peek(renderer.media_atlas, key);
+        *domain = 0;
+    }
+    return allocation;
+}
+// The media page's picture on its stage, whose rounded corners clip a zoomed image.
+bool queue_page_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
+    const auto& page = *renderer->media_page;
+    u8 domain = 1;
+    const auto allocation =
+        viewer_media(*renderer, renderer->media_page_key, renderer->media_page_fallback, &domain);
+    if (!allocation.ok())
+        return true;
+    const auto r =
+        page.video ? ui_call_video_fit(page.display, allocation.width, allocation.height, false) : page.display;
+    return queue_media_quad(renderer, allocation, r, page.body, false, true,
+                            MediaQuadStyle{page.body, 1.f, 0.f, theme.scale.radius_md, 0.f, domain});
+}
 
 bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                   const RendererPresentationStamp* stamp = nullptr, bool replay_shell = false) noexcept {
@@ -1604,6 +1635,11 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     const bool call_visible = (shown & d3d11_surface_call) != 0;
     if (call_visible && !ui_call_scene_paint(*renderer->call_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
+    // A media page leads the same layer over the content column: its plate, header and toolbar here, its picture
+    // with the side-panel media and its state, player and card in the foreground below.
+    const bool page_visible = (shown & d3d11_surface_media_page) != 0;
+    if (page_visible && !ui_image_viewer_paint(*renderer->media_page, theme, &renderer->paint_stream))
+        return layout_step_failed(__LINE__);
     if ((shown & d3d11_surface_unread_banner) &&
         !ui_unread_banner_paint(*renderer->unread_banner_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
@@ -1719,11 +1755,25 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     }
     if (call_visible && !queue_call_media(renderer, theme))
         return layout_step_failed(__LINE__);
+    if (page_visible && !queue_page_media(renderer, theme))
+        return layout_step_failed(__LINE__);
     renderer->friends_requests_media_end_batch = renderer->media_batch_count;
     if (call_visible) {
         const u32 call_foreground = renderer->paint_stream.count;
         if (!ui_call_scene_paint_foreground(*renderer->call_scene, theme, &renderer->paint_stream) ||
             !split_paint_quad_boundary(&renderer->paint_stream, call_foreground,
+                                       &renderer->friends_requests_foreground_first_batch))
+            return layout_step_failed(__LINE__);
+    }
+    if (page_visible) {
+        // Over the picture: the loading or unavailable state, the hosted player and the audio card.
+        const u32 page_foreground = renderer->paint_stream.count;
+        if (!ui_image_viewer_paint_overlay(*renderer->media_page, theme, &renderer->paint_stream) ||
+            ((shown & d3d11_surface_page_video) &&
+             !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream)) ||
+            (d3d11_renderer_page_audio_visible(*renderer, shown) &&
+             !ui_audio_scene_paint(*renderer->audio_scene, theme, &renderer->paint_stream)) ||
+            !split_paint_quad_boundary(&renderer->paint_stream, page_foreground,
                                        &renderer->friends_requests_foreground_first_batch))
             return layout_step_failed(__LINE__);
     }
@@ -1814,8 +1864,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         return layout_step_failed(__LINE__);
     renderer->media_picker_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
     renderer->media_picker_media_end_batch = renderer->media_batch_count;
-    // Beside a call, its text chat keeps the message hover toolbar.
-    if (!content_hidden && (!call_visible || renderer->call_scene->chat_open) &&
+    // Beside a call, its text chat keeps the message hover toolbar; a media page covers it.
+    if (!content_hidden && !page_visible && (!call_visible || renderer->call_scene->chat_open) &&
         !d3d11_renderer_active(renderer->profile_scene) &&
         !(shown & d3d11_surface_media_picker) && renderer->message_action_bar &&
         !(shown & d3d11_surface_message_modal) && renderer->message_action_bar->active &&
@@ -1868,8 +1918,10 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             return layout_step_failed(__LINE__);
     }
     // Search, pins and forward copies of inline controls ride their surface;
-    // timeline ones painted with the message media (build_timeline_media).
+    // timeline ones painted with the message media (build_timeline_media), a
+    // media page's card with its page.
     if ((shown & d3d11_surface_audio) && !d3d11_renderer_timeline_audio_visible(*renderer, shown) &&
+        !d3d11_renderer_page_audio_visible(*renderer, shown) &&
         !ui_audio_scene_paint(*renderer->audio_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     if ((shown & d3d11_surface_poll) && !d3d11_renderer_timeline_poll_visible(*renderer, shown) &&
@@ -1926,29 +1978,19 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         const auto& viewer = *renderer->image_viewer;
         if (!ui_image_viewer_paint(viewer, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
-        if (renderer->preview_media_atlas && renderer->media_gpu.preview_texture_view) {
-            u8 domain = 1;
-            auto allocation = media_atlas_peek(renderer->preview_media_atlas, renderer->image_viewer_key);
-            if (!allocation.ok())
-                allocation =
-                    media_atlas_peek(renderer->preview_media_atlas, renderer->image_viewer_fallback);
-            // Original-tier video frames are presented into the primary atlas.
-            if (!allocation.ok() && renderer->media_atlas && renderer->media_gpu.texture_view) {
-                allocation = media_atlas_peek(renderer->media_atlas, renderer->image_viewer_key);
-                domain = 0;
-            }
+        u8 domain = 1;
+        const auto allocation =
+            viewer_media(*renderer, renderer->image_viewer_key, renderer->image_viewer_fallback, &domain);
+        if (allocation.ok()) {
             // The open/close motion travels from the inline preview, outside the body.
-            const auto r = viewer.video && allocation.ok()
-                ? ui_call_video_fit(viewer.display, allocation.width, allocation.height, false)
-                : viewer.display;
-            if (allocation.ok() &&
-                !queue_media_quad(renderer, allocation, r, viewer.reveal < 1 ? viewer.viewport : viewer.body,
+            const auto r = viewer.video ? ui_call_video_fit(viewer.display, allocation.width, allocation.height, false)
+                                        : viewer.display;
+            if (!queue_media_quad(renderer, allocation, r, viewer.reveal < 1 ? viewer.viewport : viewer.body,
                                   false, true,
                                   MediaQuadStyle{{}, ui_image_viewer_media_opacity(viewer), 0.f, 0.f, 0.f, domain}))
                 return layout_step_failed(__LINE__);
             // The magnifier reads the settled picture, not the open/close motion.
-            if (allocation.ok() && !viewer.video && viewer.reveal >= 1 && renderer->zoom_lens &&
-                renderer->zoom_lens->active)
+            if (!viewer.video && viewer.reveal >= 1 && renderer->zoom_lens && renderer->zoom_lens->active)
                 resolve_zoom_lens(renderer, theme, allocation, r, domain);
         }
 

@@ -46,6 +46,8 @@ enum AccessSurface : u8 {
     surface_voice_card,
     // The app-wide notice band (shell/notice.hpp): its line, button and X.
     surface_notice,
+    // The media page (media_page.hpp) that takes the message column's place.
+    surface_page,
 };
 
 constexpr u32 kNodeCapacity = 8192;

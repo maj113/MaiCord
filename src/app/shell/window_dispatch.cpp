@@ -21,6 +21,7 @@
 #include "../chat/unread_banner.hpp"
 #include "../media/downloads.hpp"
 #include "../media/gif_favorite_star.hpp"
+#include "../media/media_page.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/chat/messages/action_bar.hpp"
@@ -356,6 +357,9 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
             application_focus_window();
             return true;
         }
+        // A media page over the content column; the sidebar and member list route as usual.
+        if (application_media_page_window_event(content))
+            return consumed();
         if (application_thread_browser_window_event(content))
             return consumed();
         if (application_poll_window_event(content))

@@ -1493,6 +1493,12 @@ maicord_test(MaiCordImageViewerRuntimeTests ONLY WINDOWS ENTRY maicord_applicati
     LIBS ${maicord_headless_ui_test_libs} maicord_render_core kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_image_viewer_runtime)
+# Media pages (title bar media tabs): the page store, page-mode viewer, input routing and the page's own request.
+maicord_test(MaiCordMediaPageRuntimeTests ONLY WINDOWS ENTRY maicord_application_media_page_runtime_entry
+    SOURCES tests/app/media/media_page_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
+    LIBS ${maicord_headless_ui_test_libs} maicord_render_core kernel32 user32
+    INCLUDES src/app
+    TIMEOUT 15 TEST maicord_media_page_runtime)
 maicord_test(MaiCordQuickSwitcherRuntimeTests ENTRY maicord_application_quick_switcher_runtime_entry
     SOURCES tests/app/shell/quick_switcher_runtime.cpp src/app/shell/quick_switcher.cpp src/app/shell/input_routing.cpp
         src/app/shell/state.cpp

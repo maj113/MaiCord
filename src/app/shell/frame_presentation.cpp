@@ -22,6 +22,7 @@
 #include "toast.hpp"
 #include "../media/downloads.hpp"
 #include "../media/gif_favorite_star.hpp"
+#include "../media/media_page.hpp"
 #include "load_trace.hpp"
 #include "perf_mark.hpp"
 #if defined(MAICORD_STARTUP_PROBE)
@@ -136,6 +137,8 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
         phase((surfaces & d3d11_surface_settings_page) ? application_store_spinner_scene() : nullptr),
         // The media viewer while neither of its image tiers is resident.
         phase(ui_image_viewer_spinner_visible(g_app.image_viewer.scene) ? &g_app.image_viewer.scene : nullptr),
+        // A media page while its picture loads.
+        phase(application_media_page_spinner()),
         // The composer's inline /gif results while their search loads.
         phase((surfaces & d3d11_surface_media_picker) &&
                       ui_media_picker_scene_spinner_visible(*renderer.media_picker_scene)
@@ -333,6 +336,8 @@ bool application_present_frame() noexcept {
         return present_rejected("panels");
     if (!application_image_viewer_synchronize())
         return present_rejected("image_viewer");
+    if (!application_media_page_synchronize())
+        return present_rejected("media_page");
     application_gif_favorite_star_synchronize();
     // After search, pins and the thread browser published: they close the call view.
     if (!application_call_synchronize())
