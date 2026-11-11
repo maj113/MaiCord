@@ -31,74 +31,71 @@ struct TimelineInputs {
     }
 };
 
-// Folds the inputs a frame depends on into the stamp. An unusable input
-// (counter overflow, a null block with a length) invalidates the stamp for good.
+// Folds the inputs a frame depends on into the stamp, a word per value or per
+// eight bytes of a block. An unusable input (counter overflow, a null block
+// with a length) invalidates the stamp for good.
 class StampWriter {
 public:
     explicit StampWriter(RendererPresentationStamp* stamp) noexcept : stamp_(stamp) {}
-    StampWriter& push(u64 value) noexcept;
+    // A pointer enters as its address, a float as its bits, any other value
+    // zero-extended.
+    template <typename... Values>
+    StampWriter& push(Values... values) noexcept {
+        const u64 words[]{word(values)...};
+        return bytes(words, sizeof(words));
+    }
+    // Adjacent fields first through last as one block: every byte from first to
+    // the end of last is an input (no padding, no field the frame does not read).
+    template <typename First, typename Last>
+    __forceinline StampWriter& span(const First& first, const Last& last) noexcept {
+        const auto* begin = reinterpret_cast<const u8*>(&first);
+        return bytes(begin, static_cast<u32>(reinterpret_cast<const u8*>(&last + 1) - begin));
+    }
     StampWriter& bytes(const void* bytes, u32 count) noexcept;
     StampWriter& widgets(const UiWidgetManager& widgets) noexcept;
-    StampWriter& pointer(const void* pointer) noexcept {
-        return push(static_cast<u64>(reinterpret_cast<ULONG_PTR>(pointer)));
-    }
-    StampWriter& caret(bool visible) noexcept {
-        return push(!stamp_->structural && visible);
-    }
     StampWriter& atlas(const MediaAtlas& atlas) noexcept {
-        return push(atlas.entry_count)
-            .push(atlas.insertions)
-            .push(atlas.stale_entries)
-            .push(atlas.allocations.evicted_entries)
-            .push(atlas.allocations.full_resets)
-            .push(atlas.next_allocation_key);
+        return push(atlas.entry_count, atlas.allocations.evicted_entries, atlas.allocations.full_resets)
+            .span(atlas.insertions, atlas.next_allocation_key);
     }
 
 private:
+    template <typename T>
+    static u64 word(T value) noexcept {
+        if constexpr (__is_pointer(T))
+            return static_cast<u64>(reinterpret_cast<ULONG_PTR>(value));
+        else if constexpr (__is_floating_point(T))
+            return __builtin_bit_cast(u32, value);
+        else
+            return static_cast<u64>(value);
+    }
+
     RendererPresentationStamp* stamp_;
 };
 
-StampWriter& StampWriter::push(u64 value) noexcept {
-    RendererPresentationStamp* stamp = stamp_;
-    if (!stamp->valid || stamp->count == ~0u) {
-        stamp->valid = false;
-        return *this;
-    }
-    const u64 ordinal = stamp->count++;
-    const u64 first = value + 0x9E3779B97F4A7C15ull + ordinal;
-    stamp->primary = (stamp->primary ^ first) * 0x100000001B3ull;
-    const u64 rotated = (value << 29) | (value >> 35);
-    const u64 second = rotated ^ (ordinal * 0xD6E8FEB86659FD93ull);
-    const u64 mixed = (stamp->secondary ^ second) * 0xC2B2AE3D27D4EB4Full;
-    stamp->secondary = (mixed << 23) | (mixed >> 41);
-    if (!stamp->timeline) {
-        const u64 shell = stamp->shell ^ (value + 0x9E3779B97F4A7C15ull * ++stamp->shell_count);
-        stamp->shell = (shell ^ (shell >> 31)) * 0xC2B2AE3D27D4EB4Full;
-    }
-    return *this;
-}
-
 StampWriter& StampWriter::bytes(const void* bytes, u32 count) noexcept {
-    if (!bytes && count != 0) {
-        stamp_->valid = false;
-        return *this;
-    }
-    const u8* source = static_cast<const u8*>(bytes);
     RendererPresentationStamp* stamp = stamp_;
-    const u32 words = count / sizeof(u64);
-    // The same per-word fold as push(), with the accumulators in registers
-    // (a theme is hundreds of words). A stamp whose count would reach its
-    // ceiling is unusable, as push() makes it.
-    if (!stamp->valid || stamp->count >= ~0u - words) {
+    const u32 words = count / sizeof(u64) + (count % sizeof(u64) != 0);
+    if ((!bytes && count != 0) || !stamp->valid || stamp->count >= ~0u - words) {
         stamp->valid = false;
         return *this;
     }
+    // The accumulators stay in registers across the block (a theme is
+    // hundreds of words).
+    const u8* source = static_cast<const u8*>(bytes);
     u64 primary = stamp->primary, secondary = stamp->secondary, shell = stamp->shell;
     u64 ordinal = stamp->count, shell_count = stamp->shell_count;
     const bool shell_input = !stamp->timeline;
-    for (u32 i = 0; i < words; ++i, ++ordinal, source += sizeof(u64)) {
-        u64 value;
-        CopyMemory(&value, source, sizeof(value));
+    for (u32 left = count; left != 0; ++ordinal) {
+        u64 value = 0;
+        if (left >= sizeof(u64)) {
+            CopyMemory(&value, source, sizeof(value));
+            source += sizeof(u64);
+            left -= sizeof(u64);
+        } else {
+            // A block's partial last word is zero-extended.
+            while (left != 0)
+                value = value << 8 | source[--left];
+        }
         primary = (primary ^ (value + 0x9E3779B97F4A7C15ull + ordinal)) * 0x100000001B3ull;
         const u64 mixed =
             (secondary ^ (((value << 29) | (value >> 35)) ^ (ordinal * 0xD6E8FEB86659FD93ull))) * 0xC2B2AE3D27D4EB4Full;
@@ -113,12 +110,6 @@ StampWriter& StampWriter::bytes(const void* bytes, u32 count) noexcept {
     stamp->shell = shell;
     stamp->count = static_cast<u32>(ordinal);
     stamp->shell_count = static_cast<u32>(shell_count);
-    count -= words * sizeof(u64);
-    if (count != 0) {
-        u64 value = 0;
-        CopyMemory(&value, source, count);
-        push(value);
-    }
     return *this;
 }
 
@@ -139,11 +130,8 @@ u64 theme_digest(const Theme& theme) noexcept {
 }
 
 StampWriter& StampWriter::widgets(const UiWidgetManager& widgets) noexcept {
-    return push(widgets.generation)
-        .push(widgets.layout.revision)
-        .push(presentation_handle(widgets.focused))
-        .push(stamp_->structural ? 0 : presentation_handle(widgets.hovered))
-        .push(presentation_handle(widgets.captured));
+    return push(widgets.generation, widgets.layout.revision, presentation_handle(widgets.focused),
+                stamp_->structural ? 0 : presentation_handle(widgets.hovered), presentation_handle(widgets.captured));
 }
 
 // A profile card's banner fill changes after its layout when its avatar's colour arrives.
@@ -166,38 +154,27 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (d3d11_renderer_login_form_text(renderer)) {
         const auto& owned = *renderer.login_form_text;
         const auto* form = d3d11_renderer_text_form_active(renderer) ? renderer.text_form->scene : nullptr;
-        s.push(renderer.width).push(renderer.height).push(renderer.dpi).push(theme_digest(theme));
-        s.pointer(renderer.login_scene);
+        s.push(renderer.width, renderer.height, renderer.dpi, theme_digest(theme), renderer.login_scene, owned.valid,
+               owned.projection.signature, renderer.content_text->rebuilds, renderer.content_text->quad_count,
+               renderer.content_text->batch_count, renderer.overlay_text_first_batch, renderer.form_text_first_batch,
+               renderer.login_qr_ready, renderer.text_form, form, renderer.interaction_text_form_revision);
         if (renderer.login_scene)
             s.widgets(renderer.login_scene->widgets);
-        s.push(owned.valid)
-            .push(owned.projection.signature)
-            .push(renderer.content_text->rebuilds)
-            .push(renderer.content_text->quad_count)
-            .push(renderer.content_text->batch_count)
-            .push(renderer.overlay_text_first_batch)
-            .push(renderer.form_text_first_batch)
-            .push(renderer.login_qr_ready);
         if (renderer.login_qr_ready)
             s.bytes(&renderer.login_qr_code, sizeof(renderer.login_qr_code));
-        s.pointer(renderer.text_form).pointer(form).push(renderer.interaction_text_form_revision);
         if (form)
             s.push(form->revision).widgets(form->widgets).bytes(&form->viewport, sizeof(form->viewport));
         else
-            s.push(renderer.login_caret_visible)
+            s.push(renderer.login_caret_visible, renderer.login_edit.selection_count)
                 .bytes(&renderer.login_edit.caret, sizeof(renderer.login_edit.caret))
-                .push(renderer.login_edit.selection_count)
                 .bytes(renderer.login_edit.selections,
                        renderer.login_edit.selection_count * sizeof(TextEditMetric));
         return stamp;
     }
     if (renderer.forum_form && renderer.forum_form->scene) {
         const auto& form = *renderer.forum_form->scene;
-        s.pointer(renderer.forum_form)
-            .push(form.content.owner_serial)
-            .push(form.active)
-            .push(form.revision)
-            .push(renderer.interaction_text_forum_form_revision)
+        s.push(renderer.forum_form, form.content.owner_serial, form.active, form.revision,
+               renderer.interaction_text_forum_form_revision)
             .widgets(form.widgets);
         if (form.active)
             for (u32 field = 0; field < 2; ++field) {
@@ -209,11 +186,10 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
                     stamp.valid = false;
                     return stamp;
                 }
-                s.bytes(&geometry.text_rectangle, sizeof(UiRect))
+                s.push(geometry.selections.count, geometry.composition.count)
+                    .bytes(&geometry.text_rectangle, sizeof(UiRect))
                     .bytes(&geometry.caret, sizeof(UiRect))
-                    .push(geometry.selections.count)
                     .bytes(geometry.selections.data, geometry.selections.count * sizeof(UiRect))
-                    .push(geometry.composition.count)
                     .bytes(geometry.composition.data,
                            geometry.composition.count * sizeof(TextFormCompositionMark));
             }
@@ -222,133 +198,85 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (shown & d3d11_surface_settings_page) {
         const auto& settings = *renderer.settings_scene;
         const auto* popup = d3d11_renderer_settings_popup(renderer);
-        s.pointer(renderer.settings_scene)
-            .push(settings.revision)
-            .push(settings.motion_revision)
-            .push(stamp.structural ? 0 : settings.spinner_phase)
-            .push(stamp.structural || !renderer.settings_store ? 0 : renderer.settings_store->spinner_phase)
+        s.push(renderer.settings_scene, settings.revision, settings.motion_revision,
+               stamp.structural ? 0 : settings.spinner_phase,
+               stamp.structural || !renderer.settings_store ? 0 : renderer.settings_store->spinner_phase,
+               renderer.width, renderer.height, renderer.dpi, renderer.login_visible, theme_digest(theme),
+               renderer.content_text, renderer.glyph_text.allocator.evicted_entries,
+               renderer.glyph_text.allocator.full_resets, renderer.glyph_text.ready,
+               renderer.interaction_text_settings_revision, renderer.interaction_text_active_mask,
+               renderer.interaction_text_popup_revision, popup, avatar_color_token(renderer.settings_profile_preview))
             .widgets(settings.widgets)
             .bytes(&settings.viewport, sizeof(settings.viewport))
-            .push(renderer.width)
-            .push(renderer.height)
-            .push(renderer.dpi)
-            .push(renderer.login_visible)
-            .push(theme_digest(theme))
-            .pointer(renderer.content_text)
-            .push(renderer.glyph_text.allocator.evicted_entries)
-            .push(renderer.glyph_text.allocator.full_resets)
-            .push(renderer.glyph_text.ready)
-            .push(renderer.interaction_text_settings_revision)
-            .push(renderer.interaction_text_active_mask)
-            .push(renderer.interaction_text_popup_revision)
-            .pointer(popup)
-            .bytes(&renderer.scrollbar_hot.track, sizeof(renderer.scrollbar_hot.track))
-            .push(static_cast<u64>(renderer.scrollbar_hot.state))
-            .push(avatar_color_token(renderer.settings_profile_preview));
+            .span(renderer.scrollbar_hot.track, renderer.scrollbar_hot.state);
         if (popup)
             s.push(popup->revision).widgets(popup->widgets).bytes(&popup->rectangle, sizeof(UiRect));
         if (renderer.content_text)
-            s.push(renderer.content_text->rebuilds)
-                .push(renderer.content_text->quad_count)
-                .push(renderer.content_text->batch_count)
-                .push(renderer.overlay_text_first_batch)
-                .push(renderer.form_text_first_batch);
+            s.push(renderer.content_text->rebuilds, renderer.content_text->quad_count,
+                   renderer.content_text->batch_count, renderer.overlay_text_first_batch,
+                   renderer.form_text_first_batch);
         return stamp;
     }
-    s.pointer(renderer.theme_editor_scene);
+    s.push(renderer.theme_editor_scene);
     if (shown & d3d11_surface_theme_editor)
-        s.push(renderer.theme_editor_scene->revision)
-            .push(renderer.theme_editor_scene->generation)
+        s.push(renderer.theme_editor_scene->revision, renderer.theme_editor_scene->generation)
             .widgets(renderer.theme_editor_scene->widgets);
     const bool friends_active = d3d11_renderer_active(renderer.friends_scene);
     const bool browser_active = (shown & d3d11_surface_thread_browser) != 0;
     const bool content_hidden = friends_active || browser_active;
-    s.pointer(renderer.thread_browser_scene).push(browser_active);
+    s.push(renderer.thread_browser_scene, browser_active);
     if (browser_active) {
         const auto& browser = *renderer.thread_browser_scene;
-        s.push(browser.revision)
-            .push(stamp.structural ? 0 : browser.spinner_phase)
-            .push(browser.view->parent_id)
-            .push(browser.content_revision)
-            .push(browser.source_publication)
-            .push(browser.view->revision)
-            .push(browser.view->source_publication)
-            .push(renderer.interaction_text_thread_browser_revision)
-            .push(renderer.interaction_text_thread_browser_publication)
+        s.push(browser.revision, stamp.structural ? 0 : browser.spinner_phase, browser.view->parent_id,
+               browser.content_revision, browser.source_publication, browser.view->revision,
+               browser.view->source_publication, renderer.interaction_text_thread_browser_revision,
+               renderer.interaction_text_thread_browser_publication, browser.scroll_dips)
             .widgets(browser.widgets)
             .bytes(&browser.panel, sizeof(browser.panel))
-            .bytes(&browser.style, sizeof(browser.style))
-            .bytes(&browser.scroll_dips, sizeof(browser.scroll_dips));
+            .bytes(&browser.style, sizeof(browser.style));
     }
-    s.pointer(renderer.media_picker_scene).push((shown & d3d11_surface_media_picker) != 0);
+    s.push(renderer.media_picker_scene, (shown & d3d11_surface_media_picker) != 0);
     if (renderer.media_picker_scene) {
         const auto& gallery = *renderer.media_picker_scene;
-        s.push(gallery.active)
-            .push(gallery.revision)
-            .push(gallery.generation)
-            .push(gallery.account_scope)
-            .push(gallery.query_generation)
-            .push(gallery.source_revision)
-            .pointer(gallery.source)
-            .pointer(gallery.content);
+        s.push(gallery.active, gallery.revision, gallery.generation, gallery.account_scope, gallery.query_generation,
+               gallery.source_revision, gallery.source, gallery.content);
         if (gallery.source)
-            s.push(gallery.source->revision)
-                .push(gallery.source->account_scope)
-                .push(gallery.source->query_generation);
+            s.push(gallery.source->revision, gallery.source->account_scope, gallery.source->query_generation);
         if (gallery.content)
-            s.push(gallery.content->revision)
-                .push(gallery.content->account_scope)
-                .push(gallery.content->query_generation);
+            s.span(gallery.content->account_scope, gallery.content->revision);
         if (shown & d3d11_surface_media_picker)
-            s.widgets(gallery.widgets)
+            s.push(gallery.spinner_phase)
+                .widgets(gallery.widgets)
                 .bytes(&gallery.panel, sizeof(gallery.panel))
-                .bytes(&renderer.media_picker_edit_geometry, sizeof(renderer.media_picker_edit_geometry))
-                .push(renderer.interaction_text_media_picker_revision)
-                .push(gallery.spinner_phase);
+                .span(renderer.media_picker_edit_geometry, renderer.interaction_text_media_picker_revision);
     }
     if (shown & d3d11_surface_search) {
-        s.pointer(renderer.search_scene)
-            .push(renderer.search_scene->revision)
-            .push(renderer.interaction_text_search_revision)
-            .bytes(&renderer.search_edit_geometry, sizeof(renderer.search_edit_geometry))
+        s.push(renderer.search_scene, renderer.search_scene->revision)
+            .span(renderer.search_edit_geometry, renderer.interaction_text_search_revision)
             .widgets(renderer.search_scene->widgets);
         if (const auto* scene = ui_search_scene_message_scene(*renderer.search_scene))
-            s.pointer(scene)
-                .widgets(scene->widgets)
-                .push(scene->rebuilds)
-                .push(scene->layout_passes)
-                .pointer(renderer.search_message_text)
-                .push(renderer.search_message_text ? renderer.search_message_text->projection_signature : 0);
+            s.push(scene, scene->rebuilds, scene->layout_passes, renderer.search_message_text,
+                   renderer.search_message_text ? renderer.search_message_text->projection_signature : 0)
+                .widgets(scene->widgets);
     }
     if (shown & d3d11_surface_pinned_messages) {
         const auto& pins = *renderer.pinned_messages_scene;
-        s.pointer(renderer.pinned_messages_scene)
-            .push(pins.revision)
-            .push(stamp.structural ? 0 : pins.spinner_phase)
-            .push(pins.source_revision)
-            .push(pins.content_revision)
-            .push(renderer.interaction_text_pinned_messages_revision)
+        s.push(renderer.pinned_messages_scene, pins.revision, stamp.structural ? 0 : pins.spinner_phase,
+               pins.source_revision, pins.content_revision, renderer.interaction_text_pinned_messages_revision)
             .widgets(pins.widgets)
             .bytes(&pins.panel, sizeof(pins.panel));
     }
     if (shown & d3d11_surface_inbox) {
         const auto& inbox = *renderer.inbox_scene;
-        s.pointer(renderer.inbox_scene)
-            .push(inbox.revision)
-            .push(stamp.structural ? 0 : inbox.spinner_phase)
-            .push(inbox.source_revision)
-            .push(inbox.content_revision)
-            .push(renderer.interaction_text_inbox_revision)
+        s.push(renderer.inbox_scene, inbox.revision, stamp.structural ? 0 : inbox.spinner_phase,
+               inbox.source_revision, inbox.content_revision, renderer.interaction_text_inbox_revision)
             .widgets(inbox.widgets)
             .bytes(&inbox.panel, sizeof(inbox.panel));
     }
     if (shown & d3d11_surface_quick_switcher) {
         const auto& quick = *renderer.quick_switcher_scene;
-        s.pointer(renderer.quick_switcher_scene)
-            .push(quick.revision)
-            .push(quick.source_revision)
-            .push(quick.content_revision)
-            .push(renderer.interaction_text_quick_switcher_revision)
+        s.push(renderer.quick_switcher_scene, quick.revision, quick.source_revision, quick.content_revision,
+               renderer.interaction_text_quick_switcher_revision)
             .widgets(quick.widgets)
             .bytes(&quick.panel, sizeof(quick.panel))
             .bytes(&renderer.media_picker_edit_geometry, sizeof(renderer.media_picker_edit_geometry));
@@ -356,177 +284,129 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (shown & d3d11_surface_message_forward) {
         const auto& forward = *renderer.message_forward_scene;
         const auto caption = d3d11_renderer_popup_edit_geometry(renderer);
-        s.pointer(renderer.message_forward_scene)
-            .push(forward.revision)
-            .push(forward.source_revision)
-            .push(forward.content_revision)
-            .push(renderer.interaction_text_message_forward_revision)
+        s.push(renderer.message_forward_scene, forward.revision, forward.source_revision, forward.content_revision,
+               renderer.interaction_text_message_forward_revision)
             .widgets(forward.widgets)
             .bytes(&forward.panel, sizeof(forward.panel))
             .bytes(&renderer.media_picker_edit_geometry, sizeof(renderer.media_picker_edit_geometry))
             .bytes(&caption, sizeof(caption));
     }
     if (shown & d3d11_surface_call)
-        s.pointer(renderer.call_scene)
-            .push(renderer.call_scene->revision)
-            .push(stamp.structural ? 0 : renderer.call_scene->spinner_phase)
-            .push(renderer.interaction_text_call_revision)
+        s.push(renderer.call_scene, renderer.call_scene->revision,
+               stamp.structural ? 0 : renderer.call_scene->spinner_phase, renderer.interaction_text_call_revision)
             .bytes(&renderer.call_scene->viewport, sizeof(renderer.call_scene->viewport));
     if (shown & d3d11_surface_media_page)
-        s.pointer(renderer.media_page)
-            .push(renderer.media_page->revision)
-            .push(stamp.structural ? 0 : renderer.media_page->spinner_phase)
-            .push(renderer.interaction_text_media_page_revision);
+        s.push(renderer.media_page, renderer.media_page->revision,
+               stamp.structural ? 0 : renderer.media_page->spinner_phase, renderer.interaction_text_media_page_revision);
     if (shown & d3d11_surface_stream_card)
-        s.pointer(renderer.stream_card_scene)
-            .push(renderer.stream_card_scene->revision)
-            .push(stamp.structural ? 0 : renderer.stream_card_scene->spinner_phase)
-            .push(renderer.interaction_text_stream_card_revision)
+        s.push(renderer.stream_card_scene, renderer.stream_card_scene->revision,
+               stamp.structural ? 0 : renderer.stream_card_scene->spinner_phase,
+               renderer.interaction_text_stream_card_revision)
             .bytes(&renderer.stream_card_scene->panel, sizeof(renderer.stream_card_scene->panel));
     if (shown & d3d11_surface_names_card)
-        s.pointer(renderer.names_card_scene)
-            .push(renderer.names_card_scene->revision)
-            .push(renderer.interaction_text_names_card_revision)
+        s.push(renderer.names_card_scene, renderer.names_card_scene->revision,
+               renderer.interaction_text_names_card_revision)
             .bytes(&renderer.names_card_scene->panel, sizeof(renderer.names_card_scene->panel));
     if (shown & d3d11_surface_guild_card)
-        s.pointer(renderer.guild_card_scene)
-            .push(renderer.guild_card_scene->revision)
-            .push(stamp.structural ? 0 : renderer.guild_card_scene->spinner_phase)
-            .push(renderer.interaction_text_guild_card_revision)
+        s.push(renderer.guild_card_scene, renderer.guild_card_scene->revision,
+               stamp.structural ? 0 : renderer.guild_card_scene->spinner_phase,
+               renderer.interaction_text_guild_card_revision)
             .bytes(&renderer.guild_card_scene->panel, sizeof(renderer.guild_card_scene->panel));
     if (shown & d3d11_surface_expression_card)
-        s.pointer(renderer.expression_card_scene)
-            .push(renderer.expression_card_scene->revision)
-            .push(renderer.interaction_text_expression_card_revision)
+        s.push(renderer.expression_card_scene, renderer.expression_card_scene->revision,
+               renderer.interaction_text_expression_card_revision)
             .bytes(&renderer.expression_card_scene->panel, sizeof(renderer.expression_card_scene->panel));
     if (shown & d3d11_surface_shortcuts) {
         const auto& shortcuts = *renderer.shortcuts_scene;
-        s.pointer(renderer.shortcuts_scene)
-            .push(shortcuts.revision)
-            .push(shortcuts.content_revision)
-            .push(renderer.interaction_text_shortcuts_revision)
+        s.push(renderer.shortcuts_scene, shortcuts.revision, shortcuts.content_revision,
+               renderer.interaction_text_shortcuts_revision, shortcuts.scroll)
             .widgets(shortcuts.widgets)
-            .bytes(&shortcuts.panel, sizeof(shortcuts.panel))
-            .bytes(&shortcuts.scroll, sizeof(shortcuts.scroll));
+            .bytes(&shortcuts.panel, sizeof(shortcuts.panel));
     }
     if (shown & d3d11_surface_download) {
         const auto& downloads = *renderer.download_scene;
-        s.pointer(renderer.download_scene)
-            .push(downloads.revision)
-            .push(downloads.source_revision)
-            .push(downloads.content_revision)
-            .push(renderer.interaction_text_download_revision)
+        s.push(renderer.download_scene, downloads.revision, downloads.source_revision, downloads.content_revision,
+               renderer.interaction_text_download_revision)
             .widgets(downloads.widgets)
-            .bytes(&downloads.panel, sizeof(downloads.panel))
-            .bytes(&downloads.viewport, sizeof(downloads.viewport));
+            .span(downloads.viewport, downloads.panel);
     }
     if (shown & d3d11_surface_go_live) {
         const auto& go_live = *renderer.go_live_scene;
-        s.pointer(renderer.go_live_scene)
-            .push(go_live.revision)
-            .push(go_live.content_revision)
-            .push(renderer.interaction_text_go_live_revision)
+        s.push(renderer.go_live_scene, go_live.revision, go_live.content_revision,
+               renderer.interaction_text_go_live_revision, go_live.scroll)
             .widgets(go_live.widgets)
-            .bytes(&go_live.panel, sizeof(go_live.panel))
-            .bytes(&go_live.scroll, sizeof(go_live.scroll));
+            .bytes(&go_live.panel, sizeof(go_live.panel));
     }
     if (shown & d3d11_surface_unread_banner)
-        s.pointer(renderer.unread_banner_scene).push(renderer.unread_banner_scene->revision);
+        s.push(renderer.unread_banner_scene, renderer.unread_banner_scene->revision);
     // A hidden tooltip contributes nothing to the stamp.
     if (shown & d3d11_surface_tooltip)
-        s.pointer(renderer.tooltip_scene).push(renderer.tooltip_scene->revision);
+        s.push(renderer.tooltip_scene, renderer.tooltip_scene->revision);
     if (shown & d3d11_surface_toast)
-        s.pointer(renderer.toast_scene).push(renderer.toast_scene->revision);
-    s.pointer(renderer.friends_requests_scene);
+        s.push(renderer.toast_scene, renderer.toast_scene->revision);
+    s.push(renderer.friends_requests_scene, renderer.friends_scene, renderer.reduced_motion, renderer.settings_scene);
     if (const auto* requests = renderer.friends_requests_scene) {
-        s.push(requests->active)
-            .push(requests->revision)
-            .push(requests->source_revision)
-            .push(requests->source_count)
-            .push(renderer.interaction_text_friends_requests_revision)
+        s.push(requests->active, requests->revision, requests->source_revision, requests->source_count,
+               renderer.interaction_text_friends_requests_revision)
             .widgets(requests->widgets)
             .bytes(&requests->viewport, sizeof(requests->viewport));
         if (requests->source)
-            s.push(requests->source->revision).push(requests->source->count);
+            s.span(requests->source->count, requests->source->revision);
     }
     if (friends_active) {
         s.bytes(&renderer.friends_search_geometry, sizeof(renderer.friends_search_geometry));
         if (const auto* content = renderer.friends_scene->content)
-            s.push(content->revision).push(content->search.focused).caret(content->search.caret_visible);
+            s.push(content->revision, content->search.focused, !stamp.structural && content->search.caret_visible);
     }
-    s.pointer(renderer.friends_scene);
     if (const auto* friends = renderer.friends_scene) {
-        s.push(friends->active)
-            .push(friends->revision)
-            .push(friends->source_revision)
-            .push(friends->source_count)
-            .push(renderer.interaction_text_friends_revision)
+        s.push(friends->active, friends->revision, friends->source_revision, friends->source_count,
+               renderer.interaction_text_friends_revision)
             .widgets(friends->widgets)
             .bytes(&friends->viewport, sizeof(friends->viewport));
         if (friends->source)
-            s.push(friends->source->revision).push(friends->source->count);
+            s.span(friends->source->count, friends->source->revision);
         // The rows' hover fade is paint-only state, outside the scene revision.
         if (friends->row_hover)
             s.bytes(friends->row_hover, sizeof(*friends->row_hover));
     }
-    s.push(renderer.reduced_motion).pointer(renderer.settings_scene);
     if (renderer.settings_scene)
-        s.push(renderer.settings_scene->revision)
-            .push(renderer.settings_scene->active)
-            .push(renderer.settings_scene->spinner_phase);
+        s.push(renderer.settings_scene->revision, renderer.settings_scene->active,
+               renderer.settings_scene->spinner_phase);
     // Name effects are shader-time driven and repaint through bounded damage
     // (renderer_note_text_effect_damage). Profile effect layers select media
     // on the CPU each tick, so they rebuild the scene.
     const u64 now_ms = renderer.profile_scene ? clock_monotonic_milliseconds() : 0;
     if (profile_scene_animating(renderer.profile_scene, now_ms))
         s.push(now_ms / 42);
-    s.pointer(renderer.profile_scene);
+    s.push(renderer.profile_scene);
     if (renderer.profile_scene)
-        s.push(renderer.profile_scene->revision)
-            .caret(renderer.profile_scene->edit.caret_visible)
-            .push(renderer.profile_scene->active)
-            .widgets(renderer.profile_scene->widgets)
-            .push(avatar_color_token(renderer.profile_scene));
-    s.bytes(&renderer.scrollbar_viewport, sizeof(renderer.scrollbar_viewport))
-        .bytes(&renderer.scrollbar_hot.track, sizeof(renderer.scrollbar_hot.track))
-        .push(static_cast<u64>(renderer.scrollbar_hot.state));
+        s.push(renderer.profile_scene->revision, !stamp.structural && renderer.profile_scene->edit.caret_visible,
+               renderer.profile_scene->active, avatar_color_token(renderer.profile_scene))
+            .widgets(renderer.profile_scene->widgets);
+    s.span(renderer.scrollbar_viewport, renderer.scrollbar_hot.state);
     // The loading spinner's phase repaints without rebuilding the viewer's text.
-    s.pointer(renderer.image_viewer);
+    s.push(renderer.image_viewer);
     if (renderer.image_viewer)
-        s.push(renderer.image_viewer->revision).push(renderer.image_viewer->spinner_phase);
+        s.push(renderer.image_viewer->revision, renderer.image_viewer->spinner_phase);
     // The magnifier follows the pointer and only adds media and paint after
     // the shell: every change of the lens bumps its revision.
     {
         const TimelineInputs timeline(&stamp);
-        s.pointer(renderer.zoom_lens);
+        s.push(renderer.zoom_lens);
         if (renderer.zoom_lens)
-            s.push(renderer.zoom_lens->active).push(renderer.zoom_lens->revision);
+            s.push(renderer.zoom_lens->active, renderer.zoom_lens->revision);
     }
-    s.push(renderer.gif_favorite_owner.slot)
-        .push(renderer.gif_favorite_owner.generation)
-        .push(renderer.gif_favorite)
-        .push(renderer.gif_favorite_pending);
     const auto* video = (shown & (d3d11_surface_video | d3d11_surface_viewer_video | d3d11_surface_page_video))
                             ? renderer.video_scene
                             : nullptr;
-    s.pointer(video);
-    if (video)
-        s.push(ui_video_scene_paint_revision(*video));
-    s.push(renderer.interaction_text_video_revision);
     const auto* audio = (shown & d3d11_surface_audio) ? renderer.audio_scene : nullptr;
-    s.pointer(audio);
-    if (audio)
-        s.push(ui_audio_scene_paint_revision(*audio));
-    s.push(renderer.interaction_text_audio_revision);
     const auto* poll = (shown & d3d11_surface_poll) ? renderer.poll_scene : nullptr;
     const auto* voters = (shown & d3d11_surface_poll_voters) ? renderer.poll_voters_scene : nullptr;
-    s.pointer(poll);
-    if (poll)
-        s.push(ui_poll_scene_paint_revision(*poll));
-    s.push(renderer.interaction_text_poll_revision).pointer(voters);
-    if (voters)
-        s.push(ui_poll_voters_scene_paint_revision(*voters));
-    s.push(renderer.interaction_text_poll_voters_revision);
+    s.span(renderer.gif_favorite_owner, renderer.gif_favorite_pending)
+        .span(renderer.interaction_text_video_revision, renderer.interaction_text_poll_voters_revision)
+        .push(video, video ? ui_video_scene_paint_revision(*video) : 0, audio,
+              audio ? ui_audio_scene_paint_revision(*audio) : 0, poll, poll ? ui_poll_scene_paint_revision(*poll) : 0,
+              voters, voters ? ui_poll_voters_scene_paint_revision(*voters) : 0);
     if (renderer.message_scene && renderer.message_scene->polls && renderer.message_scene->polls->store) {
         const TimelineInputs timeline(&stamp);
         s.push(renderer.message_scene->polls->store->revision);
@@ -536,191 +416,94 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (poll_search && poll_search->polls && poll_search->polls->store)
         s.push(poll_search->polls->store->revision);
     const auto* focus_owner = d3d11_renderer_visible_focus_owner(renderer, shown);
-    s.pointer(focus_owner);
+    // Every block below is keyed by its scene pointer here.
+    s.push(focus_owner, renderer.width, renderer.height, renderer.dpi, renderer.login_visible, theme_digest(theme),
+           renderer.content_text, renderer.media_atlas, renderer.preview_media_atlas, renderer.ui_scene,
+           renderer.guild_rail_scene, renderer.shell_navigation_scene, renderer.message_scene,
+           renderer.message_action_bar, renderer.reaction_viewer, renderer.message_composer_scene,
+           renderer.dm_profile_panel, renderer.member_list_scene, renderer.popup_scene);
     if (focus_owner)
         s.widgets(*focus_owner);
-    s.push(renderer.width)
-        .push(renderer.height)
-        .push(renderer.dpi)
-        .push(renderer.login_visible)
-        .push(theme_digest(theme))
-        .pointer(renderer.content_text)
-        .pointer(renderer.media_atlas)
-        .pointer(renderer.preview_media_atlas);
     if (renderer.preview_media_atlas)
         s.atlas(*renderer.preview_media_atlas);
     if (renderer.content_text) {
         const TimelineInputs timeline(&stamp);
-        s.push(renderer.content_text->rebuilds)
-            .push(renderer.content_text->quad_count)
-            .push(renderer.content_text->batch_count)
-            .push(renderer.content_text->message_geometry_quads)
-            .push(renderer.content_text->content_semantic_count)
-            .push(renderer.content_text->content_hit_region_count);
+        s.span(renderer.content_text->quad_count, renderer.content_text->rebuilds)
+            .push(renderer.content_text->message_geometry_quads);
     }
     if (renderer.media_atlas)
         s.atlas(*renderer.media_atlas);
     if (!content_hidden) {
-        s.pointer(renderer.thread_header);
+        s.push(renderer.thread_header);
         if (renderer.thread_header)
-            s.push(renderer.thread_header->revision).push(renderer.thread_header->active);
+            s.push(renderer.thread_header->revision, renderer.thread_header->active);
     }
-    s.pointer(renderer.ui_scene);
     if (renderer.ui_scene) {
         const auto& scene = *renderer.ui_scene;
-        s.push(scene.count)
-            .push(scene.layout_rebuilds)
-            .push(scene.layout_passes)
-            .push(scene.layout_metrics_revision)
-            .push(scene.widgets.generation)
-            .push(static_cast<u64>(scene.view))
-            .push(scene.guild_menu_expanded)
-            .bytes(&scene.width, sizeof(scene.width))
-            .bytes(&scene.height, sizeof(scene.height))
+        s.span(scene.count, scene.layout_metrics_revision)
+            .span(scene.view, scene.guild_menu_expanded)
             .widgets(scene.widgets);
     }
-    s.pointer(renderer.guild_rail_scene);
     if (renderer.guild_rail_scene) {
         const GuildRailScene& scene = *renderer.guild_rail_scene;
-        s.push(scene.active)
-            .push(scene.source_revision)
-            .push(scene.source_count)
-            .push(scene.first)
-            .push(scene.count)
-            .push(scene.rebuilds)
-            .push(scene.layout_passes)
-            .push(scene.data_updates)
-            .push(scene.focused_guild_id)
-            .bytes(&scene.scroll_dips, sizeof(scene.scroll_dips))
-            .widgets(scene.widgets);
+        s.push(scene.active, scene.focused_guild_id).span(scene.scroll_dips, scene.data_updates).widgets(scene.widgets);
     }
-    s.pointer(renderer.shell_navigation_scene);
     if (renderer.shell_navigation_scene) {
         const ShellNavigationScene& scene = *renderer.shell_navigation_scene;
-        s.push(scene.active)
-            .push(scene.source_revision)
-            .push(scene.source_count)
-            .push(scene.first)
-            .push(scene.count)
-            .push(scene.rebuilds)
-            .push(scene.layout_passes)
-            .push(scene.focused_channel_id)
-            .bytes(&scene.scroll_dips, sizeof(scene.scroll_dips))
-            .push(scene.banner_revision)
-            .push(scene.chevron_category)
-            .bytes(&scene.chevron_turn, sizeof(scene.chevron_turn))
+        s.push(scene.active, scene.focused_channel_id, scene.banner_revision, scene.chevron_category,
+               scene.chevron_turn)
+            .span(scene.scroll_dips, scene.layout_passes)
             .widgets(scene.widgets);
     }
-    s.pointer(renderer.message_scene);
     if (!content_hidden && renderer.message_scene) {
         const TimelineInputs timeline(&stamp);
         const MessageScene& scene = *renderer.message_scene;
-        s.push(scene.active)
-            .push(message_scene_pending(scene))
-            .push(scene.focused_message_id)
-            .push(scene.observed_scroll_units)
-            .push(scene.first)
-            .push(scene.count)
-            .push(scene.source_count)
-            .push(scene.observed_created)
-            .push(scene.observed_updated)
-            .push(scene.observed_deleted)
-            .push(scene.observed_height_updates)
-            .push(scene.observed_structural_updates)
-            .push(scene.unread_revision)
-            .push(scene.unread_first_message_id)
-            .push(scene.highlight_revision)
-            .push(scene.rebuilds)
-            .push(scene.layout_passes)
-            .push(scene.data_updates)
-            .push(scene.measurement_updates)
-            .push(stamp.structural ? 0 : scene.interaction_phase)
+        s.push(scene.active, message_scene_pending(scene), scene.unread_revision, scene.unread_first_message_id,
+               scene.highlight_revision, stamp.structural ? 0 : scene.interaction_phase)
+            .span(scene.focused_message_id, scene.observed_deleted)
+            .span(scene.observed_height_updates, scene.measurement_updates)
             .widgets(scene.widgets);
     }
-    s.pointer(renderer.message_action_bar);
     if (!content_hidden && renderer.message_action_bar) {
         const MessageActionBar& bar = *renderer.message_action_bar;
-        s.push(bar.active)
-            .push(bar.message_id)
-            .push(bar.revision)
-            .push(bar.preference_revision)
-            .push(bar.hovered_index)
-            .push(bar.item_count);
+        s.push(bar.active, bar.message_id, bar.revision, bar.preference_revision, bar.hovered_index, bar.item_count);
     }
-    s.pointer(renderer.reaction_viewer);
     if (renderer.reaction_viewer) {
         const ReactionViewer& viewer = *renderer.reaction_viewer;
-        s.push(viewer.active).push(viewer.revision).push(viewer.message_id);
+        s.push(viewer.active, viewer.revision, viewer.message_id);
     }
-    s.pointer(renderer.message_composer_scene);
     if (!content_hidden && renderer.message_composer_scene) {
         const MessageComposerScene& scene = *renderer.message_composer_scene;
-        s.push(scene.active)
-            .pointer(scene.model)
-            .push(scene.observed_revision)
-            .push(scene.command.name_bytes)
-            .push(scene.command.avatar.id)
-            .push(scene.command.avatar.variant)
-            .push(static_cast<u64>(scene.command.avatar.kind))
-            .push(scene.command.avatar.flags)
-            .push(scene.composition_revision)
-            .push(scene.reply_message_id)
-            .push(scene.mention_reply_author)
-            .push(scene.reply_mention_visible)
-            .push(scene.reply_sendable)
-            .push(scene.retained_content)
-            .push(scene.status_is_error)
-            .push(scene.status_tone)
-            .push(scene.reply_label_bytes)
-            .push(scene.typing_label_bytes)
-            .push(scene.typing_name_count)
-            .push(scene.typing_collapsible)
-            .push(scene.layout_passes)
-            .push(scene.channel_allows_send)
-            .caret(scene.caret_visible)
-            .push(scene.typing_dots)
+        s.push(scene.active, scene.model, scene.observed_revision, scene.composition_revision, scene.reply_message_id,
+               scene.reply_label_bytes, scene.typing_label_bytes, scene.typing_name_count, scene.typing_collapsible,
+               scene.layout_passes, scene.channel_allows_send, !stamp.structural && scene.caret_visible)
+            .span(scene.command.avatar, scene.command.name_bytes)
+            .span(scene.mention_reply_author, scene.typing_dots)
             .widgets(scene.widgets);
         // The dots' phase is not an input: a step patches their quads in the
         // retained stream (renderer_step_typing_dots).
     }
-    s.pointer(renderer.dm_profile_panel);
     if (!content_hidden && renderer.dm_profile_panel)
-        s.push(renderer.dm_profile_panel->active)
-            .push(renderer.dm_profile_panel->revision)
-            .widgets(renderer.dm_profile_panel->widgets)
-            .push(avatar_color_token(renderer.dm_profile_panel));
-    s.pointer(renderer.member_list_scene);
+        s.push(renderer.dm_profile_panel->active, renderer.dm_profile_panel->revision,
+               avatar_color_token(renderer.dm_profile_panel))
+            .widgets(renderer.dm_profile_panel->widgets);
     if (!content_hidden && renderer.member_list_scene) {
         const MemberListScene& scene = *renderer.member_list_scene;
-        s.push(scene.active)
-            .pointer(scene.source)
-            .push(scene.source_revision)
-            .push(scene.source_count)
-            .push(scene.first)
-            .push(scene.count)
-            .push(scene.rebuilds)
-            .push(scene.layout_passes)
-            .push(scene.focused_user_id)
-            .bytes(&scene.scroll_dips, sizeof(scene.scroll_dips))
+        s.push(scene.active, scene.source, scene.focused_user_id)
+            .span(scene.scroll_dips, scene.source_count)
+            .span(scene.first, scene.layout_passes)
             .widgets(scene.widgets);
     }
-    s.pointer(renderer.popup_scene);
     if (renderer.popup_scene) {
         const PopupScene& scene = *renderer.popup_scene;
-        s.push(scene.active)
-            .push(scene.revision)
-            .push(scene.owner_id)
-            .push(scene.item_count)
-            .push(scene.selected_index)
-            .push(static_cast<u64>(scene.kind))
-            .widgets(scene.widgets);
+        s.push(scene.active, scene.kind).span(scene.owner_id, scene.revision).widgets(scene.widgets);
     }
-    s.pointer(renderer.text_form);
+    s.push(renderer.text_form);
     if (renderer.text_form && renderer.text_form->scene) {
         const auto& form = *renderer.text_form->scene;
-        s.push(form.active).push(form.revision).widgets(form.widgets);
+        s.push(form.active, form.revision).widgets(form.widgets);
     }
-    s.pointer(renderer.navigation_view).pointer(renderer.chat_state).pointer(renderer.user_store);
+    s.push(renderer.navigation_view, renderer.chat_state, renderer.user_store);
     if (renderer.navigation_view)
         s.push(renderer.navigation_view->revision);
     // Conversation rows paint presence dots and typing subtitles from these
@@ -736,23 +519,14 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         s.push(ui_private_row_menu_channel(*rows));
     }
     if (renderer.chat_state)
-        s.push(renderer.chat_state->guild_mutations)
-            .push(renderer.chat_state->channel_mutations)
-            .push(renderer.chat_state->permission_mutations)
-            .push(renderer.chat_state->activity_mutations)
-            .push(renderer.chat_state->emoji_mutations)
+        s.span(renderer.chat_state->guild_mutations, renderer.chat_state->emoji_mutations)
             .push(renderer.chat_state->selection_revision);
     if (renderer.user_store)
-        s.push(renderer.user_store->revision).push(renderer.user_store->mutations);
+        s.span(renderer.user_store->revision, renderer.user_store->mutations);
     if (!content_hidden) {
-        s.push(renderer.composer_layout.active).push(renderer.composer_layout.selection_count);
+        s.push(renderer.composer_layout.active, renderer.composer_layout.selection_count);
         const TimelineInputs timeline(&stamp);
-        s.push(renderer.message_text_selection_message_id)
-            .push(renderer.message_text_selection_command_identity)
-            .push(renderer.message_text_selection_revision)
-            .push(renderer.message_text_selection_command_index)
-            .push(renderer.message_text_selection_anchor)
-            .push(renderer.message_text_selection_caret);
+        s.span(renderer.message_text_selection_message_id, renderer.message_text_selection_caret);
     }
     return stamp;
 }

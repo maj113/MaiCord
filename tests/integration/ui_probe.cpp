@@ -2967,7 +2967,7 @@ int run_probe() noexcept {
         renderer_capture_presentation_stamp(g_probe.renderer, kDefaultTheme);
     g_probe.renderer.member_list_scene = bound_member_scene;
     g_probe.renderer.reaction_viewer = bound_reaction_viewer;
-    if (!complete_stamp.valid || complete_stamp.count <= 192u ||
+    if (!complete_stamp.valid || complete_stamp.count <= 160u ||
         !renderer_presentation_stamp_equal(complete_stamp, repeated_stamp) ||
         renderer_presentation_stamp_equal(complete_stamp, changed_stamp) ||
         renderer_presentation_stamp_equal(complete_stamp, scrolled_widget_stamp)) {
