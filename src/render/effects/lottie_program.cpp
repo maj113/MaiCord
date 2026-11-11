@@ -460,14 +460,13 @@ struct Document {
             angle -= 2 * 3.14159265358979323846f;
         if (angle < -3.14159265358979323846f)
             angle += 2 * 3.14159265358979323846f;
+        // Minimax polynomials on [-pi, pi]: sine within 8.2e-6, cosine within 8.4e-7.
         const float z = angle * angle;
         const float sine =
-            angle *
-            (1 + z * (-1.f / 6 +
-                      z * (1.f / 120 + z * (-1.f / 5040 + z * (1.f / 362880 + z * (-1.f / 39916800))))));
+            angle * (1 + z * (-.166645255f + z * (.00831547349f + z * (-.000193440486f + z * 2.18097161e-6f))));
         const float cosine =
-            1 + z * (-.5f + z * (1.f / 24 + z * (-1.f / 720 + z * (1.f / 40320 +
-                                                                   z * (-1.f / 3628800 + z / 479001600)))));
+            1 + z * (-.499996041f +
+                     z * (.0416608868f + z * (-.00138614536f + z * (2.42305018e-5f + z * -2.20757705e-7f))));
         Matrix m{cosine * scale.x * .01f,
                  sine * scale.x * .01f,
                  -sine * scale.y * .01f,

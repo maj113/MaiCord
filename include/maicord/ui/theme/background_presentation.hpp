@@ -17,13 +17,10 @@ inline bool ui_background_direction(u16 degrees, float* x, float* y) noexcept {
         angle = -3.14159265358979323846f - angle;
         sign = -1;
     }
+    // Minimax polynomials on [-pi/2, pi/2]: cosine within 7.9e-6, sine within 8.7e-7.
     const float squared = angle * angle;
-    const float cosine =
-        sign *
-        (1 + squared * (-.5f + squared * (1.f / 24 + squared * (-1.f / 720 + squared * (1.f / 40320)))));
-    const float sine =
-        angle * (1 + squared * (-1.f / 6 + squared * (1.f / 120 +
-                                                      squared * (-1.f / 5040 + squared * (1.f / 362880)))));
+    const float cosine = sign * (1 + squared * (-.499935634f + squared * (.041507071f + squared * -.00127575314f)));
+    const float sine = angle * (1 + squared * (-.166656905f + squared * (.0083124612f + squared * -.000184944074f)));
     // CSS linear-gradient: zero points up, positive angles rotate clockwise.
     *x = sine;
     *y = -cosine;

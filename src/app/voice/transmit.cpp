@@ -4,16 +4,16 @@
 
 namespace maicord {
 namespace {
-// Mean square x256 at each level step: 32767^2 (full-scale square wave) times
-// 10^((level - 100) / 10).
+// The least mean square at each level step: 32767^2 (full-scale square wave) times 10^((level - 100) / 10), rounded at
+// 1/256 and then up to a whole mean square, so a comparison of the mean square itself picks the level.
 struct LevelTable {
-    u64 energy[kVoiceLevelMaximum + 1];
+    u32 energy[kVoiceLevelMaximum + 1];
 };
 constexpr LevelTable make_levels() noexcept {
     LevelTable table{};
     double value = 32767.0 * 32767.0 * 256.0;
     for (u32 level = kVoiceLevelMaximum + 1; level-- > 0;) {
-        table.energy[level] = static_cast<u64>(value + 0.5);
+        table.energy[level] = static_cast<u32>((static_cast<u64>(value + 0.5) + 255) / 256);
         value /= 1.2589254117941673; // 10^0.1
     }
     return table;
@@ -24,13 +24,12 @@ constexpr u32 kFloorShift = 5, kFloorMargin = 18, kAutoMinimum = 20, kAutoMaximu
 } // namespace
 
 u32 voice_level_from_energy(u64 mean_square) noexcept {
-    const u64 scaled = mean_square * 256;
     u32 low = 0, high = kVoiceLevelMaximum;
-    if (scaled < kLevels.energy[0])
+    if (mean_square < kLevels.energy[0])
         return 0;
     while (low < high) {
         const u32 middle = (low + high + 1) / 2;
-        if (kLevels.energy[middle] <= scaled)
+        if (kLevels.energy[middle] <= mean_square)
             low = middle;
         else
             high = middle - 1;

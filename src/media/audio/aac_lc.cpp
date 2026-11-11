@@ -56,24 +56,6 @@ void cos_sin(double angle, double* cosine, double* sine) noexcept {
     }
 }
 
-double cube_root(double x) noexcept {
-    if (x <= 0)
-        return 0;
-    double scale = 1.0;
-    while (x > 8.0) {
-        x /= 8.0;
-        scale *= 2.0;
-    }
-    while (x < 1.0) {
-        x *= 8.0;
-        scale *= 0.5;
-    }
-    double y = 1.0 + (x - 1.0) / 3.0;
-    for (u32 i = 0; i < 8; ++i)
-        y = (2.0 * y + x / (y * y)) / 3.0;
-    return y * scale;
-}
-
 // I0(x) by its power series.
 double bessel_i0(double x) noexcept {
     const double q = x * x * 0.25;
@@ -836,8 +818,18 @@ AacLc* aac_lc_initialize(void* memory, u32 sample_rate, u32 channels) noexcept {
     for (u32 i = 0; i < 13; ++i)
         if (kSampleRates[i] == sample_rate)
             d->rate_index = i;
-    for (u32 q = 0; q < kPowerEntries; ++q)
-        d->power43[q] = static_cast<float>(q * cube_root(static_cast<double>(q)));
+    // q^(4/3) as q times its cube root: Newton from a seed that divides the distance of q's bits from those of 1.0 by
+    // three (the bit pattern read as a logarithm). Four steps give every entry the float of the exact cube root.
+    constexpr u64 one = 0x3ff0000000000000ull;
+#pragma clang loop vectorize(disable) unroll(disable)
+    for (u32 q = 1; q < kPowerEntries; ++q) {
+        const double x = q;
+        double root = __builtin_bit_cast(double, one + (__builtin_bit_cast(u64, x) - one) / 3);
+#pragma clang loop unroll(disable)
+        for (u32 i = 0; i < 4; ++i)
+            root = (2 * root + x / (root * root)) / 3;
+        d->power43[q] = static_cast<float>(x * root);
+    }
     build_windows(*d);
     build_transform(kLines, d->stage_re, d->stage_im, d->pre_re, d->pre_im, d->post_re, d->post_im, d->reverse_long,
                     1.0 / (static_cast<double>(kLines) * 32768.0));

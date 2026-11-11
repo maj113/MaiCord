@@ -3,9 +3,6 @@
 
 namespace maicord {
 namespace {
-
-constexpr double kEaseInOutX1 = 0.42;
-constexpr double kEaseInOutX2 = 0.58;
 constexpr double kMinimumRetargetDurationUs = 10'000.0;
 
 bool finite_delta(double value) noexcept {
@@ -23,19 +20,6 @@ u32 segment_duration_us(double distance, double units_per_pixel) noexcept {
     return static_cast<u32>(200'000.0 - (pixels - 120.0) * (100'000.0 / 360.0) + 0.5);
 }
 
-double cubic_bezier_axis(double parameter, double first, double second) noexcept {
-    const double inverse = 1.0 - parameter;
-    return 3.0 * inverse * inverse * parameter * first +
-           3.0 * inverse * parameter * parameter * second +
-           parameter * parameter * parameter;
-}
-
-double cubic_bezier_derivative(double parameter, double first, double second) noexcept {
-    const double inverse = 1.0 - parameter;
-    return 3.0 * inverse * inverse * first + 6.0 * inverse * parameter * (second - first) +
-           3.0 * parameter * parameter * (1.0 - second);
-}
-
 struct CurveSample {
     double value;
     double slope;
@@ -49,19 +33,20 @@ CurveSample curve_sample(double progress, double initial_slope) noexcept {
         return {1.0, 0.0};
     }
 
-    // The wheel curve is cubic-bezier(0.42, 0, 0.58, 1). Retargets replace the
-    // first Y control point to preserve the prior velocity. dX/dt >= 0.87 and
-    // Newton from t = progress stays inside [0, 1], so three steps solve X to
-    // within 1e-12 and need no general timing-function allocation.
-    double parameter = progress;
-    for (u32 iteration = 0; iteration < 3; ++iteration) {
-        parameter -= (cubic_bezier_axis(parameter, kEaseInOutX1, kEaseInOutX2) - progress) /
-                     cubic_bezier_derivative(parameter, kEaseInOutX1, kEaseInOutX2);
+    // The wheel curve is cubic-bezier(0.42, 0, 0.58, 1): x = ((.52t - .78)t + 1.26)t. Retargets replace the first Y
+    // control point y1 = .42 initial_slope to preserve the prior velocity. dX/dt >= 0.87 and Newton from t = progress
+    // stays inside [0, 1], so two steps solve X to within 4e-8 and need no general timing-function allocation.
+    double parameter = progress, slope = 0;
+    for (u32 iteration = 0;; ++iteration) {
+        slope = (1.56 * parameter - 1.56) * parameter + 1.26;
+        if (iteration == 2)
+            break;
+        parameter -= (((.52 * parameter - .78) * parameter + 1.26) * parameter - progress) / slope;
     }
-    const double first_y = kEaseInOutX1 * initial_slope;
-    return {cubic_bezier_axis(parameter, first_y, 1.0),
-            cubic_bezier_derivative(parameter, first_y, 1.0) /
-                cubic_bezier_derivative(parameter, kEaseInOutX1, kEaseInOutX2)};
+    // y = ((3y1 - 2)t + 3 - 6y1)t + 3y1, times t.
+    const double first = 1.26 * initial_slope, a = first - 2, b = 3 - 2 * first;
+    return {((a * parameter + b) * parameter + first) * parameter,
+            ((3 * a * parameter + 2 * b) * parameter + first) / slope};
 }
 
 double curve_velocity(const UiSmoothScroll& scroll, u64 now_us) noexcept {

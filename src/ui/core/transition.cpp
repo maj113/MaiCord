@@ -97,22 +97,6 @@ float spring_sample(const SpringTable& table, float progress) noexcept {
     const float t = position - static_cast<float>(index);
     return table.values[index] + (table.values[index + 1] - table.values[index]) * t;
 }
-// CSS cubic-bezier(x1, y1, x2, y2) at x = progress: Newton on x(t) from t = progress (CSS ease has a slope of at
-// least .75 at both ends, so four steps converge), then y(t).
-float cubic_bezier(float x1, float y1, float x2, float y2, float progress) noexcept {
-    float t = progress;
-    for (u32 i = 0; i < 4; ++i) {
-        const float u = 1 - t;
-        const float x = 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t;
-        const float slope = 3 * u * u * x1 + 6 * u * t * (x2 - x1) + 3 * t * t * (1 - x2);
-        if (!(slope > 1e-4f))
-            break;
-        t -= (x - progress) / slope;
-        t = t > 0 ? (t < 1 ? t : 1) : 0;
-    }
-    const float u = 1 - t;
-    return 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t;
-}
 float eased(float progress, UiMotionCurve curve) noexcept {
     switch (curve) {
     case UiMotionCurve::spring:
@@ -123,16 +107,22 @@ float eased(float progress, UiMotionCurve curve) noexcept {
         return spring_sample(quick_spring_table, progress);
     case UiMotionCurve::css_ease_out: {
         // CSS ease-out: cubic-bezier(0, 0, .58, 1), so x = t^2 (1.74 - .74 t) and y = t^2 (3 - 2 t). x grows as t^2
-        // from 0, so Newton from t = sqrt(x) solves it in three steps.
+        // from 0, so Newton from t = sqrt(x) solves it within 5e-5 in two steps.
         if (!(progress > 0))
             return 0;
         float t = __builtin_elementwise_sqrt(progress);
-        for (u32 i = 0; i < 3; ++i)
+        for (u32 i = 0; i < 2; ++i)
             t -= (t * t * (1.74f - .74f * t) - progress) / (t * (3.48f - 2.22f * t));
         return t * t * (3 - 2 * t);
     }
-    case UiMotionCurve::css_ease:
-        return cubic_bezier(.25f, .1f, .25f, 1, progress);
+    case UiMotionCurve::css_ease: {
+        // CSS ease: cubic-bezier(.25, .1, .25, 1), so x = ((t - .75) t + .75) t and y = ((2.4 - 1.7 t) t + .3) t.
+        // dx/dt = (3 t - 1.5) t + .75 >= .5625, so three Newton steps from t = x solve it within 2e-5.
+        float t = progress;
+        for (u32 i = 0; i < 3; ++i)
+            t -= (((t - .75f) * t + .75f) * t - progress) / ((3 * t - 1.5f) * t + .75f);
+        return ((2.4f - 1.7f * t) * t + .3f) * t;
+    }
     case UiMotionCurve::ease_out: {
         const float remaining = 1 - progress;
         return 1 - remaining * remaining * remaining;
